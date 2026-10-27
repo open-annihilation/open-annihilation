@@ -226,8 +226,11 @@
 /// and no extension fills it. Version 18 adds the kit's keycaps, chord
 /// chips, keyboard and mouse pictures, key tints and marks, and the hold
 /// ring. It is not a hook: the engine does not call it, and no extension
-/// fills it.
-#define OA_EXTENSION_API_VERSION 18
+/// fills it. Version 19 is Kit 2's look in the kit's headers: Metrics gains
+/// the type, spacing and shape scales and Kit 2's control sizes, the theme
+/// its new tokens, and the kit a danger button, information and brand
+/// pills, and a paused progress bar. It is not a hook.
+#define OA_EXTENSION_API_VERSION 19
 
 namespace oa {
 struct Game;

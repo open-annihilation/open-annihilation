@@ -751,6 +751,7 @@ void restoring_a_plain_folder_puts_the_kept_files_back(const fs::path& root) {
 void test_windows_routes();
 void test_linux_versions_route();
 void test_macos_route();
+void test_receipts();
 
 int main() {
     {
@@ -771,5 +772,6 @@ int main() {
     test_windows_routes();
     test_linux_versions_route();
     test_macos_route();
+    test_receipts();
     return oa::test::check_exit_status();
 }

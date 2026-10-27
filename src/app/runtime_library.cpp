@@ -50,6 +50,10 @@
 #include "oa/data/key_library/library.hpp"
 #include "oa/data/mutator_library/library.hpp"
 #include "oa/formats/oakeys/manifest.hpp"
+#include "oa/data/input_actions/actions.hpp"
+#include "oa/ui/key_bindings/chord.hpp"
+#include "oa/ui/key_bindings/input.hpp"
+#include "oa/ui/key_bindings/layout.hpp"
 #include "oa/ui/key_bindings/layout_file.hpp"
 #include "oa/ui/library/use_question.hpp"
 #include "oa/data/script_host/script_host.hpp"
@@ -553,6 +557,278 @@ std::string_view keyboard_word(oa::formats::oakeys::Keyboard keyboard) noexcept 
     return "any";
 }
 
+/// The areas of commands in the order the key editor lists them. A command
+/// of another area comes after these.
+constexpr std::array<std::string_view, 11> listed_key_areas{
+    "orders",
+    "mouse",
+    "selection",
+    "groups",
+    "camera",
+    "building",
+    "game",
+    "chat",
+    "watching",
+    "window",
+    "menus",
+};
+
+/// Returns where a command's area comes in the key editor's list.
+///
+/// @param area the command's area
+/// @return its place; every other area after them
+std::size_t key_area_place(std::string_view area) noexcept {
+    for (std::size_t place = 0; place < listed_key_areas.size(); ++place)
+        if (listed_key_areas[place] == area)
+            return place;
+    return listed_key_areas.size();
+}
+
+/// Which key Primary means on this build, as the Library's lists name it.
+///
+/// @return the platform
+oa::ui::key_bindings::Platform shown_key_platform() noexcept {
+    oa::ui::key_bindings::Platform where;
+#ifdef __APPLE__
+    where.primary_is_meta = true;
+#else
+    where.primary_is_meta = false;
+#endif
+    return where;
+}
+
+/// Returns a chord as the Library's lists show it: its keycaps, and its
+/// gesture apart. The keyboard is the US one, so a key written by its place
+/// shows the letter it prints there.
+///
+/// @param chord the chord
+/// @return the keycaps and the gesture
+library::KeyChord shown_chord(const oa::ui::key_bindings::Chord& chord) {
+    static const oa::ui::key_bindings::KeyboardMap map = oa::ui::key_bindings::KeyboardMap::us();
+    library::KeyChord shown;
+    std::vector<oa::ui::key_bindings::KeyCap> caps =
+        oa::ui::key_bindings::keycaps(chord, map, shown_key_platform());
+    if (chord.gesture != oa::ui::key_bindings::Gesture::press && !caps.empty()) {
+        shown.gesture = std::move(caps.back().text);
+        caps.pop_back();
+    }
+    for (oa::ui::key_bindings::KeyCap& cap : caps)
+        shown.keys.push_back(std::move(cap.text));
+    return shown;
+}
+
+/// Lists the player's own changes on a layout: each command, by the key
+/// editor's English name, and its first key, in the key editor's order, at
+/// most most_key_moves. A command this build does not know is left out.
+///
+/// @param own the own-changes manifest
+/// @return the changes
+std::vector<library::KeyMove> own_changes_of(const oa::formats::oakeys::Manifest& own) {
+    struct Listed {
+        std::size_t area{};
+        uint16_t order{};
+        library::KeyMove change{};
+    };
+
+    std::vector<Listed> listed;
+    for (const oa::formats::oakeys::BindingEntry& binding : own.bindings) {
+        const oa::data::input_actions::Action* action =
+            oa::data::input_actions::find(binding.action);
+        if (action == nullptr)
+            continue;
+        Listed one;
+        one.area = key_area_place(action->area);
+        one.order = action->order;
+        one.change.command = std::string(action->words.name);
+        one.change.own = true;
+        if (!binding.chords.empty()) {
+            oa::ui::key_bindings::ChordError error;
+            if (const std::optional<oa::ui::key_bindings::Chord> chord =
+                    oa::ui::key_bindings::parse_chord(binding.chords.front().text, error))
+                one.change.after = shown_chord(*chord);
+        }
+        listed.push_back(std::move(one));
+    }
+    std::stable_sort(listed.begin(), listed.end(), [](const Listed& a, const Listed& b) {
+        return a.area != b.area ? a.area < b.area : a.order < b.order;
+    });
+    std::vector<library::KeyMove> changes;
+    for (Listed& one : listed) {
+        if (changes.size() >= library::most_key_moves)
+            break;
+        changes.push_back(std::move(one.change));
+    }
+    return changes;
+}
+
+/// A layout and the player's own changes on it, as the Keys folder holds them.
+struct LayoutWithOwn {
+    oa::ui::key_bindings::Base base{oa::ui::key_bindings::Base::oa_default}; ///< its base
+    std::optional<oa::ui::key_bindings::Layout> layout{}; ///< none for OA default
+    std::optional<oa::ui::key_bindings::Layout> own{};    ///< the player's changes, or none
+};
+
+/// Reads one layout of the Keys folder into resolution's form.
+///
+/// @param listing the Keys folder
+/// @param id the layout's id
+/// @return the layout; none when the folder has no readable layout of that id
+std::optional<oa::ui::key_bindings::Layout>
+read_key_layout(const data::key_library::Listing& listing, std::string_view id) {
+    const data::key_library::Installed* found = data::key_library::find(listing, id);
+    if (found == nullptr)
+        return std::nullopt;
+    oa::ui::key_bindings::Layout layout;
+    std::vector<oa::ui::key_bindings::LayoutProblem> problems;
+    if (!oa::ui::key_bindings::layout_from_manifest(found->manifest, nullptr, layout, problems))
+        return std::nullopt;
+    return layout;
+}
+
+/// Each command's first chord and the step that bound it, by command id.
+using FirstChords =
+    std::map<std::string, std::optional<oa::ui::key_bindings::BoundChord>, std::less<>>;
+
+/// Resolves a layout with its own changes and keeps each command's first chord.
+///
+/// @param layout the layout and the own changes on it
+/// @param left_click the player uses the left-click interface
+/// @return each command's first chord, none for a command with no chord
+FirstChords first_chords(const LayoutWithOwn& layout, bool left_click) {
+    static const oa::ui::key_bindings::KeyboardMap map = oa::ui::key_bindings::KeyboardMap::us();
+    oa::ui::key_bindings::ResolveInput input;
+    input.base = layout.base;
+    input.chosen = layout.layout ? &*layout.layout : nullptr;
+    input.own = layout.own ? &*layout.own : nullptr;
+    input.scheme = left_click ? oa::ui::key_bindings::PointerScheme::left_click
+                              : oa::ui::key_bindings::PointerScheme::right_click;
+    input.platform = shown_key_platform();
+    input.keyboard = &map;
+    const oa::ui::key_bindings::Resolved resolved = oa::ui::key_bindings::resolve(input);
+    FirstChords firsts;
+    for (const oa::ui::key_bindings::Bound& bound : resolved.actions) {
+        if (bound.entry == nullptr)
+            continue;
+        if (bound.chords.empty())
+            firsts.emplace(bound.id, std::nullopt);
+        else
+            firsts.emplace(bound.id, bound.chords.front());
+    }
+    return firsts;
+}
+
+/// Lists the commands whose first chord differs between two resolutions, and
+/// those whose chord afterwards is one of the player's own, in the key
+/// editor's order, at most most_key_moves, and counts them all.
+///
+/// @param before the chords now
+/// @param after the chords afterwards
+/// @param[out] total how many commands differ
+/// @return the moves
+std::vector<library::KeyMove>
+moves_between(const FirstChords& before, const FirstChords& after, uint32_t& total) {
+    struct Listed {
+        std::size_t area{};
+        uint16_t order{};
+        library::KeyMove move{};
+    };
+
+    std::vector<Listed> listed;
+    for (const auto& [id, chord] : after) {
+        const auto was = before.find(id);
+        const std::optional<oa::ui::key_bindings::BoundChord> old =
+            was != before.end() ? was->second : std::nullopt;
+        // A command on one of the player's own keys is listed whether or not
+        // its key changes, so the list shows that the change is kept.
+        const bool same = old.has_value() == chord.has_value() &&
+                          (!old.has_value() || old->chord == chord->chord);
+        const bool own = chord.has_value() && chord->step == oa::ui::key_bindings::Step::own;
+        if (same && !own)
+            continue;
+        const oa::data::input_actions::Action* action = oa::data::input_actions::find(id);
+        if (action == nullptr)
+            continue;
+        Listed one;
+        one.area = key_area_place(action->area);
+        one.order = action->order;
+        one.move.command = std::string(action->words.name);
+        if (old)
+            one.move.before = shown_chord(old->chord);
+        if (chord) {
+            one.move.after = shown_chord(chord->chord);
+            one.move.own = chord->step == oa::ui::key_bindings::Step::own;
+        }
+        listed.push_back(std::move(one));
+    }
+    std::stable_sort(listed.begin(), listed.end(), [](const Listed& a, const Listed& b) {
+        return a.area != b.area ? a.area < b.area : a.order < b.order;
+    });
+    total = static_cast<uint32_t>(std::min(listed.size(), std::size_t{UINT32_MAX}));
+    std::vector<library::KeyMove> moves;
+    for (Listed& one : listed) {
+        if (moves.size() >= library::most_key_moves)
+            break;
+        moves.push_back(std::move(one.move));
+    }
+    return moves;
+}
+
+/// Works out what USE would move, from the layout in use to another, with
+/// the player's own changes kept on top and without them, as
+/// Runtime::apply_library_key_use applies them: kept puts the own changes of
+/// the layout in use on the new one unless it already has its own, and both
+/// keep the new layout's own changes. Nothing is written.
+///
+/// @param keys_folder the player's Keys folder
+/// @param from the layout in use: a package key, or "oa-default"
+/// @param to the layout USE names: a package key, or "oa-default"
+/// @param left_click the player uses the left-click interface
+/// @return the moves; not known when either layout cannot be read
+library::KeyMoves key_moves_between(
+    const std::filesystem::path& keys_folder,
+    std::string_view from,
+    std::string_view to,
+    bool left_click
+) {
+    library::KeyMoves moves;
+    if (keys_folder.empty())
+        return moves;
+    data::key_library::Listing listing;
+    try {
+        listing = data::key_library::list_installed(keys_folder);
+    } catch (const std::exception& error) {
+        std::cerr << "open-annihilation: library: the Keys folder was not read: " << error.what()
+                  << '\n';
+        return moves;
+    }
+    const auto own_of = [&](std::string_view id) {
+        return read_key_layout(listing, std::string("own-") + std::string(id));
+    };
+    const auto layout_of = [&](std::string_view id, LayoutWithOwn& made) {
+        if (id == "oa-default")
+            return true;
+        made.layout = read_key_layout(listing, id);
+        if (!made.layout)
+            return false;
+        made.base = made.layout->base;
+        return true;
+    };
+    LayoutWithOwn now;
+    LayoutWithOwn clean;
+    if (!layout_of(from, now) || !layout_of(to, clean))
+        return moves;
+    now.own = own_of(from);
+    clean.own = own_of(to);
+    LayoutWithOwn kept = clean;
+    if (!kept.own)
+        kept.own = now.own;
+    const FirstChords before = first_chords(now, left_click);
+    moves.kept = moves_between(before, first_chords(kept, left_click), moves.kept_total);
+    moves.clean = moves_between(before, first_chords(clean, left_click), moves.clean_total);
+    moves.known = true;
+    return moves;
+}
+
 /// Copies an installed layout's facts. The unknown-action count is resolved
 /// here, on the worker. Names stay empty for the caller to fill.
 ///
@@ -599,9 +875,11 @@ library::KeyLayoutFacts key_facts_of(
         facts.unknown_actions = static_cast<uint32_t>(resolved.unknown.size());
     }
     const std::string own_id = std::string("own-") + manifest.id;
-    if (const data::key_library::Installed* own = data::key_library::find(listing, own_id))
+    if (const data::key_library::Installed* own = data::key_library::find(listing, own_id)) {
         facts.own_changes =
             static_cast<uint32_t>(std::min(own->manifest.bindings.size(), std::size_t{2048}));
+        facts.own_list = own_changes_of(own->manifest);
+    }
     return facts;
 }
 
@@ -1957,6 +2235,15 @@ Runtime::LibraryHost& Runtime::library_host() {
             LibraryHost::own_installed_listed
         };
         host.model.text = library::TextHooks{nullptr, shown_word};
+        // USE's question lists what the layout would move, read from the
+        // player's Keys folder when it opens.
+        host.model.key_hooks.moves = [this](std::string_view from, std::string_view to) {
+            const std::filesystem::path keys_folder =
+                user_folder_.empty()
+                    ? std::filesystem::path{}
+                    : user_folder_ / std::string(data::key_library::keys_folder_name);
+            return key_moves_between(keys_folder, from, to, pointer_interface_is_left_click());
+        };
         // The pictures are kept beside the cached catalogues.
         const std::filesystem::path content_folder = content_service().content_folder();
         std::filesystem::path pictures_folder;

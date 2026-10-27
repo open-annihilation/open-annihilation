@@ -29,12 +29,14 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <iostream>
 #include <optional>
 #include <ostream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -132,6 +134,15 @@ bool paragraph_has(const kit::Question& asked, std::string_view line) {
     for (const kit::Paragraph& paragraph : asked.paragraphs)
         if (paragraph.text.find(line) != std::string::npos)
             return true;
+    // The notes are a box of their own, under the paragraphs.
+    for (const kit::QuestionPart& part : asked.parts) {
+        if (part.text.find(line) != std::string::npos)
+            return true;
+        for (const kit::QuestionBox& box : part.boxes)
+            for (const kit::BoxLine& listed : box.lines)
+                if (listed.text.find(line) != std::string::npos)
+                    return true;
+    }
     return false;
 }
 
@@ -139,6 +150,13 @@ bool paragraph_has(const kit::Question& asked, std::string_view line) {
 
 void Runtime::check_update_offer() {
     require(options_.data_dir.has_value(), "the run has no --data-dir");
+    // A feed an earlier run of this check stored would be read again at the
+    // first menu; this run starts with none.
+    {
+        std::error_code cleared;
+        std::filesystem::remove(*options_.data_dir / "updates" / "feed.json", cleared);
+        std::filesystem::remove(*options_.data_dir / "updates" / "feed.json.sig", cleared);
+    }
     require(web_links_ != nullptr, "the run is not recording web links");
     // Step 1 starts from German, with no skipped release and no recorded
     // check time. An earlier run of this check stores both in the same file.

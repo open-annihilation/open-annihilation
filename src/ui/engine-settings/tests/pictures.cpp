@@ -6,7 +6,14 @@
 // and Controls, Graphics, Downloads and System scrolled to their ends.
 // Updates is drawn twice: up to date, then with a release offered.
 //
-// Usage: oa-ui-engine-settings-pictures DIRECTORY
+// Usage: oa-ui-engine-settings-pictures DIRECTORY [--classes]
+//
+// With --classes it writes, in place of the manual's pictures, every section
+// at each size class, Compact, Regular and Large, at 2x, named
+// <section>-<class>.png, and <section>-<class>-end.png for one scrolled to
+// its end: the key layout card naming four changes of the player's own, and
+// the practice pad with Sticky modifiers and Hold to confirm on and Shift
+// tapped.
 //
 // The data test ui-engine-settings-pictures runs this into a scratch folder.
 // Without OA_GAME_DIR it skips, as the other game-data tests do.
@@ -19,6 +26,7 @@
 #include "oa/ui/frontend_renderer.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -26,6 +34,8 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -241,14 +251,16 @@ bool draw_section(
     const renderer::RgbaPicture& icon,
     const std::filesystem::path& path
 ) {
-    const int32_t width = settings::dialog_width * kScale;
-    const int32_t height = settings::dialog_height * kScale;
+    const oa::ui::kit::Metrics& metrics = oa::ui::kit::metrics_of(dialog.size_class);
+    const int32_t width = metrics.dialog_width * kScale;
+    const int32_t height = metrics.dialog_height * kScale;
     renderer::Surface surface;
     surface.width = static_cast<uint32_t>(width);
     surface.height = static_cast<uint32_t>(height);
     surface.rgb.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3, 0);
     settings::draw_dialog(surface, {0, 0, kScale}, dialog, fonts, icon);
-    if (surface.width != 960 || surface.height != 648) {
+    if (dialog.size_class == oa::ui::kit::SizeClass::compact &&
+        (surface.width != 960 || surface.height != 648)) {
         std::cerr << "pictures: " << path.filename().string() << " is " << surface.width << " by "
                   << surface.height << ", not 960 by 648\n";
         return false;
@@ -262,9 +274,58 @@ bool draw_section(
 
 } // namespace
 
+/// Writes every section at each size class, at its top and, where it
+/// scrolls, at its end.
+///
+/// @param fonts the dialog's fonts
+/// @param icon the app icon
+/// @param directory where the pictures go
+/// @return true when every picture was written
+bool draw_classes(
+    const settings::DialogFonts& fonts,
+    const renderer::RgbaPicture& icon,
+    const std::filesystem::path& directory
+) {
+    constexpr std::array<std::pair<oa::ui::kit::SizeClass, std::string_view>, 3> classes{{
+        {oa::ui::kit::SizeClass::compact, "compact"},
+        {oa::ui::kit::SizeClass::regular, "regular"},
+        {oa::ui::kit::SizeClass::large, "large"},
+    }};
+    bool ok = true;
+    for (const auto& [size_class, word] : classes) {
+        for (const Page page :
+             settings::dialog_pages(settings::DialogKind::engine, true, true, true)) {
+            Dialog dialog = section_dialog(page);
+            settings::set_dialog_size_class(dialog, size_class);
+            dialog.key_layout_name = "OA default";
+            dialog.key_layout_changes = 4;
+            dialog.chosen.sticky_modifiers = true;
+            dialog.chosen.hold_to_confirm = true;
+            if (page == Page::accessibility) {
+                settings::PracticeKey shift;
+                shift.modifier = settings::PracticeModifier::shift;
+                shift.label = "Shift";
+                std::ignore = settings::dialog_practice_key(dialog, shift, true, 1000);
+                std::ignore = settings::dialog_practice_key(dialog, shift, false, 1100);
+            }
+            const std::string name =
+                std::string(settings::page_word(page)) + "-" + std::string(word);
+            if (!draw_section(dialog, fonts, icon, directory / (name + ".png")))
+                ok = false;
+            if (settings::scroll_limit(dialog) > 0) {
+                dialog.scroll[static_cast<std::size_t>(page)] = settings::scroll_limit(dialog);
+                if (!draw_section(dialog, fonts, icon, directory / (name + "-end.png")))
+                    ok = false;
+            }
+        }
+    }
+    return ok;
+}
+
 int main(int argc, char** argv) {
-    if (argc != 2) {
-        std::cerr << "usage: oa-ui-engine-settings-pictures DIRECTORY\n";
+    const bool classes = argc == 3 && std::string_view(argv[2]) == "--classes";
+    if (argc != 2 && !classes) {
+        std::cerr << "usage: oa-ui-engine-settings-pictures DIRECTORY [--classes]\n";
         return 2;
     }
     const std::filesystem::path directory(argv[1]);
@@ -281,6 +342,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    if (classes)
+        return draw_classes(fonts, icon.picture, directory) ? 0 : 1;
     bool ok = true;
     for (const Page page : settings::dialog_pages(settings::DialogKind::engine, true, true, true)) {
         Dialog dialog = section_dialog(page);

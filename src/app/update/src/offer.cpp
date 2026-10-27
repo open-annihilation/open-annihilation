@@ -42,6 +42,20 @@ OfferText offer_text(
     return written;
 }
 
+std::string notes_paragraph(
+    std::string_view version, const std::vector<std::string>& lines, const library::TextHooks& text
+) {
+    if (lines.empty())
+        return {};
+    std::string written = library::filled(text, words::new_in, {{"version", version}});
+    for (const std::string& line : lines) {
+        written += '\n';
+        written += "• ";
+        written += line;
+    }
+    return written;
+}
+
 bool offer_wanted(const feed::Offer& offer, std::optional<int64_t> skipped) noexcept {
     if (offer.way == feed::Way::none || offer.release == nullptr)
         return false;

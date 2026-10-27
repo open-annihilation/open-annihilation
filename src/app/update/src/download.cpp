@@ -5,6 +5,57 @@
 // file against the feed before it may be installed.
 #include "oa/app/update/download.hpp"
 
+namespace oa::app::update {
+
+void RateMeter::sample(uint64_t at_ms, uint64_t bytes) noexcept {
+    if (count_ > 0) {
+        const Sample& last = samples_[count_ - 1];
+        if (bytes < last.bytes || at_ms < last.at_ms) {
+            reset();
+        } else if (at_ms == last.at_ms) {
+            samples_[count_ - 1].bytes = bytes;
+            return;
+        }
+    }
+    if (count_ == most_samples) {
+        for (std::size_t index = 1; index < count_; ++index)
+            samples_[index - 1] = samples_[index];
+        --count_;
+    }
+    samples_[count_] = Sample{at_ms, bytes};
+    ++count_;
+    // Samples older than the window are dropped, keeping at least two.
+    std::size_t first = 0;
+    while (count_ - first > 2 && at_ms - samples_[first].at_ms > rate_window_ms)
+        ++first;
+    if (first > 0) {
+        for (std::size_t index = first; index < count_; ++index)
+            samples_[index - first] = samples_[index];
+        count_ -= first;
+    }
+}
+
+void RateMeter::reset() noexcept {
+    count_ = 0;
+}
+
+uint64_t RateMeter::bytes_per_second() const noexcept {
+    if (count_ < 2)
+        return 0;
+    const Sample& first = samples_[0];
+    const Sample& last = samples_[count_ - 1];
+    const uint64_t span = last.at_ms - first.at_ms;
+    if (span < rate_least_ms)
+        return 0;
+    const uint64_t gained = last.bytes - first.bytes;
+    // Kept within 64 bits: a gain past 2^54 bytes is past any package.
+    if (gained > (UINT64_MAX / 1000U))
+        return gained / span * 1000U;
+    return gained * 1000U / span;
+}
+
+} // namespace oa::app::update
+
 #if OA_SELF_UPDATE
 
 #include "oa/base/sha256.hpp"
@@ -13,6 +64,7 @@
 #include "oa/platform/files.hpp"
 
 #include <cerrno>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
@@ -54,7 +106,7 @@ constexpr int mirror_cut_limit = 4;
 /// Why a body stopped short of the file.
 enum class Halt : uint8_t {
     none,    ///< the body was accepted
-    paused,  ///< a match asked the fetch to stop at a step
+    paused,  ///< a match or the player asked the fetch to stop at a step
     differs, ///< the answer was not the file
     disk,    ///< the part could not be written
     status,  ///< the status was not 200 or 206
@@ -301,16 +353,22 @@ class PartSink final : public http::BodySink {
     /// @param ranged true when a Range was sent
     /// @param cancel set when the download should stop
     /// @param match set while a match is running
+    /// @param held set while the player has paused the download
+    /// @param on_step called with the bytes committed after each step; may be null
+    /// @param step_context what on_step is called with
     PartSink(
         fs::path part,
         uint64_t size,
         uint64_t done,
         bool ranged,
         const std::atomic<bool>& cancel,
-        const std::atomic<bool>& match
+        const std::atomic<bool>& match,
+        const std::atomic<bool>& held,
+        void (*on_step)(void* context, uint64_t done),
+        void* step_context
     )
         : done_(done), part_(std::move(part)), size_(size), ranged_(ranged), cancel_(&cancel),
-          match_(&match) {}
+          match_(&match), held_(&held), on_step_(on_step), step_context_(step_context) {}
 
     /// Closes the part.
     ~PartSink() override { close(); }
@@ -372,8 +430,9 @@ class PartSink final : public http::BodySink {
 
     /// Buffers bytes until a step is full, then writes and flushes that step.
     ///
-    /// A cancel writes nothing from this piece. A match finishes the current
-    /// step and then stops, unless that step is the end of the file.
+    /// A cancel writes nothing from this piece. A match or the player's pause
+    /// finishes the current step and then stops, unless that step is the end
+    /// of the file.
     ///
     /// @param bytes the next piece
     /// @return false to stop the fetch
@@ -413,7 +472,9 @@ class PartSink final : public http::BodySink {
             if (step_full || file_full) {
                 if (!flush_buffer())
                     return false;
-                if (!file_full && match_->load()) {
+                if (on_step_ != nullptr)
+                    on_step_(step_context_, done_);
+                if (!file_full && (match_->load() || held_->load())) {
                     halt_ = Halt::paused;
                     return false;
                 }
@@ -461,11 +522,38 @@ class PartSink final : public http::BodySink {
     bool ranged_ = false;
     const std::atomic<bool>* cancel_ = nullptr;
     const std::atomic<bool>* match_ = nullptr;
+    const std::atomic<bool>* held_ = nullptr;
+    void (*on_step_)(void* context, uint64_t done) = nullptr;
+    void* step_context_ = nullptr;
     std::FILE* file_ = nullptr;
     std::vector<uint8_t> buffer_;
 };
 
+/// Milliseconds on a steady clock, for the rate.
+///
+/// @return the clock
+uint64_t steady_ms() noexcept {
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(now).count()
+    );
+}
+
 } // namespace
+
+bool package_downloaded(
+    const fs::path& folder,
+    const oa::data::engine_feed::Release& release,
+    const oa::data::engine_feed::Package& package
+) {
+    const fs::path directory = folder / std::to_string(release.release);
+    std::error_code error;
+    if (plain_file_name(package.zip.file) &&
+        fs::is_regular_file(directory / package.zip.file, error))
+        return true;
+    return package.installer.has_value() && plain_file_name(package.installer->file) &&
+           fs::is_regular_file(directory / package.installer->file, error);
+}
 
 PackageDownload::PackageDownload() = default;
 
@@ -524,16 +612,20 @@ void PackageDownload::start(
         DownloadSnapshot failed;
         failed.state = DownloadState::failed;
         failed.failure = std::move(problem);
+        failed.failure_kind = DownloadFailure::unusable;
         failed.generation = snapshot_.generation + 1;
         snapshot_ = std::move(failed);
         return;
     }
     cancel_.store(false);
+    discard_.store(false);
+    last_part_ = job.part;
+    last_final_ = job.final_path;
     job_ = std::move(job);
     has_job_ = true;
     busy_ = true;
     DownloadSnapshot next;
-    next.state = match_.load() ? DownloadState::paused_for_match : DownloadState::downloading;
+    next.state = moving_state();
     next.total = total;
     next.path = std::move(part);
     next.generation = snapshot_.generation + 1;
@@ -545,6 +637,7 @@ void PackageDownload::start(
             DownloadSnapshot failed;
             failed.state = DownloadState::failed;
             failed.failure = "the download could not start";
+            failed.failure_kind = DownloadFailure::storage;
             failed.generation = snapshot_.generation + 1;
             snapshot_ = std::move(failed);
             return;
@@ -562,6 +655,56 @@ void PackageDownload::set_match_running(bool running) noexcept {
 void PackageDownload::cancel() noexcept {
     cancel_.store(true);
     wake_.notify_all();
+}
+
+void PackageDownload::pause() noexcept {
+    held_.store(true);
+    {
+        base::threads::LockGuard guard(mutex_);
+        if (busy_ && (snapshot_.state == DownloadState::downloading ||
+                      snapshot_.state == DownloadState::paused_for_match)) {
+            snapshot_.state = DownloadState::paused_by_player;
+            snapshot_.bytes_per_second = 0;
+            snapshot_.generation += 1;
+        }
+    }
+    wake_.notify_all();
+}
+
+void PackageDownload::resume() noexcept {
+    held_.store(false);
+    {
+        base::threads::LockGuard guard(mutex_);
+        if (busy_ && snapshot_.state == DownloadState::paused_by_player) {
+            snapshot_.state = moving_state();
+            snapshot_.generation += 1;
+        }
+    }
+    wake_.notify_all();
+}
+
+bool PackageDownload::paused() const noexcept {
+    return held_.load();
+}
+
+void PackageDownload::discard() noexcept {
+    bool running = false;
+    {
+        base::threads::LockGuard guard(mutex_);
+        running = busy_;
+        if (running) {
+            discard_.store(true);
+            cancel_.store(true);
+        } else {
+            remove_download(last_part_, last_final_);
+            DownloadSnapshot cleared;
+            cleared.generation = snapshot_.generation + 1;
+            snapshot_ = std::move(cleared);
+        }
+    }
+    held_.store(false);
+    if (running)
+        wake_.notify_all();
 }
 
 DownloadSnapshot PackageDownload::snapshot() const {
@@ -590,9 +733,12 @@ void PackageDownload::run() {
             has_job_ = false;
         }
         if (cancel_.load()) {
+            if (discard_files(job.part, job.final_path))
+                continue;
             DownloadSnapshot failed;
             failed.state = DownloadState::failed;
             failed.failure = "the download was cancelled";
+            failed.failure_kind = DownloadFailure::cancelled;
             publish(std::move(failed), true);
             continue;
         }
@@ -602,11 +748,13 @@ void PackageDownload::run() {
             DownloadSnapshot failed;
             failed.state = DownloadState::failed;
             failed.failure = failure.what();
+            failed.failure_kind = DownloadFailure::storage;
             publish(std::move(failed), true);
         } catch (...) {
             DownloadSnapshot failed;
             failed.state = DownloadState::failed;
             failed.failure = "the download failed";
+            failed.failure_kind = DownloadFailure::storage;
             publish(std::move(failed), true);
         }
     }
@@ -620,10 +768,54 @@ void PackageDownload::publish(DownloadSnapshot next, bool finished) {
         busy_ = false;
 }
 
-bool PackageDownload::wait_out_of_match() {
+DownloadState PackageDownload::moving_state() const noexcept {
+    if (held_.load())
+        return DownloadState::paused_by_player;
+    if (match_.load())
+        return DownloadState::paused_for_match;
+    return DownloadState::downloading;
+}
+
+void PackageDownload::note_step(void* context, uint64_t done) {
+    auto* download = static_cast<PackageDownload*>(context);
+    download->rate_.sample(steady_ms(), done);
+    DownloadSnapshot moving;
+    moving.state = download->moving_state();
+    moving.received = done;
+    moving.total = download->step_total_;
+    moving.path = download->step_part_;
+    if (moving.state == DownloadState::downloading)
+        moving.bytes_per_second = download->rate_.bytes_per_second();
+    download->publish(std::move(moving), false);
+}
+
+bool PackageDownload::discard_files(const fs::path& part, const fs::path& final_path) {
+    if (!discard_.load())
+        return false;
+    remove_download(part, final_path);
+    discard_.store(false);
+    publish(DownloadSnapshot{}, true);
+    return true;
+}
+
+bool PackageDownload::wait_while_held(uint64_t received, uint64_t total, const fs::path& part) {
     base::threads::LockGuard guard(mutex_);
-    while (match_.load() && !cancel_.load() && !stop_)
+    DownloadState shown = DownloadState::downloading;
+    while ((match_.load() || held_.load()) && !cancel_.load() && !stop_) {
+        const DownloadState now =
+            held_.load() ? DownloadState::paused_by_player : DownloadState::paused_for_match;
+        if (now != shown) {
+            DownloadSnapshot paused;
+            paused.state = now;
+            paused.received = received;
+            paused.total = total;
+            paused.path = part;
+            paused.generation = snapshot_.generation + 1;
+            snapshot_ = std::move(paused);
+            shown = now;
+        }
         wake_.wait(mutex_);
+    }
     return !cancel_.load() && !stop_;
 }
 
@@ -641,22 +833,61 @@ void PackageDownload::run_job(const Job& job) {
         DownloadSnapshot failed;
         failed.state = DownloadState::failed;
         failed.failure = "the update folder could not be created";
+        failed.failure_kind = DownloadFailure::storage;
         publish(std::move(failed), true);
         return;
     }
     remove_older_releases(job.folder, job.release.release);
+    rate_.reset();
+    step_total_ = job.file.size;
+    step_part_ = job.part;
 
-    const auto fail_ready = [this, &job](std::string failure, bool drop_file) {
+    const auto fail_ready = [this,
+                             &job](DownloadFailure kind, std::string failure, bool drop_file) {
+        if (kind == DownloadFailure::cancelled && discard_files(job.part, job.final_path))
+            return;
         if (drop_file)
             remove_download(job.part, job.final_path);
         DownloadSnapshot failed;
         failed.state = DownloadState::failed;
         failed.failure = std::move(failure);
+        failed.failure_kind = kind;
         failed.total = job.file.size;
         publish(std::move(failed), true);
     };
+    const auto cancelled = [&fail_ready]() {
+        fail_ready(DownloadFailure::cancelled, "the download was cancelled", false);
+    };
 
-    const auto accept_file = [this, &job, &fail_ready]() -> bool {
+    const auto publish_ready = [this, &job]() {
+        DownloadSnapshot ready;
+        ready.state = DownloadState::ready;
+        ready.received = job.file.size;
+        ready.total = job.file.size;
+        ready.path = job.final_path;
+        publish(std::move(ready), true);
+    };
+
+    // A package an earlier start downloaded and checked is checked again and used.
+    if (fs::is_regular_file(job.final_path, error) && !error) {
+        DownloadSnapshot checking;
+        checking.state = DownloadState::verifying;
+        checking.received = job.file.size;
+        checking.total = job.file.size;
+        checking.path = job.final_path;
+        publish(checking, false);
+        const std::optional<sha::Digest> kept = hash_file(job.final_path, job.file.size);
+        if (kept.has_value() && *kept == job.file.sha256) {
+            std::error_code part_error;
+            fs::remove(job.part, part_error);
+            publish_ready();
+            return;
+        }
+        fs::remove(job.final_path, error);
+        error.clear();
+    }
+
+    const auto accept_file = [this, &job, &fail_ready, &publish_ready]() -> bool {
         DownloadSnapshot checking;
         checking.state = DownloadState::verifying;
         checking.received = job.file.size;
@@ -665,19 +896,14 @@ void PackageDownload::run_job(const Job& job) {
         publish(checking, false);
         const std::optional<sha::Digest> digest = hash_file(job.part, job.file.size);
         if (!digest.has_value() || *digest != job.file.sha256) {
-            fail_ready(std::string(wrong_file_failure), true);
+            fail_ready(DownloadFailure::wrong_file, std::string(wrong_file_failure), true);
             return false;
         }
         if (!store_part(job.part, job.final_path)) {
-            fail_ready("the download could not be stored", false);
+            fail_ready(DownloadFailure::storage, "the download could not be stored", false);
             return false;
         }
-        DownloadSnapshot ready;
-        ready.state = DownloadState::ready;
-        ready.received = job.file.size;
-        ready.total = job.file.size;
-        ready.path = job.final_path;
-        publish(std::move(ready), true);
+        publish_ready();
         return true;
     };
 
@@ -687,15 +913,9 @@ void PackageDownload::run_job(const Job& job) {
         return;
     }
 
-    if (match_.load()) {
-        DownloadSnapshot paused;
-        paused.state = DownloadState::paused_for_match;
-        paused.received = done;
-        paused.total = job.file.size;
-        paused.path = job.part;
-        publish(std::move(paused), false);
-        if (!wait_out_of_match()) {
-            fail_ready("the download was cancelled", false);
+    if (match_.load() || held_.load()) {
+        if (!wait_while_held(done, job.file.size, job.part)) {
+            cancelled();
             return;
         }
     }
@@ -705,7 +925,7 @@ void PackageDownload::run_job(const Job& job) {
     std::string last_failure = "every mirror failed";
     for (const url::Url& mirror : job.package.mirrors) {
         if (cancel_.load()) {
-            fail_ready("the download was cancelled", false);
+            cancelled();
             return;
         }
         if (mirror.scheme == url::Scheme::https && !tls_on())
@@ -715,18 +935,12 @@ void PackageDownload::run_job(const Job& job) {
         int cuts = 0;
         while (cuts < mirror_cut_limit) {
             if (cancel_.load()) {
-                fail_ready("the download was cancelled", false);
+                cancelled();
                 return;
             }
-            if (match_.load()) {
-                DownloadSnapshot paused;
-                paused.state = DownloadState::paused_for_match;
-                paused.received = done;
-                paused.total = job.file.size;
-                paused.path = job.part;
-                publish(std::move(paused), false);
-                if (!wait_out_of_match()) {
-                    fail_ready("the download was cancelled", false);
+            if (match_.load() || held_.load()) {
+                if (!wait_while_held(done, job.file.size, job.part)) {
+                    cancelled();
                     return;
                 }
             }
@@ -735,14 +949,25 @@ void PackageDownload::run_job(const Job& job) {
                 accept_file();
                 return;
             }
+            rate_.sample(steady_ms(), done);
             DownloadSnapshot fetching;
-            fetching.state = DownloadState::downloading;
+            fetching.state = moving_state();
             fetching.received = done;
             fetching.total = job.file.size;
             fetching.path = job.part;
             publish(std::move(fetching), false);
 
-            PartSink sink(job.part, job.file.size, done, done > 0, cancel_, match_);
+            PartSink sink(
+                job.part,
+                job.file.size,
+                done,
+                done > 0,
+                cancel_,
+                match_,
+                held_,
+                &PackageDownload::note_step,
+                this
+            );
             http::Request request;
             request.url = address;
             request.timeouts.connect_ms = 10000;
@@ -755,26 +980,24 @@ void PackageDownload::run_job(const Job& job) {
             const http::Response response = client.fetch(request, sink);
             done = sink.done_;
 
-            if (sink.halt_ == Halt::paused || (match_.load() && sink.halt_ == Halt::none &&
+            const bool held = match_.load() || held_.load();
+            if (sink.halt_ == Halt::paused || (held && sink.halt_ == Halt::none &&
                                                response.failure == http::Failure::sink_stopped)) {
-                DownloadSnapshot paused;
-                paused.state = DownloadState::paused_for_match;
-                paused.received = done;
-                paused.total = job.file.size;
-                paused.path = job.part;
-                publish(std::move(paused), false);
-                if (!wait_out_of_match()) {
-                    fail_ready("the download was cancelled", false);
+                sink.release();
+                if (!wait_while_held(done, job.file.size, job.part)) {
+                    cancelled();
                     return;
                 }
+                rate_.reset();
                 continue;
             }
             if (cancel_.load() || response.failure == http::Failure::cancelled) {
-                fail_ready("the download was cancelled", false);
+                sink.release();
+                cancelled();
                 return;
             }
             if (sink.halt_ == Halt::disk) {
-                fail_ready("the download could not be stored", false);
+                fail_ready(DownloadFailure::storage, "the download could not be stored", false);
                 return;
             }
             if (response.failure == http::Failure::none && sink.halt_ == Halt::none &&
@@ -784,7 +1007,9 @@ void PackageDownload::run_job(const Job& job) {
                 if (flushed != nullptr) {
                     if (!sync_file(flushed)) {
                         std::fclose(flushed);
-                        fail_ready("the download could not be stored", false);
+                        fail_ready(
+                            DownloadFailure::storage, "the download could not be stored", false
+                        );
                         return;
                     }
                     std::fclose(flushed);
@@ -811,7 +1036,7 @@ void PackageDownload::run_job(const Job& job) {
     }
     if (!any_plain)
         last_failure = "this system cannot fetch https, and the feed offered no other mirror";
-    fail_ready(std::move(last_failure), false);
+    fail_ready(DownloadFailure::connect, std::move(last_failure), false);
 }
 
 } // namespace oa::app::update

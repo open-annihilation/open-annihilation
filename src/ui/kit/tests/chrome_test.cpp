@@ -167,27 +167,30 @@ kit::HeaderLook header_look() {
 void header_matches_its_parts() {
     renderer::Surface surface = black(210, 40);
     kit::draw_header(canvas_on(surface), header_look());
-    expect(surface, 1, 2, 0x14, 0x16, 0x12);
+    expect(surface, 1, 2, 0x12, 0x14, 0x10);
     expect(surface, 0, 2, 0x00, 0x00, 0x00);
     expect(surface, 1, 27, 0x2b, 0x30, 0x27);
-    expect(surface, 15, 7, 0x9c, 0xcc, 0x3c);
-    expect(surface, 17, 10, 0x14, 0x16, 0x12);
-    expect(surface, 18, 10, 0x9c, 0xcc, 0x3c);
+    // The OA mark in the brand gold.
+    expect(surface, 15, 7, 0xd6, 0xa7, 0x47);
+    expect(surface, 17, 10, 0x12, 0x14, 0x10);
+    expect(surface, 18, 10, 0xd6, 0xa7, 0x47);
     expect(surface, 38, 9, 0xe7, 0xe8, 0xdf);
-    expect(surface, 64, 9, 0x9a, 0xa1, 0x90);
+    expect(surface, 64, 9, 0x95, 0x9c, 0x8b);
     expect(surface, 172, 9, 0xe0, 0xb0, 0x4f);
-    expect(surface, 178, 9, 0x14, 0x16, 0x12);
-    expect(surface, 183, 9, 0x8a, 0x91, 0x80);
+    expect(surface, 178, 9, 0x12, 0x14, 0x10);
+    expect(surface, 183, 9, 0x95, 0x9c, 0x8b);
 
+    // The note ends before the version starts. The second word is the
+    // version's colour too, so the search starts right of it.
     int32_t note_right = -1;
     int32_t version_left = 210;
-    for (int32_t x = 0; x < 210; ++x) {
+    for (int32_t x = 100; x < 210; ++x) {
         const std::size_t at =
             (static_cast<std::size_t>(9) * 210 + static_cast<std::size_t>(x)) * 3;
         const bool note =
             surface.rgb[at] == 0xe0 && surface.rgb[at + 1] == 0xb0 && surface.rgb[at + 2] == 0x4f;
         const bool version =
-            surface.rgb[at] == 0x8a && surface.rgb[at + 1] == 0x91 && surface.rgb[at + 2] == 0x80;
+            surface.rgb[at] == 0x95 && surface.rgb[at + 1] == 0x9c && surface.rgb[at + 2] == 0x8b;
         OA_CHECK(!(note && version));
         if (note)
             note_right = x;
@@ -200,11 +203,11 @@ void header_matches_its_parts() {
     bare.width = 200;
     renderer::Surface empty = black(210, 40);
     kit::draw_header(canvas_on(empty), bare);
-    expect(empty, 18, 10, 0x9c, 0xcc, 0x3c);
-    expect(empty, 38, 9, 0x14, 0x16, 0x12);
-    expect(empty, 64, 9, 0x14, 0x16, 0x12);
-    expect(empty, 172, 9, 0x14, 0x16, 0x12);
-    expect(empty, 183, 9, 0x14, 0x16, 0x12);
+    expect(empty, 18, 10, 0xd6, 0xa7, 0x47);
+    expect(empty, 38, 9, 0x12, 0x14, 0x10);
+    expect(empty, 64, 9, 0x12, 0x14, 0x10);
+    expect(empty, 172, 9, 0x12, 0x14, 0x10);
+    expect(empty, 183, 9, 0x12, 0x14, 0x10);
 
     renderer::Surface icon_surface = black(210, 40);
     kit::Canvas with_icon = canvas_on(icon_surface);
@@ -213,7 +216,7 @@ void header_matches_its_parts() {
     expect(icon_surface, 12, 4, 0xff, 0x00, 0x00);
     expect(icon_surface, 15, 7, 0xff, 0x00, 0x00);
     expect(icon_surface, 31, 23, 0xff, 0x00, 0x00);
-    expect(icon_surface, 32, 4, 0x14, 0x16, 0x12);
+    expect(icon_surface, 32, 4, 0x12, 0x14, 0x10);
 }
 
 void window_and_footer_match() {
@@ -221,18 +224,18 @@ void window_and_footer_match() {
     const kit::Rect whole{0, 0, 20, 10};
     kit::draw_window_face(canvas_on(face), whole);
     kit::draw_window_edge(canvas_on(face), whole);
-    expect(face, 0, 0, 0x4a, 0x51, 0x43);
+    expect(face, 0, 0, 0x4f, 0x57, 0x47);
     expect(face, 19, 0, 0x08, 0x09, 0x07);
     expect(face, 0, 9, 0x08, 0x09, 0x07);
-    expect(face, 1, 1, 0x1b, 0x1e, 0x19);
+    expect(face, 1, 1, 0x1d, 0x21, 0x19);
 
     renderer::Surface band = black(130, 50);
     kit::draw_footer_band(canvas_on(band), 120, 10);
     expect(band, 1, 10, 0x2b, 0x30, 0x27);
     expect(band, 0, 11, 0x00, 0x00, 0x00);
-    expect(band, 1, 11, 0x14, 0x16, 0x12);
-    expect(band, 1, 42, 0x14, 0x16, 0x12);
-    expect(band, 118, 11, 0x14, 0x16, 0x12);
+    expect(band, 1, 11, 0x12, 0x14, 0x10);
+    expect(band, 1, 42, 0x12, 0x14, 0x10);
+    expect(band, 118, 11, 0x12, 0x14, 0x10);
     expect(band, 119, 11, 0x00, 0x00, 0x00);
     expect(band, 1, 43, 0x00, 0x00, 0x00);
 }
@@ -254,14 +257,19 @@ void nav_matches_its_entries() {
     expect(surface, 2, 21, 0x17, 0x1a, 0x15);
     expect(surface, 91, 21, 0x2b, 0x30, 0x27);
     expect(surface, 5, 78, 0x2b, 0x30, 0x27);
-    expect(surface, 9, 29, 0x26, 0x2b, 0x21);
+    // The selected and the hovered entries are rounded: 4 points on a
+    // 20-point entry, their corner pixel the list's face.
+    expect(surface, 8, 28, 0x17, 0x1a, 0x15);
+    expect(surface, 9, 29, 0x2c, 0x32, 0x27);
     expect(surface, 13, 34, 0x9c, 0xcc, 0x3c);
     expect(surface, 20, 33, 0xe7, 0xe8, 0xdf);
-    expect(surface, 9, 51, 0x20, 0x24, 0x1c);
+    expect(surface, 9, 51, 0x25, 0x2a, 0x21);
     expect(surface, 20, 55, 0xe7, 0xe8, 0xdf);
-    expect(surface, 8, 100, 0x9c, 0xcc, 0x3c);
-    expect(surface, 9, 101, 0x17, 0x1a, 0x15);
-    expect(surface, 20, 105, 0xa3, 0xaa, 0x98);
+    // The focused entry's ring: a point of the light accent inside it.
+    expect(surface, 8, 100, 0x17, 0x1a, 0x15);
+    expect(surface, 40, 100, 0xb6, 0xe0, 0x5a);
+    expect(surface, 40, 101, 0x17, 0x1a, 0x15);
+    expect(surface, 20, 105, 0xb9, 0xbf, 0xae);
 }
 
 kit::RowFrame row_frame() {
@@ -283,16 +291,16 @@ void row_and_fade_match() {
     kit::draw_row_frame(canvas_on(surface), row_frame());
     expect(surface, 4, 10, 0x2b, 0x30, 0x27);
     expect(surface, 4, 21, 0xe7, 0xe8, 0xdf);
-    expect(surface, 5, 37, 0x9a, 0xa1, 0x90);
-    expect(surface, 6, 37, 0x9a, 0xa1, 0x90);
+    expect(surface, 5, 37, 0x95, 0x9c, 0x8b);
+    expect(surface, 6, 37, 0x95, 0x9c, 0x8b);
     expect(surface, 5, 49, 0xe0, 0xb0, 0x4f);
     expect(surface, 6, 49, 0x00, 0x00, 0x00);
     expect(surface, 8, 49, 0x00, 0x00, 0x00);
 
     renderer::Surface faded = black(40, 30);
     kit::draw_locked_fade(canvas_on(faded), {8, 8, 10, 6});
-    expect(faded, 8, 8, 0x0c, 0x0d, 0x0b);
-    expect(faded, 17, 13, 0x0c, 0x0d, 0x0b);
+    expect(faded, 8, 8, 0x0d, 0x0f, 0x0b);
+    expect(faded, 17, 13, 0x0d, 0x0f, 0x0b);
     expect(faded, 7, 8, 0x00, 0x00, 0x00);
     expect(faded, 18, 8, 0x00, 0x00, 0x00);
 

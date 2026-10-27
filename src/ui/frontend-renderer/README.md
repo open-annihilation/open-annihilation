@@ -97,6 +97,53 @@ step with its bar, and draws them over the screen (`draw_layout_scrolls`).
 panel merged into a loaded one. `scroll_bars_test.cpp` (`frontend-scroll-bars`)
 pins the art, the drawing and a layout's bars and lists.
 
+## A room's own parts
+
+[room_parts.hpp](include/oa/ui/frontend_renderer/room_parts.hpp) draws
+Open Annihilation's additions to the game's rooms (the skirmish setup, the
+battle room, the new-campaign screen) from the room's own art, as the room
+draws its buttons, lamps and lists, so a mod's art and palette carry
+through:
+
+- A `RoomCanvas` covers part of the room's frame in its pixels. It starts
+  as the frame's pixels and marks the ones a part covers;
+  `room_canvas_rgba` gives the covered pixels opaque and the rest clear,
+  for the OA layer to lay over the room at the room's own scale.
+- `draw_room_button` draws a button's plate: its own art at its own size,
+  else the BUTTONS0 group a button of that size takes (`room_button_group`)
+  with its ends kept and its middle repeated where the plate is wider or
+  narrower, else the plain face. The caption is centred as a button's
+  caption is, in the caption font, else the label font where that is
+  allowed, else cut with "..." (`room_caption_shown`). `room_text` turns
+  UTF-8 words into the bytes the fonts draw.
+- `draw_room_switch` draws one of the room's on and off buttons, from
+  COMMONGUI.GAF's `stagebuttn1`: its first frame lights the red lamp, its
+  second the green one, its third neither. A plate of another size keeps
+  its lamps' end. `room_switch_width` measures the width a caption needs.
+- `draw_room_notch` draws a groove and a triangle at a button's right end
+  (`room_notch_rect`), the triangle in the caption font's colour outlined
+  in black, pointing up while what it opens is open.
+- `draw_room_stamp` draws the small engraved OA stamp that marks a part
+  3.1c does not have: a dark sunk plate with the OA mark in the palette's
+  gold (`room_stamp_rect` places it in a button's left end).
+- `draw_room_list` draws a list box: the plain face round a dark well, rows
+  of the caption font's line height and one, a heading in the label font, a
+  tick, a value column right-aligned or a CHECKBOX art box, a groove between
+  groups, a grey row darkened as a grayed button is, and the selected row
+  lit through light level 30 as a list's selection is.
+- `draw_room_bar` draws a bar that fills as work goes on: a dark sunk
+  well filled from its left in the green lamp's light.
+- `draw_room_text` draws a label's glyphs on what is under them,
+  `cover_room_area` lays the room's background over a cell, and
+  `draw_room_focus` lights the focus marker's six outlines round a record.
+
+`room_parts_test.cpp` (`frontend-room-parts`) checks the canvas, the plain
+face, a plate drawn wider than its art, the notch, the stamp, a lamp, a bar
+and a list's rows against a gray palette; with the installed game
+(`frontend-room-parts-data`) it draws every part over the skirmish setup's
+background and checks the plate, the lamps and the list, and with
+`--frames DIR` writes that picture as `room-parts.png` in DIR.
+
 ## Blending
 
 `blend_rect` blends a colour over a rectangle of an RGB surface: each

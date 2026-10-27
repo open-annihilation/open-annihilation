@@ -63,10 +63,17 @@ inline constexpr int32_t keycap_least_width = 16;
 /// accent. Focus draws the focus ring inside the rectangle. A small badge
 /// is the accent letter on on_accent. Nothing is drawn outside the rectangle.
 ///
+/// fill_small_mark fills the key with its mark's colour when the corner
+/// mark would be smaller than that mark's glyph. The keyboard picture asks
+/// for this below 4 points a quarter. Other callers leave it false.
+///
 /// @param canvas where it is drawn
 /// @param rect the keycap, in points
 /// @param look what the keycap shows
-void draw_keycap(const Canvas& canvas, const Rect& rect, const KeycapLook& look);
+/// @param fill_small_mark fill a mark the corner glyph cannot show
+void draw_keycap(
+    const Canvas& canvas, const Rect& rect, const KeycapLook& look, bool fill_small_mark = false
+);
 
 /// Appends a keycap: one item and, for a control id, one control of kind
 /// button that takes no steps, its text the label, enabled unless the
@@ -90,7 +97,7 @@ void add_keycap(
 [[nodiscard]] int32_t chord_chip_width(const Fonts& fonts, const ChordChipLook& look);
 
 /// Draws a chord chip. Keycaps are joined by "+" with the gesture word
-/// after them. The add form is a dashed "+ ADD KEY" with its caption in
+/// after them. The add form is a dashed "+ Add key" with its caption in
 /// none_text. none_text alone is the quiet unbound text. A mark is drawn
 /// on the last keycap. Nothing is drawn outside the rectangle.
 ///
@@ -137,8 +144,15 @@ struct KeyPlace {
 [[nodiscard]] Point keyboard_size() noexcept;
 
 /// Draws a keyboard picture scaled to fit the rectangle, whole points per
-/// unit. A code with no entry in the look is a free key with its geometry's
-/// own label. Nothing is drawn outside the rectangle.
+/// quarter unit. A code with no entry in the look is a free key with its
+/// geometry's own label. Below 4 points a quarter, neighbouring keys keep
+/// a gap, or a one-point border in the free key's edge colour where a gap
+/// would take the whole key. A label there is drawn whole or left out, and
+/// when most of a row's labels cannot be drawn whole the picture's free
+/// keys are drawn without labels. A marked key is filled with its mark's
+/// colour when the corner mark would be smaller than its glyph. At 4 points
+/// a quarter and above the picture is unchanged. Nothing is drawn outside
+/// the rectangle.
 ///
 /// @param canvas where it is drawn
 /// @param rect the picture, in points

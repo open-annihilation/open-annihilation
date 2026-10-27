@@ -40,8 +40,8 @@ ARG0_SCOPED = {
 # Argument 1 is the English text. An empty first argument ({}) is a lookup
 # the caller did not ask for.
 ARG1_SCOPED = {
-    "shown": ("src/ui/library/",),
-    "filled": ("src/ui/library/",),
+    "shown": ("src/ui/library/", "src/app/update/"),
+    "filled": ("src/ui/library/", "src/app/update/"),
     "interface_word": ("src/",),
     "library_word": ("src/",),
     "shown_word": ("src/",),

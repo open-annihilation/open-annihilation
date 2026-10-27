@@ -2,19 +2,24 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Mutators on the skirmish setup, the campaign launch and the battle room's
-// host. One filled kit button wearing the OA badge, its words "Mutators" or
-// "Mutators (4)" for the set chosen, keeping to the left: on the skirmish
-// setup as large as Previous Menu, in its column, centred between Difficulty
-// and Previous Menu; on NEWGAME as large as the SELECT SIDE middle of the
-// side bar, under it; in the battle room as large as Select Map, over it.
-// Each place is worked out from the 3.1c gadgets on every window, and falls
-// back to MORE MAPS…'s rule when it would meet one. The button joins that
-// screen's Tab order. Y opens the picker. In the battle room a launch that
-// locks the host's options draws the button disabled.
+// host: one of the room's own on and off buttons, drawn from the room's art
+// (brain_seats_room.hpp), with the OA stamp, its words "Mutators: off" or
+// "Mutators: 4 on" for the set chosen, and its lamp: lit green while
+// mutators are on, red while a player in the battle room lacks one, unlit
+// while none is on. On the skirmish setup it is as large as Previous Menu,
+// in its column, centred between Difficulty and Previous Menu; on NEWGAME
+// as large as the SELECT SIDE middle of the side bar, under it; in the
+// battle room as large as Select Map, over it. Each place is worked out
+// from the 3.1c gadgets on every window, and falls back to MORE MAPS…'s
+// rule when it would meet one. The button joins that screen's Tab order,
+// where the room's own focus marker shows on it. Y opens the picker. In the
+// battle room a launch that locks the host's options draws the button
+// grayed, and the line beside START that names a player who lacks a
+// mutator is in the room's label font.
 
+#include "brain_seats_room.hpp"
 #include "oa_button_focus.hpp"
 #include "oa_layer.hpp"
-#include "touch_state.hpp"
 #include "oa/app/mutators_memory.hpp"
 #include "oa/app/runtime.hpp"
 
@@ -23,9 +28,11 @@
 #include "oa/data/mutators/choice.hpp"
 #include "oa/data/mutators/loadout.hpp"
 #include "oa/formats/oamut/manifest.hpp"
+#include "oa/present/game_text.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/frontend_multiplayer/get_map.hpp"
 #include "oa/ui/frontend_multiplayer/mutator_room.hpp"
+#include "oa/ui/frontend_multiplayer/presence_card.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 #include "oa/ui/frontend_state/oa_button_place.hpp"
 #include "oa/ui/gui_layout.hpp"
@@ -38,6 +45,8 @@
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/kit/theme.hpp"
 #include "oa/ui/mutator_picker/model.hpp"
+#include "oa/ui/frontend_renderer/room_parts.hpp"
+#include "oa/ui/kit/canvas.hpp"
 #include "oa/ui/pad_controls.hpp"
 
 #include <SDL3/SDL.h>
@@ -51,6 +60,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -75,10 +85,10 @@ struct MutatorButtonAccess {
         return Runtime::tdf_names_equal(left, right);
     }
 
-    static bool pad_badges(Runtime& runtime) { return runtime.touch_state().hud.pad.badges; }
-
-    static oa::ui::pad_controls::GlyphStyle pad_glyphs(Runtime& runtime) {
-        return runtime.touch_state().hud.pad.glyphs;
+    static std::size_t setup_count(const Runtime& runtime) noexcept {
+        if (runtime.screen_ == Screen::new_campaign || runtime.screen_ == Screen::any_mission)
+            return runtime.campaign_mutators_.size();
+        return runtime.skirmish_mutators_.size();
     }
 };
 
@@ -91,11 +101,25 @@ namespace pad = oa::ui::pad_controls;
 namespace kit = oa::ui::kit;
 namespace gui = oa::ui::gui_layout;
 
+namespace room = oa::ui::frontend_renderer;
+
 constexpr std::string_view screen_name = "mutators-button";
 constexpr std::string_view button_name = "mutators";
-constexpr std::string_view word_button = "Mutators";
-constexpr std::string_view word_counted = "Mutators ({count})";
+constexpr std::string_view reason_name = "mutators.waiting";
+constexpr std::string_view word_off = "Mutators: off";
+constexpr std::string_view word_counted = "Mutators: {count} on";
+constexpr std::string_view word_card_off = "No mutators on";
+constexpr std::string_view word_card_one = "1 mutator on";
+constexpr std::string_view word_card_count = "{count} mutators on";
+constexpr std::string_view word_card_more = "and {count} more";
+constexpr std::string_view word_card_lacking = "not installed";
+constexpr std::string_view word_card_order = "Applied in this order.";
+constexpr std::string_view word_card_change = "Click to change.";
+constexpr std::string_view word_card_read = "Click to read.";
 constexpr kit::ControlId button_id = 1;
+constexpr kit::ControlId reason_id = 2;
+/// The card's slot: the button, the one thing it describes.
+constexpr int32_t card_slot = 0;
 /// The least gap above and below the button where it is centred in a space.
 constexpr int32_t least_gap = 2;
 /// The gap MORE MAPS…'s rule leaves, where the button falls back to it.
@@ -211,13 +235,13 @@ std::vector<picker::Chosen> chosen_from_loadout(const oa::data::mutators::Loadou
     return chosen;
 }
 
-/// The button's words for a set of a count: "Mutators", or "Mutators (4)".
+/// The button's words for a set of a count: "Mutators: off", or "Mutators: 4 on".
 ///
 /// @param count how many mutators the set holds
 /// @return the words, in the language shown
 std::string caption_for(std::size_t count) {
     if (count == 0)
-        return shown(word_button);
+        return shown(word_off);
     std::string text = shown(word_counted);
     constexpr std::string_view place_holder = "{count}";
     if (const std::size_t at = text.find(place_holder); at != std::string::npos)
@@ -225,30 +249,11 @@ std::string caption_for(std::size_t count) {
     return text;
 }
 
-void add_text(
-    kit::DisplayList& list,
-    const kit::Rect& box,
-    std::string text,
-    kit::Colour ink,
-    kit::Align align
-) {
-    kit::Item item;
-    item.role = kit::Role::text;
-    item.rect = box;
-    item.text = std::move(text);
-    item.font = kit::FontRole::small;
-    item.align = align;
-    item.colour = ink;
-    list.items.push_back(std::move(item));
-}
-
-/// Where the button and its chip lie, and which records neighbour it.
+/// Where the button lies, and which records neighbour it.
 struct Geometry {
-    bool ok{};                       ///< the anchor was found and the button was placed
-    kit::Rect bounds{};              ///< the screen's place, in points, including the focus margin
-    kit::Rect button{};              ///< the button, in points
-    std::optional<kit::Rect> chip{}; ///< the Y chip, inside the button's right end, when it fits
-    std::string glyph{};             ///< the chip's letters
+    bool ok{};          ///< the anchor was found and the button was placed
+    kit::Rect bounds{}; ///< the screen's place, in points, including the focus margin
+    kit::Rect button{}; ///< the button, in points
     std::vector<FocusRecord> focusable{}; ///< the records Tab can stop on
     place::PlaceRect button_points{};     ///< the button, for the order
     /// Every gadget with an area, the anchor included, in the screen's points.
@@ -263,7 +268,80 @@ struct Geometry {
     bool locked{};                     ///< a launch locks the host's options
     std::optional<kit::Rect> reason{}; ///< the waiting line beside START
     std::string reason_text{};         ///< that line's words
+    room::SourceRect frame{};          ///< the button, in frame pixels
+    std::optional<kit::Rect> card{};   ///< the open card, in the layer's points
+    std::optional<kit::Rect> arrow{};  ///< its arrow, in the layer's points
+    kit::HoverCardLook card_look{};    ///< the open card's look, its arrow pointed
 };
+
+/// Widens the button to the left where its words need it and the room is
+/// free there: as wide as the room's on and off art needs for the stamp, the
+/// words in the caption font and the lamp, meeting no gadget and staying in
+/// the frame. A button that cannot widen keeps its width, and its words are
+/// drawn narrower.
+///
+/// @param runtime the runtime
+/// @param placed_on what the screen is placed on
+/// @param laid the geometry, its button placed
+/// @param others every other gadget, in frame pixels
+/// @param count how many mutators are on
+void widen_for_words(
+    Runtime& runtime,
+    const LayerView& placed_on,
+    Geometry& laid,
+    const std::vector<room::SourceRect>& others,
+    std::size_t count
+) {
+    const room::SourceRect frame = points_rect_frame(placed_on, laid.button);
+    const room::SourceRect wider = widen_mutators_switch(
+        BrainSeatsAccess::screen_art(runtime), frame, caption_for(count), others
+    );
+    if (wider.width == frame.width && wider.x == frame.x)
+        return;
+    laid.button = frame_rect_points(placed_on, wider);
+    laid.button_points = as_place(laid.button);
+}
+
+/// Puts the button's frame pixels on a geometry, and grows its bounds by
+/// the room's focus marker round them and by the open card.
+///
+/// @param laid the geometry, its button and bounds placed
+/// @param placed_on what the screen is placed on
+/// @param card the open card's look; null while it is closed
+/// @param fonts the fonts the card is measured in
+void add_frame(
+    Geometry& laid,
+    const LayerView& placed_on,
+    const kit::HoverCardLook* card,
+    const kit::Fonts& fonts
+) {
+    laid.frame = points_rect_frame(placed_on, laid.button);
+    const room::SourceRect marked{
+        laid.frame.x - room_focus_margin,
+        laid.frame.y - room_focus_margin,
+        laid.frame.width + 2 * room_focus_margin,
+        laid.frame.height + 2 * room_focus_margin
+    };
+    laid.bounds = unite(laid.bounds, frame_rect_points(placed_on, marked));
+    if (card == nullptr)
+        return;
+    const int32_t arrow_depth = kit::metrics_of(placed_on.frame.size_class).hover_card_arrow;
+    laid.card_look = *card;
+    const kit::Point size = kit::hover_card_size(fonts, laid.card_look);
+    const kit::Rect placed =
+        mp::presence_card_place(laid.button, size, placed_on.frame.area, arrow_depth);
+    mp::presence_card_point(laid.card_look, placed, laid.button);
+    laid.card = placed;
+    laid.bounds = unite(laid.bounds, placed);
+    const int32_t across = 2 * arrow_depth - 1;
+    const int32_t left = placed.x + laid.card_look.arrow_at - (arrow_depth - 1);
+    if (laid.card_look.arrow == kit::Side::top)
+        laid.arrow = kit::Rect{left, placed.y - arrow_depth, across, arrow_depth};
+    else if (laid.card_look.arrow == kit::Side::bottom)
+        laid.arrow = kit::Rect{left, placed.y + placed.height, across, arrow_depth};
+    if (laid.arrow)
+        laid.bounds = unite(laid.bounds, *laid.arrow);
+}
 
 /// The width a button needs for the OA badge and its words, where it falls
 /// back to MORE MAPS…'s rule and is not sized by a gadget.
@@ -276,38 +354,6 @@ int32_t natural_width(const kit::Fonts& fonts, int32_t height, std::string_view 
     const int32_t pad = std::max(height / 5, int32_t{2});
     const int32_t side = height - 2 * pad;
     return pad + side + pad + kit::text_width(fonts, kit::FontRole::small, words) + pad;
-}
-
-/// Puts the Y chip inside the button's right end, when the pad shows badges
-/// and the button has room for it beside the badge and a few letters.
-///
-/// @param runtime the runtime
-/// @param fonts the fonts
-/// @param laid the geometry, its button placed
-void place_chip(Runtime& runtime, const kit::Fonts& fonts, Geometry& laid) {
-    if (!MutatorButtonAccess::pad_badges(runtime))
-        return;
-    const pad::GlyphSpec spec =
-        pad::glyph_spec(pad::PadButton::y, MutatorButtonAccess::pad_glyphs(runtime));
-    if (spec.text.empty())
-        return;
-    const kit::Metrics& metrics = kit::compact_metrics;
-    kit::ChipLook look;
-    look.text = std::string(spec.text);
-    const int32_t width = kit::chip_width(fonts, look);
-    const kit::ButtonMarkParts parts = kit::button_mark_parts(laid.button);
-    const int32_t pad = std::max(laid.button.height / 5, int32_t{2});
-    const int32_t left = laid.button.x + laid.button.width - pad - width;
-    // The badge and a few letters stay clear of the chip.
-    if (parts.caption.width <= 0 || left - pad < parts.caption.x + metrics.button_width / 2)
-        return;
-    laid.chip = kit::Rect{
-        left,
-        laid.button.y + (laid.button.height - metrics.chip_height) / 2,
-        width,
-        metrics.chip_height
-    };
-    laid.glyph = std::move(look.text);
 }
 
 /// The name a player record shows, within its field.
@@ -398,7 +444,8 @@ std::optional<mp::PlayerLack> first_room_lack(Runtime& runtime) {
 /// @param runtime the runtime
 /// @param placed_on what the screen is placed on
 /// @return the place; not ok when the room or MAP is absent
-Geometry battle_geometry(Runtime& runtime, const LayerView& placed_on) {
+Geometry
+battle_geometry(Runtime& runtime, const LayerView& placed_on, const kit::HoverCardLook* card) {
     Geometry laid;
     laid.battle = true;
     const kit::Fonts* fonts = MutatorButtonAccess::screen_fonts(runtime);
@@ -413,11 +460,14 @@ Geometry battle_geometry(Runtime& runtime, const LayerView& placed_on) {
     bool have_start = false;
     int32_t anchor_frame_x = 0;
     others.reserve(controls.size());
+    std::vector<room::SourceRect> frames;
+    frames.reserve(controls.size());
     for (const mp::BattleRoomControl& control : controls) {
         const kit::Rect frame{control.x, control.y, control.width, control.height};
         const kit::Rect points = frame_to_points(placed_on, frame);
         if (points.width <= 0 || points.height <= 0)
             continue;
+        frames.push_back({control.x, control.y, control.width, control.height});
         laid.gadgets.push_back(as_place(points));
         const bool map = MutatorButtonAccess::names_equal(control.name, "MAP");
         const bool start = MutatorButtonAccess::names_equal(control.name, "START");
@@ -469,7 +519,7 @@ Geometry battle_geometry(Runtime& runtime, const LayerView& placed_on) {
         laid.button_points = mp::place_over_anchor(anchor, others, as_place(room), sizes).button;
     }
     laid.button = as_kit(laid.button_points);
-    place_chip(runtime, *fonts, laid);
+    widen_for_words(runtime, placed_on, laid, frames, runtime.room_mutators().size());
     kit::Rect bounds = outset(laid.button, metrics.focus_inset);
     laid.before = record_before(laid.focusable, laid.button_points);
     int32_t before_place = -1;
@@ -510,6 +560,7 @@ Geometry battle_geometry(Runtime& runtime, const LayerView& placed_on) {
     mp::Lobby& lobby = mp::multiplayer_lobby();
     laid.locked = lobby.game != nullptr && mp::lobby_options_locked(lobby);
     laid.bounds = bounds;
+    add_frame(laid, placed_on, card, *fonts);
     for (place::PlaceRect& gadget : laid.gadgets) {
         gadget.x -= laid.bounds.x;
         gadget.y -= laid.bounds.y;
@@ -518,9 +569,11 @@ Geometry battle_geometry(Runtime& runtime, const LayerView& placed_on) {
     return laid;
 }
 
-Geometry geometry_of(Runtime& runtime, const LayerView& placed_on) {
+Geometry geometry_of(
+    Runtime& runtime, const LayerView& placed_on, const kit::HoverCardLook* card = nullptr
+) {
     if (room_host_shows(runtime))
-        return battle_geometry(runtime, placed_on);
+        return battle_geometry(runtime, placed_on, card);
     Geometry laid;
     const kit::Fonts* fonts = MutatorButtonAccess::screen_fonts(runtime);
     if (fonts == nullptr || !button_shows(runtime))
@@ -531,6 +584,7 @@ Geometry geometry_of(Runtime& runtime, const LayerView& placed_on) {
     const auto origin = runtime.panel_origin();
     std::vector<place::PlaceRect> others;
     std::vector<place::PlaceRect> everything;
+    std::vector<room::SourceRect> frames;
     place::PlaceRect anchor{};
     bool found = false;
     int32_t anchor_frame_x = 0;
@@ -553,6 +607,7 @@ Geometry geometry_of(Runtime& runtime, const LayerView& placed_on) {
         const kit::Rect points = frame_to_points(placed_on, frame);
         if (points.width <= 0 || points.height <= 0)
             continue;
+        frames.push_back({frame.x, frame.y, frame.width, frame.height});
         laid.gadgets.push_back(as_place(points));
         everything.push_back(as_place(points));
         if (campaign && !arm && MutatorButtonAccess::names_equal(common.name, "Arm"))
@@ -609,9 +664,10 @@ Geometry geometry_of(Runtime& runtime, const LayerView& placed_on) {
     }
     laid.button_points = *chosen;
     laid.button = as_kit(laid.button_points);
-    place_chip(runtime, *fonts, laid);
-    const kit::Rect bounds = outset(laid.button, metrics.focus_inset);
-    laid.bounds = bounds;
+    widen_for_words(runtime, placed_on, laid, frames, MutatorButtonAccess::setup_count(runtime));
+    laid.bounds = outset(laid.button, metrics.focus_inset);
+    add_frame(laid, placed_on, card, *fonts);
+    const kit::Rect bounds = laid.bounds;
     for (place::PlaceRect& gadget : laid.gadgets) {
         gadget.x -= laid.bounds.x;
         gadget.y -= laid.bounds.y;
@@ -626,6 +682,124 @@ Geometry geometry_of(Runtime& runtime, const LayerView& placed_on) {
 }
 
 } // namespace
+
+std::string mutators_words(std::size_t count) {
+    return caption_for(count);
+}
+
+kit::HoverCardLook mutators_card(std::span<const MutatorsCardItem> items, bool host) {
+    kit::HoverCardLook look;
+    look.arrow = kit::Side::none;
+    if (items.empty()) {
+        look.title = shown(word_card_off);
+    } else {
+        look.title = shown(items.size() == 1 ? word_card_one : word_card_count);
+        constexpr std::string_view count_holder = "{count}";
+        if (const std::size_t at = look.title.find(count_holder); at != std::string::npos)
+            look.title.replace(at, count_holder.size(), std::to_string(items.size()));
+    }
+    const std::size_t named = std::min(items.size(), mutators_card_rows);
+    for (std::size_t at = 0; at < named; ++at) {
+        kit::HoverCardRow row;
+        row.label = std::to_string(at + 1);
+        row.value = items[at].name;
+        if (items[at].lacking) {
+            row.value += ": " + shown(word_card_lacking);
+            row.value_colour = kit::colour::lock;
+        }
+        look.rows.push_back(std::move(row));
+    }
+    if (items.size() > named) {
+        kit::HoverCardRow more;
+        more.value = shown(word_card_more);
+        constexpr std::string_view count_holder = "{count}";
+        if (const std::size_t at = more.value.find(count_holder); at != std::string::npos)
+            more.value.replace(at, count_holder.size(), std::to_string(items.size() - named));
+        look.rows.push_back(std::move(more));
+    }
+    if (!items.empty())
+        look.block.push_back(shown(word_card_order));
+    look.block.push_back(shown(host ? word_card_change : word_card_read));
+    return look;
+}
+
+room::SourceRect widen_mutators_switch(
+    const room::RoomArt& art,
+    const room::SourceRect& frame,
+    std::string_view words,
+    std::span<const room::SourceRect> others
+) {
+    const room::SourceRect stamp = room::room_stamp_rect(frame);
+    const int32_t need =
+        room::room_switch_width(art, room::room_text(words), stamp.x - frame.x + stamp.width + 2);
+    if (need <= frame.width)
+        return frame;
+    const room::SourceRect wider{frame.x - (need - frame.width), frame.y, need, frame.height};
+    if (wider.x < 0)
+        return frame;
+    for (const room::SourceRect& other : others) {
+        const bool apart = other.x >= wider.x + wider.width || wider.x >= other.x + other.width ||
+                           other.y >= wider.y + wider.height || wider.y >= other.y + other.height;
+        const bool itself = other.x == frame.x && other.y == frame.y &&
+                            other.width == frame.width && other.height == frame.height;
+        if (!apart && !itself)
+            return frame;
+    }
+    return wider;
+}
+
+namespace {
+
+/// A Mutators button's look, its words aside: its place, the room kept for
+/// the stamp, and words that may be drawn narrower.
+///
+/// @param frame the button, in frame pixels
+/// @return the look
+room::RoomButtonLook switch_look(const room::SourceRect& frame) {
+    room::RoomButtonLook look;
+    look.rect = frame;
+    const room::SourceRect stamp = room::room_stamp_rect(frame);
+    look.inset_left = stamp.x - frame.x + stamp.width + 2;
+    look.narrower_font = true;
+    return look;
+}
+
+} // namespace
+
+void draw_mutators_switch(
+    room::RoomCanvas& parts,
+    const room::RoomArt& art,
+    const room::SourceRect& frame,
+    std::string_view words,
+    room::RoomLamp lamp,
+    room::ButtonCondition condition,
+    bool focused
+) {
+    const std::string bytes = room::room_text(words);
+    room::RoomButtonLook look = switch_look(frame);
+    look.caption = bytes;
+    look.condition = condition;
+    room::draw_room_switch(parts, art, look, lamp);
+    room::draw_room_stamp(parts, art, room::room_stamp_rect(frame));
+    if (focused)
+        room::draw_room_focus(parts, art, frame);
+}
+
+std::string mutators_words_shown(
+    const room::RoomArt& art, const room::SourceRect& frame, std::string_view words
+) {
+    const std::string bytes = room::room_text(words);
+    const std::string drawn = room::room_caption_shown(
+        art, bytes, room::room_switch_caption_width(art, switch_look(frame)), true
+    );
+    if (drawn.empty() || drawn == bytes)
+        return std::string(words);
+    std::string text = oa::present::decode_game_text(drawn, oa::present::game_text_settings().utf8);
+    constexpr std::string_view cut = "...";
+    if (text.size() >= cut.size() && text.compare(text.size() - cut.size(), cut.size(), cut) == 0)
+        text.replace(text.size() - cut.size(), cut.size(), "\u2026");
+    return text;
+}
 
 /// Mutators as a screen of the OA layer: not modal, no backdrop, not opaque,
 /// so the picture shows round the button. It takes the button, the focus handed
@@ -646,7 +820,7 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     /// @param placed_on what the screen is placed on
     /// @return its place; empty while it does not show
     [[nodiscard]] LayerPlacement placement(const LayerView& placed_on) const override {
-        const Geometry laid = geometry_of(runtime_, placed_on);
+        const Geometry laid = laid_out(placed_on);
         if (!laid.ok)
             return {};
         const int32_t percent = std::max(placed_on.scale_percent, int32_t{100});
@@ -679,10 +853,58 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     /// @param placed_on what the screen is placed on
     void lay_out(const LayerView& placed_on) override { view_ = placed_on; }
 
-    /// Draws the button and, while it holds the focus, the ring.
+    /// Draws the button in the room's art, with the OA stamp, its lamp and,
+    /// while it holds the focus, the room's focus marker; and the waiting
+    /// line beside START in the room's label font.
     ///
     /// @param canvas where it draws
-    void draw(const kit::Canvas& canvas) const override { kit::paint(canvas, display_list()); }
+    void draw(const kit::Canvas& canvas) const override {
+        const Geometry laid = laid_out(view_);
+        if (!laid.ok)
+            return;
+        const room::RoomArt art = room_art(laid.battle);
+        const room::Surface& frame = BrainSeatsAccess::frame(runtime_);
+        room::RoomCanvas parts = room::room_canvas(
+            {laid.frame.x - room_focus_margin,
+             laid.frame.y - room_focus_margin,
+             laid.frame.width + 2 * room_focus_margin,
+             laid.frame.height + 2 * room_focus_margin},
+            &frame
+        );
+        room::ButtonCondition condition = room::ButtonCondition::normal;
+        if (laid.locked)
+            condition = room::ButtonCondition::disabled;
+        else if (pressed_ && hovered_)
+            condition = room::ButtonCondition::pressed;
+        draw_mutators_switch(
+            parts, art, laid.frame, caption_for(chosen_count()), lamp(laid), condition, focused_
+        );
+        paint_room_parts(canvas, view_, laid.bounds, parts);
+        if (laid.reason) {
+            const room::SourceRect line = points_rect_frame(view_, *laid.reason);
+            room::RoomCanvas reason = room::room_canvas(line, &frame);
+            const std::string text = room::room_text(laid.reason_text);
+            const std::string fitted =
+                room::fit_room_text(art, room::RoomFont::label, text, line.width);
+            const int32_t width = room::room_text_width(art, room::RoomFont::label, fitted);
+            const int32_t height = room::room_line_height(art, room::RoomFont::label);
+            std::ignore = room::draw_room_text(
+                reason,
+                art,
+                room::RoomFont::label,
+                fitted,
+                line.x + line.width - width,
+                line.y + (line.height - height) / 2,
+                line.width
+            );
+            paint_room_parts(canvas, view_, laid.bounds, reason);
+        }
+        if (laid.card) {
+            kit::DisplayList card;
+            kit::add_hover_card(card, local_of(*laid.card, laid.bounds), laid.card_look);
+            kit::paint(canvas, card);
+        }
+    }
 
     /// Takes a press on the button. A press anywhere else clears the focus and goes on.
     ///
@@ -697,17 +919,26 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     /// @return redraw for the button's own press; pass otherwise
     LayerAnswer
     pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int32_t finger_reach) override {
-        const Geometry laid = geometry_of(runtime_, view_);
+        const Geometry laid = laid_out(view_);
         const bool inside = laid.ok && kit::contains(local_of(laid.button, laid.bounds), at);
         if (inside != hovered_) {
             hovered_ = inside;
             ++revision_;
+        }
+        if (laid.ok) {
+            pointer_layer_ = {at.x + laid.bounds.x, at.y + laid.bounds.y};
+            have_pointer_ = true;
+            const int32_t card_before = card_.open_slot();
+            follow_card(laid);
+            if (card_.open_slot() != card_before)
+                ++revision_;
         }
         const bool over = kind != ScreenInputKind::pointer_move && finger_reach > 0
                               ? finger_reaches_button(laid, at, finger_reach)
                               : inside;
         if (kind == ScreenInputKind::pointer_down && button == SDL_BUTTON_LEFT) {
             if (over) {
+                card_.close();
                 // A locked button takes the press and opens nothing.
                 if (!laid.locked) {
                     pressed_ = true;
@@ -737,11 +968,23 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
         return LayerAnswer::pass;
     }
 
-    /// Takes the keys the button holds the focus for. Up and Down on the campaign screens go on.
+    /// Takes the keys the button holds the focus for, the information key,
+    /// which shows the card, and Escape while the card is open. Up and Down
+    /// on the campaign screens go on.
     ///
     /// @param pressed the key
     /// @return none or redraw when the button takes it; pass otherwise
-    LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override { return answer_key(pressed); }
+    LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override {
+        if (pressed == kit::Key::info && focused_ && card_.key_info(card_slot)) {
+            ++revision_;
+            return LayerAnswer::none;
+        }
+        if (pressed == kit::Key::escape && card_.key_close()) {
+            ++revision_;
+            return LayerAnswer::none;
+        }
+        return answer_key(pressed);
+    }
 
     /// Lets every shortcut go on.
     ///
@@ -756,7 +999,7 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     /// @return none or redraw when the button takes it; pass otherwise
     LayerAnswer pad_action(pad::Action action) override {
         if (action == pad::Action::library_search) {
-            const Geometry laid = geometry_of(runtime_, view_);
+            const Geometry laid = laid_out(view_);
             if (!laid.ok)
                 return LayerAnswer::pass;
             if (!laid.locked)
@@ -785,49 +1028,48 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     /// @return pass
     LayerAnswer wheel(kit::Point /*at*/, float /*notches*/) override { return LayerAnswer::pass; }
 
-    /// Returns the button, the waiting line beside START, the chip and the ring.
+    /// Returns the button and the waiting line beside START, for
+    /// automation and the pointer.
     ///
     /// The button's automation name is mutators, which the endpoint lists as
-    /// oa.mutators, and its text is its words: "Mutators", or "Mutators (4)"
-    /// for the set chosen. Tab's order holds the button.
+    /// oa.mutators, and its text is its words: "Mutators: off", or
+    /// "Mutators: 4 on" for the set chosen; it is checked while its lamp is
+    /// lit green. The waiting line is mutators.waiting, a label. The open
+    /// card's lines are battleroom.tip.line.<n>. Tab's order holds the button.
     ///
     /// @return the display list
     [[nodiscard]] kit::DisplayList display_list() const override {
         kit::DisplayList list;
-        const Geometry laid = geometry_of(runtime_, view_);
-        const kit::Fonts* fonts = runtime_.oa_layer().screen_fonts();
-        if (!laid.ok || fonts == nullptr)
+        const Geometry laid = laid_out(view_);
+        if (!laid.ok)
             return list;
-        const kit::Rect button = local_of(laid.button, laid.bounds);
-        kit::ButtonLook look;
-        look.style = kit::ButtonStyle::filled;
-        look.enabled = !laid.locked;
-        look.hovered = hovered_ && !laid.locked;
-        look.held = pressed_ && hovered_ && !laid.locked;
-        look.oa_mark = true;
-        fit_caption(look, *fonts, button, laid.chip ? local_of(*laid.chip, laid.bounds).x : 0);
-        kit::add_button(list, button, look, button_id, std::string(button_name));
+        kit::Control control;
+        control.id = button_id;
+        control.rect = local_of(laid.button, laid.bounds);
+        control.enabled = !laid.locked;
+        control.name = std::string(button_name);
+        control.kind = kit::ControlKind::button;
+        control.text =
+            mutators_words_shown(room_art(laid.battle), laid.frame, caption_for(chosen_count()));
+        control.checked = lamp(laid) == room::RoomLamp::green;
+        list.controls.push_back(std::move(control));
         list.tab_order.push_back(button_id);
         if (laid.reason) {
-            const kit::Rect box = local_of(*laid.reason, laid.bounds);
-            const auto measure = [&fonts](std::string_view text) {
-                return kit::text_width(*fonts, kit::FontRole::small, text);
-            };
-            add_text(
-                list,
-                box,
-                kit::fit(laid.reason_text, box.width, measure),
-                kit::colour::lock,
-                kit::Align::right
-            );
+            kit::Control line;
+            line.id = reason_id;
+            line.rect = local_of(*laid.reason, laid.bounds);
+            line.enabled = false;
+            line.name = std::string(reason_name);
+            line.kind = kit::ControlKind::area;
+            line.focusable = false;
+            line.text = shown_reason(laid);
+            list.controls.push_back(std::move(line));
         }
-        if (laid.chip) {
-            kit::ChipLook chip;
-            chip.text = laid.glyph;
-            kit::add_chip(list, local_of(*laid.chip, laid.bounds), chip, kit::no_control, {});
+        if (laid.card) {
+            const kit::Rect card = local_of(*laid.card, laid.bounds);
+            kit::add_hover_card(list, card, laid.card_look);
+            mp::presence_card_controls(list, card, laid.card_look);
         }
-        if (focused_)
-            kit::add_focus_ring(list, button, true);
         return list;
     }
 
@@ -845,7 +1087,8 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
 
     /// Closes once the setup is gone, a match has started, or a dialog is up.
     /// Gives up the focus once the screen's own focus is on a record again,
-    /// so the two rings never show at once.
+    /// so the two focus markers never show at once. Follows the words, the
+    /// lamp and the place.
     ///
     /// @return close when it should leave; otherwise none
     LayerAnswer tick() override {
@@ -859,6 +1102,24 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
                 focused_ = false;
                 ++revision_;
             }
+        }
+        // The words, the lamp and the place are drawn from the room's art,
+        // so a change of any of them is a new picture.
+        const int32_t card_before = card_.open_slot();
+        follow_card(laid_out(view_));
+        if (card_.open_slot() != card_before)
+            ++revision_;
+        const Geometry laid = laid_out(view_);
+        std::string now = caption_for(chosen_count());
+        now += '/';
+        now += std::to_string(static_cast<int32_t>(lamp(laid)));
+        now += laid.locked ? "l" : "-";
+        now += laid.reason_text;
+        now += std::to_string(laid.frame.x) + ',' + std::to_string(laid.frame.y) + ',' +
+               std::to_string(laid.frame.width) + ',' + std::to_string(laid.frame.height);
+        if (now != seal_) {
+            seal_ = std::move(now);
+            ++revision_;
         }
         return LayerAnswer::none;
     }
@@ -943,7 +1204,7 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     /// @param pressed the key
     /// @return none or redraw when the button takes it; pass otherwise
     LayerAnswer answer_key(kit::Key pressed) {
-        const Geometry laid = geometry_of(runtime_, view_);
+        const Geometry laid = laid_out(view_);
         if (!laid.ok)
             return LayerAnswer::pass;
         const int32_t current =
@@ -1068,43 +1329,150 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
         return chosen_set().size();
     }
 
-    /// Puts the button's words in the look, in the regular font where they
-    /// fit after the badge, else the small font, cut with … only when even
-    /// that does not fit. A chip inside the button's right end keeps the words
-    /// a padding clear of it.
+    /// The geometry for a view, the card placed while it is open.
     ///
-    /// @param look the look the words go in
-    /// @param fonts the fonts
-    /// @param button the button, in the screen's points
-    /// @param chip_left the chip's left edge; 0 when there is no chip
-    void fit_caption(
-        kit::ButtonLook& look, const kit::Fonts& fonts, const kit::Rect& button, int32_t chip_left
-    ) const {
-        const std::string words = caption_for(chosen_count());
-        const kit::ButtonMarkParts parts = kit::button_mark_parts(button);
-        int32_t room = parts.caption.width;
-        if (chip_left > 0) {
-            const int32_t pad = std::max(button.height / 5, int32_t{2});
-            room = std::min(room, chip_left - pad - parts.caption.x);
-        }
-        look.font = kit::FontRole::regular;
-        if (kit::text_width(fonts, kit::FontRole::regular, words) <= room) {
-            look.caption = words;
-            return;
-        }
-        look.font = kit::FontRole::small;
-        const auto measure = [&fonts](std::string_view text) {
-            return kit::text_width(fonts, kit::FontRole::small, text);
-        };
-        look.caption = measure(words) <= room ? words : kit::fit(words, std::max(room, 0), measure);
+    /// @param placed_on what the screen is placed on
+    /// @return the geometry
+    [[nodiscard]] Geometry laid_out(const LayerView& placed_on) const {
+        if (card_.open_slot() != card_slot)
+            return geometry_of(runtime_, placed_on);
+        const std::vector<MutatorsCardItem> items = card_items();
+        const kit::HoverCardLook look = mutators_card(items, true);
+        return geometry_of(runtime_, placed_on, &look);
     }
 
-    Runtime& runtime_;    ///< the runtime whose setups it shows over
-    LayerView view_{};    ///< the view it was last laid out for
-    bool hovered_{};      ///< the pointer is over the button
-    bool pressed_{};      ///< a press on the button is held
-    bool focused_{};      ///< the keyboard focus is on the button
-    uint64_t revision_{}; ///< counts the changes to how it looks
+    /// The mutators the card names, in the order they apply: the room's list
+    /// in the battle room, otherwise the setup's set, each named from its
+    /// installed manifest.
+    ///
+    /// @return the mutators
+    [[nodiscard]] std::vector<MutatorsCardItem> card_items() const {
+        std::vector<MutatorsCardItem> items;
+        if (room_host_shows(runtime_)) {
+            for (const oa::data::mutators::ResolvedMutator& one : runtime_.room_mutators())
+                items.push_back(
+                    {one.manifest.name.empty() ? one.manifest.id : one.manifest.name, false}
+                );
+            return items;
+        }
+        const std::vector<picker::Chosen>& chosen = chosen_set();
+        std::string key;
+        for (const picker::Chosen& one : chosen)
+            key += one.id + '\n';
+        if (key != names_key_) {
+            // The Mutators folder is read once a set, not on every frame.
+            names_key_ = key;
+            names_.clear();
+            const oa::data::mutator_library::Listing listing =
+                oa::data::mutator_library::list_installed(
+                    runtime_.user_folder_ /
+                    std::string(oa::data::mutator_library::mutators_folder_name)
+                );
+            for (const picker::Chosen& one : chosen) {
+                const oa::data::mutator_library::InstalledMutator* installed =
+                    oa::data::mutator_library::find(listing, one.id);
+                names_.push_back(
+                    installed != nullptr && !installed->manifest.name.empty()
+                        ? installed->manifest.name
+                        : one.id
+                );
+            }
+        }
+        for (const std::string& name : names_)
+            items.push_back({name, false});
+        return items;
+    }
+
+    /// Follows the pointer for the card: resting on the button opens it,
+    /// and it stays while the pointer is on the button or the card.
+    ///
+    /// @param laid the geometry
+    void follow_card(const Geometry& laid) {
+        bool over_button = false;
+        bool over_card = false;
+        if (laid.ok && have_pointer_) {
+            const kit::Point local{
+                pointer_layer_.x - laid.bounds.x, pointer_layer_.y - laid.bounds.y
+            };
+            over_button = kit::contains(local_of(laid.button, laid.bounds), local);
+            over_card = (laid.card && kit::contains(local_of(*laid.card, laid.bounds), local)) ||
+                        (laid.arrow && kit::contains(local_of(*laid.arrow, laid.bounds), local));
+        }
+        card_.over_card(over_card);
+        (void)card_.pointer(
+            over_button ? card_slot : mp::presence_card_no_slot,
+            static_cast<uint64_t>(SDL_GetTicks())
+        );
+    }
+
+    /// The waiting line as the room draws it, in UTF-8: whole where it fits,
+    /// else cut as the room cuts it.
+    ///
+    /// @param laid the geometry, its line placed
+    /// @return the line
+    [[nodiscard]] std::string shown_reason(const Geometry& laid) const {
+        if (!laid.reason)
+            return {};
+        const room::RoomArt art = room_art(laid.battle);
+        const std::string text = room::room_text(laid.reason_text);
+        const std::string fitted = room::fit_room_text(
+            art, room::RoomFont::label, text, points_rect_frame(view_, *laid.reason).width
+        );
+        if (fitted == text)
+            return laid.reason_text;
+        return oa::present::decode_game_text(fitted, oa::present::game_text_settings().utf8);
+    }
+
+    /// The button's lamp: unlit while no mutator is on; in the battle room,
+    /// red while a seated player lacks one; otherwise green.
+    ///
+    /// @param laid the geometry
+    /// @return the lamp
+    [[nodiscard]] room::RoomLamp lamp(const Geometry& laid) const {
+        if (chosen_count() == 0)
+            return room::RoomLamp::unlit;
+        if (laid.battle) {
+            mp::Lobby& lobby = mp::multiplayer_lobby();
+            if (lobby.game != nullptr &&
+                mp::lobby_mutators_block(lobby).hold != mp::MutatorsHold::none)
+                return room::RoomLamp::red;
+        }
+        return room::RoomLamp::green;
+    }
+
+    /// The art the button is drawn with: the setup's own, or the battle
+    /// room's, which is read once while the screen lives.
+    ///
+    /// @param battle true in the battle room
+    /// @return the art
+    [[nodiscard]] room::RoomArt room_art(bool battle) const {
+        if (!battle)
+            return BrainSeatsAccess::screen_art(runtime_);
+        if (!battle_art_read_) {
+            battle_art_read_ = true;
+            battle_art_ = BrainSeatsAccess::load_art(runtime_, battle_room_art_names());
+        }
+        if (!battle_art_)
+            return {};
+        return {&*battle_art_, room::room_palette(*battle_art_)};
+    }
+
+    Runtime& runtime_;               ///< the runtime whose setups it shows over
+    LayerView view_{};               ///< the view it was last laid out for
+    bool hovered_{};                 ///< the pointer is over the button
+    bool pressed_{};                 ///< a press on the button is held
+    bool focused_{};                 ///< the keyboard focus is on the button
+    uint64_t revision_{};            ///< counts the changes to how it looks
+    std::string seal_{};             ///< the words and the lamp last drawn
+    mp::PresenceCardTrigger card_{}; ///< when the card opens and closes
+    bool have_pointer_{};            ///< the pointer has been seen
+    kit::Point pointer_layer_{};     ///< the pointer, in the layer's points
+    /// The set the card's names were read for, its ids one a line.
+    mutable std::string names_key_{};
+    mutable std::vector<std::string> names_{}; ///< those names, in the set's order
+    /// The battle room's art, read on its first draw; nothing when it could not be read.
+    mutable std::optional<room::ScreenResources> battle_art_{};
+    mutable bool battle_art_read_{}; ///< the battle room's art has been read
 };
 
 void Runtime::keep_mutator_button_screen() {

@@ -55,12 +55,7 @@ FaceFont face_of(const Fonts& fonts, FontRole role) noexcept {
     const renderer::TextFont& font = small ? fonts.small : fonts.regular;
     const present::FontCharacters& characters =
         small ? fonts.small_characters : fonts.regular_characters;
-    return {
-        font,
-        characters,
-        small ? present::TextFace::status : present::TextFace::message,
-        !holds_glyphs(font.font)
-    };
+    return {font, characters, modern_face(role), !holds_glyphs(font.font)};
 }
 
 /// Tells whether a text is all ASCII, which a game font draws byte for byte.

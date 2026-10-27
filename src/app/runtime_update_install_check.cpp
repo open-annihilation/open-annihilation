@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-update-download: a package served on 127.0.0.1, then the ready
-// prompt and the recorded hand-off. The key is made from a fixed seed.
-// The published feed is not requested, and the helper is not started.
+// prompt and the recorded hand-off. Keep it ready, Escape's answer, schedules
+// nothing and a quit then installs nothing. The key is made from a fixed
+// seed. The published feed is not requested, and the helper is not started.
 
 #include "oa/app/runtime.hpp"
 
@@ -13,6 +14,11 @@
 
 #include "oa/app/game_directory.hpp"
 #include "oa/app/update/build.hpp"
+#include "oa/app/update/centre.hpp"
+#include "oa/app/update/choices.hpp"
+#include "oa/app/update/receipt.hpp"
+#include "oa/formats/png.hpp"
+#include "window_placement.hpp"
 #include "oa/base/sha256.hpp"
 #include "oa/base/signing/ed25519.hpp"
 #include "oa/data/catalogue/check.hpp"
@@ -28,7 +34,9 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <ostream>
 #include <stdexcept>
@@ -47,6 +55,7 @@ namespace dialogs = oa::ui::frontend_dialogs;
 namespace kit = oa::ui::kit;
 namespace layout = oa::ui::display_layout;
 namespace settings = oa::ui::engine_settings;
+namespace feed = oa::data::engine_feed;
 
 namespace {
 
@@ -184,10 +193,36 @@ fixture::Reply partial_reply(const std::vector<uint8_t>& file, std::size_t first
     return reply;
 }
 
+/// Writes a frame as a PNG file in the working folder.
+///
+/// @param file the file
+/// @param frame the frame
+void write_picture(const fs::path& file, const renderer::Surface& frame) {
+    std::vector<uint8_t> bytes;
+    const oa::formats::png::Header header{
+        frame.width, frame.height, 8, oa::formats::png::ColorType::rgb, {}
+    };
+    require(
+        oa::formats::png::write(oa::formats::png::Image{header, {}, frame.rgb}, &bytes),
+        "could not encode " + path_to_utf8(file)
+    );
+    std::ofstream out(file, std::ios::binary);
+    out.write(
+        reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size())
+    );
+    require(static_cast<bool>(out), "could not write " + path_to_utf8(file));
+}
+
 } // namespace
 
 int Runtime::check_update_download() {
     require(options_.data_dir.has_value(), "the run has no --data-dir");
+    // A feed and a package an earlier run of this case stored would be found
+    // again at the first menu; this run starts with none.
+    {
+        std::error_code cleared;
+        fs::remove_all(*options_.data_dir / "updates", cleared);
+    }
     preference_values_.erase(std::string(settings::key::update_skipped));
     preference_values_.erase(std::string(settings::key::update_checked));
     preference_values_[std::string(settings::key::language)] = "en";
@@ -270,6 +305,253 @@ int Runtime::check_update_download() {
         std::cout << "update-download: " << line << '\n';
         std::cout.flush();
     };
+
+    if (options_.update_download_case == "pictures") {
+        // Each update screen in each state, at Compact, Regular and Large:
+        // the update centre reads made-up states, and nothing is fetched.
+        // The pictures are written to the working folder as
+        // update-<screen>-<state>-<width>x<height>.png. The check is asked
+        // for only, so the named feed is never fetched.
+        update::write_check_mode(preference_values_, update::CheckMode::when_asked);
+        preferences_dirty_ = true;
+        flush_preferences();
+
+        struct PictureWindow {
+            int32_t width{};                     ///< the window's width, in pixels
+            int32_t height{};                    ///< its height
+            window_placement::WindowSize size{}; ///< the Window size it is drawn at
+        };
+
+        constexpr std::array<PictureWindow, 3> windows{{
+            {640, 480, window_placement::WindowSize::compact},
+            {1280, 720, window_placement::WindowSize::regular},
+            {1920, 1080, window_placement::WindowSize::large},
+        }};
+        if (update_ == nullptr)
+            update_.reset(new UpdateState());
+        const auto ticks = [&](int32_t count) {
+            for (int32_t frame = 0; frame < count; ++frame)
+                idle_tick();
+        };
+        const auto capture = [&](const std::string& name) {
+            ticks(3);
+            oa_layer().read_whole_window(true);
+            renderer::Surface presented;
+            capture_frame_ = &presented;
+            render();
+            capture_frame_ = nullptr;
+            oa_layer().read_whole_window(false);
+            require(presented.width > 0 && presented.height > 0, "no frame for " + name);
+            write_picture(fs::path(name), presented);
+            say("wrote " + name);
+        };
+        // Every screen over the main menu goes; the pill comes back with the next state.
+        const auto clear_screens = [&]() {
+            dialogs::reset_dialogs();
+            OaLayer& layer = oa_layer();
+            for (int pass = 0; pass < 12; ++pass) {
+                LayerScreen* top = layer.top();
+                if (top == nullptr)
+                    break;
+                layer.close(top);
+            }
+            ticks(2);
+        };
+        update::CentreInputs offered;
+        offered.current_version = "0.8.7";
+        offered.kept_version = "0.8.6";
+        offered.check = update::CheckState::offered;
+        offered.offer_version = "0.8.8";
+        offered.offer_release = 808;
+        offered.offer_size = 25690112;
+        update::CentreInputs checking = offered;
+        checking.check = update::CheckState::checking;
+        checking.offer_version.clear();
+        checking.offer_release = 0;
+        update::CentreInputs downloading = offered;
+        downloading.download = update::DownloadState::downloading;
+        downloading.download_release = 808;
+        downloading.download_version = "0.8.8";
+        downloading.received = 10590617;
+        downloading.total = 25690112;
+        downloading.bytes_per_second = 180000;
+        update::CentreInputs paused = downloading;
+        paused.download = update::DownloadState::paused_by_player;
+        paused.bytes_per_second = 0;
+        update::CentreInputs ready = downloading;
+        ready.download = update::DownloadState::ready;
+        ready.received = ready.total;
+        update::CentreInputs scheduled = ready;
+        scheduled.scheduled = 808;
+        update::CentreInputs up_to_date;
+        up_to_date.current_version = "0.8.7";
+        up_to_date.kept_version = "0.8.6";
+        up_to_date.check = update::CheckState::up_to_date;
+
+        // The release the offer asks about, as a verified feed would hold it.
+        auto feed_held = std::make_shared<feed::Feed>();
+        {
+            feed::Release release;
+            release.release = 808;
+            const std::optional<formats::oamod::EngineVersion> version =
+                formats::oamod::parse_engine_version("0.8.8");
+            if (version.has_value())
+                release.version = *version;
+            release.version_text = "0.8.8";
+            release.notes.push_back(
+                {"en",
+                 {"Settings, the Library and the keys on Kit 2",
+                  "Brains and mutators in the game's own rooms",
+                  "Every update state named, with Pause and Cancel"}}
+            );
+            release.page = "https://example.invalid/releases/0.8.8";
+            feed::Package package;
+            package.id = update::this_build({}).package;
+            package.zip.file = "engine.zip";
+            package.zip.size = 25690112;
+            release.packages.push_back(std::move(package));
+            feed_held->channel = "stable";
+            feed_held->releases.push_back(std::move(release));
+        }
+
+        update::Receipt restored;
+        restored.action = update::Action::install;
+        restored.outcome = update::Outcome::failed_restored;
+        restored.from_version = "0.8.7";
+        restored.to_version = "0.8.8";
+        restored.release = 808;
+        restored.started_at = 1;
+        restored.finished_at = 2;
+        restored.shown = true;
+        restored.steps.push_back({update::Step::verify, update::StepResult::done, {}});
+        restored.steps.push_back(
+            {update::Step::swap,
+             update::StepResult::failed,
+             "open-annihilation.exe: another program had it open"}
+        );
+        restored.steps.push_back({update::Step::undo, update::StepResult::done, {}});
+        update::Receipt unfinished = restored;
+        unfinished.outcome = update::Outcome::recovery_incomplete;
+        unfinished.steps.back() = {
+            update::Step::undo, update::StepResult::failed, "3 files could not be moved back"
+        };
+        const auto failed_inputs = [](const update::Receipt& receipt) {
+            update::CentreInputs inputs;
+            inputs.current_version = "0.8.7";
+            inputs.held = receipt.release;
+            inputs.receipt = receipt;
+            return inputs;
+        };
+
+        for (const PictureWindow& window : windows) {
+            const std::string size =
+                std::to_string(window.width) + "x" + std::to_string(window.height);
+            require(
+                SDL_SetWindowSize(sdl_.window, window.width, window.height) &&
+                    SDL_SyncWindow(sdl_.window),
+                "the window did not take " + size
+            );
+            apply_output_mode();
+            oa_layer().set_window_size(window.size);
+            if (screen_ != Screen::main_menu)
+                load(Screen::main_menu);
+            ticks(4);
+            clear_screens();
+            const auto settings_picture = [&](const std::string& state) {
+                clear_screens();
+                open_engine_settings_from_menu();
+                settings::Dialog* dialog = engine_settings_dialog();
+                require(dialog != nullptr, "settings did not open on " + size);
+                dialog->page = settings::Page::updates;
+                apply_update_download(*dialog);
+                capture("update-settings-" + state + "-" + size + ".png");
+                clear_screens();
+            };
+            const auto menu_picture = [&](const std::string& state) {
+                clear_screens();
+                ticks(3);
+                capture("update-menu-" + state + "-" + size + ".png");
+            };
+            const auto screen_picture = [&](const std::string& screen, const std::string& state) {
+                const auto deadline = deadline_from(std::chrono::seconds{10});
+                while (oa_layer().find(screen) == nullptr) {
+                    require(
+                        std::chrono::steady_clock::now() < deadline,
+                        screen + " did not show on " + size
+                    );
+                    idle_tick();
+                }
+                capture("update-" + screen + "-" + state + "-" + size + ".png");
+                clear_screens();
+            };
+
+            update_->pictured = checking;
+            settings_picture("checking");
+
+            update_->pictured = offered;
+            update_->held = {};
+            update_->held.state = update::CheckState::offered;
+            update_->held.feed = feed_held;
+            update_->held.offer.release = &feed_held->releases.front();
+            update_->held.offer.package = &feed_held->releases.front().packages.front();
+            update_->held.offer.way = feed::Way::in_place;
+            update_->offered_release.reset();
+            {
+                const auto deadline = deadline_from(std::chrono::seconds{10});
+                while (!is_update_question(oa_layer().find(QuestionScreen::screen_name))) {
+                    require(
+                        std::chrono::steady_clock::now() < deadline,
+                        "the offer did not show on " + size
+                    );
+                    idle_tick();
+                }
+                capture("update-offer-offered-" + size + ".png");
+                clear_screens();
+            }
+            update_->held = {};
+            settings_picture("offered");
+
+            update_->pictured = downloading;
+            menu_picture("downloading");
+            settings_picture("downloading");
+
+            update_->pictured = paused;
+            menu_picture("paused");
+            settings_picture("paused");
+
+            update_->pictured = ready;
+            update_->ready_prompt_release.reset();
+            screen_picture("ready-update", "ready");
+            menu_picture("ready");
+            settings_picture("ready");
+            update_->ready_prompt_release = 808;
+
+            update_->pictured = scheduled;
+            menu_picture("scheduled");
+            settings_picture("scheduled");
+
+            update_->pictured = failed_inputs(restored);
+            update_->receipt = restored;
+            update_->receipt_loaded = true;
+            take_update_action(update::Act::details);
+            screen_picture("update-receipt", "failed-restored");
+            settings_picture("failed-restored");
+
+            update_->pictured = failed_inputs(unfinished);
+            update_->receipt = unfinished;
+            take_update_action(update::Act::details);
+            screen_picture("update-receipt", "recovery-incomplete");
+
+            update_->pictured = up_to_date;
+            update_->receipt.reset();
+            take_update_action(update::Act::roll_back);
+            screen_picture("update-previous", "roll-back");
+            settings_picture("up-to-date");
+        }
+        update_->pictured.reset();
+        say("pictures done");
+        return 0;
+    }
 
     if (notice_only) {
         // The dummy feed on the command line must not be fetched.
@@ -395,6 +677,30 @@ int Runtime::check_update_download() {
         require(!saw_offer, "Download in the background still asked");
         say("no offer prompt");
         say("ready prompt first");
+        // Escape is Keep it ready: nothing is scheduled, and quitting installs nothing.
+        {
+            const auto deadline = deadline_from(std::chrono::seconds{10});
+            while (oa_layer().find("ready-update") == nullptr) {
+                require(
+                    std::chrono::steady_clock::now() < deadline, "the ready prompt did not show"
+                );
+                clear_blockers();
+                idle_tick();
+            }
+        }
+        press_escape();
+        for (int frame = 0; frame < 4; ++frame)
+            idle_tick();
+        require(!ready_visible(), "Escape left the ready prompt open");
+        require(
+            !update::read_scheduled(preference_values_).has_value(),
+            "Keep it ready scheduled the install"
+        );
+        require(!hand_off_requested(), "a quit after Keep it ready would install");
+        require(
+            update_header_note().find("ready") != std::string::npos, "the package is not kept ready"
+        );
+        say("keep it ready schedules nothing");
         return 0;
     }
 
@@ -440,6 +746,25 @@ int Runtime::check_update_download() {
         if (!started)
             say("update started the download");
         say("resumed with Range");
+    }
+    // The menu pill shows the download: its Pause holds it, a state of its
+    // own the pill then names, and its Resume carries it on.
+    {
+        click_named("oa.update-pill.pause");
+        require(
+            shot().state == update::DownloadState::paused_by_player,
+            "the pill's Pause did not pause the download"
+        );
+        require(
+            update_header_note().find("paused") != std::string::npos,
+            "the header note does not say paused"
+        );
+        click_named("oa.update-pill.resume");
+        require(
+            shot().state != update::DownloadState::paused_by_player,
+            "the pill's Resume did not carry the download on"
+        );
+        say("pill paused and resumed");
     }
     // The ranged answer is held for kHeadDelayMs. The match has to be on
     // before that body arrives, or the file finishes without a pause.

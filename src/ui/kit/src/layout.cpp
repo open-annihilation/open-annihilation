@@ -151,6 +151,19 @@ SizeClass size_class_of(int32_t width_points, int32_t height_points) noexcept {
     return SizeClass::compact;
 }
 
+SizeClass
+size_class_within(SizeClass chosen, int32_t width_points, int32_t height_points) noexcept {
+    const auto fits = [&](SizeClass size_class) {
+        const Metrics& sized = metrics_of(size_class);
+        return width_points >= sized.dialog_width && height_points >= sized.dialog_height;
+    };
+    if (chosen == SizeClass::large && fits(SizeClass::large))
+        return SizeClass::large;
+    if (chosen != SizeClass::compact && fits(SizeClass::regular))
+        return SizeClass::regular;
+    return SizeClass::compact;
+}
+
 Frame frame_of(const Viewport& viewport) noexcept {
     const int32_t percent = percent_of(viewport.scale_percent);
     const int32_t inner_width = viewport.width - viewport.safe.left - viewport.safe.right;
@@ -167,15 +180,35 @@ Frame frame_of(const Viewport& viewport) noexcept {
     return frame;
 }
 
-Viewport layer_viewport(const Viewport& canvas, int32_t chosen_percent) noexcept {
+Viewport layer_viewport(const Viewport& canvas, int32_t chosen_percent, SizeClass wanted) noexcept {
     const int32_t room_width = canvas.width - canvas.safe.left - canvas.safe.right;
     const int32_t room_height = canvas.height - canvas.safe.top - canvas.safe.bottom;
     Viewport viewport = canvas;
     // 0 or less is Auto on whole steps, except the one value that offers 150%.
     const bool offer_fractional = chosen_percent == auto_with_fraction_percent;
     int32_t percent = chosen_percent;
-    if (chosen_percent <= 0)
+    if (chosen_percent <= 0) {
         percent = auto_scale(canvas.height, canvas.density, offer_fractional);
+        // The scale serves the class: one step down where that alone gives
+        // the room the wanted class, never below the density floor or 1x.
+        const auto class_at = [&](int32_t scale_percent) {
+            return size_class_of(
+                floor_mul_div(room_width, 100, scale_percent),
+                floor_mul_div(room_height, 100, scale_percent)
+            );
+        };
+        int32_t below = percent - 100;
+        if (offer_fractional && percent == 200)
+            below = fractional_scale_percent;
+        else if (percent == fractional_scale_percent)
+            below = 100;
+        const long density_step =
+            std::max(long{1}, std::lround(static_cast<double>(canvas.density)));
+        const int32_t floor_percent = static_cast<int32_t>(density_step) * 100;
+        if (below >= 100 && below >= floor_percent && class_at(percent) < wanted &&
+            class_at(below) >= wanted)
+            percent = below;
+    }
     if (percent == fractional_scale_percent) {
         // One and a half where Compact's dialog fits the room at it, else 1x.
         const bool fits_fraction =

@@ -2,18 +2,22 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-brain-room: a battle room hosted alone, at 640x480 and 1280x720.
-// With no brain installed, a seated computer shows no seat button and the
-// frame matches one taken with that screen closed, and the record this
-// machine sends carries no brain field. Steady Commander and Lantern Scout
-// are then written, and the remembered multiplayer seats name Steady
-// Commander at firm. A new computer reads "Steady Commander 1.2 · Firm",
-// its difficulty reads Hard and is greyed, and the record carries that
-// brain. The button meets no control of the room but its row's empty
-// screen-size column. The picker offers the built-in player's three levels;
-// Medium makes the label "Built-in · Medium" and drops the brain field.
-// Lantern Scout with every computer seat sets both rows, and its card names
-// full awareness. Each size's frame is written as
-// brain-room-host-<w>x<h>.png while Steady Commander is showing.
+// With no brain installed, a seated computer shows no seat and the frame
+// matches one taken with that screen closed, and the record this machine
+// sends carries no brain field. Steady Commander and Lantern Scout are then
+// written, and the remembered multiplayer seats name Steady Commander at
+// firm. A new computer's Resolution cell reads "Steady Commander 1.2 ·
+// Firm", its Mem cell shows Firm over the room's greyed Hard, and the
+// record carries that brain. The cell meets no control of the room but its
+// row's empty screen-size column. The notch on the computer's name opens
+// the brain menu, drawn as the room's list box, and Escape closes it. The
+// menu's built-in player gives "Built-in · Hard", its level before gives
+// Medium and drops the brain field, and the Mem cell steps the built-in
+// player to Hard, Easy and Medium. Use for every computer seat and
+// Lantern Scout set both rows, and its card names full awareness. Each
+// size's frame is written as brain-room-host-<w>x<h>.png while Steady
+// Commander is showing, and with the menu open as
+// brain-room-menu-<w>x<h>.png.
 
 #include "oa_layer.hpp"
 #include "oa_layer_check.hpp"
@@ -320,42 +324,15 @@ void Runtime::check_brain_room() {
         pointer_at(pixel, SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT);
         frames(1);
     };
-    const auto wheel_list = [&](float notches) {
-        const std::optional<AutomationControl> pane = named("oa.brains.list");
-        if (!pane.has_value())
-            return false;
-        const layout::Point at{
-            pane->window_x + pane->window_width / 2, pane->window_y + pane->window_height / 2
-        };
-        SDL_Event motion =
-            window_pointer_event(sdl_.window, sdl_.renderer, SDL_EVENT_MOUSE_MOTION, at, 0);
-        dispatch_event(motion, running);
-        SDL_Event wheel{};
-        wheel.type = SDL_EVENT_MOUSE_WHEEL;
-        wheel.wheel.windowID = motion.motion.windowID;
-        wheel.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
-        wheel.wheel.y = notches;
-        wheel.wheel.mouse_x = motion.motion.x;
-        wheel.wheel.mouse_y = motion.motion.y;
-        dispatch_event(wheel, running);
-        require(running, "a wheel ended the run");
+    const auto press_escape = [&] {
+        SDL_Event event{};
+        event.type = SDL_EVENT_KEY_DOWN;
+        event.key.key = SDLK_ESCAPE;
+        event.key.scancode = SDL_SCANCODE_ESCAPE;
+        event.key.down = true;
+        dispatch_event(event, running);
+        require(running, "a key ended the run");
         frames(1);
-        return true;
-    };
-    const auto show_row = [&](std::string_view row_name_text) {
-        if (named(row_name_text).has_value())
-            return;
-        if (named("oa.brains.back").has_value())
-            click_named("oa.brains.back");
-        for (int32_t turn = 0; turn < 12 && !named(row_name_text).has_value(); ++turn) {
-            if (!wheel_list(1.0F))
-                break;
-        }
-        for (int32_t turn = 0; turn < 24 && !named(row_name_text).has_value(); ++turn) {
-            if (!wheel_list(-1.0F))
-                break;
-        }
-        require_named(row_name_text, std::string(row_name_text) + " is not shown");
     };
     const auto dismiss = [&] {
         dialogs::reset_dialogs();
@@ -570,8 +547,15 @@ void Runtime::check_brain_room() {
             !(*steady_brains)[0].full_awareness,
         "the record's brain field is not Steady Commander 1.2 at firm"
     );
+    const std::string steady_level_name = "oa.brain-seat-level." + std::to_string(steady_slot);
+    const AutomationControl steady_level =
+        require_named(steady_level_name, steady_level_name + " is not shown");
+    require(
+        steady_level.text == "Firm", "the Mem cell does not read Firm (" + steady_level.text + ")"
+    );
     std::cout << "brain room check: the row reads " << steady.text
-              << ", MEM is a greyed Hard, and the record carries that brain\n";
+              << ", its Mem cell Firm over the room's greyed Hard, and the record carries that "
+                 "brain\n";
 
     const auto check_overlap = [&](const CheckWindow& window) {
         resize(window);
@@ -624,32 +608,52 @@ void Runtime::check_brain_room() {
         const std::string picture = "brain-room-host-" + size + ".png";
         write_png(fs::path(picture), presented);
         std::cout << "brain room check: " << size
-                  << " the button meets no control but its row's empty column, wrote " << picture
+                  << " the cell meets no control but its row's empty column, wrote " << picture
                   << "\n";
+        const std::string notch_name = "oa.brain-seat-menu." + std::to_string(steady_slot);
+        click_named(notch_name);
+        require(
+            named("oa.brain-menu.row.built-in").has_value() &&
+                named("oa.brain-menu.row.steady-commander").has_value(),
+            "the notch did not open the brain menu" + on
+        );
+        require(
+            oa_layer().find(brains::screen_name) == nullptr, "the notch opened the picker" + on
+        );
+        pointer_at({0, 0}, SDL_EVENT_MOUSE_MOTION, 0);
+        frames(1);
+        const renderer::Surface menu_shown = capture();
+        const std::string menu_picture = "brain-room-menu-" + size + ".png";
+        write_png(fs::path(menu_picture), menu_shown);
+        press_escape();
+        require(!named("oa.brain-menu.row.built-in").has_value(), "Escape left the menu open" + on);
+        std::cout << "brain room check: the notch opens the brain menu, Escape closes it, wrote "
+                  << menu_picture << "\n";
     };
     for (const CheckWindow& window : kWindows)
         check_overlap(window);
 
     resize(kWindows[0]);
     click_named(steady_name);
-    require(oa_layer().find(brains::screen_name) != nullptr, "the button did not open the picker");
-    show_row("oa.brains.row.built-in");
-    click_named("oa.brains.row.built-in");
-    if (!named("oa.brains.level.easy").has_value() && named("oa.brains.details").has_value())
-        click_named("oa.brains.details");
-    require_named("oa.brains.level.easy", "the built-in player's Easy is not shown");
-    require_named("oa.brains.level.medium", "the built-in player's Medium is not shown");
-    require_named("oa.brains.level.hard", "the built-in player's Hard is not shown");
-    std::cout << "brain room check: the picker offers the built-in player's three levels\n";
-    click_named("oa.brains.level.medium");
-    click_named("oa.brains.use");
-    require(oa_layer().find(brains::screen_name) == nullptr, "USE THIS left the picker open");
+    require(named("oa.brain-menu.row.built-in").has_value(), "the cell did not open the menu");
+    click_named("oa.brain-menu.row.built-in");
+    frames(2);
+    const std::string hard_label = labelled("Built-in", {}, "Hard");
+    require(
+        require_named(steady_name, steady_name + " left after the built-in player").text ==
+            hard_label,
+        "the built-in player did not give " + hard_label
+    );
+    click_named(steady_name);
+    click_named("oa.brain-menu.level.previous");
+    press_escape();
     frames(2);
     const std::string built_label = labelled("Built-in", {}, "Medium");
     const AutomationControl built =
-        require_named(steady_name, steady_name + " left after USE THIS");
+        require_named(steady_name, steady_name + " left after the level before");
     require(
-        built.text == built_label, "USE THIS did not put " + built_label + " (" + built.text + ")"
+        built.text == built_label,
+        "the level before did not put " + built_label + " (" + built.text + ")"
     );
     const mp::Control* built_mem = mem_of(steady_slot);
     require(
@@ -660,28 +664,57 @@ void Runtime::check_brain_room() {
     require(
         !brain_field().has_value(), "the record still carries a brain field for the built-in player"
     );
-    std::cout << "brain room check: the built-in player at Medium reads " << built.text
-              << ", MEM reads Medium, and the record has no brain field\n";
+    std::cout << "brain room check: the menu's built-in player and its level before read "
+              << built.text << ", MEM reads Medium, and the record has no brain field\n";
+
+    // The Mem cell steps the built-in player's level as 3.1c steps a
+    // computer's difficulty: Medium, Hard, Easy and Medium again.
+    {
+        const std::string mem_name = row_name("MEM", steady_slot);
+        const mp::BattleRoomControl* mem = nullptr;
+        const std::vector<mp::BattleRoomControl> room = mp::multiplayer_battle_room_controls();
+        for (const mp::BattleRoomControl& control : room) {
+            if (control.name == mem_name && control.width > 0 && control.height > 0)
+                mem = &control;
+        }
+        require(mem != nullptr, "the row has no Mem cell in the room");
+        const LayerView placed = oa_layer().view();
+        const int32_t percent = std::max(placed.scale_percent, int32_t{100});
+        const kit::Rect mem_window = kit::to_canvas(
+            frame_to_points(placed, kit::Rect{mem->x, mem->y, mem->width, mem->height}), percent
+        );
+        const layout::Point at{
+            mem_window.x + mem_window.width / 2, mem_window.y + mem_window.height / 2
+        };
+        for (const char* level : {"Hard", "Easy", "Medium"}) {
+            pointer_at(at, SDL_EVENT_MOUSE_MOTION, 0);
+            pointer_at(at, SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT);
+            pointer_at(at, SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT);
+            frames(2);
+            const std::string stepped = labelled("Built-in", {}, level);
+            const AutomationControl now =
+                require_named(steady_name, steady_name + " left after the Mem cell");
+            require(
+                now.text == stepped,
+                "the Mem cell did not step to " + stepped + " (" + now.text + ")"
+            );
+        }
+    }
+    std::cout << "brain room check: the Mem cell steps the built-in player to Hard, Easy and "
+                 "Medium\n";
 
     const int32_t second_slot = seat_computer();
     const std::string second_name = "oa.brain-seat." + std::to_string(second_slot);
     click_named(steady_name);
-    require(
-        oa_layer().find(brains::screen_name) != nullptr,
-        "the seat button did not open the picker again"
-    );
-    show_row("oa.brains.row.lantern-scout");
-    click_named("oa.brains.row.lantern-scout");
-    if (!named("oa.brains.every-seat.on").has_value() && named("oa.brains.details").has_value())
-        click_named("oa.brains.details");
-    click_named("oa.brains.every-seat.on");
+    require(named("oa.brain-menu.every-seat").has_value(), "the cell did not open the menu again");
+    click_named("oa.brain-menu.every-seat");
     const AutomationControl every =
-        require_named("oa.brains.every-seat", "every computer seat is not shown");
-    require(every.checked, "every computer seat is not on");
-    click_named("oa.brains.use");
+        require_named("oa.brain-menu.every-seat", "every computer seat is not shown");
+    require(every.checked, "every computer seat is not ticked");
+    click_named("oa.brain-menu.row.lantern-scout");
     require(
-        oa_layer().find(brains::screen_name) == nullptr,
-        "USE THIS left the picker open after Lantern Scout"
+        !named("oa.brain-menu.row.lantern-scout").has_value(),
+        "choosing Lantern Scout left the menu open"
     );
     frames(2);
     const std::string lantern_label = labelled("Lantern Scout", "1.0", "Wide");

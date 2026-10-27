@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-update-roll-back: a state file written before the start, then
-// confirming it, the roll-back prompt, or ROLL BACK. The guard in main
-// does not count this run, because the option is a check.
+// confirming it, the roll-back prompt, or ROLL BACK. The confirm case also
+// leaves a receipt of a failed install and checks it is shown once and
+// holds its release. The guard in main does not count this run, because the
+// option is a check.
 
 #include "oa/app/runtime.hpp"
 
@@ -12,7 +14,9 @@
 #include "user_folder_state.hpp"
 
 #include "oa/app/update/build.hpp"
+#include "oa/app/update/choices.hpp"
 #include "oa/app/update/plan.hpp"
+#include "oa/app/update/receipt.hpp"
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/first_run/first_run.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
@@ -106,7 +110,7 @@ int Runtime::check_update_roll_back() {
             LayerScreen* top = layer.top();
             if (top == nullptr || top->name() == "roll-back" || top->name() == "update-previous" ||
                 top->name() == "settings" || top->name() == "ready-update" ||
-                top->name() == "updated-notice")
+                top->name() == "updated-notice" || top->name() == "update-receipt")
                 return;
             layer.close(top);
         }
@@ -157,6 +161,28 @@ int Runtime::check_update_roll_back() {
     };
 
     if (part == "confirm") {
+        // A receipt of an install that failed and was put back, left by the helper.
+        constexpr int64_t failed_release = 7;
+        const fs::path receipt_path =
+            *options_.data_dir / "updates" / std::string(update::receipt_file_name);
+        {
+            update::Receipt receipt;
+            receipt.action = update::Action::install;
+            receipt.outcome = update::Outcome::failed_restored;
+            receipt.from_version = version;
+            receipt.to_version = "9.9.9";
+            receipt.release = failed_release;
+            receipt.started_at = 1;
+            receipt.finished_at = 2;
+            receipt.steps.push_back({update::Step::verify, update::StepResult::done, {}});
+            receipt.steps.push_back(
+                {update::Step::swap, update::StepResult::failed, "another program had it open"}
+            );
+            receipt.steps.push_back({update::Step::undo, update::StepResult::done, {}});
+            std::string why;
+            require(update::write_receipt(receipt_path, receipt, &why), "the receipt: " + why);
+        }
+        update::write_scheduled(preference_values_, failed_release);
         settle_menu();
         const auto deadline = deadline_from(std::chrono::seconds{20});
         std::optional<update::State> state;
@@ -169,6 +195,57 @@ int Runtime::check_update_roll_back() {
             require(std::chrono::steady_clock::now() < deadline, "the version was not confirmed");
         }
         say("confirmed");
+        {
+            const auto shown = deadline_from(std::chrono::seconds{20});
+            LayerScreen* screen = nullptr;
+            while (screen == nullptr) {
+                require(std::chrono::steady_clock::now() < shown, "the receipt was not shown");
+                idle_tick();
+                screen = oa_layer().find("update-receipt");
+                if (screen == nullptr)
+                    screen = oa_layer().waiting("update-receipt");
+            }
+            const kit::Question& asked = static_cast<const QuestionScreen*>(screen)->question();
+            require(
+                asked.title == "The update failed. " + version + " was put back.",
+                "the receipt's title was " + asked.title
+            );
+            // What happened lists each step, the failed one marked failed.
+            bool listed = false;
+            for (const kit::QuestionPart& part : asked.parts)
+                for (const kit::QuestionBox& box : part.boxes)
+                    for (const kit::BoxLine& line : box.lines)
+                        if (line.mark == kit::LineMark::failed &&
+                            line.text.find("another program had it open") != std::string::npos)
+                            listed = true;
+            require(listed, "the receipt did not list the failed step");
+            require(
+                asked.buttons.size() == 3 && asked.buttons[0].id == "show-the-log" &&
+                    asked.buttons[0].quiet && asked.buttons[1].id == "try-again" &&
+                    asked.buttons[2].id == "ok" && asked.primary_button == 2,
+                "the receipt's buttons were not Show the log, Try again and Continue"
+            );
+            require(
+                update::read_held(preference_values_) == failed_release,
+                "the failed release was not held"
+            );
+            require(
+                !update::read_scheduled(preference_values_).has_value(),
+                "the failed release stayed scheduled"
+            );
+            const std::optional<update::Receipt> marked = update::load_receipt(receipt_path);
+            require(marked.has_value() && marked->shown, "the receipt was not marked shown");
+            click_named("oa.update-receipt.ok");
+            for (int frame = 0; frame < 8; ++frame) {
+                idle_tick();
+                require(
+                    oa_layer().find("update-receipt") == nullptr &&
+                        oa_layer().waiting("update-receipt") == nullptr,
+                    "the receipt showed again"
+                );
+            }
+            say("receipt shown once");
+        }
         return 0;
     }
 

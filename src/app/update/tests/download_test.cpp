@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The package download against a local server: a whole file, a resume, a
-// restart, a pause, a bad digest and a mirror that fails.
+// restart, a match's pause, the player's pause and resume, a cancel that
+// keeps nothing, a package already downloaded, a bad digest, a mirror that
+// fails, and why each failure failed.
 
 #include "oa/app/update/download.hpp"
 
@@ -298,6 +300,7 @@ void a_wrong_digest_deletes_the_part() {
     );
     const update::DownloadSnapshot shot = download.snapshot();
     OA_CHECK(shot.failure == update::wrong_file_failure);
+    OA_CHECK(shot.failure_kind == update::DownloadFailure::wrong_file);
     OA_CHECK(!fs::exists(updates / "8" / "pkg.zip"));
     OA_CHECK(!fs::exists(updates / "8" / "pkg.zip.part"));
 }
@@ -385,6 +388,213 @@ void a_file_name_with_a_slash_is_refused() {
     );
     OA_CHECK(!fs::exists(updates / "11"));
     OA_CHECK(download.snapshot().failure == "the file name is not a plain name");
+    OA_CHECK(download.snapshot().failure_kind == update::DownloadFailure::unusable);
+}
+
+void every_mirror_failing_is_a_connection_failure() {
+    Scratch scratch("refused");
+    const fs::path updates = scratch.path / "updates";
+    http::Server server;
+    std::string error;
+    OA_CHECK(server.start(&error));
+    const std::vector<uint8_t> bytes = patterned(24, 3);
+    server.handle("GET", "/a/pkg.zip", [](const http::LoggedRequest&) {
+        http::Reply reply;
+        reply.status = 503;
+        reply.body = {'n', 'o'};
+        return reply;
+    });
+    update::PackageDownload download;
+    download.start(
+        release_numbered(14),
+        package_on(file_for("pkg.zip", bytes), {must_url(server.url("/a/"))}),
+        false,
+        updates
+    );
+    OA_CHECK(
+        until([&] { return download.snapshot().state == update::DownloadState::failed; }, 5000)
+    );
+    OA_CHECK(download.snapshot().failure_kind == update::DownloadFailure::connect);
+    OA_CHECK(download.snapshot().failure == "the mirror answered 503");
+}
+
+void the_player_pauses_and_resumes() {
+    Scratch scratch("player");
+    const fs::path updates = scratch.path / "updates";
+    http::Server server;
+    std::string error;
+    OA_CHECK(server.start(&error));
+    server.set_ranges(true);
+    const std::size_t step = update::download_step_bytes;
+    const std::vector<uint8_t> bytes = patterned(step + 48, 31);
+    server.serve_bytes("/wide.zip", bytes);
+    http::Reply slow;
+    slow.body = bytes;
+    slow.head_delay_ms = 1000;
+    server.override_next("/wide.zip", slow, 1);
+    update::PackageDownload download;
+    download.start(
+        release_numbered(15),
+        package_on(file_for("wide.zip", bytes), {must_url(server.url("/"))}),
+        false,
+        updates
+    );
+    OA_CHECK(until([&] { return !server.requests().empty(); }, 5000));
+    download.pause();
+    // The snapshot says paused at once, before the step ends.
+    OA_CHECK(download.paused());
+    OA_CHECK(download.snapshot().state == update::DownloadState::paused_by_player);
+    OA_CHECK(until(
+        [&] {
+            const update::DownloadSnapshot shot = download.snapshot();
+            return shot.state == update::DownloadState::paused_by_player && shot.received == step;
+        },
+        15000
+    ));
+    // A match that starts and ends while the player holds it does not resume it.
+    download.set_match_running(true);
+    download.set_match_running(false);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    OA_CHECK(download.snapshot().state == update::DownloadState::paused_by_player);
+    OA_CHECK(download.snapshot().received == step);
+    download.resume();
+    OA_CHECK(!download.paused());
+    const fs::path finished = updates / "15" / "wide.zip";
+    OA_CHECK(until([&] { return ready_file(download.snapshot(), finished); }, 15000));
+    bool ranged = false;
+    for (const http::LoggedRequest& request : server.requests()) {
+        const std::string* header = request.header("Range");
+        if (header != nullptr && *header == "bytes=" + std::to_string(step) + "-")
+            ranged = true;
+    }
+    OA_CHECK(ranged);
+
+    // A download started while paused waits, and fetches nothing.
+    server.clear_log();
+    const std::vector<uint8_t> small = patterned(32, 4);
+    server.serve_bytes("/small.zip", small);
+    download.pause();
+    download.start(
+        release_numbered(16),
+        package_on(file_for("small.zip", small), {must_url(server.url("/"))}),
+        false,
+        updates
+    );
+    OA_CHECK(until(
+        [&] { return download.snapshot().state == update::DownloadState::paused_by_player; }, 5000
+    ));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    OA_CHECK(server.requests().empty());
+    download.resume();
+    OA_CHECK(
+        until([&] { return ready_file(download.snapshot(), updates / "16" / "small.zip"); }, 5000)
+    );
+}
+
+void cancel_keeps_nothing_half_downloaded() {
+    Scratch scratch("discard");
+    const fs::path updates = scratch.path / "updates";
+    http::Server server;
+    std::string error;
+    OA_CHECK(server.start(&error));
+    server.set_ranges(true);
+    const std::size_t step = update::download_step_bytes;
+    const std::vector<uint8_t> bytes = patterned(step + 48, 41);
+    server.serve_bytes("/wide.zip", bytes);
+    http::Reply slow;
+    slow.body = bytes;
+    slow.head_delay_ms = 1000;
+    server.override_next("/wide.zip", slow, 1);
+    update::PackageDownload download;
+    download.start(
+        release_numbered(17),
+        package_on(file_for("wide.zip", bytes), {must_url(server.url("/"))}),
+        false,
+        updates
+    );
+    OA_CHECK(until([&] { return !server.requests().empty(); }, 5000));
+    download.pause();
+    OA_CHECK(until([&] { return download.snapshot().received == step; }, 15000));
+    const fs::path part = updates / "17" / "wide.zip.part";
+    OA_CHECK(fs::exists(part));
+    download.discard();
+    OA_CHECK(until(
+        [&] {
+            const update::DownloadSnapshot shot = download.snapshot();
+            return shot.state == update::DownloadState::waiting && shot.received == 0;
+        },
+        5000
+    ));
+    OA_CHECK(!fs::exists(part));
+    OA_CHECK(!fs::exists(updates / "17" / "wide.zip"));
+    OA_CHECK(!download.paused());
+
+    // A ready package is removed too.
+    const std::vector<uint8_t> small = patterned(32, 5);
+    server.serve_bytes("/small.zip", small);
+    download.start(
+        release_numbered(18),
+        package_on(file_for("small.zip", small), {must_url(server.url("/"))}),
+        false,
+        updates
+    );
+    const fs::path finished = updates / "18" / "small.zip";
+    OA_CHECK(until([&] { return ready_file(download.snapshot(), finished); }, 5000));
+    download.discard();
+    OA_CHECK(download.snapshot().state == update::DownloadState::waiting);
+    OA_CHECK(!fs::exists(finished));
+}
+
+void a_downloaded_package_is_used_again() {
+    Scratch scratch("again");
+    const fs::path updates = scratch.path / "updates";
+    http::Server server;
+    std::string error;
+    OA_CHECK(server.start(&error));
+    const std::vector<uint8_t> bytes = patterned(64, 9);
+    server.serve_bytes("/pkg.zip", bytes);
+    const fs::path finished = updates / "19" / "pkg.zip";
+    {
+        update::PackageDownload first;
+        first.start(
+            release_numbered(19),
+            package_on(file_for("pkg.zip", bytes), {must_url(server.url("/"))}),
+            false,
+            updates
+        );
+        OA_CHECK(until([&] { return ready_file(first.snapshot(), finished); }, 5000));
+    }
+    const feed::Package downloaded =
+        package_on(file_for("pkg.zip", bytes), {must_url(server.url("/"))});
+    OA_CHECK(update::package_downloaded(updates, release_numbered(19), downloaded));
+    OA_CHECK(!update::package_downloaded(updates, release_numbered(20), downloaded));
+    // The next start checks the file again and fetches nothing.
+    server.clear_log();
+    update::PackageDownload second;
+    second.start(
+        release_numbered(19),
+        package_on(file_for("pkg.zip", bytes), {must_url(server.url("/"))}),
+        false,
+        updates
+    );
+    OA_CHECK(until([&] { return ready_file(second.snapshot(), finished); }, 5000));
+    OA_CHECK(server.requests().empty());
+
+    // A file that no longer matches is fetched again.
+    {
+        std::ofstream damaged(finished, std::ios::binary | std::ios::trunc);
+        damaged << "damaged";
+    }
+    update::PackageDownload third;
+    third.start(
+        release_numbered(19),
+        package_on(file_for("pkg.zip", bytes), {must_url(server.url("/"))}),
+        false,
+        updates
+    );
+    OA_CHECK(until([&] { return ready_file(third.snapshot(), finished); }, 5000));
+    OA_CHECK(!server.requests().empty());
+    OA_CHECK(fs::file_size(finished) == bytes.size());
 }
 
 } // namespace
@@ -401,6 +611,10 @@ int main() {
     a_failed_mirror_moves_to_the_next();
     https_is_skipped_without_tls();
     a_file_name_with_a_slash_is_refused();
+    every_mirror_failing_is_a_connection_failure();
+    the_player_pauses_and_resumes();
+    cancel_keeps_nothing_half_downloaded();
+    a_downloaded_package_is_used_again();
 #endif
     return oa::test::check_exit_status();
 }

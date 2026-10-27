@@ -4968,24 +4968,91 @@ void test_keys() {
         OA_CHECK(!has_action(lantern_actions, Action::roll_back));
     }
     if (grid_row != nullptr) {
+        // A layout is said by what it does first: what it changes, the
+        // player's own changes on it, the helpers it asks for and what it
+        // works with (its mods, keyboards and interface). Which copy it is
+        // comes after.
         const std::vector<lib::Fact> grid_facts_shown = lib::facts(library, *grid_row);
         const lib::Fact* works = fact(grid_facts_shown, "Works with");
-        const lib::Fact* keyboard = fact(grid_facts_shown, "Keyboard");
-        const lib::Fact* interface_fact = fact(grid_facts_shown, "Interface");
         const lib::Fact* asks = fact(grid_facts_shown, "Asks for");
         const lib::Fact* changes = fact(grid_facts_shown, "Changes");
         const lib::Fact* unknown = fact(grid_facts_shown, "Not in this version");
-        const lib::Fact* own = fact(grid_facts_shown, "Your own changes");
-        OA_CHECK(works != nullptr && works->long_value == "Ridge" && works->mark == Mark::warn);
-        OA_CHECK(keyboard != nullptr && keyboard->long_value == "ISO");
-        OA_CHECK(interface_fact != nullptr && interface_fact->long_value == "Left-click");
+        const lib::Fact* own = fact(grid_facts_shown, "Your changes");
+        OA_CHECK(
+            works != nullptr &&
+            works->long_value == "Ridge · ISO keyboards · the left-click interface" &&
+            works->mark == Mark::warn
+        );
+        OA_CHECK(fact(grid_facts_shown, "Keyboard") == nullptr);
+        OA_CHECK(fact(grid_facts_shown, "Interface") == nullptr);
         OA_CHECK(asks != nullptr && asks->long_value == "Sticky modifiers and Latch Queue");
-        OA_CHECK(changes != nullptr && changes->long_value == "Changes 4 actions");
+        OA_CHECK(changes != nullptr && changes->long_value == "4 commands");
         OA_CHECK(
             unknown != nullptr && unknown->long_value == "Not in this version: 1" &&
             unknown->mark == Mark::warn
         );
-        OA_CHECK(own != nullptr && own->long_value == "· 2 changes of your own");
+        OA_CHECK(own != nullptr && own->long_value == "2 changes of your own");
+        std::vector<std::string> labels;
+        for (const lib::Fact& item : grid_facts_shown)
+            labels.push_back(item.long_label);
+        OA_CHECK(
+            labels == std::vector<std::string>({
+                          "Changes",
+                          "Your changes",
+                          "Asks for",
+                          "Works with",
+                          "Not in this version",
+                          "Installed",
+                          "Latest",
+                          "Author",
+                          "Size",
+                          "From",
+                      })
+        );
+    }
+    {
+        // The host names the own changes: up to three by command and key,
+        // then how many more.
+        lib::KeyLayoutFacts named_facts = grid_facts;
+        named_facts.own_changes = 5;
+        lib::KeyMove patrol;
+        patrol.command = "Patrol";
+        patrol.after.keys = {"Q"};
+        lib::KeyMove cloak;
+        cloak.command = "Cloak";
+        cloak.after.keys = {"Shift", "K"};
+        lib::KeyMove stop;
+        stop.command = "Stop";
+        named_facts.own_list = {patrol, cloak, stop};
+        lib::Inputs named_inputs = inputs;
+        for (lib::Installed& held : named_inputs.installed)
+            if (held.key == "grid-test")
+                held.keys = named_facts;
+        lib::Library named_library = built(named_inputs);
+        const lib::Entry* named_grid = at(named_library, core, Kind::key_layout, "grid-test");
+        OA_CHECK(named_grid != nullptr);
+        if (named_grid != nullptr) {
+            const std::vector<lib::Fact> shown = lib::facts(named_library, *named_grid);
+            const lib::Fact* own = fact(shown, "Your changes");
+            OA_CHECK_TEXT(
+                own != nullptr ? own->long_value : std::string{},
+                "Patrol on Q, Cloak on Shift+K, Stop with no key and 2 more"
+            );
+        }
+        named_facts.own_changes = 2;
+        named_facts.own_list = {patrol, cloak};
+        for (lib::Installed& held : named_inputs.installed)
+            if (held.key == "grid-test")
+                held.keys = named_facts;
+        named_library = built(named_inputs);
+        named_grid = at(named_library, core, Kind::key_layout, "grid-test");
+        if (named_grid != nullptr) {
+            const std::vector<lib::Fact> shown = lib::facts(named_library, *named_grid);
+            const lib::Fact* own = fact(shown, "Your changes");
+            OA_CHECK_TEXT(
+                own != nullptr ? own->long_value : std::string{}, "Patrol on Q and Cloak on Shift+K"
+            );
+        }
     }
     if (lantern_row != nullptr) {
         const std::vector<lib::Fact> lantern_facts_shown = lib::facts(library, *lantern_row);
@@ -5030,6 +5097,28 @@ void test_keys() {
     inputs.keys_own_changes = 4;
     lib::refresh(library, inputs);
     lib::set_tab(library, lib::Tab::keys);
+    // The question asks its host what USE would move, from the layout in use
+    // to the one named, once, as it opens.
+    std::vector<std::pair<std::string, std::string>> asked;
+    library.key_hooks.moves = [&asked](std::string_view from, std::string_view to) {
+        asked.emplace_back(std::string(from), std::string(to));
+        lib::KeyMoves moves;
+        moves.known = true;
+        lib::KeyMove attack;
+        attack.command = "Attack";
+        attack.before.keys = {"A"};
+        attack.after.keys = {"Q"};
+        lib::KeyMove patrol;
+        patrol.command = "Patrol";
+        patrol.before.keys = {"P"};
+        patrol.after.keys = {"Q"};
+        patrol.own = true;
+        moves.kept = {attack, patrol};
+        moves.kept_total = 2;
+        moves.clean = {attack};
+        moves.clean_total = 9;
+        return moves;
+    };
     const lib::Entry* lefty_again = at(library, core, Kind::key_layout, "lefty-test");
     OA_CHECK(lefty_again != nullptr);
     if (lefty_again != nullptr) {
@@ -5039,13 +5128,27 @@ void test_keys() {
         );
         OA_CHECK_TEXT(library.key_use.saved_with, "OA default");
         OA_CHECK(!library.key_use.already);
+        const std::vector<std::pair<std::string, std::string>> from_default{
+            {"oa-default", "lefty-test"}
+        };
+        OA_CHECK(asked == from_default);
+        // Keep is marked, so the own changes are on top and what moves is the kept list.
+        OA_CHECK(lib::key_use_keeps(library.key_use));
+        OA_CHECK(lib::key_use_moves(library.key_use).size() == 2);
+        OA_CHECK(lib::key_use_moves_total(library.key_use) == 2);
+        OA_CHECK_TEXT(lib::key_use_button(library), "Use for every game");
         const std::optional<lib::KeyUseResult> kept = lib::key_use_result(library);
         OA_CHECK(kept.has_value() && kept->keep);
         lib::set_key_use_keep(library, false);
+        OA_CHECK(!lib::key_use_keeps(library.key_use));
+        OA_CHECK(lib::key_use_moves(library.key_use).size() == 1);
+        OA_CHECK(lib::key_use_moves_total(library.key_use) == 9);
         const std::optional<lib::KeyUseResult> aside = lib::key_use_result(library);
         OA_CHECK(aside.has_value() && !aside->keep);
         lib::close_key_use(library);
+        OA_CHECK(asked.size() == 1);
     }
+    library.key_hooks = {};
     const lib::Entry* grid_again = at(library, core, Kind::key_layout, "grid-test");
     OA_CHECK(grid_again != nullptr);
     if (grid_again != nullptr) {
@@ -5062,8 +5165,15 @@ void test_keys() {
             OA_CHECK(library.key_use.helpers[1].name == "toggle.order.queue-modifier");
             OA_CHECK_TEXT(library.key_use.helpers[1].label, "Latch Queue");
         }
+        // Grid already holds the player's own changes, so USE never writes
+        // over them: keep is not applied, whatever is marked, and what moves
+        // is the list with Grid's own changes alone.
         const std::optional<lib::KeyUseResult> overwritten = lib::key_use_result(library);
         OA_CHECK(overwritten.has_value() && !overwritten->keep);
+        OA_CHECK(!lib::key_use_keeps(library.key_use));
+        lib::set_key_use_keep(library, true);
+        const std::optional<lib::KeyUseResult> still = lib::key_use_result(library);
+        OA_CHECK(still.has_value() && !still->keep);
         lib::set_key_use_helper(library, 0, false);
         const std::optional<lib::KeyUseResult> one_off = lib::key_use_result(library);
         OA_CHECK(one_off.has_value() && one_off->helpers_on.size() == 1);
@@ -5093,9 +5203,13 @@ void test_keys() {
         lib::open_key_use(library, *made_for);
         OA_CHECK(library.key_use.show_scope && library.key_use.for_mod);
         OA_CHECK_TEXT(library.key_use.mod_name, "Ridge");
+        // USE's button names the answer to Where.
+        OA_CHECK_TEXT(lib::key_use_button(library), "Use for Ridge");
+        OA_CHECK(!library.key_use.moves.known && lib::key_use_moves(library.key_use).empty());
         const std::optional<lib::KeyUseResult> only_mod = lib::key_use_result(library);
         OA_CHECK(only_mod.has_value() && only_mod->for_mod);
         lib::set_key_use_scope(library, false);
+        OA_CHECK_TEXT(lib::key_use_button(library), "Use for every game");
         const std::optional<lib::KeyUseResult> every = lib::key_use_result(library);
         OA_CHECK(every.has_value() && !every->for_mod);
         lib::set_key_use_scope(library, true);
@@ -5129,6 +5243,9 @@ void test_keys() {
     OA_CHECK_TEXT(playing.keys_badge, "USING");
     OA_CHECK_TEXT(playing.keys_with, "With Ridge: Grid Test");
     OA_CHECK_TEXT(playing.keys_line, "· 2 changes of your own");
+    // The layout in use says where it is used.
+    if (const lib::Entry* with_ridge = at(library, core, Kind::key_layout, "grid-test"))
+        OA_CHECK_TEXT(lib::status_line(library, *with_ridge), "In use with Ridge");
 
     lib::set_tab(library, lib::Tab::keys);
     inputs.keys_layout = "grid-test";
@@ -5141,6 +5258,7 @@ void test_keys() {
     const lib::Entry* default_unused = lib::find_entry(library, lib::built_in_layout_id());
     OA_CHECK(grid_used != nullptr && default_unused != nullptr);
     if (grid_used != nullptr) {
+        OA_CHECK_TEXT(lib::status_line(library, *grid_used), "In use for every game");
         const Buttons used = actions_of(library, *grid_used);
         OA_CHECK(has_action(used, Action::edit_keys));
         OA_CHECK(!has_action(used, Action::use_layout));

@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-mutator-room: Mutators for the host of a battle room hosted
-// alone, at 640x480 and 1280x720. The button wears the OA badge, is as large
-// as Select Map, stands over it from its left edge and meets no control of
-// the room; it reads "Mutators", "Mutators (2)" with two on and "Mutators
-// (4)" with four. Y opens the picker on a remembered multiplayer set
+// alone, at 640x480 and 1280x720. The button is one of the room's own on
+// and off buttons, with no part of the kit, is as large as Select Map, or
+// wider to the left where its words need it, stands over it to its right
+// edge and meets no control of the room; it
+// reads "Mutators: off", "Mutators: 2 on" with two on, its lamp lit, and
+// "Mutators: 4 on" with four. Y opens the picker on a remembered multiplayer set
 // (Gatehouse, Gatehouse Keep). USE THESE stores that set and the chat reads
 // the turned-on lines. Turning them off posts the off line. In French the
 // chat's lines are in the code page and fit the list. With Ridge Tough on,
@@ -350,8 +352,9 @@ void Runtime::check_mutator_room() {
 
     // Places the button on one window and checks it against the room: as
     // large as Select Map, over it from its left edge, centred between the
-    // player rows and Select Map, meeting no control, wearing the OA badge.
-    // `button_text` is what the button reads: "Mutators" or "Mutators (2)".
+    // player rows and Select Map, meeting no control, one of the room's own
+    // parts. `button_text` is what the button reads: "Mutators: off" or
+    // "Mutators: 2 on"; its lamp is lit with mutators on.
     const auto check_window = [&](const CheckWindow& window,
                                   std::string_view button_text,
                                   std::string_view picture_kind) {
@@ -376,12 +379,15 @@ void Runtime::check_mutator_room() {
         {
             LayerScreen* shown = oa_layer().find("mutators-button");
             require(shown != nullptr, "the mutators-button screen is not up" + on);
-            bool badge = false;
             for (const kit::Item& item : shown->display_list().items)
-                if (const auto* look = std::get_if<kit::ButtonLook>(&item.look))
-                    badge = badge || (item.role == kit::Role::button && look->oa_mark &&
-                                      look->style == kit::ButtonStyle::filled);
-            require(badge, "the button does not wear the OA badge in the filled look" + on);
+                require(
+                    item.role != kit::Role::button && item.role != kit::Role::chip,
+                    "the button draws a button or a chip of the kit" + on
+                );
+            require(
+                button.checked == (button_text != "Mutators: off"),
+                "the button's lamp does not follow the mutators on" + on
+            );
         }
 
         const std::vector<mp::BattleRoomControl> room = mp::multiplayer_battle_room_controls();
@@ -402,11 +408,11 @@ void Runtime::check_mutator_room() {
         const kit::Rect button_window = window_rect(button);
         const int32_t slack = percent / 50 + 1;
         require(
-            apart(button_window.x, map_window.x) <= 1,
-            "the button's left edge is not Select Map's" + on
+            apart(button_window.x + button_window.width, map_window.x + map_window.width) <= slack,
+            "the button's right edge is not Select Map's" + on
         );
         require(
-            apart(button_window.width, map_window.width) <= slack &&
+            button_window.width + slack >= map_window.width &&
                 apart(button_window.height, map_window.height) <= slack,
             "the button is not as large as Select Map" + on
         );
@@ -455,7 +461,7 @@ void Runtime::check_mutator_room() {
         guest_absent(on);
     };
     for (const CheckWindow& window : kWindows)
-        check_window(window, "Mutators", "host");
+        check_window(window, "Mutators: off", "host");
 
     require(oa_layer().take_pad_action(pad::Action::library_search), "Y did not open the picker");
     frames(1);
@@ -502,7 +508,7 @@ void Runtime::check_mutator_room() {
     guest_absent("after USE THESE");
     // With two on the button counts them.
     for (const CheckWindow& window : kWindows)
-        check_window(window, "Mutators (2)", "host-on");
+        check_window(window, "Mutators: 2 on", "host-on");
     {
         // Four on for a moment: the button counts four. The two are put back.
         const auto held = room_mutators();
@@ -520,7 +526,7 @@ void Runtime::check_mutator_room() {
         set_room_mutators(std::move(four));
         frames(2);
         for (const CheckWindow& window : kWindows)
-            check_window(window, "Mutators (4)", "host-four");
+            check_window(window, "Mutators: 4 on", "host-four");
         set_room_mutators(std::move(two));
         frames(2);
         require(room_mutators().size() == 2, "the two did not come back after four");
@@ -859,11 +865,13 @@ void Runtime::check_mutator_room() {
                 }
                 absent_in_front = 0;
                 seen.clear();
-                for (const kit::Item& item : button_screen->display_list().items) {
-                    if (item.text == expected)
+                for (const kit::Control& line : button_screen->display_list().controls) {
+                    if (line.name != "mutators.waiting")
+                        continue;
+                    if (line.text == expected)
                         whole = true;
-                    else if (item.text.find("Visitor") != std::string::npos)
-                        seen += item.text;
+                    else if (line.text.find("Visitor") != std::string::npos)
+                        seen += line.text;
                 }
             }
             require(

@@ -4,7 +4,7 @@
 // Keycaps, chord chips, keyboard and mouse pictures, and the hold ring.
 // Shapes are coverage at the canvas's own pixels, not pictures or one-bit
 // marks. Labels are the caller's. The add form's caption is the look's,
-// or "+ ADD KEY" when the look leaves it empty.
+// or "+ Add key" when the look leaves it empty.
 
 #include "oa/ui/kit/keys.hpp"
 
@@ -22,7 +22,7 @@ namespace oa::ui::kit {
 namespace {
 
 /// The add form's caption when the look does not name one.
-constexpr std::string_view kAddCaption = "+ ADD KEY";
+constexpr std::string_view kAddCaption = "+ Add key";
 
 /// The add form's caption: the look's words, or the English default.
 ///
@@ -507,18 +507,18 @@ Board board_of(const Rect& rect) noexcept {
     return board;
 }
 
-/// Returns a key's rectangle on a grid, inset so neighbours do not touch
-/// when the unit is wide enough.
+/// Returns a key's rectangle on a grid, inset so neighbours do not touch.
+/// A key too small to give up the inset on both sides keeps its whole cell.
 ///
 /// @param place the key
 /// @param board the grid
 /// @return the rectangle, in points
 Rect key_rect(const KeyPlace& place, const Board& board) noexcept {
-    int32_t inset = 0;
+    // One point below 8, two from there up. Below 4 points a quarter the
+    // inset is what keeps neighbouring keys from sharing an edge.
+    int32_t inset = 1;
     if (board.quarter >= 8)
         inset = 2;
-    else if (board.quarter >= 4)
-        inset = 1;
     const int32_t width = static_cast<int32_t>(place.w) * board.quarter;
     const int32_t height = static_cast<int32_t>(place.h) * board.quarter;
     int32_t inset_x = inset * 2 < width ? inset : 0;
@@ -548,6 +548,210 @@ KeycapLook shown_cap(const KeyPlace& place, const KeyboardLook& look) {
         return cap;
     }
     return cap;
+}
+
+/// The colour a mark fills a key with when its corner glyph will not fit.
+///
+/// @param mark the mark
+/// @return the mark's colour; the list colour when there is no mark
+Colour mark_colour(KeyMark mark) noexcept {
+    switch (mark) {
+    case KeyMark::changed:
+        return colour::accent;
+    case KeyMark::clash:
+        return colour::danger;
+    case KeyMark::unbound:
+        return colour::quiet;
+    case KeyMark::fixed:
+        return colour::text;
+    case KeyMark::none:
+        return colour::list;
+    }
+    return colour::list;
+}
+
+/// The rows a font's capitals stand, in the same units as a label box.
+///
+/// A crisp canvas uses the game font's capital band, in points. A smooth
+/// canvas uses the rows of its capital H, in canvas pixels.
+///
+/// @param canvas where the label would be drawn
+/// @param role the font
+/// @return the rows; 0 when the font cannot draw a capital
+int32_t drawn_letter_rows(const Canvas& canvas, FontRole role) {
+    if (canvas.smooth.painter != nullptr) {
+        if (canvas.smooth.fonts == nullptr)
+            return 0;
+        const int32_t percent = std::max(canvas.smooth.scale_percent, int32_t{1});
+        const int32_t pixel_size =
+            std::max(int32_t{1}, to_canvas(Rect{0, 0, smooth_text_points(role), 0}, percent).width);
+        const oa::ui::paint::TextLine line = oa::ui::paint::draw_line(
+            *canvas.smooth.fonts, "H", static_cast<int>(pixel_size), smooth_text_bold(role)
+        );
+        const oa::platform::text_font::Coverage& drawn = line.coverage;
+        if (!line.drawn || drawn.width <= 0)
+            return 0;
+        constexpr uint8_t half_covered = 128;
+        for (int32_t row = 0; row < drawn.height && row < drawn.baseline; ++row) {
+            for (int32_t column = 0; column < drawn.width; ++column) {
+                if (drawn.alpha[static_cast<std::size_t>(row * drawn.width + column)] >=
+                    half_covered)
+                    return drawn.baseline - row;
+            }
+        }
+        return 0;
+    }
+    if (canvas.fonts == nullptr)
+        return 0;
+    return capitals(*canvas.fonts, role);
+}
+
+/// The boxes draw_keycap gives a key's label and its short name.
+struct LabelBoxes {
+    Rect label{}; ///< the printed label
+    Rect sub{};   ///< the short name along the bottom
+};
+
+/// Returns the boxes draw_keycap uses for a key's two lines.
+///
+/// @param rect the key, in points
+/// @param look the key
+/// @return the boxes, empty of text when the key has no room
+LabelBoxes label_boxes(const Rect& rect, const KeycapLook& look) noexcept {
+    const int32_t edge_band = look.small ? 0 : std::max(int32_t{1}, rect.height / 8);
+    const bool letter =
+        !look.small && !look.letter.empty() && rect.width >= 12 && rect.height >= 12;
+    const int32_t letter_side =
+        letter ? std::min(int32_t{8}, std::min(rect.width, rect.height) / 2) : 0;
+    const int32_t text_right = rect.x + rect.width - (letter_side > 0 ? letter_side + 2 : 2);
+    const int32_t room = std::max(text_right - (rect.x + 2), int32_t{0});
+    LabelBoxes boxes;
+    boxes.label = Rect{rect.x + 2, rect.y + 1, room, std::max(rect.height - 2, int32_t{1})};
+    if (look.small)
+        boxes.label = Rect{rect.x, rect.y, rect.width, rect.height};
+    else if (!look.sub.empty())
+        boxes.label.height = std::max((rect.height - edge_band) / 2, int32_t{1});
+    const int32_t sub_top = rect.y + std::max((rect.height - edge_band) / 2, int32_t{1});
+    const int32_t sub_height = std::max(rect.y + rect.height - edge_band - sub_top, int32_t{0});
+    boxes.sub = Rect{rect.x + 2, sub_top, room, sub_height};
+    return boxes;
+}
+
+/// Tells whether a line would be drawn whole inside its box.
+///
+/// Empty text is whole: there is nothing to cut. A line wider than the box,
+/// or whose capitals are taller than the box, is not.
+///
+/// @param canvas where it would be drawn
+/// @param role the font
+/// @param text the line
+/// @param box the box, in points
+/// @return true when the line is empty or fits the box
+bool line_is_whole(const Canvas& canvas, FontRole role, std::string_view text, const Rect& box) {
+    if (text.empty())
+        return true;
+    if (box.width <= 0 || box.height <= 0)
+        return false;
+    if (measure_text(canvas, role, text) > box.width)
+        return false;
+    const int32_t rows = drawn_letter_rows(canvas, role);
+    if (rows <= 0)
+        return true;
+    if (canvas.smooth.painter != nullptr) {
+        const int32_t percent = std::max(canvas.smooth.scale_percent, int32_t{1});
+        return rows <= to_canvas(box, percent).height;
+    }
+    return rows <= box.height;
+}
+
+/// Tells whether a code is a free key: the look has no entry for it.
+///
+/// @param look the picture
+/// @param code the W3C code
+/// @return true when the geometry's own cap is what the key shows
+bool key_is_free(const KeyboardLook& look, std::string_view code) {
+    for (const KeyboardKey& key : look.keys) {
+        if (key.code == code)
+            return false;
+    }
+    return true;
+}
+
+/// Drops labels a small picture cannot draw whole.
+///
+/// When more than half of a row's labels do not fit, every free key of the
+/// picture loses its label and its short name, so a row is not half
+/// lettered. Any label that is still too wide or too tall is left out.
+///
+/// @param canvas where the picture is drawn
+/// @param places the keys, in reading order
+/// @param rects each key's rectangle
+/// @param[in,out] caps the cap each key will draw
+/// @param look the picture, naming the keys that are not free
+void settle_small_labels(
+    const Canvas& canvas,
+    std::span<const KeyPlace> places,
+    std::span<const Rect> rects,
+    std::vector<KeycapLook>& caps,
+    const KeyboardLook& look
+) {
+    struct RowTally {
+        int16_t y{};
+        int32_t labels{};
+        int32_t unfit{};
+    };
+
+    std::vector<RowTally> rows;
+    for (std::size_t index = 0; index < places.size(); ++index) {
+        const KeycapLook& cap = caps[index];
+        if (cap.label.empty())
+            continue;
+        const LabelBoxes boxes = label_boxes(rects[index], cap);
+        RowTally* row = nullptr;
+        for (RowTally& candidate : rows) {
+            if (candidate.y == places[index].y) {
+                row = &candidate;
+                break;
+            }
+        }
+        if (row == nullptr) {
+            rows.push_back(RowTally{places[index].y, 0, 0});
+            row = &rows.back();
+        }
+        ++row->labels;
+        if (!line_is_whole(canvas, label_role(cap), cap.label, boxes.label))
+            ++row->unfit;
+    }
+    bool drop_free = false;
+    for (const RowTally& row : rows) {
+        if (row.labels > 0 && row.unfit * 2 > row.labels)
+            drop_free = true;
+    }
+    for (std::size_t index = 0; index < places.size(); ++index) {
+        KeycapLook& cap = caps[index];
+        if (drop_free && key_is_free(look, places[index].code)) {
+            cap.label.clear();
+            cap.sub.clear();
+        }
+        LabelBoxes boxes = label_boxes(rects[index], cap);
+        if (!cap.sub.empty() && !line_is_whole(canvas, FontRole::small, cap.sub, boxes.sub))
+            cap.sub.clear();
+        boxes = label_boxes(rects[index], cap);
+        if (!cap.label.empty() && !line_is_whole(canvas, label_role(cap), cap.label, boxes.label))
+            cap.label.clear();
+    }
+}
+
+/// Tells whether a key kept its whole cell, so a gap was not taken.
+///
+/// @param place the key
+/// @param board the grid
+/// @param key the key's rectangle
+/// @return true when the rectangle is the cell
+bool cell_was_kept(const KeyPlace& place, const Board& board, const Rect& key) noexcept {
+    const int32_t width = static_cast<int32_t>(place.w) * board.quarter;
+    const int32_t height = static_cast<int32_t>(place.h) * board.quarter;
+    return key.width == width && key.height == height;
 }
 
 /// The mouse picture's design, in points, before it is scaled.
@@ -683,7 +887,9 @@ int32_t keycap_width(const Fonts& fonts, const KeycapLook& look) {
     return std::max(least, text + pad + extra);
 }
 
-void draw_keycap(const Canvas& canvas, const Rect& rect, const KeycapLook& look) {
+void draw_keycap(
+    const Canvas& canvas, const Rect& rect, const KeycapLook& look, bool fill_small_mark
+) {
     if (!can_draw(canvas) || rect.width <= 0 || rect.height <= 0)
         return;
     if (look.mark_only) {
@@ -726,24 +932,41 @@ void draw_keycap(const Canvas& canvas, const Rect& rect, const KeycapLook& look)
         ink = colour::quiet;
         edge = colour::control_border;
     }
+    // A corner mark is at most 7 points, the size of its glyph. Below that
+    // the glyph would be a speck, so the whole key takes the mark's colour.
+    const bool corner_room = look.mark != KeyMark::none && rect.width >= 8 && rect.height >= 8;
+    const int32_t corner_side =
+        corner_room ? std::min(int32_t{7}, std::min(rect.width, rect.height) / 2) : 0;
+    const bool paint_mark_fill =
+        fill_small_mark && look.mark != KeyMark::none && !look.small && corner_side < 7;
+    if (paint_mark_fill) {
+        face = mark_colour(look.mark);
+        ink = colour::on_accent;
+        edge = darken(face);
+    }
 
-    int32_t radius = look.small ? 1 : 2;
+    // The key's physical look: the whole cap in its darker edge, and the
+    // face over it, short of the edge band at the bottom.
+    int32_t radius = look.small ? 1 : keycap_radius_for(rect.height);
     const int32_t shorter = std::min(rect.width, rect.height);
     if (radius * 2 > shorter)
         radius = std::max(shorter / 2, int32_t{0});
-    fill_corner_rect(local, rect, radius, face);
-
     const int32_t edge_band = look.small ? 0 : std::max(int32_t{1}, rect.height / 8);
-    if (edge_band > 0 && edge_band < rect.height)
-        fill_rect(
-            local, Rect{rect.x, rect.y + rect.height - edge_band, rect.width, edge_band}, edge
+    if (edge_band > 0 && edge_band < rect.height) {
+        fill_corner_rect(local, rect, radius, edge);
+        fill_corner_rect(
+            local, Rect{rect.x, rect.y, rect.width, rect.height - edge_band}, radius, face
         );
+    } else {
+        fill_corner_rect(local, rect, radius, face);
+    }
 
     const bool letter =
         !look.small && !look.letter.empty() && rect.width >= 12 && rect.height >= 12;
     const int32_t letter_side =
         letter ? std::min(int32_t{8}, std::min(rect.width, rect.height) / 2) : 0;
-    const bool marked = look.mark != KeyMark::none && rect.width >= 8 && rect.height >= 8;
+    const bool marked =
+        !paint_mark_fill && look.mark != KeyMark::none && rect.width >= 8 && rect.height >= 8;
     const int32_t mark_side =
         marked ? std::min(int32_t{7}, std::min(rect.width, rect.height) / 2) : 0;
 
@@ -801,9 +1024,9 @@ void draw_keycap(const Canvas& canvas, const Rect& rect, const KeycapLook& look)
     else if (look.mark == KeyMark::fixed)
         dash_border(local, rect, colour::control_border);
     else if (look.hovered && !look.disabled)
-        outline_rect(local, rect, colour::control_hover);
+        outline_corner_rect(local, rect, radius, colour::control_hover);
     if (look.focused)
-        outline_rect(local, rect, colour::accent);
+        ring_corner_rect(local, rect, radius, compact_metrics.focus_ring, colour::focus);
 }
 
 void add_keycap(
@@ -921,10 +1144,11 @@ void draw_chord_chip(const Canvas& canvas, const Rect& rect, const ChordChipLook
             colour::hint
         );
     }
+    const int32_t chip_radius = keycap_radius_for(rect.height);
     if (look.selected)
-        outline_rect(local, rect, colour::accent);
+        outline_corner_rect(local, rect, chip_radius, colour::accent);
     else if (look.hovered && look.mark != KeyMark::clash)
-        outline_rect(local, rect, colour::control_hover);
+        outline_corner_rect(local, rect, chip_radius, colour::control_hover);
 }
 
 void add_chord_chip(
@@ -984,8 +1208,25 @@ void draw_keyboard(const Canvas& canvas, const Rect& rect, const KeyboardLook& l
         return;
     const Canvas local = clipped(canvas, rect);
     const Board board = board_of(rect);
-    for (const KeyPlace& place : keyboard_places(look.shape))
-        draw_keycap(local, key_rect(place, board), shown_cap(place, look));
+    const std::span<const KeyPlace> places = keyboard_places(look.shape);
+    std::vector<KeycapLook> caps;
+    std::vector<Rect> rects;
+    caps.reserve(places.size());
+    rects.reserve(places.size());
+    for (const KeyPlace& place : places) {
+        caps.push_back(shown_cap(place, look));
+        rects.push_back(key_rect(place, board));
+    }
+    if (board.quarter < 4)
+        settle_small_labels(local, places, rects, caps, look);
+    for (std::size_t index = 0; index < places.size(); ++index) {
+        draw_keycap(local, rects[index], caps[index], board.quarter < 4);
+        // A gap that would take the whole key is a one-point border in the
+        // free key's edge colour instead. Real keys are wide enough to inset
+        // once a quarter is a point, so this is the fallback.
+        if (board.quarter < 4 && cell_was_kept(places[index], board, rects[index]))
+            outline_rect(local, rects[index], tint_edge(KeyTint::none));
+    }
 }
 
 void add_keyboard(

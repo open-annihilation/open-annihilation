@@ -1645,17 +1645,21 @@ void a_page_painted_draws_its_switch_as_the_model_has_it() {
     Sample sample;
     sample.vertical_sync = true;
     const renderer::Surface on = painted_page(sample);
-    // The switch is {415, 63, 52, 16}: its On half from column 441, its Off half from 416.
-    expect(on, 441, 64, {0x9c, 0xcc, 0x3c});
-    expect(on, 465, 77, {0x9c, 0xcc, 0x3c});
-    expect(on, 416, 64, {0x12, 0x14, 0x10});
+    // The switch is {415, 63, 52, 16}, its track the right 42 points: a
+    // lime track with its knob at the right while On, and the selected
+    // surface with its knob at the left while Off.
+    expect(on, 441, 64, kit::colour::accent);
+    expect(on, 430, 70, kit::colour::accent);
+    expect(on, 458, 70, kit::colour::on_accent);
+    expect(on, 466, 78, {0x00, 0x00, 0x00});
+    expect(on, 416, 64, {0x00, 0x00, 0x00});
     // The rows' rules, the first's and the one under the last.
     expect(on, 158, 54, {0x2b, 0x30, 0x27});
     expect(on, 466, 559, {0x2b, 0x30, 0x27});
     sample.vertical_sync = false;
     const renderer::Surface off = painted_page(sample);
-    expect(off, 441, 64, {0x12, 0x14, 0x10});
-    expect(off, 416, 64, {0x2c, 0x32, 0x26});
+    expect(off, 441, 64, kit::colour::off_selected);
+    expect(off, 432, 70, kit::colour::text_secondary);
     // Locked, an On switch keeps its value without the accent.
     sample.vertical_sync = true;
     sample.in_game = true;

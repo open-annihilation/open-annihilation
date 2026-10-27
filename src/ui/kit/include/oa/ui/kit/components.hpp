@@ -90,8 +90,13 @@ void set_open_annihilation_mark(OpenAnnihilationMark mark);
 /// @return the mark
 [[nodiscard]] const OpenAnnihilationMark& open_annihilation_mark() noexcept;
 
-/// Draws the keyboard focus outline: the accent, grown by the focus inset
-/// when around is set, and on the control's own edge otherwise.
+/// Draws the keyboard focus ring, the one ring every control shows: a ring
+/// focus_ring points thick in the light accent, its corners rounded as a
+/// control of the control's height is (control_radius_for). When around is
+/// set its outside lies focus_inset points out from the control, the room
+/// the screens keep round a control, so a point clear of the control stays
+/// between them, and its corners are that much rounder; otherwise it lies
+/// on the inside of the control's own edge.
 ///
 /// @param canvas where it is drawn
 /// @param control the control
@@ -123,17 +128,20 @@ struct ButtonMarkParts {
 /// @return the badge and the caption's box; empty boxes when the button is too small
 [[nodiscard]] ButtonMarkParts button_mark_parts(const Rect& area) noexcept;
 
-/// Draws a button in one of the six looks. A filled button has rounded
-/// corners (filled_radius), its edge and face drawn as two rounded shapes,
-/// and keeps them while it is not enabled. The caption is centred in the
-/// look's font, small unless it says regular. A look that wears the OA badge
-/// draws the badge at the left and the caption after it, keeping to its left
-/// edge (button_mark_parts); the caller fits the caption to that box. A plain button that is not enabled draws the disabled look,
-/// whatever the pointer is doing. A refresh mark draws a circular arrow in
-/// place of the caption: the quiet look's face while the pointer is over it,
-/// the plain look's disabled face while it cannot be pressed, and the arrow
-/// in the text colour while it is turning. When the look's check has been
-/// showing, the arrow eases into a check in the accent, then the arrow returns.
+/// Draws a button in one of its looks, with rounded corners: the control
+/// radius of its height (control_radius_for), and a filled button's
+/// filled_radius. Its edge and face are drawn as two rounded shapes. A
+/// quiet button at rest draws its caption alone. A button that is not
+/// enabled draws no face, the control border and the idle caption,
+/// whatever the pointer is doing. The caption is centred in the look's
+/// font, small unless it says regular. A look that wears the OA badge draws
+/// the badge at the left and the caption after it, keeping to its left edge
+/// (button_mark_parts); the caller fits the caption to that box. A refresh
+/// mark draws a circular arrow in place of the caption: the quiet look's
+/// face while the pointer is over it, no face while it cannot be pressed,
+/// and the arrow in the text colour while it is turning. When the look's
+/// check has been showing, the arrow eases into a check in the accent, then
+/// the arrow returns.
 /// A close mark draws an × the same way, in the text colour, on that same face.
 ///
 /// @param canvas where it is drawn
@@ -183,7 +191,19 @@ inline constexpr uint32_t refresh_ease_ms = 160;
     return static_cast<uint8_t>(step * 255u / (steps - 1u));
 }
 
-/// Draws an Off/On switch.
+/// Returns where a switch's track lies in its area: switch_track_width by
+/// switch_height points, each held to the area's, at the area's right and
+/// centred down it.
+///
+/// @param area the switch's area
+/// @return the track
+[[nodiscard]] Rect switch_track(const Rect& area) noexcept;
+
+/// Draws an Off/On switch: a pill track with a round knob two points in,
+/// lime with the knob at the right in the dark ink while On, the selected
+/// surface with the knob at the left while Off. A locked On track is the
+/// hovered border's grey. The captions name the switch's halves to
+/// automation; the switch does not draw them.
 ///
 /// @param canvas where it is drawn
 /// @param area the switch

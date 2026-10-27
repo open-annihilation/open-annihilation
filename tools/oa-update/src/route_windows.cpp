@@ -3,6 +3,8 @@
 
 #include "oa/update_helper/route_windows.hpp"
 
+#include "oa/app/update/receipt.hpp"
+#include "oa/update_helper/log.hpp"
 #include "oa/update_helper/paths.hpp"
 #include "oa/update_helper/routes.hpp"
 #include "oa/update_helper/run.hpp"
@@ -49,6 +51,17 @@ void set_error(std::string* reason, std::string message) {
 
 bool same_name(const fs::path& name, std::string_view expected) {
     return utf8_of(name) == expected;
+}
+
+/// True for this helper's own program file.
+///
+/// An undo must not replace it: the file is the program that is running.
+///
+/// @param path a kept or installed entry
+/// @return true for `oa-update` and `oa-update.exe`
+bool own_helper_file(const fs::path& path) {
+    const std::string name = utf8_of(path.filename());
+    return name == "oa-update" || name == "oa-update.exe";
 }
 
 bool list_children(const fs::path& folder, std::vector<fs::path>& children, std::string* why) {
@@ -191,6 +204,9 @@ void remove_stage(const fs::path& stage) {
 #endif
 
 bool restore_entry(const fs::path& from, const fs::path& to, std::string* error) {
+    // The running helper cannot be replaced. Leaving it out lets the undo finish.
+    if (own_helper_file(from) || own_helper_file(to))
+        return true;
     std::error_code io;
     const fs::file_status status = fs::symlink_status(from, io);
     if (io || !fs::exists(status)) {
@@ -844,6 +860,8 @@ windows_installer_operations(const update::Plan& plan, const fs::path& staged, s
             continue;
         if (listed && same_name(name, uninstall_name))
             continue;
+        if (own_helper_file(name))
+            continue;
         const fs::path source = listed ? install / name : child;
         if (listed && (!fs::exists(source, io) || io))
             continue;
@@ -960,7 +978,7 @@ std::vector<Operation> windows_installer_restore(
         return {};
     std::vector<Operation> operations;
     for (const fs::path& child : kept_children) {
-        if (same_name(child.filename(), preferences_name))
+        if (same_name(child.filename(), preferences_name) || own_helper_file(child))
             continue;
         const fs::path destination = install / child.filename();
         if (fs::exists(fs::symlink_status(destination, io)) && !io) {
@@ -1065,7 +1083,7 @@ bool restore_kept_copy(const fs::path& previous, const fs::path& install, std::s
     if (!list_children(previous, children, error))
         return false;
     for (const fs::path& child : children) {
-        if (same_name(child.filename(), preferences_name))
+        if (same_name(child.filename(), preferences_name) || own_helper_file(child))
             continue;
         if (!restore_entry(child, install / child.filename(), error))
             return false;
@@ -1102,6 +1120,33 @@ UpdatesGateResult take_pending(const fs::path& updates) {
 
 namespace {
 
+/// The receipt's outcome for the line a refused or failed Windows install shows.
+///
+/// The failing step is the setup's or the swap's, with the last line the log
+/// wrote as its detail. A line that says files were put back, or were not,
+/// records the undo; a cancelled permission prompt changed nothing.
+void record_windows_outcome(const update::Plan& plan, Log& log, std::string_view line) {
+    if (!log.receipt_running())
+        return;
+    const update::Step failed = plan.route == update::Route::windows_installer
+                                    ? update::Step::installer
+                                    : update::Step::swap;
+    log.step(failed, update::StepResult::failed, log.last_line());
+    if (line == update_was_cancelled) {
+        log.finish(update::Outcome::cancelled);
+        return;
+    }
+    const bool put_back = line == update_failed_put_back;
+    if (put_back || line == update_failed_not_put_back) {
+        log.step(
+            update::Step::undo, put_back ? update::StepResult::done : update::StepResult::failed
+        );
+        log.finish(update::failure_outcome(update::Action::install, true, put_back));
+        return;
+    }
+    log.finish(update::Outcome::not_installed);
+}
+
 int refuse_windows(
     const update::Plan& plan,
     Log& log,
@@ -1110,6 +1155,7 @@ int refuse_windows(
     std::string_view line,
     int code
 ) {
+    record_windows_outcome(plan, log, line);
     log.line(line);
     window.show(plan.title, line, 0, true);
     if (!elevated_swap) {
@@ -1164,16 +1210,28 @@ int watch_new_version(
         start_process(path_from(plan.program), plan.arguments, true, plan.from_version, &error);
     if (process == nullptr)
         return -1;
+    // The new version is in place and starting; it reads the receipt only
+    // once its main menu is up.
     log.line("started the new version");
+    log.step(update::Step::start, update::StepResult::done);
+    log.finish(update::Outcome::installed);
     window.close();
     WatchAgain again{&plan};
     std::string restart_error;
     const WatchTwo watched =
         watch_two_starts(process, 0, updates / "state.json", start_again, &again, &restart_error);
-    if (watched == WatchTwo::confirmed)
+    if (watched == WatchTwo::confirmed) {
+        log.step(update::Step::watch, update::StepResult::done);
         return exit_swapped;
+    }
+    // A quit before the main menu, or a start the watch cannot see, is not a failed start.
+    if (watched == WatchTwo::quit || watched == WatchTwo::unobserved) {
+        log.line("the new version was not seen to fail");
+        return exit_swapped;
+    }
     if (!restart_error.empty())
         log.line(restart_error);
+    log.step(update::Step::watch, update::StepResult::failed, restart_error);
     return restore_kept(
         plan,
         updates,
@@ -1235,12 +1293,12 @@ int finish_windows_route(
         std::string error;
         if (apply_journal(updates, operations, hooks, &error) != JournalResult::finished) {
             log.line(error.empty() ? "a step failed" : error);
-            return failed(could_not_check, exit_undone);
+            return failed(line_after_failed_change(updates), exit_undone);
         }
         if (!write_bytes(marker, plan.install, &error)) {
             log.line(error);
             undo_or_log(updates, hooks, log);
-            return failed(could_not_check, exit_undone);
+            return failed(line_after_failed_change(updates), exit_undone);
         }
 
         const uint32_t version = current_windows_version();
@@ -1279,17 +1337,18 @@ int finish_windows_route(
             else
                 log.line("the setup did not replace the game");
             static_cast<void>(put_back());
-            return failed(could_not_check, exit_undone);
+            return failed(line_after_failed_change(updates), exit_undone);
         }
 
         fs::remove(marker, io);
+        log.step(update::Step::installer, update::StepResult::done);
         if (!elevated_swap) {
             const int watched =
                 watch_new_version(plan, plan_path, updates, log, window, hooks, error);
             if (watched < 0) {
                 log.line(error.empty() ? "the game could not be started" : error);
                 static_cast<void>(put_back());
-                return failed(could_not_check, exit_undone);
+                return failed(line_after_failed_change(updates), exit_undone);
             }
             drop_journal_files(updates);
             return watched;
@@ -1329,15 +1388,16 @@ int finish_windows_route(
                 log.line("the elevated swap did not finish");
             undo_or_log(updates, hooks, log);
             remove_stage(stage);
-            return failed(could_not_check, exit_undone);
+            return failed(line_after_failed_change(updates), exit_undone);
         }
+        log.step(update::Step::swap, update::StepResult::done);
         std::string error;
         const int watched = watch_new_version(plan, plan_path, updates, log, window, hooks, error);
         if (watched < 0) {
             log.line(error.empty() ? "the game could not be started" : error);
             undo_or_log(updates, hooks, log);
             remove_stage(stage);
-            return failed(could_not_check, exit_undone);
+            return failed(line_after_failed_change(updates), exit_undone);
         }
         drop_journal_files(updates);
         remove_stage(stage);
@@ -1374,18 +1434,22 @@ int finish_windows_route(
     if (applied != JournalResult::finished) {
         log.line(error.empty() ? "a step failed" : error);
         remove_stage(stage);
-        return failed(could_not_check, exit_undone);
+        return failed(line_after_failed_change(updates), exit_undone);
     }
+    if (moving.postponed.empty())
+        log.step(update::Step::swap, update::StepResult::done);
     if (!moving.postponed.empty()) {
         if (elevated_swap || !commit_wininit(moving.postponed, verified.version, updates, &error)) {
             if (!error.empty())
                 log.line(error);
             undo_or_log(updates, hooks, log);
             remove_stage(stage);
-            return failed(could_not_check, exit_undone);
+            return failed(line_after_failed_change(updates), exit_undone);
         }
         drop_journal_files(updates);
         fs::remove(updates / reboot_marker_name, io);
+        log.step(update::Step::swap, update::StepResult::done);
+        log.finish(update::Outcome::restart_windows);
         window.show(plan.title, restart_line(verified.version), 0, true);
         window.close();
         return exit_swapped;
@@ -1396,7 +1460,7 @@ int finish_windows_route(
             log.line(error.empty() ? "the game could not be started" : error);
             undo_or_log(updates, hooks, log);
             remove_stage(stage);
-            return failed(could_not_check, exit_undone);
+            return failed(line_after_failed_change(updates), exit_undone);
         }
         drop_journal_files(updates);
         remove_stage(stage);

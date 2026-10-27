@@ -25,6 +25,7 @@
 #include <functional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace oa::ui::kit {
@@ -68,10 +69,13 @@ inline constexpr Rect notice_mark{
 
 /// A paragraph of a notice's or a question's text.
 struct Paragraph {
-    std::string text{}; ///< UTF-8; wrapped between words, or for a path at its separators
+    /// UTF-8. A new line starts a line of its own, and the rest wraps
+    /// between words. A path ignores that and wraps at its separators.
+    std::string text{};
     /// A folder's path: drawn in the regular font and broken after a
     /// separator, a component too long for a line within it. Any other
-    /// paragraph is drawn in the small font, broken between words.
+    /// paragraph is drawn in the small font, a new line starting a line
+    /// and the rest broken between words.
     bool path{};
 };
 
@@ -80,7 +84,9 @@ struct Paragraph {
 struct Notice {
     std::string title{};                 ///< the header's title, in capitals
     std::vector<Paragraph> paragraphs{}; ///< its text, top to bottom
-    std::string open_caption{};          ///< the caption of the button that opens the folder
+    /// The caption of the button that opens the folder. Empty draws no
+    /// second button and offers no control for it, so keys and Tab stay on OK.
+    std::string open_caption{};
     /// Why the folder could not be opened, drawn in amber under the text;
     /// empty for none.
     std::string failure{};
@@ -119,6 +125,59 @@ struct QuestionButton {
     /// The button's name to automation: a word of a-z, 0-9 and hyphens, or
     /// empty for a name by its place. Nothing draws it.
     std::string id{};
+    /// Drawn in the quiet look, a caption with no face, at the footer's left,
+    /// apart from the others: an answer that steps aside, such as Skip this
+    /// version. Only the first button may stand there; a later one is drawn
+    /// quiet in its place among the others.
+    bool quiet{};
+    /// Drawn in the danger look, outlined in red: an answer that undoes
+    /// something, such as a roll back. The accent wins over it.
+    bool danger{};
+};
+
+/// What starts a line of a question's box.
+enum class LineMark : uint8_t {
+    none,   ///< nothing: the line starts at the box's text column
+    done,   ///< a check in the accent: a step that finished
+    failed, ///< a cross in the danger red: a step that failed
+    bullet, ///< a dot in the hint colour: one line of a list
+};
+
+/// One line of a question's box. Its text wraps under itself.
+struct BoxLine {
+    LineMark mark{LineMark::none}; ///< what starts it
+    std::string text{};            ///< drawn as given, in the text colour
+};
+
+/// A box of a question: a heading and its lines on the list's surface,
+/// such as What happened and the steps under it.
+struct QuestionBox {
+    std::string heading{};        ///< drawn as a section heading over the lines; empty for none
+    std::vector<BoxLine> lines{}; ///< top to bottom
+};
+
+/// The colour and the mark of a question's callout.
+enum class CalloutTone : uint8_t {
+    ok,          ///< the accent's tint and a check: what is safe
+    caution,     ///< the lock colour's tint and a warning: what to mind
+    danger,      ///< the danger red's tint and a cross: what went wrong
+    information, ///< the information blue's tint and a dot: what to know
+};
+
+/// What one part of a question's text is.
+enum class PartKind : uint8_t {
+    text,    ///< a paragraph in the small font, in the secondary text colour
+    callout, ///< a tinted box with its tone's mark and the text
+    boxes,   ///< one box across the question, or two side by side
+};
+
+/// One part of a question's text, under its paragraphs and items, in the
+/// order given.
+struct QuestionPart {
+    PartKind kind{PartKind::text};     ///< what it is
+    std::string text{};                ///< a paragraph's or a callout's words, as given
+    CalloutTone tone{CalloutTone::ok}; ///< a callout's colour and mark
+    std::vector<QuestionBox> boxes{};  ///< the boxes: one, or two side by side; more are left out
 };
 
 /// One line of a question's list: a badge, a name and an aside in the hint colour.
@@ -138,6 +197,10 @@ struct Question {
     /// Lines under the paragraphs, each a badge and a name. Empty leaves the
     /// question laid out as it was before the lines existed.
     std::vector<QuestionItem> items{};
+    /// Parts under the paragraphs and the items: paragraphs in the secondary
+    /// colour, callouts and boxes, in order. Empty leaves the question laid
+    /// out as it was before the parts existed.
+    std::vector<QuestionPart> parts{};
     std::vector<QuestionButton> buttons{}; ///< 1 to most_question_buttons, left to right
     int32_t cancel_button{};               ///< the button Escape and N answer
     int32_t primary_button{};              ///< the button Y answers
@@ -203,27 +266,52 @@ struct PlacedQuestionItem {
     std::size_t text_bytes{};
 };
 
+/// One line of a question's part, placed: a paragraph's, a callout's or a box's.
+struct PlacedPartLine {
+    std::string text{}; ///< the line, UTF-8, as its part gave it
+    Rect rect{};        ///< the line's box, in points from the question's top left corner
+    LineMark mark{LineMark::none}; ///< the mark at its start; only a box line's first line has one
+    Rect mark_rect{};              ///< where the mark is drawn; empty for none
+    Colour colour{};               ///< the text's colour
+};
+
+/// A question's part, placed.
+struct PlacedPart {
+    PartKind kind{PartKind::text};     ///< what it is
+    CalloutTone tone{CalloutTone::ok}; ///< a callout's tone
+    Rect rect{};                       ///< its whole place; a callout's tinted box
+    Rect mark{};                       ///< a callout's mark; empty for the other kinds
+    std::vector<Rect> boxes{};         ///< each box's place, left to right
+    /// Each box's heading and its place, beside boxes; an empty text draws none.
+    std::vector<std::pair<std::string, Rect>> headings{};
+    std::vector<PlacedPartLine> lines{}; ///< every line it draws, top to bottom
+};
+
 /// A question, placed, in points from its top left corner.
 struct PlacedQuestion {
     int32_t height{};                ///< the question's height
     Rect title{};                    ///< the title's place in the header
     std::vector<PlacedLine> lines{}; ///< the lines that fit, top to bottom
-    bool cut{};                      ///< a line of its text, an item, or its bar, did not fit
+    bool cut{};                      ///< a line of its text, an item, a part or its bar did not fit
     Rect bar{};                      ///< the progress bar; empty for none
     int32_t footer_rule{};           ///< the row of the line over the footer
     std::vector<Rect> buttons{};     ///< its buttons, left to right
     /// The items that fit, under the paragraphs and above the failure. Empty
     /// when the question has none.
     std::vector<PlacedQuestionItem> items{};
+    /// The parts that fit whole, under the items and above the failure.
+    /// Empty when the question has none.
+    std::vector<PlacedPart> parts{};
 };
 
 /// Places a notice at its size class (Notice::size_class): its text wrapped
 /// under the header at the class's width, paths in the regular font broken
-/// at their separators and the rest in the small font broken between words,
-/// paragraph_gap rows between paragraphs and the failure last; its height
-/// from its text, from the class's least to its greatest height, a line that
-/// height cuts left out; and OK at the footer's right with the open button
-/// before it.
+/// at their separators and the rest in the small font, a new line starting a
+/// line and the rest broken between words, paragraph_gap rows between
+/// paragraphs and the failure last; its height from its text, from the
+/// class's least to its greatest height, a line that height cuts left out;
+/// and OK at the footer's right, with the open button before it when the
+/// notice has an open caption.
 ///
 /// @param notice the notice
 /// @param regular a text's width in the regular font
@@ -240,14 +328,15 @@ place_notice(const Notice& notice, const Measure& regular, const Measure& small)
 [[nodiscard]] PlacedNotice place_notice(const Notice& notice, const Fonts* fonts);
 
 /// Returns a question's buttons' places, right-aligned in the footer of a box
-/// of a height and of its size class's width, button_gap columns apart. Each
+/// of a height and of its size class's width, button_gap columns apart; a
+/// first button marked quiet stands alone at the footer's left. Each
 /// is as wide as its caption and prompt_button_padding more, at least
 /// button_width. A caption counts as the wider of its estimated_width and its
 /// width in the small font, so a caption the font draws wider than the
 /// estimate keeps the padding, and one it draws narrower keeps the place the
-/// estimate gives it. A row wider than the room between the box's paddings is
-/// narrowed, its widest buttons first, until it fits. Buttons past
-/// most_question_buttons are not placed.
+/// estimate gives it. A row wider than the room between the box's paddings,
+/// less a quiet button's place, is narrowed, its widest buttons first, until
+/// it fits. Buttons past most_question_buttons are not placed.
 ///
 /// @param question the question
 /// @param height the question's height
@@ -270,11 +359,15 @@ question_button_rects(const Question& question, int32_t height, const Fonts* fon
 
 /// Places a question: its text as a notice's, then its items when it has
 /// any (one a line, a 20-point badge, a gap and the name with the aside,
-/// cut with the kit's ellipsis), the failure under them, its progress bar
+/// cut with the kit's ellipsis), then its parts in order, paragraph_gap rows
+/// apart (a paragraph wrapped in the small font; a callout, its mark and its
+/// text wrapped in a tinted box; one box across or two side by side, each a
+/// heading and its lines, a line's mark before it and its text wrapped
+/// under itself), the failure under them, its progress bar
 /// paragraph_gap rows under that, its height from all of it, and its buttons
-/// (question_button_rects). With no items the text, the bar and the height
-/// are placed as before. A line, an item or a bar the height cuts is left
-/// out, and found cut.
+/// (question_button_rects). With no items and no parts the text, the bar
+/// and the height are placed as before. A line, an item or a bar the height
+/// cuts is left out, and found cut; so is a part the height cuts any of.
 ///
 /// @param question the question
 /// @param regular a text's width in the regular font
@@ -309,9 +402,10 @@ using LookUp = std::function<std::string_view(std::string_view)>;
 /// Returns a notice's display list: its face, its header with the title, its
 /// lines, its footer band, the open button and OK each followed by the focus
 /// ring when the keys mark it, and its edge, in that order. Its controls are
-/// OK and the open button, tested in that order and named <word>.ok and
-/// <word>.open (its sound word, notice_word_of), then its text; Tab goes left
-/// to right, the open button then OK. Its text is the control notice_body,
+/// OK and, when open_caption is not empty, the open button, tested in that
+/// order and named <word>.ok and <word>.open (its sound word, notice_word_of),
+/// then its text. Tab goes left to right, the open button then OK, or OK
+/// alone when there is no open button. Its text is the control notice_body,
 /// named <word>.body, of kind area, neither enabled nor focusable, so that no
 /// press, finger or key reaches it: it lies over the title and the lines that
 /// fit, and its text is the title, the paragraphs and the failure, when there
@@ -325,15 +419,18 @@ using LookUp = std::function<std::string_view(std::string_view)>;
 notice_list(const Notice& notice, const Fonts* fonts, const LookUp& look_up = {});
 
 /// Returns a question's display list: its face, its header with the title,
-/// its lines, its items' badges and text, its footer band, its progress bar,
+/// its lines, its items' badges and text, its parts (a callout's tinted box
+/// and its mark as an icon, a box's face, its heading, each line's mark as an
+/// icon and its text), its footer band, its progress bar,
 /// each button left to right followed by the focus ring when the keys mark
 /// it, and its edge, in that order. Its controls are its buttons, numbered,
 /// tested and in Tab order left to right, each named <word>.<id> (its sound
 /// word, question_word_of), or <word>.button-1 to <word>.button-3 by its
 /// place from the left when its id is empty or not a word of a-z, 0-9 and
 /// hyphens; then its text, as a notice's is (notice_list), named <word>.body.
-/// That text lists each item's name and aside, one line, after the paragraphs
-/// and before the failure. With no items the list is the one it was.
+/// That text lists each item's name and aside, one line, after the paragraphs,
+/// then each part's lines, a box's heading first, and the failure last. With
+/// no items and no parts the list is the one it was.
 ///
 /// @param question the question
 /// @param fonts the fonts it is drawn in; null to estimate widths
@@ -383,7 +480,8 @@ notice_finger_down(Notice& notice, Point finger, int32_t height, int32_t reach);
 
 /// Takes a key on a notice: Enter and Escape close it, Space presses the
 /// marked button, and Left, Right, Up, Down, Tab and Shift+Tab move the mark
-/// to the other button. Any other key does nothing.
+/// to the other button. With no open caption the mark stays on OK, and those
+/// keys do nothing. Any other key does nothing.
 ///
 /// @param[in,out] notice the notice
 /// @param key the key
@@ -461,24 +559,29 @@ question_pointer_up(Question& question, Point at, int32_t height, const Fonts* f
 void draw_notice(const Canvas& canvas, const Notice& notice, const LookUp& look_up = {});
 
 /// Draws a question at the canvas's origin in a notice's look: its header
-/// and title, its text, the failure in amber, its progress bar, and its
-/// buttons right-aligned in the footer, an accent one as OK looks and the
+/// and title, its text, its items and parts, the failure in amber, its
+/// progress bar, and its buttons in the footer, an accent one as OK looks, a
+/// danger one outlined in red, a quiet one as a caption at the left and the
 /// others plain, the marked one ringed. Its texts are drawn as given.
 ///
 /// @param canvas where it is drawn; its icon is the header mark's
 /// @param question the question
 void draw_question(const Canvas& canvas, const Question& question);
 
-/// Draws a progress bar: a well in a one-point border, filled in the accent
-/// from its left as far as done is of whole, rounded down. done is held to 0
-/// to whole. A whole of 0 or less, or an empty rectangle, fills nothing; an
-/// empty rectangle draws nothing at all.
+/// Draws a progress bar: a rounded track of the selected surface, filled
+/// in the accent, or in amber while the work is paused, from its left as
+/// far as done is of whole, rounded down, the fill rounded as the track is.
+/// done is held to 0 to whole. A whole of 0 or less, or an empty rectangle,
+/// fills nothing; an empty rectangle draws nothing at all.
 ///
 /// @param canvas where it is drawn
 /// @param bar the bar
 /// @param done how far it has come
 /// @param whole the whole
-void draw_progress(const Canvas& canvas, const Rect& bar, int32_t done, int32_t whole);
+/// @param paused true while the work is paused
+void draw_progress(
+    const Canvas& canvas, const Rect& bar, int32_t done, int32_t whole, bool paused = false
+);
 
 /// Appends a progress bar. It adds no control.
 ///
@@ -486,7 +589,10 @@ void draw_progress(const Canvas& canvas, const Rect& bar, int32_t done, int32_t 
 /// @param bar the bar
 /// @param done how far it has come
 /// @param whole the whole
-void add_progress(DisplayList& list, const Rect& bar, int32_t done, int32_t whole);
+/// @param paused true while the work is paused
+void add_progress(
+    DisplayList& list, const Rect& bar, int32_t done, int32_t whole, bool paused = false
+);
 
 /// The word a work dialog is named by. Its text's control is `<word>.body`.
 inline constexpr std::string_view work_dialog_word = "progress";
@@ -556,5 +662,109 @@ struct PlacedWorkDialog {
 /// @param canvas where it is drawn; its icon is the header mark's
 /// @param dialog the dialog
 void draw_work_dialog(const Canvas& canvas, const WorkDialog& dialog);
+
+/// The word the update pill is named by to automation.
+inline constexpr std::string_view update_pill_word = "update-pill";
+/// The update pill itself, which opens where its state is told in full.
+inline constexpr ControlId update_pill_body = 0;
+/// The update pill's small button.
+inline constexpr ControlId update_pill_button = 1;
+
+/// The mark at an update pill's start.
+enum class UpdatePillIcon : uint8_t {
+    download,  ///< a download arrow in the information blue: a download under way
+    paused,    ///< two bars in the lock colour: a download paused
+    ready,     ///< a circled check in the secondary text colour: ready, nothing scheduled
+    scheduled, ///< a circled check in the accent: it installs when the player quits
+    problem,   ///< a warning in the lock colour: something stopped
+};
+
+/// The update pill: the update centre's state in short, on the main menu, a
+/// thin bar under the words while a download is under way, and one small
+/// button. Its texts are given finished and drawn as given.
+struct UpdatePill {
+    UpdatePillIcon icon{UpdatePillIcon::download}; ///< the mark at its start
+    std::string text{};                            ///< the state in short, such as "0.8.8 · 41%"
+    int32_t percent{-1};                           ///< the bar, 0 to 100; -1 draws none
+    bool paused{};                                 ///< the bar is drawn paused, in the lock colour
+    std::string caption{}; ///< the small button's caption; empty draws no button
+    /// The button's name to automation: a word of a-z, 0-9 and hyphens; any
+    /// other names it by its place. Nothing draws it.
+    std::string button_id{};
+    ControlId hovered{no_control}; ///< the control under the pointer
+    ControlId pressed{no_control}; ///< the control a held press is on
+    /// The size class it is laid out at: its height and fonts' room are the class's.
+    SizeClass size_class{SizeClass::compact};
+};
+
+/// An update pill, placed, in points from its top left corner.
+struct PlacedUpdatePill {
+    int32_t width{};  ///< the pill's width
+    int32_t height{}; ///< the pill's height
+    Rect icon{};      ///< the mark
+    Rect text{};      ///< the words
+    Rect bar{};       ///< the bar under the words; empty for none
+    Rect button{};    ///< the small button; empty for none
+};
+
+/// What the pointer did on an update pill.
+enum class PillPointer : uint8_t {
+    move,    ///< it moved
+    press,   ///< its button went down
+    release, ///< its button came up
+};
+
+/// What an event on an update pill asks of its host.
+enum class UpdatePillAction : uint8_t {
+    none,    ///< nothing
+    redraw,  ///< only its look changed
+    opened,  ///< a press on the pill, off its button, was released over it
+    pressed, ///< a press on its button was released over it
+};
+
+/// Places an update pill at its size class: the mark, the words in the small
+/// font as wide as they are, the bar under them while it has one, and the
+/// button at its right, the pill rounded as a pill is.
+///
+/// @param pill the pill
+/// @param small a text's width in the small font
+/// @return the placed pill
+[[nodiscard]] PlacedUpdatePill place_update_pill(const UpdatePill& pill, const Measure& small);
+
+/// Places an update pill in its fonts, or at estimated widths without them.
+///
+/// @param pill the pill
+/// @param fonts the fonts it is drawn in; null to estimate widths
+/// @return the placed pill
+[[nodiscard]] PlacedUpdatePill place_update_pill(const UpdatePill& pill, const Fonts* fonts);
+
+/// Returns an update pill's display list: its face, its mark as an icon, its
+/// words, its bar and its button. Its controls are the button, named
+/// update-pill.<button id>, tested first, and the pill itself,
+/// update-pill.open, of kind area, whose text is the pill's words.
+///
+/// @param pill the pill
+/// @param fonts the fonts it is drawn in; null to estimate widths
+/// @return the display list, in points from the pill's top left corner
+[[nodiscard]] DisplayList update_pill_list(const UpdatePill& pill, const Fonts* fonts);
+
+/// Draws an update pill at the canvas's origin: a raised face with the
+/// strong edge, the mark, the words in the text colour, the bar and the
+/// button in the plain look, lit under the pointer.
+///
+/// @param canvas where it is drawn
+/// @param pill the pill
+void draw_update_pill(const Canvas& canvas, const UpdatePill& pill);
+
+/// Takes the pointer on an update pill: a move lights what is under it, a
+/// press holds it, and a release over what the press held asks for it.
+///
+/// @param[in,out] pill the pill
+/// @param kind what the pointer did
+/// @param at the pointer, in points from the pill's top left corner
+/// @param fonts the fonts it is drawn in, which place it; null to estimate widths
+/// @return what the event asks of the host
+[[nodiscard]] UpdatePillAction
+update_pill_pointer(UpdatePill& pill, PillPointer kind, Point at, const Fonts* fonts);
 
 } // namespace oa::ui::kit

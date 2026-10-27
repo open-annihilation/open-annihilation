@@ -274,10 +274,10 @@ struct Model {
     bool windowed{};
 };
 
-/// The room the setup lays out in on a large window, in points: Regular's
-/// least. A larger window draws this room larger, so the setup's words,
-/// buttons and cards grow with the window together.
-inline constexpr kit::Point setup_room = kit::regular_from;
+/// The room the setup lays out in on a large window, in points: 960 by 540,
+/// a 1920 by 1080 screen at 2x. A larger window draws this room larger, so
+/// the setup's words, buttons and cards grow with the window together.
+inline constexpr kit::Point setup_room{960, 540};
 
 /// Returns the scale the setup is drawn at in a room of window pixels.
 ///

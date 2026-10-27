@@ -1,13 +1,20 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// GET MUTATORS over a guest's battle room, on the OA layer: one screen,
-// get-mutators, that is not modal, has no backdrop and is not opaque. It
-// shows while the guest is in the battle room and the host's set is not
-// empty. VIEW… opens the picker read-only on that set. GET MUTATORS queues
-// the releases the host named, through the fetch the room already owns, and
-// a bar takes its place while one downloads. Nothing readies the player.
+// A guest's Mutators in the battle room, on the OA layer: one screen,
+// get-mutators, that is not modal, has no backdrop and is not opaque, drawn
+// from the room's own art (brain_seats_room.hpp). It shows while the guest
+// is in the battle room. The host's set is the room's own on and off button
+// with the OA stamp, where the host's button stands over Select Map:
+// "Mutators: off" with no lamp lit, or "Mutators: N on" with the green lamp
+// while this machine has every one and the red lamp while it lacks one. A
+// press opens the picker read-only on that set, and resting the pointer on
+// it shows its card. To its left, GET MUTATORS, a button in the room's art,
+// queues the releases the host named, through the fetch the room already
+// owns; a bar takes its place while one downloads, and a line in the room's
+// label font says why one cannot be fetched. Nothing readies the player.
 
+#include "brain_seats_room.hpp"
 #include "mod_install_state.hpp"
 #include "oa_layer.hpp"
 
@@ -16,7 +23,10 @@
 #include "oa/netgame/presence.hpp"
 #include "oa/ui/frontend_multiplayer/get_map.hpp"
 #include "oa/ui/frontend_multiplayer/mutator_room.hpp"
+#include "oa/ui/frontend_multiplayer/presence_card.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
+#include "oa/ui/frontend_renderer/room_parts.hpp"
+#include "oa/ui/kit/canvas.hpp"
 #include "oa/ui/frontend_state/oa_button_place.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/components_more.hpp"
@@ -33,7 +43,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
+#include <tuple>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -47,6 +59,7 @@ namespace place = oa::ui::frontend_state;
 namespace mp = oa::ui::frontend_multiplayer;
 namespace pad = oa::ui::pad_controls;
 namespace kit = oa::ui::kit;
+namespace room = oa::ui::frontend_renderer;
 
 constexpr std::string_view screen_name = "get-mutators";
 constexpr std::string_view view_name = "mutators-view";
@@ -54,7 +67,6 @@ constexpr std::string_view fetch_name = "get-mutators";
 constexpr std::string_view progress_name = "get-mutators-progress";
 constexpr std::string_view text_name = "get-mutators-text";
 constexpr std::string_view ready_name = "get-mutators-ready";
-constexpr std::string_view word_view = "VIEW…";
 constexpr std::string_view word_fetch = "GET MUTATORS";
 constexpr std::string_view word_prefix = "Mutators:";
 constexpr kit::ControlId view_control = 1;
@@ -63,9 +75,19 @@ constexpr kit::ControlId text_control = 3;
 constexpr kit::ControlId progress_control = 4;
 constexpr kit::ControlId ready_control = 5;
 constexpr int32_t summary_line_width = 200;
-constexpr int32_t least_summary_width = 80;
-constexpr int32_t anchor_gap = 4;
 constexpr int32_t column_slack = 10;
+/// The least gap above and below the button over Select Map, in frame pixels.
+constexpr int32_t least_gap = 2;
+/// Frame pixels between two of the block's parts, and round them.
+constexpr int32_t part_gap = 4;
+/// GET MUTATORS' padding round its words, in frame pixels.
+constexpr int32_t fetch_padding = 14;
+/// The bar's width, in frame pixels.
+constexpr int32_t bar_width = 80;
+/// The narrowest a part to the button's left may be, in frame pixels.
+constexpr int32_t least_part_width = 30;
+/// The card's slot: the button, the one thing it describes.
+constexpr int32_t card_slot = 0;
 constexpr int32_t bar_whole = 1000;
 constexpr int32_t bar_per_percent = 10;
 
@@ -90,33 +112,35 @@ struct Listed {
     bool lacking{};     ///< this machine does not have the host's release
 };
 
-/// Where the row, its line and the ready line lie.
+/// Where the guest's button, the part to its left, the ready line and the
+/// card lie.
 struct Geometry {
-    bool ok{};                                  ///< the guest's block shows
-    kit::Rect bounds{};                         ///< the screen's place, in points
-    kit::Rect view{};                           ///< VIEW…
-    kit::Rect fetch{};                          ///< GET MUTATORS, or the bar in its place
-    bool fetch_button{};                        ///< GET MUTATORS is a button
-    bool bar{};                                 ///< the bar shows in GET MUTATORS' place
-    int32_t bar_done{};                         ///< how much of the bar is filled, in thousandths
-    std::string view_caption{};                 ///< VIEW… in the language shown
-    std::string fetch_caption{};                ///< GET MUTATORS in the language shown
-    std::vector<kit::Rect> lines{};             ///< the one line, when it was kept
-    bool summary{};                             ///< the line is the set, not a state line
-    std::string line{};                         ///< the line, whole and uncut
-    kit::Colour line_colour{kit::colour::text}; ///< a state line's colour
-    std::vector<Listed> listed{};               ///< the set, in the host's order
-    std::vector<FocusNote> focusable{};         ///< the records Tab can stop on
-    place::PlaceRect view_points{};             ///< VIEW…, for the order
-    place::PlaceRect fetch_points{};            ///< GET MUTATORS, for the order
-    int32_t anchor_index{-1};                   ///< Select Map's record
-    int32_t before{-1};                         ///< the record just before the row
-    int32_t after{-1};                          ///< the record just after the row
-    int32_t first{-1};                          ///< the first record in the order
-    int32_t last{-1};                           ///< the last record in the order
-    int32_t below{-1};                          ///< the next record down Select Map's column
-    std::optional<kit::Rect> ready{};           ///< the line in READY's place
-    std::string ready_text{};                   ///< that line's words
+    bool ok{};                          ///< the guest's block shows
+    kit::Rect bounds{};                 ///< the screen's place, in the layer's points
+    room::SourceRect view{};            ///< the room's Mutators button, in frame pixels
+    room::SourceRect side{};            ///< GET MUTATORS, the bar or the line, in frame pixels
+    bool fetch_button{};                ///< GET MUTATORS is a button
+    bool bar{};                         ///< the bar shows in GET MUTATORS' place
+    bool line_shown{};                  ///< the state line is drawn in GET MUTATORS' place
+    int32_t bar_done{};                 ///< how much of the bar is filled, in thousandths
+    std::string fetch_caption{};        ///< GET MUTATORS in the language shown
+    bool summary{};                     ///< the line is the set, not a state line
+    std::string line{};                 ///< the line, whole and uncut
+    std::vector<Listed> listed{};       ///< the set, in the host's order
+    std::vector<FocusNote> focusable{}; ///< the records Tab can stop on
+    place::PlaceRect view_points{};     ///< the button, for the order
+    place::PlaceRect fetch_points{};    ///< GET MUTATORS, for the order
+    int32_t anchor_index{-1};           ///< Select Map's record
+    int32_t before{-1};                 ///< the record just before the row
+    int32_t after{-1};                  ///< the record just after the row
+    int32_t first{-1};                  ///< the first record in the order
+    int32_t last{-1};                   ///< the last record in the order
+    int32_t below{-1};                  ///< the next record down Select Map's column
+    std::optional<kit::Rect> ready{};   ///< the line in READY's place, in the layer's points
+    std::string ready_text{};           ///< that line's words
+    std::optional<kit::Rect> card{};    ///< the open card, in the layer's points
+    std::optional<kit::Rect> arrow{};   ///< its arrow, in the layer's points
+    kit::HoverCardLook card_look{};     ///< the open card's look, its arrow pointed
 };
 
 /// Returns one of the block's words in the language shown.
@@ -135,28 +159,41 @@ kit::Rect as_kit(const place::PlaceRect& rect) noexcept {
     return {rect.x, rect.y, rect.width, rect.height};
 }
 
-/// Grows a rectangle by the focus ring's margin.
-///
-/// @param rect the rectangle
-/// @param margin the margin, in points
-/// @return the grown rectangle
-kit::Rect outset(const kit::Rect& rect, int32_t margin) noexcept {
-    return {rect.x - margin, rect.y - margin, rect.width + margin * 2, rect.height + margin * 2};
-}
-
 /// Returns the union of two rectangles.
 ///
 /// @param into the rectangle so far; empty when its width is not positive
-/// @param extra the rectangle to include
+/// @param extra the rectangle to include; nothing when it is empty
 /// @return the union
 kit::Rect unite(const kit::Rect& into, const kit::Rect& extra) noexcept {
     if (into.width <= 0 || into.height <= 0)
         return extra;
+    if (extra.width <= 0 || extra.height <= 0)
+        return into;
     const int32_t span_left = std::min(into.x, extra.x);
     const int32_t top = std::min(into.y, extra.y);
     const int32_t right = std::max(into.x + into.width, extra.x + extra.width);
     const int32_t bottom = std::max(into.y + into.height, extra.y + extra.height);
     return {span_left, top, right - span_left, bottom - top};
+}
+
+/// Tells whether two rectangles of frame pixels share a pixel.
+///
+/// @param first a rectangle
+/// @param second another
+/// @return true when they do
+bool meets(const room::SourceRect& first, const room::SourceRect& second) noexcept {
+    return first.x < second.x + second.width && second.x < first.x + first.width &&
+           first.y < second.y + second.height && second.y < first.y + first.height;
+}
+
+/// Tells whether a rectangle of frame pixels holds a pixel.
+///
+/// @param rect the rectangle
+/// @param at the pixel
+/// @return true when it does
+bool holds_pixel(const room::SourceRect& rect, kit::Point at) noexcept {
+    return at.x >= rect.x && at.y >= rect.y && at.x < rect.x + rect.width &&
+           at.y < rect.y + rect.height;
 }
 
 kit::Rect local_of(const kit::Rect& rect, const kit::Rect& origin) noexcept {
@@ -289,119 +326,6 @@ bool guest_awaits_mutators(mp::Lobby& lobby) noexcept {
     return !own_state->built;
 }
 
-void add_text(
-    kit::DisplayList& list,
-    const kit::Rect& box,
-    std::string text,
-    kit::Colour ink,
-    kit::Align align
-) {
-    kit::Item item;
-    item.role = kit::Role::text;
-    item.rect = box;
-    item.text = std::move(text);
-    item.font = kit::FontRole::small;
-    item.align = align;
-    item.colour = ink;
-    list.items.push_back(std::move(item));
-}
-
-/// Draws the summary from the right, dropping whole names and ending with an ellipsis.
-///
-/// @param list the display list
-/// @param box the line, in the screen's points
-/// @param fonts the fonts
-/// @param prefix "Mutators:" in the language shown
-/// @param listed the set, in the host's order
-/// @param full the whole line, uncut, stored on the area
-void add_summary(
-    kit::DisplayList& list,
-    const kit::Rect& box,
-    const kit::Fonts& fonts,
-    const std::string& prefix,
-    const std::vector<Listed>& listed,
-    const std::string& full
-) {
-    const auto measure = [&fonts](std::string_view text) {
-        return kit::text_width(fonts, kit::FontRole::small, text);
-    };
-    const std::string gap = " ";
-    const std::string separator = " · ";
-    const std::string dots(kit::ellipsis);
-    const auto width_of = [&](std::size_t count, bool with_dots) {
-        int32_t width = measure(prefix);
-        if (count == 0 && !with_dots)
-            return width;
-        width += measure(gap);
-        for (std::size_t at = 0; at < count; ++at) {
-            if (at > 0)
-                width += measure(separator);
-            width += measure(listed[at].name);
-        }
-        if (with_dots) {
-            if (count > 0)
-                width += measure(separator);
-            width += measure(dots);
-        }
-        return width;
-    };
-    std::size_t count = listed.size();
-    bool with_dots = false;
-    while (count > 0 && width_of(count, false) > box.width) {
-        --count;
-        with_dots = true;
-    }
-    while (with_dots && count > 0 && width_of(count, true) > box.width)
-        --count;
-
-    struct Run {
-        std::string text;
-        kit::Colour colour;
-    };
-
-    std::vector<Run> runs;
-    if (with_dots && width_of(count, true) > box.width) {
-        if (measure(dots) <= box.width)
-            runs.push_back({dots, kit::colour::text});
-    } else {
-        runs.push_back({prefix, kit::colour::text});
-        if (count > 0 || with_dots)
-            runs.push_back({gap, kit::colour::text});
-        for (std::size_t at = 0; at < count; ++at) {
-            if (at > 0)
-                runs.push_back({separator, kit::colour::text});
-            runs.push_back(
-                {listed[at].name, listed[at].lacking ? kit::colour::lock : kit::colour::text}
-            );
-        }
-        if (with_dots) {
-            if (count > 0)
-                runs.push_back({separator, kit::colour::text});
-            runs.push_back({dots, kit::colour::text});
-        }
-    }
-    int32_t width = 0;
-    for (const Run& run : runs)
-        width += measure(run.text);
-    int32_t cursor = box.x + box.width - width;
-    for (const Run& run : runs) {
-        const int32_t run_width = measure(run.text);
-        add_text(
-            list, {cursor, box.y, run_width, box.height}, run.text, run.colour, kit::Align::left
-        );
-        cursor += run_width;
-    }
-    kit::Control control;
-    control.id = text_control;
-    control.rect = box;
-    control.enabled = true;
-    control.name = std::string(text_name);
-    control.kind = kit::ControlKind::area;
-    control.focusable = false;
-    control.text = full;
-    list.controls.push_back(std::move(control));
-}
-
 /// The name the summary and the ready line show for one fetched mutator.
 ///
 /// @param item the fetch row
@@ -420,11 +344,12 @@ std::string item_registry(const Runtime::HostMutatorFetch& item) {
 
 } // namespace
 
-/// GET MUTATORS as a screen of the OA layer.
+/// A guest's Mutators as a screen of the OA layer.
 ///
-/// Its points are the layer's. It shows VIEW… and, while a release can be
-/// fetched or the last try failed, GET MUTATORS, with one line under them.
-/// While a download runs, the bar stands where GET MUTATORS stood.
+/// Its points are the layer's. It shows the room's Mutators button over
+/// Select Map and, to its left while a release can be fetched or the last
+/// try failed, GET MUTATORS; the bar while a download runs; or the line that
+/// says why none can be fetched.
 struct Runtime::GetMutatorsScreen final : LayerScreen {
     /// Makes the screen.
     ///
@@ -436,7 +361,8 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
     /// @return the name
     [[nodiscard]] std::string_view name() const override { return screen_name; }
 
-    /// Returns the row, its line and the ready line, in the window.
+    /// Returns the button, the part to its left, the ready line and the open
+    /// card, in the window.
     ///
     /// @param placed_on what the screen is placed on
     /// @return its place; empty while it does not show
@@ -464,7 +390,7 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
     /// @return false
     [[nodiscard]] bool backdrop() const override { return false; }
 
-    /// Tells that the line lies over the picture.
+    /// Tells that the block lies over the picture.
     ///
     /// @return false
     [[nodiscard]] bool opaque() const override { return false; }
@@ -474,12 +400,86 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
     /// @param placed_on what the screen is placed on
     void lay_out(const LayerView& placed_on) override { view_ = placed_on; }
 
-    /// Draws the row, the line and, while it holds the focus, the ring.
+    /// Draws the button, GET MUTATORS or the bar or the line, the ready line
+    /// and the open card.
     ///
     /// @param canvas where it draws
-    void draw(const kit::Canvas& canvas) const override { kit::paint(canvas, display_list()); }
+    void draw(const kit::Canvas& canvas) const override {
+        const Geometry laid = geometry(view_);
+        if (!laid.ok)
+            return;
+        const room::RoomArt art = room_art();
+        const room::Surface& frame = BrainSeatsAccess::frame(runtime_);
+        const int32_t margin = room_focus_margin;
+        room::RoomCanvas parts = room::room_canvas(
+            {laid.view.x - margin,
+             laid.view.y - margin,
+             laid.view.width + 2 * margin,
+             laid.view.height + 2 * margin},
+            &frame
+        );
+        draw_mutators_switch(
+            parts,
+            art,
+            laid.view,
+            mutators_words(laid.listed.size()),
+            lamp(laid),
+            pressed_ == view_control && hovered_ == view_control ? room::ButtonCondition::pressed
+                                                                 : room::ButtonCondition::normal,
+            focused_ == Held::view
+        );
+        paint_room_parts(canvas, view_, laid.bounds, parts);
+        if (laid.side.width > 0) {
+            room::RoomCanvas side = room::room_canvas(
+                {laid.side.x - margin,
+                 laid.side.y - margin,
+                 laid.side.width + 2 * margin,
+                 laid.side.height + 2 * margin},
+                &frame
+            );
+            if (laid.fetch_button) {
+                const std::string caption = room::room_text(laid.fetch_caption);
+                room::RoomButtonLook look;
+                look.rect = laid.side;
+                look.caption = caption;
+                look.narrower_font = true;
+                if (pressed_ == fetch_control && hovered_ == fetch_control)
+                    look.condition = room::ButtonCondition::pressed;
+                room::draw_room_button(side, art, look);
+                if (focused_ == Held::fetch)
+                    room::draw_room_focus(side, art, laid.side);
+            } else if (laid.bar) {
+                room::draw_room_bar(side, art, laid.side, laid.bar_done, bar_whole);
+                const std::string percent =
+                    room::room_text(std::to_string(laid.bar_done / bar_per_percent) + "%");
+                draw_line(side, art, laid.side, percent, true);
+            } else if (laid.line_shown) {
+                // On the box's top rows, clear of the room's own lettering under it.
+                const int32_t height = room::room_line_height(art, room::RoomFont::label);
+                draw_line(
+                    side,
+                    art,
+                    {laid.side.x, laid.side.y, laid.side.width, std::min(height, laid.side.height)},
+                    room::room_text(laid.line),
+                    false
+                );
+            }
+            paint_room_parts(canvas, view_, laid.bounds, side);
+        }
+        if (laid.ready) {
+            const room::SourceRect line = points_rect_frame(view_, *laid.ready);
+            room::RoomCanvas ready = room::room_canvas(line, &frame);
+            draw_line(ready, art, line, room::room_text(laid.ready_text), false);
+            paint_room_parts(canvas, view_, laid.bounds, ready);
+        }
+        if (laid.card) {
+            kit::DisplayList card;
+            kit::add_hover_card(card, local_of(*laid.card, laid.bounds), laid.card_look);
+            kit::paint(canvas, card);
+        }
+    }
 
-    /// Takes a press on VIEW… or GET MUTATORS. A press anywhere else goes on.
+    /// Takes a press on the button or GET MUTATORS. A press anywhere else goes on.
     ///
     /// @param kind pointer_move, pointer_down or pointer_up
     /// @param button the pointer's button
@@ -489,14 +489,23 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
         ScreenInputKind kind, uint8_t button, kit::Point at, int32_t /*finger_reach*/
     ) override {
         const Geometry laid = geometry(view_);
-        const kit::ControlId over = hit(laid, at);
+        if (laid.ok) {
+            pointer_layer_ = {at.x + laid.bounds.x, at.y + laid.bounds.y};
+            have_pointer_ = true;
+        }
+        const kit::ControlId over = hit(laid);
         if (over != hovered_) {
             hovered_ = over;
             ++revision_;
         }
+        const int32_t card_before = card_.open_slot();
+        follow_card(laid);
+        if (card_.open_slot() != card_before)
+            ++revision_;
         if (kind == ScreenInputKind::pointer_down && button == SDL_BUTTON_LEFT) {
             if (over == view_control || over == fetch_control) {
                 pressed_ = over;
+                card_.close();
                 ++revision_;
                 return LayerAnswer::redraw;
             }
@@ -523,11 +532,22 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
         return LayerAnswer::pass;
     }
 
-    /// Takes the keys the row holds the focus for, and Y, which opens VIEW….
+    /// Takes the keys the row holds the focus for, Y, which reads the set,
+    /// the information key, which shows the card, and Escape while it is open.
     ///
     /// @param pressed the key
     /// @return none or redraw when the row takes it; pass otherwise
-    LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override { return answer_key(pressed); }
+    LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override {
+        if (pressed == kit::Key::info && focused_ == Held::view && card_.key_info(card_slot)) {
+            ++revision_;
+            return LayerAnswer::none;
+        }
+        if (pressed == kit::Key::escape && card_.key_close()) {
+            ++revision_;
+            return LayerAnswer::none;
+        }
+        return answer_key(pressed);
+    }
 
     /// Lets every shortcut go on.
     ///
@@ -565,103 +585,75 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
     /// @return pass
     LayerAnswer wheel(kit::Point /*at*/, float /*notches*/) override { return LayerAnswer::pass; }
 
-    /// Returns the row, the line, the bar and the ready line.
+    /// Returns the block's controls for automation and the pointer, and the
+    /// open card.
     ///
-    /// VIEW… is mutators-view. GET MUTATORS is get-mutators. The bar is
+    /// The button is mutators-view: its text is its words as drawn, checked
+    /// while its lamp is green. GET MUTATORS is get-mutators. The bar is
     /// get-mutators-progress and its text is the percent. The line is
-    /// get-mutators-text and stores the whole line, uncut. The ready line is
+    /// get-mutators-text and stores the whole line, uncut: the set while
+    /// nothing is being fetched, otherwise the state. The ready line is
     /// get-mutators-ready. The endpoint adds oa. to each name.
     ///
     /// @return the display list
     [[nodiscard]] kit::DisplayList display_list() const override {
         kit::DisplayList list;
         const Geometry laid = geometry(view_);
-        const kit::Fonts* fonts = runtime_.oa_layer().screen_fonts();
-        if (!laid.ok || fonts == nullptr)
+        if (!laid.ok)
             return list;
-        const kit::Rect view_rect = local_of(laid.view, laid.bounds);
-        kit::ButtonLook view_look;
-        view_look.caption = laid.view_caption;
-        view_look.style = kit::ButtonStyle::inset;
-        view_look.hovered = hovered_ == view_control;
-        view_look.held = pressed_ == view_control && view_look.hovered;
-        kit::add_button(list, view_rect, view_look, view_control, std::string(view_name));
-        list.tab_order.push_back(view_control);
+        const auto area =
+            [&](kit::ControlId id, const kit::Rect& rect, std::string_view name, std::string text) {
+                kit::Control control;
+                control.id = id;
+                control.rect = rect;
+                control.enabled = false;
+                control.focusable = false;
+                control.name = std::string(name);
+                control.kind = kit::ControlKind::area;
+                control.text = std::move(text);
+                list.controls.push_back(std::move(control));
+            };
+        const room::RoomArt art = room_art();
+        const kit::Rect view_rect = frame_rect_local(view_, laid.bounds, laid.view);
         if (laid.fetch_button) {
-            const kit::Rect fetch = local_of(laid.fetch, laid.bounds);
-            kit::ButtonLook fetch_look;
-            fetch_look.caption = laid.fetch_caption;
-            fetch_look.style = kit::ButtonStyle::accent;
-            fetch_look.hovered = hovered_ == fetch_control;
-            fetch_look.held = pressed_ == fetch_control && fetch_look.hovered;
-            kit::add_button(list, fetch, fetch_look, fetch_control, std::string(fetch_name));
+            kit::Control fetch;
+            fetch.id = fetch_control;
+            fetch.rect = frame_rect_local(view_, laid.bounds, laid.side);
+            fetch.name = std::string(fetch_name);
+            fetch.kind = kit::ControlKind::button;
+            fetch.text = laid.fetch_caption;
+            list.controls.push_back(std::move(fetch));
             list.tab_order.push_back(fetch_control);
         }
-        if (laid.bar) {
-            const kit::Rect bar = local_of(laid.fetch, laid.bounds);
-            kit::add_progress(list, bar, laid.bar_done, bar_whole);
-            kit::Control progress;
-            progress.id = progress_control;
-            progress.rect = bar;
-            progress.enabled = false;
-            progress.focusable = false;
-            progress.name = std::string(progress_name);
-            progress.kind = kit::ControlKind::area;
-            progress.text = std::to_string(laid.bar_done / bar_per_percent) + "%";
-            list.controls.push_back(std::move(progress));
-        }
-        if (!laid.lines.empty()) {
-            const kit::Rect box = local_of(laid.lines.front(), laid.bounds);
-            if (laid.summary) {
-                add_summary(list, box, *fonts, translated(word_prefix), laid.listed, laid.line);
-            } else {
-                const auto measure = [&fonts](std::string_view text) {
-                    return kit::text_width(*fonts, kit::FontRole::small, text);
-                };
-                add_text(
-                    list,
-                    box,
-                    kit::fit(laid.line, box.width, measure),
-                    laid.line_colour,
-                    kit::Align::right
-                );
-                kit::Control said;
-                said.id = text_control;
-                said.rect = box;
-                said.enabled = false;
-                said.focusable = false;
-                said.name = std::string(text_name);
-                said.kind = kit::ControlKind::area;
-                said.text = laid.line;
-                list.controls.push_back(std::move(said));
-            }
-        }
-        if (laid.ready) {
-            const kit::Rect box = local_of(*laid.ready, laid.bounds);
-            const auto measure = [&fonts](std::string_view text) {
-                return kit::text_width(*fonts, kit::FontRole::small, text);
-            };
-            add_text(
-                list,
-                box,
-                kit::fit(laid.ready_text, box.width, measure),
-                kit::colour::lock,
-                kit::Align::right
+        kit::Control view_button;
+        view_button.id = view_control;
+        view_button.rect = view_rect;
+        view_button.name = std::string(view_name);
+        view_button.kind = kit::ControlKind::button;
+        view_button.text = mutators_words_shown(art, laid.view, mutators_words(laid.listed.size()));
+        view_button.checked = lamp(laid) == room::RoomLamp::green;
+        list.controls.push_back(std::move(view_button));
+        list.tab_order.push_back(view_control);
+        if (laid.bar)
+            area(
+                progress_control,
+                frame_rect_local(view_, laid.bounds, laid.side),
+                progress_name,
+                std::to_string(laid.bar_done / bar_per_percent) + "%"
             );
-            kit::Control waiting;
-            waiting.id = ready_control;
-            waiting.rect = box;
-            waiting.enabled = false;
-            waiting.focusable = false;
-            waiting.name = std::string(ready_name);
-            waiting.kind = kit::ControlKind::area;
-            waiting.text = laid.ready_text;
-            list.controls.push_back(std::move(waiting));
+        area(
+            text_control,
+            laid.line_shown ? frame_rect_local(view_, laid.bounds, laid.side) : view_rect,
+            text_name,
+            laid.line
+        );
+        if (laid.ready)
+            area(ready_control, local_of(*laid.ready, laid.bounds), ready_name, laid.ready_text);
+        if (laid.card) {
+            const kit::Rect card = local_of(*laid.card, laid.bounds);
+            kit::add_hover_card(list, card, laid.card_look);
+            mp::presence_card_controls(list, card, laid.card_look);
         }
-        if (focused_ == Held::view)
-            kit::add_focus_ring(list, view_rect, true);
-        else if (focused_ == Held::fetch && laid.fetch_button)
-            kit::add_focus_ring(list, local_of(laid.fetch, laid.bounds), true);
         return list;
     }
 
@@ -682,13 +674,17 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
 
     /// Closes once the multiplayer screens go. Gives up the focus once the
     /// battle room's own focus is on a record again, and once GET MUTATORS
-    /// is no longer a button.
+    /// is no longer a button. Follows the pointer for the card.
     ///
     /// @return close when it should leave; redraw when what it shows changed; otherwise none
     LayerAnswer tick() override {
         if (!mp::multiplayer_showing())
             return LayerAnswer::close;
         const uint64_t before = revision_;
+        const int32_t card_before = card_.open_slot();
+        follow_card(geometry(view_));
+        if (card_.open_slot() != card_before)
+            ++revision_;
         const Geometry laid = geometry(view_);
         const Held was = focused_;
         if (focused_ != Held::none && mp::multiplayer_battle_room_focus() > 0)
@@ -713,7 +709,66 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
 
   private:
 
-    /// Places the guest's block above Select Map, missing the room and GET MAP.
+    /// The battle room's art, read once while the screen lives.
+    ///
+    /// @return the art; without resources when it could not be read
+    [[nodiscard]] room::RoomArt room_art() const {
+        if (!art_read_) {
+            art_read_ = true;
+            art_ = BrainSeatsAccess::load_art(runtime_, battle_room_art_names());
+        }
+        if (!art_)
+            return {};
+        return {&*art_, room::room_palette(*art_)};
+    }
+
+    /// The button's lamp: unlit while the host plays no mutator, red while
+    /// this machine lacks one (READY waits on it), otherwise green.
+    ///
+    /// @param laid the place
+    /// @return the lamp
+    [[nodiscard]] static room::RoomLamp lamp(const Geometry& laid) noexcept {
+        if (laid.listed.empty())
+            return room::RoomLamp::unlit;
+        for (const Listed& one : laid.listed)
+            if (one.lacking)
+                return room::RoomLamp::red;
+        return room::RoomLamp::green;
+    }
+
+    /// Draws a line of the room's label font in a box: right-aligned, or
+    /// centred, and cut with "..." where it is too wide.
+    ///
+    /// @param parts the canvas
+    /// @param art the art
+    /// @param box the box, in frame pixels
+    /// @param text the line, in the room's bytes
+    /// @param centred centre it rather than align it right
+    static void draw_line(
+        room::RoomCanvas& parts,
+        const room::RoomArt& art,
+        const room::SourceRect& box,
+        const std::string& text,
+        bool centred
+    ) {
+        const std::string fitted =
+            room::fit_room_text(art, room::RoomFont::label, text, box.width - 2);
+        const int32_t width = room::room_text_width(art, room::RoomFont::label, fitted);
+        const int32_t height = room::room_line_height(art, room::RoomFont::label);
+        const int32_t x = centred ? box.x + (box.width - width) / 2 : box.x + box.width - width;
+        std::ignore = room::draw_room_text(
+            parts,
+            art,
+            room::RoomFont::label,
+            fitted,
+            x,
+            box.y + (box.height - height) / 2,
+            box.width
+        );
+    }
+
+    /// Places the guest's button where the host's stands over Select Map,
+    /// the part to its left, the ready line beside START and the open card.
     ///
     /// @param placed_on what the screen is placed on
     /// @return the place; not ok when the guest has nothing to show
@@ -726,8 +781,6 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
         if (!mp::multiplayer_battle_room_map(&map) || !map.joiner)
             return laid;
         const std::vector<Runtime::HostMutatorFetch> fetch = runtime_.host_mutators_fetch();
-        if (fetch.empty())
-            return laid;
 
         std::vector<mp::MutatorFetch> states;
         states.reserve(fetch.size());
@@ -742,9 +795,18 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
                 deciding = &item;
             laid.listed.push_back(std::move(one));
         }
-        const mp::GetMutators stage = mp::get_mutators_state(states);
-        laid.fetch_button = mp::get_mutators_button_shown(stage);
-        laid.bar = stage == mp::GetMutators::downloading;
+        // A guest that has built the host's list lacks nothing, whatever a
+        // catalogue says of the releases: no part shows beside the button.
+        const bool awaits = !fetch.empty() && guest_awaits_mutators(mp::multiplayer_lobby());
+        if (!awaits) {
+            deciding = nullptr;
+            for (Listed& one : laid.listed)
+                one.lacking = false;
+        }
+        const mp::GetMutators stage =
+            fetch.empty() || !awaits ? mp::GetMutators::none : mp::get_mutators_state(states);
+        laid.fetch_button = !fetch.empty() && mp::get_mutators_button_shown(stage);
+        laid.bar = !fetch.empty() && stage == mp::GetMutators::downloading;
         std::string deciding_name;
         std::string deciding_registry;
         std::string problem;
@@ -762,8 +824,7 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
         }
         laid.summary = stage == mp::GetMutators::none || stage == mp::GetMutators::get;
         if (laid.summary) {
-            const std::string prefix = translated(word_prefix);
-            laid.line = prefix;
+            laid.line = translated(word_prefix);
             for (std::size_t at = 0; at < laid.listed.size(); ++at) {
                 laid.line += at == 0 ? " " : " · ";
                 laid.line += laid.listed[at].name;
@@ -771,19 +832,18 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
         } else {
             laid.line =
                 mp::get_mutators_text(stage, deciding_name, percent, problem, deciding_registry);
-            laid.line_colour =
-                stage == mp::GetMutators::downloading ? kit::colour::hint : kit::colour::lock;
         }
+        laid.fetch_caption = translated(word_fetch);
 
         const std::vector<mp::BattleRoomControl> controls = mp::multiplayer_battle_room_controls();
-        std::vector<place::PlaceRect> others;
+        std::vector<room::SourceRect> frames;
         std::vector<place::PlaceRect> reason_others;
-        place::PlaceRect anchor{};
+        room::SourceRect anchor{};
         place::PlaceRect start_rect{};
         bool found = false;
         bool have_start = false;
         int32_t anchor_frame_x = 0;
-        others.reserve(controls.size() + 1);
+        frames.reserve(controls.size() + 1);
         for (const mp::BattleRoomControl& control : controls) {
             const kit::Rect frame{control.x, control.y, control.width, control.height};
             const kit::Rect points = frame_to_points(placed_on, frame);
@@ -792,12 +852,12 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
             const bool map_control = Runtime::tdf_names_equal(control.name, "MAP");
             const bool start = Runtime::tdf_names_equal(control.name, "START");
             if (map_control && !found) {
-                anchor = as_place(points);
+                anchor = {control.x, control.y, control.width, control.height};
                 anchor_frame_x = control.x;
                 laid.anchor_index = control.index;
                 found = true;
             } else {
-                others.push_back(as_place(points));
+                frames.push_back({control.x, control.y, control.width, control.height});
             }
             if (start && !have_start) {
                 start_rect = as_place(points);
@@ -819,61 +879,95 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
             return laid;
         const Runtime::ShownBox map_box = runtime_.get_map_box();
         if (map_box.width > 0 && map_box.height > 0) {
-            const place::PlaceRect box{map_box.x, map_box.y, map_box.width, map_box.height};
-            others.push_back(box);
-            reason_others.push_back(box);
+            const kit::Rect box{map_box.x, map_box.y, map_box.width, map_box.height};
+            frames.push_back(points_rect_frame(placed_on, box));
+            reason_others.push_back(as_place(box));
         }
 
-        const kit::Metrics& metrics = kit::compact_metrics;
-        laid.view_caption = translated(word_view);
-        laid.fetch_caption = translated(word_fetch);
-        const int32_t view_width = std::max(
-            metrics.button_width,
-            kit::text_width(*fonts, kit::FontRole::small, laid.view_caption) +
-                metrics.prompt_button_padding
+        // The button stands where the host's stands: as large as Select Map
+        // and over it, wider to the left where its words need it.
+        const room::SourceRect room_frame{0, 0, placed_on.picture_size.x, placed_on.picture_size.y};
+        std::vector<place::PlaceRect> others;
+        others.reserve(frames.size());
+        for (const room::SourceRect& rect : frames)
+            others.push_back({rect.x, rect.y, rect.width, rect.height});
+        const std::optional<place::PlaceRect> over = place::place_over(
+            {anchor.x, anchor.y, anchor.width, anchor.height},
+            others,
+            {room_frame.x, room_frame.y, room_frame.width, room_frame.height},
+            least_gap
         );
-        const int32_t fetch_width = std::max(
-            metrics.button_width,
-            kit::text_width(*fonts, kit::FontRole::small, laid.fetch_caption) +
-                metrics.prompt_button_padding
-        );
-        const bool two = laid.fetch_button || laid.bar;
-        place::BlockSizes sizes{
-            view_width,
-            metrics.button_height,
-            metrics.small_line,
-            summary_line_width,
-            least_summary_width,
-            anchor_gap,
-            1,
-            0
-        };
-        sizes.button_gap = metrics.button_gap;
-        if (two)
-            sizes.button_widths = {view_width, fetch_width};
-        else
-            sizes.button_widths = {view_width};
-        const kit::Rect room_frame{0, 0, placed_on.picture_size.x, placed_on.picture_size.y};
-        const kit::Rect room = frame_to_points(placed_on, room_frame);
-        const place::BlockPlace block =
-            mp::place_over_anchor(anchor, others, as_place(room), sizes);
-        if (block.buttons.empty())
-            return laid;
-        laid.view = as_kit(block.buttons.front());
-        laid.view_points = block.buttons.front();
-        if (two && block.buttons.size() >= 2) {
-            laid.fetch = as_kit(block.buttons[1]);
-            laid.fetch_points = block.buttons[1];
+        laid.view =
+            over ? room::SourceRect{over->x, over->y, over->width, over->height}
+                 : room::SourceRect{
+                       anchor.x, anchor.y - anchor.height - part_gap, anchor.width, anchor.height
+                   };
+        const room::RoomArt art = room_art();
+        laid.view =
+            widen_mutators_switch(art, laid.view, mutators_words(laid.listed.size()), frames);
+
+        // GET MUTATORS, the bar or the line to its left, shortened to miss
+        // every control of the room.
+        laid.line_shown = !laid.summary && !laid.fetch_button && !laid.bar;
+        int32_t wanted = 0;
+        if (laid.fetch_button)
+            wanted = room::room_text_width(
+                         art, room::RoomFont::label, room::room_text(laid.fetch_caption)
+                     ) +
+                     fetch_padding;
+        else if (laid.bar)
+            wanted = bar_width;
+        else if (laid.line_shown)
+            wanted = std::min(
+                room::room_text_width(art, room::RoomFont::label, room::room_text(laid.line)) + 4,
+                summary_line_width
+            );
+        if (wanted > 0) {
+            const int32_t right = laid.view.x - part_gap;
+            room::SourceRect side{right - wanted, laid.view.y, wanted, laid.view.height};
+            for (const room::SourceRect& other : frames) {
+                if (!meets(side, other))
+                    continue;
+                const int32_t left = other.x + other.width + part_gap;
+                side.width = right - left;
+                side.x = left;
+                if (side.width <= 0)
+                    break;
+            }
+            side.x = std::max(side.x, room_frame.x);
+            side.width = right - side.x;
+            if (side.width >= least_part_width)
+                laid.side = side;
         }
-        laid.lines.reserve(block.lines.size());
-        for (const place::PlaceRect& line : block.lines)
-            laid.lines.push_back(as_kit(line));
-        kit::Rect bounds = outset(laid.view, metrics.focus_inset);
-        if (two)
-            bounds = unite(bounds, outset(laid.fetch, metrics.focus_inset));
-        for (const kit::Rect& line : laid.lines)
-            bounds = unite(bounds, line);
-        laid.before = record_before(laid.focusable, laid.view_points);
+        if (laid.side.width <= 0) {
+            laid.fetch_button = false;
+            laid.bar = false;
+            laid.line_shown = false;
+        }
+
+        laid.view_points = as_place(frame_rect_points(placed_on, laid.view));
+        if (laid.fetch_button)
+            laid.fetch_points = as_place(frame_rect_points(placed_on, laid.side));
+        const place::PlaceRect leftmost = laid.fetch_button ? laid.fetch_points : laid.view_points;
+        const room::SourceRect marked{
+            laid.view.x - room_focus_margin,
+            laid.view.y - room_focus_margin,
+            laid.view.width + 2 * room_focus_margin,
+            laid.view.height + 2 * room_focus_margin
+        };
+        kit::Rect bounds = frame_rect_points(placed_on, marked);
+        if (laid.side.width > 0)
+            bounds = unite(
+                bounds,
+                frame_rect_points(
+                    placed_on,
+                    {laid.side.x - room_focus_margin,
+                     laid.side.y - room_focus_margin,
+                     laid.side.width + 2 * room_focus_margin,
+                     laid.side.height + 2 * room_focus_margin}
+                )
+            );
+        laid.before = record_before(laid.focusable, leftmost);
         int32_t before_place = -1;
         for (const FocusNote& record : laid.focusable) {
             if (record.index == laid.before)
@@ -898,6 +992,7 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
             }
         }
         laid.below = column_below(laid.focusable, anchor_frame_x, laid.view_points);
+        const kit::Metrics& metrics = kit::compact_metrics;
         if (have_start && deciding != nullptr && guest_awaits_mutators(mp::multiplayer_lobby())) {
             const place::PlaceRect box = mp::reason_box(
                 start_rect, reason_others, metrics.small_line, summary_line_width * 2
@@ -908,27 +1003,70 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
                 bounds = unite(bounds, *laid.ready);
             }
         }
+        if (card_.open_slot() == card_slot) {
+            std::vector<MutatorsCardItem> items;
+            items.reserve(laid.listed.size());
+            for (const Listed& one : laid.listed)
+                items.push_back({one.name, one.lacking});
+            laid.card_look = mutators_card(items, false);
+            const kit::Point size = kit::hover_card_size(*fonts, laid.card_look);
+            const kit::Rect badge = frame_rect_points(placed_on, laid.view);
+            const int32_t arrow_depth =
+                kit::metrics_of(placed_on.frame.size_class).hover_card_arrow;
+            const kit::Rect card =
+                mp::presence_card_place(badge, size, placed_on.frame.area, arrow_depth);
+            mp::presence_card_point(laid.card_look, card, badge);
+            laid.card = card;
+            bounds = unite(bounds, card);
+            const int32_t across = 2 * arrow_depth - 1;
+            const int32_t left = card.x + laid.card_look.arrow_at - (arrow_depth - 1);
+            if (laid.card_look.arrow == kit::Side::top)
+                laid.arrow = kit::Rect{left, card.y - arrow_depth, across, arrow_depth};
+            else if (laid.card_look.arrow == kit::Side::bottom)
+                laid.arrow = kit::Rect{left, card.y + card.height, across, arrow_depth};
+            if (laid.arrow)
+                bounds = unite(bounds, *laid.arrow);
+        }
         laid.bounds = bounds;
         laid.ok = bounds.width > 0 && bounds.height > 0;
         return laid;
     }
 
-    /// The control under a point of the screen, or none.
+    /// The control under the pointer, or none.
     ///
     /// @param laid the place
-    /// @param at the point, in the screen's points
     /// @return the control
-    [[nodiscard]] kit::ControlId hit(const Geometry& laid, kit::Point at) const noexcept {
-        if (!laid.ok)
+    [[nodiscard]] kit::ControlId hit(const Geometry& laid) const {
+        if (!laid.ok || !have_pointer_)
             return kit::no_control;
-        if (kit::contains(local_of(laid.view, laid.bounds), at))
+        const kit::Point pixel = frame_point(view_, pointer_layer_);
+        if (holds_pixel(laid.view, pixel))
             return view_control;
-        if (laid.fetch_button && kit::contains(local_of(laid.fetch, laid.bounds), at))
+        if (laid.fetch_button && holds_pixel(laid.side, pixel))
             return fetch_control;
         return kit::no_control;
     }
 
-    /// Takes the focus onto a button and clears the battle room's ring.
+    /// Follows the pointer for the card: resting on the button opens it,
+    /// and it stays while the pointer is on the button or the card.
+    ///
+    /// @param laid the place
+    void follow_card(const Geometry& laid) {
+        bool over_button = false;
+        bool over_card = false;
+        if (laid.ok && have_pointer_) {
+            over_button = holds_pixel(laid.view, frame_point(view_, pointer_layer_));
+            over_card = (laid.card && kit::contains(*laid.card, pointer_layer_)) ||
+                        (laid.arrow && kit::contains(*laid.arrow, pointer_layer_));
+        }
+        card_.over_card(over_card);
+        (void)card_.pointer(
+            over_button ? card_slot : mp::presence_card_no_slot,
+            static_cast<uint64_t>(SDL_GetTicks())
+        );
+    }
+
+    /// Takes the focus onto a button and clears the battle room's own.
     ///
     /// @param which the button
     /// @return redraw
@@ -940,7 +1078,7 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
         return LayerAnswer::redraw;
     }
 
-    /// Hands the focus to a record and clears the row's ring.
+    /// Hands the focus to a record and clears the row's.
     ///
     /// @param index the record
     /// @return redraw
@@ -951,7 +1089,9 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
         return LayerAnswer::redraw;
     }
 
-    /// Answers one key, for the keyboard and for the pad actions that become keys.
+    /// Answers one key, for the keyboard and for the pad actions that become
+    /// keys. GET MUTATORS, while it shows, comes before the button in the
+    /// row, as it stands to its left.
     ///
     /// @param pressed the key
     /// @return none or redraw when the row takes it; pass otherwise
@@ -963,12 +1103,13 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
             open_view();
             return LayerAnswer::none;
         }
+        const Held first = laid.fetch_button ? Held::fetch : Held::view;
         const int32_t current = mp::multiplayer_battle_room_focus();
         if (focused_ == Held::none) {
             if (pressed == kit::Key::tab && current == laid.before && laid.before > 0)
-                return take_focus(Held::view);
+                return take_focus(first);
             if (pressed == kit::Key::back_tab && current == laid.after && laid.after > 0)
-                return take_focus(laid.fetch_button ? Held::fetch : Held::view);
+                return take_focus(Held::view);
             if (pressed == kit::Key::down && current == laid.anchor_index && laid.anchor_index > 0)
                 return take_focus(Held::view);
             if (pressed == kit::Key::up && current == laid.below && laid.below > 0)
@@ -983,29 +1124,29 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
             return LayerAnswer::none;
         }
         if (pressed == kit::Key::tab) {
-            if (focused_ == Held::view && laid.fetch_button)
-                return take_focus(Held::fetch);
+            if (focused_ == Held::fetch)
+                return take_focus(Held::view);
             const int32_t next = laid.after > 0 ? laid.after : laid.first;
             return next > 0 ? hand_focus(next) : LayerAnswer::none;
         }
         if (pressed == kit::Key::back_tab) {
-            if (focused_ == Held::fetch)
-                return take_focus(Held::view);
+            if (focused_ == Held::view && laid.fetch_button)
+                return take_focus(Held::fetch);
             const int32_t next = laid.before > 0 ? laid.before : laid.last;
             return next > 0 ? hand_focus(next) : LayerAnswer::none;
         }
         const place::PlaceRect from =
             focused_ == Held::fetch && laid.fetch_button ? laid.fetch_points : laid.view_points;
-        if (pressed == kit::Key::left) {
+        if (pressed == kit::Key::right) {
             if (focused_ == Held::fetch)
                 return take_focus(Held::view);
-            const int32_t next = nearest_record(laid.focusable, from, Aim::left);
+            const int32_t next = nearest_record(laid.focusable, from, Aim::right);
             return next > 0 ? hand_focus(next) : LayerAnswer::none;
         }
-        if (pressed == kit::Key::right) {
+        if (pressed == kit::Key::left) {
             if (focused_ == Held::view && laid.fetch_button)
                 return take_focus(Held::fetch);
-            const int32_t next = nearest_record(laid.focusable, from, Aim::right);
+            const int32_t next = nearest_record(laid.focusable, from, Aim::left);
             return next > 0 ? hand_focus(next) : LayerAnswer::none;
         }
         if (pressed == kit::Key::up || pressed == kit::Key::down) {
@@ -1016,7 +1157,8 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
         return LayerAnswer::pass;
     }
 
-    /// Opens the picker read-only on the host's set. USE THESE is not offered.
+    /// Opens the picker read-only on the host's set. USE THESE is not
+    /// offered. With no set, nothing opens.
     void open_view() {
         oa::netgame::PresenceLoadoutAssembly assembly;
         if (!mp::multiplayer_room_mutators(&assembly))
@@ -1040,17 +1182,19 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
     ///
     /// @param laid the place
     /// @return the text
-    [[nodiscard]] static std::string stamp_of(const Geometry& laid) {
+    [[nodiscard]] std::string stamp_of(const Geometry& laid) const {
         std::string stamp = laid.ok ? "1" : "0";
         stamp += laid.fetch_button ? "b" : "";
         stamp += laid.bar ? "p" : "";
         stamp += std::to_string(laid.bar_done);
         stamp += laid.line;
         stamp += laid.ready_text;
-        stamp += std::to_string(laid.view.x);
-        stamp += std::to_string(laid.view.y);
-        stamp += std::to_string(laid.fetch.x);
-        stamp += std::to_string(laid.fetch.y);
+        stamp += std::to_string(static_cast<int32_t>(lamp(laid)));
+        stamp += std::to_string(laid.view.x) + ',' + std::to_string(laid.view.y) + ',' +
+                 std::to_string(laid.view.width);
+        stamp += std::to_string(laid.side.x) + ',' + std::to_string(laid.side.width);
+        stamp += std::to_string(card_.open_slot());
+        stamp += std::to_string(hovered_) + std::to_string(pressed_);
         return stamp;
     }
 
@@ -1061,13 +1205,22 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
     Held focused_{Held::none};                ///< the button the keyboard focus is on
     uint64_t revision_{};                     ///< counts the changes to how it looks
     std::string stamp_{};                     ///< what it last showed
+    mp::PresenceCardTrigger card_{};          ///< when the card opens and closes
+    bool have_pointer_{};                     ///< the pointer has been seen
+    kit::Point pointer_layer_{};              ///< the pointer, in the layer's points
+    /// The battle room's art, read on its first use; nothing when it could not be read.
+    mutable std::optional<room::ScreenResources> art_{};
+    mutable bool art_read_{}; ///< the battle room's art has been read
 };
 
 bool Runtime::ModInstallState::get_mutators_shows(const Runtime& runtime) {
-    // The battle room shows with no dialog over it, and the guest's block has
-    // a place there: it shows nowhere while the host's list is empty.
+    // The battle room shows with no dialog over it, the host plays a set, and
+    // the guest's block has a place there.
     mp::BattleRoomMap room;
     if (!runtime.oa_layer_ || !mp::multiplayer_battle_room_map(&room) || !room.joiner)
+        return false;
+    oa::netgame::PresenceLoadoutAssembly assembly;
+    if (!mp::multiplayer_room_mutators(&assembly) || assembly.mutators.empty())
         return false;
     const LayerPlacement placed = runtime.oa_layer_->placement_of(screen_name);
     return placed.shown.width > 0 && placed.shown.height > 0;

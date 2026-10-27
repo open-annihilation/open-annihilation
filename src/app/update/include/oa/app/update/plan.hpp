@@ -87,6 +87,18 @@ struct State {
     std::string preferences_copy;          ///< the copy of the preferences file
     bool confirmed{};                      ///< true once a later start has settled
     int32_t failed_starts{};               ///< starts of the new version that did not settle
+    /// The last start of the installed version ended before the main menu
+    /// because the player quit. Written only when true, so a state file keeps
+    /// the bytes it had before this existed.
+    bool quit_before_menu{};
+};
+
+/// How a start of the installed version ended, read from the state file
+/// after it.
+enum class StartEnd : uint8_t {
+    reached_menu, ///< the start reached the main menu
+    quit,         ///< the player quit before the main menu
+    failed,       ///< it ended before the main menu and no quit was recorded
 };
 
 /// The action as the plan writes it.
@@ -175,18 +187,39 @@ write_state(const std::filesystem::path& path, const State& state, std::string* 
 
 /// Marks a start that reached the main menu.
 ///
-/// `confirmed` becomes true and `failed_starts` becomes 0. Nothing else moves.
+/// `confirmed` becomes true, `failed_starts` becomes 0 and `quit_before_menu`
+/// becomes false. Nothing else moves.
 ///
 /// @param[in,out] state the state
 void confirm_state(State& state) noexcept;
 
 /// Counts one start that did not reach the main menu.
 ///
-/// The count stops at the largest int32_t. A confirmed state is still counted
-/// when the caller asks: the caller decides whether a confirmed version counts.
+/// The count stops at the largest int32_t, and `quit_before_menu` becomes
+/// false: a new start has begun. A confirmed state is still counted when the
+/// caller asks: the caller decides whether a confirmed version counts.
 ///
 /// @param[in,out] state the state
 /// @return the count after this start
 int32_t count_failed_start(State& state) noexcept;
+
+/// Takes back the count of a start the player ended before the main menu.
+///
+/// A quit is not a failed start. `failed_starts` goes down by one, never
+/// below 0, and `quit_before_menu` becomes true. A confirmed state is left
+/// as it is.
+///
+/// @param[in,out] state the state
+void uncount_quit_start(State& state) noexcept;
+
+/// Tells how a start that has ended went, from the state file read after it.
+///
+/// A confirmed state reached the main menu. An unconfirmed one with
+/// `quit_before_menu` was a quit. Anything else, a state that cannot be read
+/// among them, failed: a crash, or an error that stopped the game.
+///
+/// @param state the state file after the start, or nothing when it could not be read
+/// @return how the start ended
+[[nodiscard]] StartEnd start_end(const std::optional<State>& state) noexcept;
 
 } // namespace oa::app::update

@@ -17,6 +17,7 @@ target_include_directories(oa-tool-commands PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(oa-tool-commands PRIVATE
   ${PROJECT_SOURCE_DIR}/src/app/include
   ${PROJECT_SOURCE_DIR}/src/app/package-install/include
+  ${PROJECT_SOURCE_DIR}/src/app/update/include
   ${PROJECT_SOURCE_DIR}/src/netgame/match/include
   ${PROJECT_SOURCE_DIR}/src/ui/engine-settings/include
   ${PROJECT_SOURCE_DIR}/src/ui/first-run/include

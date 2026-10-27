@@ -164,6 +164,20 @@ void outline_round_rect(const Canvas& canvas, const Rect& rect, int32_t radius, 
 /// @param ink the colour
 void fill_corner_rect(const Canvas& canvas, const Rect& rect, int32_t radius, Colour ink);
 
+/// Blends a colour over a rectangle with rounded corners, as
+/// fill_corner_rect fills one: each pixel takes the colour by its share of
+/// the shape times the opacity. A rectangle too large to sample is blended
+/// square.
+///
+/// @param canvas where it is drawn
+/// @param rect the rectangle, in points
+/// @param radius the corners' radius, in points; 0 blends the rectangle square
+/// @param ink the colour
+/// @param opacity its share of each covered pixel, in 256ths
+void blend_corner_rect(
+    const Canvas& canvas, const Rect& rect, int32_t radius, Colour ink, uint32_t opacity
+);
+
 /// Draws a one-point outline of that rectangle with rounded corners, as
 /// outline_round_rect draws a capsule's. The inside is left as it is.
 ///
@@ -172,6 +186,21 @@ void fill_corner_rect(const Canvas& canvas, const Rect& rect, int32_t radius, Co
 /// @param radius the corners' radius, in points; 0 outlines the rectangle square
 /// @param ink the outline's colour
 void outline_corner_rect(const Canvas& canvas, const Rect& rect, int32_t radius, Colour ink);
+
+/// Draws a ring of a whole number of points round the inside of a
+/// rectangle with rounded corners: the focus ring and a field's soft ring.
+/// It is that rectangle's shape less the same shape thickness points in,
+/// worked out at the canvas's own pixels as fill_corner_rect is. On the
+/// smooth form it is max(1, lround(thickness * scale)) whole pixels thick.
+///
+/// @param canvas where it is drawn
+/// @param rect the ring's outside, in points; the inside is left as it is
+/// @param radius the outside corners' radius, in points; 0 draws a square ring
+/// @param thickness the ring's thickness, in points
+/// @param ink the ring's colour
+void ring_corner_rect(
+    const Canvas& canvas, const Rect& rect, int32_t radius, int32_t thickness, Colour ink
+);
 
 /// Draws a one-point raised edge round the inside of a rectangle: light along
 /// the top and left, dark along the bottom and right, the dark edges running

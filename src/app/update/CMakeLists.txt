@@ -1,11 +1,12 @@
 # SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 # SPDX-License-Identifier: GPL-3.0-only
 
-# This build's version and package id, when a new release is due, and the
-# worker that fetches the signed engine feed. The verified bytes are kept
-# under the data folder. No SDL.
-add_library(oa-app-update src/build.cpp src/check.cpp src/checker.cpp src/download.cpp src/offer.cpp
-  src/plan.cpp src/route.cpp)
+# This build's version and package id, when a new release is due, the
+# worker that fetches the signed engine feed, the download, the update
+# centre's state and words, the player's choices, and the plan, state and
+# receipt files the game and the helper share. No SDL.
+add_library(oa-app-update src/build.cpp src/centre.cpp src/check.cpp src/checker.cpp
+  src/choices.cpp src/download.cpp src/offer.cpp src/plan.cpp src/receipt.cpp src/route.cpp)
 add_library(oa::app::update ALIAS oa-app-update)
 target_include_directories(oa-app-update PUBLIC include)
 target_compile_features(oa-app-update PUBLIC cxx_std_20)
@@ -70,9 +71,20 @@ if(BUILD_TESTING)
   add_test(NAME app-update-route COMMAND oa-app-update-route-test)
   set_tests_properties(app-update-route PROPERTIES TIMEOUT 60)
 
+  add_executable(oa-app-update-centre-test tests/centre_test.cpp)
+  target_link_libraries(oa-app-update-centre-test PRIVATE oa-app-update oa-test-support)
+  add_test(NAME app-update-centre COMMAND oa-app-update-centre-test)
+  set_tests_properties(app-update-centre PROPERTIES TIMEOUT 30)
+
+  add_executable(oa-app-update-receipt-test tests/receipt_test.cpp)
+  target_link_libraries(oa-app-update-receipt-test PRIVATE oa-app-update oa-test-support)
+  add_test(NAME app-update-receipt COMMAND oa-app-update-receipt-test)
+  set_tests_properties(app-update-receipt PROPERTIES TIMEOUT 30)
+
   if(WIN32)
     foreach(target oa-app-update-build-test oa-app-update-check-test oa-app-update-offer-test
-        oa-app-update-plan-test oa-app-update-download-test oa-app-update-route-test)
+        oa-app-update-plan-test oa-app-update-download-test oa-app-update-route-test
+        oa-app-update-centre-test oa-app-update-receipt-test)
       add_custom_command(TARGET ${target} POST_BUILD
         COMMAND ${CMAKE_COMMAND} "-DDLLS=$<TARGET_RUNTIME_DLLS:${target}>"
           "-DDEST=$<TARGET_FILE_DIR:${target}>" -P "${PROJECT_SOURCE_DIR}/tools/copy_runtime.cmake")

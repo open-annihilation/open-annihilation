@@ -67,7 +67,8 @@ endif()
 
 if(BUILD_TESTING)
   add_executable(oa-update-test
-    tests/route_windows_test.cpp tests/update_test.cpp tests/route_linux_test.cpp tests/route_macos_test.cpp)
+    tests/route_windows_test.cpp tests/update_test.cpp tests/route_linux_test.cpp tests/route_macos_test.cpp
+    tests/receipt_test.cpp)
   target_link_libraries(oa-update-test
     PRIVATE oa-update-core oa-app-update oa-data-engine-feed oa-data-catalogue oa-base-signing
       oa-base-sha256 oa-formats-zip oa-formats-url oa-ui-kit oa-test-support oa-options)

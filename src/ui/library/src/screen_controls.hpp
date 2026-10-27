@@ -148,9 +148,10 @@ inline constexpr kit::ControlId first_keys_picture_key = 14000001;
 inline constexpr kit::ControlId first_fact_link = 15000000;
 /// The most such facts one details pane names.
 inline constexpr std::size_t most_fact_links = 64;
-/// USE's question. Keep is marked until the player chooses aside.
+/// USE's question. Keep them on top is marked until the player chooses
+/// Start clean.
 inline constexpr kit::ControlId use_keep = 16000001;
-/// Set them aside.
+/// Start clean: the player's own changes stay with the layout they sit on.
 inline constexpr kit::ControlId use_aside = 16000002;
 /// Every game.
 inline constexpr kit::ControlId use_for_game = 16000003;
@@ -162,6 +163,12 @@ inline constexpr kit::ControlId use_cancel = 16000005;
 inline constexpr kit::ControlId use_confirm = 16000006;
 /// The shade behind the question. It takes a press so the Library under it does not.
 inline constexpr kit::ControlId use_blocker = 16000007;
+/// What moves: an area whose text names each command, its key now and afterwards.
+inline constexpr kit::ControlId use_moves = 16000008;
+/// The note under the own-changes choice: where those changes stay.
+inline constexpr kit::ControlId use_saved = 16000009;
+/// The helpers' note: they act in every game.
+inline constexpr kit::ControlId use_helpers_note = 16000010;
 /// A helper switch: this and the helper's place in the question.
 inline constexpr kit::ControlId first_use_helper = 16000100;
 /// The most helper switches one question names.

@@ -893,8 +893,9 @@ void check_header(text_font::FontStack* fonts) {
                 frame.area.width / 4 - kit::compact_metrics.edge,
                 kit::compact_metrics.header_height
             };
+            // The OA mark's brand gold: red over green, little blue.
             const auto is_accent = [](paint::Rgba pixel) {
-                return pixel.g >= 0xa8 && pixel.r >= 0x70 && pixel.r <= 0xc0 && pixel.b <= 0x70;
+                return pixel.r >= 0xb0 && pixel.g >= 0x80 && pixel.r > pixel.g && pixel.b <= 0x90;
             };
             const auto is_bright = [](paint::Rgba pixel) {
                 return pixel.r >= 0xc8 && pixel.g >= 0xc8 && pixel.b >= 0xc0;

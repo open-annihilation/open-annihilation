@@ -1226,6 +1226,10 @@
 	it=+{n};
 	}
 
+[1 mutator on]
+	{
+	}
+
 [A]
 	{
 	de=A;
@@ -13436,7 +13440,7 @@
 
 [UPDATES]
 	{
-	de=AKTUALISIERUNGEN;
+	de=UPDATES;
 	fr=MISES À JOUR;
 	es=ACTUALIZACIONES;
 	it=AGGIORNAMENTI;
@@ -18442,6 +18446,10 @@
 	it=Vale mentre giochi {mod}. Come nel gioco usa Disposizione dei tasti.;
 	}
 
+[{count} mutators on]
+	{
+	}
+
 [{name} · 1 change of your own]
 	{
 	de={name} · 1 eigene Änderung;
@@ -18706,6 +18714,54 @@
 	it=al secondo;
 	}
 
+[and {count} more]
+	{
+	}
+
+[Applied in this order.]
+	{
+	}
+
+[Click to change.]
+	{
+	}
+
+[Click to read.]
+	{
+	}
+
+[Computer player for this seat]
+	{
+	}
+
+[Computer player in the missions]
+	{
+	}
+
+[Get more brains...]
+	{
+	}
+
+[Mutators: off]
+	{
+	}
+
+[Mutators: {count} on]
+	{
+	}
+
+[No mutators on]
+	{
+	}
+
+[not installed]
+	{
+	}
+
+[Options...]
+	{
+	}
+
 [px]
 	{
 	de=px;
@@ -18713,6 +18769,141 @@
 	es=px;
 	it=px;
 	}
+
+[Update]
+	{
+	}
+
+[Get · {size}]
+	{
+	}
+
+[1 change of your own]
+	{
+	}
+
+[{count} changes of your own]
+	{
+	}
+
+[Your changes]
+	{
+	}
+
+[1 command]
+	{
+	}
+
+[{count} commands]
+	{
+	}
+
+[{command} on {key}]
+	{
+	}
+
+[{command} with no key]
+	{
+	}
+
+[any keyboard]
+	{
+	}
+
+[ANSI keyboards]
+	{
+	}
+
+[ISO keyboards]
+	{
+	}
+
+[JIS keyboards]
+	{
+	}
+
+[the right-click interface]
+	{
+	}
+
+[the left-click interface]
+	{
+	}
+
+[{number} · {heading}]
+	{
+	}
+
+[Where]
+	{
+	}
+
+[Your 1 change to {name}]
+	{
+	}
+
+[Your {count} changes to {name}]
+	{
+	}
+
+[Keep it on top]
+	{
+	}
+
+[Keep them on top]
+	{
+	}
+
+[Start clean]
+	{
+	}
+
+[Either way it stays saved with {name}, and comes back when you use {name} again.]
+	{
+	}
+
+[Either way they stay saved with {name}, and come back when you use {name} again.]
+	{
+	}
+
+[What moves]
+	{
+	}
+
+[No command changes its key.]
+	{
+	}
+
+[yours]
+	{
+	}
+
+[No key]
+	{
+	}
+
+[Helpers act in every game.]
+	{
+	}
+
+[Helpers act in every game, not only with {mod}.]
+	{
+	}
+
+[Use for every game]
+	{
+	}
+
+[Use for {mod}]
+	{
+	}
+
+[In use for every game]
+	{
+	}
+
+[In use with {mod}]
+	{
 
 [Keys while playing]
 	{

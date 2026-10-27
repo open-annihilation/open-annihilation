@@ -7,7 +7,9 @@
 #pragma once
 
 #include "oa/app/runtime.hpp"
+#include "oa/app/update/centre.hpp"
 #include "oa/app/update/checker.hpp"
+#include "oa/app/update/receipt.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -57,6 +59,30 @@ struct Runtime::UpdateState {
     bool kept_loaded = false;
     /// The version state.json keeps. Empty when none is kept.
     std::string kept_version;
+    /// state.json, read with `kept_version`, names this build installed and
+    /// not yet confirmed. A settled menu confirms it (`version_confirmed`).
+    bool installed_unconfirmed = false;
+    /// This build's version, as the update centre names it. Empty until read.
+    std::string running_version;
+    /// The helper's last receipt, read once for the update centre. A receipt
+    /// shown at the menu replaces it.
+    std::optional<update::Receipt> receipt;
+    /// `receipt` has been read this run.
+    bool receipt_loaded = false;
+    /// The way this copy installs, as the update centre names its install
+    /// action, for the offer `centre_way_page_only` describes. Meaningful
+    /// when `centre_way_known`.
+    update::InstallWay centre_way{update::InstallWay::restart};
+    /// The route behind `centre_way` installs from the feed's installer.
+    bool centre_installer = false;
+    /// `centre_way` was found for an offer on its page.
+    bool centre_way_page_only = false;
+    /// `centre_way` has been found this run.
+    bool centre_way_known = false;
+    /// What the update centre reads in place of what the runtime knows, so
+    /// that each update screen can be drawn in each state. Only the pictures
+    /// case of --check-update-download sets it.
+    std::optional<update::CentreInputs> pictured;
 #if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
     /// The package download. Empty until one is started.
     std::unique_ptr<update::PackageDownload> download;

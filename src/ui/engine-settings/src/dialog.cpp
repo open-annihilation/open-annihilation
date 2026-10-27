@@ -6,6 +6,7 @@
 
 #include "oa/ui/engine_settings/dialog.hpp"
 
+#include "cards.hpp"
 #include "content_page.hpp"
 #include "developer.hpp"
 #include "downloads_page.hpp"
@@ -19,6 +20,7 @@
 #include "oa/data/languages.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/data/mod_profile/overrides.hpp"
+#include "oa/ui/library/text.hpp"
 
 #include <algorithm>
 #include <array>
@@ -36,6 +38,10 @@
 
 namespace oa::ui::engine_settings {
 
+std::string update_size_text(uint64_t bytes) {
+    return oa::ui::library::size_text(bytes);
+}
+
 namespace geometry {
 
 namespace {
@@ -46,10 +52,11 @@ struct EnginePageList {
     std::size_t count{};                         ///< how many it lists
 };
 
-/// Returns the engine's sections a dialog lists, in the list's order: the
-/// six that every dialog lists, then Touch, Controller and Game files where
-/// each is listed, then Downloads, then Updates, then Game Content, then
-/// System, then Developer.
+/// Returns the engine's sections a dialog lists, in the list's order, by
+/// group: Controls, Accessibility, then Touch and Controller where each is
+/// listed; Graphics, User Interface, Language & Text; Game files where it is
+/// listed, then Downloads, Updates and Game Content; Engine Limits, System
+/// and Developer.
 ///
 /// @param touch the dialog lists Touch
 /// @param controller the dialog lists Controller
@@ -58,25 +65,24 @@ struct EnginePageList {
 constexpr EnginePageList engine_page_list(bool touch, bool controller, bool game_files) noexcept {
     EnginePageList list{};
     const auto add = [&list](Page page) { list.pages[list.count++] = page; };
-    for (const Page page :
-         {Page::controls,
-          Page::common_tweaks,
-          Page::language,
-          Page::graphics,
-          Page::user_interface,
-          Page::accessibility})
-        add(page);
+    add(Page::controls);
+    add(Page::accessibility);
     if (touch)
         add(Page::touch);
     if (controller)
         add(Page::controller);
+    for (const Page page : {Page::graphics, Page::user_interface, Page::language})
+        add(page);
     if (game_files)
         add(Page::game_files);
-    add(Page::downloads);
-    add(Page::updates);
-    add(Page::game_content);
-    add(Page::system);
-    add(Page::developer);
+    for (const Page page :
+         {Page::downloads,
+          Page::updates,
+          Page::game_content,
+          Page::common_tweaks,
+          Page::system,
+          Page::developer})
+        add(page);
     return list;
 }
 
@@ -110,28 +116,24 @@ static_assert(
 /// The one section a Language dialog lists.
 constexpr std::array<Page, 1> kLanguageTextPages{Page::language};
 
-/// Tells whether the sections before Accessibility keep their places, Accessibility
-/// is 13, and every engine list ends Downloads, Updates, Game Content, System, Developer.
+/// Tells whether every engine list starts with Controls and Accessibility,
+/// ends with Engine Limits, System and Developer, and holds the sections'
+/// entry numbers as they were before the groups: Touch 5, Controller 6,
+/// Developer 7, Game files 8, Downloads 9, System 10, Game Content 11,
+/// Updates 12 and Accessibility 13.
 ///
-/// @return true when those numbers hold
+/// @return true when those hold
 constexpr bool entries_follow_the_list() noexcept {
-    const EnginePageList& list = kEnginePageLists[engine_page_list_index(true, true, false)];
-    if (list.count < 6)
-        return false;
-    for (std::size_t index = 0; index < 5; ++index)
-        if (page_control(list.pages[index]) != static_cast<int32_t>(index))
-            return false;
-    if (list.pages[5] != Page::accessibility || page_control(Page::accessibility) != 13)
-        return false;
-    if (page_control(Page::downloads) != 9 || page_control(Page::updates) != 12 ||
-        page_control(Page::game_content) != 11 || page_control(Page::system) != 10 ||
-        page_control(Page::developer) != 7)
+    if (page_control(Page::touch) != 5 || page_control(Page::controller) != 6 ||
+        page_control(Page::developer) != 7 || page_control(Page::game_files) != 8 ||
+        page_control(Page::downloads) != 9 || page_control(Page::system) != 10 ||
+        page_control(Page::game_content) != 11 || page_control(Page::updates) != 12 ||
+        page_control(Page::accessibility) != 13)
         return false;
     for (const EnginePageList& listed : kEnginePageLists) {
-        if (listed.count < 6 || listed.pages[5] != Page::accessibility ||
-            listed.pages[listed.count - 5] != Page::downloads ||
-            listed.pages[listed.count - 4] != Page::updates ||
-            listed.pages[listed.count - 3] != Page::game_content ||
+        if (listed.count < 11 || listed.pages[0] != Page::controls ||
+            listed.pages[1] != Page::accessibility ||
+            listed.pages[listed.count - 3] != Page::common_tweaks ||
             listed.pages[listed.count - 2] != Page::system ||
             listed.pages[listed.count - 1] != Page::developer)
             return false;
@@ -141,8 +143,8 @@ constexpr bool entries_follow_the_list() noexcept {
 
 static_assert(
     entries_follow_the_list(),
-    "entries before Accessibility keep their places, Accessibility is 13, and Downloads, Updates, "
-    "Game Content, System, Developer end every list"
+    "every list starts with Controls and Accessibility and ends with Engine Limits, System and "
+    "Developer, and the entries keep their numbers"
 );
 static_assert(
     page_control(Page::game_files) == page_control(Page::developer) + 1,
@@ -320,46 +322,6 @@ void fit_control(kit::RowView& shown, int32_t available_width, const TextWidth& 
         std::min(std::max(shown.control_width, widest + 16), std::max(available_width, int32_t{1}));
 }
 
-/// The mark between a layout's name and its count of changes, as the
-/// catalogue writes it: a space, a middle dot and a space.
-constexpr std::string_view key_layout_mark = " \xC2\xB7 ";
-
-/// Shortens a Key layout value to a room, keeping the count of changes.
-///
-/// The count is the text from the last " · ". A value that fits is returned
-/// whole. Otherwise the name is shortened with an ellipsis and the count is
-/// kept whole. Empty when the count itself does not fit, so the caller can
-/// give the value a wider line.
-///
-/// @param text the value, name and count
-/// @param room the room, in points
-/// @param width_of a text's width in the regular font
-/// @return the value as it fits; empty when the count does not fit
-std::string fit_key_layout_summary(std::string_view text, int32_t room, const TextWidth& width_of) {
-    if (room <= 0)
-        return {};
-    if (width_of(text) <= room)
-        return std::string(text);
-    const std::size_t mark = text.rfind(key_layout_mark);
-    if (mark == std::string_view::npos)
-        return kit::fit(text, room, width_of);
-    const std::string_view count = text.substr(mark);
-    if (width_of(count) > room)
-        return {};
-    const std::string_view layout_name = text.substr(0, mark);
-    int32_t name_room = room - width_of(count);
-    std::string fitted = kit::fit(layout_name, std::max(name_room, int32_t{0}), width_of);
-    std::string shown = fitted + std::string(count);
-    while (width_of(shown) > room && name_room > 0) {
-        --name_room;
-        fitted = kit::fit(layout_name, name_room, width_of);
-        shown = fitted + std::string(count);
-    }
-    if (width_of(shown) <= room && !fitted.empty())
-        return shown;
-    return std::string(count);
-}
-
 /// Widens a switch, a row of buttons or SHOW AGAIN to the caption in the
 /// small font. A label that does not fit beside its control takes the whole
 /// line and the control drops under it. When the label and the lock do not
@@ -439,31 +401,6 @@ void fit_measured(
                                                        ? shown.lock_columns
                                                        : oa::ui::kit::compact_metrics.lock_width) +
                                                       label_gap;
-        // Key layout stays beside the label and EDIT KEYS when that room
-        // holds the value. Otherwise the name shortens and the value stands
-        // on the button's line. A count that does not fit left of the button
-        // is fitted to the whole line, and the button drops under the value.
-        if (shown.id == "key-layout") {
-            const int32_t beside =
-                available_width - (label_w > 0 ? label_w + label_gap : 0) - label_gap - button;
-            const int32_t dropped = available_width - label_gap - button;
-            if (value_width > beside) {
-                std::string fitted = fit_key_layout_summary(shown.value, beside, *regular);
-                if (!fitted.empty()) {
-                    shown.value = std::move(fitted);
-                } else {
-                    fitted = fit_key_layout_summary(
-                        shown.value, std::max(dropped, int32_t{0}), *regular
-                    );
-                    if (fitted.empty())
-                        fitted = fit_key_layout_summary(shown.value, available_width, *regular);
-                    if (!fitted.empty())
-                        shown.value = std::move(fitted);
-                    shown.control_below = true;
-                }
-                value_width = (*regular)(shown.value);
-            }
-        }
         // The value drops onto the button's line only when it does not fit
         // beside the label and the button. The lock drops under the label
         // instead of taking that room, and never takes the button's place.
@@ -584,50 +521,6 @@ kit::RowView row_view(
     return shown;
 }
 
-/// Gives Key layout the whole line when its count does not fit left of EDIT
-/// KEYS, and puts the button on the line under the value. The rows under it
-/// move down by that line. A value that already fits is left where place_rows
-/// put it, so a short summary keeps the line the layout tests pin.
-///
-/// @param[in,out] placed the section's rows
-/// @param regular a text's width in the regular font; null or an estimate leaves the rows
-void give_key_layout_its_line(kit::PlacedRows& placed, const TextWidth* regular) {
-    if (regular == nullptr || estimated_measure(*regular))
-        return;
-    const int32_t step =
-        oa::ui::kit::compact_metrics.regular_line + oa::ui::kit::compact_metrics.hint_gap;
-    for (std::size_t index = 0; index < placed.rows.size(); ++index) {
-        kit::PlacedRow& key_row = placed.rows[index];
-        if (key_row.view.id != "key-layout" || !key_row.view.control_below ||
-            key_row.view.value.empty() || key_row.value.width <= 0 ||
-            key_row.control_area.width <= 0)
-            continue;
-        if ((*regular)(key_row.view.value) <= key_row.value.width)
-            continue;
-        const int32_t button_row = key_row.control_area.y;
-        key_row.value.x = placed.left;
-        key_row.value.width = std::max(placed.right - placed.left, int32_t{1});
-        key_row.control_area.y += step;
-        if (key_row.lock_area.height > 0 && key_row.lock_area.y >= button_row)
-            key_row.lock_area.y += step;
-        for (kit::Rect& hint : key_row.hints)
-            if (hint.y >= button_row)
-                hint.y += step;
-        key_row.height += step;
-        for (std::size_t later = index + 1; later < placed.rows.size(); ++later) {
-            kit::PlacedRow& following = placed.rows[later];
-            following.top += step;
-            following.label.y += step;
-            following.lock_area.y += step;
-            following.control_area.y += step;
-            following.value.y += step;
-            for (kit::Rect& hint : following.hints)
-                hint.y += step;
-        }
-        placed.bottom += step;
-    }
-}
-
 Rows place_section(
     const Dialog& dialog,
     Page page,
@@ -646,6 +539,17 @@ Rows place_section(
     if (page == Page::game_content)
         return content::place(dialog, locks, small_width, placed, &sized_here);
     const auto settings = section_settings(page, section, row_context(dialog));
+    const bool own_section = section != nullptr && section->settings != nullptr;
+    const Sizes& sized = sized_here;
+    // Accessibility's practice pad stands in a column right of its rows
+    // where the section is wide enough, and follows them where it is not.
+    const bool with_pad =
+        page == Page::accessibility && !own_section && dialog.kind == DialogKind::engine;
+    const int32_t pad_column = with_pad ? cards::pad_column(sized) : 0;
+    const int32_t column_gap = kit::metrics_of(sized.size_class).space * 3;
+    const int32_t rows_right =
+        pad_column > 0 ? sized.content_right - pad_column - column_gap : sized.content_right;
+    const int32_t rows_width = rows_right - sized.content_left;
     std::vector<kit::RowView> views;
     std::vector<Lock> row_locks;
     std::vector<bool> statuses;
@@ -659,17 +563,15 @@ Rows place_section(
             row_locks.back(),
             statuses.back(),
             small_width,
-            sized_here.content_width,
+            rows_width,
             regular_width
         ));
     }
     // Developer's own rows lie closer, over its list; while the dialog's
     // words are drawn in the modern fonts, a hint's lines lie further apart.
-    const bool own_section = section != nullptr && section->settings != nullptr;
-    const Sizes& sized = sized_here;
     kit::RowPlacement placement;
     placement.left = sized.content_left;
-    placement.right = sized.content_right;
+    placement.right = rows_right;
     placement.first_top = first_row_top;
     placement.row_padding =
         page == Page::developer && !own_section ? developer_row_padding : row_padding;
@@ -677,7 +579,42 @@ Rows place_section(
                      oa::data::languages::TextNeeds::game_fonts;
     placement.first_control = first_row_control;
     kit::PlacedRows kit_rows = kit::place_rows(views, placement);
-    give_key_layout_its_line(kit_rows, regular_width);
+    const TextWidth regular = regular_width != nullptr && !estimated_measure(*regular_width)
+                                  ? *regular_width
+                                  : TextWidth{&estimated_width};
+    // Key layout is a card: its row takes the card's height, the rows under
+    // it moving down by as much, and its control is Edit keys….
+    for (std::size_t index = 0; index < kit_rows.rows.size(); ++index) {
+        kit::PlacedRow& key_row = kit_rows.rows[index];
+        if (settings[index] != Setting::key_layout)
+            continue;
+        const int32_t margin = kit::metrics_of(sized.size_class).space * 2;
+        const cards::KeyCard card =
+            cards::key_card(dialog, sized, key_row.top + margin, regular, small_width);
+        const int32_t height = card.height + 2 * margin;
+        const int32_t moved = height - key_row.height;
+        key_row.height = height;
+        // The card's label is its eyebrow, Key layout.
+        key_row.label = card.lines.empty() ? kit::Rect{} : card.lines.front().rect;
+        key_row.lock_area = {};
+        key_row.hints.clear();
+        key_row.value = {};
+        key_row.control_area = card.edit;
+        for (std::size_t later = index + 1; later < kit_rows.rows.size(); ++later) {
+            kit::PlacedRow& following = kit_rows.rows[later];
+            following.top += moved;
+            for (kit::Rect* rect :
+                 {&following.label,
+                  &following.lock_area,
+                  &following.control_area,
+                  &following.value})
+                if (rect->width > 0 && rect->height > 0)
+                    rect->y += moved;
+            for (kit::Rect& hint : following.hints)
+                hint.y += moved;
+        }
+        kit_rows.bottom += moved;
+    }
     Rows rows{};
     rows.bottom = kit_rows.bottom;
     rows.rows.reserve(kit_rows.rows.size());
@@ -715,6 +652,18 @@ Rows place_section(
             row.label.width = std::max(row.value.x - label_gap - row.label.x, int32_t{1});
         }
     }
+    if (with_pad) {
+        // Right of the rows from the section's top, or under the last row;
+        // either way the section's content reaches the pad's foot.
+        const int32_t margin = kit::metrics_of(sized.size_class).space * 2;
+        const int32_t left = pad_column > 0 ? sized.content_right - pad_column : sized.content_left;
+        const int32_t top = pad_column > 0 ? first_row_top + margin : kit_rows.bottom + margin;
+        const int32_t width = pad_column > 0 ? pad_column : sized.content_width;
+        const cards::Pad pad =
+            cards::practice_pad(dialog, sized, left, top, width, regular, small_width);
+        rows.pad = pad.card;
+        rows.bottom = std::max(rows.bottom, pad.card.y + pad.card.height + margin);
+    }
     if (placed != nullptr)
         *placed = std::move(kit_rows);
     return rows;
@@ -746,6 +695,7 @@ void scroll_rows(Rows& rows, int32_t by) noexcept {
         if (rect.width > 0 && rect.height > 0)
             rect.y -= by;
     };
+    lift(rows.pad);
     for (Row& row : rows.rows) {
         row.top -= by;
         lift(row.label);
@@ -854,7 +804,7 @@ Sizes fitted_sizes(const Dialog& dialog, const TextWidth* regular, const TextWid
          dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller)) {
         widest = std::max(widest, (*regular)(std::string(shown_text(page_name(page)))));
     }
-    const int32_t text_room = sized.list_item_width - list_text_offset - list_text_margin;
+    const int32_t text_room = sized.list_item_width - sized.nav.text_left - list_text_margin;
     if (widest > text_room) {
         // The open section keeps room for a description. A section name that
         // still does not fit the list takes a shorter word.
@@ -862,25 +812,53 @@ Sizes fitted_sizes(const Dialog& dialog, const TextWidth* regular, const TextWid
         const int32_t spare = std::max(sized.content_width - least_content, int32_t{0});
         grow_list(sized, std::min(widest - text_room, spare));
     }
-    grow_button(
-        sized.restore_button, (*small)(std::string(shown_text(restore_text))), sized.cancel_button.x
+    // The footer's captions are drawn in the regular font, with room each
+    // side. OK and Cancel grow to the left, Restore defaults to the right,
+    // so that a longer word is whole; the count of changes keeps the room
+    // between them.
+    const int32_t space = kit::metrics_of(dialog.size_class).space;
+    const auto footer_width = [&](std::string_view caption) {
+        return (*regular)(std::string(shown_text(caption))) + 4 * space;
+    };
+    const auto restore_width = [&](std::string_view caption) {
+        return (*small)(std::string(shown_text(caption))) + 4 * space;
+    };
+    const auto grow_left = [](SourceRect& button, int32_t wanted, int32_t stop) {
+        const int32_t room = std::max(button.x - stop, int32_t{0});
+        const int32_t take = std::min(std::max(wanted - button.width, int32_t{0}), room);
+        button.x -= take;
+        button.width += take;
+        return take;
+    };
+    const int32_t ok_grew = grow_left(
+        sized.ok_button,
+        footer_width(ok_text),
+        sized.restore_button.x + sized.restore_button.width + sized.cancel_button.width
     );
+    sized.cancel_button.x -= ok_grew;
+    grow_left(
+        sized.cancel_button,
+        footer_width(cancel_text),
+        sized.restore_button.x + sized.restore_button.width + 2 * space
+    );
+    const int32_t restore_wanted = restore_width(restore_text);
+    if (restore_wanted > sized.restore_button.width)
+        sized.restore_button.width = std::min(
+            restore_wanted,
+            std::max(
+                sized.cancel_button.x - 2 * space - sized.restore_button.x,
+                sized.restore_button.width
+            )
+        );
+    const int32_t count_left = sized.restore_button.x + sized.restore_button.width + 3 * space;
+    sized.changed_count.x = count_left;
+    sized.changed_count.width =
+        std::max(sized.cancel_button.x - 3 * space - count_left, int32_t{0});
     grow_button(
         sized.restore_profile_button,
         (*small)(std::string(shown_text(restore_profile_text))),
         sized.content_right
     );
-    // Cancel grows to the left, short of Restore, so a longer word is whole.
-    const int32_t cancel_width = (*small)(std::string(shown_text(cancel_text))) + 8;
-    if (cancel_width > sized.cancel_button.width) {
-        const int32_t grow = cancel_width - sized.cancel_button.width;
-        const int32_t stop = sized.restore_button.x + sized.restore_button.width +
-                             oa::ui::kit::compact_metrics.button_gap;
-        const int32_t room = std::max(sized.cancel_button.x - stop, int32_t{0});
-        const int32_t take = std::min(grow, room);
-        sized.cancel_button.x -= take;
-        sized.cancel_button.width += take;
-    }
     const int32_t half = std::max(
         (*small)(std::string(shown_text(off_text))), (*small)(std::string(shown_text(on_text)))
     );
@@ -1050,73 +1028,129 @@ int32_t scroll_at(
     return (limit * along + travel / 2) / travel;
 }
 
-EngineNav engine_nav(std::span<const Page> listed, kit::SizeClass size_class) noexcept {
-    const SourceRect divider = list_divider(size_class);
-    EngineNav nav;
-    nav.viewport = {
-        list_item_left,
-        list_first_top,
-        sizes_of(size_class).list_item_width,
-        divider.y - list_first_top,
-    };
-    // A list that does not pin Developer keeps the gap and does not scroll.
-    // The engine's list drops the gap once the gapped entries would cross the
-    // divider, and scrolls once the gapless entries pass it.
-    const bool pinned = !listed.empty() && listed.back() == Page::developer;
-    if (!pinned)
-        return nav;
-    int32_t flowing = static_cast<int32_t>(listed.size());
-    --flowing;
-    const int32_t gaps = flowing > 0 ? flowing - 1 : 0;
-    const int32_t gapped_bottom =
-        list_first_top + flowing * list_item_height + gaps * list_item_gap;
-    const int32_t gapless_bottom = list_first_top + flowing * list_item_height;
-    nav.stride = gapped_bottom > divider.y ? list_item_height : list_item_height + list_item_gap;
-    nav.scrolls = gapless_bottom > divider.y;
-    nav.limit = nav.scrolls ? gapless_bottom - divider.y : 0;
-    return nav;
+NavGroup nav_group(Page page) noexcept {
+    switch (page) {
+    case Page::controls:
+    case Page::accessibility:
+    case Page::touch:
+    case Page::controller:
+        return NavGroup::play;
+    case Page::graphics:
+    case Page::user_interface:
+    case Page::language:
+        return NavGroup::look;
+    case Page::game_files:
+    case Page::downloads:
+    case Page::updates:
+    case Page::game_content:
+        return NavGroup::content;
+    case Page::common_tweaks:
+    case Page::system:
+    case Page::developer:
+        return NavGroup::system;
+    case Page::mod_keys:
+    case Page::mod_patrol:
+    case Page::mod_guard:
+    case Page::mod_tools:
+    case Page::mod_chat:
+    case Page::registered:
+        break;
+    }
+    return NavGroup::play;
 }
 
-SourceRect list_item(
-    Page page, bool touch, bool game_files, bool controller, kit::SizeClass size_class
-) noexcept {
-    // A registered page has no pinned entry. Its list is laid out with the
-    // pages set_registered_pages gave.
-    if (page == Page::registered)
-        return {
-            list_item_left, list_first_top, sizes_of(size_class).list_item_width, list_item_height
+NavLayout nav_layout(const Dialog& dialog, const Sizes* sizes) {
+    const Sizes& sized = sizes != nullptr ? *sizes : sizes_of(dialog);
+    const NavMetrics& nav = sized.nav;
+    NavLayout layout;
+    layout.area = {edge, body_top, sized.list_width, sized.footer_rule_row - body_top};
+    const int32_t first_top = body_top + nav.margin;
+    const int32_t view_bottom = sized.footer_rule_row - nav.margin;
+    layout.viewport = {list_item_left, first_top, sized.list_item_width, view_bottom - first_top};
+    const SourceRect rule_box{
+        list_item_left + list_divider_inset, 0, sized.list_item_width - 2 * list_divider_inset, 1
+    };
+    int32_t cursor = first_top;
+    const auto add_rule = [&] {
+        cursor += nav.rule_margin;
+        NavPiece rule;
+        rule.kind = NavPiece::Kind::rule;
+        rule.rect = rule_box;
+        rule.rect.y = cursor;
+        layout.pieces.push_back(std::move(rule));
+        cursor += 1 + nav.rule_margin;
+    };
+    const auto add_entry = [&](NavPiece entry) {
+        entry.kind = NavPiece::Kind::entry;
+        entry.rect = {list_item_left, cursor, sized.list_item_width, nav.entry_height};
+        layout.pieces.push_back(std::move(entry));
+        cursor += nav.entry_height;
+    };
+    bool any = false;
+    NavGroup group = NavGroup::play;
+    for (const Page page :
+         dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller)) {
+        if (any && nav_group(page) != group)
+            add_rule();
+        else if (any)
+            cursor += nav.entry_gap;
+        any = true;
+        group = nav_group(page);
+        NavPiece entry;
+        entry.control = page_control(page);
+        entry.text = std::string(shown_text(page_name(page)));
+        entry.page = page;
+        add_entry(std::move(entry));
+    }
+    // Registered pages, only in the engine's settings: each owner on a rule
+    // of its own, named, over its pages.
+    const int32_t line = kit::metrics_of(dialog.size_class).small_line;
+    std::size_t index = 0;
+    while (dialog.kind == DialogKind::engine && index < dialog.registered_pages.size()) {
+        const std::string owner = dialog.registered_pages[index].owner;
+        add_rule();
+        NavPiece label;
+        label.kind = NavPiece::Kind::owner;
+        label.rect = {
+            list_item_left + nav.text_left,
+            cursor,
+            sized.list_item_width - nav.text_left - list_text_margin,
+            line,
         };
-    // Each entry at its place in the list its dialog shows; Touch and
-    // Controller, which only a dialog that lists them asks for, keep their
-    // own places. The place is the content's, before the list scrolls.
-    const auto kind = static_cast<int32_t>(page) >= static_cast<int32_t>(Page::mod_keys)
-                          ? DialogKind::mod_options
-                          : DialogKind::engine;
-    const auto listed = dialog_pages(kind, touch, game_files, controller);
-    const auto found = std::find(listed.begin(), listed.end(), page);
-    const auto index = found != listed.end() ? static_cast<int32_t>(found - listed.begin())
-                                             : page_control(page) - first_page_control;
-    const EngineNav nav = engine_nav(listed, size_class);
-    int32_t top = list_first_top;
-    if (page == Page::developer)
-        top = list_divider(size_class).y + 1 + list_divider_margin;
-    else
-        top = list_first_top + index * nav.stride;
-    return {list_item_left, top, sizes_of(size_class).list_item_width, list_item_height};
+        label.text = owner;
+        layout.pieces.push_back(std::move(label));
+        cursor += line;
+        while (index < dialog.registered_pages.size() &&
+               dialog.registered_pages[index].owner == owner) {
+            cursor += nav.entry_gap;
+            NavPiece entry;
+            entry.control = registered_nav_control(index);
+            entry.text = dialog.registered_pages[index].title;
+            entry.registered = true;
+            entry.index = index;
+            add_entry(std::move(entry));
+            ++index;
+        }
+    }
+    layout.limit = std::max(int32_t{0}, cursor - view_bottom);
+    return layout;
 }
 
-SourceRect list_divider(kit::SizeClass size_class) noexcept {
-    // Developer stands at the foot of the list, as far under the divider as
-    // the first section stands under the list's top.
-    const Sizes& sized = sizes_of(size_class);
-    const int32_t row = sized.footer_rule_row - (list_first_top - body_top) - list_item_height -
-                        list_divider_margin - 1;
-    return {
-        list_item_left + list_divider_inset,
-        row,
-        sized.list_item_width - 2 * list_divider_inset,
-        1,
-    };
+SourceRect
+list_item(Page page, bool touch, bool game_files, bool controller, kit::SizeClass size_class) {
+    Dialog shown;
+    shown.kind = static_cast<int32_t>(page) >= static_cast<int32_t>(Page::mod_keys)
+                     ? DialogKind::mod_options
+                     : DialogKind::engine;
+    shown.touch = touch;
+    shown.game_files = game_files;
+    shown.controller = controller;
+    shown.size_class = size_class;
+    const NavLayout layout = nav_layout(shown);
+    for (const NavPiece& piece : layout.pieces)
+        if (piece.kind == NavPiece::Kind::entry && !piece.registered && piece.page == page)
+            return piece.rect;
+    return {list_item_left, layout.viewport.y, 0, 0};
 }
 
 SourceRect footer_button(int32_t control, kit::SizeClass size_class) noexcept {
@@ -1184,71 +1218,66 @@ break_lines(std::string_view text, std::size_t characters, std::size_t most_line
     return lines;
 }
 
-SourceRect dialog_list_item(const Dialog& dialog, Page page) noexcept {
-    if (dialog.kind == DialogKind::language_text) {
-        // A Language dialog lists its one section at the top.
-        return {list_item_left, list_first_top, sizes_of(dialog).list_item_width, list_item_height};
-    }
-    SourceRect rect =
-        list_item(page, dialog.touch, dialog.game_files, dialog.controller, dialog.size_class);
-    // The engine's own overflowing list scrolls every entry but Developer.
-    // Registered pages share nav_scroll and lay their list out themselves.
-    if (dialog.kind == DialogKind::engine && page != Page::developer &&
-        dialog.registered_pages.empty()) {
-        const EngineNav nav = engine_nav(
-            dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller),
-            dialog.size_class
-        );
-        if (nav.scrolls)
-            rect.y -= std::clamp(dialog.nav_scroll, int32_t{0}, nav.limit);
-    }
-    return rect;
+std::vector<std::string>
+changed_count_lines(const Dialog& dialog, const TextWidth& measure, int32_t room) {
+    const std::size_t count = changed_settings_count(dialog);
+    if (count == 0)
+        return {};
+    const std::string words = count == 1
+                                  ? std::string(shown_text(one_changed_text))
+                                  : filled(many_changed_text, {{"count", std::to_string(count)}});
+    if (measure(words) <= room || room <= 0)
+        return {words};
+    kit::WrapRules rules;
+    rules.most_lines = 2;
+    return kit::wrap(words, room, measure, rules);
 }
 
-void reveal_engine_nav(Dialog& dialog) noexcept {
-    if (dialog.kind != DialogKind::engine || !dialog.registered_pages.empty())
-        return;
-    const std::span<const Page> listed =
-        dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller);
-    const EngineNav nav = engine_nav(listed, dialog.size_class);
-    if (!nav.scrolls) {
+SourceRect dialog_list_item(const Dialog& dialog, Page page) {
+    const NavLayout layout = nav_layout(dialog);
+    const int32_t scroll = std::clamp(dialog.nav_scroll, int32_t{0}, layout.limit);
+    for (const NavPiece& piece : layout.pieces) {
+        if (piece.kind != NavPiece::Kind::entry || piece.registered || piece.page != page)
+            continue;
+        SourceRect rect = piece.rect;
+        rect.y -= scroll;
+        return rect;
+    }
+    return {};
+}
+
+void reveal_engine_nav(Dialog& dialog) {
+    const NavLayout layout = nav_layout(dialog);
+    if (layout.limit == 0) {
         dialog.nav_scroll = 0;
         return;
     }
     if (dialog.pressed != no_control)
         return;
-    Page reveal = dialog.page;
-    bool have = false;
-    if (dialog.focused == no_control) {
-        if (dialog.page != Page::developer && dialog.page != Page::registered) {
-            reveal = dialog.page;
-            have = true;
-        }
-    } else {
-        for (const Page page : listed) {
-            if (page == Page::developer)
-                continue;
-            if (page_control(page) == dialog.focused) {
-                reveal = page;
-                have = true;
-                break;
-            }
-        }
+    // The focused entry, or with no focus the open section's; a row's focus
+    // leaves the list where it is.
+    const NavPiece* shown = nullptr;
+    for (const NavPiece& piece : layout.pieces) {
+        if (piece.kind != NavPiece::Kind::entry)
+            continue;
+        const bool open = piece.registered ? dialog.page == Page::registered &&
+                                                 dialog.registered_page == piece.index
+                                           : dialog.page == piece.page;
+        if (dialog.focused == no_control ? open : piece.control == dialog.focused)
+            shown = &piece;
     }
-    if (!have)
+    if (shown == nullptr)
         return;
-    const SourceRect item =
-        list_item(reveal, dialog.touch, dialog.game_files, dialog.controller, dialog.size_class);
-    const int32_t view_top = nav.viewport.y;
-    const int32_t view_bottom = nav.viewport.y + nav.viewport.height;
-    int32_t scroll = std::clamp(dialog.nav_scroll, int32_t{0}, nav.limit);
-    const int32_t top = item.y - scroll;
-    const int32_t bottom = top + item.height;
+    int32_t scroll = std::clamp(dialog.nav_scroll, int32_t{0}, layout.limit);
+    const int32_t top = shown->rect.y - scroll;
+    const int32_t bottom = top + shown->rect.height;
+    const int32_t view_top = layout.viewport.y;
+    const int32_t view_bottom = layout.viewport.y + layout.viewport.height;
     if (top < view_top)
         scroll -= view_top - top;
     else if (bottom > view_bottom)
         scroll += bottom - view_bottom;
-    dialog.nav_scroll = std::clamp(scroll, int32_t{0}, nav.limit);
+    dialog.nav_scroll = std::clamp(scroll, int32_t{0}, layout.limit);
 }
 
 std::string_view lock_text(Lock lock) noexcept {
@@ -1394,7 +1423,19 @@ DialogAction scroll_to(Dialog& dialog, layout::ScrolledRows& open, int32_t offse
 /// @param control the control
 /// @return DialogAction::redraw when the section moved, else DialogAction::none
 DialogAction show_row(Dialog& dialog, layout::ScrolledRows& open, int32_t control) {
-    if (control < first_row_control || dialog.pressed != no_control)
+    if (dialog.pressed != no_control)
+        return DialogAction::none;
+    // Change layout… is the key layout card's, the section's first row.
+    if (control == change_layout_control && !open.rows.rows.empty())
+        return scroll_to(dialog, open, layout::scroll_showing(open, 0));
+    // The practice pad's button shows the pad's foot.
+    if (control == helpers_off_control && open.rows.pad.width > 0) {
+        const layout::SourceRect& seen = open.area.view;
+        const int32_t foot = open.rows.pad.y + open.rows.pad.height + open.scroll;
+        const int32_t lowest = foot - (seen.y + seen.height - 1);
+        return scroll_to(dialog, open, std::clamp(std::max(open.scroll, lowest), 0, open.limit));
+    }
+    if (control < first_row_control)
         return DialogAction::none;
     // Developer's rows and its footer's switch and button stay where they
     // are; its list's rows scroll.
@@ -1425,7 +1466,6 @@ DialogAction move_in_tab_order(Dialog& dialog, layout::ScrolledRows& open, bool 
         return DialogAction::none;
     dialog.focused = next;
     static_cast<void>(show_row(dialog, open, dialog.focused));
-    reveal_registered_nav(dialog);
     layout::reveal_engine_nav(dialog);
     return DialogAction::redraw;
 }
@@ -1453,7 +1493,6 @@ DialogAction move_toward(Dialog& dialog, layout::ScrolledRows& open, kit::Direct
         return DialogAction::none;
     dialog.focused = next;
     static_cast<void>(show_row(dialog, open, dialog.focused));
-    reveal_registered_nav(dialog);
     layout::reveal_engine_nav(dialog);
     return DialogAction::redraw;
 }
@@ -1990,6 +2029,11 @@ DialogAction row_action(Dialog& dialog, kit::ActionId action) noexcept {
         dialog.edit_keys_filter = KeyEditorFilter::all;
         return DialogAction::edit_keys;
     }
+    if (action == layout::reset_windows_action) {
+        // Every moved window goes back at once; Cancel does not undo it.
+        dialog.window_reset_asked = true;
+        return DialogAction::changed;
+    }
     if (action == layout::choose_latch_action) {
         dialog.edit_keys_filter = KeyEditorFilter::latchable;
         return DialogAction::edit_keys;
@@ -2061,6 +2105,18 @@ DialogAction activate(Dialog& dialog, const layout::ScrolledRows& open, int32_t 
             return developer::restore_profile_values(dialog);
         if (const layout::ListRow* row = layout::list_row(open.list, control))
             return developer::activate(dialog, *row);
+    }
+    // The key layout card's Change layout… opens the Library on Keys; the
+    // practice pad's button turns every helper off.
+    if (control == change_layout_control && dialog.library_link) {
+        dialog.library_tab = LibraryTab::keys;
+        return DialogAction::open_library;
+    }
+    if (control == helpers_off_control && open.rows.pad.width > 0 &&
+        cards::any_helper_on(dialog.chosen)) {
+        const EngineSettings before = dialog.chosen;
+        cards::turn_helpers_off(dialog);
+        return changed_or_redraw(dialog, before);
     }
     // A row takes Space as its row spec says: a switch flips, a drop-down
     // opens its list, MANAGE… and the marked button of Your files ask the
@@ -2148,6 +2204,58 @@ bool press_held(const Dialog& dialog) noexcept {
 }
 
 } // namespace
+
+void set_dialog_size_class(Dialog& dialog, oa::ui::kit::SizeClass size_class) {
+    dialog.size_class = size_class;
+    geometry::reveal_engine_nav(dialog);
+}
+
+std::size_t changed_settings_count(const Dialog& dialog) {
+    std::size_t count = 0;
+    if (dialog.kind == DialogKind::mod_options) {
+        // A mod's options are kept apart from the preferences: each row whose
+        // value moved counts.
+        const layout::SettingsModel opened = layout::reading(dialog.opened, dialog);
+        const layout::SettingsModel chosen = layout::reading(dialog.chosen, dialog);
+        for (const Page page : dialog_pages(DialogKind::mod_options))
+            for (const Setting setting : page_settings(page))
+                if (layout::row_value_text(setting, opened) !=
+                    layout::row_value_text(setting, chosen))
+                    ++count;
+        return count;
+    }
+    // Every setting whose stored value would change writes its key.
+    oa::platform::preferences::Values written;
+    write_settings(
+        written,
+        dialog.opened,
+        dialog.chosen,
+        dialog.defaults,
+        false,
+        dialog.played_mod_id.empty() ? oa::data::mod_profile::base_game_id
+                                     : std::string_view{dialog.played_mod_id}
+    );
+    count += written.size();
+    if (dialog.chosen.skirmish_players != dialog.opened.skirmish_players)
+        ++count;
+    if (dialog.chosen.switch_alt != dialog.opened.switch_alt)
+        ++count;
+    if (dialog.welcome_again)
+        ++count;
+    for (const InstallIdChoice& chosen : dialog.install_id_chosen) {
+        const auto opened = std::find_if(
+            dialog.install_id_opened.begin(),
+            dialog.install_id_opened.end(),
+            [&chosen](const InstallIdChoice& choice) {
+                return choice.registry_id == chosen.registry_id;
+            }
+        );
+        if (opened == dialog.install_id_opened.end() || opened->on != chosen.on)
+            ++count;
+    }
+    count += registered_writes(dialog).size();
+    return count;
+}
 
 std::string_view page_word(Page page) noexcept {
     return geometry::page_word(page);
@@ -2659,8 +2767,8 @@ DialogAction dialog_key(Dialog& dialog, DialogKey key) {
     return changed_or_redraw(dialog, before);
 }
 
-/// Scrolls the engine's section list when the pointer is over it and the
-/// list passes the divider. A list that fits returns nothing, so the open
+/// Scrolls the section list when the pointer is over it and the list is
+/// taller than its room. A list that fits returns nothing, so the open
 /// section still scrolls.
 ///
 /// @param[in,out] dialog the dialog
@@ -2669,16 +2777,12 @@ DialogAction dialog_key(Dialog& dialog, DialogKey key) {
 /// @param notches the wheel's notches, away from the player positive
 /// @return what it asks; nothing when the list does not take the wheel
 std::optional<DialogAction> wheel_engine_nav(Dialog& dialog, int32_t x, int32_t y, float notches) {
-    if (dialog.kind != DialogKind::engine || !dialog.registered_pages.empty())
-        return std::nullopt;
-    const auto listed =
-        dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller);
-    const geometry::EngineNav nav = geometry::engine_nav(listed, dialog.size_class);
-    if (!nav.scrolls || nav.limit <= 0)
-        return std::nullopt;
     const geometry::Sizes& sized = geometry::sizes_of(dialog);
     if (x < geometry::edge || y < geometry::body_top || x >= geometry::edge + sized.list_width ||
         y >= sized.footer_rule_row)
+        return std::nullopt;
+    const geometry::NavLayout nav = geometry::nav_layout(dialog);
+    if (nav.limit <= 0)
         return std::nullopt;
     dialog.nav_scroll = std::clamp(dialog.nav_scroll, int32_t{0}, nav.limit);
     kit::WheelCarry carry{dialog.nav_wheel_rows};
@@ -2712,8 +2816,6 @@ DialogAction dialog_wheel(Dialog& dialog, int32_t x, int32_t y, float notches) {
         dialog.list_first = first;
         return DialogAction::redraw;
     }
-    if (const std::optional<DialogAction> nav = wheel_registered_nav(dialog, x, y, notches))
-        return *nav;
     if (const std::optional<DialogAction> engine = wheel_engine_nav(dialog, x, y, notches))
         return *engine;
     if (const std::optional<DialogAction> registered = wheel_registered_content(dialog, notches))
@@ -2990,40 +3092,36 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
         );
     }
 
-    // The section list. Registered pages flow under the engine's sections,
-    // each owner named on its own divider, and the list scrolls.
-    if (registered_nav(dialog))
-        append_registered_nav(dialog, parts, &sized);
-    else {
-        const auto pages =
-            dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller);
-        const layout::EngineNav engine = layout::engine_nav(pages, dialog.size_class);
-        const bool clip_nav = dialog.kind == DialogKind::engine && engine.scrolls;
-        for (const Page page : pages) {
-            layout::SourceRect item = layout::dialog_list_item(dialog, page);
-            item.width = sized.list_item_width;
-            // An entry scrolled off the room above the divider is not drawn.
-            // Developer stays pinned under it. The control stays in the
-            // display list, so Tab still reaches it.
-            if (clip_nav && page != Page::developer && !wholly_in(item, engine.viewport))
+    // The section list: each entry's caption right of its icon, the rules
+    // between its groups, and registered pages' owners. Pieces scrolled out
+    // of the list's room are not drawn; their controls stay in the display
+    // list, so Tab still reaches them.
+    {
+        const layout::NavLayout nav = layout::nav_layout(dialog, &sized);
+        const int32_t scroll = std::clamp(dialog.nav_scroll, int32_t{0}, nav.limit);
+        for (const layout::NavPiece& piece : nav.pieces) {
+            layout::SourceRect rect = piece.rect;
+            rect.y -= scroll;
+            if (piece.kind == layout::NavPiece::Kind::entry) {
+                const layout::SourceRect text{
+                    rect.x + sized.nav.text_left,
+                    rect.y,
+                    rect.width - sized.nav.text_left - layout::list_text_margin,
+                    rect.height,
+                };
+                if (!wholly_in(rect, nav.viewport))
+                    continue;
+                parts.push_back(
+                    LayoutPart{text, piece.text, DialogFont::regular, 0, piece.control}
+                );
                 continue;
-            parts.push_back(
-                LayoutPart{
-                    {item.x + layout::list_text_offset,
-                     item.y,
-                     item.width - layout::list_text_offset - layout::list_text_margin,
-                     item.height},
-                    std::string(layout::shown_text(layout::page_name(page))),
-                    DialogFont::regular,
-                    0,
-                    page_control(page),
-                }
-            );
-        }
-        if (dialog.kind == DialogKind::engine) {
-            layout::SourceRect divider = layout::list_divider(dialog.size_class);
-            divider.width = sized.list_item_width - 2 * layout::list_divider_inset;
-            control_part(divider, no_control);
+            }
+            if (!wholly_in(rect, nav.viewport))
+                continue;
+            if (piece.kind == layout::NavPiece::Kind::rule)
+                control_part(rect, no_control);
+            else
+                parts.push_back(LayoutPart{rect, piece.text, DialogFont::small, 0, no_control});
         }
     }
 
@@ -3084,6 +3182,29 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
         const oa::ui::kit::RowView& view = placed.rows[index].view;
         // A locked row's control is drawn but takes no press.
         const int32_t control = row.lock == Lock::none ? row.control : no_control;
+        // Key layout is its card: its lines, its badge and its buttons.
+        if (row.setting == Setting::key_layout) {
+            const int32_t margin = kit::metrics_of(sized.size_class).space * 2;
+            const cards::KeyCard card = cards::key_card(
+                dialog, sized, placed.rows[index].top + margin, text_width, small_text_width
+            );
+            for (const cards::Line& line : card.lines)
+                row_part(LayoutPart{line.rect, line.text, line.font, 0, no_control});
+            if (card.badge.width > 0)
+                row_part(LayoutPart{card.badge, card.badge_text, DialogFont::small, 0, no_control});
+            if (card.change.width > 0)
+                row_part(
+                    LayoutPart{
+                        card.change,
+                        card.change_caption,
+                        DialogFont::regular,
+                        0,
+                        change_layout_control
+                    }
+                );
+            row_part(LayoutPart{card.edit, card.edit_caption, DialogFont::regular, 0, control});
+            continue;
+        }
         // Key layout and Previous version name a value beside the label.
         // The other buttons of this kind, including Downloads', show a
         // caption and no value part, as they did before Key layout.
@@ -3238,6 +3359,33 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
             break;
         }
     }
+    // Accessibility's practice pad: its lines, its keycaps, the bar and its button.
+    if (open.rows.pad.width > 0) {
+        const cards::Pad pad = cards::practice_pad(
+            dialog,
+            sized,
+            open.rows.pad.x,
+            open.rows.pad.y,
+            open.rows.pad.width,
+            text_width,
+            small_text_width
+        );
+        for (const cards::Line& line : pad.lines)
+            row_part(LayoutPart{line.rect, line.text, line.font, 0, no_control});
+        for (const cards::Pad::Cap& cap : pad.caps)
+            row_part(LayoutPart{cap.rect, cap.label, DialogFont::regular, 0, no_control});
+        if (pad.bar.width > 0)
+            row_part(LayoutPart{pad.bar, {}, DialogFont::regular, 0, no_control});
+        row_part(
+            LayoutPart{
+                pad.off,
+                pad.off_caption,
+                DialogFont::regular,
+                0,
+                pad.off_enabled ? helpers_off_control : no_control,
+            }
+        );
+    }
     // On Developer, its list and the list's footer under its rows.
     if (layout::developer_page(dialog))
         developer_layout(dialog, open, parts);
@@ -3258,11 +3406,32 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
             LayoutPart{
                 rect,
                 std::string(layout::shown_text(caption)),
-                DialogFont::small,
+                control == restore_control ? DialogFont::small : DialogFont::regular,
                 0,
                 control,
             }
         );
+    }
+    // How many settings changed, right-aligned against Cancel.
+    {
+        const std::vector<std::string> count =
+            layout::changed_count_lines(dialog, small_text_width, sized.changed_count.width);
+        const int32_t line = kit::compact_metrics.small_line;
+        const auto lines = static_cast<int32_t>(count.size());
+        for (int32_t at = 0; at < lines; ++at)
+            parts.push_back(
+                LayoutPart{
+                    {sized.changed_count.x,
+                     sized.changed_count.y + (sized.changed_count.height - lines * line) / 2 +
+                         at * line,
+                     sized.changed_count.width,
+                     line},
+                    count[static_cast<std::size_t>(at)],
+                    DialogFont::small,
+                    0,
+                    no_control,
+                }
+            );
     }
     // An open drop-down list lies over what is under it, which is not listed:
     // its items are.

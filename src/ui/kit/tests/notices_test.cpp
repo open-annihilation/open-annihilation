@@ -442,9 +442,10 @@ void notices_place_as_before() {
          {336, 414, 52, 17},
          small_rows("A line of the notice's text that takes a row.", 20)}
     );
+    // No open caption, so no open button.
     check_notice(
         kit::place_notice(kit::Notice{}, estimated, estimated),
-        {150, {38, 1, 350, 26}, 116, {235, 124, 96, 17}, {336, 124, 52, 17}, {}}
+        {150, {38, 1, 350, 26}, 116, {0, 0, 0, 0}, {336, 124, 52, 17}, {}}
     );
     // Without fonts, the estimated widths.
     check_notice(
@@ -1080,6 +1081,88 @@ void every_key_on_a_notice() {
         }
 }
 
+void a_notice_with_no_open_caption_offers_ok_alone() {
+    kit::Notice folder = short_notice();
+    const kit::PlacedNotice with_open = kit::place_notice(folder, nullptr);
+    OA_CHECK(with_open.open_button.width > 0 && with_open.open_button.height > 0);
+    const kit::DisplayList folder_list = kit::notice_list(folder, nullptr);
+    OA_CHECK(folder_list.controls.size() == 3);
+    check_control(folder_list, 1, kit::notice_open, "notice.open", "Open folder");
+
+    kit::Notice told = short_notice();
+    told.open_caption.clear();
+    told.word = "updated-notice";
+    const kit::PlacedNotice placed = kit::place_notice(told, nullptr);
+    OA_CHECK(placed.open_button.width == 0 && placed.open_button.height == 0);
+    OA_CHECK(same_rect(placed.ok_button, with_open.ok_button));
+    const kit::DisplayList list = kit::notice_list(told, nullptr);
+    OA_CHECK(list.controls.size() == 2);
+    check_control(list, 0, kit::notice_ok, "updated-notice.ok", "OK");
+    check_body(list, 1, "updated-notice.body", "SAVED\nThe game was saved.");
+    OA_CHECK((list.tab_order == std::vector<kit::ControlId>{kit::notice_ok}));
+    for (const kit::Control& control : list.controls)
+        OA_CHECK(control.name.find(".open") == std::string::npos);
+    int32_t buttons = 0;
+    for (const kit::Item& item : list.items)
+        if (item.role == kit::Role::button)
+            ++buttons;
+    OA_CHECK(buttons == 1);
+
+    const kit::Point on_open{
+        with_open.open_button.x + with_open.open_button.width / 2,
+        with_open.open_button.y + with_open.open_button.height / 2,
+    };
+    OA_CHECK(kit::notice_pointer_down(told, on_open, placed.height) == kit::NoticeAction::none);
+    OA_CHECK(told.pressed == kit::no_control);
+    OA_CHECK(kit::notice_pointer_up(told, on_open, placed.height) == kit::NoticeAction::none);
+
+    for (const kit::Key key : every_key) {
+        kit::Notice keyed = told;
+        keyed.marked = kit::notice_open;
+        const kit::NoticeAction action = kit::notice_key(keyed, key);
+        OA_CHECK(keyed.marked == kit::notice_ok);
+        if (key == kit::Key::enter || key == kit::Key::escape || key == kit::Key::space)
+            OA_CHECK(action == kit::NoticeAction::closed);
+        else
+            OA_CHECK(action == kit::NoticeAction::none);
+    }
+}
+
+void notes_keep_a_line_each() {
+    const std::array<std::string, 3> lines{
+        "New in 9.9.9:",
+        "• Wider bars",
+        "• A second English line",
+    };
+    const std::string notes = lines[0] + "\n" + lines[1] + "\n" + lines[2];
+    const int32_t width = kit::compact_metrics.notice_width - 2 * kit::compact_metrics.padding;
+    kit::Notice notice;
+    notice.open_caption.clear();
+    notice.paragraphs.push_back({notes, false});
+    const kit::PlacedNotice placed = kit::place_notice(notice, nullptr);
+    OA_CHECK(placed.lines.size() == 3);
+    for (int32_t index = 0; index < 3; ++index) {
+        OA_CHECK(
+            placed.lines[static_cast<std::size_t>(index)].text ==
+            lines[static_cast<std::size_t>(index)]
+        );
+        OA_CHECK(same_rect(
+            placed.lines[static_cast<std::size_t>(index)].rect,
+            {kit::compact_metrics.padding,
+             kit::compact_metrics.text_top + kit::compact_metrics.small_line * index,
+             width,
+             kit::compact_metrics.small_line}
+        ));
+    }
+
+    kit::Question question = question_of({"LATER"});
+    question.paragraphs = {{notes, false}};
+    const kit::PlacedQuestion asked = kit::place_question(question, nullptr);
+    OA_CHECK(asked.lines.size() == 3);
+    for (std::size_t index = 0; index < lines.size(); ++index)
+        OA_CHECK(asked.lines[index].text == lines[index]);
+}
+
 void every_key_on_a_question() {
     using kit::QuestionAction;
 
@@ -1338,41 +1421,44 @@ void paint_draws_what_draw_question_draws() {
         }
 }
 
-/// Returns how many columns of a bar's inner row are filled in the accent.
+/// Returns how many columns of a bar's middle row are filled in a colour.
 ///
 /// @param surface the surface the bar was drawn on
 /// @param bar the bar
+/// @param fill the fill's colour
 /// @return the columns
-int32_t filled_columns(const renderer::Surface& surface, const kit::Rect& bar) {
+int32_t filled_columns(
+    const renderer::Surface& surface, const kit::Rect& bar, kit::Colour fill = kit::colour::accent
+) {
     int32_t filled = 0;
-    for (int32_t x = bar.x + 1; x < bar.x + bar.width - 1; ++x)
-        if (pixel(surface, x, bar.y + 1) == kit::colour::accent)
+    for (int32_t x = bar.x; x < bar.x + bar.width; ++x)
+        if (pixel(surface, x, bar.y + bar.height / 2) == fill)
             ++filled;
     return filled;
 }
 
 void the_progress_bar_fills_as_far_as_it_came() {
-    // The prompt's bar: 376 by 8, so 374 columns inside its border.
+    // The prompt's bar: 376 by 8, a rounded track filled from its left.
     const kit::Rect bar{2, 2, 376, 8};
     const std::array<std::pair<int32_t, int32_t>, 4> fills{{
         {0, 0},
         {1, 0},
-        {500, 187},
-        {1000, 374},
+        {500, 188},
+        {1000, 376},
     }};
     for (const auto& [done, columns] : fills) {
         renderer::Surface drawn = black(380, 12);
         const kit::Canvas canvas{&drawn, {0, 0, 1, {}}, &fonts(), {}};
         kit::draw_progress(canvas, bar, done, kit::question_progress_whole);
         OA_CHECK(filled_columns(drawn, bar) == columns);
-        // The border, the well past the fill, and the fill from the left.
-        OA_CHECK(pixel(drawn, bar.x, bar.y) == kit::colour::control_border);
-        OA_CHECK(pixel(drawn, bar.x + bar.width - 1, bar.y + 4) == kit::colour::control_border);
-        if (columns < 374)
-            OA_CHECK(pixel(drawn, bar.x + 1 + columns, bar.y + 4) == kit::colour::well);
+        // The rounded ends leave the corners clear; the track past the fill.
+        OA_CHECK(pixel(drawn, bar.x, bar.y) == (kit::Colour{0, 0, 0}));
+        OA_CHECK(pixel(drawn, bar.x + bar.width - 1, bar.y) == (kit::Colour{0, 0, 0}));
+        if (columns < 376)
+            OA_CHECK(pixel(drawn, bar.x + columns + 4, bar.y + 4) == kit::colour::list_selected);
         if (columns > 0) {
-            OA_CHECK(pixel(drawn, bar.x + 1, bar.y + 6) == kit::colour::accent);
-            OA_CHECK(pixel(drawn, bar.x + columns, bar.y + 6) == kit::colour::accent);
+            OA_CHECK(pixel(drawn, bar.x, bar.y + 4) == kit::colour::accent);
+            OA_CHECK(pixel(drawn, bar.x + columns - 1, bar.y + 4) == kit::colour::accent);
         }
         OA_CHECK(pixel(drawn, 0, 0) == (kit::Colour{0, 0, 0}));
         // A progress item paints the same.
@@ -1382,17 +1468,27 @@ void the_progress_bar_fills_as_far_as_it_came() {
         kit::paint({&painted, {0, 0, 1, {}}, &fonts(), {}}, list);
         same(drawn, painted, "progress");
     }
+    // Paused, the fill is amber, and a paused item paints the same.
+    renderer::Surface paused = black(380, 12);
+    kit::draw_progress({&paused, {0, 0, 1, {}}, &fonts(), {}}, bar, 500, 1000, true);
+    OA_CHECK(filled_columns(paused, bar, kit::colour::lock) == 188);
+    OA_CHECK(filled_columns(paused, bar) == 0);
+    renderer::Surface paused_item = black(380, 12);
+    kit::DisplayList paused_list;
+    kit::add_progress(paused_list, bar, 500, 1000, true);
+    kit::paint({&paused_item, {0, 0, 1, {}}, &fonts(), {}}, paused_list);
+    same(paused, paused_item, "paused progress");
     // Past the whole is full, under 0 is empty, and a whole of 0 fills nothing.
     renderer::Surface over = black(380, 12);
     kit::draw_progress({&over, {0, 0, 1, {}}, &fonts(), {}}, bar, 1500, 1000);
-    OA_CHECK(filled_columns(over, bar) == 374);
+    OA_CHECK(filled_columns(over, bar) == 376);
     renderer::Surface under = black(380, 12);
     kit::draw_progress({&under, {0, 0, 1, {}}, &fonts(), {}}, bar, -5, 1000);
     OA_CHECK(filled_columns(under, bar) == 0);
     renderer::Surface no_whole = black(380, 12);
     kit::draw_progress({&no_whole, {0, 0, 1, {}}, &fonts(), {}}, bar, 5, 0);
     OA_CHECK(filled_columns(no_whole, bar) == 0);
-    OA_CHECK(pixel(no_whole, bar.x + 4, bar.y + 4) == kit::colour::well);
+    OA_CHECK(pixel(no_whole, bar.x + 4, bar.y + 4) == kit::colour::list_selected);
     // An empty bar draws nothing.
     renderer::Surface empty = black(380, 12);
     kit::draw_progress({&empty, {0, 0, 1, {}}, &fonts(), {}}, {2, 2, 0, 8}, 500, 1000);
@@ -1510,6 +1606,8 @@ int main() {
     a_finger_lands_as_before();
     the_pointer_presses_buttons();
     every_key_on_a_notice();
+    a_notice_with_no_open_caption_offers_ok_alone();
+    notes_keep_a_line_each();
     every_key_on_a_question();
     paint_draws_what_draw_notice_draws();
     a_question_title_is_cut_to_its_header();

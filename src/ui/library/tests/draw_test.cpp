@@ -210,8 +210,8 @@ void dress_mutators(lib::Library& library) {
 
 /// Dresses the Keys pictures with two made-up layouts, on this drawing only.
 ///
-/// Grid is installed and in use. It changes Q and W, so the keyboard marks
-/// those keys. Lefty is installed and is not in use. Column is only a
+/// Grid is installed and in use, with two of the player's own changes on
+/// it. It changes Q and W, so the keyboard marks those keys. Lefty is installed and is not in use. Column is only a
 /// listing. OA default stays first and is left out of the count.
 ///
 /// @param[in,out] library the scene's library
@@ -221,8 +221,17 @@ void dress_keys(lib::Library& library) {
     grid_facts.tags = {"grid"};
     grid_facts.keyboard = "ansi";
     grid_facts.pointer = "right-click";
-    grid_facts.changes = 2;
+    grid_facts.changes = 12;
     grid_facts.own_changes = 2;
+    lib::KeyMove patrol;
+    patrol.command = "Patrol";
+    patrol.after.keys = {"Q"};
+    patrol.own = true;
+    lib::KeyMove cloak;
+    cloak.command = "Cloak";
+    cloak.after.keys = {"K"};
+    cloak.own = true;
+    grid_facts.own_list = {patrol, cloak};
     grid_facts.triggers = {"Q", "@KeyW", "MouseLeft", "Nope", "Ctrl"};
     grid_facts.helpers = {"sticky-modifiers"};
     lib::Listing grid;
@@ -232,7 +241,7 @@ void dress_keys(lib::Library& library) {
     grid.name = "Grid";
     grid.version = "1.0";
     grid.author = "Ada";
-    grid.summary = "A short layout.";
+    grid.summary = "Orders on a grid under the left hand.";
     grid.size = 1024;
     grid.keys = grid_facts;
     inputs.listings.push_back(grid);
@@ -258,7 +267,7 @@ void dress_keys(lib::Library& library) {
     lefty.name = "Lefty";
     lefty.version = "1.0";
     lefty.author = "Bo";
-    lefty.summary = "For the left hand.";
+    lefty.summary = "Everything within reach of the left hand.";
     lefty.size = 1024;
     lefty.keys = lefty_facts;
     inputs.listings.push_back(std::move(lefty));
@@ -292,6 +301,45 @@ void dress_keys(lib::Library& library) {
     inputs.played.version = "0.4.0";
     inputs.played.name = "Highland";
     lib::refresh(library, std::move(inputs));
+}
+
+/// What USE would move in the Keys pictures: twelve commands from Grid to
+/// Lefty, Patrol among them on the player's own key, or eleven without it.
+///
+/// @return the moves
+lib::KeyMoves made_up_moves(std::string_view, std::string_view) {
+    lib::KeyMoves moves;
+    moves.known = true;
+    const auto move = [](std::string command,
+                         std::vector<std::string> before,
+                         std::vector<std::string> after,
+                         bool own) {
+        lib::KeyMove made;
+        made.command = std::move(command);
+        made.before.keys = std::move(before);
+        made.after.keys = std::move(after);
+        made.own = own;
+        return made;
+    };
+    moves.kept = {
+        move("Attack", {"A"}, {"Q"}, false),
+        move("Move", {"M"}, {"W"}, false),
+        move("Patrol", {"P"}, {"Q"}, true),
+        move("Guard", {"G"}, {"E"}, false),
+        move("Stop", {"S"}, {"R"}, false),
+        move("Fire at will", {"Shift", "F"}, {"A"}, false),
+        move("Reclaim", {"E"}, {"S"}, false),
+        move("Repair", {"R"}, {"D"}, false),
+        move("Capture", {"C"}, {"F"}, false),
+        move("Cloak", {"K"}, {}, false),
+        move("Self-destruct", {"Ctrl", "D"}, {"Ctrl", "X"}, false),
+        move("Load", {"L"}, {"V"}, false),
+    };
+    moves.kept_total = 12;
+    moves.clean = moves.kept;
+    moves.clean.erase(moves.clean.begin() + 2);
+    moves.clean_total = 11;
+    return moves;
 }
 
 /// Dresses the Languages picture: the fixture's built-in language pack names
@@ -713,6 +761,7 @@ Drawing draw_scene(const Scene& scene, const kit::Fonts& fonts) {
         state.details_page = true;
     }
     if (scene.key_use) {
+        library.key_hooks.moves = made_up_moves;
         if (const lib::Entry* entry = lib::selected_entry(library))
             lib::open_key_use(library, *entry);
     }
@@ -991,6 +1040,18 @@ int main(int argc, char** argv) {
          false,
          std::string(fixture::core),
          "grid"},
+        {"keys-use-compact",
+         window_of(640, 480, 100),
+         false,
+         lib::Tab::keys,
+         false,
+         std::string(fixture::core),
+         "lefty",
+         false,
+         {},
+         0,
+         false,
+         true},
         {"keys-use-regular",
          window_of(1920, 1080, 200),
          false,
@@ -1003,6 +1064,25 @@ int main(int argc, char** argv) {
          0,
          false,
          true},
+        {"keys-use-large",
+         window_of(2560, 1440, 200),
+         false,
+         lib::Tab::keys,
+         false,
+         std::string(fixture::core),
+         "lefty",
+         false,
+         {},
+         0,
+         false,
+         true},
+        {"keys-lefty-large",
+         window_of(2560, 1440, 200),
+         false,
+         lib::Tab::keys,
+         false,
+         std::string(fixture::core),
+         "lefty"},
         {"active-keys-regular",
          window_of(1920, 1080, 200),
          false,

@@ -5,6 +5,7 @@
 
 #include "oa/app/update/offer.hpp"
 #include "oa/app/update/plan.hpp"
+#include "oa/app/update/receipt.hpp"
 #include "oa/app/update/route.hpp"
 #include "oa/platform/machine.hpp"
 #include "oa/platform/preferences.hpp"
@@ -77,7 +78,34 @@ bool read_capped(
     return true;
 }
 
+/// True while a journal is left under `updates`: an undo that did not finish.
+bool journal_left(const fs::path& updates) {
+    std::error_code io;
+    return fs::is_regular_file(updates / "journal.json", io) && !io;
+}
+
+/// Records a failed step that changed files, then how its undo went, and the outcome.
+///
+/// @param log the log and its receipt
+/// @param updates the data folder's updates directory
+/// @param failed the step that failed
+/// @param detail why it failed
+void record_failed_change(
+    Log& log, const fs::path& updates, update::Step failed, std::string_view detail
+) {
+    log.step(failed, update::StepResult::failed, detail);
+    const bool undone = !journal_left(updates);
+    log.step(update::Step::undo, undone ? update::StepResult::done : update::StepResult::failed);
+    log.finish(update::failure_outcome(log.receipt_action(), true, undone));
+}
+
+/// Starts the version that was running, after a refusal or a failure.
+///
+/// A receipt that has no outcome yet stopped before any file moved, and says
+/// so before the game starts.
 int start_old(const update::Plan& plan, Log& log, ProgressWindow& window, bool start) {
+    if (log.receipt_running())
+        log.finish(update::failure_outcome(log.receipt_action(), false, true));
     if (start) {
         std::string error;
         if (!start_detached(path_from(plan.program), plan.arguments, false, {}, &error))
@@ -249,6 +277,50 @@ void forget_started(Started& started) {
 
 } // namespace
 
+std::vector<Operation> kept_record_operations(
+    const update::Plan& plan, std::string_view installed_version, int64_t installed_release
+) {
+    const fs::path updates = path_from(plan.updates);
+    const fs::path preferences_copy = updates / "previous" / "preferences.conf";
+    std::vector<Operation> operations;
+    std::error_code io;
+    const fs::file_status existing = fs::symlink_status(preferences_copy, io);
+    if (!io && fs::exists(existing)) {
+        Operation remove;
+        remove.kind = Operation::Kind::remove_tree;
+        remove.path = preferences_copy;
+        operations.push_back(std::move(remove));
+    }
+
+    Operation preferences;
+    preferences.kind = Operation::Kind::copy_tree;
+    preferences.from = path_from(plan.preferences);
+    preferences.to = preferences_copy;
+    operations.push_back(std::move(preferences));
+
+    update::State state;
+    state.installed_version = std::string(installed_version);
+    state.installed_release = installed_release;
+    state.kept_version = plan.from_version;
+    if (plan.route == update::Route::linux_versions) {
+        state.kept_path =
+            utf8_of(path_from(plan.install) / "versions" / path_from(plan.from_version));
+    } else {
+        state.kept_path = utf8_of(updates / "previous");
+    }
+    state.kept_route = plan.route;
+    state.preferences_copy = utf8_of(preferences_copy);
+    state.confirmed = false;
+    state.failed_starts = 0;
+
+    Operation record;
+    record.kind = Operation::Kind::write_file;
+    record.path = updates / "state.json";
+    record.bytes = update::state_text(state);
+    operations.push_back(std::move(record));
+    return operations;
+}
+
 int restore_kept(
     const update::Plan& plan,
     const fs::path& updates,
@@ -260,13 +332,25 @@ int restore_kept(
     bool may_elevate,
     bool start_game
 ) {
+    // After an install's failed starts, a roll back that does not finish
+    // leaves the new version in place: its recovery did not finish.
+    const bool after_install = plan.action == update::Action::install;
+    const auto restore_failed = [&](std::string_view detail) {
+        log.step(update::Step::restore, update::StepResult::failed, detail);
+        log.finish(
+            after_install ? update::Outcome::recovery_incomplete : update::Outcome::roll_back_failed
+        );
+    };
     std::string error;
     const std::optional<update::State> state = load_state(updates, error);
     if (!state) {
         log.line(error.empty() ? "the kept version could not be read" : error);
+        restore_failed(error.empty() ? "the kept version could not be read" : error);
         start_old(plan, log, window, start_game);
         return exit_refused;
     }
+    if (!after_install)
+        log.set_to_version(state->kept_version);
     const std::string bad_version = state->installed_version;
     const int64_t bad_release = state->installed_release;
     const std::string title = plan.action == update::Action::roll_back && !plan.title.empty()
@@ -281,6 +365,7 @@ int restore_kept(
     if (may_elevate && windows_route && windows_roll_back_elevate(path_from(plan.install))) {
         if (plan_path == nullptr) {
             log.line("the install folder could not be written");
+            restore_failed("the install folder could not be written");
             start_old(plan, log, window, start_game);
             return exit_refused;
         }
@@ -294,6 +379,7 @@ int restore_kept(
             std::ofstream out(written, std::ios::binary | std::ios::trunc);
             if (!out) {
                 log.line("the roll-back plan could not be written");
+                restore_failed("the roll-back plan could not be written");
                 start_old(plan, log, window, start_game);
                 return exit_refused;
             }
@@ -304,14 +390,20 @@ int restore_kept(
         fs::remove(written, io);
         if (child.cancelled) {
             log.line("the roll back was cancelled");
+            restore_failed("the roll back was cancelled");
             start_old(plan, log, window, start_game);
             return exit_refused;
         }
         if (!child.ran || child.code != exit_swapped) {
             log.line(child.error.empty() ? "the elevated roll back did not finish" : child.error);
+            restore_failed(
+                child.error.empty() ? "the elevated roll back did not finish" : child.error
+            );
             start_old(plan, log, window, start_game);
             return exit_undone;
         }
+        log.step(update::Step::restore, update::StepResult::done);
+        log.finish(update::Outcome::rolled_back);
         if (!start_game) {
             window.close();
             return exit_swapped;
@@ -326,10 +418,12 @@ int restore_kept(
         forget_started(started);
         if (!started.ok) {
             log.line(error.empty() ? "the kept version could not be started" : error);
+            log.step(update::Step::start, update::StepResult::failed, error);
             window.close();
             return exit_refused;
         }
         log.line("started the kept version");
+        log.step(update::Step::start, update::StepResult::done, state->kept_version);
         window.close();
         return exit_swapped;
     }
@@ -339,6 +433,7 @@ int restore_kept(
         restore_operations(*state, path_from(plan.install), bad_version, &why);
     if (!why.empty()) {
         log.line(why);
+        restore_failed(why);
         start_old(plan, log, window, start_game);
         return exit_refused;
     }
@@ -377,11 +472,27 @@ int restore_kept(
     const JournalResult applied = apply_journal(updates, operations, hooks, &error);
     if (applied != JournalResult::finished) {
         log.line(error.empty() ? "a step failed" : error);
-        window.show(title, could_not_check, 0, true);
+        if (after_install) {
+            restore_failed(error.empty() ? "a step failed" : error);
+        } else {
+            log.step(
+                update::Step::restore,
+                update::StepResult::failed,
+                error.empty() ? "a step failed" : error
+            );
+            const bool undone = !journal_left(updates);
+            log.step(
+                update::Step::undo, undone ? update::StepResult::done : update::StepResult::failed
+            );
+            log.finish(update::failure_outcome(update::Action::roll_back, true, undone));
+        }
+        window.show(title, line_after_failed_roll_back(updates), 0, true);
         start_old(plan, log, window, start_game);
         return exit_undone;
     }
     drop_journal(updates);
+    log.step(update::Step::restore, update::StepResult::done);
+    log.finish(update::Outcome::rolled_back);
     if (plan.route == update::Route::linux_versions)
         remove_update_starts(path_from(plan.install));
 
@@ -401,10 +512,12 @@ int restore_kept(
     forget_started(started);
     if (!started.ok) {
         log.line(error.empty() ? "the kept version could not be started" : error);
+        log.step(update::Step::start, update::StepResult::failed, error);
         window.close();
         return exit_refused;
     }
     log.line("started the kept version");
+    log.step(update::Step::start, update::StepResult::done, state->kept_version);
     window.close();
     return exit_swapped;
 }
@@ -453,10 +566,22 @@ int carry_out(
     hooks.context = &note;
     hooks.note = note_line;
     hooks.run = carry_run;
+    // The receipt the game reads on its next start. An elevated copy only
+    // swaps a folder for the run that started it, which keeps the receipt.
+    if (!elevated_swap) {
+        update::Receipt receipt;
+        receipt.action = plan.action;
+        receipt.reason = plan.roll_back_reason;
+        receipt.from_version = plan.from_version;
+        receipt.release = plan.release;
+        log.begin_receipt(updates, std::move(receipt));
+    }
 
     const UpdatesGateResult pending = take_pending(updates);
     if (pending.gate == UpdatesGate::restart) {
         const std::string version = pending.version.empty() ? plan.from_version : pending.version;
+        log.set_to_version(version);
+        log.finish(update::Outcome::restart_windows);
         if (!elevated_swap)
             window.show(plan.title, restart_line(version), 0, true);
         window.close();
@@ -464,6 +589,8 @@ int carry_out(
     }
     if (pending.gate == UpdatesGate::restore_failed) {
         log.line(pending.detail.empty() ? "the kept copy could not be put back" : pending.detail);
+        log.step(update::Step::undo, update::StepResult::failed, pending.detail);
+        log.finish(update::failure_outcome(plan.action, true, false));
         start_old(plan, log, window, !elevated_swap);
         return exit_undone;
     }
@@ -472,12 +599,17 @@ int carry_out(
     const WaitOutcome waited = wait_for_process(plan.wait_for, nullptr, &error);
     if (waited == WaitOutcome::still_running) {
         log.line(still_running_text);
+        log.step(update::Step::wait, update::StepResult::failed, still_running_text);
+        log.finish(update::failure_outcome(plan.action, false, true));
         window.show(plan.title, still_running_text, 0, true);
         window.close();
         return exit_refused;
     }
+    log.step(update::Step::wait, update::StepResult::done);
     if (!undone) {
         log.line(error.empty() ? "a previous update could not be undone" : error);
+        log.step(update::Step::undo, update::StepResult::failed, error);
+        log.finish(update::failure_outcome(plan.action, true, false));
         start_old(plan, log, window, !elevated_swap);
         return exit_undone;
     }
@@ -539,11 +671,14 @@ int carry_out(
     Verified verified;
     if (!verify_package(request, verified, &error)) {
         log.line(error);
+        log.step(update::Step::verify, update::StepResult::failed, error);
         window.show(plan.title, could_not_check, 0, true);
         start_old(plan, log, window, !elevated_swap);
         return exit_refused;
     }
     log.line("checked the package");
+    log.step(update::Step::verify, update::StepResult::done);
+    log.set_to_version(verified.version);
     window.show(plan.title, plan.line, 350, false);
 
     // A folder the player cannot write is opened in Installer. The bundle
@@ -561,12 +696,17 @@ int carry_out(
         const JournalResult opened = apply_journal(updates, operations, hooks, &error);
         if (opened != JournalResult::finished) {
             log.line(error.empty() ? "a step failed" : error);
-            window.show(plan.title, could_not_check, 0, true);
+            record_failed_change(
+                log, updates, update::Step::installer, error.empty() ? "a step failed" : error
+            );
+            window.show(plan.title, line_after_failed_change(updates), 0, true);
             start_old(plan, log, window, !elevated_swap);
             return exit_undone;
         }
         drop_journal(updates);
         log.line("opened the installer");
+        log.step(update::Step::installer, update::StepResult::done);
+        log.finish(update::Outcome::opened_installer);
         window.close();
         return exit_swapped;
     }
@@ -578,11 +718,13 @@ int carry_out(
             stage = updates / std::to_string(verified.release) / "stage";
             if (!unpack_package(request.file, stage, top, &error)) {
                 log.line(error);
+                log.step(update::Step::unpack, update::StepResult::failed, error);
                 window.show(plan.title, could_not_check, 0, true);
                 start_old(plan, log, window, !elevated_swap);
                 return exit_refused;
             }
             log.line("unpacked the package");
+            log.step(update::Step::unpack, update::StepResult::done);
             window.show(plan.title, plan.line, 700, false);
         }
         return finish_windows_route(
@@ -594,11 +736,13 @@ int carry_out(
     const fs::path stage = updates / std::to_string(verified.release) / "stage";
     if (!unpack_package(request.file, stage, top, &error)) {
         log.line(error);
+        log.step(update::Step::unpack, update::StepResult::failed, error);
         window.show(plan.title, could_not_check, 0, true);
         start_old(plan, log, window, !elevated_swap);
         return exit_refused;
     }
     log.line("unpacked the package");
+    log.step(update::Step::unpack, update::StepResult::done);
     window.show(plan.title, plan.line, 700, false);
 
     std::string why;
@@ -622,39 +766,26 @@ int carry_out(
         return exit_refused;
     }
 
-    Operation preferences;
-    preferences.kind = Operation::Kind::copy_tree;
-    preferences.from = path_from(plan.preferences);
-    preferences.to = updates / "previous" / "preferences.conf";
-    operations.push_back(std::move(preferences));
-
-    update::State state;
-    state.installed_version = verified.version;
-    state.installed_release = verified.release;
-    state.kept_version = plan.from_version;
-    if (plan.route == update::Route::linux_versions)
-        state.kept_path =
-            utf8_of(path_from(plan.install) / "versions" / path_from(plan.from_version));
-    else
-        state.kept_path = utf8_of(updates / "previous");
-    state.kept_route = plan.route;
-    state.preferences_copy = utf8_of(updates / "previous" / "preferences.conf");
-    state.confirmed = false;
-    state.failed_starts = 0;
-    Operation record;
-    record.kind = Operation::Kind::write_file;
-    record.path = updates / "state.json";
-    record.bytes = update::state_text(state);
-    operations.push_back(std::move(record));
+    std::vector<Operation> record =
+        kept_record_operations(plan, verified.version, verified.release);
+    operations.insert(
+        operations.end(),
+        std::make_move_iterator(record.begin()),
+        std::make_move_iterator(record.end())
+    );
 
     const JournalResult applied = apply_journal(updates, operations, hooks, &error);
     if (applied != JournalResult::finished) {
         log.line(error.empty() ? "a step failed" : error);
+        record_failed_change(
+            log, updates, update::Step::swap, error.empty() ? "a step failed" : error
+        );
         remove_stage(stage);
-        window.show(plan.title, could_not_check, 0, true);
+        window.show(plan.title, line_after_failed_change(updates), 0, true);
         start_old(plan, log, window, !elevated_swap);
         return exit_undone;
     }
+    log.step(update::Step::swap, update::StepResult::done);
     window.show(plan.title, plan.line, oa::ui::kit::question_progress_whole, false);
 
     // The launcher counts an unconfirmed start. The file is written before the
@@ -664,6 +795,7 @@ int carry_out(
     if (linux && (stage_only || deck_session())) {
         const std::string line = next_start_line(verified.version);
         log.line(line);
+        log.finish(update::Outcome::installs_next_start);
         window.show(plan.title, line, oa::ui::kit::question_progress_whole, true);
         drop_journal(updates);
         remove_stage(stage);
@@ -671,6 +803,9 @@ int carry_out(
         return exit_swapped;
     }
 
+    // The new version is in place. The receipt says so before it starts,
+    // so the game finds the outcome on its first menu.
+    log.finish(update::Outcome::installed);
     Started started = start_version(plan, plan.arguments, true, plan.from_version, error);
     if (!started.ok) {
         if (linux)
@@ -681,17 +816,28 @@ int carry_out(
             log.line("the new version could not be started; the kept bundle was left in place");
             if (!error.empty())
                 log.line(error);
+            log.step(update::Step::start, update::StepResult::failed, error);
             drop_journal(updates);
             remove_stage(stage);
             window.close();
             return exit_refused;
         }
         log.line(error.empty() ? "the game could not be started" : error);
+        log.step(
+            update::Step::start,
+            update::StepResult::failed,
+            error.empty() ? "the game could not be started" : error
+        );
         std::string undo_error;
         if (!undo_journal(updates, hooks, &undo_error) && !undo_error.empty())
             log.line(undo_error);
+        const bool put_back = !journal_left(updates);
+        log.step(
+            update::Step::undo, put_back ? update::StepResult::done : update::StepResult::failed
+        );
+        log.finish(update::failure_outcome(update::Action::install, true, put_back));
         remove_stage(stage);
-        window.show(plan.title, could_not_check, 0, true);
+        window.show(plan.title, line_after_failed_change(updates), 0, true);
         start_old(plan, log, window, !elevated_swap);
         return exit_undone;
     }
@@ -699,6 +845,7 @@ int carry_out(
     drop_journal(updates);
     remove_stage(stage);
     log.line("started the new version");
+    log.step(update::Step::start, update::StepResult::done, verified.version);
     window.close();
 
     struct Again {
@@ -721,10 +868,24 @@ int carry_out(
     const WatchTwo watched = watch_two_starts(
         started.process, started.pid, updates / "state.json", restart, &again, &error
     );
-    if (watched == WatchTwo::confirmed)
+    if (watched == WatchTwo::confirmed) {
+        log.step(update::Step::watch, update::StepResult::done);
         return exit_swapped;
+    }
+    // A quit before the main menu is the player's, not a failed start: the
+    // new version stays, and its next start counts again.
+    if (watched == WatchTwo::quit) {
+        log.line("the new version was closed before the main menu");
+        return exit_swapped;
+    }
+    // A start the watch cannot see is not taken for a failed one.
+    if (watched == WatchTwo::unobserved) {
+        log.line("the new version's start could not be watched");
+        return exit_swapped;
+    }
     if (watched == WatchTwo::restart_failed && !error.empty())
         log.line(error);
+    log.step(update::Step::watch, update::StepResult::failed, error);
     return restore_kept(
         plan,
         updates,

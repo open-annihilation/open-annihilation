@@ -370,6 +370,13 @@ enum class Setting : uint8_t {
     drag_threshold, ///< Drag threshold: a slider of pixels
     /// Edge scrolling: a switch. Off stops the view scrolling at the window's edge.
     edge_scroll,
+    /// Window size: a drop-down of Auto, Compact, Regular and Large, on User
+    /// Interface under Interface size
+    window_size,
+    /// Reset window positions: Reset asks the host to put every window the
+    /// player moved back in its place (Dialog::window_reset_asked). It keeps
+    /// no setting.
+    reset_window_positions,
 };
 
 /// Returns the settings a section shows, top to bottom.
@@ -395,6 +402,12 @@ inline constexpr int32_t no_control = -1;
 /// An open drop-down's items take the numbers just under no_control, so the
 /// mark keeps a number clear of that run and of the registered list.
 inline constexpr int32_t close_x_control = -9000;
+/// Change layout… on Controls' key layout card: it asks the host to open the
+/// Library on Keys (DialogAction::open_library). Its number follows the close
+/// mark's, clear of an open list's items and of the registered list.
+inline constexpr int32_t change_layout_control = close_x_control - 1;
+/// Turn every helper off, on Accessibility's practice pad.
+inline constexpr int32_t helpers_off_control = close_x_control - 2;
 /// The first section's entry in the list; each section's entry is its
 /// place among its kind of dialog's sections with Touch and Controller
 /// (page_control), whether or not the dialog lists them.
@@ -788,6 +801,14 @@ struct AvailableLanguage {
 /// @return the size, such as "312 kB", "4.0 MB" or "188 MB"
 [[nodiscard]] std::string download_size_text(uint64_t bytes);
 
+/// Returns a package's size as the Library shows it, the figure the update
+/// prompt and Settings › Updates share: binary KB below 1 MiB, MB to one
+/// decimal below 100 MiB, then whole MB and GB.
+///
+/// @param bytes the package's size
+/// @return the size, such as "23.4 MB"
+[[nodiscard]] std::string update_size_text(uint64_t bytes);
+
 /// Returns the aside of an available language.
 ///
 /// A reviewed pack from "OA team" shows its size and the download mark.
@@ -985,6 +1006,74 @@ struct ModLimitsShown {
     std::optional<uint32_t> loaded_sides;
 };
 
+/// A modifier the practice pad on Accessibility tells apart.
+enum class PracticeModifier : uint8_t {
+    none,  ///< not a modifier: a letter, a digit or another key
+    shift, ///< Shift
+    ctrl,  ///< Ctrl
+    alt,   ///< Alt, Option on a Mac keyboard
+};
+
+/// One key the host hands the practice pad: a modifier, or another key and
+/// the legend its keycap shows.
+struct PracticeKey {
+    PracticeModifier modifier{PracticeModifier::none}; ///< which modifier; none for another key
+    /// What the key's cap shows, as the player reads it: "A", "Shift", "Ctrl".
+    std::string label;
+};
+
+/// What the practice pad's last key did, with the helpers the dialog shows.
+enum class PracticeOutcome : uint8_t {
+    none,      ///< nothing pressed yet
+    latched,   ///< a modifier tapped alone stays down for the next key (Sticky modifiers)
+    locked,    ///< a modifier tapped twice stays down until it is tapped again
+    unlocked,  ///< a locked modifier tapped again lets go
+    counted,   ///< a key counted, with the modifiers held or latched
+    too_short, ///< a key let go before Slow keys' time: it did not count
+    bounced,   ///< a key pressed again within Bounce keys' time: it did not count
+    held,      ///< Hold to confirm's chord held to its end: the order would go
+    cancelled, ///< Hold to confirm's chord let go before its end: nothing happens
+};
+
+/// The bit of a modifier in PracticePad's sets of modifiers.
+///
+/// @param modifier the modifier
+/// @return its bit; 0 for none
+[[nodiscard]] constexpr uint8_t practice_bit(PracticeModifier modifier) noexcept {
+    return modifier == PracticeModifier::none
+               ? uint8_t{0}
+               : static_cast<uint8_t>(1U << (static_cast<uint32_t>(modifier) - 1U));
+}
+
+/// Accessibility's practice pad: the keys the player tries there, as the
+/// helpers the dialog shows treat them. Keys pressed here never reach the
+/// game or the dialog's other controls. Each set of modifiers is
+/// practice_bit's bits.
+struct PracticePad {
+    uint8_t held{};    ///< the modifiers down now
+    uint8_t latched{}; ///< the modifiers Sticky modifiers keeps down for the next key
+    uint8_t locked{};  ///< the modifiers a second tap keeps down until tapped again
+    /// The modifiers pressed since the last other key, so that one let go
+    /// with none pressed in between counts as a tap.
+    uint8_t alone{};
+    std::string key_down;       ///< the other key held now; empty for none
+    uint8_t key_modifiers{};    ///< the modifiers held or latched as it went down
+    uint64_t key_down_ms{};     ///< when it went down, in milliseconds
+    bool key_counted{};         ///< it counted already (Slow keys' time passed)
+    bool key_bounced{};         ///< it came again within Bounce keys' time and does not count
+    std::string last_released;  ///< the last key that counted and was let go, for Bounce keys
+    uint64_t last_release_ms{}; ///< when it was let go, in milliseconds
+    PracticeOutcome outcome{PracticeOutcome::none}; ///< what the last key did
+    std::string outcome_key;                        ///< the key it was about
+    uint8_t outcome_modifiers{};                    ///< the modifiers with it
+    uint8_t outcome_released{}; ///< the latched modifiers the key used, which then let go
+    uint32_t outcome_ms{}; ///< how long it was held, or how soon it came again, in milliseconds
+    /// Hold to confirm's chord, the confirm modifier and D, is held: its bar fills.
+    bool holding{};
+    uint64_t hold_started_ms{}; ///< when the chord's hold began, in milliseconds
+    uint64_t now_ms{};          ///< the time the pad was last told, in milliseconds
+};
+
 /// One open dialog. A host reads opened, chosen, defaults, restored, page
 /// and forget_renderer_failures, sets acceleration, and reads and may keep
 /// developer between openings; section_hooks is set only by tests and
@@ -1118,6 +1207,17 @@ struct Dialog {
     /// What Key layout shows: the layout in use and how many keys the player
     /// changed. The host sets it as the dialog opens and after the editor saves.
     std::string key_layout_summary;
+    /// The key layout card's name of the layout in use. Empty shows
+    /// key_layout_summary as the name, and no count. The host sets it with the
+    /// summary.
+    std::string key_layout_name;
+    /// How many actions the player's own layout over it changes, which the
+    /// card's badge counts; 0 shows no badge. The host sets it with the summary.
+    int32_t key_layout_changes{};
+    /// The layout in use is the one chosen for the mod being played, so that
+    /// the card says it applies with that mod only; false, it applies to every
+    /// game. The host sets it with the summary.
+    bool key_layout_mod_only{};
     /// The modifier Key layout's hint names in "{primary}+/". The host gives
     /// Cmd on macOS; elsewhere, and in the tests and their pins, it is Ctrl.
     std::string primary_modifier{"Ctrl"};
@@ -1213,6 +1313,16 @@ struct Dialog {
     /// it as the dialog opens and when CHECK AGAIN returns. Empty still shows
     /// the sentence and the three buttons.
     std::vector<GameContentRow> game_content;
+    /// Reset on Reset window positions was pressed, which reports
+    /// DialogAction::changed: the host forgets the place of every window the
+    /// player moved, at once, clears this and sets window_places_reset.
+    /// Cancel does not put the places back.
+    bool window_reset_asked{};
+    /// The host forgot every moved window's place while the dialog was open,
+    /// so that the row says each window is back in its place.
+    bool window_places_reset{};
+    /// Accessibility's practice pad.
+    PracticePad practice{};
 };
 
 /// Returns every standard hack as Developer Mode shows it: as the profile
@@ -1575,6 +1685,45 @@ set_controller_section(Dialog& dialog, bool controller, bool steam_input) noexce
 /// @return what the turn asks of the host: DialogAction::redraw when the
 ///     section scrolled, else DialogAction::none
 [[nodiscard]] DialogAction dialog_wheel(Dialog& dialog, int32_t x, int32_t y, float notches);
+
+/// Lays the dialog out at a size class (Dialog::size_class) and scrolls its
+/// section list the least that shows the open section's entry there.
+///
+/// @param[in,out] dialog the dialog
+/// @param size_class the class
+void set_dialog_size_class(Dialog& dialog, oa::ui::kit::SizeClass size_class);
+
+/// Takes a key the player presses or lets go while Accessibility shows: the
+/// practice pad tries it with the helpers the dialog shows (Sticky
+/// modifiers, Slow keys, Bounce keys and Hold to confirm), and it reaches
+/// nothing else. On any other section the pad takes no key. A host hands it
+/// the modifiers and the keys that print a legend, and the keys the dialog
+/// answers to (dialog_key) still go there.
+///
+/// @param[in,out] dialog the dialog
+/// @param key the key
+/// @param down true as it goes down, false as it is let go
+/// @param now_ms the time, in milliseconds, from one clock for every call
+/// @return redraw when the pad shows something else; none when it took no key
+[[nodiscard]] DialogAction
+dialog_practice_key(Dialog& dialog, const PracticeKey& key, bool down, uint64_t now_ms);
+
+/// Moves the practice pad's time on: a key held for Slow keys' time counts,
+/// and Hold to confirm's bar fills and ends. A host calls it every frame
+/// while the dialog is open.
+///
+/// @param[in,out] dialog the dialog
+/// @param now_ms the time, in milliseconds, from the clock dialog_practice_key is given
+/// @return redraw while the pad's bar or outcome moved; none otherwise
+[[nodiscard]] DialogAction dialog_practice_tick(Dialog& dialog, uint64_t now_ms);
+
+/// Counts the settings the dialog shows changed from what it opened with: each
+/// setting whose stored value would change, an install ID's switch, a
+/// registered page's key and Skirmish players. The footer shows the count.
+///
+/// @param dialog the dialog
+/// @return the count; 0 when nothing changed
+[[nodiscard]] std::size_t changed_settings_count(const Dialog& dialog);
 
 /// Tells whether a point lies on the dialog at Compact.
 ///
