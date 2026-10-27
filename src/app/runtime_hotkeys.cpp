@@ -687,38 +687,10 @@ void Runtime::cancel_or_clear_match_command() {
 bool Runtime::press_build_cell(int cell) {
     if (cell < 1 || cell > 12 || !match_hud_ || unit_info_panel_)
         return false;
-    constexpr auto build_buttons =
-        oa::ui::hud::kCommonUnitButton | oa::ui::hud::kCommonWeaponButton;
-
-    struct ShownButton {
-        std::size_t index;
-        int16_t x;
-        int16_t y;
-    };
-
-    std::vector<ShownButton> shown;
-    const auto& gadgets = match_hud_->layout.gadgets;
-    for (std::size_t index = 0; index < gadgets.size(); ++index) {
-        const auto& gadget = gadgets[index];
-        if (gadget.common.type != oa::ui::gui_layout::GadgetType::button)
-            continue;
-        if (gadget.common.active == 0 || gadget.common.width <= 0 || gadget.common.height <= 0)
-            continue;
-        const auto attributes = static_cast<uint8_t>(gadget.common.common_attributes);
-        if ((attributes & build_buttons) == 0)
-            continue;
-        shown.push_back(ShownButton{index, gadget.common.x, gadget.common.y});
-    }
-    std::stable_sort(
-        shown.begin(), shown.end(), [](const ShownButton& left, const ShownButton& right) {
-            if (left.y != right.y)
-                return left.y < right.y;
-            return left.x < right.x;
-        }
-    );
-    if (static_cast<std::size_t>(cell) > shown.size())
+    const std::vector<std::size_t> cells = build_cell_gadgets();
+    if (static_cast<std::size_t>(cell) > cells.size())
         return false;
-    activate_match_hud(shown[static_cast<std::size_t>(cell - 1)].index, true);
+    activate_match_hud(cells[static_cast<std::size_t>(cell - 1)], true);
     return true;
 }
 

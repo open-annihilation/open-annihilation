@@ -19257,3 +19257,107 @@
 [In use with {mod}]
 	{
 	}
+
+[Keys while playing]
+	{
+	de=Tasten während du spielst;
+	fr=Touches pendant que tu joues;
+	es=Teclas mientras juegas;
+	it=Tasti mentre giochi;
+	}
+
+[Keys while watching]
+	{
+	de=Tasten während du zuschaust;
+	fr=Touches pendant que tu regardes;
+	es=Teclas mientras miras;
+	it=Tasti mentre guardi;
+	}
+
+[Keys while placing a building]
+	{
+	de=Tasten während du ein Gebäude setzt;
+	fr=Touches pendant que tu poses un bâtiment;
+	es=Teclas mientras colocas un edificio;
+	it=Tasti mentre piazzi un edificio;
+	}
+
+[{name} · {n} changes]
+	{
+	de={name} · {n} Änderungen;
+	fr={name} · {n} changements;
+	es={name} · {n} cambios;
+	it={name} · {n} modifiche;
+	}
+
+[On:]
+	{
+	de=An:;
+	fr=Marche :;
+	es=Encendido:;
+	it=Acceso:;
+	}
+
+[This mod]
+	{
+	de=Dieser Mod;
+	fr=Ce mod;
+	es=Este mod;
+	it=Questo mod;
+	}
+
+[{first}…{last}]
+	{
+	de={first}…{last};
+	fr={first}…{last};
+	es={first}…{last};
+	it={first}…{last};
+	}
+
+[{modifier}+/ or Escape closes this. More in EDIT KEYS…]
+	{
+	de={modifier}+/ oder Escape schließt das. Mehr unter TASTEN BEARBEITEN…;
+	fr={modifier}+/ ou Escape ferme ça. Plus dans MODIFIER LES TOUCHES…;
+	es={modifier}+/ o Escape cierra esto. Más en EDITAR TECLAS…;
+	it={modifier}+/ o Escape chiude questo. Altro in MODIFICA I TASTI…;
+	}
+
+[{description} · {chord}]
+	{
+	de={description} · {chord};
+	fr={description} · {chord};
+	es={description} · {chord};
+	it={description} · {chord};
+	}
+
+[Press {key}, or {wheel}, to rotate]
+	{
+	de=Drück {key}, oder {wheel}, zum Drehen;
+	fr=Appuie sur {key}, ou {wheel}, pour tourner;
+	es=Pulsa {key}, o {wheel}, para girar;
+	it=Premi {key}, o {wheel}, per ruotare;
+	}
+
+[Press {key} to rotate]
+	{
+	de=Drück {key} zum Drehen;
+	fr=Appuie sur {key} pour tourner;
+	es=Pulsa {key} para girar;
+	it=Premi {key} per ruotare;
+	}
+
+[{wheel} rotates]
+	{
+	de={wheel} dreht;
+	fr={wheel} tourne;
+	es={wheel} gira;
+	it={wheel} ruota;
+	}
+
+[wheel]
+	{
+	de=Rad;
+	fr=molette;
+	es=rueda;
+	it=rotella;
+	}

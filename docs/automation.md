@@ -329,6 +329,20 @@ at most five seconds, the switch's work dialog, `oa.work`, may show over
 the main menu, its one part the label `oa.progress.body` with its words,
 such as "Switching on Ridge…": a journey waits for `oa.library` there.
 
+### The keys overlay
+
+The keys overlay (`dialog` `oa.keys-overlay`) lists the keys of the
+contexts that are active in a match. It is not modal: input it does not
+take passes to the match, and the match keeps running. Its names are the
+module's ([src/ui/key-editor](../src/ui/key-editor/README.md)):
+
+| Control | Name | Kind, and what it reports |
+|---|---|---|
+| The list | `oa.keys-overlay.list` | list, its text every word the panel shows, one line each: the title, the layout and its changes, the On line and its chips, each group's name and its lines (name, "held" where it is held, and chord), and the footer |
+| EDIT KEYS… | `oa.keys-overlay.edit` | button. It closes the overlay and opens `oa.key-editor` |
+| The close mark | `oa.keys-overlay.close` | button |
+| The scroll bar | `oa.keys-overlay.bar` | scroll bar, present while the list scrolls |
+
 ### The key editor
 
 The key editor (`dialog` `oa.key-editor`) lists every rebindable action.

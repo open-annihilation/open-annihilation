@@ -3936,7 +3936,7 @@ bool OaLayer::refresh_match() {
                                            : settings::ButtonLook::idle
     );
     look.revision = revision_;
-    if (!look.button_shown || look.width <= 0 || look.height <= 0 || !seen.match)
+    if (fonts == nullptr || look.width <= 0 || look.height <= 0 || !seen.match)
         return false;
 
     // Each screen that shows, where, and how many modal screens with a
@@ -3962,6 +3962,11 @@ bool OaLayer::refresh_match() {
         look.revisions.push_back(screen.revision());
         look.darkened = look.darkened || darkens(screen);
     }
+    // Without the in-game menu's column the layer shows only the screens
+    // that are not modal and show over the match as it runs, such as the
+    // keys overlay; with neither, it shows nothing.
+    if (!look.button_shown && shown_screens.empty())
+        return false;
     if (drawn_ == look)
         return true;
     const auto pixels =
@@ -3977,7 +3982,7 @@ bool OaLayer::refresh_match() {
         Runtime::EngineSettingsMenuHost::settings_icon(runtime_),
         fit
     );
-    bounds_ = button_at;
+    bounds_ = look.button_shown ? button_at : layout::Rect{};
     if (look.darkened) {
         // The whole screen darkens, the button with it; the screens go over.
         for (std::size_t pixel = 0; pixel < pixels; ++pixel) {
@@ -3991,7 +3996,8 @@ bool OaLayer::refresh_match() {
     }
     // The button's face, drawn at the whole step at or above its place's
     // scale, fitted to its place.
-    stamp(rgba_, look.width, look.height, button, button_at);
+    if (look.button_shown)
+        stamp(rgba_, look.width, look.height, button, button_at);
     for (const auto& shown : shown_screens) {
         // At its placement's scale, as large as its place, never drawn at 1x
         // and enlarged: Settings at its own (match_dialog). A screen under a

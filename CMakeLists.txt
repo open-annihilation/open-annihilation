@@ -1337,6 +1337,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_library.cpp src/app/runtime_library_actions.cpp
   src/app/runtime_map_browser.cpp
   src/app/runtime_key_editor.cpp
+  src/app/runtime_keys_overlay.cpp
   src/app/runtime_mutator_picker.cpp
   src/app/runtime_brain_picker.cpp
   src/app/oa_button_focus.cpp
@@ -1432,6 +1433,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_mod_map_settings_check.cpp
   src/app/runtime_map_browser_check.cpp
   src/app/runtime_key_editor_check.cpp
+  src/app/runtime_keys_overlay_check.cpp
   src/app/runtime_key_capture_check.cpp
   src/app/runtime_key_share_check.cpp
   src/app/runtime_key_views_check.cpp
@@ -2379,6 +2381,49 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_key_editor_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED key-editor-clean)
+      # The keys overlay beside the side column, the order and build cell
+      # badges, the help lines, the rotate hint and the latch chips, on a
+      # skirmish whose mod turns buildings: the check gives the mod's folder
+      # a light laser tower with four facings. --snapshot writes
+      # keys-overlay-<w>x<h>.ppm and key-badges-<w>x<h>.ppm. Each run starts
+      # from a clean folder. The mod's profile stays.
+      set(oa_keys_overlay_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/keys-overlay")
+      file(MAKE_DIRECTORY "${oa_keys_overlay_dir}/mod")
+      file(WRITE "${oa_keys_overlay_dir}/mod/oamod.yaml"
+        "oamod: 1\n"
+        "id: ridge\n"
+        "name: Ridge\n"
+        "version: \"28.0\"\n"
+        "requires: {base: ta-3.1c, catalogue: 1}\n"
+        "author: {name: unknown}\n"
+        "packaging: {revision: 1, date: 2026-10-27, packager: Open Annihilation}\n"
+        "data-keys:\n"
+        "  unit:\n"
+        "    Rotations: units.build-facings\n"
+        "hacks:\n"
+        "  ui.build-preview: true\n"
+        "  units.build-rotation: true\n")
+      add_test(NAME keys-overlay-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_keys_overlay_dir}/Open Annihilation" "${oa_keys_overlay_dir}/keys-overlay.conf"
+        "${oa_keys_overlay_dir}/keys-overlay.ppm"
+        "${oa_keys_overlay_dir}/keys-overlay-640x480.ppm"
+        "${oa_keys_overlay_dir}/keys-overlay-1280x720.ppm"
+        "${oa_keys_overlay_dir}/keys-overlay-1920x1080.ppm"
+        "${oa_keys_overlay_dir}/key-badges-640x480.ppm"
+        "${oa_keys_overlay_dir}/key-badges-1280x720.ppm"
+        "${oa_keys_overlay_dir}/key-badges-1920x1080.ppm"
+        "${oa_keys_overlay_dir}/mod/units")
+      set_tests_properties(keys-overlay-clean PROPERTIES FIXTURES_SETUP keys-overlay-clean)
+      add_test(NAME native-keys-overlay COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-keys-overlay
+        --snapshot "${oa_keys_overlay_dir}/keys-overlay.ppm"
+        --mod-dir "${oa_keys_overlay_dir}/mod"
+        --preferences-file "${oa_keys_overlay_dir}/keys-overlay.conf"
+        --user-folder "${oa_keys_overlay_dir}/Open Annihilation")
+      set_tests_properties(native-keys-overlay PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_keys_overlay_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED keys-overlay-clean)
       # Capturing a chord, a clash, Escape held for a second, and a draft
       # clash's card, over a paused skirmish. Each run starts from a clean
       # folder. --snapshot writes key-capture-<w>x<h>.ppm and

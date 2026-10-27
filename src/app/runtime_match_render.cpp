@@ -3,6 +3,7 @@
 
 // Composition of the match battlefield frame.
 #include "oa/app/runtime.hpp"
+#include "gui_actions.hpp"
 #include "oa/app/far_view.hpp"
 #include "oa/ui/hud/command_buttons.hpp"
 #include "director_state.hpp"
@@ -823,6 +824,7 @@ renderer::ButtonCondition Runtime::match_button_condition(std::size_t index) con
 }
 
 void Runtime::compose_match_hud() {
+    quick_keys_applied_.clear();
     // The HUD is drawn into the memory of the layer the frame before last
     // showed, so that a frame takes none of its own.
     renderer::Surface hud = std::move(spare_match_hud_);
@@ -869,8 +871,23 @@ void Runtime::compose_match_hud() {
             // The button's quick key is underlined in its caption, and the
             // record holding the keyboard focus is ringed while the match's
             // panels take the keyboard.
-            if (const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields))
+            if (const auto* button =
+                    std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields)) {
                 buttons.back().quick_key = static_cast<char>(button->quick_key);
+                // An order button's underline follows the chord that fires it.
+                // A chord with a modifier, or a letter the caption does not
+                // hold, underlines nothing, so a moved key leaves no stale letter.
+                const std::string_view action = order_gadget_action(index);
+                if (!action.empty()) {
+                    if (const std::optional<char> letter =
+                            order_quick_letter(action, button->text)) {
+                        buttons.back().quick_key = *letter;
+                        quick_keys_applied_.push_back(
+                            QuickKeyApplied{gadget.common.name, std::string(action), *letter}
+                        );
+                    }
+                }
+            }
             buttons.back().focused =
                 match_panels_keyboard_ && static_cast<int32_t>(index) == match_hud_focus_;
         }
@@ -2445,6 +2462,7 @@ bool Runtime::draw_match_surface() {
         draw_resource_readout();
         draw_clock_line(PaintLayer::hud);
         draw_build_captions();
+        draw_key_badges();
         call_hook_or_report<&Extension::draw_match_hud>(extension_, hook_error_report(), *this);
     }
     draw_chat_entry();

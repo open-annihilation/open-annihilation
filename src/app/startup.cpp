@@ -301,6 +301,7 @@ void check_game_files_options(Options& options) {
         {options.check_key_capture, "--check-key-capture"},
         {options.check_key_share, "--check-key-share"},
         {options.check_key_views, "--check-key-views"},
+        {options.check_keys_overlay, "--check-keys-overlay"},
         {options.check_mutator_picker, "--check-mutator-picker"},
         {options.check_brain_picker, "--check-brain-picker"},
         {options.check_brain_seat_buttons, "--check-brain-seat-buttons"},
@@ -701,6 +702,7 @@ void check_director_options(Options& options) {
         {options.check_key_capture, "--check-key-capture"},
         {options.check_key_share, "--check-key-share"},
         {options.check_key_views, "--check-key-views"},
+        {options.check_keys_overlay, "--check-keys-overlay"},
         {options.check_mutator_picker, "--check-mutator-picker"},
         {options.check_brain_picker, "--check-brain-picker"},
         {options.check_brain_seat_buttons, "--check-brain-seat-buttons"},
@@ -834,6 +836,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_key_capture, "--check-key-capture"},
             {options.check_key_share, "--check-key-share"},
             {options.check_key_views, "--check-key-views"},
+            {options.check_keys_overlay, "--check-keys-overlay"},
             {options.check_mutator_picker, "--check-mutator-picker"},
             {options.check_brain_picker, "--check-brain-picker"},
             {options.check_brain_seat_buttons, "--check-brain-seat-buttons"},
@@ -1001,6 +1004,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-key-capture", &Options::check_key_capture},
     {"--check-key-share", &Options::check_key_share},
     {"--check-key-views", &Options::check_key_views},
+    {"--check-keys-overlay", &Options::check_keys_overlay},
     {"--check-mutator-button", &Options::check_mutator_button},
     {"--check-mutator-room", &Options::check_mutator_room},
     {"--check-brain-room", &Options::check_brain_room},
@@ -1799,7 +1803,8 @@ void write_startup_line(std::string_view text) {
                      "[--check-user-folder] [--check-mod-switch] [--check-map-packs] "
                      "[--check-map-pack-lists] [--check-mod-map-settings] "
                      "[--check-map-browser] [--check-key-editor] [--check-key-capture] "
-                     "[--check-key-views] [--check-mutator-button] [--check-mutator-picker] "
+                     "[--check-key-views] [--check-keys-overlay] "
+                     "[--check-mutator-button] [--check-mutator-picker] "
                      "[--check-brain-picker] "
                      "[--check-brain-seat-buttons] "
                      "[--check-brain-campaign] "
@@ -2120,12 +2125,12 @@ void write_startup_line(std::string_view text) {
         result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||
         result.check_zoom_memory || result.check_map_packs || result.check_map_browser ||
         result.check_key_editor || result.check_key_capture || result.check_key_share ||
-        result.check_key_views || result.check_mutator_button || result.check_mutator_room ||
-        result.check_brain_room || result.check_mutator_picker || result.check_brain_picker ||
-        result.check_brain_seat_buttons || result.check_brain_campaign ||
-        result.check_mutator_prompts || result.check_map_pack_lists ||
-        result.check_mod_map_settings || result.check_side_orders || result.check_skirmish_sides ||
-        result.check_mod_limits || result.check_click_snap;
+        result.check_key_views || result.check_keys_overlay || result.check_mutator_button ||
+        result.check_mutator_room || result.check_brain_room || result.check_mutator_picker ||
+        result.check_brain_picker || result.check_brain_seat_buttons ||
+        result.check_brain_campaign || result.check_mutator_prompts ||
+        result.check_map_pack_lists || result.check_mod_map_settings || result.check_side_orders ||
+        result.check_skirmish_sides || result.check_mod_limits || result.check_click_snap;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||

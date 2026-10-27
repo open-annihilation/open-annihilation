@@ -5,15 +5,19 @@
 // and Regular, Compact's details page, Large over a paused match, the
 // keyboard and the mouse at each class, the ISO and JIS keyboards at Large,
 // and the capture (waiting, complete, clash and refused), the clash prompt
-// and the card at each class. The two drawings of a scene are byte for byte
-// the same. The dialog sits at the canvas origin; every pixel of it is painted,
-// and nothing is drawn outside it, so the margin around the dialog keeps
-// the colour the canvas started as. The picture is the whole viewport.
-// Focus is left unset, so the pictures have no focus ring.
+// and the card at each class. The keys overlay is drawn at each class on an
+// 800 by 480 room, to the right of a 128-point column. The two drawings of a
+// scene are byte for byte the same. The dialog sits at the canvas origin;
+// every pixel of it is painted, and nothing is drawn outside it, so the
+// margin around the dialog keeps the colour the canvas started as. The
+// overlay's panel is the only part of its picture that is painted. The
+// picture is the whole viewport. Focus is left unset, so the pictures have
+// no focus ring.
 //
 // --frames DIR writes key-editor-<scene>.png, including key-editor-capture-*.png,
 // key-editor-clash-*.png, key-editor-card-regular.png, key-editor-share-*.png,
-// key-editor-paste-*.png and key-editor-import-*.png. --record merges this
+// key-editor-paste-*.png and key-editor-import-*.png, and
+// keys-overlay-<class>.png with no key-editor- prefix. --record merges this
 // group's hashes into the frames table and leaves the other group. --data
 // draws in the installed game's fonts. A scene with no hash fails unless
 // --record is set.
@@ -21,12 +25,15 @@
 //   oa-ui-key-editor-draw-test [--data] [--record] [--frames DIR]
 
 #include "oa/base/sha256.hpp"
+#include "oa/data/input_actions/actions.hpp"
 #include "oa/formats/png.hpp"
 #include "oa/test/check.hpp"
 #include "oa/test/game_assets.hpp"
 #include "oa/test/game_data.hpp"
 #include "oa/ui/frontend_renderer.hpp"
+#include "oa/ui/key_bindings/layout.hpp"
 #include "oa/ui/key_editor/model.hpp"
+#include "oa/ui/key_editor/overlay.hpp"
 #include "oa/ui/key_editor/screen.hpp"
 #include "oa/ui/kit/canvas.hpp"
 #include "oa/ui/kit/layout.hpp"
@@ -56,6 +63,7 @@ namespace kit = oa::ui::kit;
 namespace editor = oa::ui::key_editor;
 namespace keys = oa::ui::key_bindings;
 namespace renderer = oa::ui::frontend_renderer;
+namespace acts = oa::data::input_actions;
 namespace png = oa::formats::png;
 namespace sha256 = oa::base::sha256;
 using key_editor_fixture::editor_fixture;
@@ -93,6 +101,10 @@ struct Scene {
     editor::View view{editor::View::list};
     /// The keyboard the picture draws. ANSI follows the system in the drop-down.
     kit::KeyboardShape shape{kit::KeyboardShape::ansi};
+    /// The keys overlay, beside a 128-point column. Its dialog check is its own.
+    bool overlay{false};
+    /// The class the overlay is laid out at.
+    kit::SizeClass overlay_class{kit::SizeClass::compact};
 };
 
 /// A drawing of a scene.
@@ -100,6 +112,8 @@ struct Drawing {
     renderer::Surface surface{}; ///< the viewport
     kit::Point window{};         ///< the dialog, in points
     int32_t scale{1};            ///< pixels a point
+    kit::Rect panel{};           ///< the overlay's panel, in canvas pixels
+    bool overlay{false};         ///< the picture is the keys overlay
 };
 
 /// A letter chord with Primary held.
@@ -169,6 +183,18 @@ Scene shaped(
     Scene scene = picture(name, width, height, scale, window, false, false, Shown::list);
     scene.view = view;
     scene.shape = shape;
+    return scene;
+}
+
+/// The keys overlay at one class, on an 800 by 480 room.
+///
+/// @param name the scene, keys-overlay- and the class
+/// @param size_class the class
+/// @return the scene
+Scene overlay_picture(const char* name, kit::SizeClass size_class) {
+    Scene scene = picture(name, 800, 480, 100, {0, 0}, false, false, Shown::list);
+    scene.overlay = true;
+    scene.overlay_class = size_class;
     return scene;
 }
 
@@ -266,6 +292,9 @@ std::vector<Scene> all_scenes() {
             editor::View::keyboard,
             kit::KeyboardShape::jis
         ),
+        overlay_picture("keys-overlay-compact", kit::SizeClass::compact),
+        overlay_picture("keys-overlay-regular", kit::SizeClass::regular),
+        overlay_picture("keys-overlay-large", kit::SizeClass::large),
     };
 }
 
@@ -402,12 +431,83 @@ void arm_scene(editor::Editor& model, editor::ScreenState& state, const Scene& s
     state.capture.chord = escape;
 }
 
+/// The bit of a context.
+///
+/// @param name the context id
+/// @return the bit, or 0 when the name is absent
+uint32_t context_bit(std::string_view name) {
+    uint32_t bit = 1;
+    for (const acts::Context& context : acts::contexts()) {
+        if (context.name == name)
+            return bit;
+        if (bit >= 0x80000000U)
+            return 0;
+        bit <<= 1;
+    }
+    return 0;
+}
+
+/// Fills a canvas with the colour a picture starts as.
+///
+/// @param surface the picture
+void fill_untouched(renderer::Surface& surface) {
+    for (std::size_t at = 0; at < surface.rgb.size(); at += 3) {
+        surface.rgb[at] = untouched.r;
+        surface.rgb[at + 1] = untouched.g;
+        surface.rgb[at + 2] = untouched.b;
+    }
+}
+
+/// Draws the keys overlay for the contexts active while playing, with a
+/// latched QUEUE in its On line.
+///
+/// Hacks are off. The panel sits in an 800 by 480 room, to the right of a
+/// 128-point column, and the canvas outside that panel stays untouched.
+///
+/// @param scene the scene
+/// @param measured the fonts
+/// @return the drawing
+Drawing draw_overlay_scene(const Scene& scene, const kit::Fonts& measured) {
+    keys::KeyboardMap keyboard = keys::KeyboardMap::us();
+    keys::ResolveInput input;
+    input.base = keys::Base::oa_default;
+    input.keyboard = &keyboard;
+    editor::OverlayInputs inputs;
+    inputs.resolved = keys::resolve(input);
+    inputs.contexts.active = context_bit("global") | context_bit("match") | context_bit("play");
+    inputs.keyboard = keyboard;
+    inputs.layout_name = "OA default";
+    inputs.on.push_back({"QUEUE · latched", true});
+    const std::vector<editor::OverlayGroup> groups = editor::overlay_groups(inputs);
+    const editor::OverlayRoom room{{0, 0, scene.width, scene.height}, 128, scene.overlay_class};
+    const editor::OverlayLayout laid = editor::overlay_layout(inputs, groups, room, measured, 0);
+
+    Drawing drawing;
+    drawing.overlay = true;
+    drawing.scale = 1;
+    drawing.panel = laid.panel;
+    drawing.surface.width = static_cast<uint32_t>(scene.width);
+    drawing.surface.height = static_cast<uint32_t>(scene.height);
+    drawing.surface.rgb.assign(
+        static_cast<std::size_t>(scene.width) * static_cast<std::size_t>(scene.height) * 3, 0
+    );
+    fill_untouched(drawing.surface);
+    kit::Canvas canvas;
+    canvas.surface = &drawing.surface;
+    canvas.placement = {laid.panel.x, laid.panel.y, drawing.scale, {}};
+    canvas.fonts = &measured;
+    editor::draw_overlay(canvas, laid);
+    return drawing;
+}
+
 /// Lays one scene out and draws it at the canvas origin.
 ///
 /// @param scene the scene
 /// @param measured the fonts
 /// @return the drawing
 Drawing draw_scene(const Scene& scene, const kit::Fonts& measured) {
+    if (scene.overlay)
+        return draw_overlay_scene(scene, measured);
     editor::Editor model(editor_fixture());
     editor::ScreenState state;
     arm_scene(model, state, scene);
@@ -421,11 +521,7 @@ Drawing draw_scene(const Scene& scene, const kit::Fonts& measured) {
     drawing.surface.rgb.assign(
         static_cast<std::size_t>(scene.width) * static_cast<std::size_t>(scene.height) * 3, 0
     );
-    for (std::size_t at = 0; at < drawing.surface.rgb.size(); at += 3) {
-        drawing.surface.rgb[at] = untouched.r;
-        drawing.surface.rgb[at + 1] = untouched.g;
-        drawing.surface.rgb[at + 2] = untouched.b;
-    }
+    fill_untouched(drawing.surface);
     kit::Canvas canvas;
     canvas.surface = &drawing.surface;
     canvas.placement = {0, 0, drawing.scale, {}};
@@ -487,6 +583,41 @@ void check_dialog(const Scene& scene, const Drawing& drawing) {
         std::fprintf(stderr, "%s: %zu dialog pixels not drawn\n", scene.name, blank);
     OA_CHECK(outside == 0);
     OA_CHECK(blank == 0);
+}
+
+/// Checks that the overlay's panel was painted and the room around it was not.
+///
+/// @param scene the scene
+/// @param drawing its drawing
+void check_overlay(const Scene& scene, const Drawing& drawing) {
+    const int32_t left = drawing.panel.x;
+    const int32_t top = drawing.panel.y;
+    const int32_t right = drawing.panel.x + drawing.panel.width;
+    const int32_t bottom = drawing.panel.y + drawing.panel.height;
+    OA_CHECK(drawing.scale == 1);
+    OA_CHECK(left >= 128);
+    OA_CHECK(top >= 0);
+    OA_CHECK(right <= static_cast<int32_t>(drawing.surface.width));
+    OA_CHECK(bottom <= static_cast<int32_t>(drawing.surface.height));
+    OA_CHECK(drawing.panel.width > 0 && drawing.panel.height > 0);
+    std::size_t outside = 0;
+    std::size_t painted = 0;
+    for (int32_t y = 0; y < static_cast<int32_t>(drawing.surface.height); ++y) {
+        for (int32_t x = 0; x < static_cast<int32_t>(drawing.surface.width); ++x) {
+            const bool in_panel = x >= left && y >= top && x < right && y < bottom;
+            const bool untouched_here = kept(drawing, x, y);
+            if (!in_panel && !untouched_here)
+                ++outside;
+            if (in_panel && !untouched_here)
+                ++painted;
+        }
+    }
+    if (outside != 0)
+        std::fprintf(stderr, "%s: %zu pixels drawn outside the panel\n", scene.name, outside);
+    if (painted == 0)
+        std::fprintf(stderr, "%s: the panel was not painted\n", scene.name);
+    OA_CHECK(outside == 0);
+    OA_CHECK(painted > 0);
 }
 
 /// Writes the whole viewport as a PNG.
@@ -654,11 +785,16 @@ int main(int argc, char** argv) {
         if (first.surface.rgb != second.surface.rgb)
             std::fprintf(stderr, "%s: two drawings differ\n", scene.name);
         OA_CHECK(first.surface.rgb == second.surface.rgb);
-        check_dialog(scene, first);
+        if (scene.overlay)
+            check_overlay(scene, first);
+        else
+            check_dialog(scene, first);
         digests.emplace_back(scene.name, digest_of(first.surface));
         if (frames) {
-            const std::filesystem::path path =
-                *frames / (std::string("key-editor-") + scene.name + ".png");
+            const bool keys_overlay = std::string_view(scene.name).starts_with("keys-overlay");
+            const std::string stem =
+                (keys_overlay ? std::string{} : std::string("key-editor-")) + scene.name;
+            const std::filesystem::path path = *frames / (stem + ".png");
             const bool written = write_canvas(first, path);
             if (!written)
                 std::fprintf(stderr, "draw: cannot write %s\n", path.string().c_str());

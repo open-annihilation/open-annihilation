@@ -15,6 +15,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <cstddef>
 #include <cstdio>
@@ -420,13 +421,31 @@ char facing_letter(BuildFacing facing) noexcept {
     return letters[static_cast<std::size_t>(facing) & 3U];
 }
 
-std::string rotate_hint(std::string_view key, std::string_view modifier) {
-    std::string hint = "Press ";
-    hint += key;
-    hint += ", or ";
-    hint += modifier;
-    hint += "+wheel, to rotate";
-    return hint;
+std::string rotate_hint(const RotateHintParts& parts) {
+    const auto fill = [](std::string_view pattern, std::string_view key, std::string_view wheel) {
+        std::string filled;
+        filled.reserve(pattern.size() + key.size() + wheel.size());
+        for (std::size_t index = 0; index < pattern.size();) {
+            if (pattern.compare(index, 5, "{key}") == 0) {
+                filled.append(key);
+                index += 5;
+            } else if (pattern.compare(index, 7, "{wheel}") == 0) {
+                filled.append(wheel);
+                index += 7;
+            } else {
+                filled.push_back(pattern[index]);
+                ++index;
+            }
+        }
+        return filled;
+    };
+    if (!parts.key.empty() && !parts.wheel.empty())
+        return fill(parts.both, parts.key, parts.wheel);
+    if (!parts.key.empty())
+        return fill(parts.key_only, parts.key, parts.wheel);
+    if (!parts.wheel.empty())
+        return fill(parts.wheel_only, parts.key, parts.wheel);
+    return {};
 }
 
 bool preview_lists_piece(std::string_view list, std::string_view piece) noexcept {

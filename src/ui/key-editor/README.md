@@ -96,11 +96,19 @@ SHARE… shows the name, the id it folds to, the base, how many keys and helpers
 - `paste_preview` reads the text form or a whole manifest and lists each change, clash, unknown action and error with its line and column. `apply_paste` writes the changes into the draft and holds each clash. `import_preview` keeps the keys that differ from the chords in use. `apply_import` moves each chord and names the action that loses it.
 - `keyboard_look` is the keyboard for one shape and one layer. `key_card` is every action on one key. `mouse_look` and `mouse_table` are the mouse for one scheme. `keys_of` is the keys FIND ON KEYBOARD outlines. `set_scheme` changes the draft's scheme and leaves the bindings.
 
+## The keys overlay
+
+`overlay_groups` lists the keys of the contexts that are active now, from the resolved bindings it is given: an action is listed when one of its contexts is active and every condition it names holds, with its first key chord. Pointer and wheel actions are left out. A numbered family whose keys run in order, with the same modifiers, collapses into one range (Ctrl+1…9); a broken run lists each member. Actions that exist only because a hack is on are grouped under "This mod", just before Game. `overlay_title` is "Keys while placing a building" while a building is placed, "Keys while watching" while only watching, and "Keys while playing" otherwise.
+
+`overlay_layout` places the panel right of the side column and below the battlefield's top: 240 points wide with one column of groups at Compact, 420 at Regular and 520 at Large with two, as tall as its content up to the battlefield less its margins, beyond which the groups scroll under a fixed header and footer. The header holds the title, EDIT KEYS… and the close mark, the layout's name and changes, and the "On:" line, whose chips are the latches and sticky modifiers that are on (filled while latched or locked). Each group is headed by its tinted letter keycap and its name; each line is the action's name, "held" for a hold or a modifier, and its chord chip. `draw_overlay` blends the HUD's panel colour over what lies under the panel, with rounded corners and a hairline edge, then draws the list. The screen is `keys-overlay`; the button is `keys-overlay.edit`, the close mark `keys-overlay.close`, the list `keys-overlay.list` (its text every word the panel shows, one line each) and the scroll bar `keys-overlay.bar`.
+
 ## Tests
 
 `ui-key-editor-model` checks the categories, the filters, the search, removing and resetting a chord, Latch and Hold to confirm, the number-keys switch, choosing, duplicating and renaming a layout, a clash in the mod's data that stays listed while SAVE stays allowed, a draft chord that blocks SAVE, an unknown action written back, the Tags group's order, a bound tag, a tag the loaded units lack, Developer Mode, and Escape's fixed chord.
 
 `ui-key-editor-layout` lays the screen out at Compact, Regular and Large, including the keyboard and the mouse, and the ISO and JIS keyboards at Large. It checks that every part lies in the window, that names are sound, that Tab's order is the one above, and that every text fits. A key scrolled past the well is clipped.
+
+`ui-key-editor-overlay` lists the keys of the contexts active while playing, while watching and while placing a building. Assign group collapses into Ctrl+1…9, and with group 5 moved to Q it is Ctrl+1…4, Q and Ctrl+6…9. Hack actions sit under This mod, and a hack key whose condition does not hold is left out. The On line shows the latches the caller names as chips, and no On line shows without one. The panel at each class sits inside the battlefield, to the right of a 128-point column, every part inside it, with one column of groups at Compact and two above it; on a short battlefield the groups scroll. The automation names are sound.
 
 `ui-key-editor-input` drives the keys, the pad's commands, and a finger's scroll and tap.
 
@@ -110,7 +118,7 @@ SHARE… shows the name, the id it folds to, the base, how many keys and helpers
 
 `ui-key-editor-share` checks a share id, a paste that keeps a clash and an unknown action, and an import that moves a chord and records `imported-from`.
 
-`ui-key-editor-draw` and `ui-key-editor-draw-data` draw the list, the keyboard, the mouse, the capture, clash and card, and Share, Paste and Import, in the block font and again in the installed game's fonts, and check them against `tests/frames.txt`. The ISO and JIS keyboards are drawn at Large.
+`ui-key-editor-draw` and `ui-key-editor-draw-data` draw the list, the keyboard, the mouse, the capture, clash and card, Share, Paste and Import, and the keys overlay at each class, in the block font and again in the installed game's fonts, and check them against `tests/frames.txt`. The ISO and JIS keyboards are drawn at Large. The overlay is drawn at each class on an 800 by 480 room beside a 128-point column, with a latched QUEUE in its On line; its pictures are `keys-overlay-<class>.png`.
 
 ## State
 

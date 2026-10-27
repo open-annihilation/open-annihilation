@@ -17,6 +17,7 @@ add_library(oa-ui-key-editor
   src/model.cpp
   src/mouse_view.cpp
   src/names.cpp
+  src/overlay.cpp
   src/paste.cpp
   src/share.cpp
   src/text.cpp)
@@ -38,6 +39,12 @@ if(BUILD_TESTING)
   target_link_libraries(oa-ui-key-editor-layout-test PRIVATE oa-ui-key-editor oa-ui-kit oa-test-support)
   add_test(NAME ui-key-editor-layout COMMAND oa-ui-key-editor-layout-test)
   set_tests_properties(ui-key-editor-layout PROPERTIES TIMEOUT 60)
+
+  # The keys overlay: groups, collapsed ranges, the mod's hacks, the latches and the panel.
+  add_executable(oa-ui-key-editor-overlay-test tests/overlay_test.cpp)
+  target_link_libraries(oa-ui-key-editor-overlay-test PRIVATE oa-ui-key-editor oa-ui-kit oa-test-support)
+  add_test(NAME ui-key-editor-overlay COMMAND oa-ui-key-editor-overlay-test)
+  set_tests_properties(ui-key-editor-overlay PROPERTIES TIMEOUT 30)
 
   # The keyboard and mouse pictures: labels, layers, the card, a click and the scheme.
   add_executable(oa-ui-key-editor-views-test tests/views_test.cpp)
@@ -64,7 +71,7 @@ if(BUILD_TESTING)
   add_test(NAME ui-key-editor-share COMMAND oa-ui-key-editor-share-test)
   set_tests_properties(ui-key-editor-share PROPERTIES TIMEOUT 60)
 
-  # The list, the keyboard, the mouse, and the capture, clash and card, in the block font and again in the installed game's fonts.
+  # The list, the keyboard, the mouse, the capture, clash and card, Share, Paste and Import, and the keys overlay, in the block font and again in the installed game's fonts.
   add_executable(oa-ui-key-editor-draw-test tests/draw_test.cpp)
   target_link_libraries(oa-ui-key-editor-draw-test PRIVATE oa-ui-key-editor oa-ui-kit oa-base-sha256
     oa-data-languages oa-formats-png oa-formats-hpi oa-platform-text-font oa-present oa-test-game-data

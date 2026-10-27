@@ -25,6 +25,8 @@
 // details at Regular and Large, and Compact's details page.
 // The key editor's list is painted at both sizes, and Compact's details page,
 // then the capture, the clash prompt, the keyboard, the mouse and the draft card.
+// The keys overlay is painted in a benchmark skirmish, in every language, at
+// 640x480 only.
 // Controls is painted with an own layout of OA default that holds twelve
 // changes, in every language and both sizes, so Key layout's value is the
 // layout's name and its count. The own layout is removed before the check ends.
@@ -833,6 +835,8 @@ void Runtime::check_text_fit() {
             oa_layer().close(keys_prompt);
         if (LayerScreen* keys_notice = oa_layer().find("key-editor-notice"))
             oa_layer().close(keys_notice);
+        if (LayerScreen* keys_overlay = oa_layer().find("keys-overlay"))
+            oa_layer().close(keys_overlay);
         close_library();
         restore_mutator_picker_feed();
         restore_brain_picker_feed();
@@ -1914,6 +1918,32 @@ void Runtime::check_text_fit() {
             keep();
             apply_output_mode();
             require(!chosen_folder, "the folder chooser kept a folder");
+
+            // The keys overlay, beside the side column of one skirmish, at 640 only.
+            if (size_at == 0) {
+                close_covering();
+                load(Screen::main_menu);
+                bool overlay_going = true;
+                run_frame(overlay_going);
+                require(overlay_going, "the main menu ended the run before the keys overlay");
+                start_benchmark_skirmish();
+                require(
+                    screen_ == Screen::match && match_ != nullptr,
+                    "the keys overlay's skirmish did not start"
+                );
+                toggle_keys_overlay_screen();
+                require(
+                    oa_layer().find("keys-overlay") != nullptr, "the keys overlay did not open"
+                );
+                paint("keys-overlay");
+                if (LayerScreen* overlay = oa_layer().find("keys-overlay"))
+                    oa_layer().close(overlay);
+                leave_match();
+                load(Screen::main_menu);
+                overlay_going = true;
+                run_frame(overlay_going);
+                require(overlay_going, "the main menu ended the run after the keys overlay");
+            }
         }
     }
 

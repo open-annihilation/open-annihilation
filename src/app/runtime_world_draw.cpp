@@ -4,6 +4,7 @@
 // World-space drawing: build ghosts, lines and GAF blits.
 #include "oa/app/runtime.hpp"
 #include "oa/core/map_plot.h"
+#include "oa/present/game_text.hpp"
 #include "match_models.hpp"
 #include "presentation_interpolation.hpp"
 #include "world_draws.hpp"
@@ -92,6 +93,7 @@ void Runtime::draw_build_ghost(
     oa::present::world_renderer::Surface& destination,
     const oa::present::world_renderer::BattlefieldViewport& viewport
 ) {
+    rotate_hint_drawn_.clear();
     if (match_command_ != MatchCommand::build || pending_build_type_ == 0 || !selected_tnt_ ||
         pending_build_type_ >= spawn_types_.size())
         return;
@@ -138,6 +140,7 @@ void Runtime::draw_build_facing(
 ) {
     // A building that may face more than one way shows its facing's letter
     // at its middle, and, until the player has turned one, how to turn it.
+    rotate_hint_drawn_.clear();
     if (!ui_rules().build_preview.enabled)
         return;
     const auto facings = pending_build_facings();
@@ -157,10 +160,15 @@ void Runtime::draw_build_facing(
     const char letter[2] = {view_rules::facing_letter(pending_build_facing()), '\0'};
     draw_match_label(middle.x, middle.y, letter, ui_colors_[kUiColorText]);
     if (!view_settings_.rotate_key_discovered) {
-        const auto hint = view_rules::rotate_hint(
-            bound_chord_text("build.rotate"), bound_chord_text("build.snap-override")
-        );
-        draw_match_label(middle.x, middle.y + kRotateHintRise, hint, ui_colors_[kUiColorText]);
+        // Kept as the player reads it, drawn as game text.
+        rotate_hint_drawn_ = rotate_hint_line();
+        if (!rotate_hint_drawn_.empty())
+            draw_match_label(
+                middle.x,
+                middle.y + kRotateHintRise,
+                oa::present::encode_game_text(rotate_hint_drawn_, game_text_utf8()),
+                ui_colors_[kUiColorText]
+            );
     }
     overlay_target_ = kept_target;
     destination.rgb = std::move(text.rgb);

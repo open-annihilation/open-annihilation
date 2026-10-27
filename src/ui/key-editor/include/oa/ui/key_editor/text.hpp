@@ -515,6 +515,37 @@ inline constexpr std::string_view numbers_are_places =
     "Numbers are Windows key codes, read as key places. The changes go on top of your layout as "
     "\"Imported from {file}\". Nothing else changes.";
 
+/// The keys overlay's title while a match is being played.
+inline constexpr std::string_view keys_while_playing = "Keys while playing";
+/// The keys overlay's title while a match is being watched.
+inline constexpr std::string_view keys_while_watching = "Keys while watching";
+/// The keys overlay's title while a building is being placed.
+inline constexpr std::string_view keys_while_placing = "Keys while placing a building";
+/// The layout's name and how many of the player's own changes it carries.
+/// `{name}` is the layout and `{n}` is a number, including 0 and 1.
+inline constexpr std::string_view overlay_changes = "{name} · {n} changes";
+/// The button that opens the key editor from the overlay.
+inline constexpr std::string_view edit_keys = "EDIT KEYS…";
+/// The label before the latches and sticky modifiers that are on.
+inline constexpr std::string_view on_line = "On:";
+/// The group of actions that exist only because a mod's hack is on.
+inline constexpr std::string_view this_mod = "This mod";
+/// A run of one numbered family. `{first}` is the first chord, `{last}` the last key.
+inline constexpr std::string_view chord_range = "{first}…{last}";
+/// How the overlay closes. `{modifier}` is Primary's name, Ctrl or Cmd.
+inline constexpr std::string_view overlay_footer =
+    "{modifier}+/ or Escape closes this. More in EDIT KEYS…";
+/// A help line with the chord that fires it. `{description}` is the sentence, `{chord}` the key.
+inline constexpr std::string_view help_chord = "{description} · {chord}";
+/// The rotate hint when a key and the wheel both turn a building.
+inline constexpr std::string_view rotate_both = "Press {key}, or {wheel}, to rotate";
+/// The rotate hint when only a key turns a building.
+inline constexpr std::string_view rotate_key = "Press {key} to rotate";
+/// The rotate hint when only the wheel turns a building.
+inline constexpr std::string_view rotate_wheel = "{wheel} rotates";
+/// The wheel, in a composed chord such as Alt and this word.
+inline constexpr std::string_view wheel_word = "wheel";
+
 } // namespace words
 
 } // namespace oa::ui::key_editor
