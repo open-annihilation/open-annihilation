@@ -52,6 +52,7 @@
 #include <array>
 #include <cctype>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -1932,6 +1933,11 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
             menu_ = {};
             card_.close();
             return;
+        case BrainMenuAnswer::Kind::options:
+            menu_ = {};
+            card_.close();
+            open_picker(seat);
+            return;
         case BrainMenuAnswer::Kind::choose:
             if (player_id != 0)
                 BrainRoomAccess::write(
@@ -1954,6 +1960,35 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
             return;
         }
         }
+    }
+
+    /// Opens the brain picker on one computer this machine runs, its brain
+    /// and its options, as a dialog over the room. USE THIS writes that
+    /// computer, or every computer this machine runs. A ready player's row
+    /// opens nothing.
+    ///
+    /// @param slot the slot
+    void open_picker(int32_t slot) {
+        const Geometry laid = geometry(view_);
+        const SeatRow* row = button_of(laid, slot);
+        if (row == nullptr || !row->enabled)
+            return;
+        BrainPickerRequest request;
+        request.setup = brain::Setup::multiplayer;
+        mp::Lobby& lobby = mp::multiplayer_lobby();
+        const oa::Player& player = mp::slot_player(lobby, slot);
+        request.seat_name = std::string(player.name, ::strnlen(player.name, sizeof player.name));
+        request.current = row->choice;
+        request.setup_difficulty = brain::Difficulty::hard;
+        request.built_in_level_fixed = false;
+        request.offer_every_seat = true;
+        Runtime* runtime = &runtime_;
+        const uint32_t player_id = row->player_id;
+        request.used = [runtime, player_id](picker::Choice choice, bool every) {
+            BrainRoomAccess::write(*runtime, mp::multiplayer_lobby(), player_id, choice, every);
+        };
+        request.cancelled = [] {};
+        runtime_.open_brain_picker(std::move(request));
     }
 
     Runtime& runtime_;               ///< the runtime whose room it shows over

@@ -379,7 +379,11 @@ void Runtime::check_mutator_room() {
         {
             LayerScreen* shown = oa_layer().find("mutators-button");
             require(shown != nullptr, "the mutators-button screen is not up" + on);
-            require(shown->display_list().items.empty(), "the button draws a part of the kit" + on);
+            for (const kit::Item& item : shown->display_list().items)
+                require(
+                    item.role != kit::Role::button && item.role != kit::Role::chip,
+                    "the button draws a button or a chip of the kit" + on
+                );
             require(
                 button.checked == (button_text != "Mutators: off"),
                 "the button's lamp does not follow the mutators on" + on

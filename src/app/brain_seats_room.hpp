@@ -6,8 +6,10 @@
 // the frame pixel a point lies on, and a computer seat's brain menu, drawn
 // as the room's list box under the seat's button. The skirmish setup and
 // the new-campaign screen (runtime_brain_seats_screen.cpp), the battle room
-// (runtime_brain_room.cpp) and the rooms' Mutators button
-// (runtime_mutator_button.cpp) draw through it.
+// (runtime_brain_room.cpp), the rooms' Mutators button
+// (runtime_mutator_button.cpp) and a guest's Mutators in the battle room
+// (runtime_get_mutators.cpp) draw through it, and the Mutators button and
+// its card are shared here too.
 #pragma once
 
 #include "oa_layer.hpp"
@@ -17,11 +19,13 @@
 #include "oa/ui/brain_picker/model.hpp"
 #include "oa/ui/frontend_renderer/room_parts.hpp"
 #include "oa/ui/kit/canvas.hpp"
+#include "oa/ui/kit/looks.hpp"
 #include "oa/ui/kit/input.hpp"
 #include "oa/ui/kit/layout.hpp"
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -102,6 +106,7 @@ enum class BrainMenuKind : uint8_t {
     heading,    ///< the menu's title
     built_in,   ///< the built-in computer player
     brain,      ///< an installed brain
+    options,    ///< "Options...", which opens the brain picker on the seat's options
     every_seat, ///< "Use for every computer seat", a check box
     get_brains, ///< "Get more brains…", which opens the Library at Brains
 };
@@ -140,6 +145,7 @@ struct BrainMenuAnswer {
         choose,     ///< write `choice` and close
         level,      ///< write `choice` and keep the menu open
         every,      ///< write `choice` onto every computer seat and keep the menu open
+        options,    ///< close and open the brain picker on the seat's choice and its options
         get_brains, ///< close and open the Library at Brains
     } kind{};
     oa::ui::brain_picker::Choice choice{}; ///< the choice to write
@@ -156,6 +162,8 @@ inline constexpr std::string_view campaign_heading = "Computer player in the mis
 inline constexpr std::string_view every_seat = "Use for every computer seat";
 /// The row that opens the Library at Brains.
 inline constexpr std::string_view get_brains = "Get more brains...";
+/// The row that opens the brain picker on the seat's brain and its options.
+inline constexpr std::string_view options = "Options...";
 } // namespace brain_menu_words
 
 /// Pixels of the value column, where a row's level stands.
@@ -235,8 +243,8 @@ struct BrainMenuArrows {
 /// Adds the menu's controls to a display list for automation and the
 /// pointer: brain-menu.row.<id> for each brain (brain-menu.row.built-in for
 /// the built-in player), brain-menu.level.previous and brain-menu.level.next
-/// on the current row, brain-menu.every-seat, checked while ticked,
-/// and brain-menu.get-brains. A row's text is its words, and its level's
+/// on the current row, brain-menu.options, brain-menu.every-seat, checked
+/// while ticked, and brain-menu.get-brains. A row's text is its words, and its level's
 /// after " · ".
 ///
 /// @param list the list
@@ -252,6 +260,86 @@ void add_brain_menu_controls(
     const LayerView& seen,
     const oa::ui::kit::Rect& bounds,
     oa::ui::kit::ControlId first_id
+);
+
+/// The words of the rooms' Mutators button for a set of a count:
+/// "Mutators: off", or "Mutators: 4 on".
+///
+/// @param count how many mutators are on
+/// @return the words, in the language shown
+[[nodiscard]] std::string mutators_words(std::size_t count);
+
+/// One mutator the Mutators card names.
+struct MutatorsCardItem {
+    std::string name{}; ///< its name, or its id
+    bool lacking{};     ///< this machine does not have the host's release
+};
+
+/// The most mutators the Mutators card names one by one; past them it
+/// reads "and N more".
+inline constexpr std::size_t mutators_card_rows = 6;
+
+/// The Mutators button's card: a title that counts the mutators on, each by
+/// name in the order they apply (one this machine lacks marked "not
+/// installed"), "and N more" past mutators_card_rows, and a line on what a
+/// press does.
+///
+/// @param items the mutators on, in the order they apply
+/// @param host the player can change the set; otherwise a press reads it
+/// @return the card, its arrow not yet pointed
+[[nodiscard]] oa::ui::kit::HoverCardLook
+mutators_card(std::span<const MutatorsCardItem> items, bool host);
+
+/// Widens a room's Mutators button to the left where its words need it and
+/// the room is free there: as wide as the room's on and off art needs for
+/// the stamp, the words in the caption font and the lamps, meeting no other
+/// rectangle and staying in the frame. A button that cannot widen keeps its
+/// place, and its words are drawn narrower.
+///
+/// @param art the room's art
+/// @param frame the button, in frame pixels
+/// @param words the words, in UTF-8
+/// @param others every other rectangle, in frame pixels; one equal to the button is passed over
+/// @return the button, in frame pixels
+[[nodiscard]] oa::ui::frontend_renderer::SourceRect widen_mutators_switch(
+    const oa::ui::frontend_renderer::RoomArt& art,
+    const oa::ui::frontend_renderer::SourceRect& frame,
+    std::string_view words,
+    std::span<const oa::ui::frontend_renderer::SourceRect> others
+);
+
+/// Draws a room's Mutators button: the room's on and off button with the OA
+/// stamp at its left, its words, the lamp asked for and, while it holds the
+/// focus, the room's focus marker round it.
+///
+/// @param parts the canvas, which reaches round the button for the marker
+/// @param art the room's art
+/// @param frame the button, in frame pixels
+/// @param words the words, in UTF-8
+/// @param lamp the lamp
+/// @param condition pressed or grayed draws it so
+/// @param focused the button holds the focus
+void draw_mutators_switch(
+    oa::ui::frontend_renderer::RoomCanvas& parts,
+    const oa::ui::frontend_renderer::RoomArt& art,
+    const oa::ui::frontend_renderer::SourceRect& frame,
+    std::string_view words,
+    oa::ui::frontend_renderer::RoomLamp lamp,
+    oa::ui::frontend_renderer::ButtonCondition condition,
+    bool focused
+);
+
+/// A room's Mutators button's words as draw_mutators_switch draws them, in
+/// UTF-8: whole where they fit, else cut and ended with "…".
+///
+/// @param art the room's art
+/// @param frame the button, in frame pixels
+/// @param words the words, in UTF-8
+/// @return the words
+[[nodiscard]] std::string mutators_words_shown(
+    const oa::ui::frontend_renderer::RoomArt& art,
+    const oa::ui::frontend_renderer::SourceRect& frame,
+    std::string_view words
 );
 
 /// Reads the runtime fields the seat screen's helpers need, and writes a
@@ -313,8 +401,9 @@ struct BrainSeatsAccess {
 
     /// Builds a seat's brain menu: its title, the built-in player, every brain
     /// installed (each at the level the seat plays it at, or the level the
-    /// setup's difficulty gives), "Use for every computer seat" and "Get more
-    /// brains…" where the room offers them.
+    /// setup's difficulty gives), "Options..." while the seat's brain has
+    /// options, "Use for every computer seat" and "Get more brains…" where
+    /// the room offers them.
     ///
     /// @param runtime the runtime
     /// @param seat the seat it opens on

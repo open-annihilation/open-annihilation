@@ -13,7 +13,9 @@
 // changes it. Tab from Player1 focuses the notch with the GUI's focus none,
 // Tab moves on and Shift+Tab returns. Return opens the brain menu on
 // Steady Commander at Firm; its next level steps the seat to Bold and back,
-// and the built-in player puts the Difficulty word back. The right button
+// its Options... opens the picker, whose USE THIS keeps the brain with its
+// options, and the built-in player puts the Difficulty word back; the
+// built-in player has no Options.... The right button
 // on the Player button opens the menu, and Escape closes it. Use for every
 // computer seat and Lantern Scout set both rows. The pointer on the Player
 // button shows its card, and Escape closes it. START logs that players 1
@@ -153,7 +155,8 @@ void write_png(const fs::path& file, const renderer::Surface& frame) {
 /// @param level_name the level's name
 /// @param difficulty the level's income
 /// @param full_awareness true when the brain sees every unit
-/// @param second_level a second level's id; empty for none
+/// @param second_level a second level's id, and with it the option
+///     Aggression (low or high); empty for neither
 /// @param second_name that level's name
 void write_brain(
     const fs::path& folder,
@@ -192,6 +195,17 @@ void write_brain(
         second.name = std::string(second_name);
         second.difficulty = oabrain::Difficulty::hard;
         manifest.levels.push_back(std::move(second));
+        // A brain with two levels also has an option, Aggression: low or high.
+        oamut::Option aggression;
+        aggression.id = "aggression";
+        aggression.type = oamut::OptionType::choice;
+        aggression.label = "Aggression";
+        for (const char* value : {"low", "high"}) {
+            oamut::ChoiceValue choice;
+            choice.text = value;
+            aggression.values.push_back(std::move(choice));
+        }
+        manifest.options.push_back(std::move(aggression));
     }
     write_text(folder / std::string(oabrain::manifest_file), oabrain::write_manifest(manifest));
     write_text(folder / std::string(oabrain::default_entry), kScript);
@@ -663,6 +677,45 @@ void Runtime::check_brain_seat_buttons() {
         );
         std::cout << "brain seat check: the menu's arrows step the seat to Bold and back to Firm"
                   << on << "\n";
+
+        // Steady Commander has an option: Options... opens the picker on the
+        // seat, and USE THIS keeps the brain with its options.
+        require(
+            named("oa.brain-menu.options").has_value(),
+            "the menu offers no Options... for Steady Commander" + on
+        );
+        click_named("oa.brain-menu.options");
+        require(
+            oa_layer().find(brains::screen_name) != nullptr,
+            "Options... did not open the picker" + on
+        );
+        require(
+            !named("oa.brain-menu.row.built-in").has_value(), "Options... left the menu open" + on
+        );
+        click_named("oa.brains.use");
+        require(
+            oa_layer().find(brains::screen_name) == nullptr,
+            "USE THIS left the picker open after Options..." + on
+        );
+        bool kept_options = false;
+        for (const brain::Seat& stored : setup_brain_seats(brain::Setup::skirmish).seats)
+            if (stored.place == 1 && stored.brain == "steady-commander")
+                for (const auto& option : stored.options)
+                    kept_options = kept_options || option.first == "aggression";
+        require(kept_options, "the seat did not keep Steady Commander's options" + on);
+        require(
+            require_named("oa.brain-seat.1", "oa.brain-seat.1 left after Options..." + on).text ==
+                "Steady Commander" + std::string(kDot) + "Firm",
+            "Options... changed the seat's brain or level" + on
+        );
+        std::cout << "brain seat check: Options... opens the picker on Steady Commander, and USE "
+                     "THIS keeps its options"
+                  << on << "\n";
+        click_named("oa.brain-seat.1");
+        require(
+            named("oa.brain-menu.row.built-in").has_value(),
+            "the notch did not open the menu after Options..." + on
+        );
         click_named("oa.brain-menu.row.built-in");
         require(
             !named("oa.brain-menu.row.built-in").has_value(),
@@ -693,6 +746,10 @@ void Runtime::check_brain_seat_buttons() {
         require(
             skirmish_settings_.slots[1].controller == entry::controller::computer,
             "the right button turned Player1 from a computer" + on
+        );
+        require(
+            !named("oa.brain-menu.options").has_value(),
+            "the menu offers Options... for the built-in player" + on
         );
         press_key(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE, SDL_KMOD_NONE);
         frames(1);

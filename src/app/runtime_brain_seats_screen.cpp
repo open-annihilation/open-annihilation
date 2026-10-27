@@ -90,6 +90,10 @@ constexpr int32_t block_gap = 4;
 constexpr int32_t campaign_height = 20;
 /// The campaign button's automation name, without oa.
 constexpr std::string_view campaign_button_name = "brain-seat.campaign";
+/// A skirmish seat, as the picker names it.
+constexpr std::string_view word_seat = "Seat {n}";
+/// The campaign's seat, as the picker names it.
+constexpr std::string_view word_computer = "Computer player";
 /// The notch's width at a button's right end, in frame pixels.
 constexpr int32_t notch_width = 14;
 /// Frame pixels round a part that its focus marker lights.
@@ -310,6 +314,18 @@ kit::Rect arrow_rect(const kit::Rect& placed, const kit::HoverCardLook& look, in
     return {};
 }
 
+/// The seat's name as a player reads it: "Seat 2" for slot 1.
+///
+/// @param slot the slot, from 0
+/// @return the name, in the language shown
+std::string seat_title(int32_t slot) {
+    std::string text(oa::data::languages::interface_text(word_seat));
+    constexpr std::string_view holder = "{n}";
+    if (const std::size_t at = text.find(holder); at != std::string::npos)
+        text.replace(at, holder.size(), std::to_string(slot + 1));
+    return text;
+}
+
 /// Writes one computer seat. A slot that is not one is left alone.
 ///
 /// @param seats the setup's seats
@@ -507,6 +523,12 @@ BrainMenuAnswer press_row(BrainMenu& menu, int32_t index) {
             }
         }
         break;
+    case BrainMenuKind::options:
+        if (const BrainMenuRow* current = current_row(menu)) {
+            answer.kind = BrainMenuAnswer::Kind::options;
+            answer.choice = choice_of(menu, *current);
+        }
+        break;
     case BrainMenuKind::get_brains:
         answer.kind = BrainMenuAnswer::Kind::get_brains;
         break;
@@ -603,6 +625,10 @@ std::vector<room::RoomListRow> brain_menu_list_rows(const BrainMenu& menu) {
             shown.value = row.current && row.level_ids.size() > 1
                               ? room::room_text("< " + row.level_words + " >")
                               : room::room_text(row.level_words);
+            break;
+        case BrainMenuKind::options:
+            shown.rule_above = !ruled;
+            ruled = true;
             break;
         case BrainMenuKind::every_seat:
             shown.checkbox = true;
@@ -801,6 +827,11 @@ void add_brain_menu_controls(
                 row.current);
             break;
         }
+        case BrainMenuKind::options:
+            add(
+                rects[index], "brain-menu.options", kit::ControlKind::button, row.words, true, false
+            );
+            break;
         case BrainMenuKind::every_seat:
             add(rects[index],
                 "brain-menu.every-seat",
@@ -934,6 +965,7 @@ BrainMenu BrainSeatsAccess::menu(
     std::vector<BrainMenuRow> brains;
     brains.reserve(listing.brains.size());
     bool current_found = current.brain.empty();
+    bool current_has_options = false;
     for (const brain::InstalledBrain& installed : listing.brains) {
         const oabrain::Manifest& manifest = installed.manifest;
         BrainMenuRow row;
@@ -943,8 +975,10 @@ BrainMenu BrainSeatsAccess::menu(
             !library::brain_unfit_reason(probe, brain_facts_of(manifest, installed.network_bytes))
                  .empty();
         row.current = !row.unfit && manifest.id == current.brain;
-        if (row.current)
+        if (row.current) {
             current_found = true;
+            current_has_options = !manifest.options.empty();
+        }
         row.level_id = row.current && oabrain::find_level(manifest, current.level) != nullptr
                            ? current.level
                            : level_for(manifest, difficulty);
@@ -970,6 +1004,12 @@ BrainMenu BrainSeatsAccess::menu(
     made.rows[1].current = !current_found || current.brain.empty();
     for (BrainMenuRow& row : brains)
         made.rows.push_back(std::move(row));
+    if (current_has_options) {
+        BrainMenuRow options;
+        options.kind = BrainMenuKind::options;
+        options.words = std::string(oa::data::languages::interface_text(brain_menu_words::options));
+        made.rows.push_back(std::move(options));
+    }
     if (every_row) {
         BrainMenuRow every;
         every.kind = BrainMenuKind::every_seat;
@@ -2261,12 +2301,48 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
             menu_.every = every;
             return;
         }
+        case BrainMenuAnswer::Kind::options:
+            menu_ = {};
+            card_.close();
+            open_picker(seat);
+            return;
         case BrainMenuAnswer::Kind::get_brains:
             menu_ = {};
             card_.close();
             BrainSeatsAccess::get_more_brains(runtime_);
             return;
         }
+    }
+
+    /// Opens the brain picker on one seat, its brain and its options, as a
+    /// dialog over the room. USE THIS writes that seat, or every computer
+    /// seat; CANCEL changes nothing.
+    ///
+    /// @param slot the slot
+    void open_picker(int32_t slot) {
+        const Geometry laid = geometry(view_);
+        const SeatButton* button = button_of(laid, slot);
+        if (button == nullptr)
+            return;
+        const bool campaign = campaign_screen();
+        BrainPickerRequest request;
+        request.setup = campaign ? brain::Setup::campaign : brain::Setup::skirmish;
+        request.seat_name = campaign
+                                ? std::string(oa::data::languages::interface_text(word_computer))
+                                : seat_title(slot);
+        request.current = button->choice;
+        request.setup_difficulty = difficulty_of(difficulty_stage());
+        request.built_in_level_fixed = true;
+        request.offer_every_seat = !campaign;
+        Runtime* runtime = &runtime_;
+        request.used = [runtime, slot, campaign](picker::Choice choice, bool every) {
+            if (campaign)
+                BrainSeatsAccess::write_campaign(*runtime, choice);
+            else
+                BrainSeatsAccess::write(*runtime, slot, choice, every);
+        };
+        request.cancelled = [] {};
+        runtime_.open_brain_picker(std::move(request));
     }
 
     Runtime& runtime_;               ///< the runtime whose setup it shows over
