@@ -4,27 +4,30 @@ The keys a match answers, beyond the buttons on the order panel.
 
 ## Keys in a match
 
-Ctrl+/ (Cmd+/ on a Mac) opens a panel beside the side column listing the
-keys that work right now: while playing, while watching, or while a
-building is being placed. A run of numbered keys is shown as a range, such
-as Ctrl+1…9. Latches and sticky modifiers that are on are listed in the
-panel, and their chips leave the battlefield while the panel is open. The
-panel names the layout and how many of your own changes it carries. EDIT
-KEYS… opens the key editor; the match pauses while that editor is the only
-thing open. Escape, or Ctrl+/ again, closes the panel. The match keeps
-running underneath.
+Ctrl+/ (Cmd+/ on a Mac) opens a translucent panel beside the side column
+listing the keys that work right now: "Keys while playing", "Keys while
+watching", or "Keys while placing a building". The keys are grouped as the
+key editor groups them, with the keys a mod's helpers add under "This mod".
+A run of numbered keys is shown as a range, such as Ctrl+1…9. The panel
+names the layout in use and how many of your own changes it carries, and
+the latches and sticky modifiers that are on show as chips in its "On:"
+line instead of on the battlefield. EDIT KEYS… opens the key editor, which
+pauses a game you play alone. Escape, or Ctrl+/ again, closes the panel.
+The match keeps running underneath, and a click or a key the panel does not
+use goes to the match.
 
-With **Show keys on buttons** on (Settings > Controls; it is on by
-default), each order button wears its key in the top right corner and each
-build cell wears its key in the bottom left. The underlined letter in an
-order button's caption is the letter that presses it, so a key you moved
-does not leave a line under the old letter. Turn **Show keys on buttons**
-off and the side column is drawn without those badges.
+With **Show keys on buttons** on (Settings › Controls; it is on by
+default), each order button wears its key in its top right corner and each
+build cell its key in its bottom left. An order button's underlined
+letter, where its caption has one, is the letter that presses it, so a key
+you move leaves no line under the old letter. Turn **Show keys on buttons**
+off to take the badges away.
 
-Resting the pointer on an order button shows that order's name, and its
-description ending with the key. A build cell's cost line ends with the
-key when that cell has one. While you place a building that can turn, the
-hint on the ground is made from the rotate key and the wheel.
+Resting the pointer on an order button shows that order's name in the
+bottom panel, and its description ending with its key. A build button's
+cost line ends with its cell's key when that cell has one. While you place
+a building that can turn, the hint beside it is made from the rotate key and
+the wheel you have bound, such as "Press /, or Alt+wheel, to rotate".
 
 ## Pause and the game menu
 

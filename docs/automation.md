@@ -338,7 +338,7 @@ module's ([src/ui/key-editor](../src/ui/key-editor/README.md)):
 
 | Control | Name | Kind, and what it reports |
 |---|---|---|
-| The list | `oa.keys-overlay.list` | list, its text the title, the layout line, the On line, each group and the footer |
+| The list | `oa.keys-overlay.list` | list, its text every word the panel shows, one line each: the title, the layout and its changes, the On line and its chips, each group's name and its lines (name, "held" where it is held, and chord), and the footer |
 | EDIT KEYS… | `oa.keys-overlay.edit` | button. It closes the overlay and opens `oa.key-editor` |
 | The close mark | `oa.keys-overlay.close` | button |
 | The scroll bar | `oa.keys-overlay.bar` | scroll bar, present while the list scrolls |
