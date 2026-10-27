@@ -247,7 +247,8 @@ int main() {
         );
     }
     expect(
-        rejection({"--dplay-port", "65536"}) == "--dplay-port expects a port from 0 through 65535" &&
+        rejection({"--dplay-port", "65536"}) ==
+                "--dplay-port expects a port from 0 through 65535" &&
             rejection({"--dplay-port", "x"}) == "--dplay-port expects a port from 0 through 65535",
         "--dplay-port rejects anything but 0 through 65535"
     );
