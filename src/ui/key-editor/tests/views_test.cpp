@@ -412,6 +412,25 @@ void mouse_schemes() {
     OA_CHECK(playing_role(editor::mouse_table(draft, draft.scheme()), "Left", "Command"));
 }
 
+/// Each mouse button reads as its roles to automation, at Large and at
+/// Compact, as a key reads as its legend: Left as Select, Right as Command.
+void mouse_buttons_read_their_roles() {
+    for (const kit::Frame& frame : {frame_for(1280, 720, 100), frame_for(640, 480, 100)}) {
+        Board board(stock_inputs());
+        board.frame = frame;
+        board.state.view = editor::View::mouse;
+        board.show();
+        const kit::Control* left = board.find("key-editor.mouse.mouse-left");
+        const kit::Control* right = board.find("key-editor.mouse.mouse-right");
+        const kit::Control* wheel = board.find("key-editor.mouse.wheel");
+        OA_CHECK(left != nullptr && left->text.find("Select") != std::string::npos);
+        OA_CHECK(right != nullptr && right->text.find("Command") != std::string::npos);
+        OA_CHECK(wheel != nullptr && !wheel->text.empty());
+        if (left != nullptr && left->text.find("Select") == std::string::npos)
+            std::fprintf(stderr, "the left button reads \"%s\"\n", left->text.c_str());
+    }
+}
+
 /// FIND ON KEYBOARD outlines Attack and focuses KeyA.
 void find_outlines_attack() {
     Board board(stock_inputs());
@@ -448,6 +467,7 @@ int main() {
     labels_and_layers();
     clicks();
     mouse_schemes();
+    mouse_buttons_read_their_roles();
     find_outlines_attack();
     return oa::test::failed_checks() == 0 ? 0 : 1;
 }

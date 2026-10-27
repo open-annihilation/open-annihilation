@@ -5066,6 +5066,58 @@ std::string callout_roles(const kit::KeycapLook& cap) {
     return cap.label;
 }
 
+/// What a mouse control reads as to automation: the roles of its button, as
+/// a key reads as its legend. The wheel is both its turns' roles.
+///
+/// @param look the mouse, with each button's roles
+/// @param word the control's last name part: mouse-left, wheel, mouse-6, ...
+/// @return the roles, " · " between them
+std::string mouse_control_text(const kit::MouseLook& look, std::string_view word) {
+    const auto roles = [&](kit::MouseButton which) {
+        return callout_roles(look.buttons[static_cast<std::size_t>(which)]);
+    };
+    if (word == "wheel") {
+        std::string turns = roles(kit::MouseButton::wheel_up);
+        const std::string down = roles(kit::MouseButton::wheel_down);
+        if (!down.empty() && down != turns)
+            turns += turns.empty() ? down : " · " + down;
+        return turns;
+    }
+    const std::pair<std::string_view, kit::MouseButton> buttons[] = {
+        {"mouse-left", kit::MouseButton::left},
+        {"mouse-right", kit::MouseButton::right},
+        {"mouse-middle", kit::MouseButton::middle},
+        {"mouse-back", kit::MouseButton::back},
+        {"mouse-forward", kit::MouseButton::forward},
+        {"mouse-6", kit::MouseButton::button6},
+        {"mouse-7", kit::MouseButton::button7},
+        {"mouse-8", kit::MouseButton::button8},
+    };
+    for (const auto& [name, which] : buttons) {
+        if (word == name)
+            return roles(which);
+    }
+    return {};
+}
+
+/// Gives the mouse's controls, from `from` in `built.rest`, their buttons'
+/// roles as their text, and keeps them out of Tab's order.
+///
+/// @param[in,out] built the layout
+/// @param from the first of the mouse's controls
+/// @param look the mouse, with each button's roles
+void name_mouse_roles(Built& built, std::size_t from, const kit::MouseLook& look) {
+    for (std::size_t index = from; index < built.rest.size(); ++index) {
+        kit::Control& control = built.rest[index];
+        control.focusable = false;
+        const std::size_t dot = control.name.rfind('.');
+        const std::string_view word = dot == std::string::npos
+                                          ? std::string_view(control.name)
+                                          : std::string_view(control.name).substr(dot + 1);
+        control.text = mouse_control_text(look, word);
+    }
+}
+
 /// The colour of a callout whose binding was changed or clashes.
 ///
 /// @param cap the button
@@ -5166,6 +5218,9 @@ void add_mouse_body(
         else if (wheel_ink != kit::colour::danger && ink == kit::colour::accent)
             wheel_ink = ink;
     }
+    // The callouts and the list name the roles; the picture shows the tints.
+    // The controls keep the roles for automation.
+    const kit::MouseLook named = look;
     for (kit::KeycapLook& cap : look.buttons) {
         cap.label.clear();
         cap.sub.clear();
@@ -5210,8 +5265,7 @@ void add_mouse_body(
         kit::add_mouse(built.list, picture, look, controls::mouse_first, std::string(name_mouse));
         const std::size_t rest = built.rest.size();
         steal(built.list, built.rest, before);
-        for (std::size_t index = rest; index < built.rest.size(); ++index)
-            built.rest[index].focusable = false;
+        name_mouse_roles(built, rest, named);
         const kit::Measure measure_roles = [&](std::string_view words) {
             return kit::text_width(fonts, kit::FontRole::small, words);
         };
@@ -5417,8 +5471,7 @@ void add_mouse_body(
         kit::add_mouse(built.list, picture, look, controls::mouse_first, std::string(name_mouse));
         const std::size_t rest = built.rest.size();
         steal(built.list, built.rest, before);
-        for (std::size_t index = rest; index < built.rest.size(); ++index)
-            built.rest[index].focusable = false;
+        name_mouse_roles(built, rest, named);
         const bool beside = body.width - pic_w - gap >= 160;
         const int32_t table_x = beside ? body.x + pic_w + gap : body.x;
         const int32_t table_w = std::max(body.x + body.width - table_x, int32_t{0});

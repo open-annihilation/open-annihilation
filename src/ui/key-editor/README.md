@@ -67,7 +67,7 @@ The controls a journey presses, as `oa.` and the name:
 | `key-editor.key-card.change`, `.use` | Change {action}'s key… and Use {key} for {action}… |
 | `key-editor.show-as-list` | Show as list, and Show keyboard |
 | `key-editor.key-list` | Every key that does something in the layer. Its text is every line |
-| `key-editor.mouse.mouse-left`, `.mouse-right`, `.mouse-middle`, `.wheel`, `.mouse-back`, `.mouse-forward` | The mouse's buttons. `.mouse-6` to `.mouse-8` appear once the game has seen them pressed |
+| `key-editor.mouse.mouse-left`, `.mouse-right`, `.mouse-middle`, `.wheel`, `.mouse-back`, `.mouse-forward` | The mouse's buttons. Each one's text is its roles, " · " between them ("Free" with none), and the wheel's both turns' roles, as a key's text is its legend. `.mouse-6` to `.mouse-8` appear once the game has seen them pressed |
 | `key-editor.scheme.right-click`, `.left-click` | Clicks give orders with |
 | `key-editor.mouse-table.<place>.<n>` | One role in one place, numbered from 1 |
 | `key-editor.detail.find` | Find on keyboard, under More options |
