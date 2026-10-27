@@ -508,10 +508,11 @@ inline constexpr std::string_view already_in_use = "{chord} is already in use";
 /// The clash question's sentence. `{name}` and `{context}`.
 inline constexpr std::string_view uses_it =
     "{name} uses it {context}. Choose what happens; nothing changes until you confirm.";
-/// The draft clash's sentence. `{name}` is the other action and `{context}` where both are read.
+/// The draft clash's sentence. `{action}` is the action being settled, `{name}` the other
+/// one and `{context}` where both are read.
 inline constexpr std::string_view both_use =
-    "Here and {name} both use it {context}. Choose which keeps it; nothing changes until you "
-    "confirm.";
+    "{action} and {name} both use it {context}. Choose which keeps it; nothing changes until "
+    "you confirm.";
 /// An outcome: the chord leaves the other action. `{action}` takes it.
 inline constexpr std::string_view move_it_to = "Move it to {action}";
 /// An outcome: the two actions trade chords.

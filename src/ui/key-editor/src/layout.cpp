@@ -3586,14 +3586,15 @@ kit::DisplayList prompt_layout(
                 ? fill(show(editor.text(), words::does_two), {{"chord", clash_words}})
                 : fill(show(editor.text(), words::already_in_use), {{"chord", clash_words}});
         const std::string body =
-            state.settling ? fill(
-                                 show(editor.text(), words::both_use),
-                                 {{"name", there_name}, {"context", here_context}}
-                             )
-                           : fill(
-                                 show(editor.text(), words::uses_it),
-                                 {{"name", there_name}, {"context", context_phrase(editor, there)}}
-                             );
+            state.settling
+                ? fill(
+                      show(editor.text(), words::both_use),
+                      {{"action", here_name}, {"name", there_name}, {"context", here_context}}
+                  )
+                : fill(
+                      show(editor.text(), words::uses_it),
+                      {{"name", there_name}, {"context", context_phrase(editor, there)}}
+                  );
         const int32_t title_top = y;
         eyebrow(eyebrow_words);
         y += wrapped(column_x, y, column_w, title, kit::FontRole::regular, kit::colour::text);

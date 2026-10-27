@@ -884,6 +884,17 @@ void card_choices() {
             keep_here->text.find("Select builders: No key") != std::string::npos,
         "Keep it for Select all does not leave Select builders with no key"
     );
+    // The question names the action being settled, not "Here".
+    const kit::Control* settling =
+        kit::control_of(list, kit::control_named(list, editor::name_clash));
+    expect(
+        settling != nullptr &&
+            settling->text.find("Select all and Select builders both use it") !=
+                std::string::npos &&
+            settling->text.find("Here and") == std::string::npos,
+        "the settle question does not name Select all: " +
+            (settling != nullptr ? settling->text : std::string("no question"))
+    );
     if (const std::optional<kit::Point> there_at = centre_named(list, editor::name_card_there))
         click_at(choosing, state, list, *there_at);
     expect(state.outcome == 1, "Keep it for Select builders was not marked");
