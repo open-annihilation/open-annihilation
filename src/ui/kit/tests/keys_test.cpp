@@ -716,6 +716,62 @@ void paint_matches_the_draws() {
     }
 }
 
+/// The main block alone: its keys and no other, scaled to the picture on
+/// their own, each control keeping the number its key has on the whole
+/// keyboard, and at a details pane's width every legend drawn whole.
+void main_block_draws_its_keys_alone() {
+    for (const kit::KeyboardShape shape :
+         {kit::KeyboardShape::ansi, kit::KeyboardShape::iso, kit::KeyboardShape::jis}) {
+        kit::KeyboardLook look;
+        look.shape = shape;
+        look.main_block = true;
+        OA_CHECK(kit::keyboard_size(look).x == 60 && kit::keyboard_size(look).y == 12);
+        kit::KeyboardLook whole = look;
+        whole.main_block = false;
+        OA_CHECK(kit::keyboard_size(whole).x == 91 && kit::keyboard_size(whole).y == 25);
+
+        // 300 points across is five points a quarter.
+        const kit::Rect picture{0, 0, 300, 60};
+        kit::DisplayList list;
+        kit::add_keyboard(list, picture, look, 10, "board");
+        const std::span<const kit::KeyPlace> places = kit::keyboard_places(shape);
+        std::size_t drawn = 0;
+        for (std::size_t index = 0; index < places.size(); ++index) {
+            const bool inside = kit::keyboard_draws(places[index], look);
+            OA_CHECK(kit::keyboard_draws(places[index], whole));
+            const std::string name = "board." + kit::code_word(places[index].code);
+            const kit::Control* control = key_named(list, name);
+            OA_CHECK((control != nullptr) == inside);
+            if (control == nullptr)
+                continue;
+            ++drawn;
+            OA_CHECK(control->id == 10 + static_cast<kit::ControlId>(index));
+            OA_CHECK(kit::wholly_in(control->rect, picture));
+        }
+        OA_CHECK(drawn == list.controls.size() && drawn > 30);
+        for (const std::string_view absent :
+             {"Escape", "F1", "Space", "Digit1", "Backquote", "ArrowUp", "Numpad1"})
+            OA_CHECK(key_named(list, "board." + kit::code_word(absent)) == nullptr);
+        for (const std::string_view present :
+             {"Tab", "KeyQ", "CapsLock", "KeyA", "KeyZ", "ShiftLeft", "ShiftRight", "Enter"})
+            OA_CHECK(key_named(list, "board." + kit::code_word(present)) != nullptr);
+        const kit::Control* key_a = key_named(list, "board." + kit::code_word("KeyA"));
+        OA_CHECK(key_a != nullptr && key_a->rect.width == 4 * 5 - 2);
+        for (std::size_t index = 0; index < list.controls.size(); ++index)
+            for (std::size_t other = index + 1; other < list.controls.size(); ++other)
+                OA_CHECK(kept_apart(list.controls[index].rect, list.controls[other].rect));
+
+        renderer::Surface surface = black(picture.width, picture.height);
+        kit::begin_text_fit_frame();
+        kit::draw_keyboard(canvas_on(surface), picture, look);
+        for (const kit::TextFitRecord& record : kit::text_fit_records()) {
+            OA_CHECK(!record.wider);
+            OA_CHECK(!record.across);
+        }
+        OA_CHECK(count_colour(surface, kit::colour::text) > 0);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -729,6 +785,7 @@ int main() {
     ring_snaps_to_quarters();
     parts_stay_inside_at_every_scale();
     small_keyboard_keys_stay_apart();
+    main_block_draws_its_keys_alone();
     paint_matches_the_draws();
     std::puts("ui-kit-keys passed");
     return oa::test::check_exit_status();

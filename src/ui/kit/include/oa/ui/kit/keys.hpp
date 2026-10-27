@@ -143,8 +143,29 @@ struct KeyPlace {
 /// @return 91 by 25 points
 [[nodiscard]] Point keyboard_size() noexcept;
 
+/// The main block of every keyboard shape, in quarter units: the rows from
+/// Tab to Enter, Caps Lock to Enter and Shift to Shift. A picture whose look
+/// asks for the main block draws the keys inside it alone.
+inline constexpr Rect keyboard_main_block{0, 9, 60, 12};
+
+/// Returns a picture's size at one point a quarter unit: the whole keyboard,
+/// or its main block.
+///
+/// @param look the picture
+/// @return 91 by 25 points, or 60 by 12 for the main block
+[[nodiscard]] Point keyboard_size(const KeyboardLook& look) noexcept;
+
+/// Tells whether a picture draws a key: every key of the whole keyboard,
+/// and the keys inside keyboard_main_block for the main block.
+///
+/// @param place the key
+/// @param look the picture
+/// @return true when the picture draws it
+[[nodiscard]] bool keyboard_draws(const KeyPlace& place, const KeyboardLook& look) noexcept;
+
 /// Draws a keyboard picture scaled to fit the rectangle, whole points per
-/// quarter unit. A code with no entry in the look is a free key with its
+/// quarter unit; the main block alone when the look asks for it, scaled on
+/// its own. A code with no entry in the look is a free key with its
 /// geometry's own label. Below 4 points a quarter, neighbouring keys keep
 /// a gap, or a one-point border in the free key's edge colour where a gap
 /// would take the whole key. A label there is drawn whole or left out, and
@@ -160,9 +181,10 @@ struct KeyPlace {
 void draw_keyboard(const Canvas& canvas, const Rect& rect, const KeyboardLook& look);
 
 /// Appends a keyboard picture: one item, and one control of kind button per
-/// key, in reading order. The first key's number is first and each following
-/// key takes the next number. A control is named with the picture's name, a
-/// dot and the code word, or with the code word alone when name is empty.
+/// key it draws, in reading order. Each key's number is first plus its place
+/// in keyboard_places, so a key keeps its number in the main block. A
+/// control is named with the picture's name, a dot and the code word, or
+/// with the code word alone when name is empty.
 ///
 /// @param[in,out] list the display list
 /// @param rect the picture, in points

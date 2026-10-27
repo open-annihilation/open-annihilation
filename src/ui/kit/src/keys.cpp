@@ -490,20 +490,28 @@ struct Board {
     int32_t origin_y{}; ///< the grid's top, in points
 };
 
-/// Returns the quarter grid that fits a rectangle in whole points.
+/// Returns the quarter grid that fits a rectangle in whole points: the whole
+/// keyboard's, or the main block's, its corner at the rectangle's centred
+/// picture.
 ///
 /// @param rect the picture, in points
+/// @param look the picture: whole, or the main block
 /// @return the grid
-Board board_of(const Rect& rect) noexcept {
+Board board_of(const Rect& rect, const KeyboardLook& look) noexcept {
+    const Point size = keyboard_size(look);
     int32_t quarter = 1;
-    if (rect.width >= 91 && rect.height >= 25)
-        quarter = std::min(rect.width / 91, rect.height / 25);
-    const int32_t board_w = 91 * quarter;
-    const int32_t board_h = 25 * quarter;
+    if (rect.width >= size.x && rect.height >= size.y)
+        quarter = std::min(rect.width / size.x, rect.height / size.y);
+    const int32_t board_w = size.x * quarter;
+    const int32_t board_h = size.y * quarter;
     Board board;
     board.quarter = std::max(quarter, int32_t{1});
     board.origin_x = rect.x + std::max(rect.width - board_w, int32_t{0}) / 2;
     board.origin_y = rect.y + std::max(rect.height - board_h, int32_t{0}) / 2;
+    if (look.main_block) {
+        board.origin_x -= keyboard_main_block.x * board.quarter;
+        board.origin_y -= keyboard_main_block.y * board.quarter;
+    }
     return board;
 }
 
@@ -1203,12 +1211,29 @@ Point keyboard_size() noexcept {
     return Point{91, 25};
 }
 
+Point keyboard_size(const KeyboardLook& look) noexcept {
+    if (look.main_block)
+        return Point{keyboard_main_block.width, keyboard_main_block.height};
+    return keyboard_size();
+}
+
+bool keyboard_draws(const KeyPlace& place, const KeyboardLook& look) noexcept {
+    if (!look.main_block)
+        return true;
+    const Rect& block = keyboard_main_block;
+    return place.x >= block.x && place.y >= block.y && place.x + place.w <= block.x + block.width &&
+           place.y + place.h <= block.y + block.height;
+}
+
 void draw_keyboard(const Canvas& canvas, const Rect& rect, const KeyboardLook& look) {
     if (!can_draw(canvas) || rect.width <= 0 || rect.height <= 0)
         return;
     const Canvas local = clipped(canvas, rect);
-    const Board board = board_of(rect);
-    const std::span<const KeyPlace> places = keyboard_places(look.shape);
+    const Board board = board_of(rect, look);
+    std::vector<KeyPlace> places;
+    for (const KeyPlace& place : keyboard_places(look.shape))
+        if (keyboard_draws(place, look))
+            places.push_back(place);
     std::vector<KeycapLook> caps;
     std::vector<Rect> rects;
     caps.reserve(places.size());
@@ -1237,10 +1262,12 @@ void add_keyboard(
     item.rect = rect;
     item.look = look;
     list.items.push_back(std::move(item));
-    const Board board = board_of(rect);
+    const Board board = board_of(rect, look);
     const std::span<const KeyPlace> places = keyboard_places(look.shape);
     for (std::size_t index = 0; index < places.size(); ++index) {
         const KeyPlace& place = places[index];
+        if (!keyboard_draws(place, look))
+            continue;
         const KeycapLook cap = shown_cap(place, look);
         const Rect key = key_rect(place, board);
         if (key.width <= 0 || key.height <= 0)
