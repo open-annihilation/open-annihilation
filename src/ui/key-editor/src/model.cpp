@@ -1084,6 +1084,7 @@ Row row_of(const Listed& listed) {
     row.chords = listed.chords;
     row.read_only = listed.read_only;
     row.category = listed.category;
+    row.changed = listed.changed;
     return row;
 }
 

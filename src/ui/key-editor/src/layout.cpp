@@ -1076,7 +1076,7 @@ void add_list(
             if (!row->aside.empty())
                 name_end +=
                     kit::text_width(fonts, kit::FontRole::small, row->aside) + metrics.list_row_gap;
-            if (row->mark == kit::KeyMark::changed) {
+            if (row->changed) {
                 kit::PillLook pill;
                 pill.text = show(editor.text(), words::filter_changed);
                 pill.state = kit::PillState::update;

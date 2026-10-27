@@ -101,6 +101,7 @@ struct Row {
     /// The category's title, for a row listed outside its own category, as
     /// Common commands lists it; empty in the row's own category.
     std::string area{};
+    bool changed{false}; ///< the draft names the action, whatever its mark shows
 };
 
 /// One chord in the details, and why it is bound.
