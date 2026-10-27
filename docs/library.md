@@ -110,7 +110,10 @@ the Large layout, as on 1280x720 and larger, the details sit beside the
 list, and Large adds a column of filters. Its rows, tabs, search field,
 filter pills and buttons grow with the layout. Drag the Library by its
 title to move it; it opens there next time
-([moving windows](settings.md#opening-the-settings)).
+([moving windows](settings.md#opening-the-settings)). The pictures on this
+page are drawn by the Library's draw test from made-up packages, in the
+classic look, the game's own fonts; in the modern look, the default, the
+same screens are lettered in Barlow ([Look](settings.md#user-interface)).
 
 ## The Active tab
 
