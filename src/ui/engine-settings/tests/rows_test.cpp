@@ -196,8 +196,7 @@ constexpr std::array<Expected, 119> kExpected{{
 // clang-format on
 
 static_assert(
-    kExpected.size() == static_cast<std::size_t>(Setting::look) + 1,
-    "every setting has its row"
+    kExpected.size() == static_cast<std::size_t>(Setting::look) + 1, "every setting has its row"
 );
 
 /// Every field of the dialog's locks that locks a row.
