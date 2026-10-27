@@ -256,6 +256,7 @@ inline constexpr std::string_view interface_words[] = {
     words::hands_are_one,
     words::layout_has_problems,
     words::paste_title,
+    words::text_not_layout,
     words::import_title,
     words::share_file_note,
     words::nothing_until_apply,

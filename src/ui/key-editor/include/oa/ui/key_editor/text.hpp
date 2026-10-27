@@ -406,6 +406,9 @@ inline constexpr std::string_view hands_are_one =
 inline constexpr std::string_view layout_has_problems = "This layout has problems:";
 /// The paste prompt's title.
 inline constexpr std::string_view paste_title = "Paste keys";
+/// Paste's refusal of a text in which no line is a key and its keys, with
+/// the line and column where reading it stopped.
+inline constexpr std::string_view text_not_layout = "This text is not a key layout.";
 /// The import prompt's title.
 inline constexpr std::string_view import_title = "Import keys from an older setup";
 /// Under the share text.

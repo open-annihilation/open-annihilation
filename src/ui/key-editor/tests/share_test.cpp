@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // A share name becomes an id, a paste shows a clash and an unknown action
-// before it writes the draft, and an import moves a chord and records where
-// the keys came from.
+// before it writes the draft, a text that is no key layout is refused in the
+// player's words, and an import moves a chord and records where the keys
+// came from.
 
 #include "oa/ui/key_editor/model.hpp"
 
@@ -195,6 +196,25 @@ void paste_error_keeps_its_place() {
     expect(move, "the good row was dropped");
 }
 
+/// A text that is no key layout is refused in the player's words, at the
+/// line and column where reading stopped, and lists no row.
+void paste_refuses_other_text() {
+    constexpr std::string_view text = "Hello, these are my keys\n";
+    editor::Editor model(plain());
+    const editor::PastePreview preview = editor::paste_preview(model, as_bytes(text));
+    expect(preview.rows.empty(), "a text that is no layout listed a row");
+    expect(preview.changes == 0, "a text that is no layout counted a change");
+    expect(preview.problems.size() == 1, "a text that is no layout did not give one problem");
+    if (!preview.problems.empty()) {
+        const oakeys::Problem& problem = preview.problems.front();
+        expect(
+            problem.message == editor::words::text_not_layout,
+            "the refusal reads " + problem.message
+        );
+        expect(problem.line == 1 && problem.column > 0, "the refusal has no line and column");
+    }
+}
+
 /// An import keeps only a differing key, moves F4, and records imported-from.
 void import_moves_f4() {
     editor::Editor model(plain());
@@ -255,6 +275,7 @@ int main() {
     paste_keeps_and_lists();
     paste_keep_holder();
     paste_error_keeps_its_place();
+    paste_refuses_other_text();
     import_moves_f4();
     return 0;
 }

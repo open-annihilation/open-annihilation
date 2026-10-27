@@ -18,6 +18,9 @@ namespace keys = oa::ui::key_bindings;
 namespace oakeys = oa::formats::oakeys;
 namespace acts = oa::data::input_actions;
 
+/// The key the reader gives a problem with the whole document, not one entry.
+constexpr std::string_view kDocumentKey = "document";
+
 /// The chords an action is using.
 ///
 /// @param editor the editor
@@ -266,9 +269,16 @@ PastePreview paste_preview(const Editor& editor, std::span<const uint8_t> bytes)
     std::vector<oakeys::Problem> problems;
     const bool read = oakeys::read_bindings_text(bytes, manifest, problems);
     if (!read) {
-        for (const oakeys::Problem& problem : problems)
-            preview.problems.push_back(problem);
-        for (const ScannedBinding& binding : scan_bindings(bytes))
+        // A text the reader refused whole, with no line naming an action and
+        // its keys, is not a key layout: the player reads that, where the
+        // reader stopped, rather than the reader's rule.
+        const std::vector<ScannedBinding> scanned = scan_bindings(bytes);
+        for (oakeys::Problem problem : problems) {
+            if (scanned.empty() && problem.key == kDocumentKey)
+                problem.message = std::string{show(editor.text(), words::text_not_layout)};
+            preview.problems.push_back(std::move(problem));
+        }
+        for (const ScannedBinding& binding : scanned)
             take_binding(
                 preview, editor, binding.action, binding.line, binding.column, binding.chords
             );
