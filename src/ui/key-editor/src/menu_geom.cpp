@@ -202,6 +202,18 @@ menu_entries(const Editor& editor, Menu menu, const ScreenState& state, bool com
         entry.caption = show(editor.text(), words::restore);
         entry.name = std::string(name_restore);
         entries.push_back(std::move(entry));
+        auto add_more =
+            [&](MenuKind kind, std::string id, std::string_view word, std::string_view control) {
+                MenuEntry more;
+                more.kind = kind;
+                more.id = std::move(id);
+                more.caption = show(editor.text(), word);
+                more.name = std::string(control);
+                entries.push_back(std::move(more));
+            };
+        add_more(MenuKind::import, "import", words::import_keys, name_import);
+        add_more(MenuKind::share, "share", words::share_keys, name_share);
+        add_more(MenuKind::paste, "paste", words::paste_keys, name_paste);
         return entries;
     }
     return {};

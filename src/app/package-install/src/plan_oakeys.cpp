@@ -332,6 +332,10 @@ bool read_manifest(
             if (!one.warning)
                 problem.lines.push_back(layout_error_line(one));
         }
+        for (const bindings::LayoutProblem& one : layout_problems) {
+            if (one.warning)
+                problem.lines.push_back(layout_error_line(one));
+        }
         if (problem.lines.empty())
             problem.lines.push_back(
                 std::string(layouts::manifest_file) + ": the layout cannot be read"

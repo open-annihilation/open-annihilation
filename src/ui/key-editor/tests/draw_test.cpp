@@ -12,7 +12,8 @@
 // Focus is left unset, so the pictures have no focus ring.
 //
 // --frames DIR writes key-editor-<scene>.png, including key-editor-capture-*.png,
-// key-editor-clash-*.png and key-editor-card-regular.png. --record merges this
+// key-editor-clash-*.png, key-editor-card-regular.png, key-editor-share-*.png,
+// key-editor-paste-*.png and key-editor-import-*.png. --record merges this
 // group's hashes into the frames table and leaves the other group. --data
 // draws in the installed game's fonts. A scene with no hash fails unless
 // --record is set.
@@ -66,13 +67,16 @@ constexpr kit::Colour untouched{0x12, 0x34, 0x56};
 
 /// Which screen a picture shows.
 enum class Shown : uint8_t {
-    list,     ///< the list, or Compact's details page
-    waiting,  ///< the capture, before a key
-    complete, ///< the capture, with a free chord
-    taken,    ///< the capture, with a clash
-    refused,  ///< the capture, with a fixed chord
-    question, ///< the clash prompt
-    card,     ///< the draft card
+    list,      ///< the list, or Compact's details page
+    waiting,   ///< the capture, before a key
+    complete,  ///< the capture, with a free chord
+    taken,     ///< the capture, with a clash
+    refused,   ///< the capture, with a fixed chord
+    question,  ///< the clash prompt
+    card,      ///< the draft card
+    share,     ///< Share your keys
+    pasted,    ///< Paste keys
+    importing, ///< Import keys from an older setup
 };
 
 /// One picture.
@@ -201,6 +205,15 @@ std::vector<Scene> all_scenes() {
         picture("card-compact", 640, 480, 100, compact, true, false, Shown::card),
         picture("card-regular", 1920, 1080, 200, regular, false, false, Shown::card),
         picture("card-large", 1280, 720, 100, large, false, false, Shown::card),
+        picture("share-compact", 640, 480, 100, compact, false, false, Shown::share),
+        picture("share-regular", 1920, 1080, 200, regular, false, false, Shown::share),
+        picture("share-large", 1280, 720, 100, large, false, false, Shown::share),
+        picture("paste-compact", 640, 480, 100, compact, false, false, Shown::pasted),
+        picture("paste-regular", 1920, 1080, 200, regular, false, false, Shown::pasted),
+        picture("paste-large", 1280, 720, 100, large, false, false, Shown::pasted),
+        picture("import-compact", 640, 480, 100, compact, false, false, Shown::importing),
+        picture("import-regular", 1920, 1080, 200, regular, false, false, Shown::importing),
+        picture("import-large", 1280, 720, 100, large, false, false, Shown::importing),
         shaped(
             "keyboard-compact",
             640,
@@ -313,6 +326,44 @@ void arm_scene(editor::Editor& model, editor::ScreenState& state, const Scene& s
     if (scene.shown == Shown::card) {
         state.selected = "select.all";
         state.filter = editor::Filter::clashes;
+        return;
+    }
+    if (scene.shown == Shown::share) {
+        state.prompt = editor::Prompt::share;
+        state.share_field.text = "Grid, left hand";
+        state.share_field.caret = static_cast<int32_t>(state.share_field.text.size());
+        model.set_share_name(state.share_field.text);
+        return;
+    }
+    if (scene.shown == Shown::pasted) {
+        state.prompt = editor::Prompt::paste;
+        constexpr std::string_view text = "# oakeys bindings, base oa-default\n"
+                                          "order.move: [\"@KeyQ\"]\n"
+                                          "select.all: [Ctrl+B]\n"
+                                          "camera.orbit-left: [Q]\n";
+        const auto* bytes = reinterpret_cast<const uint8_t*>(text.data());
+        state.paste = editor::paste_preview(model, {bytes, text.size()});
+        return;
+    }
+    if (scene.shown == Shown::importing) {
+        state.prompt = editor::Prompt::import;
+        state.import_chosen = 0;
+        editor::ImportOffer offer;
+        offer.id = "tdraw";
+        offer.tool = "tdraw";
+        offer.file = "Settings.ini";
+        offer.caption = "tdraw";
+        state.import_offers.push_back(offer);
+        keys::LegacyRead read;
+        keys::LegacyKey mapped;
+        mapped.action = "megamap.toggle";
+        keys::ChordError error{};
+        if (const std::optional<keys::Chord> chord = keys::parse_chord("F4", error))
+            mapped.chords.push_back(*chord);
+        mapped.line = 1;
+        read.keys.push_back(std::move(mapped));
+        state.importing = editor::import_preview(model, read, "tdraw", "Settings.ini");
+        state.import_date = "2026-10-27";
         return;
     }
     if (scene.shown == Shown::question) {

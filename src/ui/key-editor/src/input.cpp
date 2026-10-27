@@ -137,6 +137,8 @@ bool detail_control(kit::ControlId id) {
 }
 
 void close_prompt(ScreenState& state);
+void open_share(Editor& editor, ScreenState& state);
+void open_import(ScreenState& state);
 void focus_finished(const Editor& editor, ScreenState& state);
 void start_capture(const Editor& editor, ScreenState& state, std::optional<std::size_t> replacing);
 void show_view(Editor& editor, ScreenState& state, View shown);
@@ -534,6 +536,20 @@ EditorResult choose_entry(Editor& editor, ScreenState& state, const MenuEntry& e
         state.list_scroll = 0;
         return redrawn();
     }
+    if (entry.kind == MenuKind::share) {
+        close_menu(state);
+        open_share(editor, state);
+        return redrawn();
+    }
+    if (entry.kind == MenuKind::paste) {
+        close_menu(state);
+        return asked(EditorAction::read_clipboard, {}, true);
+    }
+    if (entry.kind == MenuKind::import) {
+        close_menu(state);
+        open_import(state);
+        return asked(EditorAction::prepare_import, {}, true);
+    }
     if (entry.kind == MenuKind::shape) {
         if (entry.id == "system") {
             state.shape = state.system_shape;
@@ -751,6 +767,61 @@ activate(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::
         editor.restore_defaults();
         state.list_scroll = 0;
         return redrawn();
+    }
+    if (id == controls::import_keys) {
+        open_import(state);
+        return asked(EditorAction::prepare_import, {}, true);
+    }
+    if (id == controls::share_keys) {
+        open_share(editor, state);
+        return redrawn();
+    }
+    if (id == controls::paste_keys)
+        return asked(EditorAction::read_clipboard, {}, true);
+    if (id == controls::share_name) {
+        focus_on(state, controls::share_name);
+        return redrawn();
+    }
+    if (id == controls::share_copy)
+        return asked(EditorAction::copy_text, {}, false);
+    if (id == controls::share_save) {
+        const std::optional<std::string> folded = id_from_name(editor.share_name());
+        if (!folded)
+            return {};
+        return asked(EditorAction::save_share, *folded, false);
+    }
+    if (id == controls::share_open)
+        return asked(EditorAction::open_share_folder, {}, false);
+    if (id == controls::share_close || id == controls::paste_cancel ||
+        id == controls::import_cancel) {
+        close_prompt(state);
+        return redrawn();
+    }
+    if (id == controls::paste_apply) {
+        if (state.paste.changes == 0)
+            return {};
+        apply_paste(editor, state.paste);
+        close_prompt(state);
+        return redrawn();
+    }
+    if (id == controls::import_apply) {
+        if (state.importing.differ == 0)
+            return {};
+        state.importing.date = state.import_date;
+        apply_import(editor, state.importing);
+        close_prompt(state);
+        return redrawn();
+    }
+    if (id == controls::import_eye || id == controls::import_tdraw ||
+        id == controls::import_ddraw || id == controls::import_choose) {
+        std::string which = "choose";
+        if (id == controls::import_eye)
+            which = "eye";
+        else if (id == controls::import_tdraw)
+            which = "tdraw";
+        else if (id == controls::import_ddraw)
+            which = "ddraw";
+        return asked(EditorAction::read_import, std::move(which), true);
     }
     if (id == controls::back) {
         state.details_page = false;
@@ -1110,13 +1181,37 @@ EditorResult finger_pointer(
     return {};
 }
 
-/// Closes the capture or the clash question without writing.
+/// Closes a prompt without writing the draft.
 ///
 /// @param[in,out] state the prompt
 void close_prompt(ScreenState& state) {
     state.prompt = Prompt::none;
     state.capture = Capture{};
     state.pending_clash = {};
+}
+
+/// Opens SHARE… on an empty name. A built-in layout does not start named.
+///
+/// @param[in,out] editor the share name
+/// @param[in,out] state the prompt
+void open_share(Editor& editor, ScreenState& state) {
+    state.menu = Menu::none;
+    state.prompt = Prompt::share;
+    state.share_field = {};
+    state.share_place.clear();
+    editor.set_share_name("");
+    focus_on(state, controls::share_name);
+}
+
+/// Opens IMPORT… before the host has filled the offers.
+///
+/// @param[in,out] state the prompt
+void open_import(ScreenState& state) {
+    state.menu = Menu::none;
+    state.prompt = Prompt::import;
+    state.importing = {};
+    state.import_chosen = -1;
+    focus_on(state, controls::import_cancel);
 }
 
 /// Moves the focus to OK when it can be pressed, otherwise to CANCEL.
@@ -1793,6 +1888,14 @@ EditorResult prompt_pointer(
 
 std::optional<kit::Rect>
 focused_field(const ScreenState& state, const kit::DisplayList& list) noexcept {
+    if (state.prompt == Prompt::share && state.interaction.focused == controls::share_name) {
+        const kit::Control* field = kit::control_of(list, controls::share_name);
+        if (field == nullptr)
+            return std::nullopt;
+        return field->rect;
+    }
+    if (state.prompt != Prompt::none)
+        return std::nullopt;
     if (state.interaction.focused != controls::search)
         return std::nullopt;
     const kit::Control* field = kit::control_of(list, controls::search);
@@ -1900,6 +2003,16 @@ editor_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit
         if (pressed == kit::Key::escape) {
             close_prompt(state);
             return redrawn();
+        }
+        if (state.prompt == Prompt::share && state.interaction.focused == controls::share_name &&
+            (pressed == kit::Key::left || pressed == kit::Key::right || pressed == kit::Key::home ||
+             pressed == kit::Key::end || pressed == kit::Key::backspace ||
+             pressed == kit::Key::delete_forward)) {
+            if (kit::edit_text(state.share_field, pressed)) {
+                editor.set_share_name(state.share_field.text);
+                return redrawn();
+            }
+            return {};
         }
         const kit::KeyOutcome outcome = kit::key(state.interaction, list, pressed);
         if (outcome.result == kit::KeyResult::redraw)
@@ -2061,8 +2174,13 @@ editor_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit
 EditorResult editor_text(
     Editor& editor, ScreenState& state, const kit::DisplayList& list, std::string_view utf8
 ) {
-    static_cast<void>(editor);
     static_cast<void>(list);
+    if (state.prompt == Prompt::share && state.interaction.focused == controls::share_name) {
+        if (!kit::insert_text(state.share_field, utf8))
+            return {};
+        editor.set_share_name(state.share_field.text);
+        return redrawn();
+    }
     if (state.prompt != Prompt::none)
         return {};
     if (state.interaction.focused != controls::search)

@@ -18713,3 +18713,283 @@
 	es=px;
 	it=px;
 	}
+
+[IMPORT…]
+	{
+	de=IMPORTIEREN…;
+	fr=IMPORTER…;
+	es=IMPORTAR…;
+	it=IMPORTA…;
+	}
+
+[SHARE…]
+	{
+	de=TEILEN…;
+	fr=PARTAGER…;
+	es=COMPARTIR…;
+	it=CONDIVIDI…;
+	}
+
+[PASTE…]
+	{
+	de=EINFÜGEN…;
+	fr=COLLER…;
+	es=PEGAR…;
+	it=INCOLLA…;
+	}
+
+[Share your keys]
+	{
+	de=Teile deine Tasten;
+	fr=Partage tes touches;
+	es=Comparte tus teclas;
+	it=Condividi i tuoi tasti;
+	}
+
+[Name]
+	{
+	de=Name;
+	fr=Nom;
+	es=Nombre;
+	it=Nome;
+	}
+
+[Starts from]
+	{
+	de=Geht aus von;
+	fr=Part de;
+	es=Parte de;
+	it=Parte da;
+	}
+
+[{keys} keys, {helpers} helpers]
+	{
+	de={keys} Tasten, {helpers} Helfer;
+	fr={keys} touches, {helpers} aides;
+	es={keys} teclas, {helpers} ayudas;
+	it={keys} tasti, {helpers} aiuti;
+	}
+
+[Saved to {place}]
+	{
+	de=Gespeichert unter {place};
+	fr=Enregistré dans {place};
+	es=Guardado en {place};
+	it=Salvato in {place};
+	}
+
+[The text changes {n} keys of {layout}.]
+	{
+	de=Der Text ändert {n} Tasten von {layout}.;
+	fr=Le texte change {n} touches de {layout}.;
+	es=El texto cambia {n} teclas de {layout}.;
+	it=Il testo cambia {n} tasti di {layout}.;
+	}
+
+[place]
+	{
+	de=Position;
+	fr=place;
+	es=lugar;
+	it=posto;
+	}
+
+[APPLY {n} CHANGES]
+	{
+	de={n} ÄNDERUNGEN ÜBERNEHMEN;
+	fr=APPLIQUER {n} CHANGEMENTS;
+	es=APLICAR {n} CAMBIOS;
+	it=APPLICA {n} MODIFICHE;
+	}
+
+[Imported from {file}]
+	{
+	de=Importiert aus {file};
+	fr=Importé depuis {file};
+	es=Importado de {file};
+	it=Importato da {file};
+	}
+
+[not used by Open Annihilation]
+	{
+	de=wird von Open Annihilation nicht benutzt;
+	fr=pas utilisé par Open Annihilation;
+	es=Open Annihilation no lo usa;
+	it=Open Annihilation non lo usa;
+	}
+
+[Found {n} keys · {m} differ from {layout}]
+	{
+	de={n} Tasten gefunden · {m} weichen von {layout} ab;
+	fr={n} touches trouvées · {m} diffèrent de {layout};
+	es={n} teclas encontradas · {m} difieren de {layout};
+	it={n} tasti trovati · {m} differiscono da {layout};
+	}
+
+[IMPORT {n} KEYS]
+	{
+	de={n} TASTEN IMPORTIEREN;
+	fr=IMPORTER {n} TOUCHES;
+	es=IMPORTAR {n} TECLAS;
+	it=IMPORTA {n} TASTI;
+	}
+
+[CHOOSE ANOTHER FILE…]
+	{
+	de=ANDERE DATEI WÄHLEN…;
+	fr=CHOISIR UN AUTRE FICHIER…;
+	es=ELEGIR OTRO ARCHIVO…;
+	it=SCEGLI UN ALTRO FILE…;
+	}
+
+[Left and right {modifier} are one key in Open Annihilation]
+	{
+	de=Links und rechts {modifier} sind in Open Annihilation eine Taste;
+	fr={modifier} gauche et droit sont une seule touche dans Open Annihilation;
+	es={modifier} izquierdo y derecho son una tecla en Open Annihilation;
+	it={modifier} sinistro e destro sono un solo tasto in Open Annihilation;
+	}
+
+[This layout has problems:]
+	{
+	de=Dieses Layout hat Probleme:;
+	fr=Cette disposition a des problèmes :;
+	es=Esta disposición tiene problemas:;
+	it=Questa disposizione ha dei problemi:;
+	}
+
+[Paste keys]
+	{
+	de=Tasten einfügen;
+	fr=Coller des touches;
+	es=Pegar teclas;
+	it=Incolla i tasti;
+	}
+
+[Import keys from an older setup]
+	{
+	de=Tasten aus einer älteren Einrichtung importieren;
+	fr=Importer des touches d'une ancienne configuration;
+	es=Importar teclas de una configuración antigua;
+	it=Importa i tasti da una configurazione vecchia;
+	}
+
+[The file is a .oakeys package anyone can open in Open Annihilation. The text carries the keys alone, for a forum or a chat.]
+	{
+	de=Die Datei ist ein .oakeys-Paket, das jeder in Open Annihilation öffnen kann. Der Text trägt nur die Tasten, für ein Forum oder einen Chat.;
+	fr=Le fichier est un paquet .oakeys que tout le monde peut ouvrir dans Open Annihilation. Le texte porte seulement les touches, pour un forum ou une discussion.;
+	es=El archivo es un paquete .oakeys que cualquiera puede abrir en Open Annihilation. El texto lleva solo las teclas, para un foro o un chat.;
+	it=Il file è un pacchetto .oakeys che chiunque può aprire in Open Annihilation. Il testo porta solo i tasti, per un forum o una chat.;
+	}
+
+[Nothing changes until you apply it.]
+	{
+	de=Es ändert sich nichts, bis du es übernimmst.;
+	fr=Rien ne change tant que tu ne l'appliques pas.;
+	es=No cambia nada hasta que lo apliques.;
+	it=Non cambia nulla finché non lo applichi.;
+	}
+
+[COPY AS TEXT]
+	{
+	de=ALS TEXT KOPIEREN;
+	fr=COPIER COMME TEXTE;
+	es=COPIAR COMO TEXTO;
+	it=COPIA COME TESTO;
+	}
+
+[SAVE FILE…]
+	{
+	de=DATEI SPEICHERN…;
+	fr=ENREGISTRER LE FICHIER…;
+	es=GUARDAR ARCHIVO…;
+	it=SALVA FILE…;
+	}
+
+[One clash: {chord} already belongs to {action}. Apply keeps yours and lists the clash.]
+	{
+	de=Ein Konflikt: {chord} gehört schon zu {action}. Übernehmen behält deine Taste und listet den Konflikt.;
+	fr=Un conflit : {chord} appartient déjà à {action}. Appliquer garde la tienne et liste le conflit.;
+	es=Un choque: {chord} ya pertenece a {action}. Aplicar conserva la tuya y lista el choque.;
+	it=Un conflitto: {chord} appartiene già a {action}. Applica tiene il tuo ed elenca il conflitto.;
+	}
+
+[{action} is kept in your layout for a version that has it.]
+	{
+	de={action} bleibt in deinem Layout für eine Version, die es kennt.;
+	fr={action} reste dans ta disposition pour une version qui l'aura.;
+	es={action} se queda en tu disposición para una versión que la tenga.;
+	it={action} resta nella tua disposizione per una versione che lo avrà.;
+	}
+
+[A mod's Ctrl+F2 keys]
+	{
+	de=Die Strg+F2-Tasten eines Mods;
+	fr=Les touches Ctrl+F2 d'un mod;
+	es=Las teclas Ctrl+F2 de un mod;
+	it=I tasti Ctrl+F2 di una mod;
+	}
+
+[The keys OA keeps for TA Zero, ESC or Twilight]
+	{
+	de=Die Tasten, die OA für TA Zero, ESC oder Twilight behält;
+	fr=Les touches qu'OA garde pour TA Zero, ESC ou Twilight;
+	es=Las teclas que OA guarda para TA Zero, ESC o Twilight;
+	it=I tasti che OA tiene per TA Zero, ESC o Twilight;
+	}
+
+[tdraw's Settings.ini]
+	{
+	de=tdraws Settings.ini;
+	fr=Le Settings.ini de tdraw;
+	es=El Settings.ini de tdraw;
+	it=Il Settings.ini di tdraw;
+	}
+
+[Mayhem, Twilight and older patches]
+	{
+	de=Mayhem, Twilight und ältere Patches;
+	fr=Mayhem, Twilight et les anciens correctifs;
+	es=Mayhem, Twilight y parches antiguos;
+	it=Mayhem, Twilight e le patch più vecchie;
+	}
+
+[cnc-ddraw's ddraw.ini]
+	{
+	de=cnc-ddraws ddraw.ini;
+	fr=Le ddraw.ini de cnc-ddraw;
+	es=El ddraw.ini de cnc-ddraw;
+	it=Il ddraw.ini di cnc-ddraw;
+	}
+
+[Full screen, screenshot and pointer keys]
+	{
+	de=Vollbild, Bildschirmfoto und Zeigertasten;
+	fr=Plein écran, capture et touches du pointeur;
+	es=Pantalla completa, captura y teclas del puntero;
+	it=Schermo intero, screenshot e tasti del puntatore;
+	}
+
+[Chosen file: {file}]
+	{
+	de=Gewählte Datei: {file};
+	fr=Fichier choisi : {file};
+	es=Archivo elegido: {file};
+	it=File scelto: {file};
+	}
+
+[Importing gives the key to this action and leaves {action} without it.]
+	{
+	de=Der Import gibt die Taste dieser Aktion und nimmt sie {action}.;
+	fr=L'import donne la touche à cette action et la retire à {action}.;
+	es=La importación da la tecla a esta acción y se la quita a {action}.;
+	it=L'importazione dà il tasto a questa azione e lo toglie a {action}.;
+	}
+
+[Numbers are Windows key codes, read as key places. The changes go on top of your layout as "Imported from {file}". Nothing else changes.]
+	{
+	de=Zahlen sind Windows-Tastencodes und werden als Tastenorte gelesen. Die Änderungen liegen auf deinem Layout als "Importiert aus {file}". Sonst ändert sich nichts.;
+	fr=Les nombres sont des codes de touches Windows, lus comme des emplacements. Les changements s'ajoutent à ta disposition comme "Importé depuis {file}". Rien d'autre ne change.;
+	es=Los números son códigos de tecla de Windows, leídos como lugares. Los cambios se ponen sobre tu disposición como "Importado de {file}". Nada más cambia.;
+	it=I numeri sono codici dei tasti di Windows, letti come posti. I cambiamenti si mettono sul tuo schema come "Importato da {file}". Non cambia nient'altro.;
+	}

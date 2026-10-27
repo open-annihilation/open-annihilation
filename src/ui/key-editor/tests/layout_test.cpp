@@ -835,6 +835,57 @@ void check_view(
 
 } // namespace
 
+/// IMPORT…, SHARE… and PASTE… sit in the footer at Regular and Large.
+/// SHARE… shows the id a name folds to.
+///
+/// @param frame the frame
+/// @param where the case
+void check_exchange(const kit::Frame& frame, const std::string& where) {
+    const editor::Editor model(editor_fixture());
+    const editor::ScreenState closed;
+    const kit::DisplayList list = laid_out(model, closed, frame);
+    const bool footer = frame.size_class != kit::SizeClass::compact;
+    const bool import_shown = find_named(list, editor::name_import) != nullptr;
+    const bool share_shown = find_named(list, editor::name_share) != nullptr;
+    const bool paste_shown = find_named(list, editor::name_paste) != nullptr;
+    if (footer != import_shown || footer != share_shown || footer != paste_shown) {
+        std::fprintf(
+            stderr,
+            "%s: footer buttons import %d share %d paste %d\n",
+            where.c_str(),
+            import_shown ? 1 : 0,
+            share_shown ? 1 : 0,
+            paste_shown ? 1 : 0
+        );
+    }
+    OA_CHECK(footer == import_shown && footer == share_shown && footer == paste_shown);
+
+    editor::Editor named(editor_fixture());
+    named.set_share_name("Grid, left hand");
+    editor::ScreenState share;
+    share.prompt = editor::Prompt::share;
+    share.share_field.text = "Grid, left hand";
+    share.share_field.caret = static_cast<int32_t>(share.share_field.text.size());
+    const kit::Point window = editor::window_size(frame);
+    const kit::DisplayList laid = laid_out(named, share, frame);
+    expect_none(outside_window(laid, window), where + " share drawn");
+    expect_none(rects_outside(laid, window), where + " share control");
+    expect_none(meeting_controls(laid), where + " share meets");
+    expect_none(texts_not_fitting(laid, fonts()), where + " share text");
+    const std::string names = kit::name_problem(laid);
+    if (!names.empty())
+        std::fprintf(stderr, "%s share: %s\n", where.c_str(), names.c_str());
+    OA_CHECK(names.empty());
+    const kit::Control* id = find_named(laid, editor::name_share_id);
+    if (id == nullptr || id->text != "grid-left-hand")
+        std::fprintf(
+            stderr, "%s: share id is \"%s\"\n", where.c_str(), id == nullptr ? "" : id->text.c_str()
+        );
+    OA_CHECK(id != nullptr && id->text == "grid-left-hand");
+    OA_CHECK(find_named(laid, editor::name_share_copy) != nullptr);
+    OA_CHECK(control_enabled(laid, editor::name_share_save));
+}
+
 int main() {
     const kit::Frame compact = frame_for(640, 480, 100);
     const kit::Frame large = frame_for(1280, 720, 100);
@@ -865,6 +916,9 @@ int main() {
     check_prompts(compact, "compact");
     check_prompts(large, "large");
     check_prompts(regular, "regular");
+    check_exchange(compact, "compact");
+    check_exchange(large, "large");
+    check_exchange(regular, "regular");
 
     check_view(
         compact, {480, 324}, "keyboard compact", editor::View::keyboard, kit::KeyboardShape::ansi

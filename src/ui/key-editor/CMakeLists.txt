@@ -13,9 +13,12 @@ add_library(oa-ui-key-editor
   src/layout.cpp
   src/list_geom.cpp
   src/menu_geom.cpp
+  src/import.cpp
   src/model.cpp
   src/mouse_view.cpp
   src/names.cpp
+  src/paste.cpp
+  src/share.cpp
   src/text.cpp)
 add_library(oa::ui::key_editor ALIAS oa-ui-key-editor)
 target_include_directories(oa-ui-key-editor PUBLIC include)
@@ -54,6 +57,12 @@ if(BUILD_TESTING)
   target_link_libraries(oa-ui-key-editor-capture-test PRIVATE oa-ui-key-editor oa-test-support)
   add_test(NAME ui-key-editor-capture COMMAND oa-ui-key-editor-capture-test)
   set_tests_properties(ui-key-editor-capture PROPERTIES TIMEOUT 60)
+
+  # Share ids, a paste's clash and unknown action, and an import that moves a chord.
+  add_executable(oa-ui-key-editor-share-test tests/share_test.cpp)
+  target_link_libraries(oa-ui-key-editor-share-test PRIVATE oa-ui-key-editor oa-test-support)
+  add_test(NAME ui-key-editor-share COMMAND oa-ui-key-editor-share-test)
+  set_tests_properties(ui-key-editor-share PROPERTIES TIMEOUT 60)
 
   # The list, the keyboard, the mouse, and the capture, clash and card, in the block font and again in the installed game's fonts.
   add_executable(oa-ui-key-editor-draw-test tests/draw_test.cpp)

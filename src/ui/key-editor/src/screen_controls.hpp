@@ -97,6 +97,50 @@ inline constexpr kit::ControlId scheme_left = 53;
 inline constexpr kit::ControlId detail_find = 54;
 /// The key card. It takes no focus.
 inline constexpr kit::ControlId key_card = 55;
+/// IMPORT… in the footer.
+inline constexpr kit::ControlId import_keys = 56;
+/// SHARE… in the footer.
+inline constexpr kit::ControlId share_keys = 57;
+/// PASTE… in the footer.
+inline constexpr kit::ControlId paste_keys = 58;
+/// The share prompt's name field.
+inline constexpr kit::ControlId share_name = 59;
+/// COPY AS TEXT.
+inline constexpr kit::ControlId share_copy = 60;
+/// SAVE FILE….
+inline constexpr kit::ControlId share_save = 61;
+/// OPEN FOLDER.
+inline constexpr kit::ControlId share_open = 62;
+/// The share prompt's CLOSE.
+inline constexpr kit::ControlId share_close = 63;
+/// The shared text. It takes no focus.
+inline constexpr kit::ControlId share_text = 64;
+/// The paste prompt's rows.
+inline constexpr kit::ControlId paste_list = 65;
+/// APPLY {n} CHANGES.
+inline constexpr kit::ControlId paste_apply = 66;
+/// The paste prompt's CANCEL.
+inline constexpr kit::ControlId paste_cancel = 67;
+/// A mod's Ctrl+F2 keys.
+inline constexpr kit::ControlId import_eye = 68;
+/// tdraw's Settings.ini.
+inline constexpr kit::ControlId import_tdraw = 69;
+/// cnc-ddraw's ddraw.ini.
+inline constexpr kit::ControlId import_ddraw = 70;
+/// CHOOSE ANOTHER FILE….
+inline constexpr kit::ControlId import_choose = 71;
+/// The import prompt's rows.
+inline constexpr kit::ControlId import_list = 72;
+/// IMPORT {n} KEYS.
+inline constexpr kit::ControlId import_apply = 73;
+/// The import prompt's CANCEL.
+inline constexpr kit::ControlId import_cancel = 74;
+/// The id the share name folds to.
+inline constexpr kit::ControlId share_id = 75;
+/// The paste prompt's summary.
+inline constexpr kit::ControlId paste_summary = 76;
+/// The import prompt's summary.
+inline constexpr kit::ControlId import_summary = 77;
 
 /// One nav entry. The category's place among the nav's entries, from 0, is added.
 inline constexpr kit::ControlId nav_first = 100;
