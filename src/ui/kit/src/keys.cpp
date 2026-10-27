@@ -1346,7 +1346,14 @@ void draw_mouse(const Canvas& canvas, const Rect& rect, const MouseLook& look) {
             );
             continue;
         }
-        draw_keycap(local, area, button_look(look, slot.button));
+        // A label too wide for its button in the regular font is drawn in the
+        // small one over the whole button, as the keyboard's main block draws
+        // one: Barlow's capitals are wider than the game font's.
+        KeycapLook cap = button_look(look, slot.button);
+        if (!cap.small &&
+            !line_is_whole(local, label_role(cap), cap.label, label_boxes(area, cap).label))
+            cap.small = true;
+        draw_keycap(local, area, cap);
     }
 }
 
