@@ -179,6 +179,10 @@ int main() {
         parse({"--dplay-port", "51234"}).net.dplay_port == uint16_t{51234},
         "--dplay-port takes a port"
     );
+    expect(
+        parse({"--dplay-port", "0"}).net.dplay_port == uint16_t{0},
+        "--dplay-port 0 takes any free port"
+    );
     const auto guid_bytes = [](const char* spelling) {
         const auto taken = parse({"--dplay-guid", spelling}).net.dplay_guid;
         return taken ? *taken : std::array<uint8_t, 16>{};
@@ -243,11 +247,9 @@ int main() {
         );
     }
     expect(
-        rejection({"--dplay-port", "0"}) == "--dplay-port expects a port from 1 through 65535" &&
-            rejection({"--dplay-port", "65536"}) ==
-                "--dplay-port expects a port from 1 through 65535" &&
-            rejection({"--dplay-port", "x"}) == "--dplay-port expects a port from 1 through 65535",
-        "--dplay-port rejects anything but 1 through 65535"
+        rejection({"--dplay-port", "65536"}) == "--dplay-port expects a port from 0 through 65535" &&
+            rejection({"--dplay-port", "x"}) == "--dplay-port expects a port from 0 through 65535",
+        "--dplay-port rejects anything but 0 through 65535"
     );
 
     // --host and --join name the game the multiplayer screens host or join

@@ -2681,11 +2681,11 @@ if(OA_BUILD_PLATFORM)
         "${oa_mutator_room_dir}/Open Annihilation" "${oa_mutator_room_dir}/files"
         "${oa_mutator_room_dir}/data" "${oa_mutator_room_dir}/mutator-room.conf")
       set_tests_properties(mutator-room-clean PROPERTIES FIXTURES_SETUP mutator-room-clean)
-      # The checks that host a game on the default DirectPlay port
-      # (mutator room, brain room, both text fits) share the lock
-      # dplay-enumeration-port, so a parallel ctest runs them one at a time.
+      # The checks that host a game alone (mutator room, brain room, both
+      # text fits) host on any free DirectPlay port (--dplay-port 0), so they
+      # run beside each other and beside any other game on the machine.
       add_test(NAME native-mutator-room COMMAND oa-game --game-dir "${OA_GAME_DIR}"
-        --skip-intro --mute --check-mutator-room
+        --skip-intro --mute --check-mutator-room --dplay-port 0
         --host --player-name Steve --game-name Ridge
         --preferences-file "${oa_mutator_room_dir}/mutator-room.conf"
         --user-folder "${oa_mutator_room_dir}/Open Annihilation"
@@ -2693,7 +2693,7 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-mutator-room PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_mutator_room_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
-        FIXTURES_REQUIRED mutator-room-clean RESOURCE_LOCK dplay-enumeration-port)
+        FIXTURES_REQUIRED mutator-room-clean)
       # A battle room hosted alone, at 640x480 and 1280x720: no seat button
       # with no brain installed, Steady Commander remembered at firm, the
       # built-in player at Medium, and Lantern Scout on every computer this
@@ -2707,7 +2707,7 @@ if(OA_BUILD_PLATFORM)
         "${oa_brain_room_dir}/data" "${oa_brain_room_dir}/brain-room.conf")
       set_tests_properties(brain-room-clean PROPERTIES FIXTURES_SETUP brain-room-clean)
       add_test(NAME native-brain-room COMMAND oa-game --game-dir "${OA_GAME_DIR}"
-        --skip-intro --mute --check-brain-room
+        --skip-intro --mute --check-brain-room --dplay-port 0
         --host --player-name Steve --game-name Ridge
         --preferences-file "${oa_brain_room_dir}/brain-room.conf"
         --user-folder "${oa_brain_room_dir}/Open Annihilation"
@@ -2715,7 +2715,7 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-brain-room PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_brain_room_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
-        FIXTURES_REQUIRED brain-room-clean RESOURCE_LOCK dplay-enumeration-port)
+        FIXTURES_REQUIRED brain-room-clean)
       # A two-map pack installed from the check's own registry after the
       # skirmish list has been shown and the battle room's list has been
       # read. One stem has a space, an apostrophe and parentheses and the
@@ -3576,12 +3576,11 @@ if(OA_BUILD_PLATFORM)
       file(WRITE "${oa_text_fit_check_dir}/text-fit.conf"
         "open-annihilation-preferences 1\n\"open-annihilation.language\" \"en\"\n\"open-annihilation.first-run\" \"done\"\n")
       add_test(NAME native-text-fit COMMAND oa-game --game-dir "${OA_GAME_DIR}"
-        --skip-intro --mute --check-text-fit
+        --skip-intro --mute --check-text-fit --dplay-port 0
         --preferences-file "${oa_text_fit_check_dir}/text-fit.conf")
       set_tests_properties(native-text-fit PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_text_fit_check_dir}"
-        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
-        RESOURCE_LOCK dplay-enumeration-port)
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The same in only the language --check-language names, which an
       # installed pack shows: the Chinese fixture here, a translator's own
       # pack (uk) on their machine.
@@ -3590,12 +3589,11 @@ if(OA_BUILD_PLATFORM)
       file(WRITE "${oa_text_fit_language_check_dir}/text-fit.conf"
         "open-annihilation-preferences 1\n\"open-annihilation.language\" \"en\"\n\"open-annihilation.first-run\" \"done\"\n")
       add_test(NAME native-text-fit-language COMMAND oa-game --game-dir "${OA_GAME_DIR}"
-        --skip-intro --mute --check-text-fit --check-language zh-Hans
+        --skip-intro --mute --check-text-fit --check-language zh-Hans --dplay-port 0
         --preferences-file "${oa_text_fit_language_check_dir}/text-fit.conf")
       set_tests_properties(native-text-fit-language PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_text_fit_language_check_dir}"
-        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
-        RESOURCE_LOCK dplay-enumeration-port)
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The match dialog check in the Chinese fixture's language, which the
       # modern fonts draw: the briefing's rows and its MORE caption keep to
       # their boxes, and the dialogs' texts and quick keys are the ones the

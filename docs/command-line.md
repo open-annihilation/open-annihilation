@@ -248,7 +248,7 @@ for limitations and a weapon-effect test recipe.
 | `--game-name NAME` | With `--host`, the game's name; with `--join`, the game to join when several answer at the address. |
 | `--game-password PASSWORD` | With `--host`, the game's password; with `--join`, the password sent. |
 | `--dplay-guid GUID` | The application GUID this game hosts under and looks for. [Below](#--dplay-guid). |
-| `--dplay-port PORT` | The DirectPlay port this game hosts on and looks for games at, from 1 through 65535, in place of the standard 47624. |
+| `--dplay-port PORT` | The DirectPlay port this game hosts on and looks for games at, from 1 through 65535, in place of the standard 47624. 0 is any port the system has free, for a game that hosts alone, as the battle room checks do. |
 | `--play-demo FILE.tad` | Plays back a recorded network game ([recordings](../README.md#demo-recorder)). |
 | `--demo-unit-table strict\|ignore` | `ignore` plays a recording back even when its units differ from the game's, for diagnosis only; `strict`, the default, refuses it. |
 | `--net-record FILE` | Records the next network game to `FILE`, replacing it, whatever the mod's profile says. |

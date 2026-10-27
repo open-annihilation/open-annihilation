@@ -78,19 +78,19 @@ std::string transport_name(int32_t transport) {
     }
 }
 
-/// Parses a UDP port number.
+/// Parses a UDP port number. 0 is any port the system has free, for a game
+/// that hosts alone (a check), since nobody needs to find it.
 ///
-/// Anything but a whole number from 1 through 65535 throws std::runtime_error
-/// "--dplay-port expects a port from 1 through 65535".
+/// Anything but a whole number from 0 through 65535 throws std::runtime_error
+/// "--dplay-port expects a port from 0 through 65535".
 ///
 /// @param text The option's value.
 /// @return The port.
 [[nodiscard]] uint16_t parse_port(std::string_view text) {
     uint32_t value = 0;
     const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
-    if (result.ec != std::errc{} || result.ptr != text.data() + text.size() || value == 0 ||
-        value > 65535)
-        throw std::runtime_error("--dplay-port expects a port from 1 through 65535");
+    if (result.ec != std::errc{} || result.ptr != text.data() + text.size() || value > 65535)
+        throw std::runtime_error("--dplay-port expects a port from 0 through 65535");
     return static_cast<uint16_t>(value);
 }
 
