@@ -1041,7 +1041,7 @@ std::vector<PlacedPart> place_parts(
 /// @param part the part
 void draw_part(const Canvas& canvas, const PlacedPart& part) {
     if (part.kind == PartKind::callout) {
-        fill_round_rect(canvas, part.rect, kBoxRadius, tone_tint(part.tone));
+        fill_corner_rect(canvas, part.rect, kBoxRadius, tone_tint(part.tone));
         if (part.mark.width > 0)
             draw_mark(
                 canvas, tone_bits(part.tone), {part.mark.x, part.mark.y}, tone_colour(part.tone)
@@ -1049,8 +1049,8 @@ void draw_part(const Canvas& canvas, const PlacedPart& part) {
     }
     for (std::size_t index = 0; index < part.boxes.size(); ++index) {
         const Rect& box = part.boxes[index];
-        fill_round_rect(canvas, box, kBoxRadius, colour::list);
-        outline_round_rect(canvas, box, kBoxRadius, colour::rule);
+        fill_corner_rect(canvas, box, kBoxRadius, colour::list);
+        outline_corner_rect(canvas, box, kBoxRadius, colour::rule);
         if (index < part.headings.size() && !part.headings[index].first.empty())
             draw_heading(canvas, part.headings[index].second, part.headings[index].first);
     }

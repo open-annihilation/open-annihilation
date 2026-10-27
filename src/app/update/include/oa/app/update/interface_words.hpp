@@ -79,6 +79,7 @@ inline constexpr std::string_view interface_words[] = {
     "Show details",
     "Show the log",
     "Skip this version",
+    "Some files were left half-moved.",
     "Some files were left half-moved. Show details lists the steps that put the game right.",
     "Start Open Annihilation from Applications afterwards.",
     "Started {version}",

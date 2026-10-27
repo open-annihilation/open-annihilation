@@ -310,8 +310,11 @@ int Runtime::check_update_download() {
         // Each update screen in each state, at Compact, Regular and Large:
         // the update centre reads made-up states, and nothing is fetched.
         // The pictures are written to the working folder as
-        // update-<screen>-<state>-<width>x<height>.png.
-        options_.update_feed.reset();
+        // update-<screen>-<state>-<width>x<height>.png. The check is asked
+        // for only, so the named feed is never fetched.
+        update::write_check_mode(preference_values_, update::CheckMode::when_asked);
+        preferences_dirty_ = true;
+        flush_preferences();
 
         struct PictureWindow {
             int32_t width{};                     ///< the window's width, in pixels
@@ -743,6 +746,25 @@ int Runtime::check_update_download() {
         if (!started)
             say("update started the download");
         say("resumed with Range");
+    }
+    // The menu pill shows the download: its Pause holds it, a state of its
+    // own the pill then names, and its Resume carries it on.
+    {
+        click_named("oa.update-pill.pause");
+        require(
+            shot().state == update::DownloadState::paused_by_player,
+            "the pill's Pause did not pause the download"
+        );
+        require(
+            update_header_note().find("paused") != std::string::npos,
+            "the header note does not say paused"
+        );
+        click_named("oa.update-pill.resume");
+        require(
+            shot().state != update::DownloadState::paused_by_player,
+            "the pill's Resume did not carry the download on"
+        );
+        say("pill paused and resumed");
     }
     // The ranged answer is held for kHeadDelayMs. The match has to be on
     // before that body arrives, or the file finishes without a pause.

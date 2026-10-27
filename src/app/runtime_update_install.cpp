@@ -103,6 +103,9 @@ constexpr std::string_view kReceiptWord = "update-receipt";
 constexpr std::string_view kWhatHappened = "What happened";
 /// The heading of the box that lists the steps that put an unfinished recovery right.
 constexpr std::string_view kPutRight = "To put the game right";
+/// The recovery screen's callout when recovery did not finish: the steps that
+/// put the game right are listed under it.
+constexpr std::string_view kLeftHalfMoved = "Some files were left half-moved.";
 /// The line the recovery screen's callout says where the old version was put back.
 constexpr std::string_view kKeptAsTheyWere =
     "Your saved games, settings and mods stay as they are.";
@@ -306,7 +309,7 @@ kit::Question receipt_question(
     callout.tone = kit::CalloutTone::ok;
     if (centre.stage == update::Stage::recovery_incomplete) {
         callout.tone = kit::CalloutTone::danger;
-        callout.text = words.detail;
+        callout.text = std::string(languages::interface_text(kLeftHalfMoved));
     } else if (centre.stage == update::Stage::failed_restored) {
         callout.text = std::string(languages::interface_text(kKeptAsTheyWere));
     } else {
@@ -373,10 +376,9 @@ constexpr std::string_view kScheduledWord = "scheduled-update";
 constexpr std::string_view kPillInstall = "Install\u2026";
 /// The update pill's button that asks what a scheduled release does.
 constexpr std::string_view kPillChange = "Change";
-/// The columns between the update pill and the Library button, in points.
+/// The rows between the update pill and the main menu's buttons above it, in points.
 constexpr int32_t kPillGap = 8;
-/// The update pill's margin from the room's edges when the main menu's
-/// buttons are not drawn, in points.
+/// The update pill's margin from the main menu's top and right edges, in points.
 constexpr int32_t kPillMargin = 12;
 
 /// Returns the caption the update centre gives one of a state's actions.
@@ -488,7 +490,7 @@ kit::Question scheduled_question(const update::Centre& centre) {
 }
 
 /// The update pill on the main menu: the update centre's state in short,
-/// beside the Library button, with one small button. A press on the pill
+/// at the main menu's top right, with one small button. A press on the pill
 /// opens Settings › Updates. It takes no key, and what it does not take
 /// goes on to the main menu.
 class UpdatePillScreen final : public LayerScreen {
@@ -518,31 +520,31 @@ class UpdatePillScreen final : public LayerScreen {
     /// @return the name
     [[nodiscard]] std::string_view name() const override { return kit::update_pill_word; }
 
-    /// Places the pill beside the Library button, centred on it, or at the
-    /// room's bottom right when the main menu's buttons are not drawn. It
-    /// shows on the main menu alone.
+    /// Places the pill at the main menu's top right, clear of the game's own
+    /// buttons; under the main menu's buttons while an extension's overlay
+    /// has put them at the top. It shows on the main menu alone, and not
+    /// while a modal screen shows.
     ///
     /// @param view what it is placed on
     /// @return its place; empty off the main menu
     [[nodiscard]] LayerPlacement placement(const LayerView& view) const override {
-        if (view.match || view.game_screen != Screen::main_menu || layer_.screen_fonts() == nullptr)
+        // A modal screen, such as Settings or a prompt, has the player's
+        // attention: the pill steps aside until it closes.
+        if (view.match || view.game_screen != Screen::main_menu ||
+            layer_.screen_fonts() == nullptr || layer_.modal_shown(false))
             return {};
         const kit::PlacedUpdatePill placed = kit::place_update_pill(pill_, layer_.screen_fonts());
         const int32_t percent = std::max(view.scale_percent, int32_t{100});
         const auto points = [percent](int32_t pixels) {
             return static_cast<int32_t>(int64_t{pixels} * 100 / percent);
         };
+        const int32_t right = points(view.picture.x + view.picture.width) - kPillMargin;
+        int32_t top = points(view.picture.y) + kPillMargin;
         const OaLayer::MenuButtonWindows buttons = layer_.menu_button_windows();
-        int32_t right = view.frame.area.x + view.frame.area.width - kPillMargin;
-        int32_t middle =
-            view.frame.area.y + view.frame.area.height - kPillMargin - placed.height / 2;
-        if (buttons.library.width > 0 && buttons.library.height > 0) {
-            right = points(buttons.library.x) - kPillGap;
-            middle = points(buttons.library.y + buttons.library.height / 2);
-        }
-        const kit::Rect at{
-            right - placed.width, middle - placed.height / 2, placed.width, placed.height
-        };
+        const int32_t middle = points(view.picture.y + view.picture.height / 2);
+        if (buttons.settings.height > 0 && points(buttons.settings.y) < middle)
+            top = points(buttons.settings.y + buttons.settings.height) + kPillGap;
+        const kit::Rect at{right - placed.width, top, placed.width, placed.height};
         const kit::Rect shown = kit::to_canvas(at, percent);
         return {
             {shown.x, shown.y, shown.width, shown.height}, placed.width, placed.height, percent
@@ -2020,8 +2022,13 @@ bool Runtime::apply_update_download(settings::Dialog& dialog) {
         offer.offered = lines.offered;
         offer.updated_by = lines.updated_by;
     }
+    // The heading and the detail on one line: a full stop ends a sentence,
+    // and a dot joins a heading that is not one.
     const auto centre_line = [&words]() {
-        return words.detail.empty() ? words.status : words.status + " \u00b7 " + words.detail;
+        if (words.detail.empty())
+            return words.status;
+        const bool sentence = !words.status.empty() && words.status.back() == '.';
+        return words.status + (sentence ? " " : " \u00b7 ") + words.detail;
     };
     const auto centre_owns = [&]() {
         offer.status = centre_line();
