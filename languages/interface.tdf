@@ -13066,6 +13066,22 @@
 	it=PERCHÉ;
 	}
 
+[WORLD]
+	{
+	de=WELT;
+	fr=MONDE;
+	es=MUNDO;
+	it=MONDO;
+	}
+
+[World: {tag} ({count})]
+	{
+	de=Welt: {tag} ({count});
+	fr=Monde : {tag} ({count});
+	es=Mundo: {tag} ({count});
+	it=Mondo: {tag} ({count});
+	}
+
 [Downloading the game's files from iCloud…]
 	{
 	de=Die Spieldateien werden aus iCloud geladen…;
