@@ -1456,6 +1456,27 @@ void close_details(Library& library);
 /// @return the words; empty when neither gives any
 [[nodiscard]] std::string_view entry_summary(const Entry& entry);
 
+/// What a tag naming a map's world starts with: the world its terrain is
+/// drawn from, such as world-ice or world-green.
+inline constexpr std::string_view world_tag_prefix = "world-";
+
+/// Tells whether a tag names a map's world: world_tag_prefix and a name.
+///
+/// @param tag the catalogue id
+/// @return true for a world tag
+[[nodiscard]] constexpr bool world_tag(std::string_view tag) noexcept {
+    return tag.size() > world_tag_prefix.size() && tag.starts_with(world_tag_prefix);
+}
+
+/// Returns the words a world tag shows: the world's name, without the
+/// prefix, so world-ice shows as ice. Any other tag is returned as it is.
+///
+/// @param tag the catalogue id
+/// @return a view of `tag`
+[[nodiscard]] constexpr std::string_view world_name(std::string_view tag) noexcept {
+    return world_tag(tag) ? tag.substr(world_tag_prefix.size()) : tag;
+}
+
 /// Lists the tags of the entries a tab shows under its filter, with how many have each.
 ///
 /// The tag and the search are not applied. A mutator's tags are its listing's
@@ -1464,7 +1485,9 @@ void close_details(Library& library);
 /// come first, in the kit's order, and any other id follows. On the Brains
 /// tab the nine brain ids come first, in that order, and any other id
 /// follows. Each id is listed only when at least one entry has it. Other
-/// tabs list every tag by id.
+/// tabs list every tag by id. On every tab the world tags (world_tag) come
+/// last, in the same order among themselves, so they stand apart under
+/// their own heading.
 ///
 /// @param library the Library
 /// @return each tag and its count

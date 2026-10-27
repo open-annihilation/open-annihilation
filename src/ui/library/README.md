@@ -509,8 +509,9 @@ app removes the folder (`Runtime::library_uninstall`,
     (`state_icon_side`) at the right of the title band; resting on it
     shows a card headed "Signing key" or "Signing keys", each fingerprint
     and full public key, and "built in" or "added
-    by you", and pressing it asks for nothing. REFRESH sits beside the
-    switch and asks the host to refresh that registry
+    by you", and pressing it asks for nothing. REFRESH, a row's small
+    secondary button with the kit's refresh arrow before its word, sits
+    beside the switch and asks the host to refresh that registry
     (`Action::refresh_registry`); it is greyed while the registry is off
     or already being asked, and the refresh mark beside it turns while it
     is. When the ask reads a catalogue the mark shows a check
@@ -532,7 +533,11 @@ app removes the folder (`Runtime::library_uninstall`,
     switch and a removal at once, and asks the content service to refresh
     that one registry;
   - The shell takes Kit 2's sizes at every class (`Window` in `layout.cpp`):
-    Kit 2's window padding, a tab strip of `Metrics::tab_strip_height`
+    two spaces round its parts and between its panes (`Window::gutter`, 8,
+    12 and 16 points, a space less than Kit 2's window padding, which the
+    base game chooser and USE's question keep), the tab strip standing on
+    the header's rule and a space between the last part and the footer, a
+    tab strip of `Metrics::tab_strip_height`
     (32/38/44), the search field and the drop-down fields of
     `text_field_height` (30/36/40), the filter pills of `filter_chip_height`
     (24/26/28, each wider by what it gains in height), buttons of
@@ -594,8 +599,16 @@ app removes the folder (`Runtime::library_uninstall`,
     lines, the 8-point bar under the first while a download runs, and CLOSE);
   - **Large** shows Regular's header, tabs and search, a 180-point filter
     pane (a nav list of All, New, Installed and Updates with their counts,
-    the heading TAGS and the tab's tags with their counts) in place of the
-    pills, a 400-point list of Kit 2's 44-point rows of three lines (the tags
+    the heading TAGS and the tab's tags with their counts, then the heading
+    WORLD and the world tags, each by its world's name) in place of the
+    pills, every entry in a view that scrolls with the wheel, its bar, a
+    finger and the arrows, with no drop-down; Tab stops once in it, on the
+    entry the focus last had there or else the chosen one, so the next Tab
+    reaches the list and Shift+Tab comes back, while Up, Down, Home, End
+    and the page keys walk every entry and the view follows; a newly chosen
+    entry is brought into view (`ScreenState::filters_scroll`,
+    `filters_chosen`, `filters_stop`). Then a 400-point list of Kit 2's
+    44-point rows of three lines (the tags
     as chips under the summary), on Updates under "{n} updates" and UPDATE
     ALL, and the details.
 
@@ -728,13 +741,18 @@ app removes the folder (`Runtime::library_uninstall`,
     `library.registries.note` and `library.registries.notice`;
   - `library.filter` (Compact's drop-down, whose items, while it is open,
     are `library.filter.all`, `.new`, `.installed`, `.updates` and
-    `.tag-<tag>`), or the pills or nav entries `library.filter.all`,
+    `.tag-<tag>`, a world tag's text "World: ice (3)"), or the pills or nav entries `library.filter.all`,
     `library.filter.new`, `library.filter.installed` and
     `library.filter.updates`, their text the filter and its count ("All
     (11)"); the tags' pills or nav entries `library.tag.<tag>`, and
-    `library.tags` (TAGS ▾, its items `library.tags.<tag>` while it is
-    open); a tag under the description is `library.detail.tag.<tag>`, an
-    inactive pill, and pressing it chooses that tag as the filter row does;
+    Regular's `library.tags` (TAGS ▾, its items `library.tags.<tag>` while it
+    is open, the world tags last under the heading WORLD, which is not named,
+    marked or pressed); a tag under the description is
+    `library.detail.tag.<tag>`, an inactive pill, and pressing it chooses
+    that tag as the filter row does. A world tag (`world_tag`, `world-`
+    and a name) shows its world's name wherever a tag shows (`world_name`:
+    `world-ice` is "ice"), comes after the other tags (`tags_in_tab`), and
+    a search finds it by that name or by the whole tag;
   - `library.list` (the list, kind `list`, no text), and one control for
     each row that shows, kind `list_item`, its text the entry's name:
     `library.row.<registry>.<key>`, or `library.row.<key>` for a package of
@@ -779,6 +797,11 @@ app removes the folder (`Runtime::library_uninstall`,
     scrolled out of the area. At most 4,000 maps are named.
 - `focused_field(state, list)` gives the search field while it has the
   focus, over which a host keeps the system's text input started.
+- `focus_tab_search(library, state)` gives the open tab's search the text
+  focus, shown: the catalogue search, or the Active tab's maps search; the
+  Registries tab has none. A host calls it as it opens the Library; a tab
+  opened inside it, by the pointer, a finger, Ctrl+Tab or the controller,
+  does the same, while a key on the tab strip keeps the focus there.
 
 ## State
 
@@ -1162,5 +1185,4 @@ and "Not compatible with this mod" are on the list.
   reach `library_command` and `library_stick` yet.
 - Only rows that show have controls: a journey scrolls or searches before
   it presses a row that does not show.
-- Large shows as many tags in its filter pane as fit, and TAGS ▾ holds the
-  rest; the filter pane does not scroll.
+- Regular's pills show as many tags as fit, and TAGS ▾ holds the rest.

@@ -4468,6 +4468,7 @@ void Runtime::open_library(std::optional<library::Tab> tab) {
         host.state.details_page = false;
         library::close_details(host.model);
         library::set_tab(host.model, shown);
+        library::focus_tab_search(host.model, host.state);
     } else {
         host.state = {};
         host.kept_selection.reset();
@@ -4475,6 +4476,7 @@ void Runtime::open_library(std::optional<library::Tab> tab) {
         library::set_query(host.model, {});
         library::close_details(host.model);
         library::set_tab(host.model, shown);
+        library::focus_tab_search(host.model, host.state);
         layer.push(std::make_unique<LibraryScreen>(*this));
     }
     ++host.model_revision;

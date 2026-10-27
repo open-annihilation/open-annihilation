@@ -253,6 +253,10 @@ inline constexpr int32_t details_group = 1;
 /// search are not in it: they stay put while the maps scroll.
 inline constexpr int32_t maps_group = 2;
 
+/// Large's filter pane: its filters, tags and worlds, which scroll under its
+/// headings. Tab stops on one of them, and the arrows move among them.
+inline constexpr int32_t filters_group = 3;
+
 /// Returns an action's button's control.
 ///
 /// @param action the action
@@ -361,14 +365,18 @@ struct MenuItem {
     std::optional<Filter> filter{};   ///< the filter it shows, with every tag
     std::optional<std::size_t> tag{}; ///< the tag it shows, its place in tags_in_tab
     std::optional<Action> action{};   ///< the selected entry's action it asks for
+    /// A heading over the items after it, such as WORLD: not a choice, never
+    /// marked, pressed or named.
+    bool heading{};
 };
 
 /// Lists a drop-down's items.
 ///
 /// Compact's filter holds All, New, Installed and Updates with their counts,
-/// then every tag of the tab; the tags drop-down the tags without a chip or
-/// nav entry of their own; MORE the selected entry's actions after its
-/// first three.
+/// then every tag of the tab, a world tag as its world; the tags drop-down
+/// the tags without a chip or nav entry of their own, the world tags under
+/// the heading WORLD; MORE the selected entry's actions after its first
+/// three.
 ///
 /// @param library the model
 /// @param menu the drop-down

@@ -176,6 +176,9 @@ class_of(const Fields& fields, std::string_view word, const TextHooks& text) {
         const std::string id = folded(tag);
         if (std::string_view(id).substr(0, word.size()) == word)
             return MatchClass::tag;
+        // A world tag is found by its world's name too, as the list shows it.
+        if (world_tag(id) && world_name(id).substr(0, word.size()) == word)
+            return MatchClass::tag;
         const std::string label = folded(
             fields.brain ? brain_tag_label(tag, text)
                          : (fields.keys ? key_tag_label(tag, text) : tag_label(tag, text))

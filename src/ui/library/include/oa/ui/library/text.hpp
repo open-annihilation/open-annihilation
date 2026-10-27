@@ -637,6 +637,11 @@ inline constexpr std::string_view filter_tag = "Tag: {tag} ({count})";
 inline constexpr std::string_view tag_with_count = "{tag} ({count})";
 /// The drop-down holding the tags that do not fit, and the filter pane's heading over them.
 inline constexpr std::string_view tags_menu = "TAGS";
+/// The filter pane's heading over the world tags, apart from the other
+/// tags, and the heading before them in a drop-down.
+inline constexpr std::string_view world_heading = "WORLD";
+/// A world tag in Compact's filter drop-down: its world's name.
+inline constexpr std::string_view filter_world = "World: {tag} ({count})";
 /// The eight catalogue tag ids, as a player reads them. Any other id is shown as written.
 inline constexpr std::string_view tag_statistics = "Statistics";
 inline constexpr std::string_view tag_economy = "Economy";

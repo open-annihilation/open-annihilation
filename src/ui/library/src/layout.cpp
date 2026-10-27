@@ -145,14 +145,17 @@ const std::vector<std::string>* shown_tags(const Entry& entry) {
 /// Returns the words a tag shows in one place.
 ///
 /// A mutator's chips and detail pills, and the Mutators tab's filter pills,
-/// pane and menu, use the eight ids' labels. Every other tag is the id as
-/// written, so a mod's or a map pack's own tag does not change.
+/// pane and menu, use the eight ids' labels. A world tag shows its world's
+/// name (world_name). Every other tag is the id as written, so a mod's or a
+/// map pack's own tag does not change.
 ///
 /// @param library the Library
 /// @param tag the catalogue id
 /// @param labelled true for a mutator's tags, or for the Mutators tab's filters
 /// @return the words; a view of `tag` when this place does not label it
 std::string_view tag_caption(const Library& library, std::string_view tag, bool labelled) {
+    if (world_tag(tag))
+        return world_name(tag);
     if (!labelled)
         return tag;
     if (library.tab == Tab::brains)
@@ -286,9 +289,12 @@ std::string named(std::string_view words_after) {
 
 /// The window's rows and columns at a size class.
 struct Window {
-    int32_t width{};       ///< the window's width, in points
-    int32_t height{};      ///< the window's height, in points
-    int32_t padding{};     ///< the class's padding
+    int32_t width{};   ///< the window's width, in points
+    int32_t height{};  ///< the window's height, in points
+    int32_t padding{}; ///< Kit 2's window padding: the dialogs over the Library keep it
+    /// The shell's margin: the columns between the window's edges and its
+    /// parts, and between its panes, two spaces.
+    int32_t gutter{};
     int32_t left{};        ///< the content's left column
     int32_t right{};       ///< the column after the content's last
     int32_t body_top{};    ///< the first row under the header's rule
@@ -296,6 +302,7 @@ struct Window {
     int32_t footer_top{};  ///< the footer's first row
     int32_t button_top{};  ///< the footer's buttons' top row
     int32_t gap{};         ///< the rows between stacked parts
+    int32_t bottom_gap{}; ///< the rows between the shell's last part and the footer's rule: a space
     /// The footer's height: Kit 2's window footer, or at Compact its controls
     /// with a space above and below, so the list keeps its room.
     int32_t footer_height{};
@@ -318,13 +325,16 @@ Window window_of(const kit::Frame& frame) {
     Window window;
     window.width = size.x;
     window.height = size.y;
-    // Kit 2's window padding, and its sizes for the shell's controls: its
-    // window header, tab strip, fields, pills, controls and footer. Compact's
-    // stacked parts sit a space apart and its footer holds its controls
-    // with a space above and below, so the list keeps its room.
+    // Kit 2's sizes for the shell's controls: its window header, tab strip,
+    // fields, pills, controls and footer. The shell keeps two spaces round
+    // its parts and between its panes, a space less than Kit 2's window
+    // padding, so the lists have the room. Compact's stacked parts sit a
+    // space apart and its footer holds its controls with a space above and
+    // below, so the list keeps its room.
     window.padding = metrics.window_padding;
-    window.left = window.padding;
-    window.right = size.x - metrics.edge - window.padding;
+    window.gutter = 2 * metrics.space;
+    window.left = window.gutter;
+    window.right = size.x - metrics.edge - window.gutter;
     window.button_height = metrics.control_height;
     window.tab_height = metrics.tab_strip_height;
     window.field_height = metrics.text_field_height;
@@ -341,6 +351,7 @@ Window window_of(const kit::Frame& frame) {
     window.footer_top = window.footer_rule + 1;
     window.button_top = window.footer_top + (window.footer_height - window.button_height) / 2;
     window.gap = compact ? metrics.space : metrics.row_gap;
+    window.bottom_gap = metrics.space;
     return window;
 }
 
@@ -1916,7 +1927,7 @@ void add_updates_line(Building& building, const kit::Rect& row) {
         building.top,
         button,
         caption,
-        true,
+        false,
         update_count(library) > 0,
         controls::update_all,
         named("action.update-all"),
@@ -2053,54 +2064,85 @@ void add_chip_row(Building& building, const kit::Rect& row) {
     );
 }
 
-/// Appends Large's filter pane: a nav list of All, New, Installed and
-/// Updates with their counts, the heading TAGS and a nav list of the tab's
-/// tags with their counts, TAGS ▾ holding those that do not fit.
+/// One entry or heading of Large's filter pane, placed from the top of its
+/// content.
+struct FilterPart {
+    bool heading{};                     ///< a heading, TAGS or WORLD, not an entry
+    int32_t top{};                      ///< its top, from the content's top
+    std::string caption{};              ///< its words, looked up
+    bool selected{};                    ///< the chosen entry
+    kit::ControlId id{kit::no_control}; ///< an entry's control
+    std::string name{};                 ///< an entry's name
+    std::optional<kit::TagIcon> tag{};  ///< an entry's tag icon
+};
+
+/// Returns the word that says which entry the filter pane shows as chosen:
+/// the tab, the filter and the tag.
+///
+/// @param library the model
+/// @return the word
+std::string filter_choice_word(const Library& library) {
+    return std::to_string(static_cast<int32_t>(library.tab)) + "/" +
+           std::to_string(static_cast<int32_t>(shown_filter(library))) + "/" + library.tag;
+}
+
+/// Appends Large's filter pane: All, New, Installed and Updates with their
+/// counts, the heading TAGS over the tab's tags with their counts, and the
+/// heading WORLD over its world tags, each by its world's name. Every entry
+/// is in the pane, in a view that scrolls with the wheel, a drag of its bar
+/// or a finger, and the arrows while one of them has the focus; when the
+/// chosen entry changes, the view brings it in. Tab stops on one entry, the
+/// focused one or else the chosen one, so the next Tab reaches the list.
 ///
 /// @param[in,out] building the layout
 /// @param pane the pane
 void add_filter_pane(Building& building, const kit::Rect& pane) {
     const Library& library = *building.library;
+    const ScreenState& state = *building.state;
     const kit::Metrics& metrics = *building.metrics;
-    kit::NavLook nav;
-    nav.area = pane;
-    nav.rule_column = pane.x + pane.width - 1;
+    // The face and the rule at the pane's right stay put; the entries and
+    // the headings scroll in the view inside the pane's inset.
+    kit::NavLook face;
+    face.area = pane;
+    face.rule_column = pane.x + pane.width - 1;
+    add_item(building.list, kit::Role::nav, pane, {}).look = face;
     const int32_t inset = metrics.paragraph_gap;
-    const int32_t entry_left = pane.x + inset;
-    const int32_t entry_width = pane.width - 2 * inset;
-    // The kit's nav draws an entry's caption from 12 columns in, and keeps 4 clear at its right.
-    const int32_t caption_room =
-        entry_width - kit::compact_metrics.padding - kit::compact_metrics.list_row_inset;
+    const kit::Rect view{
+        pane.x,
+        pane.y + inset,
+        std::max(pane.width - 1, int32_t{0}),
+        std::max(pane.height - 2 * inset, int32_t{0}),
+    };
     const int32_t entry_height = metrics.regular_line + metrics.list_row_inset;
     const int32_t step = entry_height + metrics.hairline;
-    int32_t top = pane.y + inset;
-    std::vector<kit::ControlId> ids;
-    std::vector<std::string> names;
+    const bool labelled =
+        library.tab == Tab::mutators || library.tab == Tab::brains || library.tab == Tab::keys;
+
+    std::vector<FilterPart> parts;
+    int32_t top = 0;
     const auto add_entry = [&](std::string caption,
                                bool selected,
                                kit::ControlId id,
                                std::string name,
                                std::optional<kit::TagIcon> tag = std::nullopt) {
-        kit::NavEntry entry;
-        entry.rect = {entry_left, top, entry_width, entry_height};
-        // The kit draws a tag's icon in the caption's box and shifts the
-        // words by the icon and a gap. The fit check still uses the whole
-        // box, so the words are cut to what remains beside the icon.
-        int32_t room = caption_room;
-        if (tag.has_value()) {
-            const int32_t icon_side = std::max(kit::compact_metrics.regular_line - 4, int32_t{0});
-            const int32_t icon_shift = icon_side + kit::compact_metrics.list_row_gap;
-            room = std::max(room - icon_shift, int32_t{0});
-        }
-        entry.caption = cut(building, kit::FontRole::regular, caption, room);
-        entry.tag = tag;
-        entry.selected = selected;
-        entry.hovered = hovered(building, id) || building.state->interaction.pressed == id;
-        entry.focused = focused(building, id);
-        nav.entries.push_back(std::move(entry));
-        ids.push_back(id);
-        names.push_back(unique_name(building, std::move(name)));
+        FilterPart part;
+        part.top = top;
+        part.caption = std::move(caption);
+        part.selected = selected;
+        part.id = id;
+        part.name = std::move(name);
+        part.tag = tag;
+        parts.push_back(std::move(part));
         top += step;
+    };
+    const auto add_heading = [&](std::string_view words_shown) {
+        top += metrics.paragraph_gap;
+        FilterPart part;
+        part.heading = true;
+        part.top = top;
+        part.caption = std::string(words_shown);
+        parts.push_back(std::move(part));
+        top += metrics.small_line + metrics.hint_gap;
     };
     for (std::size_t index = 0; index < filter_order.size(); ++index)
         add_entry(
@@ -2110,66 +2152,147 @@ void add_filter_pane(Building& building, const kit::Rect& pane) {
             named("filter." + std::string(filter_words[index]))
         );
     const std::vector<std::pair<std::string, std::size_t>> tags = tags_in_tab(library);
-    std::optional<kit::Rect> heading;
-    std::vector<bool> tag_shown(tags.size(), false);
-    if (!tags.empty()) {
-        top += metrics.paragraph_gap;
-        heading = kit::Rect{entry_left, top, entry_width, metrics.small_line};
-        top += metrics.small_line + metrics.hint_gap;
-        const int32_t bottom = pane.y + pane.height - inset;
-        for (std::size_t index = 0; index < tags.size(); ++index) {
-            const bool last = index + 1 == tags.size();
-            // The last place left holds TAGS ▾ when tags remain after it.
-            const int32_t needed = last ? entry_height : step + metrics.regular_line;
-            if (top + needed > bottom)
-                break;
-            tag_shown[index] = true;
-            add_entry(
-                filled(
-                    library.text,
-                    words::tag_with_count,
-                    {{"tag",
-                      tag_caption(
-                          library,
-                          tags[index].first,
-                          library.tab == Tab::mutators || library.tab == Tab::brains ||
-                              library.tab == Tab::keys
-                      )},
-                     {"count", std::to_string(tags[index].second)}}
-                ),
-                library.tag == tags[index].first,
-                controls::first_tag + static_cast<kit::ControlId>(index),
-                named("tag." + name_word(tags[index].first)),
-                library.tab == Tab::mutators ? kit::tag_icon_of(tags[index].first) : std::nullopt
-            );
+    bool tags_headed = false;
+    bool worlds_headed = false;
+    for (std::size_t index = 0; index < tags.size(); ++index) {
+        const std::string& tag = tags[index].first;
+        if (world_tag(tag) && !worlds_headed) {
+            add_heading(shown(library.text, words::world_heading));
+            worlds_headed = true;
+        } else if (!world_tag(tag) && !tags_headed) {
+            add_heading(shown(library.text, words::tags_menu));
+            tags_headed = true;
         }
+        add_entry(
+            filled(
+                library.text,
+                words::tag_with_count,
+                {{"tag", tag_caption(library, tag, labelled)},
+                 {"count", std::to_string(tags[index].second)}}
+            ),
+            library.tag == tag,
+            controls::first_tag + static_cast<kit::ControlId>(index),
+            named("tag." + name_word(tag)),
+            library.tab == Tab::mutators ? kit::tag_icon_of(tag) : std::nullopt
+        );
     }
+    const int32_t content_height = parts.empty() ? 0 : top - metrics.hairline;
+
+    // Entries that do not all fit leave a column at the pane's right for
+    // the scroll bar.
+    const int32_t limit = kit::ScrollArea::limit_for(content_height, view.height);
+    const int32_t well_width = metrics.scroll_thumb_width + 2;
+    const int32_t entry_left = pane.x + inset;
+    const kit::Rect well{
+        view.x + view.width - inset / 2 - well_width, view.y, well_width, view.height
+    };
+    const int32_t entry_right =
+        limit > 0 ? well.x - metrics.button_gap : pane.x + pane.width - inset;
+    const int32_t entry_width = std::max(entry_right - entry_left, int32_t{0});
+
+    // A newly chosen entry is brought into view.
+    const std::string choice = filter_choice_word(library);
+    if (choice != state.filters_chosen) {
+        // A chosen tag is below its filter, which stays chosen with it.
+        for (auto part_at = parts.rbegin(); part_at != parts.rend(); ++part_at) {
+            const FilterPart& part = *part_at;
+            if (part.heading || !part.selected)
+                continue;
+            const int32_t lowest = part.top + entry_height - view.height;
+            state.filters_scroll = std::clamp(
+                std::min(std::max(state.filters_scroll, lowest), part.top), int32_t{0}, limit
+            );
+            break;
+        }
+        state.filters_chosen = choice;
+        state.filters_stop = kit::no_control;
+    }
+    const int32_t offset = std::clamp(state.filters_scroll, int32_t{0}, limit);
+    state.filters_scroll = offset;
+
+    // The kit's nav draws an entry's caption from 12 columns in, and keeps 4 clear at its right.
+    const int32_t caption_room =
+        entry_width - kit::compact_metrics.padding - kit::compact_metrics.list_row_inset;
+    kit::NavLook nav;
+    std::vector<kit::ControlId> ids;
+    std::vector<std::string> names;
+    for (FilterPart& part : parts) {
+        const int32_t row = view.y - offset + part.top;
+        if (part.heading) {
+            add_item(
+                building.list,
+                kit::Role::heading,
+                {entry_left, row, entry_width, metrics.small_line},
+                view
+            )
+                .look = kit::HeadingLook{part.caption};
+            continue;
+        }
+        kit::NavEntry entry;
+        entry.rect = {entry_left, row, entry_width, entry_height};
+        // The kit draws a tag's icon in the caption's box and shifts the
+        // words by the icon and a gap. The fit check still uses the whole
+        // box, so the words are cut to what remains beside the icon.
+        int32_t room = caption_room;
+        if (part.tag.has_value()) {
+            const int32_t icon_side = std::max(kit::compact_metrics.regular_line - 4, int32_t{0});
+            const int32_t icon_shift = icon_side + kit::compact_metrics.list_row_gap;
+            room = std::max(room - icon_shift, int32_t{0});
+        }
+        entry.caption = cut(building, kit::FontRole::regular, part.caption, room);
+        entry.tag = part.tag;
+        entry.selected = part.selected;
+        entry.hovered =
+            hovered(building, part.id) || building.state->interaction.pressed == part.id;
+        entry.focused = focused(building, part.id);
+        nav.entries.push_back(std::move(entry));
+        ids.push_back(part.id);
+        names.push_back(unique_name(building, std::move(part.name)));
+    }
+    const std::size_t first_item = building.list.items.size();
     const std::size_t before = building.list.controls.size();
-    if (nav.entries.empty())
-        add_item(building.list, kit::Role::nav, pane, {}).look = nav;
-    else
+    if (!nav.entries.empty())
         kit::add_nav(building.list, nav, ids, names);
+    for (std::size_t index = first_item; index < building.list.items.size(); ++index)
+        building.list.items[index].clip = view;
     move_controls(building.list, before, building.top);
-    for (std::size_t index = building.top.size() - ids.size(); index < building.top.size(); ++index)
-        tab_stop(building, building.top[index]);
-    if (heading)
-        add_item(building.list, kit::Role::heading, *heading, {}).look =
-            kit::HeadingLook{std::string(shown(library.text, words::tags_menu))};
-    if (std::find(tag_shown.begin(), tag_shown.end(), false) == tag_shown.end())
-        return;
-    std::vector<controls::MenuItem> items =
-        controls::menu_items(library, MenuKind::tags, tag_shown);
-    const std::string_view caption = shown(library.text, words::tags_menu);
-    add_drop_down(
-        building,
-        building.top,
-        {entry_left, top, entry_width, metrics.regular_line},
-        MenuKind::tags,
-        caption,
-        std::move(items),
-        controls::tags_menu,
-        named("tags")
-    );
+    // Tab stops once in the pane: on the entry with the focus, else on the
+    // one that last had it, else on the chosen one. Only that entry takes the
+    // focus from Tab and from the arrows outside the pane; Up, Down, Home,
+    // End and the page keys move among the others (library_key).
+    const kit::ControlId focus = state.interaction.focused;
+    if (std::find(ids.begin(), ids.end(), focus) != ids.end())
+        state.filters_stop = focus;
+    const std::size_t first_entry = building.top.size() - ids.size();
+    kit::ControlId stop = kit::no_control;
+    if (std::find(ids.begin(), ids.end(), state.filters_stop) != ids.end())
+        stop = state.filters_stop;
+    // A chosen tag is below its filter, which stays chosen with it.
+    for (std::size_t index = building.top.size(); index > first_entry && stop == kit::no_control;
+         --index)
+        if (building.top[index - 1].checked)
+            stop = building.top[index - 1].id;
+    if (stop == kit::no_control && !ids.empty())
+        stop = ids.front();
+    for (std::size_t index = first_entry; index < building.top.size(); ++index) {
+        kit::Control& control = building.top[index];
+        control.clip = view;
+        control.group = controls::filters_group;
+        control.focusable = control.id == stop;
+    }
+    if (stop != kit::no_control)
+        building.order.push_back(stop);
+    if (limit > 0) {
+        kit::ScrollArea scroll;
+        scroll.view = view;
+        scroll.well = well;
+        scroll.content_height = content_height;
+        scroll.limit = limit;
+        scroll.offset = offset;
+        add_item(building.list, kit::Role::scroll_bar, scroll.well, {}).look = kit::ScrollBarLook{
+            scroll.thumb(metrics.least_thumb_height), state.bar_held == Pane::filters
+        };
+    }
 }
 
 /// Returns the words an empty list shows.
@@ -3843,7 +3966,7 @@ void add_identity_tile(
                 building.detail,
                 button_rect,
                 button_caption,
-                true,
+                false,
                 button_enabled,
                 button_id,
                 button_name,
@@ -4306,7 +4429,7 @@ int32_t place_compact_keys_line(
             building.detail,
             {button_x, button_y, across, metrics.button_height},
             keys.button_caption,
-            true,
+            false,
             keys.button_enabled,
             keys.button_id,
             keys.button_name,
@@ -5571,8 +5694,10 @@ add_registries_content(Building& building, const kit::Rect& view, int32_t width,
             metrics.regular_line,
         };
         cluster -= metrics.button_gap;
+        // REFRESH is a row's small secondary button with its arrow.
         const std::string_view refresh_caption = shown(library.text, words::registry_refresh);
-        const int32_t refresh_width = button_width(building, refresh_caption);
+        const int32_t refresh_width =
+            button_width(building, refresh_caption) + kit::refresh_icon_room(metrics.button_height);
         cluster -= refresh_width;
         const kit::Rect refresh_rect{cluster, band_top, refresh_width, metrics.button_height};
         cluster -= metrics.button_gap;
@@ -5731,6 +5856,8 @@ add_registries_content(Building& building, const kit::Rect& view, int32_t width,
             view,
             controls::details_group
         );
+        if (auto* refresh_look = std::get_if<kit::ButtonLook>(&building.list.items.back().look))
+            refresh_look->refresh_icon = true;
         add_registry_switch(
             building,
             toggle,
@@ -6203,6 +6330,21 @@ void add_open_menu(Building& building, int32_t footer_line) {
     look.chosen = menu_open.chosen;
     look.marked = building.state->menu_marked;
     look.focus_shown = building.state->interaction.focus_shown;
+    // A menu with a heading names each row: a heading is a divider, which
+    // takes no press and no name.
+    const bool headed = std::any_of(
+        menu_open.items.begin(), menu_open.items.end(), [](const controls::MenuItem& item) {
+            return item.heading;
+        }
+    );
+    if (headed)
+        for (const controls::MenuItem& item : menu_open.items) {
+            kit::ChoiceMenuRow row;
+            row.id = item.heading ? std::string{} : item.word;
+            row.divider = item.heading;
+            row.choosable = !item.heading;
+            look.items.push_back(std::move(row));
+        }
     for (int32_t place = 0; place < shown_count && first + place < count; ++place) {
         const controls::MenuItem& item = menu_open.items[static_cast<std::size_t>(first + place)];
         const kit::Rect box = kit::choice_item(menu, place);
@@ -6212,6 +6354,8 @@ void add_open_menu(Building& building, int32_t footer_line) {
                 item.caption,
                 box.width - metrics.choice_item_text_inset - metrics.list_row_inset)
         );
+        if (item.heading)
+            continue;
         kit::Control control;
         control.id = controls::first_menu_item + first + place;
         control.rect = box;
@@ -7391,7 +7535,7 @@ menu_items(const Library& library, MenuKind menu, const std::vector<bool>& tag_s
             MenuItem item;
             item.caption = filled(
                 library.text,
-                words::filter_tag,
+                world_tag(tags[index].first) ? words::filter_world : words::filter_tag,
                 {{"tag", tag_caption(library, tags[index].first, labelled)},
                  {"count", std::to_string(tags[index].second)}}
             );
@@ -7403,9 +7547,18 @@ menu_items(const Library& library, MenuKind menu, const std::vector<bool>& tag_s
     }
     case MenuKind::tags: {
         const std::vector<std::pair<std::string, std::size_t>> tags = tags_in_tab(library);
+        bool worlds_headed = false;
         for (std::size_t index = 0; index < tags.size(); ++index) {
             if (index < tag_shown.size() && tag_shown[index])
                 continue;
+            // The world tags come last, under their own heading.
+            if (world_tag(tags[index].first) && !worlds_headed) {
+                MenuItem heading;
+                heading.caption = std::string(shown(library.text, words::world_heading));
+                heading.heading = true;
+                items.push_back(std::move(heading));
+                worlds_headed = true;
+            }
             MenuItem item;
             item.caption = filled(
                 library.text,
@@ -7558,7 +7711,9 @@ kit::DisplayList library_layout(
         );
     }
     const int32_t content_width = window.right - window.left;
-    int32_t top = window.body_top + window.gap;
+    // The tab strip stands on the header's rule: its own height keeps its
+    // names clear of the header.
+    int32_t top = window.body_top;
     const bool active = library.tab == Tab::active;
     const bool registries = library.tab == Tab::registries;
     const bool catalogue = !active && !registries;
@@ -7567,7 +7722,7 @@ kit::DisplayList library_layout(
     const int32_t updates_row = window.button_height + window.gap;
     const auto body_of = [&](int32_t body_top) {
         return kit::Rect{
-            window.left, body_top, content_width, window.footer_rule - window.gap - body_top
+            window.left, body_top, content_width, window.footer_rule - window.bottom_gap - body_top
         };
     };
     if (compact) {
@@ -7589,7 +7744,7 @@ kit::DisplayList library_layout(
             }
             add_list(
                 building,
-                {window.left, top, content_width, window.footer_rule - window.gap - top},
+                {window.left, top, content_width, window.footer_rule - window.bottom_gap - top},
                 RowForm::compact
             );
         }
@@ -7601,7 +7756,7 @@ kit::DisplayList library_layout(
         // own under them, at the same place on the right, so that no tab is
         // hidden beside it. The names stay whole; a strip they do not fit
         // even then scrolls.
-        const int32_t beside_width = content_width - wide_search_width - window.padding;
+        const int32_t beside_width = content_width - wide_search_width - window.gutter;
         const bool search_beside = catalogue && tabs_fit(building, beside_width);
         const int32_t tab_width = search_beside ? beside_width : content_width;
         add_tabs(building, {window.left, top, tab_width, window.tab_height});
@@ -7631,11 +7786,11 @@ kit::DisplayList library_layout(
                 add_chip_row(building, {window.left, top, content_width, window.pill_height});
                 top += window.pill_height + window.gap;
             }
-            const int32_t panes_height = window.footer_rule - window.gap - top;
+            const int32_t panes_height = window.footer_rule - window.bottom_gap - top;
             int32_t left = window.left;
             if (large) {
                 add_filter_pane(building, {left, top, filter_pane_width, panes_height});
-                left += filter_pane_width + window.padding;
+                left += filter_pane_width + window.gutter;
             }
             const int32_t list_width = large ? large_list_width : regular_list_width;
             int32_t list_top = top;
@@ -7645,11 +7800,11 @@ kit::DisplayList library_layout(
             }
             add_list(
                 building,
-                {left, list_top, list_width, window.footer_rule - window.gap - list_top},
+                {left, list_top, list_width, window.footer_rule - window.bottom_gap - list_top},
                 (large || library.tab == Tab::brains || library.tab == Tab::keys) ? RowForm::large
                                                                                   : RowForm::regular
             );
-            left += list_width + window.padding;
+            left += list_width + window.gutter;
             add_details_pane(building, {left, top, window.right - left, panes_height});
         }
     }
@@ -7693,7 +7848,7 @@ kit::DisplayList details_page_layout(
     const int32_t content_width = window.right - window.left;
     const int32_t body_top = window.body_top + window.gap;
     const kit::Rect view{
-        window.left, body_top, content_width, window.footer_rule - window.gap - body_top
+        window.left, body_top, content_width, window.footer_rule - window.bottom_gap - body_top
     };
     const auto lay_out_body = [&](Building& into, int32_t width, int32_t offset) {
         const int32_t first = view.y - offset;

@@ -2466,9 +2466,8 @@ void registries_tab_lists_every_registry() {
             fixture::named(list, "library.registry.fixture-core.refreshed");
         OA_CHECK(add != nullptr && core_row != nullptr);
         if (add != nullptr && core_row != nullptr) {
-            OA_CHECK(
-                add->rect.x + add->rect.width == window.x - metrics.edge - metrics.window_padding
-            );
+            // The shell keeps two spaces round its parts.
+            OA_CHECK(add->rect.x + add->rect.width == window.x - metrics.edge - 2 * metrics.space);
             OA_CHECK(add->rect.y + add->rect.height <= core_row->rect.y);
         }
         OA_CHECK(core_key != nullptr && core_key->text.empty());
@@ -6199,7 +6198,7 @@ void shell_takes_kit_2_sizes() {
         OA_CHECK(update != nullptr && homepage != nullptr);
         if (update != nullptr && homepage != nullptr) {
             OA_CHECK(update->rect.height == metrics.control_height && update->group == -1);
-            OA_CHECK(homepage->rect.y + homepage->rect.height + metrics.row_gap <= footer_rule);
+            OA_CHECK(homepage->rect.y + homepage->rect.height + metrics.space <= footer_rule);
             OA_CHECK(update->clip.width == 0 && update->clip.height == 0);
         }
     }
@@ -6305,6 +6304,316 @@ void details_say_the_state_once() {
     OA_CHECK(text_count(list, "Installed") == 1);
 }
 
+/// Returns the fixture's Library on its Maps tab with map packs enough that
+/// Large's filter pane cannot show every tag at once: each pack has a tag of
+/// its own and a world tag.
+///
+/// @return the Library
+lib::Library with_many_maps() {
+    lib::Inputs inputs = fixture::fixture_inputs();
+    constexpr std::array<std::string_view, 12> kinds{
+        "sea-start",
+        "cavedog",
+        "official",
+        "islands",
+        "rivers",
+        "metal",
+        "plateau",
+        "lava",
+        "craters",
+        "bridges",
+        "ruins",
+        "crossing",
+    };
+    constexpr std::array<std::string_view, 12> worlds{
+        "world-ice",
+        "world-green",
+        "world-acid",
+        "world-lunar",
+        "world-desert",
+        "world-urban",
+        "world-slate",
+        "world-crystal",
+        "world-archipelago",
+        "world-lush",
+        "world-metal",
+        "world-water",
+    };
+    for (std::size_t index = 0; index < kinds.size(); ++index) {
+        const std::string key = "pack-" + std::to_string(index);
+        lib::Listing pack = fixture::listing(
+            fixture::core,
+            lib::Kind::map_pack,
+            key,
+            "Pack " + std::to_string(index),
+            "1.0",
+            1024,
+            "Maps",
+            {std::string(kinds[index]), std::string(worlds[index])}
+        );
+        pack.maps = {{"Map " + std::to_string(index), 2, "8x8"}};
+        inputs.listings.push_back(std::move(pack));
+    }
+    lib::Library library;
+    lib::refresh(library, inputs);
+    lib::set_tab(library, lib::Tab::maps);
+    return library;
+}
+
+/// Returns the filter pane's controls, top to bottom.
+///
+/// @param list the display list
+/// @return the controls
+std::vector<const kit::Control*> filter_pane_controls(const kit::DisplayList& list) {
+    std::vector<const kit::Control*> found;
+    for (const kit::Control& control : list.controls)
+        if (control.name.starts_with("library.filter.") || control.name.starts_with("library.tag."))
+            found.push_back(&control);
+    return found;
+}
+
+/// Large's filter pane holds every tag in a view that scrolls, with no TAGS
+/// drop-down: the world tags under WORLD without their prefix, apart from
+/// TAGS; the wheel scrolls it; Tab stops once in it and goes on to the list,
+/// Shift+Tab back; the arrows walk every entry and the view follows; a
+/// newly chosen entry is brought into view.
+void filter_pane_scrolls_and_tab_leaves_it() {
+    const kit::Frame large = fixture::frames()[2].frame;
+    lib::Library library = with_many_maps();
+    lib::ScreenState state;
+    kit::DisplayList list = laid_out(library, state, large);
+    OA_CHECK(fixture::named(list, "library.tags") == nullptr);
+    const std::vector<const kit::Control*> entries = filter_pane_controls(list);
+    // All, New, Installed, Updates, the fixture's two map tags, the 12 tags
+    // and the 12 worlds.
+    OA_CHECK(entries.size() == 30);
+    const kit::Control* ice = fixture::named(list, "library.tag.world-ice");
+    const kit::Control* sea = fixture::named(list, "library.tag.sea-start");
+    OA_CHECK(ice != nullptr && ice->text.starts_with("ice ("));
+    OA_CHECK(sea != nullptr && sea->text.starts_with("sea-start ("));
+    // TAGS stands over the tags, WORLD under them and over the worlds.
+    int32_t tags_heading = -1;
+    int32_t world_heading = -1;
+    for (const kit::Item& item : list.items) {
+        const auto* heading = std::get_if<kit::HeadingLook>(&item.look);
+        if (item.role != kit::Role::heading || heading == nullptr)
+            continue;
+        if (heading->text == "TAGS")
+            tags_heading = item.rect.y;
+        if (heading->text == "WORLD")
+            world_heading = item.rect.y;
+    }
+    OA_CHECK(tags_heading >= 0 && world_heading > tags_heading);
+    if (ice != nullptr && sea != nullptr) {
+        OA_CHECK(sea->rect.y > tags_heading && sea->rect.y < world_heading);
+        OA_CHECK(ice->rect.y > world_heading);
+        // The pane is too short for every entry: the worlds lie below its view.
+        OA_CHECK(ice->clip.width > 0 && ice->rect.y >= ice->clip.y + ice->clip.height);
+    }
+    bool bar = false;
+    for (const kit::Item& item : list.items)
+        bar = bar || (item.role == kit::Role::scroll_bar && ice != nullptr &&
+                      kit::contains(ice->clip, {item.rect.x, item.rect.y}));
+    OA_CHECK(bar);
+    // Tab stops once in the pane, on the chosen entry.
+    int32_t stops = 0;
+    for (const kit::Control* entry : entries)
+        stops += static_cast<int32_t>(
+            std::count(list.tab_order.begin(), list.tab_order.end(), entry->id)
+        );
+    OA_CHECK(stops == 1);
+    const kit::Control* all = fixture::named(list, "library.filter.all");
+    OA_CHECK(all != nullptr && std::count(list.tab_order.begin(), list.tab_order.end(), all->id));
+    OA_EXPECT_NONE(order_problems(list), "large maps, many tags");
+    OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), "large maps, many tags");
+
+    // The wheel over the pane scrolls it.
+    if (all != nullptr) {
+        const int32_t before = all->rect.y;
+        OA_CHECK(lib::library_wheel(library, state, list, centre_of(*all), -2.0F).redraw);
+        OA_CHECK(state.filters_scroll > 0);
+        list = laid_out(library, state, large);
+        const kit::Control* moved = fixture::named(list, "library.filter.all");
+        OA_CHECK(moved != nullptr && moved->rect.y < before);
+    }
+
+    // The arrows walk every entry, those out of view too, and the view follows.
+    state = {};
+    list = laid_out(library, state, large);
+    all = fixture::named(list, "library.filter.all");
+    OA_CHECK(all != nullptr);
+    if (all == nullptr)
+        return;
+    state.interaction.focus_shown = true;
+    state.interaction.focused = all->id;
+    for (std::size_t step = 1; step < entries.size(); ++step) {
+        OA_CHECK(lib::library_key(library, state, list, kit::Key::down).redraw);
+        list = laid_out(library, state, large);
+    }
+    const kit::Control* last = kit::control_of(list, state.interaction.focused);
+    OA_CHECK(last != nullptr && last->name == "library.tag.world-water");
+    if (last != nullptr) {
+        // Shown whole in the view, and the pane's one Tab stop.
+        OA_CHECK(last->rect.y >= last->clip.y);
+        OA_CHECK(last->rect.y + last->rect.height <= last->clip.y + last->clip.height);
+        OA_CHECK(std::count(list.tab_order.begin(), list.tab_order.end(), last->id) == 1);
+    }
+    // Home goes back to All, End to the last world.
+    static_cast<void>(lib::library_key(library, state, list, kit::Key::home));
+    OA_CHECK(state.interaction.focused == all->id);
+    list = laid_out(library, state, large);
+    static_cast<void>(lib::library_key(library, state, list, kit::Key::end));
+    list = laid_out(library, state, large);
+    const kit::ControlId last_world = state.interaction.focused;
+    // Tab leaves the pane for the list; Shift+Tab comes back to the entry.
+    OA_CHECK(lib::library_key(library, state, list, kit::Key::tab).redraw);
+    const kit::Control* list_pane = fixture::named(list, "library.list");
+    OA_CHECK(list_pane != nullptr && state.interaction.focused == list_pane->id);
+    list = laid_out(library, state, large);
+    OA_CHECK(lib::library_key(library, state, list, kit::Key::back_tab).redraw);
+    OA_CHECK(state.interaction.focused == last_world);
+    // Space chooses it.
+    list = laid_out(library, state, large);
+    static_cast<void>(lib::library_key(library, state, list, kit::Key::space));
+    OA_CHECK(library.tag == "world-water");
+
+    // A newly chosen entry is brought into view.
+    lib::ScreenState fresh;
+    lib::set_tag(library, "world-crystal");
+    list = laid_out(library, fresh, large);
+    const kit::Control* crystal = fixture::named(list, "library.tag.world-crystal");
+    OA_CHECK(crystal != nullptr && crystal->checked && fresh.filters_scroll > 0);
+    if (crystal != nullptr) {
+        OA_CHECK(crystal->rect.y >= crystal->clip.y);
+        OA_CHECK(crystal->rect.y + crystal->rect.height <= crystal->clip.y + crystal->clip.height);
+    }
+}
+
+/// A world tag shows its world's name wherever a tag shows, Regular's TAGS
+/// drop-down puts the worlds under WORLD, Compact's filter names them World,
+/// and a search for the name or the whole tag finds the pack.
+void world_tags_show_their_name() {
+    const std::vector<fixture::NamedFrame> all = fixture::frames();
+    lib::Library library = with_many_maps();
+    // The row's chips and the details' tags.
+    lib::select(library, {std::string(fixture::core), lib::Kind::map_pack, "pack-0"});
+    lib::ScreenState state;
+    kit::DisplayList list = laid_out(library, state, all[2].frame);
+    bool row_chip = false;
+    for (const kit::Item& item : list.items)
+        if (const auto* row = std::get_if<kit::ListRowLook>(&item.look))
+            for (const kit::ChipLook& chip : row->tags) {
+                OA_CHECK(!chip.text.starts_with("world-"));
+                row_chip = row_chip || chip.text == "ice";
+            }
+    OA_CHECK(row_chip);
+    const kit::Control* detail = fixture::named(list, "library.detail.tag.world-ice");
+    OA_CHECK(detail != nullptr && detail->text == "ice");
+
+    // Regular's TAGS drop-down: WORLD is a heading, not a choice.
+    list = laid_out(library, state, all[1].frame);
+    if (fixture::named(list, "library.tags") != nullptr) {
+        static_cast<void>(click(library, state, list, "library.tags"));
+        list = laid_out(library, state, all[1].frame);
+        const kit::ChoiceMenuLook* menu = nullptr;
+        for (const kit::Item& item : list.items)
+            if (const auto* look = std::get_if<kit::ChoiceMenuLook>(&item.look))
+                menu = look;
+        OA_CHECK(menu != nullptr);
+        if (menu != nullptr) {
+            const auto heading = std::find_if(
+                menu->items.begin(), menu->items.end(), [](const kit::ChoiceMenuRow& row) {
+                    return row.divider;
+                }
+            );
+            OA_CHECK(heading != menu->items.end());
+            OA_CHECK(
+                !menu->items.empty() && !menu->items[static_cast<std::size_t>(menu->marked)].divider
+            );
+        }
+        // The keys never mark the heading, down to the last world and up again.
+        for (const kit::Key key : {kit::Key::down, kit::Key::up}) {
+            for (int32_t step = 0; step < 30; ++step) {
+                static_cast<void>(lib::library_key(library, state, list, key));
+                list = laid_out(library, state, all[1].frame);
+                const kit::ChoiceMenuLook* open = nullptr;
+                for (const kit::Item& item : list.items)
+                    if (const auto* look = std::get_if<kit::ChoiceMenuLook>(&item.look))
+                        open = look;
+                OA_CHECK(open != nullptr && state.menu_marked >= 0);
+                if (open != nullptr &&
+                    static_cast<std::size_t>(state.menu_marked) < open->items.size())
+                    OA_CHECK(!open->items[static_cast<std::size_t>(state.menu_marked)].divider);
+            }
+        }
+        state.menu = lib::MenuKind::none;
+    } else {
+        OA_CHECK(false);
+    }
+
+    // Compact's filter drop-down names a world "World: water (1)".
+    state = {};
+    list = laid_out(library, state, all[0].frame);
+    static_cast<void>(click(library, state, list, "library.filter"));
+    list = laid_out(library, state, all[0].frame);
+    static_cast<void>(lib::library_key(library, state, list, kit::Key::end));
+    list = laid_out(library, state, all[0].frame);
+    const kit::Control* world_item = fixture::named(list, "library.filter.tag-world-water");
+    OA_CHECK(world_item != nullptr && world_item->text == "World: water (1)");
+
+    // The search finds a world by its name and by its whole tag.
+    for (const std::string_view query : {"ice", "world-ice"}) {
+        lib::set_query(library, query);
+        bool found = false;
+        for (const std::size_t index : library.visible)
+            found = found || library.entries[index].id.key == "pack-0";
+        OA_CHECK(found);
+    }
+    lib::set_query(library, {});
+}
+
+/// Opening a tab gives its search the text focus, or the Active tab's maps
+/// search; the Registries tab has none and leaves the focus. Arrows walking
+/// the tab strip stay on it.
+void opening_a_tab_focuses_its_search() {
+    const kit::Frame large = fixture::frames()[2].frame;
+    lib::Library library = with_ridge();
+    lib::ScreenState state;
+    kit::DisplayList list = laid_out(library, state, large);
+    static_cast<void>(click(library, state, list, "library.tab.maps"));
+    OA_CHECK(library.tab == lib::Tab::maps);
+    const kit::Control* search = fixture::named(laid_out(library, state, large), "library.search");
+    OA_CHECK(search != nullptr);
+    OA_CHECK(
+        search != nullptr && state.interaction.focus_shown &&
+        state.interaction.focused == search->id
+    );
+    OA_CHECK(lib::library_text(library, state, laid_out(library, state, large), "core").redraw);
+    OA_CHECK(library.query == "core");
+    list = laid_out(library, state, large);
+    static_cast<void>(click(library, state, list, "library.tab.active"));
+    list = laid_out(library, state, large);
+    const kit::Control* maps_search = fixture::named(list, "library.active.search");
+    OA_CHECK(maps_search != nullptr && state.interaction.focused == maps_search->id);
+    // The keys on the tab strip stay there.
+    const kit::Control* mods_tab = fixture::named(list, "library.tab.mods");
+    OA_CHECK(mods_tab != nullptr);
+    if (mods_tab != nullptr) {
+        state.interaction.focused = mods_tab->id;
+        state.interaction.focus_shown = true;
+        static_cast<void>(lib::library_key(library, state, list, kit::Key::space));
+        OA_CHECK(library.tab == lib::Tab::mods && state.interaction.focused == mods_tab->id);
+    }
+    // A host opening the Library does the same.
+    lib::ScreenState opened;
+    lib::set_tab(library, lib::Tab::registries);
+    lib::focus_tab_search(library, opened);
+    OA_CHECK(!opened.interaction.focus_shown);
+    lib::set_tab(library, lib::Tab::brains);
+    lib::focus_tab_search(library, opened);
+    OA_CHECK(opened.interaction.focus_shown && opened.interaction.focused != kit::no_control);
+}
+
 int main() {
     every_frame_holds_its_invariants();
     mutators_tab_holds_its_invariants();
@@ -6356,5 +6665,8 @@ int main() {
     more_holds_the_rest();
     compact_back_returns_to_the_same_list();
     details_page_keeps_its_entry();
+    filter_pane_scrolls_and_tab_leaves_it();
+    world_tags_show_their_name();
+    opening_a_tab_focuses_its_search();
     return oa::test::check_exit_status();
 }

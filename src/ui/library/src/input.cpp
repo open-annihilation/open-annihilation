@@ -222,6 +222,34 @@ std::optional<PaneScroll> maps_scroll_of(const kit::DisplayList& list) {
     return scroll;
 }
 
+/// Returns Large's filter pane's scroll as the display list shows it: its
+/// view clips every entry and heading, and they run from the view's top less
+/// the offset.
+///
+/// @param list the display list
+/// @return the scroll; none while the pane does not show
+std::optional<PaneScroll> filters_scroll_of(const kit::DisplayList& list) {
+    const kit::Control* inside = nullptr;
+    for (const kit::Control& control : list.controls)
+        if (control.group == controls::filters_group && control.clip.width > 0 &&
+            control.clip.height > 0) {
+            inside = &control;
+            break;
+        }
+    if (inside == nullptr)
+        return std::nullopt;
+    const kit::Rect view = inside->clip;
+    const std::optional<controls::Extent> extent = controls::clipped_extent(list, view, 0);
+    if (!extent)
+        return std::nullopt;
+    PaneScroll scroll;
+    scroll.view = view;
+    scroll.step = inside->rect.height + kit::compact_metrics.hairline;
+    scroll.offset = std::max(view.y - extent->top, int32_t{0});
+    scroll.limit = kit::ScrollArea::limit_for(extent->bottom - extent->top, view.height);
+    return scroll;
+}
+
 /// Returns the offset nearest another that shows a part of a pane whole,
 /// or its top when it is taller than the view.
 ///
@@ -287,6 +315,85 @@ void show_in_details(ScreenState& state, const kit::DisplayList& list, kit::Cont
     state.details_scroll = offset_showing(
         scroll->offset, top, control->rect.height, scroll->view.height, scroll->limit
     );
+}
+
+/// Scrolls Large's filter pane so an entry in it shows whole.
+///
+/// @param[in,out] state the screen's state; its filter pane's scroll changes
+/// @param list the display list
+/// @param id the entry
+void show_in_filters(ScreenState& state, const kit::DisplayList& list, kit::ControlId id) {
+    const kit::Control* control = kit::control_of(list, id);
+    if (control == nullptr || control->group != controls::filters_group)
+        return;
+    const std::optional<PaneScroll> scroll = filters_scroll_of(list);
+    if (!scroll)
+        return;
+    const int32_t top = control->rect.y + scroll->offset - scroll->view.y;
+    state.filters_scroll = offset_showing(
+        scroll->offset, top, control->rect.height, scroll->view.height, scroll->limit
+    );
+}
+
+/// Moves the focus among Large's filter pane's entries with Up, Down, Home,
+/// End, Page Up and Page Down while one of them has it, those out of view
+/// among them, and scrolls the pane to show the one it reaches. Up from the
+/// first entry and Down from the last go on as the arrows do elsewhere.
+///
+/// @param[in,out] state the screen's state
+/// @param list the display list
+/// @param pressed the key
+/// @return what the host is to do; none when the key goes on to the screen
+std::optional<ScreenResult>
+filter_pane_key(ScreenState& state, const kit::DisplayList& list, kit::Key pressed) {
+    if (!state.interaction.focus_shown)
+        return std::nullopt;
+    const kit::Control* focused = kit::control_of(list, state.interaction.focused);
+    if (focused == nullptr || focused->group != controls::filters_group)
+        return std::nullopt;
+    std::vector<kit::ControlId> entries;
+    for (const kit::Control& control : list.controls)
+        if (control.group == controls::filters_group && control.enabled)
+            entries.push_back(control.id);
+    const auto at = std::find(entries.begin(), entries.end(), focused->id);
+    if (at == entries.end())
+        return std::nullopt;
+    const auto place = static_cast<int32_t>(at - entries.begin());
+    const auto last = static_cast<int32_t>(entries.size()) - 1;
+    const std::optional<PaneScroll> scroll = filters_scroll_of(list);
+    const int32_t page = scroll && scroll->step > 0
+                             ? std::max(scroll->view.height / scroll->step - 1, int32_t{1})
+                             : 1;
+    int32_t next = place;
+    switch (pressed) {
+    case kit::Key::up:
+        if (place == 0)
+            return std::nullopt;
+        next = place - 1;
+        break;
+    case kit::Key::down:
+        if (place == last)
+            return std::nullopt;
+        next = place + 1;
+        break;
+    case kit::Key::home:
+        next = 0;
+        break;
+    case kit::Key::end:
+        next = last;
+        break;
+    case kit::Key::page_up:
+        next = std::max(place - page, int32_t{0});
+        break;
+    case kit::Key::page_down:
+        next = std::min(place + page, last);
+        break;
+    default:
+        return std::nullopt;
+    }
+    state.interaction.focused = entries[static_cast<std::size_t>(next)];
+    show_in_filters(state, list, state.interaction.focused);
+    return redrawn();
 }
 
 /// Scrolls the Active tab's maps so a control in them shows whole.
@@ -401,16 +508,34 @@ open_items(const Library& library, const ScreenState& state, const kit::DisplayL
     return controls::menu_items(library, state.menu, controls::tags_shown(list, tags));
 }
 
-/// Moves the drop-down's mark, keeping it among the items shown.
+/// Moves the drop-down's mark, keeping it among the items shown. A heading
+/// is never marked: the mark goes on past it the way it was moving, or back
+/// when no item lies past it.
 ///
 /// @param[in,out] state the screen's state
-/// @param count how many items the drop-down holds
+/// @param items the drop-down's items
 /// @param marked the item to mark
-void mark_item(ScreenState& state, int32_t count, int32_t marked) {
+void mark_item(ScreenState& state, const std::vector<controls::MenuItem>& items, int32_t marked) {
+    const auto count = static_cast<int32_t>(items.size());
     if (count <= 0)
         return;
     const int32_t shown_count = kit::shown_choices(static_cast<std::size_t>(count));
-    state.menu_marked = std::clamp(marked, int32_t{0}, count - 1);
+    const int32_t way = marked < state.menu_marked ? -1 : 1;
+    marked = std::clamp(marked, int32_t{0}, count - 1);
+    const auto heading = [&items](int32_t place) {
+        return items[static_cast<std::size_t>(place)].heading;
+    };
+    int32_t choice = marked;
+    while (choice >= 0 && choice < count && heading(choice))
+        choice += way;
+    if (choice < 0 || choice >= count) {
+        choice = marked;
+        while (choice >= 0 && choice < count && heading(choice))
+            choice -= way;
+    }
+    if (choice < 0 || choice >= count)
+        return;
+    state.menu_marked = choice;
     state.menu_first =
         std::clamp(state.menu_first, state.menu_marked - shown_count + 1, state.menu_marked);
     state.menu_first =
@@ -598,6 +723,10 @@ int rows_shown(const Library& library, const ScreenState& state, const kit::Disp
 ScreenResult
 choose_item(Library& library, ScreenState& state, const kit::DisplayList& list, int32_t place) {
     const std::vector<controls::MenuItem> items = open_items(library, state, list);
+    // A heading chooses nothing; the drop-down stays open.
+    if (place >= 0 && static_cast<std::size_t>(place) < items.size() &&
+        items[static_cast<std::size_t>(place)].heading)
+        return {};
     state.menu = MenuKind::none;
     if (place < 0 || static_cast<std::size_t>(place) >= items.size())
         return redrawn();
@@ -639,19 +768,24 @@ ScreenResult toggle_menu(
     state.menu_first = 0;
     const std::vector<controls::MenuItem> items = open_items(library, state, list);
     const int32_t chosen = controls::chosen_item(library, menu, items);
-    mark_item(state, static_cast<int32_t>(items.size()), std::max(chosen, int32_t{0}));
+    state.menu_marked = 0;
+    mark_item(state, items, std::max(chosen, int32_t{0}));
     return redrawn();
 }
 
-/// Shows a tab.
+/// Shows a tab. The text focus goes to its search, unless a key on the tab
+/// strip opened it: the keys walking the strip stay on it.
 ///
 /// @param[in,out] library the model
 /// @param[in,out] state the screen's state
 /// @param list the display list
 /// @param tab the tab
+/// @param by_key a key opened it, rather than the pointer, a finger or a command
 /// @return what the host is to do
-ScreenResult show_tab(Library& library, ScreenState& state, const kit::DisplayList& list, Tab tab) {
-    const bool tab_focused = state.interaction.focused >= controls::first_tab &&
+ScreenResult
+show_tab(Library& library, ScreenState& state, const kit::DisplayList& list, Tab tab, bool by_key) {
+    const bool tab_focused = by_key && state.interaction.focus_shown &&
+                             state.interaction.focused >= controls::first_tab &&
                              state.interaction.focused < controls::first_tab + tab_controls;
     if (state.details_page) {
         close_details(library);
@@ -659,8 +793,12 @@ ScreenResult show_tab(Library& library, ScreenState& state, const kit::DisplayLi
     }
     set_tab(library, tab);
     after_browsing(library, state, list);
+    // The keys walking the tab strip stay on it. Otherwise the text focus
+    // goes to the tab's search, so the player can type at once.
     if (tab_focused)
         state.interaction.focused = controls::tab_control(tab);
+    else
+        focus_tab_search(library, state);
     return redrawn();
 }
 
@@ -971,7 +1109,9 @@ ScreenResult activate(
         return redrawn();
     }
     if (id >= controls::first_tab && id < controls::first_tab + tab_controls)
-        return show_tab(library, state, list, static_cast<Tab>(id - controls::first_tab));
+        return show_tab(
+            library, state, list, static_cast<Tab>(id - controls::first_tab), key.has_value()
+        );
     if (id >= controls::first_filter && id < controls::first_filter + filter_controls) {
         set_filter(library, static_cast<Filter>(id - controls::first_filter));
         after_browsing(library, state, list);
@@ -1148,29 +1288,32 @@ ScreenResult activate(
 /// @return what the host is to do; none when the key goes on to the screen
 std::optional<ScreenResult>
 menu_key(Library& library, ScreenState& state, const kit::DisplayList& list, kit::Key pressed) {
-    const auto count = static_cast<int32_t>(open_items(library, state, list).size());
+    const std::vector<controls::MenuItem> items = open_items(library, state, list);
+    const auto count = static_cast<int32_t>(items.size());
     const int32_t page = kit::shown_choices(static_cast<std::size_t>(std::max(count, int32_t{0})));
     switch (pressed) {
     case kit::Key::escape:
         state.menu = MenuKind::none;
         return redrawn();
     case kit::Key::up:
-        mark_item(state, count, state.menu_marked - 1);
+        mark_item(state, items, state.menu_marked - 1);
         return redrawn();
     case kit::Key::down:
-        mark_item(state, count, state.menu_marked + 1);
+        mark_item(state, items, state.menu_marked + 1);
         return redrawn();
     case kit::Key::page_up:
-        mark_item(state, count, state.menu_marked - page);
+        mark_item(state, items, state.menu_marked - page);
         return redrawn();
     case kit::Key::page_down:
-        mark_item(state, count, state.menu_marked + page);
+        mark_item(state, items, state.menu_marked + page);
         return redrawn();
     case kit::Key::home:
-        mark_item(state, count, 0);
+        state.menu_marked = 0;
+        mark_item(state, items, 0);
         return redrawn();
     case kit::Key::end:
-        mark_item(state, count, count - 1);
+        state.menu_marked = count - 1;
+        mark_item(state, items, count - 1);
         return redrawn();
     case kit::Key::enter:
     case kit::Key::space:
@@ -1213,6 +1356,9 @@ Pane pane_at(
     if (const std::optional<PaneScroll> scroll = list_scroll_of(library, state, list);
         scroll && kit::contains(scroll->view, at))
         return Pane::list;
+    if (const std::optional<PaneScroll> scroll = filters_scroll_of(list);
+        scroll && kit::contains(scroll->view, at))
+        return Pane::filters;
     if (active_shows(list)) {
         if (const std::optional<PaneScroll> scroll = maps_scroll_of(list);
             scroll && kit::contains(scroll->view, at))
@@ -1244,6 +1390,8 @@ std::optional<PaneScroll> scroll_of(
         return details_scroll_of(list);
     if (pane == Pane::maps)
         return maps_scroll_of(list);
+    if (pane == Pane::filters)
+        return filters_scroll_of(list);
     return std::nullopt;
 }
 
@@ -1309,6 +1457,8 @@ void scroll_to(ScreenState& state, Pane pane, int32_t offset) {
         state.details_scroll = offset;
     else if (pane == Pane::maps)
         state.maps_scroll = offset;
+    else if (pane == Pane::filters)
+        state.filters_scroll = offset;
 }
 
 /// Turns a pane by the wheel's notches.
@@ -1329,9 +1479,10 @@ ScreenResult turn_pane(
     const std::optional<PaneScroll> scroll = scroll_of(library, state, list, pane);
     if (!scroll)
         return {};
-    kit::WheelCarry& carry = pane == Pane::list   ? state.list_wheel
-                             : pane == Pane::maps ? state.maps_wheel
-                                                  : state.details_wheel;
+    kit::WheelCarry& carry = pane == Pane::list      ? state.list_wheel
+                             : pane == Pane::maps    ? state.maps_wheel
+                             : pane == Pane::filters ? state.filters_wheel
+                                                     : state.details_wheel;
     const int32_t next =
         kit::wheel_offset(carry, notches, scroll->step, scroll->offset, scroll->limit);
     if (next == scroll->offset)
@@ -1354,6 +1505,8 @@ Pane focused_pane(const ScreenState& state, const kit::DisplayList& list) {
             return Pane::details;
         if (control->group == controls::maps_group)
             return Pane::maps;
+        if (control->group == controls::filters_group)
+            return Pane::filters;
     }
     if (active_shows(list))
         return Pane::maps;
@@ -1361,6 +1514,15 @@ Pane focused_pane(const ScreenState& state, const kit::DisplayList& list) {
 }
 
 } // namespace
+
+void focus_tab_search(const Library& library, ScreenState& state) noexcept {
+    if (library.tab == Tab::registries)
+        return;
+    if (library.tab == Tab::active)
+        focus_maps_search(state);
+    else
+        focus_search(state);
+}
 
 std::optional<kit::Rect>
 focused_field(const ScreenState& state, const kit::DisplayList& list) noexcept {
@@ -1505,7 +1667,7 @@ ScreenResult library_pointer(
                 return redrawn();
             }
         }
-        for (const Pane pane : {Pane::maps, Pane::details, Pane::list}) {
+        for (const Pane pane : {Pane::maps, Pane::details, Pane::list, Pane::filters}) {
             const std::optional<kit::ScrollArea> area = bar_area(library, state, list, pane);
             if (!area || !kit::contains(area->well, at))
                 continue;
@@ -1650,6 +1812,8 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
     // page keys scroll its maps, or the whole page when that page scrolls.
     const bool in_details = body_scrolls(list) || (focus != kit::no_control && !on_list &&
                                                    focused_pane(state, list) == Pane::details);
+    if (const std::optional<ScreenResult> moved = filter_pane_key(state, list, pressed))
+        return *moved;
 
     switch (pressed) {
     case kit::Key::escape:
@@ -1830,6 +1994,7 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
     case kit::KeyResult::redraw:
         show_in_details(state, list, interaction.focused);
         show_in_maps(state, list, interaction.focused);
+        show_in_filters(state, list, interaction.focused);
         return redrawn();
     case kit::KeyResult::to_control:
         return activate(library, state, list, outcome.control, pressed, std::nullopt);
@@ -1939,7 +2104,7 @@ ScreenResult library_command(
         const int32_t step = command == ScreenCommand::next_tab ? 1 : tab_controls - 1;
         const auto tab =
             static_cast<Tab>((static_cast<int32_t>(library.tab) + step) % tab_controls);
-        return show_tab(library, state, list, tab);
+        return show_tab(library, state, list, tab, false);
     }
     case ScreenCommand::back:
         if (state.menu != MenuKind::none) {

@@ -1811,7 +1811,14 @@ const std::vector<std::string>* tags_of(const Entry& entry) {
 
 } // namespace
 
-std::vector<std::pair<std::string, std::size_t>> tags_in_tab(const Library& library) {
+namespace {
+
+/// Lists the tags of the entries a tab shows under its filter, in the tab's
+/// order, as tags_in_tab does before it puts the world tags last.
+///
+/// @param library the Library
+/// @return each tag and its count
+std::vector<std::pair<std::string, std::size_t>> tags_in_tab_order(const Library& library) {
     const std::vector<bool> kept = kept_by_filter(library, shown_filter(library));
     std::map<std::string, std::size_t> counts;
     for (std::size_t index = 0; index < library.entries.size(); ++index) {
@@ -1860,6 +1867,16 @@ std::vector<std::pair<std::string, std::size_t>> tags_in_tab(const Library& libr
     for (const auto& counted : counts)
         ordered.push_back(counted);
     return ordered;
+}
+
+} // namespace
+
+std::vector<std::pair<std::string, std::size_t>> tags_in_tab(const Library& library) {
+    std::vector<std::pair<std::string, std::size_t>> tags = tags_in_tab_order(library);
+    std::stable_partition(tags.begin(), tags.end(), [](const auto& counted) {
+        return !world_tag(counted.first);
+    });
+    return tags;
 }
 
 std::size_t filter_count(const Library& library, Filter filter) {
