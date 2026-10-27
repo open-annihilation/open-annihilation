@@ -11383,6 +11383,28 @@ void the_section_list_draws_an_icon_before_each_entry() {
     }
 }
 
+void updates_entry_shows_its_badge_where_the_caption_keeps_its_width() {
+    const auto fonts = block_fonts();
+    constexpr renderer::Rgb kAccentLight{0xb6, 0xe0, 0x5a};
+    settings::Dialog dialog = opened(Page::graphics);
+    const auto entry = geometry::dialog_list_item(dialog, Page::updates);
+    const renderer::SourceRect right{
+        entry.x + entry.width / 2, entry.y, entry.width / 2, entry.height
+    };
+    Canvas plain = blank(settings::dialog_width, settings::dialog_height);
+    settings::draw_dialog(plain.surface, {0, 0, 1}, dialog, fonts, kNoIcon);
+    CHECK(!rect_has(plain, right, kAccentLight));
+    dialog.updates_badge = "41%";
+    Canvas badged = blank(settings::dialog_width, settings::dialog_height);
+    settings::draw_dialog(badged.surface, {0, 0, 1}, dialog, fonts, kNoIcon);
+    CHECK(rect_has(badged, right, kAccentLight));
+    // A badge that would leave the caption short of its width is not drawn.
+    dialog.updates_badge = std::string(40, 'W');
+    Canvas long_badge = blank(settings::dialog_width, settings::dialog_height);
+    settings::draw_dialog(long_badge.surface, {0, 0, 1}, dialog, fonts, kNoIcon);
+    CHECK(long_badge.surface.rgb == plain.surface.rgb);
+}
+
 int main(int argc, char** argv) {
     if (oa::test::game_data_requested(argc, argv))
         fonts_load_and_every_text_fits_its_place();
@@ -11504,6 +11526,7 @@ int main(int argc, char** argv) {
         the_footer_counts_the_settings_changed();
         window_size_and_reset_window_positions_sit_on_user_interface();
         the_section_list_draws_an_icon_before_each_entry();
+        updates_entry_shows_its_badge_where_the_caption_keeps_its_width();
         the_larger_classes_press_each_control_where_it_is_drawn();
         registered_pages_list_under_their_owners_and_write_on_ok();
     }

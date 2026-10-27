@@ -1276,6 +1276,11 @@ struct Dialog {
     /// What Updates shows, which the host fills after the dialog has opened.
     /// open_dialog clears it, and sets mode from the check in effect.
     UpdatesOffer updates{};
+    /// A short word at the right of Updates' entry in the section list, in
+    /// the accent: how far a download has come ("41%") or that a release is
+    /// ready, as the update centre's pill says it. Empty shows none. The host
+    /// keeps it as the update moves.
+    std::string updates_badge;
     /// Each install-ID switch as the player has it, in downloads.install_ids'
     /// order. A switch takes effect at OK.
     std::vector<InstallIdChoice> install_id_chosen{};
