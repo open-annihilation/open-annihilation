@@ -1097,12 +1097,20 @@ hosts them on the OA layer.
 ## Mutators
 
 SKIRMISH, NEWGAME (and Any Mission, which uses the same panel) and the host's
-battle room carry a filled kit button (white text on the kit's deep green)
-wearing the OA badge at its left, with its words after it keeping to the
-left: "Mutators", or "Mutators (4)" for the count of the set chosen
-("Mutators ({count})" in the catalogue). It is a screen of the layer of its
-own (`mutators-button`, not modal, no backdrop, not opaque, so the picture
-shows round it). `keep_mutator_button_screen`, which
+battle room carry Mutators as one of the room's own on and off buttons,
+drawn from the room's art (`brain_seats_room.hpp`,
+[src/ui/frontend-renderer](../ui/frontend-renderer/README.md)): COMMONGUI's
+on and off button, its plate and its lamps, with the engraved OA stamp at
+its left and its words after it, "Mutators: off", or "Mutators: 4 on" for
+the count of the set chosen ("Mutators: {count} on" in the catalogue;
+`mutators_words`). Its lamp is unlit while none is on, green while
+mutators are on, and red in the battle room while a seated player lacks
+one. The words are drawn in the room's caption font, else its label font,
+and cut with … only when even that does not fit. No part of it is the
+kit's, so a mod's art and palette carry through. It is a screen of the
+layer of its own (`mutators-button`, not modal, no backdrop, not opaque,
+so the picture shows round it), which draws only the pixels the button
+covers over the room, at the room's own scale. `keep_mutator_button_screen`, which
 `OaLayer::tick` calls once a frame beside `keep_more_maps_screen`, pushes it
 while one of those screens shows, and the screen closes itself otherwise.
 On the skirmish setup and the campaign launch that is while no match is
@@ -1120,33 +1128,39 @@ at once: the map picker is its own screen.
   (`bar_middle`), and stands it under that middle, the left edges
   together, a bolt's width under the bar. When that place meets a gadget
   the column rule is used, and when neither is clear `place_block`, MORE
-  MAPS…'s rule, at the button's own size. The badge, the words and the
-  padding are the kit's (`kit::button_mark_parts`): a fifth of the
-  button's height pads the left, the gap after the badge and the right.
-  The words are drawn in the regular font where they fit, otherwise the
-  small font, and cut with … only when even that does not fit. The
-  screen's place also covers the focus ring's 2-point margin, so the
-  button does not jump when the ring is drawn. A Y chip stands inside the
-  button's right end while the pad HUD is showing button badges, the words
-  kept a padding clear of it, and is left out when the button has no room
-  for it.
+  MAPS…'s rule, at the button's own size. Where the words need more room
+  than that place gives, the button grows to the left, as far as the room
+  is free and inside the frame (`widen_mutators_switch`); one that cannot
+  grow keeps its width and draws its words narrower. The screen's place
+  also covers the room's focus marker round the button and the open card.
 - **Focus.** The button is pushed onto the screen's own Tab order. Tab
   from the record just before it, and Shift+Tab from the one just after,
-  hand the focus over: the GUI's focus goes to none and the kit's ring
-  shows. On SKIRMISH, Down from Difficulty and Up from the next record in
+  hand the focus over: the GUI's focus goes to none and the room's own
+  focus marker shows on the button. On SKIRMISH, Down from Difficulty and
+  Up from the next record in
   its column do too, and the arrows hand the focus to the nearest record
   that way. On NEWGAME and Any Mission, Up and Down are not taken: they
   step the campaign lists. While the button holds the focus, Left and
   Right are consumed there so they do not move the GUI's focus. Return,
-  Space and the pad's A press the button. A mouse presses the drawn
+  Space and the pad's A press the button, and Y opens the picker. A mouse presses the drawn
   rectangle. A finger presses the button when it is at least as near as
   any gadget, Difficulty included; a point inside a gadget stays that
   gadget's, so a tap on Difficulty steps Difficulty. A press anywhere else
-  clears the focus. A locked button still takes a press on its rectangle
+  clears the focus. A locked button, grayed as a grayed button of the room
+  is, still takes a press on its rectangle
   and opens nothing. The pad's R1 and L1 are Tab and Shift+Tab, as on every menu, and
   `take_pad_action` offers an action to each screen that shows, from the
   top, until one takes it. A modal screen is the only one offered it, and
-  an action it passes on becomes a key or a click as before.
+  an action it passes on becomes a key or a click as before. The pad's
+  button badges leave the button as it is.
+- **The card.** Resting the pointer on the button, or the information key
+  while it holds the focus, shows a kit hover card beside it
+  (`mutators_card`): "No mutators on", "1 mutator on" or "{count} mutators
+  on", then one row a mutator in the order they apply (a guest's missing
+  one reads "{name}: not installed" in the lock colour), "and {count} more"
+  past six, then "Applied in this order." and "Click to change." on the
+  host's button or "Click to read." on a guest's. It stays while the
+  pointer is on the button or the card, and Escape closes it.
 - **The set.** Each setup keeps its own chosen set. Skirmish's is emptied
   when SKIRMISH is entered from anywhere but the map picker and itself, so
   it holds across SELMAP and a refused start. The campaign's is emptied
@@ -1159,13 +1173,14 @@ at once: the map picker is its own screen.
   changes nothing. START, and each campaign mission, hands the chosen set
   on: an empty set starts the game as before, and a set that cannot be
   read refuses the start as any failed start does. The button counts the
-  chosen set: "Mutators" with none, "Mutators (4)" with four.
+  chosen set: "Mutators: off" with none, "Mutators: 4 on" with four.
 - **The check.** `native-mutator-button` (`--check-mutator-button`,
   `runtime_mutator_button_check.cpp`) uses the mutator picker's feed and a
   scratch preferences file holding Gatehouse with Gatehouse Keep for
   skirmish and Fast Builders for the campaign. At 640x480 and 1280x720 it
-  requires the button's size and place, the badge, its words and count,
-  the Y chip inside it, Tab, Down, a finger's reach, Y, SELMAP keeping the
+  requires the button's size and place, no part of the kit, its words and
+  count, the card with four chosen, the pad's badges leaving it as it is,
+  Tab, Down, a finger's reach, Y, SELMAP keeping the
   set, START handing it on, and a return to the main menu clearing it;
   then NEWGAME's size and place, Tab, the remembered campaign set and the
   first mission.
@@ -1177,7 +1192,8 @@ at once: the map picker is its own screen.
   It writes `mutator-button-skirmish-<w>x<h>.png` and
   `mutator-button-newgame-<w>x<h>.png`, and with four chosen
   `mutator-button-skirmish-four-<w>x<h>.png` and
-  `mutator-button-newgame-four-<w>x<h>.png`. `--check-text-fit` paints
+  `mutator-button-newgame-four-<w>x<h>.png`, and with the card open
+  `mutator-button-<screen>-card-<w>x<h>.png`. `--check-text-fit` paints
   SKIRMISH with none and five chosen, and NEWGAME, in every language and
   both sizes, and requires the words whole.
   A FIXTURES_SETUP test (`mutator-button-clean`) clears its folders before
@@ -1186,14 +1202,17 @@ at once: the map picker is its own screen.
   large as Select Map, directly over it with the same left edge
   (`place_over`), centred down the space between the player rows and
   Select Map, counting the room's list. Where that place meets a control,
-  MORE MAPS…'s rule at the button's own size (`place_over_anchor`). Y, Return, Space and a
+  MORE MAPS…'s rule at the button's own size (`place_over_anchor`); it
+  grows to the left for its words as on the setups. Its lamp is green while
+  mutators are on and red while a seated player lacks one. Y, Return,
+  Space and a
   press open the picker for multiplayer, on the room's set, or on the
   remembered multiplayer set when the room has none. USE THESE stores that
   set as the room's. CANCEL changes nothing. A guest's battle room shows
-  GET MUTATORS, described under
-  [GET MUTATORS in the battle room](#get-mutators-in-the-battle-room).
-  While a launch locks the host's options the button stays, drawn
-  disabled, and a press, Return, Space and Y open nothing. The waiting
+  the same button for the host's set, read-only, described under
+  [A guest's Mutators in the battle room](#a-guests-mutators-in-the-battle-room).
+  While a launch locks the host's options the button stays, grayed, and a
+  press, Return, Space and Y open nothing. The waiting
   text is
   [src/ui/frontend-multiplayer](../ui/frontend-multiplayer/README.md).
 - **The chat.** Every machine posts a local line when the room's list
@@ -1230,15 +1249,19 @@ at once: the map picker is its own screen.
   player lacks one, the host reads "Waiting for {player}: {name}" just
   before START, ending before the doors drawn round it. A guest whose READY
   is waiting on a mutator reads "Ready once {name} is here" in that place.
-  The line does not enable or disable START or READY.
+  Both are drawn in the room's label font; automation lists the host's as
+  the label `oa.mutators.waiting`. The line does not enable or disable
+  START or READY.
 - **The room check.** `native-mutator-room` (`--check-mutator-room`,
   `runtime_mutator_room_check.cpp`) hosts a battle room alone and uses the
   mutator picker's feed and a scratch preferences file holding Gatehouse
   with Gatehouse Keep. At 640x480 and 1280x720 it requires the button as
-  large as Select Map over it, wearing the badge and reading "Mutators",
-  meeting no control of the room. Y opens the remembered set, USE THESE
+  large as Select Map, or wider to the left where its words need it, over
+  it to its right edge, with no part of the kit, reading "Mutators: off"
+  and meeting no control of the room. Y opens the remembered set, USE THESE
   stores it and the chat reads the turned-on lines, and at both sizes the
-  button reads "Mutators (2)", and "Mutators (4)" with four on. Turning them off posts the off line. Then,
+  button reads "Mutators: 2 on" with its lamp lit, and "Mutators: 4 on"
+  with four on. Turning them off posts the off line. Then,
   in French at 640x480 with Unicode chat off and the host named "Jörg" in
   the code page, as a 3.1c player's name arrives, USE THESE posts lines
   that hold é and ö as one code-page byte each, that each fit the chat
@@ -1251,21 +1274,29 @@ at once: the map picker is its own screen.
   START reads "Waiting for Visitor: Ridge Tough" in that language, uncut.
   Each language writes `mutator-room-3.1c-<tag>-640x480.png` and
   `mutator-room-waiting-<tag>-640x480.png`.
-  With the room's options locked the button stays disabled and opens
-  nothing.
+  With the room's options locked the button stays disabled and neither a
+  press nor Y opens the picker.
   Hosting alone shows none of the guest's controls, and the guest screen
   has no place while it is on the layer. It
-  writes `mutator-room-host-<w>x<h>.png` and, with the list on,
-  `mutator-room-host-on-<w>x<h>.png`. A FIXTURES_SETUP test
+  writes `mutator-room-host-<w>x<h>.png`, with two on
+  `mutator-room-host-on-<w>x<h>.png` and with four
+  `mutator-room-host-four-<w>x<h>.png`. A FIXTURES_SETUP test
   (`mutator-room-clean`) clears its folders before each run.
 
 `native-brain-room` (`--check-brain-room`, `runtime_brain_room_check.cpp`)
-hosts a battle room alone and checks each computer row's brain button at
-640x480 and 1280x720: no button with no brain installed, Steady Commander
-remembered at firm, the built-in player at Medium, and Lantern Scout on
-every computer this machine runs. The button meets no control of the room
-but its row's empty screen-size column. It writes
-`brain-room-host-<w>x<h>.png`. A FIXTURES_SETUP test (`brain-room-clean`)
+hosts a battle room alone and checks each computer row's brain at 640x480
+and 1280x720 ([Brain seats](#brain-seats)): with no brain installed no
+seat shows and the frame matches one taken with the screen closed; with
+Steady Commander remembered at firm a new computer's Resolution cell
+reads "Steady Commander 1.2 · Firm" and its Mem cell shows Firm over the
+room's greyed Hard, the cell meeting no control of the room but its row's
+empty screen-size column; the notch on the computer's name opens the
+brain menu, drawn as the room's list box, and Escape closes it; the
+menu's built-in player gives "Built-in · Hard", its level before gives
+Medium, and the Mem cell steps the built-in player to Hard, Easy and
+Medium; Use for every computer seat and Lantern Scout set both rows. It
+writes `brain-room-host-<w>x<h>.png`, and with the menu open
+`brain-room-menu-<w>x<h>.png`. A FIXTURES_SETUP test (`brain-room-clean`)
 clears its folders before each run. `native-net-loopback-brain`
 (`tools/check_native_net_brain.py`) seats Steady Commander at firm on the
 host's computer. The brain places four frames late in the build window and
@@ -1283,11 +1314,13 @@ under shuffled ones, when a brain reads only its own.
 ## The mutator picker
 
 The mutator picker is one modal screen on the OA layer (`mutator-picker`),
-centred over the screen that asked, at the size class's dialog size. Its
+centred over the screen that asked, at the size class's dialog size, a
+window that moves by its title ([The OA layer](#the-oa-layer)). Its
 model and screen are
 [src/ui/mutator-picker](../ui/mutator-picker/README.md);
 `runtime_mutator_picker.cpp` hosts them. Mutators on the skirmish setup, the
-campaign launch and the host's battle room opens it. It closes as Cancel
+campaign launch and the host's battle room opens it, and a guest's
+Mutators button opens it read-only. It closes as Cancel
 when that screen goes or a match starts.
 
 - **The request.** `open_mutator_picker` takes a `MutatorPickerRequest`: the
@@ -1367,10 +1400,15 @@ when that screen goes or a match starts.
 ## The brain picker
 
 The brain picker is one modal screen on the OA layer (`brain-picker`),
-centred over the screen that asked, at the size class's dialog size. Its
+centred over the screen that asked, at the size class's dialog size, a
+window that moves by its title ([The OA layer](#the-oa-layer)). Its
 model and screen are
 [src/ui/brain-picker](../ui/brain-picker/README.md);
-`runtime_brain_picker.cpp` hosts them. It closes as Cancel when the
+`runtime_brain_picker.cpp` hosts them. A seat's brain menu opens it with
+Options... while the seat's brain has options
+([Computer seats in the rooms](#computer-seats-in-the-rooms)), on that
+seat, its brain, its level and its options, over the skirmish setup, the
+campaign screens or the battle room. It closes as Cancel when the
 screen underneath goes or a match starts.
 
 - **The request.** `open_brain_picker` takes a `BrainPickerRequest`: the
@@ -1410,64 +1448,106 @@ screen underneath goes or a match starts.
   FIXTURES_SETUP test (`brain-picker-clean`) clears its folders before
   each run.
 
-## Computer seat buttons
+## Computer seats in the rooms
 
-While at least one brain is installed, each computer row of the skirmish
-setup has a button to the right of its Energy button. The button reads
-that seat's brain and level, cut with … when the room between Energy and
-the next control is too narrow, and opens that seat's picker. With no
-brain installed the setup is unchanged: no button, no card and no extra
+While at least one brain is installed, a computer seat's brain is shown
+and chosen in the game's rooms with parts drawn from the room's own art
+(`runtime_brain_seats_screen.cpp`, the screen `brain-seats`, and
+`brain_seats_room.hpp`, which the battle room and the Mutators buttons
+share; the parts are
+[src/ui/frontend-renderer](../ui/frontend-renderer/README.md)'s). No part
+of them is the kit's, so a mod's art and palette carry through. With no
+brain installed the screens are unchanged: no seat, no card and no extra
 stop for the keyboard.
 
-- **Placement.** The button is placed from its row's Energy button, 4
-  points to the right, centred on that button, as wide as 160 points and
-  no narrower than 48. It stops short of the first control to its right
-  that shares any of its rows. A row with no such room draws no button.
-- **The label.** A named brain reads its name and level. The built-in
-  player reads "Built-in" and the word the Difficulty button is showing.
-  The automation name is `oa.brain-seat.<slot>` and its text is the whole
-  label; the drawn words are the label cut to the button.
-- **Focus.** Tab and Shift+Tab, the arrows, and a controller's L1, R1 and
-  A reach the button. While it has the focus the setup's own focus is
-  none, and the button draws the kit's focus ring. A press elsewhere, or
-  leaving the setup, clears it. Y still opens Mutators.
-- **The card.** Resting the pointer on the button, or F1 or View while it
-  has the focus, shows the seat's card: the brain, its version, its level,
-  and Full awareness when the brain sees every unit. Escape closes the card.
-- **The choice.** USE THIS writes that seat. With every computer seat on,
-  it writes every computer row and leaves a human or an open slot as it
-  is. The choice stays in memory until START, which remembers it.
+- **The skirmish setup.** A computer row's own Player button, redrawn in
+  its own art, names the seat's brain, or the room's "Computer" for the
+  built-in player, a long name cut with "..." in the room's caption font
+  or its label font, and has a notch at its right end. The notch
+  (`oa.brain-seat.<slot>`, its text the seat's whole label: a named brain
+  with its level, or the built-in player with the word the Difficulty
+  button shows), or the right button anywhere on the Player button, opens
+  the brain menu; the left button elsewhere on it keeps 3.1c's own press,
+  which cycles the row. Tab stops on the notch just after its Player
+  button, the arrows and a controller's L1, R1 and A reach it, and while
+  it has the focus the setup's own focus is none and the room's focus
+  marker shows on it. Y still opens Mutators.
+- **The brain menu** is the room's list box under the button, or above it
+  where there is no room below, moved in from the room's edges: the title
+  "Computer player for this seat", the built-in player, whose level the
+  Difficulty button sets, then each installed brain with its level, the one
+  the seat plays reading "< Firm >", whose arrows step its level; a brain
+  that does not fit the game is greyed. Then "Options..." while the seat's
+  brain has options, which closes the menu and opens the brain picker on
+  that seat, its brain, level and options ([The brain picker](#the-brain-picker));
+  "Use for every computer seat", a check box in the room's CHECKBOX art,
+  which writes this seat's choice onto every computer seat, and later
+  choices onto all of them while it is ticked; and "Get more brains...",
+  which leaves for the main menu and opens the Library at Brains there,
+  since the Library opens over the main menu alone. Up and Down move the
+  selection, Left and Right step the current row's level, Return and Space
+  press the selected row, Escape closes it, and a press outside it closes
+  it. While it is open the kit's hover card shows the selected row's brain
+  beside it. Automation lists `oa.brain-menu.row.<id>`
+  (`oa.brain-menu.row.built-in` for the built-in player), each row's text
+  its words and its level after " · ", `oa.brain-menu.level.previous` and
+  `.next` on the current row, `oa.brain-menu.options`,
+  `oa.brain-menu.every-seat`, checked while ticked, and
+  `oa.brain-menu.get-brains`.
+- **The card.** Resting the pointer on the Player button or the notch, or
+  the information key while the notch has the focus, shows the seat's
+  card: the brain, its version, its level, and Full awareness when the
+  brain sees every unit. Escape closes the card.
+- **The choice.** A row of the menu writes that seat; with Use for every
+  computer seat ticked, it writes every computer row and leaves a human or
+  an open slot as it is. The choice stays in memory until START, which
+  remembers it.
 - **The check.** `native-brain-seat-buttons`
   (`--check-brain-seat-buttons`, `runtime_brain_seats_check.cpp`) turns
   every built-in registry off and, at 640x480 and 1280x720, keeps a frame
-  of the setup before any brain is written. It then requires Steady
-  Commander at Firm, a second computer row reading the built-in player and
-  the Difficulty button's word, Tab from that row's Energy, the picker,
-  Lantern Scout on every computer seat, the hover card, and the two
-  `plays lantern-scout` lines a start logs. With the brains removed the
-  frame matches the one it kept, and no seat button remains. It writes
-  `brain-seats-skirmish-<w>x<h>.png`. `--check-text-fit` paints the
-  buttons with three computer rows, one of them a long name, in every
-  language and both sizes. A FIXTURES_SETUP test (`brain-seats-clean`)
-  clears its folders before each run.
+  of the setup before any brain is written. It then writes three made-up
+  brains, Steady Commander with two levels, and remembers Steady Commander
+  at Firm on place 1. It requires the notch, `oa.brain-seat.1`, reading
+  that label inside the right end of the row's own Player button; a second
+  computer row reading the built-in player and the Difficulty button's
+  word, which cycling Difficulty changes; Tab from Player1 onto the notch
+  and on, and Shift+Tab back; Return opening the brain menu on Steady
+  Commander at Firm, its next level stepping the seat to Bold and back,
+  its Options... opening the picker, whose USE THIS keeps the brain with
+  the option the check wrote, and the built-in player, which has no
+  Options..., putting the Difficulty word back; the right button on the
+  Player button opening the menu and Escape closing it; Use for every
+  computer seat with Lantern Scout setting both rows; the card and Escape;
+  and the two `plays lantern-scout` lines a start logs. Back on SKIRMISH
+  the seats read as remembered, and the left button on Player2's words
+  keeps 3.1c's own press. With the brains removed the frame matches the
+  one it kept, and no seat remains. It writes
+  `brain-seats-skirmish-<w>x<h>.png`, and with the menu open
+  `brain-seats-menu-<w>x<h>.png`. `--check-text-fit` paints the seats with
+  three computer rows, one of them a long name, in every language and both
+  sizes. A FIXTURES_SETUP test (`brain-seats-clean`) clears its folders
+  before each run.
 
 ## The campaign's computer player
 
 While at least one brain is installed, NEWGAME and Any Mission show one
-button in the Difficulty button's column, under it. The button reads the
-campaign seat's brain and level. The built-in player reads "Built-in" and
-the word the Difficulty button is showing. The automation name is
-`oa.brain-seat.campaign`. With no brain installed those screens are unchanged.
+button in the room's button art (BUTTONS0), under the Difficulty button in
+its column, with the OA stamp at its left and the notch at its right. It
+reads the campaign seat's brain and level: "Steady Commander · Firm", or
+for the built-in player the word the Difficulty button is showing. The
+automation name is `oa.brain-seat.campaign`. With no brain installed those
+screens are unchanged.
 
 - **Placement.** The button takes the size of the control under Difficulty
   and sits in that column, with a gap of 2 above and below. When the column
   has no room for that, the button is the label's own size, placed against
   Difficulty by the same rule a block uses when it does not fit.
-- **The picker.** A press opens the campaign seat's picker. The seat is
-  named Computer player, and the built-in player's level stays the run's
-  difficulty. A mission has one computer player, so the picker has no
-  switch for every computer seat. USE THIS sets the campaign's seat at
-  place 1, which every mission of the run starts with.
+- **The menu.** A press anywhere on the button opens the brain menu, titled
+  "Computer player in the missions". The built-in player's level stays the
+  run's difficulty. A mission has one computer player, so the menu has no
+  Use for every computer seat. A row sets the campaign's seat at place 1,
+  which every mission of the run starts with; Options... opens the brain
+  picker on it.
 - **Focus.** Tab and Shift+Tab, and a controller's L1, R1 and A, reach the
   button. Up and Down stay with the campaign and mission lists. The card
   shows when the pointer rests on the button, and on the information key.
@@ -1478,14 +1558,17 @@ the word the Difficulty button is showing. The automation name is
 - **The check.** `native-brain-campaign` (`--check-brain-campaign`,
   `runtime_brain_campaign_check.cpp`) at 640x480 and 1280x720 keeps a frame
   of NEWGAME and of Any Mission before any brain is written. It then
-  requires the button under Difficulty, reading the built-in player and the
-  Difficulty button's word, Tab reaching it while Up does not, the picker,
-  Steady Commander at Firm, and the same button on Any Mission. The first
+  requires one button under Difficulty, inside the frame and meeting no
+  gadget, reading the built-in player and the Difficulty button's word,
+  Tab reaching it while Up does not, Return opening the brain menu with no
+  every computer seat row, Steady Commander there making the label "Steady
+  Commander · Firm", and the same button on Any Mission. The first
   mission logs `player 1 plays steady-commander 1.2 at firm`. A save made
   in that mission, loaded after the campaign seat was set back to the
   built-in player, leaves the seat at Steady Commander, and a skirmish save
   leaves it as it is. With the brain removed the frames match the ones it
-  kept. It writes `brain-campaign-<screen>-<w>x<h>.png`.
+  kept. It writes `brain-campaign-<screen>-<w>x<h>.png`, and with the menu
+  open `brain-campaign-menu-<w>x<h>.png`.
   `--check-text-fit` paints the button with a long brain name, in every
   language and both sizes. A FIXTURES_SETUP test (`brain-campaign-clean`)
   clears its folders before each run.
@@ -3486,12 +3569,23 @@ options for one player. Just before a new game finishes loading, the
 runtime reads that brain from `Brains` in the player's folder, checks that
 it fits, and seats it. A seat with no brain, or a brain that does not fit
 or cannot be read, plays as the built-in computer player. A network game
-is not saved. In the battle room, each computer this machine runs has a
-button over the empty screen-size column. The button reads the brain, its
-version and its level, and opens the picker. USE THIS sets that computer,
-or every computer this machine runs. Another machine's brain is shown in
-the same place, and its card names a brain that sees every unit. The
-level's difficulty is shown in the row and cannot be changed. The battle
+is not saved. In the battle room, drawn from the room's own art
+([Computer seats in the rooms](#computer-seats-in-the-rooms)), a computer
+row keeps 3.1c's "AI:<owner>" name. Its empty Resolution cell
+(`oa.brain-seat.<slot>`) shows the OA stamp and the seat's brain with its
+version and level, or "Built-in", and its Mem cell
+(`oa.brain-seat-level.<slot>`) shows the brain's level over the room's
+greyed word. On a computer this machine runs the name has a notch
+(`oa.brain-seat-menu.<slot>`); the notch, the Resolution cell and the
+right button on the name open the brain menu, without Get more brains...,
+since leaving would leave the game; a row writes that computer, or every
+computer this machine runs with Use for every computer seat ticked. The
+Mem cell steps the brain's level, or the built-in player's difficulty as
+3.1c steps a computer's (Easy, Medium, Hard). Another machine's brain is
+shown in the same place and read alone, and its card names a brain that
+sees every unit. Tab, the arrows and the controller reach the Resolution
+cells, and resting the pointer on one, or the information key, shows the
+seat's card. The battle
 room remembers the seats, and START seats them before the first tick. With
 no brain installed and none chosen, the row is unchanged. The screen is
 `runtime_brain_room.cpp` (`brain-room`), kept while the battle room is in
@@ -5475,49 +5569,56 @@ lists the platform and architecture on a Platform line under Engine, leaving
 out a field the record leaves empty and the line when both are, and the mark
 by its title is the same icon.
 
-### GET MUTATORS in the battle room
+### A guest's Mutators in the battle room
 
-A guest whose host is playing mutators sees GET MUTATORS over the battle
-room (`runtime_get_mutators.cpp`). The screen `get-mutators` of the OA
-layer, which is not modal, has no backdrop and is not opaque, is kept on
-the layer while the multiplayer screens show (`keep_get_mutators_screen`,
-from the battle room's chat follow, once a frame). It shows only for a
-guest, and only while `host_mutators_fetch` names a set. The host's own
-room leaves it with nothing to draw.
+A guest sees the host's set as the room's own Mutators button
+(`runtime_get_mutators.cpp`). The screen `get-mutators` of the OA layer,
+which is not modal, has no backdrop and is not opaque, is drawn from the
+room's own art (`brain_seats_room.hpp`) and kept on the layer while the
+multiplayer screens show (`keep_get_mutators_screen`, from the battle
+room's chat follow, once a frame). It shows for every guest in the battle
+room. The host's own room leaves it with nothing to draw.
 
-The row is anchored to Select Map and placed by the same rule as the
-host's button, above it, missing every control of the room and GET MAP's
-rectangle while that shows. VIEW… (inset) is the left button. GET MUTATORS
-(accent) stands to its right while a release can be fetched or the last
-try failed. While a download runs, the bar stands where GET MUTATORS
-stood and VIEW… stays. One line sits under the row: the state's text while
-it has one, otherwise "Mutators:" and the host's list, with each mutator
-this machine lacks in the lock colour. A name that does not fit is dropped
-whole, and the line ends with ….
+The button is the room's on and off button with the OA stamp, where the
+host's stands: as large as Select Map, over it, and wider to the left
+where its words need it, missing every control of the room and GET MAP's
+rectangle while that shows. It reads "Mutators: off" while the host plays
+none, else "Mutators: N on". Its lamp is unlit with no set, green while
+this machine has built the host's list, and red while READY waits on a
+mutator it lacks. A press, Return or Y opens the picker read-only on the
+host's set: CLOSE leaves the set as it is, and nothing readies the player.
+Resting the pointer on it, or the information key, shows the Mutators card
+([Mutators](#mutators)), a missing one reading "{name}: not installed".
+To its left, cut short to miss every control of the room, stands one
+part, by the state of the first mutator of the host's list that this
+machine lacks:
 
-| State | Line | What shows |
+| State | To the left | The line (`oa.get-mutators-text`) |
 |---|---|---|
-| none | the summary | VIEW… |
-| get | the summary | VIEW… and GET MUTATORS |
-| downloading | "Getting {name}: {percent}%" | VIEW… and the bar |
-| failed | "{name}: {problem}", the problem a short phrase such as "unreachable" | VIEW… and GET MUTATORS |
-| gone | "{name}: not offered." | VIEW… |
-| downloads_off | "{registry}: downloads off.", or "Downloads are off." with no registry | VIEW… |
+| none | nothing | "Mutators:" and the host's list |
+| get | GET MUTATORS, a button in the room's button art | "Mutators:" and the host's list |
+| downloading | the room's bar (`draw_room_bar`), filling in its green lamp's light | "Getting {name}: {percent}%" |
+| failed | GET MUTATORS | "{name}: {problem}", the problem a short phrase such as "unreachable" |
+| gone | the line, in the room's label font | "{name}: not offered." |
+| downloads_off | the line | "{registry}: downloads off.", or "Downloads are off." with no registry |
 
-The first item that is not already here decides, in the host's order.
-`waiting_for_catalogue` shows the summary until that catalogue is read, and
-a later item is not consulted. Pressing GET MUTATORS calls
-`fetch_host_mutators` and nothing else. VIEW… opens the picker read-only
-on the host's set: CLOSE leaves the set as it is, and nothing readies the
-player. Y opens VIEW…. The row joins the room's Tab order as the host's
-button does. While READY is held because a mutator is missing, "Ready once
-{name} is here" sits where the host's START reason sits, in the lock
-colour. It does not enable or disable READY or START.
+`waiting_for_catalogue` shows nothing to the left until that catalogue is
+read, and a later item is not consulted. A guest that has built the host's
+list shows nothing beside the button, whatever a catalogue says of the
+releases. Pressing GET MUTATORS calls `fetch_host_mutators` and nothing
+else. GET MUTATORS, when it shows, comes first in the row's Tab order, as
+it stands left; the row joins the room's Tab order as the host's button
+does, the room's focus marker showing on the part that has the focus.
+While READY is held because a mutator is missing, "Ready once {name} is
+here" sits where the host's START reason sits, in the room's label font.
+It does not enable or disable READY or START.
 
-Automation lists VIEW… as `oa.mutators-view`, GET MUTATORS as
+Automation lists the button as `oa.mutators-view` (its text the words as
+drawn, checked while its lamp is green), GET MUTATORS as
 `oa.get-mutators`, the bar as `oa.get-mutators-progress` (its text the
-percent), the line as `oa.get-mutators-text` and the ready line as
-`oa.get-mutators-ready`, with no dialog, and only while they show.
+percent), the line as `oa.get-mutators-text`, which holds the whole line
+uncut, and the ready line as `oa.get-mutators-ready`, with no dialog, and
+only while they show.
 
 Every player's card, after Rules, has one row a mutator of the host's set.
 The first is labelled "Mutators". "{item} ✓" when that player has the
