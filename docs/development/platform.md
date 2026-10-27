@@ -48,12 +48,19 @@ Text outside the game's own fonts is drawn through FreeType from fonts that
 travel with the game, the same on every platform
 ([text font](../../src/platform/text-font/README.md)).
 `tools/bootstrap_text_fonts.py` fetches FreeType and the fonts, pinned by
-SHA-256, builds FreeType as a static library into
+SHA-256, checks each licence text against the one `licenses/` holds,
+builds FreeType as a static library into
 `local/deps/freetype-install-<release>` and puts the fonts in
 `local/deps/text-fonts`: DejaVu Sans Bold, DejaVu Sans,
-`NotoSansCJKsc-Bold-Endonyms.otf` and Noto Emoji.
-A configuration without them stops and says so
-(`cmake/OaTextFonts.cmake`). Neither is vendored in the tree. The macOS and
+`NotoSansCJKsc-Bold-Endonyms.otf` and Noto Emoji for game text, and the
+interface faces of OA's modern look, Barlow 1.422 Regular, Medium,
+SemiBold and Bold and Barlow Condensed SemiBold and Bold, from the Barlow
+project's release
+([Look](../settings.md#user-interface)). The build copies the ten fonts
+beside the game. A configuration without them stops and says so
+(`cmake/OaTextFonts.cmake`), so a checkout made before Barlow joined runs
+`python3 tools/bootstrap_text_fonts.py`, or `--fonts-only`, once. Neither
+FreeType nor the fonts is vendored in the tree. The macOS and
 Windows dependency bootstraps build the same FreeType for their targets.
 
 ## What a platform can do
