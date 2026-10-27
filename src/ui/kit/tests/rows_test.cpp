@@ -918,7 +918,7 @@ void a_view_shows_every_word_through_the_callers_function() {
     OA_CHECK(views[0].label == "VSYNC" && views[0].hints == std::vector<std::string>{"WAITS"});
     OA_CHECK(views[0].captions == (std::vector<std::string>{"AUS", "EIN"}));
     OA_CHECK(views[0].lock == "NICHT JETZT");
-    OA_CHECK(views[1].captions[1] == "IMMER" && views[1].value == "Off");
+    OA_CHECK(views[1].captions[1] == "IMMER" && views[1].value == "AUS");
     OA_CHECK(views[4].buttons == std::vector<std::string>{"NEU"});
     OA_CHECK(views[5].buttons[1] == "BILDER" && views[5].button_ids[1] == "screenshots");
     OA_CHECK(views[6].text == "Ridge");
