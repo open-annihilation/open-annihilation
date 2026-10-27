@@ -67,7 +67,12 @@ The Library opens on the main menu, from:
   need not open the Library to learn of them, and its **Updates** tab lists
   them;
 - **MORE IN THE LIBRARY…** in Settings › Language, which opens it on
-  Languages, over the settings, which stay open under it.
+  Languages, over the settings, which stay open under it;
+- **Change layout…** on the key layout card in Settings › Controls, which
+  opens it on Keys, over the settings;
+- **Get more brains...** in the brain menu of the skirmish setup or a
+  campaign's setup, which goes back to the main menu and opens it on
+  Brains ([Playing with brains](playing-with-brains.md)).
 
 The
 skirmish and battle room map lists have **MORE MAPS…** instead, which opens
@@ -97,11 +102,15 @@ to another screen, and in a game the in-game menu's button, which shows the
 gears too, opens the settings, not the Library.
 
 The Library lays itself out for the room the window gives it, at the
-Interface size in Settings › Graphics ([settings](settings.md#graphics)):
-in the Compact layout, as on a 640x480 window, the list fills the window
-and an entry's details are a page of their own; in the Regular and Large
-layouts the details sit beside the list, and Large adds a column of
-filters.
+Interface size and Window size in Settings › User Interface
+([settings](settings.md#user-interface)): in the Compact layout, as on a
+640x480 window, the list fills the window and an entry's details are a
+page of their own; in the Regular layout, as on an 800x600 window, and
+the Large layout, as on 1280x720 and larger, the details sit beside the
+list, and Large adds a column of filters. Its rows, tabs, search field,
+filter pills and buttons grow with the layout. Drag the Library by its
+title to move it; it opens there next time
+([moving windows](settings.md#opening-the-settings)).
 
 ## The Active tab
 
@@ -517,17 +526,21 @@ control on a skirmish, a campaign launch or the battle room, described in
 default** leads the list under **All** and **Installed**, and it is left
 out of every count, including the tab's. It is absent under **New**. Its
 name is **OA default** and the summary under it reads "The keys Open
-Annihilation ships with." While it is the layout in use, the chip reads
-**USING** and the details offer **EDIT KEYS…**. While another layout is
-in use, the chip reads **Built in** and the details offer **USE**.
+Annihilation ships with."
 
 Then the catalogue's layouts, joined with the copies you have installed,
 and then layouts you have that no registry lists. A change of your own is
-not an entry. The layout it sits on carries the line "· 1 change of your
-own" or "· {count} changes of your own".
+not an entry: it sits on the layout you made it on.
 
-While a mod is played, layouts made for that mod come next after OA
-default, and a row made for it reads "Made for {mod}".
+A layout's row says what the layout does: its name and author, its
+summary, and its state in a word where other packages show an icon,
+**In use**, filled with the accent, **Built in**, **Installed**,
+**Update**, or **Get** with its size, as "Get · 1 KB", which is the row's
+GET. It shows no version. At Regular and Large a second line carries
+your own changes to it, "2 changes of your own", then "Made for {mod}"
+while a mod is played and the layout is made for it, then its tags;
+Compact keeps the one line. While a mod is played, layouts made for that
+mod come next after OA default.
 
 The search reads "Search key layouts". It finds a layout by its name, its
 author and its tags. "default" finds OA default, and so do "built" and
@@ -536,49 +549,80 @@ first, Accessibility, Tournament, Mod and Legacy. Any other tag is shown
 as written.
 
 At Compact the list is the page, and choosing a row opens its details,
-with **BACK** and **MORE ▾**. The keyboard picture is on that page. At
+with **BACK** and **MORE ▾**; the whole keyboard is on that page. At
 Regular and Large the list and the details sit side by side, and the
-keyboard is in the details. The picture marks the keys the layout
-changes.
+details show the keyboard's main block, Tab to Enter and Shift to Shift,
+the keys the layout changes filled with the accent under their legends.
+Where a changed key lies outside that block, the whole keyboard shows
+instead.
 
-The details, after the picture, are **Works with**, **Needs**,
-**Keyboard**, **Interface**, **Asks for**, **Changes** and **Not in this
-version**, then **Size** and **From** when a package has them. **Keyboard**
-is ANSI, ISO, JIS or Any keyboard. **Interface** is Right-click or
-Left-click, the scheme the layout was drawn for. It does not change the
-interface you play with. **Asks for** names the helpers the layout turns
-on. **Changes** reads "Changes 1 action" or "Changes {count} actions".
-**Not in this version** counts actions this version of the game does not
-know. An unmet engine range, or a layout made for another mod, is
-information: the row stays bright and **GET** stays on.
+The details' chip says the state in words. For the layout in use it
+says where it is used, "In use for every game" or "In use with {mod}".
+The facts lead with what the layout does:
 
-The actions are **GET** or **UPDATE** (and **CANCEL** or **RETRY** while
-one is in the queue), then **USE** when the layout is installed and is
-not the one in use, or **EDIT KEYS…** when it is, then **UNINSTALL** and
-**OPEN FOLDER** when it is installed, then **HOMEPAGE** when the listing
-has one. There is no **PLAY NOW** and no **ROLL BACK**. **GET**, an
-install and a catalogue update never switch a layout on.
+- **Changes**, how many commands it moves: "1 command" or "12 commands";
+- **Your changes**, your own changes to it by command and key, such as
+  "Patrol on Q, Cloak on K and 2 more", or "{command} with no key";
+- **Asks for**, the helpers the layout turns on;
+- **Works with**, its mods, its keyboard and the interface it was drawn
+  for: "Any mod · any keyboard", or "Ridge · ISO keyboards · the
+  left-click interface". The interface it names does not change the one
+  you play with;
+- **Needs**, and **Not in this version**, which counts actions this
+  version of the game does not know;
+- then **Installed**, **Latest**, **Author**, **Size** and **From** when
+  the layout has them.
 
-**USE** asks first. The question is drawn over the Library.
+An unmet engine range, or a layout made for another mod, is information:
+the row stays bright and **GET** stays on.
 
-- **Your own changes**, when the layout in use has changes of your own.
-  **Keep my {count} changes on top** is marked, or **Set them aside**.
-  The line under them reads "They stay saved with {name}." Keeping writes
-  those changes into `own-<new id>` and leaves the old folder. When the
-  new layout already has changes of your own, the question says "{name}
-  already has {count} changes of your own; they stay." and does not write
-  over that folder.
-- **This layout asks for**, one switch for each helper it names. Each
-  starts on. A switch left off leaves that setting as it is.
-- **Use it for**, while a mod is played. **Every game**, or **Only with
-  {mod}**, marked when the layout's works-with names that mod.
+The actions stand in a bar at the foot of the details that does not
+scroll: **GET** or **UPDATE** (and **CANCEL** or **RETRY** while one is in
+the queue), then **USE** when the layout is installed and is not the one
+in use, or **EDIT KEYS…** when it is, then **UNINSTALL** and **OPEN
+FOLDER** when it is installed, then **HOMEPAGE** when the listing has one.
+There is no **PLAY NOW** and no **ROLL BACK**. **GET**, an install and a
+catalogue update never switch a layout on.
 
-When the layout was drawn for the other pointer scheme, the question says
+**USE** asks first, in a question over the Library, the whole window at
+Compact, titled "Use {name}". Its parts are numbered:
+
+1. **Where**, while a mod is played: **Every game**, or **Only with
+   {mod}**, marked when the layout's works-with names that mod.
+2. **Your {count} changes to {layout}**, when the layout in use has
+   changes of your own: **Keep them on top**, marked, which carries them
+   to the new layout, or **Start clean**. "Either way they stay saved with
+   {layout}, and come back when you use {layout} again." When the new
+   layout already has changes of your own, the question says "{name}
+   already has {count} changes of your own; they stay." instead, and
+   writes nothing over them.
+3. **What moves**: each command whose key changes, its key now and its
+   key afterwards, your own keys marked "yours", and "and {count} more"
+   past what fits; "No command changes its key." when none does. It reads
+   your keyboard and the mod's own letters, so the keys are the ones you
+   press.
+
+Under them a box holds one switch for each helper the layout asks for,
+each on, under "Helpers act in every game.", or "Helpers act in every
+game, not only with {mod}." while Only with {mod} is marked. A switch
+left off leaves that setting as it is. When
+the layout was drawn for the other pointer scheme, the question says
 "Made for the {layout} interface; yours is {yours}." and changes nothing
-about the interface mode. **USE** (Enter, marked) then loads the layout.
-**CANCEL** writes nothing.
+about the interface mode. Where the window is short, What moves keeps
+fewer lines and counts the rest. **Cancel** writes nothing. The last
+button names the answer, **Use for every game** or **Use for {mod}**,
+and loads the layout.
 
-**EDIT KEYS…** opens the key editor on the layout in use.
+After USE, a notice says "Using {layout} for every game." or "Using
+{layout} with {mod}.", with **OK** and **Undo**. Undo puts back what USE
+changed: the layout in use, for every game and for the mod, the helpers'
+settings, and this run's latches and holds. It removes a folder of your
+own changes only when USE made it. USE never deletes or writes over your
+own changes: Keep copies them to the new layout only when it has none,
+and Start clean writes nothing.
+
+**EDIT KEYS…** opens the key editor on the layout in use
+([the key editor](controls.md#the-key-editor)).
 
 **UNINSTALL** of the layout in use asks, before the question's last
 paragraph, "You play with {name} now. Uninstall it and go back to OA
@@ -586,11 +630,12 @@ default? Your own changes stay saved." Confirming erases the preferences
 that name that layout and loads OA default. Your own changes stay in
 their folder.
 
-Settings opens the Library on this tab from its key-layout row.
+**Change layout…** on Settings' key layout card opens the Library on this
+tab.
 
-![The Keys tab at Regular: the list and the details side by side, with the keyboard of the layout in use.](images/library/library-keys-regular.png)
+![The Keys tab at Regular: the list and the details side by side, the layout in use with the keyboard's main block and the keys it changes filled.](images/library/library-keys-regular.png)
 
-![USE's question at Regular.](images/library/library-keys-use-regular.png)
+![USE's question at Regular: Where, your changes with Keep them on top and Start clean, What moves, the helpers' box, Cancel and Use for every game.](images/library/library-keys-use-regular.png)
 
 The Compact and Large pictures are `library-keys-compact.png` and
 `library-keys-large.png`. The Active tab's KEYS tile is
@@ -679,7 +724,10 @@ back button follow whichever of those is showing.
   **ROLL BACK** while an earlier copy is kept
   ([rolling back](#rolling-back)); **UNINSTALL** and **OPEN FOLDER** for an
   installed package ([uninstalling](#uninstalling)); and **HOMEPAGE**, which
-  opens the package's web page in your browser.
+  opens the package's web page in your browser. At Regular and Large the
+  buttons stand in a bar at the foot of the details, which stays put while
+  the details scroll; on Compact's details page they are in the footer,
+  with **MORE ▾** and **BACK**.
 - **A note** for mods while you play one: "Finishes when you leave Ridge."
   on the mod being played, or "You are playing Ridge. Updating Cinder
   doesn't restart the game." on another
