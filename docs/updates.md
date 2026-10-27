@@ -134,7 +134,9 @@ version was swapped in. The bad release is not offered again. Saves, mods,
 the user folder and installed content stay where they are. The old version
 says "Back on {version}", with SHOW THE LOG and OK. Settings › Updates
 shows Previous version while one is kept, and ROLL BACK asks once, then
-restores the same way.
+restores the same way. A roll back that fails undoes what it had done and
+says "The roll back failed. Nothing was changed.", or, when that undo does
+not finish, "The roll back failed. The game could not be put back."
 
 ## Turning it off
 
@@ -168,9 +170,10 @@ permission prompt, nothing changes and the game says "The update was
 cancelled." A zip copy keeps the program files in `previous` beside the
 game. On Windows 95, 98 and Me the window says "Restart Windows to finish
 installing {version}." and the game waits for that restart. On the other
-systems the game starts again. If a step fails, the helper puts back what
-it had changed and starts the version you had. The helper makes no request
-of its own.
+systems the game starts again. If a step fails after the helper has
+changed the game, it puts back what it had changed and the window says
+"The update failed. The game was put back." The game starts again on the
+version you had. The helper makes no request of its own.
 
 On a Mac, the helper checks that the new app is signed by the same team,
 that the signature is valid, and that Apple has notarized it. It then moves

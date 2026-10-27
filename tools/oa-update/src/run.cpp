@@ -249,6 +249,50 @@ void forget_started(Started& started) {
 
 } // namespace
 
+std::vector<Operation> kept_record_operations(
+    const update::Plan& plan, std::string_view installed_version, int64_t installed_release
+) {
+    const fs::path updates = path_from(plan.updates);
+    const fs::path preferences_copy = updates / "previous" / "preferences.conf";
+    std::vector<Operation> operations;
+    std::error_code io;
+    const fs::file_status existing = fs::symlink_status(preferences_copy, io);
+    if (!io && fs::exists(existing)) {
+        Operation remove;
+        remove.kind = Operation::Kind::remove_tree;
+        remove.path = preferences_copy;
+        operations.push_back(std::move(remove));
+    }
+
+    Operation preferences;
+    preferences.kind = Operation::Kind::copy_tree;
+    preferences.from = path_from(plan.preferences);
+    preferences.to = preferences_copy;
+    operations.push_back(std::move(preferences));
+
+    update::State state;
+    state.installed_version = std::string(installed_version);
+    state.installed_release = installed_release;
+    state.kept_version = plan.from_version;
+    if (plan.route == update::Route::linux_versions) {
+        state.kept_path =
+            utf8_of(path_from(plan.install) / "versions" / path_from(plan.from_version));
+    } else {
+        state.kept_path = utf8_of(updates / "previous");
+    }
+    state.kept_route = plan.route;
+    state.preferences_copy = utf8_of(preferences_copy);
+    state.confirmed = false;
+    state.failed_starts = 0;
+
+    Operation record;
+    record.kind = Operation::Kind::write_file;
+    record.path = updates / "state.json";
+    record.bytes = update::state_text(state);
+    operations.push_back(std::move(record));
+    return operations;
+}
+
 int restore_kept(
     const update::Plan& plan,
     const fs::path& updates,
@@ -377,7 +421,7 @@ int restore_kept(
     const JournalResult applied = apply_journal(updates, operations, hooks, &error);
     if (applied != JournalResult::finished) {
         log.line(error.empty() ? "a step failed" : error);
-        window.show(title, could_not_check, 0, true);
+        window.show(title, line_after_failed_roll_back(updates), 0, true);
         start_old(plan, log, window, start_game);
         return exit_undone;
     }
@@ -561,7 +605,7 @@ int carry_out(
         const JournalResult opened = apply_journal(updates, operations, hooks, &error);
         if (opened != JournalResult::finished) {
             log.line(error.empty() ? "a step failed" : error);
-            window.show(plan.title, could_not_check, 0, true);
+            window.show(plan.title, line_after_failed_change(updates), 0, true);
             start_old(plan, log, window, !elevated_swap);
             return exit_undone;
         }
@@ -622,36 +666,19 @@ int carry_out(
         return exit_refused;
     }
 
-    Operation preferences;
-    preferences.kind = Operation::Kind::copy_tree;
-    preferences.from = path_from(plan.preferences);
-    preferences.to = updates / "previous" / "preferences.conf";
-    operations.push_back(std::move(preferences));
-
-    update::State state;
-    state.installed_version = verified.version;
-    state.installed_release = verified.release;
-    state.kept_version = plan.from_version;
-    if (plan.route == update::Route::linux_versions)
-        state.kept_path =
-            utf8_of(path_from(plan.install) / "versions" / path_from(plan.from_version));
-    else
-        state.kept_path = utf8_of(updates / "previous");
-    state.kept_route = plan.route;
-    state.preferences_copy = utf8_of(updates / "previous" / "preferences.conf");
-    state.confirmed = false;
-    state.failed_starts = 0;
-    Operation record;
-    record.kind = Operation::Kind::write_file;
-    record.path = updates / "state.json";
-    record.bytes = update::state_text(state);
-    operations.push_back(std::move(record));
+    std::vector<Operation> record =
+        kept_record_operations(plan, verified.version, verified.release);
+    operations.insert(
+        operations.end(),
+        std::make_move_iterator(record.begin()),
+        std::make_move_iterator(record.end())
+    );
 
     const JournalResult applied = apply_journal(updates, operations, hooks, &error);
     if (applied != JournalResult::finished) {
         log.line(error.empty() ? "a step failed" : error);
         remove_stage(stage);
-        window.show(plan.title, could_not_check, 0, true);
+        window.show(plan.title, line_after_failed_change(updates), 0, true);
         start_old(plan, log, window, !elevated_swap);
         return exit_undone;
     }
@@ -691,7 +718,7 @@ int carry_out(
         if (!undo_journal(updates, hooks, &undo_error) && !undo_error.empty())
             log.line(undo_error);
         remove_stage(stage);
-        window.show(plan.title, could_not_check, 0, true);
+        window.show(plan.title, line_after_failed_change(updates), 0, true);
         start_old(plan, log, window, !elevated_swap);
         return exit_undone;
     }

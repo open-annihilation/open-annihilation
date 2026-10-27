@@ -11,6 +11,7 @@
 #include "oa/update_helper/journal.hpp"
 #include "oa/update_helper/paths.hpp"
 #include "oa/update_helper/routes.hpp"
+#include "oa/update_helper/run.hpp"
 
 #include "oa/test/check.hpp"
 
@@ -164,6 +165,59 @@ void stage_package(const fs::path& stage) {
     write_text(top / "steam-deck/art.txt", "new-art");
 }
 
+void stage_release(const fs::path& stage, std::string_view version, std::string_view game) {
+    std::error_code io;
+    fs::remove_all(stage, io);
+    const fs::path top = stage / ("open-annihilation-" + std::string(version) + "-steam-deck");
+    write_text(top / "open-annihilation", game);
+    write_text(top / "oa-tool", "tool");
+    write_text(top / "LICENSE", "license");
+    write_text(top / "languages/en.txt", "lang");
+    const std::string art = std::string("art-") + std::string(version);
+    write_text(top / "steam-deck/art.txt", art);
+}
+
+void drop_finished_journal(const fs::path& updates) {
+    std::error_code io;
+    fs::remove(updates / "journal.json", io);
+    fs::remove_all(updates / "journal-held", io);
+}
+
+/// Points `current` at `version` and removes `next`, as the launcher does
+/// after a staged update has been taken.
+void take_staged_version(const fs::path& install, std::string_view version) {
+    std::error_code io;
+    fs::remove(install / "next", io);
+    fs::remove(install / "current", io);
+    fs::create_symlink(std::string("versions/") + std::string(version), install / "current", io);
+    OA_CHECK(!io);
+}
+
+std::vector<helper::Operation> linux_update_operations(
+    const update::Plan& plan, const fs::path& stage, std::string_view version, int64_t release
+) {
+    std::string why;
+    std::vector<helper::Operation> operations = helper::plan_operations(plan, stage, &why);
+    OA_CHECK(why.empty());
+    if (!why.empty())
+        return {};
+    const std::vector<helper::Operation> record =
+        helper::kept_record_operations(plan, version, release);
+    for (const helper::Operation& operation : record)
+        operations.push_back(operation);
+    return operations;
+}
+
+bool apply_operations(const fs::path& updates, const std::vector<helper::Operation>& operations) {
+    fs::create_directories(updates);
+    std::string error;
+    const helper::JournalResult result =
+        helper::apply_journal(updates, operations, helper::JournalHooks{}, &error);
+    OA_CHECK(result == helper::JournalResult::finished);
+    OA_CHECK(error.empty());
+    return result == helper::JournalResult::finished && error.empty();
+}
+
 bool apply_plan(const update::Plan& plan, const fs::path& stage, const fs::path& updates) {
     std::string why;
     const std::vector<helper::Operation> operations = helper::plan_operations(plan, stage, &why);
@@ -300,6 +354,81 @@ void restoring_points_current_at_the_kept_version(const fs::path& root) {
     expect_same(before, snapshot(install));
 }
 
+void a_second_update_replaces_what_the_first_kept(const fs::path& root) {
+    const fs::path install = root / "install";
+    const fs::path stage = root / "stage";
+    const fs::path updates = root / "updates";
+    const fs::path preferences = root / "preferences.conf";
+    write_text(install / "open-annihilation", "old-game");
+    write_text(install / "oa-update", "old-update");
+    write_text(install / "LICENSE", "old-license");
+    write_text(install / "languages/en.txt", "old-lang");
+    write_text(install / "steam-deck/art.txt", "old-art");
+    write_text(install / "notes.txt", "player");
+    write_text(preferences, "prefs-one");
+    stage_release(stage, "0.8.7", "game-0.8.7");
+
+    update::Plan first = linux_plan(install, "steam-deck", "0.8.6");
+    first.updates = helper::utf8_of(updates);
+    first.preferences = helper::utf8_of(preferences);
+    if (!apply_operations(updates, linux_update_operations(first, stage, "0.8.7", 2)))
+        return;
+    OA_CHECK(read_text(updates / "previous" / "preferences.conf") == "prefs-one");
+    OA_CHECK(read_text(install / "versions/0.8.6/open-annihilation") == "old-game");
+
+    // A confirmed update leaves the kept copy and drops the journal.
+    drop_finished_journal(updates);
+    take_staged_version(install, "0.8.7");
+    const std::vector<Entry> after_first = snapshot(install);
+    const std::string state_after_first = read_text(updates / "state.json");
+
+    write_text(preferences, "prefs-two");
+    stage_release(stage, "0.8.8", "game-0.8.8");
+    update::Plan second = linux_plan(install, "steam-deck", "0.8.7");
+    second.updates = helper::utf8_of(updates);
+    second.preferences = helper::utf8_of(preferences);
+    const std::vector<helper::Operation> operations =
+        linux_update_operations(second, stage, "0.8.8", 3);
+    int preferences_removed_at = -1;
+    int preferences_copied_at = -1;
+    bool removed_kept_version = false;
+    for (int index = 0; index < static_cast<int>(operations.size()); ++index) {
+        const helper::Operation& operation = operations[static_cast<std::size_t>(index)];
+        if (operation.kind == helper::Operation::Kind::remove_tree &&
+            helper::utf8_of(operation.path.filename()) == "preferences.conf")
+            preferences_removed_at = index;
+        if (operation.kind == helper::Operation::Kind::copy_tree &&
+            helper::utf8_of(operation.to.filename()) == "preferences.conf")
+            preferences_copied_at = index;
+        if (operation.kind == helper::Operation::Kind::remove_tree &&
+            helper::utf8_of(operation.path.filename()) == "0.8.6")
+            removed_kept_version = true;
+    }
+    OA_CHECK(preferences_removed_at >= 0);
+    OA_CHECK(preferences_copied_at > preferences_removed_at);
+    OA_CHECK(removed_kept_version);
+    if (!apply_operations(updates, operations))
+        return;
+
+    OA_CHECK(read_text(updates / "previous" / "preferences.conf") == "prefs-two");
+    OA_CHECK(read_text(install / "versions/0.8.8/open-annihilation") == "game-0.8.8");
+    OA_CHECK(read_text(install / "versions/0.8.7/open-annihilation") == "game-0.8.7");
+    OA_CHECK(!fs::exists(install / "versions/0.8.6"));
+    OA_CHECK(helper::utf8_of(fs::read_symlink(install / "current")) == "versions/0.8.7");
+    OA_CHECK(helper::utf8_of(fs::read_symlink(install / "next")) == "versions/0.8.8");
+    OA_CHECK(read_text(install / "notes.txt") == "player");
+    OA_CHECK(read_text(install / "steam-deck/art.txt") == "art-0.8.8");
+
+    std::string error;
+    OA_CHECK(helper::undo_journal(updates, helper::JournalHooks{}, &error));
+    OA_CHECK(error.empty());
+    expect_same(after_first, snapshot(install));
+    OA_CHECK(read_text(updates / "previous" / "preferences.conf") == "prefs-one");
+    OA_CHECK(read_text(updates / "state.json") == state_after_first);
+    OA_CHECK(read_text(install / "versions/0.8.6/open-annihilation") == "old-game");
+    OA_CHECK(read_text(install / "notes.txt") == "player");
+}
+
 } // namespace
 
 void test_linux_versions_route() {
@@ -317,6 +446,10 @@ void test_linux_versions_route() {
     {
         Scratch restored("linux-restore");
         restoring_points_current_at_the_kept_version(restored.path);
+    }
+    {
+        Scratch second("linux-second");
+        a_second_update_replaces_what_the_first_kept(second.path);
     }
 }
 
