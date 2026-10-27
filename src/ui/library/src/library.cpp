@@ -7,6 +7,7 @@
 #include "oa/ui/library/library.hpp"
 
 #include "oa/data/content_bundles.hpp"
+#include "oa/data/input_actions/actions.hpp"
 #include "oa/data/languages.hpp"
 #include "oa/data/mod_profile/registry.hpp"
 #include "oa/formats/oabrain/manifest.hpp"
@@ -221,9 +222,10 @@ std::string blocked_reason(const Library& library, const Entry& entry) {
             return registry->downloads_off_reason;
         return filled(text, words::blocked_downloads_off, {{"registry", entry.registry_name}});
     }
-    // A brain that does not fit the game being played says so on the row.
-    // That is information: it does not block GET or UPDATE.
-    if (entry.id.kind == Kind::brain)
+    // A brain or a key layout that does not fit the game being played says so
+    // on the row. That is information: it does not block GET or UPDATE.
+    // An engine range a layout does not meet is the same.
+    if (entry.id.kind == Kind::brain || entry.id.kind == Kind::key_layout)
         return {};
     if (entry.state == State::update) {
         const UpdateNote& update = *entry.update;
@@ -325,6 +327,19 @@ void settle_entry(const Library& library, Entry& entry) {
             entry.not_compatible =
                 !brain_unfit_reason(library.inputs, *facts, library.text).empty();
             if (facts->verdict && facts->verdict->state == Verdict::State::incompatible)
+                entry.not_compatible = true;
+        }
+    } else if (entry.id.kind == Kind::key_layout) {
+        // An unmet engine range, or a layout made for another mod, is
+        // information. GET stays on, and the row is not dimmed.
+        if (const KeyLayoutFacts* facts = key_facts(entry)) {
+            if (const std::optional<formats::oamod::EngineRange> range =
+                    formats::oamod::parse_engine_range(facts->requires_engine)) {
+                if (!formats::oamod::engine_range_met(*range, library.inputs.engine))
+                    entry.not_compatible = true;
+            }
+            if (!facts->works_with.empty() &&
+                !layout_fits_played(library.inputs, facts->works_with))
                 entry.not_compatible = true;
         }
     }
@@ -532,6 +547,53 @@ void ensure_built_in_brain(Library& library) {
     }
     if (!named)
         library.entries[*place].is_default = true;
+}
+
+/// Sets OA default: installed, with its name and summary, and with no
+/// package behind it.
+///
+/// @param library the Library
+/// @param[in,out] entry the built-in entry
+void settle_built_in_layout(const Library& library, Entry& entry) {
+    entry.listing = nullptr;
+    entry.installed = nullptr;
+    entry.update = nullptr;
+    entry.queued = nullptr;
+    entry.replaces_registry_name.clear();
+    entry.built_in = false;
+    entry.not_reviewed = false;
+    entry.registry_name.clear();
+    entry.blocked.clear();
+    entry.can_act = true;
+    entry.not_compatible = false;
+    entry.needs_missing.clear();
+    entry.is_default = false;
+    entry.badge = nullptr;
+    entry.shown_name = std::string(shown(library.text, words::built_in_layout_name));
+    entry.shown_summary = std::string(shown(library.text, words::built_in_layout_summary));
+    entry.state = State::installed;
+}
+
+/// Makes sure OA default is present, and settles it.
+///
+/// An entry a package already took under the same id is kept as OA default:
+/// a package key cannot be built_in_layout_key, and the entry offers none of
+/// a package's actions. It is left out of every count.
+///
+/// @param[in,out] library the Library, its other entries already settled
+void ensure_built_in_layout(Library& library) {
+    const EntryId id = built_in_layout_id();
+    std::optional<std::size_t> place;
+    for (std::size_t index = 0; index < library.entries.size(); ++index)
+        if (library.entries[index].id == id)
+            place = index;
+    if (!place) {
+        Entry added;
+        added.id = id;
+        library.entries.push_back(std::move(added));
+        place = library.entries.size() - 1;
+    }
+    settle_built_in_layout(library, library.entries[*place]);
 }
 
 /// Makes the selection one of the visible entries.
@@ -1072,6 +1134,181 @@ void append_brain_facts(const Library& library, const Entry& entry, std::vector<
     }
 }
 
+/// The word a keyboard shape shows.
+///
+/// A layout's "any" stays "Any keyboard". An empty shape uses the player's
+/// keyboard, and an empty player keyboard is ANSI.
+///
+/// @param keyboard the layout's keyboard; empty when it names none
+/// @param inputs the Library's inputs
+/// @param text how texts are looked up
+/// @return the word
+std::string keyboard_word(std::string_view keyboard, const Inputs& inputs, const TextHooks& text) {
+    std::string_view which = keyboard;
+    if (which.empty())
+        which = inputs.player_keyboard.empty() ? std::string_view{"ansi"} : inputs.player_keyboard;
+    if (which == "iso")
+        return std::string(shown(text, words::keyboard_iso));
+    if (which == "jis")
+        return std::string(shown(text, words::keyboard_jis));
+    if (which == "any")
+        return std::string(shown(text, words::keyboard_any));
+    if (which == "ansi")
+        return std::string(shown(text, words::keyboard_ansi));
+    return std::string(which);
+}
+
+/// The word an interface scheme shows. Empty when the layout names none.
+///
+/// @param pointer "right-click", "left-click", or empty
+/// @param text how texts are looked up
+/// @return the word
+std::string pointer_word(std::string_view pointer, const TextHooks& text) {
+    if (pointer == "left-click")
+        return std::string(shown(text, words::pointer_left));
+    if (pointer == "right-click")
+        return std::string(shown(text, words::pointer_right));
+    return {};
+}
+
+/// Appends a key layout's facts: Works with, Needs, Keyboard, Interface,
+/// Asks for, Changes and Not in this version. Size and From are written by
+/// the caller. An unmet engine range is a warning. It does not block GET.
+///
+/// @param library the Library
+/// @param entry the layout
+/// @param[in,out] list the facts so far
+void append_key_facts(const Library& library, const Entry& entry, std::vector<Fact>& list) {
+    const TextHooks& text = library.text;
+    const KeyLayoutFacts* keys = key_facts(entry);
+    const KeyLayoutFacts empty;
+    const KeyLayoutFacts& facts = keys != nullptr ? *keys : empty;
+    const bool built_in = is_built_in_layout(entry.id);
+
+    if (built_in || facts.works_with.empty()) {
+        const std::string any(shown(text, words::works_with_any));
+        list.push_back(fact_of(shown(text, words::fact_works_with), any, any, Mark::none));
+    } else {
+        BrainFacts stand_in;
+        stand_in.works_with = facts.works_with;
+        const BrainWorksWith works = brain_works_with(library.inputs, stand_in, text);
+        const std::string works_text = works.any ? std::string(shown(text, words::works_with_any))
+                                                 : join_or(text, works.names);
+        if (!works_text.empty()) {
+            list.push_back(fact_of(
+                shown(text, words::fact_works_with),
+                works_text,
+                works_text,
+                works.fits ? Mark::none : Mark::warn
+            ));
+        }
+    }
+
+    if (!built_in) {
+        if (const std::optional<formats::oamod::EngineRange> range =
+                formats::oamod::parse_engine_range(facts.requires_engine)) {
+            const bool met = formats::oamod::engine_range_met(*range, library.inputs.engine);
+            list.push_back(fact_of(
+                shown(text, words::fact_needs),
+                filled(text, words::needs_engine, {{"range", engine_text(*range, text)}}),
+                filled(
+                    text, words::needs_engine_short, {{"range", engine_short_text(*range, text)}}
+                ),
+                met ? Mark::good : Mark::warn
+            ));
+        }
+    }
+
+    const std::string keyboard =
+        keyboard_word(built_in ? std::string_view{} : facts.keyboard, library.inputs, text);
+    list.push_back(fact_of(shown(text, words::fact_keyboard), keyboard, keyboard, Mark::none));
+
+    std::string_view pointer = facts.pointer;
+    if (pointer.empty())
+        pointer = library.inputs.player_pointer.empty() ? std::string_view{"right-click"}
+                                                        : library.inputs.player_pointer;
+    const std::string interface_word = pointer_word(pointer, text);
+    if (!interface_word.empty()) {
+        list.push_back(
+            fact_of(shown(text, words::fact_interface), interface_word, interface_word, Mark::none)
+        );
+    }
+
+    if (!facts.helpers.empty()) {
+        std::vector<std::string> labels;
+        for (const std::string& token : facts.helpers) {
+            const std::string label = key_helper_label(token, text);
+            if (!label.empty())
+                labels.push_back(label);
+        }
+        if (!labels.empty()) {
+            const std::string asks = join_parts(text, labels, words::names_and);
+            list.push_back(fact_of(shown(text, words::fact_asks_for), asks, asks, Mark::none));
+        }
+    }
+
+    if (facts.changes > 0) {
+        const std::string value =
+            facts.changes == 1
+                ? std::string(shown(text, words::changes_one))
+                : filled(text, words::changes_many, {{"count", std::to_string(facts.changes)}});
+        list.push_back(fact_of(shown(text, words::fact_changes), value, value, Mark::none));
+    }
+
+    if (facts.unknown_actions > 0) {
+        const std::string value = facts.unknown_actions == 1
+                                      ? std::string(shown(text, words::not_in_version_one))
+                                      : filled(
+                                            text,
+                                            words::not_in_version_many,
+                                            {{"count", std::to_string(facts.unknown_actions)}}
+                                        );
+        list.push_back(fact_of(shown(text, words::fact_not_in_version), value, value, Mark::warn));
+    }
+
+    if (facts.own_changes > 0) {
+        const std::string line = own_changes_line(facts.own_changes, text);
+        list.push_back(fact_of(shown(text, words::use_own_heading), line, line, Mark::none));
+    }
+}
+
+/// Appends one "Key layouts" fact for each layout whose works-with names
+/// this mod. The value is the layout's name, and it opens Keys with that
+/// layout selected.
+///
+/// @param library the Library
+/// @param entry the mod
+/// @param[in,out] list the facts so far
+void append_mod_key_layouts(const Library& library, const Entry& entry, std::vector<Fact>& list) {
+    if (entry.id.kind != Kind::mod || is_base_game(entry.id))
+        return;
+    const TextHooks& text = library.text;
+    for (const Entry& other : library.entries) {
+        if (other.id.kind != Kind::key_layout || is_built_in_layout(other.id))
+            continue;
+        const KeyLayoutFacts* facts = key_facts(other);
+        if (facts == nullptr)
+            continue;
+        bool names = false;
+        for (const WorksWith& item : facts->works_with) {
+            if (item.id == entry.id.key) {
+                names = true;
+                break;
+            }
+        }
+        if (!names)
+            continue;
+        Fact fact = fact_of(
+            shown(text, words::fact_key_layouts),
+            std::string(entry_name(other)),
+            std::string(entry_name(other)),
+            Mark::none
+        );
+        fact.opens = other.id;
+        list.push_back(std::move(fact));
+    }
+}
+
 /// Tells whether a finished queue item still stands in for the installed copy.
 ///
 /// The install can finish before the installed packages are read again, and
@@ -1120,6 +1357,170 @@ bool update_already_in_place(const Library& library, const UpdateNote& update) {
 }
 
 } // namespace
+
+namespace {
+
+/// The name a player reads for an action id.
+///
+/// The catalogue's short name wins. Otherwise the id's last segment is
+/// shown, without a trailing "-modifier", and with its first letter capital.
+///
+/// @param id the action id
+/// @return the name
+std::string action_face(std::string_view id) {
+    if (const oa::data::input_actions::Action* action = oa::data::input_actions::find(id)) {
+        if (!action->words.name.empty())
+            return std::string(action->words.name);
+    }
+    const std::size_t dot = id.rfind('.');
+    std::string_view tail = dot == std::string_view::npos ? id : id.substr(dot + 1);
+    constexpr std::string_view suffix = "-modifier";
+    if (tail.size() > suffix.size() && tail.substr(tail.size() - suffix.size()) == suffix)
+        tail.remove_suffix(suffix.size());
+    std::string face(tail);
+    if (!face.empty() && face.front() >= 'a' && face.front() <= 'z')
+        face.front() = static_cast<char>(face.front() - 'a' + 'A');
+    return face;
+}
+
+} // namespace
+
+bool layout_fits_played(const Inputs& inputs, const std::vector<WorksWith>& works) {
+    if (works.empty())
+        return true;
+    for (const WorksWith& item : works) {
+        if (item.id == "*")
+            return true;
+        if (item.id == supported_base) {
+            if (inputs.played.id.empty())
+                return true;
+            continue;
+        }
+        formats::oamut::Condition condition;
+        condition.id = item.id;
+        condition.range_text = item.range;
+        if (!item.range.empty()) {
+            const std::optional<formats::oamut::VersionRange> range =
+                formats::oamut::parse_version_range(item.range);
+            if (!range)
+                continue;
+            condition.range = *range;
+        }
+        if (formats::oamut::condition_met(condition, inputs.played.id, inputs.played.version))
+            return true;
+    }
+    return false;
+}
+
+bool layout_made_for_played(const Inputs& inputs, const std::vector<WorksWith>& works) {
+    if (inputs.played.id.empty())
+        return false;
+    for (const WorksWith& item : works) {
+        if (item.id != inputs.played.id)
+            continue;
+        formats::oamut::Condition condition;
+        condition.id = item.id;
+        condition.range_text = item.range;
+        if (!item.range.empty()) {
+            const std::optional<formats::oamut::VersionRange> range =
+                formats::oamut::parse_version_range(item.range);
+            if (!range)
+                continue;
+            condition.range = *range;
+        }
+        if (formats::oamut::condition_met(condition, inputs.played.id, inputs.played.version))
+            return true;
+    }
+    return false;
+}
+
+std::string key_helper_name(std::string_view token) {
+    const std::size_t colon = token.find(':');
+    const std::string_view head = token.substr(0, colon);
+    if (head == "toggle" && colon != std::string_view::npos)
+        return "toggle." + std::string(token.substr(colon + 1));
+    if (head == "hold-to-confirm" && colon != std::string_view::npos)
+        return "hold-to-confirm." + std::string(token.substr(colon + 1));
+    return std::string(head);
+}
+
+std::string key_helper_label(std::string_view token, const TextHooks& text) {
+    const std::size_t colon = token.find(':');
+    const std::string_view head = token.substr(0, colon);
+    const std::string_view rest =
+        colon == std::string_view::npos ? std::string_view{} : token.substr(colon + 1);
+    if (head == "toggle")
+        return filled(text, words::use_latch, {{"action", action_face(rest)}});
+    if (head == "hold-to-confirm") {
+        if (rest.empty())
+            return std::string(shown(text, words::use_hold_plain));
+        return filled(text, words::use_hold, {{"action", action_face(rest)}});
+    }
+    if (head == "sticky-modifiers")
+        return std::string(shown(text, words::use_sticky));
+    if (head == "pointer-keys")
+        return std::string(shown(text, words::use_pointer_keys));
+    if (head == "edge-scroll")
+        return std::string(shown(text, words::use_edge_off));
+    if (head == "radial-orders") {
+        if (rest == "hold-middle")
+            return std::string(shown(text, words::use_wheel_middle));
+        return std::string(shown(text, words::use_wheel_right));
+    }
+    return std::string(token);
+}
+
+bool layout_in_use(const Library& library, const Entry& entry) {
+    if (entry.id.kind != Kind::key_layout)
+        return false;
+    const std::string& per_mod = library.inputs.keys_for_mod;
+    const std::string& global = library.inputs.keys_layout;
+    if (per_mod.empty() && global.empty()) {
+        if (const KeyLayoutFacts* facts = key_facts(entry); facts != nullptr && facts->in_use)
+            return true;
+        for (const Entry& other : library.entries) {
+            if (const KeyLayoutFacts* facts = key_facts(other); facts != nullptr && facts->in_use)
+                return false;
+        }
+        return is_built_in_layout(entry.id);
+    }
+    const std::string_view wanted =
+        !per_mod.empty() ? std::string_view(per_mod) : std::string_view(global);
+    if (layout_names_oa_default(wanted))
+        return is_built_in_layout(entry.id);
+    if (is_built_in_layout(entry.id)) {
+        for (const Entry& other : library.entries) {
+            if (other.id.kind == Kind::key_layout && other.installed != nullptr &&
+                other.id.key == wanted)
+                return false;
+        }
+        return true;
+    }
+    return entry.installed != nullptr && entry.id.key == wanted;
+}
+
+std::string own_changes_line(uint32_t count, const TextHooks& text) {
+    if (count == 0)
+        return {};
+    if (count == 1)
+        return std::string(shown(text, words::own_changes_one));
+    return filled(text, words::own_changes_many, {{"count", std::to_string(count)}});
+}
+
+std::string layout_made_for_line(const Library& library, const Entry& entry) {
+    const KeyLayoutFacts* facts = key_facts(entry);
+    if (facts == nullptr)
+        return {};
+    if (!facts->made_for.empty())
+        return facts->made_for;
+    if (!layout_made_for_played(library.inputs, facts->works_with))
+        return {};
+    const std::string name =
+        library.inputs.played.name.empty() ? library.inputs.played.id : library.inputs.played.name;
+    if (name.empty())
+        return {};
+    return filled(library.text, words::made_for, {{"names", name}});
+}
 
 std::string queue_status_text(const QueueItem& item, const TextHooks& text) {
     return queue_status(item, text);
@@ -1206,6 +1607,7 @@ void refresh(Library& library, Inputs inputs) {
     ensure_base_game(library);
     ensure_built_in_languages(library);
     ensure_built_in_brain(library);
+    ensure_built_in_layout(library);
     recompute(library);
 }
 
@@ -1289,7 +1691,8 @@ const Entry* selected_entry(const Library& library) {
 }
 
 std::string_view entry_name(const Entry& entry) {
-    if (is_built_in_brain(entry.id) || is_built_in_language(entry.id))
+    if (is_built_in_brain(entry.id) || is_built_in_language(entry.id) ||
+        is_built_in_layout(entry.id))
         return entry.shown_name;
     if (is_base_game(entry.id))
         return entry.shown_name.empty() ? words::no_mod : std::string_view(entry.shown_name);
@@ -1328,7 +1731,8 @@ bool works_with_played(const Inputs& inputs, const MutatorFacts& facts) {
 }
 
 std::string_view entry_summary(const Entry& entry) {
-    if (is_built_in_brain(entry.id) || is_built_in_language(entry.id))
+    if (is_built_in_brain(entry.id) || is_built_in_language(entry.id) ||
+        is_built_in_layout(entry.id))
         return entry.shown_summary;
     if (is_base_game(entry.id))
         return entry.shown_summary;
@@ -1357,6 +1761,11 @@ const std::vector<std::string>* tags_of(const Entry& entry) {
             return &facts->tags;
         return nullptr;
     }
+    if (entry.id.kind == Kind::key_layout) {
+        if (const KeyLayoutFacts* facts = key_facts(entry))
+            return &facts->tags;
+        return nullptr;
+    }
     if (entry.listing != nullptr)
         return &entry.listing->tags;
     return nullptr;
@@ -1376,9 +1785,21 @@ std::vector<std::pair<std::string, std::size_t>> tags_in_tab(const Library& libr
         for (const std::string& tag : *tags)
             ++counts[tag];
     }
-    if (library.tab != Tab::mutators && library.tab != Tab::brains)
+    if (library.tab != Tab::mutators && library.tab != Tab::brains && library.tab != Tab::keys)
         return {counts.begin(), counts.end()};
     std::vector<std::pair<std::string, std::size_t>> ordered;
+    if (library.tab == Tab::keys) {
+        for (const std::string_view id : key_tag_ids) {
+            const auto found = counts.find(std::string(id));
+            if (found == counts.end())
+                continue;
+            ordered.push_back(*found);
+            counts.erase(found);
+        }
+        for (const auto& counted : counts)
+            ordered.push_back(counted);
+        return ordered;
+    }
     if (library.tab == Tab::brains) {
         for (const std::string_view id : formats::oabrain::brain_tags) {
             const auto found = counts.find(std::string(id));
@@ -1409,7 +1830,8 @@ std::size_t filter_count(const Library& library, Filter filter) {
     for (std::size_t index = 0; index < kept.size(); ++index)
         if (kept[index] && !is_base_game(library.entries[index].id) &&
             !is_built_in_language(library.entries[index].id) &&
-            !is_built_in_brain(library.entries[index].id))
+            !is_built_in_brain(library.entries[index].id) &&
+            !is_built_in_layout(library.entries[index].id))
             ++packages;
     return packages;
 }
@@ -1583,6 +2005,38 @@ ActiveSetup active_setup(const Library& library) {
             return folded(left.pack_name) < folded(right.pack_name);
         }
     );
+
+    const Entry* playing_layout = nullptr;
+    for (const Entry& candidate : library.entries) {
+        if (layout_in_use(library, candidate)) {
+            playing_layout = &candidate;
+            break;
+        }
+    }
+    if (playing_layout != nullptr) {
+        setup.keys_name = std::string(entry_name(*playing_layout));
+        setup.keys_id = playing_layout->id;
+        uint32_t own = 0;
+        if (const KeyLayoutFacts* facts = key_facts(*playing_layout))
+            own = facts->own_changes;
+        if (own == 0)
+            own = !inputs.keys_for_mod.empty() ? inputs.keys_for_mod_own : inputs.keys_own_changes;
+        setup.keys_line = own_changes_line(own, text);
+        if (!inputs.keys_for_mod.empty()) {
+            const std::string mod =
+                inputs.played.name.empty() ? inputs.played.id : inputs.played.name;
+            const std::string layout_name =
+                inputs.keys_for_mod_name.empty() ? setup.keys_name : inputs.keys_for_mod_name;
+            if (!mod.empty() && !layout_name.empty()) {
+                setup.keys_with =
+                    filled(text, words::keys_with_mod, {{"mod", mod}, {"name", layout_name}});
+            }
+        }
+        setup.keys_badge = std::string(shown(
+            text,
+            is_built_in_layout(playing_layout->id) ? words::registry_built_in : words::chip_using
+        ));
+    }
     return setup;
 }
 
@@ -1638,6 +2092,38 @@ std::vector<ActionButton> entry_actions(const Library& library, const Entry& ent
             add(Action::check_with_mod, !in_match && !checking);
         }
         if (entry.installed != nullptr) {
+            add(Action::uninstall, uninstall_off_reason(library, entry).empty());
+            add(Action::open_folder, true);
+        }
+        if (entry.listing != nullptr && !entry.listing->homepage.empty())
+            add(Action::homepage, true);
+        return buttons;
+    }
+    // OA default is not a package. USE asks while another layout is in use.
+    // EDIT KEYS… is offered while it is the one in use.
+    if (is_built_in_layout(entry.id)) {
+        if (layout_in_use(library, entry))
+            add(Action::edit_keys, true);
+        else
+            add(Action::use_layout, true);
+        return buttons;
+    }
+    // A layout is got, used, edited, uninstalled and opened. Nothing plays
+    // it and nothing rolls it back. GET stays on when it does not fit.
+    if (entry.id.kind == Kind::key_layout) {
+        if (entry.state == State::get || entry.state == State::update) {
+            if (item != nullptr && pending(item->phase))
+                add(Action::cancel, true);
+            else if (item != nullptr && item->phase == Phase::failed && item->retryable)
+                add(Action::retry, entry.can_act);
+            else
+                add(entry.state == State::get ? Action::get : Action::update, entry.can_act);
+        }
+        if (entry.installed != nullptr) {
+            if (layout_in_use(library, entry))
+                add(Action::edit_keys, true);
+            else
+                add(Action::use_layout, true);
             add(Action::uninstall, uninstall_off_reason(library, entry).empty());
             add(Action::open_folder, true);
         }
@@ -1753,6 +2239,10 @@ std::vector<Fact> facts(const Library& library, const Entry& entry) {
     // any mod, and nothing else.
     if (is_base_game(entry.id) || is_built_in_language(entry.id))
         return list;
+    if (is_built_in_layout(entry.id)) {
+        append_key_facts(library, entry, list);
+        return list;
+    }
     if (is_built_in_brain(entry.id)) {
         const std::string levels = join_names(
             text,
@@ -1830,6 +2320,39 @@ std::vector<Fact> facts(const Library& library, const Entry& entry) {
 
     if (entry.id.kind == Kind::brain) {
         append_brain_facts(library, entry, list);
+        if (listing != nullptr) {
+            const std::string size = size_text(listing->size, text);
+            if (entry.update != nullptr) {
+                const std::string download = size_text(entry.update->size, text);
+                list.push_back(fact_of(
+                    shown(text, words::fact_size),
+                    filled(
+                        text, words::size_with_download, {{"size", size}, {"download", download}}
+                    ),
+                    filled(text, words::size_download_short, {{"download", download}}),
+                    Mark::none
+                ));
+            } else {
+                list.push_back(fact_of(shown(text, words::fact_size), size, size, Mark::none));
+            }
+        }
+        if (entry.id.registry.empty()) {
+            const std::string own(shown(text, words::from_own));
+            list.push_back(fact_of(shown(text, words::fact_from), own, own, Mark::none));
+        } else if (entry.not_reviewed) {
+            const std::string from =
+                filled(text, words::from_not_reviewed, {{"registry", entry.registry_name}});
+            list.push_back(fact_of(shown(text, words::fact_from), from, from, Mark::warn));
+        } else {
+            list.push_back(fact_of(
+                shown(text, words::fact_from), entry.registry_name, entry.registry_name, Mark::none
+            ));
+        }
+        return list;
+    }
+
+    if (entry.id.kind == Kind::key_layout) {
+        append_key_facts(library, entry, list);
         if (listing != nullptr) {
             const std::string size = size_text(listing->size, text);
             if (entry.update != nullptr) {
@@ -1992,6 +2515,8 @@ std::vector<Fact> facts(const Library& library, const Entry& entry) {
             shown(text, words::fact_from), entry.registry_name, entry.registry_name, Mark::none
         ));
     }
+    if (entry.id.kind == Kind::mod)
+        append_mod_key_layouts(library, entry, list);
     return list;
 }
 
@@ -2004,6 +2529,8 @@ std::string status_line(const Library& library, const Entry& entry) {
             text, entry.is_default ? words::status_built_in_default : words::registry_built_in
         ));
     }
+    if (is_built_in_layout(entry.id))
+        return std::string(shown(text, words::registry_built_in));
     if (entry.queued != nullptr && entry.queued->phase != Phase::installed)
         return queue_status(*entry.queued, text);
     if (!entry.can_act)
@@ -2040,7 +2567,8 @@ std::string status_line(const Library& library, const Entry& entry) {
             text, entry.state == State::playing ? words::status_playing : words::status_installed
         ));
     case State::get:
-        if ((entry.id.kind == Kind::mutator || entry.id.kind == Kind::brain) &&
+        if ((entry.id.kind == Kind::mutator || entry.id.kind == Kind::brain ||
+             entry.id.kind == Kind::key_layout) &&
             entry.listing != nullptr) {
             return filled(
                 text,

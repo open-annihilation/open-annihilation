@@ -221,9 +221,12 @@ enum class ScreenCommand : uint8_t {
 /// (details_page_layout) while the state and the model both say it shows.
 /// Regular shows the list and the details side by side, and Large the
 /// filters, the list and the details. Every control carries its automation
-/// name (library.…). The layout reads the model's visible entries, its
-/// entries' actions, facts, status lines and bylines, the playing note and
-/// the queue lines, and decides no rule of its own.
+/// name (library.…). The Keys tab is `library.tab.keys`, between Brains and
+/// Languages. The Active panel's layout line is `library.active.keys`, and
+/// its CHANGE… button is `library.active.keys.change`. The layout reads the
+/// model's visible entries, its entries' actions, facts, status lines and
+/// bylines, the playing note and the queue lines, and decides no rule of
+/// its own.
 ///
 /// @param library the model; the display list refers to its badges' pixels,
 ///     and to the base game's badge scaled for this layout, until the next

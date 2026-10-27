@@ -84,7 +84,7 @@ translator finds them together. Every word passes through `Library::text`
 - `set_tab`, `set_filter`, `set_tag`, `set_query`, `select`,
   `move_selection`, `open_details` and `close_details` browse; each
   recomputes `visible`, the entries shown in their order:
-  - the tabs are Active, Mods, Maps, Mutators, Brains, Languages, Updates
+  - the tabs are Active, Mods, Maps, Mutators, Brains, Keys, Languages, Updates
     and Registries, in that order. A Library opens on Active (`Library::tab`),
     which lists no entry and selects none: it shows the player's setup
     (`active_setup`, below). Registries lists the registries
@@ -98,8 +98,20 @@ translator finds them together. Every word passes through `Library::text`
     every count. It is marked Default unless `Inputs::default_brain` names
     an installed brain. It reads Built in where a package reads its version.
     While it is not the default it offers USE BY DEFAULT, and while it is
-    the default it offers nothing;
-  - Mods, Maps, Mutators, Brains and Languages show their kind and Updates every kind, under
+    the default it offers nothing. Keys lists OA default first
+    (`@oa-default`), then every key layout the player has or a registry
+    lists. OA default is not a package: it shows on Keys under All and
+    Installed only, and it is left out of every count. While it is the
+    layout in use it offers EDIT KEYS…, and while it is not it offers USE.
+    Layouts made for the mod being played come next. A player's own
+    changes are a line on the layout they sit on, not an entry. USE asks
+    first (`open_key_use`): keep or aside, one switch per helper, and
+    every game or only the mod being played. CANCEL writes nothing. The
+    question's controls are `library.use.keep`, `library.use.aside`,
+    `library.use.helper.<name>`, `library.use.for.game`,
+    `library.use.for.mod`, `library.use.block`, `prompt.use` and
+    `prompt.cancel`;
+  - Mods, Maps, Mutators, Brains, Keys and Languages show their kind and Updates every kind, under
     the tab's own filter (`Library::filters`, `shown_filter`) and, when that
     filter offers it, the tag. A tag left from another tab or filter is kept
     and hides nothing until a tab offers it again. The filters are:
@@ -127,9 +139,11 @@ translator finds them together. Every word passes through `Library::text`
     kept to 64 bytes, cut at a character boundary. Whenever the list keeps
     the base game entry, it is moved to the front after that order, and
     the built-in computer player is moved to the front of Brains the same
-    way. A brain's tag is matched by `brain_tag_label`. "default", and the
+    way, and OA default is moved to the front of Keys. A brain's tag is matched by `brain_tag_label`. A key layout's tag is matched by `key_tag_label`. "default", and the
     translated Default, find the built-in player and the installed brain
-    that is the default; that word is not one of the row's chips;
+    that is the default; that word is not one of the row's chips. "default"
+    also finds OA default, and so do "built" and "in", including under a
+    translation of Built in. The row still shows its own summary;
 - `tags_in_tab` counts the tags of the entries a tab shows under its
   filter. A mutator's tags are the ids on its facts, the listing's before
   the installed copy's, and not the listing's own tag list as well. A
@@ -377,7 +391,11 @@ app removes the folder (`Runtime::library_uninstall`,
   960 by 600 points, never larger than the frame), from its top left corner:
   - **The Active tab**, at every class, shows under the tabs, with no
     search and no filters. At every size the first row is BASE GAME and
-    LANGUAGE and the second is EXPANSIONS and MOD, then the MAPS heading.
+    LANGUAGE and the second is EXPANSIONS and MOD, then KEYS, then the MAPS
+    heading. On a small window KEYS is a heading and one line, the layout
+    in use and CHANGE…, with no badge, so the expansion rows keep their
+    text when the page scrolls to the maps. On a larger window KEYS is a
+    full-width tile.
     The base-game tile has Total Annihilation's icon, from the program in
     the game folder that describes itself as Total Annihilation,
     nearest-neighbour and centred in the badge square. When that program
@@ -621,6 +639,7 @@ app removes the folder (`Runtime::library_uninstall`,
 - Every control is named for automation (the OA layer lists each as `oa.`
   and its name):
   - `library.tab.active`, `library.tab.mods`, `library.tab.maps`,
+    `library.tab.mutators`, `library.tab.brains`, `library.tab.keys`,
     `library.tab.languages`, `library.tab.updates` (every tab after Active
     reads its title and its count in brackets: "Updates (2)"; Active stays
     "Active"), `library.tab.registries`; `library.tab.scroll-left` and
@@ -649,8 +668,9 @@ app removes the folder (`Runtime::library_uninstall`,
     text "GET" or "UPDATE", listed disabled while it takes no press, and
     never in Tab's order;
   - `library.action.get`, `.update`, `.update-all`, `.cancel`, `.retry`,
-    `.roll-back`, `.play-now`, `.switch-off`, `.open-folder` and
-    `.homepage`; on Compact's
+    `.roll-back`, `.play-now`, `.switch-off`, `.use`, `.edit-keys`,
+    `.open-folder` and `.homepage`; `library.keys.picture` (kind `area`,
+    the keys the picture marks); on Compact's
     details page MORE ▾ is `library.action`, whose open items are the
     actions after the first three under those same names;
   - `library.refresh` (the header's icon, kind `button`, its text "Refresh",
@@ -672,7 +692,10 @@ app removes the folder (`Runtime::library_uninstall`,
     alone) for the same map, while a pill is locked the label
     `library.active.lock` (the lock's words whole), and while a mod is
     played the button `library.active.unload` ("UNLOAD MOD"), disabled
-    during a game and while the command line chose the mod. The mod label is the part of
+    during a game and while the command line chose the mod, the label
+    `library.active.keys` (the layout in use, its own-changes line and the
+    with-mod line) and the button `library.active.keys.change` ("CHANGE…").
+    The mod label is the part of
     the tile above that button, the language label the part of its tile that
     shows, and a map's the part of its title line that shows, or the
     players-and-size line when the title is the link, empty while
@@ -1024,8 +1047,10 @@ Built in. `library-languages-zh-compact.png` is the same window with
 `library-registries-compact.png`, `library-registries-regular.png`,
 `library-registries-large.png`, `library-languages-compact.png`, `library-languages-zh-compact.png`,
 `library-maps-one-large.png`, `library-maps-several-large.png`,
-`library-mutators-compact.png`, `library-mutators-regular.png` and
-`library-mutators-large.png`
+`library-mutators-compact.png`, `library-mutators-regular.png`,
+`library-mutators-large.png`, `library-keys-compact.png`,
+`library-keys-regular.png`, `library-keys-large.png`,
+`library-keys-use-regular.png` and `library-active-keys-regular.png`
 for review. The Mutators pictures dress the fixture with made-up mutators
 on that drawing only, so a picture, a tag icon, letters, "Needs Gatehouse"
 and "Not compatible with this mod" are on the list.

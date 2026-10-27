@@ -37,6 +37,7 @@
 #include "oa/ui/key_bindings/layout_file.hpp"
 #include "oa/ui/key_editor/model.hpp"
 #include "oa/ui/key_bindings/legacy.hpp"
+#include "oa/ui/library/library.hpp"
 #include "oa/ui/touch_hud.hpp"
 
 #include <SDL3/SDL.h>
@@ -3253,6 +3254,191 @@ uint32_t Runtime::latched_action_count() const {
             ++count;
     }
     return count;
+}
+
+void Runtime::apply_library_key_use(
+    const oa::ui::library::KeyUseResult& used,
+    const oa::ui::library::KeyUse& question,
+    std::string_view played_mod_id
+) {
+    const std::string layout_id = oa::ui::library::is_built_in_layout(used.layout)
+                                      ? std::string("oa-default")
+                                      : used.layout.key;
+    const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
+
+    // Keep copies the own file of the layout in use onto the new one. Aside,
+    // and a new layout that already has its own file, write nothing. The old
+    // own folder stays either way.
+    if (used.keep && safe_layout_id(layout_id)) {
+        std::string source;
+        if (!played_mod_id.empty()) {
+            const std::string per = preference_text(
+                preference_values_,
+                std::string(layout_preference) + "." + std::string(played_mod_id)
+            );
+            if (!per.empty() && per != "same")
+                source = per;
+        }
+        if (source.empty())
+            source = preference_text(preference_values_, layout_preference);
+        if (source.empty() || source == "oa-default" || source == "same")
+            source = "oa-default";
+        if (source != layout_id) {
+            const fs::path own_file =
+                keys_folder / library::own_folder_name(source) / std::string(oakeys::manifest_file);
+            const ReadLayout read = read_layout_file(own_file);
+            if (read.ok) {
+                oakeys::Manifest manifest = read.manifest;
+                manifest.id = std::string("own-") + layout_id;
+                std::string error;
+                if (!library::write_own(keys_folder, layout_id, manifest, error) && !error.empty())
+                    std::cerr << "open-annihilation: library: " << error << '\n';
+            }
+        }
+    }
+
+    // Helpers left on write the K25 setting. Off leaves that setting as it is.
+    // Latch and hold-to-confirm action lists are applied after the load.
+    {
+        const oa::ui::engine_settings::EngineSettings opened = engine_settings();
+        oa::ui::engine_settings::EngineSettings chosen = opened;
+        bool changed = false;
+        for (const oa::ui::library::KeyHelperSwitch& one : question.helpers) {
+            if (!one.on)
+                continue;
+            if (one.token == "sticky-modifiers") {
+                if (!chosen.sticky_modifiers) {
+                    chosen.sticky_modifiers = true;
+                    changed = true;
+                }
+            } else if (one.token == "pointer-keys") {
+                if (!chosen.pointer_keys) {
+                    chosen.pointer_keys = true;
+                    changed = true;
+                }
+            } else if (
+                one.token == "hold-to-confirm" || one.token.starts_with("hold-to-confirm:")
+            ) {
+                if (!chosen.hold_to_confirm) {
+                    chosen.hold_to_confirm = true;
+                    changed = true;
+                }
+            } else if (one.token == "edge-scroll" || one.token == "edge-scroll:off") {
+                if (chosen.edge_scroll) {
+                    chosen.edge_scroll = false;
+                    changed = true;
+                }
+            } else if (one.token == "radial-orders" || one.token == "radial-orders:hold-right") {
+                if (chosen.order_wheel != oa::ui::engine_settings::OrderWheel::hold_right) {
+                    chosen.order_wheel = oa::ui::engine_settings::OrderWheel::hold_right;
+                    changed = true;
+                }
+            } else if (one.token == "radial-orders:hold-middle") {
+                if (chosen.order_wheel != oa::ui::engine_settings::OrderWheel::hold_middle) {
+                    chosen.order_wheel = oa::ui::engine_settings::OrderWheel::hold_middle;
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            apply_engine_settings(chosen);
+            if (const std::optional<std::string> problem =
+                    save_engine_settings(opened, chosen, false))
+                std::cerr << "open-annihilation: library: " << *problem << '\n';
+        }
+    }
+
+    // Every game writes the shared preference and drops this mod's override,
+    // which would still win. Only with the mod writes that override alone.
+    if (used.for_mod && !played_mod_id.empty()) {
+        const std::string key = std::string(layout_preference) + "." + std::string(played_mod_id);
+        if (preference_text(preference_values_, key) != layout_id) {
+            preference_values_[key] = layout_id;
+            preferences_dirty_ = true;
+        }
+    } else {
+        if (preference_text(preference_values_, layout_preference) != layout_id) {
+            preference_values_[std::string(layout_preference)] = layout_id;
+            preferences_dirty_ = true;
+        }
+        if (!played_mod_id.empty()) {
+            const std::string key =
+                std::string(layout_preference) + "." + std::string(played_mod_id);
+            if (preference_values_.erase(key) != 0)
+                preferences_dirty_ = true;
+        }
+    }
+    if (preferences_dirty_)
+        save_preferences();
+
+    std::vector<std::string> toggle_before;
+    std::optional<std::vector<std::string>> hold_before;
+    if (key_bindings_state_ != nullptr) {
+        toggle_before = key_bindings_state_->toggle;
+        hold_before = key_bindings_state_->hold_to_confirm;
+        key_bindings_state_->signature.clear();
+    }
+    load_key_bindings();
+    if (key_bindings_state_ == nullptr)
+        return;
+
+    const auto listed = [](const std::vector<std::string>& ids, std::string_view id) {
+        for (const std::string& have : ids)
+            if (have == id)
+                return true;
+        return false;
+    };
+    const auto drop_id = [](std::vector<std::string>& ids, std::string_view id) {
+        std::vector<std::string> kept;
+        kept.reserve(ids.size());
+        for (std::string& have : ids)
+            if (have != id)
+                kept.push_back(std::move(have));
+        ids = std::move(kept);
+    };
+    // A latch left off is not written into a new own folder. It is taken off
+    // the set for this run when the layout is what introduced it.
+    std::vector<std::string> toggle = toggle_before;
+    std::optional<std::vector<std::string>> holds = hold_before;
+    for (const oa::ui::library::KeyHelperSwitch& one : question.helpers) {
+        constexpr std::string_view latch = "toggle:";
+        constexpr std::string_view hold = "hold-to-confirm:";
+        if (one.token.starts_with(latch)) {
+            const std::string_view id{std::string_view{one.token}.substr(latch.size())};
+            if (id.empty())
+                continue;
+            if (one.on) {
+                if (!listed(toggle, id))
+                    toggle.emplace_back(id);
+            } else if (!listed(toggle_before, id)) {
+                drop_id(toggle, id);
+            }
+        } else if (holds && one.token.starts_with(hold)) {
+            const std::string_view id{std::string_view{one.token}.substr(hold.size())};
+            if (id.empty())
+                continue;
+            if (one.on) {
+                if (!listed(*holds, id))
+                    holds->emplace_back(id);
+            } else if (!listed(*hold_before, id)) {
+                drop_id(*holds, id);
+            }
+        }
+    }
+    key_bindings_state_->toggle = std::move(toggle);
+    key_bindings_state_->hold_to_confirm = std::move(holds);
+    ensure_key_bindings(false);
+
+    if (oa::ui::engine_settings::Dialog* open = engine_settings_dialog()) {
+        if (!played_mod_id.empty() && open->played_mod_id == played_mod_id) {
+            const std::string shown = used.for_mod ? layout_id : std::string("same");
+            open->key_layout_for_mod = shown;
+            open->opened.key_layout_for_mod = shown;
+            open->chosen.key_layout_for_mod = shown;
+            engine_settings_state().current.key_layout_for_mod = shown;
+        }
+        refresh_settings_key_layout_summary(*open);
+    }
 }
 
 } // namespace oa::app

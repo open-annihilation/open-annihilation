@@ -7,13 +7,14 @@
 # its words (library.hpp, text.hpp). It draws nothing and reads no file,
 # clock or network. The update question asked
 # before an update that may stop saved games loading (update_question.hpp),
+# the question asked before a key layout is used (use_question.hpp),
 # the questions about the mod the game plays: SWITCH OFF's, PLAY NOW's
 # refusal and ROLL BACK's (mod_questions.hpp), UNINSTALL's rules, its
 # question and its notices (uninstall.hpp), and the order of a mutator's
 # prerequisites, the download plan and GET WITH's question (prerequisites.cpp).
 add_library(oa-ui-library src/library.cpp src/search.cpp src/text.cpp
-  src/content.cpp src/game_icon.cpp src/update_question.cpp src/mod_questions.cpp
-  src/uninstall.cpp src/prerequisites.cpp)
+  src/content.cpp src/game_icon.cpp src/update_question.cpp src/use_question.cpp
+  src/mod_questions.cpp src/uninstall.cpp src/prerequisites.cpp)
 # The Library's screens, made of the UI kit's components: their layout at
 # the three size classes, their drawing and their input (screen.hpp).
 target_sources(oa-ui-library PRIVATE src/layout.cpp src/draw.cpp src/input.cpp)
@@ -22,8 +23,8 @@ target_include_directories(oa-ui-library PUBLIC include)
 target_compile_features(oa-ui-library PUBLIC cxx_std_20)
 target_link_libraries(oa-ui-library PUBLIC oa-formats-oamod oa-base-sha256 oa-ui-kit
   oa-data-mutators PRIVATE
-  oa-base-text oa-data-mod-profile oa-data-content-bundles oa-data-languages oa-formats-oamut
-  oa-formats-oabrain oa-options)
+  oa-base-text oa-data-mod-profile oa-data-content-bundles oa-data-languages
+  oa-data-input-actions oa-formats-oamut oa-formats-oabrain oa-options)
 
 if(BUILD_TESTING)
   # Entries and their states, blocking, registries, tabs, each tab's filter,

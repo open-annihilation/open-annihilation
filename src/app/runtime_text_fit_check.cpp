@@ -60,6 +60,7 @@
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/library/library.hpp"
+#include "oa/ui/library/use_question.hpp"
 #include "oa/ui/library/prerequisites.hpp"
 #include "oa/ui/brain_picker/screen.hpp"
 #include "oa/ui/brain_picker/prompts.hpp"
@@ -198,6 +199,8 @@ std::string_view tab_word(library::Tab tab) noexcept {
         return "mutators";
     case library::Tab::brains:
         return "brains";
+    case library::Tab::keys:
+        return "keys";
     case library::Tab::languages:
         return "languages";
     case library::Tab::updates:
@@ -748,6 +751,68 @@ void Runtime::check_text_fit() {
         }
     };
 
+    /// One short installed layout on the Keys tab, and USE's question open
+    /// over it. The question is drawn on the Library, not as its own screen.
+    /// A feed that rebuilt the Library gets the layout again.
+    const auto show_key_question = [&] {
+        LibraryHost& host = library_host();
+        const library::EntryId id{"fit-core", library::Kind::key_layout, "grid"};
+        if (library::find_entry(host.model, id) == nullptr) {
+            library::Inputs inputs = host.model.inputs;
+            bool listed = false;
+            for (const library::Registry& registry : inputs.registries)
+                if (registry.id == "fit-core")
+                    listed = true;
+            if (!listed) {
+                library::Registry registry;
+                registry.id = "fit-core";
+                registry.name = "Fit Core";
+                registry.built_in = true;
+                inputs.registries.push_back(std::move(registry));
+            }
+            library::KeyLayoutFacts facts;
+            facts.helpers = {"sticky-modifiers"};
+            facts.changes = 2;
+            facts.tags = {"grid"};
+            library::Listing listing;
+            listing.registry = "fit-core";
+            listing.kind = library::Kind::key_layout;
+            listing.key = "grid";
+            listing.name = "Grid";
+            listing.version = "1.0";
+            listing.release = 1;
+            listing.author = "Ada";
+            listing.summary = "A grid.";
+            listing.size = 1024;
+            listing.keys = facts;
+            library::Installed held;
+            held.kind = library::Kind::key_layout;
+            held.key = "grid";
+            held.registry = "fit-core";
+            held.release = 1;
+            held.folder = "grid";
+            held.name = "Grid";
+            held.version = "1.0";
+            held.keys = facts;
+            inputs.listings.push_back(std::move(listing));
+            inputs.installed.push_back(std::move(held));
+            inputs.keys_own_changes = 2;
+            library::refresh(host.model, std::move(inputs));
+        }
+        library::set_tab(host.model, library::Tab::keys);
+        library::select(host.model, id);
+        const library::Entry* entry = library::find_entry(host.model, id);
+        require(entry != nullptr, "library/keys/question has no grid");
+        library::open_key_use(host.model, *entry);
+        host.state.menu = library::MenuKind::none;
+        host.state.details_page = width <= 640;
+        ++host.model_revision;
+        hold_library();
+        paint_held("library/keys/question");
+        library::close_key_use(host.model);
+        ++host.model_revision;
+    };
+
     const auto close_covering = [&] {
         dialogs::reset_dialogs();
         if (LayerScreen* notice = oa_layer().find(NoticeScreen::screen_name))
@@ -1167,6 +1232,7 @@ void Runtime::check_text_fit() {
                 library::Tab::maps,
                 library::Tab::mutators,
                 library::Tab::brains,
+                library::Tab::keys,
                 library::Tab::languages,
                 library::Tab::updates,
                 library::Tab::registries
@@ -1215,6 +1281,7 @@ void Runtime::check_text_fit() {
             inject_brains();
             show_brain("ridge-raider");
             show_brain("steady-commander");
+            show_key_question();
             if (size_at == 0) {
                 const int32_t saved_width = width;
                 const int32_t saved_height = height;
@@ -1229,6 +1296,7 @@ void Runtime::check_text_fit() {
                 show_mutator("steady");
                 show_brain("ridge-raider");
                 show_brain("steady-commander");
+                show_key_question();
                 width = saved_width;
                 height = saved_height;
                 require(

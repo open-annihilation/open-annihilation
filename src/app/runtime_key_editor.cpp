@@ -70,6 +70,8 @@ constexpr std::string_view kMatchNotice = "key-editor-notice";
 constexpr std::string_view kNameScreen = "key-editor-name";
 /// Settings' name on the layer.
 constexpr std::string_view kSettingsScreen = "settings";
+/// The Library's name on the layer. EDIT KEYS… covers it.
+constexpr std::string_view kLibraryScreen = "library";
 /// The name field's buttons are wider than the theme's OK, which CANCEL outgrows.
 constexpr int32_t kNameButtonWidth = 96;
 /// The name field.
@@ -1688,15 +1690,19 @@ bool Runtime::open_key_editor(KeyEditorRequest request) {
         return false;
     }
 
-    const bool settings_up = oa_layer().find(kSettingsScreen) != nullptr;
-    if (settings_up && !request.over_settings)
-        return false;
-    if (request.over_settings) {
-        const LayerScreen* top = oa_layer().top();
-        if (top == nullptr || top->name() != kSettingsScreen)
+    const LayerScreen* top = oa_layer().top();
+    const bool library_top = top != nullptr && top->name() == kLibraryScreen;
+    // The Library is modal. EDIT KEYS… covers it the way the editor covers Settings.
+    if (!library_top) {
+        const bool settings_up = oa_layer().find(kSettingsScreen) != nullptr;
+        if (settings_up && !request.over_settings)
             return false;
-    } else if (oa_layer().modal_shown(in_match)) {
-        return false;
+        if (request.over_settings) {
+            if (top == nullptr || top->name() != kSettingsScreen)
+                return false;
+        } else if (oa_layer().modal_shown(in_match)) {
+            return false;
+        }
     }
 
     editor::EditorInputs inputs;

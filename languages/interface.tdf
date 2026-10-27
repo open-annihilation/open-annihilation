@@ -882,6 +882,14 @@
 	it={where}, {chord} fa già ciò che fa {other}.;
 	}
 
+[· 1 change of your own]
+	{
+	de=· 1 eigene Änderung;
+	fr=· 1 changement à toi;
+	es=· 1 cambio tuyo;
+	it=· 1 tua modifica;
+	}
+
 [· from {registry}]
 	{
 	de=· von {registry};
@@ -1546,6 +1554,14 @@
 	it=ALTRA VERSIONE;
 	}
 
+[ANSI]
+	{
+	de=ANSI;
+	fr=ANSI;
+	es=ANSI;
+	it=ANSI;
+	}
+
 [ARM ORDER]
 	{
 	de=BEFEHL WÄHLEN;
@@ -1850,6 +1866,14 @@
 	it=Qualsiasi;
 	}
 
+[Any keyboard]
+	{
+	de=Jede Tastatur;
+	fr=N'importe quel clavier;
+	es=Cualquier teclado;
+	it=Qualsiasi tastiera;
+	}
+
 [Any mod]
 	{
 	de=Jeder Mod;
@@ -1896,6 +1920,14 @@
 	fr=Aussi loin que la vue allait toujours : 1/6 de la normale taille avec l'accélération matérielle Complet, sinon 1/2.;
 	es=Tan lejos como la vista siempre llegaba: 1/6 de lo normal tamaño con aceleración por hardware Completo, si no 1/2.;
 	it=Fin dove la vista arrivava sempre: 1/6 del normale dimensione con accelerazione hardware Completo, altrimenti 1/2.;
+	}
+
+[Asks for]
+	{
+	de=Verlangt;
+	fr=Demande;
+	es=Pide;
+	it=Chiede;
 	}
 
 [Assist only]
@@ -2826,12 +2858,28 @@
 	it=Cambia;
 	}
 
+[Changes 1 action]
+	{
+	de=Ändert 1 Aktion;
+	fr=Modifie 1 action;
+	es=Cambia 1 acción;
+	it=Cambia 1 azione;
+	}
+
 [Changes the game: unranked on Core Prime]
 	{
 	de=Ändert das Spiel: ohne Wertung auf Core Prime;
 	fr=Change la partie : non classé sur Core Prime;
 	es=Cambia la partida: sin clasificación en Core Prime;
 	it=Cambia la partita: non classificata su Core Prime;
+	}
+
+[Changes {count} actions]
+	{
+	de=Ändert {count} Aktionen;
+	fr=Modifie {count} actions;
+	es=Cambia {count} acciones;
+	it=Cambia {count} azioni;
 	}
 
 [Chat]
@@ -4234,6 +4282,14 @@
 	it=Facile;
 	}
 
+[Every game]
+	{
+	de=Jede Partie;
+	fr=Chaque partie;
+	es=Cada partida;
+	it=Ogni partita;
+	}
+
 [Every part of OA's own screens, in each of its states, at this size.]
 	{
 	de=Jeder Teil der eigenen Bildschirme von OA, in jedem Zustand, in dieser Größe.;
@@ -5122,6 +5178,14 @@
 	it=Grafica;
 	}
 
+[Grid]
+	{
+	de=Raster;
+	fr=Grille;
+	es=Cuadrícula;
+	it=Griglia;
+	}
+
 [Group: select it, again to centre on it, hold to store the selection in it.]
 	{
 	de=Gruppe: wähle sie, noch einmal, um sie zu zentrieren, halte, um die Auswahl darin zu speichern.;
@@ -5346,6 +5410,14 @@
 	it=Tieni premuto per confermare;
 	}
 
+[Hold to confirm {action}]
+	{
+	de=Halten zum Bestätigen von {action};
+	fr=Maintenir pour confirmer {action};
+	es=Mantener para confirmar {action};
+	it=Tieni premuto per confermare {action};
+	}
+
 [Hold to self-destruct]
 	{
 	de=Halten zur Selbstzerstörung;
@@ -5560,6 +5632,14 @@
 	fr=INSTALLATION DU MUTATEUR;
 	es=INSTALANDO MUTADOR;
 	it=INSTALLAZIONE MUTATORE;
+	}
+
+[ISO]
+	{
+	de=ISO;
+	fr=ISO;
+	es=ISO;
+	it=ISO;
 	}
 
 [Icons]
@@ -6570,6 +6650,14 @@
 	it=Il suo testo di riscaldamento non si può leggere.;
 	}
 
+[JIS]
+	{
+	de=JIS;
+	fr=JIS;
+	es=JIS;
+	it=JIS;
+	}
+
 [KEEP]
 	{
 	de=BEHALTEN;
@@ -6650,6 +6738,22 @@
 	it=Tieni premuto {chord}: l'anello si riempie in {seconds} s. Lascia per annullare.;
 	}
 
+[Keep my 1 change on top]
+	{
+	de=Meine 1 Änderung oben behalten;
+	fr=Garder mon 1 changement par-dessus;
+	es=Conservar mi 1 cambio encima;
+	it=Tieni la mia 1 modifica sopra;
+	}
+
+[Keep my {count} changes on top]
+	{
+	de=Meine {count} Änderungen oben behalten;
+	fr=Garder mes {count} changements par-dessus;
+	es=Conservar mis {count} cambios encima;
+	it=Tieni le mie {count} modifiche sopra;
+	}
+
 [Keep your 1 change on top of {layout}?]
 	{
 	de=Deine 1 Änderung über {layout} behalten?;
@@ -6680,6 +6784,14 @@
 	fr=Réattributions de touches;
 	es=Reasignaciones de teclas;
 	it=Riassegnazioni dei tasti;
+	}
+
+[Keyboard]
+	{
+	de=Tastatur;
+	fr=Clavier;
+	es=Teclado;
+	it=Tastiera;
 	}
 
 [Keys]
@@ -6930,6 +7042,14 @@
 	it=Blocco;
 	}
 
+[Latch {action}]
+	{
+	de={action} einrasten;
+	fr=Enclencher {action};
+	es=Fijar {action};
+	it=Blocca {action};
+	}
+
 [Latchable]
 	{
 	de=Einrastbar;
@@ -6986,6 +7106,14 @@
 	it=Esci senza salvare {n} modifiche?;
 	}
 
+[Left hand]
+	{
+	de=Linke Hand;
+	fr=Main gauche;
+	es=Mano izquierda;
+	it=Mano sinistra;
+	}
+
 [Left out]
 	{
 	de=Ausgelassen;
@@ -7002,6 +7130,14 @@
 	it=Fuori dalla tua ultima selezione: {names};
 	}
 
+[Left-click]
+	{
+	de=Linksklick;
+	fr=Clic gauche;
+	es=Clic izquierdo;
+	it=Clic sinistro;
+	}
+
 [Left-handed]
 	{
 	de=Linkshändig;
@@ -7016,6 +7152,14 @@
 	fr=Disposition pour gaucher;
 	es=Disposición zurda;
 	it=Disposizione per mancini;
+	}
+
+[Legacy]
+	{
+	de=Alt;
+	fr=Ancien;
+	es=Antiguo;
+	it=Vecchio;
 	}
 
 [Level]
@@ -7378,6 +7522,14 @@
 	it=MUTATORE AGGIORNATO;
 	}
 
+[Made for the {layout} interface; yours is {yours}.]
+	{
+	de=Für die Oberfläche {layout} gemacht. Deine ist {yours}.;
+	fr=Faite pour l'interface {layout}. La tienne est {yours}.;
+	es=Hecha para la interfaz {layout}. La tuya es {yours}.;
+	it=Fatta per l'interfaccia {layout}. La tua è {yours}.;
+	}
+
 [Made for {names}]
 	{
 	de=Für {names} gemacht;
@@ -7640,6 +7792,14 @@
 	fr=Bouton de souris {button};
 	es=Botón del ratón {button};
 	it=Pulsante del mouse {button};
+	}
+
+[Mouse first]
+	{
+	de=Maus zuerst;
+	fr=Souris d'abord;
+	es=Ratón primero;
+	it=Mouse prima;
 	}
 
 [Mouse wheel zoom]
@@ -8362,6 +8522,22 @@
 	it=Non in questa versione;
 	}
 
+[Not in this version: 1]
+	{
+	de=Nicht in dieser Version: 1;
+	fr=Pas dans cette version : 1;
+	es=No está en esta versión: 1;
+	it=Non in questa versione: 1;
+	}
+
+[Not in this version: {count}]
+	{
+	de=Nicht in dieser Version: {count};
+	fr=Pas dans cette version : {count};
+	es=No está en esta versión: {count};
+	it=Non in questa versione: {count};
+	}
+
 [Not in use: an error stopped it for this run.]
 	{
 	de=Nicht aktiv: ein Fehler hat es für diesen Lauf angehalten.;
@@ -8842,6 +9018,14 @@
 	it=Un'azione;
 	}
 
+[One hand]
+	{
+	de=Eine Hand;
+	fr=Une main;
+	es=Una mano;
+	it=Una mano;
+	}
+
 [One-finger drag]
 	{
 	de=Ziehen mit einem Finger;
@@ -8872,6 +9056,14 @@
 	fr=À l'ouverture de la Bibliothèque;
 	es=Solo cuando abro la Biblioteca;
 	it=Solo quando apro la Biblioteca;
+	}
+
+[Only with {mod}]
+	{
+	de=Nur mit {mod};
+	fr=Seulement avec {mod};
+	es=Solo con {mod};
+	it=Solo con {mod};
 	}
 
 [Open]
@@ -9080,6 +9272,22 @@
 	fr=Ordre;
 	es=Orden;
 	it=Ordine;
+	}
+
+[Order wheel on the held middle button]
+	{
+	de=Befehlsrad bei gehaltener mittlerer Maustaste;
+	fr=Roue des ordres sur le bouton du milieu maintenu;
+	es=Rueda de órdenes con el botón central mantenido;
+	it=Ruota degli ordini sul pulsante centrale tenuto;
+	}
+
+[Order wheel on the held right button]
+	{
+	de=Befehlsrad bei gehaltener rechter Maustaste;
+	fr=Roue des ordres sur le bouton droit maintenu;
+	es=Rueda de órdenes con el botón derecho mantenido;
+	it=Ruota degli ordini sul pulsante destro tenuto;
 	}
 
 [Order: tap to arm it, then tap where it goes; tap again to take it back.]
@@ -10154,6 +10362,14 @@
 	it=Revisione {revision} disponibile · {size} da scaricare;
 	}
 
+[Right hand]
+	{
+	de=Rechte Hand;
+	fr=Main droite;
+	es=Mano derecha;
+	it=Mano destra;
+	}
+
 [Right stick]
 	{
 	de=Rechter Stick;
@@ -10168,6 +10384,14 @@
 	fr=Pavé droit;
 	es=Trackpad derecho;
 	it=Trackpad destro;
+	}
+
+[Right-click]
+	{
+	de=Rechtsklick;
+	fr=Clic droit;
+	es=Clic derecho;
+	it=Clic destro;
 	}
 
 [Rings include their corners.]
@@ -10578,6 +10802,14 @@
 	it=Cerca azioni, o premi un tasto;
 	}
 
+[Search key layouts]
+	{
+	de=Tastenbelegungen suchen;
+	fr=Chercher des dispositions de touches;
+	es=Buscar distribuciones de teclas;
+	it=Cerca disposizioni dei tasti;
+	}
+
 [Search languages]
 	{
 	de=Sprachen suchen;
@@ -10792,6 +11024,14 @@
 	fr=Fixé sur la ligne de commande;
 	es=Fijado en la línea de órdenes;
 	it=Impostato sulla riga di comando;
+	}
+
+[Set them aside]
+	{
+	de=Zur Seite legen;
+	fr=Les mettre de côté;
+	es=Dejarlos aparte;
+	it=Mettili da parte;
 	}
 
 [Settings]
@@ -12570,6 +12810,14 @@
 	it=Restano tutti installati. Riaccendine uno e {name} torna con lui.;
 	}
 
+[They stay saved with {name}.]
+	{
+	de=Sie bleiben bei {name} gespeichert.;
+	fr=Ils restent enregistrés avec {name}.;
+	es=Siguen guardados con {name}.;
+	it=Restano salvati con {name}.;
+	}
+
 [This base game is used when the Library closes.]
 	{
 	de=Dieses Grundspiel wird verwendet, wenn die Bibliothek schließt.;
@@ -12696,6 +12944,14 @@
 	fr=Ce fichier de lancement utilise un autre contenu que le jeu en cours. Quitte Open Annihilation, puis ouvre de nouveau le fichier.;
 	es=Este archivo de lanzamiento usa otro contenido que el que se juega ahora. Sal de Open Annihilation y vuelve a abrir el archivo.;
 	it=Questo file di avvio usa contenuti diversi da quelli in gioco ora. Esci da Open Annihilation, poi apri di nuovo il file.;
+	}
+
+[This layout asks for]
+	{
+	de=Diese Tastenbelegung verlangt;
+	fr=Cette disposition demande;
+	es=Esta distribución pide;
+	it=Questa disposizione chiede;
 	}
 
 [This map is for the TA demo.]
@@ -12880,6 +13136,14 @@
 	fr=Tactile;
 	es=Táctil;
 	it=Tatto;
+	}
+
+[Tournament]
+	{
+	de=Turnier;
+	fr=Tournoi;
+	es=Torneo;
+	it=Torneo;
 	}
 
 [Trackpad glide]
@@ -13186,6 +13450,14 @@
 	it=AGGIORNA…;
 	}
 
+[USE]
+	{
+	de=NUTZEN;
+	fr=UTILISER;
+	es=USAR;
+	it=USA;
+	}
+
 [USE BY DEFAULT]
 	{
 	de=ALS STANDARD NUTZEN;
@@ -13248,6 +13520,14 @@
 	fr=INTERFACE UTILISATEUR;
 	es=INTERFAZ DE USUARIO;
 	it=INTERFACCIA UTENTE;
+	}
+
+[USING]
+	{
+	de=GENUTZT;
+	fr=UTILISÉ;
+	es=EN USO;
+	it=IN USO;
 	}
 
 [Unbound]
@@ -13552,6 +13832,14 @@
 	fr=Utiliser pour chaque siège ordinateur;
 	es=Usar para cada asiento de ordenador;
 	it=Usa per ogni posto computer;
+	}
+
+[Use it for]
+	{
+	de=Dafür nutzen;
+	fr=L'utiliser pour;
+	es=Usarla para;
+	it=Usala per;
 	}
 
 [Use modern fonts for game text]
@@ -14026,6 +14314,14 @@
 	it=Cattura;
 	}
 
+[Edge scrolling off]
+	{
+	de=Randscrollen aus;
+	fr=Défilement au bord à l'arrêt;
+	es=Desplazamiento en el borde apagado;
+	it=Scorrimento al bordo spento;
+	}
+
 [Edge stickiness]
 	{
 	de=Randhaftung;
@@ -14138,6 +14434,14 @@
 	it=Con {mod}: nessun effetto;
 	}
 
+[With {mod}: {name}]
+	{
+	de=Mit {mod}: {name};
+	fr=Avec {mod} : {name};
+	es=Con {mod}: {name};
+	it=Con {mod}: {name};
+	}
+
 [With {mod}: {reason}]
 	{
 	de=Mit {mod}: {reason};
@@ -14240,6 +14544,14 @@
 	fr=Il te faut le dossier d'une copie installée de Total Annihilation, celui qui contient totala1.hpi : environ 1.1 GB avec les deux extensions et la musique. Les installateurs du jeu complet sont des programmes Windows et ne peuvent pas servir ici. Installe le jeu sur un ordinateur et apporte son dossier.;
 	es=Necesitas la carpeta de una copia instalada de Total Annihilation, la que contiene totala1.hpi: unos 1.1 GB con ambas expansiones y la música. Los instaladores del juego completo son programas de Windows y no se pueden usar aquí. Instala el juego en un ordenador y trae su carpeta.;
 	it=Ti serve la cartella di una copia installata di Total Annihilation, quella che contiene totala1.hpi: circa 1.1 GB con entrambe le espansioni e la musica. Gli installer del gioco completo sono programmi Windows e non si possono usare qui. Installa il gioco su un computer e porta la sua cartella.;
+	}
+
+[You play with {name} now. Uninstall it and go back to OA default? Your own changes stay saved.]
+	{
+	de=Du spielst jetzt mit {name}. Deinstallieren und zurück zu OA-Standard? Deine eigenen Änderungen bleiben gespeichert.;
+	fr=Tu joues avec {name} maintenant. Le désinstaller et revenir à OA par défaut ? Tes propres changements restent enregistrés.;
+	es=Juegas con {name} ahora. ¿Desinstalarlo y volver a OA predeterminado? Tus propios cambios siguen guardados.;
+	it=Giochi con {name} ora. Disinstallarlo e tornare a OA predefinito? Le tue modifiche restano salvate.;
 	}
 
 [You went back to {old}, with the settings you had.]
@@ -14392,6 +14704,14 @@
 	fr=Ta dernière sélection d'escarmouche, prête à jouer. ANNULER joue sans mutateurs.;
 	es=Tu última selección de escaramuza, lista para jugar. CANCELAR juega sin mutadores.;
 	it=La tua ultima selezione di schermaglia, pronta da giocare. ANNULLA gioca senza mutatori.;
+	}
+
+[Your own changes]
+	{
+	de=Deine eigenen Änderungen;
+	fr=Tes propres changements;
+	es=Tus propios cambios;
+	it=Le tue modifiche;
 	}
 
 [Your own copy]
@@ -16546,6 +16866,22 @@
 	it={name} ({count});
 	}
 
+[{name} already has 1 change of your own; it stays.]
+	{
+	de={name} hat schon 1 eigene Änderung. Sie bleibt.;
+	fr={name} a déjà 1 changement à toi. Il reste.;
+	es={name} ya tiene 1 cambio tuyo. Se queda.;
+	it={name} ha già 1 modifica tua. Resta.;
+	}
+
+[{name} already has {count} changes of your own; they stay.]
+	{
+	de={name} hat schon {count} eigene Änderungen. Sie bleiben.;
+	fr={name} a déjà {count} changements à toi. Ils restent.;
+	es={name} ya tiene {count} cambios tuyos. Se quedan.;
+	it={name} ha già {count} modifiche tue. Restano.;
+	}
+
 [{name} came with {dependant}]
 	{
 	de={name} kam mit {dependant};
@@ -17746,6 +18082,14 @@
 	it=· richiede {name};
 	}
 
+[· {count} changes of your own]
+	{
+	de=· {count} eigene Änderungen;
+	fr=· {count} changements à toi;
+	es=· {count} cambios tuyos;
+	it=· {count} tue modifiche;
+	}
+
 [· {reason}]
 	{
 	de=· {reason};
@@ -18066,12 +18410,28 @@
 	it=Mostra i tasti sui pulsanti;
 	}
 
+[The keys Open Annihilation ships with.]
+	{
+	de=Die Tasten, die Open Annihilation mitliefert.;
+	fr=Les touches qu'Open Annihilation fournit.;
+	es=Las teclas que incluye Open Annihilation.;
+	it=I tasti che Open Annihilation include.;
+	}
+
 [The keys, mouse buttons and wheel turns the game answers. {primary}+/ in a match shows them.]
 	{
 	de=Die Tasten, Maustasten und Raddrehungen, auf die das Spiel hört. {primary}+/ zeigt sie in einem Spiel.;
 	fr=Les touches, boutons de souris et tours de molette auxquels le jeu répond. {primary}+/ les montre dans une partie.;
 	es=Las teclas, botones del ratón y giros de la rueda a los que el juego responde. {primary}+/ las muestra en una partida.;
 	it=I tasti, i pulsanti del mouse e i giri della rotella a cui il gioco risponde. {primary}+/ li mostra in una partita.;
+	}
+
+[Use {name}]
+	{
+	de={name} nutzen;
+	fr=Utiliser {name};
+	es=Usar {name};
+	it=Usa {name};
 	}
 
 [Used while {mod} is played. Same as the game uses Key layout.]
@@ -18240,6 +18600,14 @@
 	fr=Après combien de temps une touche de caméra, de vitesse ou de page tenue se répète, et à quel rythme.;
 	es=Cuándo empieza a repetirse una tecla de cámara, de velocidad o de página mantenida, y a qué ritmo.;
 	it=Dopo quanto un tasto di camera, di velocità o di pagina tenuto si ripete, e quanto in fretta.;
+	}
+
+[Key layouts]
+	{
+	de=Tastenbelegungen;
+	fr=Dispositions des touches;
+	es=Distribuciones de teclas;
+	it=Disposizioni dei tasti;
 	}
 
 [Key repeat delay]

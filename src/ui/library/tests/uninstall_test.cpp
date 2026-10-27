@@ -564,6 +564,48 @@ void test_default_brain() {
     }
 }
 
+/// UNINSTALL of the layout in use adds its paragraph before the last.
+/// Another layout's question does not.
+void test_layout_in_use() {
+    lib::Inputs inputs = fixture_inputs();
+    lib::Listing grid = listing(Kind::key_layout, "grid-test", "Grid Test");
+    lib::KeyLayoutFacts grid_facts;
+    grid.keys = grid_facts;
+    inputs.listings.push_back(grid);
+    lib::Installed grid_held =
+        installed(core, Kind::key_layout, "grid-test", "Grid Test", "grid-test");
+    grid_held.keys = grid_facts;
+    inputs.installed.push_back(std::move(grid_held));
+    lib::Listing lefty = listing(Kind::key_layout, "lefty-test", "Lefty Test");
+    lefty.keys = lib::KeyLayoutFacts{};
+    inputs.listings.push_back(lefty);
+    lib::Installed lefty_held =
+        installed(core, Kind::key_layout, "lefty-test", "Lefty Test", "lefty-test");
+    lefty_held.keys = lib::KeyLayoutFacts{};
+    inputs.installed.push_back(std::move(lefty_held));
+    inputs.keys_layout = "grid-test";
+    const lib::Library library = built(std::move(inputs));
+    const lib::Entry* grid_row = at(library, core, Kind::key_layout, "grid-test");
+    OA_CHECK(grid_row != nullptr && lib::layout_in_use(library, *grid_row));
+    if (grid_row != nullptr) {
+        const kit::Question asked = lib::uninstall_question(library, *grid_row, "Keys/grid-test");
+        OA_CHECK(asked.paragraphs.size() == 3);
+        if (asked.paragraphs.size() == 3) {
+            OA_CHECK_TEXT(
+                asked.paragraphs[1].text,
+                "You play with Grid Test now. Uninstall it and go back to OA default? Your own "
+                "changes stay saved."
+            );
+        }
+    }
+    const lib::Entry* lefty_row = at(library, core, Kind::key_layout, "lefty-test");
+    OA_CHECK(lefty_row != nullptr && !lib::layout_in_use(library, *lefty_row));
+    if (lefty_row != nullptr) {
+        const kit::Question asked = lib::uninstall_question(library, *lefty_row, "Keys/lefty-test");
+        OA_CHECK(asked.paragraphs.size() == 2);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -572,6 +614,7 @@ int main() {
     test_steps();
     test_question();
     test_default_brain();
+    test_layout_in_use();
     test_notices();
     test_lookup();
     return oa::test::check_exit_status();

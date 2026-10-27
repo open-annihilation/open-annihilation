@@ -26,6 +26,7 @@ Choosing a brain is [Playing with brains](playing-with-brains.md).
 - [Tabs and states](#tabs-and-states)
 - [The Mutators tab](#the-mutators-tab)
 - [The Brains tab](#the-brains-tab)
+- [The Keys tab](#the-keys-tab)
 - [Search and filters](#search-and-filters)
 - [The details](#the-details)
 - [Choosing a mod](#choosing-a-mod)
@@ -53,7 +54,7 @@ The Library opens on the main menu, from:
   frame). It opens on the [Active](#the-active-tab) tab. Its bottom-right
   corner shows how many packages you have added: mods, map packs, mutators,
   language packs and downloaded expansions. An installed brain is left out
-  of that count. The base game and a language the game
+  of that count, and so is a key layout. The base game and a language the game
   holds itself are left out, and a map pack counts once: `7`, `123`, or
   `999+` above 999. While the catalogues are still being read and that
   number is not final, a small spinner turns there instead, and stops once
@@ -188,6 +189,17 @@ under them, so the maps pane keeps a row.
   holds itself, **Built in** is a rounded pill at the top right, on the
   title's line, in a muted ground so it does not look like an installed
   chip.
+- **KEYS**: the layout in use. Its name is the title. Under it, when you
+  have changes of your own on that layout, the line reads "· 1 change of
+  your own" or "· {count} changes of your own". When a layout is set for
+  the mod you are playing, a further line reads "With {mod}: {name}".
+  While OA default is in use the pill reads **Built in**. While another
+  layout is in use the pill reads **USING**, in the same green as
+  **PLAYING**. **CHANGE…** opens the Keys tab with that layout selected.
+  On a small window that block is the **KEYS** heading and one line: the
+  layout's name, the own-changes line and **CHANGE…**, with no badge, so
+  the expansion rows stay on screen when the maps scroll into view. On a
+  larger window it is a full-width tile.
 - **MAPS**: each map you have installed. On a small window a map is one
   line: its name, how many players it is for and its size ("Twin Rivers ·
   2 players · 12x12"). On a larger window it is a tile with that map's
@@ -254,12 +266,12 @@ each other. The other tabs are where packages are got, updated and played.
 ## Tabs and states
 
 The tabs are **Active**, **Mods**, **Maps**, **Mutators**, **Brains**,
-**Languages**, **Updates** and **Registries**. **Brains** has no short
-name. Each tab after Active shows how many it
+**Keys**, **Languages**, **Updates** and **Registries**. **Brains** and
+**Keys** have no short name. Each tab after Active shows how many it
 lists under All, before a search or a tag, in brackets after its title
 and in that title's own font and colour: "Mods (11)", "Maps (2)",
-"Mutators (4)", "Brains (3)", "Languages (2)", "Updates (2)", "Registries (2)". The
-names are always the full ones.
+"Mutators (4)", "Brains (3)", "Keys (3)", "Languages (2)", "Updates (2)", "Registries (2)". The
+names are always the full ones. OA default is left out of the Keys count.
 At Regular and Large the search sits beside the tabs; when the tabs do
 not all fit beside it, as a wordier language's names may not, the tabs
 take the whole row and the search a row of its own under them. When they
@@ -499,6 +511,91 @@ The Library never seats a brain. Choosing one for a computer seat is the
 control on a skirmish, a campaign launch or the battle room, described in
 [Playing with brains](playing-with-brains.md).
 
+## The Keys tab
+
+**Keys** sits between Brains and Languages. It lists key layouts. **OA
+default** leads the list under **All** and **Installed**, and it is left
+out of every count, including the tab's. It is absent under **New**. Its
+name is **OA default** and the summary under it reads "The keys Open
+Annihilation ships with." While it is the layout in use, the chip reads
+**USING** and the details offer **EDIT KEYS…**. While another layout is
+in use, the chip reads **Built in** and the details offer **USE**.
+
+Then the catalogue's layouts, joined with the copies you have installed,
+and then layouts you have that no registry lists. A change of your own is
+not an entry. The layout it sits on carries the line "· 1 change of your
+own" or "· {count} changes of your own".
+
+While a mod is played, layouts made for that mod come next after OA
+default, and a row made for it reads "Made for {mod}".
+
+The search reads "Search key layouts". It finds a layout by its name, its
+author and its tags. "default" finds OA default, and so do "built" and
+"in". The tags are Classic, Grid, Left hand, Right hand, One hand, Mouse
+first, Accessibility, Tournament, Mod and Legacy. Any other tag is shown
+as written.
+
+At Compact the list is the page, and choosing a row opens its details,
+with **BACK** and **MORE ▾**. The keyboard picture is on that page. At
+Regular and Large the list and the details sit side by side, and the
+keyboard is in the details. The picture marks the keys the layout
+changes.
+
+The details, after the picture, are **Works with**, **Needs**,
+**Keyboard**, **Interface**, **Asks for**, **Changes** and **Not in this
+version**, then **Size** and **From** when a package has them. **Keyboard**
+is ANSI, ISO, JIS or Any keyboard. **Interface** is Right-click or
+Left-click, the scheme the layout was drawn for. It does not change the
+interface you play with. **Asks for** names the helpers the layout turns
+on. **Changes** reads "Changes 1 action" or "Changes {count} actions".
+**Not in this version** counts actions this version of the game does not
+know. An unmet engine range, or a layout made for another mod, is
+information: the row stays bright and **GET** stays on.
+
+The actions are **GET** or **UPDATE** (and **CANCEL** or **RETRY** while
+one is in the queue), then **USE** when the layout is installed and is
+not the one in use, or **EDIT KEYS…** when it is, then **UNINSTALL** and
+**OPEN FOLDER** when it is installed, then **HOMEPAGE** when the listing
+has one. There is no **PLAY NOW** and no **ROLL BACK**. **GET**, an
+install and a catalogue update never switch a layout on.
+
+**USE** asks first. The question is drawn over the Library.
+
+- **Your own changes**, when the layout in use has changes of your own.
+  **Keep my {count} changes on top** is marked, or **Set them aside**.
+  The line under them reads "They stay saved with {name}." Keeping writes
+  those changes into `own-<new id>` and leaves the old folder. When the
+  new layout already has changes of your own, the question says "{name}
+  already has {count} changes of your own; they stay." and does not write
+  over that folder.
+- **This layout asks for**, one switch for each helper it names. Each
+  starts on. A switch left off leaves that setting as it is.
+- **Use it for**, while a mod is played. **Every game**, or **Only with
+  {mod}**, marked when the layout's works-with names that mod.
+
+When the layout was drawn for the other pointer scheme, the question says
+"Made for the {layout} interface; yours is {yours}." and changes nothing
+about the interface mode. **USE** (Enter, marked) then loads the layout.
+**CANCEL** writes nothing.
+
+**EDIT KEYS…** opens the key editor on the layout in use.
+
+**UNINSTALL** of the layout in use asks, before the question's last
+paragraph, "You play with {name} now. Uninstall it and go back to OA
+default? Your own changes stay saved." Confirming erases the preferences
+that name that layout and loads OA default. Your own changes stay in
+their folder.
+
+Settings opens the Library on this tab from its key-layout row.
+
+![The Keys tab at Regular: the list and the details side by side, with the keyboard of the layout in use.](images/library/library-keys-regular.png)
+
+![USE's question at Regular.](images/library/library-keys-use-regular.png)
+
+The Compact and Large pictures are `library-keys-compact.png` and
+`library-keys-large.png`. The Active tab's KEYS tile is
+`library-active-keys-regular.png`.
+
 ## The details
 
 Choosing a row shows its details: beside the list in the Regular and Large
@@ -629,6 +726,10 @@ rules, and a folder an earlier version's Pick Folder… chose, while it is
 still the mod you play. A mod of your own shows its `oamod.yaml`'s
 description in its details. The one you play is marked **PLAYING**. With
 no mod, **No Mod** is the one marked **PLAYING**.
+
+A mod's details name the key layouts made for it, under **Key layouts**.
+Each value is that layout's name, and it is a link: it opens the Keys tab
+with that layout selected.
 
 - **PLAY NOW**, on any other mod, plays it: the game reloads its data for
   that mod, saying "Switching on Ridge…" meanwhile, without closing the
@@ -831,7 +932,8 @@ An update shows:
 
 - as the circled up-arrow on the package's row, which is its **UPDATE**,
   and in its details with what changes;
-- on the **Updates** tab, every kind together, with **UPDATE ALL** over the
+- on the **Updates** tab, every kind together, including a key layout,
+  with **UPDATE ALL** over the
   list, which starts every update the list shows that can be installed;
 - as the dot on the main menu's **OA** button.
 
@@ -1157,7 +1259,9 @@ during a game waits for the main menu. What a check keeps is under
 Packages install into your own Open Annihilation folder ([the installation
 guides](installation/macos.md#where-it-keeps-its-files) say where it is),
 each in a folder named by its key: `Mods/<id>`, `Maps/<id>`,
-`Mutators/<id>`, `Brains/<id>` and `Languages/<tag>`. Beside a package's files OA keeps
+`Mutators/<id>`, `Brains/<id>`, `Keys/<id>` and `Languages/<tag>`.
+Changes of your own sit in `Keys/own-<id>`, beside the layout they change,
+and uninstalling a layout leaves that folder. Beside a package's files OA keeps
 `.oa-origin.yaml`, the record of where it came from, and `.backup`, the
 copy an update replaced. **UNINSTALL** removes a package's folder with
 both ([uninstalling](#uninstalling)), and **OPEN FOLDER** shows it.
