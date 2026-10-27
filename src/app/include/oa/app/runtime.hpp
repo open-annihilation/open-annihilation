@@ -17248,6 +17248,10 @@ class Runtime final : public menu::Host,
 
     /// Returns the terrain point under the pointer, the pointer held inside the battlefield.
     ///
+    /// The drag box's corners. While View past the map's edge lets the view
+    /// past the map's edges, a point past them is the point itself at height
+    /// 0 (gameplay_input::drag_box_corner); at Off it is held on the map.
+    ///
     /// @param x canvas column
     /// @param y canvas row
     /// @return whole map pixels x, height and z, or nullopt without a match
