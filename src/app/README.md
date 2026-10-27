@@ -225,7 +225,7 @@ screens over every screen of the game: `OaLayer`, which every screen
 reaches through `Runtime::oa_layer()`. It holds the settings dialog on the
 main menu and in a match (`Runtime::SettingsScreen`), the Library on the
 main menu (`Runtime::LibraryScreen`, [The Library](#the-library)), the
-in-game menu's OA button and Overlays button, Arrange overlays, and the
+in-game menu's OA Settings button, Arrange overlays, and the
 notices and questions of the engine's own
 (`NoticeScreen`, `QuestionScreen`). It replaces the main menu's and the match's own hosts of
 the dialog, and the notices' and the installs' prompts' own overlays, which
@@ -631,8 +631,8 @@ latched the closing key and drew a backdrop.
   (`OaLayer::check_clear_screens`) holds screens that are not opaque and
   F1.
 - **In a match** the layer is one picture of the window's size: while the
-  in-game menu's column shows, the OA button under Resume and the Overlays
-  button left of it; the backdrop under a modal screen; and the screens at
+  in-game menu's column shows, the OA Settings button under Resume; the
+  backdrop under a modal screen; and the screens at
   their places (one that is not opaque laid over by its opacity), each
   under a modal screen with a backdrop darkened as the button is. A screen
   that is not modal shows over the running match with no column, as the
@@ -641,54 +641,71 @@ latched the closing key and drew a backdrop.
   placement's scale as large as its place, Settings at its own class and
   scale on the kit canvas's crisp form at a whole scale and its smooth form
   at 150%, never drawn at 1× and enlarged, and copied into the layer pixel
-  for pixel; the OA button's face, and on a phone the fitted Settings, are
-  drawn at a whole scale and fitted to their places by the nearest pixel
-  (`stamp`). The layer is drawn again only when what it shows changes
+  for pixel; the OA Settings button's face, at its source size, and on a
+  phone the fitted Settings, drawn at a whole scale, are fitted to their
+  places by the nearest pixel (`stamp`). The layer is drawn again only when what it shows changes
   (`refresh_match`), and the composed frame and the window take the same
   layer: it goes over the composed frame (`compose_match`) and is presented
   after the match's other layers and before the frontend dialogs' and the
   cursor (`present`).
-- **Arrange overlays.** The in-game menu's **Overlays** button, under
-  Resume and left of the OA button (`arrange_button_rect`, 82 by 24 source
-  pixels at (14, 455), placed as the OA button is, the phone's layout
-  included), is drawn in the menu's own art (`arrange_button_face`, through
-  `oa/ui/frontend_renderer/room_parts.hpp`): a plate from the menu's
-  BUTTONS0, its ends kept and its middle repeated, so a mod's skin carries
-  through, the small OA stamp at its left end and the caption in the menu's
-  caption font. It sinks while pressed and darkens under a modal screen as
-  the OA button does. It opens Arrange overlays (`open_arrange_overlays`,
-  `oa_layer_arrange.cpp`), a modal screen named `arrange-overlays` that is
-  not opaque and lies over the overlays' area (`Runtime::overlay_area`: the
-  battlefield, or what the touch controls leave clear), never over the
-  side column: a veil and a grid, a dashed handle with a grip and its words
-  on the keys overlay, the chat line and the latch chips, each where that
-  overlay shows now (`arranged_overlays`), and a card with Reset and Done
-  where it covers the fewest handles, placed again as a handle is dragged
-  under it. A drag moves a handle on an 8-point grid and keeps the place on
-  release; Tab moves between the handles, Reset and Done; an arrow moves
-  the focused handle 8 points, 32 with Shift; a double-click on a handle
+- **The in-game OA Settings button.** The in-game menu has one OA button,
+  under Resume, as wide as it from its left edge (`match_button_rect`, 96
+  by 24 source pixels at (14, 455), placed in the column at its own scale,
+  the phone's layout included). It is drawn in the menu's own art
+  (`match_button_face`, through `oa/ui/frontend_renderer/room_parts.hpp`):
+  a plate from the menu's BUTTONS0, its ends kept and its middle repeated,
+  so a mod's skin carries through, the small OA stamp at its left end and
+  "OA Settings" in the menu's caption font. It sinks while pressed, darkens
+  under a modal screen as the screen does, and its release opens Settings.
+- **Arrange overlays.** Settings › Accessibility's **Move overlays**
+  (`EngineSettings::move_overlays`, off by default) turns the places on:
+  `overlay_shown` gives an overlay its place only while it is on
+  (`overlays_move`); off, every overlay shows where it lays itself out and
+  the places stay kept. **Overlay places**' ARRANGE…, pressable while Move
+  overlays is on, asks the host for `DialogAction::arrange_overlays`, which
+  opens Arrange overlays over Settings (`open_arrange_overlays`,
+  `oa_layer_arrange.cpp`), on the main menu and in a match: a modal,
+  opaque screen named `arrange-overlays`, as large as the window, at the
+  in-match windows' scale. It pictures the match in the kit's look at the
+  window's proportions (`arranging_room`: in a match `overlay_room`; on the
+  main menu the battlefield of a match laid out at the window's canvas,
+  `Runtime::match_canvas_point`): the side panel, the top bar, the bottom
+  bar, each named, and the battlefield with a grid. On it the keys overlay
+  shows a short list (`keys_overlay_sample`: the first keys of a match being
+  played, laid out as the match lays the panel out), the chat line a line
+  being typed and the latch chips a latched QUEUE's chip, each where that
+  overlay shows (`arranged_overlays_in`), with a dashed handle, a grip and
+  its words, and a card with Reset, Cancel and Done where it covers the
+  fewest handles, placed again as a handle is dragged under it. A drag
+  moves a handle on an 8-point grid and keeps the place on release; Tab
+  moves between the handles, Reset, Cancel and Done; an arrow moves the
+  focused handle 8 points, 32 with Shift; a double-click on a handle
   forgets that overlay's place; Reset forgets every overlay's place at
-  every class; Done and Escape go back to the in-game menu.
+  every class; Done keeps the places, and Cancel and Escape put them back
+  as they were when the screen opened (`kept_overlay_places`,
+  `restore_overlay_places`); either goes back to Settings.
   `oa_layer_overlays.hpp` (`overlay_placement`) holds the places: one for
   each overlay and size class, `open-annihilation.overlay.<keys-overlay|chat-line|latch-chips>.<compact|regular|large>`,
   each axis measured from the near edge, the far edge or the centre of
   the overlays' area, whichever third the overlay's centre lies in, on the
-  grid, in the in-match windows' points (`overlay_room`), written as
-  `l16,b8` or `c-24,t0`. The class is the in-match windows', so a 1280 by
-  720 and a 1920 by 1080 match share their places. `overlay_shown` gives
-  each overlay its place: where it lays itself out, pixel for pixel, while
-  it has none, else moved to the place, as large as it is and kept wholly
-  in the overlays' area. The keys overlay's panel, the latch chips
-  (`Runtime::draw_key_latch_chips`) and the chat line that stands over the
-  battlefield (`Runtime::draw_risen_chat_line`) ask it where to draw. Reset
-  window positions does not touch these keys. No OA notice shows over a
-  running match, so there is no notices handle; one that does later adds
-  its name to `overlay_placement::overlays` and asks `overlay_shown`.
+  grid, in the in-match windows' points, written as `l16,b8` or `c-24,t0`.
+  The class is the in-match windows', so a 1280 by 720 and a 1920 by 1080
+  match share their places. `overlay_shown` gives each overlay its place:
+  where it lays itself out, pixel for pixel, while it has none or Move
+  overlays is off, else moved to the place, as large as it is and kept
+  wholly in the overlays' area (`Runtime::overlay_area`: the battlefield,
+  or what the touch controls leave clear), never over the side column. The
+  keys overlay's panel, the latch chips (`Runtime::draw_key_latch_chips`)
+  and the chat line that stands over the battlefield
+  (`Runtime::draw_risen_chat_line`) ask it where to draw. Reset window
+  positions does not touch these keys. No OA notice shows over a running
+  match, so there is no notices handle; one that does later adds its name
+  to `overlay_placement::overlays` and asks `overlay_shown`.
 - **Automation** lists what the layer shows (`automation_controls`), as
   [docs/automation.md](../../docs/automation.md#oas-own-screens) describes:
   `oa.button` (on the main menu its text says how many updates wait in the
-  Library) and, on the main menu, `oa.settings-button`, or in the in-game
-  menu the Overlays button, `oa.arrange-button` (text `Overlays`), then the
+  Library; in the in-game menu it is the OA Settings button, its text `OA
+  Settings`) and, on the main menu, `oa.settings-button`, then the
   screens from the top down to the first modal one,
   each control and part named `oa.` and its kit name, with its exact
   rectangle in the window's pixels and that rectangle mapped back onto the

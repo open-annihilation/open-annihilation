@@ -1085,14 +1085,23 @@ battlefield on the 8-point grid, a drag and the arrows with and without
 Shift, and the overlays' own places at 640x480, 1280x720 and 1920x1080,
 none past the battlefield nor over the 128-point side column.
 `native-keys-overlay` (`--check-keys-overlay`) checks the keys overlay in
-a skirmish, then opens Arrange Overlays from the in-game menu's Overlays
-button: a handle on each overlay, the keys overlay and the chat line
-dragged to places on the grid, Reset, Done, and the places kept at
-1920x1080, the same class as 1280x720, and not at Compact. With
+a skirmish, then the overlays' places: Move overlays off by default with
+Arrange… waiting for it; on the main menu at 1280x720 and 640x480, Move
+overlays on and Arrange… opening the picture of the match, a handle on each
+overlay's sample inside the battlefield, the keys overlay, the latch chips
+and the chat line dragged to places on the grid, Cancel putting places
+back and Reset forgetting them; in a second skirmish the keys overlay, a
+latched QUEUE's chip and the chat line at their places at both sizes and
+1920x1080 keeping 1280x720's; the in-game menu's OA Settings as wide as
+Resume under it, opening Settings; Arrange… in a match; and Move overlays
+off putting every overlay back while keeping the places. With
 `--snapshot` it writes `arrange-overlays-<w>x<h>.ppm` and
-`rounded-settings-<w>x<h>.ppm` at 640x480, 800x600, 1280x720 and
-1920x1080. `native-keys-overlay-restart` starts the game again on the
-preferences the first run left, and finds the keys overlay and the chat
+`arrange-overlays-modern-<w>x<h>.ppm` at 640x480, 800x600 and 1280x720,
+`overlays-placed-<w>x<h>.ppm`, `ingame-menu-<w>x<h>.ppm` and
+`rounded-settings-<w>x<h>.ppm` at 640x480 and 1280x720,
+`arrange-overlays-match-1280x720.ppm` and `overlays-default-1280x720.ppm`.
+`native-keys-overlay-restart` starts the game again on the preferences the
+first run left, Move overlays on, and finds the keys overlay and the chat
 line where they were put. `native-match-layers` holds the frame a match
 ends on to the one the game kept with Show keys on buttons Off, since the
 key badges are drawn on the presented frame alone.

@@ -739,9 +739,8 @@ press OK.
   Choose a layout if you want the same one on every window.
 - **Reset window positions**: **Reset** puts every window you moved back
   in the middle, at once, and the hint then says "Every window is back in
-  the middle." Cancel does not move them again. The places of the
-  overlays you arranged in a match are kept
-  ([Arrange overlays](controls.md#arrange-overlays)).
+  the middle." Cancel does not move them again. The places you gave the
+  overlays are kept ([Arrange overlays](controls.md#arrange-overlays)).
 - **Escape opens the game menu**, On by default on macOS and Off
   elsewhere. The first Escape cancels an order or clears the selection, as
   in 3.1c; the next opens the in-game menu. Turn it on if F2 is awkward to
@@ -833,6 +832,13 @@ off.
 - **Edge scrolling**, Off or On, On by default. Off stops the view
   scrolling while the pointer rests at the window's edge. Arrow keys, and
   the touch controls' edge band while a drag is held, keep moving the view.
+- **Move overlays**, Off or On, Off by default. On, the keys panel, the
+  chat line over the battlefield and the latch chips stand where you put
+  them; off, where the game puts them, and your places are kept.
+- **Overlay places**: whose places the overlays stand at, and
+  **Arrange…**, which can be pressed while Move overlays is on. It opens a
+  picture of the match where you drag them on a grid; each window size
+  keeps its own places ([Arrange overlays](controls.md#arrange-overlays)).
 
 ## Touch
 

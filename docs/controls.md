@@ -14,8 +14,9 @@ the latches and sticky modifiers that are on show as chips in its "On:"
 line instead of on the battlefield. EDIT KEYS… opens the key editor, which
 pauses a game you play alone. Escape, or Ctrl+/ again, closes the panel.
 The match keeps running underneath, and a click or a key the panel does not
-use goes to the match. [Arrange overlays](#arrange-overlays) moves the
-panel elsewhere on the battlefield.
+use goes to the match. With **Move overlays** on,
+[Arrange overlays](#arrange-overlays) puts the panel elsewhere on the
+battlefield.
 
 With **Show keys on buttons** on (Settings › Controls; it is on by
 default), each order button wears its key in its top right corner and each
@@ -116,23 +117,34 @@ or the clash question changes a key until its own button writes it.
 
 ## Arrange overlays
 
-The in-game menu (F2) has an **Overlays** button under **Resume**, beside
-the OA button, drawn in the menu's own art with the OA stamp. It opens
-Arrange Overlays over the battlefield: a handle on each overlay you can
-move, with its name, and a card with **Reset** and **Done**. The overlays
-are the keys panel (Ctrl+/), the chat line that stands over the
+OA's overlays stand where the game puts them unless you turn on **Move
+overlays** in Settings › Accessibility (it is off by default). The
+overlays are the keys panel (Ctrl+/), the chat line that stands over the
 battlefield while the touch controls are on or while the line you type is
 taller than the TALK field, and the chips that show latches and sticky
-modifiers.
+modifiers. With Move overlays on, they stand where you put them; turned
+off, they go back where the game puts them, and your places are kept for
+when you turn it on again.
+
+**Arrange…**, on **Overlay places** under Move overlays, can be pressed
+while Move overlays is on, on the main menu or in a match (the in-game
+menu's **OA Settings** opens Settings). It opens a picture of the match,
+drawn plainly: the side panel, the top bar, the bottom bar and the
+battlefield, as they stand at your window's size. On it the keys panel
+shows a few keys, the chat line a line being typed, and the chips a
+latched QUEUE, each with a handle and its name, and a card with
+**Reset**, **Cancel** and **Done**.
 
 Drag a handle to move its overlay. It lands on an 8-point grid, measured
 from the nearest edge of the battlefield or from its middle, and an
 overlay always stays whole on the battlefield, never over the side
-column. Tab moves between the handles, Reset and Done; an arrow key moves
-the focused handle 8 points, 32 with Shift. A double-click on a handle
-puts that overlay back where it stands by itself. **Reset** puts every
-overlay back. **Done**, or Escape, goes back to the in-game menu. The
-chat line moves only up and down: it keeps the battlefield's width.
+panel. Tab moves between the handles, Reset, Cancel and Done; an arrow key
+moves the focused handle 8 points, 32 with Shift. A double-click on a
+handle puts that overlay back where it stands by itself. **Reset** puts
+every overlay back. **Done** keeps the places and goes back to Settings;
+**Cancel**, or Escape, puts them back as they were when the picture
+opened. The chat line moves only up and down: it keeps the battlefield's
+width.
 
 Each place is kept for the layout in use, Compact, Regular or Large
 ([Interface size](settings.md#user-interface)), so a 1280x720 and a
@@ -222,7 +234,7 @@ order armed with none given yet stays armed when Shift is let go.
 
 A layout can list that hold so a tap of Shift latches it. The next orders
 join the queue without Shift held down, and a chip at the top of the
-battlefield, or where [Arrange overlays](#arrange-overlays) put the chips,
+battlefield, or with Move overlays on where [Arrange overlays](#arrange-overlays) put the chips,
 reads QUEUE · latched until Shift is tapped again. The same row
 shows each other latched hold, and, with Sticky modifiers on, a tapped
 Shift, Ctrl or Alt. Losing the window clears every latch and sticky

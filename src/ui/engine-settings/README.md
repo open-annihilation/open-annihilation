@@ -84,6 +84,8 @@ the locks a running game puts on them (`settings_locks`).
 | | Key repeat rate: how fast that key then repeats | System (the system's repeat), then 2 to 30 a second | System | `open-annihilation.access.repeat-rate` |
 | | Drag threshold: how far a press may move and still be a click | 32 to 96 px, steps of 8 | 32 px | `open-annihilation.access.drag-threshold` |
 | | Edge scrolling: Off stops the view scrolling while the pointer rests at the window's edge. Arrow keys, and the touch edge band while a drag is held, keep moving the view | Off, On | On | `open-annihilation.access.edge-scroll` |
+| | Move overlays: On, the keys overlay, the chat line and the latch chips show where the player put them; Off, where they lay themselves out, and the places stay kept | Off, On | Off | `open-annihilation.access.move-overlays` |
+| | Overlay places: "Your places" or "The game's places", and ARRANGE… (`DialogAction::arrange_overlays`), pressable while Move overlays is on: the host opens a picture of the match over the dialog where the overlays are placed | | | none. The places are the host's `open-annihilation.overlay.*` keys |
 | Touch, listed only while the game has touch controls | One-finger drag | Automatic (a selection box on a tablet, scrolling on a phone), Box, Scroll | Automatic | `open-annihilation.touch-drag` (`automatic`, `box` or `scroll`) |
 | | Hold delay | 250 to 700 ms, steps of 50; a stored delay is held to the range and put on its nearest step | 350 ms | `open-annihilation.touch-hold-delay` |
 | | QUEUE and ADD | Stay on, One action | Stay on | `open-annihilation.touch-latches` (`stay-on` or `one-action`) |
@@ -1479,7 +1481,7 @@ lock, and lists that scroll or open over their field;
 the Graphics section's twenty-one rows, Naval reflections last, their places at every offset
 and under every lock, the focus scrolling them into view, both forms of a
 locked row, Smooth motion's switch and its two hints, Zoomed out units' faded Icons and After zoom's lock, every status of Hardware acceleration, Full's included, and
-the requests to try the graphics card afresh; User Interface's seven rows, Menu scaling, Window frame, HUD scaling, Interface size, Window size, Reset window positions and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Accessibility's thirteen rows, the captions at both ends of each range, CHOOSE… opening the key editor on Latchable while Edit keys… stays on All, and each change applying at once; Interface size's drop-down
+the requests to try the graphics card afresh; User Interface's seven rows, Menu scaling, Window frame, HUD scaling, Interface size, Window size, Reset window positions and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Accessibility's fifteen rows, the captions at both ends of each range, CHOOSE… opening the key editor on Latchable while Edit keys… stays on All, and each change applying at once; Interface size's drop-down
 offering 150% only with the modern fonts shown On, and turning them Off
 taking 150% to 100%; Graphics drawn on the kit canvas's smooth form at 1.5×
 with every pixel painted whole; on sections of the test's own taller than the
