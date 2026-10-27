@@ -61,6 +61,9 @@ constexpr std::string_view kDoneWords = "Done";
 /// Each overlay's handle's words, in overlay_placement::overlays' order.
 constexpr std::array<std::string_view, 3> kHandleWords{"Keys Overlay", "Chat Line", "Latch Chips"};
 
+/// The least width of the card's words, in points: the hint wraps to it.
+constexpr int32_t kCardLeastPoints = 240;
+
 /// The first handle's control number; the others follow in order.
 constexpr kit::ControlId kFirstHandle = 1;
 /// Reset's control number.
@@ -790,10 +793,12 @@ class ArrangeScreen final : public LayerScreen {
         };
         const int32_t reset_width = button_width(reset_words_);
         const int32_t done_width = button_width(done_words_);
+        // Narrow, so that it finds room beside the handles: its title, its
+        // buttons, and the hint wrapped to them.
         const int32_t widest = std::max(
             {kit::text_width(fonts, kit::FontRole::regular, title_),
              reset_width + gap + done_width,
-             metrics.notice_width - 2 * pad}
+             kCardLeastPoints}
         );
         const int32_t inner = std::max(std::min(widest, whole.width - 2 * pad - 2 * gap), 1);
         const kit::Measure measure = [&fonts](std::string_view text) {
