@@ -209,6 +209,9 @@ struct Question {
     std::string failure{};
     /// A bar under the text, 0 to question_progress_whole filled; -1 for none.
     int32_t progress{-1};
+    /// The bar is drawn paused, its fill in the lock colour: work the player
+    /// or a match has paused.
+    bool progress_paused{};
     ControlId hovered{no_control}; ///< the button under the pointer
     ControlId pressed{no_control}; ///< the button a held press is on
     /// The button the keys mark, which Enter and Space answer, ringed in the accent.

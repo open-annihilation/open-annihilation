@@ -516,8 +516,10 @@ kit::Question centre_question(const update::Centre& centre, std::vector<update::
         asked.paragraphs.push_back({words.detail, false});
     if (centre.percent >= 0 && (centre.stage == update::Stage::downloading ||
                                 centre.stage == update::Stage::paused_by_player ||
-                                centre.stage == update::Stage::paused_by_match))
+                                centre.stage == update::Stage::paused_by_match)) {
         asked.progress = centre.percent * kit::question_progress_whole / 100;
+        asked.progress_paused = centre.stage != update::Stage::downloading;
+    }
     if (!words.note.empty()) {
         kit::QuestionPart note;
         note.kind = kit::PartKind::text;
@@ -2453,7 +2455,8 @@ void Runtime::tick_update_install() {
                         next.paragraphs.size() == held.paragraphs.size() &&
                         (next.paragraphs.empty() ||
                          next.paragraphs.front().text == held.paragraphs.front().text) &&
-                        next.progress == held.progress && now_acts == *acts)
+                        next.progress == held.progress &&
+                        next.progress_paused == held.progress_paused && now_acts == *acts)
                         return false;
                     next.hovered = held.hovered;
                     next.pressed = held.pressed;

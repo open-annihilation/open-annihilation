@@ -1497,7 +1497,9 @@ DisplayList question_list(const Question& question, const Fonts* fonts) {
     }
     add_footer(list, placed.footer_rule, width);
     if (placed.bar.width > 0)
-        add_progress(list, placed.bar, question.progress, question_progress_whole);
+        add_progress(
+            list, placed.bar, question.progress, question_progress_whole, question.progress_paused
+        );
     for (std::size_t index = 0; index < placed.buttons.size(); ++index) {
         const auto control = static_cast<ControlId>(index);
         const QuestionButton& button = question.buttons[index];
@@ -1778,7 +1780,9 @@ void draw_question(const Canvas& canvas, const Question& question) {
     }
     draw_footer_band(canvas, width, placed.footer_rule);
     if (placed.bar.width > 0)
-        draw_progress(canvas, placed.bar, question.progress, question_progress_whole);
+        draw_progress(
+            canvas, placed.bar, question.progress, question_progress_whole, question.progress_paused
+        );
     for (std::size_t index = 0; index < placed.buttons.size(); ++index) {
         const auto control = static_cast<ControlId>(index);
         const QuestionButton& button = question.buttons[index];
