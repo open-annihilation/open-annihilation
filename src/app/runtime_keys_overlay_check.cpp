@@ -794,16 +794,16 @@ void Runtime::check_keys_overlay() {
         frames(1);
         require(ingame_menu_column_shown(), "the in-game menu's column does not show");
         const std::optional<AutomationControl> button = named("oa.arrange-button");
-        require(button.has_value(), "the in-game menu has no Overlays… button");
-        require(button->text == "Overlays…", "the button does not read Overlays…");
+        require(button.has_value(), "the in-game menu has no Overlays button");
+        require(button->text == "Overlays", "the button does not read Overlays");
         require(
             button->window_x + button->window_width <= match_layout_.left,
-            "the Overlays… button leaves the side column"
+            "the Overlays button leaves the side column"
         );
         click_named("oa.arrange-button");
         require(
             oa_layer().find("arrange-overlays") != nullptr,
-            "Overlays… did not open oa.arrange-overlays"
+            "Overlays did not open oa.arrange-overlays"
         );
     };
     const auto close_arrange = [&] {
@@ -877,7 +877,7 @@ void Runtime::check_keys_overlay() {
     };
 
     say_step(
-        "the in-game menu's Overlays… opens Arrange Overlays, a handle on each overlay inside the "
+        "the in-game menu's Overlays opens Arrange Overlays, a handle on each overlay inside the "
         "area"
     );
     resize(1280, 720);

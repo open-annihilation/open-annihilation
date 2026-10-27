@@ -31,6 +31,7 @@
 #include "oa/platform/text_font.hpp"
 #include "oa/ui/display_layout.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
+#include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/gallery.hpp"
@@ -625,7 +626,7 @@ automation_kind(const oa::ui::kit::AutomationEntry& entry) noexcept;
 /// window radius and a notice's, a question's and a work dialog's its
 /// dialog radius (LayerPlacement::corner_radius).
 ///
-/// In a match, the in-game menu's Overlays… button opens Arrange overlays
+/// In a match, the in-game menu's Overlays button opens Arrange overlays
 /// (open_arrange_overlays): the keys overlay, the chat line and the latch
 /// chips each show at the place the player gave them for the size class in
 /// effect (overlay_shown), kept in the preferences
@@ -1202,23 +1203,23 @@ class OaLayer {
         const oa::ui::display_layout::MatchLayout& match_layout, bool fit = false
     ) noexcept;
 
-    /// Draws Arrange overlays' button as the match's layer shows it: a kit
-    /// button with its caption, cut to fit, at the whole-number scale at or
-    /// above the side column's, darkened as the OA button is.
+    /// Draws Arrange overlays' button as the match's layer shows it, in the
+    /// in-game menu's own art as OA's parts in 3.1c's rooms are drawn
+    /// (oa/ui/frontend_renderer/room_parts.hpp): the game's BUTTONS0 plate at
+    /// the button's source size, the small engraved OA stamp at its left end
+    /// and its caption in the menu's caption font (the label font, or cut,
+    /// where that does not fit), sunk while pressed, darkened as the OA
+    /// button is under a modal screen.
     ///
-    /// @param match_layout the match's layout
+    /// @param resources the in-game menu's art (Runtime::match_hud_); null
+    ///     draws the game's plain button face
     /// @param look how the button looks: idle, hovered or pressed
-    /// @param darkened a modal screen shows over the screen
-    /// @param fonts the dialog's fonts
-    /// @param fit the button fits the safe area (match_fits_safe_area)
-    /// @return the face, its source size at that scale, clear round its
-    ///     rounded corners (clear_drawing)
+    /// @param darkened a modal screen with a backdrop shows over the screen
+    /// @return the face, at its source size, clear where no part of it is drawn
     [[nodiscard]] static LayerDrawing arrange_button_face(
-        const oa::ui::display_layout::MatchLayout& match_layout,
+        const oa::ui::frontend_renderer::ScreenResources* resources,
         oa::ui::engine_settings::ButtonLook look,
-        bool darkened,
-        const oa::ui::kit::Fonts& fonts,
-        bool fit = false
+        bool darkened
     );
 
     /// Draws the OA button's face as the match's layer shows it: at the

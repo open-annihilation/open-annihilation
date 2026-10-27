@@ -36,6 +36,7 @@
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 #include "oa/ui/frontend_renderer/artless.hpp"
+#include "oa/ui/frontend_renderer/room_parts.hpp"
 #include "oa/ui/kit/canvas.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/components_more.hpp"
@@ -88,9 +89,9 @@ constexpr int16_t kLayerOverlayZ = 100;
 
 /// The settings' screen's name.
 constexpr std::string_view kSettingsName = "settings";
-/// Arrange overlays' button's words in the in-game menu, where its title
-/// does not fit.
-constexpr std::string_view kArrangeWords = "Overlays…";
+/// Arrange overlays' button's words in the in-game menu, beside its OA
+/// stamp, where the screen's title does not fit.
+constexpr std::string_view kArrangeWords = "Overlays";
 /// Arrange overlays' button's automation name, after the oa. prefix.
 constexpr std::string_view kArrangeButtonName = "arrange-button";
 
@@ -4122,41 +4123,48 @@ renderer::Surface OaLayer::match_button_face(
 }
 
 LayerDrawing OaLayer::arrange_button_face(
-    const layout::MatchLayout& match_layout,
-    settings::ButtonLook look,
-    bool darkened,
-    const kit::Fonts& fonts,
-    bool fit
+    const artless::ScreenResources* resources, settings::ButtonLook look, bool darkened
 ) {
-    // Fitted, the face takes the button's own scale; else the side column's.
-    const double shown_scale =
-        fit ? static_cast<double>(arrange_button_rect(match_layout, true).height) /
-                  arrange_button_source_height
-            : column_scale(match_layout);
-    const int32_t scale = std::max(1, static_cast<int32_t>(std::ceil(shown_scale)));
-    const kit::Rect whole{0, 0, arrange_button_source_width, arrange_button_source_height};
-    kit::ButtonLook button;
-    button.style = kit::ButtonStyle::plain;
-    button.hovered = look != settings::ButtonLook::idle;
-    button.held = look == settings::ButtonLook::pressed;
-    const int32_t room = whole.width - 2 * kit::compact_metrics.chip_padding;
-    button.caption = kit::cut_to_width(
-        fonts, kit::FontRole::small, oa::data::languages::interface_text(kArrangeWords), room
-    );
-    LayerDrawing face = clear_drawing(
-        whole.width,
-        whole.height,
-        scale * 100,
-        &fonts,
-        nullptr,
-        {},
-        [&button, &whole](const kit::Canvas& canvas) { kit::draw_button(canvas, whole, button); }
-    );
+    // In the in-game menu's own art: the game's button plate, the OA stamp
+    // that marks a part 3.1c does not have, and the menu's caption font.
+    const artless::SourceRect rect{0, 0, arrange_button_source_width, arrange_button_source_height};
+    artless::RoomArt art;
+    art.resources = resources;
+    if (resources != nullptr)
+        art.palette = artless::room_palette(*resources);
+    artless::RoomCanvas canvas = artless::room_canvas(rect, nullptr);
+    const artless::SourceRect stamp = artless::room_stamp_rect(rect);
+    const std::string caption =
+        artless::room_text(oa::data::languages::interface_text(kArrangeWords));
+    artless::RoomButtonLook button;
+    button.rect = rect;
+    button.caption = caption;
+    button.inset_left = stamp.x - rect.x + stamp.width + 2;
+    button.condition = look == settings::ButtonLook::pressed ? artless::ButtonCondition::pressed
+                                                             : artless::ButtonCondition::normal;
+    button.narrower_font = true;
+    artless::draw_room_button(canvas, art, button);
+    artless::draw_room_stamp(canvas, art, stamp);
+    // Its pixels, and clear where no part of it is drawn.
+    std::vector<uint8_t> rgba;
+    artless::room_canvas_rgba(canvas, rgba);
+    LayerDrawing face;
+    face.picture.width = static_cast<uint32_t>(rect.width);
+    face.picture.height = static_cast<uint32_t>(rect.height);
+    const std::size_t pixels = static_cast<std::size_t>(rect.width) * rect.height;
+    face.picture.rgb.resize(pixels * 3U);
+    face.opacity.resize(pixels);
+    for (std::size_t pixel = 0; pixel < pixels && pixel * 4U + 3U < rgba.size(); ++pixel) {
+        face.picture.rgb[pixel * 3U] = rgba[pixel * 4U];
+        face.picture.rgb[pixel * 3U + 1U] = rgba[pixel * 4U + 1U];
+        face.picture.rgb[pixel * 3U + 2U] = rgba[pixel * 4U + 2U];
+        face.opacity[pixel] = rgba[pixel * 4U + 3U];
+    }
     if (darkened)
         artless::blend_source_rect(
             face.picture,
-            {0, 0, scale},
-            whole,
+            {0, 0, 1},
+            rect,
             settings::backdrop_color,
             settings::ingame_backdrop_opacity
         );
@@ -4300,10 +4308,13 @@ bool OaLayer::refresh_match() {
         Runtime::EngineSettingsMenuHost::settings_icon(runtime_),
         fit
     );
-    // Arrange overlays' button beside it, under Resume.
+    // Arrange overlays' button beside it, under Resume, in the in-game
+    // menu's own art.
     const layout::Rect arrange_at = arrange_button_rect(laid_out, fit);
     const LayerDrawing arrange = arrange_button_face(
-        laid_out, static_cast<settings::ButtonLook>(look.arrange_look), look.darkened, *fonts, fit
+        runtime_.match_hud_ ? &*runtime_.match_hud_ : nullptr,
+        static_cast<settings::ButtonLook>(look.arrange_look),
+        look.darkened
     );
     bounds_ = look.button_shown ? union_rect(button_at, arrange_at) : layout::Rect{};
     if (look.darkened) {

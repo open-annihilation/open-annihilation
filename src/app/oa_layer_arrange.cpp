@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Arrange overlays: where OA's overlays over a running match show, and the
-// screen that moves them. It opens from the in-game menu's Overlays… button,
-// over the overlays' area: a veil and a grid over the battlefield, a
-// handle on the keys overlay, the chat line and the latch chips, each where
-// the overlay shows, and a card with Reset and Done. A handle drags on an
-// 8-point grid (overlay_placement), an arrow moves the focused one, a
-// double-click puts one back where it lays itself out, and Reset puts every
-// one back. Each place is kept for the size class in effect.
+// screen that moves them. It opens from the in-game menu's Overlays button,
+// drawn in the menu's own art, over the overlays' area: a veil and a grid
+// over the battlefield, a handle on the keys overlay, the chat line and the
+// latch chips, each where the overlay shows, and a card with Reset and Done
+// where no handle lies, stepping aside as one is dragged under it. A handle
+// drags on an 8-point grid (overlay_placement), an arrow moves the focused
+// one, a double-click puts one back where it lays itself out, and Reset puts
+// every one back. Each place is kept for the size class in effect.
 
 #include "oa_layer.hpp"
 
@@ -29,6 +30,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <optional>
 #include <string>
@@ -177,6 +179,72 @@ void draw_dashed_outline(
         kit::fill_rect(canvas, {rect.x, y, 1, length}, ink);
         kit::fill_rect(canvas, {right - 1, y, 1, length}, ink);
     }
+}
+
+/// Returns how many points two rectangles share.
+///
+/// @param first a rectangle
+/// @param second another
+/// @return the area they share, in square points; 0 when they do not meet
+[[nodiscard]] int64_t shared_area(const kit::Rect& first, const kit::Rect& second) noexcept {
+    const int64_t across =
+        std::min(first.x + first.width, second.x + second.width) - std::max(first.x, second.x);
+    const int64_t down =
+        std::min(first.y + first.height, second.y + second.height) - std::max(first.y, second.y);
+    return across > 0 && down > 0 ? across * down : 0;
+}
+
+/// Returns where Arrange Overlays' card goes: where it covers the least of
+/// the handles, none where it can, on the grid a margin in from the area's
+/// edges, and of those the place nearest the middle of the area's bottom,
+/// then of its top.
+///
+/// @param whole the overlays' area, in points from its corner
+/// @param size the card's width and height, in points
+/// @param handles the handles, in the same points
+/// @param margin the points kept clear of the area's edges
+/// @return the card
+[[nodiscard]] kit::Rect card_place(
+    const kit::Rect& whole, kit::Point size, const std::vector<kit::Rect>& handles, int32_t margin
+) {
+    const int32_t left = margin;
+    const int32_t right = std::max(margin, whole.width - size.x - margin);
+    const int32_t top = margin;
+    const int32_t bottom = std::max(margin, whole.height - size.y - margin);
+    const int32_t middle = std::max((whole.width - size.x) / 2, 0);
+    // Each axis's places: the grid from the near margin, the middle, and the
+    // far margin.
+    const auto places_along = [](int32_t first, int32_t last, int32_t also) {
+        std::vector<int32_t> along;
+        for (int32_t at = first; at < last; at += places::grid_points)
+            along.push_back(at);
+        along.push_back(last);
+        along.push_back(std::clamp(also, first, last));
+        return along;
+    };
+    kit::Rect best{middle, bottom, size.x, size.y};
+    int64_t best_covered = -1;
+    int64_t best_distance = 0;
+    for (const int32_t y : places_along(top, bottom, bottom))
+        for (const int32_t x : places_along(left, right, middle)) {
+            const kit::Rect card{x, y, size.x, size.y};
+            int64_t covered = 0;
+            for (const kit::Rect& handle : handles)
+                covered += shared_area(card, handle);
+            // Nearest the bottom's middle, then the top's: a step further
+            // from the bottom counts a point more.
+            const int64_t across = std::abs(int64_t{x} - middle);
+            const int64_t distance = std::min(
+                across + std::abs(int64_t{y} - bottom), across + std::abs(int64_t{y} - top) + 1
+            );
+            if (best_covered < 0 || covered < best_covered ||
+                (covered == best_covered && distance < best_distance)) {
+                best = card;
+                best_covered = covered;
+                best_distance = distance;
+            }
+        }
+    return best;
 }
 
 } // namespace
@@ -673,8 +741,8 @@ class ArrangeScreen final : public LayerScreen {
         return LayerAnswer::none;
     }
 
-    /// Places each handle where its overlay shows, the card in the middle of
-    /// the area, and lists the controls.
+    /// Places each handle where its overlay shows, the card where it covers
+    /// the least of them (card_place), and lists the controls.
     ///
     /// @param fonts the fonts the words are measured in
     void place_handles(const kit::Fonts& fonts) {
@@ -736,7 +804,10 @@ class ArrangeScreen final : public LayerScreen {
                                static_cast<int32_t>(hint_lines_.size()) * metrics.small_line + gap +
                                metrics.button_height + pad;
         const int32_t width = inner + 2 * pad;
-        card_ = {(whole.width - width) / 2, (whole.height - height) / 2, width, height};
+        std::vector<kit::Rect> handle_rects;
+        for (const Handle& placed : handles_)
+            handle_rects.push_back(placed.shown);
+        card_ = card_place(whole, {width, height}, handle_rects, gap);
         int32_t cursor = card_.y + pad;
         title_box_ = {card_.x + pad, cursor, inner, metrics.regular_line};
         cursor += metrics.regular_line + metrics.space;
