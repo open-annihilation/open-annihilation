@@ -572,7 +572,7 @@ void Runtime::check_kill_board() {
     visibility = static_cast<uint8_t>(
         visibility & ~(visibility_flag::mapping | visibility_flag::line_of_sight)
     );
-    reset_sight_presentation(false);
+    reset_sight_presentation();
     pointer_x_ = static_cast<float>(match_layout_.left + kCursorReach);
     pointer_y_ = static_cast<float>(match_layout_.height / 2);
     const Rect cursor{

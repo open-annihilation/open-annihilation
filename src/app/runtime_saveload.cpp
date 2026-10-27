@@ -1814,7 +1814,6 @@ void Runtime::finish_saved_game_start(bool restored_players) {
         std::copy_n(world.game.players[i].alliance, allies.size(), allies.begin());
         match_->configure_player_alliances(static_cast<uint8_t>(i), allies);
     }
-    radar_explored_.clear();
     radar_state_.release();
     // The saved host clock belongs to the session that wrote it.
     match_timing_.previous_clock =

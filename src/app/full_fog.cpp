@@ -545,6 +545,81 @@ void append_box_quad(
     );
 }
 
+/// Appends one rectangle of map pixels as quads of the colour textured by
+/// the dither's page so that the page's texels lie on the target's pixels:
+/// the pixel `p` across and `q` down takes the texel whose column and row
+/// sum has the parity of p + q less the view's corner, plus the camera's
+/// map pixel across and down. At a target pixel a map pixel, the whole
+/// zoom, that is the parity of the map pixel itself, which the processor
+/// clears; at every other zoom the dither stays one target pixel fine,
+/// fixed to the screen. A rectangle wider or taller than the page holds is
+/// cut into pieces that meet where their map pixels land.
+///
+/// @param[in,out] frame the frame
+/// @param[in,out] batch the open batch of the page, whose indices grow
+/// @param placement where the grid lands
+/// @param map_x the rectangle's left edge, in map pixels
+/// @param map_z its top edge
+/// @param width map pixels across
+/// @param height map pixels down
+/// @param colour the quads' colour
+/// @return quads appended
+uint32_t append_dither_quads(
+    card::CardFrame& frame,
+    card::Batch& batch,
+    const FogPlacement& placement,
+    int32_t map_x,
+    int32_t map_z,
+    int32_t width,
+    int32_t height,
+    const card::Colour& colour
+) {
+    constexpr auto page_edge = static_cast<double>(dither_page_edge);
+    // Map pixels a piece may span: its target pixels, with the two texels
+    // its first edge's place and the parity take, within the page.
+    const auto piece = std::max<int32_t>(
+        1,
+        static_cast<int32_t>(
+            (page_edge - 2.0) / std::max(static_cast<double>(placement.scale), 1.0 / page_edge)
+        )
+    );
+    // The view's corner on the target's pixels, and the parity the camera's
+    // map pixel gives the target pixel there.
+    const auto corner_x = static_cast<int64_t>(std::floor(placement.origin_x + 0.5F));
+    const auto corner_y = static_cast<int64_t>(std::floor(placement.origin_y + 0.5F));
+    const int64_t phase = int64_t{placement.camera_x} + placement.camera_z - corner_x - corner_y;
+    uint32_t quads = 0;
+    for (int32_t z = 0; z < height; z += piece) {
+        const int32_t rows = std::min(piece, height - z);
+        const auto [top, bottom] = placed_edges(placement, false, map_z + z, rows);
+        for (int32_t x = 0; x < width; x += piece) {
+            const int32_t columns = std::min(piece, width - x);
+            const auto [left, right] = placed_edges(placement, true, map_x + x, columns);
+            // The target pixel at the piece's corner takes the page's texel
+            // `shift` across and 0 down; a pixel n further on, the texel n
+            // further on, so that sampling at the pixel's centre reads it.
+            const auto first_x = static_cast<int64_t>(std::floor(left));
+            const auto first_y = static_cast<int64_t>(std::floor(top));
+            const auto shift = static_cast<double>((first_x + first_y + phase) & 1);
+            card::append_quad(
+                frame,
+                left,
+                top,
+                right - left,
+                bottom - top,
+                static_cast<float>((left - static_cast<double>(first_x) + shift) / page_edge),
+                static_cast<float>((top - static_cast<double>(first_y)) / page_edge),
+                static_cast<float>((right - static_cast<double>(first_x) + shift) / page_edge),
+                static_cast<float>((bottom - static_cast<double>(first_y)) / page_edge),
+                colour
+            );
+            batch.index_count += quad_indices;
+            ++quads;
+        }
+    }
+    return quads;
+}
+
 } // namespace
 
 std::array<float, fog_tile_corners> corner_alphas(uint8_t mask) noexcept {
@@ -961,29 +1036,23 @@ uint32_t append_unseen_dither_classic(
             const int32_t tile_x = placement.camera_x + grid.offset_x + column * tile_pixels;
             open_batch(frame, batch, batch_page, page, 0, card::Sampling::nearest, target, scissor);
             if (mask == wr::fog_mask_full) {
-                append_box_quad(
-                    frame, placement, tile_x, tile_z, tile_pixels, tile_pixels, 0, 0, colour
+                quads += append_dither_quads(
+                    frame, *batch, placement, tile_x, tile_z, tile_pixels, tile_pixels, colour
                 );
-                batch->index_count += quad_indices;
-                ++quads;
                 continue;
             }
             for (const ShapeBox& box :
-                 shapes.at(wr::FogTileSet::gray, tile_variant(grid, column, row), mask)) {
-                append_box_quad(
+                 shapes.at(wr::FogTileSet::gray, tile_variant(grid, column, row), mask))
+                quads += append_dither_quads(
                     frame,
+                    *batch,
                     placement,
                     tile_x + box.x,
                     tile_z + box.y,
                     box.width,
                     box.height,
-                    box.x,
-                    box.y,
                     colour
                 );
-                batch->index_count += quad_indices;
-                ++quads;
-            }
         }
     }
     return quads;

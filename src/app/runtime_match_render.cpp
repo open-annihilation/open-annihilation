@@ -2244,6 +2244,13 @@ bool Runtime::draw_match_surface() {
             passes
         );
     };
+    // The dithered fog clears every other pixel of the scene. Where the card
+    // enlarges the scene, or it is resampled nearest at another scale, those
+    // pixels would grow into blocks or break into a pattern that moves with
+    // the zoom, so the fog draws the even tone the dither averages to.
+    fog_shading_.dither_even =
+        scaling.method == SceneMethod::magnify ||
+        (scaling.method == SceneMethod::nearest && draw_scale != match_zoom());
     if (!live_world)
         fog_pass(FogPasses::both);
     // The dots over the fog, as the minimap shows its units over its own.

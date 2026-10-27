@@ -537,13 +537,21 @@ the game draws its text and how the modern fonts draw it.
     greyed band along an edge reaches a few pixels past the black, and
     under the game's dithered fog (`+dither`) that band, like all ground
     out of sight, has every other pixel blacked out: the thin chequered
-    fringe the original game shows.
+    fringe the original game shows. Zoomed in or out the dither stays one
+    screen pixel fine, as the original game's is at its own scale.
   - **Smooth**: soft edges that fade across each sight cell.
+
+  Under Smooth the dithered fog darkens ground out of sight evenly, by the
+  tone the original game's dither averages to.
 
   While the processor draws the battlefield (Hardware acceleration Off or
   Basic) the fog is always Classic, as the original game drew it. It
   changes only what your screen shows, never what any player can see, and
   takes effect at once, in a multiplayer game or a replay too.
+
+  The processor's dither is one screen pixel fine at every zoom too; where
+  the graphics card enlarges the processor's picture (Basic, zoomed in) it
+  is drawn as the even darkening it averages to.
 - **Zoomed out units**, Rendered or Dots, Rendered by default; Icons is
   shown but cannot be chosen yet. It says how units are drawn when the
   view is zoomed out farther than After zoom. Rendered draws every unit,

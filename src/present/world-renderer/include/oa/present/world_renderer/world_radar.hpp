@@ -12,10 +12,13 @@
 #include "oa/present/display.hpp"
 #include "oa/present/gaf_sprites.hpp"
 #include "oa/present/surface.h"
+#include "oa/present/world_renderer/world_fog.hpp"
+#include "oa/sim/visibility_state.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <vector>
 
 namespace oa::present::world_renderer {
 
@@ -122,6 +125,45 @@ void radar_build_picture(
 /// @param[in,out] surfaces radar surfaces; each is cleared
 /// @param host surface allocator
 void radar_free_surfaces(RadarSurfaces& surfaces, const RadarSurfaceHost& host) noexcept;
+
+/// Reads the viewer's explored and in-sight cells for the mapped-radar pass
+/// from the match's sight grid, as the battlefield's fog reads them
+/// (build_fog_grid), so that the radar and the battlefield show the same
+/// ground explored and the same ground in sight.
+///
+/// The radar's cells are the sight grid's, scaled to `grid_width` by
+/// `grid_height`. A cell is explored where the viewer's mapped bit is set,
+/// and every cell is without mapping; it is in sight where the viewer's count
+/// of the stamps seeing it is not zero, read as the player is shown it, and
+/// every cell is without line of sight. A sight grid with no cells leaves
+/// every cell unexplored and out of sight under those rules.
+///
+/// Ground an ally has explored is not the viewer's: under allied vision
+/// (intel.allied-los-sharing) an ally's units add to the viewer's sight but
+/// map ground for the ally alone, so ground only the ally has seen stays
+/// unexplored here, as it stays black on the battlefield.
+///
+/// @param sight the match's sight grid, whose cells hold a mapped bit for each player
+/// @param viewer the player whose view the radar shows: its mapped bit is read
+/// @param coverage the viewer's per-cell count of the stamps seeing it
+/// @param options line-of-sight and mapping rules, as the fog takes them
+/// @param explored_bit the bit radar_fill_mapped reads as explored: the viewpoint player's
+///        (Game.viewpoint_player)
+/// @param grid_width radar cells across, half Game.map_width
+/// @param grid_height radar cells down, half Game.map_height
+/// @param[out] sight_bits `explored_bit` in each explored cell and 0 in the others, row by row
+/// @param[out] covered 1 in each cell in sight and 0 in the others, row by row
+void radar_read_sight(
+    const sim::visibility_state::PlayerSightGrid& sight,
+    uint8_t viewer,
+    std::span<const uint16_t> coverage,
+    FogOptions options,
+    uint16_t explored_bit,
+    int32_t grid_width,
+    int32_t grid_height,
+    std::vector<uint16_t>& sight_bits,
+    std::vector<uint8_t>& covered
+);
 
 // Resolved per-viewer inputs of the mapped-radar pass.
 struct RadarMapInputs {
