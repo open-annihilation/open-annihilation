@@ -90,6 +90,54 @@
 	it=ANSI;
 	}
 
+[Armed]
+	{
+	de=Bewaffnet;
+	fr=Armés;
+	es=Armados;
+	it=Armati;
+	}
+
+[Bars]
+	{
+	de=Balken;
+	fr=Barres;
+	es=Barras;
+	it=Barre;
+	}
+
+[Box: armed]
+	{
+	de=Rahmen: bew.;
+	fr=Boîte: arm.;
+	es=Caja: arm.;
+	it=Riquadro: arm.;
+	}
+
+[Box: bld]
+	{
+	de=Rahmen: bau;
+	fr=Boîte: bât.;
+	es=Caja: constr.;
+	it=Riquadro: costr.;
+	}
+
+[Box: fact.]
+	{
+	de=Rahmen: fab.;
+	fr=Boîte: fab.;
+	es=Caja: fáb.;
+	it=Riquadro: fab.;
+	}
+
+[Build]
+	{
+	de=Bauen;
+	fr=Bâtir;
+	es=Construir;
+	it=Costruisci;
+	}
+
 [Button 6]
 	{
 	de=Taste 6;
@@ -114,12 +162,28 @@
 	it=Pulsante 8;
 	}
 
+[Cat.]
+	{
+	de=Kat.;
+	fr=Cat.;
+	es=Cat.;
+	it=Cat.;
+	}
+
 [CHOOSE ANOTHER KEY…]
 	{
 	de=ANDERE TASTE WÄHLEN…;
 	fr=CHOISIR UNE AUTRE TOUCHE…;
 	es=ELEGIR OTRA TECLA…;
 	it=SCEGLI UN ALTRO TASTO…;
+	}
+
+[Clear]
+	{
+	de=Leeren;
+	fr=Effacer;
+	es=Borrar;
+	it=Pulisci;
 	}
 
 [Click a button on the picture, or a role in the table, to change it. Buttons 6 to 8 of a gaming mouse appear here when the game sees them pressed.]
@@ -154,12 +218,28 @@
 	it=Cmd;
 	}
 
+[Cmdr]
+	{
+	de=Kdr;
+	fr=Cmdt;
+	es=Cmte;
+	it=Cmte;
+	}
+
 [Ctrl]
 	{
 	de=Ctrl;
 	fr=Ctrl;
 	es=Ctrl;
 	it=Ctrl;
+	}
+
+[Destruct]
+	{
+	de=Sprengen;
+	fr=Détruire;
+	es=Destruir;
+	it=Distruggi;
 	}
 
 [Enter]
@@ -178,12 +258,44 @@
 	it=Esc annulla · tieni premuto Esc per assegnare Esc;
 	}
 
+[Faster]
+	{
+	de=Schneller;
+	fr=Plus vite;
+	es=Más rápido;
+	it=Più veloce;
+	}
+
 [FIND ON KEYBOARD]
 	{
 	de=AUF DER TASTATUR FINDEN;
 	fr=TROUVER SUR LE CLAVIER;
 	es=BUSCAR EN EL TECLADO;
 	it=TROVA SULLA TASTIERA;
+	}
+
+[Fire]
+	{
+	de=Feuer;
+	fr=Tir;
+	es=Fuego;
+	it=Fuoco;
+	}
+
+[Follow back]
+	{
+	de=Folgen zurück;
+	fr=Suivre arrière;
+	es=Seguir atrás;
+	it=Segui indietro;
+	}
+
+[Force]
+	{
+	de=Zwingen;
+	fr=Forcer;
+	es=Forzar;
+	it=Forza;
 	}
 
 [Forward]
@@ -218,6 +330,14 @@
 	it=I tasti grigi sono liberi mentre giochi. Fai clic su un tasto libero per dargli l'azione scelta nell'elenco. Passa su un tasto per vedere tutto quello che fa.;
 	}
 
+[Group]
+	{
+	de=Gruppe;
+	fr=Groupe;
+	es=Grupo;
+	it=Gruppo;
+	}
+
 [Here, and in {name}. Both are read {context}.]
 	{
 	de=Hier und bei {name}. Beide gelten {context}.;
@@ -240,6 +360,22 @@
 	fr=Maintenu;
 	es=Pulsado;
 	it=Premuto;
+	}
+
+[Idle bld]
+	{
+	de=Bau leer;
+	fr=Bât. libre;
+	es=Constr. libre;
+	it=Costr. fermo;
+	}
+
+[Idle fac]
+	{
+	de=Fab leer;
+	fr=Fab. libre;
+	es=Fáb. libre;
+	it=Fabbr. ferma;
 	}
 
 [in place of]
@@ -306,6 +442,14 @@
 	it=Tastiera;
 	}
 
+[Kills]
+	{
+	de=Abschüsse;
+	fr=Pertes;
+	es=Bajas;
+	it=Uccisioni;
+	}
+
 [Left]
 	{
 	de=Links;
@@ -330,6 +474,22 @@
 	it=Elenco;
 	}
 
+[Macro]
+	{
+	de=Makro;
+	fr=Macro;
+	es=Macro;
+	it=Macro;
+	}
+
+[Marker]
+	{
+	de=Marke;
+	fr=Marqueur;
+	es=Marca;
+	it=Segno;
+	}
+
 [Means]
 	{
 	de=Bedeutung;
@@ -352,6 +512,22 @@
 	fr=Souris;
 	es=Ratón;
 	it=Mouse;
+	}
+
+[Moves]
+	{
+	de=Bewegung;
+	fr=Dépl.;
+	es=Movim.;
+	it=Mosse;
+	}
+
+[Next pg]
+	{
+	de=Seite vor;
+	fr=Page suiv.;
+	es=Pág. sig.;
+	it=Pag. succ.;
 	}
 
 [Not on this keyboard]
@@ -386,6 +562,30 @@
 	it=Sulla minimappa;
 	}
 
+[On/off]
+	{
+	de=An/aus;
+	fr=Marche/arrêt;
+	es=On/off;
+	it=On/off;
+	}
+
+[Page]
+	{
+	de=Seite;
+	fr=Page;
+	es=Pág.;
+	it=Pag.;
+	}
+
+[Pin]
+	{
+	de=Anheften;
+	fr=Épingler;
+	es=Fijar;
+	it=Fissa;
+	}
+
 [Placing a building]
 	{
 	de=Beim Platzieren eines Gebäudes;
@@ -410,6 +610,22 @@
 	it=Premi i tasti per {action};
 	}
 
+[Prev pg]
+	{
+	de=Seite zurück;
+	fr=Page préc.;
+	es=Pág. ant.;
+	it=Pag. prec.;
+	}
+
+[Resources]
+	{
+	de=Rohstoffe;
+	fr=Ressources;
+	es=Recursos;
+	it=Risorse;
+	}
+
 [Right]
 	{
 	de=Rechts;
@@ -426,6 +642,38 @@
 	it=Clic destro;
 	}
 
+[Same]
+	{
+	de=Gleich;
+	fr=Pareil;
+	es=Igual;
+	it=Uguale;
+	}
+
+[Sel bld]
+	{
+	de=Bau;
+	fr=Bât.;
+	es=Constr.;
+	it=Costr.;
+	}
+
+[Sel fac]
+	{
+	de=Fabs;
+	fr=Fab.;
+	es=Fáb.;
+	it=Fabbr.;
+	}
+
+[Set]
+	{
+	de=Setzen;
+	fr=Poser;
+	es=Fijar;
+	it=Fissa;
+	}
+
 [Shift]
 	{
 	de=Shift;
@@ -434,12 +682,60 @@
 	it=Shift;
 	}
 
+[Shot]
+	{
+	de=Bild;
+	fr=Capture;
+	es=Captura;
+	it=Scatto;
+	}
+
+[Slower]
+	{
+	de=Langsamer;
+	fr=Plus lent;
+	es=Más lento;
+	it=Più lento;
+	}
+
 [Space]
 	{
 	de=Leertaste;
 	fr=Espace;
 	es=Espacio;
 	it=Spazio;
+	}
+
+[Space +]
+	{
+	de=Abstand +;
+	fr=Espace +;
+	es=Espacio +;
+	it=Spazio +;
+	}
+
+[Space -]
+	{
+	de=Abstand -;
+	fr=Espace -;
+	es=Espacio -;
+	it=Spazio -;
+	}
+
+[Status]
+	{
+	de=Status;
+	fr=État;
+	es=Estado;
+	it=Stato;
+	}
+
+[Store]
+	{
+	de=Merken;
+	fr=Garder;
+	es=Guardar;
+	it=Tieni;
 	}
 
 [SWAP]

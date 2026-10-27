@@ -192,10 +192,10 @@ void labels_and_layers() {
     const kit::KeyboardKey* escape = key_of(none, "Escape");
     const kit::KeyboardKey* tab = key_of(none, "Tab");
     OA_CHECK(attack != nullptr && attack->cap.label == "A" && attack->cap.sub == "Attack");
-    OA_CHECK(page != nullptr && page->cap.sub == "Menu page 1");
+    OA_CHECK(page != nullptr && page->cap.sub == "Page 1");
     OA_CHECK(escape != nullptr && escape->cap.sub == "Back");
     OA_CHECK(escape->cap.mark != kit::KeyMark::fixed);
-    OA_CHECK(tab != nullptr && tab->cap.sub == "Next primary");
+    OA_CHECK(tab != nullptr && tab->cap.sub == "Next");
 
     const std::vector<editor::CardLine> escape_card = editor::key_card(plain, "Escape", 0);
     bool saw_back = false;
@@ -229,17 +229,17 @@ void labels_and_layers() {
 
     const kit::KeyboardLook ctrl = picture_of(plain, kit::KeyboardShape::ansi, keys::ctrl);
     const kit::KeyboardKey* builders = key_of(ctrl, "KeyB");
-    OA_CHECK(builders != nullptr && builders->cap.sub == "Select builders");
+    OA_CHECK(builders != nullptr && builders->cap.sub == "Sel bld");
     const kit::KeyboardLook alt = picture_of(plain, kit::KeyboardShape::ansi, keys::alt);
     const kit::KeyboardKey* group = key_of(alt, "Digit1");
-    OA_CHECK(group != nullptr && group->cap.sub == "Select group 1");
+    OA_CHECK(group != nullptr && group->cap.sub == "Group 1");
 
     editor::EditorInputs hacked_inputs = stock_inputs();
     hacked_inputs.hacks_on = {"ui.selection-shortcuts"};
     const editor::Editor hacked(std::move(hacked_inputs));
     const kit::KeyboardLook hacked_ctrl = picture_of(hacked, kit::KeyboardShape::ansi, keys::ctrl);
     const kit::KeyboardKey* idle = key_of(hacked_ctrl, "KeyB");
-    OA_CHECK(idle != nullptr && idle->cap.sub == "Idle builders");
+    OA_CHECK(idle != nullptr && idle->cap.sub == "Idle bld");
     const std::vector<editor::CardLine> idle_card = editor::key_card(hacked, "KeyB", keys::ctrl);
     bool idle_note = false;
     for (const editor::CardLine& line : idle_card) {

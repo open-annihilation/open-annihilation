@@ -219,6 +219,121 @@ std::string action_name(const keys::Bound& bound, const TextHooks& hooks) {
     return bound.id;
 }
 
+/// The digits after a prefix, or empty when the rest is not a number.
+///
+/// `build.page-next` is not page "next": only a tail of digits counts.
+///
+/// @param id the action id
+/// @param prefix the part before the number
+/// @return the digits
+std::string number_tail(std::string_view id, std::string_view prefix) {
+    if (!id.starts_with(prefix))
+        return {};
+    const std::string_view tail = id.substr(prefix.size());
+    if (tail.empty())
+        return {};
+    for (const char digit : tail) {
+        if (digit < '0' || digit > '9')
+            return {};
+    }
+    return std::string(tail);
+}
+
+/// The short caption a key shows. The card keeps the catalogue's full name.
+///
+/// A numbered family shares one word. A category is "Cat." and its letter.
+/// Anything else keeps the catalogue name, which is already short for
+/// Attack, Settings and the other one-word actions.
+///
+/// @param bound the action
+/// @param hooks the lookup
+/// @return the caption
+std::string key_caption(const keys::Bound& bound, const TextHooks& hooks) {
+    const std::string_view id = bound.id;
+
+    struct Numbered {
+        std::string_view prefix;
+        std::string_view word;
+    };
+
+    static constexpr Numbered numbered[] = {
+        {"group.assign-", words::cap_store},
+        {"group.select-", words::cap_group},
+        {"group.add-", "Add"},
+        {"camera.bookmark-set-", words::cap_set},
+        {"camera.bookmark-go-", "View"},
+        {"build.page-", words::cap_page},
+    };
+    for (const Numbered& row : numbered) {
+        const std::string tail = number_tail(id, row.prefix);
+        if (tail.empty())
+            continue;
+        std::string text = show(hooks, row.word);
+        text += ' ';
+        text += tail;
+        return text;
+    }
+
+    struct Exact {
+        std::string_view action;
+        std::string_view word;
+    };
+
+    static constexpr Exact exact[] = {
+        {"select.all", "All"},
+        {"select.builders", words::cap_sel_bld},
+        {"select.factories", words::cap_sel_fac},
+        {"select.aircraft", "Air"},
+        {"select.commander", words::cap_cmdr},
+        {"select.same-type", words::cap_same},
+        {"select.armed-on-screen", words::cap_armed},
+        {"select.idle-builders", words::cap_idle_bld},
+        {"select.idle-factories", words::cap_idle_fac},
+        {"select.box-combat", words::cap_box_armed},
+        {"select.box-factories", words::cap_box_fact},
+        {"select.box-builders", words::cap_box_bld},
+        {"select.next-primary", "Next"},
+        {"order.self-destruct", words::cap_destruct},
+        {"order.on-off", words::cap_on_off},
+        {"order.fire-state", words::cap_fire},
+        {"order.move-state", words::cap_moves},
+        {"order.force-modifier", words::cap_force},
+        {"panel.build-tab", words::cap_build},
+        {"panel.orders-tab", "Orders"},
+        {"game.screenshot", words::cap_shot},
+        {"game.resource-panel", words::cap_resources},
+        {"game.kill-board", words::cap_kills},
+        {"game.chat-macro", words::cap_macro},
+        {"game.clear-messages", words::cap_clear},
+        {"game.health-bars", words::cap_bars},
+        {"game.speed-up", words::cap_faster},
+        {"game.speed-down", words::cap_slower},
+        {"game.pin-unit", words::cap_pin},
+        {"game.status-strip", words::cap_status},
+        {"whiteboard.jump", words::cap_marker},
+        {"build.page-previous", words::cap_prev_pg},
+        {"build.page-next", words::cap_next_pg},
+        {"camera.follow-previous", words::cap_follow_back},
+        {"build.spacing-up", words::cap_space_up},
+        {"build.spacing-down", words::cap_space_down},
+        {"ui.keys-overlay", "Keys"},
+    };
+    for (const Exact& row : exact) {
+        if (row.action == id)
+            return show(hooks, row.word);
+    }
+    constexpr std::string_view category = "select.category-";
+    if (id.starts_with(category) && id.size() == category.size() + 1) {
+        const char raw = id.back();
+        const char letter = raw >= 'a' && raw <= 'z' ? static_cast<char>(raw - 'a' + 'A') : raw;
+        std::string text = show(hooks, words::cap_cat);
+        text += ' ';
+        text.push_back(letter);
+        return text;
+    }
+    return action_name(bound, hooks);
+}
+
 /// Puts an area's tint and letter on a key. A tint without a letter is not set.
 ///
 /// @param[in,out] cap the key
@@ -442,7 +557,7 @@ keyboard_look(const Editor& editor, const KeyboardViewInputs& inputs, const Labe
         if (face) {
             const keys::Bound& action = bound.actions[face->action];
             const keys::BoundChord& chord = action.chords[face->chord];
-            key.cap.sub = action_name(action, hooks);
+            key.cap.sub = key_caption(action, hooks);
             if (action.entry != nullptr)
                 apply_style(key.cap, action.entry->area, hooks);
             if (clashing_key(clashes, place.code, inputs.layer, map, platform))

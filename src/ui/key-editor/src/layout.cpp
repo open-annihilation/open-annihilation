@@ -3118,6 +3118,59 @@ int32_t add_scheme_bar(
     return top + row_h;
 }
 
+/// Drops a caption the key is too small to show, and cuts one that is too wide.
+///
+/// The lower half holds the caption and the category letter. Below two small
+/// lines that half meets the printed label, so the key shows its tint and
+/// letter alone. The card still names the action.
+///
+/// @param[in,out] look the picture
+/// @param fonts the fonts
+/// @param scale points per quarter unit, as add_keyboard will scale the picture
+void fit_key_captions(kit::KeyboardLook& look, const kit::Fonts& fonts, int32_t scale) {
+    if (scale < 1)
+        scale = 1;
+    int32_t inset = 0;
+    if (scale >= 8)
+        inset = 2;
+    else if (scale >= 4)
+        inset = 1;
+    const std::span<const kit::KeyPlace> places = kit::keyboard_places(look.shape);
+    for (kit::KeyboardKey& key : look.keys) {
+        if (key.cap.sub.empty())
+            continue;
+        const kit::KeyPlace* place = nullptr;
+        for (const kit::KeyPlace& candidate : places) {
+            if (candidate.code == key.code) {
+                place = &candidate;
+                break;
+            }
+        }
+        if (place == nullptr)
+            continue;
+        const int32_t raw_w = static_cast<int32_t>(place->w) * scale;
+        const int32_t raw_h = static_cast<int32_t>(place->h) * scale;
+        const int32_t inset_x = inset * 2 < raw_w ? inset : 0;
+        const int32_t inset_y = inset * 2 < raw_h ? inset : 0;
+        const int32_t width = raw_w - 2 * inset_x;
+        const int32_t height = raw_h - 2 * inset_y;
+        const bool letter = !key.cap.letter.empty() && width >= 12 && height >= 12;
+        const int32_t letter_side = letter ? std::min(int32_t{8}, std::min(width, height) / 2) : 0;
+        const int32_t tail = letter_side > 0 ? letter_side + 2 : 2;
+        const int32_t room = std::max(width - tail - 2, int32_t{0});
+        if (height < 24 || room < 8) {
+            key.cap.sub.clear();
+            continue;
+        }
+        if (kit::text_width(fonts, kit::FontRole::small, key.cap.sub) <= room)
+            continue;
+        std::string cut = kit::cut_to_width(fonts, kit::FontRole::small, key.cap.sub, room);
+        if (kit::text_width(fonts, kit::FontRole::small, cut) > room)
+            cut.clear();
+        key.cap.sub = std::move(cut);
+    }
+}
+
 /// The legend under the keyboard: a letter and its area.
 ///
 /// @param editor the words
@@ -3289,6 +3342,7 @@ void add_keyboard_body(
         scale = 1;
     if (25 * scale > room_h)
         scale = std::max(room_h / 25, int32_t{1});
+    fit_key_captions(look, fonts, scale);
     const int32_t pic_w = 91 * scale;
     const int32_t pic_h = 25 * scale;
     int32_t scroll = state.keyboard_scroll;

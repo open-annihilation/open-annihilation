@@ -371,6 +371,44 @@ inline constexpr std::string_view mouse_note =
 inline constexpr std::string_view button_6 = "Button 6";
 inline constexpr std::string_view button_7 = "Button 7";
 inline constexpr std::string_view button_8 = "Button 8";
+/// Short names a key shows. The card keeps the action's full name.
+inline constexpr std::string_view cap_store = "Store";
+inline constexpr std::string_view cap_set = "Set";
+inline constexpr std::string_view cap_group = "Group";
+inline constexpr std::string_view cap_page = "Page";
+inline constexpr std::string_view cap_cat = "Cat.";
+inline constexpr std::string_view cap_idle_bld = "Idle bld";
+inline constexpr std::string_view cap_idle_fac = "Idle fac";
+inline constexpr std::string_view cap_sel_bld = "Sel bld";
+inline constexpr std::string_view cap_sel_fac = "Sel fac";
+inline constexpr std::string_view cap_cmdr = "Cmdr";
+inline constexpr std::string_view cap_same = "Same";
+inline constexpr std::string_view cap_armed = "Armed";
+inline constexpr std::string_view cap_box_armed = "Box: armed";
+inline constexpr std::string_view cap_box_fact = "Box: fact.";
+inline constexpr std::string_view cap_box_bld = "Box: bld";
+inline constexpr std::string_view cap_destruct = "Destruct";
+inline constexpr std::string_view cap_on_off = "On/off";
+inline constexpr std::string_view cap_fire = "Fire";
+inline constexpr std::string_view cap_moves = "Moves";
+inline constexpr std::string_view cap_force = "Force";
+inline constexpr std::string_view cap_build = "Build";
+inline constexpr std::string_view cap_shot = "Shot";
+inline constexpr std::string_view cap_resources = "Resources";
+inline constexpr std::string_view cap_kills = "Kills";
+inline constexpr std::string_view cap_macro = "Macro";
+inline constexpr std::string_view cap_clear = "Clear";
+inline constexpr std::string_view cap_bars = "Bars";
+inline constexpr std::string_view cap_faster = "Faster";
+inline constexpr std::string_view cap_slower = "Slower";
+inline constexpr std::string_view cap_pin = "Pin";
+inline constexpr std::string_view cap_status = "Status";
+inline constexpr std::string_view cap_marker = "Marker";
+inline constexpr std::string_view cap_prev_pg = "Prev pg";
+inline constexpr std::string_view cap_next_pg = "Next pg";
+inline constexpr std::string_view cap_follow_back = "Follow back";
+inline constexpr std::string_view cap_space_up = "Space +";
+inline constexpr std::string_view cap_space_down = "Space -";
 
 } // namespace words
 
