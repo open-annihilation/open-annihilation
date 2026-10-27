@@ -1766,12 +1766,44 @@ void paint_radial(const PaintContext& context) {
     context.painter.outline_circle(
         centre, outer - px(context, 0.5F), px(context, 1.0F), edge_colour
     );
-    // Each wedge's icon over its label.
+    // Each wedge's icon over its label. A lit wedge is lettered in the
+    // accent's own ink.
     const float side = px(context, 16.0F);
     const float size_points = 8.5F;
+    const float least_points = sub_label_points;
     const float cap = cap_share * static_cast<float>(font_px(context, size_points));
     const float gap = px(context, 3.0F);
-    const float room = (outer - inner) * 1.1F;
+    const paint::Rgba on_accent_colour{
+        kit::colour::on_accent.r,
+        kit::colour::on_accent.g,
+        kit::colour::on_accent.b,
+        kit::colour::on_accent.a
+    };
+    // Where a row of a wedge's caption may run: from the label's column
+    // outwards, as far as each side keeps clear of the wedge's edges and its
+    // two arcs.
+    const float clear = px(context, 2.0F);
+    const float step = std::max(px(context, 0.5F), 0.5F);
+    const auto in_wedge = [&](float middle, float at_x, float row) {
+        const float dx = at_x - centre.x;
+        const float dy = row - centre.y;
+        const float radius = std::hypot(dx, dy);
+        if (radius < inner + clear || radius > outer - clear)
+            return false;
+        float off = std::atan2(dx, -dy) - middle;
+        while (off > pi)
+            off -= 2.0F * pi;
+        while (off < -pi)
+            off += 2.0F * pi;
+        const float apart = slot_angle * 0.5F - std::abs(off);
+        return apart > 0.0F && radius * std::sin(apart) >= clear;
+    };
+    const auto row_reach = [&](float middle, float from_x, float row, float direction) {
+        float reach = 0.0F;
+        while (reach < outer && in_wedge(middle, from_x + direction * (reach + step), row))
+            reach += step;
+        return reach;
+    };
     for (std::size_t slot = 0; slot < radial.wedges.size(); ++slot) {
         const auto& wedge = radial.wedges[slot];
         const bool pressed =
@@ -1780,7 +1812,7 @@ void paint_radial(const PaintContext& context) {
              is_pressed(state, Control::radial_item, static_cast<uint8_t>(wedge.item)));
         paint::Rgba colour = wedge.default_item ? lit_colour : label_colour;
         if (pressed)
-            colour = ink_colour;
+            colour = on_accent_colour;
         colour = greyed_if(colour, !wedge.available);
         const float x = static_cast<float>(wedge.label.x) * context.scale_x;
         const float y = static_cast<float>(wedge.label.y) * context.scale_y;
@@ -1788,14 +1820,28 @@ void paint_radial(const PaintContext& context) {
         context.painter.draw_icon(
             radial_icon(wedge.item), paint::Area{x - side * 0.5F, top, side, side}, colour
         );
+        // The caption stays inside its wedge: its room is what both its top
+        // and its bottom rows keep clear, it sits in the middle of that room,
+        // and a caption wider than the room steps down in size, then is
+        // shortened.
+        const float middle = static_cast<float>(slot) * slot_angle;
+        const float caption_middle = top + side + gap + cap * 0.5F;
+        const float upper = caption_middle - cap * 0.5F;
+        const float lower = caption_middle + cap * 0.5F;
+        const float left =
+            x - std::min(row_reach(middle, x, upper, -1.0F), row_reach(middle, x, lower, -1.0F));
+        const float right =
+            x + std::min(row_reach(middle, x, upper, 1.0F), row_reach(middle, x, lower, 1.0F));
+        const float room = right - left;
+        const std::string caption = context.translate(radial_label(wedge.item, state));
+        float fitted_points = size_points;
+        while (fitted_points > least_points && context.fonts != nullptr &&
+               static_cast<float>(
+                   paint::text_width(*context.fonts, caption, font_px(context, fitted_points), true)
+               ) > room)
+            fitted_points -= 0.5F;
         text_centred(
-            context,
-            context.translate(radial_label(wedge.item, state)),
-            x,
-            top + side + gap + cap * 0.5F,
-            size_points,
-            colour,
-            room
+            context, caption, (left + right) * 0.5F, caption_middle, fitted_points, colour, room
         );
     }
     // The hub: QUEUE for the next pick, lit once tapped.
