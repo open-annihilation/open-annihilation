@@ -18711,7 +18711,7 @@
 	de=Rückgängig;
 	fr=Défaire;
 	es=Deshacer;
-	it=Disfa;
+	it=Annulla modifica;
 	}
 
 [Use {chord} for {action}]
