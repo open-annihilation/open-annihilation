@@ -331,9 +331,10 @@ latched the closing key and drew a backdrop.
   view's scale and size class (the Interface size, or the Auto scale) and
   centres the room's points at that scale in the window; in a match it
   takes `OaLayer::match_gallery`: the match canvas's points at the layer's
-  scale on it, capped by the side column's scale, so that 640x480 is
-  Compact at 1×, 1280x720 Large at 1× and 1920x1080 Regular at 2× with HUD
-  scaling On, the room right of the column playing no part. Its model is
+  scale on it, one step down where that gives Large, capped by the side
+  column's scale, so that 640x480 is Compact at 1×, and 1280x720 and
+  1920x1080 are Large at 1× with HUD scaling On (1920x1080 Large at 1.5×
+  while 150% is offered), the room right of the column playing no part. Its model is
   its own (`kit::GalleryModel`); it reads and changes no setting. Its
   events go to `kit::gallery_act`, and it is laid out again
   (`kit::gallery_layout`) whenever the model or the frame changes; Escape
@@ -420,39 +421,50 @@ latched the closing key and drew a backdrop.
   layer's stack of them opens (`smooth_fonts`), 150% is among the steps and
   a tie takes the larger: 1x below 900 lines, 150% from 900, 2x from 1260
   and 3x from 1800 (`kit::auto_with_fraction_percent`). Otherwise the steps
-  are whole: 1x below 1080 lines, 2x from 1080. It is then held to the
-  largest scale at which Compact's 480 by 324 dialog fits the canvas less
-  its insets, and to at least 1. 150%, chosen or what Auto picked, is 1.5
-  where Compact fits at one and a half, else 1. The class comes from
-  `kit::frame_of`: Compact below 960 by 540 points, Regular from 960 by 540,
-  Large from 1280 by 720. A 640 by 480 window is Compact at 1×, pixel for
-  pixel as 0.7.3; 1024 by 768 is Regular at 1×, 1280 by 720 Large at 1×,
-  1920 by 1080 and 2560 by 1080 Regular at 2× with the modern fonts off and
-  Large at 1.5× with them on (1914 by 1077 is Regular at 1.5×), 2560 by
-  1440 Large at 2× and 3840 by 2160 Large at 3×; a phone of 852 by 393
-  points at 3 pixels a point is Compact at 3×; a chosen 150% on 1920 by
-  1080 is Large at 1.5×.
+  are whole: 1x below 1080 lines, 2x from 1080. For Auto alone, where that
+  scale leaves the room short of the class wanted (Large, or the class the
+  Window size chooses) and one step down gives it that class, the scale
+  takes the step: from 2× to 150% while 150% is offered, else to 1×, never
+  below the density nor 1×. A chosen Interface size is never stepped down.
+  The scale is then held to the largest at which Compact's 480 by 324
+  dialog fits the canvas less its insets, and to at least 1. 150%, chosen
+  or what Auto picked, is 1.5 where Compact fits at one and a half, else 1.
+  The class comes from `kit::frame_of`: the largest whose settings dialog
+  fits the room with 24 points round it (`kit::size_class_of`), Compact
+  below 768 by 534 points, Regular from 768 by 534 and Large from 1008 by
+  648. A Window size other than Auto (`open-annihilation.ui.window-size`,
+  `OaLayer::window_size`, `window_placement::class_under`) takes the class
+  it names wherever that class's dialog fits whole, and the largest that
+  does elsewhere (`kit::size_class_within`). A 640 by 480 window is Compact
+  at 1×, pixel for pixel as 0.7.3; 800 by 600 is Regular at 1×; 1024 by
+  768, 1280 by 720, 1366 by 768 and 1280 by 800 are Large at 1×; 1920 by
+  1080 and 2560 by 1080 are Large at 1× with the modern fonts off, where
+  2× would leave them Regular, and Large at 1.5× with them on, as is 1914
+  by 1077; 2560 by 1440 is Large at 2× and 3840 by 2160 Large at 3×; a
+  phone of 852 by 393 points at 3 pixels a point is Compact at 3×, its
+  density the floor; a chosen 150% on 1920 by 1080 is Large at 1.5×, and
+  a chosen 200% there Regular at 2×.
   `screen_scale`, `screen_scale_percent`, `screen_class` and
   `placement_of(name)` report them, for the checks. Without a renderer the canvas is the picture
   itself, Compact at 1×. In a match the view is Compact at 100%, and
-  Settings takes a scale and class of its own (`OaLayer::match_dialog`).
-  Its scale starts as the layer's on the match's canvas
-  (`kit::layer_viewport` of the canvas's pixels at the Interface size in
-  effect, `LayerView::interface_percent`: its step, 150%, or Auto on the
-  canvas's height). It is capped by the side column's scale
+  Settings, and every window placed as it is, takes a scale and class of
+  its own (`OaLayer::match_dialog`, `window_placement::match_window`). Its
+  scale is the layer's on the match's canvas (`window_placement::match_viewport`:
+  `kit::layer_viewport` of the canvas's pixels at the Interface size in
+  effect, `LayerView::interface_percent`, with Auto's step down for the
+  class the Window size wants), capped by the side column's scale
   (`MatchLayout::scale`, which HUD scaling caps, as before): above it, the
-  largest whole step at or below it, and at least 1. Where Compact's 480 by
-  324 points do not fit the area right of the column at that scale, it is
-  the largest whole step at which they do, and at least 1. The class comes
-  from the points of that area, ((width − column's right edge) / scale) by
-  (height / scale). So with HUD scaling On and the modern fonts off, 640 by
-  480 is Compact at 1× (512 by 480 points), 1280 by 720 Regular at 1× (1088
-  by 720), 1920 by 1080 Compact at 2× (832 by 540) and 2560 by 1080 Regular
-  at 2× (1152 by 540). With the modern fonts on, 1920 by 1080 is Regular at
-  1.5×. With HUD scaling Off, 1920 by 1080 is Large at 1× (1792 by 1080),
-  the column's scale of 1 holding Auto's 150% down. On a phone with
-  touch controls (`match_fits_safe_area`) Settings is Compact, drawn at 1×
-  and fitted to the safe area, as before.
+  largest whole step at or below it, and at least 1. The class comes from
+  the points of the window's whole safe area at that scale, or the Window
+  size held to what fits it, as on the front end: the dialog measures the
+  whole window, not the area beside the side column. So with HUD scaling
+  On and the modern fonts off, 640 by 480 is Compact at 1×, 800 by 600
+  Regular at 1×, and 1024 by 768, 1280 by 720, 1920 by 1080 and 2560 by
+  1080 Large at 1×; with the modern fonts on, 1920 by 1080 is Large at
+  1.5×; 2560 by 1440 is Large at 2×, and 3840 by 2160 Large at 2× too, the
+  column's scale of 2 holding 3× down. With HUD scaling Off, 1920 by 1080
+  is Large at 1×. On a phone with touch controls (`match_fits_safe_area`)
+  Settings is Compact, drawn at 1× and fitted to the safe area, as before.
 - **Placement.** A screen says where it shows (`LayerPlacement::shown`) in
   window pixels, and how many points it has. Settings, a notice and a
   question centre themselves in the view's room at its scale
@@ -463,11 +475,50 @@ latched the closing key and drew a backdrop.
   picture's rectangle (`LayerView::picture`, where the 640 by 480 frame is
   drawn) at the same scale. The main menu's OA button stays in the frame.
   In a match Settings shows where `match_dialog` puts it: its class's
-  dialog points at its scale, centred in the area right of the side column
-  (left = column's right edge + (area width − dialog width) / 2, top =
-  (height − dialog height) / 2), and input maps back by that scale. A 640
-  by 480 window shows it at (144, 78), pixel for pixel as before. An empty
-  place means the screen does not show: it neither draws nor takes input.
+  dialog points at its scale, centred in the window's safe area; where
+  that place would cover part of the side column and the safe area right
+  of the column holds the dialog, it is centred across in that area
+  instead. Input maps back by that scale. A 640 by 480 window shows it at
+  (144, 78), pixel for pixel as before; 800 by 600 at (40, 57) and 1024 by
+  768 at (32, 84), over the column, which the area right of it cannot
+  hold the dialog beside; 1280 by 720 at (256, 60), right of the column;
+  1920 by 1080 at (480, 240), centred, or at (368, 90) at 1.5×. A window
+  that moves shows where the player put it (Moving windows, below). An
+  empty place means the screen does not show: it neither draws nor takes
+  input.
+- **Moving windows.** Settings, the key editor, the Library, the map
+  browser and the mutator and brain pickers are windows that move
+  (`window_placement::moves`); notices, questions, the gallery and every
+  other screen stay where they place themselves, and so does a window that
+  fills its whole room or is fitted to its place, as the phone's Settings
+  is. The layer moves a window as it shows it (`OaLayer::shown_placement`):
+  its own placement, moved by its offset and kept on screen
+  (`window_placement::shown_at`), so drawing, input, automation and
+  `placement_of` all see the moved place, and an unmoved window's pixels
+  are exactly as before. The offset is from the window's unmoved place, in
+  points. Input that moves a window comes first (`take_window_move`): a
+  press on the window's title, its first `kit::Role::header` item at a
+  point no control holds, drags the window, a mouse's at once and a
+  finger's once it has held 400 ms within 8 points, a finger that strays
+  sooner dragging nothing (`TitleDrag`, `drag_move`); a double-click on the
+  title puts the window back in its centre; Alt and an arrow move the top
+  modal window 8 points, and with Shift 32. A dragged window snaps, across
+  and down each on their own, within 12 points to its unmoved column or
+  row, else to the room's centre, else to the room's near or far safe edge
+  (`snapped`). It is kept on screen: at least 64 points of it across and
+  down in the room, and its top, which holds the title, in the room; an
+  edge less than a point from a safe edge lies on it. Each window keeps its
+  place for each size class in the preferences,
+  `open-annihilation.window.<window>.<class>` (`settings`, `key-editor`,
+  `library`, `map-browser`, `mutator-picker`, `brain-picker`; `compact`,
+  `regular`, `large`), as "x,y", the offset in points; an offset of 0, 0
+  erases the key. The class is the in-match Settings' in a match and the
+  view's on the front end. `reset_window_places`, which Settings › User
+  Interface's Reset window positions calls, forgets every key that starts
+  `open-annihilation.window.` and no other, writes the preferences and ends
+  a drag under way; `set_window_size`, which its Window size applies at OK,
+  writes `open-annihilation.ui.window-size` (Auto erases it) and lays every
+  screen out again. A moved window keeps its kept front-end drawing.
 - **Input.** One overlay at z 100 on every screen (`register_oa_layer`, over
   the extensions' overlays, under the frontend's message boxes) hands the
   layer every input. The key that closed a screen comes first: its presses
@@ -486,9 +537,14 @@ latched the closing key and drew a backdrop.
   screen's points by its placement (`layer_point`): floor((pixel − left) /
   scale). A finger's press gets the reach of the touch controls in the
   screen's points, the pick distance over the window pixels a point takes;
-  a mouse's none; keys go first to the screen's own shortcuts (`shortcut`,
-  which every screen but the Library answers `pass`), then through
-  `layer_key`. Outside a match F1 is the
+  a mouse's none; keys go first to the screen's own shortcuts (`shortcut`:
+  the Library's and the key editor's, and on Settings › Accessibility the
+  practice pad's, which takes Shift, Ctrl, Alt, the letters and the digits
+  so that they reach nothing else), then through `layer_key`. A key's
+  release goes to the screen taking input (`key_up`); the practice pad is
+  the one screen that follows it, and every other answers `pass`. Settings'
+  screen also hands the pad its time each tick
+  (`settings::dialog_practice_tick`). Outside a match F1 is the
   kit's information key, `Key::info`, which a screen with more to tell
   about what the pointer or the focus is on takes; a screen that answers
   `pass` lets F1 go on to the game as before, and Settings does. In a
@@ -511,6 +567,24 @@ latched the closing key and drew a backdrop.
   never darkens what lies under it, whatever `backdrop` says, and only the
   part of it that holds what it drew goes into the window's texture. The
   cursor stays above it.
+- **Rounded corners.** The layer rounds what it shows, not each module's
+  drawing: a placement carries `LayerPlacement::corner_radius`, in the
+  screen's points. A window that moves takes its class's
+  `kit::Metrics::window_radius` (10, 11 and 12 points at Compact, Regular
+  and Large) from `shown_placement`, and Settings sets its own; a notice, a
+  question and a work dialog take their class's `dialog_radius` (12, 13
+  and 14) through `centred_box`; a screen that fills its room, and every
+  other screen, stays square. `draw_screen` then rounds the opaque drawing
+  (`round_layer_corners`): outside each quarter circle the pixels are
+  clear, so the picture, the darkened menu or the battlefield shows there,
+  and a ring a point thick along the arc takes the edge's light colour
+  where the corner meets the top or the left and its dark colour where it
+  meets the bottom or the right, continuing the window's bevelled edges.
+  The shape is the kit's (`kit::corner_coverage`), stepped at every scale:
+  a pixel is the window's or clear, so no blend rounds a corner pixel
+  otherwise than the checks expect. A check that compares a screen with its own drawing does
+  it through `expected_layer_frame`, which rounds the same way, or rounds
+  a screen it draws straight with `round_drawn_screen`.
 - **Typed text** goes to the screen taking input (`text`), and while that
   screen reports a `text_field` the system's text input stays started over
   the field, mapped back to the coordinates input arrives in
@@ -555,11 +629,14 @@ latched the closing key and drew a backdrop.
   key (`MarkScreen`), with which the layer's own check
   (`OaLayer::check_clear_screens`) holds screens that are not opaque and
   F1.
-- **In a match** the layer is one picture of the window's size while the
-  in-game menu's column shows: the OA button under Resume, the backdrop
-  under a modal screen, and the screens at their places (one that is not
-  opaque laid over by its opacity), each under a modal screen with a
-  backdrop darkened as the button is. Each screen is drawn at its
+- **In a match** the layer is one picture of the window's size: while the
+  in-game menu's column shows, the OA button under Resume and the Overlays
+  button left of it; the backdrop under a modal screen; and the screens at
+  their places (one that is not opaque laid over by its opacity), each
+  under a modal screen with a backdrop darkened as the button is. A screen
+  that is not modal shows over the running match with no column, as the
+  keys overlay does (`runtime_keys_overlay.cpp`); with no screen and no
+  column the layer shows nothing. Each screen is drawn at its
   placement's scale as large as its place, Settings at its own class and
   scale on the kit canvas's crisp form at a whole scale and its smooth form
   at 150%, never drawn at 1× and enlarged, and copied into the layer pixel
@@ -570,6 +647,42 @@ latched the closing key and drew a backdrop.
   layer: it goes over the composed frame (`compose_match`) and is presented
   after the match's other layers and before the frontend dialogs' and the
   cursor (`present`).
+- **Arrange overlays.** The in-game menu's **Overlays** button, under
+  Resume and left of the OA button (`arrange_button_rect`, 82 by 24 source
+  pixels at (14, 455), placed as the OA button is, the phone's layout
+  included), is drawn in the menu's own art (`arrange_button_face`, through
+  `oa/ui/frontend_renderer/room_parts.hpp`): a plate from the menu's
+  BUTTONS0, its ends kept and its middle repeated, so a mod's skin carries
+  through, the small OA stamp at its left end and the caption in the menu's
+  caption font. It sinks while pressed and darkens under a modal screen as
+  the OA button does. It opens Arrange overlays (`open_arrange_overlays`,
+  `oa_layer_arrange.cpp`), a modal screen named `arrange-overlays` that is
+  not opaque and lies over the overlays' area (`Runtime::overlay_area`: the
+  battlefield, or what the touch controls leave clear), never over the
+  side column: a veil and a grid, a dashed handle with a grip and its words
+  on the keys overlay, the chat line and the latch chips, each where that
+  overlay shows now (`arranged_overlays`), and a card with Reset and Done
+  where it covers the fewest handles, placed again as a handle is dragged
+  under it. A drag moves a handle on an 8-point grid and keeps the place on
+  release; Tab moves between the handles, Reset and Done; an arrow moves
+  the focused handle 8 points, 32 with Shift; a double-click on a handle
+  forgets that overlay's place; Reset forgets every overlay's place at
+  every class; Done and Escape go back to the in-game menu.
+  `oa_layer_overlays.hpp` (`overlay_placement`) holds the places: one for
+  each overlay and size class, `open-annihilation.overlay.<keys-overlay|chat-line|latch-chips>.<compact|regular|large>`,
+  each axis measured from the near edge, the far edge or the centre of
+  the overlays' area, whichever third the overlay's centre lies in, on the
+  grid, in the in-match windows' points (`overlay_room`), written as
+  `l16,b8` or `c-24,t0`. The class is the in-match windows', so a 1280 by
+  720 and a 1920 by 1080 match share their places. `overlay_shown` gives
+  each overlay its place: where it lays itself out, pixel for pixel, while
+  it has none, else moved to the place, as large as it is and kept wholly
+  in the overlays' area. The keys overlay's panel, the latch chips
+  (`Runtime::draw_key_latch_chips`) and the chat line that stands over the
+  battlefield (`Runtime::draw_risen_chat_line`) ask it where to draw. Reset
+  window positions does not touch these keys. No OA notice shows over a
+  running match, so there is no notices handle; one that does later adds
+  its name to `overlay_placement::overlays` and asks `overlay_shown`.
 - **Automation** lists what the layer shows (`automation_controls`), as
   [docs/automation.md](../../docs/automation.md#oas-own-screens) describes:
   `oa.button` (on the main menu its text says how many updates wait in the
@@ -928,8 +1041,8 @@ hosts them on the OA layer.
   built-in registry off there before the content service starts
   (`prepare_map_browser_check`), and at 640x480, 1280x720, 1920x1080 and
   2560x1440 opens SELMAP and presses MORE MAPS…. It requires the layer's
-  size class and scale (Compact 1x, Large 1x, Regular 2x, Large 2x) and the
-  grid's columns (3, 6, 4, 6); MORE MAPS… over none of SELMAP's gadgets;
+  size class and scale (Compact 1x, Large 1x, Large 1x, Large 2x) and the
+  grid's columns (3, 6, 6, 6); MORE MAPS… over none of SELMAP's gadgets;
   every card and control inside the browser's window; Online empty;
   Installed packs showing the two check maps alone; the clashing map's card
   greyed, "New names" in the footer and Select disabled; the search "isle"
@@ -2527,7 +2640,8 @@ language and both sizes.
   as the dialog's class lays it out, from 71 points left of its right edge
   to 5 points right of it, and the header's rows 6 to 22, at the dialog's
   scale: at 640x480 `at 144,78 480x324, version at 540,84 76x16`, and at
-  1920x1080 a dialog of 960x648 and a version room of 152x32;
+  1920x1080 `at 480,240 960x600`, Large at 1×, with a version room of
+  76x16;
   `native-stage` checks it. `gallery` opens the settings dialog beside the
   in-game menu at Developer and takes its UI kit gallery row's SHOW as the
   dialog takes it, so that the UI kit gallery covers the window; it stops
@@ -2535,7 +2649,7 @@ language and both sizes.
   top screen, and prints `stage: gallery at X,Y WxH CLASS Nx`, where it
   shows in the match canvas's pixels, its size class and its scale: at
   640x480 `at 0,0 640x480 Compact 1x`, at 1280x720 `at 0,0 1280x720 Large
-  1x` and at 1920x1080 `at 0,0 1920x1080 Regular 2x`. Its text holds no
+  1x` and at 1920x1080 `at 0,0 1920x1080 Large 1x`. Its text holds no
   version, so a golden frame of it takes the whole window. A save/load run ends by
   reporting the live units by type, the veterans by veterancy level, the
   stockpiled rounds, the buildings by facing and each player's health.
@@ -2838,19 +2952,19 @@ language and both sizes.
   a button's side left of it, showing the mods icon
   (`EngineSettingsMenuHost::mods_icon`), which opens the Library
   ([The Library](#the-library)) and wears a dot while updates wait there.
-  The dialog is centred over the darkened menu and takes every input while
-  it shows. The Settings button, Cmd+, on macOS or Ctrl+, elsewhere, the
+  The dialog is centred over the darkened menu, or where the player moved
+  it by its title, and takes every input while it shows. The Settings button, Cmd+, on macOS or Ctrl+, elsewhere, the
   macOS application menu's Settings… item and the Library's SETTINGS… open
   it, the Settings button with no Library under it; nothing opens
   over a message box or a frame a package owns. Enter is OK and Escape is Cancel;
   the key that closed the dialog does nothing more until it is released, so
   that a held key never reaches the main menu, where Escape itself does
   nothing. Another screen replacing the main menu closes the dialog as
-  Cancel does. `runtime_engine_settings_match.cpp` opens it beside the
-  in-game menu's column, whose OA button, which shows the settings icon,
-  with the shortcut and Ctrl+F2 for the mod options, the layer draws and
-  drives; the column going closes the
-  dialog as OK does. `runtime_engine_settings_app_menu.cpp` is the
+  Cancel does. `runtime_engine_settings_match.cpp` opens it over the
+  match, centred in the window or right of the in-game menu's column
+  (`match_dialog`). The column's OA button, which shows the settings
+  icon, with the shortcut and Ctrl+F2 for the mod options, the layer draws
+  and drives; the column going closes the dialog as OK does. `runtime_engine_settings_app_menu.cpp` is the
   application menu's item.
   `acceleration_status.hpp` and `acceleration_status.cpp`
   (`app-acceleration-status`) say what the dialog shows of the renderer:
@@ -2889,14 +3003,22 @@ language and both sizes.
   (screens of the check's own that are not modal, a text field's text and
   text input, `layer_key`, `close_above`), Escape doing nothing on the menu
   itself and EXIT ending the run; `oa_layer_check.cpp` the layer's own
-  check, run after the window sizes: in a 640x480 and a 1920x1080 window
+  check, run after the window sizes: in a 640x480 and a 2560x1440 window
   a screen that is not opaque, alone, over an opaque screen and under one,
   and under the cursor, changes no pixel of the window or of the frame
   without the cursor but those it draws (a half blend within 2 of the
   colour blended straight over what lies under it), darkens nothing, keeps
   the cursor above it and lists its control to automation, while an opaque
   one draws as before; F1 reaches a screen that takes the information key,
-  goes on past one that does not, and changes nothing in Settings; and in a
+  goes on past one that does not, and changes nothing in Settings; a
+  notice over the main menu shows with its corners rounded, as
+  `round_drawn_screen` rounds the notice drawn straight; S on
+  Accessibility's practice pad shows there and does not reach the main
+  menu; Settings moves 60 by 40 points by a drag on its title and keeps
+  that place in the preferences, a double-click on the title centres it,
+  Alt and the arrows move it, and `reset_window_places` puts it back; a
+  window's and a dialog's corners are clear outside the quarter circle and
+  edged along it at 1×, 1.5× and 2×; and in a
   match F1 goes on to the game and such a screen changes only the pixels it
   draws in the match's picture;
   `runtime_engine_settings_dialog_check.cpp` the dialog driven by the
@@ -2904,10 +3026,11 @@ language and both sizes.
   effect at once, Vertical sync read back from the renderer, Font shadow
   read back from the text style, OK, Cancel, Restore defaults and the keys
   they save) and the main menu with the
-  buttons as 640x480, 1024x768, 1280x720, 1920x1080 and 2560x1080 windows
+  buttons as 640x480, 800x600, 1280x720, 1920x1080 and 2560x1080 windows
   show it, each button opening its screen, and in each the dialog at the
   size class and scale the window
-  gives it (Compact 1×, Regular 1×, Large 1×, Regular 2×, Regular 2×),
+  gives it (Compact 1×, Regular 1×, Large 1×, Large 1×, Large 1×), its
+  corners rounded as the layer shows them,
   clicked where the window shows it and compared, every window pixel but
   the cursor's square, with the menu's frame darkened and the dialog drawn
   at its class and scale (`oa_layer_check.hpp`): each section, Developer
@@ -2915,13 +3038,16 @@ language and both sizes.
   end;
   `runtime_engine_settings_match_check.cpp` the in-game menu's button and
   dialog at 640x480, 1280x720, 1920x1080 and 2560x1080, and 1920x1080
-  with HUD scaling Off, each at the class and scale `match_dialog` gives,
-  its class's points at the scale centred right of the column, drawn
-  there pixel for pixel as the dialog drawn offscreen at them, a click on
+  with HUD scaling Off, each at the class and scale `match_dialog` gives
+  (Compact 1× at 640x480, Large 1× on the others), its class's points at
+  the scale clear of the column, centred right of it at 640x480 and
+  1280x720 and centred in the window on the wider ones, drawn there pixel
+  for pixel as the dialog drawn offscreen at them, its corners rounded
+  (`round_layer_corners`), a click on
   a section's entry showing it, with the locks of a game played alone and of a
   shared game, Hardware acceleration set to Full and to Basic in a shared
-  game, where each waits for the game's end, and the wheel scrolling the dialog, not the
-  battlefield; and `runtime_engine_settings_wiring_check.cpp` each setting
+  game, where each waits for the game's end, and the wheel scrolling the
+  dialog, not the battlefield, where its section is taller than its view; and `runtime_engine_settings_wiring_check.cpp` each setting
   taking effect in a match, Escape's order, Vertical sync, the lock
   either acceleration flag puts on Hardware acceleration and the row set
   to Basic, Full and Off among them. The check runs with `--force-capable`,
@@ -2929,8 +3055,14 @@ language and both sizes.
   leaves Hardware acceleration Off, so every frame it compares is drawn on
   the processor. Both dialog steps also scroll a
   section of nine rows, `engine_settings_tall_section.hpp`, shown in place
-  of the open section's rows; the wheel events are the check host's
-  (`check_host_input.hpp`). With `--snapshot`, the check writes each of
+  of the open section's rows, Page Up and Page Down by the dialog's own
+  page step (`settings::dialog_page_step`: the view at the dialog's class
+  less three hint lines, 184 rows at Compact); the wheel events are the
+  check host's (`check_host_input.hpp`). At Compact Developer scrolls as
+  one, its rows, its list, Show Active Only and Restore profile values in
+  the section's own view, so the dialog step pages down to Show Active
+  Only and Restore profile values, then scrolls back up before it turns
+  Developer Mode on. With `--snapshot`, the check writes each of
   those frames beside the named file. While an extension's overlay stands
   over the main menu, the check first clicks the OA button in the menu's
   top-right corner through that overlay and closes the dialog it opens;
@@ -2944,7 +3076,7 @@ language and both sizes.
   it. On 640x480, 1280x720 and 1920x1080 windows it loads the main menu,
   opens Settings with its shortcut, clicks Developer's entry and then SHOW
   where the window shows them, and requires the UI kit gallery on top at
-  Compact 1×, Large 1× and Regular 2×, covering the window, its controls
+  Compact 1×, Large 1× and Large 1×, covering the window, its controls
   listed to the automation endpoint in dialog `oa.gallery`
   (`oa.gallery.close`, `oa.gallery.toggle.1.on`, `oa.gallery.drop-down.1`);
   the window,
@@ -3797,9 +3929,11 @@ effect:
 
 `--check-user-folder` (`native-user-folder`, `runtime_user_folder_check.cpp`)
 checks all of it beside its preferences file: the saves notice in a
-640x480 window, Compact at 1× pixel for pixel, then in 1280x720 and
-1920x1080 windows at Large 1× and Regular 2×, the whole window compared
-with the menu darkened and the notice drawn at that class and scale.
+640x480 window, Compact at 1× pixel for pixel, then in 800x600 and
+2560x1440 windows at Regular 1× and Large 2×, the whole window compared
+with the menu darkened and the notice drawn at that class and scale, its
+corners rounded as the layer shows them (`round_drawn_screen` for the
+notice, Settings and the question the check draws straight).
 
 ## Mod profile and mod folders
 
@@ -3955,8 +4089,8 @@ skirmish setup up again, with the warning or the failure in a message box,
 in place of ending the program. `--check-mod-warning`
 (`native-mod-warning`, `runtime_mod_warning_check.cpp`) checks the warning
 and the refused start through the Library's PLAY NOW and its note, the
-main menu's warning in 1280x720 and 1920x1080 windows at Large 1× and
-Regular 2× too.
+main menu's warning in 800x600 and 2560x1440 windows at Regular 1× and
+Large 2× too.
 
 `inspect_game_install` resolves the profile (`resolve_folder_profile`) before
 any archive is mounted: `--mod`'s file, else the mod folder's, else the game
@@ -4108,8 +4242,8 @@ in place, and how what a stop leaves is settled). The runtime's part:
 
 `native-mod-install` (`--check-mod-install`, `runtime_mod_install_check.cpp`)
 drives every prompt over five runs, pressing each where the OA layer shows
-it, and holds the first update question to its picture in 1280x720 and
-1920x1080 windows at Large 1× and Regular 2×.
+it, and holds the first update question to its picture in 800x600 and
+2560x1440 windows at Regular 1× and Large 2×.
 
 ### Map packs (.oamap)
 
