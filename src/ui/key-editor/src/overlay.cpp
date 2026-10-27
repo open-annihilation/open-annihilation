@@ -657,10 +657,15 @@ OverlayLayout overlay_layout(
     const std::string title = overlay_title(inputs);
     const std::string layout_name =
         inputs.layout_name.empty() ? show(inputs.text, words::oa_default) : inputs.layout_name;
-    const std::string aside = fill(
-        show(inputs.text, words::overlay_changes),
-        {{"name", layout_name}, {"n", std::to_string(std::max(inputs.changes, int32_t{0}))}}
-    );
+    // One change reads "1 change", as the editor's own line does.
+    const std::string aside =
+        inputs.changes == 1
+            ? fill(show(inputs.text, words::compact_context_one), {{"layout", layout_name}})
+            : fill(
+                  show(inputs.text, words::overlay_changes),
+                  {{"name", layout_name},
+                   {"n", std::to_string(std::max(inputs.changes, int32_t{0}))}}
+              );
     const std::string on_label = show(inputs.text, words::on_line);
     const std::string footer =
         fill(show(inputs.text, words::overlay_footer), {{"modifier", primary_name(inputs)}});

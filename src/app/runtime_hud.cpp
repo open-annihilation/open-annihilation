@@ -1212,13 +1212,18 @@ void Runtime::draw_unit_panel() {
         // The lines are kept as the player reads them and drawn as game
         // text, which the panel's font reads in the game's code page.
         const bool utf8 = game_text_utf8();
-        const std::string pattern = translate_ui(oa::ui::key_editor::words::help_chord);
+        const std::string pattern{
+            oa::data::languages::interface_text(oa::ui::key_editor::words::help_chord)
+        };
         const std::string_view action = order_gadget_action(*hovered_);
         if (const oa::data::input_actions::Action* entry =
                 action.empty() ? nullptr : oa::data::input_actions::find(action)) {
             const std::string chord = active_key_chord(action);
-            unit_panel_hover_name_ = translate_ui(entry->words.name);
-            unit_panel_hover_description_ = translate_ui(entry->words.description);
+            // An action's words are Open Annihilation's, as the key editor
+            // shows them, not the game data's.
+            unit_panel_hover_name_ = oa::data::languages::interface_text(entry->words.name);
+            unit_panel_hover_description_ =
+                oa::data::languages::interface_text(entry->words.description);
             if (!chord.empty())
                 unit_panel_hover_description_ = oa::ui::key_editor::fill(
                     pattern, {{"description", unit_panel_hover_description_}, {"chord", chord}}
@@ -1919,10 +1924,19 @@ void Runtime::draw_hold_ring() {
 
     const int32_t anchor_x = shown.button ? shown.x + shown.width / 2 : shown.x;
     const int32_t anchor_y = shown.button ? shown.y + shown.height / 2 : shown.y;
-    const int32_t point_x =
-        static_cast<int32_t>((static_cast<int64_t>(anchor_x) - area.x) / point_scale);
-    const int32_t point_y =
-        static_cast<int32_t>((static_cast<int64_t>(anchor_y) - area.y) / point_scale);
+    int32_t point_x = static_cast<int32_t>((static_cast<int64_t>(anchor_x) - area.x) / point_scale);
+    int32_t point_y = static_cast<int32_t>((static_cast<int64_t>(anchor_y) - area.y) / point_scale);
+    if (!shown.button) {
+        // A pointer over the side column or the bottom bar would put the
+        // ring outside the battlefield, where it is not drawn: it stays at
+        // the battlefield's edge nearest the pointer, the card beside it.
+        const int32_t area_w = static_cast<int32_t>(area.width) / point_scale;
+        const int32_t area_h = static_cast<int32_t>(area.height) / point_scale;
+        if (area_w > ring_points && area_h > ring_points) {
+            point_x = std::clamp(point_x, ring_points / 2, area_w - ring_points / 2);
+            point_y = std::clamp(point_y, ring_points / 2, area_h - ring_points / 2);
+        }
+    }
     if (!shown.button) {
         const kit::Rect ring{
             point_x - ring_points / 2, point_y - ring_points / 2, ring_points, ring_points

@@ -19,6 +19,7 @@
 #include "oa/ui/kit/text.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <iterator>
 #include <optional>
@@ -1348,6 +1349,9 @@ std::vector<Piece> detail_pieces(
         const int32_t row = y + metrics.space;
         int32_t right = width - metrics.space;
         const int32_t remove_side = std::min(control_h, metrics.button_height + 4);
+        // The remove mark sits at the right, but Tab reaches it after
+        // Change…, as the two are read.
+        std::optional<Piece> remove;
         if (chord.removable && right - remove_side > metrics.space) {
             Piece button;
             button.kind = Piece::Kind::button;
@@ -1360,7 +1364,7 @@ std::vector<Piece> detail_pieces(
             button.id =
                 controls::chord_first + static_cast<kit::ControlId>(static_cast<int32_t>(index));
             button.name = std::string(name_chord_prefix) + std::to_string(index + 1) + ".remove";
-            pieces.push_back(std::move(button));
+            remove = std::move(button);
             right -= remove_side + metrics.space;
         }
         // Change… opens the capture for this chord. Escape on a fixed action
@@ -1386,6 +1390,8 @@ std::vector<Piece> detail_pieces(
                 right -= change_w + metrics.space;
             }
         }
+        if (remove)
+            pieces.push_back(std::move(*remove));
         Piece chip;
         chip.kind = Piece::Kind::chip;
         chip.x = metrics.space;
@@ -1841,8 +1847,14 @@ void add_footer(
         right.push_back(
             make(controls::cancel, name_cancel, words::cancel_title, kit::ButtonStyle::plain, true)
         );
+    // While a clash holds Save changes back it keeps no accent, so it does not
+    // read as the one to press.
     right.push_back(make(
-        controls::save, name_save, words::save_changes, kit::ButtonStyle::accent, editor.can_save()
+        controls::save,
+        name_save,
+        words::save_changes,
+        editor.can_save() ? kit::ButtonStyle::accent : kit::ButtonStyle::plain,
+        editor.can_save()
     ));
     std::vector<int32_t> widths;
     int32_t right_total = 0;
@@ -2267,7 +2279,10 @@ kit::DisplayList exchange_prompt(
             kit::ButtonLook look;
             look.caption =
                 kit::cut_to_width(fonts, kit::FontRole::small, button.caption, rect.width);
-            look.style = button.accent ? kit::ButtonStyle::accent : kit::ButtonStyle::plain;
+            // A button that cannot be pressed keeps no accent, as the
+            // capture's does, so it does not read as the one to press.
+            look.style = button.accent && button.enabled ? kit::ButtonStyle::accent
+                                                         : kit::ButtonStyle::plain;
             look.enabled = button.enabled;
             look.hovered = hot(state, button.id);
             look.held = held(state, button.id);
@@ -3532,6 +3547,16 @@ kit::DisplayList prompt_layout(
                      {"context", use.context},
                      {"where", here_context}}
                 );
+                // The note shows whole or not at all: half a sentence under
+                // the outcomes would read as the whole of it.
+                const auto note_measure = [&](std::string_view words_measured) {
+                    return kit::text_width(fonts, kit::FontRole::small, words_measured);
+                };
+                const auto note_lines = static_cast<int32_t>(
+                    kit::wrap(note, std::max(column_w - inset * 2, int32_t{1}), note_measure).size()
+                );
+                if (y + metrics.space * 2 + note_lines * metrics.small_line > content_stop)
+                    break;
                 const int32_t top = y;
                 const std::size_t ground_at = list.items.size();
                 const int32_t note_h = wrapped(
@@ -3857,14 +3882,43 @@ kit::DisplayList prompt_layout(
     const int32_t buttons_x =
         place_buttons(left_x, footer_y, column_x + column_w - left_x, footer, true);
     const int32_t hint_w = buttons_x - metrics.button_gap - left_x;
-    if (!footer_hint.empty() && hint_w > 24)
-        text_at(
-            {left_x, footer_y, hint_w, metrics.control_height},
-            footer_hint,
-            kit::FontRole::small,
-            kit::colour::hint,
-            kit::Align::left
+    if (!footer_hint.empty() && hint_w > 24) {
+        // A hint wider than its room takes as many lines as the buttons'
+        // height holds, centred beside them, and only its last line is cut.
+        const auto measure = [&](std::string_view words_measured) {
+            return kit::text_width(fonts, kit::FontRole::small, words_measured);
+        };
+        std::vector<std::string> lines = kit::wrap(footer_hint, hint_w, measure);
+        const auto most = static_cast<std::size_t>(
+            std::max(metrics.control_height / metrics.small_line, int32_t{1})
         );
+        if (lines.size() <= 1 || most < 2) {
+            text_at(
+                {left_x, footer_y, hint_w, metrics.control_height},
+                footer_hint,
+                kit::FontRole::small,
+                kit::colour::hint,
+                kit::Align::left
+            );
+        } else {
+            for (std::size_t rest = most; rest < lines.size(); ++rest)
+                lines[most - 1] += " " + lines[rest];
+            if (lines.size() > most)
+                lines.resize(most);
+            const int32_t block = static_cast<int32_t>(lines.size()) * metrics.small_line;
+            int32_t line_y = footer_y + (metrics.control_height - block) / 2;
+            for (std::string& line : lines) {
+                text_at(
+                    {left_x, line_y, hint_w, metrics.small_line},
+                    std::move(line),
+                    kit::FontRole::small,
+                    kit::colour::hint,
+                    kit::Align::left
+                );
+                line_y += metrics.small_line;
+            }
+        }
+    }
     y = footer_y + metrics.control_height;
 
     int32_t box_h = y + pad;
@@ -4011,18 +4065,28 @@ std::string layer_name(const Editor& editor, uint8_t layer) {
     return show(editor.text(), word);
 }
 
-/// What the shape drop-down shows closed.
+/// The keyboard shape's name: ANSI, ISO or JIS.
 ///
 /// @param editor the words
 /// @param state the shape
-/// @return the caption
-std::string shape_caption(const Editor& editor, const ScreenState& state) {
+/// @return the name
+std::string shape_name(const Editor& editor, const ScreenState& state) {
     std::string_view word = words::shape_ansi;
     if (state.shape == kit::KeyboardShape::iso)
         word = words::shape_iso;
     else if (state.shape == kit::KeyboardShape::jis)
         word = words::shape_jis;
-    const std::string name = show(editor.text(), word);
+    return show(editor.text(), word);
+}
+
+/// What the shape drop-down shows closed: the shape, and that the system
+/// chose it.
+///
+/// @param editor the words
+/// @param state the shape and whether the system chose it
+/// @return the words
+std::string shape_caption(const Editor& editor, const ScreenState& state) {
+    const std::string name = shape_name(editor, state);
     if (!state.shape_from_system)
         return name;
     return fill(show(editor.text(), words::shape_from_system), {{"shape", name}});
@@ -4096,7 +4160,13 @@ int32_t add_layer_bar(
     pills += metrics.chip_gap * (count - 1);
     const std::string holding = show(editor.text(), words::holding);
     int32_t holding_w = kit::text_width(fonts, kit::FontRole::small, holding);
-    int32_t shape_w = std::min(int32_t{168}, std::max(room / 3, int32_t{0}));
+    // The drop-down is as wide as its words where a third of the row holds
+    // them, and at least 168 points where the row allows.
+    std::string shape_words = shape_caption(editor, state);
+    const int32_t shape_natural = kit::text_width(fonts, kit::FontRole::regular, shape_words) +
+                                  metrics.choice_text_inset + metrics.choice_arrow_room;
+    int32_t shape_w =
+        std::min(std::max(int32_t{168}, shape_natural), std::max(room / 3, int32_t{0}));
     const int32_t gap = metrics.button_gap;
     if (holding_w + gap + pills + gap + shape_w > room)
         holding_w = 0;
@@ -4152,11 +4222,15 @@ int32_t add_layer_bar(
     one_stop(built, rest, chosen);
     if (shape_w > 0) {
         shape_field = {left + room - shape_w, text_y, shape_w, metrics.field_height};
+        // Where "· from your system" does not fit, the shape's name alone;
+        // the open menu still says the system chose it.
+        if (shape_natural > shape_w && state.shape_from_system)
+            shape_words = shape_name(editor, state);
         place_choice(
             built,
             state,
             shape_field,
-            choice_text(fonts, metrics, shape_w, shape_caption(editor, state)),
+            choice_text(fonts, metrics, shape_w, std::move(shape_words)),
             controls::keyboard_shape,
             std::string(name_keyboard_shape),
             state.menu == Menu::shape
@@ -4799,30 +4873,59 @@ void add_keyboard_body(
             at += line_h;
             continue;
         }
-        const int32_t box_h = line_h * 2 + metrics.space * 2;
+        // The place and what the key does there each wrap onto a second line
+        // rather than being cut.
+        const int32_t text_w = std::max(inner_w - pad * 2, int32_t{1});
+        const kit::Measure small_measure = [&](std::string_view words_measured) {
+            return kit::text_width(fonts, kit::FontRole::small, words_measured);
+        };
+        const auto two_lines = [&](const std::string& words) {
+            if (small_measure(words) <= text_w)
+                return std::vector<std::string>{words};
+            std::vector<std::string> broken = kit::wrap(words, text_w, small_measure);
+            if (broken.empty())
+                broken.emplace_back();
+            for (std::size_t rest = 2; rest < broken.size(); ++rest)
+                broken[1] += " " + broken[rest];
+            if (broken.size() > 2)
+                broken.resize(2);
+            return broken;
+        };
+        std::string what = line.action;
+        if (!line.note.empty())
+            what += "  " + line.note;
+        const std::vector<std::string> where_lines = two_lines(line.context);
+        const std::vector<std::string> what_lines = two_lines(what);
+        const int32_t box_h =
+            line_h * static_cast<int32_t>(where_lines.size() + what_lines.size()) +
+            metrics.space * 2;
         if (at + box_h > lines_stop)
             continue;
         add_item(built.list, kit::Role::fill, {pane.x + pad, at, inner_w, box_h}).colour =
             kit::colour::panel;
-        add_line(
-            built,
-            fonts,
-            {pane.x + pad * 2, at + metrics.space, inner_w - pad * 2, line_h},
-            line.context,
-            kit::FontRole::small,
-            kit::colour::text_tertiary
-        );
-        std::string what = line.action;
-        if (!line.note.empty())
-            what += "  " + line.note;
-        add_line(
-            built,
-            fonts,
-            {pane.x + pad * 2, at + metrics.space + line_h, inner_w - pad * 2, line_h},
-            what,
-            kit::FontRole::small,
-            line.fixed ? kit::colour::quiet : kit::colour::text
-        );
+        int32_t text_y = at + metrics.space;
+        for (const std::string& piece : where_lines) {
+            add_line(
+                built,
+                fonts,
+                {pane.x + pad * 2, text_y, text_w, line_h},
+                piece,
+                kit::FontRole::small,
+                kit::colour::text_tertiary
+            );
+            text_y += line_h;
+        }
+        for (const std::string& piece : what_lines) {
+            add_line(
+                built,
+                fonts,
+                {pane.x + pad * 2, text_y, text_w, line_h},
+                piece,
+                kit::FontRole::small,
+                line.fixed ? kit::colour::quiet : kit::colour::text
+            );
+            text_y += line_h;
+        }
         at += box_h + metrics.space;
     }
     kit::Control control;
@@ -4866,6 +4969,18 @@ int mouse_look_index(int index) noexcept {
     if (index == 3)
         return 3;
     return index + 1;
+}
+
+/// The words for a mouse role's chord: its modifiers and its button, or the
+/// button alone on a row with no chord.
+///
+/// @param editor the keyboard and the platform
+/// @param row the role
+/// @return the words
+std::string mouse_row_chord(const Editor& editor, const RoleLine& row) {
+    if (!row.has_chord)
+        return row.button;
+    return keys::display_text(row.chord, editor.keyboard(), editor.platform());
 }
 
 /// The roles a button's callout shows: every role, or its one name.
@@ -4916,7 +5031,18 @@ void add_mouse_body(
     if (!roomy(body))
         return;
     const int32_t gap = std::max(metrics.paragraph_gap / 2, int32_t{2});
-    const int32_t note_h = metrics.small_line;
+    // The note under the mouse wraps onto a second line rather than being cut.
+    const kit::Measure note_measure = [&](std::string_view words_measured) {
+        return kit::text_width(fonts, kit::FontRole::small, words_measured);
+    };
+    std::vector<std::string> note_lines = kit::wrap(
+        show(editor.text(), words::mouse_note), std::max(body.width, int32_t{1}), note_measure
+    );
+    for (std::size_t rest = 2; rest < note_lines.size(); ++rest)
+        note_lines[1] += " " + note_lines[rest];
+    if (note_lines.size() > 2)
+        note_lines.resize(2);
+    const int32_t note_h = metrics.small_line * static_cast<int32_t>(note_lines.size());
     const int32_t note_y = body.y + body.height - note_h;
     const int32_t bottom = note_y - gap;
     const int32_t avail_h = std::max(bottom - body.y, int32_t{0});
@@ -5201,8 +5327,8 @@ void add_mouse_body(
             control.name = name;
             control.kind = kit::ControlKind::button;
             // The picture draws the role beside the chip. The control names the
-            // button as well, so a row reads as "Left · Command".
-            control.text = row.free ? row.role : row.button + " · " + row.role;
+            // chord as well, so a row reads as "Alt+Left button · Orbit camera".
+            control.text = row.free ? row.role : mouse_row_chord(editor, row) + " · " + row.role;
             built.rest.push_back(std::move(control));
             y += row_h + 2;
             ++row_index;
@@ -5247,7 +5373,10 @@ void add_mouse_body(
             if (y + metrics.field_height > bottom)
                 break;
             ++place_number;
-            std::string caption = row.free ? row.role : row.button + " · " + row.role;
+            // The chord with its modifiers, so Alt+Left's role does not read
+            // as Left's.
+            std::string caption =
+                row.free ? row.role : mouse_row_chord(editor, row) + " · " + row.role;
             kit::ButtonLook button;
             button.caption = kit::cut_to_width(
                 fonts, kit::FontRole::small, caption, std::max(table_w, int32_t{1})
@@ -5270,15 +5399,20 @@ void add_mouse_body(
             ++row_index;
         }
     }
-    if (note_h > 0 && body.width > 0)
-        add_line(
-            built,
-            fonts,
-            {body.x, note_y, body.width, note_h},
-            show(editor.text(), words::mouse_note),
-            kit::FontRole::small,
-            kit::colour::hint
-        );
+    if (body.width > 0) {
+        int32_t line_y = note_y;
+        for (const std::string& line : note_lines) {
+            add_line(
+                built,
+                fonts,
+                {body.x, line_y, body.width, metrics.small_line},
+                line,
+                kit::FontRole::small,
+                kit::colour::hint
+            );
+            line_y += metrics.small_line;
+        }
+    }
 }
 
 /// The category drop-down's words: the chosen category's title.
