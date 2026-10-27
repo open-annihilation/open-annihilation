@@ -13938,6 +13938,14 @@
 	it=Rotella;
 	}
 
+[Wheel and middle]
+	{
+	de=Rad und Mitte;
+	fr=Molette et milieu;
+	es=Rueda y central;
+	it=Rotella e centrale;
+	}
+
 [Wheel zoom]
 	{
 	de=Radzoom;

@@ -196,6 +196,9 @@ struct RoleLine {
     std::string role{};     ///< the action's short name, or Free
     std::string action{};   ///< the action id; empty when the place is free
     bool free{false};       ///< the place has no role
+    oa::ui::key_bindings::Chord chord{};   ///< the chord this row changes
+    bool has_chord{false};                 ///< false on a place's Free row
+    kit::KeyMark mark{kit::KeyMark::none}; ///< a change on this row
 };
 
 /// The editor. Rows are what resolution would put in use. Nothing is written
@@ -545,9 +548,11 @@ key_card(const Editor& editor, std::string_view code, uint8_t layer);
 ///
 /// The scheme is the one passed in, not the draft's, so a caller can draw
 /// either mode. The layout's bindings are not changed. A button's short name
-/// is what it does while playing. Select and Command may share the left
-/// button in the left-click scheme, and that is not a clash. Buttons 6 to 8
-/// are not asked for here: the screen shows them once they have been pressed.
+/// is what it does while playing. A battlefield role outranks one that only
+/// meets play, and an earlier catalogue order outranks a later one. Select
+/// and Command may share the left button in the left-click scheme, and that
+/// is not a clash. Buttons 6 to 8 are not asked for here: the screen shows
+/// them once they have been pressed.
 ///
 /// @param editor the bindings and the words
 /// @param scheme the pointer scheme to draw

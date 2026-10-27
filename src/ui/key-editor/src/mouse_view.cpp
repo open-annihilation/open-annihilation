@@ -194,7 +194,27 @@ struct Role {
     std::string area{};
     keys::Step step{keys::Step::base};
     int rank{0};
+    int order{1000};         ///< the catalogue order; later when the action is made
+    bool battlefield{false}; ///< the role is read on the battlefield
 };
+
+/// True when `role` should be the name on the button instead of `best`.
+///
+/// A higher face rank wins. A battlefield role then beats one that only
+/// meets play, and an earlier catalogue order beats a later one.
+///
+/// @param role the candidate
+/// @param best the name so far
+/// @return true when role replaces best
+bool better_role(const Role& role, const Role& best) noexcept {
+    if (role.rank != best.rank)
+        return role.rank > best.rank;
+    if (role.battlefield != best.battlefield)
+        return role.battlefield;
+    if (role.order != best.order)
+        return role.order < best.order;
+    return false;
+}
 
 } // namespace
 
@@ -220,6 +240,10 @@ kit::MouseLook mouse_look(const Editor& editor, keys::PointerScheme scheme) {
                 role.area = std::string(action.entry->area);
             role.step = chord.step;
             role.rank = rank;
+            if (action.entry != nullptr) {
+                role.order = static_cast<int>(action.entry->order);
+                role.battlefield = action.entry->target == acts::Target::battlefield;
+            }
             roles[static_cast<std::size_t>(slot)].push_back(std::move(role));
         }
     }
@@ -234,16 +258,15 @@ kit::MouseLook mouse_look(const Editor& editor, keys::PointerScheme scheme) {
         }
         const Role* best = &group.front();
         for (const Role& role : group) {
-            if (role.rank > best->rank)
+            if (better_role(role, *best))
                 best = &role;
         }
         cap.label = best->name;
-        std::string joined;
+        std::string joined = best->name;
         for (const Role& role : group) {
-            if (role.rank == 0)
+            if (&role == best || role.name.empty() || role.name == best->name)
                 continue;
-            if (!joined.empty())
-                joined += " · ";
+            joined += " · ";
             joined += role.name;
         }
         if (joined != best->name)
@@ -292,6 +315,10 @@ std::vector<RoleLine> mouse_table(const Editor& editor, keys::PointerScheme sche
                 line.button = show(hooks, button_word(slot));
                 line.role = action_name(action, hooks);
                 line.action = action.id;
+                line.chord = chord.chord;
+                line.has_chord = true;
+                if (chord.step == keys::Step::own)
+                    line.mark = kit::KeyMark::changed;
                 rows.push_back(std::move(line));
             }
         }

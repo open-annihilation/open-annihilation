@@ -409,6 +409,8 @@ inline constexpr std::string_view cap_next_pg = "Next pg";
 inline constexpr std::string_view cap_follow_back = "Follow back";
 inline constexpr std::string_view cap_space_up = "Space +";
 inline constexpr std::string_view cap_space_down = "Space -";
+/// The wheel and the middle button, above the mouse picture.
+inline constexpr std::string_view cap_wheel_middle = "Wheel and middle";
 
 } // namespace words
 

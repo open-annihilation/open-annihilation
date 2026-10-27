@@ -261,6 +261,7 @@ inline constexpr std::string_view interface_words[] = {
     words::cap_follow_back,
     words::cap_space_up,
     words::cap_space_down,
+    words::cap_wheel_middle,
 };
 
 } // namespace oa::ui::key_editor
