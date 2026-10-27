@@ -79,12 +79,20 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   and, for a screen drawn in the modern fonts, `TextMeasureHooks` (the app
   measures with the bundled fonts) with `measured_width` and
   `measured_line`, which estimate what a null hook leaves out.
-- `layout.hpp`: points, the Auto scale and the three size classes,
-  `layer_viewport` (the scale an Interface size gives a canvas, held to
-  what fits Compact's dialog: a whole step, or 150%,
-  `fractional_scale_percent`, where Compact fits at one and a half; Auto
-  passes 0, or `auto_with_fraction_percent` while 150% is offered), `metrics_of` (a class's metrics, which a screen takes its window's sizes
-  from), `to_canvas` (points as canvas pixels, each edge rounded to the
+- `layout.hpp`: points, the Auto scale and the three size classes. A
+  room's class is the largest whose settings dialog fits it with
+  `class_margin` (24) points round it (`size_class_of`): Regular from
+  `regular_from` (768 by 534 points), Large from `large_from` (1008 by
+  648), Compact below, both sides reaching the class; a class the player
+  chooses is held to a room by `size_class_within`, kept wherever its
+  dialog fits whole. `layer_viewport` gives the scale an Interface size
+  gives a canvas, held to what fits Compact's dialog: a whole step, or
+  150%, `fractional_scale_percent`, where Compact fits at one and a half;
+  Auto passes 0, or `auto_with_fraction_percent` while 150% is offered,
+  and takes one step down from its scale where that gives the room the
+  `wanted` class (Large unless the player chose a window size), so 1920
+  by 1080 is Large at 1x. `metrics_of` gives a class's metrics, which a
+  screen takes its window's sizes from; `to_canvas` (points as canvas pixels, each edge rounded to the
   nearest pixel on its own), rows, columns, grids, splits and scroll
   areas, and the display list, whose `Role`s are listed in `all_roles`, in
   their order, with `canvas_draws` telling which `paint` draws (every role
@@ -744,7 +752,9 @@ helpers, the estimated width, the stand-ins, the wrap against copies of
 the six wraps it replaces, `fit` and `fitting_start` against the Game files
 screen's copies, `path_break` at its separators and against the folder
 chooser's copy, and the modern fonts' measure through its hooks and
-without them. `ui-kit-layout` checks the Auto scale, the design's
+without them. `ui-kit-layout` checks the Auto scale, the size classes'
+edges and the resolution table they make (Compact only where nothing
+larger fits), a chosen class held to a room, the design's
 window sizes, the Interface size's examples and Auto at each window, 150%
 where Compact fits at one and a half and 1x where it does not, that
 `metrics_of` gives each class its metrics, `to_canvas`'s rounding at 1.5x,
@@ -851,8 +861,9 @@ kit from its users: `ui-engine-settings-pixels` and
 `ui-engine-settings-pixels-data` pin Compact's pixels
 ([Invariants](#invariants));
 `native-kit-gallery` opens the gallery from Settings › Developer on
-640x480, 1280x720 and 1920x1080 windows and checks its class, scale and
-pixels, with game data; `screen-registry` checks the registrations an
+640x480, 1280x720 and 1920x1080 windows (Compact at 1x, then Large at 1x on
+both, 1920x1080's Auto taking its step down to Large) and checks its class,
+scale and pixels, with game data; `screen-registry` checks the registrations an
 extension makes; `native-registered-kit` checks a page, a kit screen, a
 notice and a prompt registered from inside the engine; and, in a build
 configured with `-DOA_RECORD_EXTENSION_HOOKS=ON`, `extension-kit` checks
