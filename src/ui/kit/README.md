@@ -340,7 +340,12 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
     small font when that fits it whole, a point nearer the key's sides
     where it needs that, and a named key whose legend still does not fit
     takes its geometry's own label (Ent for a long Enter), then a shorter
-    one (Cap for Caps, PU for PgUp, PS for Prt), or none.
+    one (Cap for Caps, PU for PgUp, PS for Prt), or none. A Mac's modifier
+    key that the look names with its symbol (⌘ Cmd, ⌥ Option) keeps the
+    symbol alone where the name does not fit, and a modifier the look names
+    for its platform never takes the geometry's PC label (Win, Alt). A
+    keycap's, a chip's and a key's control text names a Mac modifier in
+    words: ⌘ Cmd+A reads Cmd+A.
     `keyboard_size(look)` gives either picture's size and `keyboard_draws`
     tells whether it draws a key; each key keeps its control;
   - a mouse picture (`MouseLook`, `draw_mouse`, `add_mouse`, role
@@ -756,7 +761,7 @@ the carousel slides flat and the call to action holds a steady ring.
   every OA screen: accent, the primary button, lime under the dark ink,
   once in a view for the way forward (OK, Save changes, Close); plain, the
   secondary button for every other action, a raised face (`raised`,
-  30362b) a step above the selected surface inside a clear border
+  33392d) a step above the selected surface inside a clear border
   (`raised_border`), lighter under the pointer (`raised_hover`,
   `raised_border_hover`) and pressed in to the hover surface while held
   (`raised_held`), at a control's height in a footer or a bar and at a

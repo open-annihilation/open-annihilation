@@ -120,9 +120,9 @@ inline constexpr Colour switch_idle{0x7d, 0x84, 0x74};
 inline constexpr Colour button_text = text_secondary;
 /// A secondary button's raised face: a step lighter than the selected
 /// surface, so it reads as a button on a band, a list or the panel alike.
-inline constexpr Colour raised{0x30, 0x36, 0x2b};
+inline constexpr Colour raised{0x33, 0x39, 0x2d};
 /// A secondary button's face under the pointer.
-inline constexpr Colour raised_hover{0x39, 0x40, 0x33};
+inline constexpr Colour raised_hover{0x3c, 0x43, 0x35};
 /// A secondary button's face while it is held: pressed in, the hover surface.
 inline constexpr Colour raised_held = hover;
 /// A secondary button's border, clear against its face and every surface.
@@ -131,9 +131,9 @@ inline constexpr Colour raised_border = control_hover;
 inline constexpr Colour raised_border_hover{0x6f, 0x78, 0x64};
 /// A label chip's flat tint: a tag or a fact on a row, never a control.
 /// Flatter and darker than a secondary button's face.
-inline constexpr Colour chip_face{0x27, 0x2c, 0x23};
-/// A label chip's border, stronger than a field's.
-inline constexpr Colour chip_border = strong_edge;
+inline constexpr Colour chip_face{0x2a, 0x2f, 0x25};
+/// A label chip's border, as clear as a secondary button's.
+inline constexpr Colour chip_border = control_hover;
 /// Caution and locks: the padlock, the lock's text and the shared game's note.
 inline constexpr Colour lock{0xe0, 0xb0, 0x4f};
 /// The colour the screen under the dialog is darkened with.
