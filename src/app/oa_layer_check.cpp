@@ -131,6 +131,43 @@ artless::Surface expected_layer_frame(
     return expected;
 }
 
+void round_drawn_screen(
+    artless::Surface& frame, const artless::Surface& before, const LayerPlacement& placement
+) {
+    const auto& shown = placement.shown;
+    if (placement.corner_radius <= 0 || shown.width <= 0 || shown.height <= 0 ||
+        before.width != frame.width || before.height != frame.height || shown.x < 0 ||
+        shown.y < 0 || shown.x + shown.width > static_cast<int32_t>(frame.width) ||
+        shown.y + shown.height > static_cast<int32_t>(frame.height))
+        return;
+    // The screen's rectangle, rounded as the layer rounds it.
+    LayerDrawing drawn;
+    drawn.picture.width = static_cast<uint32_t>(shown.width);
+    drawn.picture.height = static_cast<uint32_t>(shown.height);
+    drawn.picture.rgb.resize(static_cast<std::size_t>(shown.width) * shown.height * 3U);
+    for (int32_t row = 0; row < shown.height; ++row)
+        std::copy_n(
+            frame.rgb.data() + (static_cast<std::size_t>(shown.y + row) * frame.width +
+                                static_cast<std::size_t>(shown.x)) *
+                                   3U,
+            static_cast<std::size_t>(shown.width) * 3U,
+            drawn.picture.rgb.data() + static_cast<std::size_t>(row) * shown.width * 3U
+        );
+    round_layer_corners(drawn, placement.corner_radius, placement.scale_percent);
+    for (int32_t row = 0; row < shown.height; ++row)
+        for (int32_t column = 0; column < shown.width; ++column) {
+            const std::size_t source =
+                static_cast<std::size_t>(row) * shown.width + static_cast<std::size_t>(column);
+            const std::size_t target = (static_cast<std::size_t>(shown.y + row) * frame.width +
+                                        static_cast<std::size_t>(shown.x + column)) *
+                                       3U;
+            const uint8_t* from = drawn.opacity.empty() || drawn.opacity[source] != 0
+                                      ? drawn.picture.rgb.data() + source * 3U
+                                      : before.rgb.data() + target;
+            std::copy_n(from, 3U, frame.rgb.data() + target);
+        }
+}
+
 std::size_t layer_differences(
     const artless::Surface& presented, const artless::Surface& expected, const LayerPointer& pointer
 ) noexcept {
@@ -864,6 +901,68 @@ void OaLayer::check_clear_screens() {
             close(find(under_cursor.name));
         }
 
+        // A notice over the darkened main menu has rounded corners: outside
+        // them the window shows the darkened menu, as expected_layer_frame
+        // and round_drawn_screen expect.
+        {
+            kit::Notice told;
+            told.title = "ROUNDED";
+            told.paragraphs.push_back({"A notice of the layer's check.", false});
+            push(
+                std::make_unique<NoticeScreen>(
+                    *this, Screen::main_menu, std::move(told), NoticeScreen::Host{}
+                )
+            );
+            lay_out_screens();
+            const LayerScreen* notice = find(NoticeScreen::screen_name);
+            require(notice != nullptr, "the check's notice is not on the layer" + on);
+            const LayerPlacement noticed = placement_of(NoticeScreen::screen_name);
+            require(
+                noticed.corner_radius == kit::metrics_of(seen.frame.size_class).dialog_radius,
+                "the notice does not take its class's dialog radius" + on
+            );
+            const artless::Surface drawing = layer_drawing(
+                noticed.points_width,
+                noticed.points_height,
+                noticed.scale_percent,
+                runtime_.engine_settings_fonts(),
+                nullptr,
+                runtime_.engine_settings_icon(),
+                [notice](const kit::Canvas& canvas) { notice->draw(canvas); }
+            );
+            artless::Surface window_now;
+            artless::Surface picture_now;
+            read_frames(window_now, picture_now);
+            const artless::Surface expected =
+                expected_layer_frame(closed_window, drawing, noticed, 1);
+            const std::size_t differing = layer_differences(window_now, expected, resting);
+            require(
+                differing == 0,
+                "the window does not show the notice with rounded corners" + on + ": " +
+                    std::to_string(differing) + " pixels differ"
+            );
+            // A check that draws the notice straight into its frame and
+            // rounds it after expects the same.
+            const artless::Surface darkened =
+                expected_layer_frame(closed_window, {}, LayerPlacement{}, 1);
+            artless::Surface straight = darkened;
+            for (int32_t row = 0; row < noticed.shown.height; ++row)
+                std::copy_n(
+                    drawing.rgb.data() + static_cast<std::size_t>(row) * drawing.width * 3U,
+                    static_cast<std::size_t>(noticed.shown.width) * 3U,
+                    straight.rgb.data() +
+                        (static_cast<std::size_t>(noticed.shown.y + row) * straight.width +
+                         static_cast<std::size_t>(noticed.shown.x)) *
+                            3U
+                );
+            round_drawn_screen(straight, darkened, noticed);
+            require(
+                straight.rgb == expected.rgb,
+                "a notice drawn straight and rounded is not the layer's own" + on
+            );
+            close(find(NoticeScreen::screen_name));
+        }
+
         // An opaque screen draws as before: its whole place, black where it
         // draws nothing.
         MarkLook box{};
@@ -1191,6 +1290,30 @@ void OaLayer::check_clear_screens() {
             placement_of("settings").corner_radius == kit::compact_metrics.window_radius,
             "Settings at Compact does not take Compact's window radius"
         );
+        // Accessibility's practice pad takes S, pressed and let go: it shows
+        // there, and the main menu, whose S opens the single player screen,
+        // never sees it.
+        {
+            oa::ui::engine_settings::Dialog* dialog = runtime_.engine_settings_dialog();
+            dialog->page = oa::ui::engine_settings::Page::accessibility;
+            redraw();
+            press(SDLK_S, SDL_KMOD_NONE);
+            require(
+                runtime_.engine_settings_dialog() == dialog &&
+                    runtime_.screen_ == Screen::main_menu,
+                "S on the practice pad left Settings or reached the main menu"
+            );
+            require(
+                dialog->practice.outcome_key == "S" &&
+                    dialog->practice.outcome == oa::ui::engine_settings::PracticeOutcome::counted &&
+                    dialog->practice.key_down.empty(),
+                "the practice pad does not show S pressed and let go"
+            );
+            dialog->page = oa::ui::engine_settings::Page::controls;
+            redraw();
+            std::cout << "OA layer check: S on Accessibility's practice pad shows there and "
+                         "does not reach the main menu\n";
+        }
         press(SDLK_ESCAPE, SDL_KMOD_NONE);
         require(
             runtime_.engine_settings_dialog() == nullptr, "Escape did not close the moved Settings"

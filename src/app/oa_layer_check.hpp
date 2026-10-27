@@ -97,6 +97,21 @@ window_pointer(const LayerView& view, oa::ui::display_layout::Point picture_poin
     uint32_t darkenings = 1
 );
 
+/// Rounds the corners of a screen a check drew straight into an expected
+/// frame, as the layer shows them (round_layer_corners): outside each
+/// quarter circle the frame shows what it held before the screen was drawn,
+/// and along it the window's edge. A placement with no corner radius
+/// changes nothing.
+///
+/// @param[in,out] frame the expected frame, the screen drawn in it at its place
+/// @param before the same frame before the screen was drawn in it
+/// @param placement where the screen shows in the frame, with its corners' radius
+void round_drawn_screen(
+    oa::ui::frontend_renderer::Surface& frame,
+    const oa::ui::frontend_renderer::Surface& before,
+    const LayerPlacement& placement
+);
+
 /// Counts the pixels in which a presented window frame differs from the
 /// expected one, every pixel of the window compared but those in the square
 /// round the pointer where the software cursor draws.
