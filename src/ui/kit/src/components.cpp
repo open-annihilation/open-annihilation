@@ -570,6 +570,10 @@ void paint_item(const Canvas& canvas, const Item& item) {
         if (const auto* look = std::get_if<HoldRingLook>(&item.look))
             draw_hold_ring(drawn, item.rect, *look);
         break;
+    case Role::radio:
+        if (const auto* look = std::get_if<RadioLook>(&item.look))
+            draw_radio(drawn, item.rect, *look);
+        break;
     case Role::header_bar:
     case Role::badge:
     case Role::header_text:
@@ -1655,6 +1659,88 @@ void draw_switch(const Canvas& canvas, const Rect& area, const SwitchLook& look)
     );
 }
 
+RadioParts radio_parts(const Rect& area, bool row) noexcept {
+    RadioParts parts;
+    if (area.width <= 0 || area.height <= 0)
+        return parts;
+    if (!row) {
+        const int32_t side = std::min(area.width, area.height);
+        parts.mark = {
+            area.x + (area.width - side) / 2, area.y + (area.height - side) / 2, side, side
+        };
+        return parts;
+    }
+    // Half the row's height, 8 points at the least, and never past the row.
+    constexpr int32_t kLeastSide = 8;
+    const int32_t side = std::min(std::max(area.height / 2, kLeastSide), area.height);
+    const int32_t inset = (area.height - side) / 2;
+    if (area.width < side + 2 * inset)
+        return parts;
+    parts.mark = {area.x + inset, area.y + inset, side, side};
+    const int32_t caption_x = parts.mark.x + side + inset;
+    const int32_t caption_width = area.x + area.width - inset - caption_x;
+    if (caption_width > 0)
+        parts.caption = {caption_x, area.y, caption_width, area.height};
+    return parts;
+}
+
+void draw_radio(const Canvas& canvas, const Rect& area, const RadioLook& look) {
+    if (!drawable(canvas))
+        return;
+    const bool row = !look.caption.empty();
+    const RadioParts parts = radio_parts(area, row);
+    if (row) {
+        // The row's box: the selected surface and the accent's edge while
+        // chosen, the hover face while hovered, else only the border.
+        std::optional<Colour> face;
+        Colour edge = colour::control_border;
+        if (!look.disabled && look.on) {
+            face = colour::list_selected;
+            edge = look.hovered || look.held ? colour::accent_light : colour::accent;
+        } else if (!look.disabled && (look.hovered || look.held)) {
+            face = colour::hover;
+            edge = colour::control_hover;
+        }
+        const int32_t radius = control_radius_for(area.height);
+        if (face.has_value())
+            fill_corner_rect(canvas, area, radius, *face);
+        outline_corner_rect(canvas, area, radius, edge);
+        if (parts.caption.width > 0)
+            paint_text(
+                clipped(canvas, parts.caption),
+                FontRole::regular,
+                look.caption,
+                parts.caption,
+                Align::left,
+                look.disabled ? colour::switch_idle : colour::text
+            );
+    }
+    const Rect& mark = parts.mark;
+    if (mark.width <= 0 || mark.height <= 0)
+        return;
+    // The ring: the idle grey, or the accent while chosen; lighter while
+    // hovered, deeper while held; the hovered border's grey while disabled.
+    Colour ink = look.on ? colour::accent : colour::switch_idle;
+    if (look.disabled)
+        ink = colour::control_hover;
+    else if (look.held)
+        ink = look.on ? colour::accent_held : colour::text_secondary;
+    else if (look.hovered)
+        ink = look.on ? colour::accent_light : colour::text_secondary;
+    const int32_t side = mark.width;
+    ring_corner_rect(canvas, mark, side / 2, 1, ink);
+    if (!look.on)
+        return;
+    // The dot: half the ring across, as many points from each side of it.
+    int32_t dot = side / 2;
+    if ((side - dot) % 2 != 0)
+        ++dot;
+    const int32_t inset = (side - dot) / 2;
+    if (dot <= 0)
+        return;
+    fill_round_rect(canvas, {mark.x + inset, mark.y + inset, dot, dot}, dot / 2, ink);
+}
+
 void draw_levels(const Canvas& canvas, const Rect& area, const LevelsLook& look) {
     if (!drawable(canvas))
         return;
@@ -2414,6 +2500,35 @@ void add_switch(
     list.items.push_back(std::move(item));
     add_control(
         list, rect, id, std::move(name), ControlKind::toggle, true, look.on, text, !look.locked
+    );
+}
+
+void add_radio(
+    DisplayList& list, const Rect& rect, const RadioLook& look, ControlId id, std::string name
+) {
+    Item item;
+    item.role = Role::radio;
+    item.rect = rect;
+    item.control = id;
+    item.text = look.caption;
+    item.state.hovered = look.hovered;
+    item.state.pressed = look.held;
+    item.state.selected = look.on;
+    item.state.disabled = look.disabled;
+    item.look = look;
+    list.items.push_back(std::move(item));
+    if (id == no_control)
+        return;
+    add_control(
+        list,
+        rect,
+        id,
+        std::move(name),
+        ControlKind::button,
+        false,
+        look.on,
+        look.caption,
+        !look.disabled
     );
 }
 

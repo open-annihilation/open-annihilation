@@ -519,6 +519,8 @@ std::string_view role_name(kit::Role role) {
         return "mouse_picture";
     case kit::Role::hold_ring:
         return "hold_ring";
+    case kit::Role::radio:
+        return "radio";
     }
     return "?";
 }

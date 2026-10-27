@@ -502,6 +502,7 @@ enum class Role : uint8_t {
     keyboard,       ///< a keyboard picture; the item's KeyboardLook
     mouse_picture,  ///< a mouse picture; the item's MouseLook
     hold_ring,      ///< a hold ring; the item's HoldRingLook
+    radio,          ///< a radio, or a radio row; the item's RadioLook
 };
 
 /// Every role, in the order Role declares them. A role appended to Role is
@@ -544,7 +545,7 @@ inline constexpr std::array all_roles{
     Role::package_badge, Role::grip,
     Role::keycap,        Role::chord_chip,
     Role::keyboard,      Role::mouse_picture,
-    Role::hold_ring,
+    Role::hold_ring,     Role::radio,
 };
 
 /// Tells whether the kit's canvas draws a role (paint, in either form): it
@@ -607,6 +608,7 @@ inline constexpr std::array all_roles{
     case Role::keyboard:
     case Role::mouse_picture:
     case Role::hold_ring:
+    case Role::radio:
         return true;
     case Role::header_bar:
     case Role::badge:
@@ -642,9 +644,9 @@ inline constexpr std::array all_roles{
 }
 
 // The last role is named here: a role appended to Role is appended to
-// all_roles and named here in hold_ring's place.
+// all_roles and named here in radio's place.
 static_assert(
-    all_roles_in_order() && all_roles.size() == static_cast<std::size_t>(Role::hold_ring) + 1,
+    all_roles_in_order() && all_roles.size() == static_cast<std::size_t>(Role::radio) + 1,
     "all_roles names every role of Role once, in its order"
 );
 

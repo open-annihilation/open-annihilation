@@ -237,7 +237,19 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   ring in the accent that follows the icon's corner
   (`menu_icon_corner_256`, 56/256 of the side); a press draws that ring in
   the held accent and shifts the icon by one point. The dot and the badge
-  are the same as on `draw_oa_button`.
+  are the same as on `draw_oa_button`. A radio (`RadioLook`, `draw_radio`,
+  `add_radio`, role `radio`) is one of a set of choices of which one is
+  chosen. Alone it is the mark, the largest square of its area: a
+  one-point ring in the idle switch grey, the accent while chosen (lighter
+  hovered, deeper held, the hovered border's grey disabled) with the
+  accent's dot half the ring across in it. With a caption it is a radio
+  row: the mark half the row's height, as far in from the left as from the
+  top, the caption in the regular font beside it, on a box with the
+  control radius of its height, the selected surface with the accent's
+  edge while chosen and the hover face while hovered. `radio_parts` gives
+  the mark and the caption's box the caller fits its caption to.
+  `add_radio` adds a button whose `checked` is the radio's state, or with
+  `no_control` the mark alone, for a card that is the control itself.
 - `chrome.hpp`: the window's face and edge, its header and footer band,
   the nav list, and a section's heading, row, rule and locked fade. A
   header's band is `HeaderLook::height` points high, Kit 2's
@@ -565,7 +577,7 @@ takes ([docs/extensions/ui-kit.md](../../../docs/extensions/ui-kit.md#the-galler
   the spotlight under it; a picture well; a call to action; and a step
   indicator), Window chrome (an OA window over a darkened screen, its
   header saying `v1.2.3`, never the build's version), Tabs, Buttons (the
-  six looks at Kit 2's control height, a link), Toggle, Level strip, Drop-down (one shown open with
+  six looks at Kit 2's control height, a link), Toggle (a switch, then radios not chosen and chosen in each state and a pair of radio rows), Level strip, Drop-down (one shown open with
   an aside), Slider, Search field (and a plain text field), Chips (every
   state), Pills (playing, neutral, installed, update, problem, information
   and brand, each a word on a rounded ground and none taking a press),
@@ -857,7 +869,8 @@ ids and naming the divider not at all, a row of buttons' buttons and a
 clipped control's press area), and a text field's typing and editing over
 characters of one to four bytes. `ui-kit-components` checks each control's
 pixels (the six button looks and the disabled one with their rounded
-corners, the pill switch and its knob, the rounded strip, slider,
+corners, the pill switch and its knob, the radio's ring and dot in each state
+and a radio row's box and its parts, the rounded strip, slider,
 drop-down, menu and scroll bar, and the OA mark in the brand gold), the OA button's dot at 24 and 32 points in every look, with and
 without the icon, at 1× and 2× (the button drawn without it unchanged, and
 with it differing only inside the dot's square), that `paint` matches a

@@ -411,6 +411,93 @@ void switch_levels_and_slider_match() {
     expect(slider_hot, 58, 46, colour::accent_light);
 }
 
+void radio_marks_and_rows() {
+    namespace colour = kit::colour;
+    const auto is = [](const kit::Rect& got, kit::Rect wanted) {
+        return got.x == wanted.x && got.y == wanted.y && got.width == wanted.width &&
+               got.height == wanted.height;
+    };
+    // The mark alone is the largest square centred in its area.
+    const kit::RadioParts alone = kit::radio_parts({10, 10, 20, 14}, false);
+    OA_CHECK(is(alone.mark, {13, 10, 14, 14}));
+    OA_CHECK(is(alone.caption, {}));
+    // A row's mark is half its height, as far in from the left as from the
+    // top; its caption runs from that far past the mark to that far short
+    // of the right edge.
+    const kit::RadioParts compact_row = kit::radio_parts({0, 0, 160, 28}, true);
+    OA_CHECK(is(compact_row.mark, {7, 7, 14, 14}));
+    OA_CHECK(is(compact_row.caption, {28, 0, 125, 28}));
+    const kit::RadioParts regular_row = kit::radio_parts({0, 0, 160, 34}, true);
+    OA_CHECK(is(regular_row.mark, {8, 8, 17, 17}));
+    OA_CHECK(is(regular_row.caption, {33, 0, 119, 34}));
+    OA_CHECK(is(kit::radio_parts({0, 0, 20, 28}, true).mark, {}));
+
+    // Not chosen: the ring in the idle grey, nothing in it.
+    const kit::Rect mark{10, 10, 14, 14};
+    renderer::Surface off = black(40, 40);
+    kit::draw_radio(canvas_on(off), mark, {false, false, false, false, {}});
+    expect(off, 17, 10, colour::switch_idle);
+    expect(off, 10, 17, colour::switch_idle);
+    expect(off, 17, 17, 0, 0, 0);
+    expect(off, 10, 10, 0, 0, 0);
+
+    // Chosen: the ring and the dot in the accent.
+    renderer::Surface on = black(40, 40);
+    kit::draw_radio(canvas_on(on), mark, {true, false, false, false, {}});
+    expect(on, 17, 10, colour::accent);
+    expect(on, 17, 17, colour::accent);
+    expect(on, 17, 12, 0, 0, 0);
+
+    renderer::Surface hovered = black(40, 40);
+    kit::draw_radio(canvas_on(hovered), mark, {false, true, false, false, {}});
+    expect(hovered, 17, 10, colour::text_secondary);
+    renderer::Surface held = black(40, 40);
+    kit::draw_radio(canvas_on(held), mark, {true, true, true, false, {}});
+    expect(held, 17, 17, colour::accent_held);
+    renderer::Surface disabled = black(40, 40);
+    kit::draw_radio(canvas_on(disabled), mark, {true, false, false, true, {}});
+    expect(disabled, 17, 10, colour::control_hover);
+    expect(disabled, 17, 17, colour::control_hover);
+
+    // A chosen row: the selected surface with the accent's edge.
+    const kit::Rect row{10, 40, 160, 28};
+    renderer::Surface chosen_row = black(180, 80);
+    kit::draw_radio(canvas_on(chosen_row), row, {true, false, false, false, "Every game"});
+    expect(chosen_row, 90, 40, colour::accent);
+    expect(chosen_row, 160, 54, colour::list_selected);
+    expect(chosen_row, 24, 54, colour::accent);
+    // A row not chosen: the control border and no face.
+    renderer::Surface plain_row = black(180, 80);
+    kit::draw_radio(canvas_on(plain_row), row, {false, false, false, false, "Every game"});
+    expect(plain_row, 90, 40, colour::control_border);
+    expect(plain_row, 160, 54, 0, 0, 0);
+    renderer::Surface hovered_row = black(180, 80);
+    kit::draw_radio(canvas_on(hovered_row), row, {false, true, false, false, "Every game"});
+    expect(hovered_row, 90, 40, colour::control_hover);
+    expect(hovered_row, 160, 54, colour::hover);
+
+    // add_radio adds a button whose checked is the radio's state, and with
+    // no control number the item alone; paint draws what draw_radio draws.
+    kit::DisplayList list;
+    kit::add_radio(list, row, {true, false, false, false, "Every game"}, 7, "use.for.game");
+    kit::add_radio(list, mark, {false, false, false, false, {}}, kit::no_control, {});
+    OA_CHECK(list.items.size() == 2);
+    OA_CHECK(list.items[0].role == kit::Role::radio);
+    OA_CHECK(list.controls.size() == 1);
+    OA_CHECK(list.controls[0].kind == kit::ControlKind::button);
+    OA_CHECK(list.controls[0].checked);
+    OA_CHECK(list.controls[0].text == "Every game");
+    OA_CHECK(list.controls[0].name == "use.for.game");
+    for (const int32_t scale : {1, 2}) {
+        renderer::Surface direct = black(180 * scale, 80 * scale);
+        kit::draw_radio(canvas_on(direct, scale), row, {true, false, false, false, "Every game"});
+        kit::draw_radio(canvas_on(direct, scale), mark, {false, false, false, false, {}});
+        renderer::Surface painted = black(180 * scale, 80 * scale);
+        kit::paint(canvas_on(painted, scale), list);
+        same(direct, painted);
+    }
+}
+
 void choice_lock_and_scroll_match() {
     namespace colour = kit::colour;
     const kit::Rect field{40, 20, 80, 16};
@@ -1352,6 +1439,7 @@ int main() {
     close_mark_draws_a_cross();
     refresh_turn_follows_time();
     switch_levels_and_slider_match();
+    radio_marks_and_rows();
     choice_lock_and_scroll_match();
     a_menu_draws_a_divider_an_aside_and_a_greyed_row();
     oa_button_and_mark_match();

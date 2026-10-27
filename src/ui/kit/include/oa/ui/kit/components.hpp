@@ -210,6 +210,39 @@ inline constexpr uint32_t refresh_ease_ms = 160;
 /// @param look its state and its two captions
 void draw_switch(const Canvas& canvas, const Rect& area, const SwitchLook& look);
 
+/// Where a radio's parts lie in its area.
+struct RadioParts {
+    Rect mark{};    ///< the ring's square
+    Rect caption{}; ///< a radio row's caption's box; empty for the mark alone
+};
+
+/// Returns where a radio's parts lie. The mark alone is the largest square
+/// centred in the area. A radio row's mark is half the row's height
+/// (14, 17 and 19 points at Kit 2's control heights), at least 8 points,
+/// centred down the row and as far in from its left as from its top; the
+/// caption's box runs from that far past the mark to that far short of the
+/// row's right edge, the row's height. Callers fit the caption to that box.
+///
+/// @param area the radio's area
+/// @param row true for a radio row, false for the mark alone
+/// @return the mark and the caption's box; an empty caption box when the row has no room
+[[nodiscard]] RadioParts radio_parts(const Rect& area, bool row) noexcept;
+
+/// Draws a radio. The mark is a one-point ring: the idle switch grey while
+/// not chosen, the accent while chosen, lighter while hovered and deeper
+/// while held, with the accent's dot half the ring across in it while
+/// chosen. A disabled radio's ring and dot are the hovered border's grey. A
+/// radio row is a box with the control radius of its height round them:
+/// the selected surface with the accent's edge while chosen, the hover face
+/// with the hovered border while hovered, else no face and the control
+/// border; its caption in the regular font, in the text colour, the idle
+/// colour while disabled.
+///
+/// @param canvas where it is drawn
+/// @param area the radio's area: the mark's square, or the whole row
+/// @param look its state and, for a row, its caption
+void draw_radio(const Canvas& canvas, const Rect& area, const RadioLook& look);
+
 /// Draws a strip of levels. Levels from offered on are faded into the panel.
 ///
 /// @param canvas where it is drawn
@@ -508,6 +541,20 @@ void add_button(
 /// @param name the control's automation name
 void add_switch(
     DisplayList& list, const Rect& rect, const SwitchLook& look, ControlId id, std::string name
+);
+
+/// Appends a radio: one item, and with a control number one control, a
+/// button whose checked is the radio's state and whose text is its caption.
+/// With no_control it adds the item alone, for a mark inside a control the
+/// caller adds itself, such as a card.
+///
+/// @param[in,out] list the display list
+/// @param rect the radio: the mark's square, or the whole row
+/// @param look its look
+/// @param id the control's number, or no_control
+/// @param name the control's automation name
+void add_radio(
+    DisplayList& list, const Rect& rect, const RadioLook& look, ControlId id, std::string name
 );
 
 /// Appends a level strip: one item and one control. steps is set.

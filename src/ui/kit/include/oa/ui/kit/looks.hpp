@@ -96,6 +96,20 @@ struct SwitchLook {
     std::string on_caption{};  ///< the On half's words
 };
 
+/// A radio: one of a set of choices, of which one is chosen. With no
+/// caption it is the mark alone: a ring, and the accent's dot in it while it
+/// is the chosen one. With a caption it is a radio row: the mark at the
+/// row's left and the caption beside it, on a rounded box whose edge is the
+/// accent while it is chosen. The caption is already looked up and fitted
+/// to radio_parts' caption box.
+struct RadioLook {
+    bool on{};             ///< it is the chosen one: the dot shows
+    bool hovered{};        ///< the pointer is over it
+    bool held{};           ///< a press is held on it with the pointer over it
+    bool disabled{};       ///< it takes nothing: drawn in the idle colours
+    std::string caption{}; ///< a radio row's words; empty draws the mark alone
+};
+
 /// A strip of levels. captions are already looked up, one per level from the left.
 struct LevelsLook {
     std::vector<std::string> captions{}; ///< each level's words
@@ -786,6 +800,7 @@ using Look = std::variant<
     ChordChipLook,
     KeyboardLook,
     MouseLook,
-    HoldRingLook>;
+    HoldRingLook,
+    RadioLook>;
 
 } // namespace oa::ui::kit

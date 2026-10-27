@@ -65,7 +65,7 @@ constexpr std::array<std::string_view, kit::all_roles.size()> kRoleNames{
     "pill",           "language_card", "carousel",      "step_indicator", "setup_chrome",
     "choice_card",    "coach_mark",    "spotlight",     "picture_well",   "call_to_action",
     "package_badge",  "grip",          "keycap",        "chord_chip",     "keyboard",
-    "mouse_picture",  "hold_ring",
+    "mouse_picture",  "hold_ring",     "radio",
 };
 
 /// Returns a role's name.

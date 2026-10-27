@@ -806,7 +806,8 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
 }
 
 /// Toggle: a working switch beside its label, then a switch in each state
-/// and locked.
+/// and locked, then radios: the mark not chosen and chosen in each state,
+/// and a radio row of each.
 int32_t toggle_section(Builder& b, Point at, int32_t width, std::string_view word) {
     const GalleryModel& model = *b.model;
     const Rect field{at.x, at.y, kMetrics.switch_width, kMetrics.switch_height};
@@ -830,9 +831,8 @@ int32_t toggle_section(Builder& b, Point at, int32_t width, std::string_view wor
         Align::left,
         colour::text
     );
-    const int32_t top = at.y + kMetrics.switch_height + kLineGap;
-    return top - at.y +
-           add_states(
+    int32_t top = at.y + kMetrics.switch_height + kLineGap;
+    top += add_states(
                b.list,
                {at.x, top},
                width,
@@ -847,7 +847,52 @@ int32_t toggle_section(Builder& b, Point at, int32_t width, std::string_view wor
                        add_switch(b.list, rect, sample, no_control, {});
                    });
                }
-           );
+           ) +
+           kLineGap;
+    // A radio's mark, not chosen and then chosen, in each state.
+    const int32_t mark_side = kMetrics.control_height / 2;
+    for (const bool chosen : {false, true})
+        top += add_states(
+                   b.list,
+                   {at.x, top},
+                   width,
+                   {mark_side, mark_side},
+                   kFiveStates,
+                   [&](const Rect& rect, Sample shown) {
+                       RadioLook radio;
+                       radio.on = chosen;
+                       radio.hovered = looks_hovered(shown);
+                       radio.held = shown == Sample::pressed;
+                       radio.disabled = shown == Sample::disabled;
+                       add_fixed(b.list, rect, rect, shown, false, [&] {
+                           add_radio(b.list, rect, radio, no_control, {});
+                       });
+                   }
+               ) +
+               kLineGap;
+    // A pair of radio rows, the first chosen.
+    const int32_t row_width = std::min((width - kCellGap) / 2, int32_t{200});
+    if (row_width > 0) {
+        constexpr std::array<std::string_view, 2> kRows{"Keep them on top", "Start clean"};
+        for (std::size_t place = 0; place < kRows.size(); ++place) {
+            RadioLook radio;
+            radio.on = place == 0;
+            const Rect rect{
+                at.x + static_cast<int32_t>(place) * (row_width + kCellGap),
+                top,
+                row_width,
+                kMetrics.control_height,
+            };
+            radio.caption = cut_to_width(
+                *b.fonts, FontRole::regular, kRows[place], radio_parts(rect, true).caption.width
+            );
+            add_radio(b.list, rect, radio, no_control, {});
+        }
+        top += kMetrics.control_height;
+    } else {
+        top -= kLineGap;
+    }
+    return top - at.y;
 }
 
 /// Level strip: a working strip of three levels, then one in each state and
