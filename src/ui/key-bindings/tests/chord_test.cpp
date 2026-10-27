@@ -6,12 +6,17 @@
 // code or the position, including an AZERTY map.
 #include "oa/test/check.hpp"
 #include "oa/ui/key_bindings/chord.hpp"
+#include "oa/ui/key_bindings/interface_words.hpp"
 #include "oa/ui/key_bindings/key_codes.hpp"
 
 #include "oa/data/input_actions/actions.hpp"
+#include "oa/data/languages.hpp"
+#include "oa/data/languages/interface_text.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -620,6 +625,99 @@ void names() {
 
 } // namespace
 
+/// Tells whether the word list holds a word.
+///
+/// @param word the word
+/// @return true when interface_words lists it
+bool listed(std::string_view word) {
+    return std::find(std::begin(keys::interface_words), std::end(keys::interface_words), word) !=
+           std::end(keys::interface_words);
+}
+
+/// Checks every word keycap a chord can show is in the word list.
+///
+/// @param chord the chord
+/// @param map what the keys print
+/// @param platform which key Primary means
+void words_listed(const Chord& chord, const KeyboardMap& map, Platform platform) {
+    for (const KeyCap& cap : keys::keycaps(chord, map, platform)) {
+        if (!cap.word)
+            continue;
+        if (!listed(cap.text))
+            std::fprintf(
+                stderr, "chords: the keycap word \"%s\" is not listed\n", cap.text.c_str()
+            );
+        OA_CHECK(listed(cap.text));
+    }
+}
+
+/// Every word a keycap can show is listed for the interface catalogue: the
+/// modifiers, every named key, every position whose key prints nothing, the
+/// mouse buttons, the wheel's turns, a pad's prefix and the gestures.
+void every_word_listed() {
+    const KeyboardMap blank{};
+    const Platform windows{};
+    const Platform mac{true};
+    for (const std::string_view text :
+         {"Primary+Ctrl+Alt+Shift+Meta+A",
+          "MouseLeft",
+          "MouseRight",
+          "MouseMiddle",
+          "MouseBack",
+          "MouseForward",
+          "Mouse6",
+          "WheelUp",
+          "WheelDown",
+          "WheelLeft",
+          "WheelRight",
+          "Pad.A",
+          "A:double",
+          "A:hold",
+          "A:release"}) {
+        const Chord chord = must_parse(text);
+        words_listed(chord, blank, windows);
+        words_listed(chord, blank, mac);
+    }
+    for (const keys::NamedKeySpec& named : keys::named_keys()) {
+        ChordError error;
+        const std::optional<Chord> chord = keys::parse_chord(named.name, error);
+        if (chord)
+            words_listed(*chord, blank, windows);
+    }
+    for (const keys::KeyPosition& position : keys::key_positions()) {
+        if (position.code.starts_with("Key"))
+            continue;
+        ChordError error;
+        const std::optional<Chord> chord =
+            keys::parse_chord("@" + std::string(position.code), error);
+        if (chord)
+            words_listed(*chord, blank, windows);
+    }
+}
+
+/// A keycap's word shows in the interface's language, and the Home key is
+/// looked up apart from the catalogue's Home.
+void words_shown_in_the_language() {
+    namespace languages = oa::data::languages;
+    languages::InterfaceText catalogue;
+    OA_CHECK(catalogue.add(
+        "[Space]{de=Leertaste;} [Home]{de=Benutzerordner;} [Home key]{de=Pos1;} "
+        "[hold]{de=halten;}"
+    ));
+    const languages::Language* german = languages::find_by_tag("de");
+    OA_CHECK(german != nullptr);
+    if (german == nullptr)
+        return;
+    const KeyboardMap us = KeyboardMap::us();
+    const Platform windows{};
+    languages::set_interface_language(&catalogue, *german);
+    OA_CHECK(keys::display_text(must_parse("Space"), us, windows) == "Leertaste");
+    OA_CHECK(keys::display_text(must_parse("Home"), us, windows) == "Pos1");
+    OA_CHECK(keys::display_text(must_parse("A:hold"), us, windows) == "A halten");
+    languages::set_interface_language(nullptr, languages::english());
+    OA_CHECK(keys::display_text(must_parse("Home"), us, windows) == "Home");
+}
+
 int main() {
     registry_defaults();
     forms();
@@ -627,5 +725,7 @@ int main() {
     matching();
     azerty();
     names();
+    every_word_listed();
+    words_shown_in_the_language();
     return oa::test::check_exit_status();
 }

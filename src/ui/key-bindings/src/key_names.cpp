@@ -1,20 +1,36 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// English keycaps for a chord. A word and a character stay on separate
-// keycaps, so a later translation can replace the words and leave the
-// characters.
+// A chord's keycaps. A word and a character stay on separate keycaps, so
+// the words show in the interface's language and the characters as printed.
 
 #include "oa/ui/key_bindings/chord.hpp"
 
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/ui/key_bindings/key_codes.hpp"
 
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 namespace oa::ui::key_bindings {
 namespace {
+
+/// Returns a keycap's word as the interface's language shows it. Each word
+/// is listed in interface_words.hpp. The Home key is looked up as "Home key",
+/// because the catalogue's Home is a folder's place; its English stays Home.
+///
+/// @param english the word in English
+/// @return the word as shown
+std::string shown_word(std::string_view english) {
+    if (english == "Home") {
+        constexpr std::string_view home_key = "Home key";
+        const std::string_view shown = oa::data::languages::interface_text(home_key);
+        return std::string(shown == home_key ? english : shown);
+    }
+    return std::string(oa::data::languages::interface_text(english));
+}
 
 /// Appends a code point as UTF-8.
 ///
@@ -60,13 +76,14 @@ KeyCap character_cap(char32_t character) {
 /// Meta share one where Primary is the command key.
 ///
 /// @param caps the keycaps so far
-/// @param text the label
+/// @param text the label, in English
 void add_modifier(std::vector<KeyCap>& caps, const char* text) {
+    std::string shown = shown_word(text);
     for (const KeyCap& cap : caps) {
-        if (cap.text == text)
+        if (cap.text == shown)
             return;
     }
-    caps.push_back(KeyCap{text, true});
+    caps.push_back(KeyCap{std::move(shown), true});
 }
 
 /// Adds the modifier keycaps, in chord order.
@@ -187,13 +204,13 @@ void add_code_name(std::vector<KeyCap>& caps, std::string_view code) {
             phrase.append(word_text(pieces[index].text, index == 0));
         }
         if (!phrase.empty())
-            caps.push_back(KeyCap{std::move(phrase), true});
+            caps.push_back(KeyCap{shown_word(phrase), true});
         return;
     }
     bool first = true;
     for (const Piece& piece : pieces) {
         if (piece.word) {
-            caps.push_back(KeyCap{word_text(piece.text, first), true});
+            caps.push_back(KeyCap{shown_word(word_text(piece.text, first)), true});
             first = false;
         } else {
             caps.push_back(KeyCap{piece.text, false});
@@ -206,7 +223,7 @@ void add_code_name(std::vector<KeyCap>& caps, std::string_view code) {
 /// @param caps the keycaps
 /// @param name the name after `Pad.`
 void add_pad_name(std::vector<KeyCap>& caps, std::string_view name) {
-    caps.push_back(KeyCap{"Pad", true});
+    caps.push_back(KeyCap{shown_word("Pad"), true});
     std::string letters;
     std::string digits;
     auto flush_letters = [&] {
@@ -262,29 +279,29 @@ void add_trigger(std::vector<KeyCap>& caps, const Chord& chord, const KeyboardMa
         // A chord numbers the buttons as it spells them: MouseLeft, MouseRight,
         // MouseMiddle.
         if (chord.button == 1)
-            caps.push_back(KeyCap{"Left button", true});
+            caps.push_back(KeyCap{shown_word("Left button"), true});
         else if (chord.button == 2)
-            caps.push_back(KeyCap{"Right button", true});
+            caps.push_back(KeyCap{shown_word("Right button"), true});
         else if (chord.button == 3)
-            caps.push_back(KeyCap{"Middle button", true});
+            caps.push_back(KeyCap{shown_word("Middle button"), true});
         else if (chord.button == 4)
-            caps.push_back(KeyCap{"Back button", true});
+            caps.push_back(KeyCap{shown_word("Back button"), true});
         else if (chord.button == 5)
-            caps.push_back(KeyCap{"Forward button", true});
+            caps.push_back(KeyCap{shown_word("Forward button"), true});
         else if (chord.button >= 6 && chord.button <= 8) {
-            caps.push_back(KeyCap{"Button", true});
+            caps.push_back(KeyCap{shown_word("Button"), true});
             caps.push_back(KeyCap{std::string(1, static_cast<char>('0' + chord.button)), false});
         }
         break;
     case TriggerKind::wheel:
         if (chord.wheel == 1)
-            caps.push_back(KeyCap{"Wheel up", true});
+            caps.push_back(KeyCap{shown_word("Wheel up"), true});
         else if (chord.wheel == -1)
-            caps.push_back(KeyCap{"Wheel down", true});
+            caps.push_back(KeyCap{shown_word("Wheel down"), true});
         else if (chord.wheel == 2)
-            caps.push_back(KeyCap{"Wheel right", true});
+            caps.push_back(KeyCap{shown_word("Wheel right"), true});
         else if (chord.wheel == -2)
-            caps.push_back(KeyCap{"Wheel left", true});
+            caps.push_back(KeyCap{shown_word("Wheel left"), true});
         break;
     case TriggerKind::pad:
         add_pad_name(caps, chord.pad);
@@ -300,11 +317,11 @@ void add_trigger(std::vector<KeyCap>& caps, const Chord& chord, const KeyboardMa
 /// @param gesture the gesture
 void add_gesture(std::vector<KeyCap>& caps, Gesture gesture) {
     if (gesture == Gesture::double_press)
-        caps.push_back(KeyCap{"double", true});
+        caps.push_back(KeyCap{shown_word("double"), true});
     else if (gesture == Gesture::hold)
-        caps.push_back(KeyCap{"hold", true});
+        caps.push_back(KeyCap{shown_word("hold"), true});
     else if (gesture == Gesture::release)
-        caps.push_back(KeyCap{"release", true});
+        caps.push_back(KeyCap{shown_word("release"), true});
 }
 
 } // namespace

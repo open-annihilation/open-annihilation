@@ -18,6 +18,7 @@ target_include_directories(oa-tool-commands PRIVATE
   ${PROJECT_SOURCE_DIR}/src/app/include
   ${PROJECT_SOURCE_DIR}/src/app/package-install/include
   ${PROJECT_SOURCE_DIR}/src/app/update/include
+  ${PROJECT_SOURCE_DIR}/src/data/input-actions/include
   ${PROJECT_SOURCE_DIR}/src/netgame/match/include
   ${PROJECT_SOURCE_DIR}/src/ui/engine-settings/include
   ${PROJECT_SOURCE_DIR}/src/ui/first-run/include
@@ -25,6 +26,7 @@ target_include_directories(oa-tool-commands PRIVATE
   ${PROJECT_SOURCE_DIR}/src/ui/frontend-dialogs/include
   ${PROJECT_SOURCE_DIR}/src/ui/frontend-multiplayer/include
   ${PROJECT_SOURCE_DIR}/src/ui/game-files/include
+  ${PROJECT_SOURCE_DIR}/src/ui/key-bindings/include
   ${PROJECT_SOURCE_DIR}/src/ui/key-editor/include
   ${PROJECT_SOURCE_DIR}/src/ui/library/include
   ${PROJECT_SOURCE_DIR}/src/ui/map-browser/include

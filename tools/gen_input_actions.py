@@ -10,6 +10,10 @@ writes:
 
   src/data/input-actions/src/actions.inc
       the registry as constant C++ tables, which oa-data-input-actions reads.
+  src/data/input-actions/include/oa/data/input_actions/interface_words.hpp
+      the English words the registry gives the screens (each action's name and
+      description, the select.tag family's, the areas' and the contexts'
+      titles), which oa-tool joins into the interface catalogue's list.
 
 Defaults stay text. The C++ grammar that parses a chord is a later ticket's.
 
@@ -32,6 +36,7 @@ import oamod_yaml  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "src/data/input-actions/registry/actions.yaml"
 TABLE = ROOT / "src/data/input-actions/src/actions.inc"
+WORDS = ROOT / "src/data/input-actions/include/oa/data/input_actions/interface_words.hpp"
 HACK_REGISTRY = ROOT / "src/data/mod-profile/registry/hack-registry.yaml"
 PAD_HEADER = ROOT / "src/ui/pad-controls/include/oa/ui/pad_controls.hpp"
 TOUCH_HEADER = ROOT / "src/ui/touch-hud/include/oa/ui/touch_hud.hpp"
@@ -899,13 +904,54 @@ def generate_text(reg):
     return "".join(lines)
 
 
+def registry_words(reg):
+    """The English texts the registry gives the screens, sorted, each once."""
+    words = set()
+    for body in reg["actions"].values():
+        words.add(body["words"]["name"])
+        words.add(body["words"]["description"])
+    for body in reg["families"].values():
+        family_words = body.get("words") or {}
+        if isinstance(family_words, dict):
+            for key in ("name", "description"):
+                if family_words.get(key):
+                    words.add(family_words[key])
+    for _name, title in AREAS:
+        words.add(title)
+    for _name, _parent, _overlay, title in CONTEXTS:
+        words.add(title)
+    return sorted(words, key=lambda text: text.encode("utf-8"))
+
+
+def generate_words(reg):
+    lines = [GENERATED]
+    lines.append(
+        "// The English texts the action registry gives the screens: each action's name\n"
+        "// and description, the select.tag family's, and the areas' and contexts'\n"
+        "// titles. The screens look each up in the interface catalogue. oa-tool joins\n"
+        "// this list with the other modules' lists.\n\n"
+        "#pragma once\n\n"
+        "#include <string_view>\n\n"
+        "namespace oa::data::input_actions {\n\n"
+        "// clang-format off\n"
+        "/// English texts the registry gives the interface catalogue\n"
+        "/// (oa/data/languages/interface_text.hpp), sorted, each once.\n"
+        "inline constexpr std::string_view interface_words[] = {\n")
+    for text in registry_words(reg):
+        lines.append(f"    {cxx_string(text)},\n")
+    lines.append("};\n"
+                 "// clang-format on\n\n"
+                 "} // namespace oa::data::input_actions\n")
+    return "".join(lines)
+
+
 def generate():
     reg = oamod_yaml.load_file(REGISTRY)
     hack_ids, pads, touch_enums = load_references()
     problems = check_registry(reg, hack_ids, pads, touch_enums)
     if problems:
         raise RegistryError(problems)
-    return {TABLE: generate_text(reg)}
+    return {TABLE: generate_text(reg), WORDS: generate_words(reg)}
 
 
 # ------------------------------------------------------------------------------------ self-test

@@ -2138,7 +2138,7 @@ actions:
     kind: repeat
     source: [OA]
     default: ["Home"]
-    words: {name: "Home", description: "Scrolls to the top, or moves to the start of a text field"}
+    words: {name: "Go to start", description: "Scrolls to the top, or moves to the start of a text field"}
   ui.screen-end:
     area: window
     order: 18
@@ -2146,7 +2146,7 @@ actions:
     kind: repeat
     source: [OA]
     default: ["End"]
-    words: {name: "End", description: "Scrolls to the end, or moves to the end of a text field"}
+    words: {name: "Go to end", description: "Scrolls to the end, or moves to the end of a text field"}
   ui.screen-yes:
     area: window
     order: 19

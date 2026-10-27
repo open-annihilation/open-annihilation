@@ -33,6 +33,12 @@ None. The tables are constant, generated from the registry.
   `registry/actions.yaml` and run `python3 tools/gen_input_actions.py`.
   `input-actions-sync` fails while the table differs from the registry, or
   the registry breaks a rule.
+- `include/oa/data/input_actions/interface_words.hpp` is generated with the
+  table: every action's name and description, the `select.tag` family's
+  words and the areas' and contexts' titles, which the screens look up in the
+  interface catalogue and oa-tool lists. A reworded name or description is
+  changed in the registry, and `languages/interface.tdf` gives it again in
+  each built-in language.
 - A default stays the text the registry wrote. `gui.`,
   `select.category-` and `select.tag-` actions are made when a mod loads,
   from `families`, and are not rows of `actions`. A `select.tag` family's

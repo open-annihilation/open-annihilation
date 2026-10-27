@@ -3,8 +3,9 @@
 Chords (`oa/ui/key_bindings/chord.hpp`, `oa::ui::key_bindings`). A chord says
 whether a binding means the letter on a key or the key's place, so Attack
 stays on A and the groups stay on the number row whatever the keyboard. The
-module reads a chord, writes it back as one text, names its parts in English
-for keycaps, and says how well it matches one event on a keyboard map.
+module reads a chord, writes it back as one text, names its parts for
+keycaps in the interface's language, and says how well it matches one event
+on a keyboard map.
 
 It is the model the dispatcher, the reader, the layouts and the editor share.
 It knows nothing of a window or a clock: an event carries its own time. The
@@ -32,7 +33,12 @@ dispatcher times a double press and a hold from that time.
 - `held` says whether a modifier-alone chord is held. Primary is the command
   key where `Platform::primary_is_meta` is set, and Ctrl elsewhere.
 - `keycaps` and `display_text` are what a screen shows. `display_text` joins
-  the keycaps with `+` and puts the gesture after a space.
+  the keycaps with `+` and puts the gesture after a space. A keycap's words
+  are looked up in the interface catalogue
+  (`oa/data/languages/interface_text.hpp`), so they show as the language's
+  keyboard prints them (Leertaste, Espace, Strg); `interface_words.hpp` lists
+  every word a keycap can show, and the Home key is looked up as `Home key`
+  because the catalogue's `Home` is a folder's place.
 - `on_keyboard` is false for a character no key's events carry.
 - `KeyboardMap::us` is the US layout. `set` records, for one position, the
   key code events carry and the character the key prints.
@@ -163,7 +169,7 @@ active, the latches and the sticky modifiers.
 - A letter matches a key code and a place matches a position number. Shift
   or Alt held beyond a chord does not turn a match into none. Ctrl held
   beyond a chord does not match.
-- A keycap is English words, or a character, and never both in one string.
+- A keycap is words, or a character, and never both in one string.
   An F-key is one label (`F1`), not a word. A digit in a name (`Numpad` and
   `1`, `Button` and `6`) is its own keycap. `display_text` puts `+` between
   keycaps and the gesture after a space.

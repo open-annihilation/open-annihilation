@@ -171,9 +171,11 @@ match(const Chord& chord, const InputEvent& event, const KeyboardMap& map, Platf
 ///
 /// Modifiers are Ctrl, Alt, Shift, and Cmd or Win. Primary is Cmd where it is
 /// the command key and Ctrl elsewhere. A character is a capital. A place is
-/// the character its key prints, in capitals, or the code's English name when
-/// it prints none. A word and a character are separate keycaps. The gesture,
-/// other than a plain press, is one more word.
+/// the character its key prints, in capitals, or the code's name when it
+/// prints none. A word and a character are separate keycaps. The gesture,
+/// other than a plain press, is one more word. Each word shows in the
+/// interface's language (oa/data/languages/interface_text.hpp); every word is
+/// listed in interface_words.hpp.
 ///
 /// @param chord the chord
 /// @param map what the keys print
