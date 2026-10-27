@@ -252,12 +252,14 @@ void file_round_trip() {
 }
 
 update::State unconfirmed_state() {
+    // The kept copy's paths are absolute on every system, as a state file's must be.
+    const fs::path kept = fs::temp_directory_path() / "kept";
     update::State state;
     state.installed_version = "0.8.8";
     state.installed_release = 12;
     state.kept_version = "0.8.7";
-    state.kept_path = "/kept";
-    state.preferences_copy = "/kept/preferences.conf";
+    state.kept_path = kept.string();
+    state.preferences_copy = (kept / "preferences.conf").string();
     state.failed_starts = 1;
     return state;
 }
