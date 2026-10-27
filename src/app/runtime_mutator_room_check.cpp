@@ -3,11 +3,11 @@
 
 // --check-mutator-room: Mutators for the host of a battle room hosted
 // alone, at 640x480 and 1280x720. The button is one of the room's own on
-// and off buttons, with no part of the kit, is as large as Select Map, or
-// wider to the left where its words need it, stands over it to its right
-// edge and meets no control of the room; it
-// reads "Mutators: off", "Mutators: 2 on" with two on, its lamp lit, and
-// "Mutators: 4 on" with four. Y opens the picker on a remembered multiplayer set
+// and off buttons, with no part of the kit, is as large as Select Map,
+// stands over it with its edges and meets no control of the room; it reads
+// "Mutators", and its text for automation counts the room's list:
+// "Mutators · off", "Mutators · 2 on" with two on, its lamp lit, and
+// "Mutators · 4 on" with four. Y opens the picker on a remembered multiplayer set
 // (Gatehouse, Gatehouse Keep). USE THESE stores that set and the chat reads
 // the turned-on lines. Turning them off posts the off line. In French the
 // chat's lines are in the code page and fit the list. With Ridge Tough on,
@@ -351,10 +351,10 @@ void Runtime::check_mutator_room() {
     guest_absent("after the room opens");
 
     // Places the button on one window and checks it against the room: as
-    // large as Select Map, over it from its left edge, centred between the
-    // player rows and Select Map, meeting no control, one of the room's own
-    // parts. `button_text` is what the button reads: "Mutators: off" or
-    // "Mutators: 2 on"; its lamp is lit with mutators on.
+    // large as Select Map, over it with its left and right edges, centred
+    // between the player rows and Select Map, meeting no control, one of the
+    // room's own parts. `button_text` is the button's text for automation:
+    // "Mutators · off" or "Mutators · 2 on"; its lamp is lit with mutators on.
     const auto check_window = [&](const CheckWindow& window,
                                   std::string_view button_text,
                                   std::string_view picture_kind) {
@@ -374,7 +374,7 @@ void Runtime::check_mutator_room() {
             require_named("oa.mutators", "oa.mutators is not shown" + on);
         require(
             button.text == button_text,
-            "the button does not read " + std::string(button_text) + " (" + button.text + ")" + on
+            "the button does not count " + std::string(button_text) + " (" + button.text + ")" + on
         );
         {
             LayerScreen* shown = oa_layer().find("mutators-button");
@@ -385,7 +385,7 @@ void Runtime::check_mutator_room() {
                     "the button draws a button or a chip of the kit" + on
                 );
             require(
-                button.checked == (button_text != "Mutators: off"),
+                button.checked == (button_text != "Mutators · off"),
                 "the button's lamp does not follow the mutators on" + on
             );
         }
@@ -408,11 +408,16 @@ void Runtime::check_mutator_room() {
         const kit::Rect button_window = window_rect(button);
         const int32_t slack = percent / 50 + 1;
         require(
-            apart(button_window.x + button_window.width, map_window.x + map_window.width) <= slack,
-            "the button's right edge is not Select Map's" + on
+            apart(button_window.x, map_window.x) <= slack &&
+                apart(button_window.x + button_window.width, map_window.x + map_window.width) <=
+                    slack,
+            "the button's edges are not Select Map's (" + std::to_string(button_window.x) + " to " +
+                std::to_string(button_window.x + button_window.width) + ", not " +
+                std::to_string(map_window.x) + " to " +
+                std::to_string(map_window.x + map_window.width) + ")" + on
         );
         require(
-            button_window.width + slack >= map_window.width &&
+            apart(button_window.width, map_window.width) <= slack &&
                 apart(button_window.height, map_window.height) <= slack,
             "the button is not as large as Select Map" + on
         );
@@ -440,7 +445,7 @@ void Runtime::check_mutator_room() {
                 !overlaps(button_window, control_window), "the button meets " + control.name + on
             );
         }
-        std::cout << "mutator room check: " << size << " shows oa.mutators reading " << button.text
+        std::cout << "mutator room check: " << size << " shows oa.mutators counting " << button.text
                   << ", as large as Select Map and over it, meeting no room control" << std::endl;
 
         oa_layer().read_whole_window(true);
@@ -461,7 +466,7 @@ void Runtime::check_mutator_room() {
         guest_absent(on);
     };
     for (const CheckWindow& window : kWindows)
-        check_window(window, "Mutators: off", "host");
+        check_window(window, "Mutators · off", "host");
 
     require(oa_layer().take_pad_action(pad::Action::library_search), "Y did not open the picker");
     frames(1);
@@ -508,7 +513,7 @@ void Runtime::check_mutator_room() {
     guest_absent("after USE THESE");
     // With two on the button counts them.
     for (const CheckWindow& window : kWindows)
-        check_window(window, "Mutators: 2 on", "host-on");
+        check_window(window, "Mutators · 2 on", "host-on");
     {
         // Four on for a moment: the button counts four. The two are put back.
         const auto held = room_mutators();
@@ -526,7 +531,7 @@ void Runtime::check_mutator_room() {
         set_room_mutators(std::move(four));
         frames(2);
         for (const CheckWindow& window : kWindows)
-            check_window(window, "Mutators: 4 on", "host-four");
+            check_window(window, "Mutators · 4 on", "host-four");
         set_room_mutators(std::move(two));
         frames(2);
         require(room_mutators().size() == 2, "the two did not come back after four");

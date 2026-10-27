@@ -17578,20 +17578,20 @@
 	it=Prendi altri cervelli...;
 	}
 
-[Mutators: off]
+[Mutators · off]
 	{
-	de=Mutatoren: keine;
-	fr=Mutateurs : aucun;
-	es=Mutadores: ninguno;
-	it=Mutatori: nessuno;
+	de=Mutatoren · keine;
+	fr=Mutateurs · aucun;
+	es=Mutadores · ninguno;
+	it=Mutatori · nessuno;
 	}
 
-[Mutators: {count} on]
+[Mutators · {count} on]
 	{
-	de=Mutatoren: {count} an;
-	fr=Mutateurs : {count} actifs;
-	es=Mutadores: {count} activos;
-	it=Mutatori: {count} attivi;
+	de=Mutatoren · {count} an;
+	fr=Mutateurs · {count} actifs;
+	es=Mutadores · {count} activos;
+	it=Mutatori · {count} attivi;
 	}
 
 [No mutators on]
@@ -24924,6 +24924,14 @@
 	fr=Pavé num. moins;
 	es=Teclado num. menos;
 	it=Tastierino meno;
+	}
+
+[Option]
+	{
+	de=Alt;
+	fr=Alt;
+	es=Alt;
+	it=Alt;
 	}
 
 [Pad]

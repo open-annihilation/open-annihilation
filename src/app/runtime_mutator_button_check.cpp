@@ -3,12 +3,13 @@
 
 // --check-mutator-button: Mutators on the skirmish setup and on NEWGAME, at
 // 640x480 and 1280x720. The button is one of the room's own on and off
-// buttons, with no part of the kit; on SKIRMISH it is as large as Previous
-// Menu, centred between Difficulty and Previous Menu in their column, and
-// on NEWGAME as large as the SELECT SIDE middle of the side bar, under it;
-// either is wider to the left only where its words need it.
-// It reads "Mutators: off", or "Mutators: 2 on" for the set chosen; with
-// four chosen, the pointer resting on it shows its card, one line a
+// buttons, with no part of the kit, in line with the room's own buttons:
+// on SKIRMISH as large as Previous Menu, its edges, centred between
+// Difficulty and Previous Menu in their column, and on NEWGAME as large as
+// Previous Menu, its edges, at the head of Difficulty's column between the
+// side bar and Set Difficulty. It reads "Mutators", and its text for
+// automation counts the set chosen: "Mutators · off", or "Mutators · 2 on";
+// with four chosen, the pointer resting on it shows its card, one line a
 // mutator and what a press does. Tab and
 // Down reach the button, a finger presses it by its reach, the pad's
 // badges leave it as it is, Return opens the
@@ -307,8 +308,8 @@ void Runtime::check_mutator_button() {
         require(control.has_value(), why);
         return *control;
     };
-    // The button's own control: its text is its words, "Mutators: off" or
-    // "Mutators: 2 on".
+    // The button's own control: its text counts the set, "Mutators · off" or
+    // "Mutators · 2 on".
     const auto summary_of = [&](std::string_view why) {
         const std::optional<AutomationControl> control =
             named_on("oa.mutators", "oa.mutators-button");
@@ -382,7 +383,7 @@ void Runtime::check_mutator_button() {
         pointer_at({0, 0}, SDL_EVENT_MOUSE_MOTION, 0);
         frames(2);
     };
-    // Four mutators chosen for a moment: the button reads "Mutators: 4 on",
+    // Four mutators chosen for a moment: the button counts "Mutators · 4 on",
     // and the frame is written as mutator-button-<screen>-four-<w>x<h>.png.
     // The setup's set is put back.
     const auto capture_four = [&](mutators_memory::Setup setup,
@@ -403,8 +404,8 @@ void Runtime::check_mutator_button() {
         frames(1);
         const AutomationControl counted = summary_of("the button left with four chosen" + on);
         require(
-            counted.text == "Mutators: 4 on",
-            "four chosen do not read Mutators: 4 on (" + counted.text + ")" + on
+            counted.text == "Mutators · 4 on",
+            "four chosen do not count Mutators · 4 on (" + counted.text + ")" + on
         );
         require_badge(on);
         oa_layer().read_whole_window(true);
@@ -421,7 +422,7 @@ void Runtime::check_mutator_button() {
         const std::string picture =
             "mutator-button-" + std::string(screen) + "-four-" + size + ".png";
         write_png(fs::path(picture), four_frame);
-        std::cout << "mutator button check: four chosen read Mutators: 4 on; wrote " << picture
+        std::cout << "mutator button check: four chosen count Mutators · 4 on; wrote " << picture
                   << "\n";
         check_card(screen, 4, size, on);
         replace_setup_mutators(setup, kept);
@@ -548,8 +549,8 @@ void Runtime::check_mutator_button() {
         const AutomationControl button =
             require_named("oa.mutators", "oa.mutators is not shown" + on);
         require(
-            button.text == "Mutators: off",
-            "the button does not read Mutators: off (" + button.text + ")" + on
+            button.text == "Mutators · off",
+            "the button does not count Mutators · off (" + button.text + ")" + on
         );
         require(button.kind == AutomationControlKind::button, "oa.mutators is not a button" + on);
         require_badge(on);
@@ -577,18 +578,21 @@ void Runtime::check_mutator_button() {
         const kit::Rect picture{
             seen.picture.x, seen.picture.y, seen.picture.width, seen.picture.height
         };
-        // As large as Previous Menu, to the column's right edge, wider to
-        // the left only where its words need it, centred between Difficulty
-        // and Previous Menu.
+        // As large as Previous Menu, its left and right edges, centred
+        // between Difficulty and Previous Menu.
         const int32_t slack = percent / 50 + 1;
         require(
-            apart(
-                button_window.x + button_window.width, previous_window.x + previous_window.width
-            ) <= slack,
-            "the button's right edge is not the column's" + on
+            apart(button_window.x, previous_window.x) <= slack &&
+                apart(
+                    button_window.x + button_window.width, previous_window.x + previous_window.width
+                ) <= slack,
+            "the button's edges are not Previous Menu's (" + std::to_string(button_window.x) +
+                " to " + std::to_string(button_window.x + button_window.width) + ", not " +
+                std::to_string(previous_window.x) + " to " +
+                std::to_string(previous_window.x + previous_window.width) + ")" + on
         );
         require(
-            button_window.width + slack >= previous_window.width &&
+            apart(button_window.width, previous_window.width) <= slack &&
                 apart(button_window.height, previous_window.height) <= slack,
             "the button is not as large as Previous Menu" + on
         );
@@ -837,7 +841,7 @@ void Runtime::check_mutator_button() {
         );
         const AutomationControl chosen = summary_of("the button left after USE THESE" + on);
         require(
-            chosen.text == "Mutators: 2 on",
+            chosen.text == "Mutators · 2 on",
             "USE THESE did not count the set on the button (" + chosen.text + ")" + on
         );
         require(
@@ -934,10 +938,10 @@ void Runtime::check_mutator_button() {
         close_covering();
         const AutomationControl cleared = summary_of("the button left after returning" + on);
         require(
-            cleared.text == "Mutators: off",
+            cleared.text == "Mutators · off",
             "returning to SKIRMISH kept the set (" + cleared.text + ")" + on
         );
-        std::cout << "mutator button check: SKIRMISH from the main menu reads Mutators: off" << on
+        std::cout << "mutator button check: SKIRMISH from the main menu counts Mutators · off" << on
                   << "\n";
 
         load(Screen::single_player);
@@ -950,8 +954,8 @@ void Runtime::check_mutator_button() {
         const AutomationControl campaign_button =
             require_named("oa.mutators", "oa.mutators is not shown on NEWGAME" + on);
         require(
-            campaign_button.text == "Mutators: off",
-            "NEWGAME's button does not read Mutators: off (" + campaign_button.text + ")" + on
+            campaign_button.text == "Mutators · off",
+            "NEWGAME's button does not count Mutators · off (" + campaign_button.text + ")" + on
         );
         require_badge(on);
         const LayerView campaign_seen = oa_layer().view();
@@ -971,42 +975,60 @@ void Runtime::check_mutator_button() {
         };
         const int32_t arm_index = gadget_index("Arm");
         const int32_t core_index = gadget_index("Core");
-        require(arm_index > 0 && core_index > 0, "NEWGAME has no Arm and Core" + on);
-        const kit::Rect arm_points = campaign_points_of(
-            resources_.layout.gadgets[static_cast<std::size_t>(arm_index)].common
+        const int32_t level_index = gadget_index("Difficulty");
+        const int32_t back_index = gadget_index("PrevMenu");
+        require(
+            arm_index > 0 && core_index > 0 && level_index > 0 && back_index > 0,
+            "NEWGAME has no Arm, Core, Difficulty and PrevMenu" + on
         );
-        const kit::Rect core_points = campaign_points_of(
-            resources_.layout.gadgets[static_cast<std::size_t>(core_index)].common
-        );
-        // The SELECT SIDE middle of the bar, between Arm and Core and set in
-        // by the bolts; the button is that size, under it, the left edges together.
-        const place::PlaceRect middle = place::bar_middle(
-            {arm_points.x, arm_points.y, arm_points.width, arm_points.height},
-            {core_points.x, core_points.y, core_points.width, core_points.height}
-        );
-        const kit::Rect middle_window =
-            kit::to_canvas({middle.x, middle.y, middle.width, middle.height}, campaign_percent);
+        const auto campaign_gadget_window = [&](int32_t index) {
+            return campaign_window_of(
+                resources_.layout.gadgets[static_cast<std::size_t>(index)].common
+            );
+        };
+        const kit::Rect level_window = campaign_gadget_window(level_index);
+        const kit::Rect back_window = campaign_gadget_window(back_index);
         const kit::Rect campaign_button_window = window_rect(campaign_button);
         const int32_t campaign_slack = campaign_percent / 50 + 1;
+        // At the head of Difficulty's column, in line with the buttons
+        // there: as large as Previous Menu, its left and right edges.
         require(
-            apart(
-                campaign_button_window.x + campaign_button_window.width,
-                middle_window.x + middle_window.width
-            ) <= campaign_slack &&
-                campaign_button_window.width + campaign_slack >= middle_window.width &&
-                apart(campaign_button_window.height, middle_window.height) <= campaign_slack,
-            "NEWGAME's button is not as large as SELECT SIDE, to its right edge" + on
+            apart(campaign_button_window.x, back_window.x) <= campaign_slack &&
+                apart(
+                    campaign_button_window.x + campaign_button_window.width,
+                    back_window.x + back_window.width
+                ) <= campaign_slack &&
+                apart(campaign_button_window.height, back_window.height) <= campaign_slack,
+            "NEWGAME's button is not as large as Previous Menu, its edges (" +
+                std::to_string(campaign_button_window.x) + " to " +
+                std::to_string(campaign_button_window.x + campaign_button_window.width) + ", not " +
+                std::to_string(back_window.x) + " to " +
+                std::to_string(back_window.x + back_window.width) + ")" + on
         );
-        const int32_t bar_bottom = std::max(
-            kit::to_canvas(arm_points, campaign_percent).y +
-                kit::to_canvas(arm_points, campaign_percent).height,
-            kit::to_canvas(core_points, campaign_percent).y +
-                kit::to_canvas(core_points, campaign_percent).height
-        );
+        // Over Set Difficulty, the label just over Difficulty, and under
+        // the side bar, centred down the space between them.
+        int32_t label_top = level_window.y;
+        for (std::size_t index = 1; index < resources_.layout.gadgets.size(); ++index) {
+            const kit::Rect other = campaign_window_of(resources_.layout.gadgets[index].common);
+            const int32_t bottom = other.y + other.height;
+            if (other.width > 0 && other.height > 0 &&
+                other.x < level_window.x + level_window.width &&
+                level_window.x < other.x + other.width && bottom <= level_window.y &&
+                level_window.y - bottom < back_window.height)
+                label_top = std::min(label_top, other.y);
+        }
+        require(label_top < level_window.y, "NEWGAME has no label over Difficulty" + on);
+        const kit::Rect core_window = campaign_gadget_window(core_index);
+        const kit::Rect arm_window = campaign_gadget_window(arm_index);
+        const int32_t bar_bottom =
+            std::max(arm_window.y + arm_window.height, core_window.y + core_window.height);
         const int32_t under = campaign_button_window.y - bar_bottom;
+        const int32_t over = label_top - (campaign_button_window.y + campaign_button_window.height);
         require(
-            under > 0 && under <= middle_window.height,
-            "NEWGAME's button is not just under the bar (" + std::to_string(under) + ")" + on
+            under > 0 && over > 0 && apart(under, over) <= campaign_slack + 1,
+            "NEWGAME's button is not centred between the side bar and Set Difficulty (" +
+                std::to_string(under) + " under the bar, " + std::to_string(over) +
+                " over the label)" + on
         );
         for (std::size_t index = 1; index < resources_.layout.gadgets.size(); ++index) {
             const gui::CommonFields& common = resources_.layout.gadgets[index].common;
@@ -1018,9 +1040,9 @@ void Runtime::check_mutator_button() {
                 "NEWGAME's button meets " + common.name + on
             );
         }
-        std::cout
-            << "mutator button check: NEWGAME shows Mutators as large as SELECT SIDE, under it"
-            << on << "\n";
+        std::cout << "mutator button check: NEWGAME shows Mutators as large as Previous Menu, at "
+                     "the head of Difficulty's column"
+                  << on << "\n";
 
         oa_layer().read_whole_window(true);
         renderer::Surface campaign_frame;
@@ -1088,7 +1110,7 @@ void Runtime::check_mutator_button() {
         const AutomationControl campaign_chosen =
             summary_of("the campaign button left after USE THESE" + on);
         require(
-            campaign_chosen.text == "Mutators: 1 on" && campaign_mutators_.size() == 1 &&
+            campaign_chosen.text == "Mutators · 1 on" && campaign_mutators_.size() == 1 &&
                 campaign_mutators_[0].id == "fast-builders",
             "USE THESE did not choose Fast Builders (" + campaign_chosen.text + ")" + on
         );
@@ -1123,8 +1145,8 @@ void Runtime::check_mutator_button() {
     close_covering();
     const AutomationControl empty_summary = summary_of("the empty start has no button");
     require(
-        empty_summary.text == "Mutators: off",
-        "the empty start does not read Mutators: off (" + empty_summary.text + ")"
+        empty_summary.text == "Mutators · off",
+        "the empty start does not count Mutators · off (" + empty_summary.text + ")"
     );
     exercise_click(skirmish::resource_name(skirmish::Button::start));
     require(screen_ == Screen::match && match_ != nullptr, "the empty skirmish did not start");

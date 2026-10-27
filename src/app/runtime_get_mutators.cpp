@@ -5,11 +5,11 @@
 // get-mutators, that is not modal, has no backdrop and is not opaque, drawn
 // from the room's own art (brain_seats_room.hpp). It shows while the guest
 // is in the battle room. The host's set is the room's own on and off button
-// with the OA stamp, where the host's button stands over Select Map:
-// "Mutators: off" with no lamp lit, or "Mutators: N on" with the green lamp
-// while this machine has every one and the red lamp while it lacks one. A
-// press opens the picker read-only on that set, and resting the pointer on
-// it shows its card. To its left, GET MUTATORS, a button in the room's art,
+// with the OA stamp and the word "Mutators", where the host's button stands,
+// as large as Select Map and over it: no lamp lit while the host plays none,
+// the green lamp while this machine has every one and the red lamp while it
+// lacks one. A press opens the picker read-only on that set, and resting the
+// pointer on it shows its card, which names them. To its left, GET MUTATORS, a button in the room's art,
 // queues the releases the host named, through the fetch the room already
 // owns; a bar takes its place while one downloads, and a line in the room's
 // label font says why one cannot be fetched. Nothing readies the player.
@@ -422,7 +422,6 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
             parts,
             art,
             laid.view,
-            mutators_words(laid.listed.size()),
             lamp(laid),
             pressed_ == view_control && hovered_ == view_control ? room::ButtonCondition::pressed
                                                                  : room::ButtonCondition::normal,
@@ -588,8 +587,9 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
     /// Returns the block's controls for automation and the pointer, and the
     /// open card.
     ///
-    /// The button is mutators-view: its text is its words as drawn, checked
-    /// while its lamp is green. GET MUTATORS is get-mutators. The bar is
+    /// The button is mutators-view: its text counts the host's set,
+    /// "Mutators · off" or "Mutators · 2 on" (mutators_automation_text),
+    /// and it is checked while its lamp is green. GET MUTATORS is get-mutators. The bar is
     /// get-mutators-progress and its text is the percent. The line is
     /// get-mutators-text and stores the whole line, uncut: the set while
     /// nothing is being fetched, otherwise the state. The ready line is
@@ -630,7 +630,7 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
         view_button.rect = view_rect;
         view_button.name = std::string(view_name);
         view_button.kind = kit::ControlKind::button;
-        view_button.text = mutators_words_shown(art, laid.view, mutators_words(laid.listed.size()));
+        view_button.text = mutators_automation_text(art, laid.view, laid.listed.size());
         view_button.checked = lamp(laid) == room::RoomLamp::green;
         list.controls.push_back(std::move(view_button));
         list.tab_order.push_back(view_control);
@@ -885,7 +885,7 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
         }
 
         // The button stands where the host's stands: as large as Select Map
-        // and over it, wider to the left where its words need it.
+        // and over it, its edges Select Map's.
         const room::SourceRect room_frame{0, 0, placed_on.picture_size.x, placed_on.picture_size.y};
         std::vector<place::PlaceRect> others;
         others.reserve(frames.size());
@@ -903,8 +903,6 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
                        anchor.x, anchor.y - anchor.height - part_gap, anchor.width, anchor.height
                    };
         const room::RoomArt art = room_art();
-        laid.view =
-            widen_mutators_switch(art, laid.view, mutators_words(laid.listed.size()), frames);
 
         // GET MUTATORS, the bar or the line to its left, shortened to miss
         // every control of the room.

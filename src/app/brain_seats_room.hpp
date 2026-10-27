@@ -262,12 +262,20 @@ void add_brain_menu_controls(
     oa::ui::kit::ControlId first_id
 );
 
-/// The words of the rooms' Mutators button for a set of a count:
-/// "Mutators: off", or "Mutators: 4 on".
+/// A room's Mutators button's text for automation, in the language shown:
+/// "Mutators · off" while none is on, or "Mutators · 4 on" with four. Its
+/// first word is the button's word as draw_mutators_switch draws it, ended
+/// with "…" where the button cuts it.
 ///
+/// @param art the room's art
+/// @param frame the button, in frame pixels
 /// @param count how many mutators are on
-/// @return the words, in the language shown
-[[nodiscard]] std::string mutators_words(std::size_t count);
+/// @return the text
+[[nodiscard]] std::string mutators_automation_text(
+    const oa::ui::frontend_renderer::RoomArt& art,
+    const oa::ui::frontend_renderer::SourceRect& frame,
+    std::size_t count
+);
 
 /// One mutator the Mutators card names.
 struct MutatorsCardItem {
@@ -290,32 +298,15 @@ inline constexpr std::size_t mutators_card_rows = 6;
 [[nodiscard]] oa::ui::kit::HoverCardLook
 mutators_card(std::span<const MutatorsCardItem> items, bool host);
 
-/// Widens a room's Mutators button to the left where its words need it and
-/// the room is free there: as wide as the room's on and off art needs for
-/// the stamp, the words in the caption font and the lamps, meeting no other
-/// rectangle and staying in the frame. A button that cannot widen keeps its
-/// place, and its words are drawn narrower.
-///
-/// @param art the room's art
-/// @param frame the button, in frame pixels
-/// @param words the words, in UTF-8
-/// @param others every other rectangle, in frame pixels; one equal to the button is passed over
-/// @return the button, in frame pixels
-[[nodiscard]] oa::ui::frontend_renderer::SourceRect widen_mutators_switch(
-    const oa::ui::frontend_renderer::RoomArt& art,
-    const oa::ui::frontend_renderer::SourceRect& frame,
-    std::string_view words,
-    std::span<const oa::ui::frontend_renderer::SourceRect> others
-);
-
 /// Draws a room's Mutators button: the room's on and off button with the OA
-/// stamp at its left, its words, the lamp asked for and, while it holds the
-/// focus, the room's focus marker round it.
+/// stamp at its left, the word "Mutators" in the language shown, the lamp
+/// asked for and, while it holds the focus, the room's focus marker round
+/// it. The word is drawn in the room's caption font, else its label font,
+/// and cut with "..." only when even that does not fit.
 ///
 /// @param parts the canvas, which reaches round the button for the marker
 /// @param art the room's art
 /// @param frame the button, in frame pixels
-/// @param words the words, in UTF-8
 /// @param lamp the lamp
 /// @param condition pressed or grayed draws it so
 /// @param focused the button holds the focus
@@ -323,23 +314,9 @@ void draw_mutators_switch(
     oa::ui::frontend_renderer::RoomCanvas& parts,
     const oa::ui::frontend_renderer::RoomArt& art,
     const oa::ui::frontend_renderer::SourceRect& frame,
-    std::string_view words,
     oa::ui::frontend_renderer::RoomLamp lamp,
     oa::ui::frontend_renderer::ButtonCondition condition,
     bool focused
-);
-
-/// A room's Mutators button's words as draw_mutators_switch draws them, in
-/// UTF-8: whole where they fit, else cut and ended with "…".
-///
-/// @param art the room's art
-/// @param frame the button, in frame pixels
-/// @param words the words, in UTF-8
-/// @return the words
-[[nodiscard]] std::string mutators_words_shown(
-    const oa::ui::frontend_renderer::RoomArt& art,
-    const oa::ui::frontend_renderer::SourceRect& frame,
-    std::string_view words
 );
 
 /// Reads the runtime fields the seat screen's helpers need, and writes a
