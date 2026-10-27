@@ -383,7 +383,7 @@ void test_one_class(int32_t width, int32_t height, kit::SizeClass size_class, in
     OA_CHECK(edit != nullptr);
     OA_CHECK(close != nullptr);
     if (edit != nullptr) {
-        OA_CHECK(edit->text == "EDIT KEYS…");
+        OA_CHECK(edit->text == "Edit keys…");
         OA_CHECK(
             kit::hit(laid.list, {edit->rect.x + 1, edit->rect.y + 1}) == editor::id_overlay_edit
         );
@@ -415,6 +415,20 @@ void test_one_class(int32_t width, int32_t height, kit::SizeClass size_class, in
     OA_CHECK(
         find_control(laid.list, editor::name_keys_overlay_bar) == nullptr || laid.scroll_max > 0
     );
+    // Tab reaches EDIT KEYS… and the close mark, and the list while it
+    // scrolls, so the keys can scroll it.
+    const std::vector<kit::ControlId> scrolling{
+        editor::id_overlay_edit, editor::id_overlay_close, editor::id_overlay_list
+    };
+    OA_CHECK(short_laid.list.tab_order == scrolling);
+    const kit::Control* short_list = find_control(short_laid.list, editor::name_keys_overlay_list);
+    OA_CHECK(short_list != nullptr && short_list->focusable);
+    if (laid.scroll_max == 0) {
+        const std::vector<kit::ControlId> still{editor::id_overlay_edit, editor::id_overlay_close};
+        OA_CHECK(laid.list.tab_order == still);
+        const kit::Control* still_list = find_control(laid.list, editor::name_keys_overlay_list);
+        OA_CHECK(still_list != nullptr && !still_list->focusable);
+    }
 }
 
 /// The names automation uses are the ones the screen publishes, and they are legal.

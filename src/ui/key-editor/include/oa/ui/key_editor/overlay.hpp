@@ -124,7 +124,8 @@ struct OverlayLayout {
 /// Regular and 520 at Large with two, narrower when the battlefield is.
 /// It is as tall as its content, up to the battlefield less its margins;
 /// beyond that the groups scroll under a fixed header and footer. `scroll`
-/// is held to what the groups can scroll.
+/// is held to what the groups can scroll. Tab's order is EDIT KEYS…, the
+/// close mark and, while the groups scroll, the list.
 ///
 /// @param inputs the words and the lookup
 /// @param groups the groups overlay_groups returned

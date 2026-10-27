@@ -886,11 +886,14 @@ OverlayLayout overlay_layout(
     list_control.rect = viewport;
     list_control.name = std::string(name_keys_overlay_list);
     list_control.kind = kit::ControlKind::list;
-    list_control.focusable = false;
+    // The keys reach the list, to scroll it, while it is taller than its view.
+    list_control.focusable = scroll_max > 0;
     list_control.text = std::move(listed);
     // Tried after the buttons and the bar, so a press on them reaches them.
     list.controls.push_back(std::move(list_control));
     list.tab_order = {id_overlay_edit, id_overlay_close};
+    if (scroll_max > 0)
+        list.tab_order.push_back(id_overlay_list);
     return laid;
 }
 

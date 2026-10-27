@@ -4,7 +4,10 @@
 // --check-keys-overlay: a skirmish with the commander selected. Primary+/
 // opens the overlay and the clock keeps running, a building being placed
 // changes its title, Escape closes it, and EDIT KEYS… opens the editor,
-// which holds the clock. The order badges, the underline, the help lines,
+// which holds the clock. Tab walks EDIT KEYS…, the close mark and a list
+// that scrolls, Page Down and End scroll it, a press on the battlefield hands
+// the keys back, and Enter opens the editor; on a pad R1 and L1 page the
+// list, Y opens the editor and View closes the overlay. The order badges, the underline, the help lines,
 // the build cell's badge, the rotate hint and a latched QUEUE in the On line
 // follow the bindings. Then Arrange Overlays from the in-game menu: a handle
 // on each overlay inside the overlays' area, the keys overlay and the chat
@@ -15,7 +18,9 @@
 // line where they were left. --snapshot writes keys-overlay-<w>x<h>.ppm,
 // key-badges-<w>x<h>.ppm, arrange-overlays-<w>x<h>.ppm and
 // rounded-settings-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080, the last
-// two at 800x600 too.
+// two at 800x600 too, and keys-overlay-focus-640x480.ppm and
+// keys-overlay-list-focus-640x480.ppm with the focus on EDIT KEYS… and on the
+// scrolled list.
 
 #include "oa/app/runtime.hpp"
 #include "oa_layer_check.hpp"
@@ -30,6 +35,7 @@
 #include "oa/ui/gui_layout.hpp"
 #include "oa/ui/key_editor/overlay.hpp"
 #include "oa/ui/key_editor/screen.hpp"
+#include "oa/ui/pad_controls.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -65,6 +71,7 @@ namespace layout = oa::ui::display_layout;
 namespace hud = oa::ui::touch_hud;
 namespace kit = oa::ui::kit;
 namespace places = overlay_placement;
+namespace pad = oa::ui::pad_controls;
 
 /// Primary on this platform: Command on a Mac, Ctrl elsewhere.
 #ifdef SDL_PLATFORM_MACOS
@@ -604,6 +611,119 @@ void Runtime::check_keys_overlay() {
     close_overlay();
     frames(2);
     require(match_clock_steps(), "the clock stopped after the overlay closed");
+
+    say_step("Tab walks EDIT KEYS…, the close mark and the list; Enter opens oa.key-editor");
+    {
+        const auto overlay_state = [&] {
+            const LayerScreen* shown = oa_layer().find(editor::name_keys_overlay);
+            require(shown != nullptr, "the keys overlay is not open");
+            return shown->interaction();
+        };
+        // How far the groups are scrolled, as the scroll bar's thumb shows it.
+        const auto overlay_thumb = [&] {
+            const LayerScreen* shown = oa_layer().find(editor::name_keys_overlay);
+            require(shown != nullptr, "the keys overlay is not open");
+            const kit::DisplayList drawn = shown->display_list();
+            for (const kit::Item& item : drawn.items)
+                if (const auto* bar = std::get_if<kit::ScrollBarLook>(&item.look))
+                    return bar->thumb.y;
+            require(false, "the overlay's groups show no scroll bar");
+            return int32_t{0};
+        };
+        const auto list_scrolls = [&] {
+            const LayerScreen* shown = oa_layer().find(editor::name_keys_overlay);
+            require(shown != nullptr, "the keys overlay is not open");
+            const kit::DisplayList drawn = shown->display_list();
+            return std::find(
+                       drawn.tab_order.begin(), drawn.tab_order.end(), editor::id_overlay_list
+                   ) != drawn.tab_order.end();
+        };
+        // A Compact battlefield is short, so the groups scroll there.
+        resize(640, 480);
+        select_commander();
+        open_overlay();
+        require(!overlay_state().focus_shown, "the overlay opened with its focus shown");
+        tap(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+        require(
+            overlay_state().focus_shown && overlay_state().focused == editor::id_overlay_edit,
+            "Tab did not show the focus on EDIT KEYS…"
+        );
+        snapshot("keys-overlay-focus", 640, 480);
+        tap(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+        require(
+            overlay_state().focused == editor::id_overlay_close, "Tab did not reach the close mark"
+        );
+        tap(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_LSHIFT);
+        require(
+            overlay_state().focused == editor::id_overlay_edit,
+            "Shift+Tab did not go back to EDIT KEYS…"
+        );
+        require(list_scrolls(), "the overlay's groups do not scroll at 640x480");
+        tap(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+        tap(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+        require(overlay_state().focused == editor::id_overlay_list, "Tab did not reach the list");
+        const int32_t top = overlay_thumb();
+        tap(SDLK_PAGEDOWN, SDL_SCANCODE_PAGEDOWN, SDL_KMOD_NONE);
+        require(overlay_thumb() > top, "Page Down did not scroll the list");
+        snapshot("keys-overlay-list-focus", 640, 480);
+        tap(SDLK_HOME, SDL_SCANCODE_HOME, SDL_KMOD_NONE);
+        require(overlay_thumb() == top, "Home did not scroll the list back to its top");
+        tap(SDLK_UP, SDL_SCANCODE_UP, SDL_KMOD_NONE);
+        require(
+            overlay_state().focused == editor::id_overlay_edit ||
+                overlay_state().focused == editor::id_overlay_close,
+            "Up at the list's top did not move to the buttons"
+        );
+        require(!match_paused_, "the overlay's keys paused the match");
+        say_step("a press on the battlefield hands the keys back to the match");
+        const layout::Point field{
+            match_layout_.battlefield_x() + match_layout_.battlefield_width() * 3 / 4,
+            match_layout_.battlefield_y() + match_layout_.battlefield_height() * 3 / 4
+        };
+        pointer_at(field, SDL_EVENT_MOUSE_MOTION, 0);
+        pointer_at(field, SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_RIGHT);
+        pointer_at(field, SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_RIGHT);
+        frames(1);
+        require(overlay_open(), "a press on the battlefield closed the overlay");
+        require(!overlay_state().focus_shown, "a press on the battlefield left the focus shown");
+        say_step("on a pad R1 and L1 page the list, View closes the overlay");
+        const int32_t pad_top = overlay_thumb();
+        require(oa_layer().take_pad_action(pad::Action::order_ring), "R1 went past the overlay");
+        frames(1);
+        require(overlay_thumb() > pad_top, "R1 did not page the list down");
+        require(oa_layer().take_pad_action(pad::Action::build_ring), "L1 went past the overlay");
+        frames(1);
+        require(overlay_thumb() == pad_top, "L1 did not page the list back up");
+        require(oa_layer().take_pad_action(pad::Action::unit_info), "View went past the overlay");
+        frames(1);
+        require(!overlay_open(), "View did not close the overlay");
+        say_step("Y opens oa.key-editor from the overlay");
+        open_overlay();
+        require(oa_layer().take_pad_action(pad::Action::select_type), "Y went past the overlay");
+        frames(1);
+        require(oa_layer().find(editor::screen_name) != nullptr, "Y did not open oa.key-editor");
+        require(!overlay_open(), "Y left the overlay open");
+        tap(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE, SDL_KMOD_NONE);
+        require(oa_layer().find(editor::screen_name) == nullptr, "Escape did not close the editor");
+        if (match_paused_)
+            resume_match_pause();
+        frames(1);
+        say_step("Enter on EDIT KEYS… opens oa.key-editor");
+        open_overlay();
+        tap(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+        tap(SDLK_RETURN, SDL_SCANCODE_RETURN, SDL_KMOD_NONE);
+        require(
+            oa_layer().find(editor::screen_name) != nullptr, "Enter did not open oa.key-editor"
+        );
+        require(!overlay_open(), "Enter left the overlay open");
+        tap(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE, SDL_KMOD_NONE);
+        require(oa_layer().find(editor::screen_name) == nullptr, "Escape did not close the editor");
+        if (match_paused_)
+            resume_match_pause();
+        frames(1);
+        resize(1280, 720);
+        select_commander();
+    }
 
     say_step("EDIT KEYS… opens oa.key-editor and the clock holds");
     open_overlay();

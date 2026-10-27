@@ -4,15 +4,20 @@
 // The keys overlay in a match: a panel beside the side column listing the
 // keys of the contexts that are active now, or where the player put it with
 // Arrange overlays. It is not modal: the match keeps running, and what the
-// panel does not take goes on to the match.
+// panel does not take goes on to the match. Tab and Shift+Tab walk its
+// controls; once a key has shown its focus, the arrows, Enter, Space and the
+// paging keys are its own until a press elsewhere hands them back. On a pad,
+// L1 and R1 page the list, Y is EDIT KEYS… and View closes it.
 
 #include "oa/app/runtime.hpp"
 
 #include "oa_layer.hpp"
 
 #include "oa/ui/key_editor/overlay.hpp"
+#include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/input.hpp"
 #include "oa/ui/kit/layout.hpp"
+#include "oa/ui/pad_controls.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -31,6 +36,7 @@ namespace {
 namespace editor = oa::ui::key_editor;
 namespace kit = oa::ui::kit;
 namespace layout = oa::ui::display_layout;
+namespace pad = oa::ui::pad_controls;
 
 /// Points the list moves for one notch of the wheel.
 constexpr int32_t kWheelStep = 24;
@@ -166,8 +172,14 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
         }
         if (kind == ScreenInputKind::pointer_down) {
             if (!inside && (finger_reach <= 0 ||
-                            kit::reach(list, at, finger_reach).control == kit::no_control))
+                            kit::reach(list, at, finger_reach).control == kit::no_control)) {
+                // A press on the match hands the keys back to it.
+                if (interaction_.focus_shown) {
+                    interaction_.focus_shown = false;
+                    ++revision_;
+                }
                 return LayerAnswer::pass;
+            }
             if (button != SDL_BUTTON_LEFT)
                 return LayerAnswer::none;
             const kit::PointerOutcome pressed =
@@ -183,25 +195,91 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
         const kit::PointerOutcome released = kit::pointer_up(interaction_, list, at);
         ++revision_;
         if (released.result == kit::PointerResult::activated) {
-            if (released.control == editor::id_overlay_close)
-                return LayerAnswer::close;
-            if (released.control == editor::id_overlay_edit) {
-                // The editor opens over the match, which it pauses when alone.
-                if (runtime_.open_key_editor({}))
-                    return LayerAnswer::close;
-            }
+            const LayerAnswer pressed = press(released.control);
+            if (pressed == LayerAnswer::close)
+                return pressed;
         }
         return LayerAnswer::redraw;
     }
 
-    /// Closes on Escape. Every other key goes on to the match.
+    /// Closes on Escape. Tab and Shift+Tab walk EDIT KEYS…, the close mark
+    /// and, while the groups scroll, the list, showing the focus. While the
+    /// focus shows, Enter and Space press the focused button, Page Up, Page
+    /// Down, Home and End scroll the groups, Up and Down on the list scroll
+    /// it a step (Up at its top moves on to the buttons), and the arrows
+    /// otherwise move the focus. Every other key goes on to the match.
     ///
     /// @param pressed the key
-    /// @return close for Escape, otherwise pass
+    /// @return close for Escape or a button that closes it, redraw or none
+    ///     for a key it takes, otherwise pass
     LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override {
         if (pressed == kit::Key::escape)
             return LayerAnswer::close;
-        return LayerAnswer::pass;
+        const kit::DisplayList& list = laid_out_.list;
+        if (pressed == kit::Key::tab || pressed == kit::Key::back_tab) {
+            static_cast<void>(kit::key(interaction_, list, pressed));
+            ++revision_;
+            return LayerAnswer::redraw;
+        }
+        if (!interaction_.focus_shown)
+            return LayerAnswer::pass;
+        const bool on_list = interaction_.focused == editor::id_overlay_list;
+        switch (pressed) {
+        case kit::Key::enter:
+        case kit::Key::space:
+            return press(interaction_.focused);
+        case kit::Key::page_up:
+            return scroll_to(scroll_ - page());
+        case kit::Key::page_down:
+            return scroll_to(scroll_ + page());
+        case kit::Key::home:
+            return scroll_to(0);
+        case kit::Key::end:
+            return scroll_to(laid_out_.scroll_max);
+        case kit::Key::up:
+            if (on_list && scroll_ > 0)
+                return scroll_to(scroll_ - kWheelStep);
+            break;
+        case kit::Key::down:
+            if (on_list)
+                return scroll_to(scroll_ + kWheelStep);
+            break;
+        case kit::Key::left:
+        case kit::Key::right:
+            break;
+        default:
+            return LayerAnswer::pass;
+        }
+        static_cast<void>(kit::key(interaction_, list, pressed));
+        ++revision_;
+        return LayerAnswer::redraw;
+    }
+
+    /// Takes the pad's buttons while the panel shows: L1 and R1 page the
+    /// groups up and down while they scroll, Y is EDIT KEYS… and View's tap
+    /// closes the panel. Every other action goes on to the match.
+    ///
+    /// @param action the gamepad action
+    /// @return what the overlay did, or pass
+    LayerAnswer pad_action(pad::Action action) override {
+        switch (action) {
+        case pad::Action::build_ring:
+        case pad::Action::add_toggle:
+            if (laid_out_.scroll_max <= 0)
+                return LayerAnswer::pass;
+            return scroll_to(scroll_ - page());
+        case pad::Action::order_ring:
+        case pad::Action::queue_toggle:
+            if (laid_out_.scroll_max <= 0)
+                return LayerAnswer::pass;
+            return scroll_to(scroll_ + page());
+        case pad::Action::select_type:
+            return press(editor::id_overlay_edit);
+        case pad::Action::unit_info:
+            return LayerAnswer::close;
+        default:
+            return LayerAnswer::pass;
+        }
     }
 
     /// Scrolls the groups while the pointer is over the panel and they are
@@ -215,12 +293,12 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
             laid_out_.scroll_max <= 0)
             return LayerAnswer::pass;
         const double moved = std::clamp(static_cast<double>(notches) * kWheelStep, -1.0e6, 1.0e6);
-        scroll_ -= static_cast<int32_t>(std::lround(moved));
-        scroll_ = std::clamp(scroll_, int32_t{0}, laid_out_.scroll_max);
-        return refresh(true) ? LayerAnswer::redraw : LayerAnswer::none;
+        return scroll_to(scroll_ - static_cast<int32_t>(std::lround(moved)));
     }
 
-    /// Returns the panel's display list, its buttons showing the hover and the press.
+    /// Returns the panel's display list, its buttons showing the hover and
+    /// the press, and the focus ring round the focused control once a key
+    /// has shown it.
     ///
     /// @return the list
     [[nodiscard]] kit::DisplayList display_list() const override {
@@ -232,6 +310,15 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
             if (auto* button = std::get_if<kit::ButtonLook>(&item.look)) {
                 button->hovered = true;
                 button->held = interaction_.pressed == item.control;
+            }
+        }
+        if (interaction_.focus_shown) {
+            for (const kit::Control& control : laid_out_.list.controls) {
+                if (control.id != interaction_.focused)
+                    continue;
+                // The list's ring lies inside its view; a button's outside it.
+                kit::add_focus_ring(list, control.rect, control.id != editor::id_overlay_list);
+                break;
             }
         }
         return list;
@@ -270,6 +357,43 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
     [[nodiscard]] const layout::Rect& unplaced() const noexcept { return unplaced_; }
 
   private:
+
+    /// Presses one of the panel's buttons: EDIT KEYS… opens the editor over
+    /// the match, which it pauses when alone, and the close mark closes the
+    /// panel.
+    ///
+    /// @param id the button
+    /// @return close when the panel closes, otherwise none
+    LayerAnswer press(kit::ControlId id) {
+        if (id == editor::id_overlay_close)
+            return LayerAnswer::close;
+        if (id == editor::id_overlay_edit && runtime_.open_key_editor({}))
+            return LayerAnswer::close;
+        return LayerAnswer::none;
+    }
+
+    /// Returns how far a page moves the groups: their view less a wheel's
+    /// step, so a line stays in sight.
+    ///
+    /// @return the step, in points
+    [[nodiscard]] int32_t page() const {
+        for (const kit::Control& control : laid_out_.list.controls)
+            if (control.id == editor::id_overlay_list)
+                return std::max(control.rect.height - kWheelStep, kWheelStep);
+        return kWheelStep;
+    }
+
+    /// Scrolls the groups to a place, held to what they scroll.
+    ///
+    /// @param wanted how far down, in points
+    /// @return redraw when they moved, otherwise none
+    LayerAnswer scroll_to(int32_t wanted) {
+        const int32_t held = std::clamp(wanted, int32_t{0}, laid_out_.scroll_max);
+        if (held == scroll_)
+            return LayerAnswer::none;
+        scroll_ = held;
+        return refresh(true) ? LayerAnswer::redraw : LayerAnswer::none;
+    }
 
     /// Lays the groups out again when what they show has changed.
     ///
@@ -311,6 +435,12 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
         laid_out_ = std::move(laid);
         stamp_ = placed;
         laid_ = true;
+        // The list leaves Tab's order once it no longer scrolls: its focus
+        // moves back to EDIT KEYS….
+        const std::vector<kit::ControlId>& order = laid_out_.list.tab_order;
+        if (interaction_.focused != kit::no_control &&
+            std::find(order.begin(), order.end(), interaction_.focused) == order.end())
+            interaction_.focused = editor::id_overlay_edit;
         ++revision_;
         return changed || forced;
     }
