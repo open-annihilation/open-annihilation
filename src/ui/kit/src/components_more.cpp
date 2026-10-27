@@ -2006,17 +2006,17 @@ PlacedUpdatePill place_update_pill(const UpdatePill& pill, const Measure& small)
     PlacedUpdatePill placed;
     placed.height = kPillHeight;
     const int32_t words = small ? small(pill.text) : estimated_width(pill.text);
-    const int32_t text_width = std::clamp(words, kPillLeastText, kPillMostText);
+    const int32_t words_width = std::clamp(words, kPillLeastText, kPillMostText);
     int32_t x = kPillPadding;
     placed.icon = {x, (kPillHeight - kPillIconSide) / 2, kPillIconSide, kPillIconSide};
     x += kPillIconSide + kPillGap;
     const bool bar = pill.percent >= 0;
     const int32_t block = metrics.small_line + (bar ? kPillBarGap + kPillBarHeight : 0);
     const int32_t text_top = (kPillHeight - block) / 2;
-    placed.text = {x, text_top, text_width, metrics.small_line};
+    placed.text = {x, text_top, words_width, metrics.small_line};
     if (bar)
-        placed.bar = {x, text_top + metrics.small_line + kPillBarGap, text_width, kPillBarHeight};
-    x += text_width;
+        placed.bar = {x, text_top + metrics.small_line + kPillBarGap, words_width, kPillBarHeight};
+    x += words_width;
     if (!pill.caption.empty()) {
         const int32_t caption =
             std::max(estimated_width(pill.caption), small ? small(pill.caption) : int32_t{0});
