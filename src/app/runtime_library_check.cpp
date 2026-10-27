@@ -1620,6 +1620,36 @@ void Runtime::check_library() {
                 );
             else
                 require(lefty_own_text.empty(), "Start clean put own changes on Lefty Test" + on);
+            // A notice says where the layout is used, with Undo. Undo puts
+            // the preference back and removes only the own folder USE made;
+            // OK keeps everything.
+            require(
+                named("oa.prompt.undo").has_value() && named("oa.prompt.ok").has_value(),
+                "USE did not offer Undo" + on
+            );
+            if (keep) {
+                click_named("oa.prompt.undo");
+                run_frame(running);
+                require(running, "a frame ended the run");
+                const auto undone = preference_values_.find("open-annihilation.keys.layout");
+                require(
+                    undone != preference_values_.end() && undone->second == "grid-test",
+                    "Undo did not put Grid Test back" + on
+                );
+                require(
+                    manifest_text(lefty_own).empty(),
+                    "Undo left the own changes USE copied onto Lefty Test" + on
+                );
+                require(
+                    manifest_text(grid_own) == grid_own_before,
+                    "Undo changed the own changes saved with Grid Test" + on
+                );
+                std::cout << "library check: Undo after USE puts Grid Test back" << on << '\n';
+            } else {
+                click_named("oa.prompt.ok");
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
             // Compact's details page has no tab strip. Back returns to the
             // list, whose tabs can then be scrolled to Active.
             if (named("oa.library.back"))
