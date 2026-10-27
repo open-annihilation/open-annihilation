@@ -3980,15 +3980,6 @@ void add_map_tile(
     tab_stop(building, control);
 }
 
-/// Appends a heading of the Active tab, and returns the row under it.
-///
-/// @param[in,out] building the layout
-/// @param words_shown the heading, looked up
-/// @param left its left column
-/// @param top its top row
-/// @param width its width
-/// @param clip what drawing may touch
-/// @return the row under it and the gap after it
 /// Returns a heading cut so its tracked width fits.
 ///
 /// @param building the layout
@@ -4023,6 +4014,79 @@ std::string cut_heading(const Building& building, std::string_view words_shown, 
     return kept;
 }
 
+/// Appends Compact's KEYS line and returns the row under it.
+///
+/// A full tile here pushes an expansion pill off the 640 by 480 page once
+/// the maps scroll into view. The line keeps the heading above it and puts
+/// the layout's name, its own-changes line and CHANGE… on one row, with no
+/// badge. The label reads the whole of that. The words drawn are cut to the
+/// room left of the button.
+///
+/// @param[in,out] building the layout
+/// @param keys the tile's words and its button
+/// @param left the line's left column
+/// @param top the line's top row, under the KEYS heading
+/// @param width the line's width
+/// @param clip what drawing may touch
+/// @return the row under the line and the gap after it
+int32_t place_compact_keys_line(
+    Building& building,
+    const IdentityTile& keys,
+    int32_t left,
+    int32_t top,
+    int32_t width,
+    const kit::Rect& clip
+) {
+    const kit::Metrics& metrics = *building.metrics;
+    const int32_t row_height = std::max(metrics.regular_line, metrics.button_height);
+    const int32_t across =
+        std::min(button_width(building, keys.button_caption), std::max(width, int32_t{0}));
+    const int32_t button_x = left + std::max(width - across, int32_t{0});
+    const int32_t text_right = std::max(button_x - metrics.list_row_gap, left);
+    const int32_t text_width = std::max(text_right - left, int32_t{0});
+    const kit::Rect text_box{left, top, text_width, row_height};
+    if (text_width > 0 && !keys.read.empty()) {
+        add_text(
+            building,
+            kit::FontRole::regular,
+            cut(building, kit::FontRole::regular, keys.read, text_width),
+            text_box,
+            kit::Align::left,
+            kit::colour::text,
+            clip
+        );
+    }
+    if (across > 0 && !keys.button_caption.empty()) {
+        const int32_t button_y =
+            top + std::max((row_height - metrics.button_height) / 2, int32_t{0});
+        add_button(
+            building,
+            building.detail,
+            {button_x, button_y, across, metrics.button_height},
+            keys.button_caption,
+            true,
+            keys.button_enabled,
+            keys.button_id,
+            keys.button_name,
+            clip,
+            -1
+        );
+    }
+    add_label(
+        building.detail, keys.id, kit::intersect(text_box, clip), keys.name, keys.read, clip, -1
+    );
+    return top + row_height + metrics.paragraph_gap;
+}
+
+/// Appends a heading of the Active tab, and returns the row under it.
+///
+/// @param[in,out] building the layout
+/// @param words_shown the heading, looked up
+/// @param left its left column
+/// @param top its top row
+/// @param width its width
+/// @param clip what drawing may touch
+/// @return the row under it and the gap after it
 int32_t add_active_heading(
     Building& building,
     std::string_view words_shown,
@@ -4884,10 +4948,12 @@ void place_expansions(
     }
 }
 
-/// Appends the base game, the language, the expansions and the mod, and
-/// returns the row under them. The four tiles stand two by two at every
-/// size. `area` places them; `clip` is what drawing may touch, the page
-/// when that page scrolls.
+/// Appends the base game, the language, the expansions, the mod and the
+/// layout in use, and returns the row under them. The four tiles stand two
+/// by two at every size. On a small window the layout is one line under its
+/// heading, so the expansion rows stay in view when the maps scroll up. On
+/// a larger window it is a full-width tile. `area` places them; `clip` is
+/// what drawing may touch, the page when that page scrolls.
 ///
 /// @param[in,out] building the layout
 /// @param setup what the tab shows of the mod and the language
@@ -4952,6 +5018,9 @@ int32_t place_fixed_identity(
         area.width,
         clip
     );
+    if (building.size_class == kit::SizeClass::compact) {
+        return place_compact_keys_line(building, keys, area.x, keys_heading, area.width, clip);
+    }
     const int32_t keys_height = identity_height(metrics, keys);
     place_identity(building, keys, {area.x, keys_heading, area.width, keys_height}, clip);
     return keys_heading + keys_height + metrics.paragraph_gap;
@@ -5002,13 +5071,13 @@ void add_active_bar(
     };
 }
 
-/// Appends the Active tab. The four tiles stand under the tabs, then the
-/// MAPS heading and its search, then the maps. On a small window, when the
-/// tiles leave the maps fewer than four rows, the page scrolls as one: the
-/// tiles, then the maps, and once the maps are scrolled to the top at least
-/// four rows fit. Otherwise the maps pane scrolls on its own and the tiles
-/// stay. Either scroll bar is the one the other pages use. A search on the
-/// heading leaves the tiles whose name or pack name holds the text.
+/// Appends the Active tab. The four tiles stand under the tabs, then KEYS,
+/// then the MAPS heading and its search, then the maps. On a small window,
+/// when the tiles leave the maps fewer than four rows, the page scrolls as
+/// one: the tiles, then the maps, and once the maps are scrolled to the top at
+/// least four rows fit. Otherwise the maps pane scrolls on its own and the
+/// tiles stay. Either scroll bar is the one the other pages use. A search on
+/// the heading leaves the tiles whose name or pack name holds the text.
 ///
 /// @param[in,out] building the layout
 /// @param area the area

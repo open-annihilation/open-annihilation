@@ -196,6 +196,10 @@ under them, so the maps pane keeps a row.
   While OA default is in use the pill reads **Built in**. While another
   layout is in use the pill reads **USING**, in the same green as
   **PLAYING**. **CHANGE…** opens the Keys tab with that layout selected.
+  On a small window that block is the **KEYS** heading and one line: the
+  layout's name, the own-changes line and **CHANGE…**, with no badge, so
+  the expansion rows stay on screen when the maps scroll into view. On a
+  larger window it is a full-width tile.
 - **MAPS**: each map you have installed. On a small window a map is one
   line: its name, how many players it is for and its size ("Twin Rivers ·
   2 players · 12x12"). On a larger window it is a tile with that map's

@@ -391,7 +391,11 @@ app removes the folder (`Runtime::library_uninstall`,
   960 by 600 points, never larger than the frame), from its top left corner:
   - **The Active tab**, at every class, shows under the tabs, with no
     search and no filters. At every size the first row is BASE GAME and
-    LANGUAGE and the second is EXPANSIONS and MOD, then the MAPS heading.
+    LANGUAGE and the second is EXPANSIONS and MOD, then KEYS, then the MAPS
+    heading. On a small window KEYS is a heading and one line, the layout
+    in use and CHANGE…, with no badge, so the expansion rows keep their
+    text when the page scrolls to the maps. On a larger window KEYS is a
+    full-width tile.
     The base-game tile has Total Annihilation's icon, from the program in
     the game folder that describes itself as Total Annihilation,
     nearest-neighbour and centred in the badge square. When that program
