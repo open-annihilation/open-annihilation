@@ -561,27 +561,21 @@ void objects(
     const float sea = float(in.map->sea_level);
     if (!wet(in, x, z))
         return;
-    if (draw.kind != WorldDrawKind::model && y < sea && in.shimmer > 0) {
-        // Terrain decals lie at their world height; upright feature sprites
-        // rise from their anchor, so their dry tops retain their original colour.
-        // Effect artwork is an optical halo at its actual event height, not
-        // a tall object whose upper pixels emerge through the water surface.
-        const auto& sprite = draws.sprites[draw.index];
-        const auto anchor = screen(in, x, z - y * 0.5F);
+    // A feature's frame is the map's own art, which already shows it under
+    // the water as the terrain's art shows the sea bed: it keeps its colours,
+    // as the terrain does, so that it blends into the water around it as the
+    // game draws it. Effect artwork is an optical halo at its event's height,
+    // which the water tints whole.
+    if (draw.kind != WorldDrawKind::model && !draws.sprites[draw.index].on_map && y < sea &&
+        in.shimmer > 0) {
         for (std::size_t i = first_vertex; i < frame.vertices.size(); ++i) {
             auto& vertex = frame.vertices[i];
-            const float height =
-                (sprite.terrain_decal || !sprite.on_map || draw.kind == WorldDrawKind::lit_sprite)
-                    ? y
-                    : y + std::max(
-                              0.0F, (anchor[1] - vertex.y) / (in.view.zoom * in.view.scale) * 2
-                          );
             const auto point = water_position(in, vertex);
             renderer_water_shading::apply(
                 vertex,
                 point[0],
                 point[1],
-                sea - height,
+                sea - y,
                 in.seconds,
                 in.shimmer * detail(in),
                 in.view.scale * in.view.zoom

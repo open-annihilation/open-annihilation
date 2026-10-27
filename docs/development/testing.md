@@ -220,7 +220,7 @@ distortion at 0%, and its pinned sound with them at their defaults. With a
 named file Hardware acceleration and Vertical sync are
 Off, and the windowed checks' `SDL_RENDER_DRIVER=software` locks both, so no
 check draws through the graphics card or waits for the display; game text
-keeps the game's own fonts there too, as modern fonts are Off. Five
+keeps the game's own fonts there too, as modern fonts are Off. Six
 checks pass `--force-capable`, which lifts those locks:
 `native-engine-settings`, so that it can turn Vertical sync On and read it
 back, and set Hardware acceleration to Basic, Full and Off through the
@@ -257,6 +257,13 @@ panel among them, leaves to the card in the Full tier what of it lies over
 the battlefield, and the cases above hold it to what it asks: beside the
 processor's picture, under the fog, over the never-mapped ground's black
 and over the kill board.
+`native-underwater-features` draws metal patches on the sea bed of Steel
+Jungle, in open water, at a shore and at the edge of a boat's sight, in
+the Off, Basic and Full tiers with `--hardware-acceleration`, and holds
+each to the processor's picture: exactly with the water's effects off and
+the fog Classic, in the processor's colours with the water's effects at
+their defaults, and pixel by pixel through the Smooth fog's edge; its
+pictures go to `local/reports` in its folder of the build tree.
 
 No window of a check opens at the display's own pixel density but
 `native-render-tiers-density`'s, which `--native-density` opens so, and

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <initializer_list>
 #include <utility>
 #include <vector>
 
@@ -545,6 +546,84 @@ void append_box_quad(
     );
 }
 
+/// Target pixels within which two points of a piece are one: the points a
+/// cut makes on an edge a corner already lies on.
+constexpr float same_point = 1.0e-4F;
+
+/// Cuts a convex polygon of the greyed pass by a rectangle, a side at a
+/// time, each point the cut makes lying on its edge with the alpha the edge
+/// interpolates to there, so that the alpha stays the polygon's linear one.
+/// A point that falls on the one before it is dropped, so that a corner
+/// lying on a side is kept once.
+///
+/// @param piece the polygon, cut in place; fewer than 3 points where
+///     nothing of it lies in the rectangle
+/// @param left the rectangle's left edge
+/// @param top its top edge
+/// @param right its right edge
+/// @param bottom its bottom edge
+void cut_piece(CoverPiece& piece, float left, float top, float right, float bottom) noexcept {
+    // Each side: whether it bounds the columns, else the rows, the edge,
+    // and whether the inside lies at or past it.
+    struct Side {
+        bool across{};
+        float edge{};
+        bool past{};
+    };
+
+    const std::array<Side, 4> sides{{
+        {true, left, true},
+        {true, right, false},
+        {false, top, true},
+        {false, bottom, false},
+    }};
+    // A polygon cut by one side gains at most one point.
+    std::array<FogPoint, most_cover_points + 4> points{};
+    uint32_t count = std::min<uint32_t>(piece.count, most_cover_points);
+    std::copy_n(piece.points.begin(), count, points.begin());
+    for (const Side& side : sides) {
+        if (count < 3)
+            break;
+        const auto along = [&](const FogPoint& point) { return side.across ? point.x : point.y; };
+        const auto inside = [&](const FogPoint& point) {
+            return side.past ? along(point) >= side.edge : along(point) <= side.edge;
+        };
+        std::array<FogPoint, most_cover_points + 4> kept{};
+        uint32_t kept_count = 0;
+        const auto keep = [&](const FogPoint& point) {
+            if (kept_count != 0 && std::abs(kept[kept_count - 1].x - point.x) < same_point &&
+                std::abs(kept[kept_count - 1].y - point.y) < same_point)
+                return;
+            if (kept_count < kept.size())
+                kept[kept_count++] = point;
+        };
+        for (uint32_t index = 0; index < count; ++index) {
+            const FogPoint& from = points[index];
+            const FogPoint& to = points[(index + 1) % count];
+            const bool from_in = inside(from);
+            if (from_in)
+                keep(from);
+            if (from_in != inside(to)) {
+                const float share = (side.edge - along(from)) / (along(to) - along(from));
+                keep({
+                    from.x + (to.x - from.x) * share,
+                    from.y + (to.y - from.y) * share,
+                    from.alpha + (to.alpha - from.alpha) * share,
+                });
+            }
+        }
+        if (kept_count > 1 && std::abs(kept[kept_count - 1].x - kept[0].x) < same_point &&
+            std::abs(kept[kept_count - 1].y - kept[0].y) < same_point)
+            --kept_count;
+        count = kept_count;
+        points = kept;
+    }
+    // A triangle cut by four sides keeps at most seven points, a rectangle
+    // four.
+    piece.count = count >= 3 ? std::min<uint32_t>(count, most_cover_points) : 0;
+    std::copy_n(points.begin(), piece.count, piece.points.begin());
+}
+
 } // namespace
 
 std::array<float, fog_tile_corners> corner_alphas(uint8_t mask) noexcept {
@@ -1058,6 +1137,126 @@ uint32_t append_unmapped_classic(
         }
     }
     return quads;
+}
+
+Cover greyed_cover(
+    const wr::FogGrid& grid,
+    const ClassicShapes* shapes,
+    const FogPlacement& placement,
+    float left,
+    float top,
+    float right,
+    float bottom,
+    std::vector<CoverPiece>& pieces
+) {
+    pieces.clear();
+    if (grid.tiles.empty() || grid.width <= 0 || grid.height <= 0 || !(left < right) ||
+        !(top < bottom) || !(placement.scale > 0.0F) || (shapes != nullptr && !shapes->built()))
+        return Cover::none;
+    // The tiles the rectangle reaches: column c spans the map pixels from
+    // the camera's, past the grid's offset, plus c tiles.
+    const auto tile_of = [&](float target, float origin, int32_t offset) {
+        const double map = (static_cast<double>(target) - origin) / placement.scale - offset;
+        return static_cast<int32_t>(std::floor(map / tile_pixels));
+    };
+    const int32_t first_column = tile_of(left, placement.origin_x, grid.offset_x);
+    const int32_t last_column = tile_of(right, placement.origin_x, grid.offset_x);
+    const int32_t first_row = tile_of(top, placement.origin_y, grid.offset_z);
+    const int32_t last_row = tile_of(bottom, placement.origin_y, grid.offset_z);
+    // Wholly covered only where every tile it reaches is on the grid and
+    // wholly out of sight.
+    bool whole =
+        first_column >= 0 && first_row >= 0 && last_column < grid.width && last_row < grid.height;
+    bool any = false;
+    const auto add_box = [&](int32_t map_x, int32_t map_z, int32_t width, int32_t height) {
+        const auto [box_left, box_right] = placed_edges(placement, true, map_x, width);
+        const auto [box_top, box_bottom] = placed_edges(placement, false, map_z, height);
+        CoverPiece piece;
+        piece.points[0] = {box_left, box_top, 1.0F};
+        piece.points[1] = {box_right, box_top, 1.0F};
+        piece.points[2] = {box_right, box_bottom, 1.0F};
+        piece.points[3] = {box_left, box_bottom, 1.0F};
+        piece.count = 4;
+        cut_piece(piece, left, top, right, bottom);
+        if (piece.count >= 3)
+            pieces.push_back(piece);
+    };
+    for (int32_t row = std::max(first_row, 0); row <= std::min(last_row, grid.height - 1); ++row) {
+        const int32_t tile_z = placement.camera_z + grid.offset_z + row * tile_pixels;
+        for (int32_t column = std::max(first_column, 0);
+             column <= std::min(last_column, grid.width - 1);
+             ++column) {
+            const int32_t tile_x = placement.camera_x + grid.offset_x + column * tile_pixels;
+            // A tile the rectangle only touches at its edge takes no part.
+            const auto [tile_left, tile_right] = placed_edges(placement, true, tile_x, tile_pixels);
+            const auto [tile_top, tile_bottom] =
+                placed_edges(placement, false, tile_z, tile_pixels);
+            if (tile_right <= left || tile_left >= right || tile_bottom <= top ||
+                tile_top >= bottom)
+                continue;
+            const uint8_t mask = greyed_mask(grid.at(column, row));
+            if (mask != wr::fog_mask_full)
+                whole = false;
+            if (mask == 0)
+                continue;
+            any = true;
+            if (shapes != nullptr) {
+                if (mask == wr::fog_mask_full) {
+                    add_box(tile_x, tile_z, tile_pixels, tile_pixels);
+                    continue;
+                }
+                for (const ShapeBox& box :
+                     shapes->at(wr::FogTileSet::gray, tile_variant(grid, column, row), mask))
+                    add_box(tile_x + box.x, tile_z + box.y, box.width, box.height);
+                continue;
+            }
+            const auto corners = corner_alphas(mask);
+            for (int32_t quarter_z = 0; quarter_z < 2; ++quarter_z)
+                for (int32_t quarter_x = 0; quarter_x < 2; ++quarter_x) {
+                    const auto [quarter_left, quarter_right] = placed_edges(
+                        placement, true, tile_x + quarter_x * quarter_pixels, quarter_pixels
+                    );
+                    const auto [quarter_top, quarter_bottom] = placed_edges(
+                        placement, false, tile_z + quarter_z * quarter_pixels, quarter_pixels
+                    );
+                    if (quarter_right <= left || quarter_left >= right || quarter_bottom <= top ||
+                        quarter_top >= bottom)
+                        continue;
+                    const float u0 = quarter_x == 0 ? 0.0F : half_tile;
+                    const float v0 = quarter_z == 0 ? 0.0F : half_tile;
+                    const FogPoint top_left{quarter_left, quarter_top, alpha_at(corners, u0, v0)};
+                    const FogPoint top_right{
+                        quarter_right, quarter_top, alpha_at(corners, u0 + half_tile, v0)
+                    };
+                    const FogPoint bottom_left{
+                        quarter_left, quarter_bottom, alpha_at(corners, u0, v0 + half_tile)
+                    };
+                    const FogPoint bottom_right{
+                        quarter_right,
+                        quarter_bottom,
+                        alpha_at(corners, u0 + half_tile, v0 + half_tile)
+                    };
+                    // The quad's two triangles, as append_corner_quad lays them.
+                    for (const auto& triangle :
+                         {std::array<FogPoint, 3>{top_left, top_right, bottom_right},
+                          std::array<FogPoint, 3>{top_left, bottom_right, bottom_left}}) {
+                        CoverPiece piece;
+                        std::copy(triangle.begin(), triangle.end(), piece.points.begin());
+                        piece.count = 3;
+                        cut_piece(piece, left, top, right, bottom);
+                        if (piece.count >= 3)
+                            pieces.push_back(piece);
+                    }
+                }
+        }
+    }
+    if (!any)
+        return Cover::none;
+    if (whole) {
+        pieces.clear();
+        return Cover::whole;
+    }
+    return Cover::part;
 }
 
 } // namespace oa::app::full_fog

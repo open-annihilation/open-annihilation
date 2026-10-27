@@ -468,6 +468,28 @@ int main(int argc, char** argv) {
         }
         OA_CHECK(moves);
         OA_CHECK(renderer_water_classic::on_sea_bed(water, sea_bed_draws, lying));
+        // Underwater shimmer leaves a feature's frame, the map's own art, in
+        // the colours the map gives it: it moves with the art alone.
+        water.shimmer = 1;
+        auto unshaded = quad(96);
+        renderer_water_classic::objects(unshaded, water, sea_bed_draws, lying, 0, 0);
+        for (std::size_t i = 0; i < placed.size(); ++i) {
+            OA_CHECK(unshaded.vertices[i].x == moved.vertices[i].x);
+            OA_CHECK(unshaded.vertices[i].y == moved.vertices[i].y);
+            OA_CHECK(
+                unshaded.vertices[i].colour.red == 1 && unshaded.vertices[i].colour.green == 1
+            );
+            OA_CHECK(
+                unshaded.vertices[i].colour.blue == 1 && unshaded.vertices[i].colour.alpha == 1
+            );
+        }
+        // An effect under the water at the same place takes the shimmer.
+        sea_bed_draws.sprites[0].on_map = false;
+        auto effect = quad(96);
+        renderer_water_classic::objects(effect, water, sea_bed_draws, lying, 0, 0);
+        OA_CHECK(effect.vertices[0].colour.red < 1);
+        sea_bed_draws.sprites[0].on_map = true;
+        water.shimmer = 0;
         // Without the motion, or above the sea, it stays.
         water.art = nullptr;
         auto still = quad(96);

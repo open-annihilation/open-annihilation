@@ -15936,6 +15936,25 @@ class Runtime final : public menu::Host,
     /// std::runtime_error on a failure.
     void check_wreck_pick();
 
+    /// Checks metal patches under the water in every tier: a skirmish on
+    /// Steel Jungle, a patch in open water, one on the shallows of a shore
+    /// and one at the west edge of a Skeeter's sight, each drawn at zoom 1 in the Off,
+    /// Basic and Full tiers. With the water's effects off and the fog
+    /// Classic, Basic and Full draw the processor's pixels over each patch,
+    /// in sight, at the edge of sight and at the edge of never-mapped ground;
+    /// with the water's effects at their defaults, Full draws each patch in
+    /// sight in the processor's colours, its mean 3 pixels in from its edge
+    /// within 6 levels a channel;
+    /// with the fog Smooth, each pixel of the edge's patch whose fog tile is
+    /// wholly in sight, out of sight or never mapped is the processor's, and
+    /// each at the soft edge lies between its colour, its grey and the black
+    /// of never-mapped ground. Writes pictures of each patch in each tier,
+    /// local/reports/native-underwater-features-CASE-TIER.png. Throws
+    /// std::runtime_error on a failure.
+    ///
+    /// @return 0 when it passed; 77 when it skipped
+    [[nodiscard]] int check_underwater_features();
+
     /// Checks the click snap (ui.click-snap) through SDL input, under a
     /// profile that gives a wreck radius of 1 cell and a mex radius of 3, or
     /// without the hack. With the hack on, the commander selected and
