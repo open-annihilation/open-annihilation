@@ -1442,16 +1442,28 @@ const layout::Row* row_of(const layout::Rows& rows, int32_t control) noexcept {
     return &rows.rows[static_cast<std::size_t>(index)];
 }
 
+/// Returns the open section's rows where the dialog draws them: in the fonts
+/// it is drawn in (Dialog::drawn_fonts), at the sizes they widen.
+///
+/// @param dialog the dialog
+/// @return its rows, offset, limit and content height (layout::shown_section)
+layout::ScrolledRows drawn_rows(const Dialog& dialog) {
+    return layout::shown_section(dialog, dialog.drawn_fonts).open;
+}
+
 /// Returns the control a press at a point acts on: the first of the
-/// dialog's display list's controls that a press reaches there (kit::hit).
-/// While a drop-down list is open its items come first.
+/// dialog's display list's controls that a press reaches there (kit::hit),
+/// the list the dialog is drawn from. While a drop-down list is open its
+/// items come first.
 ///
 /// @param dialog the dialog
 /// @param x the point's column
 /// @param y the point's row
 /// @return the control; no_control when none is there
 int32_t control_under(const Dialog& dialog, int32_t x, int32_t y) {
-    return kit::hit(layout::dialog_list(dialog, nullptr), {x, y}, kit::DisabledControl::passes);
+    return kit::hit(
+        layout::dialog_list(dialog, dialog.drawn_fonts), {x, y}, kit::DisabledControl::passes
+    );
 }
 
 /// Notes where the pointer is, so that the hover can follow the rows a
@@ -1572,8 +1584,9 @@ DialogAction show_row(Dialog& dialog, layout::ScrolledRows& open, int32_t contro
 /// @param forward true for the next control, false for the previous
 /// @return DialogAction::redraw
 DialogAction move_in_tab_order(Dialog& dialog, layout::ScrolledRows& open, bool forward) {
-    const int32_t next =
-        kit::next_in_tab_order(layout::dialog_list(dialog, nullptr), dialog.focused, forward);
+    const int32_t next = kit::next_in_tab_order(
+        layout::dialog_list(dialog, dialog.drawn_fonts), dialog.focused, forward
+    );
     if (next == no_control)
         return DialogAction::none;
     dialog.focused = next;
@@ -1596,7 +1609,7 @@ DialogAction move_in_tab_order(Dialog& dialog, layout::ScrolledRows& open, bool 
 /// @param direction the arrow's direction
 /// @return DialogAction::redraw when the focus moved, else DialogAction::none
 DialogAction move_toward(Dialog& dialog, layout::ScrolledRows& open, kit::Direction direction) {
-    const kit::DisplayList list = layout::dialog_list(dialog, nullptr);
+    const kit::DisplayList list = layout::dialog_list(dialog, dialog.drawn_fonts);
     const int32_t next =
         kit::control_of(list, dialog.focused) == nullptr
             ? kit::next_in_tab_order(list, no_control, direction != kit::Direction::up)
@@ -2328,7 +2341,7 @@ DialogAction drag_to(Dialog& dialog, const layout::Row& row, int32_t column) {
 kit::Point finger_landing(
     const Dialog& dialog, const layout::ScrolledRows& open, int32_t x, int32_t y, int32_t reach
 ) {
-    kit::DisplayList list = layout::dialog_list(dialog, nullptr);
+    kit::DisplayList list = layout::dialog_list(dialog, dialog.drawn_fonts);
     if (open_list(dialog, open).has_value())
         std::erase_if(list.controls, [](const kit::Control& control) {
             return control.id > layout::first_menu_item_control;
@@ -2601,7 +2614,7 @@ DialogAction dialog_pointer_move(Dialog& dialog, int32_t x, int32_t y) {
         y += dialog.finger_shift_y;
     }
     note_pointer(dialog, x, y);
-    layout::ScrolledRows open = layout::open_rows(dialog);
+    layout::ScrolledRows open = drawn_rows(dialog);
     // An open list marks the item under the pointer.
     if (const auto list = open_list(dialog, open)) {
         const int32_t item = list_item_at(dialog, x, y);
@@ -2644,7 +2657,7 @@ DialogAction dialog_pointer_down(Dialog& dialog, int32_t x, int32_t y) {
     dialog.finger_shift_x = 0;
     dialog.finger_shift_y = 0;
     note_pointer(dialog, x, y);
-    layout::ScrolledRows open = layout::open_rows(dialog);
+    layout::ScrolledRows open = drawn_rows(dialog);
     // An open list takes the press: on an item it holds the item; anywhere
     // else it closes the list, and the press does nothing more.
     if (const auto list = open_list(dialog, open)) {
@@ -2715,7 +2728,7 @@ DialogAction dialog_pointer_down(Dialog& dialog, int32_t x, int32_t y) {
 }
 
 DialogAction dialog_finger_down(Dialog& dialog, int32_t x, int32_t y, int32_t reach) {
-    const kit::Point target = finger_landing(dialog, layout::open_rows(dialog), x, y, reach);
+    const kit::Point target = finger_landing(dialog, drawn_rows(dialog), x, y, reach);
     const DialogAction action = dialog_pointer_down(dialog, target.x, target.y);
     if (press_held(dialog)) {
         dialog.finger_shift_x = target.x - x;
@@ -2734,7 +2747,7 @@ DialogAction dialog_pointer_up(Dialog& dialog, int32_t x, int32_t y) {
     dialog.finger_shift_x = 0;
     dialog.finger_shift_y = 0;
     note_pointer(dialog, x, y);
-    const layout::ScrolledRows open = layout::open_rows(dialog);
+    const layout::ScrolledRows open = drawn_rows(dialog);
     // A release over the list item the press held chooses it.
     if (const auto list = open_list(dialog, open)) {
         const int32_t held = dialog.list_pressed;
@@ -2816,7 +2829,7 @@ DialogAction dialog_pointer_up(Dialog& dialog, int32_t x, int32_t y) {
 }
 
 DialogAction dialog_key(Dialog& dialog, DialogKey key) {
-    layout::ScrolledRows open = layout::open_rows(dialog);
+    layout::ScrolledRows open = drawn_rows(dialog);
     const layout::Rows& rows = open.rows;
     if (const auto list = open_list(dialog, open))
         return list_key(dialog, open, *list, key);
@@ -2853,7 +2866,7 @@ DialogAction dialog_key(Dialog& dialog, DialogKey key) {
     if (key != DialogKey::space) {
         // Left and Right step a control that takes steps; from any other
         // they move the focus to the control on that side.
-        const kit::DisplayList list = layout::dialog_list(dialog, nullptr);
+        const kit::DisplayList list = layout::dialog_list(dialog, dialog.drawn_fonts);
         const kit::Control* focused = kit::control_of(list, dialog.focused);
         if (focused == nullptr || !focused->steps)
             return move_toward(
@@ -2922,11 +2935,12 @@ DialogAction dialog_key(Dialog& dialog, DialogKey key) {
 /// @param notches the wheel's notches, away from the player positive
 /// @return what it asks; nothing when the list does not take the wheel
 std::optional<DialogAction> wheel_engine_nav(Dialog& dialog, int32_t x, int32_t y, float notches) {
-    const geometry::Sizes& sized = geometry::sizes_of(dialog);
+    // The list as wide as the fonts it is drawn in make it.
+    const geometry::Sizes sized = geometry::shown_sizes(dialog, dialog.drawn_fonts);
     if (x < geometry::edge || y < sized.body_top || x >= geometry::edge + sized.list_width ||
         y >= sized.footer_rule_row)
         return std::nullopt;
-    const geometry::NavLayout nav = geometry::nav_layout(dialog);
+    const geometry::NavLayout nav = geometry::nav_layout(dialog, &sized);
     if (nav.limit <= 0)
         return std::nullopt;
     dialog.nav_scroll = std::clamp(dialog.nav_scroll, int32_t{0}, nav.limit);
@@ -2944,7 +2958,7 @@ DialogAction dialog_wheel(Dialog& dialog, int32_t x, int32_t y, float notches) {
     if (!dialog_contains(dialog, x, y) || dialog.pressed != no_control || !std::isfinite(notches))
         return DialogAction::none;
     note_pointer(dialog, x, y);
-    layout::ScrolledRows open = layout::open_rows(dialog);
+    layout::ScrolledRows open = drawn_rows(dialog);
     // An open list keeps the section still and scrolls itself, an item a
     // notch, when it holds more items than it shows.
     if (const auto list = open_list(dialog, open)) {
@@ -3031,7 +3045,7 @@ bool dialog_contains(int32_t x, int32_t y) noexcept {
 }
 
 int32_t scroll_limit(const Dialog& dialog) {
-    return layout::open_rows(dialog).limit;
+    return drawn_rows(dialog).limit;
 }
 
 bool dialog_contains(const Dialog& dialog, int32_t x, int32_t y) noexcept {
@@ -3155,6 +3169,10 @@ void developer_layout(
 } // namespace
 
 std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* fonts) {
+    // Without fonts given, the parts are where the fonts the dialog is drawn
+    // in put them, which is where a press finds them.
+    if (fonts == nullptr && dialog.drawn_fonts != nullptr)
+        return dialog_layout(dialog, dialog.drawn_fonts);
     std::vector<LayoutPart> parts;
     // The player's own folder's path is shortened to its place in the fonts, or at
     // an estimated width a character without them.
@@ -3169,14 +3187,11 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
             return dialog_text_width(*fonts, DialogFont::small, text);
         return static_cast<int32_t>(oa::ui::kit::character_count(text)) * estimated_character_width;
     };
-    // A real font widens the section list and the footer buttons. An estimate
-    // keeps the class's sizes, which the layout tests pin.
-    const layout::Sizes fitted = layout::fitted_sizes(
-        dialog,
-        fonts != nullptr ? &text_width : nullptr,
-        fonts != nullptr ? &small_text_width : nullptr
-    );
-    const layout::Sizes& sized = fitted;
+    // A real font widens the section list and the footer buttons, and wraps
+    // the rows' texts; an estimate keeps the class's sizes, which the layout
+    // tests pin. The drawing and a press take the same (shown_section).
+    const layout::ShownSection shown = layout::shown_section(dialog, fonts);
+    const layout::Sizes& sized = shown.sizes;
     // Each text as the dialog shows it, the interface's words in the
     // language shown (layout::shown_text).
     const auto text_part =
@@ -3300,12 +3315,7 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
         );
     // The rows: only the parts wholly in the view are listed, so that each
     // listed control is pressed where it is drawn and each text is whole.
-    const layout::ScrolledRows open = layout::open_rows(
-        dialog,
-        fonts != nullptr ? &small_text_width : nullptr,
-        &sized,
-        fonts != nullptr ? &text_width : nullptr
-    );
+    const layout::ScrolledRows& open = shown.open;
     const auto row_part = [&parts, &sized](LayoutPart part) {
         if (wholly_in(part.rect, sized.view))
             parts.push_back(std::move(part));

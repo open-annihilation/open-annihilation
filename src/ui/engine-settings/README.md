@@ -1002,8 +1002,15 @@ and the kit's components. Tab follows the declared order
 the list holds (`DisplayList::tab_order`), which `dialog_list` builds as it
 adds the controls.
 
-The dialog's input reads this list through the kit: the control under a
-point is `kit::hit`'s, a finger's `kit::reach`'s, Tab's next control
+The dialog's input reads this list through the kit, built in the fonts the
+dialog is drawn in (`Dialog::drawn_fonts`, which the host sets to the fonts
+it draws with): the sizes they widen and the lines they wrap the rows'
+texts into come from one place (`geometry::shown_section`), so a control
+answers where it is drawn whatever its Interface size, size class, type
+step or language. Without fonts every character is measured at
+`estimated_character_width`, for drawing and input alike. `dialog_layout`
+lists the parts in the same fonts unless it is given others. The control
+under a point is `kit::hit`'s, a finger's `kit::reach`'s, Tab's next control
 `kit::next_in_tab_order`'s, an arrow's `kit::focus_toward`'s, and the wheel
 carries its fraction with `kit::wheel_offset`. A row's control lies across
 the section at its control's line, and its clip, the view narrowed to the

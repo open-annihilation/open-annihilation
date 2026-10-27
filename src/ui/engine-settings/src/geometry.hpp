@@ -1292,6 +1292,33 @@ fitted_sizes(const Dialog& dialog, const TextWidth* regular, const TextWidth* sm
     const TextWidth* regular_width = nullptr
 );
 
+/// The dialog's sizes and its open section, as a set of fonts places them.
+struct ShownSection {
+    Sizes sizes;       ///< the dialog's sizes, widened for the fonts (fitted_sizes)
+    ScrolledRows open; ///< the open section's rows, list and footer at its offset (open_rows)
+};
+
+/// Returns the dialog's sizes as a set of fonts widens them (fitted_sizes):
+/// the section list, the footer's buttons and Developer's footer.
+///
+/// @param dialog the dialog
+/// @param fonts the fonts it is drawn in; null keeps the class's sizes
+/// @return the sizes
+[[nodiscard]] Sizes shown_sizes(const Dialog& dialog, const DialogFonts* fonts);
+
+/// Places the open section in the fonts the dialog is drawn in, at the
+/// sizes they widen (shown_sizes) and with the lines they wrap its texts
+/// into. The drawing (dialog_list), dialog_layout and every input of the
+/// dialog (the pointer, a finger, the keys and the wheel, in the fonts of
+/// Dialog::drawn_fonts) take their places from here, so a control answers
+/// where it is drawn at every size class and Interface size.
+///
+/// @param dialog the dialog
+/// @param fonts the fonts it is drawn in; null measures every character at
+///     estimated_character_width
+/// @return its sizes and its open section
+[[nodiscard]] ShownSection shown_section(const Dialog& dialog, const DialogFonts* fonts);
+
 /// Tells whether a row of Developer's list takes a press and the focus:
 /// every header, which opens and closes, and a parameter's control while it
 /// can change.

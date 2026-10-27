@@ -1118,7 +1118,8 @@ struct PracticePad {
 };
 
 /// One open dialog. A host reads opened, chosen, defaults, restored, page
-/// and forget_renderer_failures, sets acceleration, and reads and may keep
+/// and forget_renderer_failures, sets acceleration, size_class and
+/// drawn_fonts, and reads and may keep
 /// developer between openings; section_hooks is set only by tests and
 /// checks; the other members after them are the dialog's own.
 struct Dialog {
@@ -1340,6 +1341,14 @@ struct Dialog {
     /// the room it has; the scroll offsets are held to the class's limits
     /// wherever they are used.
     oa::ui::kit::SizeClass size_class{oa::ui::kit::SizeClass::compact};
+    /// The fonts the host draws the dialog in, at the type of the class they
+    /// carry. The pointer, a finger, the keys and the wheel find every
+    /// control where these fonts place it, as the drawing does, and
+    /// dialog_layout lists it there, so a control answers where it is drawn
+    /// however its texts wrap. Null measures every character at
+    /// estimated_character_width, as the dialog is laid out without fonts.
+    /// The host keeps them while the dialog shows.
+    const oa::ui::kit::Fonts* drawn_fonts{};
     /// Registered pages listed after the engine's sections. Empty leaves the
     /// list as the engine's own, Developer pinned at its foot.
     std::vector<RegisteredPage> registered_pages;
@@ -1412,13 +1421,14 @@ using DialogFonts = oa::ui::kit::Fonts;
 /// values, the scroll bar while the section scrolls, and the footer's
 /// buttons. No two overlap, and each lies inside the dialog's edge. Of the
 /// open section's rows only the parts that lie wholly in its view are
-/// listed; a part the view cuts is drawn but not listed. The player's own
-/// folder's path shows as its tail that fits its place (path_tail): measured in the
-/// fonts when they are given, else at estimated_character_width a
-/// character.
+/// listed; a part the view cuts is drawn but not listed. Every part is
+/// placed as the fonts place it, the same places a press finds: the
+/// fonts given, else the dialog's own (Dialog::drawn_fonts), else at
+/// estimated_character_width a character. The player's own folder's path
+/// shows as its tail that fits its place (path_tail).
 ///
 /// @param dialog the dialog
-/// @param fonts the fonts the dialog is drawn in; null to estimate widths
+/// @param fonts the fonts the dialog is drawn in; null for Dialog::drawn_fonts
 /// @return the parts
 [[nodiscard]] std::vector<LayoutPart>
 dialog_layout(const Dialog& dialog, const DialogFonts* fonts = nullptr);
