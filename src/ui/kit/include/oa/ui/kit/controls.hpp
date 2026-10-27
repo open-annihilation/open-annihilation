@@ -500,7 +500,8 @@ void add_card(
 // ---- Hover cards ----
 
 /// Returns a hover card's size, its arrow not counted: its width, or with
-/// width 0 its widest line, and hover_card_padding either side; its lines,
+/// width 0 its widest line, hover_card_padding either side and a point more
+/// at the right, where letters may reach past their width; its lines,
 /// small_line each, and hover_card_padding over and under them.
 ///
 /// @param fonts the fonts
@@ -526,7 +527,9 @@ void add_card(
 /// colour), each row (its label in the hint colour
 /// in a column as wide as the widest label and hover_card_padding, its value
 /// in its colour, from the left when the label is empty), the block's lines
-/// in the quiet colour, every text in the small font and cut with "...", and
+/// in the quiet colour, every text in the small font and cut with "..." to
+/// the card less its padding and, at the right, the point letters may reach
+/// past their width, and
 /// the arrow: a triangle in the border's colour reaching hover_card_arrow
 /// out of its edge, its point arrow_at along that edge.
 ///

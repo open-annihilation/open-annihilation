@@ -1738,6 +1738,16 @@ void add_card(
 
 // ---- Hover cards ----
 
+namespace {
+
+/// How far a line's letters may reach past its width at the right, in
+/// points: the game fonts' last column of a letter's edge. A hover card keeps
+/// it inside its right padding, so the room after the last letter matches the
+/// room before the first.
+constexpr int32_t kLetterReach = 1;
+
+} // namespace
+
 Point hover_card_size(const Fonts& fonts, const HoverCardLook& look) {
     const int32_t padding = kMetrics.hover_card_padding;
     int32_t widest = 0;
@@ -1764,7 +1774,7 @@ Point hover_card_size(const Fonts& fonts, const HoverCardLook& look) {
         widest = std::max(widest, text_width(fonts, FontRole::small, text));
         ++lines;
     }
-    const int32_t width = look.width > 0 ? look.width : widest + 2 * padding;
+    const int32_t width = look.width > 0 ? look.width : widest + 2 * padding + kLetterReach;
     return {width, lines * kMetrics.small_line + 2 * padding};
 }
 
@@ -1796,7 +1806,7 @@ void draw_hover_card(const Canvas& canvas, const Rect& rect, const HoverCardLook
     const int32_t padding = kMetrics.hover_card_padding;
     const int32_t row_height = kMetrics.small_line;
     const int32_t left = rect.x + padding;
-    const int32_t right = rect.x + rect.width - padding;
+    const int32_t right = rect.x + rect.width - padding - kLetterReach;
     const int32_t room = std::max(right - left, int32_t{0});
     int32_t row = rect.y + padding;
 

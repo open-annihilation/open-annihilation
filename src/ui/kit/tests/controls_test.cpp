@@ -1252,17 +1252,18 @@ kit::HoverCardLook presence_card() {
 
 void a_hover_card_shows_its_header_rows_and_block() {
     kit::HoverCardLook look = presence_card();
-    // The header is the widest line: 9 + 6 + 70 + 6 + 39, and 6 either side.
+    // The header is the widest line: 9 + 6 + 70 + 6 + 39, 6 either side and
+    // a point more at the right, where letters may reach past their width.
     // Six lines of 12, and 6 over and under.
     const kit::Point size = kit::hover_card_size(fonts(), look);
-    OA_CHECK(size.x == 142 && size.y == 84);
+    OA_CHECK(size.x == 143 && size.y == 84);
     const kit::Rect rect{40, 40, size.x, size.y};
     renderer::Surface surface = black(240, 180);
     kit::draw_hover_card(canvas_on(surface), rect, look);
     // Rounded as a card is, outlined in the strong edge.
     expect(surface, 40, 40, kBlack);
     expect(surface, 100, 40, kit::colour::strong_edge);
-    expect(surface, 181, 80, kit::colour::strong_edge);
+    expect(surface, 182, 80, kit::colour::strong_edge);
     expect(surface, 41, 100, kit::colour::band);
     // The small OA mark, the title after it and the aside at the right.
     expect(surface, 46, 48, kit::colour::band);
@@ -1290,7 +1291,23 @@ void a_hover_card_shows_its_header_rows_and_block() {
     kit::HoverCardLook bare;
     bare.block = {"economy.wind"};
     const kit::Point bare_size = kit::hover_card_size(fonts(), bare);
-    OA_CHECK(bare_size.x == 58 && bare_size.y == 24);
+    OA_CHECK(bare_size.x == 59 && bare_size.y == 24);
+    // The room after the block's last letter is the room before its first
+    // and the point letters may reach: the line ends 7 points in from the
+    // right, as it starts 6 in from the left.
+    renderer::Surface bare_surface = black(80, 40);
+    kit::draw_hover_card(canvas_on(bare_surface), {0, 0, bare_size.x, bare_size.y}, bare);
+    int32_t first = -1;
+    int32_t last = -1;
+    for (int32_t x = 0; x < bare_size.x; ++x)
+        for (int32_t y = 6; y < 18; ++y)
+            if (pixel(bare_surface, x, y) == kit::colour::quiet) {
+                if (first < 0)
+                    first = x;
+                last = x;
+            }
+    OA_CHECK(first == 6);
+    OA_CHECK(last == bare_size.x - 1 - 7);
 }
 
 void a_hover_card_points_its_arrow_from_each_side() {
