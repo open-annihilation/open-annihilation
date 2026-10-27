@@ -83,6 +83,16 @@ void open_key_use(Library& library, const Entry& entry) {
         use.show_scope = true;
         use.mod_name = inputs.played.name.empty() ? inputs.played.id : inputs.played.name;
     }
+    if (library.key_hooks.moves) {
+        std::string from;
+        if (playing != nullptr)
+            from = is_built_in_layout(playing->id) ? std::string("oa-default") : playing->id.key;
+        else
+            from = layout_in_effect(inputs);
+        const std::string to =
+            is_built_in_layout(entry.id) ? std::string("oa-default") : entry.id.key;
+        use.moves = library.key_hooks.moves(from, to);
+    }
     library.key_use = std::move(use);
 }
 
@@ -108,13 +118,32 @@ void set_key_use_scope(Library& library, bool for_mod) noexcept {
     library.key_use.for_mod = for_mod;
 }
 
+bool key_use_keeps(const KeyUse& use) noexcept {
+    return use.show_own && use.keep && !use.already;
+}
+
+const std::vector<KeyMove>& key_use_moves(const KeyUse& use) noexcept {
+    return key_use_keeps(use) ? use.moves.kept : use.moves.clean;
+}
+
+uint32_t key_use_moves_total(const KeyUse& use) noexcept {
+    return key_use_keeps(use) ? use.moves.kept_total : use.moves.clean_total;
+}
+
+std::string key_use_button(const Library& library) {
+    const KeyUse& use = library.key_use;
+    if (use.show_scope && use.for_mod)
+        return filled(library.text, words::use_for_mod, {{"mod", use.mod_name}});
+    return std::string(shown(library.text, words::use_for_every_game));
+}
+
 std::optional<KeyUseResult> key_use_result(const Library& library) {
     if (!library.key_use.open)
         return std::nullopt;
     const KeyUse& use = library.key_use;
     KeyUseResult result;
     result.layout = use.layout;
-    result.keep = use.show_own && use.keep && !use.already;
+    result.keep = key_use_keeps(use);
     result.for_mod = use.show_scope && use.for_mod;
     for (const KeyHelperSwitch& one : use.helpers) {
         if (one.on)

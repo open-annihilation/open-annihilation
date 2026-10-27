@@ -125,6 +125,21 @@ laid_out(const lib::Library& library, const lib::ScreenState& state, const kit::
     return lib::library_layout(library, state, frame, fonts());
 }
 
+/// Returns an entry's place in the list shown, so a state can bring its row
+/// into view (ScreenState::reveal_row).
+///
+/// @param library the Library
+/// @param key the entry's key
+/// @return the place; -1 when the list does not show it
+int32_t place_of(const lib::Library& library, std::string_view key) {
+    for (int32_t place = 0; place < static_cast<int32_t>(library.visible.size()); ++place) {
+        const lib::Entry& entry = library.entries[library.visible[static_cast<std::size_t>(place)]];
+        if (entry.id.key == key)
+            return place;
+    }
+    return -1;
+}
+
 /// Returns a control's number by its name, or no_control.
 ///
 /// @param list the display list
@@ -303,7 +318,7 @@ bool designed_name(const std::string& name) {
         "action\\.(get|update|update-all|cancel|retry|roll-back|play-now|switch-off|"
         "check-with-mod|use-by-default|use|edit-keys|uninstall|open-folder|homepage)|"
         "details|back|refresh|close-x|close|status|queue|note|from|rules|keys\\.picture|"
-        "use\\.(keep|aside|block|for\\.(game|mod)|helper\\.[a-z0-9.-]+)|"
+        "use\\.(keep|aside|block|moves|saved|helpers|for\\.(game|mod)|helper\\.[a-z0-9.-]+)|"
         "active\\.(mod|language|base|expansions|lock|keys\\.change|keys|unload|change|search|"
         "map\\.[1-9][0-9]*|from\\.[1-9][0-9]*|"
         "expansion\\.[a-z0-9-]+(\\.(get|cancel|retry))?)|"
@@ -1008,7 +1023,11 @@ void rows_name_their_entries() {
         ridge != nullptr && ridge->text == "Ridge" && ridge->kind == kit::ControlKind::list_item
     );
     OA_CHECK(ridge != nullptr && ridge->checked);
-    const kit::Control* frontier = fixture::named(list, "library.row.example-mods.frontier");
+    // Kit 2's rows are taller, so Frontier's is brought into view.
+    lib::ScreenState frontier_state;
+    frontier_state.reveal_row = place_of(library, "frontier");
+    const kit::DisplayList lower = laid_out(library, frontier_state, fixture::frames()[1].frame);
+    const kit::Control* frontier = fixture::named(lower, "library.row.example-mods.frontier");
     OA_CHECK(frontier != nullptr && !frontier->checked);
     const kit::Control* pane = fixture::named(list, "library.list");
     OA_CHECK(pane != nullptr && pane->kind == kit::ControlKind::list && pane->text.empty());
@@ -1382,6 +1401,8 @@ void pressing_rows_selects_and_never_gets() {
     const std::vector<fixture::NamedFrame> all = fixture::frames();
     lib::Library library = with_ridge();
     lib::ScreenState state;
+    // Kit 2's rows are taller, so Frontier's is brought into view.
+    state.reveal_row = place_of(library, "frontier");
     kit::DisplayList list = laid_out(library, state, all[1].frame);
     const lib::EntryId frontier{std::string(fixture::added), lib::Kind::mod, "frontier"};
     lib::ScreenResult result = click(library, state, list, "library.row.example-mods.frontier");
@@ -1400,6 +1421,7 @@ void pressing_rows_selects_and_never_gets() {
 
     lib::Library small = with_ridge();
     lib::ScreenState small_state;
+    small_state.reveal_row = place_of(small, "cinder");
     kit::DisplayList small_list = laid_out(small, small_state, all[0].frame);
     const lib::EntryId cinder{std::string(fixture::core), lib::Kind::mod, "cinder"};
     result = click(small, small_state, small_list, "library.row.fixture-core.cinder");
@@ -2938,24 +2960,25 @@ void base_badge_is_nearest_and_tabs_are_bracketed() {
     const kit::ListRowLook* look = row_look_named(rows, "library.row.base-game");
     OA_CHECK(base != nullptr && look != nullptr);
     if (base != nullptr && look != nullptr) {
+        // Kit 2's Compact row leaves a badge of the full 28 points.
         const kit::Rect badge = test_row_badge(base->rect);
-        OA_CHECK(badge.width == 20 && badge.height == 20);
-        OA_CHECK(look->badge.width == 20 && look->badge.height == 20);
+        OA_CHECK(badge.width == 28 && badge.height == 28);
+        OA_CHECK(look->badge.width == 28 && look->badge.height == 28);
         OA_CHECK(pixel_is(pixel_at(look->badge, 0, 0), 255, 0, 0, 255));
-        OA_CHECK(pixel_is(pixel_at(look->badge, 9, 0), 255, 0, 0, 255));
-        OA_CHECK(pixel_is(pixel_at(look->badge, 10, 0), 0, 255, 0, 255));
-        OA_CHECK(pixel_is(pixel_at(look->badge, 0, 10), 0, 0, 255, 255));
-        OA_CHECK(pixel_is(pixel_at(look->badge, 10, 10), 255, 255, 255, 255));
+        OA_CHECK(pixel_is(pixel_at(look->badge, 13, 0), 255, 0, 0, 255));
+        OA_CHECK(pixel_is(pixel_at(look->badge, 14, 0), 0, 255, 0, 255));
+        OA_CHECK(pixel_is(pixel_at(look->badge, 0, 14), 0, 0, 255, 255));
+        OA_CHECK(pixel_is(pixel_at(look->badge, 14, 14), 255, 255, 255, 255));
     }
 
     kit::Frame doubled = compact;
     doubled.scale_percent = 200;
     const kit::DisplayList large_pixels = laid_out(library, {}, doubled);
     const kit::ListRowLook* doubled_look = row_look_named(large_pixels, "library.row.base-game");
-    OA_CHECK(doubled_look != nullptr && doubled_look->badge.width == 40);
-    if (doubled_look != nullptr && doubled_look->badge.width == 40) {
-        OA_CHECK(pixel_is(pixel_at(doubled_look->badge, 19, 0), 255, 0, 0, 255));
-        OA_CHECK(pixel_is(pixel_at(doubled_look->badge, 20, 0), 0, 255, 0, 255));
+    OA_CHECK(doubled_look != nullptr && doubled_look->badge.width == 56);
+    if (doubled_look != nullptr && doubled_look->badge.width == 56) {
+        OA_CHECK(pixel_is(pixel_at(doubled_look->badge, 27, 0), 255, 0, 0, 255));
+        OA_CHECK(pixel_is(pixel_at(doubled_look->badge, 28, 0), 0, 255, 0, 255));
     }
 
     kit::Frame fractional = compact;
@@ -2982,10 +3005,10 @@ void base_badge_is_nearest_and_tabs_are_bracketed() {
     lib::set_tab(shrunk, lib::Tab::mods);
     const kit::DisplayList down = laid_out(shrunk, {}, compact);
     const kit::ListRowLook* down_look = row_look_named(down, "library.row.base-game");
-    OA_CHECK(down_look != nullptr && down_look->badge.width == 20 && down_look->badge.height == 20);
-    if (down_look != nullptr && down_look->badge.width == 20 && down_look->badge.height == 20) {
+    OA_CHECK(down_look != nullptr && down_look->badge.width == 28 && down_look->badge.height == 28);
+    if (down_look != nullptr && down_look->badge.width == 28 && down_look->badge.height == 28) {
         OA_CHECK(pixel_is(pixel_at(down_look->badge, 0, 0), 255, 0, 0, 255));
-        OA_CHECK(pixel_is(pixel_at(down_look->badge, 19, 19), 0, 255, 0, 255));
+        OA_CHECK(pixel_is(pixel_at(down_look->badge, 27, 27), 0, 255, 0, 255));
     }
 
     lib::set_tab(library, lib::Tab::active);
@@ -3016,15 +3039,16 @@ void base_badge_is_nearest_and_tabs_are_bracketed() {
 /// @return the height, in points
 int32_t package_row_height(kit::SizeClass size_class) {
     const kit::Metrics& metrics = kit::metrics_of(size_class);
+    const int32_t three_lines =
+        metrics.list_row_line_top + 2 * metrics.small_line + metrics.list_row_title_top;
     switch (size_class) {
     case kit::SizeClass::compact:
-        return metrics.short_list_row_height;
+        return std::max(metrics.short_list_row_height, metrics.row_height);
     case kit::SizeClass::regular:
-        return metrics.list_row_height;
     case kit::SizeClass::large:
-        return metrics.list_row_line_top + 2 * metrics.small_line + metrics.list_row_title_top;
+        return std::max(three_lines, metrics.row_height);
     }
-    return metrics.list_row_height;
+    return metrics.row_height;
 }
 
 /// A built-in Open Annihilation package shows the OA mark, and a Cavedog one
@@ -4628,12 +4652,7 @@ void mutators_tab_holds_its_invariants() {
 /// @param key the mutator's key
 /// @return the place
 int32_t mutator_place(const lib::Library& library, std::string_view key) {
-    for (int32_t place = 0; place < static_cast<int32_t>(library.visible.size()); ++place) {
-        const lib::Entry& entry = library.entries[library.visible[static_cast<std::size_t>(place)]];
-        if (entry.id.key == key)
-            return place;
-    }
-    return -1;
+    return place_of(library, key);
 }
 
 /// Lays the list out with one mutator row at the top, and returns its look.
@@ -4784,7 +4803,11 @@ void mutator_rows_show_badges_chips_and_icons() {
         const bool compact = named.frame.size_class == kit::SizeClass::compact;
         const bool regular = named.frame.size_class == kit::SizeClass::regular;
         const bool large = named.frame.size_class == kit::SizeClass::large;
-        const int32_t badge_side = compact ? 20 : 28;
+        // The row's badge: as tall as Kit 2's row leaves inside the inset, at most the badge's side.
+        const int32_t badge_side = std::min(
+            package_row_height(named.frame.size_class) - 2 * kit::compact_metrics.list_row_inset,
+            kit::compact_metrics.list_row_badge
+        );
 
         kit::DisplayList shown;
         const kit::ListRowLook* beacon = reveal_mutator(library, named.frame, "beacon", shown);
@@ -5666,10 +5689,66 @@ void keys_tab_names_its_controls() {
             lefty = &entry;
     }
     OA_CHECK(lefty != nullptr);
+    // What moves: twelve commands, the last of them one of the player's own.
+    library.key_hooks.moves = [](std::string_view, std::string_view) {
+        lib::KeyMoves moves;
+        moves.known = true;
+        for (int index = 0; index < 12; ++index) {
+            lib::KeyMove move;
+            move.command = "Command " + std::to_string(index + 1);
+            move.before.keys = {"Ctrl", std::string(1, static_cast<char>('A' + index))};
+            move.after.keys = {std::string(1, static_cast<char>('Q' - index))};
+            move.own = index == 11;
+            moves.kept.push_back(move);
+        }
+        moves.kept_total = 12;
+        moves.clean = moves.kept;
+        moves.clean.pop_back();
+        moves.clean_total = 11;
+        return moves;
+    };
     if (lefty != nullptr)
         lib::open_key_use(library, *lefty);
     OA_CHECK(library.key_use.show_own && library.key_use.show_scope);
     OA_CHECK(!library.key_use.helpers.empty());
+    // The question asks Where first, then about the own changes, then lists
+    // what moves, then the helpers, and the button names the answer.
+    const auto check_question = [&](const kit::DisplayList& list, kit::SizeClass size_class) {
+        std::vector<std::string> problems;
+        const kit::Control* game = fixture::named(list, "library.use.for.game");
+        const kit::Control* mod = fixture::named(list, "library.use.for.mod");
+        const kit::Control* keep = fixture::named(list, "library.use.keep");
+        const kit::Control* aside = fixture::named(list, "library.use.aside");
+        const kit::Control* moves = fixture::named(list, "library.use.moves");
+        const kit::Control* helper = fixture::named(list, "library.use.helper.sticky-modifiers");
+        const kit::Control* use = fixture::named(list, "prompt.use");
+        const kit::Control* cancel = fixture::named(list, "prompt.cancel");
+        if (game == nullptr || mod == nullptr || keep == nullptr || aside == nullptr ||
+            moves == nullptr || helper == nullptr || use == nullptr || cancel == nullptr) {
+            problems.push_back("a part of the question is not named");
+            return problems;
+        }
+        if (game->rect.y >= keep->rect.y || keep->rect.y >= moves->rect.y ||
+            moves->rect.y >= helper->rect.y || helper->rect.y >= use->rect.y)
+            problems.push_back("the question's parts are not in their order");
+        if (moves->rect.y + moves->rect.height > use->rect.y)
+            problems.push_back("What moves meets the buttons");
+        if (helper->rect.y + helper->rect.height > use->rect.y)
+            problems.push_back("a helper meets the buttons");
+        if (!game->checked || mod->checked || !keep->checked || aside->checked)
+            problems.push_back("the marked choices are not Every game and Keep");
+        const int32_t control = kit::metrics_of(size_class).control_height;
+        if (game->rect.height != control || use->rect.height != control)
+            problems.push_back("a choice or a button is not Kit 2's control height");
+        if (use->text != "Use for every game" || cancel->text != "Cancel")
+            problems.push_back("USE or Cancel reads " + use->text + " / " + cancel->text);
+        if (!moves->text.starts_with("Command 1: Ctrl+A \u2192 Q"))
+            problems.push_back("What moves reads " + moves->text);
+        if (moves->text.find("Command 12 (yours): Ctrl+L \u2192 F") == std::string::npos &&
+            moves->text.find("more") == std::string::npos)
+            problems.push_back("What moves neither names the own change nor counts the rest");
+        return problems;
+    };
     for (const fixture::NamedFrame& named : fixture::frames()) {
         lib::ScreenState state;
         state.details_page = named.frame.size_class == kit::SizeClass::compact;
@@ -5678,15 +5757,41 @@ void keys_tab_names_its_controls() {
         OA_EXPECT_NONE(fixture::outside_window(list, window), named.name + " keys use");
         OA_EXPECT_NONE(name_problems(list), named.name + " keys use");
         OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), named.name + " keys use");
-        OA_CHECK(fixture::named(list, "library.use.keep") != nullptr);
-        OA_CHECK(fixture::named(list, "library.use.aside") != nullptr);
-        OA_CHECK(fixture::named(list, "library.use.helper.sticky-modifiers") != nullptr);
-        OA_CHECK(fixture::named(list, "library.use.for.game") != nullptr);
-        OA_CHECK(fixture::named(list, "library.use.for.mod") != nullptr);
-        OA_CHECK(fixture::named(list, "prompt.use") != nullptr);
-        OA_CHECK(fixture::named(list, "prompt.cancel") != nullptr);
+        OA_EXPECT_NONE(check_question(list, named.frame.size_class), named.name + " keys use");
+    }
+    // Only with Ridge renames USE's button.
+    lib::set_key_use_scope(library, true);
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        const kit::DisplayList list = laid_out(library, {}, named.frame);
+        const kit::Control* use = fixture::named(list, "prompt.use");
+        OA_CHECK(use != nullptr && use->text == "Use for Ridge");
+    }
+    // A layout asking for more helpers, made for the other interface, still
+    // fits every class: What moves keeps fewer lines, and the notes and the
+    // buttons stay clear of each other.
+    library.key_use.helpers.push_back(library.key_use.helpers.front());
+    library.key_use.helpers.back().token = "pointer-keys";
+    library.key_use.helpers.back().name = "pointer-keys";
+    library.key_use.helpers.back().label = "Pointer keys";
+    library.key_use.pointer_note = "Made for the left-click interface; yours is right-click.";
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        lib::ScreenState state;
+        const kit::DisplayList list = laid_out(library, state, named.frame);
+        const kit::Point window = lib::window_size(named.frame);
+        OA_EXPECT_NONE(
+            fixture::outside_window(list, window), named.name + " keys use, two helpers"
+        );
+        OA_EXPECT_NONE(
+            fixture::texts_not_fitting(list, fonts()), named.name + " keys use, two helpers"
+        );
+        const kit::Control* second = fixture::named(list, "library.use.helper.pointer-keys");
+        const kit::Control* use = fixture::named(list, "prompt.use");
+        OA_CHECK(second != nullptr && use != nullptr);
+        if (second != nullptr && use != nullptr)
+            OA_CHECK(second->rect.y + second->rect.height <= use->rect.y);
     }
     lib::close_key_use(library);
+    library.key_hooks = {};
 
     lib::set_tab(library, lib::Tab::active);
     for (const fixture::NamedFrame& named : fixture::frames()) {
@@ -5909,7 +6014,7 @@ lib::Library marked_keys_library() {
 void key_rows_stay_inside_their_height() {
     const lib::Library library = marked_keys_library();
     const std::string made = "Made for Ridge";
-    const std::string own = "· 4 changes of your own";
+    const std::string own = "4 changes of your own";
     const std::string summary = "A short summary.";
     for (const fixture::NamedFrame& named : fixture::frames()) {
         const kit::DisplayList list = laid_out(library, {}, named.frame);

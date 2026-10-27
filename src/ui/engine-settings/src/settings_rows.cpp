@@ -46,7 +46,7 @@ using Stepper = kit::Stepper<SettingsModel>;
 using Hint = std::array<std::string_view, 2>;
 
 /// The number of settings: Setting's enumerators.
-constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::edge_scroll) + 1;
+constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::reset_window_positions) + 1;
 
 // ---------------------------------------------------------------------------
 // The sections' rows.
@@ -111,13 +111,16 @@ constexpr std::array<Setting, 21> kGraphicsRows{
     Setting::naval_reflections,
 };
 /// User Interface's rows: how the menus scale, the window's frame, the
-/// HUD's scaling, the size Open Annihilation's own screens are drawn at,
-/// then whether Escape opens the game menu.
-constexpr std::array<Setting, 5> kUserInterfaceRows{
+/// HUD's scaling, the size Open Annihilation's own screens are drawn at and
+/// the size class their windows take, putting moved windows back, then
+/// whether Escape opens the game menu.
+constexpr std::array<Setting, 7> kUserInterfaceRows{
     Setting::menu_scaling,
     Setting::window_frame,
     Setting::hud_scaling,
     Setting::interface_size,
+    Setting::window_size,
+    Setting::reset_window_positions,
     Setting::escape_opens_menu,
 };
 /// Accessibility's rows: the helpers, each applying as it is changed.
@@ -384,6 +387,13 @@ constexpr std::array<std::string_view, 6> kInterfaceSizeCaptions{
 static_assert(
     kInterfaceSizeCaptions.size() == interface_size_choices.size(),
     "every Interface size has its caption"
+);
+/// Window size's captions, in window_size_choices' order.
+constexpr std::array<std::string_view, 4> kWindowSizeCaptions{
+    "Auto", "Compact", "Regular", "Large"
+};
+static_assert(
+    kWindowSizeCaptions.size() == window_size_choices.size(), "every Window size has its caption"
 );
 /// One-finger drag's captions, in touch_drag_choices' order.
 constexpr std::array<std::string_view, 3> kTouchDragCaptions{"Automatic", "Box", "Scroll"};
@@ -2356,6 +2366,37 @@ std::string key_layout_for_mod_hint(const SettingsModel& model, std::size_t line
     return filled("Used while {mod} is played. Same as the game uses Key layout.", {{"mod", mod}});
 }
 
+/// Reset window positions' hint while no reset has happened.
+constexpr std::string_view reset_windows_hint_text =
+    "Puts every window you moved back in the middle.";
+/// Reset window positions' hint once the host forgot the places.
+constexpr std::string_view windows_reset_text = "Every window is back in the middle.";
+
+/// Returns Reset window positions' hint: what Reset does, or that it did it.
+std::string reset_windows_hint(const SettingsModel& model, std::size_t line) {
+    if (line != 0)
+        return {};
+    const bool reset = model.dialog != nullptr && model.dialog->window_places_reset;
+    return std::string(shown_text(reset ? windows_reset_text : reset_windows_hint_text));
+}
+
+/// Reset window positions: Reset forgets every moved window's place at
+/// once. It keeps no setting.
+constexpr Spec reset_windows_row() noexcept {
+    Spec spec = kit::value_and_button<SettingsModel>(
+        "reset-window-positions",
+        "Reset window positions",
+        nullptr,
+        "Reset",
+        "reset",
+        reset_windows_action,
+        {}
+    );
+    spec.hint_text = &reset_windows_hint;
+    spec.hint_lines = &lines<1>;
+    return spec;
+}
+
 /// Key layout: the layout in use, and EDIT KEYS….
 constexpr Spec key_layout_row() noexcept {
     Spec spec = kit::value_and_button<SettingsModel>(
@@ -2931,6 +2972,13 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
          "Edge scrolling",
          {"Off stops the view scrolling while the pointer rests at the window's edge.", {}}),
      .copy = &copy_field<&E::edge_scroll>},
+    {.setting = S::window_size,
+     .spec = wide(kit::choice("window-size", "Window size",
+                              DropDown<WindowSize, 4, window_size_choices, &E::window_size, kWindowSizeCaptions, &table_word<window_size_words, WindowSize>>::stepper(),
+                              {"The size Settings, the Library and the other OA windows take. Auto takes the largest that fits."}),
+                  choice_width)},
+    {.setting = S::reset_window_positions,
+     .spec = reset_windows_row()},
 }};
 // clang-format on
 
@@ -3053,6 +3101,8 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "repeat-rate",
     "drag-threshold",
     "edge-scroll",
+    "window-size",
+    "reset-window-positions",
 };
 
 /// Tells whether every row stands at its setting's place and is named by
@@ -3182,6 +3232,25 @@ std::string slider_text(const SettingsModel& model, Setting setting) {
 
 const kit::RowSpec<SettingsModel>& row_spec(Setting setting) noexcept {
     return entry(setting).spec;
+}
+
+std::string row_value_text(Setting setting, const SettingsModel& model) {
+    const Spec& spec = entry(setting).spec;
+    switch (spec.kind) {
+    case kit::RowKind::toggle:
+        return kit::row_on(spec, model) ? "1" : "0";
+    case kit::RowKind::choice:
+    case kit::RowKind::slider:
+    case kit::RowKind::levels:
+        return std::to_string(kit::row_index(spec, model));
+    case kit::RowKind::value_and_button:
+    case kit::RowKind::buttons:
+    case kit::RowKind::text_field:
+    case kit::RowKind::link:
+    case kit::RowKind::text:
+        break;
+    }
+    return {};
 }
 
 kit::RowKind kind_of(Setting setting) noexcept {

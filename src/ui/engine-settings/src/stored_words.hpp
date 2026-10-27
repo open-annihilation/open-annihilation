@@ -62,6 +62,14 @@ inline constexpr std::array<ChoiceWord<WindowFrame>, 2> window_frame_words{{
     {WindowFrame::hidden_in_play, "hidden-in-play"},
     {WindowFrame::always_shown, "always-shown"},
 }};
+/// Window size's words, in window_size_choices' order: the words the OA
+/// layer reads the same key with.
+inline constexpr std::array<ChoiceWord<WindowSize>, 4> window_size_words{{
+    {WindowSize::automatic, "auto"},
+    {WindowSize::compact, "compact"},
+    {WindowSize::regular, "regular"},
+    {WindowSize::large, "large"},
+}};
 /// Maximum zoom out's words, in zoom_out_limits' order.
 inline constexpr std::array<ChoiceWord<ZoomOutLimit>, 7> zoom_out_words{{
     {ZoomOutLimit::automatic, "automatic"},

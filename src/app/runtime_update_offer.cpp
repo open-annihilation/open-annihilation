@@ -13,6 +13,7 @@
 
 #include "oa/app/game_directory.hpp"
 #include "oa/app/update/build.hpp"
+#include "oa/app/update/centre.hpp"
 #include "oa/app/update/choices.hpp"
 #include "oa/app/update/offer.hpp"
 #if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
@@ -44,7 +45,17 @@ namespace library = oa::ui::library;
 namespace kit = oa::ui::kit;
 namespace feed = oa::data::engine_feed;
 
-/// The button Skip this version answers.
+/// The button that downloads the release, until the update centre names it.
+constexpr std::string_view kDownloadCaption = "Download update";
+/// Skip this version's caption, until the update centre names it.
+constexpr std::string_view kSkipCaption = "Skip this version";
+/// Later's caption, until the update centre names it.
+constexpr std::string_view kLaterCaption = "Later";
+/// The heading of the release's notes.
+constexpr std::string_view kWhatsNew = "What's new";
+/// The line that says a match pauses the download.
+constexpr std::string_view kMatchPause = "Downloads pause during a match and carry on after it.";
+/// The button Skip this version answers: quiet, at the footer's left.
 constexpr int32_t kSkipButton = 0;
 /// The button Later answers, and the one Escape answers.
 constexpr int32_t kLaterButton = 1;
@@ -288,25 +299,52 @@ void Runtime::offer_update() {
         update::offer_text(held.offer, running_build(), shown_language().tag, hooks);
     if (told.title.empty() || told.paragraphs.size() != 2)
         return;
+    // The size and the actions are the update centre's, so the question,
+    // Settings › Updates and the menu pill name one size and one state.
+    const update::Centre centre = update_centre();
+    const update::CentreWords words = update::centre_words(centre, hooks);
+    const bool about_offer = centre.target_release == release_number;
+    std::string leading{oa::data::languages::interface_text(kDownloadCaption)};
+    std::string skip{oa::data::languages::interface_text(kSkipCaption)};
+    std::string later{oa::data::languages::interface_text(kLaterCaption)};
+    if (about_offer) {
+        for (const update::ActWords& act : words.actions) {
+            if (act.act == update::Act::download || act.act == update::Act::open_page)
+                leading = act.caption;
+            else if (act.act == update::Act::skip)
+                skip = act.caption;
+            else if (act.act == update::Act::later)
+                later = act.caption;
+        }
+    }
 
     kit::Question asked;
     asked.title = told.title;
-    asked.paragraphs.push_back({told.paragraphs[0], false});
+    asked.paragraphs.push_back(
+        {about_offer && !words.detail.empty() ? words.detail : told.paragraphs[0], false}
+    );
     if (!told.notes.empty()) {
-        asked.paragraphs.push_back(
-            {update::notes_paragraph(held.offer.release->version_text, told.notes, hooks), false}
-        );
+        kit::QuestionPart notes;
+        notes.kind = kit::PartKind::boxes;
+        kit::QuestionBox box;
+        box.heading = std::string(oa::data::languages::interface_text(kWhatsNew));
+        for (const std::string& line : told.notes)
+            box.lines.push_back({kit::LineMark::bullet, line});
+        notes.boxes.push_back(std::move(box));
+        asked.parts.push_back(std::move(notes));
     }
-    asked.paragraphs.push_back({told.paragraphs[1], false});
-    asked.buttons.push_back(
-        {std::string(oa::data::languages::interface_text(update::words::skip)), false, "skip"}
-    );
-    asked.buttons.push_back(
-        {std::string(oa::data::languages::interface_text(update::words::later)), false, "later"}
-    );
-    asked.buttons.push_back(
-        {std::string(oa::data::languages::interface_text(update::words::update)), true, "update"}
-    );
+    {
+        kit::QuestionPart stay;
+        stay.kind = kit::PartKind::text;
+        stay.text = told.paragraphs[1] + " " +
+                    std::string(oa::data::languages::interface_text(kMatchPause));
+        asked.parts.push_back(std::move(stay));
+    }
+    kit::QuestionButton skip_button{std::move(skip), false, "skip"};
+    skip_button.quiet = true;
+    asked.buttons.push_back(std::move(skip_button));
+    asked.buttons.push_back({std::move(later), false, "later"});
+    asked.buttons.push_back({std::move(leading), true, "update"});
     asked.cancel_button = kLaterButton;
     asked.primary_button = kUpdateButton;
     asked.marked = kUpdateButton;

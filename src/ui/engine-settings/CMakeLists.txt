@@ -14,7 +14,8 @@
 add_library(oa-ui-engine-settings src/engine_settings.cpp src/dialog.cpp src/dialog_draw.cpp
   src/developer.cpp src/downloads_page.cpp src/updates_page.cpp src/content_page.cpp src/language_page.cpp
   src/language_notice.cpp src/notice.cpp src/prompt.cpp src/challenge.cpp
-  src/add_registry.cpp src/registered.cpp src/settings_rows.cpp src/file_types.cpp)
+  src/add_registry.cpp src/registered.cpp src/settings_rows.cpp src/file_types.cpp
+  src/section_icons.cpp src/cards.cpp)
 add_library(oa::ui::engine_settings ALIAS oa-ui-engine-settings)
 target_include_directories(oa-ui-engine-settings PUBLIC include)
 target_compile_features(oa-ui-engine-settings PUBLIC cxx_std_20)

@@ -73,7 +73,10 @@ constexpr std::string_view pause_caption = "Pause";
 constexpr std::string_view resume_caption = "Resume";
 constexpr std::string_view cancel_download_caption = "Cancel download";
 constexpr std::string_view install_on_quit_caption = "Install when I quit";
+constexpr std::string_view install_on_quit_note =
+    "It installs as you quit. Change it any time in Settings › Updates.";
 constexpr std::string_view install_restart_caption = "Install and restart";
+constexpr std::string_view restart_note = "The game closes, installs it and starts again.";
 constexpr std::string_view windows_asks_note = "Windows asks for permission.";
 constexpr std::string_view open_installer_caption = "Open the installer";
 constexpr std::string_view applications_note =
@@ -716,7 +719,7 @@ CentreWords centre_words(const Centre& centre, const library::TextHooks& text) {
             add_act(words.actions, act, cancel_download_caption, {}, text);
             break;
         case Act::install_on_quit:
-            add_act(words.actions, act, install_on_quit_caption, {}, text);
+            add_act(words.actions, act, install_on_quit_caption, install_on_quit_note, text);
             break;
         case Act::install_now:
             switch (centre.way) {
@@ -730,6 +733,8 @@ CentreWords centre_words(const Centre& centre, const library::TextHooks& text) {
                 add_act(words.actions, act, close_game_caption, next_start_note, text);
                 break;
             case InstallWay::restart:
+                add_act(words.actions, act, install_restart_caption, restart_note, text);
+                break;
             case InstallWay::package_manager:
             case InstallWay::page_only:
                 add_act(words.actions, act, install_restart_caption, {}, text);

@@ -158,6 +158,9 @@ inline constexpr std::string_view hud_scaling = "open-annihilation.hud-scaling";
 /// "automatic", or the percent "100", "200", "300" or "400"
 /// (EngineSettings::interface_size).
 inline constexpr std::string_view interface_size = "open-annihilation.interface-size";
+/// "auto", "compact", "regular" or "large" (EngineSettings::window_size);
+/// absent, or any other word, is Auto.
+inline constexpr std::string_view window_size = "open-annihilation.ui.window-size";
 /// 1 or 0 (EngineSettings::modern_fonts).
 inline constexpr std::string_view modern_fonts = "open-annihilation.modern-fonts";
 /// 1 or 0 (EngineSettings::text_outline).
@@ -868,6 +871,25 @@ inline constexpr std::array<WindowFrame, 2> window_frame_choices{
     WindowFrame::always_shown,
 };
 
+/// Window size: the size class Open Annihilation's own windows (Settings,
+/// the Library, the key editor, the pickers) are laid out at.
+enum class WindowSize : uint8_t {
+    /// the largest class whose Settings dialog fits the window with room
+    /// round it
+    automatic,
+    compact, ///< Compact, wherever its dialog fits
+    regular, ///< Regular where its dialog fits whole, else the largest that does
+    large,   ///< Large where its dialog fits whole, else the largest that does
+};
+
+/// The Window sizes, in the order the dialog offers them.
+inline constexpr std::array<WindowSize, 4> window_size_choices{
+    WindowSize::automatic,
+    WindowSize::compact,
+    WindowSize::regular,
+    WindowSize::large,
+};
+
 /// After zoom: the zoom farther out than which Zoomed out units applies,
 /// as a share of normal size.
 enum class ZoomedOutAfter : uint8_t {
@@ -1285,6 +1307,9 @@ struct EngineSettings {
     ZoomedOutAfter zoomed_out_after{ZoomedOutAfter::one_sixth};
     /// When the game's window shows its title bar and borders.
     WindowFrame window_frame{WindowFrame::hidden_in_play};
+    /// The size class Open Annihilation's own windows are laid out at. It
+    /// takes effect when the dialog's OK is pressed, as Interface size does.
+    WindowSize window_size{WindowSize::automatic};
     /// The side column and the top and bottom bars of a game grow with the
     /// window, up to twice the original game's size; off, they keep the
     /// original game's size on every window. The touch controls' layouts

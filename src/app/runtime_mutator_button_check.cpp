@@ -7,7 +7,9 @@
 // Menu, centred between Difficulty and Previous Menu in their column, and
 // on NEWGAME as large as the SELECT SIDE middle of the side bar, under it;
 // either is wider to the left only where its words need it.
-// It reads "Mutators: off", or "Mutators: 2 on" for the set chosen. Tab and
+// It reads "Mutators: off", or "Mutators: 2 on" for the set chosen; with
+// four chosen, the pointer resting on it shows its card, one line a
+// mutator and what a press does. Tab and
 // Down reach the button, a finger presses it by its reach, the pad's
 // badges leave it as it is, Return opens the
 // picker on the remembered set, USE THESE replaces the setup's set, Y opens
@@ -16,8 +18,9 @@
 // Gatehouse Keep) and campaign set (Fast Builders). The feed is the mutator
 // picker's check feed. Each size's frame is written as
 // mutator-button-skirmish-<w>x<h>.png and mutator-button-newgame-<w>x<h>.png,
-// and with four chosen as mutator-button-skirmish-four-<w>x<h>.png and
-// mutator-button-newgame-four-<w>x<h>.png. The last step starts a
+// with four chosen as mutator-button-skirmish-four-<w>x<h>.png and
+// mutator-button-newgame-four-<w>x<h>.png, and with the card open as
+// mutator-button-<screen>-card-<w>x<h>.png. The last step starts a
 // skirmish with nothing chosen and logs that V02 was handed an empty set.
 
 #include "oa_layer.hpp"
@@ -44,6 +47,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -311,18 +315,72 @@ void Runtime::check_mutator_button() {
         require(control.has_value(), why);
         return *control;
     };
-    // The button is one of the room's own parts: the screen draws no item
-    // of the kit, and its one button control is the mutators button.
+    // The button is one of the room's own parts: the screen draws no button
+    // or chip of the kit (its card is the kit's), and its one button control
+    // is the mutators button.
     const auto require_badge = [&](const std::string& on) {
         LayerScreen* shown = oa_layer().find("mutators-button");
         require(shown != nullptr, "the mutators-button screen is not up" + on);
         const kit::DisplayList list = shown->display_list();
-        require(list.items.empty(), "the button draws a part of the kit" + on);
+        for (const kit::Item& item : list.items)
+            require(
+                item.role != kit::Role::button && item.role != kit::Role::chip,
+                "the button draws a button or a chip of the kit" + on
+            );
         bool button = false;
         for (const kit::Control& control : list.controls)
             if (control.name == "mutators" && control.kind == kit::ControlKind::button)
                 button = true;
         require(button, "the button has no control" + on);
+    };
+    const auto pointer_at = [&](layout::Point pixel, SDL_EventType type, uint8_t button) {
+        SDL_Event event = window_pointer_event(sdl_.window, sdl_.renderer, type, pixel, button);
+        dispatch_event(event, running);
+        require(running, "a pointer event ended the run");
+    };
+    // The pointer resting on the button shows its card: one line a mutator
+    // on, by its place in the set, and what a press does. Its frame is
+    // written as mutator-button-<screen>-card-<w>x<h>.png.
+    const auto check_card = [&](std::string_view screen,
+                                std::size_t count,
+                                const std::string& size,
+                                const std::string& on) {
+        const AutomationControl button = summary_of("the button left before its card" + on);
+        const layout::Point rest{
+            button.window_x + button.window_width / 2, button.window_y + button.window_height / 2
+        };
+        pointer_at(rest, SDL_EVENT_MOUSE_MOTION, 0);
+        SDL_Delay(450);
+        frames(4);
+        std::size_t rows = 0;
+        bool change = false;
+        for (const AutomationControl& control : controls_of()) {
+            constexpr std::string_view prefix = "oa.battleroom.tip.line.";
+            if (control.name.compare(0, prefix.size(), prefix) != 0 || !control.visible)
+                continue;
+            if (control.text.find(": ") != std::string::npos &&
+                std::isdigit(static_cast<unsigned char>(control.text.front())) != 0)
+                ++rows;
+            change = change || control.text == "Click to change.";
+        }
+        require(
+            rows == count && change,
+            "the card does not name the " + std::to_string(count) +
+                " mutators on and what a press does (" + std::to_string(rows) + " rows)" + on
+        );
+        oa_layer().read_whole_window(true);
+        renderer::Surface card_frame;
+        capture_frame_ = &card_frame;
+        render();
+        capture_frame_ = nullptr;
+        oa_layer().read_whole_window(false);
+        const std::string picture =
+            "mutator-button-" + std::string(screen) + "-card-" + size + ".png";
+        write_png(fs::path(picture), card_frame);
+        std::cout << "mutator button check: the card names the " << count << " mutators on; wrote "
+                  << picture << "\n";
+        pointer_at({0, 0}, SDL_EVENT_MOUSE_MOTION, 0);
+        frames(2);
     };
     // Four mutators chosen for a moment: the button reads "Mutators: 4 on",
     // and the frame is written as mutator-button-<screen>-four-<w>x<h>.png.
@@ -365,13 +423,9 @@ void Runtime::check_mutator_button() {
         write_png(fs::path(picture), four_frame);
         std::cout << "mutator button check: four chosen read Mutators: 4 on; wrote " << picture
                   << "\n";
+        check_card(screen, 4, size, on);
         replace_setup_mutators(setup, kept);
         frames(1);
-    };
-    const auto pointer_at = [&](layout::Point pixel, SDL_EventType type, uint8_t button) {
-        SDL_Event event = window_pointer_event(sdl_.window, sdl_.renderer, type, pixel, button);
-        dispatch_event(event, running);
-        require(running, "a pointer event ended the run");
     };
     const auto click_named = [&](std::string_view name) {
         const AutomationControl control = require_named(name, std::string(name) + " is not shown");

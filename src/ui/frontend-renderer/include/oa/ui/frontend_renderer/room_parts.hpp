@@ -262,6 +262,19 @@ room_switch_width(const RoomArt& art, std::string_view caption, int32_t inset_le
 /// @param lamp the lamp
 void draw_room_lamp(RoomCanvas& canvas, const RoomArt& art, SourceRect rect, RoomLamp lamp);
 
+/// Draws a bar that fills as work goes on: a dark well sunk into the room,
+/// filled from its left with the room's green lamp light as far as the work
+/// has come.
+///
+/// @param[in,out] canvas the canvas
+/// @param art the art
+/// @param rect the bar, in frame pixels
+/// @param done how far the work has come, from 0 to whole
+/// @param whole the whole; 0 or less fills nothing
+void draw_room_bar(
+    RoomCanvas& canvas, const RoomArt& art, SourceRect rect, int32_t done, int32_t whole
+);
+
 /// Returns the notch at a button's right end: as wide as asked, inside the
 /// plate's two-pixel edge.
 ///

@@ -723,17 +723,41 @@ kit::ChipLook entry_chip(const Library& library, const Entry& entry) {
         chip.state = in_use ? kit::ChipState::playing : kit::ChipState::installed;
         return chip;
     }
-    // The layout in use wears the green check and USING, as PLAYING does.
-    // OA default that is not in use says Built in.
-    if (entry.id.kind == Kind::key_layout && layout_in_use(library, entry)) {
-        chip.text = std::string(shown(library.text, words::chip_using));
-        chip.state = kit::ChipState::playing;
-        chip.icon = kit::StateIcon::circled_check;
-        return chip;
-    }
-    if (is_built_in_layout(entry.id)) {
-        chip.text = std::string(shown(library.text, words::registry_built_in));
-        chip.state = kit::ChipState::installed;
+    // A key layout says its one state in words: In use, Built in, Update,
+    // Installed, or Get with the download's size. The layout in use is
+    // filled with the accent, as PLAYING is.
+    if (entry.id.kind == Kind::key_layout) {
+        if (layout_in_use(library, entry)) {
+            chip.text = std::string(shown(library.text, words::chip_in_use));
+            chip.state = kit::ChipState::playing;
+            return chip;
+        }
+        if (is_built_in_layout(entry.id)) {
+            chip.text = std::string(shown(library.text, words::registry_built_in));
+            chip.state = kit::ChipState::installed;
+            return chip;
+        }
+        chip.state = chip_state_of(entry.state);
+        chip.disabled = !entry.can_act;
+        switch (entry.state) {
+        case State::update:
+            chip.text = std::string(shown(library.text, words::layout_state_update));
+            break;
+        case State::get:
+            chip.text = entry.listing != nullptr && entry.listing->size > 0
+                            ? filled(
+                                  library.text,
+                                  words::layout_state_get_size,
+                                  {{"size", size_text(entry.listing->size, library.text)}}
+                              )
+                            : std::string(shown(library.text, words::layout_state_get));
+            break;
+        case State::installed:
+        case State::playing:
+            chip.text = std::string(shown(library.text, words::layout_state_installed));
+            chip.disabled = false;
+            break;
+        }
         return chip;
     }
     // An installed language pack in use says so too, unless an update is
@@ -855,12 +879,14 @@ std::string row_name(const Entry& entry) {
 
 /// How a row is shown: Compact's short row, Regular's or Large's.
 enum class RowForm : uint8_t {
-    compact, ///< the name, then its version and size; short_list_row_height
-    regular, ///< the name and byline, then the summary; the version over the size; list_row_height
+    compact, ///< the name, then its version and size; Kit 2's row height
+    regular, ///< the name and byline, then the summary; the version over the size; a key
+             ///< layout's chips on a third line
     large,   ///< as regular, with the tags as chips on a third line
 };
 
-/// Returns a row's height in a form.
+/// Returns a row's height in a form: Kit 2's row height (Metrics::row_height),
+/// and at least the lines the form holds.
 ///
 /// @param metrics the class's metrics
 /// @param form the form
@@ -868,14 +894,21 @@ enum class RowForm : uint8_t {
 int32_t row_height(const kit::Metrics& metrics, RowForm form) {
     switch (form) {
     case RowForm::compact:
-        return metrics.short_list_row_height;
+        return std::max(metrics.short_list_row_height, metrics.row_height);
     case RowForm::regular:
-        return metrics.list_row_height;
+        // The title's line, a line under it and a chip line, as Kit 2's row holds them.
+        return std::max(
+            metrics.list_row_line_top + 2 * metrics.small_line + metrics.list_row_title_top,
+            metrics.row_height
+        );
     case RowForm::large:
         // The title's line, two lines under it and the rows above the title.
-        return metrics.list_row_line_top + 2 * metrics.small_line + metrics.list_row_title_top;
+        return std::max(
+            metrics.list_row_line_top + 2 * metrics.small_line + metrics.list_row_title_top,
+            metrics.row_height
+        );
     }
-    return metrics.list_row_height;
+    return metrics.row_height;
 }
 
 /// Returns the columns a row's chip line may use, as the kit's row draws it.
@@ -1141,12 +1174,15 @@ kit::ListRowLook row_look(
         if (!about.empty())
             look.lines.push_back(std::string(about));
     }
-    // OA default's chip already says Built in, as a built-in language's
-    // does. The aside does not say it again.
-    if (!version.empty() && !is_built_in_layout(entry.id))
-        look.aside.push_back(version);
-    if (!size.empty())
-        look.aside.push_back(size);
+    // A key layout's row says what it does and its one state; its version
+    // and size are in its details. OA default's chip says Built in, as a
+    // built-in language's does.
+    if (entry.id.kind != Kind::key_layout) {
+        if (!version.empty())
+            look.aside.push_back(version);
+        if (!size.empty())
+            look.aside.push_back(size);
+    }
     if (form == RowForm::large && entry.id.kind == Kind::brain) {
         // Default, then Full awareness, then the tags, then why it does not
         // fit. When the line cannot hold them, the tags are the ones dropped.
@@ -1190,22 +1226,28 @@ kit::ListRowLook row_look(
             look.tags.insert(look.tags.end(), unfit.begin(), unfit.end());
             look.tags.insert(look.tags.end(), labels.begin(), labels.end());
         }
-    } else if (form == RowForm::large && entry.id.kind == Kind::key_layout) {
-        // The summary is the line under the name. Made for and the
-        // own-changes count share the chip line under that, Made for as
-        // this chip and not as a line as well. The tags take the room that
-        // is left. When the line cannot hold them, the tags are the ones
-        // dropped, and the own-changes count stays ahead of a Made for that
-        // would leave it no room.
+    } else if (entry.id.kind == Kind::key_layout) {
+        // The summary is the line under the name. The own-changes count, in
+        // the lock colour, and Made for share the chip line under that, at
+        // Regular and Large, Made for as this chip and not as a line as
+        // well. The tags take the room that is left. When the line cannot
+        // hold them, the tags are the ones dropped, and the own-changes count
+        // stays ahead of a Made for that would leave it no room.
         const std::string made = layout_made_for_line(library, entry);
         std::string own;
-        if (const KeyLayoutFacts* facts = key_facts(entry))
-            own = own_changes_line(facts->own_changes, library.text);
+        if (const KeyLayoutFacts* facts = key_facts(entry);
+            facts != nullptr && facts->own_changes > 0)
+            own = facts->own_changes == 1 ? std::string(shown(library.text, words::own_count_one))
+                                          : filled(
+                                                library.text,
+                                                words::own_count_many,
+                                                {{"count", std::to_string(facts->own_changes)}}
+                                            );
         std::vector<kit::ChipLook> kept;
         if (!made.empty())
             kept.push_back(filter_chip(made));
         if (!own.empty())
-            kept.push_back(filter_chip(std::move(own)));
+            kept.push_back(state_chip(std::move(own)));
         std::vector<kit::ChipLook> labels;
         if (const std::vector<std::string>* tags = shown_tags(entry)) {
             labels.reserve(tags->size());
@@ -2962,8 +3004,9 @@ int32_t add_key_picture(
             named_keys += code;
         }
     }
+    // As wide as the details, so its keys' legends can be read.
     const kit::Point unit = kit::keyboard_size();
-    const int32_t picture_width = std::min(width, int32_t{280});
+    const int32_t picture_width = width;
     const int32_t picture_height =
         unit.x > 0 ? std::max(picture_width * unit.y / unit.x, int32_t{1}) : int32_t{25};
     const kit::Rect rect{left, top, picture_width, picture_height};
@@ -3393,8 +3436,10 @@ int32_t add_details_content(
     top = add_facts(building, entry, {left, top, width, 0}, true, wide_fact_lines, view) +
           metrics.paragraph_gap;
 
+    // The buttons are Kit 2's controls, control_height high.
     const std::vector<ActionButton> actions = entry_actions(library, entry);
     const int32_t button_gap = metrics.button_gap;
+    const int32_t button_height = metrics.control_height;
     const int32_t each =
         std::max((width - (actions_per_line - 1) * button_gap) / actions_per_line, int32_t{0});
     for (std::size_t index = 0; index < actions.size(); ++index) {
@@ -3405,9 +3450,9 @@ int32_t add_details_content(
             building,
             building.detail,
             {left + column * (each + button_gap),
-             top + line * (metrics.button_height + button_gap),
+             top + line * (button_height + button_gap),
              each,
-             metrics.button_height},
+             button_height},
             action.text,
             // UNINSTALL is never drawn as the main button.
             index == 0 && action.action != Action::uninstall,
@@ -3421,7 +3466,7 @@ int32_t add_details_content(
     if (!actions.empty()) {
         const auto lines =
             (static_cast<int32_t>(actions.size()) + actions_per_line - 1) / actions_per_line;
-        top += lines * metrics.button_height + (lines - 1) * button_gap + metrics.paragraph_gap;
+        top += lines * button_height + (lines - 1) * button_gap + metrics.paragraph_gap;
     }
     static_cast<void>(add_note(building, left, top, width, view, controls::details_group));
     const std::optional<controls::Extent> extent =
@@ -6552,9 +6597,67 @@ void add_base_chooser(Building& building, const Window& window) {
     building.overlay.back().focusable = false;
 }
 
-/// Appends USE's question over the Library: a shade, the title, the choices
-/// and CANCEL and USE. The choices and the buttons are tried before the
-/// shade, and the shade before the Library.
+/// Returns a key as USE's question draws it: its keycaps and its gesture, or
+/// the words for no key.
+///
+/// @param library the model
+/// @param chord the key; no keycaps is no key
+/// @return the chip
+kit::ChordChipLook move_chip(const Library& library, const KeyChord& chord) {
+    kit::ChordChipLook look;
+    look.keys = chord.keys;
+    look.gesture = chord.gesture;
+    if (chord.keys.empty())
+        look.none_text = std::string(shown(library.text, words::use_no_key));
+    return look;
+}
+
+/// Returns a key as automation reads it: its keycaps joined with "+", then
+/// its gesture, or the words for no key.
+///
+/// @param library the model
+/// @param chord the key
+/// @return the words
+std::string chord_reading(const Library& library, const KeyChord& chord) {
+    if (chord.keys.empty())
+        return std::string(shown(library.text, words::use_no_key));
+    std::string read;
+    for (const std::string& cap : chord.keys) {
+        if (!read.empty())
+            read.push_back('+');
+        read += cap;
+    }
+    if (!chord.gesture.empty()) {
+        read.push_back(' ');
+        read += chord.gesture;
+    }
+    return read;
+}
+
+/// What USE's question shows, and the rows each part takes, once it has
+/// been fitted to the window.
+struct KeyUsePlan {
+    std::vector<std::string> saved{};   ///< where the own changes stay, wrapped
+    std::vector<std::string> helpers{}; ///< the helpers' note, wrapped
+    std::vector<std::string> pointer{}; ///< the interface note, wrapped
+    bool show_moves{};                  ///< What moves is shown
+    int32_t move_lines{};               ///< the lines it takes, "and {count} more" among them
+    int32_t move_columns{1};            ///< its columns: two at Compact, else one
+};
+
+/// The least width of a column of What moves at Compact: a command's name,
+/// a key on either side of the arrow, and the gaps between them.
+constexpr int32_t least_move_column = 200;
+
+/// Appends USE's question over the Library, scope first: a shade, the
+/// title, Where (every game, or only the mod being played), the player's own
+/// changes (keep them on top, or start clean, and where they stay either
+/// way), What moves (each command's key now and afterwards), the helpers the
+/// layout asks for, and Cancel and USE, whose caption names the answer to
+/// Where. It is a dialog the width of a notice, the whole window at Compact,
+/// as tall as it needs. Where the window is too short, What moves keeps
+/// fewer lines and then the notes keep one line each. The choices and the
+/// buttons are tried before the shade, and the shade before the Library.
 ///
 /// @param[in,out] building the layout
 /// @param window the window
@@ -6564,143 +6667,453 @@ void add_key_use(Building& building, const Window& window) {
     if (!use.open)
         return;
     const kit::Metrics& metrics = *building.metrics;
-    const int32_t margin = window.padding;
+    const TextHooks& text = library.text;
+    const bool compact = building.size_class == kit::SizeClass::compact;
     const kit::Rect shade{0, 0, window.width, window.height};
     kit::Item& dim = add_item(building.list, kit::Role::blend, shade, {});
     dim.colour = kit::colour::backdrop;
     dim.opacity = 180;
 
+    // Kit 2's sizes: the controls' height, the window padding inside the
+    // dialog, a space between a heading and what it heads, and a row's gap
+    // between sections. Compact keeps half the padding round the dialog.
+    const int32_t outer = compact ? metrics.space : window.padding;
+    const int32_t pad = compact ? 2 * metrics.space : metrics.window_padding;
+    const int32_t gap = metrics.space;
+    const int32_t section_gap = metrics.row_gap;
+    const int32_t control = metrics.control_height;
+    const int32_t switch_row = std::min(metrics.switch_height, control);
+    const int32_t move_line = kit::keycap_height + 2;
+    const int32_t room_width = std::max(window.width - 2 * outer, int32_t{1});
+    const int32_t dialog_width = compact ? room_width : std::min(metrics.notice_width, room_width);
+    const int32_t inner = std::max(dialog_width - 2 * pad, int32_t{1});
+    const int32_t most_height = std::max(window.height - 2 * outer, int32_t{1});
+
     const Entry* entry = find_entry(library, use.layout);
     const std::string name = entry != nullptr ? std::string(entry_name(*entry)) : std::string{};
-    const std::string title = filled(library.text, words::use_title, {{"name", name}});
-    const int32_t dialog_width = std::max(window.width - 2 * margin, int32_t{1});
-    const int32_t inner_width = std::max(dialog_width - 2 * margin, int32_t{1});
-    const int32_t row_height = metrics.button_height;
-    int32_t rows = 2;
-    if (use.show_own)
-        rows += 3;
-    if (use.already)
-        rows += 1;
-    rows += static_cast<int32_t>(std::min(use.helpers.size(), controls::most_use_helpers));
-    if (!use.helpers.empty())
-        rows += 1;
-    if (use.show_scope)
-        rows += 3;
-    if (!use.pointer_note.empty())
-        rows += 2;
-    int32_t dialog_height = metrics.button_height + margin + rows * (row_height + window.gap) +
-                            metrics.button_height + margin;
-    const int32_t most = std::max(window.height - 2 * margin, int32_t{1});
-    if (dialog_height > most)
-        dialog_height = most;
-    const int32_t dialog_x = margin;
+    const bool show_own = use.show_own || use.already;
+    const bool choose_own = use.show_own && !use.already;
+    const std::size_t helper_count = std::min(use.helpers.size(), controls::most_use_helpers);
+    const std::vector<KeyMove>& moves = key_use_moves(use);
+    const uint32_t moves_total =
+        std::max(key_use_moves_total(use), static_cast<uint32_t>(moves.size()));
+
+    // The notes, at the widths they are drawn.
+    std::string saved_words;
+    if (use.already) {
+        saved_words =
+            use.already_count == 1
+                ? filled(text, words::use_already_one, {{"name", use.already_name}})
+                : filled(
+                      text,
+                      words::use_already_many,
+                      {{"name", use.already_name}, {"count", std::to_string(use.already_count)}}
+                  );
+        if (use.show_own && !use.saved_with.empty())
+            saved_words +=
+                " " + filled(
+                          text,
+                          use.own_count == 1 ? words::use_saved_one : words::use_saved_many,
+                          {{"name", use.saved_with}}
+                      );
+    } else if (use.show_own && !use.saved_with.empty()) {
+        saved_words = filled(
+            text,
+            use.own_count == 1 ? words::use_saved_one : words::use_saved_many,
+            {{"name", use.saved_with}}
+        );
+    }
+    const std::string helpers_words =
+        use.show_scope && use.for_mod
+            ? filled(text, words::use_helpers_not_only, {{"mod", use.mod_name}})
+            : std::string(shown(text, words::use_helpers_every_game));
+    const int32_t callout_inner = std::max(inner - 2 * gap, int32_t{1});
+
+    KeyUsePlan plan;
+    plan.saved = wrapped(building, kit::FontRole::small, saved_words, inner, 0);
+    if (helper_count > 0)
+        plan.helpers = wrapped(building, kit::FontRole::small, helpers_words, callout_inner, 0);
+    plan.pointer = wrapped(building, kit::FontRole::small, use.pointer_note, inner, 0);
+    plan.show_moves = use.moves.known;
+    const auto lines_height = [&](const std::vector<std::string>& lines) {
+        return static_cast<int32_t>(lines.size()) * metrics.small_line;
+    };
+    const auto fixed_height = [&] {
+        int32_t height = pad + metrics.regular_line + section_gap;
+        if (use.show_scope)
+            height += metrics.small_line + gap + control + section_gap;
+        if (show_own) {
+            height += metrics.small_line + gap;
+            if (choose_own)
+                height += control + gap;
+            height += lines_height(plan.saved) + section_gap;
+        }
+        if (plan.show_moves)
+            height += metrics.small_line + gap + section_gap;
+        if (helper_count > 0)
+            height += gap + lines_height(plan.helpers) + gap +
+                      static_cast<int32_t>(helper_count) * switch_row + gap + section_gap;
+        if (!plan.pointer.empty())
+            height += lines_height(plan.pointer) + section_gap;
+        return height + control + pad;
+    };
+    // What moves takes the rows left over: every move when they fit, else
+    // as many as fit and "and {count} more", and at least one line. At
+    // Compact it fills two columns, row by row, where the dialog is wide
+    // enough.
+    if (compact && inner - gap >= 2 * least_move_column)
+        plan.move_columns = 2;
+    const int32_t wanted_cells =
+        moves.empty() ? 1
+                      : static_cast<int32_t>(moves.size()) +
+                            (moves_total > static_cast<uint32_t>(moves.size()) ? 1 : 0);
+    const int32_t wanted_lines = (wanted_cells + plan.move_columns - 1) / plan.move_columns;
+    const auto fit_moves = [&] {
+        const int32_t room = most_height - fixed_height();
+        plan.move_lines = std::clamp(room / move_line, int32_t{1}, wanted_lines);
+        return room >= plan.move_lines * move_line;
+    };
+    if (plan.show_moves && !fit_moves()) {
+        // Too short: the notes keep one line each, then What moves goes.
+        if (plan.saved.size() > 1)
+            plan.saved = {cut(building, kit::FontRole::small, saved_words, inner)};
+        if (plan.helpers.size() > 1)
+            plan.helpers = {cut(building, kit::FontRole::small, helpers_words, callout_inner)};
+        if (!fit_moves())
+            plan.show_moves = false;
+    }
+    if (!plan.show_moves)
+        plan.move_lines = 0;
+    const int32_t dialog_height =
+        std::min(fixed_height() + plan.move_lines * move_line, most_height);
+    const int32_t dialog_x = (window.width - dialog_width) / 2;
     const int32_t dialog_y = std::max((window.height - dialog_height) / 2, int32_t{0});
     const kit::Rect dialog{dialog_x, dialog_y, dialog_width, dialog_height};
     add_item(building.list, kit::Role::fill, dialog, {}).colour = kit::colour::panel;
     add_item(building.list, kit::Role::outline, dialog, {}).colour = kit::colour::control_border;
 
-    int32_t cursor = dialog_y + margin / 2;
-    const auto line = [&](std::string_view words, kit::Colour ink) {
+    const int32_t left = dialog_x + pad;
+    int32_t cursor = dialog_y + pad;
+    int32_t number = 0;
+    const auto heading = [&](std::string_view words_shown) {
+        ++number;
         add_text(
             building,
             kit::FontRole::small,
-            std::string(words),
-            {dialog_x + margin, cursor, inner_width, metrics.small_line},
+            cut(building,
+                kit::FontRole::small,
+                filled(
+                    text,
+                    words::use_section,
+                    {{"number", std::to_string(number)}, {"heading", std::string(words_shown)}}
+                ),
+                inner),
+            {left, cursor, inner, metrics.small_line},
             kit::Align::left,
-            ink,
+            kit::colour::hint,
             {}
         );
-        cursor += row_height;
+        cursor += metrics.small_line + gap;
     };
-    const auto take = [&](kit::ControlId id,
+    const auto note = [&](const std::vector<std::string>& lines,
+                          kit::ControlId id,
                           std::string control_name,
-                          const kit::Rect& rect,
-                          std::string caption,
-                          bool marked,
-                          bool accent) {
-        kit::ButtonLook look;
-        look.caption = caption;
-        look.style = accent ? kit::ButtonStyle::accent : kit::ButtonStyle::plain;
+                          std::string_view read,
+                          int32_t at,
+                          int32_t width,
+                          kit::Colour ink) {
+        const int32_t top = cursor;
+        cursor = add_lines(building, lines, at, cursor, width, ink, {});
+        if (id != kit::no_control && !lines.empty())
+            add_label(
+                building.overlay,
+                id,
+                {at, top, width, cursor - top},
+                unique_name(building, named(std::move(control_name))),
+                std::string(read),
+                {},
+                -1
+            );
+    };
+    // One of a pair of choices: a filter chip, the marked one on the
+    // list's selected face with the accent border.
+    const auto choice = [&](kit::ControlId id,
+                            std::string control_name,
+                            const kit::Rect& rect,
+                            std::string caption,
+                            bool marked) {
+        kit::ChipLook look;
+        look.text =
+            cut(building, kit::FontRole::small, caption, rect.width - 2 * metrics.chip_padding);
+        look.state = kit::ChipState::filter;
+        look.selected = marked;
         look.hovered = hovered(building, id);
-        look.held = held(building, id);
         const std::size_t before = building.list.controls.size();
-        kit::add_button(
-            building.list, rect, look, id, unique_name(building, std::move(control_name))
+        kit::add_chip(
+            building.list, rect, look, id, unique_name(building, named(std::move(control_name)))
         );
         move_controls(building.list, before, building.overlay);
-        kit::Control& control = building.overlay.back();
-        control.focusable = true;
-        control.enabled = true;
-        control.text = caption;
-        if (marked)
-            add_item(building.list, kit::Role::outline, rect, {}).colour = kit::colour::accent;
-        building.question_order.push_back(control.id);
+        kit::Control& added = building.overlay.back();
+        added.focusable = true;
+        added.enabled = true;
+        added.text = caption;
+        building.question_order.push_back(added.id);
     };
-    line(title, kit::colour::text);
-    if (use.show_own) {
-        line(shown(library.text, words::use_own_heading), kit::colour::hint);
-        const std::string keep =
-            use.own_count == 1
-                ? std::string(shown(library.text, words::use_keep_one))
-                : filled(
-                      library.text, words::use_keep_many, {{"count", std::to_string(use.own_count)}}
-                  );
-        take(
-            controls::use_keep,
-            named("use.keep"),
-            {dialog_x + margin, cursor, inner_width, metrics.button_height},
-            keep,
-            use.keep,
-            false
+    const int32_t half = std::max((inner - gap) / 2, int32_t{1});
+
+    add_text(
+        building,
+        kit::FontRole::regular,
+        cut(building,
+            kit::FontRole::regular,
+            filled(text, words::use_title, {{"name", name}}),
+            inner),
+        {left, cursor, inner, metrics.regular_line},
+        kit::Align::left,
+        kit::colour::text,
+        {}
+    );
+    cursor += metrics.regular_line + section_gap;
+
+    if (use.show_scope) {
+        heading(shown(text, words::use_where));
+        choice(
+            controls::use_for_game,
+            "use.for.game",
+            {left, cursor, half, control},
+            std::string(shown(text, words::use_every_game)),
+            !use.for_mod
         );
-        cursor += row_height;
-        take(
-            controls::use_aside,
-            named("use.aside"),
-            {dialog_x + margin, cursor, inner_width, metrics.button_height},
-            std::string(shown(library.text, words::use_aside)),
-            !use.keep,
-            false
+        choice(
+            controls::use_for_mod,
+            "use.for.mod",
+            {left + half + gap, cursor, inner - half - gap, control},
+            filled(text, words::use_only_with, {{"mod", use.mod_name}}),
+            use.for_mod
         );
-        cursor += row_height;
-        if (!use.saved_with.empty()) {
-            line(
-                filled(library.text, words::use_stay_saved, {{"name", use.saved_with}}),
-                kit::colour::hint
+        cursor += control + section_gap;
+    }
+
+    if (show_own) {
+        if (use.show_own)
+            heading(
+                use.own_count == 1
+                    ? filled(text, words::use_yours_one, {{"name", use.saved_with}})
+                    : filled(
+                          text,
+                          words::use_yours_many,
+                          {{"count", std::to_string(use.own_count)}, {"name", use.saved_with}}
+                      )
             );
+        else
+            heading(shown(text, words::fact_your_changes));
+        if (choose_own) {
+            choice(
+                controls::use_keep,
+                "use.keep",
+                {left, cursor, half, control},
+                std::string(
+                    shown(text, use.own_count == 1 ? words::use_keep_it : words::use_keep_them)
+                ),
+                use.keep
+            );
+            choice(
+                controls::use_aside,
+                "use.aside",
+                {left + half + gap, cursor, inner - half - gap, control},
+                std::string(shown(text, words::use_start_clean)),
+                !use.keep
+            );
+            cursor += control + gap;
         }
+        note(
+            plan.saved,
+            controls::use_saved,
+            "use.saved",
+            saved_words,
+            left,
+            inner,
+            kit::colour::hint
+        );
+        cursor += section_gap;
     }
-    if (use.already) {
-        const std::string sentence =
-            use.already_count == 1
-                ? filled(library.text, words::use_already_one, {{"name", use.already_name}})
-                : filled(
-                      library.text,
-                      words::use_already_many,
-                      {{"name", use.already_name}, {"count", std::to_string(use.already_count)}}
-                  );
-        line(sentence, kit::colour::hint);
+
+    if (plan.show_moves) {
+        heading(shown(text, words::use_what_moves));
+        const int32_t top = cursor;
+        std::string read;
+        const int32_t cells = plan.move_lines * plan.move_columns;
+        const bool more = moves_total > static_cast<uint32_t>(moves.size()) ||
+                          cells < static_cast<int32_t>(moves.size());
+        const int32_t shown_moves =
+            moves.empty() ? 0
+                          : std::min(more ? cells - 1 : cells, static_cast<int32_t>(moves.size()));
+        const int32_t column_width =
+            plan.move_columns > 1 ? (inner - gap) / plan.move_columns : inner;
+        const std::string_view arrow = "→";
+        const int32_t arrow_width = width_of(building, kit::FontRole::small, arrow);
+        if (moves.empty()) {
+            const std::string none(shown(text, words::use_nothing_moves));
+            add_text(
+                building,
+                kit::FontRole::small,
+                cut(building, kit::FontRole::small, none, inner),
+                {left, cursor, inner, move_line},
+                kit::Align::left,
+                kit::colour::hint,
+                {}
+            );
+            read = none;
+            cursor += move_line;
+        }
+        // A cell's place: row by row, the columns from the left.
+        const auto cell_left = [&](int32_t index) {
+            return left + (index % plan.move_columns) * (column_width + gap);
+        };
+        const auto cell_top = [&](int32_t index) {
+            return top + (index / plan.move_columns) * move_line;
+        };
+        for (int32_t index = 0; index < shown_moves; ++index) {
+            const KeyMove& move = moves[static_cast<std::size_t>(index)];
+            const kit::ChordChipLook before = move_chip(library, move.before);
+            const kit::ChordChipLook after = move_chip(library, move.after);
+            const int32_t after_width = kit::chord_chip_width(*building.fonts, after);
+            const int32_t before_width = kit::chord_chip_width(*building.fonts, before);
+            const int32_t cell_x = cell_left(index);
+            cursor = cell_top(index);
+            const int32_t chip_top = cursor + (move_line - kit::keycap_height) / 2;
+            const int32_t after_x = cell_x + column_width - after_width;
+            const int32_t arrow_x = after_x - gap - arrow_width;
+            const int32_t before_x = arrow_x - gap - before_width;
+            kit::add_chord_chip(
+                building.list,
+                {after_x, chip_top, after_width, kit::keycap_height},
+                after,
+                kit::no_control,
+                {}
+            );
+            add_text(
+                building,
+                kit::FontRole::small,
+                std::string(arrow),
+                {arrow_x, cursor, arrow_width, move_line},
+                kit::Align::left,
+                kit::colour::hint,
+                {}
+            );
+            kit::add_chord_chip(
+                building.list,
+                {before_x, chip_top, before_width, kit::keycap_height},
+                before,
+                kit::no_control,
+                {}
+            );
+            int32_t name_room = std::max(before_x - gap - cell_x, int32_t{0});
+            const std::string command(shown(text, move.command));
+            if (move.own) {
+                kit::PillLook yours;
+                yours.text = std::string(shown(text, words::use_yours));
+                yours.state = kit::PillState::update;
+                const int32_t yours_width = kit::pill_width(*building.fonts, yours);
+                name_room = std::max(name_room - yours_width - gap, int32_t{0});
+                const std::string drawn = cut(building, kit::FontRole::small, command, name_room);
+                const int32_t drawn_width = width_of(building, kit::FontRole::small, drawn);
+                add_text(
+                    building,
+                    kit::FontRole::small,
+                    drawn,
+                    {cell_x, cursor, drawn_width, move_line},
+                    kit::Align::left,
+                    kit::colour::text,
+                    {}
+                );
+                kit::add_pill(
+                    building.list,
+                    {cell_x + drawn_width + gap,
+                     cursor + (move_line - kit::pill_height()) / 2,
+                     yours_width,
+                     kit::pill_height()},
+                    yours,
+                    kit::no_control,
+                    {}
+                );
+            } else {
+                add_text(
+                    building,
+                    kit::FontRole::small,
+                    cut(building, kit::FontRole::small, command, name_room),
+                    {cell_x, cursor, name_room, move_line},
+                    kit::Align::left,
+                    kit::colour::text,
+                    {}
+                );
+            }
+            if (!read.empty())
+                read += "\n";
+            read += command;
+            if (move.own)
+                read += " (" + std::string(shown(text, words::use_yours)) + ")";
+            read += ": " + chord_reading(library, move.before) + " " + std::string(arrow) + " " +
+                    chord_reading(library, move.after);
+        }
+        if (more && !moves.empty()) {
+            const uint32_t left_out = moves_total - static_cast<uint32_t>(shown_moves);
+            const std::string rest =
+                filled(text, words::names_more, {{"count", std::to_string(left_out)}});
+            add_text(
+                building,
+                kit::FontRole::small,
+                cut(building, kit::FontRole::small, rest, column_width),
+                {cell_left(shown_moves), cell_top(shown_moves), column_width, move_line},
+                kit::Align::left,
+                kit::colour::hint,
+                {}
+            );
+            read += "\n" + rest;
+        }
+        if (!moves.empty())
+            cursor = top + plan.move_lines * move_line;
+        add_label(
+            building.overlay,
+            controls::use_moves,
+            {left, top, inner, cursor - top},
+            unique_name(building, named("use.moves")),
+            read,
+            {},
+            -1
+        );
+        cursor += section_gap;
     }
-    if (!use.helpers.empty()) {
-        line(shown(library.text, words::use_asks_heading), kit::colour::hint);
-        const std::size_t count = std::min(use.helpers.size(), controls::most_use_helpers);
-        const int32_t off_width =
-            width_of(building, kit::FontRole::small, shown(library.text, words::registry_off));
-        const int32_t on_width =
-            width_of(building, kit::FontRole::small, shown(library.text, words::registry_on));
-        constexpr int32_t switch_pad = 4;
-        const int32_t switch_columns =
-            std::max(metrics.switch_width, (std::max(off_width, on_width) + switch_pad) * 2 + 2);
-        for (std::size_t index = 0; index < count; ++index) {
+
+    if (helper_count > 0) {
+        // The helpers are settings of the player's own, so the note says they
+        // act in every game, inside a box in the lock colour's tint.
+        const int32_t box_top = cursor;
+        const int32_t box_height = gap + lines_height(plan.helpers) + gap +
+                                   static_cast<int32_t>(helper_count) * switch_row + gap;
+        add_item(building.list, kit::Role::fill, {left, box_top, inner, box_height}, {}).colour =
+            kit::colour::caution_tint;
+        cursor += gap;
+        note(
+            plan.helpers,
+            controls::use_helpers_note,
+            "use.helpers",
+            helpers_words,
+            left + gap,
+            callout_inner,
+            kit::colour::lock
+        );
+        cursor += gap;
+        for (std::size_t index = 0; index < helper_count; ++index) {
             const KeyHelperSwitch& one = use.helpers[index];
             const kit::ControlId id =
                 controls::first_use_helper + static_cast<kit::ControlId>(index);
-            const kit::Rect rect{dialog_x + margin, cursor, switch_columns, metrics.button_height};
+            const kit::Rect rect{left + gap, cursor, metrics.switch_width, switch_row};
             kit::SwitchLook look;
             look.on = one.on;
             look.hovered = hovered(building, id);
-            look.off_caption = std::string(shown(library.text, words::registry_off));
-            look.on_caption = std::string(shown(library.text, words::registry_on));
+            look.off_caption = std::string(shown(text, words::registry_off));
+            look.on_caption = std::string(shown(text, words::registry_on));
             const std::size_t before = building.list.controls.size();
             kit::add_switch(
                 building.list,
@@ -6710,72 +7123,75 @@ void add_key_use(Building& building, const Window& window) {
                 unique_name(building, named("use.helper." + one.name))
             );
             move_controls(building.list, before, building.overlay);
-            kit::Control& control = building.overlay.back();
-            control.focusable = true;
-            control.enabled = true;
-            control.text = one.label;
-            building.question_order.push_back(control.id);
+            kit::Control& added = building.overlay.back();
+            added.focusable = true;
+            added.enabled = true;
+            added.text = one.label;
+            building.question_order.push_back(added.id);
+            const int32_t label_left = rect.x + rect.width + metrics.list_row_gap;
             add_text(
                 building,
                 kit::FontRole::small,
-                one.label,
-                {rect.x + switch_columns + metrics.list_row_gap,
+                cut(building, kit::FontRole::small, one.label, left + inner - gap - label_left),
+                {label_left,
                  rect.y,
-                 std::max(inner_width - switch_columns - metrics.list_row_gap, int32_t{0}),
+                 std::max(left + inner - gap - label_left, int32_t{0}),
                  rect.height},
                 kit::Align::left,
                 kit::colour::text,
                 {}
             );
-            cursor += row_height;
+            cursor += switch_row;
         }
+        cursor = box_top + box_height + section_gap;
     }
-    if (use.show_scope) {
-        line(shown(library.text, words::use_for_heading), kit::colour::hint);
-        take(
-            controls::use_for_game,
-            named("use.for.game"),
-            {dialog_x + margin, cursor, inner_width, metrics.button_height},
-            std::string(shown(library.text, words::use_every_game)),
-            !use.for_mod,
-            false
-        );
-        cursor += row_height;
-        take(
-            controls::use_for_mod,
-            named("use.for.mod"),
-            {dialog_x + margin, cursor, inner_width, metrics.button_height},
-            filled(library.text, words::use_only_with, {{"mod", use.mod_name}}),
-            use.for_mod,
-            false
-        );
-        cursor += row_height;
+    if (!plan.pointer.empty()) {
+        cursor = add_lines(building, plan.pointer, left, cursor, inner, kit::colour::lock, {});
+        cursor += section_gap;
     }
-    if (!use.pointer_note.empty())
-        line(use.pointer_note, kit::colour::lock);
 
-    const int32_t button_y =
-        std::min(dialog_y + dialog_height - margin - metrics.button_height, cursor + window.gap);
-    const std::string use_caption(shown(library.text, words::action_use));
-    const std::string cancel_caption(shown(library.text, words::action_cancel));
-    const int32_t use_width = std::max(button_width(building, use_caption), int32_t{80});
+    // Cancel, and USE named by the answer to Where, at the dialog's foot.
+    const int32_t button_y = dialog_y + dialog_height - pad - control;
+    const std::string use_caption = key_use_button(library);
+    const std::string cancel_caption(shown(text, words::use_cancel));
+    const int32_t use_width =
+        std::min(std::max(button_width(building, use_caption), int32_t{80}), inner / 2 + inner / 4);
     const int32_t cancel_width = std::max(button_width(building, cancel_caption), int32_t{80});
-    const int32_t use_x = dialog_x + dialog_width - margin - use_width;
-    const int32_t cancel_x = use_x - window.gap - cancel_width;
+    const int32_t use_x = left + inner - use_width;
+    const int32_t cancel_x = use_x - gap - cancel_width;
+    const auto take = [&](kit::ControlId id,
+                          std::string control_name,
+                          const kit::Rect& rect,
+                          std::string caption,
+                          bool accent) {
+        kit::ButtonLook look;
+        look.caption = cut(building, kit::FontRole::small, caption, rect.width - 2);
+        look.style = accent ? kit::ButtonStyle::accent : kit::ButtonStyle::plain;
+        look.hovered = hovered(building, id);
+        look.held = held(building, id);
+        const std::size_t before = building.list.controls.size();
+        kit::add_button(
+            building.list, rect, look, id, unique_name(building, std::move(control_name))
+        );
+        move_controls(building.list, before, building.overlay);
+        kit::Control& added = building.overlay.back();
+        added.focusable = true;
+        added.enabled = true;
+        added.text = caption;
+        building.question_order.push_back(added.id);
+    };
     take(
         controls::use_cancel,
         "prompt.cancel",
-        {cancel_x, button_y, cancel_width, metrics.button_height},
+        {cancel_x, button_y, cancel_width, control},
         cancel_caption,
-        false,
         false
     );
     take(
         controls::use_confirm,
         "prompt.use",
-        {use_x, button_y, use_width, metrics.button_height},
+        {use_x, button_y, use_width, control},
         use_caption,
-        true,
         true
     );
     const std::size_t before = building.list.controls.size();

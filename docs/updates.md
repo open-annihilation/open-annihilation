@@ -158,22 +158,23 @@ downloading by itself at the settled main menu, and the ready prompt is
 the first question.
 
 The prompt says "Open Annihilation {version} is ready". It offers three
-answers:
+answers, in the update centre's words:
 
-- **KEEP IT READY**, which Escape answers, schedules nothing. The package
+- **Keep it ready**, which Escape answers, schedules nothing. The package
   stays, quitting installs nothing, and the prompt asks again at the next
   start.
-- **WHEN I QUIT** schedules this release. The choice is stored
+- **Install when I quit** schedules this release. The choice is stored
   (`open-annihilation.update-install-on-quit`), the header says "{version}
   installs when you quit", and the next normal quit writes the plan and
   starts `oa-update`, in this start or a later one. Taking it back leaves
   the package ready.
-- The third button installs now. It names the way this copy installs:
-  RESTART NOW where the helper swaps the files and starts the game again
-  (the Windows installer adds "Windows asks for permission."), OPEN THE
-  INSTALLER where macOS Installer puts the release in Applications, and
-  CLOSE THE GAME on a Steam Deck, where the version installs the next time
-  you start Open Annihilation and the helper does not start the game.
+- The third button installs now, and names the way this copy installs:
+  **Install and restart** where the helper swaps the files and starts the
+  game again (the Windows installer adds "Windows asks for permission."),
+  **Open the installer** where macOS Installer puts the release in
+  Applications, and **Close the game** on a Steam Deck, where the version
+  installs the next time you start Open Annihilation and the helper does
+  not start the game.
 
 Quitting any other way never installs. RESTART TO UPDATE on Settings ›
 Updates installs now as well. Where this copy has no route, UPDATE opens

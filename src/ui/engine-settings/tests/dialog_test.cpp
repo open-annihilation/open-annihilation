@@ -135,51 +135,53 @@ using settings::Lock;
 using settings::Page;
 using settings::Setting;
 
-/// The engine's sections, in the order the list shows them.
+/// The engine's sections, in the list's order: Controls and Accessibility;
+/// Graphics, User Interface and Language & Text; Downloads, Updates and Game
+/// Content; Engine Limits, System and Developer.
 constexpr std::array<Page, 11> kPages{
     Page::controls,
-    Page::common_tweaks,
-    Page::language,
+    Page::accessibility,
     Page::graphics,
     Page::user_interface,
-    Page::accessibility,
+    Page::language,
     Page::downloads,
     Page::updates,
     Page::game_content,
+    Page::common_tweaks,
     Page::system,
     Page::developer,
 };
 
-/// The engine's sections while the game has touch controls: Touch between
-/// Accessibility and Downloads.
+/// The engine's sections while the game has touch controls: Touch after
+/// Accessibility.
 constexpr std::array<Page, 12> kTouchPages{
     Page::controls,
-    Page::common_tweaks,
-    Page::language,
-    Page::graphics,
-    Page::user_interface,
     Page::accessibility,
     Page::touch,
+    Page::graphics,
+    Page::user_interface,
+    Page::language,
     Page::downloads,
     Page::updates,
     Page::game_content,
+    Page::common_tweaks,
     Page::system,
     Page::developer,
 };
 
 /// The engine's sections in the main menu's dialog of a game that brings
-/// game files in: Game files between Accessibility and Downloads.
+/// game files in: Game files before Downloads.
 constexpr std::array<Page, 12> kGameFilesPages{
     Page::controls,
-    Page::common_tweaks,
-    Page::language,
+    Page::accessibility,
     Page::graphics,
     Page::user_interface,
-    Page::accessibility,
+    Page::language,
     Page::game_files,
     Page::downloads,
     Page::updates,
     Page::game_content,
+    Page::common_tweaks,
     Page::system,
     Page::developer,
 };
@@ -187,33 +189,33 @@ constexpr std::array<Page, 12> kGameFilesPages{
 /// The engine's sections with Touch and Game files both listed.
 constexpr std::array<Page, 13> kTouchGameFilesPages{
     Page::controls,
-    Page::common_tweaks,
-    Page::language,
-    Page::graphics,
-    Page::user_interface,
     Page::accessibility,
     Page::touch,
+    Page::graphics,
+    Page::user_interface,
+    Page::language,
     Page::game_files,
     Page::downloads,
     Page::updates,
     Page::game_content,
+    Page::common_tweaks,
     Page::system,
     Page::developer,
 };
 
-/// The engine's sections once a gamepad has sent input: Controller between
-/// Accessibility and Downloads.
+/// The engine's sections once a gamepad has sent input: Controller after
+/// Accessibility, or after Touch.
 constexpr std::array<Page, 12> kControllerPages{
     Page::controls,
-    Page::common_tweaks,
-    Page::language,
-    Page::graphics,
-    Page::user_interface,
     Page::accessibility,
     Page::controller,
+    Page::graphics,
+    Page::user_interface,
+    Page::language,
     Page::downloads,
     Page::updates,
     Page::game_content,
+    Page::common_tweaks,
     Page::system,
     Page::developer,
 };
@@ -222,36 +224,34 @@ constexpr std::array<Page, 12> kControllerPages{
 /// Touch.
 constexpr std::array<Page, 13> kTouchControllerPages{
     Page::controls,
-    Page::common_tweaks,
-    Page::language,
-    Page::graphics,
-    Page::user_interface,
     Page::accessibility,
     Page::touch,
     Page::controller,
+    Page::graphics,
+    Page::user_interface,
+    Page::language,
     Page::downloads,
     Page::updates,
     Page::game_content,
+    Page::common_tweaks,
     Page::system,
     Page::developer,
 };
 
-/// The engine's sections with all three listed: Accessibility, then Touch,
-/// Controller, then Game files, then Downloads, then Updates, then Game
-/// Content, then System.
+/// The engine's sections with all three listed.
 constexpr std::array<Page, 14> kAllPages{
     Page::controls,
-    Page::common_tweaks,
-    Page::language,
-    Page::graphics,
-    Page::user_interface,
     Page::accessibility,
     Page::touch,
     Page::controller,
+    Page::graphics,
+    Page::user_interface,
+    Page::language,
     Page::game_files,
     Page::downloads,
     Page::updates,
     Page::game_content,
+    Page::common_tweaks,
     Page::system,
     Page::developer,
 };
@@ -399,6 +399,19 @@ std::vector<std::pair<int32_t, renderer::SourceRect>> list_entries(const setting
         if (part.control >= settings::first_page_control &&
             part.control < settings::restore_control)
             entries.emplace_back(part.control, part.rect);
+    return entries;
+}
+
+/// Returns the controls of every section's entry the dialog lists, in the
+/// list's order, those scrolled out of the list's room among them.
+///
+/// @param dialog the dialog
+/// @return the entries' controls
+std::vector<int32_t> entry_controls(const settings::Dialog& dialog) {
+    std::vector<int32_t> entries;
+    for (const auto& control : geometry::dialog_list(dialog, nullptr).controls)
+        if (control.id >= settings::first_page_control && control.id < settings::restore_control)
+            entries.push_back(control.id);
     return entries;
 }
 
@@ -644,43 +657,39 @@ void every_part_lies_inside_the_dialog_and_apart() {
         }
     }
     // The section list's entries and the footer's buttons keep apart too.
-    for (const Page page : kPages)
-        CHECK(!overlap(geometry::list_item(page), geometry::list_divider()));
+    for (std::size_t index = 1; index < kPages.size(); ++index)
+        CHECK(!overlap(geometry::list_item(kPages[index - 1]), geometry::list_item(kPages[index])));
     CHECK(!overlap(geometry::restore_button, geometry::cancel_button));
     CHECK(geometry::cancel_button.x + geometry::cancel_button.width < geometry::ok_button.x);
 }
 
 void each_section_shows_its_rows() {
-    // The list names the sections in order, Developer last under a divider.
+    // The list names the sections in order, in their groups, Developer last.
     const auto engine = settings::dialog_pages(settings::DialogKind::engine);
     CHECK(std::equal(engine.begin(), engine.end(), kPages.begin(), kPages.end()));
-    // Each entry's number is its place in the list with Touch and
-    // Controller, which keep their numbers listed or not: Developer is 7,
-    // Downloads is 9, System is 10, Game Content is 11 and Updates is 12.
-    for (std::size_t index = 0; index < kPages.size(); ++index) {
-        int32_t expected = static_cast<int32_t>(index);
-        if (kPages[index] == Page::downloads)
-            expected = 9;
-        else if (kPages[index] == Page::system)
-            expected = 10;
-        else if (kPages[index] == Page::game_content)
-            expected = 11;
-        else if (kPages[index] == Page::updates)
-            expected = 12;
-        else if (kPages[index] == Page::accessibility)
-            expected = 13;
-        else if (kPages[index] == Page::developer)
-            expected = 7;
-        CHECK(settings::page_control(kPages[index]) == expected);
-    }
+    // Each entry keeps the number it had before the sections were grouped,
+    // listed or not: Controls 0, Engine Limits 1, Language & Text 2, Graphics
+    // 3, User Interface 4, Developer 7, Downloads 9, System 10, Game Content
+    // 11, Updates 12 and Accessibility 13.
+    constexpr std::array<int32_t, 11> kControls{0, 13, 3, 4, 2, 9, 12, 11, 1, 10, 7};
+    for (std::size_t index = 0; index < kPages.size(); ++index)
+        CHECK(settings::page_control(kPages[index]) == kControls[index]);
     for (std::size_t index = 1; index < kPages.size(); ++index) {
         const auto above = geometry::list_item(kPages[index - 1]);
         CHECK(above.y + above.height <= geometry::list_item(kPages[index]).y);
     }
-    const auto divider = geometry::list_divider();
-    const auto graphics_entry = geometry::list_item(Page::graphics);
-    CHECK(graphics_entry.y + graphics_entry.height <= divider.y);
-    CHECK(divider.y + divider.height <= geometry::list_item(Page::developer).y);
+    // A rule and its margins part two groups; entries of one group lie an
+    // entry and its gap apart.
+    const geometry::NavMetrics& nav = geometry::compact_sizes.nav;
+    const auto accessibility_entry = geometry::list_item(Page::accessibility);
+    CHECK(
+        geometry::list_item(Page::graphics).y ==
+        accessibility_entry.y + accessibility_entry.height + 2 * nav.rule_margin + 1
+    );
+    CHECK(
+        geometry::list_item(Page::user_interface).y ==
+        geometry::list_item(Page::graphics).y + nav.entry_height + nav.entry_gap
+    );
 
     // Controls: the layout in use, whether buttons show their key, then the
     // wheel's switch with the zoom's two limits under it, how far past the
@@ -800,20 +809,22 @@ void each_section_shows_its_rows() {
     CHECK(settings::page_settings(Page::graphics)[18] == Setting::coastal_waves);
     CHECK(settings::page_settings(Page::graphics)[19] == Setting::underwater_shimmer);
     CHECK(settings::page_settings(Page::graphics)[20] == Setting::naval_reflections);
-    CHECK(settings::page_settings(Page::user_interface).size() == 5);
+    CHECK(settings::page_settings(Page::user_interface).size() == 7);
     CHECK(settings::page_settings(Page::user_interface)[0] == Setting::menu_scaling);
     CHECK(settings::page_settings(Page::user_interface)[1] == Setting::window_frame);
     CHECK(settings::page_settings(Page::user_interface)[2] == Setting::hud_scaling);
     CHECK(settings::page_settings(Page::user_interface)[3] == Setting::interface_size);
-    CHECK(settings::page_settings(Page::user_interface)[4] == Setting::escape_opens_menu);
+    CHECK(settings::page_settings(Page::user_interface)[4] == Setting::window_size);
+    CHECK(settings::page_settings(Page::user_interface)[5] == Setting::reset_window_positions);
+    CHECK(settings::page_settings(Page::user_interface)[6] == Setting::escape_opens_menu);
     CHECK(settings::page_settings(Page::developer).size() == 3);
     CHECK(settings::page_settings(Page::developer)[0] == Setting::developer_mode);
     CHECK(settings::page_settings(Page::developer)[1] == Setting::frame_stats);
     CHECK(settings::page_settings(Page::developer)[2] == Setting::kit_gallery);
-    // Graphics' twenty-one rows are taller than the view, by 972 rows.
+    // Graphics' twenty-one rows are taller than the view, by 988 rows.
     const auto graphics = geometry::place_rows(Page::graphics, {});
     CHECK(graphics.rows.size() == 21);
-    CHECK(geometry::scroll_limit(geometry::content_height(graphics, 0)) == 972);
+    CHECK(geometry::scroll_limit(geometry::content_height(graphics, 0)) == 988);
 
     auto parts = settings::dialog_layout(opened(Page::controls));
     for (const std::string_view text :
@@ -828,21 +839,22 @@ void each_section_shows_its_rows() {
           "Developer",
           "CONTROLS",
           "Key layout",
-          "EDIT KEYS…",
+          "Edit keys…",
           "OA default",
           "Show keys on buttons",
           "OFF",
           "ON",
           "RESTORE DEFAULTS",
-          "CANCEL",
+          "Cancel",
           "OK"})
         CHECK(find_part(parts, text, settings::no_control) != nullptr);
     const auto controls_rows = geometry::place_rows(Page::controls, {});
     CHECK(controls_rows.rows.size() == 9);
-    // View past the map's edge, scrolled into view. Key layout and Show keys
-    // on buttons sit above it, so 200 shows the row and its hint.
+    // View past the map's edge, scrolled into view. The key layout card and
+    // the rows down to Maximum zoom in sit above it, so 300 shows the row and
+    // its hint.
     settings::Dialog middle = opened(Page::controls);
-    middle.scroll[static_cast<std::size_t>(Page::controls)] = 200;
+    middle.scroll[static_cast<std::size_t>(Page::controls)] = 300;
     parts = settings::dialog_layout(middle);
     for (const std::string_view text :
          {"View past the map's edge",
@@ -1016,7 +1028,7 @@ void switches_take_a_click_on_either_half_and_keys() {
 
     // Escape opens the game menu moved to User Interface, its last row.
     settings::Dialog ui_page = opened(Page::user_interface);
-    ui_page.focused = settings::first_row_control + 4;
+    ui_page.focused = settings::first_row_control + 6;
     CHECK(settings::dialog_key(ui_page, DialogKey::right) == DialogAction::changed);
     CHECK(ui_page.chosen.escape_opens_menu);
 
@@ -1045,14 +1057,13 @@ void language_and_text_shows_a_language_five_switches_and_a_size() {
                       geometry::kind_of(setting) != geometry::RowKind::slider &&
                       geometry::kind_of(setting) != geometry::RowKind::choice
         );
-    // Its entry comes after Engine Limits and before Graphics, over the line
-    // above Developer.
+    // Its entry ends the group of how the game looks, after User Interface
+    // and before Downloads.
     const auto entry = geometry::list_item(Page::language);
     CHECK(settings::page_control(Page::language) == 2);
-    CHECK(entry.y > geometry::list_item(Page::common_tweaks).y);
-    CHECK(entry.y < geometry::list_item(Page::graphics).y);
-    CHECK(entry.y + entry.height < geometry::list_divider().y);
-    CHECK(geometry::list_divider().y < geometry::list_item(Page::developer).y);
+    CHECK(entry.y > geometry::list_item(Page::user_interface).y);
+    CHECK(entry.y < geometry::list_item(Page::downloads).y);
+    CHECK(geometry::nav_group(Page::language) == geometry::NavGroup::look);
 
     // The player's own defaults: the system's language, modern fonts,
     // outline and shadow On, the background Off, the text at 80%.
@@ -1078,11 +1089,11 @@ void language_and_text_shows_a_language_five_switches_and_a_size() {
           "sizes are easier to read.",
           "80%"})
         CHECK(find_part(parts, text, settings::no_control) != nullptr);
-    // The seven are taller than the view by 188 rows: the switches under
+    // The seven are taller than the view by 204 rows: the switches under
     // Text size show as the section scrolls, under its scroll bar.
-    CHECK(geometry::open_rows(dialog).limit == 188);
+    CHECK(geometry::open_rows(dialog).limit == 204);
     CHECK(find_part(parts, {}, settings::scroll_bar_control) != nullptr);
-    dialog.scroll[static_cast<std::size_t>(Page::language)] = 188;
+    dialog.scroll[static_cast<std::size_t>(Page::language)] = 204;
     for (const std::string_view text :
          {"Font outline",
           "A dark edge round each letter of modern text.",
@@ -2428,14 +2439,14 @@ void the_focus_moves_round_every_control() {
         settings::cancel_control,
         settings::ok_control,
         settings::page_control(Page::controls),
-        settings::page_control(Page::common_tweaks),
-        settings::page_control(Page::language),
+        settings::page_control(Page::accessibility),
         settings::page_control(Page::graphics),
         settings::page_control(Page::user_interface),
-        settings::page_control(Page::accessibility),
+        settings::page_control(Page::language),
         settings::page_control(Page::downloads),
         settings::page_control(Page::updates),
         settings::page_control(Page::game_content),
+        settings::page_control(Page::common_tweaks),
         settings::page_control(Page::system),
         settings::page_control(Page::developer),
     };
@@ -2450,15 +2461,15 @@ void the_focus_moves_round_every_control() {
     CHECK(settings::dialog_key(dialog, DialogKey::back_tab) == DialogAction::redraw);
     CHECK(dialog.focused == settings::page_control(Page::system));
     CHECK(settings::dialog_key(dialog, DialogKey::back_tab) == DialogAction::redraw);
+    CHECK(dialog.focused == settings::page_control(Page::common_tweaks));
+    CHECK(settings::dialog_key(dialog, DialogKey::back_tab) == DialogAction::redraw);
     CHECK(dialog.focused == settings::page_control(Page::game_content));
     CHECK(settings::dialog_key(dialog, DialogKey::back_tab) == DialogAction::redraw);
     CHECK(dialog.focused == settings::page_control(Page::updates));
     CHECK(settings::dialog_key(dialog, DialogKey::back_tab) == DialogAction::redraw);
     CHECK(dialog.focused == settings::page_control(Page::downloads));
     CHECK(settings::dialog_key(dialog, DialogKey::back_tab) == DialogAction::redraw);
-    CHECK(dialog.focused == settings::page_control(Page::accessibility));
-    CHECK(settings::dialog_key(dialog, DialogKey::back_tab) == DialogAction::redraw);
-    CHECK(dialog.focused == settings::page_control(Page::user_interface));
+    CHECK(dialog.focused == settings::page_control(Page::language));
     // The title bar's close mark is last in Tab's order.
     settings::Dialog again = opened(Page::controls);
     for (const int32_t control : expected) {
@@ -2469,7 +2480,7 @@ void the_focus_moves_round_every_control() {
     CHECK(again.focused == settings::close_x_control);
     // Space on an entry shows its section.
     CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::redraw);
-    CHECK(dialog.page == Page::user_interface);
+    CHECK(dialog.page == Page::language);
     // Up from nothing lands on the last control.
     settings::Dialog fresh = opened(Page::controls);
     CHECK(settings::dialog_key(fresh, DialogKey::up) == DialogAction::redraw);
@@ -2648,12 +2659,12 @@ DialogAction wheel(settings::Dialog& dialog, float notches, Point at = {300, 150
 }
 
 void the_view_and_the_scroll_bar_keep_their_places() {
-    CHECK(same_rect(geometry::view, {158, 54, 309, 236}));
-    CHECK(same_rect(geometry::view_clip, {156, 54, 313, 236}));
-    CHECK(same_rect(geometry::scroll_well, {470, 54, 7, 236}));
-    CHECK(same_rect(geometry::scroll_hit, {467, 54, 12, 236}));
+    CHECK(same_rect(geometry::view, {158, 54, 309, 220}));
+    CHECK(same_rect(geometry::view_clip, {156, 54, 313, 220}));
+    CHECK(same_rect(geometry::scroll_well, {470, 54, 7, 220}));
+    CHECK(same_rect(geometry::scroll_hit, {467, 54, 12, 220}));
     CHECK(geometry::wheel_step == 24);
-    CHECK(geometry::page_step == 200);
+    CHECK(geometry::page_step == 184);
     CHECK(geometry::least_thumb_height == 16);
     CHECK(geometry::end_gap == 8);
     // The view runs from the first row's line to the row above the footer's.
@@ -2666,19 +2677,20 @@ void the_view_and_the_scroll_bar_keep_their_places() {
 
 void sections_that_fit_do_not_scroll() {
     // Each section's content: its rows, and the end gap under the last.
-    // Controls' Key layout, Show keys on buttons, Mouse wheel zoom, the
+    // Controls' key layout card, Show keys on buttons, Mouse wheel zoom, the
     // zoom's two drop-downs, View past the map's edge's strip, Middle-click
-    // pans, Window edge's strip and Edge stickiness's slider are 562.
+    // pans, Window edge's strip and Edge stickiness's slider are 603.
     // Engine Limits' three sliders, the mod's heading and its two
     // rows are 369. Graphics' twenty-one rows are 1208, Language's
     // drop-down, five switches and slider 424, and User Interface's four
-    // strips and switches with Interface size's row are 324. All of them
-    // scroll. Developer's list scrolls in a view of its own (developer_*).
+    // strips and switches with the Interface and Window size rows and Reset
+    // window positions are 450. All of them scroll. Developer's list scrolls
+    // in a view of its own (developer_*).
     const std::array<Page, 5> pages{
         Page::controls, Page::common_tweaks, Page::graphics, Page::language, Page::user_interface
     };
-    const std::array<int32_t, 5> content{562, 369, 1208, 424, 324};
-    const std::array<int32_t, 5> limits{326, 133, 972, 188, 88};
+    const std::array<int32_t, 5> content{603, 369, 1208, 424, 450};
+    const std::array<int32_t, 5> limits{383, 149, 988, 204, 230};
     for (std::size_t index = 0; index < content.size(); ++index) {
         const Page page = pages[index];
         if (limits[index] != 0) {
@@ -2827,22 +2839,22 @@ void a_long_section_scrolls_by_its_overflow() {
     }
     CHECK(open.rows.bottom == 361);
     CHECK(open.content_height == 316);
-    CHECK(open.limit == 80);
+    CHECK(open.limit == 96);
     CHECK(open.scroll == 0);
 
-    // At its end every row is 80 rows higher, the closing line at 281.
+    // At its end every row is 96 rows higher, the closing line at 265.
     five.dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 500;
     const auto end = five.rows();
-    CHECK(end.scroll == 80);
-    CHECK(end.rows.bottom == 281);
-    CHECK(end.rows.rows[0].top == -26);
-    CHECK(end.rows.rows[1].control_area.y == 48);
-    CHECK(end.rows.rows[4].top == 234);
+    CHECK(end.scroll == 96);
+    CHECK(end.rows.bottom == 265);
+    CHECK(end.rows.rows[0].top == -42);
+    CHECK(end.rows.rows[1].control_area.y == 32);
+    CHECK(end.rows.rows[4].top == 218);
     // Every part a row has moves with it; a part it lacks stays empty.
     const auto lifted = [](const renderer::SourceRect& at_end, const renderer::SourceRect& at_top) {
         if (at_top.width == 0 || at_top.height == 0)
             return same_rect(at_end, at_top);
-        return same_rect(at_end, {at_top.x, at_top.y - 80, at_top.width, at_top.height});
+        return same_rect(at_end, {at_top.x, at_top.y - 96, at_top.width, at_top.height});
     };
     for (std::size_t index = 0; index < open.rows.rows.size(); ++index) {
         const auto& top_row = open.rows.rows[index];
@@ -2855,43 +2867,46 @@ void a_long_section_scrolls_by_its_overflow() {
         CHECK(lifted(end_row.value, top_row.value));
     }
 
-    // The thumb: 174 rows of the well's 234, its top 55 at the top, 85
-    // half-way and 115 at the end; a dragged top gives the offset back.
-    CHECK(same_rect(geometry::scroll_thumb(0, 80, 316), {471, 55, 5, 174}));
-    CHECK(geometry::scroll_thumb(40, 80, 316).y == 85);
-    CHECK(geometry::scroll_thumb(80, 80, 316).y == 115);
-    CHECK(geometry::scroll_at(55, 80, 316) == 0);
-    CHECK(geometry::scroll_at(85, 80, 316) == 40);
-    CHECK(geometry::scroll_at(115, 80, 316) == 80);
-    CHECK(geometry::scroll_at(10, 80, 316) == 0);
-    CHECK(geometry::scroll_at(400, 80, 316) == 80);
-    // To the nearest row: two rows down the thumb's 60 is 2.67 of the 80.
-    CHECK(geometry::scroll_at(57, 80, 316) == 3);
-    CHECK(geometry::scroll_at(56, 80, 316) == 1);
-    for (int32_t scroll = 0; scroll <= 80; ++scroll) {
-        const auto thumb = geometry::scroll_thumb(scroll, 80, 316);
-        CHECK(thumb.y >= 55 && thumb.y + thumb.height <= 289);
+    // The thumb: 151 rows of the well's 218, its top 55 at the top, 89
+    // half-way and 122 at the end; a dragged top gives the offset back.
+    CHECK(same_rect(geometry::scroll_thumb(0, 96, 316), {471, 55, 5, 151}));
+    CHECK(geometry::scroll_thumb(48, 96, 316).y == 89);
+    CHECK(geometry::scroll_thumb(96, 96, 316).y == 122);
+    CHECK(geometry::scroll_at(55, 96, 316) == 0);
+    CHECK(geometry::scroll_at(89, 96, 316) == 49);
+    CHECK(geometry::scroll_at(122, 96, 316) == 96);
+    CHECK(geometry::scroll_at(10, 96, 316) == 0);
+    CHECK(geometry::scroll_at(400, 96, 316) == 96);
+    // To the nearest row: two rows down the thumb's 67 is 2.87 of the 96.
+    CHECK(geometry::scroll_at(57, 96, 316) == 3);
+    CHECK(geometry::scroll_at(56, 96, 316) == 1);
+    for (int32_t scroll = 0; scroll <= 96; ++scroll) {
+        const auto thumb = geometry::scroll_thumb(scroll, 96, 316);
+        CHECK(thumb.y >= 55 && thumb.y + thumb.height <= 273);
         // The offset a thumb's top gives puts the thumb back there.
-        CHECK(geometry::scroll_thumb(geometry::scroll_at(thumb.y, 80, 316), 80, 316).y == thumb.y);
+        CHECK(geometry::scroll_thumb(geometry::scroll_at(thumb.y, 96, 316), 96, 316).y == thumb.y);
     }
 
-    // Nine rows: 543 rows, a limit of 316 and a thumb of 100.
+    // Nine rows: 552 rows, a limit of 332 and a thumb of 86.
     Scrolling all(nine_rows());
     CHECK(all.rows().content_height == 552);
-    CHECK(all.rows().limit == 316);
-    CHECK(geometry::scroll_thumb(0, 316, 552).height == 100);
+    CHECK(all.rows().limit == 332);
+    CHECK(geometry::scroll_thumb(0, 332, 552).height == 86);
     // A section far taller than the view keeps the thumb's least height.
     CHECK(geometry::scroll_thumb(0, 10000, 10236).height == geometry::least_thumb_height);
 }
 
 void control_numbers_put_the_rows_after_every_fixed_control() {
-    // Each entry is its place in the list with Touch and Controller,
-    // whether or not the dialog lists them: the five sections before
-    // Accessibility are 0 to 4. Touch is 5 and Controller 6. Developer is 7,
-    // Game files 8, Downloads 9, System 10, Game Content 11, Updates 12 and
-    // Accessibility 13.
-    for (std::size_t index = 0; index < 5; ++index)
-        CHECK(settings::page_control(kTouchControllerPages[index]) == static_cast<int32_t>(index));
+    // Each entry keeps its number, whether or not the dialog lists Touch and
+    // Controller, and wherever its group lists it: Controls 0, Engine Limits
+    // 1, Language & Text 2, Graphics 3, User Interface 4, Touch 5,
+    // Controller 6, Developer 7, Game files 8, Downloads 9, System 10, Game
+    // Content 11, Updates 12 and Accessibility 13.
+    CHECK(settings::page_control(Page::controls) == 0);
+    CHECK(settings::page_control(Page::common_tweaks) == 1);
+    CHECK(settings::page_control(Page::language) == 2);
+    CHECK(settings::page_control(Page::graphics) == 3);
+    CHECK(settings::page_control(Page::user_interface) == 4);
     CHECK(settings::page_control(Page::touch) == 5);
     CHECK(settings::page_control(Page::controller) == 6);
     CHECK(settings::page_control(Page::developer) == 7);
@@ -3051,15 +3066,15 @@ void the_layout_lists_the_parts_wholly_in_the_view() {
 void the_wheel_scrolls_by_notches_and_carries_fractions() {
     Scrolling five(five_rows());
     // Towards the player scrolls down, 24 rows a notch, to the end in four.
-    for (const int32_t expected : {24, 48, 72, 80}) {
+    for (const int32_t expected : {24, 48, 72, 96}) {
         CHECK(wheel(five.dialog, -1.0F) == DialogAction::redraw);
         CHECK(five.scroll() == expected);
     }
     CHECK(wheel(five.dialog, -1.0F) == DialogAction::none);
-    CHECK(five.scroll() == 80);
+    CHECK(five.scroll() == 96);
     CHECK(five.dialog.wheel_rows == 0.0F);
     // Away from the player scrolls up, and stops at the top.
-    for (const int32_t expected : {56, 32, 8, 0}) {
+    for (const int32_t expected : {72, 48, 24, 0}) {
         CHECK(wheel(five.dialog, 1.0F) == DialogAction::redraw);
         CHECK(five.scroll() == expected);
     }
@@ -3079,7 +3094,7 @@ void the_wheel_scrolls_by_notches_and_carries_fractions() {
     // A turn far larger than the section reaches its end, and the carry
     // towards that end is dropped there.
     CHECK(wheel(five.dialog, -1.0e9F) == DialogAction::redraw);
-    CHECK(five.scroll() == 80 && five.dialog.wheel_rows == 0.0F);
+    CHECK(five.scroll() == 96 && five.dialog.wheel_rows == 0.0F);
     CHECK(wheel(five.dialog, fine) == DialogAction::none);
     CHECK(five.dialog.wheel_rows == 0.0F);
     // A carry is dropped when another section shows.
@@ -3088,20 +3103,20 @@ void the_wheel_scrolls_by_notches_and_carries_fractions() {
     CHECK(click(five.dialog, centre(geometry::list_item(Page::controls))) == DialogAction::redraw);
     CHECK(five.dialog.wheel_rows == 0.0F);
     CHECK(click(five.dialog, centre(geometry::list_item(Page::graphics))) == DialogAction::redraw);
-    CHECK(five.scroll() == 80);
+    CHECK(five.scroll() == 96);
 
     // Anywhere over the dialog, the section list and the footer included;
     // nowhere outside it.
     CHECK(wheel(five.dialog, 1.0F, {20, 100}) == DialogAction::redraw);
     CHECK(wheel(five.dialog, 1.0F, {300, 310}) == DialogAction::redraw);
-    CHECK(five.scroll() == 32);
+    CHECK(five.scroll() == 48);
     for (const Point outside :
          {Point{-1, 100},
           Point{settings::dialog_width, 100},
           Point{300, -1},
           Point{300, settings::dialog_height}})
         CHECK(wheel(five.dialog, 1.0F, outside) == DialogAction::none);
-    CHECK(five.scroll() == 32);
+    CHECK(five.scroll() == 48);
     // Not a number, nor an endless turn, scrolls.
     CHECK(
         settings::dialog_wheel(five.dialog, 300, 150, std::numeric_limits<float>::quiet_NaN()) ==
@@ -3111,7 +3126,7 @@ void the_wheel_scrolls_by_notches_and_carries_fractions() {
         settings::dialog_wheel(five.dialog, 300, 150, std::numeric_limits<float>::infinity()) ==
         DialogAction::none
     );
-    CHECK(five.scroll() == 32);
+    CHECK(five.scroll() == 48);
 
     // Nothing moves while a press is held: on a footer button or a slider.
     const Point restore = centre(geometry::restore_button);
@@ -3127,7 +3142,7 @@ void the_wheel_scrolls_by_notches_and_carries_fractions() {
     CHECK(five.dialog.dragging);
     CHECK(wheel(five.dialog, -1.0F) == DialogAction::none);
     static_cast<void>(settings::dialog_pointer_up(five.dialog, last_stop.x, last_stop.y));
-    CHECK(five.scroll() == 32);
+    CHECK(five.scroll() == 48);
     // A scroll changes no setting.
     const auto chosen = five.dialog.chosen;
     CHECK(wheel(five.dialog, -1.0F) == DialogAction::redraw);
@@ -3136,13 +3151,13 @@ void the_wheel_scrolls_by_notches_and_carries_fractions() {
 
 void the_scroll_keys_scroll_whatever_has_the_focus() {
     Scrolling all(nine_rows());
-    // Page Down and Page Up by 200 rows, stopping at the ends; End and Home.
+    // Page Down and Page Up by 184 rows, stopping at the ends; End and Home.
     for (const auto& [key, expected] :
-         {std::pair{DialogKey::page_down, 200},
-          std::pair{DialogKey::page_down, 316},
-          std::pair{DialogKey::page_up, 116},
+         {std::pair{DialogKey::page_down, 184},
+          std::pair{DialogKey::page_down, 332},
+          std::pair{DialogKey::page_up, 148},
           std::pair{DialogKey::page_up, 0},
-          std::pair{DialogKey::end, 316},
+          std::pair{DialogKey::end, 332},
           std::pair{DialogKey::home, 0}}) {
         CHECK(settings::dialog_key(all.dialog, key) == DialogAction::redraw);
         CHECK(all.scroll() == expected);
@@ -3160,7 +3175,7 @@ void the_scroll_keys_scroll_whatever_has_the_focus() {
     CHECK(all.dialog.focused == settings::first_row_control + 4);
     const auto chosen = all.dialog.chosen;
     CHECK(settings::dialog_key(all.dialog, DialogKey::end) == DialogAction::redraw);
-    CHECK(all.scroll() == 316);
+    CHECK(all.scroll() == 332);
     CHECK(settings::dialog_key(all.dialog, DialogKey::home) == DialogAction::redraw);
     CHECK(all.scroll() == 0);
     CHECK(all.dialog.focused == settings::first_row_control + 4);
@@ -3169,37 +3184,37 @@ void the_scroll_keys_scroll_whatever_has_the_focus() {
     // One Page Down reaches the end of five rows.
     Scrolling five(five_rows());
     CHECK(settings::dialog_key(five.dialog, DialogKey::page_down) == DialogAction::redraw);
-    CHECK(five.scroll() == 80);
+    CHECK(five.scroll() == 96);
     // Nothing moves while a press is held.
     const Point ok = centre(geometry::ok_button);
     static_cast<void>(settings::dialog_pointer_down(five.dialog, ok.x, ok.y));
     CHECK(settings::dialog_key(five.dialog, DialogKey::home) == DialogAction::none);
-    CHECK(five.scroll() == 80);
+    CHECK(five.scroll() == 96);
 }
 
 void the_focus_scrolls_its_row_into_view() {
     Scrolling five(five_rows());
-    // Tab from no focus: the first three rows at 0, the fourth at 25 (its
-    // lower line at 289), the last at the end.
+    // Tab from no focus: the first three rows at 0, the fourth at 41 (its
+    // lower line at 273), the last at the end.
     const std::array<std::pair<int32_t, int32_t>, 6> forward{{
         {settings::first_row_control, 0},
         {settings::first_row_control + 1, 0},
         {settings::first_row_control + 2, 0},
-        {settings::first_row_control + 3, 25},
-        {settings::first_row_control + 4, 80},
-        {settings::restore_control, 80},
+        {settings::first_row_control + 3, 41},
+        {settings::first_row_control + 4, 96},
+        {settings::restore_control, 96},
     }};
     for (const auto& [control, expected] : forward) {
         CHECK(settings::dialog_key(five.dialog, DialogKey::tab) == DialogAction::redraw);
         CHECK(five.dialog.focused == control);
         CHECK(five.scroll() == expected);
     }
-    // Back up: the third row shows whole at 80, the second scrolls to 65 and
+    // Back up: the third row shows whole at 96, the second scrolls to 65 and
     // the first to 0. A button or an entry never scrolls.
     const std::array<std::pair<int32_t, int32_t>, 5> back{{
-        {settings::first_row_control + 4, 80},
-        {settings::first_row_control + 3, 80},
-        {settings::first_row_control + 2, 80},
+        {settings::first_row_control + 4, 96},
+        {settings::first_row_control + 3, 96},
+        {settings::first_row_control + 2, 96},
         {settings::first_row_control + 1, 65},
         {settings::first_row_control, 0},
     }};
@@ -3223,11 +3238,11 @@ void the_focus_scrolls_its_row_into_view() {
     CHECK(five.scroll() == 0);
     CHECK(settings::dialog_key(five.dialog, DialogKey::right) == DialogAction::changed);
     CHECK(five.dialog.chosen.frame_stats);
-    CHECK(five.scroll() == 80);
+    CHECK(five.scroll() == 96);
     // A key that only brings the row back, changing nothing, still redraws.
     CHECK(settings::dialog_key(five.dialog, DialogKey::home) == DialogAction::redraw);
     CHECK(settings::dialog_key(five.dialog, DialogKey::right) == DialogAction::redraw);
-    CHECK(five.scroll() == 80);
+    CHECK(five.scroll() == 96);
     // Space on a slider does nothing but bring it into view.
     for (int32_t press = 0; press < 4; ++press)
         static_cast<void>(settings::dialog_key(five.dialog, DialogKey::up));
@@ -3244,7 +3259,7 @@ void the_scroll_bar_follows_a_drag() {
     // The pointer over the bar hovers it.
     CHECK(settings::dialog_pointer_move(five.dialog, 473, 150) == DialogAction::redraw);
     CHECK(five.dialog.hovered == settings::scroll_bar_control);
-    CHECK(settings::dialog_pointer_move(five.dialog, 467, 289) == DialogAction::none);
+    CHECK(settings::dialog_pointer_move(five.dialog, 467, 273) == DialogAction::none);
     CHECK(settings::dialog_pointer_move(five.dialog, 478, 54) == DialogAction::none);
     // A press on the thumb grabs it where it is pressed and moves nothing.
     CHECK(settings::dialog_pointer_down(five.dialog, 473, 100) == DialogAction::redraw);
@@ -3256,10 +3271,10 @@ void the_scroll_bar_follows_a_drag() {
     CHECK(settings::dialog_pointer_move(five.dialog, 300, 102) == DialogAction::redraw);
     CHECK(five.scroll() == 3);
     CHECK(settings::dialog_pointer_move(five.dialog, 300, 130) == DialogAction::redraw);
-    CHECK(five.scroll() == 40);
+    CHECK(five.scroll() == 43);
     CHECK(settings::dialog_pointer_move(five.dialog, 10, 130) == DialogAction::none);
     CHECK(settings::dialog_pointer_move(five.dialog, 10, 400) == DialogAction::redraw);
-    CHECK(five.scroll() == 80);
+    CHECK(five.scroll() == 96);
     CHECK(settings::dialog_pointer_move(five.dialog, 600, -100) == DialogAction::redraw);
     CHECK(five.scroll() == 0);
     CHECK(five.dialog.chosen == settings::EngineSettings{});
@@ -3276,13 +3291,13 @@ void the_scroll_bar_follows_a_drag() {
     // A press on the well below the thumb brings the thumb's middle to it,
     // and above it likewise; the drag starts there.
     CHECK(settings::dialog_pointer_down(five.dialog, 473, 260) == DialogAction::redraw);
-    CHECK(five.scroll() == 80);
-    CHECK(five.dialog.scroll_grab == 87);
+    CHECK(five.scroll() == 96);
+    CHECK(five.dialog.scroll_grab == 75);
     static_cast<void>(settings::dialog_pointer_up(five.dialog, 473, 260));
     CHECK(settings::dialog_pointer_down(five.dialog, 473, 70) == DialogAction::redraw);
     CHECK(five.scroll() == 0);
     CHECK(settings::dialog_pointer_move(five.dialog, 473, 172) == DialogAction::redraw);
-    CHECK(five.scroll() == 40);
+    CHECK(five.scroll() == 60);
     static_cast<void>(settings::dialog_pointer_up(five.dialog, 473, 172));
 
     // A press on the bar leaves the keyboard focus where it was, and the
@@ -3303,26 +3318,26 @@ void the_scroll_bar_follows_a_drag() {
     CHECK(five.dialog.focused == settings::first_row_control + 2);
     CHECK(five.scroll() == 0);
     CHECK(settings::dialog_pointer_down(five.dialog, 473, 260) == DialogAction::redraw);
-    CHECK(five.scroll() == 80);
+    CHECK(five.scroll() == 96);
     CHECK(five.dialog.focused == settings::first_row_control + 2);
     static_cast<void>(settings::dialog_pointer_up(five.dialog, 473, 260));
     CHECK(five.dialog.focused == settings::first_row_control + 2);
     CHECK(settings::dialog_key(five.dialog, DialogKey::tab) == DialogAction::redraw);
     CHECK(five.dialog.focused == settings::first_row_control + 3);
-    CHECK(five.scroll() == 80);
+    CHECK(five.scroll() == 96);
 }
 
 void a_cut_row_answers_only_where_it_shows() {
     Scrolling five(five_rows());
-    // At 40 the last row's switch shows its top seven rows, 283 to 289: a
+    // At 56 the last row's switch shows its top seven rows, 267 to 273: a
     // press there acts, a press under the view does not.
-    five.dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 40;
+    five.dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 56;
     const auto stats = five.rows().rows.rows[4].control_area;
-    CHECK(stats.y == 283);
+    CHECK(stats.y == 267);
     const int32_t on = stats.x + stats.width - 4;
-    CHECK(click(five.dialog, {on, 292}) == DialogAction::none);
+    CHECK(click(five.dialog, {on, 276}) == DialogAction::none);
     CHECK(!five.dialog.chosen.frame_stats);
-    CHECK(click(five.dialog, {on, 286}) == DialogAction::changed);
+    CHECK(click(five.dialog, {on, 270}) == DialogAction::changed);
     CHECK(five.dialog.chosen.frame_stats);
     // Its parts are drawn but not listed.
     for (const auto& part : settings::dialog_layout(five.dialog))
@@ -3423,7 +3438,7 @@ void locked_switch_rows_keep_their_value_in_sight() {
         CHECK(row.height == (row.hint_lines == 2 ? 77 : 65));
     }
     // Each dropped lock adds a line, so the limit grows by 36.
-    CHECK(five.rows().limit == 116);
+    CHECK(five.rows().limit == 132);
 
     // At the end both show whole: the padlock and lock text, and each
     // switch's Off and On with no control. The dropped locks sit lower
@@ -3439,11 +3454,11 @@ void locked_switch_rows_keep_their_value_in_sight() {
         CHECK(part.control != settings::first_row_control + 4);
         if (part.text != "OFF" && part.text != "ON")
             continue;
-        if (part.rect.y == 149) {
+        if (part.rect.y == 133) {
             CHECK(part.control == settings::no_control);
             ++status_captions;
         }
-        if (part.rect.y == 226) {
+        if (part.rect.y == 210) {
             CHECK(part.control == settings::no_control);
             ++kept_captions;
         }
@@ -3455,16 +3470,16 @@ void locked_switch_rows_keep_their_value_in_sight() {
     for (const auto& part : parts) {
         if (!part.text.empty() || part.control != settings::no_control)
             continue;
-        status_padlock = status_padlock || same_rect(part.rect, {158, 166, 5, 16});
-        kept_padlock = kept_padlock || same_rect(part.rect, {158, 243, 5, 16});
+        status_padlock = status_padlock || same_rect(part.rect, {158, 150, 5, 16});
+        kept_padlock = kept_padlock || same_rect(part.rect, {158, 227, 5, 16});
     }
     CHECK(status_padlock && kept_padlock);
 
     // Neither takes a press or the focus.
-    CHECK(settings::dialog_pointer_down(five.dialog, 460, 233) == DialogAction::none);
-    CHECK(settings::dialog_pointer_up(five.dialog, 460, 233) == DialogAction::none);
-    CHECK(settings::dialog_pointer_down(five.dialog, 460, 156) == DialogAction::none);
-    CHECK(settings::dialog_pointer_up(five.dialog, 460, 156) == DialogAction::none);
+    CHECK(settings::dialog_pointer_down(five.dialog, 460, 217) == DialogAction::none);
+    CHECK(settings::dialog_pointer_up(five.dialog, 460, 217) == DialogAction::none);
+    CHECK(settings::dialog_pointer_down(five.dialog, 460, 140) == DialogAction::none);
+    CHECK(settings::dialog_pointer_up(five.dialog, 460, 140) == DialogAction::none);
     CHECK(five.dialog.chosen == current);
     five.open(current);
     for (const int32_t expected :
@@ -3502,7 +3517,7 @@ int32_t graphics_scroll(const settings::Dialog& dialog) {
 
 /// Graphics' offset at which Smooth motion shows whole with its hint, as
 /// the focus scrolls to it.
-constexpr int32_t smooth_motion_in_view = 131;
+constexpr int32_t smooth_motion_in_view = 147;
 /// Graphics' offset at which Explosion flash shows whole with its hint.
 constexpr int32_t explosion_flash_in_view = 395;
 /// Graphics' offset at which Fog of War shows whole with its hint.
@@ -3526,7 +3541,7 @@ void the_graphics_page_scrolls_its_rows() {
         CHECK(row.control == settings::first_row_control + static_cast<int32_t>(index));
     }
     CHECK(open.rows.bottom == 1253);
-    CHECK(open.limit == 972);
+    CHECK(open.limit == 988);
     // Hardware acceleration: a strip of Off, Basic and Full, 34 columns a
     // level inside its border, with two status lines; Vertical sync a
     // switch with one hint line.
@@ -3595,23 +3610,24 @@ void the_graphics_page_scrolls_its_rows() {
     CHECK(after.hint_lines == 2);
     CHECK(after.hints[0].y == 683 && after.hints[1].y == 695);
 
-    // At the top the first three rows keep their places and Hardware
-    // acceleration's label and strip show whole; at the end the closing
-    // line is at 281.
+    // At the top the first three rows keep their places, and Hardware
+    // acceleration's label line passes the view's foot, so neither it nor its
+    // strip is listed; at the end the closing line is at 265.
     const auto top = settings::dialog_layout(dialog);
-    CHECK(find_part(top, "Hardware acceleration", settings::no_control) != nullptr);
+    CHECK(find_part(top, "Screen size", settings::no_control) != nullptr);
+    CHECK(find_part(top, "Hardware acceleration", settings::no_control) == nullptr);
     CHECK(find_part(top, "Vertical sync", settings::no_control) == nullptr);
-    CHECK(find_part(top, {}, settings::first_row_control + 3) != nullptr);
+    CHECK(find_part(top, {}, settings::first_row_control + 3) == nullptr);
     dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 1200;
     const auto end = geometry::open_rows(dialog);
-    CHECK(end.scroll == 972);
-    CHECK(end.rows.bottom == 281);
-    CHECK(end.rows.rows[1].control_area.y == -844);
-    CHECK(end.rows.rows[7].label.y == -484);
-    CHECK(end.rows.rows[8].label.y == -425);
-    CHECK(end.rows.rows[9].label.y == -366);
-    CHECK(end.rows.rows[10].label.y == -307);
-    CHECK(end.rows.rows[10].control_area.y == -261);
+    CHECK(end.scroll == 988);
+    CHECK(end.rows.bottom == 265);
+    CHECK(end.rows.rows[1].control_area.y == -860);
+    CHECK(end.rows.rows[7].label.y == -500);
+    CHECK(end.rows.rows[8].label.y == -441);
+    CHECK(end.rows.rows[9].label.y == -382);
+    CHECK(end.rows.rows[10].label.y == -323);
+    CHECK(end.rows.rows[10].control_area.y == -277);
     // At the end, the effect sliders show, down to Naval reflections.
     // Menu scaling, Window frame, HUD scaling and Interface size are on
     // User Interface.
@@ -3623,25 +3639,25 @@ void the_graphics_page_scrolls_its_rows() {
     CHECK(find_part(last, "Needs Dots", settings::no_control) == nullptr);
 
     // Tab from no focus: the first three rows at 0, Hardware acceleration at
-    // 25, Vertical sync at 72, Smooth motion at 131, Native pixel density at
-    // 190, Explosion flash at 249, Fog of War at 308 and Zoomed out units at
-    // 367. After zoom, its field locked, takes no focus. Back up, the rows
-    // that still show whole stay at 367, Native pixel density, a pixel above
-    // the view's top there, shows at 366, then Smooth motion at 307,
-    // Vertical sync at 260, Hardware acceleration at 201, Screen size at 124
-    // and Enhanced anti-aliasing at 65.
+    // 41, Vertical sync at 88, Smooth motion at 147, Native pixel density at
+    // 206, Explosion flash at 265, Fog of War at 324 and Zoomed out units at
+    // 383. After zoom, its field locked, takes no focus. Back up, the rows
+    // that still show whole stay at 383, Native pixel density, above the
+    // view's top there, shows at 366, then Smooth motion at 307, Vertical
+    // sync at 260, Hardware acceleration at 201, Screen size at 124 and
+    // Enhanced anti-aliasing at 65.
     settings::Dialog keys = graphics_page();
     const std::array<std::pair<int32_t, int32_t>, 10> forward{{
         {settings::first_row_control, 0},
         {settings::first_row_control + 1, 0},
         {settings::first_row_control + 2, 0},
-        {settings::first_row_control + 3, 25},
-        {settings::first_row_control + 4, 72},
-        {settings::first_row_control + 5, 131},
-        {settings::first_row_control + 6, 190},
-        {settings::first_row_control + 7, 249},
-        {settings::first_row_control + 8, 308},
-        {settings::first_row_control + 9, 367},
+        {settings::first_row_control + 3, 41},
+        {settings::first_row_control + 4, 88},
+        {settings::first_row_control + 5, 147},
+        {settings::first_row_control + 6, 206},
+        {settings::first_row_control + 7, 265},
+        {settings::first_row_control + 8, 324},
+        {settings::first_row_control + 9, 383},
     }};
     for (const auto& [control, expected] : forward) {
         CHECK(settings::dialog_key(keys, DialogKey::tab) == DialogAction::redraw);
@@ -3649,8 +3665,8 @@ void the_graphics_page_scrolls_its_rows() {
         CHECK(graphics_scroll(keys) == expected);
     }
     const std::array<std::pair<int32_t, int32_t>, 9> back{{
-        {settings::first_row_control + 8, 367},
-        {settings::first_row_control + 7, 367},
+        {settings::first_row_control + 8, 383},
+        {settings::first_row_control + 7, 383},
         {settings::first_row_control + 6, 366},
         {settings::first_row_control + 5, 307},
         {settings::first_row_control + 4, 260},
@@ -3670,22 +3686,26 @@ void the_graphics_page_scrolls_its_rows() {
     // it is checked at several offsets.
     for (const auto& locks : lock_states()) {
         settings::Dialog locked = graphics_page({}, locks);
-        for (int32_t scroll = 0; scroll <= 972; scroll += 18)
+        for (int32_t scroll = 0; scroll <= 988; scroll += 18)
             check_dialog_layout_at(locked, scroll);
     }
 
-    // User Interface holds the rows that left Graphics, then Escape, and
-    // Interface size keeps a drop-down's height.
+    // User Interface holds the rows that left Graphics, the Interface and
+    // Window size drop-downs, Reset window positions, then Escape.
     settings::Dialog ui_page = opened(Page::user_interface);
     const auto ui = geometry::open_rows(ui_page);
-    CHECK(ui.rows.rows.size() == 5);
-    const std::array<int32_t, 5> interface_tops{54, 113, 172, 231, 310};
-    const std::array<int32_t, 5> interface_heights{59, 59, 59, kInterfaceSizeRow, 59};
-    const std::array<Setting, 5> interface_settings{
+    CHECK(ui.rows.rows.size() == 7);
+    const std::array<int32_t, 7> interface_tops{54, 113, 172, 231, 310, 389, 436};
+    const std::array<int32_t, 7> interface_heights{
+        59, 59, 59, kInterfaceSizeRow, kInterfaceSizeRow, 47, 59
+    };
+    const std::array<Setting, 7> interface_settings{
         Setting::menu_scaling,
         Setting::window_frame,
         Setting::hud_scaling,
         Setting::interface_size,
+        Setting::window_size,
+        Setting::reset_window_positions,
         Setting::escape_opens_menu,
     };
     for (std::size_t index = 0; index < ui.rows.rows.size(); ++index) {
@@ -3693,8 +3713,8 @@ void the_graphics_page_scrolls_its_rows() {
         CHECK(ui.rows.rows[index].height == interface_heights[index]);
         CHECK(ui.rows.rows[index].setting == interface_settings[index]);
     }
-    CHECK(ui.rows.bottom == 369);
-    CHECK(ui.limit == 88);
+    CHECK(ui.rows.bottom == 495);
+    CHECK(ui.limit == 230);
 }
 
 /// Returns Interface size's field on User Interface, scrolled to the end.
@@ -4025,7 +4045,7 @@ void the_new_rows_lock_in_their_own_forms() {
     CHECK(same_rect(rows[4].lock_area, {259, 341, 148, 16}));
     CHECK(same_rect(rows[4].label, {158, 341, 93, 16}));
     // The extra lock line adds 18 pixels to Graphics' 972-pixel scroll range.
-    CHECK(geometry::open_rows(dialog).limit == 990);
+    CHECK(geometry::open_rows(dialog).limit == 1006);
 
     // Scrolled down to Native pixel density: both lock texts, the status,
     // the strip's captions and the kept switch's, each with no control.
@@ -4082,7 +4102,7 @@ void the_new_rows_lock_in_their_own_forms() {
     settings::GameState flagged{true, true, false, false};
     flagged.renderer_from_command_line = true;
     settings::Dialog under_flag = graphics_page({}, settings::settings_locks(flagged));
-    under_flag.scroll[static_cast<std::size_t>(Page::graphics)] = 80;
+    under_flag.scroll[static_cast<std::size_t>(Page::graphics)] = 96;
     const auto flag_parts = settings::dialog_layout(under_flag);
     CHECK(find_part(flag_parts, "Set on the command line", settings::no_control) != nullptr);
     CHECK(find_part(flag_parts, "Locked during a game", settings::no_control) != nullptr);
@@ -4389,21 +4409,27 @@ constexpr renderer::Rgb kKnobOn{0x10, 0x12, 0x0d};
 /// the scroll checks below.
 bool rect_has(const Canvas& canvas, const renderer::SourceRect& rect, renderer::Rgb colour);
 
+/// Returns the open section's rows as the dialog draws them in fonts;
+/// defined with the scroll checks below.
+geometry::ScrolledRows
+rows_as_drawn(const settings::Dialog& dialog, const settings::DialogFonts& fonts);
+
 void the_dialog_draws_its_faces_and_accents(const settings::DialogFonts& fonts) {
     Canvas canvas = blank(settings::dialog_width, settings::dialog_height);
     settings::Dialog dialog = opened(Page::controls);
     dialog.chosen.escape_opens_menu = false;
     settings::draw_dialog(canvas.surface, {0, 0, 1}, dialog, fonts, kNoIcon);
-    CHECK(canvas.at(300, 3) == kBand);                           // the header
-    CHECK(canvas.at(300, geometry::footer_top + 2) == kBand);    // the footer
-    CHECK(canvas.at(4, 250) == kList);                           // the section list
-    CHECK(canvas.at(geometry::content_left + 2, 270) == kPanel); // under the rows
+    CHECK(canvas.at(300, 3) == kBand);                        // the header
+    CHECK(canvas.at(300, geometry::footer_top + 2) == kBand); // the footer
+    CHECK(canvas.at(4, 250) == kList);                        // the section list
+    // Over the key layout card, in its row's margin.
+    CHECK(canvas.at(geometry::content_left + 2, geometry::first_row_top + 4) == kPanel);
     const auto marker = geometry::list_item(Page::controls);
     CHECK(
         canvas.at(marker.x + geometry::list_marker_offset, marker.y + marker.height / 2) == kAccent
     );
     CHECK(canvas.at(geometry::ok_button.x + 2, geometry::ok_button.y + 2) == kAccent);
-    const auto rows = geometry::place_rows(Page::controls, {});
+    const auto rows = rows_as_drawn(dialog, fonts).rows;
     const auto& keys_on = rows.rows[1].control_area;
     // The switch's track is the area's right 42 points: lime while On.
     CHECK(rect_has(canvas, keys_on, kAccent)); // On
@@ -4586,7 +4612,7 @@ rows_as_drawn(const settings::Dialog& dialog, const settings::DialogFonts& fonts
         return settings::dialog_text_width(fonts, settings::DialogFont::small, text);
     };
     const geometry::Sizes sized = geometry::fitted_sizes(dialog, &regular, &small);
-    return geometry::open_rows(dialog, &small, &sized);
+    return geometry::open_rows(dialog, &small, &sized, &regular);
 }
 
 /// Tells whether a colour is painted anywhere in a rectangle.
@@ -4640,7 +4666,10 @@ void the_dialog_draws_the_scroll_bar_and_clips_the_rows() {
             const auto placed = rows_as_drawn(dialog, fonts);
             Canvas canvas = blank(settings::dialog_width, settings::dialog_height);
             settings::draw_dialog(canvas.surface, {0, 0, 1}, dialog, fonts, kNoIcon);
-            CHECK(canvas.at(300, geometry::first_row_top) == kRule);
+            // Every section but Controls, whose key layout card stands
+            // first, opens on a row's line.
+            if (page != Page::controls)
+                CHECK(canvas.at(300, geometry::first_row_top) == kRule);
             if (placed.limit == 0) {
                 CHECK(canvas.at(473, 150) == kPanel);
                 Canvas steady = blank(settings::dialog_width, settings::dialog_height);
@@ -4663,7 +4692,7 @@ void the_dialog_draws_the_scroll_bar_and_clips_the_rows() {
         }
     }
 
-    // At the top: the well with its border, the thumb in its top 174 rows.
+    // At the top: the well with its border, the thumb in its top 151 rows.
     // On a canvas taller than the dialog, nothing of the rows below the view
     // is drawn under the dialog.
     Scrolling five(five_rows());
@@ -4673,9 +4702,9 @@ void the_dialog_draws_the_scroll_bar_and_clips_the_rows() {
     CHECK(top.at(470, 100) == kWell);
     CHECK(top.at(476, 100) == kWell);
     CHECK(top.at(473, 54) == kWell);
-    CHECK(top.at(473, 289) == kWell);
+    CHECK(top.at(473, 272) == kWell);
     CHECK(top.at(473, 100) == kControlHover);
-    CHECK(top.at(473, 228) == kControlHover);
+    CHECK(top.at(473, 205) == kControlHover);
     // The thumb grows when a real font wraps the hints onto fewer lines.
     // The pixel under it is the well, unless the thumb fills the well.
     {
@@ -4810,7 +4839,7 @@ void the_dialog_draws_the_scroll_bar_and_clips_the_rows() {
     for (int32_t press = 0; press < 3; ++press)
         static_cast<void>(settings::dialog_key(jumped.dialog, DialogKey::tab));
     CHECK(settings::dialog_pointer_down(jumped.dialog, 473, 260) == DialogAction::redraw);
-    CHECK(jumped.scroll() == 80);
+    CHECK(jumped.scroll() == 96);
     Canvas well = blank(settings::dialog_width, settings::dialog_height);
     settings::draw_dialog(well.surface, {0, 0, 1}, jumped.dialog, fonts, kNoIcon);
     const auto size_track = rows_as_drawn(jumped.dialog, fonts).rows.rows[2].control_area;
@@ -4827,7 +4856,7 @@ void the_graphics_page_draws_its_locked_rows() {
         graphics_page({}, {}, {settings::AccelerationState::off_by_setting, {}, false});
     Canvas at_top = blank(settings::dialog_width, settings::dialog_height);
     settings::draw_dialog(at_top.surface, {0, 0, 1}, top, fonts, kNoIcon);
-    CHECK(at_top.at(473, 100) == kControlHover);
+    CHECK(at_top.at(473, 70) == kControlHover);
     {
         const auto drawn = rows_as_drawn(top, fonts);
         const geometry::Row* acceleration = row_of(drawn, Setting::hardware_acceleration);
@@ -4873,7 +4902,7 @@ void the_graphics_page_draws_its_locked_rows() {
     current.vertical_sync = true;
     settings::Dialog dialog =
         graphics_page(current, locks, {settings::AccelerationState::no_usable_card, {}, false});
-    dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 80;
+    dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 96;
     Canvas canvas = blank(settings::dialog_width, settings::dialog_height);
     settings::draw_dialog(canvas.surface, {0, 0, 1}, dialog, fonts, kNoIcon);
     const auto drawn = rows_as_drawn(dialog, fonts);
@@ -5207,10 +5236,10 @@ void developer_mode_lists_every_hack_by_area_closed_at_first() {
     CHECK(rows[1].hint_lines >= 1);
     CHECK(same_rect(rows[1].hints[0], {158, 116 + mode_extra, 309, 12}));
     CHECK(open.rows.bottom == geometry::developer_list_rule + mode_extra);
-    CHECK(same_rect(geometry::developer_view, {158, 184, 309, 63}));
-    CHECK(same_rect(geometry::active_only_switch, {415, 251, 52, 16}));
-    CHECK(same_rect(geometry::restore_profile_button, {158, 271, 142, 17}));
-    CHECK(geometry::developer_list_rule == 183 && geometry::developer_footer_rule == 247);
+    CHECK(same_rect(geometry::developer_view, {158, 184, 309, 47}));
+    CHECK(same_rect(geometry::active_only_switch, {415, 235, 52, 16}));
+    CHECK(same_rect(geometry::restore_profile_button, {158, 255, 142, 17}));
+    CHECK(geometry::developer_list_rule == 183 && geometry::developer_footer_rule == 231);
     CHECK(
         geometry::restore_profile_button.y + geometry::restore_profile_button.height <
         geometry::footer_rule_row
@@ -5797,7 +5826,10 @@ void restore_profile_values_and_show_active_only() {
         open.list.rows[0].shown ==
         "1 of " + std::to_string(settings::developer_areas()[0].hacks.size()) + " on"
     );
-    CHECK(open.limit == 0);
+    // With Developer Mode on its hint takes more lines, and Compact's list
+    // view under the rows is 35 rows: the two headers and the end gap pass
+    // it by 13.
+    CHECK(open.limit == 13);
     dialog.developer.areas_open.assign(dialog.developer.areas_open.size(), 1);
     open = geometry::open_rows(dialog);
     CHECK(open.list.rows.size() == 4);
@@ -6323,31 +6355,29 @@ void hint_lines_part_while_the_modern_fonts_draw_the_words() {
     CHECK(game_fonts.rows.size() == 9 && tall.rows.size() == 9);
     if (game_fonts.rows.size() != 9 || tall.rows.size() != 9)
         return;
-    // Key layout and Show keys on buttons each wrap to two lines, so each
-    // is 3 rows taller beside the modern fonts and the rows under them sit
-    // lower by that.
-    CHECK(game_fonts.rows[0].hint_lines == 2 && tall.rows[0].hint_lines == 2);
-    CHECK(game_fonts.rows[0].hints[1].y == game_fonts.rows[0].hints[0].y + 12);
-    CHECK(tall.rows[0].hints[1].y == tall.rows[0].hints[0].y + 15);
-    CHECK(tall.rows[0].height == game_fonts.rows[0].height + 3);
+    // The key layout card keeps its height. Show keys on buttons wraps to
+    // two lines, so it is 3 rows taller beside the modern fonts and the rows
+    // under it sit lower by that.
+    CHECK(tall.rows[0].height == game_fonts.rows[0].height);
+    CHECK(tall.rows[1].top == game_fonts.rows[1].top);
     CHECK(game_fonts.rows[1].hint_lines == 2 && tall.rows[1].hint_lines == 2);
     CHECK(game_fonts.rows[1].hints[1].y == game_fonts.rows[1].hints[0].y + 12);
-    CHECK(tall.rows[1].hints[0].y == game_fonts.rows[1].hints[0].y + 3);
+    CHECK(tall.rows[1].hints[0].y == game_fonts.rows[1].hints[0].y);
     CHECK(tall.rows[1].hints[1].y == tall.rows[1].hints[0].y + 15);
     CHECK(tall.rows[1].height == game_fonts.rows[1].height + 3);
-    // Mouse wheel zoom: one line, six lower, the same height.
+    // Mouse wheel zoom: one line, three lower, the same height.
     CHECK(tall.rows[2].hint_lines == 1 && tall.rows[2].height == game_fonts.rows[2].height);
-    CHECK(tall.rows[2].top == game_fonts.rows[2].top + 6);
+    CHECK(tall.rows[2].top == game_fonts.rows[2].top + 3);
     // Maximum zoom out: two lines, 12 apart beside the game's fonts and 15
-    // beside the modern fonts. It starts 6 lower and is 3 taller, so the
-    // next starts 9 lower.
+    // beside the modern fonts. It starts 3 lower and is 3 taller, so the
+    // next starts 6 lower.
     const auto& escape = game_fonts.rows[3];
     const auto& parted = tall.rows[3];
     CHECK(escape.hint_lines == 2 && parted.hint_lines == 2);
     CHECK(escape.hints[1].y == escape.hints[0].y + 12);
-    CHECK(parted.hints[0].y == escape.hints[0].y + 6);
+    CHECK(parted.hints[0].y == escape.hints[0].y + 3);
     CHECK(parted.hints[1].y == parted.hints[0].y + 15);
-    CHECK(parted.height == escape.height + 3 && tall.rows[4].top == game_fonts.rows[4].top + 9);
+    CHECK(parted.height == escape.height + 3 && tall.rows[4].top == game_fonts.rows[4].top + 6);
 }
 
 /// While the dialog's words are drawn in the modern fonts, the view's top
@@ -6939,10 +6969,11 @@ void fonts_load_and_every_text_fits_its_place() {
     key_layout_values_fit(fonts);
 }
 
-/// Lays Controls out with each form of Key layout's value, in the game's
-/// fonts, and checks every part fits its box. The count of changes is kept
-/// whole. A name that does not fit is shortened. The value sits beside EDIT
-/// KEYS, or, when the count itself does not fit there, on the line above it.
+/// Lays Controls' key layout card out with each form of the layout in use,
+/// in the game's fonts and at each class, and checks every part fits its
+/// box: the name shown whole however long, wrapped, never shortened; the
+/// count of the player's own changes as its badge; Edit keys… and, where
+/// the Library opens over the dialog, Change layout….
 ///
 /// @param fonts the dialog's fonts
 void key_layout_values_fit(const settings::DialogFonts& fonts) {
@@ -6964,82 +6995,59 @@ void key_layout_values_fit(const settings::DialogFonts& fonts) {
         }
         return parts;
     };
-    const auto value_of = [](const std::vector<settings::LayoutPart>& parts,
-                             std::string_view mark) {
-        const settings::LayoutPart* found = nullptr;
-        for (const settings::LayoutPart& part : parts)
-            if (part.control == settings::no_control && part.text.find(mark) != std::string::npos)
-                found = &part;
-        return found;
-    };
-    const std::string edit{"EDIT KEYS…"};
-    const std::string count_one = "1 change of your own";
-    const std::string count_twelve = "12 changes of your own";
     const std::string long_name = "TA Zero tournament " + std::string(80, 'W');
     for (const oa::ui::kit::SizeClass size_class :
          {oa::ui::kit::SizeClass::compact,
           oa::ui::kit::SizeClass::regular,
           oa::ui::kit::SizeClass::large}) {
-        for (const std::string& summary :
-             {std::string("OA default"),
-              settings::key_layout_summary_text("OA default", 1),
-              settings::key_layout_summary_text("OA default", 12),
-              settings::key_layout_summary_text(long_name, 12)}) {
-            settings::Dialog dialog = opened(Page::controls);
-            dialog.size_class = size_class;
-            dialog.key_layout_summary = summary;
-            const auto parts = fits(dialog);
-            CHECK(dialog.key_layout_summary == summary);
-            const settings::LayoutPart* button =
-                find_part(parts, edit, settings::first_row_control);
-            const settings::LayoutPart* label =
-                find_part(parts, "Key layout", settings::no_control);
-            CHECK(button != nullptr);
-            CHECK(label != nullptr);
-            const std::string_view mark =
-                summary.find(count_twelve) != std::string::npos ? count_twelve
-                : summary.find(count_one) != std::string::npos  ? count_one
-                                                                : std::string_view("OA default");
-            const settings::LayoutPart* value = value_of(parts, mark);
-            if (value == nullptr)
-                std::cerr << "no value holds '" << mark << "'\n";
-            CHECK(value != nullptr);
-            CHECK(value->text.find(mark) != std::string::npos);
-            CHECK(!overlap(value->rect, label->rect));
-            CHECK(!overlap(value->rect, button->rect));
-            const bool beside =
-                value->rect.y == button->rect.y &&
-                value->rect.x + value->rect.width + geometry::label_gap == button->rect.x;
-            const bool above = value->rect.y + value->rect.height <= button->rect.y;
-            if (!beside && !above)
-                std::cerr << "'" << value->text
-                          << "' is not beside EDIT KEYS or on the line above it\n";
-            CHECK(beside || above);
-            if (summary == "OA default")
-                CHECK(value->rect.y == label->rect.y);
-            if (summary.find(long_name) != std::string::npos) {
-                CHECK(value->text.find("\xE2\x80\xA6") != std::string::npos);
-                CHECK(value->text.size() < summary.size());
+        for (const bool library : {false, true}) {
+            for (const auto& [name, changes] :
+                 {std::pair{std::string("OA default"), 0},
+                  std::pair{std::string("OA default"), 1},
+                  std::pair{std::string("OA default"), 12},
+                  std::pair{long_name, 12}}) {
+                settings::Dialog dialog = opened(Page::controls);
+                dialog.size_class = size_class;
+                dialog.library_link = library;
+                dialog.key_layout_name = name;
+                dialog.key_layout_changes = changes;
+                const auto parts = fits(dialog);
+                const settings::LayoutPart* edit =
+                    find_part(parts, "Edit keys…", settings::first_row_control);
+                CHECK(edit != nullptr);
+                const settings::LayoutPart* change =
+                    find_part(parts, "Change layout…", settings::change_layout_control);
+                CHECK((change != nullptr) == library);
+                CHECK(find_part(parts, "Key layout", settings::no_control) != nullptr);
+                // The name's lines, top to bottom, give it back whole: a
+                // word wider than a line breaks between its letters.
+                std::string shown;
+                for (const settings::LayoutPart& part : parts) {
+                    if (part.control != settings::no_control ||
+                        part.font != settings::DialogFont::regular ||
+                        part.rect.x < geometry::sizes_of(dialog).content_left || part.text.empty())
+                        continue;
+                    if (name.find(part.text) == std::string::npos || part.text == "Key layout")
+                        continue;
+                    shown += part.text;
+                }
+                std::string whole = name;
+                std::erase(whole, ' ');
+                std::erase(shown, ' ');
+                CHECK(shown == whole);
+                CHECK(shown.find("\xE2\x80\xA6") == std::string::npos);
+                const std::string badge = changes == 0 ? std::string{}
+                                          : changes == 1
+                                              ? std::string("1 change of your own")
+                                              : std::to_string(changes) + " changes of your own";
+                const settings::LayoutPart* count =
+                    badge.empty() ? nullptr : find_part(parts, badge, settings::no_control);
+                CHECK(badge.empty() || count != nullptr);
+                if (count != nullptr && edit != nullptr)
+                    CHECK(!overlap(count->rect, edit->rect));
             }
         }
     }
-    // A count wider than the room left of EDIT KEYS keeps that count and
-    // takes the whole line, with the button on the line under it.
-    std::string wide_count = " \xC2\xB7 12 changes of your own";
-    while (settings::dialog_text_width(fonts, settings::DialogFont::regular, wide_count) < 250)
-        wide_count.insert(std::size_t{4}, "m");
-    settings::Dialog wide = opened(Page::controls);
-    wide.size_class = oa::ui::kit::SizeClass::compact;
-    wide.key_layout_summary = "Ridge" + wide_count;
-    const auto wide_parts = fits(wide);
-    CHECK(wide.key_layout_summary == "Ridge" + wide_count);
-    const settings::LayoutPart* wide_button =
-        find_part(wide_parts, edit, settings::first_row_control);
-    const settings::LayoutPart* wide_value = value_of(wide_parts, count_twelve);
-    CHECK(wide_button != nullptr);
-    CHECK(wide_value != nullptr);
-    CHECK(wide_value->text.find(count_twelve) != std::string::npos);
-    CHECK(wide_value->rect.y + wide_value->rect.height <= wide_button->rect.y);
 }
 
 void the_mod_options_dialog_lists_its_own_sections() {
@@ -7063,7 +7071,11 @@ void the_mod_options_dialog_lists_its_own_sections() {
         CHECK(dialog.page == page);
         const auto rows = geometry::place_rows(page, {});
         CHECK(rows.rows.size() == settings::page_settings(page).size());
-        CHECK(rows.bottom < geometry::footer_rule_row);
+        // Its rows show whole, scrolled to their end where they pass the view.
+        CHECK(
+            rows.bottom - geometry::scroll_limit(geometry::content_height(rows, 0)) <
+            geometry::footer_rule_row
+        );
         const auto shown = settings::dialog_layout(dialog);
         for (std::size_t a = 0; a < shown.size(); ++a) {
             for (std::size_t b = a + 1; b < shown.size(); ++b)
@@ -7159,40 +7171,34 @@ void touch_is_listed_only_with_touch_controls() {
     const auto mods = settings::dialog_pages(settings::DialogKind::mod_options, true);
     CHECK(std::equal(mods.begin(), mods.end(), kModPages.begin(), kModPages.end()));
 
-    // The list without Touch lies where it always has: 21 rows an entry from
-    // row 36, the line at 256 and Developer under it at the list's foot, at
-    // 262.
-    constexpr std::array<int32_t, 5> kTops{36, 57, 78, 99, 120};
+    // At Compact the list starts at row 34, an entry 19 rows high, the
+    // entries of a group touching and a rule 7 rows high between two
+    // groups. Without Touch its eleven entries fit, Developer last at 245.
+    constexpr std::array<int32_t, 11> kTops{34, 53, 79, 98, 117, 143, 162, 181, 207, 226, 245};
     for (std::size_t index = 0; index < kTops.size(); ++index)
         CHECK(geometry::list_item(kPages[index]).y == kTops[index]);
-    CHECK(geometry::list_divider().y == 256);
-    CHECK(geometry::list_item(Page::accessibility).y == 141);
-    CHECK(geometry::list_item(Page::downloads).y == 162);
-    CHECK(geometry::list_item(Page::developer).y == 262);
-    CHECK(geometry::list_item(Page::mod_chat).y == 120);
-    // With Touch the list drops the gap: eleven flowing entries fill the
-    // room above the divider exactly. Touch follows Accessibility.
-    constexpr std::array<int32_t, 5> kGaplessTops{36, 56, 76, 96, 116};
-    for (std::size_t index = 0; index < kGaplessTops.size(); ++index)
-        CHECK(geometry::list_item(kTouchPages[index], true).y == kGaplessTops[index]);
-    CHECK(geometry::list_item(Page::accessibility, true).y == 136);
-    CHECK(geometry::list_item(Page::touch, true).y == 156);
-    CHECK(geometry::list_item(Page::developer, true).y == 262);
-    CHECK(geometry::list_item(Page::mod_chat, true).y == 120);
+    CHECK(geometry::list_item(Page::mod_chat).y == 110);
+    // With Touch, after Accessibility, the list holds twelve and scrolls.
+    constexpr std::array<int32_t, 12> kTouchTops{
+        34, 53, 72, 98, 117, 136, 162, 181, 200, 226, 245, 264
+    };
+    for (std::size_t index = 0; index < kTouchTops.size(); ++index)
+        CHECK(geometry::list_item(kTouchPages[index], true).y == kTouchTops[index]);
+    CHECK(geometry::list_item(Page::mod_chat, true).y == 110);
 
     // Each section's entry keeps its number with or without Touch listed;
     // a dialog without Touch has no entry numbered as Touch.
     for (const Page page : kPages) {
-        const auto plain = list_entries(opened_with_touch(page, false));
-        const auto with_touch = list_entries(opened_with_touch(page));
+        const auto plain = entry_controls(opened_with_touch(page, false));
+        const auto with_touch = entry_controls(opened_with_touch(page));
         CHECK(plain.size() == kPages.size());
         CHECK(with_touch.size() == kTouchPages.size());
         for (std::size_t index = 0; index < plain.size(); ++index) {
-            CHECK(plain[index].first == settings::page_control(kPages[index]));
-            CHECK(plain[index].first != settings::page_control(Page::touch));
+            CHECK(plain[index] == settings::page_control(kPages[index]));
+            CHECK(plain[index] != settings::page_control(Page::touch));
         }
         for (std::size_t index = 0; index < with_touch.size(); ++index)
-            CHECK(with_touch[index].first == settings::page_control(kTouchPages[index]));
+            CHECK(with_touch[index] == settings::page_control(kTouchPages[index]));
     }
     const auto parts = settings::dialog_layout(opened_with_touch(Page::common_tweaks, false));
     CHECK(find_part(parts, "Touch", settings::no_control) == nullptr);
@@ -7210,8 +7216,11 @@ void touch_is_listed_only_with_touch_controls() {
     settings::Dialog dialog = opened_with_touch(Page::common_tweaks);
     CHECK(click(dialog, centre(geometry::list_item(Page::touch, true))) == DialogAction::redraw);
     CHECK(dialog.page == Page::touch);
+    // Developer stands at the list's foot, scrolled into its room.
+    dialog.nav_scroll = geometry::nav_layout(dialog).limit;
     CHECK(
-        click(dialog, centre(geometry::list_item(Page::developer, true))) == DialogAction::redraw
+        click(dialog, centre(geometry::dialog_list_item(dialog, Page::developer))) ==
+        DialogAction::redraw
     );
     CHECK(dialog.page == Page::developer);
 
@@ -7228,12 +7237,12 @@ void touch_is_listed_only_with_touch_controls() {
     settings::Dialog later = opened_with_touch(Page::graphics, false);
     CHECK(settings::set_touch_controls(later, false) == DialogAction::none);
     CHECK(settings::set_touch_controls(later, true) == DialogAction::redraw);
-    CHECK(later.touch && list_entries(later).size() == kTouchPages.size());
+    CHECK(later.touch && entry_controls(later).size() == kTouchPages.size());
     CHECK(click(later, centre(geometry::list_item(Page::touch, true))) == DialogAction::redraw);
     later.focused = settings::first_row_control;
     CHECK(settings::set_touch_controls(later, false) == DialogAction::redraw);
     CHECK(later.page == Page::controls && later.focused == settings::no_control);
-    CHECK(list_entries(later).size() == kPages.size());
+    CHECK(entry_controls(later).size() == kPages.size());
 }
 
 void game_files_is_listed_only_where_the_host_says() {
@@ -7254,27 +7263,14 @@ void game_files_is_listed_only_where_the_host_says() {
     CHECK(std::equal(mods.begin(), mods.end(), kModPages.begin(), kModPages.end()));
     CHECK(settings::dialog_pages(settings::DialogKind::language_text, true, true).size() == 1);
 
-    // Game files alone drops the gap: eleven flowing entries fill the room
-    // above the divider exactly. Touch and Game files together scroll.
-    constexpr std::array<int32_t, 5> kGapless{36, 56, 76, 96, 116};
-    for (std::size_t index = 0; index < kGapless.size(); ++index) {
-        CHECK(geometry::list_item(kGameFilesPages[index], false, true).y == kGapless[index]);
-        CHECK(geometry::list_item(kTouchGameFilesPages[index], true, true).y == kGapless[index]);
-    }
-    CHECK(geometry::list_item(Page::accessibility, false, true).y == 136);
-    CHECK(geometry::list_item(Page::game_files, false, true).y == 156);
-    CHECK(geometry::list_item(Page::developer, false, true).y == 262);
-    CHECK(geometry::list_item(Page::touch, true, true).y == 156);
-    CHECK(geometry::list_item(Page::game_files, true, true).y == 176);
-    CHECK(
-        geometry::list_item(Page::game_files, true, true).y + geometry::list_item_height <
-        geometry::list_divider().y
-    );
-    CHECK(geometry::list_item(Page::developer, true, true).y == 262);
-    CHECK(
-        geometry::list_item(Page::developer, true, true).y + geometry::list_item_height <
-        geometry::footer_rule_row
-    );
+    // Game files stands first in the group of what the game holds, before
+    // Downloads; with Touch too, the list scrolls.
+    CHECK(geometry::list_item(Page::game_files, false, true).y == 143);
+    CHECK(geometry::list_item(Page::downloads, false, true).y == 162);
+    CHECK(geometry::list_item(Page::developer, false, true).y == 264);
+    CHECK(geometry::list_item(Page::touch, true, true).y == 72);
+    CHECK(geometry::list_item(Page::game_files, true, true).y == 162);
+    CHECK(geometry::list_item(Page::developer, true, true).y == 283);
 
     // Touch is 5, Controller 6, Developer 7 and Game files 8 in every
     // dialog: a dialog without Touch has no control 5, one without Game
@@ -7284,8 +7280,14 @@ void game_files_is_listed_only_where_the_host_says() {
     CHECK(settings::page_control(Page::developer) == 7);
     CHECK(settings::page_control(Page::game_files) == 8);
     {
+        // Game files makes twelve: Developer, last, passes Compact's room
+        // and is not drawn while the list is at its top.
+        CHECK(
+            entry_controls(opened_with_game_files(Page::common_tweaks, false)).size() ==
+            kGameFilesPages.size()
+        );
         const auto entries = list_entries(opened_with_game_files(Page::common_tweaks, false));
-        CHECK(entries.size() == kGameFilesPages.size());
+        CHECK(entries.size() + 1 == kGameFilesPages.size());
         for (std::size_t index = 0; index < entries.size() && index < kGameFilesPages.size();
              ++index) {
             CHECK(entries[index].first == settings::page_control(kGameFilesPages[index]));
@@ -7296,13 +7298,13 @@ void game_files_is_listed_only_where_the_host_says() {
         }
     }
     {
-        // Touch and Game files together scroll. System starts on the divider,
-        // so the unscrolled list shows every entry but System, and Developer.
+        // Touch and Game files together scroll further: at the list's top it
+        // shows every entry but System and Developer.
         const auto entries = list_entries(opened_with_game_files(Page::common_tweaks, true));
-        CHECK(entries.size() + 1 == kTouchGameFilesPages.size());
+        CHECK(entries.size() + 2 == kTouchGameFilesPages.size());
         std::size_t shown = 0;
         for (const Page page : kTouchGameFilesPages) {
-            if (page == Page::system)
+            if (page == Page::system || page == Page::developer)
                 continue;
             CHECK(shown < entries.size());
             if (shown >= entries.size())
@@ -7335,8 +7337,10 @@ void game_files_is_listed_only_where_the_host_says() {
         DialogAction::redraw
     );
     CHECK(dialog.page == Page::game_files);
+    // Developer stands at the list's foot, scrolled into its room.
+    dialog.nav_scroll = geometry::nav_layout(dialog).limit;
     CHECK(
-        click(dialog, centre(geometry::list_item(Page::developer, true, true))) ==
+        click(dialog, centre(geometry::dialog_list_item(dialog, Page::developer))) ==
         DialogAction::redraw
     );
     CHECK(dialog.page == Page::developer);
@@ -7348,7 +7352,7 @@ void game_files_is_listed_only_where_the_host_says() {
         CHECK(walked[index] == settings::page_control(kTouchGameFilesPages[index]));
     // Touch going off keeps Game files listed.
     CHECK(settings::set_touch_controls(keys, false) == DialogAction::redraw);
-    CHECK(list_entries(keys).size() == kGameFilesPages.size());
+    CHECK(entry_controls(keys).size() == kGameFilesPages.size());
 }
 
 void game_files_shows_what_is_installed_the_backups_and_the_folder() {
@@ -7540,7 +7544,7 @@ void manage_asks_the_host_and_the_backups_switch_changes_at_once() {
     CHECK(settings::dialog_key(keys, DialogKey::space) == DialogAction::manage_game_files);
     CHECK(settings::dialog_key(keys, DialogKey::right) == DialogAction::none);
     CHECK(settings::dialog_key(keys, DialogKey::left) == DialogAction::redraw);  // 2D focus (D30)
-    CHECK(keys.focused == settings::page_control(Page::common_tweaks));          // 2D focus (D30)
+    CHECK(keys.focused == settings::page_control(Page::accessibility));          // 2D focus (D30)
     CHECK(settings::dialog_key(keys, DialogKey::right) == DialogAction::redraw); // 2D focus (D30)
     CHECK(keys.focused == settings::first_row_control);                          // 2D focus (D30)
     CHECK(keys.chosen == before);
@@ -7651,12 +7655,12 @@ void language_text_lists_one_section_and_draws_without_the_game_fonts() {
     const auto entries = list_entries(dialog);
     CHECK(entries.size() == 1);
     CHECK(entries.size() == 1 && entries[0].first == settings::page_control(Page::language));
-    CHECK(entries.size() == 1 && entries[0].second.y == 36);
+    CHECK(entries.size() == 1 && entries[0].second.y == 34);
     const auto parts = settings::dialog_layout(dialog);
     for (const std::string_view absent : {"Graphics", "Developer", "Game files", "Touch"})
         CHECK(find_part(parts, absent, settings::no_control) == nullptr);
     for (const std::string_view present :
-         {"Language & Text", "LANGUAGE & TEXT", "Language", "RESTORE DEFAULTS", "CANCEL", "OK"})
+         {"Language & Text", "LANGUAGE & TEXT", "Language", "RESTORE DEFAULTS", "Cancel", "OK"})
         CHECK(find_part(parts, present, settings::no_control) != nullptr);
     // Where Graphics' entry would be, nothing is pressed.
     const auto graphics = centre(geometry::list_item(Page::graphics));
@@ -7817,9 +7821,9 @@ void touch_shows_its_rows_and_their_values() {
     settings::Dialog dialog = opened_with_touch(Page::touch);
     // Every part inside the dialog and apart, at every offset; no game lock
     // reaches a Touch row.
-    // Its six rows are taller than the view, by 121 rows.
+    // Its six rows are taller than the view, by 137 rows.
     const auto open = geometry::open_rows(dialog);
-    CHECK(open.limit == 121);
+    CHECK(open.limit == 137);
     const renderer::SourceRect face{
         geometry::edge,
         geometry::edge,
@@ -7860,14 +7864,14 @@ void touch_shows_its_rows_and_their_values() {
           "tapped again.",
           "Stay on",
           "One action",
-          "Haptics",
-          "A short vibration as a touch control acts."})
+          "Haptics"})
         CHECK(find_part(parts, text, settings::no_control) != nullptr);
-    // At its end: Left-handed layout and Control size.
+    // At its end: Haptics' hint, Left-handed layout and Control size.
     CHECK(settings::dialog_key(dialog, DialogKey::end) == DialogAction::redraw);
     parts = settings::dialog_layout(dialog);
     for (const std::string_view text :
-         {"Left-handed layout",
+         {"A short vibration as a touch control acts.",
+          "Left-handed layout",
           "The minimap and the thumb controls on the right,",
           "the orders on the left.",
           "Control size",
@@ -7972,7 +7976,7 @@ void touch_shows_its_rows_and_their_values() {
 }
 
 /// Graphics' offset at which Native pixel density shows whole.
-constexpr int32_t native_density_in_view = 190;
+constexpr int32_t native_density_in_view = 206;
 
 void menu_scaling_and_native_density_show_and_change() {
     CHECK(geometry::kind_of(Setting::menu_scaling) == geometry::RowKind::levels);
@@ -8621,11 +8625,12 @@ void window_frame_shows_and_changes() {
 }
 
 void touch_changes_only_its_entry_and_the_sections_under_it() {
-    // Touch's list drops the gap, so every entry after the first moves.
+    // Touch's entry follows Accessibility, so every entry under it moves,
+    // and a list that then scrolls to show the open section moves whole.
     // The open section, the header and the footer stay as they are. The
-    // difference is the list, from the second entry down.
+    // difference is the list.
     const auto fonts = block_fonts();
-    const int32_t moved_top = geometry::list_first_top + geometry::list_item_height;
+    const int32_t moved_top = geometry::body_top;
     for (const Page page : kPages) {
         Canvas plain = blank(settings::dialog_width, settings::dialog_height);
         Canvas touch = blank(settings::dialog_width, settings::dialog_height);
@@ -8657,39 +8662,35 @@ settings::Dialog updates_dialog(settings::UpdatesOffer offer) {
 }
 
 void updates_lists_its_rows_and_the_compact_list_of_fourteen_scrolls() {
-    // Eleven sections keep the gap. Accessibility, then Downloads, then Updates.
-    CHECK(geometry::list_item(Page::accessibility).y == 141);
-    CHECK(geometry::list_item(Page::downloads).y == 162);
-    CHECK(geometry::list_item(Page::updates).y == 183);
-    const geometry::EngineNav plain = geometry::engine_nav(
-        settings::dialog_pages(settings::DialogKind::engine), kit::SizeClass::compact
-    );
-    CHECK(plain.stride == geometry::list_item_height + geometry::list_item_gap && !plain.scrolls);
+    // Eleven sections fit Compact's list: Downloads, then Updates.
+    CHECK(geometry::list_item(Page::downloads).y == 143);
+    CHECK(geometry::list_item(Page::updates).y == 162);
+    settings::Dialog fits = opened(Page::system);
+    CHECK(geometry::nav_layout(fits).limit == 0 && fits.nav_scroll == 0);
 
-    // Two optional sections drop the gap and scroll. Opening on System keeps
-    // that entry in view.
+    // Two optional sections scroll it. Opening on System keeps that entry in
+    // view.
     settings::Dialog two = opened_with_controller(Page::system, true, true, false);
-    CHECK(two.nav_scroll > 0);
+    const geometry::NavLayout two_nav = geometry::nav_layout(two);
+    CHECK(two_nav.limit > 0 && two.nav_scroll > 0);
     const auto system_two = geometry::dialog_list_item(two, Page::system);
-    CHECK(system_two.y >= geometry::list_first_top);
-    CHECK(system_two.y + system_two.height <= geometry::list_divider().y);
+    CHECK(system_two.y >= two_nav.viewport.y);
+    CHECK(system_two.y + system_two.height <= two_nav.viewport.y + two_nav.viewport.height);
 
     // All three optional sections scroll. Opening on System keeps that entry
-    // in view, Developer stays under the line, and nothing else crosses it.
+    // in view, and every entry listed lies in the list's room.
     settings::Dialog system = opened_with_controller(Page::system, true, true, true);
+    const geometry::NavLayout all_nav = geometry::nav_layout(system);
     CHECK(system.nav_scroll > 0);
     const auto system_entry = geometry::dialog_list_item(system, Page::system);
-    CHECK(system_entry.y >= geometry::list_first_top);
-    CHECK(system_entry.y + system_entry.height <= geometry::list_divider().y);
-    CHECK(geometry::dialog_list_item(system, Page::developer).y == 262);
+    CHECK(system_entry.y >= all_nav.viewport.y);
+    CHECK(system_entry.y + system_entry.height <= all_nav.viewport.y + all_nav.viewport.height);
     for (const auto& part : settings::dialog_layout(system)) {
         if (part.control < settings::first_page_control ||
             part.control >= settings::restore_control)
             continue;
-        if (part.control == settings::page_control(Page::developer))
-            continue;
-        CHECK(part.rect.y >= geometry::list_first_top);
-        CHECK(part.rect.y + part.rect.height <= geometry::list_divider().y);
+        CHECK(part.rect.y >= all_nav.viewport.y);
+        CHECK(part.rect.y + part.rect.height <= all_nav.viewport.y + all_nav.viewport.height);
     }
     settings::Dialog keys = opened_with_controller(Page::controls, true, true, true);
     const std::vector<int32_t> walked = entries_walked(keys);
@@ -8969,10 +8970,11 @@ void controller_is_listed_only_once_a_gamepad_sent_input() {
     CHECK(all.size() == settings::most_listed_pages);
     const auto files = settings::dialog_pages(settings::DialogKind::engine, false, true, true);
     CHECK(
-        files.size() == 13 && files[4] == Page::user_interface && files[5] == Page::accessibility &&
-        files[6] == Page::controller && files[7] == Page::game_files &&
-        files[8] == Page::downloads && files[9] == Page::updates &&
-        files[10] == Page::game_content && files[11] == Page::system && files[12] == Page::developer
+        files.size() == 13 && files[1] == Page::accessibility && files[2] == Page::controller &&
+        files[5] == Page::language && files[6] == Page::game_files && files[7] == Page::downloads &&
+        files[8] == Page::updates && files[9] == Page::game_content &&
+        files[10] == Page::common_tweaks && files[11] == Page::system &&
+        files[12] == Page::developer
     );
     const auto mods = settings::dialog_pages(settings::DialogKind::mod_options, true, true, true);
     CHECK(std::equal(mods.begin(), mods.end(), kModPages.begin(), kModPages.end()));
@@ -8980,34 +8982,22 @@ void controller_is_listed_only_once_a_gamepad_sent_input() {
         settings::dialog_pages(settings::DialogKind::language_text, true, true, true);
     CHECK(language.size() == 1 && language[0] == Page::language);
 
-    // Its entry takes the place after Accessibility, or after Touch; Game
-    // files follows it; the line and Developer stay at the list's foot.
-    CHECK(geometry::list_item(Page::controller, false, false, true).y == 156);
-    CHECK(geometry::list_item(Page::touch, true, false, true).y == 156);
-    CHECK(geometry::list_item(Page::controller, true, false, true).y == 176);
-    CHECK(geometry::list_item(Page::game_files, true, true, true).y == 196);
-    CHECK(geometry::list_item(Page::game_files, false, true, true).y == 176);
-    CHECK(geometry::list_item(Page::developer, true, true, true).y == 262);
-    CHECK(
-        geometry::list_item(Page::game_files, true, true, true).y + geometry::list_item_height <
-        geometry::list_divider().y
-    );
-    // Thirteen flowing entries pass the divider, so the list scrolls. Game
-    // Content's content starts on the line; Developer stays under it.
-    CHECK(
-        geometry::list_item(Page::game_content, true, true, true).y == geometry::list_divider().y
-    );
-    const geometry::EngineNav fullest = geometry::engine_nav(
-        settings::dialog_pages(settings::DialogKind::engine, true, true, true),
-        kit::SizeClass::compact
-    );
-    CHECK(fullest.scrolls && fullest.stride == geometry::list_item_height && fullest.limit == 40);
+    // Its entry takes the place after Accessibility, or after Touch. With
+    // every section listed Compact's list is 53 rows taller than its room,
+    // and scrolls.
+    CHECK(geometry::list_item(Page::controller, false, false, true).y == 72);
+    CHECK(geometry::list_item(Page::touch, true, false, true).y == 72);
+    CHECK(geometry::list_item(Page::controller, true, false, true).y == 91);
+    CHECK(geometry::list_item(Page::game_files, true, true, true).y == 181);
+    CHECK(geometry::list_item(Page::developer, true, true, true).y == 302);
+    settings::Dialog fullest = opened_with_controller(Page::controls, true, true, true);
+    CHECK(geometry::nav_layout(fullest).limit == 53);
 
     // Each section's entry keeps its number with or without Controller
     // listed; a dialog without it has no entry numbered as Controller.
     for (const Page page : kPages) {
         const auto plain = list_entries(opened_with_controller(page, false));
-        const auto with_pad = list_entries(opened_with_controller(page));
+        const auto with_pad = entry_controls(opened_with_controller(page));
         CHECK(plain.size() == kPages.size());
         CHECK(with_pad.size() == kControllerPages.size());
         for (std::size_t index = 0; index < plain.size() && index < kPages.size(); ++index) {
@@ -9017,18 +9007,22 @@ void controller_is_listed_only_once_a_gamepad_sent_input() {
         }
         for (std::size_t index = 0; index < with_pad.size() && index < kControllerPages.size();
              ++index)
-            CHECK(with_pad[index].first == settings::page_control(kControllerPages[index]));
+            CHECK(with_pad[index] == settings::page_control(kControllerPages[index]));
         const auto every = list_entries(opened_with_controller(page, true, true, true));
         const settings::Dialog shown = opened_with_controller(page, true, true, true);
-        // System's entry is scrolled off while the open section is above it,
-        // and Controls is scrolled off while System is open.
-        CHECK(every.size() + 2 == kAllPages.size());
+        // The entries scrolled off the list's room are not listed; the
+        // open section's is.
+        const geometry::NavLayout shown_nav = geometry::nav_layout(shown);
+        CHECK(every.size() < kAllPages.size());
+        bool open_listed = false;
         for (const auto& [control, rect] : every) {
             const auto entry_page = static_cast<Page>(control);
+            open_listed = open_listed || entry_page == page;
             CHECK(rect.y == geometry::dialog_list_item(shown, entry_page).y);
-            if (entry_page != Page::developer)
-                CHECK(rect.y + rect.height <= geometry::list_divider().y);
+            CHECK(rect.y >= shown_nav.viewport.y);
+            CHECK(rect.y + rect.height <= shown_nav.viewport.y + shown_nav.viewport.height);
         }
+        CHECK(open_listed);
     }
     const auto parts = settings::dialog_layout(opened_with_controller(Page::graphics, false));
     CHECK(find_part(parts, "Controller", settings::no_control) == nullptr);
@@ -9050,8 +9044,10 @@ void controller_is_listed_only_once_a_gamepad_sent_input() {
         DialogAction::redraw
     );
     CHECK(dialog.page == Page::controller);
+    // Developer stands at the list's foot, scrolled into its room.
+    dialog.nav_scroll = geometry::nav_layout(dialog).limit;
     CHECK(
-        click(dialog, centre(geometry::list_item(Page::developer, true, false, true))) ==
+        click(dialog, centre(geometry::dialog_list_item(dialog, Page::developer))) ==
         DialogAction::redraw
     );
     CHECK(dialog.page == Page::developer);
@@ -9067,7 +9063,7 @@ void controller_is_listed_only_once_a_gamepad_sent_input() {
     settings::Dialog later = opened_with_controller(Page::graphics, false);
     CHECK(settings::set_controller_section(later, false, false) == DialogAction::none);
     CHECK(settings::set_controller_section(later, true, false) == DialogAction::redraw);
-    CHECK(later.controller && list_entries(later).size() == kControllerPages.size());
+    CHECK(later.controller && entry_controls(later).size() == kControllerPages.size());
     CHECK(settings::set_controller_section(later, true, false) == DialogAction::none);
     CHECK(
         click(later, centre(geometry::list_item(Page::controller, false, false, true))) ==
@@ -9077,7 +9073,7 @@ void controller_is_listed_only_once_a_gamepad_sent_input() {
     later.focused = settings::first_row_control + 2;
     CHECK(settings::set_controller_section(later, false, false) == DialogAction::redraw);
     CHECK(later.page == Page::controls && later.focused == settings::no_control);
-    CHECK(list_entries(later).size() == kPages.size());
+    CHECK(entry_controls(later).size() == kPages.size());
     // Off while another section shows, that section stays and keeps its focus.
     settings::Dialog elsewhere = opened_with_controller(Page::graphics);
     elsewhere.focused = settings::first_row_control;
@@ -9497,10 +9493,11 @@ void a_steam_deck_names_its_screen_rate_under_maximum_frame_rate() {
 }
 
 void controller_changes_only_its_entry_and_the_sections_under_it() {
-    // Controller's list drops the gap, so every entry after the first moves.
-    // The open section, the header and the footer stay as they are.
+    // Controller's entry follows Accessibility, so every entry under it
+    // moves, and a list that then scrolls moves whole. The open section, the
+    // header and the footer stay as they are.
     const auto fonts = block_fonts();
-    const int32_t moved_top = geometry::list_first_top + geometry::list_item_height;
+    const int32_t moved_top = geometry::body_top;
     for (const Page page : kPages) {
         Canvas plain = blank(settings::dialog_width, settings::dialog_height);
         Canvas with_pad = blank(settings::dialog_width, settings::dialog_height);
@@ -9547,7 +9544,10 @@ void a_finger_takes_the_nearest_control() {
         const auto points = [&](double count) {
             return static_cast<int32_t>(std::lround(count * pixels_per_point / dialog_scale));
         };
+        // Scrolled 10 rows, so that Haptics' switch stands over the footer,
+        // the row under it out of the view.
         settings::Dialog dialog = opened_with_touch(Page::touch);
+        dialog.scroll[static_cast<std::size_t>(Page::touch)] = 10;
         const auto haptics = geometry::open_rows(dialog).rows.rows[3].control_area;
         const int32_t middle = haptics.y + haptics.height / 2;
         CHECK(dialog.chosen.touch_haptics);
@@ -9591,6 +9591,7 @@ void a_finger_takes_the_nearest_control() {
         // turns it On again: the scroll bar right of the switch and OK under
         // it lie farther.
         settings::Dialog dialog = opened_with_touch(Page::touch);
+        dialog.scroll[static_cast<std::size_t>(Page::touch)] = 10;
         dialog.chosen.touch_haptics = false;
         const auto haptics = geometry::open_rows(dialog).rows.rows[3].control_area;
         const Point under{haptics.x + 28, haptics.y + haptics.height - 1 + 15};
@@ -9951,8 +9952,8 @@ void the_arrows_move_by_geometry() {
     controls.focused = settings::ok_control;
     CHECK(settings::dialog_key(controls, DialogKey::down) == DialogAction::none);
     CHECK(controls.focused == settings::ok_control);
-    // Right from a section's entry reaches the row at its height: at the
-    // section's top, Controls' entry, Key layout.
+    // Right from a section's entry reaches the row nearest its height: at
+    // the section's top, Controls' entry, the key layout card's Edit keys….
     controls = opened(Page::controls);
     controls.focused = settings::page_control(Page::controls);
     CHECK(settings::dialog_key(controls, DialogKey::right) == DialogAction::redraw);
@@ -9968,12 +9969,12 @@ void the_arrows_move_by_geometry() {
     CHECK(controls.focused == settings::cancel_control);
 
     // Game files: MANAGE… takes no steps, so Left goes to the entry at its
-    // height, Engine Limits', and Right comes back.
+    // height, Accessibility's, and Right comes back.
     settings::Dialog files = opened_with_game_files(Page::game_files);
     CHECK(settings::dialog_key(files, DialogKey::tab) == DialogAction::redraw);
     CHECK(files.focused == settings::first_row_control);
     CHECK(settings::dialog_key(files, DialogKey::left) == DialogAction::redraw);
-    CHECK(files.focused == settings::page_control(Page::common_tweaks));
+    CHECK(files.focused == settings::page_control(Page::accessibility));
     CHECK(settings::dialog_key(files, DialogKey::right) == DialogAction::redraw);
     CHECK(files.focused == settings::first_row_control);
     CHECK(files.chosen == files.opened);
@@ -9989,10 +9990,10 @@ void the_arrows_move_by_geometry() {
     CHECK(graphics_scroll(graphics) == 0);
     CHECK(settings::dialog_key(graphics, DialogKey::down) == DialogAction::redraw);
     CHECK(graphics.focused == settings::first_row_control + 3);
-    CHECK(graphics_scroll(graphics) == 25);
+    CHECK(graphics_scroll(graphics) == 41);
     CHECK(settings::dialog_key(graphics, DialogKey::down) == DialogAction::redraw);
     CHECK(graphics.focused == settings::first_row_control + 4);
-    CHECK(graphics_scroll(graphics) == 72);
+    CHECK(graphics_scroll(graphics) == 88);
     CHECK(inside(geometry::open_rows(graphics).rows.rows[4].control_area, geometry::view));
     // A slider takes Left and Right as steps, and keeps the focus.
     graphics.focused = settings::first_row_control;
@@ -10019,14 +10020,14 @@ void the_arrows_move_by_geometry() {
         settings::cancel_control,
         settings::ok_control,
         settings::page_control(Page::controls),
-        settings::page_control(Page::common_tweaks),
-        settings::page_control(Page::language),
+        settings::page_control(Page::accessibility),
         settings::page_control(Page::graphics),
         settings::page_control(Page::user_interface),
-        settings::page_control(Page::accessibility),
+        settings::page_control(Page::language),
         settings::page_control(Page::downloads),
         settings::page_control(Page::updates),
         settings::page_control(Page::game_content),
+        settings::page_control(Page::common_tweaks),
         settings::page_control(Page::system),
         settings::page_control(Page::developer),
         settings::close_x_control,
@@ -10066,10 +10067,11 @@ void the_arrows_move_by_geometry() {
                                                   row + 16}
                                              )
     );
-    // User Interface: every row takes a change, Interface size among them.
+    // User Interface: every row takes a change, Interface size, Window size
+    // and Reset window positions among them.
     CHECK(
         tab_round(opened(Page::user_interface)) ==
-        then_rest({row, row + 1, row + 2, row + 3, row + 4})
+        then_rest({row, row + 1, row + 2, row + 3, row + 4, row + 5, row + 6})
     );
     // Developer, Developer Mode off: its three rows, every area of its list,
     // then Show Active Only.
@@ -10489,8 +10491,10 @@ void the_larger_classes_keep_the_footer_buttons() {
             const auto rect = geometry::footer_button(controls[index], size_class);
             const auto compact = geometry::footer_button(controls[index]);
             rects[index] = rect;
-            // Compact's size, in the footer's band.
-            CHECK(rect.width == compact.width && rect.height == compact.height);
+            // Kit 2's size for the class: as tall as its controls, and as
+            // wide as Compact's or wider, in the footer's band.
+            CHECK(rect.height == oa::ui::kit::metrics_of(size_class).control_height);
+            CHECK(rect.width >= compact.width);
             CHECK(rect.y > sized.footer_rule_row);
             CHECK(rect.y + rect.height < sized.dialog_height - geometry::edge);
             const auto* part = find_part(parts, {}, controls[index]);
@@ -10558,7 +10562,7 @@ std::vector<std::string> nav_texts(const settings::Dialog& dialog) {
     const geometry::Sizes& sized = geometry::sizes_of(dialog);
     std::vector<settings::LayoutPart> nav;
     for (const auto& part : settings::dialog_layout(dialog)) {
-        if (part.text.empty() || part.rect.y < geometry::list_first_top ||
+        if (part.text.empty() || part.rect.y < geometry::body_top ||
             part.rect.y >= sized.footer_rule_row || part.rect.x >= sized.content_left)
             continue;
         nav.push_back(part);
@@ -10920,7 +10924,7 @@ void the_header_close_mark_closes_as_cancel_does() {
         CHECK(click(dialog, at) == DialogAction::cancelled);
         CHECK(dialog.chosen.wheel_zoom == dialog.opened.wheel_zoom);
         const auto parts = settings::dialog_layout(opened(Page::controls), nullptr);
-        CHECK(find_part(parts, "CANCEL", settings::cancel_control) != nullptr);
+        CHECK(find_part(parts, "Cancel", settings::cancel_control) != nullptr);
     }
 }
 

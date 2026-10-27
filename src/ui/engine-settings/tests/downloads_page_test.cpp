@@ -287,45 +287,40 @@ void section_list_puts_downloads_before_developer() {
                     downloads != pages.end() && updates != pages.end() && content != pages.end() &&
                     system != pages.end() && developer != pages.end()
                 );
+                // Content's group ends Downloads, Updates, Game Content;
+                // System's follows: Engine Limits, System, Developer.
+                const auto limits = std::find(pages.begin(), pages.end(), Page::common_tweaks);
+                OA_CHECK(limits != pages.end());
                 OA_CHECK(downloads + 1 == updates);
                 OA_CHECK(updates + 1 == content);
-                OA_CHECK(content + 1 == system);
+                OA_CHECK(content + 1 == limits);
+                OA_CHECK(limits + 1 == system);
                 OA_CHECK(system + 1 == developer);
                 const auto user_interface =
                     std::find(pages.begin(), pages.end(), Page::user_interface);
                 const auto accessibility =
                     std::find(pages.begin(), pages.end(), Page::accessibility);
                 OA_CHECK(user_interface != pages.end() && accessibility != pages.end());
-                OA_CHECK(user_interface + 1 == accessibility);
-                OA_CHECK(accessibility < downloads);
-                const int32_t optionals =
-                    (touch ? 1 : 0) + (controller ? 1 : 0) + (game_files ? 1 : 0);
-                // Accessibility makes the plain list ten flowing entries. One
-                // optional section drops the gap; two or three also scroll.
-                // list_item is the content's place, before that scroll.
-                const int32_t stride =
-                    geometry::list_item_height + (optionals >= 1 ? 0 : geometry::list_item_gap);
-                const int32_t downloads_y = geometry::list_first_top + (6 + optionals) * stride;
+                OA_CHECK(pages.size() > 1 && pages[1] == Page::accessibility);
+                OA_CHECK(accessibility < user_interface && user_interface < downloads);
+                // Entries of a group lie an entry and a gap apart; a rule and
+                // its margins part two groups. list_item is the content's
+                // place, before the list scrolls.
+                const geometry::NavMetrics& nav = geometry::compact_sizes.nav;
+                const auto top_of = [&](Page page) {
+                    return geometry::list_item(page, touch, game_files, controller).y;
+                };
+                const int32_t stride = nav.entry_height + nav.entry_gap;
+                const int32_t rule = 2 * nav.rule_margin + 1;
+                OA_CHECK(top_of(Page::controls) == geometry::body_top + nav.margin);
+                OA_CHECK(top_of(Page::updates) == top_of(Page::downloads) + stride);
+                OA_CHECK(top_of(Page::game_content) == top_of(Page::updates) + stride);
                 OA_CHECK(
-                    geometry::list_item(Page::downloads, touch, game_files, controller).y ==
-                    downloads_y
+                    top_of(Page::common_tweaks) ==
+                    top_of(Page::game_content) + nav.entry_height + rule
                 );
-                OA_CHECK(
-                    geometry::list_item(Page::updates, touch, game_files, controller).y ==
-                    downloads_y + stride
-                );
-                OA_CHECK(
-                    geometry::list_item(Page::game_content, touch, game_files, controller).y ==
-                    downloads_y + 2 * stride
-                );
-                OA_CHECK(
-                    geometry::list_item(Page::system, touch, game_files, controller).y ==
-                    downloads_y + 3 * stride
-                );
-                OA_CHECK(
-                    geometry::list_item(Page::developer, touch, game_files, controller).y == 262
-                );
-                OA_CHECK(geometry::list_divider().y == 256);
+                OA_CHECK(top_of(Page::system) == top_of(Page::common_tweaks) + stride);
+                OA_CHECK(top_of(Page::developer) == top_of(Page::system) + stride);
                 OA_CHECK(settings::page_control(Page::downloads) == 9);
                 OA_CHECK(settings::page_control(Page::updates) == 12);
                 OA_CHECK(settings::page_control(Page::game_content) == 11);

@@ -152,7 +152,7 @@ With one extension the combined table behaves as that extension's own.
 ## The version
 
 `OA_EXTENSION_API_VERSION` numbers the table's contract, and
-`oa::app::extension_api_version` is its typed copy. The version is 18. It
+`oa::app::extension_api_version` is its typed copy. The version is 19. It
 rises by one with each change to the contract: a hook added, removed or
 renamed; a hook's parameters, its return value or the meaning of leaving it
 null; when or in which order the engine calls it; what it may keep or must
@@ -182,6 +182,12 @@ It is not a hook.
 
 Version 18 adds the kit's keycaps, chord chips, keyboard and mouse
 pictures, key tints and marks, and the hold ring. It is not a hook.
+
+Version 19 is Kit 2's look in the kit's headers: `Metrics` gains the type,
+spacing and shape scales and Kit 2's control sizes, the theme its new
+tokens, and the kit a danger button, information and brand pills, and a
+paused progress bar. An extension built against 18 reads `Metrics` at the
+wrong places. It is not a hook.
 
 An extension states the version it follows, so that a build against a
 table of another version stops until its author has read the change. The

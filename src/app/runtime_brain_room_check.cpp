@@ -12,7 +12,8 @@
 // row's empty screen-size column. The notch on the computer's name opens
 // the brain menu, drawn as the room's list box, and Escape closes it. The
 // menu's built-in player gives "Built-in · Hard", its level before gives
-// Medium and drops the brain field. Use for every computer seat and
+// Medium and drops the brain field, and the Mem cell steps the built-in
+// player to Hard, Easy and Medium. Use for every computer seat and
 // Lantern Scout set both rows, and its card names full awareness. Each
 // size's frame is written as brain-room-host-<w>x<h>.png while Steady
 // Commander is showing, and with the menu open as
@@ -665,6 +666,42 @@ void Runtime::check_brain_room() {
     );
     std::cout << "brain room check: the menu's built-in player and its level before read "
               << built.text << ", MEM reads Medium, and the record has no brain field\n";
+
+    // The Mem cell steps the built-in player's level as 3.1c steps a
+    // computer's difficulty: Medium, Hard, Easy and Medium again.
+    {
+        const std::string mem_name = row_name("MEM", steady_slot);
+        const mp::BattleRoomControl* mem = nullptr;
+        const std::vector<mp::BattleRoomControl> room = mp::multiplayer_battle_room_controls();
+        for (const mp::BattleRoomControl& control : room) {
+            if (control.name == mem_name && control.width > 0 && control.height > 0)
+                mem = &control;
+        }
+        require(mem != nullptr, "the row has no Mem cell in the room");
+        const LayerView placed = oa_layer().view();
+        const int32_t percent = std::max(placed.scale_percent, int32_t{100});
+        const kit::Rect mem_window = kit::to_canvas(
+            frame_to_points(placed, kit::Rect{mem->x, mem->y, mem->width, mem->height}), percent
+        );
+        const layout::Point at{
+            mem_window.x + mem_window.width / 2, mem_window.y + mem_window.height / 2
+        };
+        for (const char* level : {"Hard", "Easy", "Medium"}) {
+            pointer_at(at, SDL_EVENT_MOUSE_MOTION, 0);
+            pointer_at(at, SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT);
+            pointer_at(at, SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT);
+            frames(2);
+            const std::string stepped = labelled("Built-in", {}, level);
+            const AutomationControl now =
+                require_named(steady_name, steady_name + " left after the Mem cell");
+            require(
+                now.text == stepped,
+                "the Mem cell did not step to " + stepped + " (" + now.text + ")"
+            );
+        }
+    }
+    std::cout << "brain room check: the Mem cell steps the built-in player to Hard, Easy and "
+                 "Medium\n";
 
     const int32_t second_slot = seat_computer();
     const std::string second_name = "oa.brain-seat." + std::to_string(second_slot);

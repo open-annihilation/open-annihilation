@@ -222,6 +222,20 @@ void a_lamp_is_lit_from_its_top() {
     CHECK(at(unlit, 2, 1)[0] < at(canvas, 2, 1)[0]);
 }
 
+void a_bar_fills_from_its_left() {
+    renderer::RoomArt art{nullptr, gray_palette()};
+    renderer::RoomCanvas canvas = renderer::room_canvas({0, 0, 22, 8}, nullptr);
+    renderer::draw_room_bar(canvas, art, {0, 0, 22, 8}, 1, 2);
+    // A sunk well, filled across half its inside.
+    CHECK(at(canvas, 0, 0) == gray(0));
+    CHECK(at(canvas, 21, 7) == gray(17));
+    CHECK(at(canvas, 5, 2)[0] > 0);
+    CHECK(at(canvas, 15, 2) == gray(0));
+    renderer::RoomCanvas empty = renderer::room_canvas({0, 0, 22, 8}, nullptr);
+    renderer::draw_room_bar(empty, art, {0, 0, 22, 8}, 0, 2);
+    CHECK(at(empty, 5, 2) == gray(0));
+}
+
 void a_list_lays_out_its_rows() {
     renderer::RoomArt art{nullptr, gray_palette()};
     std::array<renderer::RoomListRow, 3> rows{};
@@ -396,6 +410,7 @@ int main(int argc, char** argv) {
     the_notch_sits_in_the_right_end();
     the_stamp_cuts_the_mark_into_a_dark_plate();
     a_lamp_is_lit_from_its_top();
+    a_bar_fills_from_its_left();
     a_list_lays_out_its_rows();
     if (failures != 0)
         return 1;

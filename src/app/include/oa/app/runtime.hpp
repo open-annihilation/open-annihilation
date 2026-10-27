@@ -556,6 +556,8 @@ struct MutatorStartStop {
 
 namespace update {
 struct CheckSnapshot;
+struct Centre;
+enum class Act : uint8_t;
 } // namespace update
 
 /// Counts one unconfirmed start on macOS and Windows, before the game loads.
@@ -6851,6 +6853,17 @@ class Runtime final : public menu::Host,
     /// @return "{version} ready" or "{version} downloading"
     [[nodiscard]] std::string update_header_note() const;
 
+    /// The update centre's state: where the check, the download and an install stand, the
+    /// versions, the bytes and the actions it allows (oa::app::update::centre_state).
+    ///
+    /// @return the state
+    [[nodiscard]] update::Centre update_centre() const;
+
+    /// Carries out one of the update centre's actions.
+    ///
+    /// @param action the action, one of the state's
+    void take_update_action(update::Act action);
+
     /// Copies the download onto Settings: the switch's rows and the header note.
     ///
     /// @param[in,out] dialog the open dialog
@@ -7572,8 +7585,10 @@ class Runtime final : public menu::Host,
     /// The brain picker, a screen of the OA layer named brain-picker.
     struct BrainPickerScreen;
 
-    /// MUTATORS… on the skirmish setup and the campaign launch, a screen of
-    /// the OA layer named mutators-button.
+    /// The Mutators button on the skirmish setup and the campaign launch, one
+    /// of the room's own on and off buttons with the OA stamp, a screen of
+    /// the OA layer named mutators-button. It reads "Mutators: off" with no
+    /// lamp lit and "Mutators: N on" with the green lamp.
     struct MutatorButtonScreen;
 
     /// Keeps MUTATORS… on the OA layer while the skirmish setup, NEWGAME,
@@ -7590,8 +7605,8 @@ class Runtime final : public menu::Host,
     void check_mutator_button();
 
     /// A computer seat's brain on SKIRMISH, a screen of the OA layer named
-    /// brain-seats. One button sits to the right of each computer row's
-    /// Energy button while a brain is installed.
+    /// brain-seats. Each computer row's own Player button names its brain
+    /// and opens the brain menu from its notch, while a brain is installed.
     struct BrainSeatsScreen;
 
     /// Keeps the computer-seat buttons on the OA layer while SKIRMISH, NEWGAME
@@ -7602,7 +7617,7 @@ class Runtime final : public menu::Host,
     void keep_brain_seats_screen();
 
     /// Runs --check-brain-seat-buttons: each computer row's brain button on
-    /// SKIRMISH at 640x480 and 1280x720, the focus hand-over, the picker,
+    /// SKIRMISH at 640x480 and 1280x720, the focus hand-over, the brain menu,
     /// the hover card and the brains a start seats. Writes
     /// brain-seats-skirmish-<w>x<h>.png in the working folder.
     ///
@@ -7610,9 +7625,10 @@ class Runtime final : public menu::Host,
     void check_brain_seat_buttons();
 
     /// A computer seat's brain in the battle room, a screen of the OA layer
-    /// named brain-room. A button sits on each computer row this machine
-    /// runs, over that row's empty screen-size column, while a brain is
-    /// installed or the seat runs one. Another machine's brain is a label.
+    /// named brain-room. A computer row's Resolution cell shows its brain
+    /// and its Mem cell the brain's level, on each computer row this machine
+    /// runs, while a brain is installed or the seat runs one. Another
+    /// machine's brain is a label.
     struct BrainRoomScreen;
 
     /// Keeps the battle room's brain seats on the OA layer while the battle
@@ -7622,14 +7638,14 @@ class Runtime final : public menu::Host,
     void keep_brain_room_screen();
 
     /// Runs --check-brain-room: a battle room hosted alone, at 640x480 and
-    /// 1280x720, the seat button, the picker, the card and the presence
+    /// 1280x720, the seat button, the brain menu, the card and the presence
     /// record. Writes brain-room-host-<w>x<h>.png in the working folder.
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_brain_room();
 
     /// Runs --check-brain-campaign: the campaign's brain button on NEWGAME
-    /// and Any Mission at 640x480 and 1280x720, Tab, the picker, the brain
+    /// and Any Mission at 640x480 and 1280x720, Tab, the brain menu, the brain
     /// the first mission seats and the seat a loaded campaign save leaves.
     /// Writes brain-campaign-<screen>-<w>x<h>.png in the working folder.
     ///
