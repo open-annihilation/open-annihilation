@@ -674,6 +674,11 @@ struct Options {
     // building drawn there (ui.build-preview): its pulse, the same at every
     // zoom and frame rate, and that it is drawn the right way up.
     bool check_build_preview = false;
+    // Opens the in-game briefing, the save dialog and the help dialog over a
+    // paused CORE mission in the standard, Basic and Full tiers at several
+    // zooms, and checks that each leaves the battlefield outside its panel
+    // as the match's frame showed it.
+    bool check_dialog_backdrop = false;
     // Drives both interface types' pointer buttons through the SDL presenter:
     // clicks and right presses, shift cancels, radar scrolls, mouse look and a
     // factory build button's right click.
@@ -969,7 +974,8 @@ struct Options {
     /// Accepts the legacy 3D launch flag; Graphics settings now control camera access.
     bool experimental_3d{};
     // --force-capable, which only --check-render-tiers, --check-build-preview,
-    // --check-engine-settings and --check-kill-board take: the renderer
+    // --check-dialog-backdrop, --check-engine-settings and --check-kill-board
+    // take: the renderer
     // counts as one the graphics card could scale the frames on, so that the
     // accelerated tier runs on SDL's software renderer, and neither the
     // environment's render driver nor SDL's software renderer locks Hardware

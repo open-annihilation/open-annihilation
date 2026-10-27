@@ -11571,6 +11571,10 @@ class Runtime final : public menu::Host,
         /// A picture-keeping reader draws the world as the standard tier does
         /// (ensure_screen_world).
         bool suspended{};
+        /// The last match frame is drawn again to be read back
+        /// (read_presented_world): finish_match_layers neither draws the
+        /// layers over the battlefield nor presents the frame.
+        bool reading_back{};
         /// The rung: the scene budget, magnify on or off, the chrome's filter
         /// and the card's magnification.
         render_policy::LadderState rung{};
@@ -12335,8 +12339,9 @@ class Runtime final : public menu::Host,
 
     /// Draws one standard-tier world for the moment the last frame showed, the
     /// same tick and fraction, when the accelerated presentation scaled the
-    /// world: the picture a screenshot, a film frame, the load and save
-    /// backdrop, the briefing's backdrop and the end screen keep. The units
+    /// world: the picture a screenshot, a film frame and the end screen keep,
+    /// and the load and save dialogs' and the briefing's backdrop where the
+    /// card's picture cannot be read back (compose_shown_match). The units
     /// drawn are counted for that draw alone and the frame's counts kept,
     /// and the HUD's resource readout is not eased again, so the match's
     /// Game.resource_readout stays as the frame left it. Makes no SDL call.
@@ -12344,6 +12349,39 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error when the world cannot be drawn.
     void ensure_screen_world();
+
+    /// Composes the match canvas as the last match frame showed it, for a
+    /// panel drawn over the paused match from a picture of it: the load and
+    /// save dialogs and the in-game briefing. As compose_match_layers, with
+    /// the battlefield as the frame presented it: where the graphics card
+    /// drew it (the Full tier) or magnified it (Basic above zoom 1), the
+    /// card's own picture read back (read_presented_world), so that the
+    /// units, the water and the fog behind the panel look as they did
+    /// without it; where it cannot be read back, the standard tier's draw
+    /// (ensure_screen_world); and otherwise the world layer as presented,
+    /// the area pass's picture below zoom 1 among them. Before the display
+    /// gamma, as compose_match_layers.
+    ///
+    /// Throws std::runtime_error when the world cannot be drawn.
+    ///
+    /// @param[out] frame canvas-sized RGB frame
+    void compose_shown_match(renderer::Surface& frame);
+
+    /// Draws the last match frame's battlefield again as its tier presented
+    /// it, into the window's frame without presenting it, which the next
+    /// frame draws over, and reads it back at the battlefield's size in
+    /// layout pixels (part of compose_shown_match). The frame is drawn from
+    /// the layers and the card's state the last match frame left, so it is
+    /// that frame's picture; the readback is taken back through the display
+    /// gamma, which the panel's presentation applies again, exactly where
+    /// the gamma is the identity and to the nearest level otherwise. A
+    /// window that shows the layout at another scale is read at its own
+    /// pixels and each layout pixel given the mean of the pixels it covers.
+    ///
+    /// @param[out] world the battlefield's picture, its width and height those of the world layer
+    /// @return false, with `world` left as it was, where the tier did not
+    ///     present the frame from the card or SDL refused a call
+    [[nodiscard]] bool read_presented_world(renderer::Surface& world);
 
     /// Presents the software cursor at the pointer, unless the system's
     /// pointer shows instead (pointer_shows_cursor) or the frame is drawn
@@ -16013,6 +16051,21 @@ class Runtime final : public menu::Host,
     ///
     /// @return 0, or 77 where the machine cannot run the accelerated tiers
     int check_build_preview();
+
+    /// Checks the battlefield behind a dialog over a paused match in the
+    /// standard, Basic and Full tiers at zoom 1, 1.5, 2 and 0.5: over the CORE
+    /// campaign's nineteenth mission, its fleet in view, the in-game
+    /// briefing, the save dialog and the help dialog are each opened from the
+    /// in-game menu, and the frame presented with the dialog must equal the
+    /// frame presented without it in every battlefield pixel outside the
+    /// dialog's panel and the menu's. Then, at a raised display gamma, the
+    /// briefing in the Full tier at zoom 1 may move no level of the
+    /// battlefield by more than half the widest step between the gamma's
+    /// levels. Writes the frames at zoom 1, and any that differ, to
+    /// local/reports. Throws std::runtime_error on a failure.
+    ///
+    /// @return 0, or 77 where the machine cannot run the accelerated tiers
+    int check_dialog_backdrop();
     // Chat line and "+command" console (runtime_console.cpp).
 
     /// Returns the match's console, binding it to the running match's world on first use.

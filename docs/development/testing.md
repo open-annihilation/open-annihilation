@@ -723,6 +723,19 @@ walk runs:
   pages, and Basic at the next sample while memory stays short. Each skips
   under 2 GiB.
 
+`native-dialog-backdrop` (`--check-dialog-backdrop`) opens the in-game
+briefing, the save dialog and the help dialog over a paused CORE mission
+at sea in the standard, Basic and Full tiers, at zoom 1, 1.5, 2 and 0.5,
+and holds the frame presented with each dialog to the frame presented
+without it in every battlefield pixel outside the dialog's panel, the
+units' among them, and at a raised display gamma the Full tier's within
+half a step of the gamma's levels. Unlike the checks above it leaves the video driver to
+the environment: on SDL's dummy driver it runs on the software renderer,
+switched to every tier as `--force-capable` allows, and on a machine with
+a graphics card, run without `SDL_VIDEO_DRIVER=dummy`, on the card (Metal
+on a Mac), in a window. It writes the frames at zoom 1, and any that
+differ, to `local/reports` in its folder, and skips under 2 GiB.
+
 ### Touch controls
 
 The touch controls ([docs/touch-controls.md](../touch-controls.md)) are
