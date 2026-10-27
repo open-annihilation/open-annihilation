@@ -1753,7 +1753,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             renderer_water_classic::Inputs ripples;
             ripples.map = &*selected_tnt_;
             ripples.view.zoom = zoom;
-            ripples.ripples = engine_settings().water_ripples / 100.0F;
+            ripples.ripples = water_levels().ripples;
             ripples.wind = water_wind();
             const double reach = 2.0 * oa::present::gpu_world::tile_edge;
             water_art = renderer_water_classic::art_motion(
@@ -1874,11 +1874,12 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 water.map = &*selected_tnt_;
                 water.view = scene;
                 water.seconds = double(match_->simulation().tick) / 30.0;
-                const auto& water_settings = engine_settings();
-                water.ripples = water_settings.water_ripples / 100.0F;
-                water.coast = water_settings.coastal_waves / 100.0F;
-                water.shimmer = water_settings.underwater_shimmer / 100.0F;
-                water.reflections = water_settings.naval_reflections / 100.0F;
+                // The sliders' strengths, which a lava sea leaves at none.
+                const auto levels = water_levels();
+                water.ripples = levels.ripples;
+                water.coast = levels.coast;
+                water.shimmer = levels.shimmer;
+                water.reflections = levels.reflections;
                 water.water_surface = water_surface();
                 water.disturbances = water_disturbances();
                 water.wind = water_wind();

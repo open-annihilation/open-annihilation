@@ -39,6 +39,14 @@ void WindState::advance(uint32_t now) noexcept {
     value.drift_z = float(travel * value.z);
 }
 
+Levels shown_levels(const Sea& sea, const Levels& chosen) noexcept {
+    return sea.lava ? Levels{} : chosen;
+}
+
+bool stirred_by_shots(const Sea& sea) noexcept {
+    return !sea.lava && !sea.swallows_shots;
+}
+
 float surface_strength(
     Kind kind, float height, float sea, bool water_weapon, bool crossed_surface
 ) noexcept {

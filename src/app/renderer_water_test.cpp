@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 #include "renderer_water.hpp"
+#include <array>
 #include <cmath>
 #include "oa/test/check.hpp"
 #include <limits>
@@ -44,6 +45,24 @@ int main() {
     OA_CHECK(loaded.value.x != heading.x || loaded.value.z != heading.z);
     flow.advance(0);
     OA_CHECK(flow.value.drift_x == 0 && flow.value.drift_z == 0);
+
+    // A water sea shows the sliders' strengths and its shots' rings; a lava
+    // sea none of the water effects, and a sea that swallows shots no rings.
+    const Levels chosen{.6F, .3F, 1, 2};
+    const auto shown = [&](const Sea& sea) {
+        const auto levels = shown_levels(sea, chosen);
+        return std::array<float, 4>{
+            levels.ripples, levels.coast, levels.shimmer, levels.reflections
+        };
+    };
+    OA_CHECK((shown({}) == std::array<float, 4>{.6F, .3F, 1, 2}));
+    OA_CHECK((shown({false, true}) == std::array<float, 4>{.6F, .3F, 1, 2}));
+    OA_CHECK((shown({true, false}) == std::array<float, 4>{}));
+    OA_CHECK((shown({true, true}) == std::array<float, 4>{}));
+    OA_CHECK(stirred_by_shots({}));
+    OA_CHECK(!stirred_by_shots({false, true}));
+    OA_CHECK(!stirred_by_shots({true, false}));
+    OA_CHECK(!stirred_by_shots({true, true}));
 
     // Underwater weapons cannot create air-side rings, including at the waterline.
     for (auto kind : {Kind::firing, Kind::hit, Kind::water_impact})

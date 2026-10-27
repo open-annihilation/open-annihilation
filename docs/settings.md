@@ -621,6 +621,15 @@ the game draws its text and how the modern fonts draw it.
     ship shows as far below its waterline as it stands above it, fainter
     the higher it stands. They fade as the view turns flat.
 
+  They follow the map's sea. On a lava world (a map whose OTA sets
+  `lavaworld=1`) the lava shows none of the four, as the game draws it:
+  no ripples, waves, rings or splashes, no shimmer on what lies in it and
+  no reflections, and shots that land in it show the game's own lava
+  splash. Where the map's sea swallows shots without a splash
+  (`nosealeveltrigger=1`), shots and naval guns leave no rings or
+  splashes on it; its waves stay. A map whose water does damage
+  (`waterdoesdamage=1`, such as an acid world) keeps all four.
+
   Fine detail fades as the view zooms out, and the reflections of distant
   fleets are kept few. These effects change only what your screen shows,
   never the water's depth, movement or what any player can see. With

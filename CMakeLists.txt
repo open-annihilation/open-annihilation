@@ -4538,6 +4538,20 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-stage-render PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # The water effects on the graphics card's Full tier, in the classic
+        # and the turned view: a lava world's shore, with a kbot walking its
+        # edge and shells landing in the lava, draws the same with them at
+        # 100% as at 0%, and a water map's shore differs in every frame.
+        # SDL's GPU renderer needs the system's own video driver; where it
+        # cannot be made the check skips.
+        add_test(NAME native-lava-water-effects COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_lava_water_effects.py"
+          --native $<TARGET_FILE:oa-game> --oa-tool $<TARGET_FILE:oa-tool>
+          --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-lava-water-effects PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          SKIP_RETURN_CODE 77)
         # A block of fighters and a row of kbots, each moved to one point as
         # a group, keep their shape: the fighters land each on its own site
         # around the point, the row's middle kbots reach their own points and

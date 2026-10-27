@@ -129,6 +129,8 @@ namespace oa::app::renderer_water {
 struct Wind;
 class SurfaceCache;
 struct Disturbance;
+struct Sea;
+struct Levels;
 } // namespace oa::app::renderer_water
 
 namespace oa::app::renderer_effect_events {
@@ -8136,7 +8138,16 @@ class Runtime final : public menu::Host,
     /// Cached water-body fetch for the current match; no per-frame map traversal.
     const renderer_water::SurfaceCache* water_surface() const noexcept;
     /// Recent visible naval firing and water impacts; recheck sight when drawing.
+    /// Empty where the match's sea is not stirred by shots
+    /// (renderer_water::stirred_by_shots).
     std::span<const renderer_water::Disturbance> water_disturbances() const noexcept;
+    /// Gives the match's sea, from its map's lavaworld and nosealeveltrigger
+    /// as the match holds them.
+    /// @return the sea; a plain water sea without a match
+    renderer_water::Sea water_sea() const noexcept;
+    /// Gives the strengths the water effects are drawn at in this match.
+    /// @return the Graphics settings' sliders; none on a lava sea
+    renderer_water::Levels water_levels();
     /// Match a visible impact sprite to a recent EMG hit, independent of merged light centres.
     /// @param point canonical world location in fixed-point units
     /// @return true within six world pixels of an EMG hit in the last game second

@@ -24,6 +24,40 @@ struct WindState {
     void advance(uint32_t now) noexcept;
 };
 
+/// The map's sea as the keys of its OTA's GlobalHeader describe it, which
+/// decides which of OA's water effects it shows.
+struct Sea {
+    /// lavaworld=1: the sea is lava, which the game draws with lava splashes
+    /// and lava explosions, and which shows none of OA's water effects.
+    bool lava{};
+    /// nosealeveltrigger=1: shots and debris that reach the sea vanish
+    /// without a splash, so no shot stirs it with rings or splashes.
+    bool swallows_shots{};
+};
+
+/// How strongly OA draws each water effect: its slider's percent over 100,
+/// 0 to 2, 0 leaving it out.
+struct Levels {
+    float ripples{};     ///< Water ripples, and the rings and splashes of shots
+    float coast{};       ///< Coastal waves
+    float shimmer{};     ///< Underwater shimmer
+    float reflections{}; ///< Naval reflections
+};
+
+/// Gives the strengths a sea shows the water effects at: none on lava, as
+/// chosen on any other sea.
+/// @param sea the map's sea
+/// @param chosen the strengths the settings choose
+/// @return all zero on lava, else `chosen`
+[[nodiscard]] Levels shown_levels(const Sea& sea, const Levels& chosen) noexcept;
+
+/// Tells whether shots and naval guns stir the sea with rings and splashes:
+/// not on a sea that swallows shots, nor on lava, which takes the game's
+/// own lava splashes instead.
+/// @param sea the map's sea
+/// @return true where the rings and splashes are drawn
+[[nodiscard]] bool stirred_by_shots(const Sea& sea) noexcept;
+
 /// Distinguish small naval firing and hull-hit rings from open-water splashes.
 enum class Kind { firing, hit, water_impact };
 

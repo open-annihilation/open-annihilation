@@ -1496,6 +1496,17 @@ on the deep water must stand on their build grid at the sea level less
 their waterlines, a solar collector on a hill at the lowest corner under
 its footprint, read from the map with `oa-tool asset-extract`, and a patrol
 boat at a placed one's height, each to the end of the run.
+`native-lava-water-effects` (`tools/check_native_lava_water_effects.py`)
+finds a shore of flat land beside the sea in three maps' terrain, read with
+`oa-tool asset-extract`: Lava & Two Hills (`lavaworld=1`), Higher Ground
+(`lavaworld=1` and `nosealeveltrigger=1`) and Coast To Coast. On each, a
+stage walks a kbot along the shore's edge while two destroyers off it
+shell each other, and a director script renders it on the graphics card's
+Full tier, four seconds in the classic view and four turned, once with
+the four water effects at 100% and once at 0%. On the lava worlds every
+frame of the two renders is the same picture; on Coast To Coast every
+frame differs. It needs the system's video driver and skips under SDL's
+dummy driver; `--pictures DIR` keeps a still of each view of each render.
 
 ## Writing a test
 

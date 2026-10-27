@@ -361,9 +361,28 @@ const renderer_water::SurfaceCache* Runtime::water_surface() const noexcept {
 }
 
 std::span<const renderer_water::Disturbance> Runtime::water_disturbances() const noexcept {
-    return match_ && match_effects_ && match_effects_->match == match_.get()
+    return match_ && match_effects_ && match_effects_->match == match_.get() &&
+                   renderer_water::stirred_by_shots(water_sea())
                ? match_effects_->disturbances.active()
                : std::span<const renderer_water::Disturbance>{};
+}
+
+renderer_water::Sea Runtime::water_sea() const noexcept {
+    if (!match_)
+        return {};
+    const auto& effects = match_->effects();
+    return {effects.lava_world, effects.no_sea_level_trigger};
+}
+
+renderer_water::Levels Runtime::water_levels() {
+    const auto& settings = engine_settings();
+    return renderer_water::shown_levels(
+        water_sea(),
+        {settings.water_ripples / 100.0F,
+         settings.coastal_waves / 100.0F,
+         settings.underwater_shimmer / 100.0F,
+         settings.naval_reflections / 100.0F}
+    );
 }
 
 std::span<const renderer_effect_sources::Source> Runtime::match_effect_sources() const noexcept {
