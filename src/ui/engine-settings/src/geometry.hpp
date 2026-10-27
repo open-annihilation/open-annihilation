@@ -16,6 +16,7 @@
 
 #include "settings_rows.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -66,28 +67,40 @@ inline constexpr int32_t header_gap = oa::ui::kit::compact_metrics.header_gap;
 /// Extra columns after each glyph of the title and the section heading.
 inline constexpr int32_t heading_tracking = oa::ui::kit::compact_metrics.heading_tracking;
 
-/// A section's entry in the list: its left column and width.
+/// A section's entry in the list: its left column. Its height, the gaps and
+/// its icon's and caption's columns are its size class's (Sizes).
 inline constexpr int32_t list_item_left = edge + 6;
-/// A section's entry's height.
-inline constexpr int32_t list_item_height = 20;
-/// The first entry's top row.
-inline constexpr int32_t list_first_top = body_top + 8;
-/// The rows between two entries.
-inline constexpr int32_t list_item_gap = 1;
-/// The rows above and below the line before the Developer section.
-inline constexpr int32_t list_divider_margin = 5;
-/// The columns between the list's sides and the line before Developer.
-inline constexpr int32_t list_divider_inset = 4;
 /// The selected entry's marker: its column within the entry, width and height.
 inline constexpr int32_t list_marker_offset = 5;
 /// The selected entry's marker's width.
 inline constexpr int32_t list_marker_width = 2;
 /// The selected entry's marker's height.
 inline constexpr int32_t list_marker_height = 8;
-/// An entry's text column within the entry.
-inline constexpr int32_t list_text_offset = 12;
 /// The columns an entry keeps clear right of its text.
 inline constexpr int32_t list_text_margin = 4;
+/// The columns between the list's sides and a rule between its groups.
+inline constexpr int32_t list_divider_inset = 4;
+
+/// The section list's sizes at one size class: its entries, the gaps between
+/// them and between their groups, and where an entry's icon and caption stand.
+struct NavMetrics {
+    int32_t entry_height{}; ///< an entry's height
+    int32_t entry_gap{};    ///< the rows between two entries of a group
+    int32_t rule_margin{};  ///< the rows above and below a rule between two groups
+    int32_t margin{};       ///< the rows above the first entry and below the last
+    int32_t icon_left{};    ///< the icon's column within its entry
+    int32_t icon_side{};    ///< the icon's side
+    int32_t text_left{};    ///< the caption's column within its entry
+};
+
+/// The section list's sizes at Compact, Regular and Large, in the order of
+/// kit::SizeClass. Compact's list of eleven sections fits its room; Regular's
+/// and Large's fit every section the engine lists.
+inline constexpr std::array<NavMetrics, 3> nav_metrics{{
+    {19, 0, 3, 6, 11, 12, 29},
+    {25, 1, 4, 8, 12, 14, 33},
+    {32, 1, 5, 10, 14, 16, 38},
+}};
 
 /// The open section's heading's top row.
 inline constexpr int32_t heading_top = body_top + 10;
@@ -337,16 +350,24 @@ struct Sizes {
     oa::ui::kit::SizeClass size_class{}; ///< the class these are the sizes of
     int32_t dialog_width{};              ///< the dialog's width
     int32_t dialog_height{};             ///< the dialog's height
-    int32_t padding{};                   ///< the space between a panel's edge and what it holds
-    int32_t list_width{};                ///< the section list's width, from the left edge
-    std::size_t hint_line_characters{};  ///< the most characters a host's line under a row holds
-    int32_t footer_rule_row{};           ///< the row of the line between the body and the footer
-    int32_t footer_top{};                ///< the footer's first row
-    int32_t list_rule_column{};          ///< the column of the line right of the section list
-    int32_t content_left{};              ///< the open section's first column
-    int32_t content_right{};             ///< the column just right of the open section
-    int32_t content_width{};             ///< the open section's width
-    int32_t list_item_width{};           ///< a section's entry's width
+    /// the space between a panel's edge and what it holds: Kit 2's window
+    /// padding (kit::Metrics::window_padding)
+    int32_t padding{};
+    int32_t list_width{};               ///< the section list's width, from the left edge
+    NavMetrics nav{};                   ///< the section list's entries, gaps and icons
+    std::size_t hint_line_characters{}; ///< the most characters a host's line under a row holds
+    int32_t footer_rule_row{};          ///< the row of the line between the body and the footer
+    int32_t footer_top{};               ///< the footer's first row
+    /// the footer's height, under its line: Kit 2's window footer
+    /// (kit::Metrics::window_footer_height)
+    int32_t footer_height{};
+    /// the footer's buttons' height: Kit 2's control height (kit::Metrics::control_height)
+    int32_t footer_button_height{};
+    int32_t list_rule_column{}; ///< the column of the line right of the section list
+    int32_t content_left{};     ///< the open section's first column
+    int32_t content_right{};    ///< the column just right of the open section
+    int32_t content_width{};    ///< the open section's width
+    int32_t list_item_width{};  ///< a section's entry's width
     /// The column just right of the header's version: Compact's distance from
     /// the dialog's right edge in every class.
     int32_t version_right{};
@@ -355,6 +376,9 @@ struct Sizes {
     SourceRect restore_button{}; ///< Restore defaults, at the footer's left
     SourceRect ok_button{};      ///< OK, at the footer's right
     SourceRect cancel_button{};  ///< Cancel, left of OK
+    /// The count of changed settings: the footer's room between Restore
+    /// defaults and Cancel, the text right-aligned against Cancel.
+    SourceRect changed_count{};
     /// The view the open section's rows scroll in, under its heading: from
     /// the first row's line to the row above the footer's line.
     SourceRect view{};
@@ -390,10 +414,16 @@ struct Sizes {
     sized.size_class = size_class;
     sized.dialog_width = metrics.dialog_width;
     sized.dialog_height = metrics.dialog_height;
-    sized.padding = metrics.padding;
+    sized.padding = metrics.window_padding;
     sized.list_width = metrics.nav_width;
+    sized.nav = nav_metrics
+        [static_cast<std::size_t>(size_class) < nav_metrics.size()
+             ? static_cast<std::size_t>(size_class)
+             : 0];
     sized.hint_line_characters = static_cast<std::size_t>(metrics.hint_line_characters);
-    sized.footer_rule_row = sized.dialog_height - edge - footer_height - 1;
+    sized.footer_height = metrics.window_footer_height;
+    sized.footer_button_height = metrics.control_height;
+    sized.footer_rule_row = sized.dialog_height - edge - sized.footer_height - 1;
     sized.footer_top = sized.footer_rule_row + 1;
     sized.list_rule_column = edge + sized.list_width;
     sized.content_left = sized.list_rule_column + 1 + sized.padding;
@@ -404,20 +434,37 @@ struct Sizes {
                           oa::ui::kit::compact_metrics.button_height -
                           oa::ui::kit::compact_metrics.header_gap;
     sized.heading = {sized.content_left, heading_top, sized.content_width, heading_height};
-    sized.button_top = sized.footer_top + (footer_height - button_height) / 2;
-    sized.restore_button = {sized.padding, sized.button_top, restore_button_width, button_height};
-    sized.ok_button = {
-        sized.content_right - oa::ui::kit::compact_metrics.button_width,
+    sized.button_top = sized.footer_top + (sized.footer_height - sized.footer_button_height) / 2;
+    // Kit 2's buttons: as tall as the class's controls, OK and Cancel twice
+    // as wide as they are tall, Restore defaults wider by as much as its
+    // height grew over Compact's.
+    const int32_t grown = metrics.control_height - oa::ui::kit::compact_metrics.control_height;
+    const int32_t answer_width =
+        std::max(oa::ui::kit::compact_metrics.button_width, 2 * metrics.control_height);
+    sized.restore_button = {
+        sized.padding,
         sized.button_top,
-        oa::ui::kit::compact_metrics.button_width,
-        button_height
+        restore_button_width + 2 * grown,
+        sized.footer_button_height
+    };
+    sized.ok_button = {
+        sized.dialog_width - edge - sized.padding - answer_width,
+        sized.button_top,
+        answer_width,
+        sized.footer_button_height
     };
     sized.cancel_button = {
-        sized.ok_button.x - oa::ui::kit::compact_metrics.button_gap -
-            oa::ui::kit::compact_metrics.button_width,
+        sized.ok_button.x - metrics.space * 2 - answer_width,
         sized.button_top,
-        oa::ui::kit::compact_metrics.button_width,
-        button_height
+        answer_width,
+        sized.footer_button_height
+    };
+    sized.changed_count = {
+        sized.restore_button.x + sized.restore_button.width + metrics.space * 3,
+        sized.button_top,
+        sized.cancel_button.x - metrics.space * 3 -
+            (sized.restore_button.x + sized.restore_button.width + metrics.space * 3),
+        sized.footer_button_height
     };
     sized.view = {
         sized.content_left,
@@ -705,7 +752,12 @@ struct Row {
 /// The open section's rows, placed.
 struct Rows {
     std::vector<Row> rows; ///< one for each setting the section shows
-    int32_t bottom{};      ///< the row of the line under the last row
+    /// The row of the line under the last row, or on Accessibility under the
+    /// practice pad where that reaches lower: where the section's content ends.
+    int32_t bottom{};
+    /// Accessibility's practice pad's place (cards::practice_pad); empty on
+    /// every other section.
+    SourceRect pad{};
 };
 
 /// What a row of Developer's list is.
@@ -1368,60 +1420,87 @@ scroll_thumb(int32_t scroll, int32_t limit, int32_t content_height) noexcept;
     const ScrollArea& area, int32_t thumb_top, int32_t limit, int32_t content_height
 ) noexcept;
 
-/// How the engine's section list is stepped, and whether Compact scrolls it.
-/// A list that does not end in Developer keeps a gap and does not scroll.
-struct EngineNav {
-    int32_t stride{list_item_height + list_item_gap}; ///< one entry and the gap it keeps, or none
-    bool scrolls{};                                   ///< the flowing entries pass the divider
-    int32_t limit{}; ///< the furthest nav_scroll, 0 when it does not scroll
-    /// The room above the divider. Entries other than Developer are clipped to it.
-    SourceRect viewport{};
+/// The groups the engine's sections are listed in, top to bottom, a rule
+/// between each two: what the player plays with, how the game looks, what
+/// it holds and fetches, and the machine and the engine.
+enum class NavGroup : uint8_t {
+    play,    ///< Controls, Accessibility, Touch and Controller
+    look,    ///< Graphics, User Interface and Language & Text
+    content, ///< Game files, Downloads, Updates and Game Content
+    system,  ///< Engine Limits, System and Developer
 };
 
-/// Returns how a list of sections is stepped. The engine's own list drops
-/// the gap once the gapped entries would cross the divider, and scrolls once
-/// the gapless entries pass it. Developer stays pinned and is not one of the
-/// flowing entries. Any other list keeps the gap and does not scroll.
+/// Returns the group a section is listed in. A mod's options, a Language
+/// dialog's one section and a registered page are in the first group.
 ///
-/// @param listed the sections, in the list's order
-/// @param size_class the size class the dialog is laid out at
-/// @return the stride, whether it scrolls, the limit and the viewport
-[[nodiscard]] EngineNav
-engine_nav(std::span<const Page> listed, oa::ui::kit::SizeClass size_class) noexcept;
+/// @param page the section
+/// @return its group
+[[nodiscard]] NavGroup nav_group(Page page) noexcept;
 
-/// Scrolls the engine's section list the least that shows the open entry, or
-/// the focused entry when that focus is one. A row's focus leaves the scroll.
-/// A list that does not scroll is put back at the top. Nothing moves while a
-/// press is held, and a registered list is left to its own scroll.
+/// One piece of the section list before it scrolls: an entry, a rule between
+/// two groups or before an owner's pages, or an owner's name.
+struct NavPiece {
+    /// What a piece is.
+    enum class Kind : uint8_t {
+        entry, ///< a section's entry
+        rule,  ///< a hairline
+        owner, ///< an owner's name
+    };
+
+    Kind kind{Kind::entry};      ///< what it is
+    SourceRect rect{};           ///< where it lies before the list scrolls
+    int32_t control{no_control}; ///< the entry's control; no_control for a rule or a name
+    std::string text;            ///< the entry's caption or the owner's name
+    bool registered{};           ///< the entry is a registered page
+    std::size_t index{};         ///< the registered page's index, when registered
+    Page page{Page::controls};   ///< the engine section, when the entry is one
+};
+
+/// The section list, before it scrolls: its pieces, the room its entries
+/// show in, its face and how far it scrolls.
+struct NavLayout {
+    std::vector<NavPiece> pieces; ///< top to bottom
+    SourceRect viewport{};        ///< entries listed wholly in here
+    SourceRect area{};            ///< the list's face, what drawing clips to
+    int32_t limit{};              ///< the greatest scroll, in source pixels; 0 when it fits
+};
+
+/// Lays out a dialog's section list: its sections (dialog_pages) in their
+/// groups, a rule between two groups, then each registered page's owner on
+/// a rule of its own, named, over that owner's pages in registration order.
+/// Every entry is the class's height; the list scrolls as one, by
+/// Dialog::nav_scroll, once its pieces pass the room above the footer.
+///
+/// @param dialog the dialog
+/// @param sizes the dialog's sizes; null uses the class's own
+/// @return the pieces, the viewport, the face and the scroll limit
+[[nodiscard]] NavLayout nav_layout(const Dialog& dialog, const Sizes* sizes = nullptr);
+
+/// Scrolls the section list the least that shows the focused entry, or the
+/// open section's entry when no entry has the focus. A row's focus leaves
+/// the scroll. A list that does not scroll is put back at the top. Nothing
+/// moves while a press is held.
 ///
 /// @param[in,out] dialog the dialog
-void reveal_engine_nav(Dialog& dialog) noexcept;
+void reveal_engine_nav(Dialog& dialog);
 
-/// Returns a section's entry in the list: at its place among the sections
-/// its kind of dialog lists (dialog_pages), Developer under the line before
-/// it. The place is the content's, before nav_scroll.
+/// Returns a section's entry in the list of the engine's settings or a mod's
+/// options, before the list scrolls, as nav_layout places it in a dialog of
+/// that kind listing the optional sections asked for.
 ///
 /// @param page the section
 /// @param touch the dialog lists Touch (Dialog::touch)
 /// @param game_files the dialog lists Game files (Dialog::game_files)
 /// @param controller the dialog lists Controller (Dialog::controller)
 /// @param size_class the size class the dialog is laid out at
-/// @return its rectangle
+/// @return its rectangle; an empty one at the list's top for a section not listed
 [[nodiscard]] SourceRect list_item(
     Page page,
     bool touch = false,
     bool game_files = false,
     bool controller = false,
     oa::ui::kit::SizeClass size_class = oa::ui::kit::SizeClass::compact
-) noexcept;
-
-/// Returns the line before the Developer section in the list: as far over
-/// the footer's line as the first entry stands under the list's top.
-///
-/// @param size_class the size class the dialog is laid out at
-/// @return its rectangle, one row high
-[[nodiscard]] SourceRect
-list_divider(oa::ui::kit::SizeClass size_class = oa::ui::kit::SizeClass::compact) noexcept;
+);
 
 /// MANAGE…'s caption.
 inline constexpr std::string_view manage_text = "MANAGE…";
@@ -1595,14 +1674,29 @@ inline constexpr std::string_view steam_deck_rate_text =
 [[nodiscard]] std::vector<std::string>
 break_lines(std::string_view text, std::size_t characters, std::size_t most_lines);
 
-/// Returns a section's entry in the list of a dialog of any kind: as
-/// list_item places it for the engine's settings and a mod's options, at
-/// the top for a Language dialog's one section.
+/// The footer's count while one setting changed.
+inline constexpr std::string_view one_changed_text = "1 setting changed";
+/// The footer's count while more changed; {count} is how many.
+inline constexpr std::string_view many_changed_text = "{count} settings changed";
+
+/// Returns the footer's count of changed settings (changed_settings_count)
+/// as lines: one, or two broken between words where one does not fit the
+/// room; none while nothing changed.
+///
+/// @param dialog the dialog
+/// @param measure a text's width in the small font
+/// @param room the count's room, in points (Sizes::changed_count)
+/// @return the lines, top to bottom
+[[nodiscard]] std::vector<std::string>
+changed_count_lines(const Dialog& dialog, const TextWidth& measure, int32_t room);
+
+/// Returns a section's entry in the list of a dialog of any kind, where it
+/// shows: as nav_layout places it, moved up by the list's scroll.
 ///
 /// @param dialog the dialog
 /// @param page the section
-/// @return its rectangle
-[[nodiscard]] SourceRect dialog_list_item(const Dialog& dialog, Page page) noexcept;
+/// @return its rectangle; empty for a section the dialog does not list
+[[nodiscard]] SourceRect dialog_list_item(const Dialog& dialog, Page page);
 
 /// Returns a slider's value as its row shows it.
 ///
@@ -1648,7 +1742,7 @@ inline constexpr std::string_view shared_game_text = "Shared game - still runnin
 /// Restore defaults' caption.
 inline constexpr std::string_view restore_text = "RESTORE DEFAULTS";
 /// Cancel's caption.
-inline constexpr std::string_view cancel_text = "CANCEL";
+inline constexpr std::string_view cancel_text = "Cancel";
 /// OK's caption.
 inline constexpr std::string_view ok_text = "OK";
 /// A switch's Off caption.

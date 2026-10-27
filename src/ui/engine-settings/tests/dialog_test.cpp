@@ -135,51 +135,53 @@ using settings::Lock;
 using settings::Page;
 using settings::Setting;
 
-/// The engine's sections, in the order the list shows them.
+/// The engine's sections, in the list's order: Controls and Accessibility;
+/// Graphics, User Interface and Language & Text; Downloads, Updates and Game
+/// Content; Engine Limits, System and Developer.
 constexpr std::array<Page, 11> kPages{
     Page::controls,
-    Page::common_tweaks,
-    Page::language,
+    Page::accessibility,
     Page::graphics,
     Page::user_interface,
-    Page::accessibility,
+    Page::language,
     Page::downloads,
     Page::updates,
     Page::game_content,
+    Page::common_tweaks,
     Page::system,
     Page::developer,
 };
 
-/// The engine's sections while the game has touch controls: Touch between
-/// Accessibility and Downloads.
+/// The engine's sections while the game has touch controls: Touch after
+/// Accessibility.
 constexpr std::array<Page, 12> kTouchPages{
     Page::controls,
-    Page::common_tweaks,
-    Page::language,
-    Page::graphics,
-    Page::user_interface,
     Page::accessibility,
     Page::touch,
+    Page::graphics,
+    Page::user_interface,
+    Page::language,
     Page::downloads,
     Page::updates,
     Page::game_content,
+    Page::common_tweaks,
     Page::system,
     Page::developer,
 };
 
 /// The engine's sections in the main menu's dialog of a game that brings
-/// game files in: Game files between Accessibility and Downloads.
+/// game files in: Game files before Downloads.
 constexpr std::array<Page, 12> kGameFilesPages{
     Page::controls,
-    Page::common_tweaks,
-    Page::language,
+    Page::accessibility,
     Page::graphics,
     Page::user_interface,
-    Page::accessibility,
+    Page::language,
     Page::game_files,
     Page::downloads,
     Page::updates,
     Page::game_content,
+    Page::common_tweaks,
     Page::system,
     Page::developer,
 };
@@ -187,33 +189,33 @@ constexpr std::array<Page, 12> kGameFilesPages{
 /// The engine's sections with Touch and Game files both listed.
 constexpr std::array<Page, 13> kTouchGameFilesPages{
     Page::controls,
-    Page::common_tweaks,
-    Page::language,
-    Page::graphics,
-    Page::user_interface,
     Page::accessibility,
     Page::touch,
+    Page::graphics,
+    Page::user_interface,
+    Page::language,
     Page::game_files,
     Page::downloads,
     Page::updates,
     Page::game_content,
+    Page::common_tweaks,
     Page::system,
     Page::developer,
 };
 
-/// The engine's sections once a gamepad has sent input: Controller between
-/// Accessibility and Downloads.
+/// The engine's sections once a gamepad has sent input: Controller after
+/// Accessibility, or after Touch.
 constexpr std::array<Page, 12> kControllerPages{
     Page::controls,
-    Page::common_tweaks,
-    Page::language,
-    Page::graphics,
-    Page::user_interface,
     Page::accessibility,
     Page::controller,
+    Page::graphics,
+    Page::user_interface,
+    Page::language,
     Page::downloads,
     Page::updates,
     Page::game_content,
+    Page::common_tweaks,
     Page::system,
     Page::developer,
 };
@@ -222,36 +224,34 @@ constexpr std::array<Page, 12> kControllerPages{
 /// Touch.
 constexpr std::array<Page, 13> kTouchControllerPages{
     Page::controls,
-    Page::common_tweaks,
-    Page::language,
-    Page::graphics,
-    Page::user_interface,
     Page::accessibility,
     Page::touch,
     Page::controller,
+    Page::graphics,
+    Page::user_interface,
+    Page::language,
     Page::downloads,
     Page::updates,
     Page::game_content,
+    Page::common_tweaks,
     Page::system,
     Page::developer,
 };
 
-/// The engine's sections with all three listed: Accessibility, then Touch,
-/// Controller, then Game files, then Downloads, then Updates, then Game
-/// Content, then System.
+/// The engine's sections with all three listed.
 constexpr std::array<Page, 14> kAllPages{
     Page::controls,
-    Page::common_tweaks,
-    Page::language,
-    Page::graphics,
-    Page::user_interface,
     Page::accessibility,
     Page::touch,
     Page::controller,
+    Page::graphics,
+    Page::user_interface,
+    Page::language,
     Page::game_files,
     Page::downloads,
     Page::updates,
     Page::game_content,
+    Page::common_tweaks,
     Page::system,
     Page::developer,
 };
@@ -644,14 +644,14 @@ void every_part_lies_inside_the_dialog_and_apart() {
         }
     }
     // The section list's entries and the footer's buttons keep apart too.
-    for (const Page page : kPages)
-        CHECK(!overlap(geometry::list_item(page), geometry::list_divider()));
+    for (std::size_t index = 1; index < kPages.size(); ++index)
+        CHECK(!overlap(geometry::list_item(kPages[index - 1]), geometry::list_item(kPages[index])));
     CHECK(!overlap(geometry::restore_button, geometry::cancel_button));
     CHECK(geometry::cancel_button.x + geometry::cancel_button.width < geometry::ok_button.x);
 }
 
 void each_section_shows_its_rows() {
-    // The list names the sections in order, Developer last under a divider.
+    // The list names the sections in order, in their groups, Developer last.
     const auto engine = settings::dialog_pages(settings::DialogKind::engine);
     CHECK(std::equal(engine.begin(), engine.end(), kPages.begin(), kPages.end()));
     // Each entry's number is its place in the list with Touch and
@@ -677,10 +677,18 @@ void each_section_shows_its_rows() {
         const auto above = geometry::list_item(kPages[index - 1]);
         CHECK(above.y + above.height <= geometry::list_item(kPages[index]).y);
     }
-    const auto divider = geometry::list_divider();
-    const auto graphics_entry = geometry::list_item(Page::graphics);
-    CHECK(graphics_entry.y + graphics_entry.height <= divider.y);
-    CHECK(divider.y + divider.height <= geometry::list_item(Page::developer).y);
+    // A rule and its margins part two groups; entries of one group lie an
+    // entry and its gap apart.
+    const geometry::NavMetrics& nav = geometry::compact_sizes.nav;
+    const auto accessibility_entry = geometry::list_item(Page::accessibility);
+    CHECK(
+        geometry::list_item(Page::graphics).y ==
+        accessibility_entry.y + accessibility_entry.height + 2 * nav.rule_margin + 1
+    );
+    CHECK(
+        geometry::list_item(Page::user_interface).y ==
+        geometry::list_item(Page::graphics).y + nav.entry_height + nav.entry_gap
+    );
 
     // Controls: the layout in use, whether buttons show their key, then the
     // wheel's switch with the zoom's two limits under it, how far past the
@@ -1045,14 +1053,13 @@ void language_and_text_shows_a_language_five_switches_and_a_size() {
                       geometry::kind_of(setting) != geometry::RowKind::slider &&
                       geometry::kind_of(setting) != geometry::RowKind::choice
         );
-    // Its entry comes after Engine Limits and before Graphics, over the line
-    // above Developer.
+    // Its entry ends the group of how the game looks, after User Interface
+    // and before Downloads.
     const auto entry = geometry::list_item(Page::language);
     CHECK(settings::page_control(Page::language) == 2);
-    CHECK(entry.y > geometry::list_item(Page::common_tweaks).y);
-    CHECK(entry.y < geometry::list_item(Page::graphics).y);
-    CHECK(entry.y + entry.height < geometry::list_divider().y);
-    CHECK(geometry::list_divider().y < geometry::list_item(Page::developer).y);
+    CHECK(entry.y > geometry::list_item(Page::user_interface).y);
+    CHECK(entry.y < geometry::list_item(Page::downloads).y);
+    CHECK(geometry::nav_group(Page::language) == geometry::NavGroup::look);
 
     // The player's own defaults: the system's language, modern fonts,
     // outline and shadow On, the background Off, the text at 80%.
@@ -7159,26 +7166,20 @@ void touch_is_listed_only_with_touch_controls() {
     const auto mods = settings::dialog_pages(settings::DialogKind::mod_options, true);
     CHECK(std::equal(mods.begin(), mods.end(), kModPages.begin(), kModPages.end()));
 
-    // The list without Touch lies where it always has: 21 rows an entry from
-    // row 36, the line at 256 and Developer under it at the list's foot, at
-    // 262.
-    constexpr std::array<int32_t, 5> kTops{36, 57, 78, 99, 120};
+    // At Compact the list starts at row 34, an entry 19 rows high, the
+    // entries of a group touching and a rule 7 rows high between two
+    // groups. Without Touch its eleven entries fit, Developer last at 245.
+    constexpr std::array<int32_t, 11> kTops{34, 53, 79, 98, 117, 143, 162, 181, 207, 226, 245};
     for (std::size_t index = 0; index < kTops.size(); ++index)
         CHECK(geometry::list_item(kPages[index]).y == kTops[index]);
-    CHECK(geometry::list_divider().y == 256);
-    CHECK(geometry::list_item(Page::accessibility).y == 141);
-    CHECK(geometry::list_item(Page::downloads).y == 162);
-    CHECK(geometry::list_item(Page::developer).y == 262);
-    CHECK(geometry::list_item(Page::mod_chat).y == 120);
-    // With Touch the list drops the gap: eleven flowing entries fill the
-    // room above the divider exactly. Touch follows Accessibility.
-    constexpr std::array<int32_t, 5> kGaplessTops{36, 56, 76, 96, 116};
-    for (std::size_t index = 0; index < kGaplessTops.size(); ++index)
-        CHECK(geometry::list_item(kTouchPages[index], true).y == kGaplessTops[index]);
-    CHECK(geometry::list_item(Page::accessibility, true).y == 136);
-    CHECK(geometry::list_item(Page::touch, true).y == 156);
-    CHECK(geometry::list_item(Page::developer, true).y == 262);
-    CHECK(geometry::list_item(Page::mod_chat, true).y == 120);
+    CHECK(geometry::list_item(Page::mod_chat).y == 110);
+    // With Touch, after Accessibility, the list holds twelve and scrolls.
+    constexpr std::array<int32_t, 12> kTouchTops{
+        34, 53, 72, 98, 117, 136, 162, 181, 200, 226, 245, 264
+    };
+    for (std::size_t index = 0; index < kTouchTops.size(); ++index)
+        CHECK(geometry::list_item(kTouchPages[index], true).y == kTouchTops[index]);
+    CHECK(geometry::list_item(Page::mod_chat, true).y == 110);
 
     // Each section's entry keeps its number with or without Touch listed;
     // a dialog without Touch has no entry numbered as Touch.
@@ -7254,27 +7255,14 @@ void game_files_is_listed_only_where_the_host_says() {
     CHECK(std::equal(mods.begin(), mods.end(), kModPages.begin(), kModPages.end()));
     CHECK(settings::dialog_pages(settings::DialogKind::language_text, true, true).size() == 1);
 
-    // Game files alone drops the gap: eleven flowing entries fill the room
-    // above the divider exactly. Touch and Game files together scroll.
-    constexpr std::array<int32_t, 5> kGapless{36, 56, 76, 96, 116};
-    for (std::size_t index = 0; index < kGapless.size(); ++index) {
-        CHECK(geometry::list_item(kGameFilesPages[index], false, true).y == kGapless[index]);
-        CHECK(geometry::list_item(kTouchGameFilesPages[index], true, true).y == kGapless[index]);
-    }
-    CHECK(geometry::list_item(Page::accessibility, false, true).y == 136);
-    CHECK(geometry::list_item(Page::game_files, false, true).y == 156);
-    CHECK(geometry::list_item(Page::developer, false, true).y == 262);
-    CHECK(geometry::list_item(Page::touch, true, true).y == 156);
-    CHECK(geometry::list_item(Page::game_files, true, true).y == 176);
-    CHECK(
-        geometry::list_item(Page::game_files, true, true).y + geometry::list_item_height <
-        geometry::list_divider().y
-    );
-    CHECK(geometry::list_item(Page::developer, true, true).y == 262);
-    CHECK(
-        geometry::list_item(Page::developer, true, true).y + geometry::list_item_height <
-        geometry::footer_rule_row
-    );
+    // Game files stands first in the group of what the game holds, before
+    // Downloads; with Touch too, the list scrolls.
+    CHECK(geometry::list_item(Page::game_files, false, true).y == 143);
+    CHECK(geometry::list_item(Page::downloads, false, true).y == 162);
+    CHECK(geometry::list_item(Page::developer, false, true).y == 264);
+    CHECK(geometry::list_item(Page::touch, true, true).y == 72);
+    CHECK(geometry::list_item(Page::game_files, true, true).y == 162);
+    CHECK(geometry::list_item(Page::developer, true, true).y == 283);
 
     // Touch is 5, Controller 6, Developer 7 and Game files 8 in every
     // dialog: a dialog without Touch has no control 5, one without Game
@@ -8621,11 +8609,11 @@ void window_frame_shows_and_changes() {
 }
 
 void touch_changes_only_its_entry_and_the_sections_under_it() {
-    // Touch's list drops the gap, so every entry after the first moves.
+    // Touch's entry follows Accessibility, so every entry under it moves.
     // The open section, the header and the footer stay as they are. The
-    // difference is the list, from the second entry down.
+    // difference is the list, from the third entry down.
     const auto fonts = block_fonts();
-    const int32_t moved_top = geometry::list_first_top + geometry::list_item_height;
+    const int32_t moved_top = geometry::list_item(Page::touch, true).y;
     for (const Page page : kPages) {
         Canvas plain = blank(settings::dialog_width, settings::dialog_height);
         Canvas touch = blank(settings::dialog_width, settings::dialog_height);
@@ -8657,39 +8645,35 @@ settings::Dialog updates_dialog(settings::UpdatesOffer offer) {
 }
 
 void updates_lists_its_rows_and_the_compact_list_of_fourteen_scrolls() {
-    // Eleven sections keep the gap. Accessibility, then Downloads, then Updates.
-    CHECK(geometry::list_item(Page::accessibility).y == 141);
-    CHECK(geometry::list_item(Page::downloads).y == 162);
-    CHECK(geometry::list_item(Page::updates).y == 183);
-    const geometry::EngineNav plain = geometry::engine_nav(
-        settings::dialog_pages(settings::DialogKind::engine), kit::SizeClass::compact
-    );
-    CHECK(plain.stride == geometry::list_item_height + geometry::list_item_gap && !plain.scrolls);
+    // Eleven sections fit Compact's list: Downloads, then Updates.
+    CHECK(geometry::list_item(Page::downloads).y == 143);
+    CHECK(geometry::list_item(Page::updates).y == 162);
+    settings::Dialog fits = opened(Page::system);
+    CHECK(geometry::nav_layout(fits).limit == 0 && fits.nav_scroll == 0);
 
-    // Two optional sections drop the gap and scroll. Opening on System keeps
-    // that entry in view.
+    // Two optional sections scroll it. Opening on System keeps that entry in
+    // view.
     settings::Dialog two = opened_with_controller(Page::system, true, true, false);
-    CHECK(two.nav_scroll > 0);
+    const geometry::NavLayout two_nav = geometry::nav_layout(two);
+    CHECK(two_nav.limit > 0 && two.nav_scroll > 0);
     const auto system_two = geometry::dialog_list_item(two, Page::system);
-    CHECK(system_two.y >= geometry::list_first_top);
-    CHECK(system_two.y + system_two.height <= geometry::list_divider().y);
+    CHECK(system_two.y >= two_nav.viewport.y);
+    CHECK(system_two.y + system_two.height <= two_nav.viewport.y + two_nav.viewport.height);
 
     // All three optional sections scroll. Opening on System keeps that entry
-    // in view, Developer stays under the line, and nothing else crosses it.
+    // in view, and every entry listed lies in the list's room.
     settings::Dialog system = opened_with_controller(Page::system, true, true, true);
+    const geometry::NavLayout all_nav = geometry::nav_layout(system);
     CHECK(system.nav_scroll > 0);
     const auto system_entry = geometry::dialog_list_item(system, Page::system);
-    CHECK(system_entry.y >= geometry::list_first_top);
-    CHECK(system_entry.y + system_entry.height <= geometry::list_divider().y);
-    CHECK(geometry::dialog_list_item(system, Page::developer).y == 262);
+    CHECK(system_entry.y >= all_nav.viewport.y);
+    CHECK(system_entry.y + system_entry.height <= all_nav.viewport.y + all_nav.viewport.height);
     for (const auto& part : settings::dialog_layout(system)) {
         if (part.control < settings::first_page_control ||
             part.control >= settings::restore_control)
             continue;
-        if (part.control == settings::page_control(Page::developer))
-            continue;
-        CHECK(part.rect.y >= geometry::list_first_top);
-        CHECK(part.rect.y + part.rect.height <= geometry::list_divider().y);
+        CHECK(part.rect.y >= all_nav.viewport.y);
+        CHECK(part.rect.y + part.rect.height <= all_nav.viewport.y + all_nav.viewport.height);
     }
     settings::Dialog keys = opened_with_controller(Page::controls, true, true, true);
     const std::vector<int32_t> walked = entries_walked(keys);
@@ -8969,10 +8953,11 @@ void controller_is_listed_only_once_a_gamepad_sent_input() {
     CHECK(all.size() == settings::most_listed_pages);
     const auto files = settings::dialog_pages(settings::DialogKind::engine, false, true, true);
     CHECK(
-        files.size() == 13 && files[4] == Page::user_interface && files[5] == Page::accessibility &&
-        files[6] == Page::controller && files[7] == Page::game_files &&
-        files[8] == Page::downloads && files[9] == Page::updates &&
-        files[10] == Page::game_content && files[11] == Page::system && files[12] == Page::developer
+        files.size() == 13 && files[1] == Page::accessibility && files[2] == Page::controller &&
+        files[5] == Page::language && files[6] == Page::game_files && files[7] == Page::downloads &&
+        files[8] == Page::updates && files[9] == Page::game_content &&
+        files[10] == Page::common_tweaks && files[11] == Page::system &&
+        files[12] == Page::developer
     );
     const auto mods = settings::dialog_pages(settings::DialogKind::mod_options, true, true, true);
     CHECK(std::equal(mods.begin(), mods.end(), kModPages.begin(), kModPages.end()));
@@ -8980,28 +8965,16 @@ void controller_is_listed_only_once_a_gamepad_sent_input() {
         settings::dialog_pages(settings::DialogKind::language_text, true, true, true);
     CHECK(language.size() == 1 && language[0] == Page::language);
 
-    // Its entry takes the place after Accessibility, or after Touch; Game
-    // files follows it; the line and Developer stay at the list's foot.
-    CHECK(geometry::list_item(Page::controller, false, false, true).y == 156);
-    CHECK(geometry::list_item(Page::touch, true, false, true).y == 156);
-    CHECK(geometry::list_item(Page::controller, true, false, true).y == 176);
-    CHECK(geometry::list_item(Page::game_files, true, true, true).y == 196);
-    CHECK(geometry::list_item(Page::game_files, false, true, true).y == 176);
-    CHECK(geometry::list_item(Page::developer, true, true, true).y == 262);
-    CHECK(
-        geometry::list_item(Page::game_files, true, true, true).y + geometry::list_item_height <
-        geometry::list_divider().y
-    );
-    // Thirteen flowing entries pass the divider, so the list scrolls. Game
-    // Content's content starts on the line; Developer stays under it.
-    CHECK(
-        geometry::list_item(Page::game_content, true, true, true).y == geometry::list_divider().y
-    );
-    const geometry::EngineNav fullest = geometry::engine_nav(
-        settings::dialog_pages(settings::DialogKind::engine, true, true, true),
-        kit::SizeClass::compact
-    );
-    CHECK(fullest.scrolls && fullest.stride == geometry::list_item_height && fullest.limit == 40);
+    // Its entry takes the place after Accessibility, or after Touch. With
+    // every section listed Compact's list is 53 rows taller than its room,
+    // and scrolls.
+    CHECK(geometry::list_item(Page::controller, false, false, true).y == 72);
+    CHECK(geometry::list_item(Page::touch, true, false, true).y == 72);
+    CHECK(geometry::list_item(Page::controller, true, false, true).y == 91);
+    CHECK(geometry::list_item(Page::game_files, true, true, true).y == 181);
+    CHECK(geometry::list_item(Page::developer, true, true, true).y == 302);
+    settings::Dialog fullest = opened_with_controller(Page::controls, true, true, true);
+    CHECK(geometry::nav_layout(fullest).limit == 53);
 
     // Each section's entry keeps its number with or without Controller
     // listed; a dialog without it has no entry numbered as Controller.
@@ -9020,15 +8993,19 @@ void controller_is_listed_only_once_a_gamepad_sent_input() {
             CHECK(with_pad[index].first == settings::page_control(kControllerPages[index]));
         const auto every = list_entries(opened_with_controller(page, true, true, true));
         const settings::Dialog shown = opened_with_controller(page, true, true, true);
-        // System's entry is scrolled off while the open section is above it,
-        // and Controls is scrolled off while System is open.
-        CHECK(every.size() + 2 == kAllPages.size());
+        // The entries scrolled off the list's room are not listed; the
+        // open section's is.
+        const geometry::NavLayout shown_nav = geometry::nav_layout(shown);
+        CHECK(every.size() < kAllPages.size());
+        bool open_listed = false;
         for (const auto& [control, rect] : every) {
             const auto entry_page = static_cast<Page>(control);
+            open_listed = open_listed || entry_page == page;
             CHECK(rect.y == geometry::dialog_list_item(shown, entry_page).y);
-            if (entry_page != Page::developer)
-                CHECK(rect.y + rect.height <= geometry::list_divider().y);
+            CHECK(rect.y >= shown_nav.viewport.y);
+            CHECK(rect.y + rect.height <= shown_nav.viewport.y + shown_nav.viewport.height);
         }
+        CHECK(open_listed);
     }
     const auto parts = settings::dialog_layout(opened_with_controller(Page::graphics, false));
     CHECK(find_part(parts, "Controller", settings::no_control) == nullptr);
@@ -9497,10 +9474,10 @@ void a_steam_deck_names_its_screen_rate_under_maximum_frame_rate() {
 }
 
 void controller_changes_only_its_entry_and_the_sections_under_it() {
-    // Controller's list drops the gap, so every entry after the first moves.
-    // The open section, the header and the footer stay as they are.
+    // Controller's entry follows Accessibility, so every entry under it
+    // moves. The open section, the header and the footer stay as they are.
     const auto fonts = block_fonts();
-    const int32_t moved_top = geometry::list_first_top + geometry::list_item_height;
+    const int32_t moved_top = geometry::list_item(Page::controller, false, false, true).y;
     for (const Page page : kPages) {
         Canvas plain = blank(settings::dialog_width, settings::dialog_height);
         Canvas with_pad = blank(settings::dialog_width, settings::dialog_height);
@@ -10558,7 +10535,7 @@ std::vector<std::string> nav_texts(const settings::Dialog& dialog) {
     const geometry::Sizes& sized = geometry::sizes_of(dialog);
     std::vector<settings::LayoutPart> nav;
     for (const auto& part : settings::dialog_layout(dialog)) {
-        if (part.text.empty() || part.rect.y < geometry::list_first_top ||
+        if (part.text.empty() || part.rect.y < geometry::body_top ||
             part.rect.y >= sized.footer_rule_row || part.rect.x >= sized.content_left)
             continue;
         nav.push_back(part);

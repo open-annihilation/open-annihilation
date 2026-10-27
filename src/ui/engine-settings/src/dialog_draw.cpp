@@ -20,17 +20,20 @@
 #include "oa/data/mod_profile/overrides.hpp"
 #include "oa/data/mod_profile/registry.hpp"
 
+#include "cards.hpp"
 #include "developer.hpp"
 #include "downloads_page.hpp"
 #include "geometry.hpp"
 #include "language_page.hpp"
 #include "registered.hpp"
+#include "section_icons.hpp"
 #include "updates_page.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstddef>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -272,119 +275,123 @@ kit::HeaderLook dialog_header(const Dialog& dialog) {
 /// @param inner the inner rectangle
 /// @param outer the outer rectangle
 /// @return true when inner has room and none of it falls outside outer
-bool inside_rect(const SourceRect& inner, const SourceRect& outer) noexcept;
-
-/// Adds the section list: one item that draws it, and a control for each
-/// entry, named for its section.
-///
-/// @param[in,out] building the list
-/// @param dialog the dialog
-void add_nav(Building& building, const Dialog& dialog) {
-    kit::NavLook nav;
-    const layout::Sizes& sized = dialog_sizes(building, dialog);
-    const int32_t body_height = sized.footer_rule_row - layout::body_top;
-    nav.area = {layout::edge, layout::body_top, sized.list_width, body_height};
-    nav.rule_column = sized.list_rule_column;
-    if (dialog.kind == DialogKind::engine) {
-        SourceRect divider = layout::list_divider(dialog.size_class);
-        divider.width = sized.list_item_width - 2 * layout::list_divider_inset;
-        nav.divider = divider;
-    }
-    const auto pages =
-        dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller);
-    const layout::EngineNav engine = layout::engine_nav(pages, dialog.size_class);
-    const bool clip_nav =
-        dialog.kind == DialogKind::engine && dialog.registered_pages.empty() && engine.scrolls;
-    for (const Page page : pages) {
-        const int32_t control = page_control(page);
-        kit::NavEntry entry;
-        entry.rect = layout::dialog_list_item(dialog, page);
-        entry.rect.width = sized.list_item_width;
-        entry.caption = std::string(layout::shown_text(layout::page_name(page)));
-        entry.selected = page == dialog.page;
-        entry.hovered = dialog.hovered == control || dialog.pressed == control;
-        entry.focused = dialog.focused == control;
-        kit::Control added = control_of(
-            control,
-            entry.rect,
-            named("nav." + std::string(layout::page_word(page))),
-            kit::ControlKind::tab
-        );
-        if (clip_nav && page != Page::developer)
-            added.clip = engine.viewport;
-        added.checked = entry.selected;
-        added.text = entry.caption;
-        building.nav.push_back(std::move(added));
-        // Developer stays pinned. An entry that is not wholly in the room
-        // above the divider stays in the tab order and is not drawn.
-        if (clip_nav && page != Page::developer && !inside_rect(entry.rect, engine.viewport))
-            continue;
-        nav.entries.push_back(std::move(entry));
-    }
-    item(building.list, kit::Role::nav, nav.area, {}).look = std::move(nav);
-}
-
-/// Tells whether a rectangle lies wholly inside another.
-///
-/// @param inner the inner rectangle
-/// @param outer the outer rectangle
-/// @return true when inner has room and none of it falls outside outer
 bool inside_rect(const SourceRect& inner, const SourceRect& outer) noexcept {
     return inner.width > 0 && inner.height > 0 && inner.x >= outer.x && inner.y >= outer.y &&
            inner.x + inner.width <= outer.x + outer.width &&
            inner.y + inner.height <= outer.y + outer.height;
 }
 
-/// Adds the section list while registered pages are listed: the engine's
-/// sections, then each owner's name and pages, scrolled as one list.
+/// Appends a picture of the dialog's own, scaled to fill a rectangle.
+///
+/// @param[in,out] list the display list
+/// @param rect where
+/// @param picture the picture; it lives as long as the program
+/// @param clip what it is drawn clipped to; empty for the whole dialog
+void picture(
+    kit::DisplayList& list,
+    const SourceRect& rect,
+    const renderer::RgbaPicture& picture,
+    const SourceRect& clip
+) {
+    item(list, kit::Role::picture, rect, clip).look = kit::PictureLook{picture};
+}
+
+/// Adds the section list: its face and each entry's ground, marker and focus
+/// ring, then each entry's icon and caption, the rules between its groups and
+/// registered pages' owners, and a control for each entry, named for its
+/// section. Entries the list's room does not show wholly are not drawn, and
+/// keep their controls, so that Tab still reaches them.
 ///
 /// @param[in,out] building the list
 /// @param dialog the dialog
-void add_registered_nav(Building& building, const Dialog& dialog) {
-    const NavLayout layout =
-        layout_registered_nav(dialog, building.have_fitted ? &building.fitted : nullptr);
-    const int32_t scroll = std::clamp(dialog.nav_scroll, int32_t{0}, layout.limit);
-    kit::NavLook nav;
+void add_nav(Building& building, const Dialog& dialog) {
     const layout::Sizes& sized = dialog_sizes(building, dialog);
+    const layout::NavLayout layout = layout::nav_layout(dialog, &sized);
+    const int32_t scroll = std::clamp(dialog.nav_scroll, int32_t{0}, layout.limit);
+    const bool scrolls = layout.limit > 0;
+    kit::NavLook nav;
     nav.area = layout.area;
     nav.rule_column = sized.list_rule_column;
-    for (const NavPiece& piece : layout.pieces) {
+
+    struct Shown {
+        SourceRect rect{};
+        const layout::NavPiece* piece{};
+        bool lit{};
+    };
+
+    std::vector<Shown> shown;
+    for (const layout::NavPiece& piece : layout.pieces) {
+        if (piece.kind != layout::NavPiece::Kind::entry)
+            continue;
         SourceRect drawn = piece.rect;
         drawn.y -= scroll;
-        if (piece.kind != NavPiece::Kind::entry)
-            continue;
         const bool selected = piece.registered ? dialog.page == Page::registered &&
                                                      dialog.registered_page == piece.index
                                                : dialog.page == piece.page;
+        const bool hovered = dialog.hovered == piece.control || dialog.pressed == piece.control;
         std::string name = piece.registered
                                ? named("nav." + dialog.registered_pages[piece.index].id)
                                : named("nav." + std::string(layout::page_word(piece.page)));
         kit::Control added =
             control_of(piece.control, drawn, std::move(name), kit::ControlKind::tab);
-        added.clip = layout.viewport;
-        added.group = registered_nav_group;
+        if (scrolls) {
+            added.clip = layout.viewport;
+            added.group = registered_nav_group;
+        }
         added.checked = selected;
         added.text = piece.text;
         building.nav.push_back(std::move(added));
         if (!inside_rect(drawn, layout.viewport))
             continue;
+        // The kit draws the entry's ground, its marker and its focus ring;
+        // the icon and the caption follow, right of the marker.
         kit::NavEntry entry;
         entry.rect = drawn;
-        entry.caption = piece.text;
         entry.selected = selected;
-        entry.hovered = dialog.hovered == piece.control || dialog.pressed == piece.control;
+        entry.hovered = hovered;
         entry.focused = dialog.focused == piece.control;
         nav.entries.push_back(std::move(entry));
+        shown.push_back({drawn, &piece, selected || hovered});
     }
-    // The list's face and its entries. Rules and owner names follow, so they
-    // paint over the face and stay clipped to it.
     item(building.list, kit::Role::nav, nav.area, {}).look = std::move(nav);
-    for (const NavPiece& piece : layout.pieces) {
-        if (piece.kind == NavPiece::Kind::entry)
+    const layout::NavMetrics& metrics = sized.nav;
+    for (const Shown& entry : shown) {
+        const SourceRect icon{
+            entry.rect.x + metrics.icon_left,
+            entry.rect.y + (entry.rect.height - metrics.icon_side) / 2,
+            metrics.icon_side,
+            metrics.icon_side,
+        };
+        picture(
+            building.list,
+            icon,
+            icons::section_icon(
+                entry.piece->registered ? Page::registered : entry.piece->page,
+                entry.lit ? icons::Tone::lit : icons::Tone::quiet
+            ),
+            layout.area
+        );
+        text(
+            building.list,
+            DialogFont::regular,
+            entry.piece->text,
+            {entry.rect.x + metrics.text_left,
+             entry.rect.y,
+             entry.rect.width - metrics.text_left - layout::list_text_margin,
+             entry.rect.height},
+            kit::Align::left,
+            entry.lit ? kit::colour::text : kit::colour::list_text,
+            layout.area
+        );
+    }
+    for (const layout::NavPiece& piece : layout.pieces) {
+        if (piece.kind == layout::NavPiece::Kind::entry)
             continue;
         SourceRect drawn = piece.rect;
         drawn.y -= scroll;
-        if (piece.kind == NavPiece::Kind::rule) {
+        if (!inside_rect(drawn, layout.viewport))
+            continue;
+        if (piece.kind == layout::NavPiece::Kind::rule) {
             kit::Item& rule = item(building.list, kit::Role::rule, drawn, layout.area);
             rule.colour = kit::colour::rule;
             continue;
@@ -718,6 +725,170 @@ void add_developer(Building& building, const Dialog& dialog, const layout::Scrol
         building.section_tab.push_back(restore_profile_control);
 }
 
+/// Appends a card's face: the list's surface inside the control border,
+/// rounded as a card is.
+///
+/// @param[in,out] list the display list
+/// @param rect the card
+/// @param clip what it is drawn clipped to
+void card_face(kit::DisplayList& list, const SourceRect& rect, const SourceRect& clip) {
+    kit::ButtonLook face;
+    face.style = kit::ButtonStyle::inset;
+    button(list, rect, std::move(face), no_control, clip);
+}
+
+/// Appends a card's lines of text.
+///
+/// @param[in,out] list the display list
+/// @param lines the lines
+/// @param clip what they are drawn clipped to
+void card_lines(
+    kit::DisplayList& list, const std::vector<cards::Line>& lines, const SourceRect& clip
+) {
+    for (const cards::Line& line : lines)
+        text(list, line.font, line.text, line.rect, line.align, line.colour, clip);
+}
+
+/// Appends one of a card's buttons and its control, which a press reaches
+/// where the view shows it.
+///
+/// @param[in,out] building the list
+/// @param dialog the dialog
+/// @param rect the button
+/// @param caption its caption, as shown
+/// @param style its look
+/// @param control its control
+/// @param name its automation name
+/// @param enabled it takes a press
+void card_button(
+    Building& building,
+    const Dialog& dialog,
+    const SourceRect& rect,
+    const std::string& caption,
+    kit::ButtonStyle style,
+    int32_t control,
+    std::string name,
+    bool enabled
+) {
+    const layout::Sizes& sized = dialog_sizes(building, dialog);
+    const bool hovered = enabled && dialog.hovered == control;
+    kit::ButtonLook look{
+        caption, style, hovered, enabled && hovered && dialog.pressed == control, enabled
+    };
+    look.font = DialogFont::regular;
+    button(building.list, rect, std::move(look), control, sized.view_clip);
+    if (enabled && dialog.focused == control)
+        focus_ring(building.list, rect, true, sized.view_clip);
+    kit::Control added = control_of(control, rect, std::move(name), kit::ControlKind::button);
+    added.clip = {rect.x, sized.view.y, rect.width, sized.view.height};
+    added.group = layout::section_group;
+    added.enabled = enabled;
+    added.text = caption;
+    building.rows.push_back(std::move(added));
+}
+
+/// Adds Controls' key layout card in its row's place: the keyboard tile,
+/// the layout's name and the count of the player's own changes, where it
+/// applies, Change layout… where the Library opens over the dialog, and
+/// Edit keys…, the row's own control.
+///
+/// @param[in,out] building the list
+/// @param dialog the dialog
+/// @param row the card's row, placed and scrolled
+/// @param[out] tab the card's controls, in Tab's order
+void add_key_card(
+    Building& building,
+    const Dialog& dialog,
+    const kit::PlacedRow& row,
+    std::vector<kit::ControlId>& tab
+) {
+    const layout::Sizes& sized = dialog_sizes(building, dialog);
+    const auto regular = width_in(building.fonts, DialogFont::regular);
+    const auto small = width_in(building.fonts, DialogFont::small);
+    const int32_t margin = kit::metrics_of(sized.size_class).space * 2;
+    const cards::KeyCard card = cards::key_card(dialog, sized, row.top + margin, regular, small);
+    card_face(building.list, card.card, sized.view_clip);
+    picture(building.list, card.tile, icons::key_layout_tile(), sized.view_clip);
+    card_lines(building.list, card.lines, sized.view_clip);
+    if (card.badge.width > 0) {
+        kit::Item& badge = item(building.list, kit::Role::pill, card.badge, sized.view_clip);
+        badge.text = card.badge_text;
+        badge.look = kit::PillLook{card.badge_text, kit::PillState::update};
+    }
+    if (card.change.width > 0) {
+        card_button(
+            building,
+            dialog,
+            card.change,
+            card.change_caption,
+            kit::ButtonStyle::plain,
+            change_layout_control,
+            named("key-layout.change"),
+            true
+        );
+        tab.push_back(change_layout_control);
+    }
+    card_button(
+        building,
+        dialog,
+        card.edit,
+        card.edit_caption,
+        kit::ButtonStyle::accent,
+        row.control,
+        named("key-layout.edit"),
+        true
+    );
+    tab.push_back(row.control);
+}
+
+/// Adds Accessibility's practice pad: the eyebrow and what to try, the
+/// keycaps held or latched in their well, what the last key did, Hold to
+/// confirm's bar while that helper is on, and Turn every helper off.
+///
+/// @param[in,out] building the list
+/// @param dialog the dialog
+/// @param place the pad's place, scrolled with the rows (layout::Rows::pad)
+void add_practice_pad(Building& building, const Dialog& dialog, const SourceRect& place) {
+    const layout::Sizes& sized = dialog_sizes(building, dialog);
+    const cards::Pad pad = cards::practice_pad(
+        dialog,
+        sized,
+        place.x,
+        place.y,
+        place.width,
+        width_in(building.fonts, DialogFont::regular),
+        width_in(building.fonts, DialogFont::small)
+    );
+    card_face(building.list, pad.card, sized.view_clip);
+    kit::ButtonLook well;
+    well.enabled = false;
+    button(building.list, pad.well, std::move(well), no_control, sized.view_clip);
+    for (const cards::Pad::Cap& cap : pad.caps) {
+        kit::KeycapLook look;
+        look.label = cap.label;
+        look.held = cap.down;
+        look.modifier = cap.label.size() > 1;
+        kit::Item& added = item(building.list, kit::Role::keycap, cap.rect, sized.view_clip);
+        added.text = cap.label;
+        added.look = std::move(look);
+    }
+    card_lines(building.list, pad.lines, sized.view_clip);
+    if (pad.bar.width > 0) {
+        kit::Item& bar = item(building.list, kit::Role::progress, pad.bar, sized.view_clip);
+        bar.look = kit::ProgressLook{pad.bar_done, pad.bar_whole, false};
+    }
+    card_button(
+        building,
+        dialog,
+        pad.off,
+        pad.off_caption,
+        kit::ButtonStyle::plain,
+        helpers_off_control,
+        named("practice.helpers-off"),
+        pad.off_enabled
+    );
+}
+
 /// Adds the open section: its heading, its rows clipped to the view they
 /// scroll in, and its scroll bar while they scroll; on Developer, its list
 /// and the list's footer under its rows.
@@ -763,10 +934,25 @@ void add_section(Building& building, const Dialog& dialog, const layout::Scrolle
     state.hovered_button = dialog.folder_hovered;
     state.group = layout::section_group;
     state.clip = sized.view_clip;
+    // Key layout's row is its card: the kit draws every other row.
+    kit::PlacedRows drawn_rows = placed;
+    std::optional<kit::PlacedRow> key_row;
+    for (auto at = drawn_rows.rows.begin(); at != drawn_rows.rows.end(); ++at) {
+        if (at->view.id != "key-layout")
+            continue;
+        key_row = *at;
+        drawn_rows.rows.erase(at);
+        break;
+    }
     kit::DisplayList rows;
-    kit::add_rows(rows, placed, state);
+    kit::add_rows(rows, drawn_rows, state);
     for (kit::Item& added : rows.items)
         list.items.push_back(std::move(added));
+    std::vector<kit::ControlId> card_tab;
+    if (key_row.has_value())
+        add_key_card(building, dialog, *key_row, card_tab);
+    if (open.rows.pad.width > 0)
+        add_practice_pad(building, dialog, open.rows.pad);
     // A bundle being copied draws its bar in the row's own padding, so the
     // next row is not pushed down and the page can be drawn while the copy runs.
     if (dialog.page == Page::game_content) {
@@ -788,8 +974,14 @@ void add_section(Building& building, const Dialog& dialog, const layout::Scrolle
             list.items.back().clip = sized.view_clip;
         }
     }
-    // Tab stops on the rows that take a change, top to bottom.
-    building.section_tab = rows.tab_order;
+    // Tab stops on the key layout card's buttons, then on the rows that take
+    // a change, top to bottom, then on the practice pad's button.
+    building.section_tab = card_tab;
+    building.section_tab.insert(
+        building.section_tab.end(), rows.tab_order.begin(), rows.tab_order.end()
+    );
+    if (open.rows.pad.width > 0 && cards::any_helper_on(dialog.chosen))
+        building.section_tab.push_back(helpers_off_control);
     // A row's control lies across its row, at the control's own line, so
     // that the arrows keep to the column of rows wherever on its line each
     // control sits. A press reaches the control itself where the view shows
@@ -850,7 +1042,9 @@ void add_header_close(Building& building, const Dialog& dialog) {
     building.header.push_back(std::move(added));
 }
 
-/// Adds Restore defaults, Cancel and OK.
+/// Adds the footer: its band under the footer's line, Restore defaults at
+/// its left, then how many settings the dialog shows changed, then Cancel
+/// and OK, in Kit 2's sizes.
 ///
 /// @param[in,out] building the list
 /// @param dialog the dialog
@@ -861,30 +1055,38 @@ void add_footer(Building& building, const Dialog& dialog) {
         std::string_view name{};
     };
 
+    const layout::Sizes& sized = dialog_sizes(building, dialog);
+    const int32_t inner = sized.dialog_width - 2 * layout::edge;
+    kit::Item& rule =
+        item(building.list, kit::Role::rule, {layout::edge, sized.footer_rule_row, inner, 1}, {});
+    rule.colour = kit::colour::rule;
+    fill(
+        building.list,
+        {layout::edge, sized.footer_top, inner, sized.footer_height},
+        kit::colour::band,
+        {}
+    );
     const std::array<FooterButton, 3> buttons{{
         {restore_control, layout::restore_text, "restore-defaults"},
         {cancel_control, layout::cancel_text, "cancel"},
         {ok_control, layout::ok_text, "ok"},
     }};
     for (const FooterButton& footer : buttons) {
-        const layout::Sizes& sized = dialog_sizes(building, dialog);
         const SourceRect rect = footer.control == restore_control  ? sized.restore_button
                                 : footer.control == cancel_control ? sized.cancel_button
                                                                    : sized.ok_button;
         const bool held = dialog.pressed == footer.control && dialog.hovered == footer.control;
         const bool hovered = dialog.hovered == footer.control;
         const std::string caption(layout::shown_text(footer.caption));
-        button(
-            building.list,
-            rect,
-            {caption,
-             footer.control == ok_control ? kit::ButtonStyle::accent : kit::ButtonStyle::plain,
-             hovered,
-             held,
-             true},
-            footer.control,
-            {}
-        );
+        kit::ButtonLook look{
+            caption,
+            footer.control == ok_control ? kit::ButtonStyle::accent : kit::ButtonStyle::plain,
+            hovered,
+            held,
+            true,
+        };
+        look.font = DialogFont::regular;
+        button(building.list, rect, std::move(look), footer.control, {});
         if (dialog.focused == footer.control)
             focus_ring(building.list, rect, true, {});
         kit::Control added =
@@ -892,6 +1094,28 @@ void add_footer(Building& building, const Dialog& dialog) {
         added.text = caption;
         building.footer.push_back(std::move(added));
     }
+    // How many settings changed, beside Cancel and OK; nothing while none did.
+    const std::vector<std::string> count = layout::changed_count_lines(
+        dialog,
+        building.fonts != nullptr ? width_in(building.fonts, DialogFont::small)
+                                  : width_in(nullptr, DialogFont::small),
+        sized.changed_count.width
+    );
+    const int32_t line = oa::ui::kit::compact_metrics.small_line;
+    const int32_t lines = static_cast<int32_t>(count.size());
+    for (int32_t at = 0; at < lines; ++at)
+        text(
+            building.list,
+            DialogFont::small,
+            count[static_cast<std::size_t>(at)],
+            {sized.changed_count.x,
+             sized.changed_count.y + (sized.changed_count.height - lines * line) / 2 + at * line,
+             sized.changed_count.width,
+             line},
+            kit::Align::right,
+            kit::colour::text_secondary,
+            {}
+        );
 }
 
 /// Adds an open drop-down's menu over the dialog, and a control for each
@@ -994,10 +1218,7 @@ kit::DisplayList dialog_list(const Dialog& dialog, const DialogFonts* fonts) {
     item(building.list, kit::Role::header, {0, 0, sized.dialog_width, header_rule_row + 1}, {})
         .look = std::move(header);
     add_header_close(building, dialog);
-    if (registered_nav(dialog))
-        add_registered_nav(building, dialog);
-    else
-        add_nav(building, dialog);
+    add_nav(building, dialog);
     const ScrolledRows open = open_rows(
         dialog,
         fonts != nullptr ? &small : nullptr,
@@ -1005,13 +1226,6 @@ kit::DisplayList dialog_list(const Dialog& dialog, const DialogFonts* fonts) {
         fonts != nullptr ? &regular : nullptr
     );
     add_section(building, dialog, open);
-    item(
-        building.list,
-        kit::Role::footer_band,
-        {0, sized.footer_rule_row, sized.dialog_width, footer_height + 1},
-        {}
-    )
-        .look = kit::FooterBandLook{sized.dialog_width, sized.footer_rule_row};
     add_footer(building, dialog);
     if (open.limit > 0) {
         kit::Control bar = control_of(

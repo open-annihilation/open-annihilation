@@ -9,6 +9,7 @@
 #include "library_host.hpp"
 #include "mod_install_state.hpp"
 #include "oa_layer.hpp"
+#include "window_placement.hpp"
 #include "oa/app/package_install.hpp"
 #include "oa/app/package_install/oamod.hpp"
 #include "oa/app/package_install/prompts.hpp"
@@ -1859,6 +1860,25 @@ bool base_game_profile(std::string_view id) {
     return id.empty() || id == oa::data::mod_profile::base_game_id || id == "base-game";
 }
 
+/// Returns the OA layer's Window size for the setting's: the same four
+/// choices under the same preference key.
+///
+/// @param size the setting
+/// @return the layer's choice
+window_placement::WindowSize placement_window_size(settings::WindowSize size) noexcept {
+    switch (size) {
+    case settings::WindowSize::compact:
+        return window_placement::WindowSize::compact;
+    case settings::WindowSize::regular:
+        return window_placement::WindowSize::regular;
+    case settings::WindowSize::large:
+        return window_placement::WindowSize::large;
+    case settings::WindowSize::automatic:
+        break;
+    }
+    return window_placement::WindowSize::automatic;
+}
+
 } // namespace
 
 void Runtime::fill_settings_key_layout(settings::Dialog& dialog) {
@@ -1919,6 +1939,12 @@ void Runtime::refresh_settings_key_layout_summary(settings::Dialog& dialog) {
     if (used.builtin && changes > 0)
         name = std::string(oa::data::languages::interface_text(name));
     dialog.key_layout_summary = settings::key_layout_summary_text(name, changes);
+    // The key layout card shows the name, the count and where the layout
+    // applies apart: the played mod's own choice applies with it only.
+    dialog.key_layout_name =
+        used.builtin ? std::string(oa::data::languages::interface_text(used.name)) : used.name;
+    dialog.key_layout_changes = changes;
+    dialog.key_layout_mod_only = !per_mod.empty() && per_mod != "same";
 #if defined(__APPLE__)
     dialog.primary_modifier = "Cmd";
 #endif
@@ -2336,6 +2362,12 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             return false;
         }
         take_renderer_retry(*dialog);
+        // Reset window positions: every moved window goes back at once, the
+        // open dialog among them, and Cancel does not undo it.
+        if (std::exchange(dialog->window_reset_asked, false)) {
+            std::ignore = oa_layer().reset_window_places();
+            dialog->window_places_reset = true;
+        }
         {
             // A Screen size moved to applies when OK is pressed; until then
             // it stays as it was. The check for content updates does too,
@@ -2377,6 +2409,7 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         const bool screen_size_moved =
             chosen.screen_size != dialog->opened.screen_size ||
             (state.window_screen_size_shown && !dialog->window_screen_size);
+        const bool window_size_moved = chosen.window_size != dialog->opened.window_size;
         if (screen_size_moved)
             chosen.screen_size = EngineSettingsState::stored_screen_size(*this, chosen.screen_size);
         const bool check_changed = chosen.content_check != dialog->opened.content_check;
@@ -2430,6 +2463,10 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         state.dialog.reset();
         if (screen_size_moved)
             apply_screen_size(chosen.screen_size);
+        // Window size takes effect at OK, as Interface size does: every OA
+        // screen is laid out at the class it chooses.
+        if (window_size_moved)
+            oa_layer().set_window_size(placement_window_size(chosen.window_size));
         if (failure) {
             // A mod that was not stored would not be the one the restart
             // plays: the game stays as it is and says so.

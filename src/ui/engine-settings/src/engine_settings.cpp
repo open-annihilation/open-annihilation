@@ -765,6 +765,7 @@ EngineSettings read_settings(
     read_word(values, key::zoomed_out_units, zoomed_out_units_words, settings.zoomed_out_units);
     read_word(values, key::zoomed_out_after, zoomed_out_after_words, settings.zoomed_out_after);
     read_word(values, key::window_frame, window_frame_words, settings.window_frame);
+    read_word(values, key::window_size, window_size_words, settings.window_size);
     if (const auto number = stored_number(values, key::hud_scaling))
         settings.hud_scaling = *number > 0;
     if (const auto found = values.find(std::string{key::interface_size}); found != values.end())
@@ -1237,6 +1238,15 @@ void write_settings(
         std::string{interface_size_text(chosen.interface_size)},
         chosen.interface_size != opened.interface_size,
         chosen.interface_size == defaults.interface_size,
+        restored
+    );
+    store_word(
+        values,
+        key::window_size,
+        window_size_words,
+        opened.window_size,
+        chosen.window_size,
+        defaults.window_size,
         restored
     );
     for (const TextSwitch& entry : text_switches)
