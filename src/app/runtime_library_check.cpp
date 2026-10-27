@@ -1488,6 +1488,10 @@ void Runtime::check_library() {
                 preference != preference_values_.end() && preference->second == "lefty-test",
                 "USE did not write the layout preference" + on
             );
+            // Compact's details page has no tab strip. Back returns to the
+            // list, whose tabs can then be scrolled to Active.
+            if (named("oa.library.back"))
+                click_named("oa.library.back");
             for (int step = 0; step < 9 && !named("oa.library.tab.active"); ++step) {
                 if (!named("oa.library.tab.scroll-left"))
                     break;
