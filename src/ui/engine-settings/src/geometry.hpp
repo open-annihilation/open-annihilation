@@ -82,7 +82,8 @@ inline constexpr int32_t list_text_margin = 4;
 inline constexpr int32_t list_divider_inset = 4;
 
 /// The section list's sizes at one size class: its entries, the gaps between
-/// them and between their groups, and where an entry's icon and caption stand.
+/// them and between their groups, where an entry's icon and caption stand,
+/// and the columns the list takes over the class's nav width.
 struct NavMetrics {
     int32_t entry_height{}; ///< an entry's height
     int32_t entry_gap{};    ///< the rows between two entries of a group
@@ -91,15 +92,18 @@ struct NavMetrics {
     int32_t icon_left{};    ///< the icon's column within its entry
     int32_t icon_side{};    ///< the icon's side
     int32_t text_left{};    ///< the caption's column within its entry
+    /// The columns the list is wider than the class's (kit::Metrics::nav_width),
+    /// so that each section's name stands whole right of its icon.
+    int32_t extra_width{};
 };
 
 /// The section list's sizes at Compact, Regular and Large, in the order of
 /// kit::SizeClass. Compact's list of eleven sections fits its room; Regular's
 /// and Large's fit every section the engine lists.
 inline constexpr std::array<NavMetrics, 3> nav_metrics{{
-    {19, 0, 3, 6, 11, 12, 29},
-    {25, 1, 4, 8, 12, 14, 33},
-    {32, 1, 5, 10, 14, 16, 38},
+    {19, 0, 3, 6, 7, 9, 19, 0},
+    {25, 1, 4, 8, 12, 14, 33, 0},
+    {32, 1, 5, 10, 14, 16, 38, 0},
 }};
 
 /// The open section's heading's top row.
@@ -415,11 +419,8 @@ struct Sizes {
     sized.dialog_width = metrics.dialog_width;
     sized.dialog_height = metrics.dialog_height;
     sized.padding = metrics.window_padding;
-    sized.list_width = metrics.nav_width;
-    sized.nav = nav_metrics
-        [static_cast<std::size_t>(size_class) < nav_metrics.size()
-             ? static_cast<std::size_t>(size_class)
-             : 0];
+    sized.nav = nav_metrics[std::min(static_cast<std::size_t>(size_class), nav_metrics.size() - 1)];
+    sized.list_width = metrics.nav_width + sized.nav.extra_width;
     sized.hint_line_characters = static_cast<std::size_t>(metrics.hint_line_characters);
     sized.footer_height = metrics.window_footer_height;
     sized.footer_button_height = metrics.control_height;

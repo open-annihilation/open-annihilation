@@ -27,7 +27,7 @@ namespace kit = oa::ui::kit;
 
 /// The narrowest the key layout card's words may be with its buttons beside
 /// them; narrower, the buttons stand under the words.
-constexpr int32_t kLeastBesideWords = 160;
+constexpr int32_t kLeastBesideWords = 120;
 /// The practice pad's column beside Accessibility's rows at Regular and at Large.
 constexpr std::array<int32_t, 3> kPadColumns{0, 200, 260};
 /// The rows between a card's lines that belong together.

@@ -760,6 +760,9 @@ void card_lines(
 /// @param control its control
 /// @param name its automation name
 /// @param enabled it takes a press
+/// @param card where its control lies for the arrows (kit::focus_toward): the
+///     card's height, across the button's columns or, for the card's own row
+///     control, the section's
 void card_button(
     Building& building,
     const Dialog& dialog,
@@ -768,7 +771,8 @@ void card_button(
     kit::ButtonStyle style,
     int32_t control,
     std::string name,
-    bool enabled
+    bool enabled,
+    const SourceRect& card
 ) {
     const layout::Sizes& sized = dialog_sizes(building, dialog);
     const bool hovered = enabled && dialog.hovered == control;
@@ -779,8 +783,15 @@ void card_button(
     button(building.list, rect, std::move(look), control, sized.view_clip);
     if (enabled && dialog.focused == control)
         focus_ring(building.list, rect, true, sized.view_clip);
-    kit::Control added = control_of(control, rect, std::move(name), kit::ControlKind::button);
-    added.clip = {rect.x, sized.view.y, rect.width, sized.view.height};
+    kit::Control added = control_of(control, card, std::move(name), kit::ControlKind::button);
+    // A press reaches the button where the view shows it. Scrolled out of
+    // the view, the reach is a point beside the card, which no press inside
+    // the control's place meets.
+    const int32_t shown_top = std::max(rect.y, sized.view.y);
+    const int32_t shown_bottom = std::min(rect.y + rect.height, sized.view.y + sized.view.height);
+    added.clip = shown_bottom > shown_top
+                     ? SourceRect{rect.x, shown_top, rect.width, shown_bottom - shown_top}
+                     : SourceRect{rect.x, card.y - 1, 1, 1};
     added.group = layout::section_group;
     added.enabled = enabled;
     added.text = caption;
@@ -824,7 +835,8 @@ void add_key_card(
             kit::ButtonStyle::plain,
             change_layout_control,
             named("key-layout.change"),
-            true
+            true,
+            {card.change.x, card.card.y, card.change.width, card.card.height}
         );
         tab.push_back(change_layout_control);
     }
@@ -836,7 +848,8 @@ void add_key_card(
         kit::ButtonStyle::accent,
         row.control,
         named("key-layout.edit"),
-        true
+        true,
+        card.card
     );
     tab.push_back(row.control);
 }
@@ -885,7 +898,8 @@ void add_practice_pad(Building& building, const Dialog& dialog, const SourceRect
         kit::ButtonStyle::plain,
         helpers_off_control,
         named("practice.helpers-off"),
-        pad.off_enabled
+        pad.off_enabled,
+        pad.off
     );
 }
 
@@ -1085,7 +1099,9 @@ void add_footer(Building& building, const Dialog& dialog) {
             held,
             true,
         };
-        look.font = DialogFont::regular;
+        // Restore defaults keeps the tracked capitals of a window's own
+        // action, in the small font; Cancel and OK read in the regular one.
+        look.font = footer.control == restore_control ? DialogFont::small : DialogFont::regular;
         button(building.list, rect, std::move(look), footer.control, {});
         if (dialog.focused == footer.control)
             focus_ring(building.list, rect, true, {});

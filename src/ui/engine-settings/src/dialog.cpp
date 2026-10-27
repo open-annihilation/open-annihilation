@@ -594,7 +594,8 @@ Rows place_section(
         const int32_t height = card.height + 2 * margin;
         const int32_t moved = height - key_row.height;
         key_row.height = height;
-        key_row.label = {};
+        // The card's label is its eyebrow, Key layout.
+        key_row.label = card.lines.empty() ? kit::Rect{} : card.lines.front().rect;
         key_row.lock_area = {};
         key_row.hints.clear();
         key_row.value = {};
@@ -819,6 +820,9 @@ Sizes fitted_sizes(const Dialog& dialog, const TextWidth* regular, const TextWid
     const auto footer_width = [&](std::string_view caption) {
         return (*regular)(std::string(shown_text(caption))) + 4 * space;
     };
+    const auto restore_width = [&](std::string_view caption) {
+        return (*small)(std::string(shown_text(caption))) + 4 * space;
+    };
     const auto grow_left = [](SourceRect& button, int32_t wanted, int32_t stop) {
         const int32_t room = std::max(button.x - stop, int32_t{0});
         const int32_t take = std::min(std::max(wanted - button.width, int32_t{0}), room);
@@ -837,7 +841,7 @@ Sizes fitted_sizes(const Dialog& dialog, const TextWidth* regular, const TextWid
         footer_width(cancel_text),
         sized.restore_button.x + sized.restore_button.width + 2 * space
     );
-    const int32_t restore_wanted = footer_width(restore_text);
+    const int32_t restore_wanted = restore_width(restore_text);
     if (restore_wanted > sized.restore_button.width)
         sized.restore_button.width = std::min(
             restore_wanted,
@@ -3402,7 +3406,7 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
             LayoutPart{
                 rect,
                 std::string(layout::shown_text(caption)),
-                DialogFont::regular,
+                control == restore_control ? DialogFont::small : DialogFont::regular,
                 0,
                 control,
             }

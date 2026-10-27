@@ -68,7 +68,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 116> kExpected{{
+constexpr std::array<Expected, 118> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -189,11 +189,13 @@ constexpr std::array<Expected, 116> kExpected{{
     {Setting::repeat_rate, RowKind::slider, "Key repeat rate", 1, 1, 30, 0, 0, false, Lock::none, nullptr},
     {Setting::drag_threshold, RowKind::slider, "Drag threshold", 1, 1, 9, 0, 0, false, Lock::none, nullptr},
     {Setting::edge_scroll, RowKind::toggle, "Edge scrolling", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::window_size, RowKind::choice, "Window size", 1, 1, 4, 200, 0, false, Lock::none, nullptr},
+    {Setting::reset_window_positions, RowKind::value_and_button, "Reset window positions", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
 }};
 // clang-format on
 
 static_assert(
-    kExpected.size() == static_cast<std::size_t>(Setting::edge_scroll) + 1,
+    kExpected.size() == static_cast<std::size_t>(Setting::reset_window_positions) + 1,
     "every setting has its row"
 );
 
@@ -514,7 +516,7 @@ struct StoredChoice {
 };
 
 /// Every strip's and drop-down's setting, with its key.
-constexpr std::array<StoredChoice, 26> kStoredChoices{{
+constexpr std::array<StoredChoice, 27> kStoredChoices{{
     {Setting::key_layout_for_mod, "open-annihilation.keys.layout.ridge"},
     {Setting::max_zoom_out, settings::key::max_zoom_out},
     {Setting::max_zoom_in, settings::key::max_zoom_in},
@@ -541,6 +543,7 @@ constexpr std::array<StoredChoice, 26> kStoredChoices{{
     {Setting::window_frame, settings::key::window_frame},
     {Setting::interface_size, settings::key::interface_size},
     {Setting::order_wheel, settings::key::order_wheel},
+    {Setting::window_size, settings::key::window_size},
 }};
 
 void every_row_and_choice_has_an_id_of_one_word() {
@@ -669,77 +672,58 @@ std::vector<int32_t> tab_order(const settings::Dialog& dialog) {
     return geometry::dialog_list(dialog, nullptr).tab_order;
 }
 
+/// Returns a section's rows' controls, then the footer, the sections' entries
+/// in the list's order with every section listed (Controls, Accessibility,
+/// Touch, Controller; Graphics, User Interface, Language & Text; Game files,
+/// Downloads, Updates, Game Content; Engine Limits, System, Developer) and
+/// the title bar's close mark: the Tab order the dialog declares.
+///
+/// @param rows the section's own controls, in order
+/// @return the whole order
+std::vector<int32_t> with_footer_and_list(std::vector<int32_t> rows) {
+    for (const int32_t control :
+         {14, 15, 16, 0, 13, 5, 6, 3, 4, 2, 8, 9, 12, 11, 1, 10, 7, settings::close_x_control})
+        rows.push_back(control);
+    return rows;
+}
+
 void tab_follows_the_dialogs_focus_order() {
-    // Controls: its rows, the footer, then the sections' entries, Game files
-    // then Downloads, Game Content and System, listed before Developer.
+    // Controls: the key layout card's Edit keys…, its rows, the footer, then
+    // the sections' entries in their groups. The card shows Change layout…
+    // only where the Library opens over the dialog.
     const settings::Dialog controls =
         engine_dialog_of({}, settings::Page::controls, true, true, true);
+    OA_CHECK(tab_order(controls) == with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25}));
+    settings::Dialog linked = controls;
+    linked.library_link = true;
     OA_CHECK(
-        tab_order(controls) ==
-        (std::vector<int32_t>{
-            18, 19, 20, 21, 22, 23, 24, 25, 14, 15, 16, 0, 1,
-            2,  3,  4,  13, 5,  6,  8,  9,  12, 11, 10, 7, settings::close_x_control
-        })
+        tab_order(linked) ==
+        with_footer_and_list({settings::change_layout_control, 18, 19, 20, 21, 22, 23, 24, 25})
     );
     // Accessibility: every row, Bounce keys included, then the footer and the
-    // list. A row below the fold stays in the order, and Tab scrolls it into view.
+    // list. A row below the fold stays in the order, and Tab scrolls it into
+    // view. The practice pad's Turn every helper off follows the rows while a
+    // helper is on.
     settings::Dialog accessibility = controls;
     accessibility.page = settings::Page::accessibility;
     OA_CHECK(
-        tab_order(accessibility) == (std::vector<int32_t>{
-                                        18,
-                                        19,
-                                        20,
-                                        21,
-                                        22,
-                                        23,
-                                        24,
-                                        25,
-                                        26,
-                                        27,
-                                        28,
-                                        29,
-                                        30,
-                                        14,
-                                        15,
-                                        16,
-                                        0,
-                                        1,
-                                        2,
-                                        3,
-                                        4,
-                                        13,
-                                        5,
-                                        6,
-                                        8,
-                                        9,
-                                        12,
-                                        11,
-                                        10,
-                                        7,
-                                        settings::close_x_control
-                                    })
+        tab_order(accessibility) ==
+        with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30})
+    );
+    accessibility.chosen.sticky_modifiers = true;
+    OA_CHECK(
+        tab_order(accessibility) ==
+        with_footer_and_list(
+            {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, settings::helpers_off_control}
+        )
     );
     // Graphics: After zoom, locked while units are drawn whole, takes none.
     settings::Dialog graphics = controls;
     graphics.page = settings::Page::graphics;
-    OA_CHECK(tab_order(graphics) == (std::vector<int32_t>{18, 19,
-                                                          20, 21,
-                                                          22, 23,
-                                                          24, 25,
-                                                          26, 27,
-                                                          29, 30,
-                                                          31, 32,
-                                                          33, 34,
-                                                          14, 15,
-                                                          16, 0,
-                                                          1,  2,
-                                                          3,  4,
-                                                          13, 5,
-                                                          6,  8,
-                                                          9,  12,
-                                                          11, 10,
-                                                          7,  settings::close_x_control}));
+    OA_CHECK(
+        tab_order(graphics) ==
+        with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31, 32, 33, 34})
+    );
     // Developer with its first area open: its rows, UI kit gallery's SHOW
     // last of them, its list's headers, Show Active Only and Restore profile
     // values, then the rest.
@@ -747,14 +731,10 @@ void tab_follows_the_dialogs_focus_order() {
     developer.page = settings::Page::developer;
     developer.chosen.developer_mode = true;
     developer.developer.areas_open[0] = 1;
-    OA_CHECK(
-        tab_order(developer) ==
-        (std::vector<int32_t>{18, 19, 20, 23, 24, 25, 26, 27, 28, 29,
-                              30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
-                              40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
-                              21, 22, 14, 15, 16, 0,  1,  2,  3,  4,
-                              13, 5,  6,  8,  9,  12, 11, 10, 7,  settings::close_x_control})
-    );
+    OA_CHECK(tab_order(developer) == with_footer_and_list({18, 19, 20, 23, 24, 25, 26, 27,
+                                                           28, 29, 30, 31, 32, 33, 34, 35,
+                                                           36, 37, 38, 39, 40, 41, 42, 43,
+                                                           44, 45, 46, 47, 48, 49, 21, 22}));
 }
 
 void updates_names_its_ways() {
