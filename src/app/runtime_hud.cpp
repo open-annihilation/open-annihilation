@@ -1712,15 +1712,22 @@ void Runtime::draw_key_badges() {
         const oa::ui::display_layout::Rect button{
             corner.x, corner.y, far.x - corner.x, far.y - corner.y
         };
-        const kit::Canvas canvas = overlay_kit_canvas(paint_target(), fonts, {0, 0}, 1, button);
-        if (canvas.surface == nullptr)
-            continue;
         kit::KeycapLook look;
         look.small = true;
         look.label = chord;
         const int32_t badge_w = std::min(kit::keycap_width(*fonts, look), button.width - 2);
-        const int32_t x = top_right ? button.x + button.width - 1 - badge_w : button.x + 1;
-        const int32_t y = top_right ? button.y + 1 : button.y + button.height - 1 - badge_height;
+        // An order's badge sits on its plate's top right corner, half over
+        // the plate's top edge, so it stays clear of the caption below it. A
+        // build cell's sits inside its picture's bottom left corner.
+        const int32_t lift = top_right ? badge_height / 2 : 0;
+        const int32_t x = top_right ? button.x + button.width - badge_w : button.x + 1;
+        const int32_t y = top_right ? button.y - lift : button.y + button.height - 1 - badge_height;
+        const oa::ui::display_layout::Rect room{
+            button.x, button.y - lift, button.width, button.height + lift
+        };
+        const kit::Canvas canvas = overlay_kit_canvas(paint_target(), fonts, {0, 0}, 1, room);
+        if (canvas.surface == nullptr)
+            continue;
         kit::draw_keycap(canvas, {x, y, badge_w, badge_height}, look);
         key_badges_drawn_.push_back(KeyBadgeDrawn{common.name, std::move(action), chord});
     }
