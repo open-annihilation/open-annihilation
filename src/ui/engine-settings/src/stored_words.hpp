@@ -144,6 +144,12 @@ inline constexpr std::array<ChoiceWord<pad_controls::Prompts>, 6> prompts_words{
     {pad_controls::Prompts::off, "off"},
 }};
 
+/// Look's words, in look_choices' order.
+inline constexpr std::array<ChoiceWord<Look>, 2> look_words{{
+    {Look::modern, "modern"},
+    {Look::classic, "classic"},
+}};
+
 /// Order wheel's words.
 inline constexpr std::array<ChoiceWord<OrderWheel>, 3> order_wheel_words{{
     {OrderWheel::off, "off"},

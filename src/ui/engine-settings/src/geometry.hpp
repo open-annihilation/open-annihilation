@@ -220,6 +220,10 @@ inline constexpr int32_t window_edge_level_width = 50;
 /// border: room for Hidden in play, its widest caption, with three clear
 /// columns each side.
 inline constexpr int32_t window_frame_level_width = 85;
+/// Look's level strip's segment width, inside the strip's 1-pixel border:
+/// room for Classic, its widest caption, in either look, with clear columns
+/// each side.
+inline constexpr int32_t look_level_width = 60;
 /// MANAGE…'s width, Game files' button on its summary row's label line:
 /// room for its caption in the small font with clear columns each side.
 inline constexpr int32_t manage_button_width = 76;

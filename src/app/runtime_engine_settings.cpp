@@ -2691,7 +2691,14 @@ const settings::DialogFonts* Runtime::engine_settings_fonts() {
                       << '\n';
         }
     }
-    return state.fonts ? &*state.fonts : nullptr;
+    if (!state.fonts)
+        return nullptr;
+    // The Look in effect: Modern draws every OA screen and overlay in Barlow
+    // from the bundled fonts, which follow the language shown; Classic, or
+    // bundled fonts that did not open, in the game's own two fonts.
+    state.fonts->modern =
+        state.current.look == settings::Look::modern ? oa_layer().smooth_fonts() : nullptr;
+    return &*state.fonts;
 }
 
 oa::ui::frontend_renderer::RgbaPicture Runtime::engine_settings_icon() {

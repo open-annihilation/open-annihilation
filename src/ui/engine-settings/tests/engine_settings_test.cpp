@@ -522,6 +522,7 @@ settings::EngineSettings changed_settings() {
     chosen.text_background = true;
     chosen.text_size = 150;
     chosen.language = "de";
+    chosen.look = settings::Look::modern;
     return chosen;
 }
 
@@ -534,7 +535,7 @@ void only_changed_settings_are_written() {
 
     const auto chosen = changed_settings();
     settings::write_settings(values, defaults, chosen, defaults, false);
-    CHECK(values.size() == 18);
+    CHECK(values.size() == 19);
     CHECK(values.at(std::string{settings::key::path_search_nodes}) == "5332");
     CHECK(values.at(std::string{settings::key::wheel_zoom}) == "0");
     CHECK(values.at(std::string{settings::key::middle_click_pan}) == "0");
@@ -552,6 +553,7 @@ void only_changed_settings_are_written() {
     CHECK(values.at(std::string{settings::key::text_background}) == "1");
     CHECK(values.at(std::string{settings::key::text_size}) == "150");
     CHECK(values.at(std::string{settings::key::language}) == "de");
+    CHECK(values.at(std::string{settings::key::look}) == "modern");
     CHECK(values.at("Total Annihilation|SwitchAlt") == "1");
     CHECK(settings::read_settings(values, {}, false) == chosen);
 
@@ -2451,6 +2453,40 @@ void the_window_size_default_read_and_round_trip() {
     CHECK(values.empty());
 }
 
+/// Look: Modern with the player's own file, a file written before the key
+/// existed among them, and Classic, the game's own fonts, with a named one;
+/// the two words read back, any other text reads the default, and a choice
+/// round-trips through the file.
+void the_look_default_read_and_round_trip() {
+    CHECK(settings::key::look == "open-annihilation.ui.look");
+    CHECK(settings::default_settings(settings::Inputs{}).look == settings::Look::classic);
+    CHECK(settings::default_settings(players_own_on_linux).look == settings::Look::modern);
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux})
+        CHECK(settings::read_settings({}, inputs, false) == settings::default_settings(inputs));
+    const auto look = [](const char* text) { return read_one(settings::key::look, text).look; };
+    CHECK(look("modern") == settings::Look::modern);
+    CHECK(look("classic") == settings::Look::classic);
+    for (const char* text : {"", "Classic", "bitmap", "1", " classic"})
+        CHECK(look(text) == settings::default_settings(settings::Inputs{}).look);
+    // A file from before the key: the player's own reads Modern.
+    Values older;
+    older[std::string{settings::key::window_size}] = "large";
+    CHECK(
+        settings::read_settings(older, players_own_on_linux, false).look == settings::Look::modern
+    );
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    auto shown = defaults;
+    shown.look = settings::Look::classic;
+    Values values;
+    settings::write_settings(values, defaults, shown, defaults, false);
+    CHECK(values.size() == 1);
+    CHECK(values.at(std::string{settings::key::look}) == "classic");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == shown);
+    settings::write_settings(values, shown, defaults, defaults, true);
+    CHECK(values.empty());
+}
+
 /// HUD scaling: On everywhere by default; a file written before it reads
 /// the default; a number above 0 reads On and any other number Off; Off
 /// written alone and read back, and Restore defaults then OK erases the key.
@@ -3165,6 +3201,7 @@ int main() {
     the_edge_stickiness_default_read_and_round_trip();
     the_window_frame_default_read_and_round_trip();
     the_window_size_default_read_and_round_trip();
+    the_look_default_read_and_round_trip();
     the_hud_scaling_default_read_and_round_trip();
     the_smooth_motion_default_read_and_round_trip();
     visual_effect_switches_round_trip();

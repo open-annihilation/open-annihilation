@@ -426,8 +426,10 @@ EngineSettings default_settings(const Inputs& inputs) {
     for (const EffectSlider& slider : effect_sliders)
         settings.*slider.percent =
             default_effect_intensity(slider.percent, settings.hardware_acceleration);
-    // A named file draws game text in the game's own fonts.
+    // A named file draws game text in the game's own fonts, and OA's own
+    // screens in them too.
     settings.modern_fonts = inputs.players_own_profile;
+    settings.look = inputs.players_own_profile ? Look::modern : Look::classic;
     // A named file plays in English, as the game does without a language on
     // its command line; the player's own follows the operating system.
     settings.language = inputs.players_own_profile
@@ -771,6 +773,7 @@ EngineSettings read_settings(
     read_word(values, key::zoomed_out_after, zoomed_out_after_words, settings.zoomed_out_after);
     read_word(values, key::window_frame, window_frame_words, settings.window_frame);
     read_word(values, key::window_size, window_size_words, settings.window_size);
+    read_word(values, key::look, look_words, settings.look);
     if (const auto number = stored_number(values, key::hud_scaling))
         settings.hud_scaling = *number > 0;
     if (const auto found = values.find(std::string{key::interface_size}); found != values.end())
@@ -1255,6 +1258,7 @@ void write_settings(
         defaults.window_size,
         restored
     );
+    store_word(values, key::look, look_words, opened.look, chosen.look, defaults.look, restored);
     for (const TextSwitch& entry : text_switches)
         store(
             values,

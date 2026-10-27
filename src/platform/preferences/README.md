@@ -235,6 +235,7 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.hud-scaling` | 0 or 1 | 1 |
 | `open-annihilation.interface-size` | `automatic`, or the percent `100`, `150`, `200`, `300` or `400`; `150` read while `open-annihilation.modern-fonts` reads 0 reads as `100`; any other text, `0` among them, reads as `automatic` | `automatic` |
 | `open-annihilation.modern-fonts` | 0 or 1 | 1 with the player's own file, else 0 |
+| `open-annihilation.ui.look` | `modern` or `classic`: the letters of Open Annihilation's own screens and overlays, Barlow or the game's own fonts; any other text reads as the default | `modern` with the player's own file, a file written before the key existed among them; else `classic` |
 | `open-annihilation.text-outline` | 0 or 1 | 1 |
 | `open-annihilation.text-shadow` | 0 or 1 | 1 |
 | `open-annihilation.text-background` | 0 or 1 | 0 |
