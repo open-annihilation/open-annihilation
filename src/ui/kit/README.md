@@ -46,10 +46,15 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
     lime, amber, red, ink and button text, each a value of its own. The touch controls keep their own (`hud_colour`).
   - The type scale (`TextLevel`: title, label, body and small) and its
     sizes in each class (`Metrics::title_size` and the rest,
-    `text_size`): the modern look draws a level at its class's size; the
-    classic look, the game's bitmap fonts at their two sizes, draws a
-    title and a label in the regular font and body and small text in the
-    small one (`classic_font`, in `text.hpp`).
+    `text_size`); the classic look, the game's bitmap fonts at their two
+    sizes, draws a title and a label in the regular font and body and
+    small text in the small one (`classic_font`, in `text.hpp`). The
+    modern look (`Fonts::modern`, below) draws each font's text at the
+    scale's Compact steps at every class, since one `Fonts` serves every
+    class's screens: the regular font's as a label, Barlow SemiBold at 14
+    points, the small font's as small text, Barlow Regular at 12, and a
+    tracked line in Barlow Condensed, the regular font's Bold at the
+    title's 17 and the small font's SemiBold at 12 (`modern_type`).
   - The spacing scale: a base of 4, 6 and 8 points (`space`), the window
     padding three of it (`window_padding`), rows a space and a half apart
     (`row_gap`) and sections three apart (`section_gap`).
@@ -78,7 +83,20 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   `ellipsis`;
   and, for a screen drawn in the modern fonts, `TextMeasureHooks` (the app
   measures with the bundled fonts) with `measured_width` and
-  `measured_line`, which estimate what a null hook leaves out.
+  `measured_line`, which estimate what a null hook leaves out. The look:
+  `Fonts::modern`, the bundled font stack, set by the host while the
+  player's Look is Modern and null in the classic look (`modern_look`).
+  In the modern look every text is measured and drawn in Barlow from that
+  stack at its role's type (`modern_type`), what Barlow lacks in the faces
+  after it (DejaVu Sans for Greek and Cyrillic, drawn whole for a line in
+  those alphabets, the endonym face and a language pack's face for
+  ideographs, Noto Emoji): `modern_width` is a line's width in points, each
+  character's advance at 1x and the tracking; `modern_line` draws it at a
+  scale, each character at its 1x pen times the scale, so a line is as wide
+  at every scale as its measure; `modern_capitals` gives its capitals' rows.
+  `text_width`, `tracked_width`, `capitals`, `draw_text` and
+  `draw_boxed_text` take that path, the text antialiased with no outline or
+  shadow, and `with_stand_ins` leaves the text as it is.
 - `layout.hpp`: points, the Auto scale and the three size classes. A
   room's class is the largest whose settings dialog fits it with
   `class_margin` (24) points round it (`size_class_of`): Regular from
@@ -481,8 +499,9 @@ only the primitives know the form.
 
 - The crisp form, a canvas with a `surface`, draws with the artless painter
   at a whole scale (`placement.scale`) in the game's own fonts, the modern
-  faces drawing only the characters they lack: the classic look. The OA
-  layer draws with it at 100%, 200%, 300% and 400%.
+  faces drawing only the characters they lack: the classic look; or, in the
+  modern look, in Barlow (`modern_line`). The OA layer draws with it at
+  100%, 200%, 300% and 400%.
 - The smooth form, a canvas whose `smooth` has a painter, draws with the
   painter of `oa/ui/paint` into an RGBA canvas at a scale in percent
   (`SmoothCanvas::scale_percent`), in the bundled modern fonts
@@ -513,7 +532,11 @@ pixel. A clip is the clipped rectangle's pixels, and `placed_at` moves the
 origin in points.
 
 The layout, the hit tests and the display list are the same on both forms:
-the game's fonts measure the texts in points whichever form draws them.
+the look's fonts measure the texts in points whichever form draws them, the
+game's fonts in the classic look and Barlow at 1x in the modern one. In the
+modern look the smooth form draws Barlow at the type's size times the
+scale, each character at its 1x pen times the scale, and `measure_text`
+gives the 1x measure.
 
 ## Gallery
 
@@ -784,8 +807,11 @@ that each class's dialog and notices fit the least window of their class. `ui-ki
 helpers, the estimated width, the stand-ins, the wrap against copies of
 the six wraps it replaces, `fit` and `fitting_start` against the Game files
 screen's copies, `path_break` at its separators and against the folder
-chooser's copy, and the modern fonts' measure through its hooks and
-without them. `ui-kit-layout` checks the Auto scale, the size classes'
+chooser's copy, the modern fonts' measure through its hooks and
+without them, and the modern look: each role's type, Barlow's measure the
+same at 1x and 2x with each character at twice its pen, a tracked line in
+the condensed type, Cyrillic and Chinese still drawn, no stand-ins, and a
+boxed line drawn inside its box and its clip at 2x. `ui-kit-layout` checks the Auto scale, the size classes'
 edges and the resolution table they make (Compact only where nothing
 larger fits), a chosen class held to a room, the design's
 window sizes, the Interface size's examples and Auto at each window, 150%
@@ -876,7 +902,10 @@ in one column; every event on every kind; and the page painted.
 states of every component role that takes input, every part in the frame
 or its scroll area, no two controls overlapping, Tab and Down, the names,
 no text holding the build's version (which the test is given), and the
-working samples changing the model alone; and that it draws.
+working samples changing the model alone; and that it draws. Each case
+runs in both looks, the modern one with the fonts beside the test, where
+the header's title is Barlow Condensed's width and the pixels differ from
+the classic look's.
 `ui-kit-first-run` checks the perspective blit (a turned edge shorter than
 the near one, an opacity, a clip, a nested blit that draws nothing, and a
 smooth copy that is filtered), that a carousel's place at a time is the
