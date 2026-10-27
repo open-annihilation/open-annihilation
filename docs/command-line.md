@@ -363,7 +363,7 @@ Network play's own checks, the last rows, are in every build.
 | `--frames N` | Ends the run after N frames of the main menu's loop. |
 | `--snapshot PATH.ppm` | Writes a picture of what a headless run ends on, such as the main menu, to `PATH`; a check writes its own pictures beside it. |
 | `--display-modes MODES` | A made-up monitor for a check on SDL's dummy video driver: `WIDTHxHEIGHT[@RATE][/DENSITY]` modes, separated by commas, or `none`. |
-| `--force-capable` | Counts the renderer as one the graphics card can scale frames on, for `--check-render-tiers`, `--check-build-preview`, `--check-engine-settings` and `--check-kill-board` only. |
+| `--force-capable` | Counts the renderer as one the graphics card can scale frames on, for `--check-render-tiers`, `--check-build-preview`, `--check-dialog-backdrop`, `--check-engine-settings` and `--check-kill-board` only. |
 | `--check-navigation [GROUP]` | Walks the menus and a skirmish through their keys and buttons: every group, or one of `screens`, `orders`, `outcomes`, `zoom`, `zoom-1366x768`, `zoom-1920x1080`, `zoom-2560x1440` and `campaign`. |
 | `--check-match-dialogs` | Opens the help dialog over a live match, then the briefing and the in-game dialogs, in the language the preferences file names, such as an installed pack's. |
 | `--check-match-layers` | Checks the presented match frame against the processor's composition. |
@@ -421,6 +421,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-wreck-pick` | Checks a sunken wreck and a wreck on high ground are picked where they are drawn. |
 | `--check-click-snap` | Checks the cursor RECLAIM shows beside a wreck, and where a RECLAIM click there and a metal extractor's build click beside a deposit land, with `ui.click-snap` on or off. |
 | `--check-build-preview` | Checks the building drawn under the build cursor. |
+| `--check-dialog-backdrop` | Checks that the briefing, the save dialog and the help dialog over a paused match leave the battlefield as the match showed it, in every tier. |
 | `--check-megamap-clicks` | Checks clicks on the megamap. |
 | `--check-single-player-offers` | Opens Single Player and checks New Campaign and Any Mission when a side has a campaign, and when neither side has one. |
 | `--check-radar-orders` | Checks presses on the radar for every order. |
