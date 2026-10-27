@@ -1284,8 +1284,13 @@ void list_keys_move_the_selection() {
     list = laid_out(library, state, fixture::frames()[1].frame);
     state = focused_on(list, "library.list");
     static_cast<void>(lib::library_key(library, state, list, kit::Key::right));
+    // Right lands in the details beside the list: a tag pill, or an action
+    // in the bar at the details' foot.
     const kit::Control* focused = kit::control_of(list, state.interaction.focused);
-    OA_CHECK(focused != nullptr && starts(focused->name, "library.action."));
+    OA_CHECK(
+        focused != nullptr &&
+        (starts(focused->name, "library.action.") || starts(focused->name, "library.detail."))
+    );
 }
 
 /// Tab and Shift+Tab follow the declared order.
@@ -2460,7 +2465,9 @@ void registries_tab_lists_every_registry() {
             fixture::named(list, "library.registry.fixture-core.refreshed");
         OA_CHECK(add != nullptr && core_row != nullptr);
         if (add != nullptr && core_row != nullptr) {
-            OA_CHECK(add->rect.x + add->rect.width == window.x - metrics.edge - metrics.padding);
+            OA_CHECK(
+                add->rect.x + add->rect.width == window.x - metrics.edge - metrics.window_padding
+            );
             OA_CHECK(add->rect.y + add->rect.height <= core_row->rect.y);
         }
         OA_CHECK(core_key != nullptr && core_key->text.empty());
@@ -3858,7 +3865,7 @@ void active_maps_fill_scroll_and_filter() {
     list = laid_out(library, state, regular);
     OA_CHECK(text_item(list, "0 of 3") == nullptr);
     OA_CHECK(fixture::named(list, "library.active.map.1") != nullptr);
-    OA_CHECK(fixture::named(list, "library.active.map.3") != nullptr);
+    OA_CHECK(fixture::named(list, "library.active.map.2") != nullptr);
 
     state.maps_search.text = "river";
     state.maps_search.caret = state.maps_search.text.size();
@@ -6099,11 +6106,116 @@ void key_rows_stay_inside_their_height() {
     OA_CHECK(ridge != nullptr && ridge->rect.height == package_row_height(kit::SizeClass::regular));
 }
 
+/// Counts the text items that read a text.
+///
+/// @param list the display list
+/// @param text the words
+/// @return how many
+int text_count(const kit::DisplayList& list, std::string_view text) {
+    int count = 0;
+    for (const kit::Item& item : list.items)
+        if (item.role == kit::Role::text && item.text == text)
+            ++count;
+    return count;
+}
+
+/// The shell takes Kit 2's sizes at every class: the tab strip, the search
+/// field, the filter pills and drop-down, the footer's band and buttons, and
+/// the details' actions in a bar at the pane's foot, over the footer, that
+/// does not scroll.
+void shell_takes_kit_2_sizes() {
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        const kit::SizeClass size_class = named.frame.size_class;
+        const kit::Metrics& metrics = kit::metrics_of(size_class);
+        const bool compact = size_class == kit::SizeClass::compact;
+        const kit::Point window = lib::window_size(named.frame);
+        const int32_t footer =
+            compact ? metrics.control_height + 2 * metrics.space : metrics.window_footer_height;
+        const int32_t footer_rule = window.y - metrics.edge - footer - 1;
+        const lib::Library library = with_ridge();
+        const kit::DisplayList list = laid_out(library, {}, named.frame);
+        const kit::Control* tab = fixture::named(list, "library.tab.mods");
+        const kit::Control* search = fixture::named(list, "library.search");
+        const kit::Control* close = fixture::named(list, "library.close");
+        OA_CHECK(tab != nullptr && tab->rect.height == metrics.tab_strip_height);
+        OA_CHECK(search != nullptr && search->rect.height == metrics.text_field_height);
+        OA_CHECK(close != nullptr && close->rect.height == metrics.control_height);
+        if (close != nullptr) {
+            OA_CHECK(close->rect.y > footer_rule);
+            OA_CHECK(close->rect.y + close->rect.height < window.y - metrics.edge);
+        }
+        bool band = false;
+        for (const kit::Item& item : list.items)
+            band = band || (item.role == kit::Role::fill && item.rect.y == footer_rule + 1 &&
+                            item.rect.height == footer && item.colour == kit::colour::band);
+        OA_CHECK(band);
+        if (compact) {
+            const kit::Control* filter = fixture::named(list, "library.filter");
+            OA_CHECK(filter != nullptr && filter->rect.height == metrics.text_field_height);
+            continue;
+        }
+        if (size_class == kit::SizeClass::regular) {
+            const kit::Control* all = fixture::named(list, "library.filter.all");
+            OA_CHECK(all != nullptr && all->rect.height == metrics.filter_chip_height);
+        }
+        const kit::Control* update = fixture::named(list, "library.action.update");
+        const kit::Control* homepage = fixture::named(list, "library.action.homepage");
+        OA_CHECK(update != nullptr && homepage != nullptr);
+        if (update != nullptr && homepage != nullptr) {
+            OA_CHECK(update->rect.height == metrics.control_height && update->group == -1);
+            OA_CHECK(homepage->rect.y + homepage->rect.height + metrics.row_gap <= footer_rule);
+            OA_CHECK(update->clip.width == 0 && update->clip.height == 0);
+        }
+    }
+}
+
+/// The details say the state once, and beside the list a layout's picture
+/// is the main block with the changed keys filled; Compact's page keeps the
+/// whole keyboard.
+void details_say_the_state_once() {
+    const lib::Library library = keys_library();
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        const bool compact = named.frame.size_class == kit::SizeClass::compact;
+        lib::ScreenState state;
+        state.details_page = compact;
+        const kit::DisplayList list = laid_out(library, state, named.frame);
+        const kit::Control* status = fixture::named(list, "library.status");
+        OA_CHECK(status != nullptr);
+        bool main_block = false;
+        bool keyboard = false;
+        for (const kit::Item& item : list.items)
+            if (const auto* look = std::get_if<kit::KeyboardLook>(&item.look)) {
+                keyboard = true;
+                main_block = look->main_block;
+                for (const kit::KeyboardKey& key : look->keys)
+                    OA_CHECK(!look->main_block || key.cap.held);
+            }
+        OA_CHECK(keyboard && main_block == !compact);
+        if (compact)
+            continue;
+        // Grid is in use for every game: its chip says so, and no status
+        // line says it again.
+        OA_CHECK(status != nullptr && status->text == "In use for every game");
+        OA_CHECK(text_item(list, "In use for every game") == nullptr);
+        // "Installed" is the Installed fact's label alone.
+        OA_CHECK(text_count(list, "Installed") == 1);
+    }
+    // Lefty is installed and not in use: its chip says Installed, once.
+    lib::Library lefty = keys_library();
+    lib::select(lefty, {std::string(fixture::core), lib::Kind::key_layout, "lefty"});
+    const kit::DisplayList list = laid_out(lefty, {}, fixture::frames()[2].frame);
+    const kit::Control* status = fixture::named(list, "library.status");
+    OA_CHECK(status != nullptr && status->text == "Installed");
+    OA_CHECK(text_count(list, "Installed") == 1);
+}
+
 int main() {
     every_frame_holds_its_invariants();
     mutators_tab_holds_its_invariants();
     brains_tab_holds_its_invariants();
     keys_tab_names_its_controls();
+    shell_takes_kit_2_sizes();
+    details_say_the_state_once();
     key_rows_stay_inside_their_height();
     mutator_rows_show_badges_chips_and_icons();
     mutator_actions_rules_and_danger();

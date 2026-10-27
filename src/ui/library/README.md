@@ -531,6 +531,18 @@ app removes the folder (`Runtime::library_uninstall`,
     `remove_registry`, `add_mirror`, `add_registry`); the host applies a
     switch and a removal at once, and asks the content service to refresh
     that one registry;
+  - The shell takes Kit 2's sizes at every class (`Window` in `layout.cpp`):
+    Kit 2's window padding, a tab strip of `Metrics::tab_strip_height`
+    (32/38/44), the search field and the drop-down fields of
+    `text_field_height` (30/36/40), the filter pills of `filter_chip_height`
+    (24/26/28, each wider by what it gains in height), buttons of
+    `control_height` (28/34/38) in the footer, on the Updates line and over
+    the Registries cards, and the footer itself, a rule and a band of
+    `window_footer_height` (48) at Regular and Large, and at Compact the
+    controls with a space above and below (36), with its stacked parts a
+    space apart, so the list keeps five of its 36-point rows in a 480 by 324
+    window. Regular and Large stack them `row_gap` apart. The header is the
+    kit's, Compact's height at every class (requests: a taller kit header).
   - **Compact** shows a list page: the header (the mods icon, the plates
     over drive bays, "Library", this build's version, and a refresh icon
     at the top right; "offline" in the lock colour beside it when the last
@@ -566,12 +578,13 @@ app removes the folder (`Runtime::library_uninstall`,
     Installed and Updates with their counts, and the tags while they fit,
     the chosen one in the accent ground and the others in the muted ground,
     TAGS ▾ holding the rest; on Updates, "{n} updates" and UPDATE ALL on a
-    line over the list), a 420-point list of
+    line over the list), a 400-point list of
     Kit 2's 40-point rows (the name and byline, the summary, the version over the
     size, the state's icon), the details (a 40-point badge beside the
-    name, its state's icon and the status line, the summary in at most six lines, the package's tags as inactive pills under it, the long facts, the
-    actions three to a line at Kit 2's control height, 34 points, 38 at Large,
-    the playing note), and the footer (both queue
+    name, its state's icon and the status line, the summary in at most six lines, the package's tags as inactive pills under it, the long facts,
+    the playing note, which scroll, and under them the actions three to a
+    line at Kit 2's control height, 34 points, 38 at Large, in a bar at the
+    pane's foot that does not scroll), and the footer (both queue
     lines, the 8-point bar under the first while a download runs, and CLOSE);
   - **Large** shows Regular's header, tabs and search, a 180-point filter
     pane (a nav list of All, New, Installed and Updates with their counts,
@@ -587,7 +600,14 @@ app removes the folder (`Runtime::library_uninstall`,
   At Regular and Large the player's own changes on it sit on the chip line
   in the lock colour ("2 changes of your own"), with Made for and its tags;
   Compact keeps them on the line under the name. Its details draw the
-  keyboard picture as wide as the details.
+  keyboard picture as wide as the details: beside the list the main block
+  alone (`KeyboardLook::main_block`), the changed keys filled with the
+  accent under their legends, unless a changed key lies outside that block;
+  Compact's page draws the whole keyboard. The details say the state once:
+  the chip says it in words, "In use for every game" or "In use with {mod}"
+  for the layout in use, and the status line under the name is left out
+  when it would say the same (`library.status` then reads the chip's
+  words).
 
   USE's question is a dialog a notice wide (the whole window at Compact,
   inside half its padding), as tall as its parts: each section numbered
@@ -775,7 +795,7 @@ stay valid until the model's next refresh.
 - The screens are made only of the kit's components and its display list's
   generic parts; every colour is a kit token and every size a kit metric,
   but for the panes' widths the design gives (Compact's 128 points beside
-  the search for the filter and its count, the 240-point search, the 420- and 400-point lists, the
+  the search for the filter and its count, the 240-point search, the 400-point lists, the
   180-point filter pane and the details' 40-point badge). `draw.cpp` only
   paints the display list.
 - The layout decides no rule of the model: which entries show, in which
