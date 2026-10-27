@@ -46,8 +46,6 @@ inline constexpr oa::ui::engine_settings::SectionHooks kTallSectionHooks{
 
 /// The source pixels a notch of the mouse wheel scrolls the dialog's open section.
 inline constexpr int32_t kWheelStepPixels = 24;
-/// The source pixels Page Up and Page Down scroll the dialog's open section.
-inline constexpr int32_t kPageStepPixels = 200;
 
 /// Shows the tall section in place of an open dialog's rows.
 ///
