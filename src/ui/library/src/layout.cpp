@@ -1458,6 +1458,29 @@ bool updates_wholly_shown(
     return updates < placed.tabs.size() && kit::wholly_in(placed.tabs[updates], placed.view);
 }
 
+/// Tells whether the opening view shows Updates whole and still meets the
+/// last tab. A last tab wholly past that view cannot be reached by the
+/// arrows. Meeting it, even by a sliver, keeps the walk intact.
+///
+/// @param building the layout
+/// @param strip the strip
+/// @param look the captions and the gaps
+/// @return true when both hold at the start of the strip
+bool opening_tabs_reached(
+    const Building& building, const kit::Rect& strip, const kit::TabsLook& look
+) {
+    if (!updates_wholly_shown(building, strip, look))
+        return false;
+    kit::TabsLook opening = look;
+    opening.scroll = 0;
+    opening.selected = 0;
+    const kit::TabStrip placed = kit::place_tabs(*building.fonts, strip, opening);
+    if (placed.tabs.empty())
+        return false;
+    const kit::Rect shown = kit::intersect(placed.tabs.back(), placed.view);
+    return shown.width > 0 && shown.height > 0;
+}
+
 /// Writes Compact's short names into a strip that already holds the full ones.
 ///
 /// @param library the model
@@ -1476,15 +1499,16 @@ void use_compact_tab_names(const Library& library, kit::TabsLook& look) {
 }
 
 /// Closes the gaps around the names until Updates lies wholly in the opening
-/// view. The largest padding that does it is kept, and the theme's tracking
-/// while any padding can keep it. Compact's short names stand in only when
-/// the full names cannot, however far the gaps close.
+/// view and the last tab still meets it. The largest padding that does it is
+/// kept, and the theme's tracking while any padding can keep it. Compact's
+/// short names stand in only when the full names cannot, however far the
+/// gaps close.
 ///
 /// @param building the layout
 /// @param strip the strip
 /// @param[in,out] look the captions, the open tab and the gaps
 void keep_updates_in_view(Building& building, const kit::Rect& strip, kit::TabsLook& look) {
-    if (updates_wholly_shown(building, strip, look))
+    if (opening_tabs_reached(building, strip, look))
         return;
     const int32_t theme_pad = building.metrics->tab_padding;
     const int32_t theme_track = building.metrics->tab_tracking;
@@ -1492,7 +1516,7 @@ void keep_updates_in_view(Building& building, const kit::Rect& strip, kit::TabsL
         for (int32_t side = theme_pad; side >= 0; --side) {
             look.side_padding = side;
             look.tracking = letter_gap;
-            if (updates_wholly_shown(building, strip, look))
+            if (opening_tabs_reached(building, strip, look))
                 return true;
         }
         return false;
