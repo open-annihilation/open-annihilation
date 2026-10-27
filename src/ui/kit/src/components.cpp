@@ -1471,7 +1471,7 @@ void draw_focus_ring(const Canvas& canvas, const Rect& control, bool around) {
         ring_corner_rect(canvas, control, radius, compact_metrics.focus_ring, colour::focus);
         return;
     }
-    const int32_t out = compact_metrics.focus_inset + compact_metrics.focus_ring;
+    const int32_t out = compact_metrics.focus_inset;
     ring_corner_rect(
         canvas, grown(control, out), radius + out, compact_metrics.focus_ring, colour::focus
     );

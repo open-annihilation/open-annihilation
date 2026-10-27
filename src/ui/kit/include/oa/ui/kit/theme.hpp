@@ -295,7 +295,9 @@ struct Metrics {
     int32_t window_radius{};
     /// A dialog's corners' radius: a notice, a question.
     int32_t dialog_radius{};
-    /// The keyboard focus ring's thickness, drawn focus_inset clear of its control.
+    /// The keyboard focus ring's thickness. The ring lies inside the
+    /// focus_inset points the screens keep round a control, its rest clear
+    /// between the ring and the control.
     int32_t focus_ring{};
     /// Kit 2's control height: a button, a drop-down, a segmented strip.
     int32_t control_height{};
@@ -603,7 +605,7 @@ inline constexpr ClassScale large_scale{24, 16, 15, 13, 8, 6, 8, 10, 12, 14, 38,
 /// controls it does not have.
 inline constexpr Metrics compact_metrics = scaled(
     Metrics{
-        .focus_ring = 2,
+        .focus_ring = 1,
         .window_header_height = 36,
         .window_footer_height = 48,
         .switch_track_width = 42,

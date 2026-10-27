@@ -445,10 +445,9 @@ void choice_lock_and_scroll_match() {
     expect(menu_surface, 60, 46, colour::control_hover);
     expect(menu_surface, 26, 51, colour::accent);
     expect(menu_surface, 22, 64, colour::list);
-    // The marked item's focus ring, two points thick inside it.
+    // The marked item's focus ring, a point thick inside it.
     expect(menu_surface, 40, 79, colour::focus);
-    expect(menu_surface, 40, 80, colour::focus);
-    expect(menu_surface, 40, 82, colour::hover);
+    expect(menu_surface, 40, 80, colour::hover);
     expect(menu_surface, 97, 73, colour::control_hover);
 
     menu.focus_shown = false;

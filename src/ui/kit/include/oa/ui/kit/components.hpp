@@ -93,8 +93,10 @@ void set_open_annihilation_mark(OpenAnnihilationMark mark);
 /// Draws the keyboard focus ring, the one ring every control shows: a ring
 /// focus_ring points thick in the light accent, its corners rounded as a
 /// control of the control's height is (control_radius_for). When around is
-/// set it stands focus_inset points clear of the control, its corners that
-/// much rounder; otherwise it lies on the inside of the control's own edge.
+/// set its outside lies focus_inset points out from the control, the room
+/// the screens keep round a control, so a point clear of the control stays
+/// between them, and its corners are that much rounder; otherwise it lies
+/// on the inside of the control's own edge.
 ///
 /// @param canvas where it is drawn
 /// @param control the control

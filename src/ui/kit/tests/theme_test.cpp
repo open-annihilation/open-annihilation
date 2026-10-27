@@ -162,7 +162,7 @@ void every_token_keeps_its_value() {
 void shared_sizes() {
     for (const kit::Metrics* metrics :
          {&kit::compact_metrics, &kit::regular_metrics, &kit::large_metrics}) {
-        OA_CHECK(metrics->focus_ring == 2);
+        OA_CHECK(metrics->focus_ring == 1);
         OA_CHECK(metrics->window_header_height == 36);
         OA_CHECK(metrics->window_footer_height == 48);
         OA_CHECK(metrics->switch_track_width == 42);

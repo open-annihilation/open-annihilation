@@ -4372,11 +4372,18 @@ IconPicture solid_icon() {
     return icon;
 }
 
-constexpr renderer::Rgb kPanel{0x1b, 0x1e, 0x19};
-constexpr renderer::Rgb kBand{0x14, 0x16, 0x12};
+constexpr renderer::Rgb kPanel{0x1d, 0x21, 0x19};
+constexpr renderer::Rgb kBand{0x12, 0x14, 0x10};
 constexpr renderer::Rgb kList{0x17, 0x1a, 0x15};
 constexpr renderer::Rgb kAccent{0x9c, 0xcc, 0x3c};
-constexpr renderer::Rgb kOffSelected{0x2c, 0x32, 0x26};
+constexpr renderer::Rgb kOffSelected{0x2c, 0x32, 0x27};
+/// The OA mark's brand gold, and the light accent of the focus ring.
+constexpr renderer::Rgb kBrand{0xd6, 0xa7, 0x47};
+constexpr renderer::Rgb kFocus{0xb6, 0xe0, 0x5a};
+/// Tertiary text: a scroll bar's thumb under the pointer or held.
+constexpr renderer::Rgb kTertiary{0x95, 0x9c, 0x8b};
+/// The dark ink on the accent: an On switch's knob.
+constexpr renderer::Rgb kKnobOn{0x10, 0x12, 0x0d};
 
 void the_dialog_draws_its_faces_and_accents(const settings::DialogFonts& fonts) {
     Canvas canvas = blank(settings::dialog_width, settings::dialog_height);
@@ -4394,12 +4401,13 @@ void the_dialog_draws_its_faces_and_accents(const settings::DialogFonts& fonts) 
     CHECK(canvas.at(geometry::ok_button.x + 2, geometry::ok_button.y + 2) == kAccent);
     const auto rows = geometry::place_rows(Page::controls, {});
     const auto& keys_on = rows.rows[1].control_area;
-    CHECK(canvas.at(keys_on.x + keys_on.width - 3, keys_on.y + 2) == kAccent); // On
+    // The switch's track is the area's right 42 points: lime while On.
+    CHECK(canvas.at(keys_on.x + keys_on.width - 32, keys_on.y + 8) == kAccent); // On
     Canvas off = blank(settings::dialog_width, settings::dialog_height);
     settings::Dialog zoom_off = dialog;
     zoom_off.chosen.show_keys_on_buttons = false;
     settings::draw_dialog(off.surface, {0, 0, 1}, zoom_off, fonts, kNoIcon);
-    CHECK(off.at(keys_on.x + 2, keys_on.y + 2) == kOffSelected); // Off
+    CHECK(off.at(keys_on.x + keys_on.width - 12, keys_on.y + 3) == kOffSelected); // Off
 
     // At twice the size, offset into a larger surface.
     Canvas larger = blank(1200, 800);
@@ -4418,13 +4426,13 @@ void the_dialog_draws_its_faces_and_accents(const settings::DialogFonts& fonts) 
     const auto track = geometry::place_rows(Page::graphics, {}).rows[0].control_area;
     CHECK(graphics.at(track.x + 2, track.y + geometry::track_offset + 1) == kAccent);
 
-    // Without the icon, the header shows the OA mark's green outlined
-    // square, 13 pixels a side in the middle of the icon's place.
+    // Without the icon, the header shows the OA mark's outlined square in
+    // the brand gold, 13 pixels a side in the middle of the icon's place.
     const auto mark = geometry::header_mark;
     const int32_t square_left = mark.x + (mark.width - geometry::header_mark_square) / 2;
     const int32_t square_top = mark.y + (mark.height - geometry::header_mark_square) / 2;
-    CHECK(canvas.at(square_left, square_top) == kAccent);
-    CHECK(canvas.at(square_left + geometry::header_mark_square - 1, square_top + 6) == kAccent);
+    CHECK(canvas.at(square_left, square_top) == kBrand);
+    CHECK(canvas.at(square_left + geometry::header_mark_square - 1, square_top + 6) == kBrand);
     CHECK(canvas.at(square_left - 1, square_top) == kBand);
 
     // With the icon, the icon fills its 20 by 20 place in the header's
@@ -4520,11 +4528,10 @@ settings::Dialog opened_mod_options(Page page, const settings::Locks& locks = {}
 
 constexpr renderer::Rgb kRule{0x2b, 0x30, 0x27};
 constexpr renderer::Rgb kText{0xe7, 0xe8, 0xdf};
-constexpr renderer::Rgb kHint{0x9a, 0xa1, 0x90};
+constexpr renderer::Rgb kHint{0x95, 0x9c, 0x8b};
 constexpr renderer::Rgb kWell{0x12, 0x14, 0x10};
 constexpr renderer::Rgb kControlBorder{0x3a, 0x40, 0x34};
 constexpr renderer::Rgb kControlHover{0x5b, 0x63, 0x52};
-constexpr renderer::Rgb kSwitchIdle{0x7d, 0x84, 0x74};
 constexpr renderer::Rgb kLock{0xe0, 0xb0, 0x4f};
 
 /// Returns a colour faded into the panel as a locked row is: 115 of 256
@@ -4658,10 +4665,11 @@ void the_dialog_draws_the_scroll_bar_and_clips_the_rows() {
     Scrolling five(five_rows());
     Canvas top = blank(settings::dialog_width, 400);
     settings::draw_dialog(top.surface, {0, 0, 1}, five.dialog, fonts, kNoIcon);
-    CHECK(top.at(470, 100) == kControlBorder);
-    CHECK(top.at(476, 100) == kControlBorder);
-    CHECK(top.at(473, 54) == kControlBorder);
-    CHECK(top.at(473, 289) == kControlBorder);
+    // The well is a rounded bar of the well's colour, with no border.
+    CHECK(top.at(470, 100) == kWell);
+    CHECK(top.at(476, 100) == kWell);
+    CHECK(top.at(473, 54) == kWell);
+    CHECK(top.at(473, 289) == kWell);
     CHECK(top.at(473, 100) == kControlHover);
     CHECK(top.at(473, 228) == kControlHover);
     // The thumb grows when a real font wraps the hints onto fewer lines.
@@ -4715,15 +4723,15 @@ void the_dialog_draws_the_scroll_bar_and_clips_the_rows() {
     static_cast<void>(settings::dialog_pointer_move(five.dialog, 473, 150));
     Canvas scrolled = blank(settings::dialog_width, settings::dialog_height);
     settings::draw_dialog(scrolled.surface, {0, 0, 1}, five.dialog, fonts, kNoIcon);
-    CHECK(scrolled.at(470, 100) == kControlHover);
+    CHECK(scrolled.at(470, 100) == kWell);
     CHECK(scrolled.at(473, 84) == kWell);
-    // The thumb, held, is the idle switch colour; the well shows past its ends.
+    // The thumb, held, is the tertiary text's colour; the well shows past its ends.
     {
         const auto drawn = rows_as_drawn(five.dialog, fonts);
         const auto thumb =
             geometry::scroll_thumb(drawn.area, drawn.scroll, drawn.limit, drawn.content_height);
         const int32_t mid_x = thumb.x + thumb.width / 2;
-        CHECK(scrolled.at(mid_x, thumb.y + thumb.height / 2) == kSwitchIdle);
+        CHECK(scrolled.at(mid_x, thumb.y + thumb.height / 2) == kTertiary);
         if (thumb.y + thumb.height < drawn.area.well.y + drawn.area.well.height - 1)
             CHECK(scrolled.at(mid_x, thumb.y + thumb.height) == kWell);
         if (thumb.y > drawn.area.well.y + 1)
@@ -4770,7 +4778,7 @@ void the_dialog_draws_the_scroll_bar_and_clips_the_rows() {
         CHECK(other->hint_lines >= 1 && rect_has(canvas, other->hints[0], faded(kHint)));
         CHECK(rect_has(canvas, other->control_area, faded(kControlHover)));
         CHECK(!rect_has(canvas, other->control_area, kAccent));
-        CHECK(rect_has(canvas, other->control_area, faded(kControlBorder)));
+        CHECK(rect_has(canvas, other->control_area, faded(kKnobOn)));
     }
     locked.dialog.chosen.frame_stats = false;
     Canvas off = blank(settings::dialog_width, settings::dialog_height);
@@ -4778,7 +4786,7 @@ void the_dialog_draws_the_scroll_bar_and_clips_the_rows() {
     const auto off_rows = rows_as_drawn(locked.dialog, fonts);
     const geometry::Row* off_switch = row_of(off_rows, Setting::frame_stats);
     CHECK(off_switch != nullptr && rect_has(off, off_switch->control_area, faded(kOffSelected)));
-    CHECK(off_switch != nullptr && rect_has(off, off_switch->control_area, faded(kWell)));
+    CHECK(off_switch != nullptr && rect_has(off, off_switch->control_area, faded(kControlBorder)));
 
     // With the focus shown on a row, a press held on the bar leaves its
     // outline drawn.
@@ -4788,9 +4796,10 @@ void the_dialog_draws_the_scroll_bar_and_clips_the_rows() {
     Canvas held = blank(settings::dialog_width, settings::dialog_height);
     settings::draw_dialog(held.surface, {0, 0, 1}, focused.dialog, fonts, kNoIcon);
     const auto track = focused.rows().rows.rows[0].control_area;
-    CHECK(held.at(track.x - geometry::focus_inset, track.y + 4) == kAccent);
-    CHECK(held.at(470, 100) == kControlHover);
-    CHECK(held.at(473, 100) == kSwitchIdle);
+    // The focus ring: the light accent, a point clear of the control.
+    CHECK(held.at(track.x - geometry::focus_inset, track.y + 4) == kFocus);
+    CHECK(held.at(470, 100) == kWell);
+    CHECK(held.at(473, 100) == kTertiary);
     // So does a press held on the well, which scrolled to the end: the third
     // row's outline is drawn where its slider now lies.
     Scrolling jumped(five_rows());
@@ -4801,8 +4810,8 @@ void the_dialog_draws_the_scroll_bar_and_clips_the_rows() {
     Canvas well = blank(settings::dialog_width, settings::dialog_height);
     settings::draw_dialog(well.surface, {0, 0, 1}, jumped.dialog, fonts, kNoIcon);
     const auto size_track = rows_as_drawn(jumped.dialog, fonts).rows.rows[2].control_area;
-    CHECK(well.at(size_track.x - geometry::focus_inset, size_track.y + 4) == kAccent);
-    CHECK(well.at(473, 200) == kSwitchIdle);
+    CHECK(well.at(size_track.x - geometry::focus_inset, size_track.y + 4) == kFocus);
+    CHECK(well.at(473, 200) == kTertiary);
 }
 
 void the_graphics_page_draws_its_locked_rows() {
@@ -4878,7 +4887,7 @@ void the_graphics_page_draws_its_locked_rows() {
         CHECK(rect_has(canvas, sync->label, faded(kText)));
         CHECK(sync->hint_lines >= 1 && rect_has(canvas, sync->hints[0], faded(kHint)));
         CHECK(rect_has(canvas, sync->control_area, faded(kControlHover)));
-        CHECK(rect_has(canvas, sync->control_area, faded(kControlBorder)));
+        CHECK(rect_has(canvas, sync->control_area, faded(kKnobOn)));
     }
     // Unlocked, Full and On show the accent, Full's level alone of the strip.
     settings::Dialog open =
@@ -5998,14 +6007,15 @@ void the_developer_section_draws_its_parts() {
     CHECK(canvas.at(300, rows[1].top) == kRule);
     CHECK(canvas.at(300, geometry::developer_list_rule) == kRule);
     CHECK(canvas.at(300, geometry::developer_footer_rule) == kRule);
+    // Each switch's track is its area's right 42 points.
     const auto& enable = rows[0].control_area;
-    CHECK(canvas.at(enable.x + enable.width - 3, enable.y + 2) == kAccent);
+    CHECK(canvas.at(enable.x + enable.width - 32, enable.y + enable.height / 2) == kAccent);
     const auto& stats = rows[1].control_area;
-    CHECK(canvas.at(stats.x + 2, stats.y + 2) == kOffSelected);
+    CHECK(canvas.at(stats.x + stats.width - 12, stats.y + 3) == kOffSelected);
     const auto& active = geometry::active_only_switch;
-    CHECK(canvas.at(active.x + 2, active.y + 2) == kOffSelected);
+    CHECK(canvas.at(active.x + active.width - 12, active.y + 3) == kOffSelected);
     CHECK(canvas.at(473, geometry::developer_view.y + 2) == kControlHover);
-    CHECK(canvas.at(470, geometry::developer_view.y + 20) == kControlBorder);
+    CHECK(canvas.at(470, geometry::developer_view.y + 20) == kWell);
     // Open, it points down. The same drawn rows as the closed arrow above.
     const auto open = rows_as_drawn(dialog, fonts);
     const auto& first = open.list.rows[0];
@@ -6026,7 +6036,8 @@ void the_developer_section_draws_its_parts() {
     const auto hack = geometry::open_rows(off).list.rows[1];
     CHECK(hack.kind == geometry::ListRowKind::hack && hack.on && hack.locked);
     CHECK(
-        still.at(hack.toggle.x + hack.toggle.width - 3, hack.toggle.y + 2) == faded(kControlHover)
+        still.at(hack.toggle.x + hack.toggle.width - 32, hack.toggle.y + hack.toggle.height / 2) ==
+        faded(kControlHover)
     );
 }
 
@@ -6134,6 +6145,11 @@ void manage_draws_in_the_game_font_inside_its_button(const settings::DialogFonts
                     const renderer::Rgb seen =
                         canvas.at(button.x * scale + x, button.y * scale + y);
                     if (seen == kAccent || seen == kAccentLight)
+                        continue;
+                    // The rounded corners show what lies under the button.
+                    const int32_t corner = oa::ui::kit::control_radius_for(button.height) * scale;
+                    if ((x < corner || x >= button.width * scale - corner) &&
+                        (y < corner || y >= button.height * scale - corner))
                         continue;
                     // The caption's pixels, its letters' edges mixed into the face.
                     left = std::min(left, x);
@@ -6495,8 +6511,8 @@ void the_notice_draws_in_the_dialogs_colours(const settings::DialogFonts& fonts)
     const auto parts = settings::notice_layout(notice, &fonts);
     const auto ok = find_part(parts, {}, settings::notice_ok_control);
     CHECK(canvas.at(ok->rect.x + 2, ok->rect.y + 2) == kAccent);
-    // OK is marked: a green ring round it.
-    CHECK(canvas.at(ok->rect.x - 2, ok->rect.y + 5) == kAccent);
+    // OK is marked: the focus ring in the light accent round it.
+    CHECK(canvas.at(ok->rect.x - 2, ok->rect.y + 5) == kFocus);
 }
 
 void key_layout_values_fit(const settings::DialogFonts& fonts);
@@ -7741,7 +7757,11 @@ void dark_letters_on_the_accent_are_drawn_bare() {
         for (int32_t x = ok.x; x < ok.x + ok.width; ++x) {
             const auto shown = canvas.at(x, y);
             letters += shown == on_accent ? 1 : 0;
-            others += shown != on_accent && shown != kAccent && shown != accent_edge ? 1 : 0;
+            // OK's rounded corners leave the footer's band showing.
+            others +=
+                shown != on_accent && shown != kAccent && shown != accent_edge && shown != kBand
+                    ? 1
+                    : 0;
         }
     CHECK(letters > 0);
     CHECK(others == 0);
@@ -10070,7 +10090,7 @@ void the_oa_button_shows_the_icon_or_the_mark() {
         settings::draw_oa_button(canvas.surface, {0, 0, scale}, side, look, fonts, picture);
         return canvas;
     };
-    constexpr renderer::Rgb kHover{0x20, 0x24, 0x1c};
+    constexpr renderer::Rgb kHover{0x25, 0x2a, 0x21};
 
     // At rest the icon fills the button but for 3 pixels all round.
     for (const int32_t side : {settings::menu_button_side, settings::ingame_button_side}) {
@@ -10109,13 +10129,13 @@ void the_oa_button_shows_the_icon_or_the_mark() {
     CHECK(large_row.size() == static_cast<std::size_t>(icon_run));
     CHECK(!large_row.empty() && large_row.front() == 6 && large_row.back() == 6 + icon_run - 1);
 
-    // Without the icon, a green OA mark in a green outlined square, 20/32
-    // of the button's side.
+    // Without the icon, the OA mark in an outlined square in the brand
+    // gold, 20/32 of the button's side.
     const int32_t square_side = settings::menu_button_side * 20 / 32;
     const int32_t square_at = (settings::menu_button_side - square_side) / 2;
     const Canvas marked = button(settings::menu_button_side, settings::ButtonLook::idle, kNoIcon);
-    CHECK(marked.at(square_at, square_at) == kAccent);
-    CHECK(marked.at(square_at + square_side - 1, square_at + square_side - 1) == kAccent);
+    CHECK(marked.at(square_at, square_at) == kBrand);
+    CHECK(marked.at(square_at + square_side - 1, square_at + square_side - 1) == kBrand);
     CHECK(marked.at(square_at - 1, square_at) == kPanel);
     CHECK(columns_of(marked, 16, kIconColor).empty());
     const auto short_pixels = std::vector<uint8_t>(icon.pixels.begin(), icon.pixels.end() - 1);
@@ -10143,13 +10163,13 @@ void the_oa_mark_alone_shows_the_icon_or_the_button_mark() {
     // Three times as large, at the surface's own resolution.
     const Canvas sharp = mark(26, icon.picture(), 3);
     CHECK(columns_of(sharp, 40, kIconColor).size() == 78);
-    // Without the icon, the OA button's mark at rest: the green outlined
-    // square 20/32 of the side, the rest left as it was.
+    // Without the icon, the OA button's mark at rest: the outlined square in
+    // the brand gold, 20/32 of the side, the rest left as it was.
     const int32_t square_side = settings::menu_button_side * 20 / 32;
     const int32_t square_at = (settings::menu_button_side - square_side) / 2;
     const Canvas marked = mark(settings::menu_button_side, kNoIcon);
-    CHECK(marked.at(square_at, square_at) == kAccent);
-    CHECK(marked.at(square_at + square_side - 1, square_at + square_side - 1) == kAccent);
+    CHECK(marked.at(square_at, square_at) == kBrand);
+    CHECK(marked.at(square_at + square_side - 1, square_at + square_side - 1) == kBrand);
     CHECK(marked.at(square_at - 1, square_at) == (renderer::Rgb{0, 0, 0}));
     CHECK(marked.at(0, 0) == (renderer::Rgb{0, 0, 0}));
     Canvas button = blank(settings::menu_button_side, settings::menu_button_side);

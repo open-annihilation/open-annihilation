@@ -265,11 +265,10 @@ void nav_matches_its_entries() {
     expect(surface, 20, 33, 0xe7, 0xe8, 0xdf);
     expect(surface, 9, 51, 0x25, 0x2a, 0x21);
     expect(surface, 20, 55, 0xe7, 0xe8, 0xdf);
-    // The focused entry's ring: two points of the light accent inside it.
+    // The focused entry's ring: a point of the light accent inside it.
     expect(surface, 8, 100, 0x17, 0x1a, 0x15);
     expect(surface, 40, 100, 0xb6, 0xe0, 0x5a);
-    expect(surface, 40, 101, 0xb6, 0xe0, 0x5a);
-    expect(surface, 40, 102, 0x17, 0x1a, 0x15);
+    expect(surface, 40, 101, 0x17, 0x1a, 0x15);
     expect(surface, 20, 105, 0xb9, 0xbf, 0xae);
 }
 

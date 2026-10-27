@@ -970,7 +970,7 @@ void draw_pill(const Canvas& canvas, const Rect& rect, const PillLook& look) {
     // game's fonts are absent, and a pill's words are part of the shape.
     box_text(clipped(canvas, rect), FontRole::small, look.text, words, Align::centre, colours.text);
     if (look.focused && !look.disabled) {
-        const int32_t out = kMetrics.focus_inset + kMetrics.focus_ring;
+        const int32_t out = kMetrics.focus_inset;
         ring_corner_rect(
             canvas, grown(rect, out), radius + out, kMetrics.focus_ring, colour::focus
         );

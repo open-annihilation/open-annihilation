@@ -473,17 +473,16 @@ void a_selectable_pill_shows_its_states() {
     expect(outlined, 10, 16, kit::colour::control_hover);
     expect(outlined, 30, 16, kit::colour::list_selected);
 
-    // The focus ring stands two points clear of the pill, two points thick.
+    // The focus ring stands a point clear of the pill, a point thick.
     kit::PillLook focused = hovered;
     focused.focused = true;
     renderer::Surface both = black(60, 32);
     kit::draw_pill(canvas_on(both), pill, focused);
     expect(both, 10, 16, kit::colour::accent_light);
-    expect(both, 8, 16, kBlack);
-    expect(both, 7, 16, kit::colour::focus);
-    expect(both, 6, 16, kit::colour::focus);
-    expect(both, 5, 16, kBlack);
-    expect(both, 30, 6, kit::colour::focus);
+    expect(both, 9, 16, kBlack);
+    expect(both, 8, 16, kit::colour::focus);
+    expect(both, 7, 16, kBlack);
+    expect(both, 30, 8, kit::colour::focus);
     expect(both, 30, 16, kit::colour::accent_light);
 
     kit::PillLook idle_focus{"", kit::PillState::inactive};
@@ -491,7 +490,7 @@ void a_selectable_pill_shows_its_states() {
     renderer::Surface focus = black(60, 32);
     kit::draw_pill(canvas_on(focus), pill, idle_focus);
     expect(focus, 10, 16, kit::colour::list_selected);
-    expect(focus, 7, 16, kit::colour::focus);
+    expect(focus, 8, 16, kit::colour::focus);
     expect(focus, 30, 16, kit::colour::list_selected);
 
     kit::PillLook off{"GET", kit::PillState::active};
@@ -501,7 +500,7 @@ void a_selectable_pill_shows_its_states() {
     renderer::Surface disabled = black(60, 32);
     kit::draw_pill(canvas_on(disabled), pill, off);
     expect(disabled, 10, 16, kit::colour::hover);
-    expect(disabled, 7, 16, kBlack);
+    expect(disabled, 8, 16, kBlack);
     // The word sits in the middle; the ground is the capsule beside it.
     expect(disabled, 18, 16, kit::colour::hover);
     renderer::Surface enabled = black(60, 32);

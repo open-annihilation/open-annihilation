@@ -581,11 +581,14 @@ the carousel slides flat and the call to action holds a steady ring.
   the controls 0.7.3 has, and Regular's and Large's differ from them only
   in the sizes the design's table gives the classes, and in the first-run
   language card and the carousel's step (`ui-kit-theme`).
-- One focus ring: focus_ring (2) points of the light accent, focus_inset
-  (2) points clear of its control, its corners rounded as the control's
-  are and that much rounder; a control drawn with the ring on its own
-  edge (a nav entry, an open menu's item, a keycap) keeps the ring inside
-  it.
+- One focus ring: focus_ring (1) point of the light accent, its outside
+  focus_inset (2) points out from its control, so a point clear of the
+  control stays between them, its corners rounded as the control's are
+  and that much rounder; a control drawn with the ring on its own edge (a
+  nav entry, an open menu's item, a keycap) keeps the ring inside it.
+  Kit 2's design draws the ring two points thick and two points clear;
+  the screens keep two points round a control, and clip a row's ring
+  there, so the kit's ring keeps to them until a screen keeps four.
 - Shapes: buttons, fields, drop-downs, level strips, list rows, nav
   entries and the focus ring take the control radius of their height;
   cards and hover cards the card radius; chips, pills, switches, the
