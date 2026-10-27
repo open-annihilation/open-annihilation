@@ -4,7 +4,7 @@
 // Keycaps, chord chips, keyboard and mouse pictures, and the hold ring.
 // Shapes are coverage at the canvas's own pixels, not pictures or one-bit
 // marks. Labels are the caller's. The add form's caption is the look's,
-// or "+ ADD KEY" when the look leaves it empty.
+// or "+ Add key" when the look leaves it empty.
 
 #include "oa/ui/kit/keys.hpp"
 
@@ -22,7 +22,7 @@ namespace oa::ui::kit {
 namespace {
 
 /// The add form's caption when the look does not name one.
-constexpr std::string_view kAddCaption = "+ ADD KEY";
+constexpr std::string_view kAddCaption = "+ Add key";
 
 /// The add form's caption: the look's words, or the English default.
 ///

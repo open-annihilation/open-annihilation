@@ -3,9 +3,11 @@
 
 // Provisional: this header changes whenever OA's screens need it to, until the kit is declared stable (src/ui/kit/README.md).
 
-// The OA UI kit's colours, its type, spacing and shape scales, and the
-// metrics of its three size classes, Compact, Regular and Large, worked out
-// from those scales. One point is one pixel of the 640 by 480 picture.
+// The OA UI kit's colours, Kit 2's type, spacing and shape scales, and the
+// metrics of its three size classes, Compact, Regular and Large: each
+// class's steps on those scales, and the sizes the screens are laid out
+// with until they move to Kit 2's. One point is one pixel of the 640 by 480
+// picture.
 #pragma once
 
 #include <algorithm>
@@ -183,8 +185,8 @@ inline constexpr Colour panel = colour::hover;
 inline constexpr Colour line = colour::control_border;
 /// Text: the dialog's text.
 inline constexpr Colour text = colour::text;
-/// Secondary text.
-inline constexpr Colour dim = colour::text_secondary;
+/// Quieter text: the dialog's tertiary text.
+inline constexpr Colour dim = colour::text_tertiary;
 /// The main button, found and done.
 inline constexpr Colour green = colour::accent;
 /// Warnings: the dialog's lock.
@@ -258,15 +260,15 @@ enum class TextLevel : uint8_t {
     small, ///< an aside, a count, an eyebrow
 };
 
-/// A size class's metrics, in points: its type and spacing scales, its
-/// shapes' radii, the sizes of its controls, and the settings dialog's, its
-/// notices' and its prompts' sizes. Each class's are worked out from its
-/// spacing base (space) and its control height (button_height): the
-/// padding is three spaces, rows are a space and a half apart and sections
-/// three spaces. The header and the footer are the same in every class and
-/// hold every class's buttons, and the sizes the type scale does not touch
-/// (the game font's lines, the slider, the drop-down's items) are Compact's
-/// in every class.
+/// A size class's metrics, in points. Kit 2's sizes come first: the type
+/// and spacing scales, the shapes' radii, the focus ring and the controls'
+/// sizes, each class's own and worked out from its spacing base (space):
+/// the window padding is three spaces, rows are a space and a half apart
+/// and sections three spaces. The members after them are the sizes the
+/// screens are laid out with until each moves to Kit 2's: the settings
+/// dialog's, its notices' and its prompts', 0.7.3's at Compact, with
+/// Regular and Large giving the dialog, its notices and its prompts more
+/// room and keeping every other size Compact's.
 struct Metrics {
     /// A title's size in the modern look: a window's or a page's title.
     int32_t title_size{};
@@ -294,6 +296,28 @@ struct Metrics {
     int32_t dialog_radius{};
     /// The keyboard focus ring's thickness, drawn focus_inset clear of its control.
     int32_t focus_ring{};
+    /// Kit 2's control height: a button, a drop-down, a segmented strip.
+    int32_t control_height{};
+    /// Kit 2's list row height.
+    int32_t row_height{};
+    /// Kit 2's text field height.
+    int32_t text_field_height{};
+    /// Kit 2's filter chip height: a pill on its own that turns a filter on and off.
+    int32_t filter_chip_height{};
+    /// Kit 2's tab strip height.
+    int32_t tab_strip_height{};
+    /// Kit 2's window padding: three spaces.
+    int32_t window_padding{};
+    /// Kit 2's window header height: the title band, holding a Compact control.
+    int32_t window_header_height{};
+    /// Kit 2's window footer height: the button band, holding every class's controls.
+    int32_t window_footer_height{};
+    /// A switch track's width: a pill with a round knob, at its area's right.
+    int32_t switch_track_width{};
+    /// A switch track's height, where its area gives it the room.
+    int32_t switch_height{};
+    /// A status badge's height: a rounded word on a tinted fill.
+    int32_t badge_height{};
     /// The raised edge's width.
     int32_t edge{};
     /// The header's height, under the top edge.
@@ -312,7 +336,7 @@ struct Metrics {
     int32_t header_gap{};
     /// Extra columns after each glyph of a heading.
     int32_t heading_tracking{};
-    /// A button's height: the control height of the class.
+    /// A footer button's height.
     int32_t button_height{};
     /// OK's and Cancel's width.
     int32_t button_width{};
@@ -324,10 +348,8 @@ struct Metrics {
     int32_t small_line{};
     /// A line's height in the regular font.
     int32_t regular_line{};
-    /// An Off/On switch's width: its track, a pill with a round knob.
+    /// An Off/On switch's area's width: its track lies at the area's right.
     int32_t switch_width{};
-    /// An Off/On switch's height, where its row gives it the room.
-    int32_t switch_height{};
     /// A slider knob's width.
     int32_t knob_width{};
     /// A slider knob's height.
@@ -396,16 +418,12 @@ struct Metrics {
     int32_t badge_dash{};
     /// The space between a blank badge's dashes.
     int32_t badge_dash_gap{};
-    /// A chip's height on a line of text: a row's chip and its tags, and a pill.
+    /// A chip's height: a row's chip and its tags, and a pill.
     int32_t chip_height{};
     /// The columns between a chip's edges and its text.
     int32_t chip_padding{};
     /// The columns between two chips side by side.
     int32_t chip_gap{};
-    /// A filter chip's height: a pill on its own that turns a filter on and off.
-    int32_t filter_chip_height{};
-    /// A status badge's height: a rounded word on a tinted fill.
-    int32_t badge_height{};
     /// A state icon's side: a chip that shows one is this square.
     int32_t state_icon_side{};
     /// A strip of tabs' height.
@@ -522,8 +540,8 @@ struct Metrics {
     friend constexpr bool operator==(const Metrics&, const Metrics&) = default;
 };
 
-/// One size class's steps on the scales: its type sizes, its spacing base,
-/// its radii and its control sizes.
+/// One size class's steps on Kit 2's scales: its type sizes, its spacing
+/// base, its radii and its controls' sizes.
 struct ClassScale {
     int32_t title_size{};         ///< a title's size
     int32_t label_size{};         ///< a label's size
@@ -535,23 +553,23 @@ struct ClassScale {
     int32_t card_radius{};        ///< a card's radius
     int32_t window_radius{};      ///< a window's radius
     int32_t dialog_radius{};      ///< a dialog's radius
-    int32_t button_height{};      ///< the control height
-    int32_t list_row_height{};    ///< a list row's height
-    int32_t field_height{};       ///< a text field's height
+    int32_t control_height{};     ///< the control height
+    int32_t row_height{};         ///< a list row's height
+    int32_t text_field_height{};  ///< a text field's height
     int32_t filter_chip_height{}; ///< a filter chip's height
-    int32_t tab_height{};         ///< a strip of tabs' height
+    int32_t tab_strip_height{};   ///< a tab strip's height
 };
 
-/// Compact's steps on the scales.
+/// Compact's steps on Kit 2's scales.
 inline constexpr ClassScale compact_scale{17, 14, 13, 12, 4, 5, 6, 8, 10, 12, 28, 36, 30, 24, 32};
-/// Regular's steps on the scales.
+/// Regular's steps on Kit 2's scales.
 inline constexpr ClassScale regular_scale{20, 15, 14, 12, 6, 6, 7, 9, 11, 13, 34, 40, 36, 26, 38};
-/// Large's steps on the scales.
+/// Large's steps on Kit 2's scales.
 inline constexpr ClassScale large_scale{24, 16, 15, 13, 8, 6, 8, 10, 12, 14, 38, 44, 40, 28, 44};
 
-/// Returns metrics with a class's steps on the scales and what follows
-/// from them: the padding three spaces, rows a space and a half apart and
-/// sections three spaces apart.
+/// Returns metrics with a class's steps on Kit 2's scales and what follows
+/// from them: the window padding three spaces, rows a space and a half
+/// apart and sections three spaces apart. The screens' own sizes are kept.
 ///
 /// @param base the metrics whose other sizes are kept
 /// @param scale the class's steps
@@ -564,143 +582,151 @@ inline constexpr ClassScale large_scale{24, 16, 15, 13, 8, 6, 8, 10, 12, 14, 38,
     base.space = scale.space;
     base.row_gap = scale.space * 3 / 2;
     base.section_gap = scale.space * 3;
-    base.padding = scale.space * 3;
+    base.window_padding = scale.space * 3;
     base.keycap_radius = scale.keycap_radius;
     base.control_radius = scale.control_radius;
     base.card_radius = scale.card_radius;
     base.window_radius = scale.window_radius;
     base.dialog_radius = scale.dialog_radius;
-    base.button_height = scale.button_height;
-    base.list_row_height = scale.list_row_height;
-    base.field_height = scale.field_height;
+    base.control_height = scale.control_height;
+    base.row_height = scale.row_height;
+    base.text_field_height = scale.text_field_height;
     base.filter_chip_height = scale.filter_chip_height;
-    base.tab_height = scale.tab_height;
+    base.tab_strip_height = scale.tab_strip_height;
     return base;
 }
 
-/// The sizes every class shares, before a class's steps are applied.
-inline constexpr Metrics shared_metrics{
-    .focus_ring = 2,
-    .edge = 1,
-    .header_height = 36,
-    .footer_height = 48,
-    .mark_top = 9,
-    .mark_side = 20,
-    .mark_square = 13,
-    .header_gap = 6,
-    .heading_tracking = 1,
-    .button_width = 60,
-    .button_gap = 8,
-    .focus_inset = 2,
-    .small_line = 12,
-    .regular_line = 16,
-    .switch_width = 42,
-    .switch_height = 24,
-    .knob_width = 7,
-    .knob_height = 12,
-    .track_height = 4,
-    .track_offset = 4,
-    .stop_height = 2,
-    .stop_offset = 12,
-    .least_stop_spacing = 4,
-    .choice_text_inset = 6,
-    .choice_arrow_room = 16,
-    .choice_arrow_width = 7,
-    .choice_arrow_height = 4,
-    .choice_item_height = 16,
-    .most_shown_choices = 8,
-    .choice_item_text_inset = 12,
-    .padlock_width = 5,
-    .padlock_height = 7,
-    .padlock_gap = 3,
-    .scroll_thumb_width = 5,
-    .least_thumb_height = 16,
-    .button_icon_inset = 3,
-    .button_icon_press = 1,
-    .button_square_numerator = 20,
-    .button_square_denominator = 32,
-    .large_mark_margin = 2,
-    .list_row_badge = 28,
-    .short_list_row_height = 28,
-    .list_row_inset = 4,
-    .list_row_title_top = 1,
-    .list_row_line_top = 15,
-    .list_row_gap = 6,
-    .hairline = 1,
-    .badge_dash = 2,
-    .badge_dash_gap = 1,
-    .chip_height = 12,
-    .chip_padding = 4,
-    .chip_gap = 4,
-    .badge_height = 22,
-    .state_icon_side = 14,
-    .tab_padding = 10,
-    .tab_tracking = 1,
-    .tab_rule = 2,
-    .tab_count_height = 12,
-    .tab_count_padding = 3,
-    .tab_count_gap = 4,
-    .field_inset = 8,
-    .magnifier_side = 7,
-    .caret_width = 1,
-    .card_least_width = 120,
-    .card_gap = 6,
-    .card_inset = 4,
-    .hover_card_padding = 6,
-    .hover_card_arrow = 5,
-    .text_top = 48,
-    .paragraph_gap = 6,
-    .text_bottom_gap = 10,
-    .open_width = 96,
-    .prompt_button_padding = 24,
-    .progress_bar_height = 8,
-    .row_padding = 8,
-    .label_gap = 8,
-    .hint_gap = 2,
-    .tall_hint_line_gap = 3,
-    .most_hint_lines = 2,
-    .most_notice_lines = 4,
-    .slider_gap = 4,
-    .slider_line_height = 14,
-    .slider_value_width = 110,
-    .slider_value_gap = 10,
-    .lock_width = 148,
-    .choice_width = 200,
-    .wide_choice_width = 248,
-    .button_row_width = 76,
-    .folder_button_widths = {46, 82, 44},
-    .folder_button_gap = 4,
-};
+/// Compact metrics: Kit 2's Compact steps (controls 28 points high, list
+/// rows 36, text fields 30, filter chips 24, tab strips 32), and the
+/// settings dialog's sizes at 0.7.3, exactly, with the sizes of the
+/// controls it does not have.
+inline constexpr Metrics compact_metrics = scaled(
+    Metrics{
+        .focus_ring = 2,
+        .window_header_height = 36,
+        .window_footer_height = 48,
+        .switch_track_width = 42,
+        .switch_height = 24,
+        .badge_height = 22,
+        .edge = 1,
+        .header_height = 26,
+        .footer_height = 32,
+        .padding = 12,
+        .mark_top = 4,
+        .mark_side = 20,
+        .mark_square = 13,
+        .header_gap = 6,
+        .heading_tracking = 1,
+        .button_height = 17,
+        .button_width = 52,
+        .button_gap = 5,
+        .focus_inset = 2,
+        .small_line = 12,
+        .regular_line = 16,
+        .switch_width = 52,
+        .knob_width = 7,
+        .knob_height = 12,
+        .track_height = 4,
+        .track_offset = 4,
+        .stop_height = 2,
+        .stop_offset = 12,
+        .least_stop_spacing = 4,
+        .choice_text_inset = 6,
+        .choice_arrow_room = 16,
+        .choice_arrow_width = 7,
+        .choice_arrow_height = 4,
+        .choice_item_height = 16,
+        .most_shown_choices = 8,
+        .choice_item_text_inset = 12,
+        .padlock_width = 5,
+        .padlock_height = 7,
+        .padlock_gap = 3,
+        .scroll_thumb_width = 5,
+        .least_thumb_height = 16,
+        .button_icon_inset = 3,
+        .button_icon_press = 1,
+        .button_square_numerator = 20,
+        .button_square_denominator = 32,
+        .large_mark_margin = 2,
+        .list_row_height = 36,
+        .list_row_badge = 28,
+        .short_list_row_height = 28,
+        .list_row_inset = 4,
+        .list_row_title_top = 1,
+        .list_row_line_top = 15,
+        .list_row_gap = 6,
+        .hairline = 1,
+        .badge_dash = 2,
+        .badge_dash_gap = 1,
+        .chip_height = 12,
+        .chip_padding = 4,
+        .chip_gap = 4,
+        .state_icon_side = 14,
+        .tab_height = 18,
+        .tab_padding = 10,
+        .tab_tracking = 1,
+        .tab_rule = 2,
+        .tab_count_height = 12,
+        .tab_count_padding = 3,
+        .tab_count_gap = 4,
+        .field_height = 16,
+        .field_inset = 4,
+        .magnifier_side = 7,
+        .caret_width = 1,
+        .card_least_width = 120,
+        .card_gap = 6,
+        .card_inset = 4,
+        .hover_card_padding = 6,
+        .hover_card_arrow = 5,
+        .text_top = 38,
+        .paragraph_gap = 6,
+        .text_bottom_gap = 10,
+        .open_width = 96,
+        .prompt_button_padding = 16,
+        .progress_bar_height = 8,
+        .row_padding = 8,
+        .label_gap = 8,
+        .hint_gap = 2,
+        .tall_hint_line_gap = 3,
+        .most_hint_lines = 2,
+        .most_notice_lines = 4,
+        .slider_gap = 4,
+        .slider_line_height = 14,
+        .slider_value_width = 110,
+        .slider_value_gap = 10,
+        .lock_width = 148,
+        .choice_width = 200,
+        .wide_choice_width = 248,
+        .button_row_width = 76,
+        .folder_button_widths = {46, 82, 44},
+        .folder_button_gap = 4,
+        .dialog_width = 480,
+        .dialog_height = 324,
+        .nav_width = 144,
+        .hint_line_characters = 50,
+        .notice_width = 400,
+        .least_notice_height = 150,
+        .greatest_notice_height = 440,
+        .language_card_width = 139,
+        .language_card_height = 182,
+        .carousel_step = 132,
+    },
+    compact_scale
+);
 
-/// Compact metrics: a settings dialog of 480 by 324 points, a nav list 144
-/// points wide, 50 characters to a host's line under a row, and notices and
-/// prompts 400 points wide and at most 440 tall; controls 28 points high,
-/// list rows 36, text fields 30, filter chips 24 and tab strips 32.
-inline constexpr Metrics compact_metrics = [] {
-    Metrics sized = scaled(shared_metrics, compact_scale);
-    sized.dialog_width = 480;
-    sized.dialog_height = 324;
-    sized.nav_width = 144;
-    sized.hint_line_characters = 50;
-    sized.notice_width = 400;
-    sized.least_notice_height = 150;
-    sized.greatest_notice_height = 440;
-    sized.language_card_width = 139;
-    sized.language_card_height = 182;
-    sized.carousel_step = 132;
-    return sized;
-}();
-
-/// Regular metrics: a settings dialog of 720 by 486 points, a nav list 176
-/// points wide, 82 characters to a host's line under a row, and notices and
-/// prompts 520 points wide and at most 500 tall; controls 34 points high,
-/// list rows 40, text fields 36, filter chips 26 and tab strips 38. The
+/// Regular metrics: Kit 2's Regular steps (controls 34 points high, list
+/// rows 40, text fields 36, filter chips 26, tab strips 38), and Compact's
+/// sizes with a settings dialog of 720 by 486 points, 16 points of padding,
+/// a nav list 176 points wide, 82 characters to a host's line under a row,
+/// and notices and prompts 520 points wide and at most 500 tall. The
 /// language card is 186 by 244, the design's card at four fifths, and the
-/// carousel steps 177 points.
+/// carousel steps 177 points. Rows, text and the other controls keep
+/// Compact's sizes, so the dialog shows more of them.
 inline constexpr Metrics regular_metrics = [] {
     Metrics sized = scaled(compact_metrics, regular_scale);
     sized.dialog_width = 720;
     sized.dialog_height = 486;
+    sized.padding = 16;
     sized.nav_width = 176;
     sized.hint_line_characters = 82;
     sized.notice_width = 520;
@@ -711,16 +737,19 @@ inline constexpr Metrics regular_metrics = [] {
     return sized;
 }();
 
-/// Large metrics: a settings dialog of 960 by 600 points, a nav list 208
-/// points wide, 114 characters to a host's line under a row, and notices
-/// and prompts 600 points wide and at most 640 tall; controls 38 points
-/// high, list rows 44, text fields 40, filter chips 28 and tab strips 44.
-/// The language card is 232 by 304, the design's card, and the carousel
-/// steps 236 points, the design's step.
+/// Large metrics: Kit 2's Large steps (controls 38 points high, list rows
+/// 44, text fields 40, filter chips 28, tab strips 44), and Compact's sizes
+/// with a settings dialog of 960 by 600 points, 20 points of padding, a nav
+/// list 208 points wide, 114 characters to a host's line under a row, and
+/// notices and prompts 600 points wide and at most 640 tall. The language
+/// card is 232 by 304, the design's card, and the carousel steps 236
+/// points, the design's step. Rows, text and the other controls keep
+/// Compact's sizes.
 inline constexpr Metrics large_metrics = [] {
     Metrics sized = scaled(compact_metrics, large_scale);
     sized.dialog_width = 960;
     sized.dialog_height = 600;
+    sized.padding = 20;
     sized.nav_width = 208;
     sized.hint_line_characters = 114;
     sized.notice_width = 600;
@@ -738,14 +767,14 @@ inline constexpr Metrics large_metrics = [] {
 /// @param height the control's height, in points
 /// @return the radius, in points
 [[nodiscard]] constexpr int32_t control_radius_for(int32_t height) noexcept {
-    if (height >= large_metrics.button_height)
+    if (height >= large_metrics.control_height)
         return large_metrics.control_radius;
-    if (height >= regular_metrics.button_height)
+    if (height >= regular_metrics.control_height)
         return regular_metrics.control_radius;
-    if (height >= compact_metrics.button_height)
+    if (height >= compact_metrics.control_height)
         return compact_metrics.control_radius;
     return std::max(
-        height * compact_metrics.control_radius / compact_metrics.button_height, int32_t{2}
+        height * compact_metrics.control_radius / compact_metrics.control_height, int32_t{2}
     );
 }
 

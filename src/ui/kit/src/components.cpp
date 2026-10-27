@@ -1607,7 +1607,7 @@ ButtonMarkParts button_mark_parts(const Rect& area) noexcept {
 }
 
 Rect switch_track(const Rect& area) noexcept {
-    const int32_t width = std::min(area.width, compact_metrics.switch_width);
+    const int32_t width = std::min(area.width, compact_metrics.switch_track_width);
     const int32_t height = std::min(area.height, compact_metrics.switch_height);
     return {area.x + area.width - width, area.y + (area.height - height) / 2, width, height};
 }
@@ -1863,11 +1863,7 @@ void draw_choice_menu(const Canvas& canvas, const Rect& menu, const ChoiceMenuLo
     if (!drawable(canvas))
         return;
     draw_rounded_ground(
-        canvas,
-        menu,
-        control_radius_for(compact_metrics.button_height),
-        colour::list,
-        colour::control_hover
+        canvas, menu, compact_metrics.control_radius, colour::list, colour::control_hover
     );
     const int32_t count = static_cast<int32_t>(look.shown.size());
     for (int32_t place = 0; place < count; ++place) {

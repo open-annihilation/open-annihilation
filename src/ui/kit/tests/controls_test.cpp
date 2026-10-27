@@ -736,37 +736,37 @@ void a_search_field_shows_its_placeholder_and_magnifier() {
     renderer::Surface surface = black(140, 40);
     const kit::Rect rect{10, 10, 120, kit::compact_metrics.field_height};
     kit::draw_search(canvas_on(surface), rect, look);
-    // A 30-point field's corners are 6 points round.
+    // A 16-point field's corners are 3 points round.
     expect(surface, 10, 10, kBlack);
     expect(surface, 70, 10, kit::colour::control_border);
-    expect(surface, 11, 25, kit::colour::well);
-    // The magnifier 8 points in, centred down the field.
-    expect(surface, 18, 21, kit::colour::well);
-    expect(surface, 19, 21, kit::colour::hint);
-    expect(surface, 22, 22, kit::colour::hint);
-    expect(surface, 24, 27, kit::colour::hint);
+    expect(surface, 11, 18, kit::colour::well);
+    // The magnifier 4 points in, centred down the field.
+    expect(surface, 14, 14, kit::colour::well);
+    expect(surface, 15, 14, kit::colour::hint);
+    expect(surface, 18, 15, kit::colour::hint);
+    expect(surface, 20, 20, kit::colour::hint);
     // The placeholder after the mark.
     const kit::Rect text = kit::field_text_rect(rect, look);
-    OA_CHECK(text.x == 33 && text.y == 10 && text.width == 89 && text.height == 30);
-    expect(surface, 33, 20, kit::colour::hint);
+    OA_CHECK(text.x == 25 && text.y == 10 && text.width == 101 && text.height == 16);
+    expect(surface, 25, 13, kit::colour::hint);
 
     look.hovered = true;
     surface = black(140, 40);
     kit::draw_search(canvas_on(surface), rect, look);
     expect(surface, 70, 10, kit::colour::control_hover);
 
-    // The plain text field: no magnifier, the placeholder 8 points in.
+    // The plain text field: no magnifier, the placeholder 4 points in.
     look.magnifier = false;
     look.hovered = false;
     look.placeholder.clear();
     surface = black(140, 40);
     kit::draw_search(canvas_on(surface), rect, look);
-    OA_CHECK(kit::field_text_rect(rect, look).x == 18);
-    expect(surface, 19, 21, kit::colour::well);
-    expect(surface, 24, 27, kit::colour::well);
+    OA_CHECK(kit::field_text_rect(rect, look).x == 14);
+    expect(surface, 15, 14, kit::colour::well);
+    expect(surface, 20, 20, kit::colour::well);
     look.placeholder = "Search mods";
     kit::draw_search(canvas_on(surface), rect, look);
-    expect(surface, 18, 20, kit::colour::hint);
+    expect(surface, 14, 13, kit::colour::hint);
 }
 
 void a_focused_field_shows_its_text_and_caret() {
@@ -784,20 +784,20 @@ void a_focused_field_shows_its_text_and_caret() {
     expect(surface, 70, 7, kBlack);
     expect(surface, 10, 10, kit::colour::field_ring);
     // r's first column is empty; its second is set.
-    expect(surface, 33, 13, kit::colour::well);
-    expect(surface, 34, 13, kit::colour::text);
+    expect(surface, 25, 13, kit::colour::well);
+    expect(surface, 26, 13, kit::colour::text);
     // The caret after the 17 columns of "ridge", over the capitals' 8 rows.
-    expect(surface, 50, 13, kit::colour::well);
-    expect(surface, 50, 14, kit::colour::text);
-    expect(surface, 50, 21, kit::colour::text);
-    expect(surface, 50, 22, kit::colour::well);
-    expect(surface, 51, 14, kit::colour::well);
+    expect(surface, 42, 13, kit::colour::well);
+    expect(surface, 42, 14, kit::colour::text);
+    expect(surface, 42, 21, kit::colour::text);
+    expect(surface, 42, 22, kit::colour::well);
+    expect(surface, 43, 14, kit::colour::well);
 
     // Without the focus there is no caret, and no ring.
     look.focused = false;
     surface = black(140, 40);
     kit::draw_search(canvas_on(surface), rect, look);
-    expect(surface, 50, 14, kit::colour::well);
+    expect(surface, 42, 14, kit::colour::well);
     expect(surface, 70, 9, kBlack);
 
     // Focused on an empty field: the placeholder, and the caret at the start.
@@ -805,8 +805,8 @@ void a_focused_field_shows_its_text_and_caret() {
     look.focused = true;
     surface = black(140, 40);
     kit::draw_search(canvas_on(surface), rect, look);
-    expect(surface, 33, 14, kit::colour::text);
-    expect(surface, 33, 13, kit::colour::hint);
+    expect(surface, 25, 14, kit::colour::text);
+    expect(surface, 25, 13, kit::colour::hint);
 }
 
 void a_long_text_scrolls_so_its_caret_shows() {
@@ -815,15 +815,15 @@ void a_long_text_scrolls_so_its_caret_shows() {
     look.focused = true;
     look.field = {"abcdefghijklmnopqrstuvwxyzabcdefghij", 36};
     const kit::Rect rect{10, 40, 60, 16};
-    // 126 columns of text in 44, less the caret's column: moved 83 left.
-    OA_CHECK(kit::field_scroll(fonts(), rect, look) == 83);
+    // 126 columns of text in 52, less the caret's column: moved 75 left.
+    OA_CHECK(kit::field_scroll(fonts(), rect, look) == 75);
     renderer::Surface surface = black(80, 80);
     kit::draw_search(canvas_on(surface), rect, look);
-    expect(surface, 61, 44, kit::colour::text);
-    expect(surface, 61, 51, kit::colour::text);
+    expect(surface, 65, 44, kit::colour::text);
+    expect(surface, 65, 51, kit::colour::text);
     // Nothing of the text is drawn left of its room.
     for (int32_t y = 43; y < 51; ++y)
-        for (int32_t x = 11; x < 18; ++x)
+        for (int32_t x = 11; x < 14; ++x)
             expect(surface, x, y, kit::colour::well);
 
     look.field.caret = 0;
@@ -844,9 +844,9 @@ void typing_moves_the_caret_drawn() {
     OA_CHECK(look.field.text == "ridXge" && look.field.caret == 4);
     renderer::Surface surface = black(140, 100);
     kit::draw_search(canvas_on(surface), {10, 70, 120, 16}, look);
-    // The caret after "ridX", 11 columns from the text's left at 33.
-    expect(surface, 44, 74, kit::colour::text);
-    expect(surface, 45, 74, kit::colour::well);
+    // The caret after "ridX", 11 columns from the text's left at 25.
+    expect(surface, 36, 74, kit::colour::text);
+    expect(surface, 37, 74, kit::colour::well);
     OA_CHECK(kit::edit_text(look.field, kit::Key::backspace));
     OA_CHECK(look.field.text == "ridge" && look.field.caret == 3);
 }
@@ -861,52 +861,50 @@ void tabs_draw_with_a_count_and_with_none() {
     const std::vector<kit::Rect> rects = kit::tab_rects(fonts(), strip, look);
     OA_CHECK(rects.size() == 3u);
     // MODS is 15 columns and three of tracking, and 10 either side.
-    OA_CHECK(rects[0].x == 10 && rects[0].y == 10 && rects[0].width == 38 && rects[0].height == 32);
+    OA_CHECK(rects[0].x == 10 && rects[0].y == 10 && rects[0].width == 38 && rects[0].height == 18);
     OA_CHECK(rects[1].x == 48 && rects[1].width == 36);
     // UPDATES and its count: 26, 4 apart, and a pill 12 wide.
     OA_CHECK(rects[2].x == 84 && rects[2].width == 62);
 
-    // The 32-point strip: captions centred over the rule, which is its
-    // last two rows, 40 and 41.
-    renderer::Surface surface = black(320, 50);
+    renderer::Surface surface = black(320, 40);
     kit::draw_tabs(canvas_on(surface), strip, look);
     // The selected tab: its caption in the text colour over the accent rule.
-    expect(surface, 20, 20, kit::colour::text);
-    expect(surface, 10, 40, kit::colour::accent);
-    expect(surface, 47, 41, kit::colour::accent);
-    expect(surface, 10, 39, kBlack);
+    expect(surface, 20, 13, kit::colour::text);
+    expect(surface, 10, 26, kit::colour::accent);
+    expect(surface, 47, 27, kit::colour::accent);
+    expect(surface, 10, 25, kBlack);
     // The others: secondary captions over the strip's hairline.
-    expect(surface, 58, 20, kit::colour::text_secondary);
-    expect(surface, 50, 41, kit::colour::rule);
-    expect(surface, 50, 40, kBlack);
-    expect(surface, 94, 20, kit::colour::text_secondary);
-    expect(surface, 300, 41, kit::colour::rule);
+    expect(surface, 58, 13, kit::colour::text_secondary);
+    expect(surface, 50, 27, kit::colour::rule);
+    expect(surface, 50, 26, kBlack);
+    expect(surface, 94, 13, kit::colour::text_secondary);
+    expect(surface, 300, 27, kit::colour::rule);
     // The count: a pill of the lock colour with its digit in on_accent.
-    expect(surface, 124, 19, kBlack);
-    expect(surface, 130, 19, kit::colour::lock);
-    expect(surface, 130, 30, kit::colour::lock);
-    expect(surface, 128, 20, kit::colour::on_accent);
-    expect(surface, 123, 19, kBlack);
+    expect(surface, 124, 12, kBlack);
+    expect(surface, 130, 12, kit::colour::lock);
+    expect(surface, 130, 23, kit::colour::lock);
+    expect(surface, 128, 13, kit::colour::on_accent);
+    expect(surface, 123, 12, kBlack);
 
     // Hovered, a tab's caption is in the text colour.
     look.hovered = 1;
-    surface = black(320, 50);
+    surface = black(320, 40);
     kit::draw_tabs(canvas_on(surface), strip, look);
-    expect(surface, 58, 20, kit::colour::text);
-    expect(surface, 94, 20, kit::colour::text_secondary);
+    expect(surface, 58, 13, kit::colour::text);
+    expect(surface, 94, 13, kit::colour::text_secondary);
 
     // No count draws no pill; a count of 0 none either.
     look.counts = {};
     look.selected = 2;
     look.hovered.reset();
     OA_CHECK(kit::tab_rects(fonts(), strip, look)[2].width == 46);
-    surface = black(320, 50);
+    surface = black(320, 40);
     kit::draw_tabs(canvas_on(surface), strip, look);
-    expect(surface, 130, 19, kBlack);
-    expect(surface, 84, 40, kit::colour::accent);
-    expect(surface, 129, 41, kit::colour::accent);
-    expect(surface, 130, 41, kit::colour::rule);
-    expect(surface, 20, 20, kit::colour::text_secondary);
+    expect(surface, 130, 12, kBlack);
+    expect(surface, 84, 26, kit::colour::accent);
+    expect(surface, 129, 27, kit::colour::accent);
+    expect(surface, 130, 27, kit::colour::rule);
+    expect(surface, 20, 13, kit::colour::text_secondary);
 }
 
 /// Words draw a count of 0, skip a negative count, and read the look's text.

@@ -97,7 +97,7 @@ void add_keycap(
 [[nodiscard]] int32_t chord_chip_width(const Fonts& fonts, const ChordChipLook& look);
 
 /// Draws a chord chip. Keycaps are joined by "+" with the gesture word
-/// after them. The add form is a dashed "+ ADD KEY" with its caption in
+/// after them. The add form is a dashed "+ Add key" with its caption in
 /// none_text. none_text alone is the quiet unbound text. A mark is drawn
 /// on the last keycap. Nothing is drawn outside the rectangle.
 ///

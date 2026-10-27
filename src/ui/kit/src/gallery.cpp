@@ -659,12 +659,12 @@ int32_t tabs(Builder& b, Point at, int32_t width, std::string_view word) {
 }
 
 /// Buttons: a working button and link, the six looks, then a button and a
-/// link in each state.
+/// link in each state, at Kit 2's Compact control height.
 int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view word) {
     const GalleryModel& model = *b.model;
     int32_t top = at.y;
     {
-        const Rect button{at.x, top, kButtonWidth, kMetrics.button_height};
+        const Rect button{at.x, top, kButtonWidth, kMetrics.control_height};
         const bool over = model.interaction.hovered == kButton;
         const std::size_t part_at = b.list.items.size();
         add_button(
@@ -678,7 +678,7 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
         );
         show_working(b, part_at, kButton, button);
         b.order.push_back(kButton);
-        const Rect count{button.x + button.width + kCellGap, top, 96, kMetrics.button_height};
+        const Rect count{button.x + button.width + kCellGap, top, 96, kMetrics.control_height};
         add_words(
             b.list,
             count,
@@ -692,7 +692,7 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
         link.hovered = pointer_on(model, kLink);
         const Rect link_rect{
             count.x + count.width + kCellGap,
-            top + (kMetrics.button_height - kMetrics.small_line) / 2,
+            top + (kMetrics.control_height - kMetrics.small_line) / 2,
             link_width(*b.fonts, link),
             kMetrics.small_line
         };
@@ -700,7 +700,7 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
         add_link(b.list, link_rect, link, kLink, named(word, 2));
         show_working(b, link_at, kLink, link_rect);
         b.order.push_back(kLink);
-        top += kMetrics.button_height + kLineGap;
+        top += kMetrics.control_height + kLineGap;
     }
     // The six looks, at rest.
     constexpr std::array<std::string_view, 6> kLooks{
@@ -721,7 +721,7 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
                b.list,
                {at.x, top},
                width,
-               {kButtonWidth, kMetrics.button_height},
+               {kButtonWidth, kMetrics.control_height},
                kLooks,
                [&](const Rect& rect, std::size_t place) {
                    add_fixed(b.list, rect, {}, Sample::idle, false, [&] {
@@ -739,7 +739,7 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
                b.list,
                {at.x, top},
                width,
-               {kButtonWidth, kMetrics.button_height},
+               {kButtonWidth, kMetrics.control_height},
                kFiveStates,
                [&](const Rect& rect, Sample shown) {
                    add_fixed(b.list, rect, rect, shown, false, [&] {
@@ -766,7 +766,7 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
                b.list,
                {at.x, top},
                width,
-               {kMetrics.button_height, kMetrics.button_height},
+               {kMetrics.control_height, kMetrics.control_height},
                kFiveStates,
                [&](const Rect& rect, Sample shown) {
                    add_fixed(b.list, rect, rect, shown, false, [&] {

@@ -1036,11 +1036,10 @@ void geometry_matches_the_start_commit() {
     OA_CHECK(high.x == 200 && high.y == 96 && high.width == 200 && high.height == 98);
     const kit::Rect low = kit::choice_menu({200, 250, 200, 16}, 12);
     OA_CHECK(low.x == 200 && low.y == 120 && low.width == 200 && low.height == 130);
-    // A menu over its field stops under the 36-point header and its rule.
     const kit::Rect clamped = kit::choice_menu({200, 150, 200, 16}, 12);
-    OA_CHECK(clamped.x == 200 && clamped.y == 38 && clamped.width == 200 && clamped.height == 130);
+    OA_CHECK(clamped.x == 200 && clamped.y == 28 && clamped.width == 200 && clamped.height == 130);
     // A larger dialog's lower footer line leaves room under the field.
-    OA_CHECK(kit::compact_footer_line == 274);
+    OA_CHECK(kit::compact_footer_line == 290);
     const kit::Rect roomy = kit::choice_menu({200, 250, 200, 16}, 12, 452);
     OA_CHECK(roomy.x == 200 && roomy.y == 266 && roomy.width == 200 && roomy.height == 130);
     const kit::Rect deep = kit::choice_menu({200, 400, 200, 16}, 12, 452);

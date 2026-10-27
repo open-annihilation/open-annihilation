@@ -3,10 +3,11 @@
 
 // Every colour token equals the value Kit 2's design gives it, or the value
 // it keeps, written here as hex; the tinted fills are their colour laid over
-// the raised surface. Each class's metrics hold the design's scales (type,
-// spacing, radii and control sizes), every other size follows from them or
-// is the same in every class, and each class's dialog and notices fit the
-// least window of their class.
+// the raised surface. Each class's metrics hold Kit 2's scales (type,
+// spacing, radii and control sizes) and what follows from them, the sizes
+// the screens are laid out with are 0.7.3's at Compact with the design's
+// table of dialog sizes, and each class's dialog and notices fit the least
+// window of their class.
 
 #include "oa/test/check.hpp"
 #include "oa/ui/kit/layout.hpp"
@@ -14,6 +15,7 @@
 #include "oa/ui/kit/theme.hpp"
 
 #include <array>
+#include <cstddef>
 #include <stdint.h>
 
 namespace {
@@ -105,7 +107,24 @@ void every_token_keeps_its_value() {
     OA_CHECK(kit::screen_colour::panel == kit::colour::hover);
     OA_CHECK(kit::screen_colour::line == kit::colour::control_border);
     OA_CHECK(kit::screen_colour::text == kit::colour::text);
-    OA_CHECK(kit::screen_colour::dim == kit::colour::text_secondary);
+    OA_CHECK(kit::screen_colour::dim == kit::colour::text_tertiary);
+    // Each of the screens' tokens has a value of its own, so a layout that
+    // names its colours by token keeps its names.
+    const std::array<kit::Colour, 10> screen{
+        kit::screen_colour::background,
+        kit::screen_colour::panel,
+        kit::screen_colour::line,
+        kit::screen_colour::text,
+        kit::screen_colour::dim,
+        kit::screen_colour::green,
+        kit::screen_colour::amber,
+        kit::screen_colour::red,
+        kit::screen_colour::ink,
+        kit::screen_colour::button_text,
+    };
+    for (std::size_t one = 0; one < screen.size(); ++one)
+        for (std::size_t other = one + 1; other < screen.size(); ++other)
+            OA_CHECK(screen[one] != screen[other]);
     OA_CHECK(kit::screen_colour::green == kit::colour::accent);
     OA_CHECK(kit::screen_colour::amber == kit::colour::lock);
     OA_CHECK(kit::screen_colour::red == kit::colour::danger);
@@ -138,30 +157,39 @@ void every_token_keeps_its_value() {
     OA_CHECK(kit::rgb(with_opacity) == (std::array<uint8_t, 3>{1, 2, 3}));
 }
 
-/// Checks the sizes every class shares: the header, the footer, the focus
-/// ring, the game font's lines, and the sizes the scales do not touch.
+/// Checks the sizes every class shares: Kit 2's focus ring, window bands,
+/// switch and badge, and the sizes the screens are laid out with, 0.7.3's.
 void shared_sizes() {
     for (const kit::Metrics* metrics :
          {&kit::compact_metrics, &kit::regular_metrics, &kit::large_metrics}) {
+        OA_CHECK(metrics->focus_ring == 2);
+        OA_CHECK(metrics->window_header_height == 36);
+        OA_CHECK(metrics->window_footer_height == 48);
+        OA_CHECK(metrics->switch_track_width == 42);
+        OA_CHECK(metrics->switch_height == 24);
+        OA_CHECK(metrics->badge_height == 22);
+        // Kit 2's header holds a Compact control, and its footer every
+        // class's controls, each with at least four points above and below.
+        OA_CHECK(metrics->window_header_height - kit::compact_metrics.control_height >= 8);
+        OA_CHECK(metrics->window_footer_height - kit::large_metrics.control_height >= 8);
+        // The switch's track fits the area the screens give a switch.
+        OA_CHECK(metrics->switch_track_width <= metrics->switch_width);
+
         OA_CHECK(metrics->edge == 1);
-        OA_CHECK(metrics->header_height == 36);
-        OA_CHECK(metrics->footer_height == 48);
+        OA_CHECK(metrics->header_height == 26);
+        OA_CHECK(metrics->footer_height == 32);
+        OA_CHECK(metrics->mark_top == 4);
         OA_CHECK(metrics->mark_side == 20);
-        // The header's mark is centred down the header.
-        OA_CHECK(
-            metrics->mark_top == metrics->edge + (metrics->header_height - metrics->mark_side) / 2
-        );
         OA_CHECK(metrics->mark_square == 13);
         OA_CHECK(metrics->header_gap == 6);
         OA_CHECK(metrics->heading_tracking == 1);
-        OA_CHECK(metrics->button_width == 60);
-        OA_CHECK(metrics->button_gap == 8);
+        OA_CHECK(metrics->button_height == 17);
+        OA_CHECK(metrics->button_width == 52);
+        OA_CHECK(metrics->button_gap == 5);
         OA_CHECK(metrics->focus_inset == 2);
-        OA_CHECK(metrics->focus_ring == 2);
         OA_CHECK(metrics->small_line == 12);
         OA_CHECK(metrics->regular_line == 16);
-        OA_CHECK(metrics->switch_width == 42);
-        OA_CHECK(metrics->switch_height == 24);
+        OA_CHECK(metrics->switch_width == 52);
         OA_CHECK(metrics->knob_width == 7);
         OA_CHECK(metrics->knob_height == 12);
         OA_CHECK(metrics->track_height == 4);
@@ -186,6 +214,7 @@ void shared_sizes() {
         OA_CHECK(metrics->button_square_numerator == 20);
         OA_CHECK(metrics->button_square_denominator == 32);
         OA_CHECK(metrics->large_mark_margin == 2);
+        OA_CHECK(metrics->list_row_height == 36);
         OA_CHECK(metrics->list_row_badge == 28);
         OA_CHECK(metrics->short_list_row_height == 28);
         OA_CHECK(metrics->list_row_inset == 4);
@@ -198,15 +227,16 @@ void shared_sizes() {
         OA_CHECK(metrics->chip_height == 12);
         OA_CHECK(metrics->chip_padding == 4);
         OA_CHECK(metrics->chip_gap == 4);
-        OA_CHECK(metrics->badge_height == 22);
         OA_CHECK(metrics->state_icon_side == 14);
+        OA_CHECK(metrics->tab_height == 18);
         OA_CHECK(metrics->tab_padding == 10);
         OA_CHECK(metrics->tab_tracking == 1);
         OA_CHECK(metrics->tab_rule == 2);
         OA_CHECK(metrics->tab_count_height == 12);
         OA_CHECK(metrics->tab_count_padding == 3);
         OA_CHECK(metrics->tab_count_gap == 4);
-        OA_CHECK(metrics->field_inset == 8);
+        OA_CHECK(metrics->field_height == 16);
+        OA_CHECK(metrics->field_inset == 4);
         OA_CHECK(metrics->magnifier_side == 7);
         OA_CHECK(metrics->caret_width == 1);
         OA_CHECK(metrics->card_least_width == 120);
@@ -214,12 +244,11 @@ void shared_sizes() {
         OA_CHECK(metrics->card_inset == 4);
         OA_CHECK(metrics->hover_card_padding == 6);
         OA_CHECK(metrics->hover_card_arrow == 5);
-        // A notice's text starts under the header, its rule and ten rows more.
-        OA_CHECK(metrics->text_top == metrics->edge + metrics->header_height + 1 + 10);
+        OA_CHECK(metrics->text_top == 38);
         OA_CHECK(metrics->paragraph_gap == 6);
         OA_CHECK(metrics->text_bottom_gap == 10);
         OA_CHECK(metrics->open_width == 96);
-        OA_CHECK(metrics->prompt_button_padding == 24);
+        OA_CHECK(metrics->prompt_button_padding == 16);
         OA_CHECK(metrics->progress_bar_height == 8);
         OA_CHECK(metrics->row_padding == 8);
         OA_CHECK(metrics->label_gap == 8);
@@ -238,10 +267,6 @@ void shared_sizes() {
         OA_CHECK(metrics->folder_button_widths == (std::array<int32_t, 3>{46, 82, 44}));
         OA_CHECK(metrics->folder_button_gap == 4);
         OA_CHECK(metrics->least_notice_height == 150);
-        // The header holds a Compact button, and the footer every class's
-        // buttons, each with at least four points above and below.
-        OA_CHECK(metrics->header_height - kit::compact_metrics.button_height >= 8);
-        OA_CHECK(metrics->footer_height - kit::large_metrics.button_height >= 8);
     }
 }
 
@@ -286,7 +311,7 @@ void each_class_has_its_steps() {
         OA_CHECK(kit::text_size(metrics, kit::TextLevel::body) == steps.body);
         OA_CHECK(kit::text_size(metrics, kit::TextLevel::small) == steps.small);
         OA_CHECK(metrics.space == steps.space);
-        OA_CHECK(metrics.padding == 3 * steps.space);
+        OA_CHECK(metrics.window_padding == 3 * steps.space);
         OA_CHECK(metrics.row_gap == 3 * steps.space / 2);
         OA_CHECK(metrics.section_gap == 3 * steps.space);
         OA_CHECK(metrics.keycap_radius == steps.keycap_radius);
@@ -294,18 +319,18 @@ void each_class_has_its_steps() {
         OA_CHECK(metrics.card_radius == steps.card_radius);
         OA_CHECK(metrics.window_radius == steps.window_radius);
         OA_CHECK(metrics.dialog_radius == steps.dialog_radius);
-        OA_CHECK(metrics.button_height == steps.control);
-        OA_CHECK(metrics.list_row_height == steps.row);
-        OA_CHECK(metrics.field_height == steps.field);
+        OA_CHECK(metrics.control_height == steps.control);
+        OA_CHECK(metrics.row_height == steps.row);
+        OA_CHECK(metrics.text_field_height == steps.field);
         OA_CHECK(metrics.filter_chip_height == steps.chip);
-        OA_CHECK(metrics.tab_height == steps.tabs);
+        OA_CHECK(metrics.tab_strip_height == steps.tabs);
         // A control of the class's height takes the class's radius.
         OA_CHECK(kit::control_radius_for(steps.control) == steps.control_radius);
     }
     // Large's design: rows 12 apart, sections 24, window padding 24.
     OA_CHECK(kit::large_metrics.row_gap == 12);
     OA_CHECK(kit::large_metrics.section_gap == 24);
-    OA_CHECK(kit::large_metrics.padding == 24);
+    OA_CHECK(kit::large_metrics.window_padding == 24);
     // A shorter control keeps Compact's radius in proportion, at least 2.
     OA_CHECK(kit::control_radius_for(17) == 3);
     OA_CHECK(kit::control_radius_for(4) == 2);
@@ -323,6 +348,7 @@ struct ClassSizes {
     const kit::Metrics* metrics{};    ///< the class's metrics
     int32_t dialog_width{};           ///< the settings dialog's width
     int32_t dialog_height{};          ///< the settings dialog's height
+    int32_t padding{};                ///< the settings dialog's padding
     int32_t nav_width{};              ///< the nav list's width
     int32_t hint_line_characters{};   ///< a host's line's characters under a row
     int32_t notice_width{};           ///< a notice's and a prompt's width
@@ -334,9 +360,9 @@ struct ClassSizes {
 /// window is the 640 by 480 picture; Regular's and Large's are the classes'
 /// own (oa/ui/kit/layout.hpp).
 const ClassSizes kClassSizes[] = {
-    {&kit::compact_metrics, 480, 324, 144, 50, 400, 440, {640, 480}},
-    {&kit::regular_metrics, 720, 486, 176, 82, 520, 500, kit::regular_from},
-    {&kit::large_metrics, 960, 600, 208, 114, 600, 640, kit::large_from},
+    {&kit::compact_metrics, 480, 324, 12, 144, 50, 400, 440, {640, 480}},
+    {&kit::regular_metrics, 720, 486, 16, 176, 82, 520, 500, kit::regular_from},
+    {&kit::large_metrics, 960, 600, 20, 208, 114, 600, 640, kit::large_from},
 };
 
 /// Checks each class's metrics against the design's table of sizes, and
@@ -346,6 +372,7 @@ void each_class_has_the_tables_sizes() {
         const kit::Metrics& metrics = *sizes.metrics;
         OA_CHECK(metrics.dialog_width == sizes.dialog_width);
         OA_CHECK(metrics.dialog_height == sizes.dialog_height);
+        OA_CHECK(metrics.padding == sizes.padding);
         OA_CHECK(metrics.nav_width == sizes.nav_width);
         OA_CHECK(metrics.hint_line_characters == sizes.hint_line_characters);
         OA_CHECK(metrics.notice_width == sizes.notice_width);
@@ -367,12 +394,14 @@ void each_class_has_the_tables_sizes() {
 }
 
 /// Checks that Regular and Large differ from Compact only in their steps on
-/// the scales, what follows from them, and the table's sizes.
+/// Kit 2's scales, what follows from them, and the table's sizes: the
+/// screens' rows, text and controls keep Compact's sizes.
 void the_classes_differ_only_in_their_steps() {
     for (const kit::Metrics* metrics : {&kit::regular_metrics, &kit::large_metrics}) {
         kit::Metrics same = kit::scaled(*metrics, kit::compact_scale);
         same.dialog_width = kit::compact_metrics.dialog_width;
         same.dialog_height = kit::compact_metrics.dialog_height;
+        same.padding = kit::compact_metrics.padding;
         same.nav_width = kit::compact_metrics.nav_width;
         same.hint_line_characters = kit::compact_metrics.hint_line_characters;
         same.notice_width = kit::compact_metrics.notice_width;

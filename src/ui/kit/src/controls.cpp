@@ -631,7 +631,7 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
         return;
     // Rounded as a control is: the hover face, then a selected row's accent
     // tint over it and the accent's outline.
-    const int32_t row_radius = control_radius_for(kMetrics.button_height);
+    const int32_t row_radius = kMetrics.control_radius;
     if (look.hovered)
         fill_corner_rect(canvas, rect, row_radius, colour::hover);
     if (look.selected) {

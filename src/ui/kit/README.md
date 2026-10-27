@@ -42,29 +42,34 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
     focused field's soft ring (`field_ring`); and the keys' category tints,
     kept. The Game files screen's and the folder chooser's tokens
     (`screen_colour`) are the dialog's: the raised surface behind, the
-    hover surface for cards, and the dialog's text, line, lime, amber, red
-    and ink. The touch controls keep their own (`hud_colour`).
+    hover surface for cards, and the dialog's text, tertiary text, line,
+    lime, amber, red, ink and button text, each a value of its own. The touch controls keep their own (`hud_colour`).
   - The type scale (`TextLevel`: title, label, body and small) and its
     sizes in each class (`Metrics::title_size` and the rest,
     `text_size`): the modern look draws a level at its class's size; the
     classic look, the game's bitmap fonts at their two sizes, draws a
     title and a label in the regular font and body and small text in the
     small one (`classic_font`, in `text.hpp`).
-  - The spacing scale: a base of 4, 6 and 8 points (`space`), the padding
-    three of it, rows a space and a half apart (`row_gap`) and sections
-    three apart (`section_gap`).
+  - The spacing scale: a base of 4, 6 and 8 points (`space`), the window
+    padding three of it (`window_padding`), rows a space and a half apart
+    (`row_gap`) and sections three apart (`section_gap`).
   - The radii: keycaps, controls, cards, windows and dialogs, each class's
     own (`keycap_radius` to `dialog_radius`); `control_radius_for` gives a
     control's from its height and `keycap_radius_for` a keycap's.
   - `compact_metrics`, `regular_metrics` and `large_metrics`: each class's
-    steps on the scales (`ClassScale`, `scaled`), its controls (buttons
-    28, 34 and 38 points high, list rows 36, 40 and 44, text fields 30, 36
-    and 40, filter chips 24, 26 and 28, tab strips 32, 38 and 44), and the
-    settings dialog's, its notices' and its prompts' sizes. The header (36)
-    and the footer (48) are the same in every class and hold every
-    class's buttons; the sizes the scales do not touch, such as the game
-    font's lines, the slider and the drop-down's items, are the same in
-    every class too.
+    steps on Kit 2's scales (`ClassScale`, `scaled`) and Kit 2's control
+    sizes (`control_height` 28, 34 and 38 points, `row_height` 36, 40 and
+    44, `text_field_height` 30, 36 and 40, `filter_chip_height` 24, 26 and
+    28, `tab_strip_height` 32, 38 and 44, a window's header and footer
+    bands of 36 and 48 points in every class); then the sizes the screens
+    are laid out with until each moves to Kit 2's, the settings dialog's,
+    its notices' and its prompts': 0.7.3's at Compact, Regular and Large
+    giving the dialog, its notices and its prompts more room (their sizes,
+    the padding, the nav list's width and the characters a host's line
+    under a row holds) and keeping every other size Compact's. The
+    screens' own layouts (Settings, the Library, the key editor, the
+    pickers) are built on those sizes and do not hold Kit 2's yet: each
+    moves to Kit 2's sizes as its shell is rebuilt.
 - `text.hpp`: the game's two text faces, their width, drawing a line and a
   boxed line, and the one wrap; `fitting_start`, where the wrap breaks a word
   wider than a line; `path_break`, a `WordBreak` that breaks a folder's path
@@ -266,7 +271,7 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
     `tint_ink` (`colour::category_orders` through `category_developer`);
   - a chord chip (`ChordChipLook`, `draw_chord_chip`, `add_chord_chip`,
     role `chord_chip`, `chord_chip_width`): keycaps joined by "+" and a
-    gesture word, or the dashed "+ ADD KEY" form, or quiet unbound text;
+    gesture word, or the dashed "+ Add key" form, or quiet unbound text;
   - a keyboard picture (`KeyboardLook`, `draw_keyboard`, `add_keyboard`,
     role `keyboard`): ANSI, ISO or JIS from `keyboard_places`, 91 by 25
     quarter units, one control a key named by `code_word`;
@@ -488,7 +493,7 @@ takes ([docs/extensions/ui-kit.md](../../../docs/extensions/ui-kit.md#the-galler
   the spotlight under it; a picture well; a call to action; and a step
   indicator), Window chrome (an OA window over a darkened screen, its
   header saying `v1.2.3`, never the build's version), Tabs, Buttons (the
-  six looks, a link), Toggle, Level strip, Drop-down (one shown open with
+  six looks at Kit 2's control height, a link), Toggle, Level strip, Drop-down (one shown open with
   an aside), Slider, Search field (and a plain text field), Chips (every
   state), Pills (playing, neutral, installed, update, problem, information
   and brand, each a word on a rounded ground and none taking a press),
@@ -571,10 +576,11 @@ the carousel slides flat and the call to action holds a steady ring.
   pixels `ui-engine-settings-pixels` and `ui-engine-settings-pixels-data`
   hold in fixed states in `src/ui/engine-settings/tests/pixels.txt`, which
   changes only when a change to their look is accepted.
-- Each class's metrics are its steps on the scales and what follows from
-  them, and the settings dialog's, its notices' and its prompts' sizes the
-  design's table gives the class; every other size is the same in every
-  class (`ui-kit-theme`).
+- Each class's metrics hold its steps on Kit 2's scales and what follows
+  from them, and the screens' sizes: Compact's are 0.7.3's exactly, for
+  the controls 0.7.3 has, and Regular's and Large's differ from them only
+  in the sizes the design's table gives the classes, and in the first-run
+  language card and the carousel's step (`ui-kit-theme`).
 - One focus ring: focus_ring (2) points of the light accent, focus_inset
   (2) points clear of its control, its corners rounded as the control's
   are and that much rounder; a control drawn with the ring on its own
@@ -587,7 +593,9 @@ the carousel slides flat and the call to action holds a steady ring.
   edge under rounded corners. A window keeps its square edge: what lies
   round a rounded window's corners is the layer's to draw, not the
   window's. A switch is a pill track, switch_width by switch_height held
-  to its area and at the area's right (`switch_track`), with a round knob
+  to its area and at the area's right (`switch_track`; the track is
+  `switch_track_width` wide, the area the screens give a switch
+  `switch_width`), with a round knob
   two points in: lime with the knob at the right in the dark ink while
   On, the selected surface with the knob at the left while Off. Its Off
   and On words name its halves to automation and are not drawn.
@@ -640,8 +648,7 @@ the carousel slides flat and the call to action holds a steady ring.
   `hover_card_delay_ms`. The timer is the screen's: the kit keeps none.
 - A notice and a question place their parts from the Compact metrics, but
   for their width and greatest height, which are their size class's: their
-  text wraps at the wider width, and their buttons keep Compact's control
-  height, 28 points. A
+  text wraps at the wider width, and their buttons keep their sizes. A
   question's button is as wide as its caption and the padding, the caption
   counted at the wider of the estimated width and the small font's
   measure: a caption the fonts draw wider than the estimate, as the modern
@@ -725,10 +732,11 @@ focused button, link, list row or tab.
 `ui-kit-theme` checks every token against Kit 2's value (the screens'
 tokens against the dialog's, the category tints against the values they
 keep, and the tinted fills against their mix), the sizes every class
-shares, each class's steps on the type, spacing and shape scales and what
-follows from them, the design's table of sizes, that Regular and Large
-differ from Compact in nothing else, and that each class's dialog and
-notices fit the least window of their class. `ui-kit-text` checks the UTF-8
+shares (Kit 2's focus ring, window bands, switch and badge, and the
+screens' sizes, 0.7.3's), each class's steps on Kit 2's type, spacing and
+shape scales and what follows from them, the design's table of dialog
+sizes, that Regular and Large differ from Compact in nothing else, and
+that each class's dialog and notices fit the least window of their class. `ui-kit-text` checks the UTF-8
 helpers, the estimated width, the stand-ins, the wrap against copies of
 the six wraps it replaces, `fit` and `fitting_start` against the Game files
 screen's copies, `path_break` at its separators and against the folder

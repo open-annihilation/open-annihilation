@@ -165,25 +165,20 @@ kit::HeaderLook header_look() {
 }
 
 void header_matches_its_parts() {
-    // The header is 36 points high under the top edge, its rule at row 37;
-    // the mark is 20 points square at row 9, centred down it, and the texts
-    // are centred on the same middle, five rows lower than in 0.7.3's
-    // 26-point header.
-    renderer::Surface surface = black(210, 48);
+    renderer::Surface surface = black(210, 40);
     kit::draw_header(canvas_on(surface), header_look());
     expect(surface, 1, 2, 0x12, 0x14, 0x10);
     expect(surface, 0, 2, 0x00, 0x00, 0x00);
-    expect(surface, 1, 36, 0x12, 0x14, 0x10);
-    expect(surface, 1, 37, 0x2b, 0x30, 0x27);
+    expect(surface, 1, 27, 0x2b, 0x30, 0x27);
     // The OA mark in the brand gold.
-    expect(surface, 15, 12, 0xd6, 0xa7, 0x47);
-    expect(surface, 17, 15, 0x12, 0x14, 0x10);
-    expect(surface, 18, 15, 0xd6, 0xa7, 0x47);
-    expect(surface, 38, 14, 0xe7, 0xe8, 0xdf);
-    expect(surface, 64, 14, 0x95, 0x9c, 0x8b);
-    expect(surface, 172, 14, 0xe0, 0xb0, 0x4f);
-    expect(surface, 178, 14, 0x12, 0x14, 0x10);
-    expect(surface, 183, 14, 0x95, 0x9c, 0x8b);
+    expect(surface, 15, 7, 0xd6, 0xa7, 0x47);
+    expect(surface, 17, 10, 0x12, 0x14, 0x10);
+    expect(surface, 18, 10, 0xd6, 0xa7, 0x47);
+    expect(surface, 38, 9, 0xe7, 0xe8, 0xdf);
+    expect(surface, 64, 9, 0x95, 0x9c, 0x8b);
+    expect(surface, 172, 9, 0xe0, 0xb0, 0x4f);
+    expect(surface, 178, 9, 0x12, 0x14, 0x10);
+    expect(surface, 183, 9, 0x95, 0x9c, 0x8b);
 
     // The note ends before the version starts. The second word is the
     // version's colour too, so the search starts right of it.
@@ -191,7 +186,7 @@ void header_matches_its_parts() {
     int32_t version_left = 210;
     for (int32_t x = 100; x < 210; ++x) {
         const std::size_t at =
-            (static_cast<std::size_t>(14) * 210 + static_cast<std::size_t>(x)) * 3;
+            (static_cast<std::size_t>(9) * 210 + static_cast<std::size_t>(x)) * 3;
         const bool note =
             surface.rgb[at] == 0xe0 && surface.rgb[at + 1] == 0xb0 && surface.rgb[at + 2] == 0x4f;
         const bool version =
@@ -206,22 +201,22 @@ void header_matches_its_parts() {
 
     kit::HeaderLook bare;
     bare.width = 200;
-    renderer::Surface empty = black(210, 48);
+    renderer::Surface empty = black(210, 40);
     kit::draw_header(canvas_on(empty), bare);
-    expect(empty, 18, 15, 0xd6, 0xa7, 0x47);
-    expect(empty, 38, 14, 0x12, 0x14, 0x10);
-    expect(empty, 64, 14, 0x12, 0x14, 0x10);
-    expect(empty, 172, 14, 0x12, 0x14, 0x10);
-    expect(empty, 183, 14, 0x12, 0x14, 0x10);
+    expect(empty, 18, 10, 0xd6, 0xa7, 0x47);
+    expect(empty, 38, 9, 0x12, 0x14, 0x10);
+    expect(empty, 64, 9, 0x12, 0x14, 0x10);
+    expect(empty, 172, 9, 0x12, 0x14, 0x10);
+    expect(empty, 183, 9, 0x12, 0x14, 0x10);
 
-    renderer::Surface icon_surface = black(210, 48);
+    renderer::Surface icon_surface = black(210, 40);
     kit::Canvas with_icon = canvas_on(icon_surface);
     with_icon.icon = red_icon();
     kit::draw_header(with_icon, header_look());
-    expect(icon_surface, 12, 9, 0xff, 0x00, 0x00);
-    expect(icon_surface, 15, 12, 0xff, 0x00, 0x00);
-    expect(icon_surface, 31, 28, 0xff, 0x00, 0x00);
-    expect(icon_surface, 32, 9, 0x12, 0x14, 0x10);
+    expect(icon_surface, 12, 4, 0xff, 0x00, 0x00);
+    expect(icon_surface, 15, 7, 0xff, 0x00, 0x00);
+    expect(icon_surface, 31, 23, 0xff, 0x00, 0x00);
+    expect(icon_surface, 32, 4, 0x12, 0x14, 0x10);
 }
 
 void window_and_footer_match() {
@@ -234,16 +229,15 @@ void window_and_footer_match() {
     expect(face, 0, 9, 0x08, 0x09, 0x07);
     expect(face, 1, 1, 0x1d, 0x21, 0x19);
 
-    // The footer's band is 48 points high under its rule.
-    renderer::Surface band = black(130, 70);
+    renderer::Surface band = black(130, 50);
     kit::draw_footer_band(canvas_on(band), 120, 10);
     expect(band, 1, 10, 0x2b, 0x30, 0x27);
     expect(band, 0, 11, 0x00, 0x00, 0x00);
     expect(band, 1, 11, 0x12, 0x14, 0x10);
-    expect(band, 1, 58, 0x12, 0x14, 0x10);
+    expect(band, 1, 42, 0x12, 0x14, 0x10);
     expect(band, 118, 11, 0x12, 0x14, 0x10);
     expect(band, 119, 11, 0x00, 0x00, 0x00);
-    expect(band, 1, 59, 0x00, 0x00, 0x00);
+    expect(band, 1, 43, 0x00, 0x00, 0x00);
 }
 
 kit::NavLook nav_look() {

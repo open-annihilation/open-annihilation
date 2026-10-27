@@ -189,7 +189,7 @@ inline constexpr uint32_t refresh_ease_ms = 160;
     return static_cast<uint8_t>(step * 255u / (steps - 1u));
 }
 
-/// Returns where a switch's track lies in its area: switch_width by
+/// Returns where a switch's track lies in its area: switch_track_width by
 /// switch_height points, each held to the area's, at the area's right and
 /// centred down it.
 ///

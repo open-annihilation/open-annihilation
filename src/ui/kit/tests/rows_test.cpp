@@ -472,22 +472,22 @@ std::array<kit::RowSpec<Sample>, 3> graphics_rows() {
 
 /// Controls, unlocked, with the game's fonts.
 const std::vector<Expected> kControlsPlain{
-    {54, 47, {158, 63, 259, 16}, {}, {81}, {425, 63, 42, 16}, {}},
+    {54, 47, {158, 63, 249, 16}, {}, {81}, {415, 63, 52, 16}, {}},
     {101, 79, {158, 110, 309, 16}, {}, {128, 140}, {158, 156, 200, 16}, {}},
     {180, 79, {158, 189, 309, 16}, {}, {207, 219}, {158, 235, 200, 16}, {}},
     {259, 59, {158, 268, 197, 16}, {}, {286, 298}, {363, 268, 104, 16}, {}},
-    {318, 59, {158, 327, 259, 16}, {}, {345, 357}, {425, 327, 42, 16}, {}},
-    {377, 47, {158, 386, 259, 16}, {}, {404}, {425, 386, 42, 16}, {}},
+    {318, 59, {158, 327, 249, 16}, {}, {345, 357}, {415, 327, 52, 16}, {}},
+    {377, 47, {158, 386, 249, 16}, {}, {404}, {415, 386, 52, 16}, {}},
 };
 
 /// Controls, unlocked, with the modern fonts' taller hints.
 const std::vector<Expected> kControlsTall{
-    {54, 47, {158, 63, 259, 16}, {}, {81}, {425, 63, 42, 16}, {}},
+    {54, 47, {158, 63, 249, 16}, {}, {81}, {415, 63, 52, 16}, {}},
     {101, 82, {158, 110, 309, 16}, {}, {128, 143}, {158, 159, 200, 16}, {}},
     {183, 82, {158, 192, 309, 16}, {}, {210, 225}, {158, 241, 200, 16}, {}},
     {265, 62, {158, 274, 197, 16}, {}, {292, 307}, {363, 274, 104, 16}, {}},
-    {327, 62, {158, 336, 259, 16}, {}, {354, 369}, {425, 336, 42, 16}, {}},
-    {389, 47, {158, 398, 259, 16}, {}, {416}, {425, 398, 42, 16}, {}},
+    {327, 62, {158, 336, 249, 16}, {}, {354, 369}, {415, 336, 52, 16}, {}},
+    {389, 47, {158, 398, 249, 16}, {}, {416}, {415, 398, 52, 16}, {}},
 };
 
 /// Controls, its first, second, fourth and fifth rows locked, the fifth's
@@ -496,22 +496,22 @@ const std::vector<Expected> kControlsTall{
 /// start of the line under the label. A drop-down's lock stays on the label
 /// line, at its right.
 const std::vector<Expected> kControlsLocked{
-    {54, 65, {158, 63, 259, 16}, {158, 81, 148, 16}, {99}, {425, 63, 42, 16}, {}},
+    {54, 65, {158, 63, 249, 16}, {158, 81, 148, 16}, {99}, {415, 63, 52, 16}, {}},
     {119, 79, {158, 128, 153, 16}, {319, 128, 148, 16}, {146, 158}, {158, 174, 200, 16}, {}},
     {198, 79, {158, 207, 309, 16}, {}, {225, 237}, {158, 253, 200, 16}, {}},
     {277, 77, {158, 286, 197, 16}, {158, 304, 148, 16}, {322, 334}, {363, 286, 104, 16}, {}},
-    {354, 77, {158, 363, 259, 16}, {158, 381, 148, 16}, {399, 411}, {425, 363, 42, 16}, {}},
-    {431, 47, {158, 440, 259, 16}, {}, {458}, {425, 440, 42, 16}, {}},
+    {354, 77, {158, 363, 249, 16}, {158, 381, 148, 16}, {399, 411}, {415, 363, 52, 16}, {}},
+    {431, 47, {158, 440, 249, 16}, {}, {458}, {415, 440, 52, 16}, {}},
 };
 
 /// Controls, locked as above, with the modern fonts' taller hints.
 const std::vector<Expected> kControlsLockedTall{
-    {54, 65, {158, 63, 259, 16}, {158, 81, 148, 16}, {99}, {425, 63, 42, 16}, {}},
+    {54, 65, {158, 63, 249, 16}, {158, 81, 148, 16}, {99}, {415, 63, 52, 16}, {}},
     {119, 82, {158, 128, 153, 16}, {319, 128, 148, 16}, {146, 161}, {158, 177, 200, 16}, {}},
     {201, 82, {158, 210, 309, 16}, {}, {228, 243}, {158, 259, 200, 16}, {}},
     {283, 80, {158, 292, 197, 16}, {158, 310, 148, 16}, {328, 343}, {363, 292, 104, 16}, {}},
-    {363, 80, {158, 372, 259, 16}, {158, 390, 148, 16}, {408, 423}, {425, 372, 42, 16}, {}},
-    {443, 47, {158, 452, 259, 16}, {}, {470}, {425, 452, 42, 16}, {}},
+    {363, 80, {158, 372, 249, 16}, {158, 390, 148, 16}, {408, 423}, {415, 372, 52, 16}, {}},
+    {443, 47, {158, 452, 249, 16}, {}, {470}, {415, 452, 52, 16}, {}},
 };
 
 /// Graphics' first three rows, unlocked, with the game's fonts. A status
@@ -560,8 +560,8 @@ const std::vector<Expected> kGraphicsLockedTall{
 
 /// Developer's own two switches, half a row's padding apart.
 const std::vector<Expected> kDeveloper{
-    {54, 39, {158, 59, 259, 16}, {}, {77}, {425, 59, 42, 16}, {}},
-    {93, 39, {158, 98, 259, 16}, {}, {116}, {425, 98, 42, 16}, {}},
+    {54, 39, {158, 59, 249, 16}, {}, {77}, {415, 59, 52, 16}, {}},
+    {93, 39, {158, 98, 249, 16}, {}, {116}, {415, 98, 52, 16}, {}},
 };
 
 /// Checks rows shaped as Controls' against the dialog's placement.
@@ -740,17 +740,17 @@ void developer_rows_lie_closer() {
 /// its label's box.
 void every_kind_lies_by_the_rows_rules() {
     const std::vector<Expected> rows{
-        {54, 47, {158, 63, 259, 16}, {}, {81}, {425, 63, 42, 16}, {}},
+        {54, 47, {158, 63, 249, 16}, {}, {81}, {415, 63, 52, 16}, {}},
         {101, 79, {158, 110, 309, 16}, {}, {128, 140}, {158, 156, 248, 16}, {}},
         {180, 65, {158, 189, 309, 16}, {}, {207}, {158, 223, 189, 14}, {357, 223, 110, 14}},
         {245, 59, {158, 254, 197, 16}, {}, {272, 284}, {363, 254, 104, 16}, {}},
         {304, 59, {158, 313, 225, 16}, {}, {331, 343}, {391, 313, 76, 16}, {158, 313, 225, 16}},
         {363, 59, {158, 372, 121, 16}, {}, {390, 402}, {287, 372, 180, 16}, {}},
-        {422, 81, {158, 431, 309, 16}, {}, {449}, {158, 465, 200, 30}, {}},
-        {503, 35, {}, {}, {}, {158, 512, 309, 16}, {}},
-        {538, 35, {158, 547, 309, 16}, {}, {}, {}, {158, 547, 309, 16}},
+        {422, 67, {158, 431, 309, 16}, {}, {449}, {158, 465, 200, 16}, {}},
+        {489, 35, {}, {}, {}, {158, 498, 309, 16}, {}},
+        {524, 35, {158, 533, 309, 16}, {}, {}, {}, {158, 533, 309, 16}},
     };
-    placed_as("Every kind", place_every_kind(Sample{}), rows, 573);
+    placed_as("Every kind", place_every_kind(Sample{}), rows, 559);
 
     // Locked, a link keeps to the room left of its lock, and a text row's
     // label and value end short of it.
@@ -1139,7 +1139,7 @@ void the_display_list_names_and_orders_every_control() {
     const auto* host = std::get_if<kit::RowFrame>(&list.items[9].look);
     OA_CHECK(host != nullptr && host->hint_clips.size() == 2);
     OA_CHECK(host != nullptr && same(host->hint_clips[0], {158, 54, 309, 520}));
-    OA_CHECK(same(list.items.back().rect, {158, 573, 309, 1}));
+    OA_CHECK(same(list.items.back().rect, {158, 559, 309, 1}));
 
     // Tab moves through the declared order; a press reaches each control.
     kit::Interaction interaction;
@@ -1147,7 +1147,7 @@ void the_display_list_names_and_orders_every_control() {
     interaction.focus_shown = true;
     OA_CHECK(kit::key(interaction, list, kit::Key::tab).result == kit::KeyResult::redraw);
     OA_CHECK(interaction.focused == 17);
-    OA_CHECK(kit::hit(list, {430, 70}) == 13 && kit::hit(list, {340, 375}) == 18);
+    OA_CHECK(kit::hit(list, {420, 70}) == 13 && kit::hit(list, {340, 375}) == 18);
     OA_CHECK(kit::hit(list, {200, 540}) == kit::no_control);
 }
 
@@ -1279,7 +1279,7 @@ void locked_rows_and_disabled_buttons_take_no_focus() {
     OA_CHECK(list.items[1].control == kit::no_control && list.items[1].state.locked);
     OA_CHECK(same(list.items[2].rect, {158, 55, 309, 46}));
     OA_CHECK(
-        same(list.items[3].rect, {269, 63, 148, 16}) && list.items[3].text == "Not during a game"
+        same(list.items[3].rect, {259, 63, 148, 16}) && list.items[3].text == "Not during a game"
     );
     OA_CHECK(std::none_of(list.items.begin(), list.items.end(), [](const kit::Item& item) {
         return item.role == Role::focus_ring;
@@ -1337,27 +1337,25 @@ void a_switch_steps_flips_and_takes_either_half() {
     Sample sample;
     const kit::RowSpec<Sample>& spec = kEveryKind[0];
     const kit::PlacedRows placed = place_every_kind(sample);
-    const kit::PlacedRow& row = placed_row(placed, 0); // {425, 63, 42, 16}
+    const kit::PlacedRow& row = placed_row(placed, 0); // {415, 63, 52, 16}
     OA_CHECK(is(kit::step(spec, sample, true), RowEvent::changed) && sample.vertical_sync);
     OA_CHECK(is(kit::step(spec, sample, true), RowEvent::none) && sample.vertical_sync);
     OA_CHECK(is(kit::step(spec, sample, false), RowEvent::changed) && !sample.vertical_sync);
     OA_CHECK(is(kit::step(spec, sample, false), RowEvent::none));
     OA_CHECK(is(kit::activate(spec, sample, 0), RowEvent::changed) && sample.vertical_sync);
-    // The switch is {425, 63, 42, 16}: its Off half to column 445, its On
-    // half from 446.
     OA_CHECK(
-        is(kit::press(spec, sample, row, {445, 70}), RowEvent::changed) && !sample.vertical_sync
+        is(kit::press(spec, sample, row, {440, 70}), RowEvent::changed) && !sample.vertical_sync
     );
-    OA_CHECK(is(kit::press(spec, sample, row, {426, 70}), RowEvent::none));
+    OA_CHECK(is(kit::press(spec, sample, row, {416, 70}), RowEvent::none));
     OA_CHECK(
-        is(kit::press(spec, sample, row, {446, 70}), RowEvent::changed) && sample.vertical_sync
+        is(kit::press(spec, sample, row, {441, 70}), RowEvent::changed) && sample.vertical_sync
     );
-    OA_CHECK(is(kit::drag(spec, sample, row, 426), RowEvent::none) && sample.vertical_sync);
+    OA_CHECK(is(kit::drag(spec, sample, row, 416), RowEvent::none) && sample.vertical_sync);
     OA_CHECK(is(kit::choose(spec, sample, 0), RowEvent::none) && sample.vertical_sync);
     sample.in_game = true;
     OA_CHECK(is(kit::step(spec, sample, false), RowEvent::none));
     OA_CHECK(is(kit::activate(spec, sample, 0), RowEvent::none));
-    OA_CHECK(is(kit::press(spec, sample, row, {426, 70}), RowEvent::none) && sample.vertical_sync);
+    OA_CHECK(is(kit::press(spec, sample, row, {416, 70}), RowEvent::none) && sample.vertical_sync);
     // Read and set through functions, as Escape opens the menu is.
     const auto controls = controls_rows();
     sample.in_game = false;
@@ -1647,16 +1645,17 @@ void a_page_painted_draws_its_switch_as_the_model_has_it() {
     Sample sample;
     sample.vertical_sync = true;
     const renderer::Surface on = painted_page(sample);
-    // The switch is {425, 63, 42, 16}: a lime track with its knob at the
-    // right while On, and the selected surface with its knob at the left
-    // while Off.
+    // The switch is {415, 63, 52, 16}, its track the right 42 points: a
+    // lime track with its knob at the right while On, and the selected
+    // surface with its knob at the left while Off.
     expect(on, 441, 64, kit::colour::accent);
     expect(on, 430, 70, kit::colour::accent);
     expect(on, 458, 70, kit::colour::on_accent);
     expect(on, 466, 78, {0x00, 0x00, 0x00});
+    expect(on, 416, 64, {0x00, 0x00, 0x00});
     // The rows' rules, the first's and the one under the last.
     expect(on, 158, 54, {0x2b, 0x30, 0x27});
-    expect(on, 466, 573, {0x2b, 0x30, 0x27});
+    expect(on, 466, 559, {0x2b, 0x30, 0x27});
     sample.vertical_sync = false;
     const renderer::Surface off = painted_page(sample);
     expect(off, 441, 64, kit::colour::off_selected);
