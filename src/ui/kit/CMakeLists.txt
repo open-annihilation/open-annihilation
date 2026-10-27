@@ -104,6 +104,9 @@ if(BUILD_TESTING)
   target_link_libraries(oa-ui-kit-gallery-test PRIVATE oa-ui-kit oa-test-support oa-options)
   target_compile_definitions(oa-ui-kit-gallery-test PRIVATE
     "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
+  # The modern look's case reads the bundled fonts, staged with the text test's.
+  oa_copy_text_fonts(oa-ui-kit-gallery-test "${oa_ui_kit_font_dir}")
+  target_link_libraries(oa-ui-kit-gallery-test PRIVATE oa-platform-text-font)
   add_test(NAME ui-kit-gallery COMMAND oa-ui-kit-gallery-test)
   set_tests_properties(ui-kit-gallery PROPERTIES TIMEOUT 30)
 
