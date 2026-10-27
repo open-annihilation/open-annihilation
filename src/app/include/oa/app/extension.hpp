@@ -231,7 +231,9 @@
 /// its new tokens, and the kit a danger button, information and brand
 /// pills, a paused progress bar, a main-block keyboard picture, a header
 /// height, and a question's callouts, line boxes and quiet button with the
-/// update pill. It is not a hook.
+/// update pill; and the Modern look's faces (kit::Fonts' modern member, the
+/// text functions that choose a face, the text-font Style's family and two
+/// weights). It is not a hook.
 #define OA_EXTENSION_API_VERSION 19
 
 namespace oa {
