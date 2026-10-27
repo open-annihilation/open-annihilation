@@ -6,7 +6,8 @@
 // inside their rectangle at 1x, 2x, 3x and 150%, and a 2x drawing is not a
 // 1x drawing doubled. Marks differ in shape, and a clash mark on its own
 // paints the danger colour. Each tint's face reaches 4.5:1 against its ink.
-// A reduced-motion ring snaps to quarters.
+// A reduced-motion ring snaps to quarters. At 2, 3 and 4 points a quarter
+// no two keys touch, and every label that is drawn fits its key.
 
 #include "oa/formats/fnt.hpp"
 #include "oa/test/check.hpp"
@@ -478,6 +479,179 @@ void parts_stay_inside_at_every_scale() {
     );
 }
 
+/// Tells whether two key rectangles keep at least a point between them.
+///
+/// @param left a key
+/// @param right another
+/// @return true when they do not share an edge or a corner
+bool kept_apart(const kit::Rect& left, const kit::Rect& right) noexcept {
+    if (left.width <= 0 || left.height <= 0 || right.width <= 0 || right.height <= 0)
+        return true;
+    const bool apart_x = left.x + left.width < right.x || right.x + right.width < left.x;
+    const bool apart_y = left.y + left.height < right.y || right.y + right.height < left.y;
+    return apart_x || apart_y;
+}
+
+bool same_ink(kit::Colour pixel, kit::Colour ink) noexcept {
+    return pixel.r == ink.r && pixel.g == ink.g && pixel.b == ink.b;
+}
+
+int count_colour(const renderer::Surface& surface, kit::Colour ink) {
+    int count = 0;
+    for (uint32_t y = 0; y < surface.height; ++y) {
+        for (uint32_t x = 0; x < surface.width; ++x) {
+            if (same_ink(pixel_of(surface, static_cast<int32_t>(x), static_cast<int32_t>(y)), ink))
+                ++count;
+        }
+    }
+    return count;
+}
+
+int count_in(const renderer::Surface& surface, const kit::Rect& rect, kit::Colour ink) {
+    int count = 0;
+    for (int32_t y = rect.y; y < rect.y + rect.height; ++y) {
+        for (int32_t x = rect.x; x < rect.x + rect.width; ++x) {
+            if (x < 0 || y < 0 || static_cast<uint32_t>(x) >= surface.width ||
+                static_cast<uint32_t>(y) >= surface.height)
+                continue;
+            if (same_ink(pixel_of(surface, x, y), ink))
+                ++count;
+        }
+    }
+    return count;
+}
+
+const kit::Control* key_named(const kit::DisplayList& list, std::string_view name) {
+    for (const kit::Control& control : list.controls) {
+        if (control.name == name)
+            return &control;
+    }
+    return nullptr;
+}
+
+void draw_board(renderer::Surface& surface, const kit::KeyboardLook& look, int32_t quarter) {
+    const int32_t wide = 91 * quarter;
+    const int32_t high = 25 * quarter;
+    kit::draw_keyboard(canvas_on(surface), {0, 0, wide, high}, look);
+}
+
+void small_keyboard_keys_stay_apart() {
+    const kit::KeyboardShape shapes[] = {
+        kit::KeyboardShape::ansi, kit::KeyboardShape::iso, kit::KeyboardShape::jis
+    };
+    for (const int32_t quarter : {2, 3, 4}) {
+        for (const kit::KeyboardShape shape : shapes) {
+            kit::KeyboardLook look;
+            look.shape = shape;
+            kit::DisplayList list;
+            const kit::Rect picture{0, 0, 91 * quarter, 25 * quarter};
+            kit::add_keyboard(list, picture, look, 1, "board");
+            OA_CHECK(list.controls.size() == kit::keyboard_places(shape).size());
+            for (std::size_t index = 0; index < list.controls.size(); ++index) {
+                for (std::size_t other = index + 1; other < list.controls.size(); ++other)
+                    OA_CHECK(kept_apart(list.controls[index].rect, list.controls[other].rect));
+            }
+            const kit::Control* key_a = key_named(list, "board.key-a");
+            OA_CHECK(key_a != nullptr);
+            if (key_a != nullptr) {
+                OA_CHECK(key_a->rect.width == 4 * quarter - 2);
+                OA_CHECK(key_a->rect.height == 4 * quarter - 2);
+            }
+
+            renderer::Surface surface = black(picture.width, picture.height);
+            kit::begin_text_fit_frame();
+            draw_board(surface, look, quarter);
+            for (const kit::TextFitRecord& record : kit::text_fit_records()) {
+                OA_CHECK(!record.wider);
+                OA_CHECK(!record.across);
+            }
+            const int letters = count_colour(surface, kit::colour::text);
+            if (quarter < 4)
+                OA_CHECK(letters == 0);
+            else
+                OA_CHECK(letters > 0);
+        }
+    }
+
+    for (const int32_t quarter : {2, 3}) {
+        kit::KeyboardLook changed;
+        changed.shape = kit::KeyboardShape::ansi;
+        kit::KeyboardKey key;
+        key.code = "KeyA";
+        key.cap.mark = kit::KeyMark::changed;
+        changed.keys.push_back(key);
+        kit::KeyboardKey clash;
+        clash.code = "KeyS";
+        clash.cap.mark = kit::KeyMark::clash;
+        changed.keys.push_back(std::move(clash));
+        kit::KeyboardKey unbound;
+        unbound.code = "KeyD";
+        unbound.cap.mark = kit::KeyMark::unbound;
+        changed.keys.push_back(std::move(unbound));
+        kit::KeyboardKey fixed;
+        fixed.code = "KeyF";
+        fixed.cap.mark = kit::KeyMark::fixed;
+        changed.keys.push_back(std::move(fixed));
+
+        const int32_t wide = 91 * quarter;
+        const int32_t high = 25 * quarter;
+        renderer::Surface surface = black(wide, high);
+        kit::begin_text_fit_frame();
+        draw_board(surface, changed, quarter);
+        for (const kit::TextFitRecord& record : kit::text_fit_records()) {
+            OA_CHECK(!record.wider);
+            OA_CHECK(!record.across);
+        }
+
+        kit::DisplayList list;
+        kit::add_keyboard(list, {0, 0, wide, high}, changed, 1, "board");
+        const kit::Control* key_a = key_named(list, "board.key-a");
+        const kit::Control* key_s = key_named(list, "board.key-s");
+        const kit::Control* key_d = key_named(list, "board.key-d");
+        const kit::Control* key_f = key_named(list, "board.key-f");
+        const kit::Control* key_g = key_named(list, "board.key-g");
+        OA_CHECK(key_a != nullptr && key_s != nullptr && key_d != nullptr && key_f != nullptr);
+        OA_CHECK(key_g != nullptr);
+        if (key_a == nullptr || key_s == nullptr || key_d == nullptr || key_f == nullptr ||
+            key_g == nullptr)
+            continue;
+        OA_CHECK(count_in(surface, key_a->rect, kit::colour::accent) > 0);
+        OA_CHECK(count_in(surface, key_g->rect, kit::colour::accent) == 0);
+        OA_CHECK(count_in(surface, key_s->rect, kit::colour::danger) > 0);
+        OA_CHECK(count_in(surface, key_g->rect, kit::colour::danger) == 0);
+        OA_CHECK(count_in(surface, key_d->rect, kit::colour::quiet) > 0);
+        OA_CHECK(count_in(surface, key_g->rect, kit::colour::quiet) == 0);
+        OA_CHECK(count_in(surface, key_f->rect, kit::colour::text) > 0);
+        OA_CHECK(count_in(surface, key_g->rect, kit::colour::text) == 0);
+        // The letter is drawn in on_accent on the filled key, and only when
+        // it fits. At 2 points a quarter the capitals are taller than the key.
+        const int letters = count_colour(surface, kit::colour::on_accent);
+        if (quarter == 3)
+            OA_CHECK(letters > 0);
+        else
+            OA_CHECK(letters == 0);
+    }
+
+    kit::KeyboardLook at_four;
+    at_four.shape = kit::KeyboardShape::ansi;
+    kit::KeyboardKey still;
+    still.code = "KeyA";
+    still.cap.mark = kit::KeyMark::changed;
+    at_four.keys.push_back(std::move(still));
+    renderer::Surface four = black(91 * 4, 25 * 4);
+    draw_board(four, at_four, 4);
+    kit::DisplayList fours;
+    kit::add_keyboard(fours, {0, 0, 91 * 4, 25 * 4}, at_four, 1, "board");
+    const kit::Control* key_a = key_named(fours, "board.key-a");
+    OA_CHECK(key_a != nullptr);
+    if (key_a != nullptr) {
+        const kit::Colour middle = pixel_of(
+            four, key_a->rect.x + key_a->rect.width / 2, key_a->rect.y + key_a->rect.height / 2
+        );
+        OA_CHECK(middle == kit::colour::list);
+    }
+}
+
 void paint_matches_the_draws() {
     const auto same = [](const kit::DisplayList& list, auto draw, int32_t width, int32_t height) {
         renderer::Surface direct = black(width, height);
@@ -554,6 +728,7 @@ int main() {
     tints_reach_contrast();
     ring_snaps_to_quarters();
     parts_stay_inside_at_every_scale();
+    small_keyboard_keys_stay_apart();
     paint_matches_the_draws();
     std::puts("ui-kit-keys passed");
     return oa::test::check_exit_status();
