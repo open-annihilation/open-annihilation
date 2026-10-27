@@ -3654,14 +3654,15 @@ kit::DisplayList prompt_layout(
                    : (hot(state, outcome.id) ? kit::colour::hover : kit::colour::list);
             add_item(list, kit::Role::outline, card).colour =
                 on ? kit::colour::accent : kit::colour::control_border;
+            // One of them is chosen: the kit's radio, as Keys-Conflict draws it.
             const kit::Rect ring{
                 column_x + inset, y + inset + (metrics.regular_line - radio) / 2, radio, radio
             };
-            add_item(list, kit::Role::outline, ring).colour =
-                on ? kit::colour::accent : kit::colour::hint;
-            if (on)
-                add_item(list, kit::Role::fill, {ring.x + 3, ring.y + 3, radio - 6, radio - 6})
-                    .colour = kit::colour::accent;
+            kit::RadioLook mark;
+            mark.on = on;
+            mark.hovered = hot(state, outcome.id);
+            mark.held = held(state, outcome.id);
+            kit::add_radio(list, ring, mark, kit::no_control, {});
             const int32_t text_x = column_x + inset + radio + inset;
             const int32_t text_w = std::max(column_x + column_w - inset - text_x, int32_t{1});
             text_at(
