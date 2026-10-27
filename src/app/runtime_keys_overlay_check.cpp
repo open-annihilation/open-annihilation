@@ -14,7 +14,8 @@
 // the keys overlay's place), the check finds the keys overlay and the chat
 // line where they were left. --snapshot writes keys-overlay-<w>x<h>.ppm,
 // key-badges-<w>x<h>.ppm, arrange-overlays-<w>x<h>.ppm and
-// rounded-settings-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080.
+// rounded-settings-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080, the last
+// two at 800x600 too.
 
 #include "oa/app/runtime.hpp"
 #include "oa_layer_check.hpp"
@@ -40,6 +41,7 @@
 #include <fstream>
 #include <ios>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <ostream>
@@ -74,6 +76,12 @@ constexpr SDL_Keymod kPrimaryModifier = SDL_KMOD_LCTRL;
 /// Window sizes the snapshots are taken at, wide then tall.
 constexpr int32_t kWidths[] = {640, 1280, 1920};
 constexpr int32_t kHeights[] = {480, 720, 1080};
+
+/// Window sizes Arrange Overlays' and the rounded Settings' snapshots are
+/// taken at: Compact, Regular and Large in a match at 1x, and Large at
+/// 1920x1080.
+constexpr int32_t kArrangeWidths[] = {640, 800, 1280, 1920};
+constexpr int32_t kArrangeHeights[] = {480, 600, 720, 1080};
 
 /// Stops the check.
 ///
@@ -935,9 +943,9 @@ void Runtime::check_keys_overlay() {
     }
 
     say_step("snapshots of Arrange Overlays and the rounded in-match Settings");
-    for (std::size_t size_at = 0; size_at < 3; ++size_at) {
-        const int32_t width = kWidths[size_at];
-        const int32_t height = kHeights[size_at];
+    for (std::size_t size_at = 0; size_at < std::size(kArrangeWidths); ++size_at) {
+        const int32_t width = kArrangeWidths[size_at];
+        const int32_t height = kArrangeHeights[size_at];
         resize(width, height);
         open_arrange();
         handles_inside(" at " + std::to_string(width) + "x" + std::to_string(height));

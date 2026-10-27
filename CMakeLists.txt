@@ -2400,8 +2400,9 @@ if(OA_BUILD_PLATFORM)
       # in-game menu: the keys overlay and the chat line dragged on the grid,
       # kept for the size class, Reset and the overlays' own places at three
       # window sizes. --snapshot writes keys-overlay-<w>x<h>.ppm,
-      # key-badges-<w>x<h>.ppm and arrange-overlays-<w>x<h>.ppm. Each run
-      # starts from a clean folder. The mod's profile stays.
+      # key-badges-<w>x<h>.ppm, arrange-overlays-<w>x<h>.ppm and
+      # rounded-settings-<w>x<h>.ppm. Each run starts from a clean folder.
+      # The mod's profile stays.
       set(oa_keys_overlay_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/keys-overlay")
       file(MAKE_DIRECTORY "${oa_keys_overlay_dir}/mod")
       file(WRITE "${oa_keys_overlay_dir}/mod/oamod.yaml"
@@ -2428,8 +2429,13 @@ if(OA_BUILD_PLATFORM)
         "${oa_keys_overlay_dir}/key-badges-1280x720.ppm"
         "${oa_keys_overlay_dir}/key-badges-1920x1080.ppm"
         "${oa_keys_overlay_dir}/arrange-overlays-640x480.ppm"
+        "${oa_keys_overlay_dir}/arrange-overlays-800x600.ppm"
         "${oa_keys_overlay_dir}/arrange-overlays-1280x720.ppm"
         "${oa_keys_overlay_dir}/arrange-overlays-1920x1080.ppm"
+        "${oa_keys_overlay_dir}/rounded-settings-640x480.ppm"
+        "${oa_keys_overlay_dir}/rounded-settings-800x600.ppm"
+        "${oa_keys_overlay_dir}/rounded-settings-1280x720.ppm"
+        "${oa_keys_overlay_dir}/rounded-settings-1920x1080.ppm"
         "${oa_keys_overlay_dir}/mod/units")
       set_tests_properties(keys-overlay-clean PROPERTIES FIXTURES_SETUP keys-overlay-clean)
       add_test(NAME native-keys-overlay COMMAND oa-game --game-dir "${OA_GAME_DIR}"
