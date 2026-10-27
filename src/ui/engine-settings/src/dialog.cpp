@@ -3190,8 +3190,8 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
     // A real font widens the section list and the footer buttons, and wraps
     // the rows' texts; an estimate keeps the class's sizes, which the layout
     // tests pin. The drawing and a press take the same (shown_section).
-    const layout::ShownSection shown = layout::shown_section(dialog, fonts);
-    const layout::Sizes& sized = shown.sizes;
+    const layout::ShownSection measured = layout::shown_section(dialog, fonts);
+    const layout::Sizes& sized = measured.sizes;
     // Each text as the dialog shows it, the interface's words in the
     // language shown (layout::shown_text).
     const auto text_part =
@@ -3315,7 +3315,7 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
         );
     // The rows: only the parts wholly in the view are listed, so that each
     // listed control is pressed where it is drawn and each text is whole.
-    const layout::ScrolledRows& open = shown.open;
+    const layout::ScrolledRows& open = measured.open;
     const auto row_part = [&parts, &sized](LayoutPart part) {
         if (wholly_in(part.rect, sized.view))
             parts.push_back(std::move(part));
