@@ -1120,9 +1120,33 @@ void check_exchange_lines(const kit::Frame& frame, const std::string& where) {
     OA_CHECK(turned.redraw && scrolling.exchange_scroll > 0);
 }
 
-/// Checks that the window's header is Settings' and the Library's: Kit 2's
-/// window header at Regular and Large and the kit's band at Compact, with the
-/// close mark in its middle.
+/// Checks that a control is a height, and says which when it is not.
+///
+/// @param list the display list
+/// @param name the control's name
+/// @param height the height it must be, in points
+/// @param where the case
+void expect_height(
+    const kit::DisplayList& list, std::string_view name, int32_t height, const std::string& where
+) {
+    const kit::Control* control = find_named(list, name);
+    if (control == nullptr || control->rect.height != height)
+        std::fprintf(
+            stderr,
+            "%s: %s is %d high, not %d\n",
+            where.c_str(),
+            std::string(name).c_str(),
+            control == nullptr ? -1 : control->rect.height,
+            height
+        );
+    OA_CHECK(control != nullptr && control->rect.height == height);
+}
+
+/// Checks that the window's header and toolbar are Settings' and the
+/// Library's: Kit 2's window header at Regular and Large and the kit's band
+/// at Compact, with the close mark in its middle; the tab strip, the text
+/// fields and drop-downs, the filter chips and the buttons at Kit 2's sizes,
+/// in the list, the keyboard and the mouse.
 ///
 /// @param frame the frame
 /// @param where the case
@@ -1142,6 +1166,29 @@ void check_shell(const kit::Frame& frame, const std::string& where) {
     OA_CHECK(header_drawn);
     const kit::Control* close = find_named(list, editor::name_close);
     OA_CHECK(close != nullptr && close->rect.y == metrics.edge + (header - close->rect.height) / 2);
+    expect_height(list, editor::name_view_list, metrics.tab_strip_height, where);
+    expect_height(list, editor::name_search, metrics.text_field_height, where);
+    expect_height(list, editor::name_find, metrics.control_height, where);
+    if (frame.size_class != kit::SizeClass::large)
+        expect_height(list, editor::name_category, metrics.text_field_height, where);
+    if (!compact) {
+        expect_height(list, editor::name_layout, metrics.text_field_height, where);
+        expect_height(list, editor::name_filter_all, metrics.filter_chip_height, where);
+    }
+
+    editor::ScreenState keyboard;
+    keyboard.view = editor::View::keyboard;
+    const kit::DisplayList keys_list = laid_out(model, keyboard, frame);
+    expect_height(keys_list, editor::name_view_keyboard, metrics.tab_strip_height, where);
+    expect_height(keys_list, editor::name_layer_none, metrics.filter_chip_height, where);
+    expect_height(keys_list, editor::name_keyboard_shape, metrics.text_field_height, where);
+    expect_height(keys_list, editor::name_show_as_list, metrics.control_height, where);
+
+    editor::ScreenState mouse;
+    mouse.view = editor::View::mouse;
+    const kit::DisplayList mouse_list = laid_out(model, mouse, frame);
+    expect_height(mouse_list, editor::name_view_mouse, metrics.tab_strip_height, where);
+    expect_height(mouse_list, editor::name_scheme_right, metrics.filter_chip_height, where);
 }
 
 int main() {

@@ -46,7 +46,7 @@ struct Window {
     int32_t footer_top{};    ///< the footer's first row
     int32_t button_top{};    ///< the footer's buttons' top row
     int32_t button_height{}; ///< the footer's buttons' height: Kit 2's control height
-    int32_t gap{};           ///< the rows between stacked parts
+    int32_t gap{};           ///< the rows between the toolbar's stacked rows: Kit 2's spacing
 };
 
 /// Controls kept aside until a press can try the menu first.
@@ -221,8 +221,9 @@ Window window_of(const kit::Frame& frame) {
     Window window;
     window.width = size.x;
     window.height = size.y;
-    window.left = metrics.padding;
-    window.right = std::max(size.x - metrics.edge - metrics.padding, window.left);
+    // Kit 2's window padding, as Settings and the Library keep.
+    window.left = metrics.window_padding;
+    window.right = std::max(size.x - metrics.edge - metrics.window_padding, window.left);
     // Regular and Large take Kit 2's window header, as Settings and the
     // Library do. Compact keeps the kit's Compact band, as they do there.
     window.header_height = frame.size_class == kit::SizeClass::compact
@@ -238,7 +239,9 @@ Window window_of(const kit::Frame& frame) {
     window.footer_top = window.footer_rule + 1;
     window.button_height = metrics.control_height;
     window.button_top = window.footer_top + (footer_h - metrics.control_height) / 2;
-    window.gap = metrics.paragraph_gap;
+    // The toolbar's rows sit a space apart at Compact and Kit 2's row gap
+    // apart above it, as the Library's stacked parts do.
+    window.gap = frame.size_class == kit::SizeClass::compact ? metrics.space : metrics.row_gap;
     return window;
 }
 
@@ -472,6 +475,75 @@ pill_caption(const Editor& editor, const ScreenState& state, Filter filter, std:
     return fill(show(editor.text(), words::filter_count), {{"filter", label}, {"count", count}});
 }
 
+/// The filter pills, measured: each one's look and width on Kit 2's filter
+/// chip, each wider by the height it gains over the kit's pill so its words
+/// stay clear of the rounder ends.
+struct PillRow {
+    kit::PillLook looks[5]{}; ///< All, Changed, Clashes, Unbound and Latchable
+    int32_t widths[5]{};      ///< each pill's width, in points
+    int32_t packed{};         ///< the five side by side, chip_gap apart
+    int32_t height{};         ///< a pill's height: Kit 2's filter chip height
+};
+
+/// The filters, in the order the pills show them.
+constexpr Filter pill_filters[] = {
+    Filter::all, Filter::changed, Filter::clashes, Filter::unbound, Filter::latchable
+};
+
+/// Measures the filter pills.
+///
+/// @param editor the editor
+/// @param state the filter
+/// @param fonts the fonts
+/// @param metrics the size class
+/// @param room the most a pill may be wide
+/// @return the pills
+PillRow plan_pills(
+    const Editor& editor,
+    const ScreenState& state,
+    const kit::Fonts& fonts,
+    const kit::Metrics& metrics,
+    int32_t room
+) {
+    const kit::ControlId ids[] = {
+        controls::filter_all,
+        controls::filter_changed,
+        controls::filter_clashes,
+        controls::filter_unbound,
+        controls::filter_latchable
+    };
+    const std::string_view words_of[] = {
+        words::filter_all,
+        words::filter_changed,
+        words::filter_clashes,
+        words::filter_unbound,
+        words::filter_latchable
+    };
+    PillRow row;
+    row.height = metrics.filter_chip_height;
+    const int32_t taller = std::max(row.height - kit::pill_height(), int32_t{0});
+    for (int index = 0; index < 5; ++index) {
+        kit::PillLook look;
+        look.text = pill_caption(editor, state, pill_filters[index], words_of[index]);
+        look.state = state.filter == pill_filters[index] ? kit::PillState::active
+                                                         : kit::PillState::inactive;
+        look.hovered = hot(state, ids[index]);
+        look.focused = focused_on(state, ids[index]);
+        int32_t width = kit::pill_width(fonts, look) + taller;
+        if (width > room && room > 0) {
+            look.text = kit::cut_to_width(
+                fonts, kit::FontRole::small, look.text, std::max(room - taller - 8, int32_t{0})
+            );
+            width = std::min(kit::pill_width(fonts, look) + taller, room);
+        }
+        row.looks[index] = std::move(look);
+        row.widths[index] = width;
+        row.packed += width;
+    }
+    row.packed += metrics.chip_gap * 4;
+    return row;
+}
+
 /// Appends the filter pills, wrapping onto another row when one does not fit.
 ///
 /// @param[in,out] built the layout
@@ -495,9 +567,6 @@ int32_t add_pills(
     int32_t top,
     bool align_right
 ) {
-    const Filter filters[] = {
-        Filter::all, Filter::changed, Filter::clashes, Filter::unbound, Filter::latchable
-    };
     const kit::ControlId ids[] = {
         controls::filter_all,
         controls::filter_changed,
@@ -512,44 +581,16 @@ int32_t add_pills(
         name_filter_unbound,
         name_filter_latchable
     };
-    const std::string_view words_of[] = {
-        words::filter_all,
-        words::filter_changed,
-        words::filter_clashes,
-        words::filter_unbound,
-        words::filter_latchable
-    };
-    const int32_t height = kit::pill_height();
     const int32_t room = std::max(right - left, int32_t{0});
-    kit::PillLook looks[5];
-    int32_t widths[5] = {};
-    int32_t packed = 0;
-    for (int index = 0; index < 5; ++index) {
-        kit::PillLook look;
-        look.text = pill_caption(editor, state, filters[index], words_of[index]);
-        look.state =
-            state.filter == filters[index] ? kit::PillState::active : kit::PillState::inactive;
-        look.hovered = hot(state, ids[index]);
-        look.focused = focused_on(state, ids[index]);
-        int32_t width = kit::pill_width(fonts, look);
-        if (width > room && room > 0) {
-            look.text = kit::cut_to_width(
-                fonts, kit::FontRole::small, look.text, std::max(room - 8, int32_t{0})
-            );
-            width = std::min(kit::pill_width(fonts, look), room);
-        }
-        looks[index] = std::move(look);
-        widths[index] = width;
-        packed += width;
-    }
-    packed += metrics.chip_gap * 4;
+    const PillRow pills = plan_pills(editor, state, fonts, metrics, room);
+    const int32_t height = pills.height;
     int32_t x = left;
-    if (align_right && packed <= room)
-        x = right - packed;
+    if (align_right && pills.packed <= room)
+        x = right - pills.packed;
     int32_t y = top;
     for (int index = 0; index < 5; ++index) {
-        const kit::PillLook& look = looks[index];
-        const int32_t width = widths[index];
+        const kit::PillLook& look = pills.looks[index];
+        const int32_t width = pills.widths[index];
         if (x > left && x + width > right) {
             x = left;
             y += height + metrics.button_gap;
@@ -3983,7 +4024,8 @@ int32_t tabs_width(const kit::Fonts& fonts, const kit::TabsLook& look) {
     return rects.back().x + rects.back().width;
 }
 
-/// Appends List, Keyboard and Mouse. Only the open tab takes Tab.
+/// Appends List, Keyboard and Mouse on Kit 2's tab strip. Only the open tab
+/// takes Tab.
 ///
 /// @param[in,out] built the layout
 /// @param editor the words
@@ -4039,7 +4081,7 @@ int32_t add_view_tabs(
         if (hot(state, ids[index]))
             look.hovered = index;
     }
-    const kit::Rect strip{x, y, width, metrics.tab_height};
+    const kit::Rect strip{x, y, width, metrics.tab_strip_height};
     const std::size_t before = built.list.controls.size();
     const std::size_t rest = built.rest.size();
     kit::add_tabs(
@@ -4100,7 +4142,9 @@ std::string shape_caption(const Editor& editor, const ScreenState& state) {
     return fill(show(editor.text(), words::shape_from_system), {{"shape", name}});
 }
 
-/// Appends Holding, the layer pills and the shape drop-down.
+/// Appends Holding, the layer pills and the shape drop-down: the pills on
+/// Kit 2's filter chip, each wider by the height it gains, and the drop-down
+/// a Kit 2 text field.
 ///
 /// @param[in,out] built the layout
 /// @param editor the words and the platform
@@ -4124,7 +4168,10 @@ int32_t add_layer_bar(
     kit::Rect& shape_field
 ) {
     const int32_t room = std::max(right - left, int32_t{0});
-    const int32_t row_h = std::max(metrics.tab_height, metrics.field_height);
+    const int32_t field_h = metrics.text_field_height;
+    const int32_t pill_h = metrics.filter_chip_height;
+    const int32_t taller = std::max(pill_h - kit::pill_height(), int32_t{0});
+    const int32_t row_h = std::max(field_h, pill_h);
     if (room <= 0)
         return top + row_h;
     const bool command = editor.platform().primary_is_meta;
@@ -4162,7 +4209,7 @@ int32_t add_layer_bar(
             ids[index] == chosen ? kit::PillState::active : kit::PillState::inactive;
         looks[index].hovered = hot(state, ids[index]);
         looks[index].focused = focused_on(state, ids[index]);
-        widths[index] = kit::pill_width(fonts, looks[index]);
+        widths[index] = kit::pill_width(fonts, looks[index]) + taller;
         pills += widths[index];
     }
     pills += metrics.chip_gap * (count - 1);
@@ -4192,34 +4239,37 @@ int32_t add_layer_bar(
         for (int index = 0; index < count; ++index) {
             if (widths[index] > each) {
                 looks[index].text = kit::cut_to_width(
-                    fonts, kit::FontRole::small, looks[index].text, std::max(each - 8, int32_t{1})
+                    fonts,
+                    kit::FontRole::small,
+                    looks[index].text,
+                    std::max(each - taller - 8, int32_t{1})
                 );
-                widths[index] = std::min(kit::pill_width(fonts, looks[index]), each);
+                widths[index] = std::min(kit::pill_width(fonts, looks[index]) + taller, each);
             }
             pills += widths[index];
         }
         pills += metrics.chip_gap * (count - 1);
     }
     int32_t x = left;
-    const int32_t text_y = top + std::max((row_h - metrics.field_height) / 2, int32_t{0});
+    const int32_t text_y = top + std::max((row_h - field_h) / 2, int32_t{0});
     if (holding_w > 0) {
         add_line(
             built,
             fonts,
-            {x, text_y, holding_w, metrics.field_height},
+            {x, text_y, holding_w, field_h},
             holding,
             kit::FontRole::small,
             kit::colour::quiet
         );
         x += holding_w + gap;
     }
-    const int32_t pill_y = top + std::max((row_h - kit::pill_height()) / 2, int32_t{0});
+    const int32_t pill_y = top + std::max((row_h - pill_h) / 2, int32_t{0});
     const int32_t pills_right = left + room - shape_w - (shape_w > 0 ? gap : 0);
     const std::size_t rest = built.rest.size();
     for (int index = 0; index < count; ++index) {
         if (x + widths[index] > pills_right)
             break;
-        const kit::Rect rect{x, pill_y, widths[index], kit::pill_height()};
+        const kit::Rect rect{x, pill_y, widths[index], pill_h};
         if (!roomy(rect))
             break;
         const std::size_t before = built.list.controls.size();
@@ -4229,7 +4279,7 @@ int32_t add_layer_bar(
     }
     one_stop(built, rest, chosen);
     if (shape_w > 0) {
-        shape_field = {left + room - shape_w, text_y, shape_w, metrics.field_height};
+        shape_field = {left + room - shape_w, text_y, shape_w, field_h};
         // Where "· from your system" does not fit, the shape's name alone;
         // the open menu still says the system chose it.
         if (shape_natural > shape_w && state.shape_from_system)
@@ -4247,7 +4297,8 @@ int32_t add_layer_bar(
     return top + row_h;
 }
 
-/// Appends "Clicks give orders with" and the two scheme pills.
+/// Appends "Clicks give orders with" and the two scheme pills, on Kit 2's
+/// filter chip.
 ///
 /// @param[in,out] built the layout
 /// @param editor the scheme
@@ -4269,7 +4320,10 @@ int32_t add_scheme_bar(
     int32_t top
 ) {
     const int32_t room = std::max(right - left, int32_t{0});
-    const int32_t row_h = std::max(metrics.tab_height, metrics.field_height);
+    const int32_t field_h = metrics.text_field_height;
+    const int32_t pill_h = metrics.filter_chip_height;
+    const int32_t taller = std::max(pill_h - kit::pill_height(), int32_t{0});
+    const int32_t row_h = std::max(field_h, pill_h);
     if (room <= 0)
         return top + row_h;
     const bool left_click = editor.scheme() == keys::PointerScheme::left_click;
@@ -4286,7 +4340,7 @@ int32_t add_scheme_bar(
             ids[index] == chosen ? kit::PillState::active : kit::PillState::inactive;
         looks[index].hovered = hot(state, ids[index]);
         looks[index].focused = focused_on(state, ids[index]);
-        widths[index] = kit::pill_width(fonts, looks[index]);
+        widths[index] = kit::pill_width(fonts, looks[index]) + taller;
         pills += widths[index];
     }
     pills += metrics.chip_gap;
@@ -4298,7 +4352,7 @@ int32_t add_scheme_bar(
     if (label_w > 0 && label_w + gap + pills > room)
         label_w = 0;
     int32_t x = left;
-    const int32_t text_y = top + std::max((row_h - metrics.field_height) / 2, int32_t{0});
+    const int32_t text_y = top + std::max((row_h - field_h) / 2, int32_t{0});
     if (label_w > 0) {
         const std::string shown =
             kit::text_width(fonts, kit::FontRole::small, label) > label_w
@@ -4307,14 +4361,14 @@ int32_t add_scheme_bar(
         add_line(
             built,
             fonts,
-            {x, text_y, label_w, metrics.field_height},
+            {x, text_y, label_w, field_h},
             shown,
             kit::FontRole::small,
             kit::colour::quiet
         );
         x += label_w + gap;
     }
-    const int32_t pill_y = top + std::max((row_h - kit::pill_height()) / 2, int32_t{0});
+    const int32_t pill_y = top + std::max((row_h - pill_h) / 2, int32_t{0});
     const std::size_t rest = built.rest.size();
     for (int index = 0; index < 2; ++index) {
         if (x + widths[index] > right)
@@ -4322,7 +4376,7 @@ int32_t add_scheme_bar(
         const std::size_t before = built.list.controls.size();
         kit::add_pill(
             built.list,
-            {x, pill_y, widths[index], kit::pill_height()},
+            {x, pill_y, widths[index], pill_h},
             looks[index],
             ids[index],
             std::string(names[index])
@@ -5485,7 +5539,13 @@ lay(const Editor& editor,
     kit::Rect category_field{};
     kit::Rect more_field{};
     kit::Rect shape_field{};
-    int32_t y = window.body_top + metrics.paragraph_gap / 2;
+    // The toolbar takes Kit 2's sizes, as the Library's does: the tab strip,
+    // text fields and drop-downs, filter chips and control-high buttons, its
+    // rows the window's gap apart.
+    const int32_t tab_h = metrics.tab_strip_height;
+    const int32_t field_h = metrics.text_field_height;
+    const int32_t chip_h = metrics.filter_chip_height;
+    int32_t y = window.body_top + window.gap;
     const bool show_keyboard = !page && state.view == View::keyboard;
     const bool show_mouse = !page && state.view == View::mouse;
     if (show_keyboard || show_mouse) {
@@ -5502,14 +5562,16 @@ lay(const Editor& editor,
             );
         };
         if (compact || window.right - (window.left + tabs_w + gap) < 220) {
-            y += metrics.tab_height + metrics.paragraph_gap / 2;
-            y = bars(window.left, window.right, y) + metrics.paragraph_gap / 2;
+            y += tab_h + window.gap;
+            y = bars(window.left, window.right, y) + window.gap;
         } else {
-            const int32_t tools_bottom = bars(window.left + tabs_w + gap, window.right, y);
-            y = std::max(y + metrics.tab_height, tools_bottom) + metrics.paragraph_gap / 2;
+            // The bar sits in the middle of the tab strip's height.
+            const int32_t bar_h = std::max(field_h, chip_h);
+            const int32_t bar_top = y + std::max((tab_h - bar_h) / 2, int32_t{0});
+            const int32_t tools_bottom = bars(window.left + tabs_w + gap, window.right, bar_top);
+            y = std::max(y + tab_h, tools_bottom) + window.gap;
         }
     } else if (!page) {
-        const int32_t field_h = metrics.field_height;
         const int32_t gap = metrics.button_gap;
         // The search, then Find by key at its right: typing searches
         // commands, and Find by key listens for a key apart from it.
@@ -5520,8 +5582,14 @@ lay(const Editor& editor,
                 button_width(fonts, metrics, find_caption), std::max(rect.width / 2, int32_t{0})
             );
             if (find_w > 8 && rect.width - find_w - gap > 24) {
+                // Find by key is a control-high button in the middle of the
+                // field's row.
+                const int32_t find_h = std::min(metrics.control_height, rect.height);
                 const kit::Rect find_rect{
-                    rect.x + rect.width - find_w, rect.y, find_w, rect.height
+                    rect.x + rect.width - find_w,
+                    rect.y + (rect.height - find_h) / 2,
+                    find_w,
+                    find_h,
                 };
                 kit::ButtonLook find;
                 find.caption = kit::cut_to_width(fonts, kit::FontRole::small, find_caption, find_w);
@@ -5581,7 +5649,7 @@ lay(const Editor& editor,
         if (compact) {
             // The view tabs head the screen. Category and search share the next row.
             add_view_tabs(built, editor, state, fonts, metrics, window.left, y, content_w);
-            y += metrics.tab_height + metrics.paragraph_gap / 2;
+            y += tab_h + window.gap;
             const int32_t category_w = std::min(compact_category_width, content_w);
             if (category_w > 0)
                 place_category({window.left, y, category_w, field_h});
@@ -5589,7 +5657,7 @@ lay(const Editor& editor,
             const int32_t search_w = std::max(window.right - search_x, int32_t{0});
             if (search_w > 0)
                 place_search({search_x, y, search_w, field_h});
-            y += field_h + metrics.paragraph_gap / 2;
+            y += field_h + window.gap;
         } else {
             // LAYOUT, its drop-down, the aside, and a search held at the named width.
             const int32_t layout_w = large ? large_layout_width : regular_layout_width;
@@ -5644,35 +5712,39 @@ lay(const Editor& editor,
                     add_summary(built, editor, fonts, {aside_x, y, aside_w, field_h});
                 place_search({search_x, y, used_search, field_h});
             }
-            y += field_h + metrics.paragraph_gap / 2;
-            // The view tabs lead the filter row. The pills stay to their right.
+            y += field_h + window.gap;
+            // The view tabs lead the filter row. The pills stay to their
+            // right while they fit there, and take a row of their own under
+            // it when they do not.
             const int32_t tabs_w =
                 add_view_tabs(built, editor, state, fonts, metrics, window.left, y, content_w);
             const int32_t after_tabs = window.left + tabs_w + (tabs_w > 0 ? gap : 0);
-            if (large) {
-                const int32_t pills_top =
-                    y + std::max((metrics.tab_height - kit::pill_height()) / 2, int32_t{0});
-                const int32_t pills_bottom = add_pills(
-                    built, editor, state, fonts, metrics, after_tabs, window.right, pills_top, true
-                );
-                y = std::max(y + metrics.tab_height, pills_bottom) + metrics.paragraph_gap / 2;
-            } else {
+            int32_t pills_left = after_tabs;
+            if (!large) {
                 int32_t category_w = std::min(
                     regular_category_width, std::max(window.right - after_tabs, int32_t{0})
                 );
                 if (after_tabs + category_w + gap + 80 > window.right)
                     category_w = std::max(window.right - after_tabs - gap - 80, int32_t{0});
-                const int32_t field_y =
-                    y + std::max((metrics.tab_height - field_h) / 2, int32_t{0});
+                const int32_t field_y = y + std::max((tab_h - field_h) / 2, int32_t{0});
                 if (category_w > 0)
                     place_category({after_tabs, field_y, category_w, field_h});
-                const int32_t pills_left = after_tabs + category_w + (category_w > 0 ? gap : 0);
-                const int32_t pills_top =
-                    y + std::max((metrics.tab_height - kit::pill_height()) / 2, int32_t{0});
+                pills_left = after_tabs + category_w + (category_w > 0 ? gap : 0);
+            }
+            const int32_t packed =
+                plan_pills(editor, state, fonts, metrics, content_w).packed;
+            if (pills_left + packed <= window.right) {
+                const int32_t pills_top = y + std::max((tab_h - chip_h) / 2, int32_t{0});
                 const int32_t pills_bottom = add_pills(
-                    built, editor, state, fonts, metrics, pills_left, window.right, pills_top, false
+                    built, editor, state, fonts, metrics, pills_left, window.right, pills_top, large
                 );
-                y = std::max(y + metrics.tab_height, pills_bottom) + metrics.paragraph_gap / 2;
+                y = std::max(y + tab_h, pills_bottom) + window.gap;
+            } else {
+                y += tab_h + window.gap;
+                y = add_pills(
+                        built, editor, state, fonts, metrics, window.left, window.right, y, false
+                    ) +
+                    window.gap;
             }
         }
     }
