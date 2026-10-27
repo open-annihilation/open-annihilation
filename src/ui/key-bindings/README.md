@@ -39,7 +39,15 @@ dispatcher times a double press and a hold from that time.
 - `resolve` turns the base, the chosen layout, the mod's quick keys and the
   player's own changes into the bindings in use. Each chord records the step
   that set it. A name neither the registry nor a family makes is kept, with
-  its chords. A chord that loses records why, and which action kept it.
+  its chords. A `select.tag-` id is a family's id in a layout file, and it is
+  kept unknown, with its chords, when the loaded words do not make that
+  action. A chord that loses records why, and which action kept it.
+- `tag_action_id` maps one Category word to the action that selects it.
+  `CTRL_B`, `CTRL_C`, `CTRL_F` and `CTRL_V` are the named selection actions.
+  Any other `CTRL_<letter>` whose Ctrl chord is free in play is
+  `select.category-<letter>`. Every other word that folds to an id is
+  `select.tag-<word>`, with no default chord. A word that cannot be an id
+  maps to nothing.
 - `find_clashes` lists pairs that share a key on one layer. A hack's
   precedence, an overlay and a stricter set of conditions are not clashes;
   `shadows` lists those pairs for the editor. Two modifier roles on one

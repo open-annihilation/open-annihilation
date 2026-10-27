@@ -11058,6 +11058,14 @@
 	it=Etichetta: {tag} ({count});
 	}
 
+[Tags]
+	{
+	de=Stichworte;
+	fr=Mots-clés;
+	es=Etiquetas;
+	it=Etichette;
+	}
+
 [Take Waits for Commander Deaths]
 	{
 	de=Nehmen wartet auf den Tod des Kommandanten;
@@ -13650,14 +13658,6 @@
 	it=Cattura;
 	}
 
-[Categories]
-	{
-	de=Kategorien;
-	fr=Catégories;
-	es=Categorías;
-	it=Categorie;
-	}
-
 [Edge scrolling off]
 	{
 	de=Randscrollen aus;
@@ -14960,6 +14960,14 @@
 	fr=introuvable;
 	es=no encontrado;
 	it=non trovato;
+	}
+
+[not in the loaded units]
+	{
+	de=nicht in den geladenen Einheiten;
+	fr=pas dans les unités chargées;
+	es=no en las unidades cargadas;
+	it=non nelle unità caricate;
 	}
 
 [not offered]

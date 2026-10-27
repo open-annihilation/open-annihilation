@@ -7,17 +7,22 @@
 
 #include "gui_actions.hpp"
 #include "panel_first_draw.hpp"
+#include "tag_actions.hpp"
 
+#include "oa/app/asset_files.hpp"
 #include "oa/data/defs/categories.hpp"
+#include "oa/data/defs/files.hpp"
 #include "oa/data/defs/layout.hpp"
 #include "oa/data/defs/sides.hpp"
 #include "oa/data/input_actions/actions.hpp"
+#include "oa/formats/tdf.hpp"
 #include "oa/ui/gui_layout.hpp"
 #include "oa/ui/key_bindings/layout.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -177,6 +182,62 @@ void Runtime::gather_gui_quick_keys() {
         }
     }
     gui_quick_keys_gathered_ = true;
+    gather_tag_words();
+}
+
+void Runtime::gather_tag_words() {
+    gathered_tags_.clear();
+    oa::data::defs::CategoryRegistry scratch{};
+    oa::data::defs::category_registry_init(&scratch);
+    const oa::data::defs::Files files = asset_files(assets_);
+    std::vector<std::string> unit_files;
+    files.list(
+        files.context,
+        oa::data::defs::directory_name(oa::data::defs::DataDirectory::units),
+        oa::data::defs::unit_extension(),
+        [](void* user, const char* name) {
+            static_cast<std::vector<std::string>*>(user)->emplace_back(name);
+        },
+        &unit_files
+    );
+    oa::UnitDef unit{};
+    unit.type_id = 1;
+    for (const std::string& name : unit_files) {
+        char path[oa::data::defs::path_capacity];
+        oa::data::defs::build_variant_path(
+            &files,
+            path,
+            sizeof path,
+            oa::data::defs::directory_name(oa::data::defs::DataDirectory::units),
+            name.c_str(),
+            oa::data::defs::unit_extension(),
+            nullptr
+        );
+        oa::formats::tdf::Document document;
+        oa::formats::tdf::document_init(&document);
+        const bool loaded = oa::data::defs::load_tdf_file(&files, path, &document, nullptr) &&
+                            oa::formats::tdf::select_section(&document, "UNITINFO");
+        if (loaded) {
+            // The same 100-byte read load_unit_def uses, so this scratch
+            // registry holds the words the match registry will.
+            constexpr std::size_t category_text = 100;
+            char text[category_text];
+            oa::formats::tdf::get_string(
+                oa::formats::tdf::cursor(&document), "category", text, sizeof text, ""
+            );
+            oa::data::defs::register_unit_categories(&scratch, &unit, text);
+        }
+        oa::formats::tdf::document_free(&document);
+    }
+    std::vector<std::string> skipped;
+    const std::vector<TagWord> words = tag_words(scratch, skipped);
+    oa::data::defs::category_registry_clear(&scratch);
+    gathered_tags_.reserve(words.size());
+    for (const TagWord& word : words)
+        gathered_tags_.push_back(GatheredTag{word.word, word.action});
+    for (const std::string& word : skipped) {
+        std::fprintf(stderr, "category word \"%s\" is not a selection of its own\n", word.c_str());
+    }
 }
 
 keys::ModData Runtime::gui_mod_data(std::string_view order_stem) const {
@@ -192,6 +253,9 @@ keys::ModData Runtime::gui_mod_data(std::string_view order_stem) const {
         mod.keys.push_back(std::move(row));
     }
     mod.categories = loaded_category_letters();
+    mod.tags.reserve(gathered_tags_.size());
+    for (const GatheredTag& tag : gathered_tags_)
+        mod.tags.push_back(tag.word);
     return mod;
 }
 

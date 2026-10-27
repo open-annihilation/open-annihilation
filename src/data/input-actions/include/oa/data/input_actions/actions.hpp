@@ -96,7 +96,7 @@ struct Action {
 
 /// A family of actions made when a mod loads, not listed as actions.
 struct Family {
-    std::string_view id{};                      ///< `gui` or `select.category`
+    std::string_view id{};                      ///< `gui`, `select.category` or `select.tag`
     std::string_view area{};                    ///< the editor category
     uint32_t context{};                         ///< bits over contexts()
     Kind kind{};                                ///< how each made action fires
@@ -105,6 +105,8 @@ struct Family {
     std::string_view default_template{};        ///< a chord template kept as text, or empty
     std::string_view order_panel_area{};        ///< area of an order-panel gadget, or empty
     uint32_t order_panel_context{};             ///< context bits of that gadget, or 0
+    /// Name and description templates. `{word}` is the data's spelling.
+    Words words{};
 };
 
 /// Returns every action, sorted by id.

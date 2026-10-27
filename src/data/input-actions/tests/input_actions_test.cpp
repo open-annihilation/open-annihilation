@@ -16,8 +16,8 @@ namespace {
 
 namespace actions = oa::data::input_actions;
 
-// The catalogue's ranges, written out. select.category-<x> is a family, and
-// watch.player-view-<n> is the one action watch.player-view.
+// The catalogue's ranges, written out. select.category-<x> and select.tag-<word>
+// are families, and watch.player-view-<n> is the one action watch.player-view.
 constexpr size_t catalogue_count = 230;
 
 /// Compares a chord list with the chords the test names.
@@ -194,7 +194,17 @@ int main() {
     OA_CHECK(!actions::exclusive(condition_bit("selection"), condition_bit("developer")));
 
     OA_CHECK(actions::find("not.an.action") == nullptr);
-    OA_CHECK(actions::families().size() == 2);
+    OA_CHECK(actions::families().size() == 3);
+    bool saw_tag_family = false;
+    for (const actions::Family& family : actions::families()) {
+        if (family.id != "select.tag")
+            continue;
+        saw_tag_family = true;
+        OA_CHECK(family.default_template.empty());
+        OA_CHECK(family.words.name.find("{word}") != std::string_view::npos);
+        OA_CHECK(family.words.description.find("{word}") != std::string_view::npos);
+    }
+    OA_CHECK(saw_tag_family);
     OA_CHECK(actions::contexts().size() > 0);
     OA_CHECK(actions::contexts()[0].name == "global");
     OA_CHECK(actions::contexts()[0].parent == actions::no_parent);

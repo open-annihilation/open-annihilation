@@ -1118,6 +1118,9 @@ struct Dialog {
     /// What Key layout shows: the layout in use and how many keys the player
     /// changed. The host sets it as the dialog opens and after the editor saves.
     std::string key_layout_summary;
+    /// The modifier Key layout's hint names in "{primary}+/". The host gives
+    /// Cmd on macOS; elsewhere, and in the tests and their pins, it is Ctrl.
+    std::string primary_modifier{"Ctrl"};
     /// Which list the next EDIT KEYS… or CHOOSE… opens the key editor on.
     /// EDIT KEYS… sets all. CHOOSE… on Hold keys that latch sets latchable.
     KeyEditorFilter edit_keys_filter{KeyEditorFilter::all};

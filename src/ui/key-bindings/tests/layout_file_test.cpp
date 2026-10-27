@@ -213,6 +213,17 @@ void test_unknown_action() {
     OA_CHECK(family_layout.bindings.size() == 1);
     if (family_layout.bindings.size() == 1)
         OA_CHECK(family_layout.bindings[0].action == "gui.attack");
+
+    files::Manifest tag;
+    OA_CHECK(read_ok("select.tag-ridge-scout: [Y]\n", tag));
+    Layout tag_layout;
+    std::vector<LayoutProblem> tag_problems;
+    OA_CHECK(keys::layout_from_manifest(tag, nullptr, tag_layout, tag_problems));
+    for (const LayoutProblem& problem : tag_problems)
+        OA_CHECK(problem.message != "Not in this version of Open Annihilation");
+    OA_CHECK(tag_layout.bindings.size() == 1);
+    if (tag_layout.bindings.size() == 1)
+        OA_CHECK(tag_layout.bindings[0].action == "select.tag-ridge-scout");
 }
 
 /// Escape missing from the fixed action, and Escape given to chat, are warnings.

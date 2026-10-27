@@ -5330,7 +5330,7 @@ void the_kit_gallery_row_moves_only_developers_list() {
     // is printed, so that a change meant to move these parts can pin them
     // again.
     const std::array<std::pair<Page, uint64_t>, 11> kBefore{{
-        {Page::controls, 0xf5e7cf5d0b58d18c},
+        {Page::controls, 0x2ba5d6278322836c},
         {Page::common_tweaks, 0xa17a9cb0e4a400c3},
         {Page::language, 0x577159ca1f37a422},
         {Page::graphics, 0x526da924adc6ca53},
@@ -6499,6 +6499,8 @@ void the_notice_draws_in_the_dialogs_colours(const settings::DialogFonts& fonts)
     CHECK(canvas.at(ok->rect.x - 2, ok->rect.y + 5) == kAccent);
 }
 
+void key_layout_values_fit(const settings::DialogFonts& fonts);
+
 void fonts_load_and_every_text_fits_its_place() {
     auto assets = oa::test::require_game_assets("the settings dialog's fonts");
     const auto fonts = settings::load_dialog_fonts(assets);
@@ -6916,6 +6918,110 @@ void fonts_load_and_every_text_fits_its_place() {
     settings::open_language_text_dialog(language, {}, {}, {}, "v0.6.0");
     dialog_fits(language);
     manage_draws_in_the_game_font_inside_its_button(fonts);
+    key_layout_values_fit(fonts);
+}
+
+/// Lays Controls out with each form of Key layout's value, in the game's
+/// fonts, and checks every part fits its box. The count of changes is kept
+/// whole. A name that does not fit is shortened. The value sits beside EDIT
+/// KEYS, or, when the count itself does not fit there, on the line above it.
+///
+/// @param fonts the dialog's fonts
+void key_layout_values_fit(const settings::DialogFonts& fonts) {
+    const auto text_width = [&](const settings::LayoutPart& part) {
+        return settings::dialog_text_width(fonts, part.font, part.text) +
+               part.tracking * static_cast<int32_t>(std::max(part.text.size(), std::size_t{1}) - 1);
+    };
+    const auto fits = [&](const settings::Dialog& dialog) {
+        const auto parts = settings::dialog_layout(dialog, &fonts);
+        for (const settings::LayoutPart& part : parts) {
+            if (part.text.empty())
+                continue;
+            const int32_t width = text_width(part);
+            if (width > part.rect.width) {
+                std::cerr << "'" << part.text << "' is " << width << " wide in a box "
+                          << part.rect.width << " wide\n";
+                CHECK(width <= part.rect.width);
+            }
+        }
+        return parts;
+    };
+    const auto value_of = [](const std::vector<settings::LayoutPart>& parts,
+                             std::string_view mark) {
+        const settings::LayoutPart* found = nullptr;
+        for (const settings::LayoutPart& part : parts)
+            if (part.control == settings::no_control && part.text.find(mark) != std::string::npos)
+                found = &part;
+        return found;
+    };
+    const std::string edit{"EDIT KEYS…"};
+    const std::string count_one = "1 change of your own";
+    const std::string count_twelve = "12 changes of your own";
+    const std::string long_name = "TA Zero tournament " + std::string(80, 'W');
+    for (const oa::ui::kit::SizeClass size_class :
+         {oa::ui::kit::SizeClass::compact,
+          oa::ui::kit::SizeClass::regular,
+          oa::ui::kit::SizeClass::large}) {
+        for (const std::string& summary :
+             {std::string("OA default"),
+              settings::key_layout_summary_text("OA default", 1),
+              settings::key_layout_summary_text("OA default", 12),
+              settings::key_layout_summary_text(long_name, 12)}) {
+            settings::Dialog dialog = opened(Page::controls);
+            dialog.size_class = size_class;
+            dialog.key_layout_summary = summary;
+            const auto parts = fits(dialog);
+            CHECK(dialog.key_layout_summary == summary);
+            const settings::LayoutPart* button =
+                find_part(parts, edit, settings::first_row_control);
+            const settings::LayoutPart* label =
+                find_part(parts, "Key layout", settings::no_control);
+            CHECK(button != nullptr);
+            CHECK(label != nullptr);
+            const std::string_view mark =
+                summary.find(count_twelve) != std::string::npos ? count_twelve
+                : summary.find(count_one) != std::string::npos  ? count_one
+                                                                : std::string_view("OA default");
+            const settings::LayoutPart* value = value_of(parts, mark);
+            if (value == nullptr)
+                std::cerr << "no value holds '" << mark << "'\n";
+            CHECK(value != nullptr);
+            CHECK(value->text.find(mark) != std::string::npos);
+            CHECK(!overlap(value->rect, label->rect));
+            CHECK(!overlap(value->rect, button->rect));
+            const bool beside =
+                value->rect.y == button->rect.y &&
+                value->rect.x + value->rect.width + geometry::label_gap == button->rect.x;
+            const bool above = value->rect.y + value->rect.height <= button->rect.y;
+            if (!beside && !above)
+                std::cerr << "'" << value->text
+                          << "' is not beside EDIT KEYS or on the line above it\n";
+            CHECK(beside || above);
+            if (summary == "OA default")
+                CHECK(value->rect.y == label->rect.y);
+            if (summary.find(long_name) != std::string::npos) {
+                CHECK(value->text.find("\xE2\x80\xA6") != std::string::npos);
+                CHECK(value->text.size() < summary.size());
+            }
+        }
+    }
+    // A count wider than the room left of EDIT KEYS keeps that count and
+    // takes the whole line, with the button on the line under it.
+    std::string wide_count = " \xC2\xB7 12 changes of your own";
+    while (settings::dialog_text_width(fonts, settings::DialogFont::regular, wide_count) < 250)
+        wide_count.insert(std::size_t{4}, "m");
+    settings::Dialog wide = opened(Page::controls);
+    wide.size_class = oa::ui::kit::SizeClass::compact;
+    wide.key_layout_summary = "Ridge" + wide_count;
+    const auto wide_parts = fits(wide);
+    CHECK(wide.key_layout_summary == "Ridge" + wide_count);
+    const settings::LayoutPart* wide_button =
+        find_part(wide_parts, edit, settings::first_row_control);
+    const settings::LayoutPart* wide_value = value_of(wide_parts, count_twelve);
+    CHECK(wide_button != nullptr);
+    CHECK(wide_value != nullptr);
+    CHECK(wide_value->text.find(count_twelve) != std::string::npos);
+    CHECK(wide_value->rect.y + wide_value->rect.height <= wide_button->rect.y);
 }
 
 void the_mod_options_dialog_lists_its_own_sections() {
