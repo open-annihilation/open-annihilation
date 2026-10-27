@@ -3572,9 +3572,10 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_language_switch_check_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Every Open Annihilation screen in English, German, French, Spanish,
-      # Italian and Simplified Chinese, at 640x480 and 1280x720. A text wider
-      # than its box, or drawn across another text, fails the check and names
-      # the screen, the language and the text. The Chinese fixture installs
+      # Italian and Simplified Chinese, at 640x480, 1280x720 and 1920x1080,
+      # in the classic look (the named file's own). A text wider than its
+      # box, or drawn across another text, fails the check and names the
+      # screen, the language and the text. The Chinese fixture installs
       # first. --check-language TAG names another language, an installed
       # pack's, to check in place of these.
       set(oa_text_fit_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/text-fit")
@@ -3599,6 +3600,30 @@ if(OA_BUILD_PLATFORM)
         --preferences-file "${oa_text_fit_language_check_dir}/text-fit.conf")
       set_tests_properties(native-text-fit-language PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_text_fit_language_check_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The same two in the modern look: OA's screens in Barlow, each size
+      # class's text at its steps on the type scale.
+      set(oa_text_fit_modern_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/text-fit-modern")
+      file(MAKE_DIRECTORY "${oa_text_fit_modern_check_dir}")
+      file(WRITE "${oa_text_fit_modern_check_dir}/text-fit.conf"
+        "open-annihilation-preferences 1\n\"open-annihilation.language\" \"en\"\n\"open-annihilation.first-run\" \"done\"\n\"open-annihilation.ui.look\" \"modern\"\n")
+      add_test(NAME native-text-fit-modern COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-text-fit --dplay-port 0
+        --preferences-file "${oa_text_fit_modern_check_dir}/text-fit.conf")
+      set_tests_properties(native-text-fit-modern PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_text_fit_modern_check_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      set(oa_text_fit_language_modern_check_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/text-fit-language-modern")
+      file(MAKE_DIRECTORY "${oa_text_fit_language_modern_check_dir}")
+      file(WRITE "${oa_text_fit_language_modern_check_dir}/text-fit.conf"
+        "open-annihilation-preferences 1\n\"open-annihilation.language\" \"en\"\n\"open-annihilation.first-run\" \"done\"\n\"open-annihilation.ui.look\" \"modern\"\n")
+      add_test(NAME native-text-fit-language-modern COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-text-fit --check-language zh-Hans --dplay-port 0
+        --preferences-file "${oa_text_fit_language_modern_check_dir}/text-fit.conf")
+      set_tests_properties(native-text-fit-language-modern PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_text_fit_language_modern_check_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The match dialog check in the Chinese fixture's language, which the
       # modern fonts draw: the briefing's rows and its MORE caption keep to
@@ -4207,13 +4232,13 @@ endforeach()
       add_test(NAME language-fixture-pack COMMAND ${CMAKE_COMMAND}
         -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/src/data/languages/tests/fixture-packs/zh-Hans
         -DFONT=${OA_TEXT_FONT_TESTS_DIR}/NotoSansCJKsc-Bold-Fixture.otf
-        "-DDESTINATIONS=${oa_language_switch_check_dir}/Open Annihilation;${oa_pointer_check_dir}/Open Annihilation;${oa_touch_check_dir}/Open Annihilation;${oa_touch_phone_check_dir}/Open Annihilation;${oa_text_fit_check_dir}/Open Annihilation;${oa_text_fit_language_check_dir}/Open Annihilation;${oa_match_dialogs_language_check_dir}/Open Annihilation"
+        "-DDESTINATIONS=${oa_language_switch_check_dir}/Open Annihilation;${oa_pointer_check_dir}/Open Annihilation;${oa_touch_check_dir}/Open Annihilation;${oa_touch_phone_check_dir}/Open Annihilation;${oa_text_fit_check_dir}/Open Annihilation;${oa_text_fit_language_check_dir}/Open Annihilation;${oa_text_fit_modern_check_dir}/Open Annihilation;${oa_text_fit_language_modern_check_dir}/Open Annihilation;${oa_match_dialogs_language_check_dir}/Open Annihilation"
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/install_fixture_pack.cmake)
       set_tests_properties(language-fixture-pack PROPERTIES
         FIXTURES_SETUP language-fixture-pack TIMEOUT 30)
       set_tests_properties(native-language-switch native-pointer-interfaces
         native-touch-controls native-touch-controls-phone native-text-fit native-text-fit-language
-        native-match-dialogs-language
+        native-text-fit-modern native-text-fit-language-modern native-match-dialogs-language
         PROPERTIES FIXTURES_REQUIRED language-fixture-pack)
       # --check-pad-controls: the gamepad controls, driven through the event
       # path by SDL virtual pads imitating a Steam Deck and an Xbox pad, on a

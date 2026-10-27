@@ -3,7 +3,9 @@
 
 // --check-text-fit: opens every Open Annihilation screen in English, German,
 // French, Spanish, Italian and Simplified Chinese, or in the languages
-// --check-language names, such as an installed pack's, at 640x480 and 1280x720.
+// --check-language names, such as an installed pack's, at 640x480, 1280x720
+// and 1920x1080: Compact, Regular and Large, in the look its preferences
+// file holds (Classic, a named file's own, unless the file names Modern).
 // The kit records a text drawn wider than its box or across another text.
 // The check fails naming the screen, the language and the text. The kit
 // records only while a text is drawn, so the layer draws every screen again
@@ -15,20 +17,20 @@
 // Mutators reading "Mutators" and "Mutators (5)", with three computer rows'
 // brain buttons, one of them a long name, and NEWGAME with Mutators and with
 // the campaign brain button showing that long name, in every language and
-// both sizes; Mutators' words must read whole.
+// every size; Mutators' words must read whole.
 // The battle room is painted with one computer row whose brain has a long
-// name, in every language and both sizes.
+// name, in every language and every size.
 // The Brains tab's details are painted too: one brain not installed and one
-// installed, at both sizes and at 960x540, Compact on its details page.
+// installed, at every size and at 960x540, Compact on its details page.
 // "Load with the built-in player?" is painted with two 64-byte names.
 // The brain picker is painted on its fixture feed: the list, the inline
 // details at Regular and Large, and Compact's details page.
-// The key editor's list is painted at both sizes, and Compact's details page,
+// The key editor's list is painted at every size, and Compact's details page,
 // then the capture, the clash prompt, the keyboard, the mouse and the draft card.
 // The keys overlay is painted in a benchmark skirmish, in every language, at
 // 640x480 only.
 // Controls is painted with an own layout of OA default that holds twelve
-// changes, in every language and both sizes, so Key layout's value is the
+// changes, in every language and every size, so Key layout's value is the
 // layout's name and its count. The own layout is removed before the check ends.
 
 #include "folder_chooser_screen.hpp"
@@ -74,6 +76,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -122,9 +125,12 @@ std::string joined_languages(const std::vector<std::string>& tags) {
     return joined;
 }
 
-/// Window sizes. 640x480 is the compact settings dialog; 1280x720 is larger.
-constexpr int32_t kWidths[] = {640, 1280};
-constexpr int32_t kHeights[] = {480, 720};
+/// Window sizes: 640x480 lays the screens out at Compact, 1280x720 at
+/// Regular and 1920x1080 at Large, where the modern look draws each class's
+/// type.
+constexpr int32_t kWidths[] = {640, 1280, 1920};
+constexpr int32_t kHeights[] = {480, 720, 1080};
+static_assert(std::size(kWidths) == std::size(kHeights));
 
 /// How far a settings page is scrolled, in source pixels. The dialog clamps
 /// each one, so the last one draws the foot of a long page.
@@ -930,7 +936,7 @@ void Runtime::check_text_fit() {
     }
 #endif
 
-    for (std::size_t size_at = 0; size_at < 2; ++size_at) {
+    for (std::size_t size_at = 0; size_at < std::size(kWidths); ++size_at) {
         width = kWidths[size_at];
         height = kHeights[size_at];
         require(
@@ -1334,7 +1340,11 @@ void Runtime::check_text_fit() {
             if (oa_layer().find(library_screen_name) != nullptr) {
                 kit::Question asked;
                 asked.title = "Remove";
-                asked.paragraphs.push_back(kit::Paragraph{std::string(kLongText), false});
+                asked.paragraphs.push_back(
+                    kit::Paragraph{
+                        std::string(oa::data::languages::interface_text(kLongText)), false
+                    }
+                );
                 asked.buttons.push_back(kit::QuestionButton{"CANCEL", false, "cancel"});
                 asked.buttons.push_back(kit::QuestionButton{"OK", true, "ok"});
                 asked.cancel_button = 0;
@@ -1825,9 +1835,13 @@ void Runtime::check_text_fit() {
                 );
             }
 
+            // The paragraph in the language shown, as the game's notices are
+            // built: the kit wraps the text it is given.
             kit::Notice told;
             told.title = "NOTICE";
-            told.paragraphs.push_back(kit::Paragraph{std::string(kLongText), false});
+            told.paragraphs.push_back(
+                kit::Paragraph{std::string(oa::data::languages::interface_text(kLongText)), false}
+            );
             told.open_caption = "OK";
             told.ok_caption = "OK";
             oa_layer().push(
@@ -1954,7 +1968,7 @@ void Runtime::check_text_fit() {
     close_covering();
     if (failures.empty()) {
         std::cout << "text-fit check: every screen fits in " << joined_languages(languages)
-                  << " at 640x480 and 1280x720\n";
+                  << " at 640x480, 1280x720 and 1920x1080\n";
         std::cout << "text-fit check: mutator details fit in " << joined_languages(languages)
                   << " at 640x480, 960x540 and 1280x720\n";
         std::cout << "text-fit check: mutator-picker fits in " << joined_languages(languages)
