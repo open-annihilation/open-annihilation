@@ -44,7 +44,8 @@
 // hooks do not use. Version 16 adds run_mutators, which these hooks do not
 // call. Version 17 adds hear_remote_seat_chat, which these hooks do not call.
 // Version 18 adds the kit's key pictures, which these hooks do not use.
-constexpr uint32_t kExtensionApiVersionFollowed = 18;
+// Version 19 is Kit 2's look in the kit's headers, which these hooks do not use.
+constexpr uint32_t kExtensionApiVersionFollowed = 19;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "
