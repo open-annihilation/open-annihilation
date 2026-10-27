@@ -936,9 +936,9 @@ while `requested` stays at 99.10: the commander builds one second in four
 and the collector takes about four times as long. With both stores empty,
 once the energy owed is paid the commander still owes metal, so energy
 `spent` drops to the upkeep of 1 while energy `requested` stays at 99.10
-and the energy store fills. An Arm commander has no upkeep, and an Arm solar collector costs 760
-energy and 145 metal with a build time of 2495: 91.38 energy and 17.43
-metal requested a second.
+and the energy store fills. An Arm commander has no upkeep, and an Arm
+solar collector costs 760 energy and 145 metal with a build time of 2495:
+91.38 energy and 17.43 metal requested a second.
 
 `me.energy_spent` and `me.metal_spent` came with the engine's 0.8.7. On
 an earlier engine they are nil. A brain that needs them asks for
