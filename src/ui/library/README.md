@@ -1020,7 +1020,8 @@ mod being played, a GET blocked by three missing hacks, and four queue
 items: downloading, waiting, failed, and an installed update that changed
 the rules), in a synthetic font, at Compact, Regular and Large and in the
 windows of 640x480 at 1x, 1920x1080 at 2x (Regular, 960 by 540 points;
-at Auto that window is Large at 1x) and 2560x1440 at 2x. At each it
+at Auto that window is Large at 1x, as 1280x720 is, and Regular is
+800x600) and 2560x1440 at 2x. At each it
 checks that every part lies inside the window; that no two controls or
 press areas meet; that every action of the selected entry is a control
 (at Compact on its details page, MORE ▾ open), UPDATE ALL over the list
@@ -1094,8 +1095,10 @@ by map name and by pack name, counting the tiles that match and saying
 when nothing matches.
 
 `ui-library-draw-data` lays out and draws, in the installed game's fonts
-and the modern fonts beside the test, Compact in the 640x480 window,
-Regular in 1920x1080 and Large in 2560x1440 at 2x, Compact's details
+and the modern fonts beside the test, Compact in the 640x480 window at
+1x, Regular in 1920x1080 at 2x (960 by 540 points; at Auto that window is
+Large at 1x, as 1280x720 is, and Regular is 800x600) and Large in
+2560x1440 at 2x, Compact's details
 page, the Active tab at Compact, Regular and Large, Compact scrolled to
 its maps, with many maps at
 Regular, and at Compact while the command line chose a mod that needs
