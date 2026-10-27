@@ -2380,6 +2380,7 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             live.content_check = dialog->opened.content_check;
             live.update_check = dialog->opened.update_check;
             live.update_download = dialog->opened.update_download;
+            live.update_install = dialog->opened.update_install;
             apply_engine_settings(live);
             apply_key_layout_preference(*dialog);
             if (dialog->page == settings::Page::updates)
@@ -2616,6 +2617,16 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
     case settings::DialogAction::retry_update:
         retry_update_download();
         return false;
+    case settings::DialogAction::update_action: {
+        // One of the update card's buttons: the update centre's action whose
+        // number the runtime gave the button (apply_update_download). The
+        // dialog stays open and follows the state on its next frame.
+        const int32_t act = dialog->update_act;
+        dialog->update_act = -1;
+        if (act >= 0 && act <= static_cast<int32_t>(oa::app::update::Act::whats_new))
+            take_update_action(static_cast<oa::app::update::Act>(act));
+        return false;
+    }
     case settings::DialogAction::roll_back: {
         // The question asks once. ROLL BACK quits, and main() starts the
         // helper. CANCEL leaves Settings open. A match closes the question.

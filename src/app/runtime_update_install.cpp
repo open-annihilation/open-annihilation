@@ -111,6 +111,12 @@ constexpr std::string_view kKeptAsTheyWere =
     "Your saved games, settings and mods stay as they are.";
 /// Show the log on the recovery screen: quiet, at the footer's left.
 constexpr int32_t kReceiptLog = 0;
+/// The card's first line on Settings › Updates; {version} is this build.
+constexpr std::string_view kInstalledVersion = "Installed {version}";
+/// The card's heading while the dialog shows Check for updates at Never.
+constexpr std::string_view kNeverChecks = "OA never checks";
+/// The badge beside Updates in Settings' section list while a release is ready.
+constexpr std::string_view kReadyBadge = "ready";
 /// The ready prompt's heading over its three answers.
 constexpr std::string_view kWhenShouldItGoIn = "When should it go in?";
 /// A receipt left running this long was cut short, in seconds. A younger one
@@ -2134,6 +2140,62 @@ bool Runtime::apply_update_download(settings::Dialog& dialog) {
         centre_owns();
         break;
     }
+    // The card: the update centre's one state, its heading, detail, bar,
+    // note and actions. Roll back… stays Previous version's, and Later and
+    // Keep it ready, which ask nothing of a page that stays open, are left
+    // out. While the dialog shows Never, it offers no check.
+    offer.card_status.clear();
+    offer.card_installed.clear();
+    offer.card_detail.clear();
+    offer.card_note.clear();
+    offer.percent = -1;
+    offer.paused = false;
+    offer.actions.clear();
+    std::string badge;
+    if (show) {
+        const bool never = dialog.chosen.update_check == settings::UpdateCheck::never;
+        offer.card_status = words.status;
+        offer.card_detail = words.detail;
+        offer.card_note = words.note;
+        if (never && (centre.stage == update::Stage::not_checked ||
+                      centre.stage == update::Stage::up_to_date)) {
+            offer.card_status = std::string(languages::interface_text(kNeverChecks));
+            offer.card_detail.clear();
+        }
+        offer.card_installed = library::filled(
+            shown_hooks(), kInstalledVersion, {{"version", centre.current_version}}
+        );
+        const bool moving = centre.stage == update::Stage::downloading ||
+                            centre.stage == update::Stage::paused_by_player ||
+                            centre.stage == update::Stage::paused_by_match;
+        if (moving && centre.percent >= 0) {
+            offer.percent = centre.percent;
+            offer.paused = centre.stage != update::Stage::downloading;
+            badge = std::to_string(centre.percent) + "%";
+        }
+        if (centre.stage == update::Stage::ready || centre.stage == update::Stage::scheduled)
+            badge = std::string(languages::interface_text(kReadyBadge));
+        for (const update::ActWords& act : words.actions) {
+            if (act.act == update::Act::roll_back || act.act == update::Act::later ||
+                act.act == update::Act::keep_ready || (never && act.act == update::Act::check_now))
+                continue;
+            if (offer.actions.size() == settings::most_update_card_actions)
+                break;
+            offer.actions.push_back(
+                {static_cast<int32_t>(act.act), std::string(act_id(act.act)), act.caption}
+            );
+        }
+    }
+    const auto same_actions = [](const std::vector<settings::UpdateCardAction>& left,
+                                 const std::vector<settings::UpdateCardAction>& right) {
+        if (left.size() != right.size())
+            return false;
+        for (std::size_t index = 0; index < left.size(); ++index)
+            if (left[index].act != right[index].act || left[index].id != right[index].id ||
+                left[index].caption != right[index].caption)
+                return false;
+        return true;
+    };
     const std::string note = update_header_note();
     const bool changed =
         offer.show_download != dialog.updates.show_download ||
@@ -2144,9 +2206,16 @@ bool Runtime::apply_update_download(settings::Dialog& dialog) {
         offer.kept_version != dialog.updates.kept_version ||
         offer.status != dialog.updates.status || offer.can_check != dialog.updates.can_check ||
         offer.offered != dialog.updates.offered || offer.updated_by != dialog.updates.updated_by ||
-        dialog.header_note != note;
+        offer.card_status != dialog.updates.card_status ||
+        offer.card_installed != dialog.updates.card_installed ||
+        offer.card_detail != dialog.updates.card_detail ||
+        offer.card_note != dialog.updates.card_note || offer.percent != dialog.updates.percent ||
+        offer.paused != dialog.updates.paused ||
+        !same_actions(offer.actions, dialog.updates.actions) || dialog.header_note != note ||
+        dialog.updates_badge != badge;
     dialog.updates = std::move(offer);
     dialog.header_note = note;
+    dialog.updates_badge = std::move(badge);
     return changed;
 }
 

@@ -821,6 +821,7 @@ bool run_game_files_language_dialog(const GameFilesLanguageRequest& request) {
             case settings::DialogAction::retry_update:
             case settings::DialogAction::roll_back:
             case settings::DialogAction::edit_keys:
+            case settings::DialogAction::update_action:
                 // The Language dialog lists none of the controls that ask
                 // for these, and no language that is only available to download.
                 dirty = true;
