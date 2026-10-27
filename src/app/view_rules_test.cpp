@@ -454,7 +454,20 @@ void build_facings() {
     // South is always allowed, even when the bits leave it out.
     OA_CHECK(vr::next_build_facing(facing::west, BuildFacing::south, 1) == BuildFacing::west);
     OA_CHECK(vr::facing_letter(BuildFacing::north) == 'N');
-    OA_CHECK(vr::rotate_hint("/", "Alt") == "Press /, or Alt+wheel, to rotate");
+    vr::RotateHintParts parts;
+    parts.both = "Press {key}, or {wheel}, to rotate";
+    parts.key_only = "Press {key} to rotate";
+    parts.wheel_only = "{wheel} rotates";
+    parts.key = "/";
+    parts.wheel = "Alt+wheel";
+    OA_CHECK(vr::rotate_hint(parts) == "Press /, or Alt+wheel, to rotate");
+    parts.key = {};
+    OA_CHECK(vr::rotate_hint(parts) == "Alt+wheel rotates");
+    parts.key = "R";
+    parts.wheel = {};
+    OA_CHECK(vr::rotate_hint(parts) == "Press R to rotate");
+    parts.key = {};
+    OA_CHECK(vr::rotate_hint(parts).empty());
 }
 
 void facing_toward_points() {

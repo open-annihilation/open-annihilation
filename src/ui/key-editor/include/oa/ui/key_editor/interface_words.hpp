@@ -262,6 +262,20 @@ inline constexpr std::string_view interface_words[] = {
     words::cap_space_up,
     words::cap_space_down,
     words::cap_wheel_middle,
+    words::keys_while_playing,
+    words::keys_while_watching,
+    words::keys_while_placing,
+    words::overlay_changes,
+    words::edit_keys,
+    words::on_line,
+    words::this_mod,
+    words::chord_range,
+    words::overlay_footer,
+    words::help_chord,
+    words::rotate_both,
+    words::rotate_key,
+    words::rotate_wheel,
+    words::wheel_word,
 };
 
 } // namespace oa::ui::key_editor

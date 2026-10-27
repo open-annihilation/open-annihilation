@@ -801,6 +801,10 @@ struct Options {
     // each modifier layer, the shape drop-down, a free key, the mouse's
     // Forward and Left-click saved as Interface Type.
     bool check_key_views = false;
+    // Opens the keys overlay in a skirmish: the playing and placing lists,
+    // the editor pausing the clock, order badges, help lines, the rotate
+    // hint and a latched QUEUE chip. A scratch folder holds the own layout.
+    bool check_keys_overlay = false;
     // Opens the mutator picker over the main menu at four window sizes, on
     // a feed of made-up mutators, and requires the rows, a download, the
     // turn-off question, a drag, the handed set and the verdict chip.

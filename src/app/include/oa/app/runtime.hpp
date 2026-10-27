@@ -71,6 +71,7 @@
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/mutator_picker/model.hpp"
 #include "oa/ui/key_editor/model.hpp"
+#include "oa/ui/key_editor/overlay.hpp"
 #include "oa/ui/brain_picker/model.hpp"
 #include "oa/data/content_bundles/content_choice.hpp"
 #include "oa/data/mutators/choice.hpp"
@@ -7566,6 +7567,9 @@ class Runtime final : public menu::Host,
     /// The key editor, a screen of the OA layer named key-editor.
     struct KeyEditorScreen;
 
+    /// The keys overlay, a screen of the OA layer named keys-overlay.
+    struct KeysOverlayScreen;
+
     /// The mutator picker, a screen of the OA layer named mutator-picker.
     struct MutatorPickerScreen;
 
@@ -7747,6 +7751,15 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_key_views();
+
+    /// Runs --check-keys-overlay: a skirmish with a selected builder, the
+    /// overlay while playing and while placing, the editor it opens, the
+    /// order and build badges, the help lines, the rotate hint and a latched
+    /// QUEUE. With --snapshot it writes keys-overlay-<w>x<h>.ppm and
+    /// key-badges-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_keys_overlay();
 
     /// Writes --check-mutator-picker's and --check-brain-picker's registry
     /// list into the player's folder, every built-in registry turned off,
@@ -11068,11 +11081,88 @@ class Runtime final : public menu::Host,
 
     /// Answers the keys overlay before a screen sees the key.
     ///
-    /// The press is taken and the installed hook is called. With no hook,
-    /// nothing is drawn. A repeat and the key's release reach the screens.
+    /// The press is taken. The installed hook is called, and in a match the
+    /// overlay opens or closes. A modal screen, or a screen that is not a
+    /// match, still takes the press and draws nothing. A repeat and the
+    /// key's release reach the screens.
     ///
     /// @return true when ui.keys-overlay was pressed
     bool take_keys_overlay_action();
+
+    /// Opens the keys overlay in a match, or closes it when it is already open.
+    ///
+    /// A modal screen and a screen that is not a running match do nothing.
+    /// [runtime_keys_overlay.cpp]
+    void toggle_keys_overlay_screen();
+
+    /// Fills the overlay from the bindings and the contexts that are active now.
+    ///
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param[out] inputs the overlay's inputs
+    void fill_keys_overlay(oa::ui::key_editor::OverlayInputs& inputs);
+
+    /// Remembers the layout's name and how many of the player's own changes
+    /// it carries, when the bindings' signature changes.
+    ///
+    /// [runtime_key_bindings.cpp]
+    void note_keys_overlay_layout();
+
+    /// Reads the bindings again, including a layout just written.
+    ///
+    /// [runtime_key_bindings.cpp]
+    void reread_key_bindings();
+
+    /// The first key chord of an action that fires in the active context.
+    ///
+    /// Empty when the bindings are not ready, the action is absent, or no
+    /// key chord of it meets the context. A pointer or wheel action is empty.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param id the action id
+    /// @return the chord, as display_text spells it
+    [[nodiscard]] std::string active_key_chord(std::string_view id);
+
+    /// The letter a button's caption underlines for an order action.
+    ///
+    /// Nothing while the bindings are not ready, so the caption keeps the
+    /// letter it had. Zero when they are ready and the first key chord is
+    /// not a bare letter in the caption.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param action the action id
+    /// @param caption the button's caption
+    /// @return the caption's own letter, zero, or nothing
+    [[nodiscard]] std::optional<char>
+    order_quick_letter(std::string_view action, std::string_view caption);
+
+    /// The chord of build.cell-n when that cell's key fires now.
+    ///
+    /// @param cell the cell, from 1
+    /// @return the chord, or empty outside 1..12 or when unbound
+    [[nodiscard]] std::string build_cell_chord(int32_t cell);
+
+    /// The wheel half of the rotate hint, from build.rotate-wheel.
+    ///
+    /// Two turns that share their modifiers are those modifiers and the word
+    /// "wheel". Anything else is the first wheel chord's name.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @return the wheel's name, or empty when it does not fire
+    [[nodiscard]] std::string rotate_wheel_text();
+
+    /// The rotate hint for the bindings in use.
+    ///
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @return the hint, or empty when the key and the wheel are both unbound
+    [[nodiscard]] std::string rotate_hint_line();
+
+    /// Draws a small keycap on each order button and build cell while Show
+    /// keys on buttons is on.
+    ///
+    /// [runtime_hud.cpp]
+    void draw_key_badges();
 
     /// With `--trace-input`, writes the game's window as window_trace_line
     /// says on standard error: where it lies on its display, its state, how
@@ -19189,9 +19279,11 @@ class Runtime final : public menu::Host,
     uint32_t console_clock_opacity_ = oa::ui::hud::kClockOpaque;
     std::optional<oa::formats::gaf::RenderedFrame> status_lightbar_{};
     bool status_lightbar_loaded_ = false;
-    std::string status_label_;           // last label translated for the status strip
-    std::string unit_panel_word_{};      // last word translated for the unit panel
-    uint32_t options_lightbar_sounds_{}; // "Options" sounds the lightbar sweeps have played
+    std::string status_label_;                   // last label translated for the status strip
+    std::string unit_panel_word_{};              // last word translated for the unit panel
+    std::string unit_panel_hover_name_{};        ///< the hovered button's name line
+    std::string unit_panel_hover_description_{}; ///< the hovered button's description line
+    uint32_t options_lightbar_sounds_{};         // "Options" sounds the lightbar sweeps have played
 
     /// Draws the status strip that slides up from the bottom of the battlefield while Space is
     /// held: the lightbar and the time, unit and speed readouts.
@@ -20835,8 +20927,33 @@ class Runtime final : public menu::Host,
     /// Set while the key now being handled was already given to the action
     /// dispatcher. A match hotkey reached any other way feeds its own press.
     bool match_key_already_fed_{};
-    /// Called when the keys overlay is pressed. Null draws nothing.
+    /// Called when the keys overlay is pressed. Null leaves the overlay to the match.
     void (*keys_overlay_hook_)(Runtime&) = nullptr;
+    /// The layout name last read for the overlay. Empty is OA default.
+    std::string keys_overlay_layout_name_{};
+    int32_t keys_overlay_changes_{0};       ///< the player's own changes last read
+    std::string keys_overlay_signature_{};  ///< the bindings signature that name was read for
+    bool keys_overlay_layout_known_{false}; ///< the signature has been read, even when empty
+    /// The rotate hint last drawn over a building. Empty when none was drawn.
+    std::string rotate_hint_drawn_{};
+
+    /// One keycap drawn on an order button or a build cell.
+    struct KeyBadgeDrawn {
+        std::string gadget{}; ///< the gadget's name
+        std::string action{}; ///< the action id
+        std::string label{};  ///< the chord on the keycap
+    };
+
+    std::vector<KeyBadgeDrawn> key_badges_drawn_{}; ///< the badges last drawn
+
+    /// One order button whose underline followed its binding.
+    struct QuickKeyApplied {
+        std::string gadget{}; ///< the gadget's name
+        std::string action{}; ///< the action id
+        char letter{};        ///< the caption's letter, or 0
+    };
+
+    std::vector<QuickKeyApplied> quick_keys_applied_{}; ///< the underlines last applied
 
     /// A latch or sticky modifier chip, and when it was turned on.
     struct KeyLatchSeen {

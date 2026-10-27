@@ -335,13 +335,25 @@ opponent_facing(const oa::World& world, int32_t site_x, int32_t site_z) noexcept
 /// @return the letter
 [[nodiscard]] char facing_letter(BuildFacing facing) noexcept;
 
-/// Returns the hint shown while the rotate key is not yet known: "Press
-/// <key>, or <modifier>+wheel, to rotate".
+/// The pieces of a rotate hint. The sentences are the caller's, already
+/// looked up. `{key}` and `{wheel}` are the only places a sentence uses.
+struct RotateHintParts {
+    std::string_view key{};        ///< the rotate key's name; empty when unbound
+    std::string_view wheel{};      ///< the wheel's name; empty when unbound
+    std::string_view both{};       ///< the sentence when the key and the wheel both turn
+    std::string_view key_only{};   ///< the sentence when only the key turns
+    std::string_view wheel_only{}; ///< the sentence when only the wheel turns
+};
+
+/// Returns the rotate hint for the parts that are bound.
 ///
-/// @param key the rotate key's name
-/// @param modifier the snap override key's name, held to turn with the wheel
-/// @return the hint
-[[nodiscard]] std::string rotate_hint(std::string_view key, std::string_view modifier);
+/// Both bound uses `both`, the key alone uses `key_only`, the wheel alone
+/// uses `wheel_only`, and neither bound returns nothing. A sentence's
+/// `{key}` and `{wheel}` places are filled from the parts.
+///
+/// @param parts the names and the sentences
+/// @return the hint, or empty when both are unbound
+[[nodiscard]] std::string rotate_hint(const RotateHintParts& parts);
 
 /// Tells whether a build preview's piece list names a piece: the list's
 /// names are separated by commas, with spaces around them, and matched

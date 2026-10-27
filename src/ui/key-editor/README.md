@@ -86,11 +86,17 @@ A clash already in the draft shows a card on the chosen action: KEEP IT HERE, KE
 - `changes` counts the draft's bindings and helpers. `unsaved` counts those and a layout that was chosen, duplicated or renamed, and the number-keys switch. `clashes` is how many clashing pairs the bindings in use have, including a clash that lives only in the mod's data. `draft_clashes` counts the pairs that name an action the draft binds. `can_save` is false while `draft_clashes` is not zero. `result` is the manifest to write, SwitchAlt, and any layout just made or renamed.
 - `keyboard_look` is the keyboard for one shape and one layer. `key_card` is every action on one key. `mouse_look` and `mouse_table` are the mouse for one scheme. `keys_of` is the keys FIND ON KEYBOARD outlines. `set_scheme` changes the draft's scheme and leaves the bindings.
 
+## The keys overlay
+
+`overlay_groups` lists the keys of the contexts that are active now, from the resolved bindings it is given. An action is listed when one of its contexts is active, its conditions hold, and its first chord is a key. A numbered family whose chords run in order collapses into one range. Actions that exist only because a hack is on are grouped under "This mod". `overlay_layout` places one column of 240 points at Compact, and two columns of 420 at Regular and 520 at Large, inside the battlefield and to the right of the side column. `draw_overlay` blends the panel over the battlefield. The screen is `keys-overlay`; the button is `keys-overlay.edit`, the close mark `keys-overlay.close`, the list `keys-overlay.list` and the scroll bar `keys-overlay.bar`.
+
 ## Tests
 
 `ui-key-editor-model` checks the categories, the filters, the search, removing and resetting a chord, Latch and Hold to confirm, the number-keys switch, choosing, duplicating and renaming a layout, a clash in the mod's data that stays listed while SAVE stays allowed, a draft chord that blocks SAVE, an unknown action written back, the Tags group's order, a bound tag, a tag the loaded units lack, Developer Mode, and Escape's fixed chord.
 
 `ui-key-editor-layout` lays the screen out at Compact, Regular and Large, including the keyboard and the mouse, and the ISO and JIS keyboards at Large. It checks that every part lies in the window, that names are sound, that Tab's order is the one above, and that every text fits. A key scrolled past the well is clipped.
+
+`ui-key-editor-overlay` lists the keys of the contexts active while playing, while watching and while placing a building. A numbered family whose chords run in order collapses into one range, and a broken run does not. Hack actions sit under This mod. The On line carries the latches the caller names. The panel at each class sits inside the battlefield, to the right of a 128-point column. The automation names are sound.
 
 `ui-key-editor-input` drives the keys, the pad's commands, and a finger's scroll and tap.
 
@@ -98,7 +104,7 @@ A clash already in the draft shows a card on the chosen action: KEEP IT HERE, KE
 
 `ui-key-editor-views` checks the labels, the layers, Escape, Settings, an AZERTY map, a free key's click, the mouse in both schemes, and FIND ON KEYBOARD.
 
-`ui-key-editor-draw` and `ui-key-editor-draw-data` draw the list, the keyboard, the mouse and the capture, clash and card, in the block font and again in the installed game's fonts, and check them against `tests/frames.txt`. The ISO and JIS keyboards are drawn at Large.
+`ui-key-editor-draw` and `ui-key-editor-draw-data` draw the list, the keyboard, the mouse, the capture, clash and card, and the keys overlay at each class, in the block font and again in the installed game's fonts, and check them against `tests/frames.txt`. The ISO and JIS keyboards are drawn at Large. The overlay pictures are `keys-overlay-<class>.png`.
 
 ## State
 

@@ -44,6 +44,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -3439,6 +3440,243 @@ void Runtime::apply_library_key_use(
         }
         refresh_settings_key_layout_summary(*open);
     }
+}
+
+namespace {
+
+/// Reports whether a chord is a key rather than a mouse, a wheel or a pad.
+///
+/// @param kind the trigger
+/// @return true for a character, a place, a named key or a modifier alone
+bool key_trigger(keys::TriggerKind kind) {
+    return kind == keys::TriggerKind::character || kind == keys::TriggerKind::place ||
+           kind == keys::TriggerKind::named || kind == keys::TriggerKind::modifier_alone;
+}
+
+/// The first chord of an action that is a key.
+///
+/// @param bound the action
+/// @return that chord, or null when every chord is a mouse, a wheel or a pad
+const keys::Chord* first_key_chord(const keys::Bound& bound) {
+    for (const keys::BoundChord& chord : bound.chords) {
+        if (key_trigger(chord.chord.kind))
+            return &chord.chord;
+    }
+    return nullptr;
+}
+
+/// Reports whether an action's chord can fire in the contexts that are active.
+///
+/// A pointer or wheel action is left out, the same way the overlay leaves it out.
+///
+/// @param bound the action
+/// @param contexts the contexts and conditions active now
+/// @return true when one of its contexts is active and its conditions hold
+bool chord_shows(const keys::Bound& bound, const keys::Contexts& contexts) {
+    if (bound.entry != nullptr &&
+        (bound.entry->kind == actions::Kind::pointer || bound.entry->kind == actions::Kind::wheel))
+        return false;
+    if ((bound.contexts & contexts.active) == 0)
+        return false;
+    if ((bound.when & contexts.conditions) != bound.when)
+        return false;
+    return keys::conditions_meet(bound.when, contexts.conditions);
+}
+
+/// Reports whether an action's conditions hold, including a wheel action.
+///
+/// @param bound the action
+/// @param contexts the contexts and conditions active now
+/// @return true when one of its contexts is active and its conditions hold
+bool action_live(const keys::Bound& bound, const keys::Contexts& contexts) {
+    if ((bound.contexts & contexts.active) == 0)
+        return false;
+    if ((bound.when & contexts.conditions) != bound.when)
+        return false;
+    return keys::conditions_meet(bound.when, contexts.conditions);
+}
+
+/// Looks an overlay word up in the player's language.
+///
+/// @param user the runtime
+/// @param english the English word
+/// @return the text to show
+std::string overlay_text(void* user, std::string_view english) {
+    return static_cast<Runtime*>(user)->translate_ui(english);
+}
+
+/// The bound action with this id, or null.
+///
+/// @param state the bindings in use
+/// @param id the action id
+/// @return the action; the pointer stays valid until the bindings are replaced
+const keys::Bound* bound_by_id(const Runtime::KeyBindingsState& state, std::string_view id) {
+    for (const keys::Bound& bound : state.dispatcher.bindings().actions) {
+        if (bound.id == id)
+            return &bound;
+    }
+    return nullptr;
+}
+
+} // namespace
+
+void Runtime::note_keys_overlay_layout() {
+    if (key_bindings_state_ == nullptr)
+        return;
+    const KeyBindingsState& state = *key_bindings_state_;
+    if (keys_overlay_layout_known_ && keys_overlay_signature_ == state.signature)
+        return;
+    keys_overlay_signature_ = state.signature;
+    keys_overlay_layout_known_ = true;
+    keys_overlay_layout_name_.clear();
+    keys_overlay_changes_ = 0;
+    if (state.has_own) {
+        const std::size_t count = state.own.bindings.size();
+        const auto limit = static_cast<std::size_t>(std::numeric_limits<int32_t>::max());
+        keys_overlay_changes_ =
+            count > limit ? std::numeric_limits<int32_t>::max() : static_cast<int32_t>(count);
+    }
+    if (!state.has_chosen || state.chosen.id.empty())
+        return;
+    const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
+    const library::Listing listing = library::list_installed(keys_folder);
+    for (const library::Installed& installed : listing.layouts) {
+        if (installed.origin == library::Origin::own || installed.manifest.id.starts_with("own-"))
+            continue;
+        if (installed.manifest.id == state.chosen.id) {
+            keys_overlay_layout_name_ = installed.manifest.name;
+            return;
+        }
+    }
+    keys_overlay_layout_name_ = state.chosen.id;
+}
+
+void Runtime::reread_key_bindings() {
+    keys_overlay_layout_known_ = false;
+    if (key_bindings_state_ != nullptr)
+        key_bindings_state_->signature.clear();
+    ensure_key_bindings(false);
+}
+
+void Runtime::fill_keys_overlay(oa::ui::key_editor::OverlayInputs& inputs) {
+    ensure_key_bindings(false);
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
+        return;
+    note_keys_overlay_layout();
+    const KeyBindingsState& state = *key_bindings_state_;
+    inputs.resolved = state.dispatcher.bindings();
+    inputs.contexts = input_contexts();
+    inputs.keyboard = state.dispatcher.keyboard();
+    inputs.platform = state.platform;
+    inputs.layout_name = keys_overlay_layout_name_;
+    inputs.changes = keys_overlay_changes_;
+    inputs.text.shown = overlay_text;
+    inputs.text.user = this;
+    std::vector<KeyLatchChip> chips;
+    gather_key_latch_chips(chips);
+    inputs.on.clear();
+    inputs.on.reserve(chips.size());
+    for (const KeyLatchChip& chip : chips)
+        inputs.on.push_back(chip.text);
+}
+
+std::string Runtime::active_key_chord(std::string_view id) {
+    ensure_key_bindings(false);
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
+        return {};
+    const keys::Contexts contexts = input_contexts();
+    const keys::KeyboardMap keyboard = key_bindings_state_->dispatcher.keyboard();
+    const keys::Platform platform = key_bindings_state_->platform;
+    const keys::Bound* found = bound_by_id(*key_bindings_state_, id);
+    if (found == nullptr || !chord_shows(*found, contexts))
+        return {};
+    const keys::Chord* chord = first_key_chord(*found);
+    if (chord == nullptr)
+        return {};
+    const keys::Chord copied = *chord;
+    return keys::display_text(copied, keyboard, platform);
+}
+
+std::optional<char> Runtime::order_quick_letter(std::string_view action, std::string_view caption) {
+    ensure_key_bindings(false);
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
+        return std::nullopt;
+    const keys::Contexts contexts = input_contexts();
+    const keys::Bound* found = bound_by_id(*key_bindings_state_, action);
+    if (found == nullptr || !chord_shows(*found, contexts))
+        return '\0';
+    const keys::Chord* chord = first_key_chord(*found);
+    if (chord == nullptr || chord->modifiers != 0 || chord->kind != keys::TriggerKind::character)
+        return '\0';
+    const char32_t letter = chord->character;
+    if (letter == 0 || letter > 127)
+        return '\0';
+    const auto wanted =
+        static_cast<unsigned char>(std::toupper(static_cast<unsigned char>(letter)));
+    for (const char byte : caption) {
+        const auto shown = static_cast<unsigned char>(byte);
+        if (std::toupper(shown) == wanted)
+            return static_cast<char>(shown);
+    }
+    return '\0';
+}
+
+std::string Runtime::build_cell_chord(int32_t cell) {
+    if (cell < 1 || cell > 12)
+        return {};
+    return active_key_chord("build.cell-" + std::to_string(cell));
+}
+
+std::string Runtime::rotate_wheel_text() {
+    ensure_key_bindings(false);
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
+        return {};
+    const keys::Contexts contexts = input_contexts();
+    const keys::Bound* found = bound_by_id(*key_bindings_state_, "build.rotate-wheel");
+    if (found == nullptr || !action_live(*found, contexts))
+        return {};
+    std::vector<keys::Chord> wheels;
+    for (const keys::BoundChord& item : found->chords) {
+        if (item.chord.kind == keys::TriggerKind::wheel)
+            wheels.push_back(item.chord);
+    }
+    if (wheels.empty())
+        return {};
+    const keys::KeyboardMap keyboard = key_bindings_state_->dispatcher.keyboard();
+    const keys::Platform platform = key_bindings_state_->platform;
+    const std::string wheel_word = translate_ui(oa::ui::key_editor::words::wheel_word);
+    const bool pair = wheels.size() == 2 && wheels[0].modifiers == wheels[1].modifiers &&
+                      ((wheels[0].wheel == 1 && wheels[1].wheel == -1) ||
+                       (wheels[0].wheel == -1 && wheels[1].wheel == 1));
+    if (!pair)
+        return keys::display_text(wheels[0], keyboard, platform);
+    if (wheels[0].modifiers == 0)
+        return wheel_word;
+    keys::Chord sample;
+    sample.kind = keys::TriggerKind::character;
+    sample.character = U'A';
+    sample.modifiers = wheels[0].modifiers;
+    sample.gesture = keys::Gesture::press;
+    const std::string shown = keys::display_text(sample, keyboard, platform);
+    const std::size_t plus = shown.rfind('+');
+    if (plus == std::string::npos)
+        return shown;
+    return shown.substr(0, plus) + "+" + wheel_word;
+}
+
+std::string Runtime::rotate_hint_line() {
+    const std::string key = active_key_chord("build.rotate");
+    const std::string wheel = rotate_wheel_text();
+    const std::string both = translate_ui(oa::ui::key_editor::words::rotate_both);
+    const std::string key_only = translate_ui(oa::ui::key_editor::words::rotate_key);
+    const std::string wheel_only = translate_ui(oa::ui::key_editor::words::rotate_wheel);
+    view_rules::RotateHintParts parts;
+    parts.key = key;
+    parts.wheel = wheel;
+    parts.both = both;
+    parts.key_only = key_only;
+    parts.wheel_only = wheel_only;
+    return view_rules::rotate_hint(parts);
 }
 
 } // namespace oa::app

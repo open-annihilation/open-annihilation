@@ -770,6 +770,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_keys_overlay) {
+            check_keys_overlay();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_mutator_picker) {
             check_mutator_picker();
             flush_preferences();
@@ -1409,6 +1414,7 @@ bool Runtime::take_keys_overlay_action() {
         return false;
     if (keys_overlay_hook_ != nullptr)
         keys_overlay_hook_(*this);
+    toggle_keys_overlay_screen();
     return true;
 }
 

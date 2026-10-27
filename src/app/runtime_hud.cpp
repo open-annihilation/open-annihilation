@@ -3,7 +3,11 @@
 
 // Match chrome, side HUD, resource readout, fog and minimap.
 #include "oa/app/runtime.hpp"
+#include "gui_actions.hpp"
+#include "oa_layer.hpp"
+#include "oa/data/input_actions/actions.hpp"
 #include "oa/data/languages/interface_text.hpp"
+#include "oa/ui/key_editor/text.hpp"
 #include "oa/data/languages/unit_texts.hpp"
 #include "oa/app/view_rules.hpp"
 #include "oa/data/defs/layout.hpp"
@@ -1175,6 +1179,8 @@ const char* Runtime::hovered_gadget_name() const {
 }
 
 void Runtime::draw_unit_panel() {
+    unit_panel_hover_name_.clear();
+    unit_panel_hover_description_.clear();
     if (!match_)
         return;
     auto& world = match_->state();
@@ -1197,15 +1203,65 @@ void Runtime::draw_unit_panel() {
             0
         );
     };
-    // A gadget under the pointer: a build button shows its unit's cost line
-    // and description, any other gadget nothing.
+    // A gadget under the pointer. An order button shows the action's name and
+    // its description, ending with the chord that fires it. A build button
+    // shows its unit's cost line, and that line ends with the cell's chord
+    // when the cell is bound. Any other gadget shows nothing.
     if (const char* button = hovered_gadget_name()) {
+        const auto action = order_action_id(button);
+        if (!action.empty()) {
+            if (const oa::data::input_actions::Action* entry =
+                    oa::data::input_actions::find(action)) {
+                const std::string name = translate_ui(entry->words.name);
+                std::string description = translate_ui(entry->words.description);
+                const std::string chord = active_key_chord(action);
+                if (!chord.empty()) {
+                    const std::string pattern = translate_ui(oa::ui::key_editor::words::help_chord);
+                    description = oa::ui::key_editor::fill(
+                        pattern, {{"description", description}, {"chord", chord}}
+                    );
+                }
+                unit_panel_hover_name_ = name;
+                unit_panel_hover_description_ = description;
+                text_at(side_hud_.name, unit_panel_hover_name_);
+                if (!unit_panel_hover_description_.empty())
+                    text_at(side_hud_.description, unit_panel_hover_description_);
+                return;
+            }
+        }
         char line[hud::kPanelLineBytes];
-        std::string_view description;
-        if (hud::build_button_readout(world, button, line, sizeof line, &description)) {
-            text_at(side_hud_.name, line);
-            if (!description.empty())
-                text_at(side_hud_.description, description);
+        std::string_view readout_description;
+        if (hud::build_button_readout(world, button, line, sizeof line, &readout_description)) {
+            std::string cost(line);
+            const std::string shown_description(readout_description);
+            constexpr uint8_t build_attributes = hud::kCommonUnitButton | hud::kCommonWeaponButton;
+            int32_t cell = 0;
+            if (hovered_ && match_hud_ && *hovered_ < match_hud_->layout.gadgets.size()) {
+                const auto& hovered_common = match_hud_->layout.gadgets[*hovered_].common;
+                if ((static_cast<uint8_t>(hovered_common.common_attributes) & build_attributes) !=
+                    0) {
+                    for (std::size_t index = 0; index <= *hovered_; ++index) {
+                        const auto& common = match_hud_->layout.gadgets[index].common;
+                        if ((static_cast<uint8_t>(common.common_attributes) & build_attributes) !=
+                            0)
+                            ++cell;
+                    }
+                }
+            }
+            if (cell >= 1 && cell <= 12) {
+                const std::string chord = build_cell_chord(cell);
+                if (!chord.empty()) {
+                    const std::string pattern = translate_ui(oa::ui::key_editor::words::help_chord);
+                    cost = oa::ui::key_editor::fill(
+                        pattern, {{"description", cost}, {"chord", chord}}
+                    );
+                }
+            }
+            unit_panel_hover_name_ = std::move(cost);
+            unit_panel_hover_description_ = shown_description;
+            text_at(side_hud_.name, unit_panel_hover_name_);
+            if (!unit_panel_hover_description_.empty())
+                text_at(side_hud_.description, unit_panel_hover_description_);
         }
         return;
     }
@@ -1562,8 +1618,67 @@ void Runtime::draw_status_panel() {
     }
 }
 
+void Runtime::draw_key_badges() {
+    key_badges_drawn_.clear();
+    if (!engine_settings().show_keys_on_buttons || pause_menu_shown() || !match_hud_)
+        return;
+    const kit::Fonts* fonts = engine_settings_fonts();
+    if (fonts == nullptr)
+        return;
+    kit::Canvas canvas;
+    canvas.surface = &paint_target();
+    canvas.fonts = fonts;
+    constexpr uint8_t build_attributes = hud::kCommonUnitButton | hud::kCommonWeaponButton;
+    constexpr int32_t badge_height = 9;
+    int32_t cell = 0;
+    for (const auto& gadget : match_hud_->layout.gadgets) {
+        const auto& common = gadget.common;
+        const bool build = (static_cast<uint8_t>(common.common_attributes) & build_attributes) != 0;
+        int32_t this_cell = 0;
+        if (build) {
+            ++cell;
+            this_cell = cell;
+        }
+        const int32_t gadget_w = common.width;
+        const int32_t gadget_h = common.height;
+        if (common.active == 0 || gadget_w < 3 || gadget_h < 11)
+            continue;
+        const int32_t gadget_x = common.x;
+        const int32_t gadget_y = common.y;
+        const auto place = [&](bool top_right, const std::string& label, std::string action_id) {
+            kit::KeycapLook look;
+            look.small = true;
+            look.label = label;
+            int32_t badge_w = kit::keycap_width(*fonts, look);
+            const int32_t limit = gadget_w - 2;
+            if (badge_w > limit)
+                badge_w = limit;
+            if (badge_w < 1)
+                return;
+            const int32_t x = top_right ? gadget_x + gadget_w - 1 - badge_w : gadget_x + 1;
+            const int32_t y = top_right ? gadget_y + 1 : gadget_y + gadget_h - 1 - badge_height;
+            kit::draw_keycap(canvas, {x, y, badge_w, badge_height}, look);
+            key_badges_drawn_.push_back(KeyBadgeDrawn{common.name, std::move(action_id), label});
+        };
+        const auto action = order_action_id(common.name);
+        if (!action.empty()) {
+            const std::string chord = active_key_chord(action);
+            if (!chord.empty())
+                place(true, chord, std::string(action));
+        }
+        if (this_cell >= 1 && this_cell <= 12) {
+            const std::string chord = build_cell_chord(this_cell);
+            if (!chord.empty())
+                place(false, chord, "build.cell-" + std::to_string(this_cell));
+        }
+    }
+}
+
 void Runtime::draw_key_latch_chips() {
     key_latch_chips_drawn_.clear();
+    // While the keys overlay is open the chips sit in its On line.
+    if (oa_layer().find(oa::ui::key_editor::name_keys_overlay) != nullptr)
+        return;
     if (screen_ != Screen::match || match_ == nullptr)
         return;
     std::vector<KeyLatchChip> chips;
