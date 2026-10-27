@@ -805,7 +805,7 @@ const kit::Fonts& wide_regular_fonts() {
 
 /// The main block keeps every one-letter legend, a changed key's among them,
 /// where the regular font is too wide for its key: it draws it in the small
-/// font, whole. The whole keyboard leaves those legends out, as before.
+/// font, whole. The whole keyboard does the same.
 void main_block_keeps_every_legend() {
     kit::KeyboardLook look;
     look.main_block = true;
@@ -843,7 +843,7 @@ void main_block_keeps_every_legend() {
         OA_CHECK(inked(surface, key->rect, changed ? kit::colour::on_accent : kit::colour::text));
     }
 
-    // The whole keyboard at the same size leaves a wide legend out, as before.
+    // The whole keyboard at the same size keeps it too, in the small font.
     kit::KeyboardLook whole = look;
     whole.main_block = false;
     const kit::Rect board{0, 0, 91 * 4, 25 * 4};
@@ -853,7 +853,72 @@ void main_block_keeps_every_legend() {
     kit::DisplayList whole_list;
     kit::add_keyboard(whole_list, board, whole, 1, "board");
     const kit::Control* key_e = key_named(whole_list, "board." + kit::code_word("KeyE"));
-    OA_CHECK(key_e != nullptr && !inked(whole_surface, key_e->rect, kit::colour::text));
+    OA_CHECK(key_e != nullptr && inked(whole_surface, key_e->rect, kit::colour::text));
+}
+
+/// Returns the columns a colour's ink spans inside a rectangle.
+///
+/// @param drawn the picture
+/// @param rect where to look
+/// @param ink the colour
+/// @return the columns from the leftmost inked one to the rightmost; 0 for none
+int32_t ink_span(const renderer::Surface& drawn, const kit::Rect& rect, kit::Colour ink) {
+    int32_t left = rect.x + rect.width;
+    int32_t right = rect.x - 1;
+    for (int32_t y = rect.y; y < rect.y + rect.height; ++y)
+        for (int32_t x = rect.x; x < rect.x + rect.width; ++x)
+            if (pixel_of(drawn, x, y) == ink) {
+                left = std::min(left, x);
+                right = std::max(right, x);
+            }
+    return right >= left ? right - left + 1 : 0;
+}
+
+/// The whole keyboard draws every named key's legend whole: the modifiers
+/// and Caps in the small font where the regular one is too wide, Ins and
+/// F10 a point nearer the key's sides where that holds them, PgUp as its
+/// shorter legend where nothing holds it, and F10 not at all where nothing
+/// holds it at four points a quarter, never cut.
+void whole_keyboard_keeps_named_legends() {
+    const kit::Fonts& wide = wide_regular_fonts();
+
+    struct Expected {
+        int32_t quarter{};
+        std::string_view code{};
+        std::string_view legend{}; ///< drawn in the small font; empty: no legend
+    };
+
+    // At 5 points a quarter a one-unit key's legend box is 14 points, 16 a
+    // point nearer its sides, and a five-quarter key's 19; at 4 points a
+    // quarter a one-unit key's box is 10, or 12. A small glyph is 5 points
+    // and a regular one 12.
+    const Expected expected[] = {
+        {5, "ControlLeft", "Ctl"},
+        {5, "MetaLeft", "Win"},
+        {5, "AltLeft", "Alt"},
+        {5, "CapsLock", "Caps"},
+        {5, "Insert", "Ins"},
+        {5, "F10", "F10"},
+        {5, "PageUp", "PU"},
+        {5, "Home", "Hm"},
+        {4, "F10", ""},
+        {4, "Escape", "Es"},
+    };
+    for (const Expected& want : expected) {
+        kit::KeyboardLook look;
+        const kit::Rect board{0, 0, 91 * want.quarter, 25 * want.quarter};
+        renderer::Surface surface = black(board.width, board.height);
+        const kit::Canvas canvas{&surface, {0, 0, 1, {}}, &wide, {}};
+        kit::draw_keyboard(canvas, board, look);
+        kit::DisplayList list;
+        kit::add_keyboard(list, board, look, 1, "board");
+        const kit::Control* key = key_named(list, "board." + kit::code_word(want.code));
+        OA_CHECK(key != nullptr);
+        if (key == nullptr)
+            continue;
+        const int32_t span = ink_span(surface, key->rect, kit::colour::text);
+        OA_CHECK(span == kit::text_width(wide, kit::FontRole::small, want.legend));
+    }
 }
 
 } // namespace
@@ -871,6 +936,7 @@ int main() {
     small_keyboard_keys_stay_apart();
     main_block_draws_its_keys_alone();
     main_block_keeps_every_legend();
+    whole_keyboard_keeps_named_legends();
     paint_matches_the_draws();
     std::puts("ui-kit-keys passed");
     return oa::test::check_exit_status();

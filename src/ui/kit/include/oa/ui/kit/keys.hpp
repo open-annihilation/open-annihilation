@@ -171,9 +171,13 @@ inline constexpr Rect keyboard_main_block{0, 9, 60, 12};
 /// would take the whole key. A label there is drawn whole or left out, and
 /// when most of a row's labels cannot be drawn whole the picture's free
 /// keys are drawn without labels. A marked key is filled with its mark's
-/// colour when the corner mark would be smaller than its glyph. At 4 points
-/// a quarter and above the picture is unchanged. Nothing is drawn outside
-/// the rectangle.
+/// colour when the corner mark would be smaller than its glyph. No legend
+/// is cut: one too wide for the regular font is drawn in the small font,
+/// and from 4 points a quarter a point nearer the key's sides where it
+/// needs that; a named key whose legend still does not fit takes its
+/// geometry's own label (Ent for a long Enter), then a shorter one (Cap for
+/// Caps, PU for PgUp), or no legend. Nothing is drawn outside the
+/// rectangle.
 ///
 /// @param canvas where it is drawn
 /// @param rect the picture, in points

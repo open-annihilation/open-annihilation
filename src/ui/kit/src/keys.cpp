@@ -12,6 +12,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -647,6 +648,46 @@ LabelBoxes label_boxes(const Rect& rect, const KeycapLook& look) noexcept {
     return boxes;
 }
 
+/// Returns the box draw_keycap draws a key's printed label in: left of the
+/// corner square, as wide as its letter needs, and the top half when the
+/// key has a short name too. It keeps two points clear of the key's sides,
+/// or one when it is roomy.
+///
+/// @param canvas where the key is drawn, which measures its letter
+/// @param rect the key, in points
+/// @param look the key
+/// @param roomy one point clear of the sides rather than two
+/// @return the box, in points
+Rect legend_box(
+    const Canvas& canvas, const Rect& rect, const KeycapLook& look, bool roomy = false
+) {
+    if (look.small)
+        return rect;
+    const int32_t edge_band = std::max(int32_t{1}, rect.height / 8);
+    const bool letter = !look.letter.empty() && rect.width >= 12 && rect.height >= 12;
+    const int32_t letter_side =
+        letter ? std::min(int32_t{8}, std::min(rect.width, rect.height) / 2) : 0;
+    const int32_t letter_width =
+        letter_side > 0
+            ? std::min(
+                  std::max(letter_side, measure_text(canvas, FontRole::small, look.letter)),
+                  rect.width - 2
+              )
+            : 0;
+    const int32_t side = roomy ? 1 : 2;
+    const int32_t text_right =
+        rect.x + rect.width - (letter_width > 0 ? letter_width + side : side);
+    Rect box{
+        rect.x + side,
+        rect.y + 1,
+        std::max(text_right - (rect.x + side), int32_t{0}),
+        std::max(rect.height - 2, int32_t{1}),
+    };
+    if (!look.sub.empty())
+        box.height = std::max((rect.height - edge_band) / 2, int32_t{1});
+    return box;
+}
+
 /// Tells whether a line would be drawn whole inside its box.
 ///
 /// Empty text is whole: there is nothing to cut. A line wider than the box,
@@ -672,6 +713,96 @@ bool line_is_whole(const Canvas& canvas, FontRole role, std::string_view text, c
         return rows <= to_canvas(box, percent).height;
     }
     return rows <= box.height;
+}
+
+/// A named key's shorter legends, longest first, for a picture too small for
+/// its geometry's own label.
+struct ShorterLegend {
+    std::string_view code{};                   ///< the W3C code
+    std::array<std::string_view, 2> legends{}; ///< the shorter legends; an empty one ends them
+};
+
+/// The named keys whose geometry labels have shorter legends.
+constexpr std::array<ShorterLegend, 15> kShorterLegends{{
+    {"PrintScreen", {"PS", {}}},
+    {"ScrollLock", {"SL", {}}},
+    {"Pause", {"Pa", {}}},
+    {"Backspace", {"Bks", "BS"}},
+    {"Insert", {"In", {}}},
+    {"Home", {"Hm", {}}},
+    {"PageUp", {"PU", {}}},
+    {"PageDown", {"PD", {}}},
+    {"NumLock", {"NL", {}}},
+    {"Delete", {"Dl", {}}},
+    {"End", {"En", {}}},
+    {"CapsLock", {"Cap", {}}},
+    {"ContextMenu", {"Mn", {}}},
+    {"KanaMode", {"Kn", {}}},
+    {"Escape", {"Es", {}}},
+}};
+
+/// Tells whether a keycap draws a legend whole in its box: in the cap's font,
+/// or in the small one where the cap's is the regular font.
+///
+/// @param canvas where it would be drawn
+/// @param cap the cap
+/// @param legend the legend
+/// @param box the cap's legend box, in points
+/// @return true when the legend is empty or one of the fonts holds it
+bool legend_is_whole(
+    const Canvas& canvas, const KeycapLook& cap, std::string_view legend, const Rect& box
+) {
+    const FontRole role = label_role(cap);
+    return line_is_whole(canvas, role, legend, box) ||
+           (role == FontRole::regular && line_is_whole(canvas, FontRole::small, legend, box));
+}
+
+/// A legend a keyboard picture draws whole, and the box it needs.
+struct WholeLegend {
+    std::string text{}; ///< the legend; empty draws none
+    bool roomy{};       ///< it needs legend_box's roomy box
+};
+
+/// Returns the legend a key of a keyboard picture draws whole: its label in
+/// the regular font or the small one, else the geometry's own label of a
+/// named key (Ent for a long Enter), else that key's shorter legends, else
+/// none. Each is tried in the legend's box and then in the roomy one, so a
+/// longer legend that needs the roomy box wins over a shorter one. A
+/// printed mark is never swapped for the geometry's, which a keyboard map
+/// may print differently.
+///
+/// @param canvas where the picture is drawn
+/// @param place the key
+/// @param cap the cap the key draws
+/// @param rect the key, in points
+/// @return the legend and its box; an empty legend when none is drawn whole
+WholeLegend
+whole_legend(const Canvas& canvas, const KeyPlace& place, const KeycapLook& cap, const Rect& rect) {
+    if (cap.label.empty() || cap.small)
+        return {cap.label, false};
+    const Rect box = legend_box(canvas, rect, cap);
+    const Rect roomy = legend_box(canvas, rect, cap, true);
+    std::optional<WholeLegend> found;
+    const auto take = [&](std::string_view legend) {
+        if (found || legend.empty())
+            return;
+        if (legend_is_whole(canvas, cap, legend, box))
+            found = WholeLegend{std::string(legend), false};
+        else if (legend_is_whole(canvas, cap, legend, roomy))
+            found = WholeLegend{std::string(legend), true};
+    };
+    take(cap.label);
+    if (place.label.size() >= 2) {
+        if (place.label != cap.label)
+            take(place.label);
+        for (const ShorterLegend& shorter : kShorterLegends) {
+            if (shorter.code != place.code)
+                continue;
+            for (const std::string_view legend : shorter.legends)
+                take(legend);
+        }
+    }
+    return found.value_or(WholeLegend{});
 }
 
 /// Tells whether a code is a free key: the look has no entry for it.
@@ -716,7 +847,7 @@ void settle_small_labels(
         const KeycapLook& cap = caps[index];
         if (cap.label.empty())
             continue;
-        const LabelBoxes boxes = label_boxes(rects[index], cap);
+        const Rect box = legend_box(canvas, rects[index], cap);
         RowTally* row = nullptr;
         for (RowTally& candidate : rows) {
             if (candidate.y == places[index].y) {
@@ -729,7 +860,7 @@ void settle_small_labels(
             row = &rows.back();
         }
         ++row->labels;
-        if (!line_is_whole(canvas, label_role(cap), cap.label, boxes.label))
+        if (!legend_is_whole(canvas, cap, cap.label, box))
             ++row->unfit;
     }
     bool drop_free = false;
@@ -746,8 +877,8 @@ void settle_small_labels(
         LabelBoxes boxes = label_boxes(rects[index], cap);
         if (!cap.sub.empty() && !line_is_whole(canvas, FontRole::small, cap.sub, boxes.sub))
             cap.sub.clear();
-        boxes = label_boxes(rects[index], cap);
-        if (!cap.label.empty() && !line_is_whole(canvas, label_role(cap), cap.label, boxes.label))
+        if (!cap.label.empty() &&
+            !legend_is_whole(canvas, cap, cap.label, legend_box(canvas, rects[index], cap)))
             cap.label.clear();
     }
 }
@@ -908,12 +1039,14 @@ namespace {
 /// @param look what the keycap shows
 /// @param fill_small_mark fill a mark the corner glyph cannot show
 /// @param small_legend fall back to the small font for a legend too wide
+/// @param roomy_legend draw the legend in legend_box's roomy box
 void draw_cap(
     const Canvas& canvas,
     const Rect& rect,
     const KeycapLook& look,
     bool fill_small_mark,
-    bool small_legend
+    bool small_legend,
+    bool roomy_legend
 ) {
     if (!can_draw(canvas) || rect.width <= 0 || rect.height <= 0)
         return;
@@ -1018,13 +1151,7 @@ void draw_cap(
     const int32_t text_right = rect.x + rect.width - (letter_width > 0 ? letter_width + 2 : 2);
     const int32_t text_width_room = std::max(text_right - (rect.x + 2), int32_t{0});
     if (!look.label.empty() && text_width_room > 0) {
-        Rect label_box{
-            rect.x + 2, rect.y + 1, text_width_room, std::max(rect.height - 2, int32_t{1})
-        };
-        if (look.small)
-            label_box = Rect{rect.x, rect.y, rect.width, rect.height};
-        else if (!look.sub.empty())
-            label_box.height = std::max((rect.height - edge_band) / 2, int32_t{1});
+        const Rect label_box = legend_box(local, rect, look, roomy_legend);
         const Align align = look.small ? Align::centre : Align::left;
         FontRole role = label_role(look);
         if (small_legend && role == FontRole::regular &&
@@ -1073,7 +1200,7 @@ void draw_cap(
 void draw_keycap(
     const Canvas& canvas, const Rect& rect, const KeycapLook& look, bool fill_small_mark
 ) {
-    draw_cap(canvas, rect, look, fill_small_mark, false);
+    draw_cap(canvas, rect, look, fill_small_mark, false, false);
 }
 
 void add_keycap(
@@ -1284,9 +1411,16 @@ void draw_keyboard(const Canvas& canvas, const Rect& rect, const KeyboardLook& l
     if (board.quarter < 4)
         settle_small_labels(local, places, rects, caps, look);
     for (std::size_t index = 0; index < places.size(); ++index) {
-        // The main block keeps every legend: one too wide for the regular
-        // font is drawn in the small one.
-        draw_cap(local, rects[index], caps[index], board.quarter < 4, look.main_block);
+        // Every legend is drawn whole: in the small font where the regular
+        // one is too wide, as a shorter legend where neither holds it, or
+        // not at all.
+        bool roomy = false;
+        if (board.quarter >= 4) {
+            WholeLegend legend = whole_legend(local, places[index], caps[index], rects[index]);
+            caps[index].label = std::move(legend.text);
+            roomy = legend.roomy;
+        }
+        draw_cap(local, rects[index], caps[index], board.quarter < 4, true, roomy);
         // A gap that would take the whole key is a one-point border in the
         // free key's edge colour instead. Real keys are wide enough to inset
         // once a quarter is a point, so this is the fallback.

@@ -318,11 +318,14 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
     `KeyboardLook::main_block` it draws the main block alone, the rows from
     Tab, Caps Lock and Shift to Enter and Shift (`keyboard_main_block`, 60
     by 12 quarter units), scaled to its rectangle on their own, so a narrow
-    picture keeps keys large enough for their legends; a legend too wide
-    for the regular font there is drawn in the small font when that fits it
-    whole. `keyboard_size(look)` gives either picture's size and
-    `keyboard_draws` tells whether it draws a key; each key keeps its
-    control;
+    picture keeps keys large enough for their legends. No legend is cut,
+    in either picture: one too wide for the regular font is drawn in the
+    small font when that fits it whole, a point nearer the key's sides
+    where it needs that, and a named key whose legend still does not fit
+    takes its geometry's own label (Ent for a long Enter), then a shorter
+    one (Cap for Caps, PU for PgUp, PS for Prt), or none.
+    `keyboard_size(look)` gives either picture's size and `keyboard_draws`
+    tells whether it draws a key; each key keeps its control;
   - a mouse picture (`MouseLook`, `draw_mouse`, `add_mouse`, role
     `mouse_picture`): the body, the buttons and the wheel, and the extra
     buttons when the look asks;
@@ -933,7 +936,8 @@ marks differ in shape, that each tint's face reaches 4.5:1 against its
 ink, and that a reduced-motion ring snaps to quarters; a main-block
 picture draws its keys alone, each keeping its control, and keeps every
 one-letter key's legend, in the small font where the regular one is too
-wide, while the whole keyboard at the same size does not.
+wide, as the whole keyboard at the same size does, where no named key's
+legend is cut: each is drawn whole, shorter, or not at all.
 
 The module's ctests are those fourteen: `ui-kit-theme`, `ui-kit-text`,
 `ui-kit-layout`, `ui-kit-input`, `ui-kit-components`, `ui-kit-chrome`,
