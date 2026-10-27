@@ -41,7 +41,7 @@ namespace {
 /// Graphics' scroll limit in a game at Compact: its twenty-one rows, Smooth
 /// motion and Fog of War among them, now that User Interface holds Menu
 /// scaling, Window frame, HUD scaling and Interface size.
-constexpr int32_t kMatchGraphicsEnd = 998;
+constexpr int32_t kMatchGraphicsEnd = 988;
 
 namespace fs = std::filesystem;
 namespace settings = oa::ui::engine_settings;

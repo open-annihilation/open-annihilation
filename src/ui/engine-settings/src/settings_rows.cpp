@@ -2600,7 +2600,7 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
      .copy = &copy_field<&E::screen_size>},
     {.setting = S::developer_mode,
      .spec = engine_switch<&E::developer_mode>("developer-mode", "Enable Developer Mode",
-                                               {"Your changes to the profile's hacks apply when on.", {}})},
+                                               {"Your changes to the profile's hacks apply while on.", {}})},
     {.setting = S::frame_stats,
      .spec = engine_switch<&E::frame_stats>("frame-stats", "Show performance statistics",
                                             {"Frame and tick times over the battlefield.", {}})},

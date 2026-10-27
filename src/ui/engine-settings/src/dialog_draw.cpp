@@ -254,7 +254,7 @@ kit::HeaderLook dialog_header(const Dialog& dialog) {
     header.second = std::string(layout::shown_text(layout::title_suffix_text));
     header.second_width = layout::title_suffix_width;
     header.right_inset = oa::ui::kit::compact_metrics.button_height + layout::header_gap;
-    header.height = layout::header_height;
+    header.height = layout::sizes_of(dialog).header_height;
     // The close mark keeps the header's right. While a shared game is still
     // running, that note is the line the player needs, and the version gives
     // way so the note is not cut.
@@ -435,6 +435,13 @@ void add_nav(Building& building, const Dialog& dialog) {
             kit::colour::hint,
             layout.area
         );
+    }
+    // A list that scrolls says so: a thin bar at its right, its thumb where
+    // the list is scrolled to.
+    const layout::NavBar bar = layout::nav_bar(layout, sized, scroll);
+    if (bar.track.height > 0) {
+        fill(building.list, bar.track, kit::colour::well, layout.area);
+        fill(building.list, bar.thumb, kit::colour::text_tertiary, layout.area);
     }
 }
 
@@ -648,7 +655,10 @@ void add_list_row(
     kit::Control added = control_of(row.control, row.control_area, list_row_name(row), kind);
     added.clip = view;
     added.steps = true;
-    added.group = layout::developer_list_group;
+    // Where Developer scrolls as one, its list is part of the section's
+    // scroll area, so that the arrows walk from its rows into the list.
+    added.group = layout::developer_scrolls_as_one(dialog) ? layout::section_group
+                                                           : layout::developer_list_group;
     added.checked = row.on;
     added.text = row.kind == layout::ListRowKind::slider ? row.shown : row.text;
     building.developer.push_back(std::move(added));
@@ -689,11 +699,15 @@ void add_developer(Building& building, const Dialog& dialog, const layout::Scrol
             layout::scroll_thumb(open.area, open.scroll, open.limit, open.content_height),
             hot(scroll_bar_control)
         );
+    // The footer: at the section's foot, or under the list and clipped to the
+    // section's view where Developer scrolls as one.
+    const bool as_one = layout::developer_scrolls_as_one(dialog);
+    const SourceRect footer_clip = as_one ? developer_clip(open.area.view) : SourceRect{};
     fill(
         list,
-        {sized.content_left, sized.developer_footer_rule, sized.content_width, 1},
+        {sized.content_left, open.footer_rule, sized.content_width, 1},
         kit::colour::rule,
-        {}
+        footer_clip
     );
     const std::string label(
         layout::shown_text(
@@ -706,22 +720,23 @@ void add_developer(Building& building, const Dialog& dialog, const layout::Scrol
         list,
         DialogFont::regular,
         label,
-        sized.active_only_label,
+        open.active_only_label,
         kit::Align::left,
         kit::colour::text,
-        {}
+        footer_clip
     );
     const kit::SwitchLook active =
         switch_look(dialog.developer.active_only, hot(active_only_control), false);
-    toggle(list, sized.active_only_switch, active, active_only_control, {});
+    toggle(list, open.active_only_switch, active, active_only_control, footer_clip);
     if (dialog.focused == active_only_control)
-        focus_ring(list, sized.active_only_switch, true, {});
+        focus_ring(list, open.active_only_switch, true, footer_clip);
     kit::Control active_only = control_of(
-        active_only_control,
-        sized.active_only_switch,
-        named("active-only"),
-        kit::ControlKind::toggle
+        active_only_control, open.active_only_switch, named("active-only"), kit::ControlKind::toggle
     );
+    if (as_one) {
+        active_only.clip = open.area.view;
+        active_only.group = layout::section_group;
+    }
     active_only.steps = true;
     active_only.checked = dialog.developer.active_only;
     active_only.text = dialog.developer.active_only ? active.on_caption : active.off_caption;
@@ -729,7 +744,7 @@ void add_developer(Building& building, const Dialog& dialog, const layout::Scrol
     building.section_tab.push_back(active_only_control);
     // Restore profile values takes a press only while Developer Mode is on.
     // It lights while the pointer is over it or a press on it is held.
-    const SourceRect& restore = sized.restore_profile_button;
+    const SourceRect& restore = open.restore_profile_button;
     const bool enabled = developer::restore_profile_enabled(dialog);
     const std::string caption(layout::shown_text(layout::restore_profile_text));
     button(
@@ -741,13 +756,17 @@ void add_developer(Building& building, const Dialog& dialog, const layout::Scrol
          enabled && dialog.pressed == restore_profile_control,
          enabled},
         restore_profile_control,
-        {}
+        footer_clip
     );
     if (enabled && dialog.focused == restore_profile_control)
-        focus_ring(list, restore, true, {});
+        focus_ring(list, restore, true, footer_clip);
     kit::Control restore_profile = control_of(
         restore_profile_control, restore, named("restore-profile-values"), kit::ControlKind::button
     );
+    if (as_one) {
+        restore_profile.clip = open.area.view;
+        restore_profile.group = layout::section_group;
+    }
     restore_profile.enabled = enabled;
     restore_profile.text = caption;
     building.footer_own.push_back(std::move(restore_profile));
@@ -967,7 +986,11 @@ void add_section(Building& building, const Dialog& dialog, const layout::Scrolle
         &sized,
         building.fonts != nullptr ? &regular_width : nullptr
     ));
-    kit::scroll(placed, layout::developer_page(dialog) ? 0 : open.scroll);
+    kit::scroll(
+        placed,
+        layout::developer_page(dialog) && !layout::developer_scrolls_as_one(dialog) ? 0
+                                                                                    : open.scroll
+    );
     kit::RowsState state;
     state.name_prefix = std::string(kNamePrefix);
     state.hovered = dialog.hovered;
@@ -1261,8 +1284,8 @@ kit::DisplayList dialog_list(const Dialog& dialog, const DialogFonts* fonts) {
         if (tracked > header.second_width)
             header.second_width = tracked;
     }
-    item(building.list, kit::Role::header, {0, 0, sized.dialog_width, header_rule_row + 1}, {})
-        .look = std::move(header);
+    item(building.list, kit::Role::header, {0, 0, sized.dialog_width, sized.body_top}, {}).look =
+        std::move(header);
     add_header_close(building, dialog);
     add_nav(building, dialog);
     const ScrolledRows open = open_rows(

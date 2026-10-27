@@ -625,7 +625,7 @@ geometry::Rows place(
     kit::RowPlacement placement;
     placement.left = sized.content_left;
     placement.right = sized.content_right;
-    placement.first_top = geometry::first_row_top;
+    placement.first_top = sized.first_row_top;
     placement.row_padding = geometry::row_padding;
     placement.tall = oa::data::languages::interface_language().needs !=
                      oa::data::languages::TextNeeds::game_fonts;

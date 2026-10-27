@@ -39,9 +39,10 @@ using oa::ui::frontend_renderer::SourceRect;
 
 /// The width of the dialog's raised edge.
 inline constexpr int32_t edge = oa::ui::kit::compact_metrics.edge;
-/// The header's height, under the top edge: Kit 2's window header, the same
-/// in every size class.
-inline constexpr int32_t header_height = oa::ui::kit::compact_metrics.window_header_height;
+/// Compact's header height, under the top edge: the kit's band, which keeps
+/// the section list its room where nothing larger fits. Regular and Large
+/// take Kit 2's window header (Sizes::header_height).
+inline constexpr int32_t header_height = oa::ui::kit::compact_metrics.header_height;
 /// The footer's height, over the bottom edge.
 inline constexpr int32_t footer_height = oa::ui::kit::compact_metrics.footer_height;
 /// The header's first row.
@@ -56,7 +57,7 @@ inline constexpr int32_t body_top = header_rule_row + 1;
 /// Compact's place from the dialog's left edge in every size class.
 inline constexpr SourceRect header_mark{
     oa::ui::kit::compact_metrics.padding,
-    header_top + (header_height - oa::ui::kit::compact_metrics.mark_side) / 2,
+    oa::ui::kit::compact_metrics.mark_top,
     oa::ui::kit::compact_metrics.mark_side,
     oa::ui::kit::compact_metrics.mark_side
 };
@@ -102,16 +103,18 @@ struct NavMetrics {
 /// kit::SizeClass. Compact's list of eleven sections fits its room; Regular's
 /// and Large's fit every section the engine lists.
 inline constexpr std::array<NavMetrics, 3> nav_metrics{{
-    {18, 0, 3, 6, 7, 9, 19, 0},
+    {19, 0, 3, 6, 7, 9, 19, 0},
     {25, 1, 3, 6, 12, 14, 33, 0},
     {32, 1, 5, 10, 14, 16, 38, 0},
 }};
 
-/// The open section's heading's top row.
+/// The open section's heading's top row at Compact (Sizes::heading at every
+/// class).
 inline constexpr int32_t heading_top = body_top + 10;
 /// The open section's heading's height.
 inline constexpr int32_t heading_height = 12;
-/// The first row's top, where its line is drawn.
+/// The first row's top at Compact, where its line is drawn
+/// (Sizes::first_row_top at every class).
 inline constexpr int32_t first_row_top = heading_top + heading_height + 4;
 /// The rows between a row's line and its label, and under its last part.
 inline constexpr int32_t row_padding = 8;
@@ -358,6 +361,15 @@ struct Sizes {
     /// the space between a panel's edge and what it holds: Kit 2's window
     /// padding (kit::Metrics::window_padding)
     int32_t padding{};
+    /// the header's height under the top edge: the kit's band at Compact,
+    /// Kit 2's window header (kit::Metrics::window_header_height) at
+    /// Regular and Large
+    int32_t header_height{};
+    int32_t body_top{};      ///< the body's first row, under the header's line
+    int32_t first_row_top{}; ///< the first row's top, where its line is drawn
+    /// the header's icon, or the OA mark, in the header's middle rows at
+    /// Compact's distance from the left edge
+    SourceRect header_mark{};
     int32_t list_width{};               ///< the section list's width, from the left edge
     NavMetrics nav{};                   ///< the section list's entries, gaps and icons
     std::size_t hint_line_characters{}; ///< the most characters a host's line under a row holds
@@ -420,6 +432,17 @@ struct Sizes {
     sized.dialog_width = metrics.dialog_width;
     sized.dialog_height = metrics.dialog_height;
     sized.padding = metrics.window_padding;
+    sized.header_height = size_class == oa::ui::kit::SizeClass::compact
+                              ? header_height
+                              : metrics.window_header_height;
+    sized.body_top = header_top + sized.header_height + 1;
+    sized.first_row_top = sized.body_top + (first_row_top - body_top);
+    sized.header_mark = {
+        header_mark.x,
+        header_top + (sized.header_height - header_mark.height) / 2,
+        header_mark.width,
+        header_mark.height
+    };
     sized.nav = nav_metrics[std::min(static_cast<std::size_t>(size_class), nav_metrics.size() - 1)];
     sized.list_width = metrics.nav_width + sized.nav.extra_width;
     sized.hint_line_characters = static_cast<std::size_t>(metrics.hint_line_characters);
@@ -435,7 +458,12 @@ struct Sizes {
     sized.version_right = sized.dialog_width - edge - oa::ui::kit::compact_metrics.padding -
                           oa::ui::kit::compact_metrics.button_height -
                           oa::ui::kit::compact_metrics.header_gap;
-    sized.heading = {sized.content_left, heading_top, sized.content_width, heading_height};
+    sized.heading = {
+        sized.content_left,
+        sized.body_top + (heading_top - body_top),
+        sized.content_width,
+        heading_height
+    };
     sized.button_top = sized.footer_top + (sized.footer_height - sized.footer_button_height) / 2;
     // Kit 2's buttons: as tall as the class's controls, OK and Cancel twice
     // as wide as they are tall, Restore defaults wider by as much as its
@@ -470,9 +498,9 @@ struct Sizes {
     };
     sized.view = {
         sized.content_left,
-        first_row_top,
+        sized.first_row_top,
         sized.content_width,
-        sized.footer_rule_row - first_row_top
+        sized.footer_rule_row - sized.first_row_top
     };
     sized.view_clip = {
         sized.view.x - focus_inset,
@@ -489,7 +517,8 @@ struct Sizes {
     sized.scroll_hit = {sized.content_right, sized.view.y, sized.padding, sized.view.height};
     sized.page_step = sized.view.height - 3 * hint_line_height;
     sized.section_scroll = {sized.view, sized.scroll_well, sized.scroll_hit, sized.page_step};
-    sized.developer_list_rule = developer_rule_for(sized.hint_line_characters);
+    sized.developer_list_rule =
+        developer_rule_for(sized.hint_line_characters) + (sized.first_row_top - first_row_top);
     sized.developer_footer_rule = sized.footer_rule_row - 2 - button_height - developer_footer_gap -
                                   label_line_height - developer_footer_gap;
     sized.developer_view = {
@@ -823,6 +852,15 @@ struct ScrolledRows {
     int32_t scroll{};                ///< the offset, 0 to `limit`
     int32_t limit{};                 ///< the most the section scrolls; 0 when its rows fit the view
     int32_t content_height{}; ///< rows from the first row's line to the end gap under the last
+    /// Developer's footer as drawn: Show Active Only's label and switch and
+    /// Restore profile values, `scroll` rows higher. At the foot of the
+    /// section, still, where Developer's list scrolls under its rows; under
+    /// the list, moving with them, where Developer scrolls as one
+    /// (developer_scrolls_as_one).
+    SourceRect active_only_label{};
+    SourceRect active_only_switch{};     ///< Show Active Only's switch
+    SourceRect restore_profile_button{}; ///< Restore profile values
+    int32_t footer_rule{};               ///< the row of the line over Developer's footer
 };
 
 /// Cuts a text to a width, ending it with "..." when it is cut.
@@ -1202,8 +1240,11 @@ void scroll_rows(Rows& rows, int32_t by) noexcept;
 ///
 /// @param rows its rows, placed at any offset
 /// @param scroll the offset they are placed at
+/// @param first_top the first row's top at offset 0 (Sizes::first_row_top);
+///     Compact's by default
 /// @return the height, in rows
-[[nodiscard]] int32_t content_height(const Rows& rows, int32_t scroll) noexcept;
+[[nodiscard]] int32_t
+content_height(const Rows& rows, int32_t scroll, int32_t first_top = first_row_top) noexcept;
 
 /// Returns the most a section scrolls.
 ///
@@ -1289,6 +1330,17 @@ inline constexpr int32_t first_menu_item_control = no_control - 1;
 /// @return true while it shows the list
 [[nodiscard]] bool developer_page(const Dialog& dialog) noexcept;
 
+/// Tells whether Developer scrolls as one: its rows, its list, Show Active
+/// Only and Restore profile values in the section's own view, one under the
+/// other, at Compact, where a list of its own under the rows would show
+/// only a row or two. At Regular and Large the rows stay at the top, the
+/// list scrolls in a view of its own under them and the footer stays at the
+/// section's foot.
+///
+/// @param dialog the dialog
+/// @return true on Developer at Compact
+[[nodiscard]] bool developer_scrolls_as_one(const Dialog& dialog) noexcept;
+
 /// Places Developer's list: the areas, and under each open one its
 /// hacks, and under each open hack its summary, its scope, its notes and its
 /// parameters, as Show Active Only filters them.
@@ -1318,9 +1370,27 @@ inline constexpr int32_t first_menu_item_control = no_control - 1;
 /// its well and the margin a press holds the bar in shrink by as much, and
 /// its page step.
 ///
+/// Where Developer scrolls as one (developer_scrolls_as_one) it is the
+/// section's own (Sizes::section_scroll).
+///
 /// @param dialog the dialog, on Developer
 /// @return the view, the well, the margin and the page step
 [[nodiscard]] ScrollArea developer_list_scroll(
+    const Dialog& dialog,
+    const TextWidth* small_width = nullptr,
+    const Sizes* sizes = nullptr,
+    const TextWidth* regular_width = nullptr
+);
+
+/// Returns the row Developer's list starts at, unscrolled: the row under
+/// Developer's rows.
+///
+/// @param dialog the dialog, on Developer
+/// @param small_width a text's width in the small font; null estimates it
+/// @param sizes the dialog's sizes; null takes its class's
+/// @param regular_width a text's width in the regular font; null keeps the label's line
+/// @return the row
+[[nodiscard]] int32_t developer_list_top(
     const Dialog& dialog,
     const TextWidth* small_width = nullptr,
     const Sizes* sizes = nullptr,
@@ -1332,6 +1402,13 @@ inline constexpr int32_t first_menu_item_control = no_control - 1;
 /// @param[in,out] list the list
 /// @param by the rows it moves up; negative moves it down
 void scroll_list(List& list, int32_t by) noexcept;
+
+/// Moves Developer's rows, its list and its footer up together, as where
+/// Developer scrolls as one (developer_scrolls_as_one).
+///
+/// @param[in,out] open Developer's rows, list and footer
+/// @param by the rows they move up; negative moves them down
+void scroll_developer(ScrolledRows& open, int32_t by) noexcept;
 
 /// Returns the offset nearest the open one that shows one of the list's
 /// rows whole.
@@ -1466,6 +1543,22 @@ struct NavLayout {
     SourceRect area{};            ///< the list's face, what drawing clips to
     int32_t limit{};              ///< the greatest scroll, in source pixels; 0 when it fits
 };
+
+/// The thin bar a section list that scrolls shows at its right, between its
+/// entries and its rule: the track as tall as the entries' room, and the
+/// thumb as tall as the room's share of the list, where the scroll puts it.
+struct NavBar {
+    SourceRect track{}; ///< the bar's whole height; empty while the list fits
+    SourceRect thumb{}; ///< the part that shows where the list is scrolled to
+};
+
+/// Returns the section list's scroll bar, for the list's offset.
+///
+/// @param layout the list (nav_layout)
+/// @param sized the dialog's sizes the list was laid out at
+/// @param scroll the list's offset, 0 to the layout's limit
+/// @return the bar; empty while the list fits its room
+[[nodiscard]] NavBar nav_bar(const NavLayout& layout, const Sizes& sized, int32_t scroll) noexcept;
 
 /// Lays out a dialog's section list: its sections (dialog_pages) in their
 /// groups, a rule between two groups, then each registered page's owner on
@@ -1771,7 +1864,7 @@ inline constexpr std::string_view close_x_text = "Close";
     const int32_t side = oa::ui::kit::compact_metrics.button_height;
     return {
         sized.dialog_width - edge - oa::ui::kit::compact_metrics.padding - side,
-        header_top + (header_height - side) / 2,
+        header_top + (sized.header_height - side) / 2,
         side,
         side,
     };

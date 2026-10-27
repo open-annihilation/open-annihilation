@@ -115,7 +115,7 @@ geometry::Rows place(
     kit::RowPlacement placement;
     placement.left = sized.content_left;
     placement.right = sized.content_right;
-    placement.first_top = geometry::first_row_top;
+    placement.first_top = sized.first_row_top;
     placement.row_padding = geometry::row_padding;
     placement.tall = false;
     placement.first_control = first_row_control;

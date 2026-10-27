@@ -1285,6 +1285,10 @@ bool developer_page(const Dialog& dialog) noexcept {
     return dialog.kind == DialogKind::engine && dialog.page == Page::developer && !own_section;
 }
 
+bool developer_scrolls_as_one(const Dialog& dialog) noexcept {
+    return developer_page(dialog) && dialog.size_class == oa::ui::kit::SizeClass::compact;
+}
+
 List place_list(
     const Dialog& dialog,
     int32_t scroll,
@@ -1297,9 +1301,9 @@ List place_list(
     const Sizes& sized = sizes != nullptr ? *sizes : sizes_of(dialog);
     const std::vector<HackState> shown = shown_hacks(dialog);
     const auto& areas = gathered_areas();
-    // The same view open_rows clips to: under the measured rows, not the
-    // class's rule, or a longer translation is drawn across those rows.
-    int32_t top = developer_list_scroll(dialog, small_width, &sized, regular_width).view.y;
+    // Under the measured rows, not the class's rule, or a longer translation
+    // is drawn across those rows.
+    int32_t top = developer_list_top(dialog, small_width, &sized, regular_width);
     int32_t control = first_hack_list_control;
     for (const std::size_t area : shown_area_order()) {
         const HackArea& group = areas[area];

@@ -153,7 +153,7 @@ static_assert(kWindowLayouts.size() == kWindowSizes.size(), "one layout for each
 /// Graphics' scroll limit at Compact: its twenty-one rows, Smooth motion and
 /// Fog of War among them, after Menu scaling, Window frame, HUD scaling and
 /// Interface size left for User Interface.
-constexpr int32_t kGraphicsScrollLimit = 998;
+constexpr int32_t kGraphicsScrollLimit = 988;
 /// Graphics' scroll limit at Large, whose taller view holds more of its rows.
 constexpr int32_t kGraphicsLargeScrollLimit = 626;
 /// Interface size's place on User Interface, from the section's first row.
@@ -1208,7 +1208,7 @@ void Runtime::check_engine_settings_dialog() {
         require(!renderer_waits(sdl_.renderer), "the renderer waits for the display at Off");
         focus(settings::first_row_control + 4, "Vertical sync");
         require(
-            dialog->scroll[static_cast<std::size_t>(settings::Page::graphics)] == 98,
+            dialog->scroll[static_cast<std::size_t>(settings::Page::graphics)] == 88,
             "the focus on Vertical sync did not scroll Graphics to show it"
         );
         require(
@@ -1699,11 +1699,14 @@ void Runtime::check_engine_settings_dialog() {
         auto parts = parts_now();
         require(
             shows_text(parts, "Enable Developer Mode") &&
-                shows_text(parts, "Show performance statistics") &&
-                shows_text(parts, active_only_label(0)),
+                shows_text(parts, "Show performance statistics"),
             "Developer does not show its switches with no hack on"
         );
         require(!shows_text(parts, kRuleHack), "an area of Developer Mode starts open");
+        // At Compact Developer scrolls as one: Show Active Only follows the
+        // list, and the walk pages down to it.
+        require(reveal(active_only_label(0)), "Developer does not show Show Active Only");
+        tap(SDLK_HOME);
         click_text(kFirstArea, "first area");
         require(reveal(kRuleHack), "a click on an area did not open it");
         click_hack(kRuleHack, "ON");
@@ -1711,13 +1714,15 @@ void Runtime::check_engine_settings_dialog() {
             engine_settings_dialog()->chosen.hack_overrides.empty() && mod_profile() == nullptr,
             "a hack's switch took a change while Developer Mode was off"
         );
+        tap(SDLK_HOME);
         click(settings::developer_mode_control, "ON", "Enable Developer Mode's On");
         require(developer_mode(), "Enable Developer Mode did not turn it on at once");
+        require(reveal(kRuleHack), "the rule hack did not show again");
         click_hack(kRuleHack, "ON");
         const auto* rules = mod_profile();
         require(
             rules != nullptr && rules->rules.ai.attack_wave_size.enabled &&
-                shows_text(parts_now(), active_only_label(1)),
+                reveal(active_only_label(1)),
             "a rule hack turned on did not play at once with no match running"
         );
         require(reveal(kDisplayArea), "Developer Mode does not list the display area");
@@ -1738,6 +1743,7 @@ void Runtime::check_engine_settings_dialog() {
         );
         dialog = open("for Restore profile values");
         require(dialog->page == settings::Page::developer, "the dialog did not open on Developer");
+        require(reveal("RESTORE PROFILE VALUES"), "Developer does not show Restore profile values");
         click(
             settings::restore_profile_control, "RESTORE PROFILE VALUES", "Restore profile values"
         );
@@ -1746,6 +1752,7 @@ void Runtime::check_engine_settings_dialog() {
                 !ui_rules().whiteboard.enabled,
             "Restore profile values did not put the profile's values back at once"
         );
+        tap(SDLK_HOME);
         click(settings::developer_mode_control, "OFF", "Enable Developer Mode's Off");
         require(!developer_mode(), "Enable Developer Mode did not turn it off at once");
         click(settings::ok_control, "OK", "OK");

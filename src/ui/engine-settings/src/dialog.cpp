@@ -534,8 +534,16 @@ Rows place_section(
     const Sizes& sized_here = sizes != nullptr ? *sizes : sizes_of(dialog);
     if (page == Page::downloads)
         return downloads::place(dialog, locks, small_width, placed, &sized_here, regular_width);
-    if (page == Page::updates)
-        return updates::place(dialog, locks, small_width, placed, &sized_here, regular_width);
+    if (page == Page::updates) {
+        // The Updates page lays its rows out from Compact's first row; at a
+        // class whose header is taller they move down with the heading.
+        Rows rows = updates::place(dialog, locks, small_width, placed, &sized_here, regular_width);
+        const int32_t lower = sized_here.first_row_top - first_row_top;
+        scroll_rows(rows, -lower);
+        if (placed != nullptr)
+            kit::scroll(*placed, -lower);
+        return rows;
+    }
     if (page == Page::game_content)
         return content::place(dialog, locks, small_width, placed, &sized_here);
     const auto settings = section_settings(page, section, row_context(dialog));
@@ -572,7 +580,7 @@ Rows place_section(
     kit::RowPlacement placement;
     placement.left = sized.content_left;
     placement.right = rows_right;
-    placement.first_top = first_row_top;
+    placement.first_top = sized.first_row_top;
     placement.row_padding =
         page == Page::developer && !own_section ? developer_row_padding : row_padding;
     placement.tall = oa::data::languages::interface_language().needs !=
@@ -657,7 +665,8 @@ Rows place_section(
         // either way the section's content reaches the pad's foot.
         const int32_t margin = kit::metrics_of(sized.size_class).space * 2;
         const int32_t left = pad_column > 0 ? sized.content_right - pad_column : sized.content_left;
-        const int32_t top = pad_column > 0 ? first_row_top + margin : kit_rows.bottom + margin;
+        const int32_t top =
+            pad_column > 0 ? sized.first_row_top + margin : kit_rows.bottom + margin;
         const int32_t width = pad_column > 0 ? pad_column : sized.content_width;
         const cards::Pad pad =
             cards::practice_pad(dialog, sized, left, top, width, regular, small_width);
@@ -708,8 +717,8 @@ void scroll_rows(Rows& rows, int32_t by) noexcept {
     rows.bottom -= by;
 }
 
-int32_t content_height(const Rows& rows, int32_t scroll) noexcept {
-    return rows.bottom + scroll + 1 + end_gap - first_row_top;
+int32_t content_height(const Rows& rows, int32_t scroll, int32_t first_top) noexcept {
+    return rows.bottom + scroll + 1 + end_gap - first_top;
 }
 
 int32_t scroll_limit(int32_t content_height, kit::SizeClass size_class) noexcept {
@@ -917,13 +926,36 @@ ScrolledRows open_rows(
             regular_width != nullptr && !estimated_measure(*regular_width) ? regular_width
                                                                            : nullptr;
         open.list = place_list(dialog, 0, switch_columns, measured_small, measured_regular, &sized);
-        open.content_height = open.list.bottom + end_gap - open.area.view.y;
+        if (!developer_scrolls_as_one(dialog)) {
+            open.content_height = open.list.bottom + end_gap - open.area.view.y;
+            open.limit = std::max(open.content_height - open.area.view.height, int32_t{0});
+            open.scroll =
+                std::clamp(dialog.scroll[scroll_index(dialog.page)], int32_t{0}, open.limit);
+            scroll_list(open.list, open.scroll);
+            open.footer_rule = sized.developer_footer_rule;
+            open.active_only_label = sized.active_only_label;
+            open.active_only_switch = sized.active_only_switch;
+            open.restore_profile_button = sized.restore_profile_button;
+            return open;
+        }
+        // Scrolling as one: the footer follows the list, its line where the
+        // list ends, and the rows, the list and the footer move together.
+        open.footer_rule = open.list.bottom;
+        const int32_t label_top = open.footer_rule + developer_footer_gap;
+        open.active_only_label = sized.active_only_label;
+        open.active_only_label.y = label_top;
+        open.active_only_switch = sized.active_only_switch;
+        open.active_only_switch.y = label_top;
+        open.restore_profile_button = sized.restore_profile_button;
+        open.restore_profile_button.y = label_top + label_line_height + developer_footer_gap;
+        open.content_height = open.restore_profile_button.y + open.restore_profile_button.height +
+                              end_gap - open.area.view.y;
         open.limit = std::max(open.content_height - open.area.view.height, int32_t{0});
         open.scroll = std::clamp(dialog.scroll[scroll_index(dialog.page)], int32_t{0}, open.limit);
-        scroll_list(open.list, open.scroll);
+        scroll_developer(open, open.scroll);
         return open;
     }
-    open.content_height = content_height(open.rows, 0);
+    open.content_height = content_height(open.rows, 0, sized.first_row_top);
     open.limit = scroll_limit(open.content_height, dialog.size_class);
     // While the dialog's words are drawn in the modern fonts, whose
     // ideographs fill a hint line from its top row, the view's top edge
@@ -953,6 +985,25 @@ ScrolledRows open_rows(
     return open;
 }
 
+NavBar nav_bar(const NavLayout& layout, const Sizes& sized, int32_t scroll) noexcept {
+    NavBar bar;
+    if (layout.limit <= 0 || layout.viewport.height <= 0)
+        return bar;
+    constexpr int32_t width = 2;
+    constexpr int32_t least = 12;
+    const int32_t entries_right = list_item_left + sized.list_item_width;
+    const int32_t x = entries_right + (sized.list_rule_column - entries_right - width) / 2;
+    bar.track = {x, layout.viewport.y, width, layout.viewport.height};
+    const int32_t whole = layout.viewport.height + layout.limit;
+    const int32_t height = std::max(least, layout.viewport.height * layout.viewport.height / whole);
+    const int32_t travel = layout.viewport.height - height;
+    const int32_t at = std::clamp(scroll, int32_t{0}, layout.limit);
+    bar.thumb = {
+        x, layout.viewport.y + (travel * at + layout.limit / 2) / layout.limit, width, height
+    };
+    return bar;
+}
+
 ScrollArea developer_list_scroll(
     const Dialog& dialog,
     const TextWidth* small_width,
@@ -960,6 +1011,8 @@ ScrollArea developer_list_scroll(
     const TextWidth* regular_width
 ) {
     const Sizes& sized = sizes != nullptr ? *sizes : sizes_of(dialog);
+    if (developer_scrolls_as_one(dialog))
+        return sized.section_scroll;
     const TextWidth& measure = small_width != nullptr ? *small_width : estimated_width;
     ScrollArea area = sized.developer_scroll;
     const Rows rows = place_section(
@@ -981,6 +1034,37 @@ ScrollArea developer_list_scroll(
     }
     area.page_step = std::max(area.page_step - lower, hint_line_height);
     return area;
+}
+
+int32_t developer_list_top(
+    const Dialog& dialog,
+    const TextWidth* small_width,
+    const Sizes* sizes,
+    const TextWidth* regular_width
+) {
+    const Sizes& sized = sizes != nullptr ? *sizes : sizes_of(dialog);
+    if (!developer_scrolls_as_one(dialog))
+        return developer_list_scroll(dialog, small_width, &sized, regular_width).view.y;
+    const Rows rows = place_section(
+        dialog,
+        Page::developer,
+        shown_locks(dialog),
+        dialog.section_hooks,
+        small_width != nullptr ? *small_width : estimated_width,
+        nullptr,
+        &sized,
+        regular_width
+    );
+    return rows.bottom + 1;
+}
+
+void scroll_developer(ScrolledRows& open, int32_t by) noexcept {
+    scroll_rows(open.rows, by);
+    scroll_list(open.list, by);
+    open.footer_rule -= by;
+    for (SourceRect* rect :
+         {&open.active_only_label, &open.active_only_switch, &open.restore_profile_button})
+        rect->y -= by;
 }
 
 int32_t scroll_showing(const ScrolledRows& open, std::size_t index) noexcept {
@@ -1070,8 +1154,8 @@ NavLayout nav_layout(const Dialog& dialog, const Sizes* sizes) {
     const Sizes& sized = sizes != nullptr ? *sizes : sizes_of(dialog);
     const NavMetrics& nav = sized.nav;
     NavLayout layout;
-    layout.area = {edge, body_top, sized.list_width, sized.footer_rule_row - body_top};
-    const int32_t first_top = body_top + nav.margin;
+    layout.area = {edge, sized.body_top, sized.list_width, sized.footer_rule_row - sized.body_top};
+    const int32_t first_top = sized.body_top + nav.margin;
     const int32_t view_bottom = sized.footer_rule_row - nav.margin;
     layout.viewport = {list_item_left, first_top, sized.list_item_width, view_bottom - first_top};
     const SourceRect rule_box{
@@ -1414,9 +1498,13 @@ DialogAction scroll_to(Dialog& dialog, layout::ScrolledRows& open, int32_t offse
     dialog.scroll[layout::scroll_index(dialog.page)] = next;
     if (next == open.scroll)
         return DialogAction::none;
-    if (!layout::developer_page(dialog))
-        layout::scroll_rows(open.rows, next - open.scroll);
-    layout::scroll_list(open.list, next - open.scroll);
+    if (layout::developer_scrolls_as_one(dialog))
+        layout::scroll_developer(open, next - open.scroll);
+    else {
+        if (!layout::developer_page(dialog))
+            layout::scroll_rows(open.rows, next - open.scroll);
+        layout::scroll_list(open.list, next - open.scroll);
+    }
     open.scroll = next;
     hover_again(dialog);
     return DialogAction::redraw;
@@ -1444,6 +1532,29 @@ DialogAction show_row(Dialog& dialog, layout::ScrolledRows& open, int32_t contro
     }
     if (control < first_row_control)
         return DialogAction::none;
+    // Where Developer scrolls as one, a row, a row of its list, Show Active
+    // Only and Restore profile values each scroll the least that shows them
+    // whole, the line over a row included.
+    if (layout::developer_scrolls_as_one(dialog)) {
+        layout::SourceRect shown{};
+        if (control == active_only_control)
+            shown = open.active_only_switch;
+        else if (control == restore_profile_control)
+            shown = open.restore_profile_button;
+        else if (const layout::ListRow* item = layout::list_row(open.list, control))
+            shown = {0, item->top, 1, item->height};
+        else if (const layout::Row* row = row_of(open.rows, control))
+            shown = {0, row->top, 1, row->height + 1};
+        if (shown.height <= 0)
+            return DialogAction::none;
+        const layout::SourceRect& seen = open.area.view;
+        int32_t next = open.scroll;
+        if (shown.y + shown.height > seen.y + seen.height)
+            next += shown.y + shown.height - (seen.y + seen.height);
+        if (shown.y < seen.y)
+            next -= seen.y - shown.y;
+        return scroll_to(dialog, open, next);
+    }
     // Developer's rows and its footer's switch and button stay where they
     // are; its list's rows scroll.
     if (layout::developer_page(dialog))
@@ -2625,7 +2736,7 @@ DialogAction dialog_pointer_up(Dialog& dialog, int32_t x, int32_t y) {
         return *registered;
     if (layout::developer_page(dialog)) {
         if (control == active_only_control) {
-            const layout::SourceRect& active = layout::sizes_of(dialog).active_only_switch;
+            const layout::SourceRect& active = open.active_only_switch;
             return developer::set_active_only(dialog, x >= active.x + active.width / 2);
         }
         if (const layout::ListRow* row = layout::list_row(open.list, control))
@@ -2789,7 +2900,7 @@ DialogAction dialog_key(Dialog& dialog, DialogKey key) {
 /// @return what it asks; nothing when the list does not take the wheel
 std::optional<DialogAction> wheel_engine_nav(Dialog& dialog, int32_t x, int32_t y, float notches) {
     const geometry::Sizes& sized = geometry::sizes_of(dialog);
-    if (x < geometry::edge || y < geometry::body_top || x >= geometry::edge + sized.list_width ||
+    if (x < geometry::edge || y < sized.body_top || x >= geometry::edge + sized.list_width ||
         y >= sized.footer_rule_row)
         return std::nullopt;
     const geometry::NavLayout nav = geometry::nav_layout(dialog);
@@ -2943,11 +3054,6 @@ void switch_parts(std::vector<LayoutPart>& parts, const layout::SourceRect& area
 void developer_layout(
     const Dialog& dialog, const layout::ScrolledRows& open, std::vector<LayoutPart>& parts
 ) {
-    const layout::Sizes& sized = layout::sizes_of(dialog);
-    const auto text_part =
-        [&parts](layout::SourceRect rect, std::string text, DialogFont font, int32_t control) {
-            parts.push_back(LayoutPart{rect, std::move(text), font, 0, control});
-        };
     // The list's rows, only the parts wholly in its view.
     std::vector<LayoutPart> rows;
     const auto row_text =
@@ -2986,25 +3092,41 @@ void developer_layout(
             break;
         }
     }
+    // The list's footer: still at the section's foot, or, where Developer
+    // scrolls as one, under the list and listed where the view shows it whole.
+    const bool as_one = layout::developer_scrolls_as_one(dialog);
+    std::vector<LayoutPart> footer;
+    footer.push_back(
+        LayoutPart{
+            open.active_only_label,
+            std::string(
+                layout::shown_text(
+                    layout::active_only_text(
+                        active_hack_count(dialog), oa::data::mod_profile::standard_hacks().size()
+                    )
+                )
+            ),
+            DialogFont::regular,
+            0,
+            no_control
+        }
+    );
+    switch_parts(footer, open.active_only_switch, active_only_control);
+    footer.push_back(
+        LayoutPart{
+            open.restore_profile_button,
+            std::string(layout::shown_text(layout::restore_profile_text)),
+            DialogFont::small,
+            0,
+            developer::restore_profile_enabled(dialog) ? restore_profile_control : no_control
+        }
+    );
     for (LayoutPart& part : rows)
         if (wholly_in(part.rect, open.area.view))
             parts.push_back(std::move(part));
-    // The list's footer, which never scrolls.
-    text_part(
-        sized.active_only_label,
-        layout::active_only_text(
-            active_hack_count(dialog), oa::data::mod_profile::standard_hacks().size()
-        ),
-        DialogFont::regular,
-        no_control
-    );
-    switch_parts(parts, sized.active_only_switch, active_only_control);
-    text_part(
-        sized.restore_profile_button,
-        std::string(layout::restore_profile_text),
-        DialogFont::small,
-        developer::restore_profile_enabled(dialog) ? restore_profile_control : no_control
-    );
+    for (LayoutPart& part : footer)
+        if (!as_one || wholly_in(part.rect, open.area.view))
+            parts.push_back(std::move(part));
 }
 
 } // namespace
@@ -3048,11 +3170,10 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
 
     // The header: the mark, the title, and at the right the version and the
     // shared game's note.
-    control_part(layout::header_mark, no_control);
-    const int32_t title_left =
-        layout::header_mark.x + layout::header_mark.width + layout::header_gap;
+    control_part(sized.header_mark, no_control);
+    const int32_t title_left = sized.header_mark.x + sized.header_mark.width + layout::header_gap;
     text_part(
-        {title_left, layout::header_top, layout::title_width, layout::header_height},
+        {title_left, layout::header_top, layout::title_width, sized.header_height},
         layout::title_text,
         DialogFont::regular,
         layout::heading_tracking
@@ -3073,7 +3194,7 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
         suffix_width = std::max(suffix_width, tracked + gaps * layout::heading_tracking);
     }
     text_part(
-        {suffix_left, layout::header_top, suffix_width, layout::header_height},
+        {suffix_left, layout::header_top, suffix_width, sized.header_height},
         layout::title_suffix_text,
         DialogFont::regular,
         layout::heading_tracking
@@ -3088,7 +3209,7 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
             {shared_left,
              layout::header_top,
              sized.version_right - layout::version_gap - shared_left,
-             layout::header_height},
+             sized.header_height},
             layout::shared_game_text,
             DialogFont::small
         );
@@ -3097,7 +3218,7 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
             {sized.version_right - layout::version_width,
              layout::header_top,
              layout::version_width,
-             layout::header_height},
+             sized.header_height},
             dialog.version,
             DialogFont::small
         );
@@ -3185,7 +3306,11 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
         &sized,
         fonts != nullptr ? &text_width : nullptr
     ));
-    oa::ui::kit::scroll(placed, layout::developer_page(dialog) ? 0 : open.scroll);
+    oa::ui::kit::scroll(
+        placed,
+        layout::developer_page(dialog) && !layout::developer_scrolls_as_one(dialog) ? 0
+                                                                                    : open.scroll
+    );
     const layout::SettingsModel model = layout::reading(dialog.chosen, dialog);
     for (std::size_t index = 0; index < placed.rows.size() && index < open.rows.rows.size();
          ++index) {
