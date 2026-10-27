@@ -317,9 +317,9 @@ void test_state_matrix() {
     inputs.updates.push_back(update(core, Kind::mod, "get-mod"));
     const lib::Library library = built(std::move(inputs));
 
-    // Eight packages, the base game, the built-in computer player, and the
-    // built-in languages refresh adds.
-    OA_CHECK(library.entries.size() == 8 + 1 + 1 + built_in_language_rows().size());
+    // Eight packages, the base game, the built-in computer player, the
+    // built-in key layout, and the built-in languages refresh adds.
+    OA_CHECK(library.entries.size() == 8 + 1 + 1 + 1 + built_in_language_rows().size());
     const lib::Entry* built_in_player = lib::find_entry(library, lib::built_in_brain_id());
     OA_CHECK(built_in_player != nullptr && lib::is_built_in_brain(built_in_player->id));
     const lib::Entry* get = at(library, core, Kind::mod, "get-mod");
@@ -4988,7 +4988,8 @@ void test_keys() {
         OA_CHECK(own != nullptr && own->long_value == "· 2 changes of your own");
     }
     if (lantern_row != nullptr) {
-        const lib::Fact* needs = fact(lib::facts(library, *lantern_row), "Needs");
+        const std::vector<lib::Fact> lantern_facts_shown = lib::facts(library, *lantern_row);
+        const lib::Fact* needs = fact(lantern_facts_shown, "Needs");
         OA_CHECK(
             needs != nullptr && needs->long_value == "Open Annihilation 9.0.0 or later" &&
             needs->mark == Mark::warn
