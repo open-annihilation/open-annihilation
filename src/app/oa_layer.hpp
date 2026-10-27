@@ -328,6 +328,15 @@ class LayerScreen {
         return LayerAnswer::pass;
     }
 
+    /// Takes a key's release. The layer hands a screen every release it
+    /// sees while the screen takes input, as the keys it pressed were.
+    ///
+    /// @return what the screen did; pass, as every screen that does not
+    ///     follow a key's release answers
+    virtual LayerAnswer key_up(uint32_t /*sdl_key*/, uint16_t /*modifiers*/) {
+        return LayerAnswer::pass;
+    }
+
     /// Takes a gamepad action before it becomes a key, a click or anything
     /// else. The layer offers each action to the top screen, and a screen
     /// that answers other than pass took it, so it becomes no key. The

@@ -851,6 +851,37 @@ LayerAnswer with_moved_look(LayerAnswer answer, bool moved, uint64_t& revision) 
 // ---------------------------------------------------------------------------------------------
 // The settings dialog as a screen of the layer
 
+namespace {
+
+/// Returns the practice pad's key for a key the player pressed or let go:
+/// Shift, Ctrl and Alt, either side, and the letters and digits by the
+/// legend their keycap shows.
+///
+/// @param sdl_key the SDL keycode
+/// @return the pad's key; nothing for a key the dialog answers itself (Tab,
+///     the arrows, Space, Enter, Escape, the page keys) and every other key
+std::optional<settings::PracticeKey> practice_key(uint32_t sdl_key) {
+    using settings::PracticeModifier;
+    switch (sdl_key) {
+    case SDLK_LSHIFT:
+    case SDLK_RSHIFT:
+        return settings::PracticeKey{PracticeModifier::shift, "Shift"};
+    case SDLK_LCTRL:
+    case SDLK_RCTRL:
+        return settings::PracticeKey{PracticeModifier::ctrl, "Ctrl"};
+    case SDLK_LALT:
+    case SDLK_RALT:
+        return settings::PracticeKey{PracticeModifier::alt, "Alt"};
+    default:
+        break;
+    }
+    if ((sdl_key >= SDLK_A && sdl_key <= SDLK_Z) || (sdl_key >= SDLK_0 && sdl_key <= SDLK_9))
+        return settings::PracticeKey{PracticeModifier::none, std::string(SDL_GetKeyName(sdl_key))};
+    return std::nullopt;
+}
+
+} // namespace
+
 /// The settings dialog as a screen of the OA layer: modal, over a backdrop,
 /// centred on the main menu's picture or on the match's window, and moved by
 /// its title.
@@ -1003,6 +1034,27 @@ struct Runtime::SettingsScreen final : LayerScreen {
         return take_action(settings::dialog_key(*dialog, pressed));
     }
 
+    /// Takes a key's press before the layer maps it to the kit's keys: on
+    /// Accessibility, the practice pad takes Shift, Ctrl, Alt, the letters
+    /// and the digits (practice_key), which reach nothing else; every other
+    /// key, and every key on the other sections, goes on to key.
+    ///
+    /// @param sdl_key the SDL keycode
+    /// @return redraw when the pad shows something else, none when it took
+    ///     the key and shows the same; pass for a key it does not take
+    LayerAnswer shortcut(uint32_t sdl_key, uint16_t /*modifiers*/) override {
+        return practice(sdl_key, true);
+    }
+
+    /// Takes a key's release: the practice pad's keys on Accessibility, as
+    /// shortcut takes their presses.
+    ///
+    /// @param sdl_key the SDL keycode
+    /// @return what the pad did; pass for a key it does not take
+    LayerAnswer key_up(uint32_t sdl_key, uint16_t /*modifiers*/) override {
+        return practice(sdl_key, false);
+    }
+
     /// Takes a turn of the wheel, which scrolls the open section; nothing
     /// under the dialog sees it.
     ///
@@ -1050,7 +1102,8 @@ struct Runtime::SettingsScreen final : LayerScreen {
     /// arrives, and Mods' updates and its line on the check for updates
     /// follow the Library's model and the registries. Off the main menu the
     /// main menu's dialog closes as Cancel; once the in-game menu's column no
-    /// longer shows under it, the match's closes as OK.
+    /// longer shows under it, the match's closes as OK. Accessibility's
+    /// practice pad is told the time (dialog_practice_tick).
     ///
     /// @return close when the dialog closed
     LayerAnswer tick() override {
@@ -1085,6 +1138,11 @@ struct Runtime::SettingsScreen final : LayerScreen {
         // only when the revision moves, so a download's progress has to.
         changed = runtime_.refresh_settings_languages(*dialog) || changed;
         changed = runtime_.refresh_game_content(*dialog) || changed;
+        // The practice pad's time: Slow keys' wait and Hold to confirm's bar
+        // move while a key is held.
+        changed = settings::dialog_practice_tick(*dialog, SDL_GetTicks()) ==
+                      settings::DialogAction::redraw ||
+                  changed;
         if (!changed)
             return LayerAnswer::none;
         ++revision_;
@@ -1120,6 +1178,27 @@ struct Runtime::SettingsScreen final : LayerScreen {
     }
 
   private:
+
+    /// Hands a key's press or release to the practice pad while
+    /// Accessibility shows in the engine's settings.
+    ///
+    /// @param sdl_key the SDL keycode
+    /// @param down true for a press, false for a release
+    /// @return redraw or none when the pad took the key; pass otherwise
+    LayerAnswer practice(uint32_t sdl_key, bool down) {
+        auto* dialog = runtime_.engine_settings_dialog();
+        if (dialog == nullptr || dialog->page != settings::Page::accessibility ||
+            dialog->kind != settings::DialogKind::engine)
+            return LayerAnswer::pass;
+        const std::optional<settings::PracticeKey> pressed = practice_key(sdl_key);
+        if (!pressed)
+            return LayerAnswer::pass;
+        if (settings::dialog_practice_key(*dialog, *pressed, down, SDL_GetTicks()) !=
+            settings::DialogAction::redraw)
+            return LayerAnswer::none;
+        ++revision_;
+        return LayerAnswer::redraw;
+    }
 
     Runtime& runtime_;    ///< the runtime whose dialog it shows
     bool in_match_{};     ///< opened in a match; otherwise on the main menu
@@ -2615,7 +2694,7 @@ OaLayer::hand_input(LayerScreen& screen, const LayerView& seen, const ScreenInpu
             input.text != nullptr ? std::string_view(input.text) : std::string_view()
         );
     case ScreenInputKind::key_up:
-        return LayerAnswer::pass;
+        return screen.key_up(input.key, input.modifiers);
     }
     return LayerAnswer::pass;
 }
