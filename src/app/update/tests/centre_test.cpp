@@ -8,12 +8,16 @@
 
 #include "oa/app/update/centre.hpp"
 #include "oa/app/update/choices.hpp"
+#include "oa/app/update/interface_words.hpp"
 #include "oa/app/update/offer.hpp"
+#include "oa/ui/library/interface_words.hpp"
 
 #include "oa/test/check.hpp"
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
+#include <set>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -595,6 +599,143 @@ void the_rate_meter() {
     OA_CHECK(meter.bytes_per_second() == 0U);
 }
 
+/// The patterns a run of the words looked up, unfilled.
+std::set<std::string>& looked_up() {
+    static std::set<std::string> patterns;
+    return patterns;
+}
+
+/// Records each pattern and shows it in English.
+std::string_view record_pattern(void* /*context*/, std::string_view english) {
+    looked_up().insert(std::string(english));
+    return english;
+}
+
+void every_word_is_listed() {
+    const oa::ui::library::TextHooks recording{nullptr, record_pattern};
+    // Every stage, every way it installs, a kept version and a roll back's receipt.
+    std::vector<update::CentreInputs> all;
+    all.push_back(offered_inputs());
+    update::CentreInputs check = offered_inputs();
+    check.offer_version.clear();
+    for (const update::CheckState state :
+         {update::CheckState::idle,
+          update::CheckState::checking,
+          update::CheckState::up_to_date,
+          update::CheckState::failed}) {
+        check.check = state;
+        for (const update::CheckFailure kind :
+             {update::CheckFailure::connect,
+              update::CheckFailure::refused,
+              update::CheckFailure::storage}) {
+            check.check_failure = kind;
+            all.push_back(check);
+        }
+    }
+    check.check = update::CheckState::idle;
+    check.mode = update::CheckMode::never;
+    all.push_back(check);
+    update::CentreInputs skipped = offered_inputs();
+    skipped.skipped = 12;
+    all.push_back(skipped);
+    for (const update::DownloadState state :
+         {update::DownloadState::downloading,
+          update::DownloadState::paused_by_player,
+          update::DownloadState::paused_for_match,
+          update::DownloadState::verifying,
+          update::DownloadState::ready,
+          update::DownloadState::failed}) {
+        update::CentreInputs moving = downloading_inputs();
+        moving.download = state;
+        moving.kept_version = "0.8.6";
+        for (const update::DownloadFailure kind :
+             {update::DownloadFailure::connect,
+              update::DownloadFailure::wrong_file,
+              update::DownloadFailure::storage}) {
+            moving.download_failure = kind;
+            for (const update::InstallWay way :
+                 {update::InstallWay::restart,
+                  update::InstallWay::windows_installer,
+                  update::InstallWay::macos_installer,
+                  update::InstallWay::next_start}) {
+                moving.way = way;
+                all.push_back(moving);
+                moving.scheduled = 12;
+                all.push_back(moving);
+                moving.scheduled.reset();
+            }
+        }
+    }
+    update::CentreInputs page = offered_inputs();
+    page.way = update::InstallWay::page_only;
+    all.push_back(page);
+    page.way = update::InstallWay::package_manager;
+    all.push_back(page);
+    update::CentreInputs handing = downloading_inputs();
+    handing.handing_over = true;
+    all.push_back(handing);
+    update::CentreInputs after;
+    after.current_version = "0.8.8";
+    after.updated_from = "0.8.7";
+    after.kept_version = "0.8.7";
+    all.push_back(after);
+    after.unconfirmed = true;
+    all.push_back(after);
+    update::CentreInputs back;
+    back.current_version = "0.8.7";
+    back.rolled_back_from = "0.8.8";
+    all.push_back(back);
+    for (const update::Outcome outcome :
+         {update::Outcome::running,
+          update::Outcome::not_installed,
+          update::Outcome::cancelled,
+          update::Outcome::failed_restored,
+          update::Outcome::recovery_incomplete}) {
+        for (const update::Action action : {update::Action::install, update::Action::roll_back}) {
+            update::CentreInputs held = offered_inputs();
+            held.held = 12;
+            held.receipt = failed_receipt(outcome);
+            held.receipt->action = action;
+            all.push_back(held);
+        }
+    }
+    for (const update::CentreInputs& inputs : all)
+        static_cast<void>(update::centre_words(update::centre_state(inputs), recording));
+    for (const update::Step step :
+         {update::Step::wait,
+          update::Step::verify,
+          update::Step::unpack,
+          update::Step::swap,
+          update::Step::installer,
+          update::Step::start,
+          update::Step::watch,
+          update::Step::undo,
+          update::Step::restore}) {
+        for (const update::StepResult result :
+             {update::StepResult::done, update::StepResult::failed}) {
+            static_cast<void>(
+                update::step_words({step, result, "why"}, "0.8.7", "0.8.8", recording)
+            );
+        }
+    }
+    static_cast<void>(update::recovery_steps("0.8.7", recording));
+    for (const uint64_t seconds : {uint64_t{10}, uint64_t{70}, uint64_t{300}, uint64_t{4000}})
+        static_cast<void>(update::time_left_words(seconds, recording));
+
+    OA_CHECK(looked_up().size() > 80U);
+    // Sizes are the Library's, and its list holds their words.
+    const auto in = [](const auto& list, const std::string& pattern) {
+        return std::find(std::begin(list), std::end(list), pattern) != std::end(list);
+    };
+    for (const std::string& pattern : looked_up()) {
+        const bool listed =
+            in(update::interface_words, pattern) || in(oa::ui::library::interface_words, pattern);
+        if (!listed)
+            std::fprintf(stderr, "not in interface_words: %s\n", pattern.c_str());
+        OA_CHECK(listed);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -617,5 +758,6 @@ int main() {
     step_words_in_english();
     time_left_and_percent();
     the_rate_meter();
+    every_word_is_listed();
     return oa::test::check_exit_status();
 }

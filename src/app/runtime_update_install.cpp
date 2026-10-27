@@ -88,20 +88,12 @@ namespace update = oa::app::update;
 
 /// The ready prompt's word, so it is not the update question.
 constexpr std::string_view kReadyWord = "ready-update";
-/// KEEP IT READY, the button Escape answers: nothing is scheduled.
+/// Keep it ready, the button Escape answers: nothing is scheduled.
 constexpr int32_t kKeepReady = 0;
-/// WHEN I QUIT: the release installs the next time the game quits.
+/// Install when I quit: the release installs the next time the game quits.
 constexpr int32_t kWhenIQuit = 1;
 /// The install-now button, named for the route; the primary button.
 constexpr int32_t kInstallNow = 2;
-/// KEEP IT READY.
-constexpr std::string_view kKeepReadyCaption = "KEEP IT READY";
-/// The install-now button where Installer puts the release in place.
-constexpr std::string_view kOpenInstallerCaption = "OPEN THE INSTALLER";
-/// The install-now button on a Steam Deck, where the release goes in at the next start.
-constexpr std::string_view kCloseGameCaption = "CLOSE THE GAME";
-/// The line the Windows installer's prompt adds.
-constexpr std::string_view kWindowsAsks = "Windows asks for permission.";
 /// The receipt notice's word on the layer.
 constexpr std::string_view kReceiptWord = "update-receipt";
 /// The line above the steps the receipt lists.
@@ -1064,7 +1056,17 @@ void Runtime::offer_ready() {
         return;
     const std::string version = update_->download_version;
     const update::Where where = route_for(options_, feed::Way::in_place);
-    const update::InstallWay way = update::install_way(
+    // The buttons are the update centre's own for a ready release: Install
+    // when I quit, the install-now action named for the route, and Keep it
+    // ready.
+    update::CentreInputs inputs;
+    inputs.current_version = update_->from_version;
+    inputs.download = update::DownloadState::ready;
+    inputs.download_release = release_number;
+    inputs.download_version = version;
+    inputs.received = shot.total;
+    inputs.total = shot.total;
+    inputs.way = update::install_way(
         update::replaces_itself(),
         update::packager_name(),
         where.route,
@@ -1072,27 +1074,41 @@ void Runtime::offer_ready() {
         false,
         installs_at_next_start()
     );
+    const update::CentreWords words =
+        update::centre_words(update::centre_state(inputs), shown_hooks());
+    std::string keep_ready;
+    std::string when_i_quit;
+    std::string install_now;
+    std::string install_note;
+    for (const update::ActWords& act : words.actions) {
+        if (act.act == update::Act::keep_ready)
+            keep_ready = act.caption;
+        else if (act.act == update::Act::install_on_quit)
+            when_i_quit = act.caption;
+        else if (act.act == update::Act::install_now) {
+            install_now = act.caption;
+            install_note = act.note;
+        }
+    }
     kit::Question asked;
     asked.word = std::string(kReadyWord);
     asked.title = library::filled(shown_hooks(), kReadyTitle, {{"version", version}});
-    std::string_view install_now = "RESTART NOW";
-    switch (way) {
+    switch (inputs.way) {
     case update::InstallWay::next_start:
         asked.paragraphs.push_back(
             {library::filled(shown_hooks(), update::installs_next_start, {{"version", version}}),
              false}
         );
-        install_now = kCloseGameCaption;
         break;
     case update::InstallWay::macos_installer:
         asked.paragraphs.push_back(
             {library::filled(shown_hooks(), kInstallerWill, {{"version", version}}), false}
         );
-        install_now = kOpenInstallerCaption;
         break;
     case update::InstallWay::windows_installer:
         asked.paragraphs.push_back({std::string(languages::interface_text(kReadyBody)), false});
-        asked.paragraphs.push_back({std::string(languages::interface_text(kWindowsAsks)), false});
+        if (!install_note.empty())
+            asked.paragraphs.push_back({install_note, false});
         break;
     case update::InstallWay::restart:
     case update::InstallWay::package_manager:
@@ -1100,15 +1116,9 @@ void Runtime::offer_ready() {
         asked.paragraphs.push_back({std::string(languages::interface_text(kReadyBody)), false});
         break;
     }
-    asked.buttons.push_back(
-        {std::string(languages::interface_text(kKeepReadyCaption)), false, "keep-ready"}
-    );
-    asked.buttons.push_back(
-        {std::string(languages::interface_text("WHEN I QUIT")), false, "when-i-quit"}
-    );
-    asked.buttons.push_back(
-        {std::string(languages::interface_text(install_now)), true, "restart-now"}
-    );
+    asked.buttons.push_back({keep_ready, false, "keep-ready"});
+    asked.buttons.push_back({when_i_quit, false, "when-i-quit"});
+    asked.buttons.push_back({install_now, true, "restart-now"});
     asked.cancel_button = kKeepReady;
     asked.primary_button = kInstallNow;
     asked.marked = kInstallNow;
