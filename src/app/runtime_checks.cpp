@@ -728,7 +728,21 @@ void Runtime::check_match_layers() {
     check_pixel_particles(report_directory);
     check_scene_draw_scale(report_directory);
     std::cout << "match layer check: " << frames << " presented frames equal compose_match_frame\n";
-    check_presented_match_end(report_directory);
+    // The outcome frame is held to the frame the game kept, so the order
+    // buttons wear no key badges there; Show keys on buttons comes back after.
+    const oa::ui::engine_settings::EngineSettings kept_settings = engine_settings();
+    {
+        auto chosen = kept_settings;
+        chosen.show_keys_on_buttons = false;
+        apply_engine_settings(chosen);
+    }
+    try {
+        check_presented_match_end(report_directory);
+    } catch (...) {
+        apply_engine_settings(kept_settings);
+        throw;
+    }
+    apply_engine_settings(kept_settings);
 }
 
 void Runtime::check_pixel_particles(const fs::path& report_directory) {

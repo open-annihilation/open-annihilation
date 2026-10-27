@@ -506,7 +506,10 @@ void Runtime::check_user_folder() {
             settings::backdrop_color,
             settings::menu_backdrop_opacity
         );
+        const auto darkened = expected;
         settings::draw_notice(expected, placement, notice, *fonts, engine_settings_icon());
+        // Its corners rounded, the darkened menu showing outside them.
+        round_drawn_screen(expected, darkened, placed);
         const auto shown = frame();
         step_snapshot(options_.snapshot, "notice", shown);
         require(
@@ -724,6 +727,7 @@ void Runtime::check_user_folder() {
                 );
             };
             darken_whole();
+            const auto under_settings = expected;
             settings::draw_dialog(
                 expected,
                 {(kCanvasWidth - settings::dialog_width) / 2,
@@ -733,8 +737,13 @@ void Runtime::check_user_folder() {
                 *fonts,
                 EngineSettingsMenuHost::settings_icon(*this)
             );
+            // Each with its corners rounded, what lies under it showing
+            // outside them.
+            round_drawn_screen(expected, under_settings, oa_layer().placement_of("settings"));
             darken_whole();
+            const auto under_question = expected;
             settings::draw_prompt(expected, question_at, question, *fonts, engine_settings_icon());
+            round_drawn_screen(expected, under_question, question_placed);
             const auto shown = frame();
             step_snapshot(options_.snapshot, "question-over-settings", shown);
             require(
