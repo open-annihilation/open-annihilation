@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-key-views: the key editor's keyboard and mouse at 640x480, 1280x720
-// and 1920x1080, each modifier layer, the shape drop-down, a free key bound
-// through the capture prompt, the mouse's Forward, and Left-click saved as
-// Interface Type. With --snapshot it writes key-keyboard-<w>x<h>.ppm and
-// key-mouse-<w>x<h>.ppm. The pictures are the shape the system reports.
+// and 1920x1080 (a mouse button reading as its roles), each modifier layer,
+// the shape drop-down, a free key bound through the capture prompt, the
+// mouse's Forward, and Left-click saved as Interface Type. With --snapshot it
+// writes key-keyboard-<w>x<h>.ppm and key-mouse-<w>x<h>.ppm. The pictures are
+// the shape the system reports.
 
 #include "oa_layer.hpp"
 #include "oa_layer_check.hpp"
@@ -201,6 +202,12 @@ void Runtime::check_key_views() {
         snapshot("key-keyboard", window);
         click_named("oa.key-editor.view.mouse");
         note("Mouse view at " + size);
+        // A button reads as its roles to automation, as a key reads as its legend.
+        const std::optional<AutomationControl> left = named("oa.key-editor.mouse.mouse-left");
+        require(
+            left.has_value() && left->text.find("Select") != std::string::npos,
+            "the mouse's left button does not read as its roles at " + size
+        );
         snapshot("key-mouse", window);
     }
 
