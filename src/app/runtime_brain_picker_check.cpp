@@ -69,7 +69,7 @@ struct CheckWindow {
 constexpr std::array<CheckWindow, 4> kWindows{{
     {640, 480, kit::SizeClass::compact, 1},
     {1280, 720, kit::SizeClass::large, 1},
-    {1920, 1080, kit::SizeClass::regular, 2},
+    {1920, 1080, kit::SizeClass::large, 1},
     {2560, 1440, kit::SizeClass::large, 2},
 }};
 
