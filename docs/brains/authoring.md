@@ -525,6 +525,18 @@ as allies now, and it changes when an alliance does. The fields are in
 [7.2 the map](oabrain-standard.md#72-the-map) and
 [7.5 the seat](oabrain-standard.md#75-the-seat).
 
+The economy figures on `me` are per second, from the seat's last
+settlement, once a second of game time. `me.energy_requested` is demand:
+what the units asked for, construction, upkeep, cloaks and shots, whether
+it was paid or not. So `me.energy_surplus`, produced less requested, is
+negative nearly every second something is built, and that alone is no
+shortage. `me.energy_spent` is what was actually paid. While it equals
+`me.energy_requested`, the seat builds at full speed; when it falls short,
+the store has run dry and construction slows. The metal figures work the
+same way. What goes into each, and a commander building a solar
+collector worked through, is
+[7.5.1 The economy](oabrain-standard.md#751-the-economy).
+
 During `start`, before the first tick, `each_unit` can still
 be empty: the commander arrives as `onUnitIdle` on tick 1. Classify then,
 or from the timer, and remember the records so later ticks do not draw
