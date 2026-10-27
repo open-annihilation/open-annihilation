@@ -1349,6 +1349,9 @@ std::vector<Piece> detail_pieces(
         const int32_t row = y + metrics.space;
         int32_t right = width - metrics.space;
         const int32_t remove_side = std::min(control_h, metrics.button_height + 4);
+        // The remove mark sits at the right, but Tab reaches it after
+        // Change…, as the two are read.
+        std::optional<Piece> remove;
         if (chord.removable && right - remove_side > metrics.space) {
             Piece button;
             button.kind = Piece::Kind::button;
@@ -1361,7 +1364,7 @@ std::vector<Piece> detail_pieces(
             button.id =
                 controls::chord_first + static_cast<kit::ControlId>(static_cast<int32_t>(index));
             button.name = std::string(name_chord_prefix) + std::to_string(index + 1) + ".remove";
-            pieces.push_back(std::move(button));
+            remove = std::move(button);
             right -= remove_side + metrics.space;
         }
         // Change… opens the capture for this chord. Escape on a fixed action
@@ -1387,6 +1390,8 @@ std::vector<Piece> detail_pieces(
                 right -= change_w + metrics.space;
             }
         }
+        if (remove)
+            pieces.push_back(std::move(*remove));
         Piece chip;
         chip.kind = Piece::Kind::chip;
         chip.x = metrics.space;
