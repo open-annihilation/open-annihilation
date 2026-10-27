@@ -1803,7 +1803,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-user-folder] [--check-mod-switch] [--check-map-packs] "
                      "[--check-map-pack-lists] [--check-mod-map-settings] "
                      "[--check-map-browser] [--check-key-editor] [--check-key-capture] "
-                     "[--check-key-views] [--check-keys-overlay] "
+                     "[--check-key-views] [--check-key-share] [--check-keys-overlay] "
                      "[--check-mutator-button] [--check-mutator-picker] "
                      "[--check-brain-picker] "
                      "[--check-brain-seat-buttons] "
