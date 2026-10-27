@@ -755,6 +755,8 @@ activate(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::
         else
             state.filter = Filter::latchable;
         state.list_scroll = 0;
+        // The pills are one Tab stop: the one in use keeps it.
+        state.interaction.focused = id;
         return redrawn();
     }
     if (id >= controls::nav_first && id < controls::row_first) {
@@ -763,6 +765,8 @@ activate(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::
         if (index < categories.size() && categories[index].id.rfind("heading.", 0) != 0) {
             state.category = categories[index].id;
             state.list_scroll = 0;
+            // The nav is one Tab stop: the category in use keeps it.
+            state.interaction.focused = id;
         }
         return redrawn();
     }
@@ -1696,6 +1700,90 @@ uint8_t next_layer(uint8_t layer, bool forward, bool command) noexcept {
     return bits[index];
 }
 
+/// The filter pills' controls, in the order they show.
+constexpr kit::ControlId filter_controls[] = {
+    controls::filter_all,
+    controls::filter_changed,
+    controls::filter_clashes,
+    controls::filter_unbound,
+    controls::filter_latchable,
+};
+
+/// The filters, in the pills' order.
+constexpr Filter filter_order[] = {
+    Filter::all, Filter::changed, Filter::clashes, Filter::unbound, Filter::latchable
+};
+
+/// A filter pill's place among the pills.
+///
+/// @param id the control
+/// @return its place from 0, or -1 when it is not a pill
+int filter_place(kit::ControlId id) noexcept {
+    for (int place = 0; place < 5; ++place) {
+        if (filter_controls[place] == id)
+            return place;
+    }
+    return -1;
+}
+
+/// Chooses the category above or below the one in use in the nav, skipping
+/// its headings, and keeps the focus on it. The nav is one Tab stop, so the
+/// arrows move within it; at an end the category stays.
+///
+/// @param editor the categories
+/// @param[in,out] state the category, the scroll and the focus
+/// @param list the display list, for the entries it shows
+/// @param down true for Down
+/// @return what the host is to do
+EditorResult
+step_category(const Editor& editor, ScreenState& state, const kit::DisplayList& list, bool down) {
+    const std::vector<CategoryEntry> categories = editor.categories();
+    const auto count = static_cast<int>(categories.size());
+    int at = -1;
+    for (int place = 0; place < count; ++place) {
+        if (categories[static_cast<std::size_t>(place)].id == state.category)
+            at = place;
+    }
+    const int step = down ? 1 : -1;
+    for (int place = at + step; place >= 0 && place < count; place += step) {
+        const CategoryEntry& entry = categories[static_cast<std::size_t>(place)];
+        const kit::ControlId id = controls::nav_first + static_cast<kit::ControlId>(place);
+        if (entry.id.rfind("heading.", 0) == 0 || kit::control_of(list, id) == nullptr)
+            continue;
+        state.category = entry.id;
+        state.list_scroll = 0;
+        focus_on(state, id);
+        return redrawn();
+    }
+    return {};
+}
+
+/// Chooses the filter left or right of the one in use, round from the last
+/// to the first, and keeps the focus on its pill. The pills are one Tab
+/// stop, so the arrows move within them.
+///
+/// @param[in,out] state the filter, the scroll and the focus
+/// @param list the display list, for the pills it shows
+/// @param right true for Right
+/// @return what the host is to do
+EditorResult step_filter(ScreenState& state, const kit::DisplayList& list, bool right) {
+    int at = 0;
+    for (int place = 0; place < 5; ++place) {
+        if (filter_order[place] == state.filter)
+            at = place;
+    }
+    for (int tried = 1; tried < 5; ++tried) {
+        const int place = (at + (right ? tried : 5 - tried)) % 5;
+        if (kit::control_of(list, filter_controls[place]) == nullptr)
+            continue;
+        state.filter = filter_order[place];
+        state.list_scroll = 0;
+        focus_on(state, filter_controls[place]);
+        return redrawn();
+    }
+    return {};
+}
+
 /// Shows one picture and puts the focus where that picture's keys start.
 ///
 /// @param[in,out] editor the scheme, for the mouse
@@ -2232,7 +2320,13 @@ editor_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit
                           focused == controls::layer_ctrl || focused == controls::layer_alt ||
                           focused == controls::layer_cmd;
     const bool on_scheme = focused == controls::scheme_right || focused == controls::scheme_left;
+    const bool on_nav = focused >= controls::nav_first && focused < controls::row_first;
+    const bool on_pill = filter_place(focused) >= 0;
     const bool on_key = focused >= controls::keyboard_first && focused < controls::mouse_first;
+    if (on_nav && (pressed == kit::Key::up || pressed == kit::Key::down))
+        return step_category(editor, state, list, pressed == kit::Key::down);
+    if (on_pill && (pressed == kit::Key::left || pressed == kit::Key::right))
+        return step_filter(state, list, pressed == kit::Key::right);
     if (on_view && (pressed == kit::Key::left || pressed == kit::Key::right)) {
         View shown = View::list;
         if (state.view == View::keyboard)

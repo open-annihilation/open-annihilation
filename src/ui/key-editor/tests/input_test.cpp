@@ -261,6 +261,65 @@ void arrows_move_the_row() {
     OA_CHECK(selected_is_listed(session.model, session.state));
 }
 
+/// How many of Tab's stops have names that start with a prefix.
+///
+/// @param list the display list
+/// @param prefix the prefix
+/// @return the count
+std::size_t tab_stops(const kit::DisplayList& list, std::string_view prefix) {
+    std::size_t count = 0;
+    for (const kit::ControlId id : list.tab_order) {
+        const kit::Control* control = kit::control_of(list, id);
+        if (control != nullptr && starts(control->name, prefix))
+            ++count;
+    }
+    return count;
+}
+
+/// Large's nav and its filter pills are one Tab stop each, the category and
+/// the filter in use. Down and Up choose the next and the previous category,
+/// Right and Left the next and the previous filter, and the focus stays on
+/// the one chosen.
+void nav_and_pills_are_one_stop() {
+    Session session(frame_for(1280, 720, 100));
+    OA_CHECK(tab_stops(session.list, editor::name_nav_prefix) == 1);
+    OA_CHECK(tab_stops(session.list, "key-editor.filter.") == 1);
+    const kit::Control* common = find_named(session.list, "key-editor.nav.common");
+    OA_CHECK(common != nullptr && common->focusable);
+    const kit::Control* orders = find_named(session.list, "key-editor.nav.orders");
+    OA_CHECK(orders != nullptr && !orders->focusable);
+    if (common == nullptr)
+        return;
+    session.state.interaction.focused = common->id;
+    session.state.interaction.focus_shown = true;
+    session.take(editor::editor_key(session.model, session.state, session.list, kit::Key::down));
+    if (session.state.category != "orders")
+        std::fprintf(stderr, "down chose \"%s\"\n", session.state.category.c_str());
+    OA_CHECK(session.state.category == "orders");
+    const kit::Control* focused = kit::control_of(session.list, session.state.interaction.focused);
+    OA_CHECK(focused != nullptr && focused->name == "key-editor.nav.orders" && focused->focusable);
+    session.take(editor::editor_key(session.model, session.state, session.list, kit::Key::up));
+    OA_CHECK(session.state.category == "common");
+    // Up at the top stays where it is.
+    session.take(editor::editor_key(session.model, session.state, session.list, kit::Key::up));
+    OA_CHECK(session.state.category == "common");
+
+    const kit::Control* all = find_named(session.list, editor::name_filter_all);
+    OA_CHECK(all != nullptr);
+    if (all == nullptr)
+        return;
+    session.state.interaction.focused = all->id;
+    session.take(editor::editor_key(session.model, session.state, session.list, kit::Key::right));
+    OA_CHECK(session.state.filter == editor::Filter::changed);
+    focused = kit::control_of(session.list, session.state.interaction.focused);
+    OA_CHECK(focused != nullptr && focused->name == "key-editor.filter.changed");
+    OA_CHECK(tab_stops(session.list, "key-editor.filter.") == 1);
+    // Left from All goes round to Latchable.
+    session.take(editor::editor_key(session.model, session.state, session.list, kit::Key::left));
+    session.take(editor::editor_key(session.model, session.state, session.list, kit::Key::left));
+    OA_CHECK(session.state.filter == editor::Filter::latchable);
+}
+
 /// Enter on Compact's focused list opens the details page.
 void enter_opens_details() {
     Session session(frame_for(640, 480, 100));
@@ -349,6 +408,7 @@ int main() {
     search_and_escape();
     leave_and_save();
     arrows_move_the_row();
+    nav_and_pills_are_one_stop();
     enter_opens_details();
     finger_scrolls_and_taps();
     return oa::test::failed_checks() == 0 ? 0 : 1;

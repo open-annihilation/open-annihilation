@@ -73,7 +73,7 @@ The controls a journey presses, as `oa.` and the name:
 | `key-editor.detail.find` | Find on keyboard, under More options |
 | `key-editor.details.bar` | The details' scroll bar |
 
-Tab's order is LAYOUT ▾, the search, Find by key, the categories, the pills, the list, the details' controls, Undo, More, Cancel, Save changes and the ×. At Compact the details page's order is ‹, its controls, Undo and Save changes. A switch's halves are `oa.<name>.off` and `oa.<name>.on`. A click on either half toggles the switch.
+Tab's order is the open view's tab, LAYOUT ▾, the search, Find by key, the category drop-down or Large's nav, the filter pills, the list, the details' controls, Undo, More, Cancel, Save changes and the ×. The view tabs, the nav and the pills are one stop each, on the view, the category and the filter in use: Left and Right choose within the tabs and the pills, round from the last to the first, and Up and Down within the nav, which stops at its ends. At Compact the details page's order is ‹, its controls, Undo and Save changes. A switch's halves are `oa.<name>.off` and `oa.<name>.on`. A click on either half toggles the switch.
 
 ## Input
 

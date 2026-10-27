@@ -475,6 +475,20 @@ pill_caption(const Editor& editor, const ScreenState& state, Filter filter, std:
     return fill(show(editor.text(), words::filter_count), {{"filter", label}, {"count", count}});
 }
 
+/// Keeps one of the controls just added as the only Tab stop of that group.
+///
+/// @param[in,out] built the layout
+/// @param from the first control of the group, in `built.rest`
+/// @param chosen the control Tab stops on
+void one_stop(Built& built, std::size_t from, kit::ControlId chosen) {
+    for (std::size_t index = from; index < built.rest.size(); ++index) {
+        if (built.rest[index].id != chosen)
+            built.rest[index].focusable = false;
+    }
+    if (chosen != kit::no_control)
+        built.tabs.push_back(chosen);
+}
+
 /// The filter pills, measured: each one's look and width on Kit 2's filter
 /// chip, each wider by the height it gains over the kit's pill so its words
 /// stay clear of the rounder ends.
@@ -588,6 +602,10 @@ int32_t add_pills(
     if (align_right && pills.packed <= room)
         x = right - pills.packed;
     int32_t y = top;
+    // The pills are one Tab stop, the filter in use; Left and Right move
+    // between them.
+    const std::size_t rest = built.rest.size();
+    kit::ControlId chosen = kit::no_control;
     for (int index = 0; index < 5; ++index) {
         const kit::PillLook& look = pills.looks[index];
         const int32_t width = pills.widths[index];
@@ -600,10 +618,12 @@ int32_t add_pills(
             const std::size_t before = built.list.controls.size();
             kit::add_pill(built.list, rect, look, ids[index], std::string(names[index]));
             steal(built.list, built.rest, before);
-            built.tabs.push_back(ids[index]);
+            if (state.filter == pill_filters[index] || chosen == kit::no_control)
+                chosen = ids[index];
         }
         x += width + metrics.chip_gap;
     }
+    one_stop(built, rest, chosen);
     return y + height;
 }
 
@@ -793,6 +813,10 @@ void add_nav(
     look.rule_column = area.x + area.width;
     std::vector<kit::ControlId> ids;
     std::vector<std::string> names;
+    kit::ControlId chosen = kit::no_control;
+    const auto entry_chosen = [&](const CategoryEntry& category) {
+        return category.id == state.category;
+    };
     int32_t y = area.y;
     int32_t index = 0;
     for (const CategoryEntry& category : categories) {
@@ -814,8 +838,10 @@ void add_nav(
         look.entries.push_back(std::move(entry));
         ids.push_back(id);
         names.push_back(std::string(name_nav_prefix) + category.id);
-        if (!plan.heading)
-            built.tabs.push_back(id);
+        // The nav is one Tab stop, the category in use, or the first one
+        // when that one is not shown; Up and Down move between them.
+        if (!plan.heading && (entry_chosen(category) || chosen == kit::no_control))
+            chosen = id;
         y += plan.height;
         ++index;
     }
@@ -826,11 +852,10 @@ void add_nav(
     kit::add_nav(built.list, look, ids, names);
     steal(built.list, built.rest, before);
     const std::size_t tail = built.rest.size() - drawn;
+    one_stop(built, tail, chosen);
     for (std::size_t place = 0; place < drawn; ++place) {
         kit::Control& control = built.rest[tail + place];
         const NavPlan& plan = plans[place];
-        if (plan.heading)
-            control.focusable = false;
         control.text = plan.caption;
         const kit::Rect entry = look.entries[place].rect;
         const CategoryEntry& category = categories[place];
@@ -3996,20 +4021,6 @@ kit::DisplayList prompt_layout(
         control.rect.y += origin_y;
     }
     return list;
-}
-
-/// Keeps one of the controls just added as the only Tab stop of that group.
-///
-/// @param[in,out] built the layout
-/// @param from the first control of the group, in `built.rest`
-/// @param chosen the control Tab stops on
-void one_stop(Built& built, std::size_t from, kit::ControlId chosen) {
-    for (std::size_t index = from; index < built.rest.size(); ++index) {
-        if (built.rest[index].id != chosen)
-            built.rest[index].focusable = false;
-    }
-    if (chosen != kit::no_control)
-        built.tabs.push_back(chosen);
 }
 
 /// How wide the tabs are at one side padding.
