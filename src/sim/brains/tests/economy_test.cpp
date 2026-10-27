@@ -127,8 +127,8 @@ void seat_reader(Fixture& fixture, const std::string& script, bool build) {
     spec.entry = "brain.lua";
     spec.level = "hard";
     spec.difficulty = OA_DIFFICULTY_HARD;
-    // The fixture's map is never mapped, and only a brain with full awareness
-    // finds a building site on unmapped ground.
+    // As the manifest says: the fixture's map is never mapped, and only a
+    // brain with full awareness finds a building site on unmapped ground.
     spec.full_awareness = true;
     spec.options = std::span<const brains::OptionValue>{&option, 1};
     spec.files = std::span<const brains::PackageFile>{&file, 1};

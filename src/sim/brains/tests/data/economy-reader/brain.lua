@@ -2,7 +2,8 @@
 -- SPDX-License-Identifier: GPL-3.0-only
 
 -- Reads the seat's economy every turn and, unless told not to, has its first
--- builder put up one energy building. Each turn appends a row to `rows`,
+-- builder put up one energy building. It has full awareness, so its site
+-- search does not wait on what the seat has seen. Each turn appends a row to `rows`,
 -- the figures' bits, for the test to read back. A turn whose figures differ
 -- from the turn before prints them, so a headless brain match leaves them in
 -- the seat's log. The name is not `brain`: that would hide the global.
@@ -19,10 +20,10 @@ local function real_of(record, key)
     return type(value) == "number" and value or 0
 end
 
--- A building that makes energy: EnergyMake above 0, or a negative EnergyUse
--- as a solar collector has.
+-- A building that makes more energy than it uses: EnergyMake above its
+-- EnergyUse, or a negative EnergyUse as a solar collector has.
 local function makes_energy(record)
-    return record.bmcode == 0 and (real_of(record, "energymake") > 0 or real_of(record, "energyuse") < 0)
+    return record.bmcode == 0 and real_of(record, "energymake") - real_of(record, "energyuse") > 0
 end
 
 local function first_builder()
