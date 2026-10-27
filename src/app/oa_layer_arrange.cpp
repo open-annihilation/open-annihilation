@@ -715,8 +715,12 @@ class ArrangeScreen final : public LayerScreen {
             // buttons alone.
             if (kit::contains(card_, at) && handle_of(pressed))
                 return LayerAnswer::none;
-            if (const auto index = handle_of(pressed)) {
-                interaction_.focused = pressed;
+            std::optional<std::size_t> index = handle_of(pressed);
+            if (!index && pressed == kit::no_control)
+                index = tab_at(at);
+            if (index) {
+                const kit::ControlId held = kFirstHandle + static_cast<kit::ControlId>(*index);
+                interaction_.focused = held;
                 if (clicks >= 2) {
                     // A double-click puts the overlay back where it lays
                     // itself out.
@@ -731,7 +735,7 @@ class ArrangeScreen final : public LayerScreen {
                 drag.start = handles_[*index].shown;
                 drag.place = places::place_at(room_.points(), handles_[*index].shown);
                 drag_ = drag;
-                interaction_.pressed = pressed;
+                interaction_.pressed = held;
                 return changed();
             }
             const kit::PointerOutcome down =
@@ -869,6 +873,10 @@ class ArrangeScreen final : public LayerScreen {
         std::string words{};     ///< its words, in the language shown
         kit::Rect shown{};       ///< the handle, in the area's points
         kit::Rect overlay{};     ///< where the overlay itself shows, in the area's points
+        /// The tab with the grip and the words, on the handle's top edge
+        /// outside it, or under it where the area's top leaves no room, so
+        /// that it covers none of the sample; a press on it takes the handle.
+        kit::Rect tab{};
     };
 
     /// A handle being dragged.
@@ -905,6 +913,18 @@ class ArrangeScreen final : public LayerScreen {
         if (index >= handles_.size())
             return std::nullopt;
         return index;
+    }
+
+    /// Returns the handle whose tab lies under a point, the one drawn last
+    /// first.
+    ///
+    /// @param at the point, in the area's points
+    /// @return the handle's index; nothing off every tab
+    [[nodiscard]] std::optional<std::size_t> tab_at(kit::Point at) const noexcept {
+        for (std::size_t index = handles_.size(); index > 0; --index)
+            if (kit::contains(handles_[index - 1].tab, at))
+                return index - 1;
+        return std::nullopt;
     }
 
     /// Carries out a button's press.
@@ -964,6 +984,19 @@ class ArrangeScreen final : public LayerScreen {
             handle.overlay = place
                                  ? places::rect_at(whole, {unplaced.width, unplaced.height}, *place)
                                  : places::kept_in(whole, unplaced);
+            const int32_t tab_height = metrics.small_line + metrics.space;
+            const int32_t tab_width = std::min(least.x, std::max(whole.width, int32_t{1}));
+            int32_t tab_y = handle.shown.y - tab_height;
+            if (tab_y < 0)
+                tab_y = handle.shown.y + handle.shown.height;
+            handle.tab = {
+                std::clamp(
+                    handle.shown.x, int32_t{0}, std::max(whole.width - tab_width, int32_t{0})
+                ),
+                std::clamp(tab_y, int32_t{0}, std::max(whole.height - tab_height, int32_t{0})),
+                tab_width,
+                tab_height
+            };
             handles_.push_back(std::move(handle));
         }
 
@@ -1000,8 +1033,10 @@ class ArrangeScreen final : public LayerScreen {
                                metrics.button_height + pad;
         const int32_t width = inner + 2 * pad;
         std::vector<kit::Rect> handle_rects;
-        for (const Handle& placed : handles_)
+        for (const Handle& placed : handles_) {
             handle_rects.push_back(placed.shown);
+            handle_rects.push_back(placed.tab);
+        }
         card_ = card_place(whole, {width, height}, handle_rects, gap);
         int32_t cursor = card_.y + pad;
         title_box_ = {card_.x + pad, cursor, inner, metrics.regular_line};
@@ -1217,31 +1252,30 @@ class ArrangeScreen final : public LayerScreen {
             held || hovered ? kHeldOpacity : kHandleOpacity
         );
         draw_dashed_outline(canvas, box, radius, kit::colour::accent);
-        // The grip and the words at the handle's left, down its middle, or
-        // along its top on a handle taller than two rows: the card in the
-        // area's middle leaves them showing.
+        // The tab: the accent's face with the grip and the words, outside
+        // the handle, so the sample shows whole.
+        const kit::Rect& tab = handle.tab;
+        kit::fill_corner_rect(canvas, tab, kGripRadius, kit::colour::accent);
         const int32_t gap = metrics.space;
-        const int32_t left = box.x + 2 * metrics.space;
-        const int32_t row = metrics.control_height;
-        const int32_t middle =
-            box.height > 2 * row ? box.y + row / 2 + metrics.space : box.y + box.height / 2;
+        const int32_t left = tab.x + gap;
+        const int32_t middle = tab.y + tab.height / 2;
         kit::fill_corner_rect(
             canvas,
             {left, middle - kGripPoints / 2, kGripPoints, kGripPoints},
             kGripRadius,
-            kit::colour::accent
+            kit::colour::on_accent
         );
         const int32_t words_left = left + kGripPoints + gap;
         kit::box_text(
-            kit::clipped(canvas, box),
+            kit::clipped(canvas, tab),
             kit::FontRole::small,
             handle.words,
             {words_left,
              middle - metrics.small_line / 2,
-             std::max(box.x + box.width - words_left - metrics.space, int32_t{0}),
+             std::max(tab.x + tab.width - words_left - gap, int32_t{0}),
              metrics.small_line},
             kit::Align::left,
-            kit::colour::text
+            kit::colour::on_accent
         );
         if (interaction_.focus_shown && interaction_.focused == id)
             kit::draw_focus_ring(canvas, box, false);

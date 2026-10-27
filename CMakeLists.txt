@@ -2437,6 +2437,8 @@ if(OA_BUILD_PLATFORM)
         "${oa_keys_overlay_dir}/arrange-overlays-match-1280x720.ppm"
         "${oa_keys_overlay_dir}/overlays-placed-640x480.ppm"
         "${oa_keys_overlay_dir}/overlays-placed-1280x720.ppm"
+        "${oa_keys_overlay_dir}/chips-placed-640x480.ppm"
+        "${oa_keys_overlay_dir}/chips-placed-1280x720.ppm"
         "${oa_keys_overlay_dir}/overlays-default-1280x720.ppm"
         "${oa_keys_overlay_dir}/ingame-menu-640x480.ppm"
         "${oa_keys_overlay_dir}/ingame-menu-1280x720.ppm"
