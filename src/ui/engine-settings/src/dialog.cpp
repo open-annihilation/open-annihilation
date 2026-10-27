@@ -535,13 +535,16 @@ Rows place_section(
     if (page == Page::downloads)
         return downloads::place(dialog, locks, small_width, placed, &sized_here, regular_width);
     if (page == Page::updates) {
-        // The Updates page lays its rows out from Compact's first row; at a
-        // class whose header is taller they move down with the heading.
+        // Rows the Updates page lays out from Compact's first row move down
+        // with the heading at a class whose header is taller; rows it lays
+        // out from the class's own first row stay.
         Rows rows = updates::place(dialog, locks, small_width, placed, &sized_here, regular_width);
         const int32_t lower = sized_here.first_row_top - first_row_top;
-        scroll_rows(rows, -lower);
-        if (placed != nullptr)
-            kit::scroll(*placed, -lower);
+        if (lower != 0 && !rows.rows.empty() && rows.rows.front().top == first_row_top) {
+            scroll_rows(rows, -lower);
+            if (placed != nullptr)
+                kit::scroll(*placed, -lower);
+        }
         return rows;
     }
     if (page == Page::game_content)

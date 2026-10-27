@@ -11637,6 +11637,31 @@ void a_long_section_name_takes_the_icons_room() {
 /// A section list that scrolls shows a thin bar at its right, its thumb
 /// where the list is scrolled to; a list that fits shows none. The open
 /// section's entry stays in view.
+/// Every section's first row stands under its class's header: at 54 at
+/// Compact, under the kit's 26-point band, and 10 lower at Regular and
+/// Large, under Kit 2's 36-point header, the heading with it.
+void rows_start_under_each_class_header() {
+    CHECK(geometry::sizes_of(kit::SizeClass::compact).header_height == 26);
+    CHECK(geometry::sizes_of(kit::SizeClass::compact).first_row_top == geometry::first_row_top);
+    for (const auto size_class :
+         {kit::SizeClass::compact, kit::SizeClass::regular, kit::SizeClass::large}) {
+        const geometry::Sizes& sized = geometry::sizes_of(size_class);
+        CHECK(sized.header_height == (size_class == kit::SizeClass::compact ? 26 : 36));
+        CHECK(sized.body_top == geometry::header_top + sized.header_height + 1);
+        CHECK(sized.first_row_top == sized.body_top + 26);
+        CHECK(sized.heading.y == sized.body_top + 10);
+        CHECK(sized.view.y == sized.first_row_top);
+        for (const Page page : {
+                 Page::graphics, Page::downloads, Page::updates, Page::game_content, Page::developer
+             }) {
+            settings::Dialog dialog = opened(page);
+            settings::set_dialog_size_class(dialog, size_class);
+            const auto open = geometry::open_rows(dialog);
+            CHECK(!open.rows.rows.empty() && open.rows.rows.front().top == sized.first_row_top);
+        }
+    }
+}
+
 void the_section_list_shows_that_it_scrolls() {
     const auto fonts = block_fonts();
     settings::Dialog dialog = opened_with_controller(Page::developer, true, true, true);
@@ -11822,6 +11847,7 @@ int main(int argc, char** argv) {
         the_section_list_draws_an_icon_before_each_entry();
         a_long_section_name_takes_the_icons_room();
         the_section_list_shows_that_it_scrolls();
+        rows_start_under_each_class_header();
         updates_entry_shows_its_badge_where_the_caption_keeps_its_width();
         the_larger_classes_press_each_control_where_it_is_drawn();
         registered_pages_list_under_their_owners_and_write_on_ok();
