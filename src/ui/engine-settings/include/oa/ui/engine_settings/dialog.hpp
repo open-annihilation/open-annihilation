@@ -788,6 +788,14 @@ struct AvailableLanguage {
 /// @return the size, such as "312 kB", "4.0 MB" or "188 MB"
 [[nodiscard]] std::string download_size_text(uint64_t bytes);
 
+/// Returns a package's size as the Library shows it, the figure the update
+/// prompt and Settings › Updates share: binary KB below 1 MiB, MB to one
+/// decimal below 100 MiB, then whole MB and GB.
+///
+/// @param bytes the package's size
+/// @return the size, such as "23.4 MB"
+[[nodiscard]] std::string update_size_text(uint64_t bytes);
+
 /// Returns the aside of an available language.
 ///
 /// A reviewed pack from "OA team" shows its size and the download mark.

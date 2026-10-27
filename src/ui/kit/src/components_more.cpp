@@ -67,8 +67,9 @@ struct PlacedText {
 };
 
 /// Places paragraphs and a failure under the header: paths in the regular
-/// font broken at their separators, the rest in the small font broken
-/// between words, paragraph_gap rows between them.
+/// font broken at their separators, the rest in the small font with a new
+/// line starting a line and the rest broken between words, paragraph_gap
+/// rows between paragraphs.
 ///
 /// @param paragraphs the text
 /// @param failure the failure line's text; empty for none
@@ -99,11 +100,16 @@ PlacedText place_text(
             row += line_height;
         }
     };
-    for (const auto& paragraph : paragraphs)
-        add(paragraph.path ? wrap_path(paragraph.text, line_width, regular)
-                           : wrap(paragraph.text, line_width, small),
-            paragraph.path,
-            false);
+    for (const auto& paragraph : paragraphs) {
+        if (paragraph.path) {
+            add(wrap_path(paragraph.text, line_width, regular), true, false);
+            continue;
+        }
+        // A new line is its own line, so a list of notes does not run together.
+        WrapRules rules;
+        rules.newlines = true;
+        add(wrap(paragraph.text, line_width, small, rules), false, false);
+    }
     if (!failure.empty())
         add(wrap(failure, line_width, small), false, true);
     placed.bottom = row;
@@ -178,6 +184,14 @@ struct NoticeButtons {
     Rect ok{};   ///< OK, at the footer's right
     Rect open{}; ///< the open button, before OK
 };
+
+/// Tells whether a notice draws the button that opens a folder.
+///
+/// @param notice the notice
+/// @return true when its open caption is not empty
+bool notice_opens(const Notice& notice) noexcept {
+    return !notice.open_caption.empty();
+}
 
 /// Returns a notice's buttons, which depend on its height and its width alone.
 ///
@@ -286,27 +300,27 @@ std::string named(std::string_view word, std::string_view own) {
     return std::string(word) + "." + std::string(own);
 }
 
-/// Returns a notice's controls at a height: OK, then the open button, as a
-/// press tests them.
+/// Returns a notice's controls at a height, as a press tests them: OK, and
+/// the open button when the notice has an open caption.
 ///
+/// @param notice the notice
 /// @param height the notice's height
-/// @param width the notice's width
-/// @param word the notice's word, which starts their names
 /// @param ok OK's caption, for automation
 /// @param open the open button's caption, for automation
 /// @return the list, without items
-DisplayList notice_controls(
-    int32_t height,
-    int32_t width,
-    std::string_view word = notice_word,
-    std::string ok = {},
-    std::string open = {}
-) {
+DisplayList
+notice_controls(const Notice& notice, int32_t height, std::string ok = {}, std::string open = {}) {
+    const int32_t width = box_width(notice.size_class);
     const NoticeButtons buttons = notice_buttons(height, width);
+    const std::string_view word = notice_word_of(notice);
     DisplayList list;
     add_button_control(list, notice_ok, buttons.ok, named(word, "ok"), std::move(ok));
-    add_button_control(list, notice_open, buttons.open, named(word, "open"), std::move(open));
-    list.tab_order = {notice_open, notice_ok};
+    if (notice_opens(notice)) {
+        add_button_control(list, notice_open, buttons.open, named(word, "open"), std::move(open));
+        list.tab_order = {notice_open, notice_ok};
+    } else {
+        list.tab_order = {notice_ok};
+    }
     return list;
 }
 
@@ -670,7 +684,8 @@ PlacedNotice place_notice(const Notice& notice, const Measure& regular, const Me
     placed.lines = lines_that_fit(std::move(text.lines), placed.footer_rule);
     const NoticeButtons buttons = notice_buttons(placed.height, width);
     placed.ok_button = buttons.ok;
-    placed.open_button = buttons.open;
+    if (notice_opens(notice))
+        placed.open_button = buttons.open;
     return placed;
 }
 
@@ -831,7 +846,7 @@ DisplayList notice_list(const Notice& notice, const Fonts* fonts, const LookUp& 
     const std::string ok = shown(look_up, notice.ok_caption);
     const std::string open = shown(look_up, notice.open_caption);
     const std::string_view word = notice_word_of(notice);
-    DisplayList list = notice_controls(placed.height, width, word, ok, open);
+    DisplayList list = notice_controls(notice, placed.height, ok, open);
     std::vector<std::string> paragraphs;
     for (const Paragraph& paragraph : notice.paragraphs)
         paragraphs.push_back(shown(look_up, paragraph.text));
@@ -850,13 +865,15 @@ DisplayList notice_list(const Notice& notice, const Fonts* fonts, const LookUp& 
     for (const PlacedLine& line : placed.lines)
         add_text_line(list, line, shown(look_up, line.text));
     add_footer(list, placed.footer_rule, width);
-    add_button_item(
-        list,
-        placed.open_button,
-        button_look(open, false, notice_open, notice.hovered, notice.pressed),
-        notice_open,
-        notice.marked == notice_open
-    );
+    if (notice_opens(notice)) {
+        add_button_item(
+            list,
+            placed.open_button,
+            button_look(open, false, notice_open, notice.hovered, notice.pressed),
+            notice_open,
+            notice.marked == notice_open
+        );
+    }
     add_button_item(
         list,
         placed.ok_button,
@@ -990,7 +1007,7 @@ NoticeAction notice_pointer_move(Notice& notice, Point at, int32_t height) {
         at.x += notice.finger_shift_x;
         at.y += notice.finger_shift_y;
     }
-    const ControlId hovered = hit(notice_controls(height, box_width(notice.size_class)), at);
+    const ControlId hovered = hit(notice_controls(notice, height), at);
     if (hovered == notice.hovered)
         return NoticeAction::none;
     notice.hovered = hovered;
@@ -1000,7 +1017,7 @@ NoticeAction notice_pointer_move(Notice& notice, Point at, int32_t height) {
 NoticeAction notice_pointer_down(Notice& notice, Point at, int32_t height) {
     notice.finger_shift_x = 0;
     notice.finger_shift_y = 0;
-    notice.hovered = hit(notice_controls(height, box_width(notice.size_class)), at);
+    notice.hovered = hit(notice_controls(notice, height), at);
     if (notice.hovered == no_control)
         return NoticeAction::none;
     notice.pressed = notice.hovered;
@@ -1010,8 +1027,7 @@ NoticeAction notice_pointer_down(Notice& notice, Point at, int32_t height) {
 NoticeAction notice_finger_down(Notice& notice, Point finger, int32_t height, int32_t reach_px) {
     // OK, then the open button: the nearer within reach, at its point nearest
     // the finger.
-    const Reached landed =
-        reach(notice_controls(height, box_width(notice.size_class)), finger, reach_px);
+    const Reached landed = reach(notice_controls(notice, height), finger, reach_px);
     const NoticeAction action = notice_pointer_down(notice, landed.at, height);
     if (action == NoticeAction::redraw) {
         notice.finger_shift_x = landed.at.x - finger.x;
@@ -1029,7 +1045,7 @@ NoticeAction notice_pointer_up(Notice& notice, Point at, int32_t height) {
     }
     notice.finger_shift_x = 0;
     notice.finger_shift_y = 0;
-    notice.hovered = hit(notice_controls(height, box_width(notice.size_class)), at);
+    notice.hovered = hit(notice_controls(notice, height), at);
     const ControlId held = notice.pressed;
     notice.pressed = no_control;
     if (held == no_control)
@@ -1040,6 +1056,18 @@ NoticeAction notice_pointer_up(Notice& notice, Point at, int32_t height) {
 }
 
 NoticeAction notice_key(Notice& notice, Key key) {
+    // No second button: every key that would move the mark stays on OK.
+    if (!notice_opens(notice)) {
+        notice.marked = notice_ok;
+        switch (key) {
+        case Key::enter:
+        case Key::escape:
+        case Key::space:
+            return NoticeAction::closed;
+        default:
+            return NoticeAction::none;
+        }
+    }
     switch (key) {
     case Key::enter:
     case Key::escape:
@@ -1157,14 +1185,20 @@ void draw_notice(const Canvas& canvas, const Notice& notice, const LookUp& look_
     draw_footer_band(canvas, width, placed.footer_rule);
     // The footer: the open button plain and OK in the accent, the marked one
     // ringed.
-    draw_marked_button(
-        canvas,
-        placed.open_button,
-        button_look(
-            shown(look_up, notice.open_caption), false, notice_open, notice.hovered, notice.pressed
-        ),
-        notice.marked == notice_open
-    );
+    if (notice_opens(notice)) {
+        draw_marked_button(
+            canvas,
+            placed.open_button,
+            button_look(
+                shown(look_up, notice.open_caption),
+                false,
+                notice_open,
+                notice.hovered,
+                notice.pressed
+            ),
+            notice.marked == notice_open
+        );
+    }
     draw_marked_button(
         canvas,
         placed.ok_button,

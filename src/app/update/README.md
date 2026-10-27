@@ -25,8 +25,10 @@ downloaded or installed here.
   old, or in the future.
 - `offer_text` writes the question's title, the size of the offered
   package's zip, and the reassurance. The notes are the release's own
-  lines and are not looked up. `offer_wanted` is false at or below the
-  release `read_skipped` names. `write_skipped` remembers that number.
+  lines and are not looked up. `notes_paragraph` joins those lines under
+  "New in {version}:", one bulleted line each. `offer_wanted` is false at
+  or below the release `read_skipped` names. `write_skipped` remembers
+  that number.
 - `Checker` fetches one feed and its signature on a worker thread. `start`
   does nothing while a check is running. `cancel` asks it to stop, and a
   cancelled check is not a finished one. `snapshot` is the latest result.

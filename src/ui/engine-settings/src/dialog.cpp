@@ -19,6 +19,7 @@
 #include "oa/data/languages.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/data/mod_profile/overrides.hpp"
+#include "oa/ui/library/text.hpp"
 
 #include <algorithm>
 #include <array>
@@ -35,6 +36,10 @@
 #include <vector>
 
 namespace oa::ui::engine_settings {
+
+std::string update_size_text(uint64_t bytes) {
+    return oa::ui::library::size_text(bytes);
+}
 
 namespace geometry {
 
