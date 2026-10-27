@@ -151,7 +151,9 @@ it, a mod's into its own folder, the earlier folders still read while they
 hold one, a save, a screenshot and a film
 placed in the `default` folders of `Saves`, `Screenshots` and `Films`
 without a mod and in a made-up mod's own with one, the main menu's notice
-of the moves shown once in the settings dialog's look and closed, its Open
+of the moves shown once in the settings dialog's look and closed, at
+640x480, 800x600 and 2560x1440, with its corners rounded as the OA layer
+shows them, its Open
 folder button and the
 settings' Your files buttons through a recorded opener, and the `Mods`
 folder's mods offered to the Library. With `--snapshot` it writes the
@@ -1030,6 +1032,110 @@ output names each window size. `native-registered-kit` checks the same
 hosts with a page, a screen, a notice and a prompt registered from inside
 the engine, with their size class and scale.
 
+### OA's own screens
+
+The native checks of OA's own screens open them at window sizes chosen for
+the size class each gives under Auto: the largest class whose settings
+dialog fits with 24 points round it, one step of scale down where that
+gives Large ([src/ui/kit](../../src/ui/kit/README.md#entry-points)). With
+the modern fonts Off, as a check's preferences file leaves them, 640x480 is
+Compact at 1x, 800x600 Regular at 1x, 1280x720 and 1920x1080 Large at 1x,
+and 2560x1440 Large at 2x. `native-kit-gallery`, `native-key-editor` and
+`native-key-views` use 640x480, 1280x720 and 1920x1080;
+`native-mutator-picker`, `native-brain-picker` and `native-map-browser`
+add 2560x1440, the map browser showing six columns at Large. The checks
+that show a notice or a prompt (`native-user-folder`,
+`native-registered-kit`, `native-mod-warning` and `native-mod-install`)
+show it at 640x480, then at 800x600 and 2560x1440. Each compares the
+window with its own drawing of the screen, its corners rounded as the OA
+layer rounds every window and dialog; a check that draws a screen straight
+rounds it the same way (`round_drawn_screen` in
+`src/app/oa_layer_check.hpp`).
+
+`native-engine-settings` (`--check-engine-settings`) shows Settings over
+the main menu at 640x480, 800x600, 1280x720, 1920x1080 and 2560x1080, and
+chooses Interface sizes on 1920x1080: 200% is Regular at 2x, 400% Compact
+at 3x and Auto Large at 1x. In a match it shows the dialog at 640x480,
+1280x720, 1920x1080 and 2560x1080 with HUD scaling On and at 1920x1080 with
+it Off: Compact at 1x at 640x480 and Large at 1x on the others, clear of the
+side column, and the wheel scrolls a section only where it is taller than
+its view. It reads the step Page Up and Page Down take from the dialog
+(`dialog_page_step`, 184 points at Compact). At Compact, Developer scrolls
+as one: its walk pages down past its rows and its list to Show Active Only
+and Restore profile values, and scrolls back up before it presses Enable
+Developer Mode. The OA layer's own steps in the same check move Settings by
+its title (it keeps its place, a double-click centres it, Alt and the
+arrows move it, and Reset window positions puts it back), find a window's
+and a dialog's corners clear outside the quarter circle and edged along it
+at 1x, 1.5x and 2x, show a notice with rounded corners over the main menu
+at 640x480 and 2560x1440, and press S on Accessibility's practice pad, which
+shows it there and does not pass it to the main menu.
+
+`app-window-placement` checks where windows that move are kept: the Window
+size words and classes, the preference keys of a window's place, their
+values and Reset window positions forgetting them, rounding, a window
+kept 64 points on screen at 1x and 2x with its title in the room, snapping to
+the centred place, the room's centre and the safe edges, a drag and the
+Alt and arrow keys, a finger's hold before it drags, and the in-match
+dialog's class and place on a table of windows from 640x480 to a phone's.
+`app-overlay-placement` checks Arrange Overlays' places: the keys, values
+and refused texts, a place per size class, Reset forgetting only the
+overlays' keys, each place measured from the nearest edge or centre of the
+battlefield on the 8-point grid, a drag and the arrows with and without
+Shift, and the overlays' own places at 640x480, 1280x720 and 1920x1080,
+none past the battlefield nor over the 128-point side column.
+`native-keys-overlay` (`--check-keys-overlay`) checks the keys overlay in
+a skirmish, then opens Arrange Overlays from the in-game menu's Overlays
+button: a handle on each overlay, the keys overlay and the chat line
+dragged to places on the grid, Reset, Done, and the places kept at
+1920x1080, the same class as 1280x720, and not at Compact. With
+`--snapshot` it writes `arrange-overlays-<w>x<h>.ppm` and
+`rounded-settings-<w>x<h>.ppm` at 640x480, 800x600, 1280x720 and
+1920x1080. `native-keys-overlay-restart` starts the game again on the
+preferences the first run left, and finds the keys overlay and the chat
+line where they were put. `native-match-layers` holds the frame a match
+ends on to the one the game kept with Show keys on buttons Off, since the
+key badges are drawn on the presented frame alone.
+
+The key editor's draw tests (`ui-key-editor-draw`, `-draw-data`) pin, in
+`src/ui/key-editor/tests/frames.txt`, the list on Common commands, the
+details, the capture's outcomes, the clash question and the settling
+question, Find by key, the draft line with Undo, the capture's More
+options and the keyboard shown as a list, at each class where the screen
+has one. `native-key-editor` (`--check-key-editor`) checks the editor over
+Settings and in a paused skirmish, and the question that asks before
+unsaved edits are closed, with Save, Discard and Keep editing; with
+`--snapshot` it also writes `key-editor-draft.ppm` and
+`key-editor-close-question.ppm` at 1280x720. `native-key-capture`
+(`--check-key-capture`) captures a chord, swaps a clash only once the
+question's confirm button is pressed, hears Primary+ through Find by key,
+and settles a draft clash from Settle…. `native-library`
+(`--check-library`) writes real layouts and the player's own changes into
+the check's Keys folder, presses USE and checks where it asks, What moves,
+Keep them on top and Start clean, that the own changes are never written
+over, and that Undo after USE puts the layout in use back and removes only
+an own folder USE made.
+
+`app-update-centre` checks the update centre's state for each set of
+facts, its actions and words, the route's install words, scheduling and
+taking it back, Later kept apart from Skip, a held release, each failure's
+words and the time left; `app-update-receipt` checks the receipt the
+update helper writes and the game reads. `native-update-download`
+(`tools/check_native_update_download.py`) runs the download check's cases,
+among them Pause and Resume from the main menu's update pill and from the
+update centre it opens, `cancel`, where Cancel download keeps nothing and
+goes back to the offer, and `pictures`, which draws every update screen in
+each state at 640x480, 1280x720 and 1920x1080 from made-up states and
+fetches nothing.
+
+The kit's own tests cover its additions: `ui-kit-notices` lays a
+question's parts out (callouts, boxes side by side, marked steps, a quiet
+and a danger button, a part the height cuts left out whole) and the update
+pill; `ui-kit-chrome` checks a header drawn at a height of its own
+(`header_takes_its_height`); and `ui-kit-keys` draws the keyboard's main
+block alone with every key's legend (`main_block_draws_its_keys_alone`,
+`main_block_keeps_every_legend`).
+
 ### Other builds
 
 - **Core only**, without SDL or game data: configure with
@@ -1309,8 +1415,42 @@ main menu at four window sizes on a fixture feed of made-up brains, then
 on the runtime's own feed after two packages are written into the scratch
 Brains folder.
 `native-brain-seat-buttons` (`--check-brain-seat-buttons`) checks each computer
-row's brain button on the skirmish setup at 640x480 and 1280x720, in a scratch
-folder: the label, Tab, the picker, the hover card and the brains a start seats.
+row's brain on the skirmish setup at 640x480 and 1280x720, in a scratch
+folder: the row's own Player button naming the brain, with the notch
+(`oa.brain-seat.<slot>`) at its right end, the label, Tab onto the notch,
+the brain menu from Return and from the right button, its level arrows,
+Options… opening the brain picker on that seat and USE THIS keeping the
+brain with its option, the built-in player putting the Difficulty word
+back, Use for every computer seat, the hover card, the left button keeping
+3.1c's own press, and the brains a start seats. With the Brains folder
+removed the setup's frame matches the one kept before any brain was
+written. It writes `brain-seats-skirmish-<w>x<h>.png` and, with the menu
+open, `brain-seats-menu-<w>x<h>.png`.
+`native-brain-campaign` (`--check-brain-campaign`) checks the campaign's
+computer player on NEWGAME and Any Mission: one button under Difficulty in
+the room's button art, Tab reaching it, the brain menu with no Use for
+every computer seat, the brain the first mission seats and the seat a
+loaded campaign save leaves. `native-brain-room` (`--check-brain-room`)
+hosts a battle room alone: a computer row's Resolution cell names its
+brain and its Mem cell shows the level over the room's greyed difficulty,
+the notch on its name opens the brain menu, the menu's built-in player
+and its level change the record the room sends, and the Mem cell steps the
+built-in player's difficulty. `native-mutator-button`
+(`--check-mutator-button`) and `native-mutator-room`
+(`--check-mutator-room`) check Mutators as one of the room's own on and
+off buttons on the skirmish setup, NEWGAME and the battle room: its place
+and size, "Mutators: off" and "Mutators: N on" with the green lamp, the
+card the pointer shows on it, and, in the battle room, the button disabled
+while the room's options are locked. Among the battle room's steps of
+`native-net-room-mutators` (`tools/check_native_room_mutators.py`), which
+runs a host and a joiner as two programs, the host's button reads
+"Mutators: 1 on" for an installed copy named by its id, and the room's chat
+names it by its name.
+`frontend-room-parts` draws the rooms' parts (a plate wider than its art,
+the notch, the OA stamp, a lamp, the bar and a list's rows) against a gray
+palette, and `frontend-room-parts-data` draws each over the skirmish
+setup's background from the installed game's art and, with `--frames DIR`,
+writes `room-parts.png`.
 `native-replay-loadout` starts the game with
 `--check-replay-loadout`
 and two installed mutators. It refuses a loadout that cannot be read or
