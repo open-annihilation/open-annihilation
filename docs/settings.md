@@ -610,7 +610,10 @@ the game draws its text and how the modern fonts draw it.
     them, and shells that strike the water splash. Torpedoes and their hits
     stay at their depth and make no splash.
   - **Coastal waves** run toward the shore, gentler on small, sheltered
-    water.
+    water. Their foam takes the colour of the map's picture under it,
+    lighter than the ground there, so that it blends with sand, grass,
+    rock, snow or dark water rather than drawing a white line round
+    every shore.
   - **Underwater shimmer** tints and lights only the parts of scenery and
     units that are under the water, more the deeper they lie; what stands
     above the water keeps its colours. At 0% your own units under the

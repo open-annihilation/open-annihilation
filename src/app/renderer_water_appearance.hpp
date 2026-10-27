@@ -34,7 +34,16 @@ inline constexpr float foam_strength = 1.0F;
 inline constexpr float foam_cap = 0.85F;
 /// The share of foam_strength the most sheltered water keeps.
 inline constexpr float foam_sheltered = 0.35F;
+/// The foam's plain colour, where the colour of the ground under it is not
+/// known.
 inline constexpr float foam_red = 0.88F;
 inline constexpr float foam_green = 0.94F;
 inline constexpr float foam_blue = 0.97F;
+/// The foam over ground of some colour: the share of the way from the
+/// ground's lightness to white that the foam's lightness lies, and the share
+/// of the ground's own colour (its difference from grey) the foam keeps, so
+/// that it takes the shore's hue and is lighter than the ground in every
+/// channel.
+inline constexpr float foam_lift = 0.55F;
+inline constexpr float foam_chroma = 0.9F;
 } // namespace oa::app::renderer_water_appearance

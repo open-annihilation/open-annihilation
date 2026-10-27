@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 #include "renderer_water.hpp"
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include "oa/test/check.hpp"
@@ -63,6 +64,61 @@ int main() {
     OA_CHECK(!stirred_by_shots({false, true}));
     OA_CHECK(!stirred_by_shots({true, false}));
     OA_CHECK(!stirred_by_shots({true, true}));
+
+    // Foam over a ground keeps the ground's hue and is lighter than it in
+    // every channel; over white it stays white.
+    for (const auto& ground :
+         {std::array<float, 3>{.08F, .29F, .24F},
+          std::array<float, 3>{.45F, .35F, .25F},
+          std::array<float, 3>{.85F, .78F, .60F},
+          std::array<float, 3>{.02F, .02F, .02F}}) {
+        const auto foam = foam_tint(ground);
+        for (std::size_t channel = 0; channel < 3; ++channel)
+            OA_CHECK(foam[channel] > ground[channel] + .1F && foam[channel] <= 1);
+        for (std::size_t a = 0; a < 3; ++a)
+            for (std::size_t b = 0; b < 3; ++b)
+                OA_CHECK(ground[a] <= ground[b] || foam[a] > foam[b]);
+    }
+    for (const float channel : foam_tint({1, 1, 1}))
+        OA_CHECK(channel > .9999F && channel <= 1);
+
+    // The foam's colour follows the map's picture: a cache made with the
+    // palette gives each half of a two-tile picture its own tint, and one
+    // made without it the foam's plain colour.
+    {
+        oa::formats::tnt::Map picture;
+        picture.attribute_width = picture.attribute_height = 4;
+        picture.tile_width = picture.tile_height = 2;
+        picture.sea_level = 10;
+        picture.attributes.resize(16);
+        picture.tile_count = 2;
+        picture.tile_indices = {0, 1, 0, 1};
+        picture.tile_palette_indices.assign(2 * 1024, 1);
+        std::fill(
+            picture.tile_palette_indices.begin() + 1024, picture.tile_palette_indices.end(), 2
+        );
+        std::array<uint8_t, 768> palette{};
+        palette[3] = 40, palette[4] = 120, palette[5] = 60;
+        palette[6] = 120, palette[7] = 90, palette[8] = 50;
+        const auto close = [](const std::array<float, 3>& a, const std::array<float, 3>& b) {
+            return std::abs(a[0] - b[0]) < .01F && std::abs(a[1] - b[1]) < .01F &&
+                   std::abs(a[2] - b[2]) < .01F;
+        };
+        SurfaceCache tinted;
+        tinted.reset(picture, palette);
+        const auto green = foam_tint({40 / 255.0F, 120 / 255.0F, 60 / 255.0F});
+        const auto brown = foam_tint({120 / 255.0F, 90 / 255.0F, 50 / 255.0F});
+        OA_CHECK(close(tinted.foam_colour(4, 4), green));
+        OA_CHECK(close(tinted.foam_colour(4, 60), green));
+        OA_CHECK(close(tinted.foam_colour(60, 4), brown));
+        OA_CHECK(close(tinted.foam_colour(-100, 4), green));
+        // Between the halves the colour runs evenly from one to the other.
+        const auto middle = tinted.foam_colour(32, 32);
+        OA_CHECK(middle[0] > green[0] && middle[0] < brown[0]);
+        SurfaceCache plain;
+        plain.reset(picture);
+        OA_CHECK((plain.foam_colour(4, 4) == std::array<float, 3>{.88F, .94F, .97F}));
+    }
 
     // Underwater weapons cannot create air-side rings, including at the waterline.
     for (auto kind : {Kind::firing, Kind::hit, Kind::water_impact})

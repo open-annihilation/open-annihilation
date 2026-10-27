@@ -6,6 +6,7 @@
 #include "renderer_water_surface.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <numbers>
 
@@ -325,14 +326,15 @@ void surface(card::CardFrame& frame, const Inputs& in) {
     struct FoamCorner {
         float alpha{};
         bool shown{};
+        /// The foam's colour over the picture there (SurfaceCache::foam_colour).
+        std::array<float, 3> colour{};
     };
 
     std::vector<FoamCorner> corners(std::size_t(across + 1) * std::size_t(across + 1));
-    const card::Colour foam_colour{
+    const std::array<float, 3> plain_foam{
         renderer_water_appearance::foam_red,
         renderer_water_appearance::foam_green,
-        renderer_water_appearance::foam_blue,
-        1
+        renderer_water_appearance::foam_blue
     };
     // Each cell's depth once, a cell past the view's on each side too: the
     // depths blended at a cell's corners lie between those of the cells
@@ -370,6 +372,16 @@ void surface(card::CardFrame& frame, const Inputs& in) {
             const float z = row * cell;
             if (!may_foam(col, row))
                 continue;
+            // The foam's colour at the cell's corners, over the picture
+            // where the water's plane shows it, blended across the cell.
+            std::array<std::array<float, 3>, 4> cell_colour{
+                plain_foam, plain_foam, plain_foam, plain_foam
+            };
+            if (in.water_surface)
+                for (std::size_t k = 0; k < cell_colour.size(); ++k)
+                    cell_colour[k] = in.water_surface->foam_colour(
+                        x + float(k % 2) * cell, z + float(k / 2) * cell - sea * 0.5F
+                    );
             float most = 0;
             for (int down = 0; down <= across; ++down)
                 for (int along = 0; along <= across; ++along) {
@@ -393,6 +405,17 @@ void surface(card::CardFrame& frame, const Inputs& in) {
                                   in.wind.strength
                               ) * detail(in)
                             : 0;
+                    const float tx = float(along) / float(across);
+                    const float tz = float(down) / float(across);
+                    for (std::size_t channel = 0; channel < corner.colour.size(); ++channel) {
+                        const float upper =
+                            cell_colour[0][channel] +
+                            (cell_colour[1][channel] - cell_colour[0][channel]) * tx;
+                        const float lower =
+                            cell_colour[2][channel] +
+                            (cell_colour[3][channel] - cell_colour[2][channel]) * tx;
+                        corner.colour[channel] = upper + (lower - upper) * tz;
+                    }
                     most = std::max(most, corner.alpha);
                 }
             if (most < 0.002F)
@@ -404,8 +427,10 @@ void surface(card::CardFrame& frame, const Inputs& in) {
                     const auto point = screen(
                         in, x + float(along * spacing), z + float(down * spacing) - sea * 0.5F
                     );
-                    auto colour = foam_colour;
-                    colour.alpha = corners[std::size_t(down) * (across + 1) + along].alpha;
+                    const auto& corner = corners[std::size_t(down) * (across + 1) + along];
+                    const card::Colour colour{
+                        corner.colour[0], corner.colour[1], corner.colour[2], corner.alpha
+                    };
                     frame.vertices.push_back({point[0], point[1], colour, 0, 0});
                 }
             for (int down = 0; down < across; ++down)

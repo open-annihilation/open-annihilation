@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 #include "renderer_water.hpp"
+#include "renderer_water_appearance.hpp"
 #include <numbers>
 #include <algorithm>
 #include <cmath>
@@ -45,6 +46,19 @@ Levels shown_levels(const Sea& sea, const Levels& chosen) noexcept {
 
 bool stirred_by_shots(const Sea& sea) noexcept {
     return !sea.lava && !sea.swallows_shots;
+}
+
+std::array<float, 3> foam_tint(const std::array<float, 3>& ground) noexcept {
+    using namespace renderer_water_appearance;
+    // Lightness as the eye weighs the three colours.
+    const float lightness =
+        std::clamp(0.2126F * ground[0] + 0.7152F * ground[1] + 0.0722F * ground[2], 0.0F, 1.0F);
+    const float foam = lightness + (1 - lightness) * foam_lift;
+    std::array<float, 3> colour{};
+    for (std::size_t channel = 0; channel < colour.size(); ++channel)
+        colour[channel] =
+            std::clamp(foam + (ground[channel] - lightness) * foam_chroma, 0.0F, 1.0F);
+    return colour;
 }
 
 float surface_strength(
@@ -103,7 +117,8 @@ std::span<const Disturbance> History::active() const noexcept {
     return {entries.data(), count};
 }
 
-void SurfaceCache::reset(const formats::tnt::Map& map) {
+void SurfaceCache::reset(const formats::tnt::Map& map, std::span<const uint8_t> palette) {
+    reset_foam(map, palette);
     constexpr uint32_t maximum_edge = 256;
     constexpr float cell = 16;
     stride_ = std::max(
@@ -194,5 +209,122 @@ float SurfaceCache::smooth_fetch(float x, float z) const noexcept {
     const float upper = at(column, row) + (at(column + 1, row) - at(column, row)) * tx;
     const float lower = at(column, row + 1) + (at(column + 1, row + 1) - at(column, row + 1)) * tx;
     return upper + (lower - upper) * tz;
+}
+
+void SurfaceCache::reset_foam(const formats::tnt::Map& map, std::span<const uint8_t> palette) {
+    namespace tnt_layout = formats::tnt::layout;
+    foam_.clear();
+    foam_width_ = foam_height_ = 0;
+    constexpr std::size_t palette_bytes = 256 * 3;
+    const auto tile_edge = uint32_t(tnt_layout::tile_edge_pixels);
+    if (palette.size() < palette_bytes || map.tile_width == 0 || map.tile_height == 0 ||
+        map.tile_indices.size() < std::size_t(map.tile_width) * map.tile_height)
+        return;
+    // Cells of 16 picture pixels, or of a multiple of 16 that keeps the
+    // grid at most 512 cells a side; each averages 4 by 4 of its pixels.
+    constexpr uint32_t maximum_edge = 512;
+    constexpr uint32_t samples = 4;
+    const uint32_t picture_width = map.tile_width * tile_edge;
+    const uint32_t picture_height = map.tile_height * tile_edge;
+    const uint32_t cells_across = map.tile_width * tnt_layout::attribute_cells_per_tile_edge;
+    const uint32_t cells_down = map.tile_height * tnt_layout::attribute_cells_per_tile_edge;
+    const uint32_t stride =
+        std::max(1U, (std::max(cells_across, cells_down) + maximum_edge - 1) / maximum_edge);
+    const uint32_t span = 16 * stride;
+    const uint32_t width = (cells_across + stride - 1) / stride;
+    const uint32_t height = (cells_down + stride - 1) / stride;
+    const std::array<float, 3> plain{
+        renderer_water_appearance::foam_red,
+        renderer_water_appearance::foam_green,
+        renderer_water_appearance::foam_blue
+    };
+    std::vector<std::array<float, 3>> ground(std::size_t(width) * height, plain);
+    for (uint32_t row = 0; row < height; ++row)
+        for (uint32_t column = 0; column < width; ++column) {
+            std::array<float, 3> sum{};
+            uint32_t count = 0;
+            for (uint32_t down = 0; down < samples; ++down)
+                for (uint32_t along = 0; along < samples; ++along) {
+                    const uint32_t x = column * span + (2 * along + 1) * span / (2 * samples);
+                    const uint32_t y = row * span + (2 * down + 1) * span / (2 * samples);
+                    if (x >= picture_width || y >= picture_height)
+                        continue;
+                    const auto tile =
+                        map.tile_indices
+                            [std::size_t(y / tile_edge) * map.tile_width + x / tile_edge];
+                    const auto pixel = std::size_t(tile) * tnt_layout::tile_bytes +
+                                       std::size_t(y % tile_edge) * tile_edge + x % tile_edge;
+                    if (pixel >= map.tile_palette_indices.size())
+                        continue;
+                    const auto entry = std::size_t(map.tile_palette_indices[pixel]) * 3;
+                    for (std::size_t channel = 0; channel < sum.size(); ++channel)
+                        sum[channel] += palette[entry + channel];
+                    ++count;
+                }
+            if (count != 0)
+                for (std::size_t channel = 0; channel < sum.size(); ++channel)
+                    ground[std::size_t(row) * width + column][channel] =
+                        sum[channel] / (255.0F * float(count));
+        }
+    // Each cell's foam from the ground of the three by three cells around
+    // it, so that the foam takes the shore's colour rather than one cell's.
+    foam_.resize(ground.size());
+    for (uint32_t row = 0; row < height; ++row)
+        for (uint32_t column = 0; column < width; ++column) {
+            std::array<float, 3> sum{};
+            float count = 0;
+            for (int dr = -1; dr <= 1; ++dr)
+                for (int dc = -1; dc <= 1; ++dc) {
+                    const int r = int(row) + dr, c = int(column) + dc;
+                    if (r < 0 || c < 0 || r >= int(height) || c >= int(width))
+                        continue;
+                    const auto& colour = ground[std::size_t(r) * width + std::size_t(c)];
+                    for (std::size_t channel = 0; channel < sum.size(); ++channel)
+                        sum[channel] += colour[channel];
+                    ++count;
+                }
+            for (auto& channel : sum)
+                channel /= count;
+            const auto foam = foam_tint(sum);
+            auto& cell = foam_[std::size_t(row) * width + column];
+            for (std::size_t channel = 0; channel < cell.size(); ++channel)
+                cell[channel] = uint8_t(std::lround(foam[channel] * 255.0F));
+        }
+    foam_width_ = width;
+    foam_height_ = height;
+    foam_cell_ = float(span);
+}
+
+std::array<float, 3> SurfaceCache::foam_colour(float x, float y) const noexcept {
+    if (foam_width_ == 0 || foam_height_ == 0 ||
+        foam_.size() < std::size_t(foam_width_) * foam_height_ || !std::isfinite(x) ||
+        !std::isfinite(y))
+        return {
+            renderer_water_appearance::foam_red,
+            renderer_water_appearance::foam_green,
+            renderer_water_appearance::foam_blue
+        };
+    const float across = x / foam_cell_ - 0.5F, down = y / foam_cell_ - 0.5F;
+    const float left = std::floor(across), top = std::floor(down);
+    const float tx = across - left, ty = down - top;
+    // Far outside the map a point takes its nearest edge cell.
+    const auto clamped = [](float value, uint32_t count) {
+        return std::size_t(std::clamp(value, 0.0F, float(count - 1)));
+    };
+    const auto at = [&](float c, float r, std::size_t channel) {
+        return float(
+                   foam_[clamped(r, foam_height_) * foam_width_ + clamped(c, foam_width_)][channel]
+               ) /
+               255.0F;
+    };
+    std::array<float, 3> colour{};
+    for (std::size_t channel = 0; channel < colour.size(); ++channel) {
+        const float upper =
+            at(left, top, channel) + (at(left + 1, top, channel) - at(left, top, channel)) * tx;
+        const float lower = at(left, top + 1, channel) +
+                            (at(left + 1, top + 1, channel) - at(left, top + 1, channel)) * tx;
+        colour[channel] = upper + (lower - upper) * ty;
+    }
+    return colour;
 }
 } // namespace oa::app::renderer_water

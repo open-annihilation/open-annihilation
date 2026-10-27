@@ -103,7 +103,8 @@ void Runtime::observe_match_effect_tick() noexcept try {
         match_effects_ = std::make_shared<MatchEffects>();
         match_effects_->match = match_.get();
         if (selected_tnt_) {
-            match_effects_->water.reset(*selected_tnt_);
+            // The palette gives the foam the colours of the map's picture.
+            match_effects_->water.reset(*selected_tnt_, match_palette_);
             match_effects_->wind.reset(*selected_tnt_);
         }
     }
