@@ -47,7 +47,7 @@ namespace words {
 /// The screen's name, and Compact's title.
 inline constexpr std::string_view keys = "Keys";
 /// The word beside the layout drop-down.
-inline constexpr std::string_view layout = "LAYOUT";
+inline constexpr std::string_view layout = "Layout";
 /// The layout's author and version, under its name.
 inline constexpr std::string_view by_author = "by {author} · {version}";
 /// How many of the player's own changes sit on the layout. `{n}` is a number.
@@ -72,8 +72,8 @@ inline constexpr std::string_view hacks_on = "Hacks on";
 inline constexpr std::string_view tags = "Tags";
 /// A tag a layout names that the loaded units do not carry.
 inline constexpr std::string_view not_in_loaded_units = "not in the loaded units";
-/// The mod's menu keys.
-inline constexpr std::string_view menus = "Menus";
+/// The mod's menu keys: the buttons of its menus.
+inline constexpr std::string_view menus = "Menu buttons";
 /// Developer keys. Listed only in Developer Mode.
 inline constexpr std::string_view developer = "Developer";
 /// The kit's keys on Open Annihilation's screens.
@@ -187,7 +187,7 @@ inline constexpr std::string_view when_no_wheel = "No wheel zoom";
 inline constexpr std::string_view when_pointer = "Pointer keys";
 
 /// The details' reset. `{layout}` is the layout the action returns to.
-inline constexpr std::string_view reset_to = "RESET TO {layout}";
+inline constexpr std::string_view reset_to = "Reset to {layout}";
 /// A latchable action's switch.
 inline constexpr std::string_view latch = "Latch";
 /// The line under Latch.
@@ -202,22 +202,22 @@ inline constexpr std::string_view state_on = "On";
 inline constexpr std::string_view state_off = "Off";
 
 /// The footer.
-inline constexpr std::string_view back = "BACK";
-inline constexpr std::string_view cancel = "CANCEL";
+inline constexpr std::string_view back = "Back";
+inline constexpr std::string_view cancel = "Cancel";
 /// The footer while a clash is left. `{n}` is how many.
 inline constexpr std::string_view settle = "Settle {n} clashes to save";
 /// The footer while one clash is left.
 inline constexpr std::string_view settle_one = "Settle 1 clash to save";
 /// The layout menu.
-inline constexpr std::string_view duplicate = "DUPLICATE…";
-inline constexpr std::string_view rename = "RENAME…";
+inline constexpr std::string_view duplicate = "Duplicate…";
+inline constexpr std::string_view rename = "Rename…";
 
 /// Choosing another layout while the draft has changes.
 inline constexpr std::string_view keep_question = "Keep your {n} changes on top of {layout}?";
 /// The same question when the draft holds one change.
 inline constexpr std::string_view keep_question_one = "Keep your 1 change on top of {layout}?";
-inline constexpr std::string_view keep_them = "KEEP THEM";
-inline constexpr std::string_view set_aside = "SET THEM ASIDE";
+inline constexpr std::string_view keep_them = "Keep them";
+inline constexpr std::string_view set_aside = "Set them aside";
 /// Duplicate and rename ask this. The field is the layout's name.
 inline constexpr std::string_view name_layout = "Name this layout";
 /// A layout could not be written. `{reason}` is the sentence the writer gave.
@@ -367,20 +367,20 @@ inline constexpr std::string_view keys_one_helper_one = "1 key, 1 helper";
 inline constexpr std::string_view keys_one_helpers = "1 key, {helpers} helpers";
 /// The same line when the text carries one helper.
 inline constexpr std::string_view keys_helpers_one = "{keys} keys, 1 helper";
-/// Where SAVE FILE… wrote the package. `{place}` is the path.
+/// Where Save file… wrote the package. `{place}` is the path.
 inline constexpr std::string_view saved_to = "Saved to {place}";
 /// Opens the folder a package was written to.
-inline constexpr std::string_view open_folder = "OPEN FOLDER";
+inline constexpr std::string_view open_folder = "Open folder";
 /// What the paste text would change. `{n}` is the count and `{layout}` the base.
 inline constexpr std::string_view text_changes = "The text changes {n} keys of {layout}.";
 /// The same line when the text changes one key.
 inline constexpr std::string_view text_changes_one = "The text changes 1 key of {layout}.";
 /// A row whose chord is a key's place.
 inline constexpr std::string_view place_word = "place";
-/// APPLY on the paste prompt. `{n}` is how many rows it writes.
-inline constexpr std::string_view apply_changes = "APPLY {n} CHANGES";
-/// APPLY when it writes one row.
-inline constexpr std::string_view apply_change_one = "APPLY 1 CHANGE";
+/// Apply on the paste prompt. `{n}` is how many rows it writes.
+inline constexpr std::string_view apply_changes = "Apply {n} changes";
+/// Apply when it writes one row.
+inline constexpr std::string_view apply_change_one = "Apply 1 change";
 /// The line under an imported layout. `{file}` is the file's name.
 inline constexpr std::string_view imported_from_file = "Imported from {file}";
 /// A legacy key Open Annihilation has no action for.
@@ -393,12 +393,12 @@ inline constexpr std::string_view found_one_differs_one = "Found 1 key · 1 diff
 inline constexpr std::string_view found_one_key = "Found 1 key · {m} differ from {layout}";
 /// The summary when one key differs.
 inline constexpr std::string_view found_differs_one = "Found {n} keys · 1 differs from {layout}";
-/// IMPORT on the import prompt. `{n}` is how many keys it writes.
-inline constexpr std::string_view import_n_keys = "IMPORT {n} KEYS";
-/// IMPORT when it writes one key.
-inline constexpr std::string_view import_one_key = "IMPORT 1 KEY";
+/// Import on the import prompt. `{n}` is how many keys it writes.
+inline constexpr std::string_view import_n_keys = "Import {n} keys";
+/// Import when it writes one key.
+inline constexpr std::string_view import_one_key = "Import 1 key";
 /// Asks for another legacy file.
-inline constexpr std::string_view choose_another_file = "CHOOSE ANOTHER FILE…";
+inline constexpr std::string_view choose_another_file = "Choose another file…";
 /// A left-hand or right-hand modifier. `{modifier}` is Shift, Ctrl or Alt.
 inline constexpr std::string_view hands_are_one =
     "Left and right {modifier} are one key in Open Annihilation";
@@ -414,12 +414,12 @@ inline constexpr std::string_view share_file_note =
     "alone, for a forum or a chat.";
 /// Under the paste summary.
 inline constexpr std::string_view nothing_until_apply = "Nothing changes until you apply it.";
-/// COPY AS TEXT.
-inline constexpr std::string_view copy_as_text = "COPY AS TEXT";
-/// SAVE FILE….
-inline constexpr std::string_view save_file = "SAVE FILE…";
-/// CLOSE. The catalogue already has this word.
-inline constexpr std::string_view close_word = "CLOSE";
+/// Copy as text.
+inline constexpr std::string_view copy_as_text = "Copy as text";
+/// Save file….
+inline constexpr std::string_view save_file = "Save file…";
+/// Close. The catalogue already has this word.
+inline constexpr std::string_view close_word = "Close";
 /// A paste clash. `{chord}` is the key and `{action}` the action that keeps it.
 inline constexpr std::string_view paste_clash =
     "One clash: {chord} already belongs to {action}. Apply keeps yours and lists the clash.";
@@ -518,7 +518,7 @@ inline constexpr std::string_view keep_it_for = "Keep it for {action}";
 /// The confirm button of Move it. `{action}` takes the chord.
 inline constexpr std::string_view move_to = "Move to {action}";
 /// What an action is left with when it gives up its only chord.
-inline constexpr std::string_view no_key = "no key";
+inline constexpr std::string_view no_key = "No key";
 /// Back to the capture from the clash question.
 inline constexpr std::string_view choose_another_key = "Choose another key";
 /// A use of the chord that never meets this action's. `{chord}`, `{name}`,
@@ -605,7 +605,7 @@ inline constexpr std::string_view keys_while_placing = "Keys while placing a bui
 /// `{name}` is the layout and `{n}` is a number, including 0 and 1.
 inline constexpr std::string_view overlay_changes = "{name} · {n} changes";
 /// The button that opens the key editor from the overlay.
-inline constexpr std::string_view edit_keys = "EDIT KEYS…";
+inline constexpr std::string_view edit_keys = "Edit keys…";
 /// The label before the latches and sticky modifiers that are on.
 inline constexpr std::string_view on_line = "On:";
 /// The group of actions that exist only because a mod's hack is on.
@@ -614,7 +614,7 @@ inline constexpr std::string_view this_mod = "This mod";
 inline constexpr std::string_view chord_range = "{first}…{last}";
 /// How the overlay closes. `{modifier}` is Primary's name, Ctrl or Cmd.
 inline constexpr std::string_view overlay_footer =
-    "{modifier}+/ or Escape closes this. More in EDIT KEYS…";
+    "{modifier}+/ or Escape closes this. More in Edit keys…";
 /// A help line with the chord that fires it. `{description}` is the sentence, `{chord}` the key.
 inline constexpr std::string_view help_chord = "{description} · {chord}";
 /// The rotate hint when a key and the wheel both turn a building.

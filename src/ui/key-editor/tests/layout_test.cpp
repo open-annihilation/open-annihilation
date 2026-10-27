@@ -1010,9 +1010,9 @@ void check_exchange_lines(const kit::Frame& frame, const std::string& where) {
         std::fprintf(stderr, "%s: order.move shares a line with select.all\n", where.c_str());
     OA_CHECK(line_holds(paste_list, "order.move", "select.all"));
     const std::string apply = caption_of(paste_list, editor::name_paste_apply);
-    if (apply.find("APPLY 3 CHANGES") == std::string::npos)
+    if (apply.find("Apply 3 changes") == std::string::npos)
         std::fprintf(stderr, "%s: APPLY is \"%s\"\n", where.c_str(), apply.c_str());
-    OA_CHECK(apply.find("APPLY 3 CHANGES") != std::string::npos);
+    OA_CHECK(apply.find("Apply 3 changes") != std::string::npos);
 
     editor::ScreenState one_paste;
     one_paste.prompt = editor::Prompt::paste;
@@ -1028,9 +1028,9 @@ void check_exchange_lines(const kit::Frame& frame, const std::string& where) {
         one_summary.find("1 key of") != std::string::npos &&
         one_summary.find("1 keys") == std::string::npos
     );
-    if (one_apply != "APPLY 1 CHANGE")
+    if (one_apply != "Apply 1 change")
         std::fprintf(stderr, "%s: APPLY one is \"%s\"\n", where.c_str(), one_apply.c_str());
-    OA_CHECK(one_apply == "APPLY 1 CHANGE");
+    OA_CHECK(one_apply == "Apply 1 change");
 
     editor::ScreenState importing;
     importing.prompt = editor::Prompt::import;
@@ -1075,9 +1075,9 @@ void check_exchange_lines(const kit::Frame& frame, const std::string& where) {
         found.find("Found 1 keys") == std::string::npos &&
         found.find("1 differs") != std::string::npos
     );
-    if (import_apply != "IMPORT 1 KEY")
+    if (import_apply != "Import 1 key")
         std::fprintf(stderr, "%s: IMPORT one is \"%s\"\n", where.c_str(), import_apply.c_str());
-    OA_CHECK(import_apply == "IMPORT 1 KEY");
+    OA_CHECK(import_apply == "Import 1 key");
 
     if (frame.size_class != kit::SizeClass::compact)
         return;

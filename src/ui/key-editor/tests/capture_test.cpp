@@ -694,7 +694,7 @@ void clash_row_words() {
         "+ Add a key offers Swap them"
     );
     expect(
-        prompt_item(add_list, kit::Role::text, "no key") != nullptr,
+        prompt_item(add_list, kit::Role::text, "No key") != nullptr,
         "+ Add a key does not leave the other action with no key"
     );
 }

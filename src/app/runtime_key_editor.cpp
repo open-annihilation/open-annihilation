@@ -1981,7 +1981,7 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
             !skip_file_dialog(runtime_.options_.unattended, runtime_.options_.check_key_share)) {
 #if OA_NATIVE_FOLDER_DIALOG
             const std::string title =
-                std::string(oa::data::languages::interface_text("CHOOSE ANOTHER FILE…"));
+                std::string(oa::data::languages::interface_text("Choose another file…"));
             const PickedPath picked =
                 pick_key_file(runtime_.sdl_.window, false, runtime_.played_mod_folder(), title);
             if (picked.cancelled)
@@ -2048,7 +2048,7 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
             } else {
 #if OA_NATIVE_FOLDER_DIALOG
                 const std::string title =
-                    std::string(oa::data::languages::interface_text("SAVE FILE…"));
+                    std::string(oa::data::languages::interface_text("Save file…"));
                 const PickedPath picked =
                     pick_key_file(runtime_.sdl_.window, true, shared.parent_path(), title);
                 if (picked.cancelled)
