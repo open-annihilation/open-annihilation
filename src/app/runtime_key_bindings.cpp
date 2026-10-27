@@ -3561,13 +3561,14 @@ bool action_live(const keys::Bound& bound, const keys::Contexts& contexts) {
     return (bound.contexts & contexts.active) != 0 && (bound.when & ~contexts.conditions) == 0;
 }
 
-/// Looks an overlay word up in the player's language.
+/// Looks an overlay word up in the player's language, among Open
+/// Annihilation's own words, as the key editor does.
 ///
-/// @param user the runtime
+/// @param user unused
 /// @param english the English word
 /// @return the words to show
-std::string overlay_text(void* user, std::string_view english) {
-    return static_cast<Runtime*>(user)->translate_ui(english);
+std::string overlay_text(void* /*user*/, std::string_view english) {
+    return std::string(oa::data::languages::interface_text(english));
 }
 
 /// Returns the bound action with an id.
@@ -3626,12 +3627,12 @@ std::string Runtime::keys_overlay_stamp() {
         return {};
     note_keys_overlay_layout();
     const keys::Contexts contexts = input_contexts();
-    std::string stamp = std::to_string(contexts.active) + '|' +
-                        std::to_string(contexts.conditions) + '|' + key_bindings_state_->signature +
-                        '|' + keys_overlay_layout_name_ + '|' +
-                        std::to_string(keys_overlay_changes_) + '|' +
-                        std::to_string(key_bindings_state_->map_generation) + '|' +
-                        std::string(translate_ui(oa::ui::key_editor::words::oa_default));
+    std::string stamp =
+        std::to_string(contexts.active) + '|' + std::to_string(contexts.conditions) + '|' +
+        key_bindings_state_->signature + '|' + keys_overlay_layout_name_ + '|' +
+        std::to_string(keys_overlay_changes_) + '|' +
+        std::to_string(key_bindings_state_->map_generation) + '|' +
+        std::string(oa::data::languages::interface_text(oa::ui::key_editor::words::oa_default));
     std::vector<KeyLatchChip> chips;
     gather_key_latch_chips(chips);
     for (const KeyLatchChip& chip : chips) {
@@ -3748,7 +3749,7 @@ std::string Runtime::rotate_wheel_text() {
         text += caps[index].text;
         text += '+';
     }
-    text += translate_ui(oa::ui::key_editor::words::wheel_word);
+    text += oa::data::languages::interface_text(oa::ui::key_editor::words::wheel_word);
     return text;
 }
 
@@ -3765,9 +3766,15 @@ std::string Runtime::rotate_hint_line() {
         }
     }
     const std::string wheel = rotate_wheel_text();
-    const std::string both = translate_ui(oa::ui::key_editor::words::rotate_both);
-    const std::string key_only = translate_ui(oa::ui::key_editor::words::rotate_key);
-    const std::string wheel_only = translate_ui(oa::ui::key_editor::words::rotate_wheel);
+    const std::string both{
+        oa::data::languages::interface_text(oa::ui::key_editor::words::rotate_both)
+    };
+    const std::string key_only{
+        oa::data::languages::interface_text(oa::ui::key_editor::words::rotate_key)
+    };
+    const std::string wheel_only{
+        oa::data::languages::interface_text(oa::ui::key_editor::words::rotate_wheel)
+    };
     view_rules::RotateHintParts parts;
     parts.key = key;
     parts.wheel = wheel;

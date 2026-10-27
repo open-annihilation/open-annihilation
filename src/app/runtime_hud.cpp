@@ -1212,13 +1212,18 @@ void Runtime::draw_unit_panel() {
         // The lines are kept as the player reads them and drawn as game
         // text, which the panel's font reads in the game's code page.
         const bool utf8 = game_text_utf8();
-        const std::string pattern = translate_ui(oa::ui::key_editor::words::help_chord);
+        const std::string pattern{
+            oa::data::languages::interface_text(oa::ui::key_editor::words::help_chord)
+        };
         const std::string_view action = order_gadget_action(*hovered_);
         if (const oa::data::input_actions::Action* entry =
                 action.empty() ? nullptr : oa::data::input_actions::find(action)) {
             const std::string chord = active_key_chord(action);
-            unit_panel_hover_name_ = translate_ui(entry->words.name);
-            unit_panel_hover_description_ = translate_ui(entry->words.description);
+            // An action's words are Open Annihilation's, as the key editor
+            // shows them, not the game data's.
+            unit_panel_hover_name_ = oa::data::languages::interface_text(entry->words.name);
+            unit_panel_hover_description_ =
+                oa::data::languages::interface_text(entry->words.description);
             if (!chord.empty())
                 unit_panel_hover_description_ = oa::ui::key_editor::fill(
                     pattern, {{"description", unit_panel_hover_description_}, {"chord", chord}}
