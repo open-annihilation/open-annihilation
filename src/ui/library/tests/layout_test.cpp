@@ -6205,6 +6205,41 @@ void shell_takes_kit_2_sizes() {
     }
 }
 
+/// A layout installed from its own file, with no listing, keeps its
+/// description on its row at every class, as Compact's line does, and at
+/// Regular and Large its author as the byline.
+void an_own_layouts_row_keeps_its_summary() {
+    lib::Library library = keys_library();
+    lib::Inputs inputs = library.inputs;
+    lib::Installed own;
+    own.kind = lib::Kind::key_layout;
+    own.key = "grid-test";
+    own.folder = "grid-test";
+    own.name = "Grid Test";
+    own.version = "1.0";
+    own.author = "Ada";
+    own.description = "Orders on a grid under the left hand.";
+    inputs.installed.push_back(std::move(own));
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::keys);
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        const bool compact = named.frame.size_class == kit::SizeClass::compact;
+        const kit::DisplayList list = laid_out(library, {}, named.frame);
+        const kit::ListRowLook* look = nullptr;
+        for (const kit::Item& item : list.items)
+            if (const auto* row = std::get_if<kit::ListRowLook>(&item.look);
+                row != nullptr && row->title == "Grid Test")
+                look = row;
+        OA_CHECK(look != nullptr);
+        if (look == nullptr)
+            continue;
+        OA_CHECK(!look->lines.empty() && look->lines.front().starts_with("Orders on a grid under"));
+        if (!compact)
+            OA_CHECK(look->by == "by Ada");
+        OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), named.name + " own layout");
+    }
+}
+
 /// The details say the state once, and beside the list a layout's picture
 /// is the main block with the changed keys filled; Compact's page keeps the
 /// whole keyboard.
@@ -6252,6 +6287,7 @@ int main() {
     keys_tab_names_its_controls();
     shell_takes_kit_2_sizes();
     details_say_the_state_once();
+    an_own_layouts_row_keeps_its_summary();
     key_rows_stay_inside_their_height();
     mutator_rows_show_badges_chips_and_icons();
     mutator_actions_rules_and_danger();

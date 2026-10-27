@@ -212,7 +212,9 @@ void dress_mutators(lib::Library& library) {
 ///
 /// Grid is installed and in use, with two of the player's own changes on
 /// it. It changes Q and W, so the keyboard marks those keys. Lefty is installed and is not in use. Column is only a
-/// listing. OA default stays first and is left out of the count.
+/// listing. Grid Test is installed from its own file, which no registry
+/// lists, so its row's author and summary are its manifest's. OA default
+/// stays first and is left out of the count.
 ///
 /// @param[in,out] library the scene's library
 void dress_keys(lib::Library& library) {
@@ -294,6 +296,18 @@ void dress_keys(lib::Library& library) {
     column.size = 1024;
     column.keys = lib::KeyLayoutFacts{};
     inputs.listings.push_back(std::move(column));
+
+    lib::Installed own;
+    own.kind = lib::Kind::key_layout;
+    own.key = "grid-test";
+    own.folder = "grid-test";
+    own.name = "Grid Test";
+    own.version = "1.0";
+    own.author = "Cy";
+    own.description = "Orders on a grid, from a file of its own.";
+    own.keys = lib::KeyLayoutFacts{};
+    own.keys->tags = {"grid"};
+    inputs.installed.push_back(std::move(own));
     inputs.keys_layout = "grid";
     // Highland is the fixture's played mod. The host copies that into
     // Inputs::played; the picture does the same so USE can ask "Use it for".

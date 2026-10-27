@@ -1187,10 +1187,17 @@ kit::ListRowLook row_look(
         return look;
     }
     look.by = byline(entry, library.text);
+    // A key layout installed from its own file has no listing: its row says
+    // what it does and who made it from its manifest, as Compact's line does.
+    if (entry.id.kind == Kind::key_layout && look.by.empty() && entry.installed != nullptr &&
+        !entry.installed->author.empty() && !is_built_in_layout(entry.id))
+        look.by = filled(library.text, words::byline, {{"author", entry.installed->author}});
     if (named)
         look.lines.push_back(lines.row);
     else if (entry.listing != nullptr && !entry.listing->summary.empty())
         look.lines.push_back(entry.listing->summary);
+    else if (entry.id.kind == Kind::key_layout && !entry_summary(entry).empty())
+        look.lines.push_back(std::string(entry_summary(entry)));
     else if (
         is_base_game(entry.id) || is_built_in_language(entry.id) || is_built_in_brain(entry.id) ||
         is_built_in_layout(entry.id)

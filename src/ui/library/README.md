@@ -603,6 +603,8 @@ app removes the folder (`Runtime::library_uninstall`,
   and one state in words where another kind shows an icon, In use (on the
   accent), Built in, Installed, Update, or Get with its size ("Get · 1 KB",
   which asks GET as a row's arrow does), with no version or size beside it.
+  A layout installed from its own file, which no registry lists, takes its
+  author and summary from its manifest, at every class.
   At Regular and Large the player's own changes on it sit on the chip line
   in the lock colour ("2 changes of your own"), with Made for and its tags;
   Compact keeps them on the line under the name. Its details draw the
