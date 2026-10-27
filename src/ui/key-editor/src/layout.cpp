@@ -19,6 +19,7 @@
 #include "oa/ui/kit/text.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <iterator>
 #include <optional>
@@ -3857,14 +3858,43 @@ kit::DisplayList prompt_layout(
     const int32_t buttons_x =
         place_buttons(left_x, footer_y, column_x + column_w - left_x, footer, true);
     const int32_t hint_w = buttons_x - metrics.button_gap - left_x;
-    if (!footer_hint.empty() && hint_w > 24)
-        text_at(
-            {left_x, footer_y, hint_w, metrics.control_height},
-            footer_hint,
-            kit::FontRole::small,
-            kit::colour::hint,
-            kit::Align::left
+    if (!footer_hint.empty() && hint_w > 24) {
+        // A hint wider than its room takes as many lines as the buttons'
+        // height holds, centred beside them, and only its last line is cut.
+        const auto measure = [&](std::string_view words_measured) {
+            return kit::text_width(fonts, kit::FontRole::small, words_measured);
+        };
+        std::vector<std::string> lines = kit::wrap(footer_hint, hint_w, measure);
+        const auto most = static_cast<std::size_t>(
+            std::max(metrics.control_height / metrics.small_line, int32_t{1})
         );
+        if (lines.size() <= 1 || most < 2) {
+            text_at(
+                {left_x, footer_y, hint_w, metrics.control_height},
+                footer_hint,
+                kit::FontRole::small,
+                kit::colour::hint,
+                kit::Align::left
+            );
+        } else {
+            for (std::size_t rest = most; rest < lines.size(); ++rest)
+                lines[most - 1] += " " + lines[rest];
+            if (lines.size() > most)
+                lines.resize(most);
+            const int32_t block = static_cast<int32_t>(lines.size()) * metrics.small_line;
+            int32_t line_y = footer_y + (metrics.control_height - block) / 2;
+            for (std::string& line : lines) {
+                text_at(
+                    {left_x, line_y, hint_w, metrics.small_line},
+                    std::move(line),
+                    kit::FontRole::small,
+                    kit::colour::hint,
+                    kit::Align::left
+                );
+                line_y += metrics.small_line;
+            }
+        }
+    }
     y = footer_y + metrics.control_height;
 
     int32_t box_h = y + pad;
