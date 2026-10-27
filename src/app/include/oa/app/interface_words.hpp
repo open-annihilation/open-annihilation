@@ -215,6 +215,7 @@ inline constexpr std::string_view interface_words[] = {
     "Open your software centre, or run:",
     "Open {page} in a browser on another computer, or in Desktop Mode.",
     "Orders",
+    "Overlays…",
     "PATROL",
     "PAUSE",
     "PLAY",

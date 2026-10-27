@@ -17,7 +17,10 @@
 // size class of its own from the whole window, capped by the side column's
 // scale (OaLayer::match_dialog). A window such as Settings or the Library
 // moves by its title, and keeps its place for each size class
-// (window_placement.hpp). oa_layer.cpp holds it, the
+// (window_placement.hpp); its corners and a notice's are rounded, what lies
+// behind showing there (round_layer_corners). OA's overlays over a match
+// show where the player arranged them (oa_layer_overlays.hpp,
+// oa_layer_arrange.cpp). oa_layer.cpp holds it, the
 // settings' screen (Runtime::SettingsScreen), the screens of a notice
 // (NoticeScreen) and a question (QuestionScreen), and the UI kit gallery
 // (GalleryScreen), which covers the whole window over the settings.
@@ -609,7 +612,15 @@ automation_kind(const oa::ui::kit::AutomationEntry& entry) noexcept;
 /// arrow move the window that takes the keys, by 8 points, or 32 with Shift.
 /// Each window keeps its place for each size class in the preferences
 /// (window_placement::place_key), as an offset from its centre in points.
-/// Notices and questions stay centred.
+/// Notices and questions stay centred. A window's corners take its class's
+/// window radius and a notice's, a question's and a work dialog's its
+/// dialog radius (LayerPlacement::corner_radius).
+///
+/// In a match, the in-game menu's Overlays… button opens Arrange overlays
+/// (open_arrange_overlays): the keys overlay, the chat line and the latch
+/// chips each show at the place the player gave them for the size class in
+/// effect (overlay_shown), kept in the preferences
+/// (overlay_placement::place_key).
 class OaLayer {
   public:
 

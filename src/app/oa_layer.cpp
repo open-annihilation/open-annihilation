@@ -88,8 +88,9 @@ constexpr int16_t kLayerOverlayZ = 100;
 
 /// The settings' screen's name.
 constexpr std::string_view kSettingsName = "settings";
-/// Arrange overlays' button's words, and the title of the screen it opens.
-constexpr std::string_view kArrangeWords = "Arrange Overlays";
+/// Arrange overlays' button's words in the in-game menu, where its title
+/// does not fit.
+constexpr std::string_view kArrangeWords = "Overlays…";
 /// Arrange overlays' button's automation name, after the oa. prefix.
 constexpr std::string_view kArrangeButtonName = "arrange-button";
 

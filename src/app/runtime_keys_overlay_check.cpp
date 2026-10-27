@@ -786,16 +786,16 @@ void Runtime::check_keys_overlay() {
         frames(1);
         require(ingame_menu_column_shown(), "the in-game menu's column does not show");
         const std::optional<AutomationControl> button = named("oa.arrange-button");
-        require(button.has_value(), "the in-game menu has no Arrange Overlays button");
-        require(button->text == "Arrange Overlays", "the button does not read Arrange Overlays");
+        require(button.has_value(), "the in-game menu has no Overlays… button");
+        require(button->text == "Overlays…", "the button does not read Overlays…");
         require(
             button->window_x + button->window_width <= match_layout_.left,
-            "the Arrange Overlays button leaves the side column"
+            "the Overlays… button leaves the side column"
         );
         click_named("oa.arrange-button");
         require(
             oa_layer().find("arrange-overlays") != nullptr,
-            "Arrange Overlays did not open oa.arrange-overlays"
+            "Overlays… did not open oa.arrange-overlays"
         );
     };
     const auto close_arrange = [&] {
@@ -825,12 +825,13 @@ void Runtime::check_keys_overlay() {
             );
         }
     };
-    // Drags a handle by a travel in window pixels, in four moves.
+    // Drags a handle by a travel in window pixels, in four moves, held near
+    // its top left corner, clear of the card in the middle of the area.
     const auto drag_handle = [&](std::string_view overlay, layout::Point travel) {
         const AutomationControl control = handle(overlay);
         const layout::Point grab{
-            control.window_x + control.window_width / 2,
-            control.window_y + control.window_height / 2
+            control.window_x + std::min(24, control.window_width / 2),
+            control.window_y + std::min(12, control.window_height / 2)
         };
         pointer_at(grab, SDL_EVENT_MOUSE_MOTION, 0);
         pointer_at(grab, SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT);
@@ -867,7 +868,10 @@ void Runtime::check_keys_overlay() {
         return *kept;
     };
 
-    say_step("the in-game menu's Arrange Overlays shows a handle on each overlay, inside the area");
+    say_step(
+        "the in-game menu's Overlays… opens Arrange Overlays, a handle on each overlay inside the "
+        "area"
+    );
     resize(1280, 720);
     open_arrange();
     handles_inside(" at 1280x720");

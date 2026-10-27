@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Arrange overlays: where OA's overlays over a running match show, and the
-// screen that moves them. It opens from the in-game menu's Arrange overlays
-// button, over the overlays' area: a veil and a grid over the battlefield, a
+// screen that moves them. It opens from the in-game menu's Overlays… button,
+// over the overlays' area: a veil and a grid over the battlefield, a
 // handle on the keys overlay, the chat line and the latch chips, each where
 // the overlay shows, and a card with Reset and Done. A handle drags on an
 // 8-point grid (overlay_placement), an arrow moves the focused one, a
@@ -47,7 +47,7 @@ namespace places = overlay_placement;
 /// oa.arrange-overlays.
 constexpr std::string_view kScreenName = "arrange-overlays";
 
-/// The card's title, and the in-game menu's button.
+/// The card's title.
 constexpr std::string_view kTitleWords = "Arrange Overlays";
 /// The card's hint.
 constexpr std::string_view kHintWords =
@@ -411,7 +411,14 @@ class ArrangeScreen final : public LayerScreen {
         for (int32_t y = kGridLinePoints; y < whole.height; y += kGridLinePoints)
             kit::blend_rect(canvas, {0, y, whole.width, 1}, kit::colour::text, kGridOpacity);
 
-        // The card: its title, its hint, Reset and Done.
+        // A handle on each overlay, the one held over the rest.
+        for (std::size_t index = 0; index < handles_.size(); ++index)
+            if (!drag_ || drag_->index != index)
+                draw_handle(canvas, index);
+        if (drag_)
+            draw_handle(canvas, drag_->index);
+
+        // The card over them: its title, its hint, Reset and Done.
         kit::fill_corner_rect(canvas, card_, metrics.card_radius, kit::colour::panel);
         kit::outline_corner_rect(canvas, card_, metrics.card_radius, kit::colour::strong_edge);
         kit::box_text(
@@ -428,13 +435,6 @@ class ArrangeScreen final : public LayerScreen {
             );
         draw_card_button(canvas, kResetId, reset_box_, reset_words_, kit::ButtonStyle::plain);
         draw_card_button(canvas, kDoneId, done_box_, done_words_, kit::ButtonStyle::accent);
-
-        // A handle on each overlay, the one held over the rest.
-        for (std::size_t index = 0; index < handles_.size(); ++index)
-            if (!drag_ || drag_->index != index)
-                draw_handle(canvas, index);
-        if (drag_)
-            draw_handle(canvas, drag_->index);
     }
 
     /// Takes a pointer: a press on a handle drags it, a double-click puts it
@@ -473,6 +473,10 @@ class ArrangeScreen final : public LayerScreen {
             const kit::ControlId pressed = finger_reach > 0
                                                ? kit::reach(list_, at, finger_reach).control
                                                : kit::hit(list_, at);
+            // The card lies over the handles: a press on it reaches its
+            // buttons alone.
+            if (kit::contains(card_, at) && handle_of(pressed))
+                return LayerAnswer::none;
             if (const auto index = handle_of(pressed)) {
                 interaction_.focused = pressed;
                 if (clicks >= 2) {
@@ -747,19 +751,9 @@ class ArrangeScreen final : public LayerScreen {
         };
         reset_box_ = {done_box_.x - gap - reset_width, cursor, reset_width, metrics.button_height};
 
-        // The controls: the handles first, so a press on one over the card
-        // drags it, then the card's buttons.
+        // The controls: the card's buttons first, as the card lies over the
+        // handles, then the handles, the last drawn first.
         list_ = {};
-        for (std::size_t index = handles_.size(); index > 0; --index) {
-            const Handle& handle = handles_[index - 1];
-            kit::Control control;
-            control.id = kFirstHandle + static_cast<kit::ControlId>(index - 1);
-            control.rect = handle.shown;
-            control.name = std::string(kScreenName) + '.' + std::string(handle.name);
-            control.kind = kit::ControlKind::button;
-            control.text = handle.words;
-            list_.controls.push_back(std::move(control));
-        }
         const auto add_button = [this](
                                     kit::ControlId id,
                                     const kit::Rect& box,
@@ -776,6 +770,16 @@ class ArrangeScreen final : public LayerScreen {
         };
         add_button(kResetId, reset_box_, "reset", reset_words_);
         add_button(kDoneId, done_box_, "done", done_words_);
+        for (std::size_t index = handles_.size(); index > 0; --index) {
+            const Handle& handle = handles_[index - 1];
+            kit::Control control;
+            control.id = kFirstHandle + static_cast<kit::ControlId>(index - 1);
+            control.rect = handle.shown;
+            control.name = std::string(kScreenName) + '.' + std::string(handle.name);
+            control.kind = kit::ControlKind::button;
+            control.text = handle.words;
+            list_.controls.push_back(std::move(control));
+        }
         for (std::size_t index = 0; index < handles_.size(); ++index)
             list_.tab_order.push_back(kFirstHandle + static_cast<kit::ControlId>(index));
         list_.tab_order.push_back(kResetId);
@@ -827,14 +831,14 @@ class ArrangeScreen final : public LayerScreen {
             held || hovered ? kHeldOpacity : kHandleOpacity
         );
         draw_dashed_outline(canvas, box, radius, kit::colour::accent);
-        // The grip and the words, together in the middle.
-        const kit::Fonts* fonts = canvas.fonts;
-        const int32_t words_width =
-            fonts != nullptr ? kit::text_width(*fonts, kit::FontRole::small, handle.words) : 0;
+        // The grip and the words at the handle's left, down its middle, or
+        // along its top on a handle taller than two rows: the card in the
+        // area's middle leaves them showing.
         const int32_t gap = metrics.space;
-        const int32_t together = kGripPoints + gap + words_width;
-        const int32_t left = box.x + std::max((box.width - together) / 2, metrics.space);
-        const int32_t middle = box.y + box.height / 2;
+        const int32_t left = box.x + 2 * metrics.space;
+        const int32_t row = metrics.control_height;
+        const int32_t middle =
+            box.height > 2 * row ? box.y + row / 2 + metrics.space : box.y + box.height / 2;
         kit::fill_corner_rect(
             canvas,
             {left, middle - kGripPoints / 2, kGripPoints, kGripPoints},
