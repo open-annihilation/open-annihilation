@@ -14,7 +14,8 @@ the latches and sticky modifiers that are on show as chips in its "On:"
 line instead of on the battlefield. EDIT KEYS… opens the key editor, which
 pauses a game you play alone. Escape, or Ctrl+/ again, closes the panel.
 The match keeps running underneath, and a click or a key the panel does not
-use goes to the match.
+use goes to the match. [Arrange overlays](#arrange-overlays) moves the
+panel elsewhere on the battlefield.
 
 With **Show keys on buttons** on (Settings › Controls; it is on by
 default), each order button wears its key in its top right corner and each
@@ -29,6 +30,120 @@ cost line ends with its cell's key when that cell has one. While you place
 a building that can turn, the hint beside it is made from the rotate key and
 the wheel you have bound, such as "Press /, or Alt+wheel, to rotate".
 
+## The key editor
+
+Edit keys… on the key layout card in Settings › Controls, EDIT KEYS… on
+the keys panel and in the Library, and CHOOSE… beside Hold keys that latch
+open the key editor. It shows every key and button the game answers, and
+lets you change them. It has three tabs: **Commands**, **Keyboard** and
+**Mouse**.
+
+**Commands** opens on Common commands, the two dozen commands players
+change first (Attack, Move, Stop, Patrol, Guard, Repair, Reclaim and the
+rest), each with its area beside it. The other areas follow, and All
+actions, every one, comes last. The filters are All, Changed, Clashes,
+Unbound and Latchable. Typing in the search finds commands by their names,
+descriptions, areas and 3.1c's own order words; in Common commands it
+searches every action, the common ones first. A row shows the command,
+Changed while your edits name it, and its keys. The chosen command's
+details sit beside the list, or, at Compact, on a page of their own that
+‹ leaves: what it does and where it works, each key with **Change…** and
+a mark that removes it, **+ Add a key**, More options (Latch and Hold to
+confirm where the command allows them, and Find on keyboard), and at the
+foot where its keys come from, with **Reset**.
+
+**Find by key**, beside the search, listens for a key as the editor does
+when you change one, then lists every command on that key, in every place
+it works, each with Open ›, which shows that command in the list. It
+changes nothing. Escape tapped closes it; Escape held for a second looks
+Escape itself up.
+
+### Changing a key
+
+Change… or + Add a key opens "New key for {command}" and listens: press
+the key, with its modifiers, or a mouse button or a wheel turn in the well.
+Escape tapped cancels; held for a second it binds Escape. Once the key is
+heard, a line under the well says what it would do:
+
+- "Ctrl+Q is free while playing", and **Use Ctrl+Q for {command}**
+  writes it;
+- "Ctrl+B is in use while playing", with the commands that use it, and
+  **Choose what happens…** opens the clash question;
+- or why that key cannot be used.
+
+A click in the well listens again. More options holds **Same place on
+every keyboard**, which binds the key by where it sits rather than by its
+letter, and how it acts: a press, a double press or a hold.
+
+The clash question, "Ctrl+B is already in use", lists each way out with
+what it leaves on both commands: **Move it to {command}**, and **Swap
+them** when you are changing a key that is already bound. A press on a way
+out only marks it; the button named after it writes it. **Choose another
+key** listens again, and **Cancel** changes nothing. A clash already in
+your edits, after a paste for example, shows on the command's details as
+"{key} does two things", with **Settle…**, which opens the same question
+with Keep it for this command and Keep it for the other. While a clash
+stands, Save changes waits.
+
+### The keyboard and the mouse
+
+**Keyboard** draws your keyboard, ANSI, ISO or JIS, from the system or the
+choice beside it, each key with its legend as your keyboard prints it and
+tinted by its area; the legend under the picture names the tints. Holding
+Shift, Ctrl, Alt or Cmd shows that layer. A click on a key, or Enter on
+it, only shows what it does, in the inspector beside the picture (under it
+at Compact): what the key does in each place, **Change {command}'s
+key…**, and **Use {key} for {command}…** for the command chosen in the
+list. Both open the change and wait for its button. **Show as list** lists
+every key that does something in that layer, and Show keyboard brings the
+picture back.
+
+**Mouse** draws the buttons and the wheel with what each does in each
+place, and whether clicks give orders with the right or the left button.
+A click on a button, or on a role, opens the change for it.
+
+### Your edits
+
+Every change is an edit: the footer counts them ("2 unsaved edits") beside
+**Undo**, which takes the last one back, as Ctrl+Z does (Cmd+Z on a Mac)
+while the search is not being typed in. **More** holds Restore defaults,
+Import…, Share… and Paste…, and at Compact the layouts. **Save changes**
+keeps the edits. **Cancel**, the close mark or Escape with edits not saved
+asks "Save your edit before closing?" with **Save**, **Discard** and
+**Keep editing**; while a clash holds Save back it offers Discard and Keep
+editing only. Nothing you press in the keyboard, the inspector, Find by key
+or the clash question changes a key until its own button writes it.
+
+## Arrange overlays
+
+The in-game menu (F2) has an **Overlays** button under **Resume**, beside
+the OA button, drawn in the menu's own art with the OA stamp. It opens
+Arrange Overlays over the battlefield: a handle on each overlay you can
+move, with its name, and a card with **Reset** and **Done**. The overlays
+are the keys panel (Ctrl+/), the chat line that stands over the
+battlefield while the touch controls are on or while the line you type is
+taller than the TALK field, and the chips that show latches and sticky
+modifiers.
+
+Drag a handle to move its overlay. It lands on an 8-point grid, measured
+from the nearest edge of the battlefield or from its middle, and an
+overlay always stays whole on the battlefield, never over the side
+column. Tab moves between the handles, Reset and Done; an arrow key moves
+the focused handle 8 points, 32 with Shift. A double-click on a handle
+puts that overlay back where it stands by itself. **Reset** puts every
+overlay back. **Done**, or Escape, goes back to the in-game menu. The
+chat line moves only up and down: it keeps the battlefield's width.
+
+Each place is kept for the layout in use, Compact, Regular or Large
+([Interface size](settings.md#user-interface)), so a 1280x720 and a
+1920x1080 window share their places and a 640x480 window keeps its own.
+The places are kept in your preferences as
+`open-annihilation.overlay.<overlay>.<layout>`, where the overlay is
+`keys-overlay`, `chat-line` or `latch-chips` and the layout `compact`,
+`regular` or `large`, with values such as `l16,b8` (16 points from the
+left, 8 from the bottom). Reset window positions, in Settings, leaves
+them alone.
+
 ## Pause and the game menu
 
 Pause toggles the simulation pause. On a Mac, Cmd+P does the same during a
@@ -41,7 +156,7 @@ menu leaves the synchronized pause unchanged; use Pause or Cmd+P to toggle
 it.
 
 Escape first cancels an armed command, then clears the selection. With
-**Escape opens the game menu** enabled under Settings > Controls, another
+**Escape opens the game menu** enabled under Settings › User Interface, another
 press opens the game menu when there is nothing left to cancel. Escape
 closes the open game menu as Resume does. Canceling a surrender dialog or
 closing a team panel does not clear an explicit simulation pause.
@@ -107,7 +222,8 @@ order armed with none given yet stays armed when Shift is let go.
 
 A layout can list that hold so a tap of Shift latches it. The next orders
 join the queue without Shift held down, and a chip at the top of the
-battlefield reads QUEUE · latched until Shift is tapped again. The same row
+battlefield, or where [Arrange overlays](#arrange-overlays) put the chips,
+reads QUEUE · latched until Shift is tapped again. The same row
 shows each other latched hold, and, with Sticky modifiers on, a tapped
 Shift, Ctrl or Alt. Losing the window clears every latch and sticky
 modifier, including a QUEUE latched from the touch controls.
