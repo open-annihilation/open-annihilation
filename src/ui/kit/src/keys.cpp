@@ -995,18 +995,27 @@ void draw_cap(
     const int32_t mark_side =
         marked ? std::min(int32_t{7}, std::min(rect.width, rect.height) / 2) : 0;
 
+    // The corner's square is as wide as its letter where the letter is wider
+    // than the square, as a Barlow capital may be, so the letter stays whole.
+    const int32_t letter_width =
+        letter_side > 0
+            ? std::min(
+                  std::max(letter_side, measure_text(local, FontRole::small, look.letter)),
+                  rect.width / 2
+              )
+            : 0;
     if (letter_side > 0) {
         const Rect square{
-            rect.x + rect.width - letter_side - 1,
+            rect.x + rect.width - letter_width - 1,
             rect.y + rect.height - edge_band - letter_side - 1,
-            letter_side,
+            letter_width,
             letter_side,
         };
         fill_corner_rect(local, square, 1, edge);
         box_text(local, FontRole::small, look.letter, square, Align::centre, ink);
     }
 
-    const int32_t text_right = rect.x + rect.width - (letter_side > 0 ? letter_side + 2 : 2);
+    const int32_t text_right = rect.x + rect.width - (letter_width > 0 ? letter_width + 2 : 2);
     const int32_t text_width_room = std::max(text_right - (rect.x + 2), int32_t{0});
     if (!look.label.empty() && text_width_room > 0) {
         Rect label_box{
