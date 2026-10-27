@@ -2237,15 +2237,6 @@ builders_row(std::string_view id, std::string_view label, Stepper stepper, Hint 
 /// Same as the game, the first item of Key layout with a mod.
 constexpr std::string_view kSameAsTheGame = "same";
 
-/// The modifier a hint names: Cmd on macOS, Ctrl elsewhere.
-constexpr std::string_view primary_modifier() noexcept {
-#if defined(__APPLE__)
-    return "Cmd";
-#else
-    return "Ctrl";
-#endif
-}
-
 /// Installed layouts with those made for the mod first, in the order given.
 std::vector<std::size_t> key_layout_order(const Dialog& dialog) {
     std::vector<std::size_t> made;
@@ -2270,13 +2261,15 @@ std::string key_layout_value(const SettingsModel& model) {
 }
 
 /// Returns Key layout's hint, with Cmd or Ctrl in place of {primary}.
-std::string key_layout_hint(const SettingsModel&, std::size_t line) {
+std::string key_layout_hint(const SettingsModel& model, std::size_t line) {
     if (line != 0)
         return {};
+    const std::string_view primary =
+        model.dialog != nullptr ? std::string_view{model.dialog->primary_modifier} : "Ctrl";
     return filled(
         "The keys, mouse buttons and wheel turns the game answers. {primary}+/ in a match shows "
         "them.",
-        {{"primary", primary_modifier()}}
+        {{"primary", primary}}
     );
 }
 

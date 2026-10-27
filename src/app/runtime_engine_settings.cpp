@@ -1918,6 +1918,9 @@ void Runtime::refresh_settings_key_layout_summary(settings::Dialog& dialog) {
     if (used.builtin && changes > 0)
         name = std::string(oa::data::languages::interface_text(name));
     dialog.key_layout_summary = settings::key_layout_summary_text(name, changes);
+#if defined(__APPLE__)
+    dialog.primary_modifier = "Cmd";
+#endif
     dialog.latched_count = latched_action_count();
 }
 

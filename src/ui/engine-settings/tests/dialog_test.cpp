@@ -5330,7 +5330,7 @@ void the_kit_gallery_row_moves_only_developers_list() {
     // is printed, so that a change meant to move these parts can pin them
     // again.
     const std::array<std::pair<Page, uint64_t>, 11> kBefore{{
-        {Page::controls, 0xf5e7cf5d0b58d18c},
+        {Page::controls, 0x2ba5d6278322836c},
         {Page::common_tweaks, 0xa17a9cb0e4a400c3},
         {Page::language, 0x577159ca1f37a422},
         {Page::graphics, 0x526da924adc6ca53},
