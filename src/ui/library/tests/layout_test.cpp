@@ -25,6 +25,7 @@
 #include "oa/formats/fnt.hpp"
 #include "oa/test/check.hpp"
 #include "oa/ui/frontend_renderer.hpp"
+#include "oa/ui/kit/controls.hpp"
 #include "oa/ui/kit/input.hpp"
 #include "oa/ui/kit/layout.hpp"
 #include "oa/ui/library/library.hpp"
@@ -5701,11 +5702,304 @@ void keys_tab_names_its_controls() {
     }
 }
 
+/// Counts a text on a row: a line or the byline or the aside that contains
+/// it, or a chip whose words are exactly it.
+///
+/// @param row the row
+/// @param text the words
+/// @return how many places show it
+int count_on_row(const kit::ListRowLook& row, std::string_view text) {
+    int count = 0;
+    if (row.title.find(text) != std::string::npos)
+        ++count;
+    if (row.by.find(text) != std::string::npos)
+        ++count;
+    for (const std::string& line : row.lines) {
+        if (line.find(text) != std::string::npos)
+            ++count;
+    }
+    for (const std::string& aside : row.aside) {
+        if (aside.find(text) != std::string::npos)
+            ++count;
+    }
+    if (row.chip.has_value() && row.chip->text == text)
+        ++count;
+    for (const kit::ChipLook& chip : row.tags) {
+        if (chip.text == text)
+            ++count;
+    }
+    return count;
+}
+
+/// One thing a list row draws, and the words on it when it has any.
+struct DrawnPiece {
+    kit::Rect rect{};   ///< where it is drawn
+    std::string text{}; ///< its words; empty for a badge or a mark
+};
+
+/// The pieces a list row draws, as the kit places them.
+///
+/// A chip the chip line does not reach is left out. The kit stops at the
+/// first chip that would pass the column, so that chip is not an item.
+///
+/// @param row the row's rectangle
+/// @param look what the row shows
+/// @param measured the fonts the row was laid out in
+/// @return each item
+std::vector<DrawnPiece>
+drawn_row_pieces(const kit::Rect& row, const kit::ListRowLook& look, const kit::Fonts& measured) {
+    const kit::Metrics& metrics = kit::compact_metrics;
+    std::vector<DrawnPiece> pieces;
+    const auto add = [&](kit::Rect rect, std::string text) {
+        if (rect.width > 0 && rect.height > 0)
+            pieces.push_back(DrawnPiece{rect, std::move(text)});
+    };
+    const int32_t inset = metrics.list_row_inset;
+    int32_t text_left = row.x + inset;
+    if (look.show_badge) {
+        const int32_t side =
+            std::max(std::min(row.height - 2 * inset, metrics.list_row_badge), int32_t{0});
+        const kit::Rect badge{row.x + inset, row.y + (row.height - side) / 2, side, side};
+        add(badge, {});
+        text_left = badge.x + side + inset;
+    } else if (look.lead > 0) {
+        text_left = row.x + inset + look.lead;
+    }
+
+    int32_t right = row.x + row.width - inset;
+    if (look.chip.has_value()) {
+        const kit::Rect chip = kit::list_row_icon_rect(measured, row, look);
+        add(chip, look.chip->text);
+        if (chip.width > 0)
+            right = chip.x - metrics.list_row_gap;
+    }
+    if (look.maker.has_value()) {
+        const kit::Rect mark = kit::list_row_maker_rect(row, look);
+        add(mark, {});
+        if (mark.width > 0 && !look.chip.has_value())
+            right = mark.x - metrics.list_row_gap;
+    }
+
+    const auto line_count = static_cast<int32_t>(look.lines.size()) + (look.tags.empty() ? 0 : 1);
+    const int32_t text_height = std::max(
+                                    metrics.list_row_title_top + metrics.regular_line,
+                                    metrics.list_row_line_top + line_count * metrics.small_line
+                                ) +
+                                metrics.list_row_title_top;
+    const int32_t top = row.y + std::max((row.height - text_height) / 2, int32_t{0});
+    const int32_t title_row = top + metrics.list_row_title_top;
+    const int32_t aside_row = title_row + (metrics.regular_line - metrics.small_line) / 2;
+
+    int32_t text_right = right;
+    if (!look.aside.empty()) {
+        int32_t aside_width = 0;
+        for (const std::string& aside_line : look.aside) {
+            aside_width =
+                std::max(aside_width, kit::text_width(measured, kit::FontRole::small, aside_line));
+        }
+        aside_width = std::min(aside_width, std::max(right - text_left, int32_t{0}));
+        const int32_t aside_left = right - aside_width;
+        for (std::size_t index = 0; index < look.aside.size(); ++index) {
+            add({aside_left,
+                 aside_row + static_cast<int32_t>(index) * metrics.small_line,
+                 aside_width,
+                 metrics.small_line},
+                look.aside[index]);
+        }
+        text_right = aside_left - metrics.list_row_gap;
+    }
+
+    const int32_t room = std::max(text_right - text_left, int32_t{0});
+    if (!look.title.empty() || !look.by.empty())
+        add({text_left, title_row, room, metrics.regular_line}, look.title);
+
+    int32_t line_row = top + metrics.list_row_line_top;
+    for (const std::string& line : look.lines) {
+        add({text_left, line_row, room, metrics.small_line}, line);
+        line_row += metrics.small_line;
+    }
+    int32_t chip_left = text_left;
+    for (const kit::ChipLook& chip : look.tags) {
+        const int32_t width = kit::chip_width(measured, chip);
+        if (chip_left + width > text_right)
+            break;
+        const int32_t height =
+            chip.icon.has_value() ? metrics.state_icon_side : metrics.chip_height;
+        add({chip_left, line_row, width, height}, chip.text);
+        chip_left += width + metrics.chip_gap;
+    }
+    return pieces;
+}
+
+/// The list row drawn just below another, or null when this row is the last.
+///
+/// @param list the display list
+/// @param row the row
+/// @return the next row's control
+const kit::Control* next_list_row(const kit::DisplayList& list, const kit::Control& row) {
+    const kit::Control* next = nullptr;
+    for (const kit::Control& control : list.controls) {
+        if (control.kind != kit::ControlKind::list_item || control.rect.y <= row.rect.y)
+            continue;
+        if (next == nullptr || control.rect.y < next->rect.y)
+            next = &control;
+    }
+    return next;
+}
+
+/// A Library of two made-up layouts. Marked is in use, made for Ridge, with
+/// four of the player's own changes and two tags. Plain follows it, so a
+/// line that leaves Marked's row lands on Plain.
+///
+/// @return the Library, on Keys
+lib::Library marked_keys_library() {
+    lib::Inputs inputs;
+    lib::Registry registry;
+    registry.id = std::string(fixture::core);
+    registry.name = "Fixture Core";
+    registry.built_in = true;
+    inputs.registries.push_back(std::move(registry));
+    inputs.engine = {0, 8, 0};
+    inputs.version_text = "v0.8.0";
+    inputs.played = {"ridge", "28", "Ridge"};
+    inputs.keys_layout = "marked";
+
+    lib::KeyLayoutFacts marked_facts;
+    marked_facts.tags = {"grid", "left-hand"};
+    marked_facts.own_changes = 4;
+    marked_facts.works_with.push_back({"ridge", {}, "Ridge"});
+    lib::Listing marked = fixture::listing(
+        fixture::core,
+        lib::Kind::key_layout,
+        "marked",
+        "Marked Keys",
+        "1.0",
+        1024,
+        "A short summary.",
+        {"grid", "left-hand"}
+    );
+    marked.keys = marked_facts;
+    lib::Installed marked_held = fixture::installed(marked, "1.0", 1);
+    marked_held.keys = marked_facts;
+    inputs.listings.push_back(std::move(marked));
+    inputs.installed.push_back(std::move(marked_held));
+
+    lib::Listing plain = fixture::listing(
+        fixture::core,
+        lib::Kind::key_layout,
+        "plain",
+        "Plain Keys",
+        "1.0",
+        1024,
+        "A plain summary.",
+        {}
+    );
+    plain.keys = lib::KeyLayoutFacts{};
+    inputs.listings.push_back(std::move(plain));
+
+    lib::Library library;
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::keys);
+    return library;
+}
+
+/// At every class, a key layout's summary, Made for, own changes and tags
+/// stay inside the row, and none of them lands on the next row. Made for is
+/// shown once. OA default says Built in once, on its chip.
+void key_rows_stay_inside_their_height() {
+    const lib::Library library = marked_keys_library();
+    const std::string made = "Made for Ridge";
+    const std::string own = "· 4 changes of your own";
+    const std::string summary = "A short summary.";
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        const kit::DisplayList list = laid_out(library, {}, named.frame);
+        const bool compact = named.frame.size_class == kit::SizeClass::compact;
+        const kit::Control* marked = fixture::named(list, "library.row.fixture-core.marked");
+        const kit::ListRowLook* look = row_look_named(list, "library.row.fixture-core.marked");
+        OA_CHECK(marked != nullptr && look != nullptr);
+        if (marked == nullptr || look == nullptr)
+            continue;
+        OA_CHECK(count_on_row(*look, summary) == 1);
+        OA_CHECK(count_on_row(*look, made) == 1);
+        OA_CHECK(count_on_row(*look, own) == 1);
+        OA_CHECK(count_on_row(*look, "Grid") == 1);
+        OA_CHECK(count_on_row(*look, "Left hand") == 1);
+        for (const std::string& line : look->lines) {
+            OA_CHECK(line != made);
+            OA_CHECK(line != own);
+        }
+        if (compact) {
+            OA_CHECK(look->tags.empty());
+            OA_CHECK(
+                !look->lines.empty() && look->lines.front().find(summary) != std::string::npos
+            );
+            OA_CHECK(look->lines.front().find(made) != std::string::npos);
+            OA_CHECK(look->lines.front().find(own) != std::string::npos);
+        } else {
+            OA_CHECK(look->lines.size() == 1 && look->lines.front() == summary);
+            OA_CHECK(look->tags.size() >= 4);
+            OA_CHECK(look->tags[0].text == made);
+            OA_CHECK(look->tags[1].text == own);
+            OA_CHECK(look->tags[2].text == "Grid");
+            OA_CHECK(look->tags[3].text == "Left hand");
+        }
+
+        const kit::Control* following = next_list_row(list, *marked);
+        OA_CHECK(following != nullptr);
+        const std::vector<DrawnPiece> pieces = drawn_row_pieces(marked->rect, *look, fonts());
+        OA_CHECK(!pieces.empty());
+        bool saw_own = false;
+        bool saw_made = false;
+        bool saw_grid = false;
+        bool saw_left = false;
+        for (const DrawnPiece& piece : pieces) {
+            OA_CHECK(piece.rect.width > 0 && piece.rect.height > 0);
+            OA_CHECK(kit::wholly_in(piece.rect, marked->rect));
+            if (following != nullptr) {
+                const kit::Rect shared = kit::intersect(piece.rect, following->rect);
+                OA_CHECK(shared.width == 0 || shared.height == 0);
+            }
+            saw_own = saw_own || piece.text.find(own) != std::string::npos;
+            saw_made = saw_made || piece.text.find(made) != std::string::npos;
+            saw_grid = saw_grid || piece.text.find("Grid") != std::string::npos;
+            saw_left = saw_left || piece.text.find("Left hand") != std::string::npos;
+        }
+        OA_CHECK(saw_own && saw_made && saw_grid && saw_left);
+
+        const kit::Control* built_in = fixture::named(list, "library.row.oa-default");
+        const kit::ListRowLook* built_in_look = row_look_named(list, "library.row.oa-default");
+        OA_CHECK(built_in != nullptr && built_in_look != nullptr);
+        if (built_in == nullptr || built_in_look == nullptr)
+            continue;
+        OA_CHECK(count_on_row(*built_in_look, "Built in") == 1);
+        OA_CHECK(built_in_look->chip.has_value() && built_in_look->chip->text == "Built in");
+        OA_CHECK(
+            std::find(built_in_look->aside.begin(), built_in_look->aside.end(), "Built in") ==
+            built_in_look->aside.end()
+        );
+        const kit::Control* built_in_next = next_list_row(list, *built_in);
+        for (const DrawnPiece& piece : drawn_row_pieces(built_in->rect, *built_in_look, fonts())) {
+            OA_CHECK(kit::wholly_in(piece.rect, built_in->rect));
+            if (built_in_next != nullptr) {
+                const kit::Rect shared = kit::intersect(piece.rect, built_in_next->rect);
+                OA_CHECK(shared.width == 0 || shared.height == 0);
+            }
+        }
+    }
+
+    lib::Library mods = fixture::fixture_library();
+    lib::set_tab(mods, lib::Tab::mods);
+    const kit::DisplayList mods_list = laid_out(mods, {}, fixture::frames()[1].frame);
+    const kit::Control* ridge = fixture::named(mods_list, "library.row.fixture-core.ridge");
+    OA_CHECK(ridge != nullptr && ridge->rect.height == package_row_height(kit::SizeClass::regular));
+}
+
 int main() {
     every_frame_holds_its_invariants();
     mutators_tab_holds_its_invariants();
     brains_tab_holds_its_invariants();
     keys_tab_names_its_controls();
+    key_rows_stay_inside_their_height();
     mutator_rows_show_badges_chips_and_icons();
     mutator_actions_rules_and_danger();
     brain_actions_and_full_awareness();
