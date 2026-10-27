@@ -391,6 +391,16 @@ class FontStack {
     [[nodiscard]] bool
     draws(std::string_view text, Weight weight, Family family = Family::sans) const;
 
+    /// Gives the family a line is drawn in, as layout and draw choose it:
+    /// the style's, or the sans family when the line holds a letter beyond
+    /// ASCII its family's face lacks, or that face is not open. A caller
+    /// that draws a line a character at a time draws each in this family.
+    ///
+    /// @param text UTF-8 text
+    /// @param style the style
+    /// @return the family; the sans family for text that is not UTF-8
+    [[nodiscard]] Family line_family(std::string_view text, const Style& style) const;
+
     /// Gives the rows of a line in a style.
     ///
     /// The rows are the greatest ascent and descent of the open base faces

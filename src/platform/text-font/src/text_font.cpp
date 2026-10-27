@@ -711,6 +711,13 @@ bool in_range(const Style& style) noexcept {
 
 } // namespace
 
+Family FontStack::line_family(std::string_view text, const Style& style) const {
+    const auto characters = decode_utf8(text);
+    if (!characters)
+        return Family::sans;
+    return fonts_->line_family(*characters, style);
+}
+
 std::optional<LineMetrics> FontStack::metrics(const Style& style) {
     if (!in_range(style))
         return std::nullopt;

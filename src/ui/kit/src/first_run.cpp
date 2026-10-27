@@ -244,13 +244,17 @@ struct EndonymLine {
 /// @param fonts the modern fonts
 /// @param text the text, in UTF-8
 /// @param pixel_size pixels per em
+/// @param family the faces looked in first: Barlow in the modern look
 /// @return the line
-EndonymLine draw_endonym(text_font::FontStack& fonts, std::string_view text, int32_t pixel_size) {
+EndonymLine draw_endonym(
+    text_font::FontStack& fonts, std::string_view text, int32_t pixel_size, text_font::Family family
+) {
     text_font::Style style;
     style.pixel_size = std::clamp(pixel_size, int32_t{1}, text_font::max_pixel_size);
     style.weight = text_font::Weight::bold;
     style.rendering = text_font::Rendering::antialiased;
     style.least_cjk_pixel_size = style.pixel_size;
+    style.family = family;
     EndonymLine line;
     if (std::optional<text_font::Coverage> coverage = fonts.draw(text, style)) {
         line.coverage = std::move(*coverage);
@@ -263,9 +267,11 @@ EndonymLine draw_endonym(text_font::FontStack& fonts, std::string_view text, int
 ///
 /// @param fonts the modern fonts
 /// @param pixel_size pixels per em
+/// @param family the faces looked in first
 /// @return the rows; a share of the size when the fonts cannot draw it
-int32_t endonym_capitals(text_font::FontStack& fonts, int32_t pixel_size) {
-    const EndonymLine line = draw_endonym(fonts, "H", pixel_size);
+int32_t
+endonym_capitals(text_font::FontStack& fonts, int32_t pixel_size, text_font::Family family) {
+    const EndonymLine line = draw_endonym(fonts, "H", pixel_size, family);
     const text_font::Coverage& drawn = line.coverage;
     if (!line.drawn || drawn.width <= 0)
         return std::max(pixel_size * 7 / 10, int32_t{1});
@@ -328,10 +334,14 @@ void draw_modern_line(
         text_font::max_pixel_size
     );
     const int32_t size = std::clamp(wanted, int32_t{1}, text_font::max_pixel_size);
-    EndonymLine line = draw_endonym(*fonts, text, size);
+    // The modern look draws the name in Barlow Bold, a name in another
+    // alphabet in the faces after it.
+    const text_font::Family family =
+        canvas.fonts != nullptr && modern_look(*canvas.fonts) ? text_font::Family::interface : text_font::Family::sans;
+    EndonymLine line = draw_endonym(*fonts, text, size, family);
     if (!line.drawn)
         return;
-    const int32_t capitals_tall = endonym_capitals(*fonts, size);
+    const int32_t capitals_tall = endonym_capitals(*fonts, size, family);
     const int32_t pen = pixels.x + (pixels.width - line.coverage.advance) / 2;
     // A line the large size cannot fit wraps at the font's own size. The
     // point box is the one the caller laid out.
@@ -693,6 +703,9 @@ int32_t
 smooth_tracked(const Canvas& canvas, FontRole role, std::string_view text, int32_t tracking) {
     if (text.empty() || canvas.smooth.fonts == nullptr)
         return 0;
+    // The modern look measures in points at every scale.
+    if (canvas.fonts != nullptr && modern_look(*canvas.fonts))
+        return tracked_width(*canvas.fonts, role, text, tracking);
     if (tracking == 0)
         return measure_text(canvas, role, text);
     int32_t width = 0;

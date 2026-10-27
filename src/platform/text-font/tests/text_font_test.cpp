@@ -679,6 +679,9 @@ void interface_faces_go_first() {
     // A word in an alphabet Barlow lacks is drawn whole in the sans faces,
     // its digits with it; ideographs leave the Latin letters in Barlow.
     const Style label = family_style(14, Weight::semibold, Family::interface);
+    OA_CHECK(stack->line_family("\xD0\x96\xD0\xB4 1", label) == Family::sans);
+    OA_CHECK(stack->line_family("Ab 1", label) == Family::interface);
+    OA_CHECK(stack->line_family("\xFF", label) == Family::sans);
     const std::vector<Face> cyrillic = faces_of(*stack, "\xD0\x96\xD0\xB4 1", label);
     OA_CHECK(cyrillic.size() == 4);
     OA_CHECK(std::all_of(cyrillic.begin(), cyrillic.end(), [](Face face) {

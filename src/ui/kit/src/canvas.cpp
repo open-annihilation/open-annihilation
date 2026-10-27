@@ -4,7 +4,8 @@
 // The canvas's primitives in both forms: the crisp form through the artless
 // painter at a whole scale in the game's fonts, the smooth form through the
 // painter at any scale in the modern fonts, every edge on a whole pixel; and
-// a coverage map blended at either form's own pixels.
+// a coverage map blended at either form's own pixels. In the modern look
+// both forms draw text in Barlow, laid out at its measure in points.
 
 #include "oa/ui/kit/canvas.hpp"
 
@@ -169,6 +170,81 @@ int32_t capital_rows(text_font::FontStack& fonts, SmoothFace face) {
             if (drawn.alpha[static_cast<std::size_t>(row * drawn.width + column)] >= half_covered)
                 return drawn.baseline - row;
     return 0;
+}
+
+/// Tells whether a canvas's text is in the modern look.
+///
+/// @param canvas the canvas
+/// @return true when its fonts hold the modern look's stack
+bool modern_canvas(const Canvas& canvas) noexcept {
+    return canvas.fonts != nullptr && modern_look(*canvas.fonts);
+}
+
+/// Draws a line of text in the modern look on a smooth canvas in a box:
+/// aligned in points by its measure, its capitals centred on the box's
+/// pixels, each character at its pen in points times the scale.
+///
+/// @param canvas the canvas, smooth, with fonts in the modern look
+/// @param role which font
+/// @param text the text, in UTF-8
+/// @param box the box, in points
+/// @param align where the text sits along the box
+/// @param ink the colour
+/// @param tracking extra points after each character but the last
+void modern_smooth_text(
+    const Canvas& canvas,
+    FontRole role,
+    std::string_view text,
+    const Rect& box,
+    Align align,
+    Colour ink,
+    int32_t tracking
+) {
+    text_font::FontStack& fonts = *canvas.fonts->modern;
+    const ModernType type = modern_type(role, tracking > 0);
+    const int32_t percent = std::max(canvas.smooth.scale_percent, int32_t{1});
+    const ModernLine line = modern_line(fonts, text, type, tracking, percent);
+    int32_t pen_points = box.x;
+    if (align == Align::centre)
+        pen_points = box.x + (box.width - line.width) / 2;
+    else if (align == Align::right)
+        pen_points = box.x + box.width - line.width;
+    const paint::Box pixels = pixels_of(canvas, box);
+    const int32_t pen = pixels_of(canvas, {pen_points, box.y, 0, 0}).x;
+    const int32_t width = to_canvas({0, 0, line.width, 0}, percent).width;
+    const int32_t capitals_tall = modern_capitals(fonts, type, percent);
+    const int32_t baseline = pixels.y + (pixels.height - capitals_tall) / 2 + capitals_tall;
+    int32_t ink_y = pixels.y;
+    int32_t ink_height = pixels.height;
+    if (capitals_tall > 0) {
+        ink_y = baseline - capitals_tall;
+        ink_height = capitals_tall;
+    }
+    if (canvas.smooth.clip && canvas.smooth.clip->empty())
+        note_text_fit(text, width, pixels.x, ink_y, pixels.width, ink_height, pen, 0, 0, -1, 0);
+    else if (canvas.smooth.clip)
+        note_text_fit(
+            text,
+            width,
+            pixels.x,
+            ink_y,
+            pixels.width,
+            ink_height,
+            pen,
+            static_cast<int32_t>(canvas.smooth.clip->x),
+            static_cast<int32_t>(canvas.smooth.clip->y),
+            static_cast<int32_t>(canvas.smooth.clip->width),
+            static_cast<int32_t>(canvas.smooth.clip->height)
+        );
+    else
+        note_text_fit(text, width, pixels.x, ink_y, pixels.width, ink_height, pen);
+    paint::Painter* painter = painter_of(canvas);
+    if (painter == nullptr)
+        return;
+    for (const ModernGlyph& glyph : line.glyphs)
+        paint::paint_line(
+            *painter, paint::TextLine{glyph.coverage, true}, pen + glyph.pen, baseline, rgba_of(ink)
+        );
 }
 
 /// Draws a line of text on a smooth canvas in a box, as box_text says.
@@ -768,8 +844,12 @@ void box_text(
     int32_t tracking
 ) {
     if (is_smooth(canvas)) {
-        if (canvas.smooth.fonts != nullptr && !text.empty())
-            smooth_text(canvas, role, text, box, align, ink, tracking);
+        if (canvas.smooth.fonts != nullptr && !text.empty()) {
+            if (modern_canvas(canvas))
+                modern_smooth_text(canvas, role, text, box, align, ink, tracking);
+            else
+                smooth_text(canvas, role, text, box, align, ink, tracking);
+        }
         return;
     }
     if (canvas.surface == nullptr || canvas.fonts == nullptr)
@@ -783,6 +863,9 @@ int32_t measure_text(const Canvas& canvas, FontRole role, std::string_view text)
     if (is_smooth(canvas)) {
         if (canvas.smooth.fonts == nullptr || text.empty())
             return 0;
+        // The modern look measures in points at every scale.
+        if (modern_canvas(canvas))
+            return text_width(*canvas.fonts, role, text);
         const SmoothFace face = smooth_face(canvas, role);
         const int32_t pixels =
             paint::text_width(*canvas.smooth.fonts, text, face.pixel_size, face.bold);

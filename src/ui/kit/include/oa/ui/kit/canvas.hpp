@@ -14,7 +14,8 @@
 // game's own fonts. The smooth form draws with the painter of
 // oa/ui/paint/painter.hpp at any scale, a fractional one among them, in the
 // modern fonts: every edge of a rectangle falls on a whole pixel, each
-// rounded on its own, and text is drawn at its own size in pixels.
+// rounded on its own, and text is drawn at its own size in pixels. In the
+// modern look (Fonts::modern) both forms draw text in Barlow.
 #pragma once
 
 #include "oa/platform/text_font.hpp"
@@ -51,7 +52,8 @@ struct SmoothCanvas {
 
 /// Where a control is drawn: the crisp form, an artless surface at a whole
 /// scale in the game's fonts, or, while its smooth form has a painter, the
-/// smooth form. Either way the game's fonts lay the screens out.
+/// smooth form. Either way the fonts' own measure lays the screens out: the
+/// game's fonts' in the classic look, Barlow's in points in the modern look.
 struct Canvas {
     /// The crisp form's picture; null draws nothing there.
     oa::ui::frontend_renderer::Surface* surface{};
@@ -231,6 +233,8 @@ void rule_rect(const Canvas& canvas, const Rect& rect, Colour ink);
 /// lround(smooth_text_points * scale) pixels per em, bold as
 /// smooth_text_bold says, its tracking lround(tracking * scale) pixels.
 /// Text wider than the box at that size keeps its size and is recorded.
+/// In the modern look both forms draw it in the role's type
+/// (modern_type), each character at its pen in points times the scale.
 ///
 /// @param canvas where it is drawn
 /// @param role which font
@@ -255,7 +259,8 @@ void box_text(
 /// @param role which font
 /// @param text the text, in UTF-8
 /// @return the width, in points, on the smooth form its pixels at its
-///     size over the scale, rounded up; 0 without fonts
+///     size over the scale, rounded up, and in the modern look its measure
+///     in points (text_width); 0 without fonts
 [[nodiscard]] int32_t measure_text(const Canvas& canvas, FontRole role, std::string_view text);
 
 /// Draws a picture scaled to fill a rectangle, such as the Open Annihilation

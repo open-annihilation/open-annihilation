@@ -236,7 +236,9 @@ Measure measure_in(const Fonts* fonts, FontRole role) {
 /// @param canvas the canvas the dialog is drawn on
 /// @return the measure, in points
 Measure work_line_measure(const Canvas& canvas) {
-    if (canvas.smooth.fonts == nullptr || canvas.smooth.painter == nullptr)
+    // The modern look measures in points at every scale.
+    if (canvas.smooth.fonts == nullptr || canvas.smooth.painter == nullptr ||
+        (canvas.fonts != nullptr && modern_look(*canvas.fonts)))
         return measure_in(canvas.fonts, FontRole::small);
     const int32_t scale = canvas.smooth.scale_percent > 0 ? canvas.smooth.scale_percent : 100;
     const int32_t pixels = std::max(

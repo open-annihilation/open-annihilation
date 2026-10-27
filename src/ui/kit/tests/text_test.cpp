@@ -4,7 +4,8 @@
 // UTF-8 helpers, the estimated width, the stand-in characters, and the one
 // wrap checked against copies of the six wraps it replaces; fit and
 // fitting_start against the Game files screen's copies, path_break against
-// the folder chooser's, and the modern fonts' measure through its hooks.
+// the folder chooser's, the modern fonts' measure through its hooks, and the
+// modern look's Barlow lines.
 
 #include "oa/base/text/line_break.hpp"
 #include "oa/formats/fnt.hpp"
@@ -1038,6 +1039,144 @@ void a_text_wider_than_its_box_or_across_another_is_recorded() {
 #endif
 }
 
+/// The columns of a surface that hold a pixel other than its ground.
+struct InkColumns {
+    int32_t first{};
+    int32_t end{};
+};
+
+InkColumns ink_columns(const oa::ui::frontend_renderer::Surface& surface) {
+    InkColumns ink{static_cast<int32_t>(surface.width), 0};
+    for (uint32_t row = 0; row < surface.height; ++row)
+        for (uint32_t column = 0; column < surface.width; ++column)
+            if (surface.rgb[(static_cast<std::size_t>(row) * surface.width + column) * 3U] != 0) {
+                ink.first = std::min(ink.first, static_cast<int32_t>(column));
+                ink.end = std::max(ink.end, static_cast<int32_t>(column) + 1);
+            }
+    return ink;
+}
+
+/// Checks the modern look: each role's type, Barlow's measure in points at
+/// every scale, a tracked line in Barlow Condensed, the faces after Barlow
+/// for what it lacks, no stand-ins, and a boxed line drawn within its box
+/// at 2x as wide as its measure.
+void the_modern_look_draws_in_barlow() {
+    auto stack = text_font::FontStack::open(text_font::bundled_font_directory());
+    OA_CHECK(stack != nullptr);
+    if (!stack)
+        return;
+    kit::Fonts classic;
+    kit::Fonts modern;
+    modern.modern = stack.get();
+    OA_CHECK(!kit::modern_look(classic));
+    OA_CHECK(kit::modern_look(modern));
+    using text_font::Family;
+    using text_font::Weight;
+    const kit::ModernType label = kit::modern_type(kit::FontRole::regular, false);
+    const kit::ModernType small = kit::modern_type(kit::FontRole::small, false);
+    const kit::ModernType title = kit::modern_type(kit::FontRole::regular, true);
+    const kit::ModernType heading = kit::modern_type(kit::FontRole::small, true);
+    OA_CHECK(label.points == 14 && label.weight == Weight::semibold);
+    OA_CHECK(label.family == Family::interface);
+    OA_CHECK(small.points == 12 && small.weight == Weight::regular);
+    OA_CHECK(small.family == Family::interface);
+    OA_CHECK(title.points == 17 && title.weight == Weight::bold);
+    OA_CHECK(title.family == Family::interface_condensed);
+    OA_CHECK(heading.points == 12 && heading.weight == Weight::semibold);
+    OA_CHECK(heading.family == Family::interface_condensed);
+
+    constexpr std::string_view words = "Restore defaults";
+    const int32_t barlow = kit::text_width(modern, kit::FontRole::regular, words);
+    OA_CHECK(barlow == kit::modern_width(*stack, words, label, 0));
+    OA_CHECK(barlow > 0 && barlow < paint::text_width(*stack, words, 14, true));
+    OA_CHECK(
+        kit::text_width(modern, kit::FontRole::small, words) ==
+        kit::modern_width(*stack, words, small, 0)
+    );
+    // A tracked line takes the condensed type, tracking after each
+    // character but the last.
+    constexpr std::string_view caps = "SETTINGS";
+    OA_CHECK(
+        kit::tracked_width(modern, kit::FontRole::regular, caps, 1) ==
+        kit::modern_width(*stack, caps, title, 0) + 7
+    );
+    OA_CHECK(
+        kit::tracked_width(modern, kit::FontRole::regular, caps, 0) ==
+        kit::text_width(modern, kit::FontRole::regular, caps)
+    );
+    OA_CHECK(
+        kit::modern_tracked_width(modern, kit::FontRole::small, caps, 1, 3) ==
+        kit::tracked_width(modern, kit::FontRole::small, caps, 1)
+    );
+    // Barlow and the faces after it draw the ellipsis and the folder mark.
+    OA_CHECK(kit::with_stand_ins(modern, kit::FontRole::regular, "a…b") == "a…b");
+    const int32_t rows = kit::capitals(modern, kit::FontRole::regular);
+    OA_CHECK(rows == kit::modern_capitals(*stack, label, 100));
+    OA_CHECK(rows >= 9 && rows <= 11);
+    OA_CHECK(kit::modern_capitals(*stack, label, 200) >= 2 * rows - 2);
+
+    // At a scale of 1 without tracking the line is one drawing; at 2x each
+    // character stands at twice its pen, and the measure is the same.
+    const kit::ModernLine once = kit::modern_line(*stack, "Ab", label, 0, 100);
+    OA_CHECK(once.glyphs.size() == 1);
+    const kit::ModernLine twice = kit::modern_line(*stack, "Ab", label, 0, 200);
+    OA_CHECK(twice.glyphs.size() == 2 && twice.width == once.width);
+    if (twice.glyphs.size() == 2)
+        OA_CHECK(twice.glyphs[1].pen == 2 * kit::modern_width(*stack, "A", label, 0));
+    const kit::ModernLine spaced = kit::modern_line(*stack, "Ab", label, 2, 150);
+    if (spaced.glyphs.size() == 2)
+        OA_CHECK(
+            spaced.glyphs[1].pen == (3 * (kit::modern_width(*stack, "A", label, 0) + 2) + 1) / 2
+        );
+    // Cyrillic and Chinese still draw.
+    OA_CHECK(kit::text_width(modern, kit::FontRole::regular, "\xD0\x96\xD0\xB4") > 0);
+    OA_CHECK(kit::modern_line(*stack, "\xD0\x96\xD0\xB4", label, 0, 200).glyphs.size() == 2);
+    OA_CHECK(kit::text_width(modern, kit::FontRole::regular, "\xE4\xB8\xAD") > 0);
+    OA_CHECK(kit::modern_line(*stack, "", label, 0, 200).glyphs.empty());
+
+    // A boxed line at 2x lies inside its box, as wide as its measure twice.
+    oa::ui::frontend_renderer::Surface surface;
+    surface.width = 300;
+    surface.height = 60;
+    surface.rgb.assign(static_cast<std::size_t>(surface.width) * surface.height * 3U, 0);
+    const oa::ui::frontend_renderer::Placement placement{0, 0, 2, {}};
+    const oa::ui::frontend_renderer::SourceRect box{10, 4, 120, 20};
+    kit::draw_boxed_text(
+        surface,
+        placement,
+        modern,
+        kit::FontRole::regular,
+        words,
+        box,
+        kit::Align::left,
+        {255, 255, 255}
+    );
+    const InkColumns ink = ink_columns(surface);
+    OA_CHECK(ink.first >= box.x * 2 && ink.first <= box.x * 2 + 2);
+    OA_CHECK(ink.end <= (box.x + barlow) * 2 + 2 && ink.end >= (box.x + barlow) * 2 - 4);
+    // A clip keeps the ink inside it.
+    surface.rgb.assign(surface.rgb.size(), 0);
+    const oa::ui::frontend_renderer::Placement clipped{0, 0, 2, {10, 0, 30, 30}};
+    kit::draw_boxed_text(
+        surface,
+        clipped,
+        modern,
+        kit::FontRole::regular,
+        words,
+        box,
+        kit::Align::left,
+        {255, 255, 255}
+    );
+    const InkColumns kept = ink_columns(surface);
+    OA_CHECK(kept.first >= 20 && kept.end <= 80 && kept.end > kept.first);
+    // draw_text moves the pen by the measure.
+    OA_CHECK(
+        kit::draw_text(
+            surface, placement, modern, kit::FontRole::small, words, 5, 30, {255, 255, 255}
+        ) == 5 + kit::text_width(modern, kit::FontRole::small, words)
+    );
+}
+
 /// Checks the modern fonts' measure: the hooks when they are set, an estimate when not, and
 /// an empty line measured as nothing without asking the hook.
 void the_measure_uses_its_hooks() {
@@ -1072,5 +1211,6 @@ int main() {
     a_path_breaks_after_a_separator();
     the_measure_uses_its_hooks();
     a_text_wider_than_its_box_or_across_another_is_recorded();
+    the_modern_look_draws_in_barlow();
     return oa::test::check_exit_status();
 }

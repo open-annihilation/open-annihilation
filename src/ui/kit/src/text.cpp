@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The game's two dialog fonts, the modern faces that draw what they lack,
-// and the characters drawn in place of the ones those fonts do not hold.
+// the characters drawn in place of the ones those fonts do not hold, and
+// the modern look's lines in Barlow.
 
 #include "oa/ui/kit/text.hpp"
 
@@ -24,6 +25,103 @@ namespace {
 
 namespace renderer = oa::ui::frontend_renderer;
 namespace present = oa::present;
+namespace text_font = oa::platform::text_font;
+
+/// The most a percent scale is: a point drawn at 64 pixels.
+constexpr int32_t most_scale_percent = 6400;
+
+/// Returns a length in points at a scale in percent, to the nearest pixel.
+///
+/// @param points the length, in points
+/// @param scale_percent pixels a point, in percent
+/// @return the pixels
+int32_t scaled_pixels(int32_t points, int32_t scale_percent) noexcept {
+    const int64_t product = static_cast<int64_t>(points) * scale_percent;
+    // A half away from zero, as the canvas rounds its points.
+    return static_cast<int32_t>(product >= 0 ? (product + 50) / 100 : (product - 50) / 100);
+}
+
+/// Returns the style a modern type is drawn in at a scale.
+///
+/// @param type the type
+/// @param scale_percent pixels a point, in percent
+/// @return the style, antialiased
+text_font::Style modern_style(const ModernType& type, int32_t scale_percent) {
+    text_font::Style style;
+    style.pixel_size = std::clamp(
+        scaled_pixels(type.points, scale_percent), int32_t{1}, text_font::max_pixel_size
+    );
+    style.weight = type.weight;
+    style.family = type.family;
+    style.rendering = text_font::Rendering::antialiased;
+    return style;
+}
+
+/// Lays a modern line's characters into a surface at a whole scale, each
+/// pixel blended with the colour by its coverage, within the placement's
+/// clip.
+///
+/// @param[in,out] target the surface
+/// @param placement where the picture lands, and its clip
+/// @param line the line, drawn at the placement's scale
+/// @param pen the pen's column, in the surface's pixels
+/// @param baseline the baseline's row, in the surface's pixels
+/// @param colour the text's colour
+void lay_modern_line(
+    renderer::Surface& target,
+    const renderer::Placement& placement,
+    const ModernLine& line,
+    int32_t pen,
+    int32_t baseline,
+    std::array<uint8_t, 3> colour
+) {
+    const auto width = static_cast<int32_t>(target.width);
+    const auto height = static_cast<int32_t>(target.height);
+    if (target.rgb.size() < static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3U)
+        return;
+    int32_t clip_left = 0;
+    int32_t clip_top = 0;
+    int32_t clip_right = width;
+    int32_t clip_bottom = height;
+    const int32_t scale = std::max(placement.scale, 1);
+    if (placement.clip.width > 0 && placement.clip.height > 0) {
+        clip_left = std::max(clip_left, placement.x + placement.clip.x * scale);
+        clip_top = std::max(clip_top, placement.y + placement.clip.y * scale);
+        clip_right =
+            std::min(clip_right, placement.x + (placement.clip.x + placement.clip.width) * scale);
+        clip_bottom =
+            std::min(clip_bottom, placement.y + (placement.clip.y + placement.clip.height) * scale);
+    }
+    for (const ModernGlyph& glyph : line.glyphs) {
+        const text_font::Coverage& drawn = glyph.coverage;
+        const int32_t left = pen + glyph.pen - drawn.origin;
+        const int32_t top = baseline - drawn.baseline;
+        for (int32_t row = 0; row < drawn.height; ++row) {
+            const int32_t y = top + row;
+            if (y < clip_top || y >= clip_bottom)
+                continue;
+            for (int32_t column = 0; column < drawn.width; ++column) {
+                const int32_t x = left + column;
+                if (x < clip_left || x >= clip_right)
+                    continue;
+                const uint32_t cover =
+                    drawn.alpha[static_cast<std::size_t>(row * drawn.width + column)];
+                if (cover == 0)
+                    continue;
+                const std::size_t at =
+                    (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) +
+                     static_cast<std::size_t>(x)) *
+                    3U;
+                for (std::size_t channel = 0; channel < 3; ++channel) {
+                    const uint32_t under = target.rgb[at + channel];
+                    const uint32_t over = colour[channel];
+                    target.rgb[at + channel] =
+                        static_cast<uint8_t>((under * (255U - cover) + over * cover + 127U) / 255U);
+                }
+            }
+        }
+    }
+}
 
 /// A font with the characters it draws and the modern face that draws the others.
 struct FaceFont {
@@ -199,7 +297,77 @@ int32_t measured_line(const TextMeasureHooks& hooks, int32_t pixel_size, bool bo
     return static_cast<int32_t>(std::ceil(1.25 * pixel_size));
 }
 
+int32_t modern_width(
+    text_font::FontStack& fonts, std::string_view text, const ModernType& type, int32_t tracking
+) {
+    if (text.empty())
+        return 0;
+    const auto placed = fonts.layout(text, modern_style(type, 100));
+    if (!placed || placed->empty())
+        return 0;
+    const auto gaps = static_cast<int32_t>(placed->size()) - 1;
+    return placed->back().pen + placed->back().advance + tracking * gaps;
+}
+
+ModernLine modern_line(
+    text_font::FontStack& fonts,
+    std::string_view text,
+    const ModernType& type,
+    int32_t tracking,
+    int32_t scale_percent
+) {
+    ModernLine line;
+    if (text.empty())
+        return line;
+    const int32_t percent = std::clamp(scale_percent, int32_t{1}, most_scale_percent);
+    const text_font::Style measured = modern_style(type, 100);
+    const auto placed = fonts.layout(text, measured);
+    if (!placed || placed->empty())
+        return line;
+    const auto gaps = static_cast<int32_t>(placed->size()) - 1;
+    line.width = placed->back().pen + placed->back().advance + tracking * gaps;
+    // At a scale of 1 without tracking the line's own pens are its glyphs'.
+    if (percent == 100 && tracking == 0) {
+        if (auto whole = fonts.draw(text, measured))
+            line.glyphs.push_back({std::move(*whole), 0});
+        return line;
+    }
+    text_font::Style drawn = modern_style(type, percent);
+    // Each character alone is drawn in the family the whole line takes.
+    drawn.family = fonts.line_family(text, measured);
+    line.glyphs.reserve(placed->size());
+    for (std::size_t index = 0; index < placed->size(); ++index) {
+        const text_font::Placement& placement = (*placed)[index];
+        std::string character;
+        present::append_utf8(character, placement.character);
+        auto coverage = fonts.draw(character, drawn);
+        if (!coverage)
+            continue;
+        const int32_t pen = placement.pen + tracking * static_cast<int32_t>(index);
+        line.glyphs.push_back({std::move(*coverage), scaled_pixels(pen, percent)});
+    }
+    return line;
+}
+
+int32_t
+modern_capitals(text_font::FontStack& fonts, const ModernType& type, int32_t scale_percent) {
+    const auto drawn = fonts.draw(
+        "H", modern_style(type, std::clamp(scale_percent, int32_t{1}, most_scale_percent))
+    );
+    if (!drawn || drawn->width <= 0)
+        return 0;
+    constexpr uint8_t half_covered = 128;
+    for (int32_t row = 0; row < drawn->height && row < drawn->baseline; ++row)
+        for (int32_t column = 0; column < drawn->width; ++column)
+            if (drawn->alpha[static_cast<std::size_t>(row * drawn->width + column)] >= half_covered)
+                return drawn->baseline - row;
+    return 0;
+}
+
 std::string with_stand_ins(const Fonts& fonts, FontRole role, std::string_view text) {
+    // Barlow and the faces after it draw these characters themselves.
+    if (modern_look(fonts))
+        return std::string(text);
     const FaceFont font = face_of(fonts, role);
     std::string shown(text);
     // A line the modern fonts draw whole draws these characters itself.
@@ -216,6 +384,8 @@ std::string with_stand_ins(const Fonts& fonts, FontRole role, std::string_view t
 }
 
 int32_t text_width(const Fonts& fonts, FontRole role, std::string_view text) {
+    if (modern_look(fonts))
+        return modern_width(*fonts.modern, text, modern_type(role, false), 0);
     const std::string drawn = with_stand_ins(fonts, role, text);
     return width_of(face_of(fonts, role), drawn);
 }
@@ -223,6 +393,8 @@ int32_t text_width(const Fonts& fonts, FontRole role, std::string_view text) {
 int32_t tracked_width(const Fonts& fonts, FontRole role, std::string_view text, int32_t tracking) {
     if (text.empty())
         return 0;
+    if (modern_look(fonts))
+        return modern_width(*fonts.modern, text, modern_type(role, tracking > 0), tracking);
     int32_t characters = 0;
     for (std::size_t at = 0; at < text.size();) {
         const std::size_t bytes = character_bytes(text.substr(at));
@@ -237,6 +409,8 @@ int32_t tracked_width(const Fonts& fonts, FontRole role, std::string_view text, 
 int32_t modern_tracked_width(
     const Fonts& fonts, FontRole role, std::string_view text, int32_t tracking, int32_t scale
 ) {
+    if (modern_look(fonts))
+        return tracked_width(fonts, role, text, tracking);
     const FaceFont font = face_of(fonts, role);
     const int32_t used = std::max(scale, 1);
     int32_t width = 0;
@@ -256,6 +430,8 @@ int32_t modern_tracked_width(
 }
 
 int32_t capitals(const Fonts& fonts, FontRole role) {
+    if (modern_look(fonts))
+        return modern_capitals(*fonts.modern, modern_type(role, false), 100);
     const FaceFont font = face_of(fonts, role);
     if (!font.modern_only)
         return font.font.font.nominal_height;
@@ -280,6 +456,25 @@ int32_t draw_text(
     int32_t pen_row,
     std::array<uint8_t, 3> colour
 ) {
+    if (modern_look(fonts)) {
+        const ModernType type = modern_type(role, false);
+        const int32_t scale = placement.scale;
+        const ModernLine line = modern_line(*fonts.modern, text, type, 0, std::max(scale, 1) * 100);
+        if (scale >= 1) {
+            // A game font's capitals stand on the row under its nominal
+            // height; the modern line's stand there too.
+            const int32_t baseline = pen_row + 1 + modern_capitals(*fonts.modern, type, 100);
+            lay_modern_line(
+                target,
+                placement,
+                line,
+                placement.x + pen * scale,
+                placement.y + baseline * scale,
+                colour
+            );
+        }
+        return pen + line.width;
+    }
     const FaceFont font = face_of(fonts, role);
     if (!font.modern_only && plain_ascii(text))
         return renderer::draw_text(target, placement, font.font, text, pen, pen_row, colour);
@@ -355,10 +550,13 @@ void draw_boxed_text(
         pen = box.x + (box.width - width) / 2;
     else if (align == Align::right)
         pen = box.x + box.width - width;
+    // The modern look's line takes the tracked type when it has tracking.
+    const ModernType type = modern_type(role, tracking > 0);
     // A game font's capitals start one row under the pen row. The ink is that
     // band, not the whole line box: a title's box and the line under it share
     // two rows, and their glyphs meet at the edge.
-    const int32_t capital_rows = capitals(fonts, role);
+    const int32_t capital_rows =
+        modern_look(fonts) ? modern_capitals(*fonts.modern, type, 100) : capitals(fonts, role);
     const int32_t pen_row = box.y + (box.height - capital_rows) / 2 - 1;
     int32_t ink_y = box.y;
     int32_t ink_height = box.height;
@@ -391,6 +589,21 @@ void draw_boxed_text(
         );
     else
         note_text_fit(shown, width, note_x, note_y, box.width, ink_height, note_pen);
+    if (modern_look(fonts)) {
+        const int32_t scale = placement.scale;
+        if (scale < 1)
+            return;
+        const ModernLine line = modern_line(*fonts.modern, shown, type, tracking, scale * 100);
+        lay_modern_line(
+            target,
+            placement,
+            line,
+            placement.x + pen * scale,
+            placement.y + (pen_row + 1 + capital_rows) * scale,
+            colour
+        );
+        return;
+    }
     if (tracking == 0) {
         draw_text(target, placement, fonts, role, shown, pen, pen_row, colour);
         return;
