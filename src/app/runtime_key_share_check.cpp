@@ -3,8 +3,11 @@
 
 // --check-key-share: sharing a layout, pasting text, importing one key from
 // an older settings file, and installing a dropped .oakeys. With --snapshot
-// it writes key-share-<w>x<h>.ppm, key-paste-<w>x<h>.ppm and
-// key-import-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080.
+// it writes key-share-<w>x<h>.ppm, key-paste-<w>x<h>.ppm,
+// key-import-<w>x<h>.ppm, and the install question's key-install-<w>x<h>.ppm
+// and its refusal's key-install-refused-<w>x<h>.ppm, at 640x480, 1280x720
+// and 1920x1080. The check shows the install question, which a run nobody
+// watches otherwise skips.
 
 #include "mod_install_state.hpp"
 #include "oa_layer.hpp"
@@ -585,6 +588,21 @@ void Runtime::check_key_share() {
         drop.drop.data = dropped.c_str();
         require(SDL_PushEvent(&drop), "the drop could not be sent");
     };
+    // The question that is up, pictured at every size, then back at the
+    // large window, where the steps answer it.
+    const auto snapshot_question = [&](std::string_view stem) {
+        if (options_.snapshot.empty())
+            return;
+        for (const CheckWindow& window : kWindows) {
+            resize(window);
+            frames(1);
+            require(state.prompt != nullptr, "the question closed while it was pictured");
+            snapshot(stem, window);
+        }
+        resize(kLarge);
+        frames(1);
+        require(state.prompt != nullptr, "the question closed after it was pictured");
+    };
     const auto dismiss = [&] {
         key_event(SDL_EVENT_KEY_DOWN, SDLK_RETURN, SDL_KMOD_NONE);
         key_event(SDL_EVENT_KEY_UP, SDLK_RETURN, SDL_KMOD_NONE);
@@ -611,6 +629,7 @@ void Runtime::check_key_share() {
         "INSTALL was offered for a layout with an error"
     );
     require(!fs::exists(user_folder_ / "Keys" / "ridge-bad"), "the bad layout was installed");
+    snapshot_question("key-install-refused");
     dismiss();
 
     note("a good layout installs and the chosen layout stays");
@@ -626,6 +645,7 @@ void Runtime::check_key_share() {
             state.answers.end(),
         "INSTALL is not offered"
     );
+    snapshot_question("key-install");
     // The install names each button by the answer it gives (alongside), not by
     // its place, so the control is prompt.alongside.
     frames(1);
