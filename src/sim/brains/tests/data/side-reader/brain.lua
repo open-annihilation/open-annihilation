@@ -25,6 +25,8 @@ function read_all()
     local _metal_produced = me.metal_produced
     local _energy_requested = me.energy_requested
     local _metal_requested = me.metal_requested
+    local _energy_spent = me.energy_spent
+    local _metal_spent = me.metal_spent
     local _energy_surplus = me.energy_surplus
     local _metal_surplus = me.metal_surplus
     local _tick = me.tick

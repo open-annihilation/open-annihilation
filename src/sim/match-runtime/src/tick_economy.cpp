@@ -5,6 +5,8 @@
 
 #include "oa/sim/ai.hpp"
 
+#include <array>
+#include <cstddef>
 #include <memory>
 
 namespace oa::sim::match_runtime {
@@ -55,6 +57,37 @@ void settle_economy_block(oa::UnitEconomy& block, const std::array<float, 10>& r
             words[first + i] = std::bit_cast<uint32_t>(values[i]);
     }
     store_economy_words(block, words);
+}
+
+// Records what one settlement paid out (Match::settled_spending), energy
+// then metal. `stores_at_entry` is each store as the settlement began,
+// `stores_pooled` as it went into the pool after the cloaks were paid, and
+// `pool_paid` what the pool then paid toward the gated and accepted requests.
+// Between two settlements a store only falls, by what was paid at once
+// (shots, cloaks, gifts); a store that rose was set from outside the economy
+// and paid nothing. A settlement with no stores left before it counts only
+// the cloaks it paid itself.
+void note_spending(
+    SettledSpending& spending,
+    const oa::Player& player,
+    const std::array<float, 2>& stores_at_entry,
+    const std::array<float, 2>& stores_pooled,
+    const std::array<float, 2>& pool_paid
+) noexcept {
+    const std::array<float, 2> stores_since{
+        spending.stores_left_known ? spending.energy_left : stores_at_entry[0],
+        spending.stores_left_known ? spending.metal_left : stores_at_entry[1]
+    };
+    const auto paid_at_once = [&](size_t which_store) {
+        return stores_since[which_store] > stores_pooled[which_store]
+                   ? stores_since[which_store] - stores_pooled[which_store]
+                   : 0.0F;
+    };
+    spending.energy = paid_at_once(0) + pool_paid[0];
+    spending.metal = paid_at_once(1) + pool_paid[1];
+    spending.energy_left = player.energy;
+    spending.metal_left = player.metal;
+    spending.stores_left_known = true;
 }
 } // namespace
 
@@ -115,6 +148,8 @@ void Match::update_player_economy(size_t player_index) {
             );
     };
     const bool cloak_after_build = rules().units.init_cloaked_after_build.enabled;
+    // For settled_spending only; the settlement never reads it.
+    const std::array<float, 2> stores_at_entry{player.energy, player.metal};
 
     player.metal_storage = 0.0F;
     player.energy_storage = 0.0F;
@@ -246,6 +281,9 @@ void Match::update_player_economy(size_t player_index) {
 
     totals[4] = energy_produced + player.energy;
     totals[5] = totals[7] + player.metal;
+    // For settled_spending only: the stores pooled, and what the pool pays.
+    const std::array<float, 2> stores_pooled{player.energy, player.metal};
+    std::array<float, 2> pool_paid{};
 
     // Supply covers the gated requests first; the stock ratio then covers the
     // accepted requests from what is left.
@@ -260,6 +298,7 @@ void Match::update_player_economy(size_t player_index) {
         }
         totals[8 + resource] = supply;
         pool -= taken;
+        pool_paid[resource] = taken;
         const auto accepted = totals[resource];
         float stock = 1.0F;
         taken = accepted;
@@ -269,6 +308,7 @@ void Match::update_player_economy(size_t player_index) {
         }
         totals[6 + resource] = stock;
         totals[4 + resource] = pool - taken;
+        pool_paid[resource] += taken;
     }
 
     player.energy = totals[4];
@@ -285,6 +325,10 @@ void Match::update_player_economy(size_t player_index) {
         );
         player.metal = player.metal_storage;
     }
+    if (player_index < settled_spending_.size())
+        note_spending(
+            settled_spending_[player_index], player, stores_at_entry, stores_pooled, pool_paid
+        );
 
     for (auto index = first; player.first_unit != 0 && index <= last; ++index) {
         auto& unit = match_unit(*this, index);
