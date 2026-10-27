@@ -4556,6 +4556,17 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-air-pads PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # Gunships past the map's edge: at View past the map's edge 50% a
+        # click where one is drawn selects it, and a box dragged from past
+        # the edge selects them with the aircraft near it on the map; at Off
+        # the view stays on the map and the box selects those on it alone.
+        # The simulation is the same in every run.
+        add_test(NAME native-off-map-selection COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_off_map_selection.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-off-map-selection PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # A commander far faster than any stock unit (42 pixels a tick, as
         # seven stacked commander mutators leave it) arrives where it is
         # sent, east, in five other directions and round a wall, without

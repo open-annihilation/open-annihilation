@@ -2902,12 +2902,22 @@ prompts, Settings › Updates and the headers name one state with one size.
   selection, `interface left` or `interface right` sets the interface type,
   `arm COMMAND` arms an order button's command (`none`, `move`, `attack`,
   `patrol`, `guard`, `repair`, `reclaim`, `capture`, `load` or `unload`),
-  `hover GROUP` centres the view on the group's first live unit and moves
-  the pointer onto it, printing `stage: hover GROUP: unit N under the
+  `hover GROUP` centres the view on the group's first live unit, as far as
+  the view's limits let it go, past the map's edges too, and moves the
+  pointer onto it, printing `stage: hover GROUP: unit N under the
   pointer, cursor NAME` with the unit the pointer picked and the cursor's
   CURSORS.GAF sequence, and `press left` or `press right` presses and lets
   go of that button there, printing `stage: press BUTTON: ORDER` with the
   order the press gave (`-` for none); `native-air-pads` uses them.
+  `drag X0 Z0 X1 Z1` holds the select button from the point of the
+  battlefield that shows map pixel X0, Z0 at height 0 to the one that shows
+  X1, Z1, past the map's edges too, and lets go there, as the player drags a
+  box; a point out of view is held a pixel inside the battlefield's edges,
+  and the same point twice is a click there. It prints
+  `stage: drag X0,Z0 to X1,Z1: RESULT` with what the box or the click did
+  (`2 selected`, `No units`, the unit a click selected, `-` for nothing);
+  with `--snapshot` the frame with the box still held is written beside it
+  as `-drag`. `native-off-map-selection` uses it.
   `at TICK` before any action keeps its line for that match tick, and the line
   runs before the tick does (`run_due_stage_lines`, from every step of the
   match), the lines of a tick in the order the file gives them; each tick
