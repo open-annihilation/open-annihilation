@@ -590,29 +590,35 @@ void blend_round(
     int32_t radius,
     int32_t hole_px,
     Colour ink,
-    bool corners = false
+    bool corners = false,
+    uint32_t opacity = 256
 ) {
     const Point size = covered_pixels(canvas, rect);
     if (size.x <= 0 || size.y <= 0)
         return;
-    if (size.x > kMostRoundedPixels || size.y > kMostRoundedPixels) {
-        if (hole_px > 0)
-            outline_rect(canvas, rect, ink);
-        else
-            fill_rect(canvas, rect, ink);
-        return;
-    }
-    const int32_t radius_px = round_radius_px(canvas, rect, radius);
+    const int32_t radius_px = size.x > kMostRoundedPixels || size.y > kMostRoundedPixels
+                                  ? 0
+                                  : round_radius_px(canvas, rect, radius);
     if (radius_px <= 0) {
         if (hole_px > 0)
             outline_rect(canvas, rect, ink);
+        else if (opacity < 256)
+            blend_rect(canvas, rect, ink, opacity);
         else
             fill_rect(canvas, rect, ink);
         return;
     }
     const std::vector<uint8_t>& coverage =
         kept_capsule_coverage(size.x, size.y, radius_px, hole_px, round_stepped(canvas), corners);
-    blend_coverage(canvas, rect, coverage, ink);
+    if (opacity >= 256) {
+        blend_coverage(canvas, rect, coverage, ink);
+        return;
+    }
+    // Each pixel's share, times the opacity.
+    std::vector<uint8_t> shared(coverage.size());
+    for (std::size_t at = 0; at < coverage.size(); ++at)
+        shared[at] = static_cast<uint8_t>((coverage[at] * opacity + 128U) / 256U);
+    blend_coverage(canvas, rect, shared, ink);
 }
 
 } // namespace
@@ -629,8 +635,43 @@ void fill_corner_rect(const Canvas& canvas, const Rect& rect, int32_t radius, Co
     blend_round(canvas, rect, radius, 0, ink, true);
 }
 
+void blend_corner_rect(
+    const Canvas& canvas, const Rect& rect, int32_t radius, Colour ink, uint32_t opacity
+) {
+    if (opacity == 0)
+        return;
+    blend_round(canvas, rect, radius, 0, ink, true, std::min(opacity, 256U));
+}
+
 void outline_corner_rect(const Canvas& canvas, const Rect& rect, int32_t radius, Colour ink) {
     blend_round(canvas, rect, radius, round_outline_px(canvas), ink, true);
+}
+
+void ring_corner_rect(
+    const Canvas& canvas, const Rect& rect, int32_t radius, int32_t thickness, Colour ink
+) {
+    if (thickness <= 0 || rect.width <= 0 || rect.height <= 0)
+        return;
+    if (2 * thickness >= rect.width || 2 * thickness >= rect.height) {
+        fill_corner_rect(canvas, rect, radius, ink);
+        return;
+    }
+    const Point size = covered_pixels(canvas, rect);
+    if (radius <= 0 || size.x > kMostRoundedPixels || size.y > kMostRoundedPixels) {
+        // Square: four sides, the top and bottom across the whole width.
+        fill_rect(canvas, {rect.x, rect.y, rect.width, thickness}, ink);
+        fill_rect(canvas, {rect.x, rect.y + rect.height - thickness, rect.width, thickness}, ink);
+        const int32_t side = rect.height - 2 * thickness;
+        fill_rect(canvas, {rect.x, rect.y + thickness, thickness, side}, ink);
+        fill_rect(
+            canvas, {rect.x + rect.width - thickness, rect.y + thickness, thickness, side}, ink
+        );
+        return;
+    }
+    const int32_t hole_px = is_smooth(canvas)
+                                ? pixel_length(canvas, thickness)
+                                : thickness * std::max(canvas.placement.scale, int32_t{1});
+    blend_round(canvas, rect, radius, hole_px, ink, true);
 }
 
 void rule_rect(const Canvas& canvas, const Rect& rect, Colour ink) {

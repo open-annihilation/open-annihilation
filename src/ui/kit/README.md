@@ -22,19 +22,49 @@ declared stable (D31): its headers change whenever a screen needs them to
 Every header below is public, and each is part of the extension table's
 contract from version 15 (`src/app/include/oa/app/extension.hpp`).
 
-- `theme.hpp`: the colour tokens (the settings dialog, the Game files screen
-  and the folder chooser, the touch controls) and the metrics of the three
-  size classes: `compact_metrics`, 0.7.3's, and `regular_metrics` and
-  `large_metrics`, which give the settings dialog, its notices and its
-  prompts more room (their sizes, the padding, the nav list's width and the
-  characters a host's line under a row holds) and keep every other size.
-  The Game files screen's and the folder chooser's tokens (`screen_colour`)
-  are one family with the dialog's. Three that nearly matched the dialog's
-  are now the dialog's: `text` is `colour::text` (e7e8df, was e8eae4),
-  `line` is `colour::control_border` (3a4034, was 3a4037) and `amber` is
-  `colour::lock` (e0b04f, was e8b44c). `background`, `green`, `ink` and
-  `button_text` were the dialog's already; `panel` (232721), `dim` (9aa094)
-  and `red` (e06c5c, the kit's `colour::danger`) are the screens' own.
+- `theme.hpp`: Kit 2's tokens and scales, and the metrics of the three
+  size classes worked out from them.
+  - The colours (`colour`): a ramp of five surfaces, the bars and wells
+    (`band`, s0 121410), panels and lists (`list`, s1 171a15), raised
+    surfaces such as the dialog and cards (`panel`, s2 1d2119), hover
+    (`hover`, s3 252a21) and selected (`list_selected`, s4 2c3227); the
+    rule, the control border and the strong edge (`strong_edge`, 4f5747);
+    three text tones, primary (`text`, e7e8df), secondary
+    (`text_secondary`, b9bfae) and tertiary (`text_tertiary`, 959c8b,
+    which `hint` and `quiet` are); the lime accent with its light (the
+    focus ring, `focus`) and held tones and its dark ink; caution
+    (`lock`, e0b04f), the lifted red (`danger`, e8806f), the information
+    blue (`information`, 7db3de, which `online` is) and the brand gold
+    (`brand_light`, `brand`, `brand_shade`), worn only by the OA mark; the
+    tinted fills of badges and chips (`ok_tint`, `caution_tint`,
+    `danger_tint`, `information_tint`, `brand_tint`: each colour laid over
+    the raised surface at `badge_tint`, 16 percent, by `mixed`) and a
+    focused field's soft ring (`field_ring`); and the keys' category tints,
+    kept. The Game files screen's and the folder chooser's tokens
+    (`screen_colour`) are the dialog's: the raised surface behind, the
+    hover surface for cards, and the dialog's text, line, lime, amber, red
+    and ink. The touch controls keep their own (`hud_colour`).
+  - The type scale (`TextLevel`: title, label, body and small) and its
+    sizes in each class (`Metrics::title_size` and the rest,
+    `text_size`): the modern look draws a level at its class's size; the
+    classic look, the game's bitmap fonts at their two sizes, draws a
+    title and a label in the regular font and body and small text in the
+    small one (`classic_font`, in `text.hpp`).
+  - The spacing scale: a base of 4, 6 and 8 points (`space`), the padding
+    three of it, rows a space and a half apart (`row_gap`) and sections
+    three apart (`section_gap`).
+  - The radii: keycaps, controls, cards, windows and dialogs, each class's
+    own (`keycap_radius` to `dialog_radius`); `control_radius_for` gives a
+    control's from its height and `keycap_radius_for` a keycap's.
+  - `compact_metrics`, `regular_metrics` and `large_metrics`: each class's
+    steps on the scales (`ClassScale`, `scaled`), its controls (buttons
+    28, 34 and 38 points high, list rows 36, 40 and 44, text fields 30, 36
+    and 40, filter chips 24, 26 and 28, tab strips 32, 38 and 44), and the
+    settings dialog's, its notices' and its prompts' sizes. The header (36)
+    and the footer (48) are the same in every class and hold every
+    class's buttons; the sizes the scales do not touch, such as the game
+    font's lines, the slider and the drop-down's items, are the same in
+    every class too.
 - `text.hpp`: the game's two text faces, their width, drawing a line and a
   boxed line, and the one wrap; `fitting_start`, where the wrap breaks a word
   wider than a line; `path_break`, a `WordBreak` that breaks a folder's path
@@ -128,7 +158,7 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   kept for the thread, grown and never replaced, and a drawing that is
   already using it draws nothing if it asks for the buffer again.
 - `components.hpp`: the controls, drawn through the canvas's primitives on
-  either form. One button, six looks. `draw_state_icon` draws a state
+  either form. One button, six looks, every one rounded. `draw_state_icon` draws a state
   icon, filling a square of a rectangle's shorter side. A circled check,
   a circled up-arrow, a download arrow and a key are one colour: their
   rings and strokes, from a design of 24 units (the ring 2 units wide, its
@@ -175,9 +205,11 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
     its short form (`short_list_row_height`, the Mods row's), with a badge
     picture, letters or a blank badge, a title and its byline, lines cut
     with "...", an aside, a chip and tags;
-  - chips in seven states: get, installed, update, playing, online, a
-    problem and a filter, each selectable, hovered and disabled, and
-    `chip_width`. A chip with a state icon (`ChipLook::icon`) draws only
+  - chips in seven states, each a pill: get (outlined), installed, update,
+    online and a problem (their colour's tinted fill under words in that
+    colour), playing (the accent filled) and a filter (outlined, on the
+    selected surface with the accent's edge while it is on), each
+    selectable, hovered and disabled, and `chip_width`. A chip with a state icon (`ChipLook::icon`) draws only
     the icon, `state_icon_side` (14) points square, in its state's colour
     (the hint for get, the accent for installed and playing, the lock
     colour for update), in `control_hover`'s grey while disabled, on the
@@ -191,18 +223,17 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
     `add_pill`): a small-font word on a fully rounded ground
     `chip_height` (12) points high. The word keeps `chip_padding` (4 points
     at 1x) clear of each semicircle, and an empty pill stays a circle.
-    Playing and active fill the accent and
-    write `on_accent`; neutral and inactive fill a muted ground
-    (`control_hover`) and write the text colour, for "Built in" and for a
-    filter that is off; installed, update and problem fill that same muted
-    ground and outline the word in the colour the chip of that state uses.
-    Hover lightens an accent ground and outlines a muted one; focus
-    outlines the pill in the text colour; disabled is the muted ground
-    under the idle colour and ignores hover and focus. The ends are
-    stepped at 1x on the crisp form and smooth at 150%. A tag icon at the
-    left adds the same square and gap as the state icon at the right, and
-    a pill with neither is unchanged. A chip stays a
-    rectangle;
+    A pill is a status badge. Playing and active fill the accent and
+    write `on_accent`; neutral and inactive fill the selected surface and
+    write the secondary text, for "Built in" and for a filter that is off;
+    installed, update, problem, information and brand fill their colour's
+    tint and write in that colour. Hover lightens an accent ground and
+    outlines any other in the hovered border's grey; focus is the focus
+    ring round the pill; disabled is the hover surface under the idle
+    colour and ignores hover and focus. The ends are stepped at 1x on the
+    crisp form and smooth at 150%. A tag icon at the left adds the same
+    square and gap as the state icon at the right, and a pill with neither
+    is unchanged;
   - a text field, and with the magnifier the search field, its text moved
     so its caret shows;
   - tabs with a count, `tab_rects`;
@@ -404,9 +435,8 @@ only the primitives know the form.
 
 - The crisp form, a canvas with a `surface`, draws with the artless painter
   at a whole scale (`placement.scale`) in the game's own fonts, the modern
-  faces drawing only the characters they lack. It is the 0.7.3 look, pixel
-  for pixel at every whole scale, and the OA layer draws with it at 100%,
-  200%, 300% and 400%.
+  faces drawing only the characters they lack: the classic look. The OA
+  layer draws with it at 100%, 200%, 300% and 400%.
 - The smooth form, a canvas whose `smooth` has a painter, draws with the
   painter of `oa/ui/paint` into an RGBA canvas at a scale in percent
   (`SmoothCanvas::scale_percent`), in the bundled modern fonts
@@ -458,10 +488,11 @@ takes ([docs/extensions/ui-kit.md](../../../docs/extensions/ui-kit.md#the-galler
   the spotlight under it; a picture well; a call to action; and a step
   indicator), Window chrome (an OA window over a darkened screen, its
   header saying `v1.2.3`, never the build's version), Tabs, Buttons (the
-  five looks, a link), Toggle, Level strip, Drop-down (one shown open with
+  six looks, a link), Toggle, Level strip, Drop-down (one shown open with
   an aside), Slider, Search field (and a plain text field), Chips (every
-  state), Pills (playing, neutral, installed, update and problem, each a
-  word on a rounded ground and none taking a press), Progress, Nav list,
+  state), Pills (playing, neutral, installed, update, problem, information
+  and brand, each a word on a rounded ground and none taking a press),
+  Progress (waiting, part done, paused and done), Nav list,
   List rows, Scroll list, Card grid, Hover card,
   Section, label and hint, Lock, Notice, Question, OA mark (the OA
   button with and without its dot, the mark alone, the icon and every
@@ -534,21 +565,37 @@ the carousel slides flat and the call to action holds a steady ring.
 
 ## Invariants
 
-- Compact is 0.7.3's pixels. At Compact, on the crisp form at 1x, the
-  settings dialog, its notices and prompts and the OA button draw exactly
-  the pixels 0.7.3 draws: `ui-engine-settings-pixels` and
-  `ui-engine-settings-pixels-data` hold their hashes in fixed states to
-  `src/ui/engine-settings/tests/pixels.txt`, which changes only when a
-  change to their look is accepted.
-- Compact metrics are 0.7.3's exactly, for the controls 0.7.3 has. Regular
-  and Large metrics differ from them only in the sizes the design's table
-  gives the classes, and in the first-run language card and the carousel's
-  step; rows, text and the other controls keep Compact's sizes, so a
-  larger class shows more rows instead of growing them.
+- Kit 2's look: every OA screen draws through the kit's tokens, so a token
+  changes every screen at once. On the crisp form at 1x at Compact, the
+  settings dialog, its notices and prompts and the OA button draw the
+  pixels `ui-engine-settings-pixels` and `ui-engine-settings-pixels-data`
+  hold in fixed states in `src/ui/engine-settings/tests/pixels.txt`, which
+  changes only when a change to their look is accepted.
+- Each class's metrics are its steps on the scales and what follows from
+  them, and the settings dialog's, its notices' and its prompts' sizes the
+  design's table gives the class; every other size is the same in every
+  class (`ui-kit-theme`).
+- One focus ring: focus_ring (2) points of the light accent, focus_inset
+  (2) points clear of its control, its corners rounded as the control's
+  are and that much rounder; a control drawn with the ring on its own
+  edge (a nav entry, an open menu's item, a keycap) keeps the ring inside
+  it.
+- Shapes: buttons, fields, drop-downs, level strips, list rows, nav
+  entries and the focus ring take the control radius of their height;
+  cards and hover cards the card radius; chips, pills, switches, the
+  slider and the progress bar are pills; keycaps keep their darker bottom
+  edge under rounded corners. A window keeps its square edge: what lies
+  round a rounded window's corners is the layer's to draw, not the
+  window's. A switch is a pill track, switch_width by switch_height held
+  to its area and at the area's right (`switch_track`), with a round knob
+  two points in: lime with the knob at the right in the dark ink while
+  On, the selected surface with the knob at the left while Off. Its Off
+  and On words name its halves to automation and are not drawn.
 - Every token's value is pinned by `ui-kit-theme`.
 - One wrap. Its rules are the only differences between its callers.
-- The kit never looks text up in the interface catalogue. Callers pass what
-  to show. A button's caption, a switch's OFF and ON, a strip's captions, a
+- The kit never looks text up in the interface catalogue, and it forces no
+  case on a word: callers pass what to show, and the words decide whether
+  a caption is in capitals. A button's caption, a switch's Off and On, a strip's captions, a
   menu's items, a header's words, a nav entry, a row's label and hints, a
   chip's, a tab's, a card's, a hover card's and a link's words arrive
   already looked up. A text field holds the player's own text. A notice's
@@ -556,22 +603,28 @@ the carousel slides flat and the call to action holds a steady ring.
   when one is handed: the notice wraps the words it was given and shows
   each line as the look-up returns it, as the settings dialog's notice
   always has. A question's texts are drawn as given.
-- The new controls use only kit tokens, and their sizes are
-  `compact_metrics` members. The design's components mockup is drawn in web
-  colours; the kit draws them so:
+- The controls use only kit tokens, and their sizes are `Metrics`
+  members. Kit 2's design is drawn in web colours; the kit draws them so:
 
-  | Mockup | Kit token |
+  | Design | Kit token |
   |---|---|
+  | s0, bars and wells | `colour::band`, `colour::well` |
+  | s1, panels and lists | `colour::list` |
+  | s2, cards and dialogs | `colour::panel` |
+  | s3, hover | `colour::hover` |
+  | s4, selected, tracks, off | `colour::list_selected`, `colour::off_selected` |
   | lime | `colour::accent` |
+  | lime light, the focus ring | `colour::accent_light`, `colour::focus` |
   | lime ink | `colour::on_accent` |
   | amber | `colour::lock` |
-  | red | `colour::danger` (e06c5c, the Game files screen's red) |
-  | blue | `colour::online` (6ea8d6) |
-  | dim | `colour::hint` |
+  | red | `colour::danger` (e8806f) |
+  | blue | `colour::information` (7db3de), which `colour::online` is |
+  | brand gold | `colour::brand_light`, `colour::brand`, `colour::brand_shade` |
+  | primary, secondary, tertiary text | `colour::text`, `colour::text_secondary`, `colour::text_tertiary` |
   | line | `colour::control_border` |
   | line2 | `colour::control_hover` |
-  | field | `colour::well` |
-  | panel2 | `colour::list_selected` |
+  | strong edge | `colour::strong_edge` |
+  | a badge's tinted fill | `colour::ok_tint` and the other tints |
   | the hover card's ground | `colour::band` |
   | a selected row's tint | `colour::accent` blended at `selected_tint` (15/256) over the face |
 
@@ -587,7 +640,8 @@ the carousel slides flat and the call to action holds a steady ring.
   `hover_card_delay_ms`. The timer is the screen's: the kit keeps none.
 - A notice and a question place their parts from the Compact metrics, but
   for their width and greatest height, which are their size class's: their
-  text wraps at the wider width, and their buttons keep their sizes. A
+  text wraps at the wider width, and their buttons keep Compact's control
+  height, 28 points. A
   question's button is as wide as its caption and the padding, the caption
   counted at the wider of the estimated width and the small font's
   measure: a caption the fonts draw wider than the estimate, as the modern
@@ -599,15 +653,21 @@ the carousel slides flat and the call to action holds a steady ring.
   events hit and reach through `hit` and `reach` over the same controls
   their display lists hold: a notice's OK before its open button, a
   question's buttons left to right.
-- One button, six looks: accent, plain, quiet, inset, filled, and plain
-  while disabled. Filled is a deep green face (`colour::filled`, 3e5218,
+- One button, six looks, and the disabled look: accent, the primary
+  button, lime under the dark ink; plain, the secondary button, the hover
+  surface inside the strong edge, the selected surface under the pointer;
+  quiet, a lime caption alone at rest and the hover surface under the
+  pointer; inset, the list's face; danger, outlined and written in the
+  red, its tint under the pointer; and filled. A button that is not
+  enabled draws no face, the control border and the idle caption. Every
+  look but filled has the control radius of its height
+  (`control_radius_for`). Filled is a deep green face (`colour::filled`, 3e5218,
   7:1 against the white text; `filled_light` under the pointer and
   `filled_held` while held both keep at least 5.7:1) under white text
   (`colour::text`), with rounded corners a quarter of its shorter side, at
   least 2 points (`filled_radius`), drawn as two rectangles with rounded
   corners (`fill_corner_rect`, the canvas's capsule fill with quarter-circle
-  corners and straight edges), the edge and the face one point in; a filled button that is not enabled keeps the
-  corners in the plain look's disabled colours. It is for a button that
+  corners and straight edges), the edge and the face one point in. It is for a button that
   stands over a 3.1c picture:
   Mutators. The kit chooses every colour. A caller passes the style and
   whether the pointer is over the button or holds it. A button may wear the
@@ -621,7 +681,7 @@ the carousel slides flat and the call to action holds a steady ring.
 - `paint` draws a display list's items in the list's order. A control is
   added with its automation name.
 - Two backends, one set of components. The crisp form of the canvas draws
-  every whole scale exactly as 0.7.3 does, in the game's fonts; the smooth
+  every whole scale in the game's fonts, each scale's pixels its own; the smooth
   form, for 150%, puts every rectangle's edge on a whole pixel, draws its
   text in the modern fonts and never scales a game font. Both draw through
   the same primitives, from the same draw functions, and lay out the same
@@ -662,12 +722,13 @@ focused button, link, list row or tab.
 
 ## Tests
 
-`ui-kit-theme` checks every token against the value it replaces (the
-screen's text, line and amber against the dialog's text, control border and
-lock), the Compact metrics against 0.7.3's numbers, Regular's and Large's against the
-design's table of sizes and that they differ from Compact's in nothing
-else, and that each class's dialog and notices fit the least window of their
-class. `ui-kit-text` checks the UTF-8
+`ui-kit-theme` checks every token against Kit 2's value (the screens'
+tokens against the dialog's, the category tints against the values they
+keep, and the tinted fills against their mix), the sizes every class
+shares, each class's steps on the type, spacing and shape scales and what
+follows from them, the design's table of sizes, that Regular and Large
+differ from Compact in nothing else, and that each class's dialog and
+notices fit the least window of their class. `ui-kit-text` checks the UTF-8
 helpers, the estimated width, the stand-ins, the wrap against copies of
 the six wraps it replaces, `fit` and `fitting_start` against the Game files
 screen's copies, `path_break` at its separators and against the folder
@@ -704,7 +765,9 @@ control listed once, a menu with a divider naming the other items by their
 ids and naming the divider not at all, a row of buttons' buttons and a
 clipped control's press area), and a text field's typing and editing over
 characters of one to four bytes. `ui-kit-components` checks each control's
-pixels, the OA button's dot at 24 and 32 points in every look, with and
+pixels (the six button looks and the disabled one with their rounded
+corners, the pill switch and its knob, the rounded strip, slider,
+drop-down, menu and scroll bar, and the OA mark in the brand gold), the OA button's dot at 24 and 32 points in every look, with and
 without the icon, at 1× and 2× (the button drawn without it unchanged, and
 with it differing only inside the dot's square), that `paint` matches a
 direct draw, and the controls' geometry,
@@ -713,13 +776,14 @@ one that cannot be chosen.
 `ui-kit-chrome` checks the header, the footer band, the nav list, a row's
 frame and the locked fade, and that `paint` matches those direct draws.
 `ui-kit-controls` checks each new control's pixels in the tokens above with
-a synthetic font: list rows in both forms, every chip state, the three
+a synthetic font: list rows in both forms, every chip state as a pill,
+every pill state, a pill's focus ring, the three
 state icons at 1x and 2x (inside their square, worked out at 2x rather
 than doubled, whole and smoothed pixels, the ring and the download
 arrow's shaft where the design puts them), a chip with a state icon in
 each colour and its place in a row, a row's aside keeping a whole
 version, the field's
-placeholder, caret and scrolling, tabs with and without a count, cards and
+placeholder, caret, scrolling and soft ring while focused, tabs with and without a count, cards and
 their grid at three widths and at 3, 4 and 6 columns, the arrows through a
 grid of cards, the hover card with an arrow on each side, its place in a
 frame and its delay, and links; and that every `add_*` names its controls
@@ -730,7 +794,7 @@ names, kinds and Tab order, a word of their own (`language-notice`) and
 their text's control, which changes what no press or finger finds at any
 point of the box, where a finger lands, every key (the editing
 keys and Info, which do nothing, among them), that `paint` matches `draw_notice` and
-`draw_question`, and the progress bar's fill. It fits a question's buttons
+`draw_question`, and the progress bar's rounded fill, amber while paused. It fits a question's buttons
 to a measure and to fonts wider than the estimate, where the display list,
 the placement and the presses agree, and narrows a row too wide for its box.
 `ui-kit-rows` lays out, draws, focuses and changes a page of every row

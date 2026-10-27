@@ -100,6 +100,10 @@ void expect(
     }
 }
 
+void expect(const renderer::Surface& surface, int32_t x, int32_t y, kit::Colour colour) {
+    expect(surface, x, y, colour.r, colour.g, colour.b);
+}
+
 void same(const renderer::Surface& left, const renderer::Surface& right) {
     if (left.width != right.width || left.height != right.height || left.rgb != right.rgb) {
         const uint32_t width = left.width < right.width ? left.width : right.width;
@@ -138,181 +142,120 @@ button(std::string caption, kit::ButtonStyle style, bool hovered, bool held, boo
 
 constexpr kit::Rect kButtonArea{10, 10, 40, 17};
 
+/// Draws a button at kButtonArea and checks its rounded corner left clear,
+/// its border on its top edge, its face inside, and its caption.
+///
+/// @param look the button
+/// @param border the border's colour; black where it has none
+/// @param face the face's colour; black where it has none
+/// @param text the caption's colour
 void pin_button(
-    const kit::ButtonLook& look,
-    uint8_t border_red,
-    uint8_t border_green,
-    uint8_t border_blue,
-    uint8_t face_red,
-    uint8_t face_green,
-    uint8_t face_blue,
-    uint8_t text_red,
-    uint8_t text_green,
-    uint8_t text_blue
+    const kit::ButtonLook& look, kit::Colour border, kit::Colour face, kit::Colour text
 ) {
     renderer::Surface surface = black(80, 40);
     kit::draw_button(canvas_on(surface), kButtonArea, look);
-    expect(surface, 10, 10, border_red, border_green, border_blue);
-    expect(surface, 11, 11, face_red, face_green, face_blue);
-    expect(surface, 28, 13, text_red, text_green, text_blue);
+    // A 17-point button's corners are 3 points round (control_radius_for).
+    OA_CHECK(kit::control_radius_for(kButtonArea.height) == 3);
+    expect(surface, 10, 10, 0, 0, 0);
+    expect(surface, 30, 10, border);
+    expect(surface, 13, 20, face);
+    expect(surface, 28, 13, text);
 }
 
-void buttons_match_the_five_looks() {
+void buttons_match_the_six_looks() {
+    constexpr kit::Colour none{0, 0, 0};
+    namespace colour = kit::colour;
+    // The primary button: lime, lighter under the pointer, darker held.
     pin_button(
         button("A", kit::ButtonStyle::accent, false, false),
-        0xb6,
-        0xe0,
-        0x5a,
-        0x9c,
-        0xcc,
-        0x3c,
-        0x10,
-        0x12,
-        0x0d
+        colour::accent,
+        colour::accent,
+        colour::on_accent
     );
     pin_button(
         button("A", kit::ButtonStyle::accent, true, false),
-        0xb6,
-        0xe0,
-        0x5a,
-        0xb6,
-        0xe0,
-        0x5a,
-        0x10,
-        0x12,
-        0x0d
+        colour::accent_light,
+        colour::accent_light,
+        colour::on_accent
     );
     pin_button(
         button("A", kit::ButtonStyle::accent, true, true),
-        0xb6,
-        0xe0,
-        0x5a,
-        0x8a,
-        0xb8,
-        0x30,
-        0x10,
-        0x12,
-        0x0d
+        colour::accent_held,
+        colour::accent_held,
+        colour::on_accent
     );
+    // The secondary button: raised, with the strong edge.
     pin_button(
         button("A", kit::ButtonStyle::plain, false, false),
-        0x3a,
-        0x40,
-        0x34,
-        0x00,
-        0x00,
-        0x00,
-        0xc9,
-        0xcd,
-        0xbf
+        colour::strong_edge,
+        colour::hover,
+        colour::text
     );
     pin_button(
         button("A", kit::ButtonStyle::plain, true, false),
-        0x5b,
-        0x63,
-        0x52,
-        0x20,
-        0x24,
-        0x1c,
-        0xe7,
-        0xe8,
-        0xdf
+        colour::control_hover,
+        colour::list_selected,
+        colour::text
     );
     pin_button(
         button("A", kit::ButtonStyle::plain, false, true),
-        0x3a,
-        0x40,
-        0x34,
-        0x20,
-        0x24,
-        0x1c,
-        0xc9,
-        0xcd,
-        0xbf
+        colour::strong_edge,
+        colour::panel,
+        colour::text
     );
     pin_button(
         button("A", kit::ButtonStyle::plain, true, true, false),
-        0x3a,
-        0x40,
-        0x34,
-        0x00,
-        0x00,
-        0x00,
-        0x7d,
-        0x84,
-        0x74
+        colour::control_border,
+        none,
+        colour::switch_idle
     );
-    pin_button(
-        button("A", kit::ButtonStyle::quiet, false, false),
-        0x3a,
-        0x40,
-        0x34,
-        0x00,
-        0x00,
-        0x00,
-        0xc9,
-        0xcd,
-        0xbf
-    );
+    // The quiet button: its lime caption alone at rest.
+    pin_button(button("A", kit::ButtonStyle::quiet, false, false), none, none, colour::accent);
     pin_button(
         button("A", kit::ButtonStyle::quiet, true, false),
-        0x5b,
-        0x63,
-        0x52,
-        0x20,
-        0x24,
-        0x1c,
-        0xe7,
-        0xe8,
-        0xdf
+        colour::hover,
+        colour::hover,
+        colour::accent_light
     );
     pin_button(
         button("A", kit::ButtonStyle::quiet, true, true),
-        0x5b,
-        0x63,
-        0x52,
-        0x14,
-        0x16,
-        0x12,
-        0xe7,
-        0xe8,
-        0xdf
+        colour::list_selected,
+        colour::list_selected,
+        colour::accent_light
     );
     pin_button(
         button("A", kit::ButtonStyle::inset, false, false),
-        0x3a,
-        0x40,
-        0x34,
-        0x17,
-        0x1a,
-        0x15,
-        0xc9,
-        0xcd,
-        0xbf
+        colour::control_border,
+        colour::list,
+        colour::text
     );
     pin_button(
         button("A", kit::ButtonStyle::inset, true, false),
-        0x5b,
-        0x63,
-        0x52,
-        0x20,
-        0x24,
-        0x1c,
-        0xe7,
-        0xe8,
-        0xdf
+        colour::control_hover,
+        colour::hover,
+        colour::text
     );
     pin_button(
         button("A", kit::ButtonStyle::inset, true, true),
-        0x5b,
-        0x63,
-        0x52,
-        0x14,
-        0x16,
-        0x12,
-        0xe7,
-        0xe8,
-        0xdf
+        colour::control_hover,
+        colour::band,
+        colour::text
+    );
+    // The danger button: outlined in red, tinted under the pointer.
+    pin_button(
+        button("A", kit::ButtonStyle::danger, false, false), colour::danger, none, colour::danger
+    );
+    pin_button(
+        button("A", kit::ButtonStyle::danger, true, false),
+        colour::danger,
+        colour::danger_tint,
+        colour::danger
+    );
+    pin_button(
+        button("A", kit::ButtonStyle::danger, true, true, false),
+        colour::control_border,
+        none,
+        colour::switch_idle
     );
 }
 
@@ -391,46 +334,68 @@ void badge_button_places_its_parts() {
 }
 
 void switch_levels_and_slider_match() {
+    namespace colour = kit::colour;
+    // A 52 by 16 area holds a 42 by 16 track at its right: x 20 to 61.
+    OA_CHECK(kit::switch_track({10, 10, 52, 16}).x == 20);
+    OA_CHECK(kit::switch_track({10, 10, 52, 16}).width == 42);
+    OA_CHECK(kit::switch_track({10, 10, 52, 16}).height == 16);
+    OA_CHECK(kit::switch_track({0, 0, 60, 40}).height == 24);
+    OA_CHECK(kit::switch_track({0, 0, 60, 40}).y == 8);
     renderer::Surface off = black(80, 40);
     kit::draw_switch(canvas_on(off), {10, 10, 52, 16}, {false, false, false, "OFF", "ON"});
-    expect(off, 10, 10, 0x3a, 0x40, 0x34);
-    expect(off, 11, 11, 0x2c, 0x32, 0x26);
+    expect(off, 10, 10, 0, 0, 0);
+    expect(off, 20, 10, 0, 0, 0);
+    expect(off, 40, 10, colour::control_border);
+    expect(off, 40, 12, colour::off_selected);
+    // The knob, 12 points round, two points in from the left.
+    expect(off, 28, 18, colour::text_secondary);
+    expect(off, 54, 18, colour::off_selected);
 
     renderer::Surface on = black(80, 40);
     kit::draw_switch(canvas_on(on), {10, 10, 52, 16}, {true, false, false, "OFF", "ON"});
-    expect(on, 36, 11, 0x9c, 0xcc, 0x3c);
+    expect(on, 26, 18, colour::accent);
+    expect(on, 40, 10, colour::accent);
+    expect(on, 54, 18, colour::on_accent);
+
+    renderer::Surface hot = black(80, 40);
+    kit::draw_switch(canvas_on(hot), {10, 10, 52, 16}, {true, true, false, "OFF", "ON"});
+    expect(hot, 26, 18, colour::accent_light);
 
     renderer::Surface locked = black(80, 40);
     kit::draw_switch(canvas_on(locked), {10, 10, 52, 16}, {true, true, true, "OFF", "ON"});
-    expect(locked, 36, 11, 0x5b, 0x63, 0x52);
-    expect(locked, 10, 10, 0x5b, 0x63, 0x52);
+    expect(locked, 26, 18, colour::control_hover);
+    expect(locked, 54, 18, colour::on_accent);
 
     const kit::Rect strip{30, 30, 71, 16};
     kit::LevelsLook levels{{"", "", ""}, 23, 0, 2, false, false};
     renderer::Surface levels_surface = black(120, 60);
     kit::draw_levels(canvas_on(levels_surface), strip, levels);
-    expect(levels_surface, 30, 30, 0x3a, 0x40, 0x34);
-    expect(levels_surface, 31, 31, 0x9c, 0xcc, 0x3c);
-    expect(levels_surface, 77, 31, 0x16, 0x18, 0x14);
+    expect(levels_surface, 30, 30, 0, 0, 0);
+    expect(levels_surface, 60, 30, colour::control_border);
+    expect(levels_surface, 40, 38, colour::accent);
+    expect(levels_surface, 60, 38, colour::well);
 
     levels.hovered = true;
     renderer::Surface hovered_strip = black(120, 60);
     kit::draw_levels(canvas_on(hovered_strip), strip, levels);
-    expect(hovered_strip, 30, 30, 0x5b, 0x63, 0x52);
+    expect(hovered_strip, 60, 30, colour::control_hover);
 
     levels.hovered = false;
     levels.locked = true;
     renderer::Surface locked_strip = black(120, 60);
     kit::draw_levels(canvas_on(locked_strip), strip, levels);
-    expect(locked_strip, 31, 31, 0x5b, 0x63, 0x52);
+    expect(locked_strip, 40, 38, colour::control_hover);
 
     const kit::Rect wide{10, 40, 100, 14};
     renderer::Surface slider = black(130, 110);
     kit::draw_slider(canvas_on(slider), wide, {2, 5, false, false});
-    expect(slider, 57, 40, 0x10, 0x12, 0x0d);
-    expect(slider, 58, 41, 0x9c, 0xcc, 0x3c);
-    expect(slider, 13, 52, 0x3a, 0x40, 0x34);
-    expect(slider, 11, 45, 0x9c, 0xcc, 0x3c);
+    // The knob at stop 2 of 5: its edge in the dark ink, its face in the text colour.
+    expect(slider, 58, 40, colour::on_accent);
+    expect(slider, 58, 46, colour::text);
+    expect(slider, 13, 52, colour::control_border);
+    // The track, filled in the accent to the knob and in the border after it.
+    expect(slider, 20, 45, colour::accent);
+    expect(slider, 90, 45, colour::control_border);
 
     renderer::Surface narrow = black(40, 110);
     kit::draw_slider(canvas_on(narrow), {10, 80, 20, 14}, {0, 5, false, false});
@@ -438,30 +403,33 @@ void switch_levels_and_slider_match() {
 
     renderer::Surface slider_locked = black(130, 70);
     kit::draw_slider(canvas_on(slider_locked), wide, {2, 5, true, true});
-    expect(slider_locked, 58, 41, 0x5b, 0x63, 0x52);
-    expect(slider_locked, 11, 45, 0x3a, 0x40, 0x34);
+    expect(slider_locked, 58, 46, colour::control_hover);
+    expect(slider_locked, 20, 45, colour::control_hover);
 
     renderer::Surface slider_hot = black(130, 70);
     kit::draw_slider(canvas_on(slider_hot), wide, {2, 5, false, true});
-    expect(slider_hot, 58, 41, 0xb6, 0xe0, 0x5a);
+    expect(slider_hot, 58, 46, colour::accent_light);
 }
 
 void choice_lock_and_scroll_match() {
+    namespace colour = kit::colour;
     const kit::Rect field{40, 20, 80, 16};
     renderer::Surface closed = black(140, 50);
     kit::draw_choice(canvas_on(closed), field, {"Language", false, false});
-    expect(closed, 40, 20, 0x3a, 0x40, 0x34);
-    expect(closed, 41, 21, 0x12, 0x14, 0x10);
-    expect(closed, 108, 26, 0xc9, 0xcd, 0xbf);
+    // Rounded: its corner left clear, its border on its edge.
+    expect(closed, 40, 20, 0, 0, 0);
+    expect(closed, 80, 20, colour::control_border);
+    expect(closed, 44, 33, colour::well);
+    expect(closed, 108, 26, colour::text_secondary);
 
     renderer::Surface open = black(140, 50);
     kit::draw_choice(canvas_on(open), field, {"Language", false, true});
-    expect(open, 40, 20, 0x9c, 0xcc, 0x3c);
-    expect(open, 108, 26, 0x9c, 0xcc, 0x3c);
+    expect(open, 80, 20, colour::accent);
+    expect(open, 108, 26, colour::accent);
 
     renderer::Surface hot = black(140, 50);
     kit::draw_choice(canvas_on(hot), field, {"Language", true, false});
-    expect(hot, 40, 20, 0x5b, 0x63, 0x52);
+    expect(hot, 80, 20, colour::control_hover);
 
     kit::ChoiceMenuLook menu;
     menu.shown = {"a", "b", "c", "d", "e", "f", "g", "h"};
@@ -473,17 +441,20 @@ void choice_lock_and_scroll_match() {
     const kit::Rect menu_rect{20, 46, 80, 130};
     renderer::Surface menu_surface = black(120, 200);
     kit::draw_choice_menu(canvas_on(menu_surface), menu_rect, menu);
-    expect(menu_surface, 20, 46, 0x5b, 0x63, 0x52);
-    expect(menu_surface, 26, 51, 0x9c, 0xcc, 0x3c);
-    expect(menu_surface, 22, 64, 0x17, 0x1a, 0x15);
-    expect(menu_surface, 21, 79, 0x9c, 0xcc, 0x3c);
-    expect(menu_surface, 22, 80, 0x20, 0x24, 0x1c);
-    expect(menu_surface, 97, 73, 0x5b, 0x63, 0x52);
+    expect(menu_surface, 20, 46, 0, 0, 0);
+    expect(menu_surface, 60, 46, colour::control_hover);
+    expect(menu_surface, 26, 51, colour::accent);
+    expect(menu_surface, 22, 64, colour::list);
+    // The marked item's focus ring, two points thick inside it.
+    expect(menu_surface, 40, 79, colour::focus);
+    expect(menu_surface, 40, 80, colour::focus);
+    expect(menu_surface, 40, 82, colour::hover);
+    expect(menu_surface, 97, 73, colour::control_hover);
 
     menu.focus_shown = false;
     renderer::Surface unfocused = black(120, 200);
     kit::draw_choice_menu(canvas_on(unfocused), menu_rect, menu);
-    expect(unfocused, 21, 79, 0x20, 0x24, 0x1c);
+    expect(unfocused, 40, 79, colour::hover);
 
     renderer::Surface lock = black(100, 40);
     kit::draw_lock(canvas_on(lock), {10, 10, 80, 16}, {"LOCK"});
@@ -491,18 +462,19 @@ void choice_lock_and_scroll_match() {
     expect(lock, 66, 14, 0xe0, 0xb0, 0x4f);
     expect(lock, 73, 13, 0xe0, 0xb0, 0x4f);
 
+    // The scroll bar: a rounded well and a rounded thumb.
     const kit::Rect well{10, 10, 7, 40};
     const kit::Rect thumb{12, 14, 5, 20};
     renderer::Surface bar = black(30, 60);
     kit::draw_scroll_bar(canvas_on(bar), well, thumb, false);
-    expect(bar, 10, 10, 0x3a, 0x40, 0x34);
-    expect(bar, 11, 11, 0x12, 0x14, 0x10);
-    expect(bar, 12, 14, 0x5b, 0x63, 0x52);
+    expect(bar, 10, 10, 0, 0, 0);
+    expect(bar, 13, 40, colour::well);
+    expect(bar, 14, 24, colour::control_hover);
+    expect(bar, 12, 14, colour::well);
 
     renderer::Surface hot_bar = black(30, 60);
     kit::draw_scroll_bar(canvas_on(hot_bar), well, thumb, true);
-    expect(hot_bar, 10, 10, 0x5b, 0x63, 0x52);
-    expect(hot_bar, 12, 14, 0x7d, 0x84, 0x74);
+    expect(hot_bar, 14, 24, colour::text_tertiary);
 }
 
 renderer::RgbaPicture red_icon() {
@@ -530,26 +502,26 @@ renderer::RgbaPicture red_icon() {
 void oa_button_and_mark_match() {
     renderer::Surface idle = black(40, 40);
     kit::draw_oa_button(canvas_on(idle), 32, kit::OaButtonState::idle);
-    expect(idle, 0, 0, 0x4a, 0x51, 0x43);
-    expect(idle, 1, 1, 0x1b, 0x1e, 0x19);
-    expect(idle, 6, 6, 0x9c, 0xcc, 0x3c);
-    expect(idle, 11, 12, 0x9c, 0xcc, 0x3c);
+    expect(idle, 0, 0, kit::colour::edge_light);
+    expect(idle, 1, 1, kit::colour::panel);
+    expect(idle, 6, 6, kit::colour::brand);
+    expect(idle, 11, 12, kit::colour::brand);
 
     renderer::Surface pressed = black(40, 40);
     kit::draw_oa_button(canvas_on(pressed), 32, kit::OaButtonState::pressed);
     expect(pressed, 0, 0, 0x08, 0x09, 0x07);
-    expect(pressed, 11, 12, 0xb6, 0xe0, 0x5a);
+    expect(pressed, 11, 12, kit::colour::brand_light);
 
     renderer::Surface small = black(30, 30);
     kit::draw_oa_button(canvas_on(small), 24, kit::OaButtonState::idle);
-    expect(small, 4, 4, 0x9c, 0xcc, 0x3c);
-    expect(small, 7, 8, 0x1b, 0x1e, 0x19);
-    expect(small, 8, 8, 0x9c, 0xcc, 0x3c);
+    expect(small, 4, 4, kit::colour::brand);
+    expect(small, 7, 8, kit::colour::panel);
+    expect(small, 8, 8, kit::colour::brand);
 
     renderer::Surface small_hot = black(30, 30);
     kit::draw_oa_button(canvas_on(small_hot), 24, kit::OaButtonState::hovered);
-    expect(small_hot, 8, 8, 0xb6, 0xe0, 0x5a);
-    expect(small_hot, 1, 1, 0x20, 0x24, 0x1c);
+    expect(small_hot, 8, 8, kit::colour::brand_light);
+    expect(small_hot, 1, 1, kit::colour::hover);
 
     renderer::Surface small_held = black(30, 30);
     kit::draw_oa_button(canvas_on(small_held), 24, kit::OaButtonState::pressed);
@@ -566,14 +538,14 @@ void oa_button_and_mark_match() {
     with_icon.surface = &icon_hot;
     kit::draw_oa_button(with_icon, 32, kit::OaButtonState::hovered);
     expect(icon_hot, 1, 1, 0x9c, 0xcc, 0x3c);
-    expect(icon_hot, 2, 2, 0x20, 0x24, 0x1c);
+    expect(icon_hot, 2, 2, kit::colour::hover);
     expect(icon_hot, 3, 3, 0xff, 0x00, 0x00);
 
     renderer::Surface icon_held = black(40, 40);
     with_icon.surface = &icon_held;
     kit::draw_oa_button(with_icon, 32, kit::OaButtonState::pressed);
     expect(icon_held, 0, 0, 0x08, 0x09, 0x07);
-    expect(icon_held, 3, 3, 0x14, 0x16, 0x12);
+    expect(icon_held, 3, 3, kit::colour::band);
     expect(icon_held, 4, 4, 0xff, 0x00, 0x00);
 
     renderer::Surface icon_small = black(30, 30);
@@ -585,7 +557,7 @@ void oa_button_and_mark_match() {
     renderer::Surface mark = black(40, 40);
     kit::draw_oa_mark(canvas_on(mark), 32);
     expect(mark, 0, 0, 0x00, 0x00, 0x00);
-    expect(mark, 6, 6, 0x9c, 0xcc, 0x3c);
+    expect(mark, 6, 6, kit::colour::brand);
 
     renderer::Surface mark_icon = black(40, 40);
     with_icon.surface = &mark_icon;
@@ -757,7 +729,8 @@ void oa_button_wears_the_count() {
                 const uint8_t red = seven_face.rgb[at];
                 const uint8_t green = seven_face.rgb[at + 1];
                 const uint8_t blue = seven_face.rgb[at + 2];
-                if (red == 0x14 && green == 0x16 && blue == 0x12)
+                if (red == kit::colour::band.r && green == kit::colour::band.g &&
+                    blue == kit::colour::band.b)
                     saw_band = true;
                 if (red == 0xe7 && green == 0xe8 && blue == 0xdf)
                     saw_text = true;
@@ -811,10 +784,11 @@ void clip_hides_what_it_misses() {
     kit::draw_button(kit::clipped(canvas, {0, 0, 5, 5}), kButtonArea, look);
     expect(missed, 10, 10, 0x00, 0x00, 0x00);
 
+    // A clip of one point on the button's top edge draws that point alone.
     renderer::Surface edge = black(80, 40);
-    kit::draw_button(kit::clipped(canvas_on(edge), {10, 10, 1, 1}), kButtonArea, look);
-    expect(edge, 10, 10, 0xb6, 0xe0, 0x5a);
-    expect(edge, 11, 11, 0x00, 0x00, 0x00);
+    kit::draw_button(kit::clipped(canvas_on(edge), {30, 10, 1, 1}), kButtonArea, look);
+    expect(edge, 30, 10, 0x9c, 0xcc, 0x3c);
+    expect(edge, 31, 11, 0x00, 0x00, 0x00);
 }
 
 void paint_matches_the_direct_draw(int32_t scale) {
@@ -1062,10 +1036,11 @@ void geometry_matches_the_start_commit() {
     OA_CHECK(high.x == 200 && high.y == 96 && high.width == 200 && high.height == 98);
     const kit::Rect low = kit::choice_menu({200, 250, 200, 16}, 12);
     OA_CHECK(low.x == 200 && low.y == 120 && low.width == 200 && low.height == 130);
+    // A menu over its field stops under the 36-point header and its rule.
     const kit::Rect clamped = kit::choice_menu({200, 150, 200, 16}, 12);
-    OA_CHECK(clamped.x == 200 && clamped.y == 28 && clamped.width == 200 && clamped.height == 130);
+    OA_CHECK(clamped.x == 200 && clamped.y == 38 && clamped.width == 200 && clamped.height == 130);
     // A larger dialog's lower footer line leaves room under the field.
-    OA_CHECK(kit::compact_footer_line == 290);
+    OA_CHECK(kit::compact_footer_line == 274);
     const kit::Rect roomy = kit::choice_menu({200, 250, 200, 16}, 12, 452);
     OA_CHECK(roomy.x == 200 && roomy.y == 266 && roomy.width == 200 && roomy.height == 130);
     const kit::Rect deep = kit::choice_menu({200, 400, 200, 16}, 12, 452);
@@ -1131,10 +1106,10 @@ void a_menu_draws_a_divider_an_aside_and_a_greyed_row() {
     OA_CHECK(kit::choice_mark_toward(menu, 0, 1) == 2);
     OA_CHECK(kit::choice_mark_toward(menu, 2, -1) == 0);
     // The divider is a heading: quiet ink, and no focus ring though it is marked.
-    OA_CHECK(region_has(surface, divider, 0x8a, 0x91, 0x80));
-    OA_CHECK(!region_has(surface, divider, 0x9c, 0xcc, 0x3c));
+    OA_CHECK(region_has(surface, divider, 0x95, 0x9c, 0x8b));
+    OA_CHECK(!region_has(surface, divider, 0xb6, 0xe0, 0x5a));
     // A greyed row's text is quiet, including the point a press would take.
-    OA_CHECK(region_has(surface, grey, 0x8a, 0x91, 0x80));
+    OA_CHECK(region_has(surface, grey, 0x95, 0x9c, 0x8b));
     OA_CHECK(!menu.items[3].choosable);
 
     kit::ChoiceMenuLook crowded;
@@ -1172,12 +1147,12 @@ void a_menu_draws_a_divider_an_aside_and_a_greyed_row() {
     OA_CHECK(region_has(
         clipped_surface,
         {inner_left, row.y, std::max(gap_x - inner_left, int32_t{1}), row.height},
-        0xa3,
-        0xaa,
-        0x98
+        0xb9,
+        0xbf,
+        0xae
     ));
     OA_CHECK(
-        region_has(clipped_surface, {aside_left, row.y, aside_width, row.height}, 0xa3, 0xaa, 0x98)
+        region_has(clipped_surface, {aside_left, row.y, aside_width, row.height}, 0xb9, 0xbf, 0xae)
     );
 }
 
@@ -1372,7 +1347,7 @@ void menu_icon_button_is_the_icon() {
 } // namespace
 
 int main() {
-    buttons_match_the_five_looks();
+    buttons_match_the_six_looks();
     buttons_match_the_filled_look();
     badge_button_places_its_parts();
     refresh_mark_turns();

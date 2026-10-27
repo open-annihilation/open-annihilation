@@ -89,7 +89,8 @@ cut_to_width(const Fonts& fonts, FontRole role, std::string_view text, int32_t w
 /// Draws a list row.
 ///
 /// The face is the hover colour while hovered; a selected row is tinted
-/// with the accent and outlined in it. The badge is a square of the row's
+/// with the accent and outlined in it. Both are rounded with the control
+/// radius of a Compact button. The badge is a square of the row's
 /// height less two insets, at most list_row_badge, at the left inset and
 /// centred down the row, drawn by draw_badge: the picture when it is
 /// drawable, else the row's tag icon on badge_colour, else the badge text
@@ -99,7 +100,7 @@ cut_to_width(const Fonts& fonts, FontRole role, std::string_view text, int32_t w
 /// line in the small font one under another, each cut with "..." to its
 /// room, and the tags as chips on the line after the last. The text is
 /// centred down the row; in a row short_list_row_height high it lies as the
-/// Mods row's does. The aside is right-aligned in the hint colour, one entry
+/// Mods row's does. The aside is right-aligned in the secondary text, one entry
 /// a line from the title's, left of the chip, which sits at the right inset.
 /// A maker's mark, when the row has one, is drawn in that same column:
 /// under the state icon when the row has one and is at least two icons
@@ -182,22 +183,23 @@ void add_grip(
 /// @return the width, in points
 [[nodiscard]] int32_t chip_width(const Fonts& fonts, const ChipLook& look);
 
-/// Draws a chip: an outline and its text centred in the small font, in its
-/// state's colours. Get draws the hover border and the hint, installed the
-/// accent, update the lock colour, online the online colour and problem the
-/// danger colour; playing is filled with the accent under on_accent text. A
-/// filter draws the border and the hint, the hover border while hovered, and
-/// while selected the list's selected face, an accent outline and the text
-/// colour. A hovered chip that is not filled takes the hover face. A
-/// disabled chip draws its outline and text in the idle colour, whatever its
-/// state.
+/// Draws a chip: a pill with its text centred in the small font, in its
+/// state's colours. Get draws the hovered border and the secondary text;
+/// installed, update, online and problem fill their colour's tint (ok,
+/// caution, information, danger) under words in that colour; playing is
+/// filled with the accent under on_accent text. A filter draws the border
+/// and the secondary text, the hovered border while hovered, and while
+/// selected the selected surface, an accent outline and the text colour. A
+/// hovered chip that has no face takes the hover face, and one with a
+/// tinted face the hovered border. A disabled chip draws the control border
+/// and its text in the idle colour, whatever its state.
 ///
 /// A chip with a state icon draws only the icon (draw_state_icon), in the
 /// hint for get, the accent for installed and playing, the lock colour for
 /// update, the online and danger colours, and for a filter the accent while
 /// on and the hint while off; while disabled the hovered border's grey
 /// (control_hover), dimmer than every state's. Hovered and enabled, it
-/// takes the hover face behind the icon.
+/// takes the hover face, a disc, behind the icon.
 ///
 /// @param canvas where it is drawn
 /// @param rect the chip
@@ -253,16 +255,15 @@ void add_chip(
 /// Draws a pill: a small-font word centred on a fully rounded ground about
 /// chip_height high. A tag icon sits at the left and a state icon at the
 /// right, each inside the capsule, and the word is centred in the room
-/// between them. Playing and active are filled
-/// with the accent under on_accent text. Neutral and inactive are a muted
-/// ground (control_hover) under the text colour. Installed, update and
-/// problem use that muted
-/// ground, with an outline and text in the colour the chips' states use
-/// (the accent, the lock colour, the danger colour). Hover lightens an
-/// accent ground and outlines a muted one; focus outlines the pill in the
-/// text colour. Disabled is the muted ground under the idle colour, and
-/// ignores hover and focus. The corner is stepped at scale 1 and smooth
-/// on the 150% form.
+/// between them. A pill is a status badge. Playing and active are filled
+/// with the accent under on_accent text. Neutral and inactive are the
+/// selected surface under the secondary text. Installed, update, problem,
+/// information and brand fill their colour's tint (ok_tint and the others)
+/// under words in that colour. Hover lightens an accent ground and outlines
+/// any other in the hovered border's grey; focus draws the focus ring round
+/// the pill. Disabled is the hover surface under the idle colour, and
+/// ignores hover and focus. The corner is stepped at scale 1 and smooth on
+/// the 150% form.
 ///
 /// @param canvas where it is drawn
 /// @param rect the pill
@@ -303,8 +304,10 @@ void add_pill(
 /// @return the columns the text is moved left
 [[nodiscard]] int32_t field_scroll(const Fonts& fonts, const Rect& rect, const SearchLook& look);
 
-/// Draws a text field: the well and its border (the hover border while
-/// hovered, the accent while focused), the magnifier when the look has one,
+/// Draws a text field: the well and its border, rounded with the control
+/// radius of its height (the hover border while hovered, the accent while
+/// focused, with a soft ring in field_ring focus_ring points outside it),
+/// the magnifier when the look has one,
 /// and the placeholder in the hint colour while the text is empty, else the
 /// text in the regular font, moved left so the caret shows. While focused,
 /// a caret_width caret in the text colour stands at the caret.
@@ -370,7 +373,7 @@ struct TabStrip {
 /// Draws a strip of tabs: a hairline along the strip's foot, each caption
 /// in the small font, the selected one in the text colour over a tab_rule
 /// accent rule along the foot, the hovered one in the text colour and the
-/// others in the hint colour. A pill draws each count above 0 in the lock
+/// others in the secondary text. A pill draws each count above 0 in the lock
 /// colour with on_accent digits. Words draw the digits beside the caption,
 /// in the lock colour where the look asks and the count is above 0, and
 /// otherwise in the caption's colour. When the tabs do not fit, the captions
@@ -466,12 +469,13 @@ void add_tabs(
 [[nodiscard]] std::vector<Rect>
 card_cells(const Rect& area, std::size_t count, std::size_t columns = 0);
 
-/// Draws a card: its face and outline (the accent while selected, the hover
-/// border while hovered), the square preview inset from its edges holding
+/// Draws a card: its face (the hover surface, the selected surface while
+/// hovered) and outline (the accent while selected, the hover border while
+/// hovered), rounded with the card radius, the square preview inset from its edges holding
 /// the picture, or the placeholder centred in the hint colour on the well,
 /// the chips at the preview's bottom left, then the title in the regular
 /// font and the subtitle in the small font, each cut with "...". A greyed
-/// card is drawn under the panel blended at locked_fade.
+/// card is drawn under the panel blended at locked_fade over its rounded shape.
 ///
 /// @param canvas where it is drawn
 /// @param rect the card
@@ -514,9 +518,10 @@ void add_card(
 /// @return the card's rectangle
 [[nodiscard]] Rect hover_card_rect(const Rect& anchor, const Rect& frame, Point size) noexcept;
 
-/// Draws a hover card on the band inside a border of the lock colour: the
+/// Draws a hover card on the band inside a border of the strong edge,
+/// rounded with the card radius: the
 /// header (the logo when the canvas carries the icon, otherwise the small OA
-/// mark, the title in the text colour and the aside right-aligned in the hint
+/// mark in the brand gold, the title in the text colour and the aside right-aligned in the hint
 /// colour), each row (its label in the hint colour
 /// in a column as wide as the widest label and hover_card_padding, its value
 /// in its colour, from the left when the label is empty), the block's lines

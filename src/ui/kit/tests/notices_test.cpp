@@ -300,7 +300,7 @@ struct QuestionAt {
 };
 
 /// The same one-line paragraph, a row of the small font each, eighteen rows
-/// apart from the text's first row.
+/// apart from the text's first row, ten rows under the 36-point header.
 ///
 /// @param text the paragraph
 /// @param count how many lines
@@ -308,7 +308,7 @@ struct QuestionAt {
 std::vector<LineAt> small_rows(std::string_view text, int32_t count) {
     std::vector<LineAt> lines;
     for (int32_t index = 0; index < count; ++index)
-        lines.push_back({text, false, false, {12, 38 + 18 * index, 376, 12}});
+        lines.push_back({text, false, false, {12, 48 + 18 * index, 376, 12}});
     return lines;
 }
 
@@ -348,121 +348,121 @@ void notices_place_as_before() {
     check_notice(
         kit::place_notice(short_notice(), estimated, estimated),
         {150,
-         {38, 1, 350, 26},
-         116,
-         {235, 124, 96, 17},
-         {336, 124, 52, 17},
-         {{"The game was saved.", false, false, {12, 38, 376, 12}}}}
+         {38, 1, 350, 36},
+         100,
+         {224, 111, 96, 28},
+         {328, 111, 60, 28},
+         {{"The game was saved.", false, false, {12, 48, 376, 12}}}}
     );
     check_notice(
         kit::place_notice(moved_notice(), estimated, estimated),
-        {150,
-         {38, 1, 350, 26},
-         116,
-         {235, 124, 96, 17},
-         {336, 124, 52, 17},
+        {172,
+         {38, 1, 350, 36},
+         122,
+         {224, 133, 96, 28},
+         {328, 133, 60, 28},
          {
-             {"3 saved games moved to:", false, false, {12, 38, 376, 12}},
-             {"/home/player/Documents/Open Annihilation/Saves", true, false, {12, 56, 376, 16}},
+             {"3 saved games moved to:", false, false, {12, 48, 376, 12}},
+             {"/home/player/Documents/Open Annihilation/Saves", true, false, {12, 66, 376, 16}},
              {"Screenshots, films and mods now go in the same Open",
               false,
               false,
-              {12, 78, 376, 12}},
-             {"Annihilation folder.", false, false, {12, 90, 376, 12}},
+              {12, 88, 376, 12}},
+             {"Annihilation folder.", false, false, {12, 100, 376, 12}},
          }}
     );
     check_notice(
         kit::place_notice(long_notice(), narrow_regular, narrow_small),
-        {206,
-         {38, 1, 350, 26},
-         172,
-         {235, 180, 96, 17},
-         {336, 180, 52, 17},
+        {232,
+         {38, 1, 350, 36},
+         182,
+         {224, 193, 96, 28},
+         {328, 193, 60, 28},
          {
              {"Screenshots, films and mods now go in your own folder, and the game keeps",
               false,
               false,
-              {12, 38, 376, 12}},
+              {12, 48, 376, 12}},
              {"them there. Screenshots, films and mods now go in your own folder, and the",
               false,
               false,
-              {12, 50, 376, 12}},
+              {12, 60, 376, 12}},
              {"game keeps them there. Screenshots, films and mods now go in your own",
               false,
               false,
-              {12, 62, 376, 12}},
-             {"folder, and the game keeps them there.", false, false, {12, 74, 376, 12}},
+              {12, 72, 376, 12}},
+             {"folder, and the game keeps them there.", false, false, {12, 84, 376, 12}},
              {"Open the folder to see the saves, the screenshots and the mods.",
               false,
               false,
-              {12, 92, 376, 12}},
+              {12, 102, 376, 12}},
              {"The game makes the folder when it is missing, then shows it.",
               false,
               false,
-              {12, 110, 376, 12}},
+              {12, 120, 376, 12}},
              {"C:\\Users\\player\\Documents\\My Games\\Total Annihilation\\Saves",
               true,
               false,
-              {12, 128, 376, 16}},
-             {"The folder could not be opened.", false, true, {12, 150, 376, 12}},
+              {12, 138, 376, 16}},
+             {"The folder could not be opened.", false, true, {12, 160, 376, 12}},
          }}
     );
     check_notice(
         kit::place_notice(wide_notice(), estimated, estimated),
-        {156,
-         {38, 1, 350, 26},
-         122,
-         {235, 130, 96, 17},
-         {336, 130, 52, 17},
+        {182,
+         {38, 1, 350, 36},
+         132,
+         {224, 143, 96, 28},
+         {328, 143, 60, 28},
          {
              {"建造完成，单位已就绪。建造完成，单位已就绪。建造完",
               false,
               false,
-              {12, 38, 376, 12}},
+              {12, 48, 376, 12}},
              {"成，单位已就绪。建造完成，单位已就绪。建造完成，单位",
               false,
               false,
-              {12, 50, 376, 12}},
-             {"已就绪。建造完成，单位已就绪。", false, false, {12, 62, 376, 12}},
+              {12, 60, 376, 12}},
+             {"已就绪。建造完成，单位已就绪。", false, false, {12, 72, 376, 12}},
              {"C:\\Documents and Settings\\A Rather Long User Name\\",
               true,
               false,
-              {12, 80, 376, 16}},
-             {"My Documents\\Open Annihilation\\Saves", true, false, {12, 96, 376, 16}},
+              {12, 90, 376, 16}},
+             {"My Documents\\Open Annihilation\\Saves", true, false, {12, 106, 376, 16}},
          }}
     );
     // Forty one-line paragraphs: the greatest height, and the lines under
-    // the twentieth cut.
+    // the nineteenth cut.
     check_notice(
         kit::place_notice(cut_notice(), estimated, estimated),
         {440,
-         {38, 1, 350, 26},
-         406,
-         {235, 414, 96, 17},
-         {336, 414, 52, 17},
-         small_rows("A line of the notice's text that takes a row.", 20)}
+         {38, 1, 350, 36},
+         390,
+         {224, 401, 96, 28},
+         {328, 401, 60, 28},
+         small_rows("A line of the notice's text that takes a row.", 19)}
     );
     // No open caption, so no open button.
     check_notice(
         kit::place_notice(kit::Notice{}, estimated, estimated),
-        {150, {38, 1, 350, 26}, 116, {0, 0, 0, 0}, {336, 124, 52, 17}, {}}
+        {150, {38, 1, 350, 36}, 100, {0, 0, 0, 0}, {328, 111, 60, 28}, {}}
     );
     // Without fonts, the estimated widths.
     check_notice(
         kit::place_notice(moved_notice(), nullptr),
-        {150,
-         {38, 1, 350, 26},
-         116,
-         {235, 124, 96, 17},
-         {336, 124, 52, 17},
+        {172,
+         {38, 1, 350, 36},
+         122,
+         {224, 133, 96, 28},
+         {328, 133, 60, 28},
          {
-             {"3 saved games moved to:", false, false, {12, 38, 376, 12}},
-             {"/home/player/Documents/Open Annihilation/Saves", true, false, {12, 56, 376, 16}},
+             {"3 saved games moved to:", false, false, {12, 48, 376, 12}},
+             {"/home/player/Documents/Open Annihilation/Saves", true, false, {12, 66, 376, 16}},
              {"Screenshots, films and mods now go in the same Open",
               false,
               false,
-              {12, 78, 376, 12}},
-             {"Annihilation folder.", false, false, {12, 90, 376, 12}},
+              {12, 88, 376, 12}},
+             {"Annihilation folder.", false, false, {12, 100, 376, 12}},
          }}
     );
 }
@@ -470,17 +470,17 @@ void notices_place_as_before() {
 void questions_place_as_before() {
     const kit::Measure estimated = kit::estimated_width;
     const std::vector<LineAt> example{
-        {"Example Mod 1.0, revision 1, is installed.", false, false, {12, 38, 376, 12}},
-        {"/Users/someone/Documents/Open Annihilation/Mods/", true, false, {12, 56, 376, 16}},
-        {"example-mod", true, false, {12, 72, 376, 16}},
+        {"Example Mod 1.0, revision 1, is installed.", false, false, {12, 48, 376, 12}},
+        {"/Users/someone/Documents/Open Annihilation/Mods/", true, false, {12, 66, 376, 16}},
+        {"example-mod", true, false, {12, 82, 376, 16}},
     };
     check_question(
         kit::place_question(question_of({"OK"}), estimated, estimated),
-        {150, {38, 1, 350, 26}, false, {}, 116, {{336, 124, 52, 17}}, example}
+        {158, {38, 1, 350, 36}, false, {}, 108, {{328, 119, 60, 28}}, example}
     );
     check_question(
         kit::place_question(question_of({"CANCEL", "REPLACE"}), estimated, estimated),
-        {150, {38, 1, 350, 26}, false, {}, 116, {{260, 124, 58, 17}, {323, 124, 65, 17}}, example}
+        {158, {38, 1, 350, 36}, false, {}, 108, {{241, 119, 66, 28}, {315, 119, 73, 28}}, example}
     );
     // The narrow measure keeps the path on one line; the buttons are placed
     // at the estimated width whatever the measure.
@@ -489,82 +489,83 @@ void questions_place_as_before() {
             question_of({"CANCEL", "INSTALL ALONGSIDE", "REPLACE"}), narrow_regular, narrow_small
         ),
         {150,
-         {38, 1, 350, 26},
+         {38, 1, 350, 36},
          false,
          {},
-         116,
-         {{120, 124, 58, 17}, {183, 124, 135, 17}, {323, 124, 65, 17}},
+         100,
+         {{90, 111, 66, 28}, {164, 111, 143, 28}, {315, 111, 73, 28}},
          {
-             {"Example Mod 1.0, revision 1, is installed.", false, false, {12, 38, 376, 12}},
+             {"Example Mod 1.0, revision 1, is installed.", false, false, {12, 48, 376, 12}},
              {"/Users/someone/Documents/Open Annihilation/Mods/example-mod",
               true,
               false,
-              {12, 56, 376, 16}},
+              {12, 66, 376, 16}},
          }}
     );
     check_question(
         kit::place_question(progress_question(), estimated, estimated),
-        {150, {38, 1, 350, 26}, false, {12, 94, 376, 8}, 116, {{330, 124, 58, 17}}, example}
+        {172, {38, 1, 350, 36}, false, {12, 104, 376, 8}, 122, {{322, 133, 66, 28}}, example}
     );
-    // Twenty rows fit; the bar under them does not, and is left out.
+    // Nineteen rows fit; the bar under them does not, and is left out.
     check_question(
         kit::place_question(bar_cut_question(), estimated, estimated),
-        {440, {38, 1, 350, 26}, true, {}, 406, {{336, 414, 52, 17}}, small_rows("A row.", 20)}
+        {440, {38, 1, 350, 36}, true, {}, 390, {{328, 401, 60, 28}}, small_rows("A row.", 19)}
     );
-    // Four buttons: the first three are placed.
+    // Four buttons: the first three are placed, the widest narrowed from
+    // 248 to 234 so the row fits between the paddings.
     check_question(
         kit::place_question(four_question(), estimated, estimated),
         {440,
-         {38, 1, 350, 26},
+         {38, 1, 350, 36},
          true,
          {},
-         406,
-         {{28, 414, 52, 17}, {85, 414, 58, 17}, {148, 414, 240, 17}},
-         small_rows("A line of the prompt's text that takes a row.", 20)}
+         390,
+         {{12, 401, 60, 28}, {80, 401, 66, 28}, {154, 401, 234, 28}},
+         small_rows("A line of the prompt's text that takes a row.", 19)}
     );
     // The buttons alone, at a height of 200.
     const auto rects = kit::question_button_rects(question_of({"CANCEL", "REPLACE"}), 200);
     OA_CHECK(rects.size() == 2);
     if (rects.size() == 2) {
-        OA_CHECK(same_rect(rects[0], {260, 174, 58, 17}));
-        OA_CHECK(same_rect(rects[1], {323, 174, 65, 17}));
+        OA_CHECK(same_rect(rects[0], {241, 161, 66, 28}));
+        OA_CHECK(same_rect(rects[1], {315, 161, 73, 28}));
     }
 }
 
 void question_buttons_fit_their_captions() {
     // A measure wider than the estimate widens a button to its caption and
     // the padding: the eleven characters of ЗАВАНТАЖИТИ are 99 points, and
-    // BACK keeps the least width. At the estimate, 77 points, it was 93.
+    // BACK keeps the least width. At the estimate, 77 points, it was 101.
     const kit::Question load = question_of({"BACK", "ЗАВАНТАЖИТИ"});
     const auto measured = kit::question_button_rects(load, 200, wide_small);
     OA_CHECK(measured.size() == 2);
     if (measured.size() == 2) {
-        OA_CHECK(same_rect(measured[0], {216, 174, 52, 17}));
-        OA_CHECK(same_rect(measured[1], {273, 174, 115, 17}));
+        OA_CHECK(same_rect(measured[0], {197, 161, 60, 28}));
+        OA_CHECK(same_rect(measured[1], {265, 161, 123, 28}));
     }
     const auto estimated = kit::question_button_rects(load, 200);
     OA_CHECK(estimated.size() == 2);
     if (estimated.size() == 2) {
-        OA_CHECK(same_rect(estimated[0], {238, 174, 52, 17}));
-        OA_CHECK(same_rect(estimated[1], {295, 174, 93, 17}));
+        OA_CHECK(same_rect(estimated[0], {219, 161, 60, 28}));
+        OA_CHECK(same_rect(estimated[1], {287, 161, 101, 28}));
     }
     // place_question places them with its small measure.
     const kit::PlacedQuestion placed = kit::place_question(load, kit::estimated_width, wide_small);
     OA_CHECK(placed.buttons.size() == 2);
     if (placed.buttons.size() == 2)
-        OA_CHECK(same_rect(placed.buttons[1], {273, 124, 115, 17}));
+        OA_CHECK(same_rect(placed.buttons[1], {265, 131, 123, 28}));
 
     // A row wider than the room between the paddings, 376 points at Compact,
-    // is narrowed from its widest buttons: 268 and 205 come to 148 each, and
+    // is narrowed from its widest buttons: 276 and 213 come to 141 each, and
     // the row starts at the left padding.
     const kit::Question wide_row =
         question_of({"CANCEL", "INSTALL BESIDE THE ONE THERE", "REPLACE THE ONE THERE"});
     const auto narrowed = kit::question_button_rects(wide_row, 200, wide_small);
     OA_CHECK(narrowed.size() == 3);
     if (narrowed.size() == 3) {
-        OA_CHECK(same_rect(narrowed[0], {12, 174, 70, 17}));
-        OA_CHECK(same_rect(narrowed[1], {87, 174, 148, 17}));
-        OA_CHECK(same_rect(narrowed[2], {240, 174, 148, 17}));
+        OA_CHECK(same_rect(narrowed[0], {12, 161, 78, 28}));
+        OA_CHECK(same_rect(narrowed[1], {98, 161, 141, 28}));
+        OA_CHECK(same_rect(narrowed[2], {247, 161, 141, 28}));
     }
 
     // In fonts wider than the estimate the display list's buttons, the
@@ -682,8 +683,8 @@ void lists_name_their_buttons() {
     OA_CHECK((notice.tab_order == std::vector<kit::ControlId>{kit::notice_open, kit::notice_ok}));
     OA_CHECK(kit::name_problem(notice).empty());
     if (notice.controls.size() == 3) {
-        OA_CHECK(same_rect(notice.controls[0].rect, {336, 124, 52, 17}));
-        OA_CHECK(same_rect(notice.controls[1].rect, {235, 124, 96, 17}));
+        OA_CHECK(same_rect(notice.controls[0].rect, {328, 133, 60, 28}));
+        OA_CHECK(same_rect(notice.controls[1].rect, {224, 133, 96, 28}));
     }
     // A failure is the text's last line.
     const kit::DisplayList failed = kit::notice_list(long_notice(), nullptr);
@@ -875,22 +876,23 @@ struct Press {
 };
 
 void a_finger_lands_as_before() {
-    // The short notice at the estimated widths: 150 high, OK at 336, 124 and
-    // the open button at 235, 124. OK is tried first: from the gap three
-    // columns from each, the finger takes OK.
+    // The short notice at the estimated widths: 150 high, OK at 328, 111 and
+    // the open button at 224, 111, each 28 high. OK is tried first: from the
+    // gap three columns from OK, the finger takes OK; two from the open
+    // button, the open button.
     const kit::Notice notice = short_notice();
     check_landings(
         kit::notice_list(notice, nullptr),
         {
-            {{360, 132}, 6, kit::notice_ok, {360, 132}},
-            {{360, 144}, 6, kit::notice_ok, {360, 140}},
-            {{333, 132}, 6, kit::notice_ok, {336, 132}},
-            {{332, 132}, 6, kit::notice_open, {330, 132}},
-            {{231, 121}, 6, kit::notice_open, {235, 124}},
-            {{231, 121}, 4, kit::no_control, {231, 121}},
-            {{300, 162}, 22, kit::notice_open, {300, 140}},
+            {{360, 120}, 6, kit::notice_ok, {360, 120}},
+            {{360, 141}, 6, kit::notice_ok, {360, 138}},
+            {{325, 120}, 6, kit::notice_ok, {328, 120}},
+            {{321, 120}, 6, kit::notice_open, {319, 120}},
+            {{220, 108}, 6, kit::notice_open, {224, 111}},
+            {{220, 108}, 4, kit::no_control, {220, 108}},
+            {{300, 160}, 22, kit::notice_open, {300, 138}},
             {{5, 5}, 22, kit::no_control, {5, 5}},
-            {{360, 144}, 0, kit::no_control, {360, 144}},
+            {{360, 141}, 0, kit::no_control, {360, 141}},
         },
         [&notice](const Landing& landing) {
             kit::Notice pressed = notice;
@@ -899,41 +901,44 @@ void a_finger_lands_as_before() {
         }
     );
 
-    // Two buttons, tried left to right: from the gap two columns from
-    // CANCEL and three from REPLACE, CANCEL; a row further from REPLACE than
-    // its reach, nothing.
+    // Two buttons, the nearer taken: from the gap two columns from CANCEL
+    // and seven from REPLACE, CANCEL; seven and two, REPLACE; a row further
+    // from REPLACE than its reach, nothing. The question is 158 high, its
+    // buttons at row 119, 28 high.
     const kit::Question two = question_of({"CANCEL", "REPLACE"});
     const auto press_question = [](const kit::Question& question) {
         return [question](const Landing& landing) {
             kit::Question pressed = question;
+            const int32_t height = kit::place_question(question, nullptr).height;
             static_cast<void>(
-                kit::question_finger_down(pressed, landing.finger, 150, landing.reach)
+                kit::question_finger_down(pressed, landing.finger, height, landing.reach)
             );
             return Press{pressed.pressed, {pressed.finger_shift_x, pressed.finger_shift_y}};
         };
     };
+    OA_CHECK(kit::place_question(two, nullptr).height == 158);
     check_landings(
         kit::question_list(two, nullptr),
         {
-            {{333, 132}, 6, 1, {333, 132}},
-            {{320, 132}, 6, 0, {317, 132}},
-            {{321, 132}, 6, 1, {323, 132}},
-            {{333, 146}, 6, 1, {333, 140}},
-            {{333, 147}, 6, kit::no_control, {333, 147}},
-            {{333, 148}, 6, kit::no_control, {333, 148}},
-            {{256, 120}, 6, 0, {260, 124}},
+            {{333, 128}, 6, 1, {333, 128}},
+            {{308, 128}, 6, 0, {306, 128}},
+            {{313, 128}, 6, 1, {315, 128}},
+            {{333, 152}, 6, 1, {333, 146}},
+            {{333, 153}, 6, kit::no_control, {333, 153}},
+            {{333, 154}, 6, kit::no_control, {333, 154}},
+            {{237, 116}, 6, 0, {241, 119}},
         },
         press_question(two)
     );
 
-    // Three buttons: from the gaps three columns from each side, the left one.
+    // Three buttons: from the gaps, the nearer one.
     const kit::Question three = question_of({"CANCEL", "INSTALL ALONGSIDE", "REPLACE"});
     check_landings(
         kit::question_list(three, nullptr),
         {
-            {{203, 145}, 22, 1, {203, 140}},
-            {{320, 132}, 6, 1, {317, 132}},
-            {{180, 121}, 6, 0, {177, 124}},
+            {{203, 151}, 22, 1, {203, 146}},
+            {{310, 128}, 6, 1, {306, 128}},
+            {{159, 116}, 6, 0, {155, 119}},
             {{5, 5}, 22, kit::no_control, {5, 5}},
         },
         press_question(three)
@@ -946,50 +951,50 @@ void the_pointer_presses_buttons() {
     // A notice: a press on the open button released on it asks for the
     // folder; on OK, it closes; released elsewhere, it only redraws.
     kit::Notice notice = short_notice();
-    OA_CHECK(kit::notice_pointer_move(notice, {240, 130}, 150) == kit::NoticeAction::redraw);
+    OA_CHECK(kit::notice_pointer_move(notice, {240, 120}, 150) == kit::NoticeAction::redraw);
     OA_CHECK(notice.hovered == kit::notice_open);
-    OA_CHECK(kit::notice_pointer_move(notice, {241, 130}, 150) == kit::NoticeAction::none);
-    OA_CHECK(kit::notice_pointer_down(notice, {240, 130}, 150) == kit::NoticeAction::redraw);
+    OA_CHECK(kit::notice_pointer_move(notice, {241, 120}, 150) == kit::NoticeAction::none);
+    OA_CHECK(kit::notice_pointer_down(notice, {240, 120}, 150) == kit::NoticeAction::redraw);
     OA_CHECK(notice.pressed == kit::notice_open);
-    OA_CHECK(kit::notice_pointer_up(notice, {240, 130}, 150) == kit::NoticeAction::open_folder);
+    OA_CHECK(kit::notice_pointer_up(notice, {240, 120}, 150) == kit::NoticeAction::open_folder);
     OA_CHECK(notice.pressed == kit::no_control);
-    OA_CHECK(kit::notice_pointer_down(notice, {340, 130}, 150) == kit::NoticeAction::redraw);
-    OA_CHECK(kit::notice_pointer_up(notice, {340, 130}, 150) == kit::NoticeAction::closed);
-    OA_CHECK(kit::notice_pointer_down(notice, {340, 130}, 150) == kit::NoticeAction::redraw);
-    OA_CHECK(kit::notice_pointer_up(notice, {240, 130}, 150) == kit::NoticeAction::redraw);
+    OA_CHECK(kit::notice_pointer_down(notice, {340, 120}, 150) == kit::NoticeAction::redraw);
+    OA_CHECK(kit::notice_pointer_up(notice, {340, 120}, 150) == kit::NoticeAction::closed);
+    OA_CHECK(kit::notice_pointer_down(notice, {340, 120}, 150) == kit::NoticeAction::redraw);
+    OA_CHECK(kit::notice_pointer_up(notice, {240, 120}, 150) == kit::NoticeAction::redraw);
     OA_CHECK(kit::notice_pointer_down(notice, {5, 5}, 150) == kit::NoticeAction::none);
     OA_CHECK(kit::notice_pointer_up(notice, {5, 5}, 150) == kit::NoticeAction::none);
     // A finger three rows under OK takes it; its release where it landed
     // closes the notice, and a move there keeps OK lit.
-    OA_CHECK(kit::notice_finger_down(notice, {360, 144}, 150, 6) == kit::NoticeAction::redraw);
-    OA_CHECK(kit::notice_pointer_move(notice, {360, 144}, 150) == kit::NoticeAction::none);
+    OA_CHECK(kit::notice_finger_down(notice, {360, 141}, 150, 6) == kit::NoticeAction::redraw);
+    OA_CHECK(kit::notice_pointer_move(notice, {360, 141}, 150) == kit::NoticeAction::none);
     OA_CHECK(notice.hovered == kit::notice_ok);
-    OA_CHECK(kit::notice_pointer_up(notice, {360, 144}, 150) == kit::NoticeAction::closed);
+    OA_CHECK(kit::notice_pointer_up(notice, {360, 141}, 150) == kit::NoticeAction::closed);
     OA_CHECK(notice.finger_shift_x == 0 && notice.finger_shift_y == 0);
 
     // A question answers the button a release lands on.
     kit::Question question = question_of({"CANCEL", "REPLACE"});
     OA_CHECK(
-        kit::question_pointer_down(question, {330, 130}, 150).action == kit::QuestionAction::redraw
+        kit::question_pointer_down(question, {330, 120}, 150).action == kit::QuestionAction::redraw
     );
-    const kit::QuestionAnswer answered = kit::question_pointer_up(question, {330, 130}, 150);
+    const kit::QuestionAnswer answered = kit::question_pointer_up(question, {330, 120}, 150);
     OA_CHECK(answered.action == kit::QuestionAction::answered && answered.button == 1);
     OA_CHECK(
-        kit::question_pointer_down(question, {265, 130}, 150).action == kit::QuestionAction::redraw
+        kit::question_pointer_down(question, {265, 120}, 150).action == kit::QuestionAction::redraw
     );
     OA_CHECK(
-        kit::question_pointer_up(question, {330, 130}, 150).action == kit::QuestionAction::redraw
+        kit::question_pointer_up(question, {330, 120}, 150).action == kit::QuestionAction::redraw
     );
     OA_CHECK(
-        kit::question_pointer_move(question, {265, 130}, 150).action == kit::QuestionAction::redraw
+        kit::question_pointer_move(question, {265, 120}, 150).action == kit::QuestionAction::redraw
     );
     OA_CHECK(question.hovered == 0);
     OA_CHECK(kit::question_pointer_down(question, {5, 5}, 150).action == kit::QuestionAction::none);
     OA_CHECK(
-        kit::question_finger_down(question, {333, 146}, 150, 6).action ==
+        kit::question_finger_down(question, {333, 144}, 150, 6).action ==
         kit::QuestionAction::redraw
     );
-    const kit::QuestionAnswer tapped = kit::question_pointer_up(question, {333, 146}, 150);
+    const kit::QuestionAnswer tapped = kit::question_pointer_up(question, {333, 144}, 150);
     OA_CHECK(tapped.action == kit::QuestionAction::answered && tapped.button == 1);
 }
 
@@ -1421,41 +1426,44 @@ void paint_draws_what_draw_question_draws() {
         }
 }
 
-/// Returns how many columns of a bar's inner row are filled in the accent.
+/// Returns how many columns of a bar's middle row are filled in a colour.
 ///
 /// @param surface the surface the bar was drawn on
 /// @param bar the bar
+/// @param fill the fill's colour
 /// @return the columns
-int32_t filled_columns(const renderer::Surface& surface, const kit::Rect& bar) {
+int32_t filled_columns(
+    const renderer::Surface& surface, const kit::Rect& bar, kit::Colour fill = kit::colour::accent
+) {
     int32_t filled = 0;
-    for (int32_t x = bar.x + 1; x < bar.x + bar.width - 1; ++x)
-        if (pixel(surface, x, bar.y + 1) == kit::colour::accent)
+    for (int32_t x = bar.x; x < bar.x + bar.width; ++x)
+        if (pixel(surface, x, bar.y + bar.height / 2) == fill)
             ++filled;
     return filled;
 }
 
 void the_progress_bar_fills_as_far_as_it_came() {
-    // The prompt's bar: 376 by 8, so 374 columns inside its border.
+    // The prompt's bar: 376 by 8, a rounded track filled from its left.
     const kit::Rect bar{2, 2, 376, 8};
     const std::array<std::pair<int32_t, int32_t>, 4> fills{{
         {0, 0},
         {1, 0},
-        {500, 187},
-        {1000, 374},
+        {500, 188},
+        {1000, 376},
     }};
     for (const auto& [done, columns] : fills) {
         renderer::Surface drawn = black(380, 12);
         const kit::Canvas canvas{&drawn, {0, 0, 1, {}}, &fonts(), {}};
         kit::draw_progress(canvas, bar, done, kit::question_progress_whole);
         OA_CHECK(filled_columns(drawn, bar) == columns);
-        // The border, the well past the fill, and the fill from the left.
-        OA_CHECK(pixel(drawn, bar.x, bar.y) == kit::colour::control_border);
-        OA_CHECK(pixel(drawn, bar.x + bar.width - 1, bar.y + 4) == kit::colour::control_border);
-        if (columns < 374)
-            OA_CHECK(pixel(drawn, bar.x + 1 + columns, bar.y + 4) == kit::colour::well);
+        // The rounded ends leave the corners clear; the track past the fill.
+        OA_CHECK(pixel(drawn, bar.x, bar.y) == (kit::Colour{0, 0, 0}));
+        OA_CHECK(pixel(drawn, bar.x + bar.width - 1, bar.y) == (kit::Colour{0, 0, 0}));
+        if (columns < 376)
+            OA_CHECK(pixel(drawn, bar.x + columns + 4, bar.y + 4) == kit::colour::list_selected);
         if (columns > 0) {
-            OA_CHECK(pixel(drawn, bar.x + 1, bar.y + 6) == kit::colour::accent);
-            OA_CHECK(pixel(drawn, bar.x + columns, bar.y + 6) == kit::colour::accent);
+            OA_CHECK(pixel(drawn, bar.x, bar.y + 4) == kit::colour::accent);
+            OA_CHECK(pixel(drawn, bar.x + columns - 1, bar.y + 4) == kit::colour::accent);
         }
         OA_CHECK(pixel(drawn, 0, 0) == (kit::Colour{0, 0, 0}));
         // A progress item paints the same.
@@ -1465,17 +1473,27 @@ void the_progress_bar_fills_as_far_as_it_came() {
         kit::paint({&painted, {0, 0, 1, {}}, &fonts(), {}}, list);
         same(drawn, painted, "progress");
     }
+    // Paused, the fill is amber, and a paused item paints the same.
+    renderer::Surface paused = black(380, 12);
+    kit::draw_progress({&paused, {0, 0, 1, {}}, &fonts(), {}}, bar, 500, 1000, true);
+    OA_CHECK(filled_columns(paused, bar, kit::colour::lock) == 188);
+    OA_CHECK(filled_columns(paused, bar) == 0);
+    renderer::Surface paused_item = black(380, 12);
+    kit::DisplayList paused_list;
+    kit::add_progress(paused_list, bar, 500, 1000, true);
+    kit::paint({&paused_item, {0, 0, 1, {}}, &fonts(), {}}, paused_list);
+    same(paused, paused_item, "paused progress");
     // Past the whole is full, under 0 is empty, and a whole of 0 fills nothing.
     renderer::Surface over = black(380, 12);
     kit::draw_progress({&over, {0, 0, 1, {}}, &fonts(), {}}, bar, 1500, 1000);
-    OA_CHECK(filled_columns(over, bar) == 374);
+    OA_CHECK(filled_columns(over, bar) == 376);
     renderer::Surface under = black(380, 12);
     kit::draw_progress({&under, {0, 0, 1, {}}, &fonts(), {}}, bar, -5, 1000);
     OA_CHECK(filled_columns(under, bar) == 0);
     renderer::Surface no_whole = black(380, 12);
     kit::draw_progress({&no_whole, {0, 0, 1, {}}, &fonts(), {}}, bar, 5, 0);
     OA_CHECK(filled_columns(no_whole, bar) == 0);
-    OA_CHECK(pixel(no_whole, bar.x + 4, bar.y + 4) == kit::colour::well);
+    OA_CHECK(pixel(no_whole, bar.x + 4, bar.y + 4) == kit::colour::list_selected);
     // An empty bar draws nothing.
     renderer::Surface empty = black(380, 12);
     kit::draw_progress({&empty, {0, 0, 1, {}}, &fonts(), {}}, {2, 2, 0, 8}, 500, 1000);

@@ -477,16 +477,20 @@ void draw_notice(const Canvas& canvas, const Notice& notice, const LookUp& look_
 /// @param question the question
 void draw_question(const Canvas& canvas, const Question& question);
 
-/// Draws a progress bar: a well in a one-point border, filled in the accent
-/// from its left as far as done is of whole, rounded down. done is held to 0
-/// to whole. A whole of 0 or less, or an empty rectangle, fills nothing; an
-/// empty rectangle draws nothing at all.
+/// Draws a progress bar: a rounded track of the selected surface, filled
+/// in the accent, or in amber while the work is paused, from its left as
+/// far as done is of whole, rounded down, the fill rounded as the track is.
+/// done is held to 0 to whole. A whole of 0 or less, or an empty rectangle,
+/// fills nothing; an empty rectangle draws nothing at all.
 ///
 /// @param canvas where it is drawn
 /// @param bar the bar
 /// @param done how far it has come
 /// @param whole the whole
-void draw_progress(const Canvas& canvas, const Rect& bar, int32_t done, int32_t whole);
+/// @param paused true while the work is paused
+void draw_progress(
+    const Canvas& canvas, const Rect& bar, int32_t done, int32_t whole, bool paused = false
+);
 
 /// Appends a progress bar. It adds no control.
 ///
@@ -494,7 +498,10 @@ void draw_progress(const Canvas& canvas, const Rect& bar, int32_t done, int32_t 
 /// @param bar the bar
 /// @param done how far it has come
 /// @param whole the whole
-void add_progress(DisplayList& list, const Rect& bar, int32_t done, int32_t whole);
+/// @param paused true while the work is paused
+void add_progress(
+    DisplayList& list, const Rect& bar, int32_t done, int32_t whole, bool paused = false
+);
 
 /// The word a work dialog is named by. Its text's control is `<word>.body`.
 inline constexpr std::string_view work_dialog_word = "progress";

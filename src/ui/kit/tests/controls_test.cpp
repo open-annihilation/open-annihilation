@@ -179,8 +179,10 @@ void a_short_row_lies_as_the_mods_row() {
     // The chip: UPDATE is 15 columns and its padding, at the right inset.
     const kit::Rect chip = kit::list_row_chip_rect(fonts(), rect, *look.chip);
     OA_CHECK(chip.x == 283 && chip.y == 18 && chip.width == 23 && chip.height == 12);
-    expect(surface, 283, 18, kit::colour::lock);
-    expect(surface, 305, 29, kit::colour::lock);
+    // A pill of the caution tint.
+    expect(surface, 283, 18, kBlack);
+    expect(surface, 294, 18, kit::colour::caution_tint);
+    expect(surface, 283, 24, kit::colour::caution_tint);
 }
 
 /// The full form: a 28-point badge with a picture, the title and its byline,
@@ -203,9 +205,11 @@ void a_full_row_cuts_its_summary_before_the_aside() {
     renderer::Surface surface = black(420, 100);
     kit::draw_list_row(canvas_on(surface), rect, look);
 
-    // Selected: the accent outline and the accent's tint over the face.
-    expect(surface, 10, 50, kit::colour::accent);
-    expect(surface, 409, 85, kit::colour::accent);
+    // Selected: the accent outline, rounded as a control is, and the
+    // accent's tint over the face.
+    expect(surface, 10, 50, kBlack);
+    expect(surface, 200, 50, kit::colour::accent);
+    expect(surface, 409, 68, kit::colour::accent);
     expect(surface, 12, 52, blended(kBlack, kit::colour::accent, kit::selected_tint));
     // The picture wins over the letters, outlined, 28 square.
     expect(surface, 14, 54, kit::colour::control_border);
@@ -215,10 +219,10 @@ void a_full_row_cuts_its_summary_before_the_aside() {
     expect(surface, 46, 58, kit::colour::text);
     expect(surface, 69, 58, kit::colour::hint);
     // The aside, right-aligned at 354 to 381, one entry a line.
-    expect(surface, 354, 58, kit::colour::hint);
-    expect(surface, 362, 70, kit::colour::hint);
-    // The chip at the right inset.
-    expect(surface, 388, 62, kit::colour::control_hover);
+    expect(surface, 354, 58, kit::colour::text_secondary);
+    expect(surface, 362, 70, kit::colour::text_secondary);
+    // The chip at the right inset: a pill's left end.
+    expect(surface, 388, 68, kit::colour::control_hover);
     // The summary, cut so that nothing of it reaches the aside's gap.
     expect(surface, 47, 70, kit::colour::list_text);
     bool reaches_end = false;
@@ -315,13 +319,15 @@ void a_blank_badge_and_tags() {
         kit::ChipLook{"VIEW", kit::ChipState::filter, true},
     };
     kit::draw_list_row(canvas_on(surface), {10, 140, 400, 48}, tagged);
-    // The text is centred: title at 145, its line at 159, the tags at 171.
+    // The text is centred: title at 145, its line at 159, the tags at 171,
+    // each tag a pill.
     expect(surface, 46, 148, kit::colour::text);
     expect(surface, 47, 160, kit::colour::list_text);
-    expect(surface, 46, 171, kit::colour::control_border);
-    expect(surface, 64, 182, kit::colour::control_border);
-    expect(surface, 69, 171, kit::colour::accent);
-    expect(surface, 70, 172, kit::colour::list_selected);
+    expect(surface, 46, 171, kBlack);
+    expect(surface, 46, 177, kit::colour::control_border);
+    expect(surface, 55, 182, kit::colour::control_border);
+    expect(surface, 69, 177, kit::colour::accent);
+    expect(surface, 70, 177, kit::colour::list_selected);
     // The badge stays 28 in a taller row, centred down it.
     expect(surface, 14, 150, kit::colour::accent);
     expect(surface, 14, 149, kBlack);
@@ -329,13 +335,17 @@ void a_blank_badge_and_tags() {
 
 // ---- Chips ----
 
-/// Draws a GET-wide chip of a state and checks its border, face and text.
+/// Draws a GET-wide chip of a state and checks that it is a pill, its
+/// corners clear, its border at its top and its left end, its face inside,
+/// and its text.
 void pin_chip(const kit::ChipLook& look, kit::Colour border, kit::Colour face, kit::Colour text) {
     renderer::Surface surface = black(40, 30);
     kit::draw_chip(canvas_on(surface), {10, 10, 18, 12}, look);
-    expect(surface, 10, 10, border);
-    expect(surface, 27, 21, border);
-    expect(surface, 11, 11, face);
+    expect(surface, 10, 10, kBlack);
+    expect(surface, 27, 21, kBlack);
+    expect(surface, 19, 10, border);
+    expect(surface, 10, 16, border);
+    expect(surface, 11, 16, face);
     expect(surface, 14, 11, text);
 }
 
@@ -346,18 +356,38 @@ void chips_take_every_state() {
 
     using State = kit::ChipState;
     namespace colour = kit::colour;
-    pin_chip({"GET", State::get}, colour::control_hover, kBlack, colour::hint);
-    pin_chip({"GET", State::installed}, colour::accent, kBlack, colour::accent);
-    pin_chip({"GET", State::update}, colour::lock, kBlack, colour::lock);
+    pin_chip({"GET", State::get}, colour::control_hover, kBlack, colour::text_secondary);
+    // A state's chip is its colour's tinted fill under words in that colour.
+    pin_chip({"GET", State::installed}, colour::ok_tint, colour::ok_tint, colour::accent_light);
+    pin_chip({"GET", State::update}, colour::caution_tint, colour::caution_tint, colour::lock);
     pin_chip({"GET", State::playing}, colour::accent, colour::accent, colour::on_accent);
-    pin_chip({"GET", State::online}, colour::online, kBlack, colour::online);
-    pin_chip({"GET", State::problem}, colour::danger, kBlack, colour::danger);
-    pin_chip({"GET", State::filter}, colour::control_border, kBlack, colour::hint);
     pin_chip(
-        {"GET", State::filter, false, true}, colour::control_hover, colour::hover, colour::hint
+        {"GET", State::online},
+        colour::information_tint,
+        colour::information_tint,
+        colour::information
+    );
+    pin_chip({"GET", State::problem}, colour::danger_tint, colour::danger_tint, colour::danger);
+    pin_chip({"GET", State::filter}, colour::control_border, kBlack, colour::text_secondary);
+    pin_chip(
+        {"GET", State::filter, false, true},
+        colour::control_hover,
+        colour::hover,
+        colour::text_secondary
     );
     pin_chip({"GET", State::filter, true}, colour::accent, colour::list_selected, colour::text);
-    pin_chip({"GET", State::get, false, true}, colour::control_hover, colour::hover, colour::hint);
+    pin_chip(
+        {"GET", State::get, false, true},
+        colour::control_hover,
+        colour::hover,
+        colour::text_secondary
+    );
+    pin_chip(
+        {"GET", State::installed, false, true},
+        colour::control_hover,
+        colour::ok_tint,
+        colour::accent_light
+    );
     pin_chip(
         {"GET", State::playing, false, true}, colour::accent, colour::accent, colour::on_accent
     );
@@ -370,15 +400,15 @@ void chips_take_every_state() {
           State::problem,
           State::filter}) {
         pin_chip(
-            {"GET", state, true, true, true}, colour::switch_idle, kBlack, colour::switch_idle
+            {"GET", state, true, true, true}, colour::control_border, kBlack, colour::switch_idle
         );
     }
 }
 
 // ---- Pills ----
 
-/// A pill's corner at 1x is a step, its cap and its straight edge are the
-/// ground, and an outlined state keeps that ground inside its colour.
+/// A pill's corner at 1x is a step, and its cap and its straight edge are
+/// its ground: a state's tinted fill, the accent, or the selected surface.
 void pills_are_rounded_and_stepped_at_1x() {
     OA_CHECK(kit::pill_width(fonts(), {"GET"}) == 30);
     OA_CHECK(kit::pill_width(fonts(), {""}) == 12);
@@ -389,43 +419,32 @@ void pills_are_rounded_and_stepped_at_1x() {
     OA_CHECK(kit::pill_height() == 12);
 
     const kit::Rect pill{10, 10, 40, 12};
-    renderer::Surface playing = black(60, 32);
-    kit::draw_pill(canvas_on(playing), pill, {"", kit::PillState::playing});
-    expect(playing, 10, 10, kBlack);
-    expect(playing, 10, 16, kit::colour::accent);
-    expect(playing, 30, 10, kit::colour::accent);
-    expect(playing, 30, 16, kit::colour::accent);
+    const auto pin = [&](kit::PillState state, kit::Colour ground) {
+        renderer::Surface surface = black(60, 32);
+        kit::draw_pill(canvas_on(surface), pill, {"", state});
+        expect(surface, 10, 10, kBlack);
+        expect(surface, 10, 16, ground);
+        expect(surface, 30, 10, ground);
+        expect(surface, 30, 16, ground);
+    };
+    pin(kit::PillState::playing, kit::colour::accent);
+    pin(kit::PillState::installed, kit::colour::ok_tint);
+    pin(kit::PillState::neutral, kit::colour::list_selected);
+    pin(kit::PillState::update, kit::colour::caution_tint);
+    pin(kit::PillState::problem, kit::colour::danger_tint);
+    pin(kit::PillState::information, kit::colour::information_tint);
+    pin(kit::PillState::brand, kit::colour::brand_tint);
 
-    renderer::Surface installed = black(60, 32);
-    kit::draw_pill(canvas_on(installed), pill, {"", kit::PillState::installed});
-    expect(installed, 10, 10, kBlack);
-    expect(installed, 10, 16, kit::colour::accent);
-    expect(installed, 30, 10, kit::colour::accent);
-    expect(installed, 30, 16, kit::colour::control_hover);
-
-    renderer::Surface neutral = black(60, 32);
-    kit::draw_pill(canvas_on(neutral), pill, {"", kit::PillState::neutral});
-    expect(neutral, 10, 10, kBlack);
-    expect(neutral, 30, 16, kit::colour::control_hover);
-
-    renderer::Surface update = black(60, 32);
-    kit::draw_pill(canvas_on(update), pill, {"", kit::PillState::update});
-    expect(update, 10, 16, kit::colour::lock);
-    expect(update, 30, 16, kit::colour::control_hover);
-
-    renderer::Surface problem = black(60, 32);
-    kit::draw_pill(canvas_on(problem), pill, {"", kit::PillState::problem});
-    expect(problem, 10, 16, kit::colour::danger);
-    expect(problem, 30, 16, kit::colour::control_hover);
-
-    // A chip of the same words stays a rectangle: its corner is its outline.
+    // A chip of the same words is a pill too.
     renderer::Surface chip = black(60, 32);
     kit::draw_chip(canvas_on(chip), pill, {"", kit::ChipState::playing});
-    expect(chip, 10, 10, kit::colour::accent);
+    expect(chip, 10, 10, kBlack);
+    expect(chip, 10, 16, kit::colour::accent);
 }
 
 /// A selectable pill: active matches Playing, inactive matches Built in,
-/// hover and focus show on the capsule, and disabled ignores both.
+/// hover shows on the capsule, focus is the focus ring round it, and
+/// disabled ignores both.
 void a_selectable_pill_shows_its_states() {
     const kit::Rect pill{10, 10, 40, 12};
     renderer::Surface active = black(60, 32);
@@ -437,8 +456,8 @@ void a_selectable_pill_shows_its_states() {
     renderer::Surface inactive = black(60, 32);
     kit::draw_pill(canvas_on(inactive), pill, {"", kit::PillState::inactive});
     expect(inactive, 10, 10, kBlack);
-    expect(inactive, 10, 16, kit::colour::control_hover);
-    expect(inactive, 30, 16, kit::colour::control_hover);
+    expect(inactive, 10, 16, kit::colour::list_selected);
+    expect(inactive, 30, 16, kit::colour::list_selected);
 
     kit::PillLook hovered{"", kit::PillState::active};
     hovered.hovered = true;
@@ -451,22 +470,29 @@ void a_selectable_pill_shows_its_states() {
     muted.hovered = true;
     renderer::Surface outlined = black(60, 32);
     kit::draw_pill(canvas_on(outlined), pill, muted);
-    expect(outlined, 10, 16, kit::colour::accent);
-    expect(outlined, 30, 16, kit::colour::control_hover);
+    expect(outlined, 10, 16, kit::colour::control_hover);
+    expect(outlined, 30, 16, kit::colour::list_selected);
 
+    // The focus ring stands two points clear of the pill, two points thick.
     kit::PillLook focused = hovered;
     focused.focused = true;
     renderer::Surface both = black(60, 32);
     kit::draw_pill(canvas_on(both), pill, focused);
-    expect(both, 10, 16, kit::colour::text);
+    expect(both, 10, 16, kit::colour::accent_light);
+    expect(both, 8, 16, kBlack);
+    expect(both, 7, 16, kit::colour::focus);
+    expect(both, 6, 16, kit::colour::focus);
+    expect(both, 5, 16, kBlack);
+    expect(both, 30, 6, kit::colour::focus);
     expect(both, 30, 16, kit::colour::accent_light);
 
     kit::PillLook idle_focus{"", kit::PillState::inactive};
     idle_focus.focused = true;
     renderer::Surface focus = black(60, 32);
     kit::draw_pill(canvas_on(focus), pill, idle_focus);
-    expect(focus, 10, 16, kit::colour::text);
-    expect(focus, 30, 16, kit::colour::control_hover);
+    expect(focus, 10, 16, kit::colour::list_selected);
+    expect(focus, 7, 16, kit::colour::focus);
+    expect(focus, 30, 16, kit::colour::list_selected);
 
     kit::PillLook off{"GET", kit::PillState::active};
     off.disabled = true;
@@ -474,9 +500,10 @@ void a_selectable_pill_shows_its_states() {
     off.focused = true;
     renderer::Surface disabled = black(60, 32);
     kit::draw_pill(canvas_on(disabled), pill, off);
-    expect(disabled, 10, 16, kit::colour::control_hover);
+    expect(disabled, 10, 16, kit::colour::hover);
+    expect(disabled, 7, 16, kBlack);
     // The word sits in the middle; the ground is the capsule beside it.
-    expect(disabled, 18, 16, kit::colour::control_hover);
+    expect(disabled, 18, 16, kit::colour::hover);
     renderer::Surface enabled = black(60, 32);
     kit::draw_pill(canvas_on(enabled), pill, {"GET", kit::PillState::active});
     bool saw_word = false;
@@ -635,11 +662,12 @@ void chips_show_state_icons() {
         kit::draw_chip(canvas_on(chip, 2), {1, 1, side, side}, look);
         renderer::Surface direct = black(30, 30);
         if (face != kBlack)
-            kit::fill_rect(canvas_on(direct, 2), {1, 1, side, side}, face);
+            kit::fill_round_rect(canvas_on(direct, 2), {1, 1, side, side}, side / 2, face);
         kit::draw_state_icon(canvas_on(direct, 2), {1, 1, side, side}, icon, ink);
         same(chip, direct);
-        // No outline: the square's corner keeps what is under the chip.
-        expect(chip, 2, 2, face);
+        // No outline, and a hovered face is a disc: the square's corner keeps
+        // what is under the chip.
+        expect(chip, 2, 2, kBlack);
     };
     pin(update, Icon::circled_up_arrow, colour::lock, kBlack);
     pin({"GET", State::get, false, false, false, Icon::download_arrow},
@@ -695,7 +723,8 @@ void the_aside_keeps_a_whole_version() {
     // The version's first glyph starts where the whole text, right-aligned, starts.
     bool first_column = false;
     for (int32_t y = 0; y < 40; ++y)
-        first_column = first_column || pixel(drawn, right - version, y) == kit::colour::hint;
+        first_column =
+            first_column || pixel(drawn, right - version, y) == kit::colour::text_secondary;
     OA_CHECK(first_column);
 }
 
@@ -707,35 +736,37 @@ void a_search_field_shows_its_placeholder_and_magnifier() {
     renderer::Surface surface = black(140, 40);
     const kit::Rect rect{10, 10, 120, kit::compact_metrics.field_height};
     kit::draw_search(canvas_on(surface), rect, look);
-    expect(surface, 10, 10, kit::colour::control_border);
-    expect(surface, 11, 11, kit::colour::well);
-    // The magnifier 4 points in, centred down the field.
-    expect(surface, 14, 14, kit::colour::well);
-    expect(surface, 15, 14, kit::colour::hint);
-    expect(surface, 18, 15, kit::colour::hint);
-    expect(surface, 20, 20, kit::colour::hint);
+    // A 30-point field's corners are 6 points round.
+    expect(surface, 10, 10, kBlack);
+    expect(surface, 70, 10, kit::colour::control_border);
+    expect(surface, 11, 25, kit::colour::well);
+    // The magnifier 8 points in, centred down the field.
+    expect(surface, 18, 21, kit::colour::well);
+    expect(surface, 19, 21, kit::colour::hint);
+    expect(surface, 22, 22, kit::colour::hint);
+    expect(surface, 24, 27, kit::colour::hint);
     // The placeholder after the mark.
     const kit::Rect text = kit::field_text_rect(rect, look);
-    OA_CHECK(text.x == 25 && text.y == 10 && text.width == 101 && text.height == 16);
-    expect(surface, 25, 13, kit::colour::hint);
+    OA_CHECK(text.x == 33 && text.y == 10 && text.width == 89 && text.height == 30);
+    expect(surface, 33, 20, kit::colour::hint);
 
     look.hovered = true;
     surface = black(140, 40);
     kit::draw_search(canvas_on(surface), rect, look);
-    expect(surface, 10, 10, kit::colour::control_hover);
+    expect(surface, 70, 10, kit::colour::control_hover);
 
-    // The plain text field: no magnifier, the placeholder 4 points in.
+    // The plain text field: no magnifier, the placeholder 8 points in.
     look.magnifier = false;
     look.hovered = false;
     look.placeholder.clear();
     surface = black(140, 40);
     kit::draw_search(canvas_on(surface), rect, look);
-    OA_CHECK(kit::field_text_rect(rect, look).x == 14);
-    expect(surface, 15, 14, kit::colour::well);
-    expect(surface, 20, 20, kit::colour::well);
+    OA_CHECK(kit::field_text_rect(rect, look).x == 18);
+    expect(surface, 19, 21, kit::colour::well);
+    expect(surface, 24, 27, kit::colour::well);
     look.placeholder = "Search mods";
     kit::draw_search(canvas_on(surface), rect, look);
-    expect(surface, 14, 13, kit::colour::hint);
+    expect(surface, 18, 20, kit::colour::hint);
 }
 
 void a_focused_field_shows_its_text_and_caret() {
@@ -746,30 +777,36 @@ void a_focused_field_shows_its_text_and_caret() {
     renderer::Surface surface = black(140, 40);
     const kit::Rect rect{10, 10, 120, 16};
     kit::draw_search(canvas_on(surface), rect, look);
-    expect(surface, 10, 10, kit::colour::accent);
+    // Focused: the accent border, and the soft ring two points outside it.
+    expect(surface, 70, 10, kit::colour::accent);
+    expect(surface, 70, 9, kit::colour::field_ring);
+    expect(surface, 70, 8, kit::colour::field_ring);
+    expect(surface, 70, 7, kBlack);
+    expect(surface, 10, 10, kit::colour::field_ring);
     // r's first column is empty; its second is set.
-    expect(surface, 25, 13, kit::colour::well);
-    expect(surface, 26, 13, kit::colour::text);
+    expect(surface, 33, 13, kit::colour::well);
+    expect(surface, 34, 13, kit::colour::text);
     // The caret after the 17 columns of "ridge", over the capitals' 8 rows.
-    expect(surface, 42, 13, kit::colour::well);
-    expect(surface, 42, 14, kit::colour::text);
-    expect(surface, 42, 21, kit::colour::text);
-    expect(surface, 42, 22, kit::colour::well);
-    expect(surface, 43, 14, kit::colour::well);
+    expect(surface, 50, 13, kit::colour::well);
+    expect(surface, 50, 14, kit::colour::text);
+    expect(surface, 50, 21, kit::colour::text);
+    expect(surface, 50, 22, kit::colour::well);
+    expect(surface, 51, 14, kit::colour::well);
 
-    // Without the focus there is no caret.
+    // Without the focus there is no caret, and no ring.
     look.focused = false;
     surface = black(140, 40);
     kit::draw_search(canvas_on(surface), rect, look);
-    expect(surface, 42, 14, kit::colour::well);
+    expect(surface, 50, 14, kit::colour::well);
+    expect(surface, 70, 9, kBlack);
 
     // Focused on an empty field: the placeholder, and the caret at the start.
     look.field = {};
     look.focused = true;
     surface = black(140, 40);
     kit::draw_search(canvas_on(surface), rect, look);
-    expect(surface, 25, 14, kit::colour::text);
-    expect(surface, 25, 13, kit::colour::hint);
+    expect(surface, 33, 14, kit::colour::text);
+    expect(surface, 33, 13, kit::colour::hint);
 }
 
 void a_long_text_scrolls_so_its_caret_shows() {
@@ -778,15 +815,15 @@ void a_long_text_scrolls_so_its_caret_shows() {
     look.focused = true;
     look.field = {"abcdefghijklmnopqrstuvwxyzabcdefghij", 36};
     const kit::Rect rect{10, 40, 60, 16};
-    // 126 columns of text in 52, less the caret's column: moved 75 left.
-    OA_CHECK(kit::field_scroll(fonts(), rect, look) == 75);
+    // 126 columns of text in 44, less the caret's column: moved 83 left.
+    OA_CHECK(kit::field_scroll(fonts(), rect, look) == 83);
     renderer::Surface surface = black(80, 80);
     kit::draw_search(canvas_on(surface), rect, look);
-    expect(surface, 65, 44, kit::colour::text);
-    expect(surface, 65, 51, kit::colour::text);
+    expect(surface, 61, 44, kit::colour::text);
+    expect(surface, 61, 51, kit::colour::text);
     // Nothing of the text is drawn left of its room.
     for (int32_t y = 43; y < 51; ++y)
-        for (int32_t x = 11; x < 14; ++x)
+        for (int32_t x = 11; x < 18; ++x)
             expect(surface, x, y, kit::colour::well);
 
     look.field.caret = 0;
@@ -807,9 +844,9 @@ void typing_moves_the_caret_drawn() {
     OA_CHECK(look.field.text == "ridXge" && look.field.caret == 4);
     renderer::Surface surface = black(140, 100);
     kit::draw_search(canvas_on(surface), {10, 70, 120, 16}, look);
-    // The caret after "ridX", 11 columns from the text's left at 25.
-    expect(surface, 36, 74, kit::colour::text);
-    expect(surface, 37, 74, kit::colour::well);
+    // The caret after "ridX", 11 columns from the text's left at 33.
+    expect(surface, 44, 74, kit::colour::text);
+    expect(surface, 45, 74, kit::colour::well);
     OA_CHECK(kit::edit_text(look.field, kit::Key::backspace));
     OA_CHECK(look.field.text == "ridge" && look.field.caret == 3);
 }
@@ -824,49 +861,52 @@ void tabs_draw_with_a_count_and_with_none() {
     const std::vector<kit::Rect> rects = kit::tab_rects(fonts(), strip, look);
     OA_CHECK(rects.size() == 3u);
     // MODS is 15 columns and three of tracking, and 10 either side.
-    OA_CHECK(rects[0].x == 10 && rects[0].y == 10 && rects[0].width == 38 && rects[0].height == 18);
+    OA_CHECK(rects[0].x == 10 && rects[0].y == 10 && rects[0].width == 38 && rects[0].height == 32);
     OA_CHECK(rects[1].x == 48 && rects[1].width == 36);
     // UPDATES and its count: 26, 4 apart, and a pill 12 wide.
     OA_CHECK(rects[2].x == 84 && rects[2].width == 62);
 
-    renderer::Surface surface = black(320, 40);
+    // The 32-point strip: captions centred over the rule, which is its
+    // last two rows, 40 and 41.
+    renderer::Surface surface = black(320, 50);
     kit::draw_tabs(canvas_on(surface), strip, look);
     // The selected tab: its caption in the text colour over the accent rule.
-    expect(surface, 20, 13, kit::colour::text);
-    expect(surface, 10, 26, kit::colour::accent);
-    expect(surface, 47, 27, kit::colour::accent);
-    expect(surface, 10, 25, kBlack);
-    // The others: hint captions over the strip's hairline.
-    expect(surface, 58, 13, kit::colour::hint);
-    expect(surface, 50, 27, kit::colour::rule);
-    expect(surface, 50, 26, kBlack);
-    expect(surface, 94, 13, kit::colour::hint);
-    expect(surface, 300, 27, kit::colour::rule);
+    expect(surface, 20, 20, kit::colour::text);
+    expect(surface, 10, 40, kit::colour::accent);
+    expect(surface, 47, 41, kit::colour::accent);
+    expect(surface, 10, 39, kBlack);
+    // The others: secondary captions over the strip's hairline.
+    expect(surface, 58, 20, kit::colour::text_secondary);
+    expect(surface, 50, 41, kit::colour::rule);
+    expect(surface, 50, 40, kBlack);
+    expect(surface, 94, 20, kit::colour::text_secondary);
+    expect(surface, 300, 41, kit::colour::rule);
     // The count: a pill of the lock colour with its digit in on_accent.
-    expect(surface, 124, 12, kit::colour::lock);
-    expect(surface, 135, 23, kit::colour::lock);
-    expect(surface, 128, 13, kit::colour::on_accent);
-    expect(surface, 123, 12, kBlack);
+    expect(surface, 124, 19, kBlack);
+    expect(surface, 130, 19, kit::colour::lock);
+    expect(surface, 130, 30, kit::colour::lock);
+    expect(surface, 128, 20, kit::colour::on_accent);
+    expect(surface, 123, 19, kBlack);
 
     // Hovered, a tab's caption is in the text colour.
     look.hovered = 1;
-    surface = black(320, 40);
+    surface = black(320, 50);
     kit::draw_tabs(canvas_on(surface), strip, look);
-    expect(surface, 58, 13, kit::colour::text);
-    expect(surface, 94, 13, kit::colour::hint);
+    expect(surface, 58, 20, kit::colour::text);
+    expect(surface, 94, 20, kit::colour::text_secondary);
 
     // No count draws no pill; a count of 0 none either.
     look.counts = {};
     look.selected = 2;
     look.hovered.reset();
     OA_CHECK(kit::tab_rects(fonts(), strip, look)[2].width == 46);
-    surface = black(320, 40);
+    surface = black(320, 50);
     kit::draw_tabs(canvas_on(surface), strip, look);
-    expect(surface, 124, 12, kBlack);
-    expect(surface, 84, 26, kit::colour::accent);
-    expect(surface, 129, 27, kit::colour::accent);
-    expect(surface, 130, 27, kit::colour::rule);
-    expect(surface, 20, 13, kit::colour::hint);
+    expect(surface, 130, 19, kBlack);
+    expect(surface, 84, 40, kit::colour::accent);
+    expect(surface, 129, 41, kit::colour::accent);
+    expect(surface, 130, 41, kit::colour::rule);
+    expect(surface, 20, 20, kit::colour::text_secondary);
 }
 
 /// Words draw a count of 0, skip a negative count, and read the look's text.
@@ -1013,7 +1053,8 @@ void a_narrow_strip_scrolls_one_tab_at_a_time() {
     kit::draw_tabs(canvas_on(surface), strip, look);
     OA_CHECK(end.left_arrow.width > 0);
     const int32_t mark_x = end.left_arrow.x + 4;
-    const int32_t mark_y = end.left_arrow.y + 7;
+    // The arrow is centred down the strip.
+    const int32_t mark_y = end.left_arrow.y + end.left_arrow.height / 2 - 2;
     expect(surface, mark_x, mark_y, kit::colour::hint);
     expect(surface, 20, 13, kBlack);
 }
@@ -1094,18 +1135,21 @@ void a_card_shows_its_placeholder_chips_and_lines() {
     const kit::Rect rect{10, 10, 120, kit::card_height(120)};
     renderer::Surface surface = black(140, 170);
     kit::draw_card(canvas_on(surface), rect, look);
-    expect(surface, 10, 10, kit::colour::control_border);
-    expect(surface, 11, 11, kit::colour::list_selected);
+    // A card's corners are the card radius round, 8 points at Compact.
+    expect(surface, 10, 10, kBlack);
+    expect(surface, 70, 10, kit::colour::control_border);
+    expect(surface, 11, 60, kit::colour::hover);
     // The preview, 112 square, 4 in: the well and the placeholder centred.
     expect(surface, 14, 14, kit::colour::well);
-    expect(surface, 13, 14, kit::colour::list_selected);
+    expect(surface, 13, 14, kit::colour::hover);
     expect(surface, 125, 125, kit::colour::well);
-    expect(surface, 126, 126, kit::colour::list_selected);
+    expect(surface, 126, 126, kit::colour::hover);
     expect(surface, 45, 65, kit::colour::hint);
-    // The chips at the preview's bottom left, 4 in and 4 apart.
-    expect(surface, 18, 110, kit::colour::control_hover);
-    expect(surface, 40, 121, kit::colour::control_hover);
-    expect(surface, 45, 110, kit::colour::accent);
+    // The chips at the preview's bottom left, 4 in and 4 apart, each a pill.
+    expect(surface, 18, 110, kit::colour::well);
+    expect(surface, 24, 110, kit::colour::control_hover);
+    expect(surface, 29, 121, kit::colour::control_hover);
+    expect(surface, 51, 110, kit::colour::ok_tint);
     expect(surface, 17, 110, kit::colour::well);
     // The title and the subtitle under the preview.
     expect(surface, 14, 133, kit::colour::text);
@@ -1113,11 +1157,12 @@ void a_card_shows_its_placeholder_chips_and_lines() {
 
     look.selected = true;
     kit::draw_card(canvas_on(surface), rect, look);
-    expect(surface, 10, 10, kit::colour::accent);
+    expect(surface, 70, 10, kit::colour::accent);
     look.selected = false;
     look.hovered = true;
     kit::draw_card(canvas_on(surface), rect, look);
-    expect(surface, 10, 10, kit::colour::control_hover);
+    expect(surface, 70, 10, kit::colour::control_hover);
+    expect(surface, 11, 60, kit::colour::list_selected);
 
     // A picture fills the preview instead of the placeholder.
     const OneColourPicture preview(kit::colour::online);
@@ -1135,16 +1180,21 @@ void a_greyed_card_fades_into_the_panel() {
     const kit::Rect rect{10, 10, 120, kit::card_height(120)};
     renderer::Surface plain = black(140, 170);
     kit::draw_card(canvas_on(plain), rect, look);
-    renderer::blend_source_rect(
-        plain, {0, 0, 1, {}}, rect, kit::rgb(kit::colour::panel), kit::locked_fade
+    renderer::Surface unfaded = plain;
+    kit::blend_corner_rect(
+        canvas_on(plain),
+        rect,
+        kit::compact_metrics.card_radius,
+        kit::colour::panel,
+        kit::locked_fade
     );
     look.greyed = true;
     renderer::Surface greyed = black(140, 170);
     kit::draw_card(canvas_on(greyed), rect, look);
     same(plain, greyed);
-    expect(
-        greyed, 11, 11, blended(kit::colour::list_selected, kit::colour::panel, kit::locked_fade)
-    );
+    // The fade covers the card's face and leaves its rounded corner clear.
+    OA_CHECK(pixel(greyed, 11, 60) != pixel(unfaded, 11, 60));
+    expect(greyed, 10, 10, kBlack);
 
     // A greyed card still takes a press.
     kit::DisplayList list;
@@ -1212,12 +1262,14 @@ void a_hover_card_shows_its_header_rows_and_block() {
     const kit::Rect rect{40, 40, size.x, size.y};
     renderer::Surface surface = black(240, 180);
     kit::draw_hover_card(canvas_on(surface), rect, look);
-    expect(surface, 40, 40, kit::colour::lock);
-    expect(surface, 181, 123, kit::colour::lock);
-    expect(surface, 41, 41, kit::colour::band);
+    // Rounded as a card is, outlined in the strong edge.
+    expect(surface, 40, 40, kBlack);
+    expect(surface, 100, 40, kit::colour::strong_edge);
+    expect(surface, 181, 80, kit::colour::strong_edge);
+    expect(surface, 41, 100, kit::colour::band);
     // The small OA mark, the title after it and the aside at the right.
     expect(surface, 46, 48, kit::colour::band);
-    expect(surface, 47, 48, kit::colour::accent);
+    expect(surface, 47, 48, kit::colour::brand);
     expect(surface, 61, 47, kit::colour::text);
     expect(surface, 138, 47, kit::colour::hint);
     // Labels in a column 23 wide, values after it in their colours.
@@ -1252,22 +1304,22 @@ void a_hover_card_points_its_arrow_from_each_side() {
     look.arrow_at = 20;
     renderer::Surface surface = black(240, 180);
     kit::draw_hover_card(canvas_on(surface), rect, look);
-    expect(surface, 60, 35, kit::colour::lock);
+    expect(surface, 60, 35, kit::colour::strong_edge);
     expect(surface, 59, 35, kBlack);
     expect(surface, 61, 35, kBlack);
     expect(surface, 60, 34, kBlack);
-    expect(surface, 56, 39, kit::colour::lock);
+    expect(surface, 56, 39, kit::colour::strong_edge);
     expect(surface, 55, 39, kBlack);
-    expect(surface, 64, 39, kit::colour::lock);
+    expect(surface, 64, 39, kit::colour::strong_edge);
     expect(surface, 65, 39, kBlack);
 
     look.arrow = kit::Side::bottom;
     surface = black(240, 180);
     kit::draw_hover_card(canvas_on(surface), rect, look);
-    expect(surface, 60, 124, kit::colour::lock);
-    expect(surface, 56, 124, kit::colour::lock);
+    expect(surface, 60, 124, kit::colour::strong_edge);
+    expect(surface, 56, 124, kit::colour::strong_edge);
     expect(surface, 55, 124, kBlack);
-    expect(surface, 60, 128, kit::colour::lock);
+    expect(surface, 60, 128, kit::colour::strong_edge);
     expect(surface, 59, 128, kBlack);
     expect(surface, 60, 129, kBlack);
 
@@ -1275,19 +1327,19 @@ void a_hover_card_points_its_arrow_from_each_side() {
     look.arrow_at = 10;
     surface = black(240, 180);
     kit::draw_hover_card(canvas_on(surface), rect, look);
-    expect(surface, 35, 50, kit::colour::lock);
+    expect(surface, 35, 50, kit::colour::strong_edge);
     expect(surface, 35, 49, kBlack);
     expect(surface, 34, 50, kBlack);
-    expect(surface, 39, 46, kit::colour::lock);
+    expect(surface, 39, 46, kit::colour::strong_edge);
     expect(surface, 39, 45, kBlack);
-    expect(surface, 39, 54, kit::colour::lock);
+    expect(surface, 39, 54, kit::colour::strong_edge);
     expect(surface, 39, 55, kBlack);
 
     look.arrow = kit::Side::right;
     surface = black(240, 180);
     kit::draw_hover_card(canvas_on(surface), rect, look);
-    expect(surface, 182, 46, kit::colour::lock);
-    expect(surface, 186, 50, kit::colour::lock);
+    expect(surface, 182, 46, kit::colour::strong_edge);
+    expect(surface, 186, 50, kit::colour::strong_edge);
     expect(surface, 186, 49, kBlack);
     expect(surface, 187, 50, kBlack);
 }
@@ -1509,7 +1561,7 @@ void paint_matches_each_direct_draw(int32_t scale) {
 /// sits under the state icon without moving a row that has no mark.
 void maker_marks_sit_under_the_icon() {
     constexpr kit::Colour kPlate{0x3c, 0x40, 0x38};
-    constexpr kit::Colour kGold = kit::colour::lock;
+    constexpr kit::Colour kGold = kit::colour::brand;
     constexpr kit::Colour kOutline{0x0c, 0x0a, 0x08};
     constexpr kit::Colour kBone{0xf4, 0xef, 0xe0};
     const auto count_ink =

@@ -945,17 +945,21 @@ void draw_keycap(
         edge = darken(face);
     }
 
-    int32_t radius = look.small ? 1 : 2;
+    // The key's physical look: the whole cap in its darker edge, and the
+    // face over it, short of the edge band at the bottom.
+    int32_t radius = look.small ? 1 : keycap_radius_for(rect.height);
     const int32_t shorter = std::min(rect.width, rect.height);
     if (radius * 2 > shorter)
         radius = std::max(shorter / 2, int32_t{0});
-    fill_corner_rect(local, rect, radius, face);
-
     const int32_t edge_band = look.small ? 0 : std::max(int32_t{1}, rect.height / 8);
-    if (edge_band > 0 && edge_band < rect.height)
-        fill_rect(
-            local, Rect{rect.x, rect.y + rect.height - edge_band, rect.width, edge_band}, edge
+    if (edge_band > 0 && edge_band < rect.height) {
+        fill_corner_rect(local, rect, radius, edge);
+        fill_corner_rect(
+            local, Rect{rect.x, rect.y, rect.width, rect.height - edge_band}, radius, face
         );
+    } else {
+        fill_corner_rect(local, rect, radius, face);
+    }
 
     const bool letter =
         !look.small && !look.letter.empty() && rect.width >= 12 && rect.height >= 12;
@@ -1020,9 +1024,9 @@ void draw_keycap(
     else if (look.mark == KeyMark::fixed)
         dash_border(local, rect, colour::control_border);
     else if (look.hovered && !look.disabled)
-        outline_rect(local, rect, colour::control_hover);
+        outline_corner_rect(local, rect, radius, colour::control_hover);
     if (look.focused)
-        outline_rect(local, rect, colour::accent);
+        ring_corner_rect(local, rect, radius, compact_metrics.focus_ring, colour::focus);
 }
 
 void add_keycap(
@@ -1140,10 +1144,11 @@ void draw_chord_chip(const Canvas& canvas, const Rect& rect, const ChordChipLook
             colour::hint
         );
     }
+    const int32_t chip_radius = keycap_radius_for(rect.height);
     if (look.selected)
-        outline_rect(local, rect, colour::accent);
+        outline_corner_rect(local, rect, chip_radius, colour::accent);
     else if (look.hovered && look.mark != KeyMark::clash)
-        outline_rect(local, rect, colour::control_hover);
+        outline_corner_rect(local, rect, chip_radius, colour::control_hover);
 }
 
 void add_chord_chip(
