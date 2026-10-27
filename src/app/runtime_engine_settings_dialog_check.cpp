@@ -506,6 +506,8 @@ std::string_view label_of(settings::Setting setting) {
         return "Window size";
     case settings::Setting::reset_window_positions:
         return "Reset window positions";
+    case settings::Setting::look:
+        return "Look";
     default:
         return {};
     }
