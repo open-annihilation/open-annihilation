@@ -813,6 +813,10 @@ struct Options {
     // the editor pausing the clock, order badges, help lines, the rotate
     // hint and a latched QUEUE chip. A scratch folder holds the own layout.
     bool check_keys_overlay = false;
+    // Presses 3.1c's Ctrl+letter keys in a skirmish as the system sends them,
+    // and Primary+/, and requires the selection each one makes, the minimap's
+    // radar rings after Ctrl+R, a stored group and the keys overlay.
+    bool check_selection_keys = false;
     // Opens the mutator picker over the main menu at four window sizes, on
     // a feed of made-up mutators, and requires the rows, a download, the
     // turn-off question, a drag, the handed set and the verdict chip.

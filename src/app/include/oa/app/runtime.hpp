@@ -2582,7 +2582,9 @@ class Runtime final : public menu::Host,
     /// focus releases every held action and role, and clears the keyboard latches, the sticky
     /// modifiers and the shared QUEUE, ADD and x5 latches. A running match answers the events
     /// through handle_match_action. A key held back by slow keys, or dropped by bounce keys,
-    /// does not reach the rest of the game. [runtime_key_bindings.cpp]
+    /// does not reach the rest of the game. Any other event, such as the pointer moving, keeps
+    /// no action events, so a key's press is not answered again by the event after it.
+    /// [runtime_key_bindings.cpp]
     ///
     /// @param event the event dispatch_event is given
     /// @return true when the rest of the game should not see this event
@@ -7824,6 +7826,17 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_keys_overlay();
+
+    /// Runs --check-selection-keys: a skirmish with radar, sonar and jammer
+    /// units, aircraft and armed kbots planted for the local player and a
+    /// radar tower for the other. Each of 3.1c's Ctrl+letter keys, Ctrl+Shift+R
+    /// and Ctrl+Shift+P, Ctrl+1 and its group key, and Primary+/ go in as the
+    /// system sends them, modifier keys and all; each selection is the one the
+    /// loaded data's Category words name, Ctrl+R draws the rings on the
+    /// minimap, and Primary+/ opens and closes the keys overlay.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_selection_keys();
 
     /// Writes --check-mutator-picker's and --check-brain-picker's registry
     /// list into the player's folder, every built-in registry turned off,

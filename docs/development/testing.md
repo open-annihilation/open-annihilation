@@ -1119,7 +1119,17 @@ off putting every overlay back while keeping the places. With
 `arrange-overlays-match-1280x720.ppm` and `overlays-default-1280x720.ppm`.
 `native-keys-overlay-restart` starts the game again on the preferences the
 first run left, Move overlays on, and finds the keys overlay and the chat
-line where they were put. `native-match-layers` holds the frame a match
+line where they were put. `native-selection-keys`
+(`--check-selection-keys`) presses each of 3.1c's Ctrl+letter keys in a
+skirmish as the system sends them: the modifier's own key down first, the
+key down and up, then the modifier up, each through the event queue with
+the pointer moving between them. It plants radar, sonar and jammer units,
+a fighter, a bomber, a scout plane and armed kbots, and an enemy radar
+tower, and requires Ctrl+A to take only the units that can be selected,
+each other selection the loaded data's Category words name,
+the rings Ctrl+R draws on the minimap, Ctrl+Shift+R and Ctrl+Shift+P
+adding, Ctrl+1 and its group key, and Primary+/ opening and closing the
+keys overlay. `native-match-layers` holds the frame a match
 ends on to the one the game kept with Show keys on buttons Off, since the
 key badges are drawn on the presented frame alone.
 

@@ -780,6 +780,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_selection_keys) {
+            check_selection_keys();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_mutator_picker) {
             check_mutator_picker();
             flush_preferences();

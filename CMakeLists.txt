@@ -1446,6 +1446,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_map_browser_check.cpp
   src/app/runtime_key_editor_check.cpp
   src/app/runtime_keys_overlay_check.cpp
+  src/app/runtime_selection_keys_check.cpp
   src/app/runtime_key_capture_check.cpp
   src/app/runtime_key_share_check.cpp
   src/app/runtime_key_views_check.cpp
@@ -2472,6 +2473,18 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_keys_overlay_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED keys-overlay-arranged)
+      # 3.1c's Ctrl+letter keys, Ctrl+Shift+R and P, a group key and Primary+/,
+      # each pressed as the system sends it: the selection each makes from
+      # the units' Category words, the radar rings on the minimap and the
+      # keys overlay.
+      set(oa_selection_keys_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/selection-keys")
+      file(MAKE_DIRECTORY "${oa_selection_keys_dir}")
+      add_test(NAME native-selection-keys COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-selection-keys
+        --preferences-file "${oa_selection_keys_dir}/selection-keys.conf")
+      set_tests_properties(native-selection-keys PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_selection_keys_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Capturing a chord, a clash, Escape held for a second, and a draft
       # clash's card, over a paused skirmish. Each run starts from a clean
       # folder. --snapshot writes key-capture-<w>x<h>.ppm and
