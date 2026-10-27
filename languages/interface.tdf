@@ -6333,8 +6333,8 @@
 [Key layout packages (.oakeys)]
 	{
 	de=Tastenbelegungs-Pakete (.oakeys);
-	fr=Paquets de disposition des touches (.oakeys);
-	es=Paquetes de distribución de teclas (.oakeys);
+	fr=Disposition des touches (.oakeys);
+	es=Distribución de teclas (.oakeys);
 	it=Pacchetti di disposizione dei tasti (.oakeys);
 	}
 
