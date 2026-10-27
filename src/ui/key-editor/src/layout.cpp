@@ -3547,6 +3547,16 @@ kit::DisplayList prompt_layout(
                      {"context", use.context},
                      {"where", here_context}}
                 );
+                // The note shows whole or not at all: half a sentence under
+                // the outcomes would read as the whole of it.
+                const auto note_measure = [&](std::string_view words_measured) {
+                    return kit::text_width(fonts, kit::FontRole::small, words_measured);
+                };
+                const auto note_lines = static_cast<int32_t>(
+                    kit::wrap(note, std::max(column_w - inset * 2, int32_t{1}), note_measure).size()
+                );
+                if (y + metrics.space * 2 + note_lines * metrics.small_line > content_stop)
+                    break;
                 const int32_t top = y;
                 const std::size_t ground_at = list.items.size();
                 const int32_t note_h = wrapped(
