@@ -858,14 +858,6 @@
 	it=1 traccia;
 	}
 
-[1 update changes the game's rules: {names}. Saved games from its current version won't load under the new one. It is kept, and ROLL BACK brings it back.]
-	{
-	de=1 Update ändert die Spielregeln: {names}. Speicherstände der aktuellen Version lassen sich unter der neuen nicht laden. Es bleibt erhalten, und ZURÜCKROLLEN holt es zurück.;
-	fr=1 mise à jour change les règles du jeu : {names}. Les parties sauvegardées de sa version actuelle ne se chargeront pas sous la nouvelle. Elle est conservée, et RESTAURER la ramène.;
-	es=1 actualización cambia las reglas del juego: {names}. Las partidas guardadas de su versión actual no cargarán con la nueva. Se conserva, y REVERTIR la trae de vuelta.;
-	it=1 aggiornamento cambia le regole del gioco: {names}. I salvataggi della versione attuale non si caricano con quella nuova. Viene conservato, e RIPRISTINA lo riporta.;
-	}
-
 [1997]
 	{
 	de=1997;
@@ -1312,22 +1304,6 @@
 	fr=AJOUTER DES FICHIERS…;
 	es=AÑADIR ARCHIVOS…;
 	it=AGGIUNGI FILE…;
-	}
-
-[ADD MIRROR…]
-	{
-	de=SPIEGEL HINZUFÜGEN…;
-	fr=AJOUTER UN MIROIR…;
-	es=AÑADIR ESPEJO…;
-	it=AGGIUNGI MIRROR…;
-	}
-
-[ADD REGISTRY…]
-	{
-	de=QUELLE HINZUFÜGEN…;
-	fr=AJOUTER UNE SOURCE…;
-	es=AÑADIR FUENTE…;
-	it=AGGIUNGI FONTE…;
 	}
 
 [ADD THE MISSING FILES]
@@ -2394,14 +2370,6 @@
 	it=CAMBIA CIÒ CHE VIENE COPIATO;
 	}
 
-[CHANGE…]
-	{
-	de=WECHSELN…;
-	fr=CHANGER…;
-	es=CAMBIAR…;
-	it=CAMBIA…;
-	}
-
 [CHAT]
 	{
 	de=CHAT;
@@ -2432,22 +2400,6 @@
 	fr=LE VÉRIFIER;
 	es=COMPROBARLO;
 	it=CONTROLLALO;
-	}
-
-[CHECK NOW]
-	{
-	de=JETZT PRÜFEN;
-	fr=VÉRIFIER MAINTENANT;
-	es=COMPROBAR AHORA;
-	it=CONTROLLA ORA;
-	}
-
-[CHECK WITH THIS MOD]
-	{
-	de=MIT DIESEM MOD PRÜFEN;
-	fr=VÉRIFIER AVEC CE MOD;
-	es=COMPROBAR CON ESTE MOD;
-	it=CONTROLLA CON QUESTO MOD;
 	}
 
 [CHOOSE A FOLDER]
@@ -2890,14 +2842,6 @@
 	it=Controllo… {percent} %;
 	}
 
-[Choose PLAY NOW to play it, or choose it later with PLAY NOW in the Library.]
-	{
-	de=Wähle JETZT SPIELEN, um es zu spielen, oder später mit JETZT SPIELEN in der Bibliothek.;
-	fr=Choisis JOUER pour y jouer, ou choisis-le plus tard avec JOUER dans la Bibliothèque.;
-	es=Elige JUGAR AHORA para jugarlo, o elígelo más tarde con JUGAR AHORA en la Biblioteca.;
-	it=Scegli GIOCA ORA per giocarlo, o sceglilo più tardi con GIOCA ORA nella Biblioteca.;
-	}
-
 [Choose a folder or an installer]
 	{
 	de=Wähle einen Ordner oder ein Installationsprogramm;
@@ -2936,14 +2880,6 @@
 	fr=Choisis-le dans le menu principal.;
 	es=Elígelo en el menú principal.;
 	it=Sceglilo dal menu principale.;
-	}
-
-[Choose it with PLAY NOW in the Library to play it.]
-	{
-	de=Wähle es mit JETZT SPIELEN in der Bibliothek, um es zu spielen.;
-	fr=Choisis-le avec JOUER dans la Bibliothèque pour y jouer.;
-	es=Elígelo con JUGAR AHORA en la Biblioteca para jugarlo.;
-	it=Sceglilo con GIOCA ORA nella Biblioteca per giocarlo.;
 	}
 
 [Choose the Total Annihilation demo installer (1997).]
@@ -3474,22 +3410,6 @@
 	it=DIFENDI;
 	}
 
-[DETAILS]
-	{
-	de=DETAILS;
-	fr=DÉTAILS;
-	es=DETALLES;
-	it=DETTAGLI;
-	}
-
-[DETAILS…]
-	{
-	de=DETAILS…;
-	fr=DÉTAILS…;
-	es=DETALLES…;
-	it=DETTAGLI…;
-	}
-
 [DEVELOPER]
 	{
 	de=ENTWICKLER;
@@ -3552,14 +3472,6 @@
 	fr=GLISSER POUR DÉPLACER · DOUBLE TOUCHE OU MAINTIEN POUR PLACER;
 	es=ARRASTRAR PARA MOVER · DOBLE TOQUE O MANTENER PARA COLOCAR;
 	it=TRASCINA PER MUOVERE · DOPPIO TOCCO O TIENI PREMUTO PER POSIZIONARE;
-	}
-
-[DUPLICATE…]
-	{
-	de=DUPLIZIEREN…;
-	fr=DUPLIQUER…;
-	es=DUPLICAR…;
-	it=DUPLICA…;
 	}
 
 [Debug keys]
@@ -3938,14 +3850,6 @@
 	it=Download, aggiornamenti e un numero che hai solo tu;
 	}
 
-[EMPTY]
-	{
-	de=LEER;
-	fr=VIDE;
-	es=VACÍO;
-	it=VUOTO;
-	}
-
 [ENEMY: {action}]
 	{
 	de=FEIND: {action};
@@ -4256,14 +4160,6 @@
 	fr=FORCER : Ctrl pour les ordres et la sélection tant qu'il est maintenu, afin qu'un clic force le tir sur le sol ou un allié.;
 	es=FORZAR: Ctrl para órdenes y selección mientras se mantiene, de modo que un clic fuerza el fuego sobre el suelo o un amigo.;
 	it=FORZA: Ctrl per ordini e selezione finché è tenuto, così un clic forza il fuoco sul terreno o su un alleato.;
-	}
-
-[FORGET IT]
-	{
-	de=VERGESSEN;
-	fr=OUBLIER;
-	es=OLVIDAR;
-	it=DIMENTICA;
 	}
 
 [FOUND]
@@ -4642,30 +4538,6 @@
 	it=RIUNISCILI;
 	}
 
-[GET]
-	{
-	de=HOLEN;
-	fr=OBTENIR;
-	es=OBTENER;
-	it=OTTIENI;
-	}
-
-[GET ALL]
-	{
-	de=ALLE HOLEN;
-	fr=LES OBTENIR TOUS;
-	es=OBTENER TODOS;
-	it=OTTIENI TUTTI;
-	}
-
-[GET BOTH]
-	{
-	de=BEIDE HOLEN;
-	fr=TOUT OBTENIR;
-	es=OBTENER AMBOS;
-	it=OTTIENI ENTRAMBI;
-	}
-
 [GET MAP]
 	{
 	de=KARTE HOLEN;
@@ -4680,30 +4552,6 @@
 	fr=OBTENIR LES MUTATEURS;
 	es=OBTENER MUTADORES;
 	it=OTTIENI MUTATORI;
-	}
-
-[GET WITH {count} MORE]
-	{
-	de=MIT {count} WEITEREN HOLEN;
-	fr=OBTENIR AVEC {count} DE PLUS;
-	es=OBTENER CON {count} MÁS;
-	it=OTTIENI CON ALTRI {count};
-	}
-
-[GET WITH {name}]
-	{
-	de=MIT {name} HOLEN;
-	fr=OBTENIR AVEC {name};
-	es=OBTENER CON {name};
-	it=OTTIENI CON {name};
-	}
-
-[GET installs it again.]
-	{
-	de=HOLEN installiert es erneut.;
-	fr=OBTENIR l'installe à nouveau.;
-	es=OBTENER lo instala de nuevo.;
-	it=OTTIENI lo installa di nuovo.;
 	}
 
 [GIVE]
@@ -5050,14 +4898,6 @@
 	it=Velocità del giroscopio;
 	}
 
-[HOMEPAGE]
-	{
-	de=STARTSEITE;
-	fr=PAGE D'ACCUEIL;
-	es=PÁGINA DE INICIO;
-	it=PAGINA INIZIALE;
-	}
-
 [HUD scaling]
 	{
 	de=HUD-Skalierung;
@@ -5314,22 +5154,6 @@
 	it=INFO: mostra le informazioni dell'unità selezionata.;
 	}
 
-[INSTALL]
-	{
-	de=INSTALLIEREN;
-	fr=INSTALLER;
-	es=INSTALAR;
-	it=INSTALLA;
-	}
-
-[INSTALL ALONGSIDE]
-	{
-	de=DANEBEN INSTALLIEREN;
-	fr=INSTALLER À CÔTÉ;
-	es=INSTALAR AL LADO;
-	it=INSTALLA A FIANCO;
-	}
-
 [INSTALL BRAIN]
 	{
 	de=GEHIRN INSTALLIEREN;
@@ -5368,14 +5192,6 @@
 	fr=INSTALLER LE MUTATEUR;
 	es=INSTALAR MUTADOR;
 	it=INSTALLA MUTATORE;
-	}
-
-[INSTALLED]
-	{
-	de=INSTALLIERT;
-	fr=INSTALLÉ;
-	es=INSTALADO;
-	it=INSTALLATO;
 	}
 
 [INSTALLING BRAIN]
@@ -5946,14 +5762,6 @@
 	it=È danneggiato: {name} non si estrae come registrato.;
 	}
 
-[It is in the download queue: CANCEL it before you uninstall it.]
-	{
-	de=Es steht in der Download-Warteschlange. Brich es mit ABBRECHEN ab, bevor du es deinstallierst.;
-	fr=Il est dans la file de téléchargement. Annule-le avec ANNULER avant de le désinstaller.;
-	es=Está en la cola de descarga. Cancélalo con CANCELAR antes de desinstalarlo.;
-	it=È nella coda di download. Annullalo con ANNULLA prima di disinstallarlo.;
-	}
-
 [It is not a kind of package this game installs.]
 	{
 	de=Es ist keine Art von Paket, die dieses Spiel installiert.;
@@ -6218,14 +6026,6 @@
 	it=La sua cartella non si è potuta spostare. Un altro programma potrebbe usarla. Chiudilo, poi riprova.;
 	}
 
-[Its folder is a link, and OA never removes what a link leads to. OPEN FOLDER shows it.]
-	{
-	de=Sein Ordner ist ein Verweis, und OA entfernt nie, wohin ein Verweis führt. ORDNER ÖFFNEN zeigt ihn.;
-	fr=Son dossier est un lien, et OA ne retire jamais ce vers quoi un lien mène. OUVRIR LE DOSSIER le montre.;
-	es=Su carpeta es un enlace, y OA nunca elimina adónde lleva un enlace. ABRIR CARPETA lo muestra.;
-	it=La sua cartella è un collegamento, e OA non rimuove mai ciò a cui un collegamento porta. APRI CARTELLA lo mostra.;
-	}
-
 [Its folder is not in your own Open Annihilation folder, and OA removes nothing outside it.]
 	{
 	de=Sein Ordner liegt nicht in deinem eigenen Ordner von Open Annihilation, und OA entfernt nichts außerhalb davon.;
@@ -6474,22 +6274,6 @@
 	it=CONTINUA A COPIARE;
 	}
 
-[KEEP IT]
-	{
-	de=BEHALTEN;
-	fr=GARDER;
-	es=CONSERVAR;
-	it=TIENILO;
-	}
-
-[KEEP THEM]
-	{
-	de=BEHALTEN;
-	fr=LES GARDER;
-	es=CONSERVARLOS;
-	it=TIENILE;
-	}
-
 [KEEP WHAT WAS COPIED]
 	{
 	de=DAS KOPIERTE BEHALTEN;
@@ -6674,14 +6458,6 @@
 	it=BLOCCATO;
 	}
 
-[LATER]
-	{
-	de=SPÄTER;
-	fr=PLUS TARD;
-	es=MÁS TARDE;
-	it=PIÙ TARDI;
-	}
-
 [LAUNCH FILE NOT OPENED]
 	{
 	de=STARTDATEI NICHT GEÖFFNET;
@@ -6690,28 +6466,12 @@
 	it=FILE DI AVVIO NON APERTO;
 	}
 
-[LAYOUT]
-	{
-	de=BELEGUNG;
-	fr=DISPOSITION;
-	es=DISTRIBUCIÓN;
-	it=DISPOSIZIONE;
-	}
-
 [LOAD]
 	{
 	de=VERLADEN;
 	fr=EMBARQUER;
 	es=CARGAR;
 	it=CARICA;
-	}
-
-[LOAD WITH THE BUILT-IN PLAYER]
-	{
-	de=MIT DEM EINGEBAUTEN SPIELER LADEN;
-	fr=CHARGER AVEC LE JOUEUR INTÉGRÉ;
-	es=CARGAR CON EL JUGADOR INTEGRADO;
-	it=CARICA CON IL GIOCATORE INTEGRATO;
 	}
 
 [LOAD: tap to arm it, then tap the unit to load.]
@@ -7058,14 +6818,6 @@
 	it=M;
 	}
 
-[MANAGE…]
-	{
-	de=VERWALTEN…;
-	fr=GÉRER…;
-	es=GESTIONAR…;
-	it=GESTISCI…;
-	}
-
 [MAP PACK INSTALLED]
 	{
 	de=KARTENPAKET INSTALLIERT;
@@ -7178,28 +6930,12 @@
 	it=MOD AGGIORNATO;
 	}
 
-[MODS]
-	{
-	de=MODS;
-	fr=MODS;
-	es=MODS;
-	it=MOD;
-	}
-
 [MORE]
 	{
 	de=MEHR;
 	fr=PLUS;
 	es=MÁS;
 	it=ALTRO;
-	}
-
-[MORE IN THE LIBRARY…]
-	{
-	de=MEHR IN DER BIBLIOTHEK…;
-	fr=PLUS DANS LA BIBLIOTHÈQUE…;
-	es=MÁS EN LA BIBLIOTECA…;
-	it=ALTRO NELLA BIBLIOTECA…;
 	}
 
 [MORE MAPS…]
@@ -7517,9 +7253,9 @@
 [Mods]
 	{
 	de=Mods;
-	fr=mods;
-	es=mods;
-	it=mod;
+	fr=Mods;
+	es=Mods;
+	it=Mod;
 	}
 
 [More cycles find routes faster but use more CPU.]
@@ -7688,14 +7424,6 @@
 	fr=NON INSTALLÉ;
 	es=NO INSTALADO;
 	it=NON INSTALLATO;
-	}
-
-[NOT NOW]
-	{
-	de=NICHT JETZT;
-	fr=PAS MAINTENANT;
-	es=AHORA NO;
-	it=NON ORA;
 	}
 
 [NOW]
@@ -8466,14 +8194,6 @@
 	it=O;
 	}
 
-[OA can't tell whether {to} changes the game's rules. If it does, saved games from {from} won't load under it. {From} is kept, and ROLL BACK brings it back.]
-	{
-	de=OA kann nicht sagen, ob {to} die Spielregeln ändert. Wenn ja, lassen sich Speicherstände von {from} darunter nicht laden. {From} bleibt erhalten, und ZURÜCKROLLEN holt es zurück.;
-	fr=OA ne peut pas dire si {to} change les règles du jeu. Si c'est le cas, les parties sauvegardées de {from} ne se chargeront pas dessous. {From} est conservé, et RESTAURER le ramène.;
-	es=OA no puede decir si {to} cambia las reglas del juego. Si lo hace, las partidas guardadas de {from} no cargarán con él. {From} se conserva, y REVERTIR lo trae de vuelta.;
-	it=OA non può dire se {to} cambia le regole del gioco. Se lo fa, i salvataggi di {from} non si caricano sotto di esso. {From} viene conservato, e RIPRISTINA lo riporta.;
-	}
-
 [OA default]
 	{
 	de=OA-Standard;
@@ -8640,14 +8360,6 @@
 	fr=OUVRIR LE DOSSIER DES MODS;
 	es=ABRIR CARPETA DE MODS;
 	it=APRI CARTELLA DEI MOD;
-	}
-
-[OPEN THE PAGE]
-	{
-	de=SEITE ÖFFNEN;
-	fr=OUVRIR LA PAGE;
-	es=ABRIR LA PÁGINA;
-	it=APRI LA PAGINA;
 	}
 
 [ORDERS]
@@ -9186,28 +8898,12 @@
 	it=GIOCA;
 	}
 
-[PLAY NOW]
-	{
-	de=JETZT SPIELEN;
-	fr=JOUER;
-	es=JUGAR AHORA;
-	it=GIOCA ORA;
-	}
-
 [PLAYERS]
 	{
 	de=SPIELER;
 	fr=JOUEURS;
 	es=JUGADORES;
 	it=GIOCATORI;
-	}
-
-[PLAYING]
-	{
-	de=IM SPIEL;
-	fr=EN JEU;
-	es=JUGANDO;
-	it=IN GIOCO;
 	}
 
 [PREV]
@@ -9332,7 +9028,7 @@
 
 [Playing]
 	{
-	de=Spielt;
+	de=Im Spiel;
 	fr=En jeu;
 	es=Jugando;
 	it=In gioco;
@@ -9474,30 +9170,6 @@
 	it=RECUPERA: la selezione recupera il relitto o l'unità nel punto tenuto.;
 	}
 
-[REFRESH]
-	{
-	de=AUFFRISCHEN;
-	fr=RAFRAÎCHIR;
-	es=RECARGAR;
-	it=RICARICA;
-	}
-
-[REGISTRIES IN THE LIBRARY…]
-	{
-	de=QUELLEN IN DER BIBLIOTHEK…;
-	fr=SOURCES DANS LA BIBLIOTHÈQUE…;
-	es=FUENTES EN LA BIBLIOTECA…;
-	it=FONTI NELLA BIBLIOTECA…;
-	}
-
-[REINSTALL]
-	{
-	de=NEU INSTALLIEREN;
-	fr=RÉINSTALLER;
-	es=REINSTALAR;
-	it=REINSTALLA;
-	}
-
 [REINSTALL BRAIN]
 	{
 	de=GEHIRN NEU INSTALLIEREN;
@@ -9576,14 +9248,6 @@
 	fr=RETIRER L'ANCIEN DOSSIER;
 	es=QUITAR LA CARPETA ANTIGUA;
 	it=RIMUOVI LA CARTELLA VECCHIA;
-	}
-
-[RENAME…]
-	{
-	de=UMBENENNEN…;
-	fr=RENOMMER…;
-	es=RENOMBRAR…;
-	it=RINOMINA…;
 	}
 
 [REPAIR]
@@ -9682,22 +9346,6 @@
 	it=SOSTITUISCI I FILE DI GIOCO…;
 	}
 
-[RESET]
-	{
-	de=ZURÜCKSETZEN;
-	fr=RÉINITIALISER;
-	es=RESTABLECER;
-	it=REIMPOSTA;
-	}
-
-[RESET TO {layout}]
-	{
-	de=ZURÜCKSETZEN AUF {layout};
-	fr=RÉINITIALISER SUR {layout};
-	es=RESTABLECER A {layout};
-	it=REIMPOSTA SU {layout};
-	}
-
 [RESTART NOW]
 	{
 	de=JETZT NEU STARTEN;
@@ -9706,44 +9354,12 @@
 	it=RIAVVIA ORA;
 	}
 
-[RESTART TO UPDATE]
-	{
-	de=NEU STARTEN ZUM AKTUALISIEREN;
-	fr=REDÉMARRER POUR METTRE À JOUR;
-	es=REINICIAR PARA ACTUALIZAR;
-	it=RIAVVIA PER AGGIORNARE;
-	}
-
 [RESTORE DEFAULTS]
 	{
 	de=ZURÜCKSETZEN;
 	fr=RESTAURER LES VALEURS PAR DÉFAUT;
 	es=RESTAURAR VALORES PREDETERMINADOS;
 	it=RIPRISTINA I PREDEFINITI;
-	}
-
-[RESTORE PROFILE VALUES]
-	{
-	de=PROFILWERTE WIEDERHERSTELLEN;
-	fr=RESTAURER LES VALEURS DU PROFIL;
-	es=RESTAURAR LOS VALORES DEL PERFIL;
-	it=RIPRISTINA I VALORI DEL PROFILO;
-	}
-
-[RETRY]
-	{
-	de=ERNEUT;
-	fr=RÉESSAYER;
-	es=REINTENTAR;
-	it=RIPROVA;
-	}
-
-[ROLL BACK]
-	{
-	de=ZURÜCKROLLEN;
-	fr=RESTAURER;
-	es=REVERTIR;
-	it=RIPRISTINA;
 	}
 
 [ROLL BACK MOD]
@@ -10010,14 +9626,6 @@
 	it=Sostituire {name} da {old} con quello da {new}?;
 	}
 
-[Replacing keeps {installed}, and ROLL BACK in the Library brings it back.]
-	{
-	de=Das Ersetzen behält {installed}, und ZURÜCKROLLEN in der Bibliothek holt es zurück.;
-	fr=Le remplacement garde {installed}, et RESTAURER dans la Bibliothèque le ramène.;
-	es=El reemplazo conserva {installed}, y REVERTIR en la Biblioteca lo trae de vuelta.;
-	it=La sostituzione tiene {installed}, e RIPRISTINA nella Biblioteca lo riporta.;
-	}
-
 [Requires Full hardware acceleration.]
 	{
 	de=Erfordert volle Hardwarebeschleunigung.;
@@ -10082,14 +9690,6 @@
 	it=La revisione {incoming} è più vecchia di quella installata.;
 	}
 
-[Revision {installed} is kept, and ROLL BACK in the Library brings it back.]
-	{
-	de=Revision {installed} bleibt erhalten, und ZURÜCKROLLEN in der Bibliothek holt sie zurück.;
-	fr=La révision {installed} est gardée, et RESTAURER dans la Bibliothèque la ramène.;
-	es=La revisión {installed} se conserva, y REVERTIR en la Biblioteca la trae de vuelta.;
-	it=La revisione {installed} viene tenuta, e RIPRISTINA nella Biblioteca la riporta.;
-	}
-
 [Revision {revision} available · {size} to download]
 	{
 	de=Revision {revision} verfügbar · {size} zum Herunterladen;
@@ -10146,14 +9746,6 @@
 	it=Vaga;
 	}
 
-[Roll back {title} to {to}? {from} is kept in its place, and ROLL BACK again brings it back.]
-	{
-	de={title} auf {to} zurückrollen? {from} bleibt an seinem Platz, und noch einmal ZURÜCKROLLEN holt es zurück.;
-	fr=Restaurer {title} vers {to} ? {from} est gardé à sa place, et RESTAURER à nouveau le ramène.;
-	es=¿Revertir {title} a {to}? {from} se conserva en su lugar, y REVERTIR otra vez lo trae de vuelta.;
-	it=Ripristinare {title} a {to}? {from} resta al suo posto, e RIPRISTINA di nuovo lo riporta.;
-	}
-
 [Rotate build key]
 	{
 	de=Taste zum Drehen des Baus;
@@ -10200,14 +9792,6 @@
 	fr=PARTIES SAUVEGARDÉES DÉPLACÉES;
 	es=PARTIDAS GUARDADAS MOVIDAS;
 	it=SALVATAGGI SPOSTATI;
-	}
-
-[SAVES]
-	{
-	de=SPEICHERSTÄNDE;
-	fr=SAUVEGARDES;
-	es=PARTIDAS;
-	it=SALVATAGGI;
 	}
 
 [SCREENSHOTS]
@@ -10266,28 +9850,12 @@
 	it=AUTODISTRUZIONE: tieni premuto per avviare o fermare il conto alla rovescia della selezione.;
 	}
 
-[SET THEM ASIDE]
-	{
-	de=BEISEITELEGEN;
-	fr=LES METTRE DE CÔTÉ;
-	es=DEJARLOS APARTE;
-	it=METTILE DA PARTE;
-	}
-
 [SETTINGS]
 	{
 	de=EINSTELLUNGEN;
 	fr=RÉGLAGES;
 	es=AJUSTES;
 	it=IMPOSTAZIONI;
-	}
-
-[SETTINGS…]
-	{
-	de=EINSTELLUNGEN…;
-	fr=RÉGLAGES…;
-	es=AJUSTES…;
-	it=IMPOSTAZIONI…;
 	}
 
 [SHOW]
@@ -10298,44 +9866,12 @@
 	it=MOSTRA;
 	}
 
-[SHOW AGAIN]
-	{
-	de=ERNEUT ZEIGEN;
-	fr=AFFICHER À NOUVEAU;
-	es=MOSTRAR DE NUEVO;
-	it=MOSTRA DI NUOVO;
-	}
-
-[SHOW IN FINDER]
-	{
-	de=IM FINDER ZEIGEN;
-	fr=AFFICHER DANS LE FINDER;
-	es=MOSTRAR EN EL FINDER;
-	it=MOSTRA NEL FINDER;
-	}
-
-[SHOW THE LOG]
-	{
-	de=PROTOKOLL ZEIGEN;
-	fr=AFFICHER LE JOURNAL;
-	es=MOSTRAR EL REGISTRO;
-	it=MOSTRA IL REGISTRO;
-	}
-
 [SIZE]
 	{
 	de=GRÖSSE;
 	fr=TAILLE;
 	es=TAMAÑO;
 	it=DIMENSIONE;
-	}
-
-[SKIP THIS VERSION]
-	{
-	de=DIESE VERSION ÜBERSPRINGEN;
-	fr=IGNORER CETTE VERSION;
-	es=OMITIR ESTA VERSIÓN;
-	it=SALTA QUESTA VERSIONE;
 	}
 
 [SLOWER]
@@ -10378,22 +9914,6 @@
 	it=RICOMINCIA;
 	}
 
-[START WITHOUT THEM]
-	{
-	de=OHNE SIE STARTEN;
-	fr=DÉMARRER SANS EUX;
-	es=EMPEZAR SIN ELLOS;
-	it=INIZIA SENZA DI LORO;
-	}
-
-[START WITHOUT IT]
-	{
-	de=OHNE IHN STARTEN;
-	fr=DÉMARRER SANS;
-	es=EMPEZAR SIN ÉL;
-	it=INIZIA SENZA;
-	}
-
 [STOP]
 	{
 	de=HALT;
@@ -10426,28 +9946,12 @@
 	it=MEMORIZZA: memorizza la selezione come il gruppo libero più basso.;
 	}
 
-[SWITCH]
-	{
-	de=WECHSELN;
-	fr=CHANGER;
-	es=CAMBIAR;
-	it=CAMBIA;
-	}
-
 [SWITCH MOD]
 	{
 	de=MOD WECHSELN;
 	fr=CHANGER DE MOD;
 	es=CAMBIAR DE MOD;
 	it=CAMBIA MOD;
-	}
-
-[SWITCH OFF]
-	{
-	de=AUSSCHALTEN;
-	fr=DÉSACTIVER;
-	es=DESACTIVAR;
-	it=DISATTIVA;
 	}
 
 [SYSTEM]
@@ -11370,22 +10874,6 @@
 	it=RIPROVA;
 	}
 
-[TURN OFF]
-	{
-	de=AUSSCHALTEN;
-	fr=ÉTEINDRE;
-	es=APAGAR;
-	it=SPEGNI;
-	}
-
-[TURN ON {name}]
-	{
-	de={name} EINSCHALTEN;
-	fr=ACTIVER {name};
-	es=ACTIVAR {name};
-	it=ATTIVA {name};
-	}
-
 [TYPE]
 	{
 	de=TYP;
@@ -11584,14 +11072,6 @@
 	fr=Le dossier de Total Annihilation sur ce {device} ne peut pas être joué : {problem};
 	es=La carpeta de Total Annihilation en este {device} no se puede jugar: {problem};
 	it=La cartella di Total Annihilation su questo {device} non si può giocare: {problem};
-	}
-
-[The built-in player takes those seats from the units as they stand. GET the brain in the Library to load the game as it was saved.]
-	{
-	de=Der eingebaute Spieler übernimmt diese Plätze so, wie die Einheiten stehen. HOL das Gehirn in der Bibliothek, um das Spiel so zu laden, wie es gespeichert wurde.;
-	fr=Le joueur intégré prend ces sièges avec les unités telles qu'elles sont. PRENDS le cerveau dans la Bibliothèque pour charger la partie comme elle a été sauvegardée.;
-	es=El jugador integrado toma esos asientos con las unidades como están. CONSIGUE el cerebro en la Biblioteca para cargar la partida como se guardó.;
-	it=Il giocatore integrato prende quei posti con le unità come stanno. PRENDI il cervello nella Biblioteca per caricare la partita come è stata salvata.;
 	}
 
 [The button pictures the controls and rings show.]
@@ -11800,30 +11280,6 @@
 	fr=Le dossier a changé;
 	es=La carpeta ha cambiado;
 	it=La cartella è cambiata;
-	}
-
-[The folder kept for ROLL BACK ({backup}) is removed.]
-	{
-	de=Der für ZURÜCKROLLEN behaltene Ordner ({backup}) wird entfernt.;
-	fr=Le dossier gardé pour RESTAURER ({backup}) est retiré.;
-	es=La carpeta conservada para REVERTIR ({backup}) se quita.;
-	it=La cartella tenuta per RIPRISTINA ({backup}) viene rimossa.;
-	}
-
-[The folder kept for ROLL BACK stays.]
-	{
-	de=Der für ZURÜCKROLLEN behaltene Ordner bleibt.;
-	fr=Le dossier gardé pour RESTAURER reste.;
-	es=La carpeta conservada para REVERTIR se queda.;
-	it=La cartella tenuta per RIPRISTINA resta.;
-	}
-
-[The folder kept for ROLL BACK, which holds no mod that can be read, is removed.]
-	{
-	de=Der für ZURÜCKROLLEN behaltene Ordner, der keinen lesbaren Mod enthält, wird entfernt.;
-	fr=Le dossier gardé pour RESTAURER, qui ne contient aucun mod lisible, est retiré.;
-	es=La carpeta conservada para REVERTIR, que no contiene un mod legible, se quita.;
-	it=La cartella tenuta per RIPRISTINA, che non contiene un mod leggibile, viene rimossa.;
 	}
 
 [The folder may be missing totala1.hpi.]
@@ -12394,14 +11850,6 @@
 	it=L'aggiornamento è stato annullato.;
 	}
 
-[The version installed is kept, and ROLL BACK in the Library brings it back.]
-	{
-	de=Die installierte Version bleibt erhalten, und ZURÜCKROLLEN in der Bibliothek holt sie zurück.;
-	fr=La version installée est gardée, et RESTAURER dans la Bibliothèque la ramène.;
-	es=La versión instalada se conserva, y REVERTIR en la Biblioteca la trae de vuelta.;
-	it=La versione installata viene tenuta, e RIPRISTINA nella Biblioteca la riporta.;
-	}
-
 [The version installed is kept, and can be brought back.]
 	{
 	de=Die installierte Version bleibt erhalten und lässt sich zurückholen.;
@@ -12906,22 +12354,6 @@
 	it=Attiva le funzioni in linea;
 	}
 
-[Turning it on applies when the Library closes, and then PLAY NOW works.]
-	{
-	de=Das Einschalten gilt, wenn die Bibliothek schließt, und dann geht PLAY NOW.;
-	fr=L'activation s'applique quand la bibliothèque se ferme, et ensuite PLAY NOW fonctionne.;
-	es=Activarlo se aplica cuando la Biblioteca se cierra, y entonces PLAY NOW funciona.;
-	it=Attivarlo vale quando la Biblioteca si chiude, e poi PLAY NOW funziona.;
-	}
-
-[Turning it on applies when the Library closes, and then USE NOW works.]
-	{
-	de=Das Einschalten gilt, wenn die Bibliothek schließt, und dann geht USE NOW.;
-	fr=L'activation s'applique quand la bibliothèque se ferme, et ensuite USE NOW fonctionne.;
-	es=Activarlo se aplica cuando la Biblioteca se cierra, y entonces USE NOW funciona.;
-	it=Attivarlo vale quando la Biblioteca si chiude, e poi USE NOW funziona.;
-	}
-
 [Turning it on applies when the Library closes.]
 	{
 	de=Das Einschalten gilt, wenn die Bibliothek schließt.;
@@ -12936,22 +12368,6 @@
 	fr=Tourner la manette affine le pointeur.;
 	es=Girar el mando afina el puntero.;
 	it=Ruotare il controller regola il puntatore con precisione.;
-	}
-
-[Turning them on applies when the Library closes, and then PLAY NOW works.]
-	{
-	de=Das Einschalten gilt, wenn die Bibliothek schließt, und dann geht PLAY NOW.;
-	fr=Les activer s'applique quand la bibliothèque se ferme, et ensuite PLAY NOW fonctionne.;
-	es=Activarlos se aplica cuando la Biblioteca se cierra, y entonces PLAY NOW funciona.;
-	it=Attivarli vale quando la Biblioteca si chiude, e poi PLAY NOW funziona.;
-	}
-
-[Turning them on applies when the Library closes, and then USE NOW works.]
-	{
-	de=Das Einschalten gilt, wenn die Bibliothek schließt, und dann geht USE NOW.;
-	fr=Les activer s'applique quand la bibliothèque se ferme, et ensuite USE NOW fonctionne.;
-	es=Activarlos se aplica cuando la Biblioteca se cierra, y entonces USE NOW funciona.;
-	it=Attivarli vale quando la Biblioteca si chiude, e poi USE NOW funziona.;
 	}
 
 [Turning them on applies when the Library closes.]
@@ -13010,28 +12426,12 @@
 	it=DISFA;
 	}
 
-[UNINSTALL]
-	{
-	de=DEINSTALLIEREN;
-	fr=DÉSINSTALLER;
-	es=DESINSTALAR;
-	it=DISINSTALLA;
-	}
-
 [UNLOAD]
 	{
 	de=ABLADEN;
 	fr=DÉCHARGER;
 	es=DESCARGAR;
 	it=SCARICA;
-	}
-
-[UNLOAD MOD]
-	{
-	de=MOD ENTLADEN;
-	fr=DÉCHARGER LE MOD;
-	es=DESCARGAR MOD;
-	it=SCARICA MOD;
 	}
 
 [UNLOAD: tap to arm it, then tap where the transport unloads.]
@@ -13056,14 +12456,6 @@
 	fr=METTRE À JOUR;
 	es=ACTUALIZAR;
 	it=AGGIORNA;
-	}
-
-[UPDATE ALL]
-	{
-	de=ALLE AKTUALISIEREN;
-	fr=TOUT METTRE À JOUR;
-	es=ACTUALIZAR TODO;
-	it=AGGIORNA TUTTO;
 	}
 
 [This version cannot use:]
@@ -13130,44 +12522,12 @@
 	it=AGGIORNAMENTI;
 	}
 
-[UPDATE…]
-	{
-	de=AKTUALISIEREN…;
-	fr=METTRE À JOUR…;
-	es=ACTUALIZAR…;
-	it=AGGIORNA…;
-	}
-
-[USE]
-	{
-	de=NUTZEN;
-	fr=UTILISER;
-	es=USAR;
-	it=USA;
-	}
-
-[USE BY DEFAULT]
-	{
-	de=ALS STANDARD NUTZEN;
-	fr=UTILISER PAR DÉFAUT;
-	es=USAR POR DEFECTO;
-	it=USA COME PREDEFINITO;
-	}
-
 [USE IT]
 	{
 	de=NUTZEN;
 	fr=L'UTILISER;
 	es=USARLO;
 	it=USALO;
-	}
-
-[USE NOW]
-	{
-	de=JETZT NUTZEN;
-	fr=UTILISER;
-	es=USAR AHORA;
-	it=USA ORA;
 	}
 
 [USE THAT FOLDER]
@@ -13178,44 +12538,12 @@
 	it=USA QUELLA CARTELLA;
 	}
 
-[USE THESE]
-	{
-	de=ÜBERNEHMEN;
-	fr=VALIDER;
-	es=USAR ESTOS;
-	it=USA QUESTI;
-	}
-
-[USE THIS]
-	{
-	de=DIESES ÜBERNEHMEN;
-	fr=UTILISER CELUI-CI;
-	es=USAR ESTE;
-	it=USA QUESTO;
-	}
-
-[USE THIS GAME]
-	{
-	de=DIESES SPIEL VERWENDEN;
-	fr=UTILISER CE JEU;
-	es=USAR ESTE JUEGO;
-	it=USA QUESTO GIOCO;
-	}
-
 [USER INTERFACE]
 	{
 	de=BENUTZEROBERFLÄCHE;
 	fr=INTERFACE UTILISATEUR;
 	es=INTERFAZ DE USUARIO;
 	it=INTERFACCIA UTENTE;
-	}
-
-[USING]
-	{
-	de=GENUTZT;
-	fr=UTILISÉ;
-	es=EN USO;
-	it=IN USO;
 	}
 
 [Unbound]
@@ -13248,14 +12576,6 @@
 	fr=Désinstaller {name};
 	es=Desinstalar {name};
 	it=Disinstalla {name};
-	}
-
-[Uninstall {name}? Its folder, {folder}, is removed, and with it the copy ROLL BACK keeps.]
-	{
-	de={name} deinstallieren? Sein Ordner, {folder}, wird entfernt, und mit ihm die Kopie, die ZURÜCKROLLEN behält.;
-	fr=Désinstaller {name} ? Son dossier, {folder}, est retiré, et avec lui la copie que RESTAURER garde.;
-	es=¿Desinstalar {name}? Su carpeta, {folder}, se quita, y con ella la copia que conserva REVERTIR.;
-	it=Disinstallare {name}? La sua cartella, {folder}, viene rimossa, e con essa la copia che RIPRISTINA tiene.;
 	}
 
 [Uninstall {name}? Its folder, {folder}, is removed.]
@@ -13480,22 +12800,6 @@
 	fr=Mis à jour vers {version};
 	es=Actualizado a {version};
 	it=Aggiornato a {version};
-	}
-
-[Updated {name} · {new} changes the game's rules · ROLL BACK restores {old}]
-	{
-	de={name} aktualisiert · {new} ändert die Spielregeln · ZURÜCKROLLEN stellt {old} wieder her;
-	fr={name} mis à jour · {new} change les règles du jeu · RESTAURER rétablit {old};
-	es={name} actualizado · {new} cambia las reglas del juego · REVERTIR restaura {old};
-	it={name} aggiornato · {new} cambia le regole del gioco · RIPRISTINA riporta {old};
-	}
-
-[Updated {name} · {new} may change the game's rules · ROLL BACK restores {old}]
-	{
-	de={name} aktualisiert · {new} ändert die Spielregeln vielleicht · ZURÜCKROLLEN stellt {old} wieder her;
-	fr={name} mis à jour · {new} change peut-être les règles du jeu · RESTAURER rétablit {old};
-	es={name} actualizado · {new} puede cambiar las reglas del juego · REVERTIR restaura {old};
-	it={name} aggiornato · {new} può cambiare le regole del gioco · RIPRISTINA riporta {old};
 	}
 
 [Updates]
@@ -14178,14 +13482,6 @@
 	it=Y;
 	}
 
-[You are playing {name}. Switch it off first with SWITCH OFF, then uninstall it.]
-	{
-	de=Du spielst {name}. Schalt es zuerst mit AUSSCHALTEN aus, dann deinstalliere es.;
-	fr=Tu joues {name}. Désactive-le d'abord avec DÉSACTIVER, puis désinstalle-le.;
-	es=Estás jugando {name}. Apágalo primero con DESACTIVAR y luego desinstálalo.;
-	it=Stai giocando {name}. Disattivalo prima con DISATTIVA, poi disinstallalo.;
-	}
-
 [You are playing {playing}. Updating {name} doesn't restart the game.]
 	{
 	de=Du spielst {playing}. {name} zu aktualisieren startet das Spiel nicht neu.;
@@ -14360,30 +13656,6 @@
 	fr=Ton identifiant d'installation;
 	es=Tu ID de instalación;
 	it=Il tuo ID di installazione;
-	}
-
-[Your last campaign set, ready to use. CANCEL plays without mutators.]
-	{
-	de=Dein letztes Kampagnen-Set, bereit zum Spielen. ABBRECHEN spielt ohne Mutatoren.;
-	fr=Ta dernière sélection de campagne, prête à jouer. ANNULER joue sans mutateurs.;
-	es=Tu última selección de campaña, lista para jugar. CANCELAR juega sin mutadores.;
-	it=La tua ultima selezione di campagna, pronta da giocare. ANNULLA gioca senza mutatori.;
-	}
-
-[Your last multiplayer set, ready to use. CANCEL plays without mutators.]
-	{
-	de=Dein letztes Mehrspieler-Set, bereit zum Spielen. ABBRECHEN spielt ohne Mutatoren.;
-	fr=Ta dernière sélection multijoueur, prête à jouer. ANNULER joue sans mutateurs.;
-	es=Tu última selección multijugador, lista para jugar. CANCELAR juega sin mutadores.;
-	it=La tua ultima selezione multigiocatore, pronta da giocare. ANNULLA gioca senza mutatori.;
-	}
-
-[Your last skirmish set, ready to use. CANCEL plays without mutators.]
-	{
-	de=Dein letztes Gefecht-Set, bereit zum Spielen. ABBRECHEN spielt ohne Mutatoren.;
-	fr=Ta dernière sélection d'escarmouche, prête à jouer. ANNULER joue sans mutateurs.;
-	es=Tu última selección de escaramuza, lista para jugar. CANCELAR juega sin mutadores.;
-	it=La tua ultima selezione di schermaglia, pronta da giocare. ANNULLA gioca senza mutatori.;
 	}
 
 [Your own copy]
@@ -15810,14 +15082,6 @@
 	it=ieri alle {time};
 	}
 
-[{To} changes the game's rules. Saved games from {from} won't load under {to}. {From} is kept, and ROLL BACK brings it back.]
-	{
-	de={To} ändert die Spielregeln. Speicherstände von {from} laden unter {to} nicht. {From} bleibt erhalten, und ZURÜCKROLLEN holt es zurück.;
-	fr={To} change les règles du jeu. Les parties sauvegardées de {from} ne se chargeront pas sous {to}. {From} est conservé, et RESTAURER le ramène.;
-	es={To} cambia las reglas del juego. Las partidas guardadas de {from} no cargarán con {to}. {From} se conserva, y REVERTIR lo trae de vuelta.;
-	it={To} cambia le regole del gioco. I salvataggi di {from} non si caricano con {to}. {From} viene conservato, e RIPRISTINA lo riporta.;
-	}
-
 [{added} The new files are used from the next start of Open Annihilation.]
 	{
 	de={added} Die neuen Dateien gelten ab dem nächsten Start von Open Annihilation.;
@@ -16098,14 +15362,6 @@
 	it={count} aggiornamenti;
 	}
 
-[{count} updates change the game's rules: {names}. Saved games from their current versions won't load under the new ones. Each is kept, and ROLL BACK brings it back.]
-	{
-	de={count} Updates ändern die Spielregeln: {names}. Speicherstände ihrer aktuellen Versionen laden unter den neuen nicht. Jedes bleibt erhalten, und ZURÜCKROLLEN holt es zurück.;
-	fr={count} mises à jour changent les règles du jeu : {names}. Les parties sauvegardées de leurs versions actuelles ne se chargeront pas sous les nouvelles. Chacune est conservée, et RESTAURER la ramène.;
-	es={count} actualizaciones cambian las reglas del juego: {names}. Las partidas guardadas de sus versiones actuales no cargarán con las nuevas. Cada una se conserva, y REVERTIR la trae de vuelta.;
-	it={count} aggiornamenti cambiano le regole del gioco: {names}. I salvataggi delle versioni attuali non si caricano con quelle nuove. Ciascuno viene conservato, e RIPRISTINA lo riporta.;
-	}
-
 [{done} of {total}]
 	{
 	de={done} von {total};
@@ -16208,14 +15464,6 @@
 	fr={filter} ({count});
 	es={filter} ({count});
 	it={filter} ({count});
-	}
-
-[{folder} is a folder of your own, not {name}. Move or rename it, then RETRY.]
-	{
-	de={folder} ist ein eigener Ordner von dir, nicht {name}. Verschieb oder benenne ihn um, dann ERNEUT.;
-	fr={folder} est un dossier à toi, pas {name}. Déplace-le ou renomme-le, puis RÉESSAYER.;
-	es={folder} es una carpeta tuya, no {name}. Muévela o renómbrala y luego REINTENTAR.;
-	it={folder} è una cartella tua, non {name}. Spostala o rinominala, poi RIPROVA.;
 	}
 
 [{from} → {to}]
@@ -16594,22 +15842,6 @@
 	it={name} · agganciato;
 	}
 
-[{name} from {installed} is installed. Replace it with {name} from {new}? The one from {installed} is kept, and ROLL BACK brings it back.]
-	{
-	de={name} von {installed} ist installiert. Durch {name} von {new} ersetzen? Das von {installed} bleibt erhalten, und ZURÜCKROLLEN holt es zurück.;
-	fr={name} de {installed} est installé. Le remplacer par {name} de {new} ? Celui de {installed} est gardé, et RESTAURER le ramène.;
-	es={name} de {installed} está instalado. ¿Reemplazarlo por {name} de {new}? El de {installed} se conserva, y REVERTIR lo trae de vuelta.;
-	it={name} da {installed} è installato. Sostituirlo con {name} da {new}? Quello da {installed} viene tenuto, e RIPRISTINA lo riporta.;
-	}
-
-[{name} is installed. Choose USE in the Library's Keys tab to play with it.]
-	{
-	de={name} ist installiert. Wähle BENUTZEN im Tab Keys der Bibliothek, um damit zu spielen.;
-	fr={name} est installée. Choisis UTILISER dans l'onglet Keys de la Bibliothèque pour jouer avec.;
-	es={name} está instalada. Elige USAR en la pestaña Keys de la Biblioteca para jugar con ella.;
-	it={name} è installata. Scegli USA nella scheda Keys della Biblioteca per giocare con essa.;
-	}
-
 [{name} is installed. Choose it for a computer player when you set up a game.]
 	{
 	de={name} ist installiert. Wähle es für einen Computerspieler, wenn du ein Spiel einrichtest.;
@@ -16808,14 +16040,6 @@
 	fr={name} {version} · révision {from} → {to};
 	es={name} {version} · revisión {from} → {to};
 	it={name} {version} · revisione {from} → {to};
-	}
-
-[{name} · ADD FROM…]
-	{
-	de={name} · HINZUFÜGEN AUS…;
-	fr={name} · AJOUTER DEPUIS…;
-	es={name} · AÑADIR DESDE…;
-	it={name} · AGGIUNGI DA…;
 	}
 
 [{name} · rules changed]
@@ -17170,14 +16394,6 @@
 	it={player} ha provato a riprendere.;
 	}
 
-[{problem} RETRY tries again.]
-	{
-	de={problem} ERNEUT versucht es noch einmal.;
-	fr={problem} RÉESSAYER réessaie.;
-	es={problem} REINTENTAR vuelve a intentarlo.;
-	it={problem} RIPROVA riprova.;
-	}
-
 [{player}'s mutators gave a different result from yours, so the game would play differently on each machine.]
 	{
 	de=Die Mutatoren von {player} haben ein anderes Ergebnis geliefert als deine, deshalb würde das Spiel auf jedem Rechner anders laufen.;
@@ -17200,14 +16416,6 @@
 	fr={problem} Le dossier manque peut-être de totala1.hpi.;
 	es={problem} Puede que a la carpeta le falte totala1.hpi.;
 	it={problem} Alla cartella potrebbe mancare totala1.hpi.;
-	}
-
-[{problem} · RETRY]
-	{
-	de={problem} · ERNEUT;
-	fr={problem} · RÉESSAYER;
-	es={problem} · REINTENTAR;
-	it={problem} · RIPROVA;
 	}
 
 [{registry} asked for a check the game cannot do. Try again later.]
@@ -17402,14 +16610,6 @@
 	it={title} è tornato a {new}.;
 	}
 
-[{title} is back to {new}. {old} is kept, and ROLL BACK brings it back.]
-	{
-	de={title} ist wieder {new}. {old} bleibt erhalten, und ZURÜCKROLLEN holt es zurück.;
-	fr={title} est revenu à {new}. {old} est gardé, et RESTAURER le ramène.;
-	es={title} ha vuelto a {new}. {old} se conserva, y REVERTIR lo trae de vuelta.;
-	it={title} è tornato a {new}. {old} viene tenuto, e RIPRISTINA lo riporta.;
-	}
-
 [{title} is back to {new}. {old} is kept, and can be brought back.]
 	{
 	de={title} ist wieder {new}. {old} bleibt erhalten und lässt sich zurückholen.;
@@ -17424,14 +16624,6 @@
 	fr={title} est maintenant {new}.;
 	es={title} es ahora {new}.;
 	it={title} è ora {new}.;
-	}
-
-[{title} is now {new}. {old} is kept, and ROLL BACK in the Library brings it back.]
-	{
-	de={title} ist jetzt {new}. {old} bleibt erhalten, und ZURÜCKROLLEN in der Bibliothek holt es zurück.;
-	fr={title} est maintenant {new}. {old} est gardé, et RESTAURER dans la Bibliothèque le ramène.;
-	es={title} es ahora {new}. {old} se conserva, y REVERTIR en la Biblioteca lo trae de vuelta.;
-	it={title} è ora {new}. {old} viene tenuto, e RIPRISTINA nella Biblioteca lo riporta.;
 	}
 
 [{title} is now {new}. {old} is kept, and can be brought back.]
@@ -17456,14 +16648,6 @@
 	fr={title} {installed} est installé. Le remplacer par {incoming}, ou installer {incoming} à côté ?;
 	es={title} {installed} está instalado. ¿Reemplazarlo por {incoming}, o instalar {incoming} al lado?;
 	it={title} {installed} è installato. Sostituirlo con {incoming}, o installare {incoming} a fianco?;
-	}
-
-[{title} {to}, the version kept for ROLL BACK, cannot be played.]
-	{
-	de={title} {to}, die für ZURÜCKROLLEN behaltene Version, lässt sich nicht spielen.;
-	fr={title} {to}, la version gardée pour RESTAURER, ne peut pas être joué.;
-	es={title} {to}, la versión conservada para REVERTIR, no se puede jugar.;
-	it={title} {to}, la versione tenuta per RIPRISTINA, non si può giocare.;
 	}
 
 [{title} {version} is installed in your Maps folder:]
@@ -17568,14 +16752,6 @@
 	fr={version} est gardée, au cas où tu la voudrais. Le jeu redémarre tout seul.;
 	es={version} se conserva, por si la quieres de vuelta. El juego vuelve a arrancar solo.;
 	it={version} viene conservata, nel caso la rivoglia. Il gioco riparte da solo.;
-	}
-
-[{version} is kept. To go back to it, open Settings › Updates and press ROLL BACK.]
-	{
-	de={version} bleibt erhalten. Um dorthin zurückzugehen, öffne Einstellungen › Updates und drücke ZURÜCKROLLEN.;
-	fr={version} est conservée. Pour y revenir, ouvre Réglages › Mises à jour et appuie sur RESTAURER.;
-	es={version} se conserva. Para volver a ella, abre Ajustes › Actualizaciones y pulsa REVERTIR.;
-	it={version} è conservata. Per tornarci, apri Impostazioni › Aggiornamenti e premi RIPRISTINA.;
 	}
 
 [{version} is out · Stable · checked {when}]
@@ -17784,22 +16960,6 @@
 	fr=‹ TÉLÉCHARGEMENTS;
 	es=‹ DESCARGAS;
 	it=‹ DOWNLOAD;
-	}
-
-[▲ UP]
-	{
-	de=▲ NACH OBEN;
-	fr=▲ HAUT;
-	es=▲ ARRIBA;
-	it=▲ SU;
-	}
-
-[▼ DOWN]
-	{
-	de=▼ NACH UNTEN;
-	fr=▼ BAS;
-	es=▼ ABAJO;
-	it=▼ GIÙ;
 	}
 
 [✓]
@@ -18026,14 +17186,6 @@
 	it=Da {place}…;
 	}
 
-[EDIT KEYS…]
-	{
-	de=TASTEN BEARBEITEN…;
-	fr=MODIFIER LES TOUCHES…;
-	es=EDITAR TECLAS…;
-	it=MODIFICA I TASTI…;
-	}
-
 [Key layout]
 	{
 	de=Tastenbelegung;
@@ -18184,14 +17336,6 @@
 	fr=Touches à rebond;
 	es=Teclas con rebote;
 	it=Tasti a rimbalzo;
-	}
-
-[CHOOSE…]
-	{
-	de=WÄHLEN…;
-	fr=CHOISIR…;
-	es=ELEGIR…;
-	it=SCEGLI…;
 	}
 
 [Double press]
@@ -18570,22 +17714,6 @@
 	it=posto;
 	}
 
-[APPLY 1 CHANGE]
-	{
-	de=1 ÄNDERUNG ÜBERNEHMEN;
-	fr=APPLIQUER 1 CHANGEMENT;
-	es=APLICAR 1 CAMBIO;
-	it=APPLICA 1 MODIFICA;
-	}
-
-[APPLY {n} CHANGES]
-	{
-	de={n} ÄNDERUNGEN ÜBERNEHMEN;
-	fr=APPLIQUER {n} CHANGEMENTS;
-	es=APLICAR {n} CAMBIOS;
-	it=APPLICA {n} MODIFICHE;
-	}
-
 [Imported from {file}]
 	{
 	de=Importiert aus {file};
@@ -18634,30 +17762,6 @@
 	it={n} tasti trovati · {m} differiscono da {layout};
 	}
 
-[IMPORT 1 KEY]
-	{
-	de=1 TASTE IMPORTIEREN;
-	fr=IMPORTER 1 TOUCHE;
-	es=IMPORTAR 1 TECLA;
-	it=IMPORTA 1 TASTO;
-	}
-
-[IMPORT {n} KEYS]
-	{
-	de={n} TASTEN IMPORTIEREN;
-	fr=IMPORTER {n} TOUCHES;
-	es=IMPORTAR {n} TECLAS;
-	it=IMPORTA {n} TASTI;
-	}
-
-[CHOOSE ANOTHER FILE…]
-	{
-	de=ANDERE DATEI WÄHLEN…;
-	fr=CHOISIR UN AUTRE FICHIER…;
-	es=ELEGIR OTRO ARCHIVO…;
-	it=SCEGLI UN ALTRO FILE…;
-	}
-
 [Left and right {modifier} are one key in Open Annihilation]
 	{
 	de=Links und rechts {modifier} sind in Open Annihilation eine Taste;
@@ -18704,22 +17808,6 @@
 	fr=Rien ne change tant que tu ne l'appliques pas.;
 	es=No cambia nada hasta que lo apliques.;
 	it=Non cambia nulla finché non lo applichi.;
-	}
-
-[COPY AS TEXT]
-	{
-	de=ALS TEXT KOPIEREN;
-	fr=COPIER COMME TEXTE;
-	es=COPIAR COMO TEXTO;
-	it=COPIA COME TESTO;
-	}
-
-[SAVE FILE…]
-	{
-	de=DATEI SPEICHERN…;
-	fr=ENREGISTRER LE FICHIER…;
-	es=GUARDAR ARCHIVO…;
-	it=SALVA FILE…;
 	}
 
 [One clash: {chord} already belongs to {action}. Apply keeps yours and lists the clash.]
@@ -19136,14 +18224,6 @@
 	fr={first}…{last};
 	es={first}…{last};
 	it={first}…{last};
-	}
-
-[{modifier}+/ or Escape closes this. More in EDIT KEYS…]
-	{
-	de={modifier}+/ oder Escape schließt das. Mehr unter TASTEN BEARBEITEN…;
-	fr={modifier}+/ ou Escape ferme ça. Plus dans MODIFIER LES TOUCHES…;
-	es={modifier}+/ o Escape cierra esto. Más en EDITAR TECLAS…;
-	it={modifier}+/ o Escape chiude questo. Altro in MODIFICA I TASTI…;
 	}
 
 [{description} · {chord}]
@@ -20912,4 +19992,844 @@
 	fr=Terminé;
 	es=Hecho;
 	it=Fatto;
+	}
+
+[1 update changes the game's rules: {names}. Saved games from its current version won't load under the new one. It is kept, and Roll back brings it back.]
+	{
+	de=1 Update ändert die Spielregeln: {names}. Speicherstände der aktuellen Version lassen sich unter der neuen nicht laden. Es bleibt erhalten, und Zurückrollen holt es zurück.;
+	fr=1 mise à jour change les règles du jeu : {names}. Les parties sauvegardées de sa version actuelle ne se chargeront pas sous la nouvelle. Elle est conservée, et Restaurer la ramène.;
+	es=1 actualización cambia las reglas del juego: {names}. Las partidas guardadas de su versión actual no cargarán con la nueva. Se conserva, y Revertir la trae de vuelta.;
+	it=1 aggiornamento cambia le regole del gioco: {names}. I salvataggi della versione attuale non si caricano con quella nuova. Viene conservato, e Ripristina lo riporta.;
+	}
+
+[Add mirror…]
+	{
+	de=Spiegel hinzufügen…;
+	fr=Ajouter un miroir…;
+	es=Añadir espejo…;
+	it=Aggiungi mirror…;
+	}
+
+[Add registry…]
+	{
+	de=Quelle hinzufügen…;
+	fr=Ajouter une source…;
+	es=Añadir fuente…;
+	it=Aggiungi fonte…;
+	}
+
+[Apply 1 change]
+	{
+	de=1 Änderung übernehmen;
+	fr=Appliquer 1 changement;
+	es=Aplicar 1 cambio;
+	it=Applica 1 modifica;
+	}
+
+[Apply {n} changes]
+	{
+	de={n} Änderungen übernehmen;
+	fr=Appliquer {n} changements;
+	es=Aplicar {n} cambios;
+	it=Applica {n} modifiche;
+	}
+
+[Check with this mod]
+	{
+	de=Mit diesem Mod prüfen;
+	fr=Vérifier avec ce mod;
+	es=Comprobar con este mod;
+	it=Controlla con questo mod;
+	}
+
+[Choose Play now to play it, or choose it later with Play now in the Library.]
+	{
+	de=Wähle Jetzt spielen, um es zu spielen, oder später mit Jetzt spielen in der Bibliothek.;
+	fr=Choisis Jouer pour y jouer, ou choisis-le plus tard avec Jouer dans la Bibliothèque.;
+	es=Elige Jugar ahora para jugarlo, o elígelo más tarde con Jugar ahora en la Biblioteca.;
+	it=Scegli Gioca ora per giocarlo, o sceglilo più tardi con Gioca ora nella Biblioteca.;
+	}
+
+[Choose another file…]
+	{
+	de=Andere Datei wählen…;
+	fr=Choisir un autre fichier…;
+	es=Elegir otro archivo…;
+	it=Scegli un altro file…;
+	}
+
+[Choose it with Play now in the Library to play it.]
+	{
+	de=Wähle es mit Jetzt spielen in der Bibliothek, um es zu spielen.;
+	fr=Choisis-le avec Jouer dans la Bibliothèque pour y jouer.;
+	es=Elígelo con Jugar ahora en la Biblioteca para jugarlo.;
+	it=Sceglilo con Gioca ora nella Biblioteca per giocarlo.;
+	}
+
+[Choose…]
+	{
+	de=Wählen…;
+	fr=Choisir…;
+	es=Elegir…;
+	it=Scegli…;
+	}
+
+[Copy as text]
+	{
+	de=Als Text kopieren;
+	fr=Copier comme texte;
+	es=Copiar como texto;
+	it=Copia come testo;
+	}
+
+[Details]
+	{
+	de=Details;
+	fr=Détails;
+	es=Detalles;
+	it=Dettagli;
+	}
+
+[Details…]
+	{
+	de=Details…;
+	fr=Détails…;
+	es=Detalles…;
+	it=Dettagli…;
+	}
+
+[Duplicate…]
+	{
+	de=Duplizieren…;
+	fr=Dupliquer…;
+	es=Duplicar…;
+	it=Duplica…;
+	}
+
+[Empty]
+	{
+	de=Leeren;
+	fr=Vider;
+	es=Vaciar;
+	it=Svuota;
+	}
+
+[Forget it]
+	{
+	de=Vergessen;
+	fr=Oublier;
+	es=Olvidar;
+	it=Dimentica;
+	}
+
+[Get all]
+	{
+	de=Alle holen;
+	fr=Les obtenir tous;
+	es=Obtener todos;
+	it=Ottieni tutti;
+	}
+
+[Get both]
+	{
+	de=Beide holen;
+	fr=Tout obtenir;
+	es=Obtener ambos;
+	it=Ottieni entrambi;
+	}
+
+[Get installs it again.]
+	{
+	de=Holen installiert es erneut.;
+	fr=Obtenir l'installe à nouveau.;
+	es=Obtener lo instala de nuevo.;
+	it=Ottieni lo installa di nuovo.;
+	}
+
+[Get with {count} more]
+	{
+	de=Mit {count} weiteren holen;
+	fr=Obtenir avec {count} de plus;
+	es=Obtener con {count} más;
+	it=Ottieni con altri {count};
+	}
+
+[Get with {name}]
+	{
+	de=Mit {name} holen;
+	fr=Obtenir avec {name};
+	es=Obtener con {name};
+	it=Ottieni con {name};
+	}
+
+[Homepage]
+	{
+	de=Startseite;
+	fr=Page d'accueil;
+	es=Página de inicio;
+	it=Pagina iniziale;
+	}
+
+[Import 1 key]
+	{
+	de=1 Taste importieren;
+	fr=Importer 1 touche;
+	es=Importar 1 tecla;
+	it=Importa 1 tasto;
+	}
+
+[Import {n} keys]
+	{
+	de={n} Tasten importieren;
+	fr=Importer {n} touches;
+	es=Importar {n} teclas;
+	it=Importa {n} tasti;
+	}
+
+[Install]
+	{
+	de=Installieren;
+	fr=Installer;
+	es=Instalar;
+	it=Installa;
+	}
+
+[Install alongside]
+	{
+	de=Daneben installieren;
+	fr=Installer à côté;
+	es=Instalar al lado;
+	it=Installa a fianco;
+	}
+
+[It is in the download queue: Cancel it before you uninstall it.]
+	{
+	de=Es steht in der Download-Warteschlange. Brich es mit Abbrechen ab, bevor du es deinstallierst.;
+	fr=Il est dans la file de téléchargement. Annule-le avec Annuler avant de le désinstaller.;
+	es=Está en la cola de descarga. Cancélalo con Cancelar antes de desinstalarlo.;
+	it=È nella coda di download. Annullalo con Annulla prima di disinstallarlo.;
+	}
+
+[Its folder is a link, and OA never removes what a link leads to. Open folder shows it.]
+	{
+	de=Sein Ordner ist ein Verweis, und OA entfernt nie, wohin ein Verweis führt. Ordner öffnen zeigt ihn.;
+	fr=Son dossier est un lien, et OA ne retire jamais ce vers quoi un lien mène. Ouvrir le dossier le montre.;
+	es=Su carpeta es un enlace, y OA nunca elimina adónde lleva un enlace. Abrir carpeta lo muestra.;
+	it=La sua cartella è un collegamento, e OA non rimuove mai ciò a cui un collegamento porta. Apri cartella lo mostra.;
+	}
+
+[Keep it]
+	{
+	de=Behalten;
+	fr=Garder;
+	es=Conservar;
+	it=Tienilo;
+	}
+
+[Keep them]
+	{
+	de=Behalten;
+	fr=Les garder;
+	es=Conservarlos;
+	it=Tienile;
+	}
+
+[Layout]
+	{
+	de=Belegung;
+	fr=Disposition;
+	es=Distribución;
+	it=Disposizione;
+	}
+
+[Load with the built-in player]
+	{
+	de=Mit dem eingebauten Spieler laden;
+	fr=Charger avec le joueur intégré;
+	es=Cargar con el jugador integrado;
+	it=Carica con il giocatore integrato;
+	}
+
+[Manage…]
+	{
+	de=Verwalten…;
+	fr=Gérer…;
+	es=Gestionar…;
+	it=Gestisci…;
+	}
+
+[Menu buttons]
+	{
+	de=Menüknöpfe;
+	fr=Boutons des menus;
+	es=Botones de los menús;
+	it=Pulsanti dei menu;
+	}
+
+[More in the Library…]
+	{
+	de=Mehr in der Bibliothek…;
+	fr=Plus dans la Bibliothèque…;
+	es=Más en la Biblioteca…;
+	it=Altro nella Biblioteca…;
+	}
+
+[OA can't tell whether {to} changes the game's rules. If it does, saved games from {from} won't load under it. {From} is kept, and Roll back brings it back.]
+	{
+	de=OA kann nicht sagen, ob {to} die Spielregeln ändert. Wenn ja, lassen sich Speicherstände von {from} darunter nicht laden. {From} bleibt erhalten, und Zurückrollen holt es zurück.;
+	fr=OA ne peut pas dire si {to} change les règles du jeu. Si c'est le cas, les parties sauvegardées de {from} ne se chargeront pas dessous. {From} est conservé, et Restaurer le ramène.;
+	es=OA no puede decir si {to} cambia las reglas del juego. Si lo hace, las partidas guardadas de {from} no cargarán con él. {From} se conserva, y Revertir lo trae de vuelta.;
+	it=OA non può dire se {to} cambia le regole del gioco. Se lo fa, i salvataggi di {from} non si caricano sotto di esso. {From} viene conservato, e Ripristina lo riporta.;
+	}
+
+[Open mod folder]
+	{
+	de=Mod-Ordner öffnen;
+	fr=Ouvrir le dossier du mod;
+	es=Abrir carpeta del mod;
+	it=Apri cartella del mod;
+	}
+
+[Open the page]
+	{
+	de=Seite öffnen;
+	fr=Ouvrir la page;
+	es=Abrir la página;
+	it=Apri la pagina;
+	}
+
+[Play now]
+	{
+	de=Jetzt spielen;
+	fr=Jouer;
+	es=Jugar ahora;
+	it=Gioca ora;
+	}
+
+[Registries in the Library…]
+	{
+	de=Quellen in der Bibliothek…;
+	fr=Sources dans la Bibliothèque…;
+	es=Fuentes en la Biblioteca…;
+	it=Fonti nella Biblioteca…;
+	}
+
+[Reinstall]
+	{
+	de=Neu installieren;
+	fr=Réinstaller;
+	es=Reinstalar;
+	it=Reinstalla;
+	}
+
+[Remove]
+	{
+	de=Entfernen;
+	fr=Retirer;
+	es=Quitar;
+	it=Rimuovi;
+	}
+
+[Rename…]
+	{
+	de=Umbenennen…;
+	fr=Renommer…;
+	es=Renombrar…;
+	it=Rinomina…;
+	}
+
+[Replacing keeps {installed}, and Roll back in the Library brings it back.]
+	{
+	de=Das Ersetzen behält {installed}, und Zurückrollen in der Bibliothek holt es zurück.;
+	fr=Le remplacement garde {installed}, et Restaurer dans la Bibliothèque le ramène.;
+	es=El reemplazo conserva {installed}, y Revertir en la Biblioteca lo trae de vuelta.;
+	it=La sostituzione tiene {installed}, e Ripristina nella Biblioteca lo riporta.;
+	}
+
+[Reset to {layout}]
+	{
+	de=Zurücksetzen auf {layout};
+	fr=Réinitialiser sur {layout};
+	es=Restablecer a {layout};
+	it=Reimposta su {layout};
+	}
+
+[Restart to update]
+	{
+	de=Neu starten zum Aktualisieren;
+	fr=Redémarrer pour mettre à jour;
+	es=Reiniciar para actualizar;
+	it=Riavvia per aggiornare;
+	}
+
+[Restore profile values]
+	{
+	de=Profilwerte wiederherstellen;
+	fr=Restaurer les valeurs du profil;
+	es=Restaurar los valores del perfil;
+	it=Ripristina i valori del profilo;
+	}
+
+[Revision {installed} is kept, and Roll back in the Library brings it back.]
+	{
+	de=Revision {installed} bleibt erhalten, und Zurückrollen in der Bibliothek holt sie zurück.;
+	fr=La révision {installed} est gardée, et Restaurer dans la Bibliothèque la ramène.;
+	es=La revisión {installed} se conserva, y Revertir en la Biblioteca la trae de vuelta.;
+	it=La revisione {installed} viene tenuta, e Ripristina nella Biblioteca la riporta.;
+	}
+
+[Roll back]
+	{
+	de=Zurückrollen;
+	fr=Restaurer;
+	es=Revertir;
+	it=Ripristina;
+	}
+
+[Roll back {title} to {to}? {from} is kept in its place, and Roll back again brings it back.]
+	{
+	de={title} auf {to} zurückrollen? {from} bleibt an seinem Platz, und noch einmal Zurückrollen holt es zurück.;
+	fr=Restaurer {title} vers {to} ? {from} est gardé à sa place, et Restaurer à nouveau le ramène.;
+	es=¿Revertir {title} a {to}? {from} se conserva en su lugar, y Revertir otra vez lo trae de vuelta.;
+	it=Ripristinare {title} a {to}? {from} resta al suo posto, e Ripristina di nuovo lo riporta.;
+	}
+
+[Save file…]
+	{
+	de=Datei speichern…;
+	fr=Enregistrer le fichier…;
+	es=Guardar archivo…;
+	it=Salva file…;
+	}
+
+[Saves]
+	{
+	de=Speicherstände;
+	fr=Sauvegardes;
+	es=Partidas;
+	it=Salvataggi;
+	}
+
+[Screenshots]
+	{
+	de=Bildschirmfotos;
+	fr=Captures;
+	es=Capturas;
+	it=Istantanee;
+	}
+
+[Set them aside]
+	{
+	de=Beiseitelegen;
+	fr=Les mettre de côté;
+	es=Dejarlos aparte;
+	it=Mettile da parte;
+	}
+
+[Settings…]
+	{
+	de=Einstellungen…;
+	fr=Réglages…;
+	es=Ajustes…;
+	it=Impostazioni…;
+	}
+
+[Show]
+	{
+	de=Zeigen;
+	fr=Afficher;
+	es=Mostrar;
+	it=Mostra;
+	}
+
+[Show again]
+	{
+	de=Erneut zeigen;
+	fr=Afficher à nouveau;
+	es=Mostrar de nuevo;
+	it=Mostra di nuovo;
+	}
+
+[Show in Finder]
+	{
+	de=Im Finder zeigen;
+	fr=Afficher dans le Finder;
+	es=Mostrar en el Finder;
+	it=Mostra nel Finder;
+	}
+
+[Start without it]
+	{
+	de=Ohne ihn starten;
+	fr=Démarrer sans;
+	es=Empezar sin él;
+	it=Inizia senza;
+	}
+
+[Start without them]
+	{
+	de=Ohne sie starten;
+	fr=Démarrer sans eux;
+	es=Empezar sin ellos;
+	it=Inizia senza di loro;
+	}
+
+[Switch]
+	{
+	de=Wechseln;
+	fr=Changer;
+	es=Cambiar;
+	it=Cambia;
+	}
+
+[Switch off]
+	{
+	de=Ausschalten;
+	fr=Désactiver;
+	es=Desactivar;
+	it=Disattiva;
+	}
+
+[The folder kept for Roll back ({backup}) is removed.]
+	{
+	de=Der für Zurückrollen behaltene Ordner ({backup}) wird entfernt.;
+	fr=Le dossier gardé pour Restaurer ({backup}) est retiré.;
+	es=La carpeta conservada para Revertir ({backup}) se quita.;
+	it=La cartella tenuta per Ripristina ({backup}) viene rimossa.;
+	}
+
+[The folder kept for Roll back stays.]
+	{
+	de=Der für Zurückrollen behaltene Ordner bleibt.;
+	fr=Le dossier gardé pour Restaurer reste.;
+	es=La carpeta conservada para Revertir se queda.;
+	it=La cartella tenuta per Ripristina resta.;
+	}
+
+[The folder kept for Roll back, which holds no mod that can be read, is removed.]
+	{
+	de=Der für Zurückrollen behaltene Ordner, der keinen lesbaren Mod enthält, wird entfernt.;
+	fr=Le dossier gardé pour Restaurer, qui ne contient aucun mod lisible, est retiré.;
+	es=La carpeta conservada para Revertir, que no contiene un mod legible, se quita.;
+	it=La cartella tenuta per Ripristina, che non contiene un mod leggibile, viene rimossa.;
+	}
+
+[The version installed is kept, and Roll back in the Library brings it back.]
+	{
+	de=Die installierte Version bleibt erhalten, und Zurückrollen in der Bibliothek holt sie zurück.;
+	fr=La version installée est gardée, et Restaurer dans la Bibliothèque la ramène.;
+	es=La versión instalada se conserva, y Revertir en la Biblioteca la trae de vuelta.;
+	it=La versione installata viene tenuta, e Ripristina nella Biblioteca la riporta.;
+	}
+
+[Turn off]
+	{
+	de=Ausschalten;
+	fr=Éteindre;
+	es=Apagar;
+	it=Spegni;
+	}
+
+[Turn on {name}]
+	{
+	de={name} einschalten;
+	fr=Activer {name};
+	es=Activar {name};
+	it=Attiva {name};
+	}
+
+[Uninstall]
+	{
+	de=Deinstallieren;
+	fr=Désinstaller;
+	es=Desinstalar;
+	it=Disinstalla;
+	}
+
+[Uninstall {name}? Its folder, {folder}, is removed, and with it the copy Roll back keeps.]
+	{
+	de={name} deinstallieren? Sein Ordner, {folder}, wird entfernt, und mit ihm die Kopie, die Zurückrollen behält.;
+	fr=Désinstaller {name} ? Son dossier, {folder}, est retiré, et avec lui la copie que Restaurer garde.;
+	es=¿Desinstalar {name}? Su carpeta, {folder}, se quita, y con ella la copia que conserva Revertir.;
+	it=Disinstallare {name}? La sua cartella, {folder}, viene rimossa, e con essa la copia che Ripristina tiene.;
+	}
+
+[Unload mod]
+	{
+	de=Mod entladen;
+	fr=Décharger le mod;
+	es=Descargar mod;
+	it=Scarica mod;
+	}
+
+[Updated {name} · {new} changes the game's rules · Roll back restores {old}]
+	{
+	de={name} aktualisiert · {new} ändert die Spielregeln · Zurückrollen stellt {old} wieder her;
+	fr={name} mis à jour · {new} change les règles du jeu · Restaurer rétablit {old};
+	es={name} actualizado · {new} cambia las reglas del juego · Revertir restaura {old};
+	it={name} aggiornato · {new} cambia le regole del gioco · Ripristina riporta {old};
+	}
+
+[Updated {name} · {new} may change the game's rules · Roll back restores {old}]
+	{
+	de={name} aktualisiert · {new} ändert die Spielregeln vielleicht · Zurückrollen stellt {old} wieder her;
+	fr={name} mis à jour · {new} change peut-être les règles du jeu · Restaurer rétablit {old};
+	es={name} actualizado · {new} puede cambiar las reglas del juego · Revertir restaura {old};
+	it={name} aggiornato · {new} può cambiare le regole del gioco · Ripristina riporta {old};
+	}
+
+[Update…]
+	{
+	de=Aktualisieren…;
+	fr=Mettre à jour…;
+	es=Actualizar…;
+	it=Aggiorna…;
+	}
+
+[Use]
+	{
+	de=Nutzen;
+	fr=Utiliser;
+	es=Usar;
+	it=Usa;
+	}
+
+[Use by default]
+	{
+	de=Als Standard nutzen;
+	fr=Utiliser par défaut;
+	es=Usar por defecto;
+	it=Usa come predefinito;
+	}
+
+[Use now]
+	{
+	de=Jetzt nutzen;
+	fr=Utiliser;
+	es=Usar ahora;
+	it=Usa ora;
+	}
+
+[Use these]
+	{
+	de=Übernehmen;
+	fr=Valider;
+	es=Usar estos;
+	it=Usa questi;
+	}
+
+[Use this]
+	{
+	de=Dieses übernehmen;
+	fr=Utiliser celui-ci;
+	es=Usar este;
+	it=Usa questo;
+	}
+
+[Use this game]
+	{
+	de=Dieses Spiel verwenden;
+	fr=Utiliser ce jeu;
+	es=Usar este juego;
+	it=Usa questo gioco;
+	}
+
+[Using]
+	{
+	de=Genutzt;
+	fr=Utilisé;
+	es=En uso;
+	it=In uso;
+	}
+
+[You are playing {name}. Switch it off first with Switch off, then uninstall it.]
+	{
+	de=Du spielst {name}. Schalt es zuerst mit Ausschalten aus, dann deinstalliere es.;
+	fr=Tu joues {name}. Désactive-le d'abord avec Désactiver, puis désinstalle-le.;
+	es=Estás jugando {name}. Apágalo primero con Desactivar y luego desinstálalo.;
+	it=Stai giocando {name}. Disattivalo prima con Disattiva, poi disinstallalo.;
+	}
+
+[Your last campaign set, ready to use. Cancel plays without mutators.]
+	{
+	de=Dein letztes Kampagnen-Set, bereit zum Spielen. Abbrechen spielt ohne Mutatoren.;
+	fr=Ta dernière sélection de campagne, prête à jouer. Annuler joue sans mutateurs.;
+	es=Tu última selección de campaña, lista para jugar. Cancelar juega sin mutadores.;
+	it=La tua ultima selezione di campagna, pronta da giocare. Annulla gioca senza mutatori.;
+	}
+
+[Your last multiplayer set, ready to use. Cancel plays without mutators.]
+	{
+	de=Dein letztes Mehrspieler-Set, bereit zum Spielen. Abbrechen spielt ohne Mutatoren.;
+	fr=Ta dernière sélection multijoueur, prête à jouer. Annuler joue sans mutateurs.;
+	es=Tu última selección multijugador, lista para jugar. Cancelar juega sin mutadores.;
+	it=La tua ultima selezione multigiocatore, pronta da giocare. Annulla gioca senza mutatori.;
+	}
+
+[Your last skirmish set, ready to use. Cancel plays without mutators.]
+	{
+	de=Dein letztes Gefecht-Set, bereit zum Spielen. Abbrechen spielt ohne Mutatoren.;
+	fr=Ta dernière sélection d'escarmouche, prête à jouer. Annuler joue sans mutateurs.;
+	es=Tu última selección de escaramuza, lista para jugar. Cancelar juega sin mutadores.;
+	it=La tua ultima selezione di schermaglia, pronta da giocare. Annulla gioca senza mutatori.;
+	}
+
+[{To} changes the game's rules. Saved games from {from} won't load under {to}. {From} is kept, and Roll back brings it back.]
+	{
+	de={To} ändert die Spielregeln. Speicherstände von {from} laden unter {to} nicht. {From} bleibt erhalten, und Zurückrollen holt es zurück.;
+	fr={To} change les règles du jeu. Les parties sauvegardées de {from} ne se chargeront pas sous {to}. {From} est conservé, et Restaurer le ramène.;
+	es={To} cambia las reglas del juego. Las partidas guardadas de {from} no cargarán con {to}. {From} se conserva, y Revertir lo trae de vuelta.;
+	it={To} cambia le regole del gioco. I salvataggi di {from} non si caricano con {to}. {From} viene conservato, e Ripristina lo riporta.;
+	}
+
+[{count} updates change the game's rules: {names}. Saved games from their current versions won't load under the new ones. Each is kept, and Roll back brings it back.]
+	{
+	de={count} Updates ändern die Spielregeln: {names}. Speicherstände ihrer aktuellen Versionen laden unter den neuen nicht. Jedes bleibt erhalten, und Zurückrollen holt es zurück.;
+	fr={count} mises à jour changent les règles du jeu : {names}. Les parties sauvegardées de leurs versions actuelles ne se chargeront pas sous les nouvelles. Chacune est conservée, et Restaurer la ramène.;
+	es={count} actualizaciones cambian las reglas del juego: {names}. Las partidas guardadas de sus versiones actuales no cargarán con las nuevas. Cada una se conserva, y Revertir la trae de vuelta.;
+	it={count} aggiornamenti cambiano le regole del gioco: {names}. I salvataggi delle versioni attuali non si caricano con quelle nuove. Ciascuno viene conservato, e Ripristina lo riporta.;
+	}
+
+[{modifier}+/ or Escape closes this. More in Edit keys…]
+	{
+	de={modifier}+/ oder Escape schließt das. Mehr unter Tasten bearbeiten…;
+	fr={modifier}+/ ou Escape ferme ça. Plus dans Modifier les touches…;
+	es={modifier}+/ o Escape cierra esto. Más en Editar teclas…;
+	it={modifier}+/ o Escape chiude questo. Altro in Modifica i tasti…;
+	}
+
+[{name} from {installed} is installed. Replace it with {name} from {new}? The one from {installed} is kept, and Roll back brings it back.]
+	{
+	de={name} von {installed} ist installiert. Durch {name} von {new} ersetzen? Das von {installed} bleibt erhalten, und Zurückrollen holt es zurück.;
+	fr={name} de {installed} est installé. Le remplacer par {name} de {new} ? Celui de {installed} est gardé, et Restaurer le ramène.;
+	es={name} de {installed} está instalado. ¿Reemplazarlo por {name} de {new}? El de {installed} se conserva, y Revertir lo trae de vuelta.;
+	it={name} da {installed} è installato. Sostituirlo con {name} da {new}? Quello da {installed} viene tenuto, e Ripristina lo riporta.;
+	}
+
+[{name} · Add from…]
+	{
+	de={name} · Hinzufügen aus…;
+	fr={name} · Ajouter depuis…;
+	es={name} · Añadir desde…;
+	it={name} · Aggiungi da…;
+	}
+
+[{problem} · Retry]
+	{
+	de={problem} · Erneut;
+	fr={problem} · Réessayer;
+	es={problem} · Reintentar;
+	it={problem} · Riprova;
+	}
+
+[{title} is back to {new}. {old} is kept, and Roll back brings it back.]
+	{
+	de={title} ist wieder {new}. {old} bleibt erhalten, und Zurückrollen holt es zurück.;
+	fr={title} est revenu à {new}. {old} est gardé, et Restaurer le ramène.;
+	es={title} ha vuelto a {new}. {old} se conserva, y Revertir lo trae de vuelta.;
+	it={title} è tornato a {new}. {old} viene tenuto, e Ripristina lo riporta.;
+	}
+
+[{title} is now {new}. {old} is kept, and Roll back in the Library brings it back.]
+	{
+	de={title} ist jetzt {new}. {old} bleibt erhalten, und Zurückrollen in der Bibliothek holt es zurück.;
+	fr={title} est maintenant {new}. {old} est gardé, et Restaurer dans la Bibliothèque le ramène.;
+	es={title} es ahora {new}. {old} se conserva, y Revertir en la Biblioteca lo trae de vuelta.;
+	it={title} è ora {new}. {old} viene tenuto, e Ripristina nella Biblioteca lo riporta.;
+	}
+
+[{title} {to}, the version kept for Roll back, cannot be played.]
+	{
+	de={title} {to}, die für Zurückrollen behaltene Version, lässt sich nicht spielen.;
+	fr={title} {to}, la version gardée pour Restaurer, ne peut pas être joué.;
+	es={title} {to}, la versión conservada para Revertir, no se puede jugar.;
+	it={title} {to}, la versione tenuta per Ripristina, non si può giocare.;
+	}
+
+[▲ Up]
+	{
+	de=▲ Nach oben;
+	fr=▲ Haut;
+	es=▲ Arriba;
+	it=▲ Su;
+	}
+
+[▼ Down]
+	{
+	de=▼ Nach unten;
+	fr=▼ Bas;
+	es=▼ Abajo;
+	it=▼ Giù;
+	}
+
+[{name} is installed. Choose Use in the Library's Keys tab to play with it.]
+	{
+	de={name} ist installiert. Wähle Nutzen im Tab Tasten der Bibliothek, um damit zu spielen.;
+	fr={name} est installée. Choisis Utiliser dans l'onglet Touches de la Bibliothèque pour jouer avec.;
+	es={name} está instalada. Elige Usar en la pestaña Teclas de la Biblioteca para jugar con ella.;
+	it={name} è installata. Scegli Usa nella scheda Tasti della Biblioteca per giocare con essa.;
+	}
+
+[{problem} Retry tries again.]
+	{
+	de={problem} Erneut startet es noch einmal.;
+	fr={problem} Réessayer relance.;
+	es={problem} Reintentar lo vuelve a intentar.;
+	it={problem} Riprova lo tenta di nuovo.;
+	}
+
+[{folder} is a folder of your own, not {name}. Move or rename it, then Retry.]
+	{
+	de={folder} ist ein eigener Ordner von dir, nicht {name}. Verschieb oder benenne ihn um, dann drück Erneut.;
+	fr={folder} est un dossier à toi, pas {name}. Déplace-le ou renomme-le, puis appuie sur Réessayer.;
+	es={folder} es una carpeta tuya, no {name}. Muévela o renómbrala y luego pulsa Reintentar.;
+	it={folder} è una cartella tua, non {name}. Spostala o rinominala, poi premi Riprova.;
+	}
+
+[The built-in player takes those seats from the units as they stand. Get the brain in the Library to load the game as it was saved.]
+	{
+	de=Der eingebaute Spieler übernimmt diese Plätze so, wie die Einheiten stehen. Hol das Gehirn in der Bibliothek, um das Spiel so zu laden, wie es gespeichert wurde.;
+	fr=Le joueur intégré prend ces sièges avec les unités telles qu'elles sont. Obtiens le cerveau dans la Bibliothèque pour charger la partie comme elle a été sauvegardée.;
+	es=El jugador integrado toma esos asientos con las unidades como están. Obtén el cerebro en la Biblioteca para cargar la partida como se guardó.;
+	it=Il giocatore integrato prende quei posti con le unità come stanno. Ottieni il cervello nella Biblioteca per caricare la partita come è stata salvata.;
+	}
+
+[Turning it on applies when the Library closes, and then Play now works.]
+	{
+	de=Das Einschalten gilt, wenn die Bibliothek schließt, und dann geht Jetzt spielen.;
+	fr=L'activation s'applique quand la Bibliothèque se ferme, et ensuite Jouer fonctionne.;
+	es=Activarlo se aplica cuando la Biblioteca se cierra, y entonces Jugar ahora funciona.;
+	it=Attivarlo vale quando la Biblioteca si chiude, e poi Gioca ora funziona.;
+	}
+
+[Turning it on applies when the Library closes, and then Use now works.]
+	{
+	de=Das Einschalten gilt, wenn die Bibliothek schließt, und dann geht Jetzt nutzen.;
+	fr=L'activation s'applique quand la Bibliothèque se ferme, et ensuite Utiliser fonctionne.;
+	es=Activarlo se aplica cuando la Biblioteca se cierra, y entonces Usar ahora funciona.;
+	it=Attivarlo vale quando la Biblioteca si chiude, e poi Usa ora funziona.;
+	}
+
+[Turning them on applies when the Library closes, and then Play now works.]
+	{
+	de=Das Einschalten gilt, wenn die Bibliothek schließt, und dann geht Jetzt spielen.;
+	fr=Les activer s'applique quand la Bibliothèque se ferme, et ensuite Jouer fonctionne.;
+	es=Activarlos se aplica cuando la Biblioteca se cierra, y entonces Jugar ahora funciona.;
+	it=Attivarli vale quando la Biblioteca si chiude, e poi Gioca ora funziona.;
+	}
+
+[Turning them on applies when the Library closes, and then Use now works.]
+	{
+	de=Das Einschalten gilt, wenn die Bibliothek schließt, und dann geht Jetzt nutzen.;
+	fr=Les activer s'applique quand la Bibliothèque se ferme, et ensuite Utiliser fonctionne.;
+	es=Activarlos se aplica cuando la Biblioteca se cierra, y entonces Usar ahora funciona.;
+	it=Attivarli vale quando la Biblioteca si chiude, e poi Usa ora funziona.;
+	}
+
+[{version} is kept. To go back to it, press Roll back… in Settings › Updates.]
+	{
+	de={version} bleibt erhalten. Um dorthin zurückzugehen, drücke Zurückrollen… unter Einstellungen › Updates.;
+	fr={version} est conservée. Pour y revenir, appuie sur Restaurer… dans Réglages › Mises à jour.;
+	es={version} se conserva. Para volver a ella, pulsa Revertir… en Ajustes › Actualizaciones.;
+	it={version} è conservata. Per tornarci, premi Ripristina… in Impostazioni › Aggiornamenti.;
 	}
