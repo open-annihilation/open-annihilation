@@ -3,13 +3,12 @@
 
 // Provisional: this header changes whenever OA's screens need it to, until the kit is declared stable (src/ui/kit/README.md).
 
-// The OA UI kit's colours and the metrics of its three size classes,
-// Compact, Regular and Large. One point is one pixel of the 640 by 480
-// picture. Compact's are 0.7.3's; Regular and Large give the settings dialog,
-// its notices and its prompts more room, and the scroll lists show more rows
-// in it, while text, rows and controls keep Compact's sizes.
+// The OA UI kit's colours, its type, spacing and shape scales, and the
+// metrics of its three size classes, Compact, Regular and Large, worked out
+// from those scales. One point is one pixel of the 640 by 480 picture.
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 
@@ -32,71 +31,124 @@ struct Colour {
     return {colour.r, colour.g, colour.b};
 }
 
-/// The settings dialog, its notices, its prompts and the OA button.
+/// Returns one opaque colour laid over another at a share, each channel
+/// rounded to the nearest whole value: the tinted fills of badges and
+/// chips, worked out once.
+///
+/// @param ink the colour laid over
+/// @param ground the colour under it
+/// @param share the ink's share, in 256ths
+/// @return the mixed colour, opaque
+[[nodiscard]] constexpr Colour mixed(Colour ink, Colour ground, uint32_t share) noexcept {
+    const uint32_t kept = 256U - share;
+    const auto channel = [share, kept](uint8_t over, uint8_t under) {
+        return static_cast<uint8_t>((over * share + under * kept + 128U) / 256U);
+    };
+    return {channel(ink.r, ground.r), channel(ink.g, ground.g), channel(ink.b, ground.b)};
+}
+
+/// How far a badge's or a chip's colour tints its fill, in 256ths: 16 percent.
+inline constexpr uint32_t badge_tint = 41;
+/// How far a focused text field's soft ring carries the accent, in 256ths.
+inline constexpr uint32_t field_ring_tint = 64;
+
+/// The colours of OA's own screens: the settings dialog, its notices and
+/// prompts, the Library, the key editor, the pickers, first run and the OA
+/// button. The surfaces are one ramp from the bars (s0) to the selected
+/// entry (s4).
 namespace colour {
 
-/// The panel's face.
-inline constexpr Colour panel{0x1b, 0x1e, 0x19};
-/// The header's and the footer's face.
-inline constexpr Colour band{0x14, 0x16, 0x12};
-/// The section list's face.
+/// The bars and wells (s0): the header's and the footer's face.
+inline constexpr Colour band{0x12, 0x14, 0x10};
+/// Panels and lists (s1): the section list's face.
 inline constexpr Colour list{0x17, 0x1a, 0x15};
-/// The selected section's entry.
-inline constexpr Colour list_selected{0x26, 0x2b, 0x21};
-/// An entry, or a footer button, under the pointer or held.
-inline constexpr Colour hover{0x20, 0x24, 0x1c};
+/// Raised surfaces (s2): the dialog's face, cards and raised buttons.
+inline constexpr Colour panel{0x1d, 0x21, 0x19};
+/// Hover (s3): an entry, a row or a button under the pointer.
+inline constexpr Colour hover{0x25, 0x2a, 0x21};
+/// Selected (s4): the selected section's entry, a chosen chip.
+inline constexpr Colour list_selected{0x2c, 0x32, 0x27};
 /// The hairline rules between parts.
 inline constexpr Colour rule{0x2b, 0x30, 0x27};
+/// The strong edge: a raised button's border and the window's outline.
+inline constexpr Colour strong_edge{0x4f, 0x57, 0x47};
 /// The raised edges' light side, top and left.
-inline constexpr Colour edge_light{0x4a, 0x51, 0x43};
+inline constexpr Colour edge_light = strong_edge;
 /// The raised edges' dark side, bottom and right.
 inline constexpr Colour edge_dark{0x08, 0x09, 0x07};
-/// Labels, values and the title.
+/// Primary text: labels, values and the title.
 inline constexpr Colour text{0xe7, 0xe8, 0xdf};
+/// Secondary text: captions of raised buttons and entries not selected.
+inline constexpr Colour text_secondary{0xb9, 0xbf, 0xae};
+/// Tertiary text: hints and quiet words.
+inline constexpr Colour text_tertiary{0x95, 0x9c, 0x8b};
 /// Hints and the title's last word.
-inline constexpr Colour hint{0x9a, 0xa1, 0x90};
+inline constexpr Colour hint = text_tertiary;
 /// The section heading, the version and a hack's id under its title.
-inline constexpr Colour quiet{0x8a, 0x91, 0x80};
+inline constexpr Colour quiet = text_tertiary;
 /// The list's entries that are not selected.
-inline constexpr Colour list_text{0xa3, 0xaa, 0x98};
+inline constexpr Colour list_text = text_secondary;
 /// The accent: what is selected, On, the slider's filled track and OK.
 inline constexpr Colour accent{0x9c, 0xcc, 0x3c};
-/// The accent's lighter edge, and the accent under the pointer.
+/// The accent's lighter edge, the accent under the pointer, and the focus ring.
 inline constexpr Colour accent_light{0xb6, 0xe0, 0x5a};
 /// The accent while it is held.
 inline constexpr Colour accent_held{0x8a, 0xb8, 0x30};
 /// Text on the accent.
 inline constexpr Colour on_accent{0x10, 0x12, 0x0d};
+/// The keyboard focus ring.
+inline constexpr Colour focus = accent_light;
 /// A filled button's face: the accent, deep enough to carry the white text.
 inline constexpr Colour filled{0x3e, 0x52, 0x18};
 /// A filled button's face under the pointer.
 inline constexpr Colour filled_light{0x49, 0x60, 0x1c};
 /// A filled button's face while it is held.
 inline constexpr Colour filled_held{0x35, 0x45, 0x14};
-/// The well of a switch, a level strip and a slider's track.
-inline constexpr Colour well{0x12, 0x14, 0x10};
-/// The border of a switch, a level strip, a slider's track and a footer button.
+/// The well of a level strip, a slider's track, a drop-down and a text field.
+inline constexpr Colour well = band;
+/// The border of a switch, a level strip, a slider's track and a field.
 inline constexpr Colour control_border{0x3a, 0x40, 0x34};
 /// That border under the pointer.
 inline constexpr Colour control_hover{0x5b, 0x63, 0x52};
-/// A switch's selected Off half.
-inline constexpr Colour off_selected{0x2c, 0x32, 0x26};
-/// A switch's caption that is not selected.
+/// An Off switch's track.
+inline constexpr Colour off_selected = list_selected;
+/// A disabled control's caption, and an Off switch's knob.
 inline constexpr Colour switch_idle{0x7d, 0x84, 0x74};
-/// The footer buttons' and the levels' captions.
-inline constexpr Colour button_text{0xc9, 0xcd, 0xbf};
-/// Locks: the padlock, the lock's text and the shared game's note.
+/// A raised button's and a level's caption.
+inline constexpr Colour button_text = text_secondary;
+/// Caution and locks: the padlock, the lock's text and the shared game's note.
 inline constexpr Colour lock{0xe0, 0xb0, 0x4f};
 /// The colour the screen under the dialog is darkened with.
 inline constexpr Colour backdrop{5, 6, 4};
-/// Problems: a chip that says something is wrong. The Game files screen's red.
-inline constexpr Colour danger{0xe0, 0x6c, 0x5c};
+/// Danger: a problem, a removal, a button that cannot be undone.
+inline constexpr Colour danger{0xe8, 0x80, 0x6f};
+/// Information: a release offered, a note.
+inline constexpr Colour information{0x7d, 0xb3, 0xde};
 /// Online: a chip that says a thing is on the network.
-inline constexpr Colour online{0x6e, 0xa8, 0xd6};
+inline constexpr Colour online = information;
+/// The brand gold's light, its top: only the OA mark, the window's brand
+/// word and Core Prime badges wear the gold, never an action or a warning.
+inline constexpr Colour brand_light{0xf3, 0xcf, 0x76};
+/// The brand gold.
+inline constexpr Colour brand{0xd6, 0xa7, 0x47};
+/// The brand gold's shade, its foot.
+inline constexpr Colour brand_shade{0x9c, 0x6f, 0x22};
+/// A badge's or a chip's fill that says all is well.
+inline constexpr Colour ok_tint = mixed(accent, panel, badge_tint);
+/// A badge's or a chip's fill that asks for care.
+inline constexpr Colour caution_tint = mixed(lock, panel, badge_tint);
+/// A badge's or a chip's fill that says something is wrong.
+inline constexpr Colour danger_tint = mixed(danger, panel, badge_tint);
+/// A badge's or a chip's fill that informs.
+inline constexpr Colour information_tint = mixed(information, panel, badge_tint);
+/// A Core Prime badge's fill.
+inline constexpr Colour brand_tint = mixed(brand, panel, badge_tint);
+/// The soft ring round a focused text field.
+inline constexpr Colour field_ring = mixed(accent, panel, field_ring_tint);
 /// A key's orders tint: the accent.
 inline constexpr Colour category_orders = accent;
 /// A key's selection tint.
-inline constexpr Colour category_selection = online;
+inline constexpr Colour category_selection{0x6e, 0xa8, 0xd6};
 /// A key's pointer tint: the selection tint.
 inline constexpr Colour category_pointer = category_selection;
 /// A key's groups tint.
@@ -115,8 +167,8 @@ inline constexpr Colour category_window = category_game;
 inline constexpr Colour category_hacks{0xe0, 0x8a, 0x4f};
 /// A key's mod tint.
 inline constexpr Colour category_mod{0x8f, 0xd0, 0xe8};
-/// A key's developer tint: the quiet colour.
-inline constexpr Colour category_developer = quiet;
+/// A key's developer tint.
+inline constexpr Colour category_developer{0x8a, 0x91, 0x80};
 
 } // namespace colour
 
@@ -125,20 +177,20 @@ namespace screen_colour {
 
 /// The screen behind everything.
 inline constexpr Colour background = colour::panel;
-/// Cards, rows and sheets.
-inline constexpr Colour panel{0x23, 0x27, 0x21};
+/// Cards, rows and sheets: the hover surface, a step above the screen.
+inline constexpr Colour panel = colour::hover;
 /// Outlines and dividers: the dialog's control border.
 inline constexpr Colour line = colour::control_border;
 /// Text: the dialog's text.
 inline constexpr Colour text = colour::text;
 /// Secondary text.
-inline constexpr Colour dim{0x9a, 0xa0, 0x94};
+inline constexpr Colour dim = colour::text_secondary;
 /// The main button, found and done.
 inline constexpr Colour green = colour::accent;
 /// Warnings: the dialog's lock.
 inline constexpr Colour amber = colour::lock;
-/// Problems and removals.
-inline constexpr Colour red{0xe0, 0x6c, 0x5c};
+/// Problems and removals: the dialog's danger.
+inline constexpr Colour red = colour::danger;
 /// The main button's text, dark ink on the green fill.
 inline constexpr Colour ink = colour::on_accent;
 /// A plain button's text.
@@ -194,14 +246,54 @@ inline constexpr uint32_t locked_fade = 115;
 /// How far the accent tints a selected list row's face, in 256ths.
 inline constexpr uint32_t selected_tint = 15;
 
-/// A size class's metrics, in points: the settings dialog's, its notices' and
-/// its prompts' sizes, and the sizes of the controls it does not have.
-/// compact_metrics holds 0.7.3's; regular_metrics and large_metrics differ
-/// from them only in the dialog's and the notices' sizes, the padding, the
-/// nav list's width, the hint's characters a line, and the first-run
-/// language card and carousel step (oa/ui/kit/layout.hpp's metrics_of picks
-/// a class's).
+/// The levels of the type scale. The modern look draws each at its class's
+/// size (Metrics::title_size and the rest); the classic look, the game's
+/// bitmap fonts at their two sizes, draws a title and a label in the
+/// regular font and body text and small text in the small one
+/// (classic_font in oa/ui/kit/text.hpp).
+enum class TextLevel : uint8_t {
+    title, ///< a window's or a page's title
+    label, ///< a row's label, a button's and a tab's caption
+    body,  ///< a paragraph, a hint
+    small, ///< an aside, a count, an eyebrow
+};
+
+/// A size class's metrics, in points: its type and spacing scales, its
+/// shapes' radii, the sizes of its controls, and the settings dialog's, its
+/// notices' and its prompts' sizes. Each class's are worked out from its
+/// spacing base (space) and its control height (button_height): the
+/// padding is three spaces, rows are a space and a half apart and sections
+/// three spaces. The header and the footer are the same in every class and
+/// hold every class's buttons, and the sizes the type scale does not touch
+/// (the game font's lines, the slider, the drop-down's items) are Compact's
+/// in every class.
 struct Metrics {
+    /// A title's size in the modern look: a window's or a page's title.
+    int32_t title_size{};
+    /// A label's size in the modern look: a row's label, a button's caption.
+    int32_t label_size{};
+    /// Body text's size in the modern look: a paragraph, a hint.
+    int32_t body_size{};
+    /// Small text's size in the modern look: an aside, a count, an eyebrow.
+    int32_t small_size{};
+    /// The spacing base: every gap is a multiple of it.
+    int32_t space{};
+    /// The points between two rows of a list or a page.
+    int32_t row_gap{};
+    /// The points between two sections of a page.
+    int32_t section_gap{};
+    /// A keycap's corners' radius.
+    int32_t keycap_radius{};
+    /// A control's corners' radius: a button, a field, a drop-down.
+    int32_t control_radius{};
+    /// A card's corners' radius: a card, a hover card, an open menu.
+    int32_t card_radius{};
+    /// A window's corners' radius.
+    int32_t window_radius{};
+    /// A dialog's corners' radius: a notice, a question.
+    int32_t dialog_radius{};
+    /// The keyboard focus ring's thickness, drawn focus_inset clear of its control.
+    int32_t focus_ring{};
     /// The raised edge's width.
     int32_t edge{};
     /// The header's height, under the top edge.
@@ -220,20 +312,22 @@ struct Metrics {
     int32_t header_gap{};
     /// Extra columns after each glyph of a heading.
     int32_t heading_tracking{};
-    /// A footer button's height.
+    /// A button's height: the control height of the class.
     int32_t button_height{};
     /// OK's and Cancel's width.
     int32_t button_width{};
     /// The columns between OK and Cancel.
     int32_t button_gap{};
-    /// The columns between a control and its keyboard focus outline.
+    /// The columns between a control and its keyboard focus ring.
     int32_t focus_inset{};
     /// A line's height in the small font.
     int32_t small_line{};
     /// A line's height in the regular font.
     int32_t regular_line{};
-    /// An Off/On switch's width. Each half is half of it, inside a 1-pixel border.
+    /// An Off/On switch's width: its track, a pill with a round knob.
     int32_t switch_width{};
+    /// An Off/On switch's height, where its row gives it the room.
+    int32_t switch_height{};
     /// A slider knob's width.
     int32_t knob_width{};
     /// A slider knob's height.
@@ -302,12 +396,16 @@ struct Metrics {
     int32_t badge_dash{};
     /// The space between a blank badge's dashes.
     int32_t badge_dash_gap{};
-    /// A chip's height.
+    /// A chip's height on a line of text: a row's chip and its tags, and a pill.
     int32_t chip_height{};
     /// The columns between a chip's edges and its text.
     int32_t chip_padding{};
     /// The columns between two chips side by side.
     int32_t chip_gap{};
+    /// A filter chip's height: a pill on its own that turns a filter on and off.
+    int32_t filter_chip_height{};
+    /// A status badge's height: a rounded word on a tinted fill.
+    int32_t badge_height{};
     /// A state icon's side: a chip that shows one is this square.
     int32_t state_icon_side{};
     /// A strip of tabs' height.
@@ -413,7 +511,6 @@ struct Metrics {
     int32_t greatest_notice_height{};
     /// A language card's width, in points. The design's card is 232 points
     /// wide at Large; Regular and Compact keep that card's proportions.
-    /// Every other control keeps Compact's size.
     int32_t language_card_width{};
     /// A language card's height, in points. The design's card is 304 points
     /// tall at Large.
@@ -425,25 +522,80 @@ struct Metrics {
     friend constexpr bool operator==(const Metrics&, const Metrics&) = default;
 };
 
-/// Compact metrics: the settings dialog's sizes at 0.7.3, exactly, and the
-/// sizes of the controls it does not have.
-inline constexpr Metrics compact_metrics{
+/// One size class's steps on the scales: its type sizes, its spacing base,
+/// its radii and its control sizes.
+struct ClassScale {
+    int32_t title_size{};         ///< a title's size
+    int32_t label_size{};         ///< a label's size
+    int32_t body_size{};          ///< body text's size
+    int32_t small_size{};         ///< small text's size
+    int32_t space{};              ///< the spacing base
+    int32_t keycap_radius{};      ///< a keycap's radius
+    int32_t control_radius{};     ///< a control's radius
+    int32_t card_radius{};        ///< a card's radius
+    int32_t window_radius{};      ///< a window's radius
+    int32_t dialog_radius{};      ///< a dialog's radius
+    int32_t button_height{};      ///< the control height
+    int32_t list_row_height{};    ///< a list row's height
+    int32_t field_height{};       ///< a text field's height
+    int32_t filter_chip_height{}; ///< a filter chip's height
+    int32_t tab_height{};         ///< a strip of tabs' height
+};
+
+/// Compact's steps on the scales.
+inline constexpr ClassScale compact_scale{17, 14, 13, 12, 4, 5, 6, 8, 10, 12, 28, 36, 30, 24, 32};
+/// Regular's steps on the scales.
+inline constexpr ClassScale regular_scale{20, 15, 14, 12, 6, 6, 7, 9, 11, 13, 34, 40, 36, 26, 38};
+/// Large's steps on the scales.
+inline constexpr ClassScale large_scale{24, 16, 15, 13, 8, 6, 8, 10, 12, 14, 38, 44, 40, 28, 44};
+
+/// Returns metrics with a class's steps on the scales and what follows
+/// from them: the padding three spaces, rows a space and a half apart and
+/// sections three spaces apart.
+///
+/// @param base the metrics whose other sizes are kept
+/// @param scale the class's steps
+/// @return the metrics
+[[nodiscard]] constexpr Metrics scaled(Metrics base, const ClassScale& scale) noexcept {
+    base.title_size = scale.title_size;
+    base.label_size = scale.label_size;
+    base.body_size = scale.body_size;
+    base.small_size = scale.small_size;
+    base.space = scale.space;
+    base.row_gap = scale.space * 3 / 2;
+    base.section_gap = scale.space * 3;
+    base.padding = scale.space * 3;
+    base.keycap_radius = scale.keycap_radius;
+    base.control_radius = scale.control_radius;
+    base.card_radius = scale.card_radius;
+    base.window_radius = scale.window_radius;
+    base.dialog_radius = scale.dialog_radius;
+    base.button_height = scale.button_height;
+    base.list_row_height = scale.list_row_height;
+    base.field_height = scale.field_height;
+    base.filter_chip_height = scale.filter_chip_height;
+    base.tab_height = scale.tab_height;
+    return base;
+}
+
+/// The sizes every class shares, before a class's steps are applied.
+inline constexpr Metrics shared_metrics{
+    .focus_ring = 2,
     .edge = 1,
-    .header_height = 26,
-    .footer_height = 32,
-    .padding = 12,
-    .mark_top = 4,
+    .header_height = 36,
+    .footer_height = 48,
+    .mark_top = 9,
     .mark_side = 20,
     .mark_square = 13,
     .header_gap = 6,
     .heading_tracking = 1,
-    .button_height = 17,
-    .button_width = 52,
-    .button_gap = 5,
+    .button_width = 60,
+    .button_gap = 8,
     .focus_inset = 2,
     .small_line = 12,
     .regular_line = 16,
-    .switch_width = 52,
+    .switch_width = 42,
+    .switch_height = 24,
     .knob_width = 7,
     .knob_height = 12,
     .track_height = 4,
@@ -468,7 +620,6 @@ inline constexpr Metrics compact_metrics{
     .button_square_numerator = 20,
     .button_square_denominator = 32,
     .large_mark_margin = 2,
-    .list_row_height = 36,
     .list_row_badge = 28,
     .short_list_row_height = 28,
     .list_row_inset = 4,
@@ -481,16 +632,15 @@ inline constexpr Metrics compact_metrics{
     .chip_height = 12,
     .chip_padding = 4,
     .chip_gap = 4,
+    .badge_height = 22,
     .state_icon_side = 14,
-    .tab_height = 18,
     .tab_padding = 10,
     .tab_tracking = 1,
     .tab_rule = 2,
     .tab_count_height = 12,
     .tab_count_padding = 3,
     .tab_count_gap = 4,
-    .field_height = 16,
-    .field_inset = 4,
+    .field_inset = 8,
     .magnifier_side = 7,
     .caret_width = 1,
     .card_least_width = 120,
@@ -498,11 +648,11 @@ inline constexpr Metrics compact_metrics{
     .card_inset = 4,
     .hover_card_padding = 6,
     .hover_card_arrow = 5,
-    .text_top = 38,
+    .text_top = 48,
     .paragraph_gap = 6,
     .text_bottom_gap = 10,
     .open_width = 96,
-    .prompt_button_padding = 16,
+    .prompt_button_padding = 24,
     .progress_bar_height = 8,
     .row_padding = 8,
     .label_gap = 8,
@@ -520,29 +670,37 @@ inline constexpr Metrics compact_metrics{
     .button_row_width = 76,
     .folder_button_widths = {46, 82, 44},
     .folder_button_gap = 4,
-    .dialog_width = 480,
-    .dialog_height = 324,
-    .nav_width = 144,
-    .hint_line_characters = 50,
-    .notice_width = 400,
-    .least_notice_height = 150,
-    .greatest_notice_height = 440,
-    .language_card_width = 139,
-    .language_card_height = 182,
-    .carousel_step = 132,
 };
 
-/// Regular metrics: Compact's, with a settings dialog of 720 by 486 points,
-/// 16 points of padding, a nav list 176 points wide, 82 characters to a
-/// host's line under a row, and notices and prompts 520 points wide and at
-/// most 500 tall. The language card is 186 by 244, the design's card at
-/// four fifths, and the carousel steps 177 points. Rows, text and the other
-/// controls keep Compact's sizes, so the dialog shows more of them.
+/// Compact metrics: a settings dialog of 480 by 324 points, a nav list 144
+/// points wide, 50 characters to a host's line under a row, and notices and
+/// prompts 400 points wide and at most 440 tall; controls 28 points high,
+/// list rows 36, text fields 30, filter chips 24 and tab strips 32.
+inline constexpr Metrics compact_metrics = [] {
+    Metrics sized = scaled(shared_metrics, compact_scale);
+    sized.dialog_width = 480;
+    sized.dialog_height = 324;
+    sized.nav_width = 144;
+    sized.hint_line_characters = 50;
+    sized.notice_width = 400;
+    sized.least_notice_height = 150;
+    sized.greatest_notice_height = 440;
+    sized.language_card_width = 139;
+    sized.language_card_height = 182;
+    sized.carousel_step = 132;
+    return sized;
+}();
+
+/// Regular metrics: a settings dialog of 720 by 486 points, a nav list 176
+/// points wide, 82 characters to a host's line under a row, and notices and
+/// prompts 520 points wide and at most 500 tall; controls 34 points high,
+/// list rows 40, text fields 36, filter chips 26 and tab strips 38. The
+/// language card is 186 by 244, the design's card at four fifths, and the
+/// carousel steps 177 points.
 inline constexpr Metrics regular_metrics = [] {
-    Metrics sized = compact_metrics;
+    Metrics sized = scaled(compact_metrics, regular_scale);
     sized.dialog_width = 720;
     sized.dialog_height = 486;
-    sized.padding = 16;
     sized.nav_width = 176;
     sized.hint_line_characters = 82;
     sized.notice_width = 520;
@@ -553,17 +711,16 @@ inline constexpr Metrics regular_metrics = [] {
     return sized;
 }();
 
-/// Large metrics: Compact's, with a settings dialog of 960 by 600 points,
-/// 20 points of padding, a nav list 208 points wide, 114 characters to a
-/// host's line under a row, and notices and prompts 600 points wide and at
-/// most 640 tall. The language card is 232 by 304, the design's card, and
-/// the carousel steps 236 points, the design's step. Rows, text and the other
-/// controls keep Compact's sizes.
+/// Large metrics: a settings dialog of 960 by 600 points, a nav list 208
+/// points wide, 114 characters to a host's line under a row, and notices
+/// and prompts 600 points wide and at most 640 tall; controls 38 points
+/// high, list rows 44, text fields 40, filter chips 28 and tab strips 44.
+/// The language card is 232 by 304, the design's card, and the carousel
+/// steps 236 points, the design's step.
 inline constexpr Metrics large_metrics = [] {
-    Metrics sized = compact_metrics;
+    Metrics sized = scaled(compact_metrics, large_scale);
     sized.dialog_width = 960;
     sized.dialog_height = 600;
-    sized.padding = 20;
     sized.nav_width = 208;
     sized.hint_line_characters = 114;
     sized.notice_width = 600;
@@ -573,5 +730,32 @@ inline constexpr Metrics large_metrics = [] {
     sized.carousel_step = 236;
     return sized;
 }();
+
+/// Returns the radius of a control's corners from its height: the radius
+/// of the class whose controls are that tall, and for a control shorter
+/// than Compact's, Compact's radius in proportion, at least 2 points.
+///
+/// @param height the control's height, in points
+/// @return the radius, in points
+[[nodiscard]] constexpr int32_t control_radius_for(int32_t height) noexcept {
+    if (height >= large_metrics.button_height)
+        return large_metrics.control_radius;
+    if (height >= regular_metrics.button_height)
+        return regular_metrics.control_radius;
+    if (height >= compact_metrics.button_height)
+        return compact_metrics.control_radius;
+    return std::max(
+        height * compact_metrics.control_radius / compact_metrics.button_height, int32_t{2}
+    );
+}
+
+/// Returns the radius of a keycap's corners from its height: Compact's
+/// keycap radius, held to a third of the keycap's height.
+///
+/// @param height the keycap's height, in points
+/// @return the radius, in points
+[[nodiscard]] constexpr int32_t keycap_radius_for(int32_t height) noexcept {
+    return std::clamp(height / 3, int32_t{1}, compact_metrics.keycap_radius);
+}
 
 } // namespace oa::ui::kit

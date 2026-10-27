@@ -13,6 +13,7 @@
 #include "oa/present/game_text.hpp"
 #include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/frontend_renderer/artless.hpp"
+#include "oa/ui/kit/theme.hpp"
 
 #include <array>
 #include <cstdint>
@@ -28,6 +29,47 @@ enum class FontRole : uint8_t {
     regular, ///< labels, values and buttons
     small,   ///< the section heading, the hints and the version
 };
+
+/// Returns the game font the classic look draws a level of the type scale
+/// in: a title and a label in the regular font, body and small text in the
+/// small one.
+///
+/// @param level the level
+/// @return the font
+[[nodiscard]] constexpr FontRole classic_font(TextLevel level) noexcept {
+    return level == TextLevel::title || level == TextLevel::label ? FontRole::regular
+                                                                  : FontRole::small;
+}
+
+/// Returns a level's size in the modern look at a size class's metrics.
+///
+/// @param metrics the class's metrics
+/// @param level the level
+/// @return the size, in points
+[[nodiscard]] constexpr int32_t text_size(const Metrics& metrics, TextLevel level) noexcept {
+    switch (level) {
+    case TextLevel::title:
+        return metrics.title_size;
+    case TextLevel::label:
+        return metrics.label_size;
+    case TextLevel::body:
+        return metrics.body_size;
+    case TextLevel::small:
+        return metrics.small_size;
+    }
+    return metrics.body_size;
+}
+
+/// Returns the modern face that draws a font's characters the game font
+/// lacks, and every character where the game's fonts are missing: the one
+/// place the kit chooses its modern face. The regular font's is the
+/// message face and the small font's the status face.
+///
+/// @param role which font
+/// @return the face
+[[nodiscard]] constexpr oa::present::TextFace modern_face(FontRole role) noexcept {
+    return role == FontRole::small ? oa::present::TextFace::status : oa::present::TextFace::message;
+}
 
 /// The fonts a screen draws its texts in.
 struct Fonts {
