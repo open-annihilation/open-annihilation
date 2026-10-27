@@ -619,8 +619,9 @@ app removes the folder (`Runtime::library_uninstall`,
 
   USE's question is a dialog a notice wide (the whole window at Compact,
   inside half its padding), as tall as its parts: each section numbered
-  ("1 · Where"), its two choices filter chips at Kit 2's control height,
-  the marked one on the list's selected face with the accent border; What
+  ("1 · Where"), its two choices the kit's radio rows at Kit 2's control
+  height, the marked one with its dot, on the list's selected face with
+  the accent border; What
   moves, a command a line with its keys as chord chips either side of an
   arrow, two columns at Compact; the helpers in a box of the lock colour's
   tint; and Cancel and USE at the foot. Where the window is short, What
@@ -1059,8 +1060,9 @@ no label; that the names are the screen's and unique; that every text
 fits by the kit's measure, and that the Rules and From facts read their
 whole values; that a mod of the player's own shows its description in
 the details; and that USE's question puts Where, the own changes, What
-moves and the helpers in that order above its buttons, its choices and
-buttons at Kit 2's control height, What moves naming each command's keys
+moves and the helpers in that order above its buttons, its choices radio
+rows, the marked one's dot showing, its choices and buttons at Kit 2's
+control height, What moves naming each command's keys
 and the player's own, USE named by the answer to Where, and that it still
 fits every class with two helpers and the interface note. Regular shows more rows than Compact, and Large has the
 filter pane. It then drives the screens: Enter at Compact and at Regular,

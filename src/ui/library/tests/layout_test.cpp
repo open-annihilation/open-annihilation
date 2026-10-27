@@ -5757,6 +5757,17 @@ void keys_tab_names_its_controls() {
             problems.push_back("a helper meets the buttons");
         if (!game->checked || mod->checked || !keep->checked || aside->checked)
             problems.push_back("the marked choices are not Every game and Keep");
+        // Each choice is a radio row: its caption, and its dot on the marked one.
+        for (const kit::Control* choice : {game, mod, keep, aside}) {
+            bool radio_row = false;
+            for (const kit::Item& item : list.items) {
+                const auto* radio = std::get_if<kit::RadioLook>(&item.look);
+                if (item.role == kit::Role::radio && item.control == choice->id && radio != nullptr)
+                    radio_row = radio->on == choice->checked && !radio->caption.empty();
+            }
+            if (!radio_row)
+                problems.push_back(choice->name + " is not a radio row");
+        }
         const int32_t control = kit::metrics_of(size_class).control_height;
         if (game->rect.height != control || use->rect.height != control)
             problems.push_back("a choice or a button is not Kit 2's control height");

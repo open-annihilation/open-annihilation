@@ -6939,21 +6939,22 @@ void add_key_use(Building& building, const Window& window) {
                 -1
             );
     };
-    // One of a pair of choices: a filter chip, the marked one on the
-    // list's selected face with the accent border.
+    // One of a pair of choices: a radio row, the marked one on the list's
+    // selected face with the accent's edge and its dot.
     const auto choice = [&](kit::ControlId id,
                             std::string control_name,
                             const kit::Rect& rect,
                             std::string caption,
                             bool marked) {
-        kit::ChipLook look;
-        look.text =
-            cut(building, kit::FontRole::small, caption, rect.width - 2 * metrics.chip_padding);
-        look.state = kit::ChipState::filter;
-        look.selected = marked;
+        kit::RadioLook look;
+        look.caption = cut(
+            building, kit::FontRole::regular, caption, kit::radio_parts(rect, true).caption.width
+        );
+        look.on = marked;
         look.hovered = hovered(building, id);
+        look.held = held(building, id);
         const std::size_t before = building.list.controls.size();
-        kit::add_chip(
+        kit::add_radio(
             building.list, rect, look, id, unique_name(building, named(std::move(control_name)))
         );
         move_controls(building.list, before, building.overlay);

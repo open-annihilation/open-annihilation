@@ -561,6 +561,14 @@ texts_not_fitting(const kit::DisplayList& list, const kit::Fonts& fonts) {
                     "link \"" + look->caption + "\""
                 );
             break;
+        case kit::Role::radio:
+            if (const auto* look = std::get_if<kit::RadioLook>(&item.look))
+                check(
+                    width(kit::FontRole::regular, look->caption) <=
+                        kit::radio_parts(item.rect, !look->caption.empty()).caption.width,
+                    "radio \"" + look->caption + "\""
+                );
+            break;
         case kit::Role::choice:
             if (const auto* look = std::get_if<kit::ChoiceLook>(&item.look))
                 check(
