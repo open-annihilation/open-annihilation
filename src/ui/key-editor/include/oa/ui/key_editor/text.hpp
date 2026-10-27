@@ -54,10 +54,6 @@ inline constexpr std::string_view by_author = "by {author} · {version}";
 inline constexpr std::string_view own_changes = "and {n} changes of your own";
 /// The same line when the player has made one change.
 inline constexpr std::string_view own_change_one = "and 1 change of your own";
-/// Large's search field, while it is empty.
-inline constexpr std::string_view search_actions = "Search actions, or press a key";
-/// Regular and Compact's search field, while it is empty.
-inline constexpr std::string_view search_short = "Search, or press a key";
 /// The filter that keeps every action, and the first category.
 inline constexpr std::string_view filter_all = "All";
 /// The filter that keeps actions the draft names.
@@ -70,8 +66,6 @@ inline constexpr std::string_view filter_unbound = "Unbound";
 inline constexpr std::string_view filter_latchable = "Latchable";
 /// A filter pill. `{filter}` is the filter's name and `{count}` how many it keeps.
 inline constexpr std::string_view filter_count = "{filter} ({count})";
-/// Regular and Compact's category drop-down while every category is shown.
-inline constexpr std::string_view all_categories = "All categories";
 /// The heading over the hacks that are on.
 inline constexpr std::string_view hacks_on = "Hacks on";
 /// The mod's Category words.
@@ -167,7 +161,6 @@ inline constexpr std::string_view your_change = "· your change";
 inline constexpr std::string_view fact_kind = "Kind";
 inline constexpr std::string_view fact_base = "Base";
 inline constexpr std::string_view fact_works = "Works with";
-inline constexpr std::string_view keys_heading = "KEYS";
 /// How an action fires.
 inline constexpr std::string_view kind_press = "Press";
 inline constexpr std::string_view kind_repeat = "Repeat";
@@ -205,17 +198,12 @@ inline constexpr std::string_view hold_to_confirm = "Hold to confirm";
 inline constexpr std::string_view confirm_off = "Off in Settings › Accessibility";
 /// The switch that heads Groups, and the Large footer's aside.
 inline constexpr std::string_view number_keys = "Number keys select groups";
-inline constexpr std::string_view number_keys_state = "Number keys select groups: {state}";
 inline constexpr std::string_view state_on = "On";
 inline constexpr std::string_view state_off = "Off";
 
 /// The footer.
-inline constexpr std::string_view restore = "RESTORE DEFAULTS";
-inline constexpr std::string_view more = "MORE";
 inline constexpr std::string_view back = "BACK";
-inline constexpr std::string_view reset = "RESET";
 inline constexpr std::string_view cancel = "CANCEL";
-inline constexpr std::string_view save = "SAVE";
 /// The footer while a clash is left. `{n}` is how many.
 inline constexpr std::string_view settle = "Settle {n} clashes to save";
 /// The footer while one clash is left.
@@ -230,12 +218,6 @@ inline constexpr std::string_view keep_question = "Keep your {n} changes on top 
 inline constexpr std::string_view keep_question_one = "Keep your 1 change on top of {layout}?";
 inline constexpr std::string_view keep_them = "KEEP THEM";
 inline constexpr std::string_view set_aside = "SET THEM ASIDE";
-/// Leaving while the draft has changes.
-inline constexpr std::string_view leave_question = "Leave without saving {n} changes?";
-/// The same question when the draft holds one change.
-inline constexpr std::string_view leave_question_one = "Leave without saving 1 change?";
-inline constexpr std::string_view leave = "LEAVE";
-inline constexpr std::string_view keep_editing = "KEEP EDITING";
 /// Duplicate and rename ask this. The field is the layout's name.
 inline constexpr std::string_view name_layout = "Name this layout";
 /// A layout could not be written. `{reason}` is the sentence the writer gave.
@@ -243,21 +225,11 @@ inline constexpr std::string_view write_failed = "The layout was not saved: {rea
 /// The name question's accept, and a notice's OK. The catalogue already has this word.
 inline constexpr std::string_view ok = "OK";
 
-/// The dashed chip that starts a capture. The kit draws this English on the chip.
-inline constexpr std::string_view add_key = "+ ADD KEY";
-/// The capture prompt's title. `{action}` is the action's name.
-inline constexpr std::string_view press_keys = "Press the keys for {action}";
 /// The line under the well.
 inline constexpr std::string_view hold_modifiers =
     "Hold the modifiers you want, then press a key or a mouse button, or turn the wheel.";
 /// The well, before a key has finished the chord.
 inline constexpr std::string_view press_a_key = "Press a key…";
-/// The means heading.
-inline constexpr std::string_view means = "Means";
-/// A letter, shorter than the details' explanation. `{key}` is the character.
-inline constexpr std::string_view means_letter = "The letter {key}";
-/// The gesture heading.
-inline constexpr std::string_view starts_on = "Starts on";
 /// A plain press.
 inline constexpr std::string_view a_press = "A press";
 /// Two presses.
@@ -277,36 +249,8 @@ inline constexpr std::string_view always_fixed =
 inline constexpr std::string_view not_on_keyboard = "Not on this keyboard";
 /// The capture prompt's footer.
 inline constexpr std::string_view escape_hint = "Escape cancels · hold Escape to bind Escape";
-/// The clash prompt's title. `{chord}` is the chord.
-inline constexpr std::string_view chord_taken = "{chord} is taken";
-/// Giving a chord in place of another. `{old}` is the chord being changed.
-inline constexpr std::string_view giving_instead =
-    "You are giving {action} the chord {chord} in place of {old}.";
-/// Giving a chord that is new.
-inline constexpr std::string_view giving_chord = "You are giving {action} the chord {chord}.";
-/// Where the chord is already taken. `{where}` starts with a capital.
-inline constexpr std::string_view already_does = "{where}, {chord} already does what {other} does.";
-/// What an action keeps when Replace takes its only chord.
-inline constexpr std::string_view nothing_unbound = "nothing: unbound";
-/// The line under the clash table. `{action}` is the action Replace chooses.
-inline constexpr std::string_view after_replace =
-    "After Replace, {action} is chosen in the list so you can give it another key.";
-/// Replace, on the clash prompt.
-inline constexpr std::string_view replace = "REPLACE";
-/// Swap, on the clash prompt. Shown only when a chord is being changed.
-inline constexpr std::string_view swap = "SWAP";
 /// The draft card's title. `{chord}` is the shared chord.
 inline constexpr std::string_view does_two = "{chord} does two things";
-/// The draft card's place. `{name}` is the other action and `{context}` where both are read.
-inline constexpr std::string_view here_and_in = "Here, and in {name}. Both are read {context}.";
-/// The card keeps the chord on this action.
-inline constexpr std::string_view keep_here = "KEEP IT HERE";
-/// The card keeps the chord on the other action. `{name}` is that action's name.
-inline constexpr std::string_view keep_for = "KEEP IT FOR {name}";
-/// The card starts a capture on the shared chord.
-inline constexpr std::string_view choose_another = "CHOOSE ANOTHER KEY…";
-/// What the other action is left with. `{chord}` is that, or "nothing: unbound".
-inline constexpr std::string_view keep_leaves = "Keep it here leaves {name} with {chord}.";
 
 /// The view tabs.
 inline constexpr std::string_view view_list = "Commands";
@@ -329,9 +273,6 @@ inline constexpr std::string_view shape_jis = "JIS";
 inline constexpr std::string_view legend_game_window = "Game and window";
 inline constexpr std::string_view legend_hacks = "The mod's hacks";
 inline constexpr std::string_view legend_data = "The mod's data";
-inline constexpr std::string_view grey_keys =
-    "Grey keys are free while playing. Click a free key to give it the action chosen in the "
-    "list. Hover a key to see everything on it.";
 /// Card contexts. These start with a capital, unlike "while playing".
 inline constexpr std::string_view card_while_playing = "While playing";
 inline constexpr std::string_view card_while_watching = "While watching";
@@ -349,8 +290,6 @@ inline constexpr std::string_view a_release = "A release";
 inline constexpr std::string_view key_space = "Space";
 inline constexpr std::string_view key_enter = "Enter";
 inline constexpr std::string_view key_tab = "Tab";
-/// The details' button that outlines an action's keys.
-inline constexpr std::string_view find_on_keyboard = "FIND ON KEYBOARD";
 /// The mouse view.
 inline constexpr std::string_view clicks_give_orders = "Clicks give orders with";
 inline constexpr std::string_view scheme_right_click = "Right-click";
@@ -412,12 +351,6 @@ inline constexpr std::string_view cap_space_down = "Space -";
 /// The wheel and the middle button, above the mouse picture.
 inline constexpr std::string_view cap_wheel_middle = "Wheel and middle";
 
-/// The footer's IMPORT….
-inline constexpr std::string_view import_keys = "IMPORT…";
-/// The footer's SHARE….
-inline constexpr std::string_view share_keys = "SHARE…";
-/// The footer's PASTE….
-inline constexpr std::string_view paste_keys = "PASTE…";
 /// The share prompt's title.
 inline constexpr std::string_view share_title = "Share your keys";
 /// The name field's label.
