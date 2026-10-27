@@ -468,6 +468,18 @@ clamps with waste totals, and the scaling of every block for the next tick.
 and hard computer players across inactive, storage-full, storage-free,
 negative-income, wind and tidal branches.
 
+`Match::settled_spending` is what each player's last settlement paid out,
+energy and metal: what the stores paid at once since the settlement before
+(shots, cloaks and gifts, which only lower a store between settlements; a
+store that rose paid nothing), and what the pool of store and income then
+paid toward the gated and accepted requests. The settlement writes it beside
+the game state for the player's computer seat to read; the simulation never
+reads it, and it is not saved, hashed, traced or shared. It is zero until a
+player's first settlement. That settlement has no stores left before it to
+measure from, and nor has the first after the load's pass puts the starting
+stores back: each counts as paid at once only the cloaks it paid itself.
+`sim-brains-economy` (`src/sim/brains`) checks it against the stores.
+
 A mod's rules change the tick in three places. Its income multipliers
 (`ai.income-multipliers`) scale a computer player's credit at every production
 site by its difficulty's entry, hard included, and what its units reclaim from

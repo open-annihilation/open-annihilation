@@ -752,6 +752,8 @@ expect(me.energy_produced:bits(), res_energy_produced, "energy produced")
 expect(me.metal_produced:bits(), res_metal_produced, "metal produced")
 expect(me.energy_requested:bits(), res_energy_requested, "energy requested")
 expect(me.metal_requested:bits(), res_metal_requested, "metal requested")
+expect(me.energy_spent:bits(), res_energy_spent, "energy spent")
+expect(me.metal_spent:bits(), res_metal_spent, "metal spent")
 if me.energy_surplus ~= surplus_energy then
     error("energy surplus")
 end
@@ -904,6 +906,9 @@ if me.energy ~= nil then
 end
 if me.metal_surplus ~= nil then
     error("surplus")
+end
+if me.energy_spent ~= nil or me.metal_spent ~= nil then
+    error("spent")
 end
 if me.tick ~= nil then
     error("tick")
@@ -1262,6 +1267,9 @@ void read_the_side(const std::string& script) {
     add_number(published, "res_metal_produced", bits_of(economy.metal_produced));
     add_number(published, "res_energy_requested", bits_of(economy.energy_requested));
     add_number(published, "res_metal_requested", bits_of(economy.metal_requested));
+    const auto spending = fixture.match->settled_spending(computer);
+    add_number(published, "res_energy_spent", bits_of(spending.energy));
+    add_number(published, "res_metal_spent", bits_of(spending.metal));
     add_double(published, "surplus_energy", energy_surplus);
     add_double(published, "surplus_metal", metal_surplus);
     add_number(published, "match_tick", world.game.tick);
@@ -1699,6 +1707,8 @@ void starts_are_nil_outside_a_match() {
         "if game.starts ~= nil then error(\"starts\") end\n"
         "if game.map == nil then error(\"map\") end\n"
         "if game.map:starts() ~= nil then error(\"map starts\") end\n"
+        "if me.energy == nil then error(\"energy\") end\n"
+        "if me.energy_spent ~= nil or me.metal_spent ~= nil then error(\"spent\") end\n"
         "local rows = me:players()\n"
         "if #rows ~= 2 then error(\"players\") end\n"
         "for _, row in ipairs(rows) do\n"

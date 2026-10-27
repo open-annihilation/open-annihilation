@@ -507,6 +507,26 @@ enum class SlotlessViewer : uint8_t {
     ally_of_every_player,
 };
 
+/// What one player's economy paid out in its last second, read back for the
+/// player's computer seat. The match keeps it beside the game state: it is
+/// not saved, hashed, traced or shared, and the simulation never reads it.
+struct SettledSpending {
+    /// Energy paid out per second: what the store paid at once for shots,
+    /// cloaks and gifts since the settlement before, and what the settlement
+    /// paid toward the units' work, upkeep and earlier shortfalls.
+    float energy{};
+    /// Metal paid out per second, the same way.
+    float metal{};
+    /// Player.energy as the last settlement left it.
+    float energy_left{};
+    /// Player.metal as the last settlement left it.
+    float metal_left{};
+    /// True when energy_left and metal_left are the stores the last
+    /// settlement left: false before the player's first settlement, and
+    /// again once the load's pass has put the starting stores back.
+    bool stores_left_known{};
+};
+
 // Owns the real unit pool, model/VM objects, weapon slots, spatial plots/buckets
 // and sight grids. Borrowed assets, type tables, masks and services must outlive it.
 class Match final : private SpawnSubsystems, private UnitValueHost {
@@ -2443,6 +2463,19 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         return seat_hooks_[player];
     }
 
+    /// Returns what one player's economy paid out at its last settlement.
+    ///
+    /// Zero until the player's first settlement. It is not saved, hashed or
+    /// shared, and nothing in the simulation reads it.
+    ///
+    /// @param player player index, 0 to 9
+    /// @return that player's spending, or a default value outside 0..9
+    [[nodiscard]] SettledSpending settled_spending(uint8_t player) const noexcept {
+        if (player >= OA_PLAYER_COUNT)
+            return {};
+        return settled_spending_[player];
+    }
+
     /// Returns the brains' state. Whoever seats a brain owns what it points at.
     ///
     /// The state ends with the match. It is not saved, hashed or shared.
@@ -3883,6 +3916,10 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     // plays it. Not saved, hashed or shared. Declared before the brains'
     // state so that state is destroyed first.
     std::array<SeatHooks, OA_PLAYER_COUNT> seat_hooks_{};
+    // What each player's last settlement paid out (settled_spending). Written
+    // by update_player_economy and never read by the simulation; not saved,
+    // hashed or shared.
+    std::array<SettledSpending, OA_PLAYER_COUNT> settled_spending_{};
     std::shared_ptr<void> seat_state_;
     uint32_t lcg_seed_{};
     std::unique_ptr<sim::effect_particles::EffectWorld> effects_;
