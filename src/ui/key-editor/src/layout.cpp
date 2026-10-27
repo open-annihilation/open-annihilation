@@ -40,6 +40,7 @@ struct Window {
     int32_t height{};        ///< the window's height, in points
     int32_t left{};          ///< the content's left column
     int32_t right{};         ///< the column after the content's last
+    int32_t header_height{}; ///< the header's band: Kit 2's window header, Compact's at Compact
     int32_t body_top{};      ///< the first row under the header's rule
     int32_t footer_rule{};   ///< the row of the line over the footer
     int32_t footer_top{};    ///< the footer's first row
@@ -222,7 +223,12 @@ Window window_of(const kit::Frame& frame) {
     window.height = size.y;
     window.left = metrics.padding;
     window.right = std::max(size.x - metrics.edge - metrics.padding, window.left);
-    window.body_top = metrics.edge + metrics.header_height + 1;
+    // Regular and Large take Kit 2's window header, as Settings and the
+    // Library do. Compact keeps the kit's Compact band, as they do there.
+    window.header_height = frame.size_class == kit::SizeClass::compact
+                               ? metrics.header_height
+                               : metrics.window_header_height;
+    window.body_top = metrics.edge + window.header_height + 1;
     // Kit 2's footer: the control height and a space above and below at
     // Compact, the window footer's height above it.
     const int32_t footer_h = frame.size_class == kit::SizeClass::compact
@@ -236,8 +242,9 @@ Window window_of(const kit::Frame& frame) {
     return window;
 }
 
-/// Appends the header. The kit keeps Compact's places at every class, and
-/// the fit of the title is judged on those places.
+/// Appends the header: the window's header band, its words in the band's
+/// middle at Compact's columns, and the close mark centred in the band. The
+/// fit of the title is judged on those columns.
 ///
 /// @param[in,out] built the layout
 /// @param editor the words and the layout
@@ -327,14 +334,15 @@ void add_header(
     look.second_width = second.empty() ? 0 : second_width;
     look.version = version;
     look.version_width = version_width;
-    const int32_t header_rule = compact_metrics.edge + compact_metrics.header_height;
+    look.height = window.header_height;
+    const int32_t header_rule = compact_metrics.edge + window.header_height;
     add_item(built.list, kit::Role::header, {0, 0, window.width, header_rule + 1}).look =
         std::move(look);
 
     const int32_t side = compact_metrics.button_height;
     const kit::Rect rect{
         window.width - compact_metrics.edge - compact_metrics.padding - side,
-        compact_metrics.edge + (compact_metrics.header_height - side) / 2,
+        compact_metrics.edge + (window.header_height - side) / 2,
         side,
         side,
     };

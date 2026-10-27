@@ -1120,6 +1120,30 @@ void check_exchange_lines(const kit::Frame& frame, const std::string& where) {
     OA_CHECK(turned.redraw && scrolling.exchange_scroll > 0);
 }
 
+/// Checks that the window's header is Settings' and the Library's: Kit 2's
+/// window header at Regular and Large and the kit's band at Compact, with the
+/// close mark in its middle.
+///
+/// @param frame the frame
+/// @param where the case
+void check_shell(const kit::Frame& frame, const std::string& where) {
+    const kit::Metrics& metrics = kit::metrics_of(frame.size_class);
+    const bool compact = frame.size_class == kit::SizeClass::compact;
+    const editor::Editor model(editor_fixture());
+    const kit::DisplayList list = laid_out(model, {}, frame);
+    const int32_t header = compact ? metrics.header_height : metrics.window_header_height;
+    bool header_drawn = false;
+    for (const kit::Item& item : list.items) {
+        if (const auto* look = std::get_if<kit::HeaderLook>(&item.look))
+            header_drawn = look->height == header && item.rect.height == header + 2;
+    }
+    if (!header_drawn)
+        std::fprintf(stderr, "%s: the header is not %d points\n", where.c_str(), header);
+    OA_CHECK(header_drawn);
+    const kit::Control* close = find_named(list, editor::name_close);
+    OA_CHECK(close != nullptr && close->rect.y == metrics.edge + (header - close->rect.height) / 2);
+}
+
 int main() {
     const kit::Frame compact = frame_for(640, 480, 100);
     const kit::Frame large = frame_for(1280, 720, 100);
@@ -1139,6 +1163,9 @@ int main() {
     check_frame(compact, {480, 324}, kit::SizeClass::compact, "compact");
     check_frame(large, {960, 600}, kit::SizeClass::large, "large");
     check_frame(regular, {720, 486}, kit::SizeClass::regular, "regular");
+    check_shell(compact, "compact");
+    check_shell(large, "large");
+    check_shell(regular, "regular");
 
     check_french(compact, "french compact");
     check_french(large, "french large");
