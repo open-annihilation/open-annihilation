@@ -212,8 +212,8 @@ int Runtime::check_update_roll_back() {
             );
             // What happened lists each step, the failed one marked failed.
             bool listed = false;
-            for (const kit::QuestionPart& part : asked.parts)
-                for (const kit::QuestionBox& box : part.boxes)
+            for (const kit::QuestionPart& shown_part : asked.parts)
+                for (const kit::QuestionBox& box : shown_part.boxes)
                     for (const kit::BoxLine& line : box.lines)
                         if (line.mark == kit::LineMark::failed &&
                             line.text.find("another program had it open") != std::string::npos)

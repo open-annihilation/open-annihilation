@@ -684,10 +684,10 @@ int Runtime::check_update_download() {
         say("ready prompt first");
         // Escape is Keep it ready: nothing is scheduled, and quitting installs nothing.
         {
-            const auto deadline = deadline_from(std::chrono::seconds{10});
+            const auto shown_by = deadline_from(std::chrono::seconds{10});
             while (oa_layer().find("ready-update") == nullptr) {
                 require(
-                    std::chrono::steady_clock::now() < deadline, "the ready prompt did not show"
+                    std::chrono::steady_clock::now() < shown_by, "the ready prompt did not show"
                 );
                 clear_blockers();
                 idle_tick();
