@@ -280,10 +280,14 @@ void Runtime::check_engine_settings_in_match() {
         require(differing == 0, what + ": " + std::to_string(differing) + " pixels differ");
     };
     // `rect` shows the source pixel for pixel: as large as it, each window
-    // pixel the source's pixel at the same place.
+    // pixel the source's pixel at the same place, its corners rounded as the
+    // layer rounds the placement's (round_layer_corners). Outside the
+    // rounded shape, and where its edge blends with what lies behind, the
+    // window shows the game, which is not compared.
     const auto copied_at = [&](const renderer::Surface& frame,
                                const renderer::Surface& source,
                                const layout::Rect& rect,
+                               const LayerPlacement& placed,
                                const std::string& what) {
         require(
             static_cast<int>(source.width) == rect.width &&
@@ -292,13 +296,18 @@ void Runtime::check_engine_settings_in_match() {
                 rect.y + rect.height <= static_cast<int>(frame.height),
             what + " is not drawn as large as its place"
         );
-        const auto expected = shown(source);
+        LayerDrawing rounded;
+        rounded.picture = source;
+        round_layer_corners(rounded, placed.corner_radius, placed.scale_percent);
+        const auto expected = shown(rounded.picture);
         std::size_t differing = 0;
         for (int row = 0; row < rect.height; ++row)
             for (int column = 0; column < rect.width; ++column) {
-                const auto source_offset = (static_cast<std::size_t>(row) * source.width +
-                                            static_cast<std::size_t>(column)) *
-                                           3U;
+                const auto source_pixel =
+                    static_cast<std::size_t>(row) * source.width + static_cast<std::size_t>(column);
+                if (!rounded.opacity.empty() && rounded.opacity[source_pixel] != 255)
+                    continue;
+                const auto source_offset = source_pixel * 3U;
                 const auto frame_offset = (static_cast<std::size_t>(rect.y + row) * frame.width +
                                            static_cast<std::size_t>(rect.x + column)) *
                                           3U;
@@ -700,6 +709,7 @@ void Runtime::check_engine_settings_in_match() {
             open,
             dialog_face_at(*dialog, fonts, checked.size_class, checked.scale),
             dialog_at,
+            oa_layer().placement_of("settings"),
             "the dialog" + on
         );
         drawn_at(

@@ -793,15 +793,14 @@ void Runtime::check_engine_settings_in_menu() {
         "the dialog is not centred on the main menu at 80,78 at 1x"
     );
     {
-        auto expected = closed;
-        artless::blend_source_rect(
-            expected,
-            {0, 0, 1},
-            {0, 0, static_cast<int32_t>(expected.width), static_cast<int32_t>(expected.height)},
-            settings::backdrop_color,
-            settings::menu_backdrop_opacity
-        );
-        settings::draw_dialog(expected, {placement.x, placement.y, 1}, *dialog, *fonts, gears);
+        // The dialog's own drawing, its corners rounded and what lies outside
+        // them showing the darkened menu, as the layer shows it.
+        renderer::Surface drawing;
+        drawing.width = static_cast<uint32_t>(placement.width);
+        drawing.height = static_cast<uint32_t>(placement.height);
+        drawing.rgb.assign(static_cast<std::size_t>(drawing.width) * drawing.height * 3U, 0);
+        settings::draw_dialog(drawing, {0, 0, 1}, *dialog, *fonts, gears);
+        const auto expected = expected_layer_frame(closed, drawing, placed);
         const auto shown = frame();
         snapshot("engine-settings-menu-dialog", shown);
         require(
