@@ -3232,10 +3232,12 @@ void mark_key(kit::KeyboardLook& look, const std::string& code, bool focused, bo
     look.keys.push_back(std::move(key));
 }
 
-/// Appends the keyboard, its legend, the grey-keys note and the card under it.
+/// Appends the keyboard, its legend, the grey-keys note and the card.
 ///
-/// The card is under the picture so it does not cover a key. At Compact the
-/// picture may be wider than the well: it scrolls, and the well clips it.
+/// The card is under the picture so it does not cover a key. At Regular and
+/// Large it sits to the right of the legend. At Compact the picture may be
+/// wider than the well: it scrolls, and the well clips it, and the card is
+/// shown under the legend.
 ///
 /// @param[in,out] built the layout
 /// @param editor the bindings
@@ -3296,10 +3298,21 @@ void add_keyboard_body(
             heading += " · ";
         heading += key_label;
     }
+    const bool beside = !compact && body.width >= 480;
+    int32_t card_w = body.width;
+    int32_t column_w = body.width;
+    if (beside) {
+        card_w = std::min(body.width * 2 / 5, int32_t{360});
+        if (body.width - card_w - gap < 200)
+            card_w = std::max(body.width - 200 - gap, body.width / 2);
+        if (card_w < metrics.small_line)
+            card_w = body.width;
+        column_w = std::max(body.width - card_w - gap, int32_t{1});
+    }
     const int32_t pad = metrics.hover_card_padding;
-    const int32_t text_room = std::max(body.width - 2 * pad, int32_t{1});
+    const int32_t text_room = std::max(card_w - 2 * pad, int32_t{1});
     kit::HoverCardLook card;
-    card.width = body.width;
+    card.width = card_w;
     card.title = kit::cut_to_width(fonts, kit::FontRole::small, heading, text_room);
     std::string reading = card.title;
     for (const CardLine& line : lines) {
@@ -3321,16 +3334,43 @@ void add_keyboard_body(
         reading += row;
     }
     kit::Point card_size = kit::hover_card_size(fonts, card);
-    if (card_size.x > body.width)
-        card_size.x = body.width;
+    if (card_size.x > card_w)
+        card_size.x = card_w;
     const int32_t card_cap = metrics.small_line * 6 + 2 * pad;
     if (card_size.y > card_cap)
         card_size.y = card_cap;
-    int32_t chrome = legend_h + note_h + card_size.y + gap * 3;
+    const kit::Measure measure = [&](std::string_view words_measured) {
+        return kit::text_width(fonts, kit::FontRole::small, words_measured);
+    };
+    std::vector<std::string> legend_rows;
+    std::vector<std::string> note_rows;
+    if (beside) {
+        legend_rows = kit::wrap(legend_line(editor), std::max(column_w, int32_t{1}), measure);
+        note_rows = kit::wrap(
+            show(editor.text(), words::grey_keys), std::max(column_w, int32_t{1}), measure
+        );
+    }
+    const int32_t line_h = metrics.small_line;
+    int32_t under = legend_h + note_h + card_size.y + gap * 2;
+    if (beside) {
+        const int32_t legend_block = static_cast<int32_t>(legend_rows.size()) * line_h;
+        const int32_t note_block = static_cast<int32_t>(note_rows.size()) * line_h;
+        int32_t left_block = legend_block;
+        if (note_block > 0)
+            left_block += (legend_block > 0 ? gap : 0) + note_block;
+        under = std::max(left_block, card_size.y);
+    }
+    int32_t chrome = under + gap;
     int32_t room_h = body.height - chrome;
     if (room_h < 25) {
-        card_size.y = std::max(metrics.small_line, body.height - legend_h - note_h - gap * 3 - 25);
-        chrome = legend_h + note_h + card_size.y + gap * 3;
+        const int32_t spare = std::max(body.height - 25 - gap, line_h);
+        if (beside)
+            under = std::min(under, spare);
+        else {
+            card_size.y = std::max(line_h, spare - legend_h - note_h - gap * 2);
+            under = legend_h + note_h + card_size.y + gap * 2;
+        }
+        chrome = under + gap;
         room_h = std::max(body.height - chrome, int32_t{25});
     }
     const int32_t scale_h = std::max(room_h / 25, int32_t{1});
@@ -3374,7 +3414,60 @@ void add_keyboard_body(
     }
     if (focus_id != kit::no_control)
         built.tabs.push_back(focus_id);
-    int32_t y = body.y + pic_h + gap;
+    const int32_t band_top = body.y + pic_h + gap;
+    const int32_t band_bottom = std::min(body.y + body.height, band_top + under);
+    auto place_card = [&](int32_t card_x, int32_t card_y, int32_t width) {
+        int32_t card_h = card_size.y;
+        if (card_y + card_h > band_bottom)
+            card_h = band_bottom - card_y;
+        if (card_h <= 0 || width <= 0)
+            return;
+        const kit::Rect card_rect{card_x, card_y, std::min(card_size.x, width), card_h};
+        kit::add_hover_card(built.list, card_rect, card);
+        kit::Control control;
+        control.id = controls::key_card;
+        control.rect = card_rect;
+        control.enabled = true;
+        control.focusable = false;
+        control.name = std::string(name_key_card);
+        control.kind = kit::ControlKind::area;
+        control.text = reading;
+        built.rest.push_back(std::move(control));
+    };
+    if (beside) {
+        int32_t text_y = band_top;
+        for (const std::string& wrapped : legend_rows) {
+            if (text_y + line_h > band_bottom)
+                break;
+            add_line(
+                built,
+                fonts,
+                {body.x, text_y, column_w, line_h},
+                wrapped,
+                kit::FontRole::small,
+                kit::colour::hint
+            );
+            text_y += line_h;
+        }
+        if (!note_rows.empty() && text_y + gap < band_bottom)
+            text_y += gap;
+        for (const std::string& wrapped : note_rows) {
+            if (text_y + line_h > band_bottom)
+                break;
+            add_line(
+                built,
+                fonts,
+                {body.x, text_y, column_w, line_h},
+                wrapped,
+                kit::FontRole::small,
+                kit::colour::quiet
+            );
+            text_y += line_h;
+        }
+        place_card(body.x + column_w + gap, band_top, card_w);
+        return;
+    }
+    int32_t y = band_top;
     if (y + legend_h <= body.y + body.height)
         add_line(
             built,
@@ -3395,22 +3488,7 @@ void add_keyboard_body(
             kit::colour::quiet
         );
     y += note_h + gap;
-    int32_t card_h = card_size.y;
-    if (y + card_h > body.y + body.height)
-        card_h = body.y + body.height - y;
-    if (card_h > 0 && body.width > 0) {
-        const kit::Rect card_rect{body.x, y, std::min(card_size.x, body.width), card_h};
-        kit::add_hover_card(built.list, card_rect, card);
-        kit::Control control;
-        control.id = controls::key_card;
-        control.rect = card_rect;
-        control.enabled = true;
-        control.focusable = false;
-        control.name = std::string(name_key_card);
-        control.kind = kit::ControlKind::area;
-        control.text = std::move(reading);
-        built.rest.push_back(std::move(control));
-    }
+    place_card(body.x, y, body.width);
 }
 
 /// Which look a mouse control hovers. The wheel is one control and two looks.

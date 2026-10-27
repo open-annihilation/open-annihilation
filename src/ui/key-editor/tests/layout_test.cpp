@@ -741,7 +741,8 @@ std::vector<std::string> picture_meetings(const kit::DisplayList& list) {
 }
 
 /// The keyboard or the mouse at one size. Keys may scroll past the window.
-/// The card sits under the picture.
+/// The card sits under the picture, and to the right of the legend at Regular
+/// and Large.
 ///
 /// @param frame the frame
 /// @param window the dialog size this frame must give
@@ -798,6 +799,10 @@ void check_view(
         if (card == nullptr || card->rect.y < lowest)
             std::fprintf(stderr, "%s: the card is not under the keyboard\n", where.c_str());
         OA_CHECK(card != nullptr && card->rect.y >= lowest);
+        if (window.x >= 720 && (card == nullptr || card->rect.x < window.x / 3))
+            std::fprintf(stderr, "%s: the card is not beside the legend\n", where.c_str());
+        if (window.x >= 720)
+            OA_CHECK(card != nullptr && card->rect.x >= window.x / 3);
         return;
     }
 
