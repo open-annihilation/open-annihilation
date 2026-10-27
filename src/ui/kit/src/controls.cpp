@@ -1061,9 +1061,9 @@ void draw_search(const Canvas& canvas, const Rect& rect, const SearchLook& look)
     if (look.focused)
         ring_corner_rect(
             canvas,
-            grown(rect, kMetrics.focus_ring),
-            radius + kMetrics.focus_ring,
-            kMetrics.focus_ring,
+            grown(rect, kMetrics.focus_inset),
+            radius + kMetrics.focus_inset,
+            kMetrics.focus_inset,
             colour::field_ring
         );
     draw_capsule_corners(canvas, rect, radius, colour::well, border);

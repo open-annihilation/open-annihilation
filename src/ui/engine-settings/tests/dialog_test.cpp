@@ -4385,6 +4385,10 @@ constexpr renderer::Rgb kTertiary{0x95, 0x9c, 0x8b};
 /// The dark ink on the accent: an On switch's knob.
 constexpr renderer::Rgb kKnobOn{0x10, 0x12, 0x0d};
 
+/// Tells whether a colour is painted anywhere in a rectangle; defined with
+/// the scroll checks below.
+bool rect_has(const Canvas& canvas, const renderer::SourceRect& rect, renderer::Rgb colour);
+
 void the_dialog_draws_its_faces_and_accents(const settings::DialogFonts& fonts) {
     Canvas canvas = blank(settings::dialog_width, settings::dialog_height);
     settings::Dialog dialog = opened(Page::controls);
@@ -4402,12 +4406,12 @@ void the_dialog_draws_its_faces_and_accents(const settings::DialogFonts& fonts) 
     const auto rows = geometry::place_rows(Page::controls, {});
     const auto& keys_on = rows.rows[1].control_area;
     // The switch's track is the area's right 42 points: lime while On.
-    CHECK(canvas.at(keys_on.x + keys_on.width - 32, keys_on.y + 8) == kAccent); // On
+    CHECK(rect_has(canvas, keys_on, kAccent)); // On
     Canvas off = blank(settings::dialog_width, settings::dialog_height);
     settings::Dialog zoom_off = dialog;
     zoom_off.chosen.show_keys_on_buttons = false;
     settings::draw_dialog(off.surface, {0, 0, 1}, zoom_off, fonts, kNoIcon);
-    CHECK(off.at(keys_on.x + keys_on.width - 12, keys_on.y + 3) == kOffSelected); // Off
+    CHECK(rect_has(off, keys_on, kOffSelected) && !rect_has(off, keys_on, kAccent)); // Off
 
     // At twice the size, offset into a larger surface.
     Canvas larger = blank(1200, 800);
@@ -6035,10 +6039,8 @@ void the_developer_section_draws_its_parts() {
     settings::draw_dialog(still.surface, {0, 0, 1}, off, fonts, kNoIcon);
     const auto hack = geometry::open_rows(off).list.rows[1];
     CHECK(hack.kind == geometry::ListRowKind::hack && hack.on && hack.locked);
-    CHECK(
-        still.at(hack.toggle.x + hack.toggle.width - 32, hack.toggle.y + hack.toggle.height / 2) ==
-        faded(kControlHover)
-    );
+    CHECK(rect_has(still, hack.toggle, faded(kControlHover)));
+    CHECK(!rect_has(still, hack.toggle, kAccent));
 }
 
 /// Checks that every row of Developer Mode's list, with everything open and

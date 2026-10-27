@@ -306,7 +306,8 @@ void add_pill(
 
 /// Draws a text field: the well and its border, rounded with the control
 /// radius of its height (the hover border while hovered, the accent while
-/// focused, with a soft ring in field_ring focus_ring points outside it),
+/// focused, with a soft ring in field_ring filling the focus_inset points
+/// outside it),
 /// the magnifier when the look has one,
 /// and the placeholder in the hint colour while the text is empty, else the
 /// text in the regular font, moved left so the caret shows. While focused,
