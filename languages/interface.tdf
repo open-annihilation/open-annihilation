@@ -18450,12 +18450,12 @@
 	it=Qui e {name} la usano entrambi {context}.;
 	}
 
-[Here and {name} both use it {context}. Choose which keeps it; nothing changes until you confirm.]
+[{action} and {name} both use it {context}. Choose which keeps it; nothing changes until you confirm.]
 	{
-	de=Hier und {name} nutzen sie beide {context}. Wähl, wer sie behält. Nichts ändert sich, bis du bestätigst.;
-	fr=Ici et {name} l'utilisent tous les deux {context}. Choisis qui la garde. Rien ne change tant que tu ne confirmes pas.;
-	es=Aquí y {name} la usan los dos {context}. Elige quién la conserva. Nada cambia hasta que confirmes.;
-	it=Qui e {name} la usano entrambi {context}. Scegli chi la tiene. Non cambia nulla finché non confermi.;
+	de={action} und {name} nutzen sie beide {context}. Wähl, wer sie behält. Nichts ändert sich, bis du bestätigst.;
+	fr={action} et {name} l'utilisent tous les deux {context}. Choisis qui la garde. Rien ne change tant que tu ne confirmes pas.;
+	es={action} y {name} la usan los dos {context}. Elige quién la conserva. Nada cambia hasta que confirmes.;
+	it={action} e {name} la usano entrambi {context}. Scegli chi la tiene. Non cambia nulla finché non confermi.;
 	}
 
 [How it acts]
