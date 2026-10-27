@@ -1847,8 +1847,14 @@ void add_footer(
         right.push_back(
             make(controls::cancel, name_cancel, words::cancel_title, kit::ButtonStyle::plain, true)
         );
+    // While a clash holds Save changes back it keeps no accent, so it does not
+    // read as the one to press.
     right.push_back(make(
-        controls::save, name_save, words::save_changes, kit::ButtonStyle::accent, editor.can_save()
+        controls::save,
+        name_save,
+        words::save_changes,
+        editor.can_save() ? kit::ButtonStyle::accent : kit::ButtonStyle::plain,
+        editor.can_save()
     ));
     std::vector<int32_t> widths;
     int32_t right_total = 0;
@@ -2273,7 +2279,10 @@ kit::DisplayList exchange_prompt(
             kit::ButtonLook look;
             look.caption =
                 kit::cut_to_width(fonts, kit::FontRole::small, button.caption, rect.width);
-            look.style = button.accent ? kit::ButtonStyle::accent : kit::ButtonStyle::plain;
+            // A button that cannot be pressed keeps no accent, as the
+            // capture's does, so it does not read as the one to press.
+            look.style = button.accent && button.enabled ? kit::ButtonStyle::accent
+                                                         : kit::ButtonStyle::plain;
             look.enabled = button.enabled;
             look.hovered = hot(state, button.id);
             look.held = held(state, button.id);
