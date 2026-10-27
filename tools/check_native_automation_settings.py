@@ -75,6 +75,30 @@ def click(client, name):
     automation.click_control(client, name, "main_menu")
 
 
+def click_in_view(client, name):
+    """Scrolls Settings' section until a control is in view, then clicks it.
+
+    The section scrolls as one where its rows do not fit (at 640x480 the key
+    layout card leaves Maximum zoom out below the fold); the wheel over the
+    control's column brings it up a step at a time.
+    """
+    for _ in range(40):
+        control = wait_control(client, name)
+        if control.get("visible"):
+            break
+        x, _, width, _ = control["rect"]
+        _, top, _, height = wait_control(client, "oa.settings.scroll-bar")["rect"]
+        answer = client.request("input", expect_screen="main_menu",
+                                events=[{"kind": "wheel", "dx": 0, "dy": -1,
+                                         "x": x + width // 2, "y": top + height // 2}])
+        if not answer.get("ok"):
+            raise automation.AutomationFailure(f"the wheel over Settings was answered {answer}")
+        time.sleep(0.1)
+    else:
+        raise automation.AutomationFailure(f"{name} never came into view")
+    click(client, name)
+
+
 def wait_preference(client, name, value):
     """Waits for a preference to hold a value."""
     deadline = time.monotonic() + automation.TIMEOUT
@@ -191,7 +215,7 @@ def check_at(native, game_dir, workdir, resolution):
         show_controls(client)
         click(client, "oa.settings.wheel-zoom.off")
         wait_control(client, "oa.settings.wheel-zoom.off", lambda control: control.get("checked"))
-        click(client, "oa.settings.max-zoom-out")
+        click_in_view(client, "oa.settings.max-zoom-out")
         wait_control(client, "oa.settings.max-zoom-out.whole-map")
         click(client, "oa.settings.max-zoom-out.whole-map")
         wait_gone(client, "oa.settings.max-zoom-out.whole-map")
