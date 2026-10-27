@@ -206,6 +206,7 @@ centre would land on the line between Off and On.
 | The practice pad's Turn every helper off, on Accessibility | `oa.settings.practice.helpers-off` | button, its text "Turn every helper off"; disabled while every helper it turns off is already off |
 | Window size, on User Interface | `oa.settings.window-size`, and while open `.auto`, `.compact`, `.regular` and `.large` | drop-down, its text the choice shown. It takes effect at OK |
 | Reset window positions, on User Interface | `oa.settings.reset-window-positions.reset` | button, its text "Reset". It puts every moved window back in its centred place at once |
+| Look, on User Interface | `oa.settings.look`, `oa.settings.look.modern`, `oa.settings.look.classic` | as a level strip. It applies as it is chosen |
 | Edge scrolling | `oa.settings.edge-scroll`, with `.off` and `.on` | as a switch. Off stops the view scrolling while the pointer rests at the window's edge |
 | Key layout with the mod being played | `oa.settings.key-layout-for-mod`, and while open `.same` and `.<id>` (a layout's id, as `.ridge-keys`) | drop-down, its text the choice shown; absent while no mod is played |
 | Show keys on buttons | `oa.settings.show-keys-on-buttons`, with `.off` and `.on` | as a switch |
