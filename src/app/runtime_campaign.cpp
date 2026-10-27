@@ -1574,8 +1574,7 @@ void Runtime::show_in_game_briefing() {
         return;
     }
     renderer::Surface below;
-    ensure_screen_world();
-    compose_match_layers(below);
+    compose_shown_match(below);
     const bool over_match = below.width != 0 && below.height != 0;
     resources_ = std::move(loaded);
     set_menu_gui(names.layout);

@@ -235,7 +235,9 @@ press_registered_row(Dialog& dialog, int32_t control, kit::Point point) {
     const int32_t index = row_index_of(dialog, control);
     if (index < 0)
         return std::nullopt;
-    const RegisteredContent content = registered_content(dialog);
+    // The rows where the fonts the dialog is drawn in place them.
+    const geometry::Sizes sized = geometry::shown_sizes(dialog, dialog.drawn_fonts);
+    const RegisteredContent content = registered_content(dialog, &sized);
     if (static_cast<std::size_t>(index) >= content.placed.rows.size())
         return std::nullopt;
     const RegisteredPage& page = dialog.registered_pages[dialog.registered_page];
@@ -260,7 +262,8 @@ std::optional<DialogAction> step_registered_row(Dialog& dialog, int32_t control,
 std::optional<DialogAction> wheel_registered_content(Dialog& dialog, float notches) {
     if (open_page(dialog) == nullptr)
         return std::nullopt;
-    const RegisteredContent content = registered_content(dialog);
+    const geometry::Sizes sized = geometry::shown_sizes(dialog, dialog.drawn_fonts);
+    const RegisteredContent content = registered_content(dialog, &sized);
     if (content.scroll.limit <= 0)
         return std::nullopt;
     kit::WheelCarry carry{dialog.wheel_rows};

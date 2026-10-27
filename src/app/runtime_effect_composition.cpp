@@ -4,6 +4,7 @@
 #include "oa/app/runtime.hpp"
 #include "renderer_effect_sources.hpp"
 #include "renderer_effects.hpp"
+#include "renderer_water.hpp"
 #include "renderer_water_effects.hpp"
 #include "oa/sim/visibility_state.hpp"
 
@@ -106,6 +107,8 @@ void Runtime::compose_match_effect_pixels(
         return;
     const auto place = match_view_place();
     const auto& settings = engine_settings();
+    // Underwater shimmer's strength, which a lava sea leaves at none.
+    const float shimmer = std::min(water_levels().shimmer, 2.0F);
     std::vector<renderer_effects::Source> projected;
     projected.reserve(match_effect_sources().size());
     constexpr float heat_spatial_frequency = 0.55F;
@@ -131,8 +134,7 @@ void Runtime::compose_match_effect_pixels(
             source.z,
             float(selected_tnt_->sea_level) - source.height,
             match_->simulation().tick / 30.0,
-            std::min(settings.underwater_shimmer, 200U) / 100.0F *
-                std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
+            shimmer * std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
         );
         const float heat = std::clamp(source.heat, 0.0F, 1.0F) * detail[1] * heat_scale * water[3];
         if (light < minimum_light_strength && glow < minimum_glow_strength &&

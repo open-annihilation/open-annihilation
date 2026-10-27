@@ -9,6 +9,7 @@
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/ui/key_bindings/key_codes.hpp"
 
+#include <initializer_list>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -70,15 +71,46 @@ KeyCap character_cap(char32_t character) {
     return KeyCap{std::move(text), false};
 }
 
+/// One modifier's English name and, on a Mac, the symbol its keyboard prints.
+struct ModifierWord {
+    std::string_view english{}; ///< the name, as interface_words.hpp lists it
+    std::string_view symbol{};  ///< the Mac's symbol; empty where none is shown
+};
+
+/// The name and symbol of one modifier bit. Primary is the command key or
+/// Ctrl; Alt is Option and Meta the command key on a Mac.
+///
+/// @param modifier one bit of `Modifier`
+/// @param platform which key Primary means
+/// @return the word; an empty name for no bit or more than one
+ModifierWord modifier_word(uint8_t modifier, Platform platform) {
+    const bool mac = platform.primary_is_meta;
+    switch (modifier) {
+    case primary:
+        return mac ? ModifierWord{"Cmd", "⌘"} : ModifierWord{"Ctrl", {}};
+    case ctrl:
+        return {"Ctrl", mac ? "⌃" : ""};
+    case alt:
+        return mac ? ModifierWord{"Option", "⌥"} : ModifierWord{"Alt", {}};
+    case shift:
+        return {"Shift", mac ? "⇧" : ""};
+    case meta:
+        return mac ? ModifierWord{"Cmd", "⌘"} : ModifierWord{"Win", {}};
+    default:
+        return {};
+    }
+}
+
 /// Adds a modifier keycap unless that label is already there.
 ///
 /// Primary and Ctrl share a label where Primary is Ctrl, and Primary and
 /// Meta share one where Primary is the command key.
 ///
 /// @param caps the keycaps so far
-/// @param text the label, in English
-void add_modifier(std::vector<KeyCap>& caps, const char* text) {
-    std::string shown = shown_word(text);
+/// @param modifier one bit of `Modifier`
+/// @param platform which key Primary means, and how the modifiers are named
+void add_modifier(std::vector<KeyCap>& caps, uint8_t modifier, Platform platform) {
+    std::string shown = modifier_name(modifier, platform);
     for (const KeyCap& cap : caps) {
         if (cap.text == shown)
             return;
@@ -90,18 +122,12 @@ void add_modifier(std::vector<KeyCap>& caps, const char* text) {
 ///
 /// @param caps the keycaps
 /// @param modifiers the chord's modifier bits
-/// @param platform which key Primary means, and the name of Meta
+/// @param platform which key Primary means, and how the modifiers are named
 void add_modifiers(std::vector<KeyCap>& caps, uint8_t modifiers, Platform platform) {
-    if ((modifiers & primary) != 0)
-        add_modifier(caps, platform.primary_is_meta ? "Cmd" : "Ctrl");
-    if ((modifiers & ctrl) != 0)
-        add_modifier(caps, "Ctrl");
-    if ((modifiers & alt) != 0)
-        add_modifier(caps, "Alt");
-    if ((modifiers & shift) != 0)
-        add_modifier(caps, "Shift");
-    if ((modifiers & meta) != 0)
-        add_modifier(caps, platform.primary_is_meta ? "Cmd" : "Win");
+    for (const uint8_t modifier : {primary, ctrl, alt, shift, meta}) {
+        if ((modifiers & modifier) != 0)
+            add_modifier(caps, modifier, platform);
+    }
 }
 
 /// Reports whether a code is an F-key label, such as `F1`.
@@ -325,6 +351,19 @@ void add_gesture(std::vector<KeyCap>& caps, Gesture gesture) {
 }
 
 } // namespace
+
+std::string modifier_name(uint8_t modifier, Platform platform) {
+    const ModifierWord word = modifier_word(modifier, platform);
+    if (word.english.empty())
+        return {};
+    std::string shown = shown_word(word.english);
+    if (!platform.modifier_symbols || word.symbol.empty())
+        return shown;
+    std::string led(word.symbol);
+    led.push_back(' ');
+    led += shown;
+    return led;
+}
 
 std::vector<KeyCap> keycaps(const Chord& chord, const KeyboardMap& map, Platform platform) {
     std::vector<KeyCap> caps;

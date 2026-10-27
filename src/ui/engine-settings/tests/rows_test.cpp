@@ -68,7 +68,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 119> kExpected{{
+constexpr std::array<Expected, 121> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -189,6 +189,8 @@ constexpr std::array<Expected, 119> kExpected{{
     {Setting::repeat_rate, RowKind::slider, "Key repeat rate", 1, 1, 30, 0, 0, false, Lock::none, nullptr},
     {Setting::drag_threshold, RowKind::slider, "Drag threshold", 1, 1, 9, 0, 0, false, Lock::none, nullptr},
     {Setting::edge_scroll, RowKind::toggle, "Edge scrolling", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::move_overlays, RowKind::toggle, "Move overlays", 2, 2, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::arrange_overlays, RowKind::value_and_button, "Overlay places", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::window_size, RowKind::choice, "Window size", 1, 1, 4, 200, 0, false, Lock::none, nullptr},
     {Setting::reset_window_positions, RowKind::value_and_button, "Reset window positions", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::look, RowKind::levels, "Look", 1, 1, 2, 60, 2, false, Lock::none, nullptr},
@@ -703,19 +705,26 @@ void tab_follows_the_dialogs_focus_order() {
     );
     // Accessibility: every row, Bounce keys included, then the footer and the
     // list. A row below the fold stays in the order, and Tab scrolls it into
-    // view. The practice pad's Turn every helper off follows the rows while a
-    // helper is on.
+    // view. Overlay places' ARRANGE… joins it while Move overlays is on. The
+    // practice pad's Turn every helper off follows the rows while a helper
+    // is on.
     settings::Dialog accessibility = controls;
     accessibility.page = settings::Page::accessibility;
     OA_CHECK(
         tab_order(accessibility) ==
-        with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30})
+        with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31})
     );
+    accessibility.chosen.move_overlays = true;
+    OA_CHECK(
+        tab_order(accessibility) ==
+        with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32})
+    );
+    accessibility.chosen.move_overlays = false;
     accessibility.chosen.sticky_modifiers = true;
     OA_CHECK(
         tab_order(accessibility) ==
         with_footer_and_list(
-            {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, settings::helpers_off_control}
+            {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, settings::helpers_off_control}
         )
     );
     // Graphics: After zoom, locked while units are drawn whole, takes none.

@@ -36,7 +36,9 @@
 // Those names at each size class, and at Regular and Large: every section
 // inside the dialog with its parts apart, hints kept to their lines,
 // Graphics showing more whole rows, the footer's buttons at their Compact
-// sizes, and each control pressed where it is drawn.
+// sizes, and each control pressed where it is drawn. Every control, at each
+// class, answering where the fonts the dialog is drawn in place it, where
+// they wrap its rows otherwise than the estimate.
 // Interface size offering 150% only while Use modern fonts for game text
 // shows On, and turning that switch Off taking 150% back to 100%. Graphics
 // drawn on the canvas's smooth form at 1.5x, every pixel painted whole.
@@ -947,7 +949,7 @@ void accessibility_choose_opens_latchable_and_edit_keys_stays_on_all() {
     CHECK(keys.edit_keys_filter == settings::KeyEditorFilter::all);
 
     const auto rows = settings::page_settings(Page::accessibility);
-    CHECK(rows.size() == 13);
+    CHECK(rows.size() == 15);
     CHECK(rows[0] == Setting::latching);
     CHECK(rows[1] == Setting::sticky_modifiers);
     CHECK(rows[2] == Setting::hold_to_confirm);
@@ -961,10 +963,12 @@ void accessibility_choose_opens_latchable_and_edit_keys_stays_on_all() {
     CHECK(rows[10] == Setting::repeat_rate);
     CHECK(rows[11] == Setting::drag_threshold);
     CHECK(rows[12] == Setting::edge_scroll);
+    CHECK(rows[13] == Setting::move_overlays);
+    CHECK(rows[14] == Setting::arrange_overlays);
 
     settings::Dialog dialog = opened(Page::accessibility);
     const auto placed = geometry::place_rows(Page::accessibility, {});
-    CHECK(placed.rows.size() == 13);
+    CHECK(placed.rows.size() == 15);
     CHECK(click(dialog, centre(placed.rows[0].control_area)) == DialogAction::edit_keys);
     CHECK(dialog.edit_keys_filter == settings::KeyEditorFilter::latchable);
 
@@ -10986,6 +10990,115 @@ void the_larger_classes_press_each_control_where_it_is_drawn() {
     }
 }
 
+/// Every control of every section answers at the centre of where the fonts
+/// the dialog is drawn in place it, at each size class, at the top of its
+/// section and scrolled to its end, while those fonts wrap the rows' texts
+/// otherwise than the estimate does: the pointer finds the control at the
+/// centre of the part of it a press reaches, and dialog_layout lists its
+/// parts there; on User Interface a click there opens Interface size's and
+/// Window size's drop-downs, and a click on HUD scaling's other half sets
+/// it. The estimate places some of the rows elsewhere, where a press found
+/// them while the dialog's input measured without its fonts.
+void every_control_answers_where_its_fonts_draw_it() {
+    oa::present::GameTextHooks hooks{};
+    hooks.draw = scripted_modern_draw;
+    hooks.settings = scripted_text_settings;
+    oa::present::set_game_text_hooks(hooks);
+    settings::DialogFonts fonts{};
+    // The part of a control a press reaches: its rectangle within its clip.
+    const auto reached = [](const oa::ui::kit::Control& control) {
+        if (control.clip.width <= 0 || control.clip.height <= 0)
+            return control.rect;
+        return oa::ui::kit::intersect(control.rect, control.clip);
+    };
+    bool estimate_differs = false;
+    int32_t pointed_at = 0;
+    for (const auto size_class :
+         {oa::ui::kit::SizeClass::compact,
+          oa::ui::kit::SizeClass::regular,
+          oa::ui::kit::SizeClass::large}) {
+        fonts.size_class = size_class;
+        for (const Page page : kAllPages) {
+            for (const int32_t offset : {0, 100000}) {
+                settings::Dialog dialog = opened_at(size_class, page);
+                dialog.scroll[static_cast<std::size_t>(page)] = offset;
+                const auto estimated = geometry::dialog_list(dialog, nullptr);
+                dialog.drawn_fonts = &fonts;
+                const auto drawn = geometry::dialog_list(dialog, &fonts);
+                const auto parts = settings::dialog_layout(dialog);
+                for (const oa::ui::kit::Control& control : drawn.controls) {
+                    const renderer::SourceRect area = reached(control);
+                    // A control the view cuts is pressed where it shows, and
+                    // one it hides not at all.
+                    if (!control.enabled || area.width <= 0 || area.height < control.rect.height)
+                        continue;
+                    const oa::ui::kit::Control* guessed =
+                        oa::ui::kit::control_of(estimated, control.id);
+                    if (guessed == nullptr || !same_entry(reached(*guessed), area))
+                        estimate_differs = true;
+                    const Point point = centre(area);
+                    settings::Dialog pointed = dialog;
+                    static_cast<void>(settings::dialog_pointer_move(pointed, point.x, point.y));
+                    ++pointed_at;
+                    if (pointed.hovered != control.id)
+                        std::cerr << class_name(size_class) << " " << control.name << " at "
+                                  << point.x << "," << point.y << " finds " << pointed.hovered
+                                  << ", not " << control.id << "\n";
+                    CHECK(pointed.hovered == control.id);
+                    // A part listed for the control lies where it is reached.
+                    for (const settings::LayoutPart& part : parts)
+                        if (part.control == control.id && part.text.empty())
+                            CHECK(inside(part.rect, control.rect));
+                }
+            }
+        }
+        // User Interface, where Interface size answered under where it was
+        // drawn at 150% and 200%: each control is scrolled into view first.
+        const auto shown = [&](std::string_view name) {
+            settings::Dialog dialog = opened_at(size_class, Page::user_interface);
+            dialog.drawn_fonts = &fonts;
+            for (int32_t offset = 0; offset <= 2000; offset += 8) {
+                dialog.scroll[static_cast<std::size_t>(Page::user_interface)] = offset;
+                for (const oa::ui::kit::Control& control :
+                     geometry::dialog_list(dialog, &fonts).controls) {
+                    const renderer::SourceRect area = reached(control);
+                    if (control.name == name && area.width > 0 &&
+                        area.height == control.rect.height)
+                        return std::pair{dialog, control};
+                }
+            }
+            return std::pair{dialog, oa::ui::kit::Control{}};
+        };
+        for (const std::string_view name : {"settings.interface-size", "settings.window-size"}) {
+            auto [clicked, field] = shown(name);
+            CHECK(field.id != settings::no_control);
+            if (field.id == settings::no_control)
+                continue;
+            static_cast<void>(click(clicked, centre(reached(field))));
+            if (clicked.open_list != field.id)
+                std::cerr << class_name(size_class) << " " << name << " did not open\n";
+            CHECK(clicked.open_list == field.id);
+        }
+        auto [flipped, hud] = shown("settings.hud-scaling");
+        CHECK(hud.id != settings::no_control);
+        const bool was = flipped.chosen.hud_scaling;
+        const std::string_view other = was ? geometry::off_text : geometry::on_text;
+        const auto halves = settings::dialog_layout(flipped);
+        const auto half =
+            std::find_if(halves.begin(), halves.end(), [&](const settings::LayoutPart& part) {
+                return part.control == hud.id && part.text == other;
+            });
+        CHECK(half != halves.end());
+        if (half != halves.end()) {
+            static_cast<void>(click(flipped, centre(half->rect)));
+            CHECK(flipped.chosen.hud_scaling != was);
+        }
+    }
+    CHECK(estimate_differs);
+    CHECK(pointed_at > 300);
+    oa::present::set_game_text_hooks({});
+}
+
 /// The nav's texts, top to bottom: entries and owner names. The footer's
 /// captions sit in the same columns and are not part of the list.
 std::vector<std::string> nav_texts(const settings::Dialog& dialog) {
@@ -12117,6 +12230,7 @@ int main(int argc, char** argv) {
         rows_start_under_each_class_header();
         updates_entry_shows_its_badge_where_the_caption_keeps_its_width();
         the_larger_classes_press_each_control_where_it_is_drawn();
+        every_control_answers_where_its_fonts_draw_it();
         registered_pages_list_under_their_owners_and_write_on_ok();
     }
     if (failures != 0)

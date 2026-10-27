@@ -600,9 +600,13 @@ dialog's field and scrolls a skirmish's camera with an arrow key the
 endpoint holds down; `native-automation-frame`
 (`tools/check_native_automation_frame.py`) asks the game on the main menu
 for the frames it presents, in a 640x480 window and in a 1280x720 one,
-and checks them against the frame it composed; and
-`native-automation-digest` (`tools/check_native_automation_digest.py`)
-plays a recorded network game back in the main loop with and without the
+and checks them against the frame it composed;
+`native-automation-hit-areas` (`tools/check_native_automation_hit_areas.py`)
+presses every control of Settings, and clicks a sample of the Library's
+and the key editor's, at the centre of where it is drawn, at each
+Interface size and Window size Settings offers in both looks, and
+requires each to answer there; and `native-automation-digest`
+(`tools/check_native_automation_digest.py`) plays a recorded network game back in the main loop with and without the
 endpoint, a client reading the match and every event at every frame, and
 requires the same trace stream.
 `native-automation-extension-windows`
@@ -718,6 +722,19 @@ walk runs:
   back lifts, and, tripped while Full draws, drops Full first, freeing its
   pages, and Basic at the next sample while memory stays short. Each skips
   under 2 GiB.
+
+`native-dialog-backdrop` (`--check-dialog-backdrop`) opens the in-game
+briefing, the save dialog and the help dialog over a paused CORE mission
+at sea in the standard, Basic and Full tiers, at zoom 1, 1.5, 2 and 0.5,
+and holds the frame presented with each dialog to the frame presented
+without it in every battlefield pixel outside the dialog's panel, the
+units' among them, and at a raised display gamma the Full tier's within
+half a step of the gamma's levels. Unlike the checks above it leaves the video driver to
+the environment: on SDL's dummy driver it runs on the software renderer,
+switched to every tier as `--force-capable` allows, and on a machine with
+a graphics card, run without `SDL_VIDEO_DRIVER=dummy`, on the card (Metal
+on a Mac), in a window. It writes the frames at zoom 1, and any that
+differ, to `local/reports` in its folder, and skips under 2 GiB.
 
 ### Touch controls
 
@@ -1085,14 +1102,23 @@ battlefield on the 8-point grid, a drag and the arrows with and without
 Shift, and the overlays' own places at 640x480, 1280x720 and 1920x1080,
 none past the battlefield nor over the 128-point side column.
 `native-keys-overlay` (`--check-keys-overlay`) checks the keys overlay in
-a skirmish, then opens Arrange Overlays from the in-game menu's Overlays
-button: a handle on each overlay, the keys overlay and the chat line
-dragged to places on the grid, Reset, Done, and the places kept at
-1920x1080, the same class as 1280x720, and not at Compact. With
+a skirmish, then the overlays' places: Move overlays off by default with
+Arrange… waiting for it; on the main menu at 1280x720 and 640x480, Move
+overlays on and Arrange… opening the picture of the match, a handle on each
+overlay's sample inside the battlefield, the keys overlay, the latch chips
+and the chat line dragged to places on the grid, Cancel putting places
+back and Reset forgetting them; in a second skirmish the keys overlay, a
+latched QUEUE's chip and the chat line at their places at both sizes and
+1920x1080 keeping 1280x720's; the in-game menu's OA Settings as wide as
+Resume under it, opening Settings; Arrange… in a match; and Move overlays
+off putting every overlay back while keeping the places. With
 `--snapshot` it writes `arrange-overlays-<w>x<h>.ppm` and
-`rounded-settings-<w>x<h>.ppm` at 640x480, 800x600, 1280x720 and
-1920x1080. `native-keys-overlay-restart` starts the game again on the
-preferences the first run left, and finds the keys overlay and the chat
+`arrange-overlays-modern-<w>x<h>.ppm` at 640x480, 800x600 and 1280x720,
+`overlays-placed-<w>x<h>.ppm`, `ingame-menu-<w>x<h>.ppm` and
+`rounded-settings-<w>x<h>.ppm` at 640x480 and 1280x720,
+`arrange-overlays-match-1280x720.ppm` and `overlays-default-1280x720.ppm`.
+`native-keys-overlay-restart` starts the game again on the preferences the
+first run left, Move overlays on, and finds the keys overlay and the chat
 line where they were put. `native-selection-keys`
 (`--check-selection-keys`) presses each of 3.1c's Ctrl+letter keys in a
 skirmish as the system sends them: the modifier's own key down first, the
@@ -1506,6 +1532,17 @@ on the deep water must stand on their build grid at the sea level less
 their waterlines, a solar collector on a hill at the lowest corner under
 its footprint, read from the map with `oa-tool asset-extract`, and a patrol
 boat at a placed one's height, each to the end of the run.
+`native-lava-water-effects` (`tools/check_native_lava_water_effects.py`)
+finds a shore of flat land beside the sea in three maps' terrain, read with
+`oa-tool asset-extract`: Lava & Two Hills (`lavaworld=1`), Higher Ground
+(`lavaworld=1` and `nosealeveltrigger=1`) and Coast To Coast. On each, a
+stage walks a kbot along the shore's edge while two destroyers off it
+shell each other, and a director script renders it on the graphics card's
+Full tier, four seconds in the classic view and four turned, once with
+the four water effects at 100% and once at 0%. On the lava worlds every
+frame of the two renders is the same picture; on Coast To Coast every
+frame differs. It needs the system's video driver and skips under SDL's
+dummy driver; `--pictures DIR` keeps a still of each view of each render.
 
 ## Writing a test
 

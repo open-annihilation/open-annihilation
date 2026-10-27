@@ -3,6 +3,7 @@
 
 // Exercise persistent GPU resources, atlas revisions, resizing and invalid input without a window.
 #include "renderer_live_gpu.hpp"
+#include "renderer_water_appearance.hpp"
 #include "oa/test/check.hpp"
 
 #include <SDL3/SDL.h>
@@ -716,6 +717,10 @@ void coastal_foam_strength() {
         vertex.terrain_size = -2;
         vertex.terrain_x = 2;
         vertex.terrain_y = 1;
+        // The sheet's vertices carry the foam's colour; its plain one here.
+        vertex.red = oa::app::renderer_water_appearance::foam_red;
+        vertex.green = oa::app::renderer_water_appearance::foam_green;
+        vertex.blue = oa::app::renderer_water_appearance::foam_blue;
     }
     WaterEffects water{};
     water.wind.strength = 1;

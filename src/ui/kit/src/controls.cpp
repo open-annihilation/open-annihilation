@@ -34,6 +34,9 @@ constexpr const Metrics& kMetrics = compact_metrics;
 
 /// What a cut text ends with.
 constexpr std::string_view kEllipsis = "...";
+/// The points a list row with the room keeps between its last line and its
+/// tags' chips.
+constexpr int32_t kChipLead = 2;
 
 /// Tells whether a canvas has a surface to draw on.
 ///
@@ -247,11 +250,7 @@ ChipColours chip_colours(const ChipLook& look) noexcept {
         if (look.selected)
             colours = {colour::list_selected, colour::accent, colour::text};
         else
-            colours = {
-                colour::chip_face,
-                look.hovered ? colour::control_hover : colour::chip_border,
-                colour::text_secondary
-            };
+            colours = {colour::chip_face, colour::chip_border, colour::text_secondary};
         break;
     }
     if (look.hovered && !colours.face.has_value())
@@ -669,13 +668,18 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
     }
 
     // The text: the title's line, then each line, then the tags' line,
-    // centred down the row. A short row's text fills it from its top.
+    // centred down the row. A short row's text fills it from its top. A row
+    // with the room keeps the tags a little below the line over them, so the
+    // chips stand apart from its letters.
     const auto line_count = static_cast<int32_t>(look.lines.size()) + (look.tags.empty() ? 0 : 1);
-    const int32_t text_height = std::max(
-                                    kMetrics.list_row_title_top + kMetrics.regular_line,
-                                    kMetrics.list_row_line_top + line_count * kMetrics.small_line
-                                ) +
-                                kMetrics.list_row_title_top;
+    const int32_t packed_height = std::max(
+                                      kMetrics.list_row_title_top + kMetrics.regular_line,
+                                      kMetrics.list_row_line_top + line_count * kMetrics.small_line
+                                  ) +
+                                  kMetrics.list_row_title_top;
+    const int32_t chip_lead =
+        !look.tags.empty() && rect.height >= packed_height + kChipLead ? kChipLead : 0;
+    const int32_t text_height = packed_height + chip_lead;
     const int32_t top = rect.y + std::max((rect.height - text_height) / 2, int32_t{0});
     const int32_t title_row = top + kMetrics.list_row_title_top;
     // The aside's lines are the small font's, the first centred on the title's line.
@@ -759,7 +763,7 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
         );
         line_row += kMetrics.small_line;
     }
-    draw_chip_line(canvas, look.tags, {text_left, line_row}, text_right);
+    draw_chip_line(canvas, look.tags, {text_left, line_row + chip_lead}, text_right);
 }
 
 void add_list_row(

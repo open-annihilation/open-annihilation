@@ -1370,13 +1370,6 @@ void Runtime::draw_unit_info_panel() {
     );
 }
 
-void Runtime::draw_chat_overlay() {
-    draw_console_clock();
-    draw_match_message_log();
-    draw_debug_status_line();
-    draw_frame_stats();
-}
-
 void Runtime::ensure_talk_panel() {
     if (talk_layout_)
         return;
@@ -1681,17 +1674,19 @@ std::optional<std::array<int32_t, 3>> Runtime::match_pointer_ground(float x, flo
             match_layout_.top + match_layout_.battlefield_height() - 1
         )
     };
-    // The map pixel drawn under the pointer.
+    // The map pixel drawn under the pointer. Where the view may show past
+    // the map's edges, the box reaches as far as it shows.
     const auto map = map_pixel_drawn_at(viewport, pointer);
     if (!map)
         return std::nullopt;
     const oa::sim::unit_movement::Terrain terrain(*selected_tnt_);
-    const auto ground = oa::sim::gameplay_input::terrain_intersection(
+    const auto ground = oa::sim::gameplay_input::drag_box_corner(
         terrain,
         static_cast<int32_t>(map->x),
         static_cast<int32_t>(map->y),
         static_cast<int32_t>(selected_tnt_->attribute_width * 16U),
-        static_cast<int32_t>(selected_tnt_->attribute_height * 16U)
+        static_cast<int32_t>(selected_tnt_->attribute_height * 16U),
+        past_map_edge_share() > 0.0
     );
     const auto whole = [](int32_t fixed) {
         return static_cast<int32_t>(static_cast<int16_t>(fixed >> 16));

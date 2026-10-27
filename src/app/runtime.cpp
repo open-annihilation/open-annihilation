@@ -915,6 +915,11 @@ int Runtime::run() {
             flush_preferences();
             return status;
         }
+        if (options_.check_dialog_backdrop) {
+            const int status = check_dialog_backdrop();
+            flush_preferences();
+            return status;
+        }
         if (options_.check_match_orders) {
             check_match_orders();
             flush_preferences();

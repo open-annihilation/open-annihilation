@@ -49,6 +49,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -626,29 +627,26 @@ automation_kind(const oa::ui::kit::AutomationEntry& entry) noexcept;
 /// window radius and a notice's, a question's and a work dialog's its
 /// dialog radius (LayerPlacement::corner_radius).
 ///
-/// In a match, the in-game menu's Overlays button opens Arrange overlays
-/// (open_arrange_overlays): the keys overlay, the chat line and the latch
-/// chips each show at the place the player gave them for the size class in
-/// effect (overlay_shown), kept in the preferences
-/// (overlay_placement::place_key).
+/// While Settings' Move overlays is on, the keys overlay, the chat line and
+/// the latch chips each show at the place the player gave them for the size
+/// class in effect (overlay_shown), kept in the preferences
+/// (overlay_placement::place_key); Settings' Arrange… opens Arrange
+/// overlays (open_arrange_overlays), a picture of the match where they are
+/// placed. While it is off they show where they lay themselves out.
 class OaLayer {
   public:
 
-    /// The in-game OA button's left column in the in-game menu's column, in
-    /// source pixels: under Resume, clear of its frame.
-    static constexpr int32_t match_button_source_x = 100;
-    /// The in-game OA button's top row in the in-game menu's column, in source pixels.
+    /// The in-game OA Settings button's left column in the in-game menu's
+    /// column, in source pixels: Resume's left edge.
+    static constexpr int32_t match_button_source_x = 14;
+    /// The in-game OA Settings button's top row in the in-game menu's
+    /// column, in source pixels: under Resume, clear of its frame.
     static constexpr int32_t match_button_source_y = 455;
-    /// Arrange overlays' button in the in-game menu's column, in source
-    /// pixels: under Resume, from its left edge to four columns short of the
-    /// OA button, as high as the OA button.
-    static constexpr int32_t arrange_button_source_x = 14;
-    /// Arrange overlays' button's top row, in source pixels: the OA button's.
-    static constexpr int32_t arrange_button_source_y = match_button_source_y;
-    /// Arrange overlays' button's width, in source pixels.
-    static constexpr int32_t arrange_button_source_width = 82;
-    /// Arrange overlays' button's height, in source pixels: the OA button's side.
-    static constexpr int32_t arrange_button_source_height = 24;
+    /// The in-game OA Settings button's width, in source pixels: Resume's.
+    static constexpr int32_t match_button_source_width = 96;
+    /// The in-game OA Settings button's height, in source pixels: what the
+    /// column leaves under Resume.
+    static constexpr int32_t match_button_source_height = 24;
 
     /// Makes an empty layer.
     ///
@@ -805,6 +803,8 @@ class OaLayer {
     /// Where OA's overlays over a match keep to, and what their places are
     /// kept at (overlay_room).
     struct OverlayRoom {
+        /// The match's canvas: 0, 0 and its width and height, in canvas pixels.
+        oa::ui::display_layout::Rect window{};
         /// The overlays' area (Runtime::overlay_area): the battlefield, or
         /// the part of it the touch controls leave clear, in canvas pixels.
         oa::ui::display_layout::Rect area{};
@@ -835,11 +835,26 @@ class OaLayer {
     /// @return the room; nothing off a match or while the area is empty
     [[nodiscard]] std::optional<OverlayRoom> overlay_room() const;
 
-    /// Returns where an overlay shows over the match: where it lays itself
-    /// out, moved to the place the player gave it at the size class in
-    /// effect (overlay_placement::rect_at), as large as it is and kept in the
-    /// overlays' area. With no place it shows where it lays itself out,
-    /// pixel for pixel.
+    /// Returns the room Arrange overlays pictures: in a match, overlay_room;
+    /// on the front end, the battlefield of a match laid out at the window's
+    /// canvas (Runtime::match_canvas_point), at the class and scale the
+    /// in-match windows take there.
+    ///
+    /// @return the room; nothing while the window or the area is empty
+    [[nodiscard]] std::optional<OverlayRoom> arranging_room() const;
+
+    /// Tells whether Settings' Move overlays is on: the overlays show at the
+    /// places the player gave them (overlay_shown).
+    ///
+    /// @return true while it is on
+    [[nodiscard]] bool overlays_move() const;
+
+    /// Returns where an overlay shows over the match: while Move overlays is
+    /// on (overlays_move), where it lays itself out, moved to the place the
+    /// player gave it at the size class in effect
+    /// (overlay_placement::rect_at), as large as it is and kept in the
+    /// overlays' area. With no place, or while Move overlays is off, it shows
+    /// where it lays itself out, pixel for pixel.
     ///
     /// @param overlay the overlay's name (overlay_placement::overlays)
     /// @param unplaced where it lays itself out, in canvas pixels
@@ -848,10 +863,31 @@ class OaLayer {
     overlay_shown(std::string_view overlay, const oa::ui::display_layout::Rect& unplaced) const;
 
     /// Returns the overlays Arrange overlays moves and where each lays
-    /// itself out now (ArrangedOverlay).
+    /// itself out over the match now (ArrangedOverlay).
     ///
     /// @return the keys overlay, the chat line and the latch chips; empty off a match
     [[nodiscard]] std::vector<ArrangedOverlay> arranged_overlays() const;
+
+    /// Returns the overlays Arrange overlays moves and where each lays
+    /// itself out in a room: as the match shows them now, or with Arrange
+    /// overlays' samples (the keys overlay's short list, keys_overlay_sample,
+    /// and a latched Queue's chip).
+    ///
+    /// @param room the room
+    /// @param samples the samples' sizes, else the match's overlays'
+    /// @return the keys overlay, the chat line and the latch chips, in canvas pixels
+    [[nodiscard]] std::vector<ArrangedOverlay>
+    arranged_overlays_in(const OverlayRoom& room, bool samples) const;
+
+    /// Lays out Arrange overlays' keys overlay: the first few keys of a match
+    /// being played, laid out beside the side column of a room as the match
+    /// lays the panel out.
+    ///
+    /// @param room the room
+    /// @return the panel, its position in points from the overlays' area's
+    ///     top left corner; empty without fonts
+    [[nodiscard]] oa::ui::key_editor::OverlayLayout
+    keys_overlay_sample(const OverlayRoom& room) const;
 
     /// Returns where the keys overlay lays itself out over the match now,
     /// whether or not it is open: its panel as it would be laid out at the
@@ -861,27 +897,34 @@ class OaLayer {
     /// @return the panel, in canvas pixels; empty off a match or without fonts
     [[nodiscard]] oa::ui::display_layout::Rect keys_overlay_unplaced() const;
 
-    /// Returns an overlay's place at the size class in effect.
+    /// Returns an overlay's place at a size class.
     ///
     /// @param overlay the overlay's name
-    /// @return the place; nothing while it has none, or off a match
+    /// @param size_class the class
+    /// @return the place; nothing while it has none
     [[nodiscard]] std::optional<overlay_placement::OverlayPlace>
-    overlay_place(std::string_view overlay) const;
+    overlay_place(std::string_view overlay, oa::ui::kit::SizeClass size_class) const;
 
-    /// Keeps an overlay's place at the size class in effect, writes the
-    /// preferences and lays the screens out again for it.
+    /// Keeps an overlay's place at a size class, writes the preferences and
+    /// lays the screens out again for it.
     ///
     /// @param overlay the overlay's name
+    /// @param size_class the class
     /// @param place the place
     /// @return true when the place changed
-    bool place_overlay(std::string_view overlay, const overlay_placement::OverlayPlace& place);
+    bool place_overlay(
+        std::string_view overlay,
+        oa::ui::kit::SizeClass size_class,
+        const overlay_placement::OverlayPlace& place
+    );
 
-    /// Forgets an overlay's place at the size class in effect, so that it
-    /// shows where it lays itself out again, and writes the preferences.
+    /// Forgets an overlay's place at a size class, so that it shows where it
+    /// lays itself out there again, and writes the preferences.
     ///
     /// @param overlay the overlay's name
+    /// @param size_class the class
     /// @return true when it had a place
-    bool forget_overlay_place(std::string_view overlay);
+    bool forget_overlay_place(std::string_view overlay, oa::ui::kit::SizeClass size_class);
 
     /// Puts every overlay back where it lays itself out: forgets every
     /// overlay's place at every size class (overlay_placement::forget_places)
@@ -890,12 +933,27 @@ class OaLayer {
     /// @return true when an overlay had a place to forget
     bool reset_overlay_places();
 
-    /// Opens Arrange overlays over a match: modal, over the overlays' area,
-    /// a handle on each overlay to drag on the grid, with Reset and Done
+    /// Returns every overlay's place at every size class, as the preferences
+    /// hold them (the keys that start with overlay_placement::place_key_start).
+    ///
+    /// @return the keys and their values
+    [[nodiscard]] std::map<std::string, std::string> kept_overlay_places() const;
+
+    /// Puts every overlay's place back as kept_overlay_places returned them:
+    /// forgets the places there are now, keeps those, and writes the
+    /// preferences.
+    ///
+    /// @param kept the places
+    void restore_overlay_places(const std::map<std::string, std::string>& kept);
+
+    /// Opens Arrange overlays over Settings (Accessibility's Arrange…):
+    /// modal, as large as the window, a picture of the match in the kit's
+    /// look (arranging_room) with the overlays' samples, a handle on each to
+    /// drag on the grid, and a card with Reset, Cancel and Done
     /// (oa_layer_arrange.cpp).
     ///
-    /// @return true when it opened; false off a match, while it is open,
-    ///     or without fonts
+    /// @return true when it opened; false while it is open, without fonts or
+    ///     with no room to picture
     bool open_arrange_overlays();
 
     /// Returns where the topmost screen of a name shows now, moved where the
@@ -1022,8 +1080,8 @@ class OaLayer {
     void compose_front_end(renderer::Surface& frame) const;
 
     /// Draws the match's layer again when what it shows changed: the
-    /// in-game OA button and Arrange overlays' button while the in-game
-    /// menu's column shows, the backdrop
+    /// in-game OA Settings button while the in-game menu's column shows,
+    /// the backdrop
     /// under a modal screen, and the screens that show, each darkened as
     /// the button is once for each modal screen with a backdrop above it.
     /// Each screen is drawn at its placement's scale (Settings at
@@ -1075,10 +1133,10 @@ class OaLayer {
 
     /// Appends what the layer shows to the automation endpoint's controls
     /// (docs/automation.md, "OA's own screens"): the OA button while it
-    /// shows, named oa.button, and on the main menu the Settings button
-    /// beside it, named oa.settings-button, or in the in-game menu Arrange
-    /// overlays' button, named oa.arrange-button, each with no dialog and enabled
-    /// while no modal screen shows; then each screen that shows, from the
+    /// shows, named oa.button (in the in-game menu the OA Settings button,
+    /// its text its words), and on the main menu the Settings button beside
+    /// it, named oa.settings-button, each with no dialog and enabled while no
+    /// modal screen shows; then each screen that shows, from the
     /// top down to the first modal one, each control and part of its display
     /// list (kit::automation_parts) named oa. and its name, of the kind
     /// automation_kind gives, its dialog oa. and the screen's name.
@@ -1184,8 +1242,9 @@ class OaLayer {
     [[nodiscard]] static oa::ui::display_layout::Rect
     match_safe_area(const oa::ui::display_layout::MatchLayout& match_layout) noexcept;
 
-    /// Returns where the OA button shows on the match's canvas: under Resume
-    /// in the side column at the column's own scale, which a side-column page
+    /// Returns where the OA Settings button shows on the match's canvas:
+    /// under Resume, as wide as it from its left edge (match_button_source_x
+    /// and the rest), in the side column at the column's own scale, which a side-column page
     /// taller than the window makes smaller than the bars' (so the button
     /// stays in the in-game menu at every window size); fitted to the safe
     /// area, where a placed region showing that part of the column puts it,
@@ -1199,57 +1258,23 @@ class OaLayer {
         const oa::ui::display_layout::MatchLayout& match_layout, bool fit = false
     ) noexcept;
 
-    /// Returns where Arrange overlays' button shows on the match's canvas:
-    /// its source rectangle (arrange_button_source_x and the rest) placed as
-    /// match_button_rect places the OA button's, in the in-game menu beside
-    /// it.
-    ///
-    /// @param match_layout the match's layout
-    /// @param fit the button fits the safe area (match_fits_safe_area)
-    /// @return the button's rectangle, in window pixels
-    [[nodiscard]] static oa::ui::display_layout::Rect arrange_button_rect(
-        const oa::ui::display_layout::MatchLayout& match_layout, bool fit = false
-    ) noexcept;
-
-    /// Draws Arrange overlays' button as the match's layer shows it, in the
-    /// in-game menu's own art as OA's parts in 3.1c's rooms are drawn
+    /// Draws the in-game OA Settings button as the match's layer shows it,
+    /// in the in-game menu's own art as OA's parts in 3.1c's rooms are drawn
     /// (oa/ui/frontend_renderer/room_parts.hpp): the game's BUTTONS0 plate at
     /// the button's source size, the small engraved OA stamp at its left end
-    /// and its caption in the menu's caption font (the label font, or cut,
-    /// where that does not fit), sunk while pressed, darkened as the OA
-    /// button is under a modal screen.
+    /// and "OA Settings" in the menu's caption font (the label font, or cut,
+    /// where that does not fit), sunk while pressed, darkened as the screen
+    /// is under a modal screen.
     ///
     /// @param resources the in-game menu's art (Runtime::match_hud_); null
     ///     draws the game's plain button face
     /// @param look how the button looks: idle, hovered or pressed
     /// @param darkened a modal screen with a backdrop shows over the screen
     /// @return the face, at its source size, clear where no part of it is drawn
-    [[nodiscard]] static LayerDrawing arrange_button_face(
+    [[nodiscard]] static LayerDrawing match_button_face(
         const oa::ui::frontend_renderer::ScreenResources* resources,
         oa::ui::engine_settings::ButtonLook look,
         bool darkened
-    );
-
-    /// Draws the OA button's face as the match's layer shows it: at the
-    /// whole-number scale at or above the side column's, so that its icon
-    /// keeps its detail when the face is fitted to match_button_rect, and
-    /// darkened as the screen is under a modal screen.
-    ///
-    /// @param match_layout the match's layout
-    /// @param look how the button looks
-    /// @param darkened a modal screen shows over the screen
-    /// @param fonts the dialog's fonts
-    /// @param icon the icon it shows, the settings icon; empty draws the OA mark
-    /// @param fit the button fits the safe area (match_fits_safe_area): the
-    ///     face takes the whole-number scale at or above the button's own
-    /// @return the face, ingame_button_side source pixels a side at that scale
-    [[nodiscard]] static renderer::Surface match_button_face(
-        const oa::ui::display_layout::MatchLayout& match_layout,
-        oa::ui::engine_settings::ButtonLook look,
-        bool darkened,
-        const oa::ui::engine_settings::DialogFonts& fonts,
-        const oa::ui::frontend_renderer::RgbaPicture& icon,
-        bool fit = false
     );
 
     /// Returns where the settings dialog shows unmoved on the match's
@@ -1410,9 +1435,7 @@ class OaLayer {
         bool button_shown{};   ///< the OA button shows
         bool darkened{};       ///< a modal screen with a backdrop shows over the darkened screen
         uint8_t button_look{}; ///< the button's oa::ui::engine_settings::ButtonLook
-        /// Arrange overlays' button's oa::ui::engine_settings::ButtonLook.
-        uint8_t arrange_look{};
-        uint64_t revision{}; ///< the layer's own revision when it was drawn
+        uint64_t revision{};   ///< the layer's own revision when it was drawn
         bool operator==(const MatchLook&) const = default;
     };
 
@@ -1599,10 +1622,9 @@ class OaLayer {
     /// @return the id
     uint32_t take_request_id() noexcept;
 
-    /// Takes the input the in-game OA button answers to: the shortcut,
-    /// Ctrl+F2 while the profile offers the mod options, and the pointer
-    /// over the button; and the pointer over Arrange overlays' button beside
-    /// it, whose release opens Arrange overlays.
+    /// Takes the input the in-game OA Settings button answers to: the
+    /// shortcut, Ctrl+F2 while the profile offers the mod options, and the
+    /// pointer over the button, whose release opens Settings.
     ///
     /// @param input the input, in window pixels
     /// @return true when it was taken
@@ -1677,10 +1699,8 @@ class OaLayer {
     /// coordinates input arrives in; none while the layer has not started it.
     std::optional<oa::ui::display_layout::Rect> text_field_{};
     bool whole_window_{}; ///< the front end's read-back holds the whole window (read_whole_window)
-    bool button_hovered_{};  ///< the pointer is over the in-game OA button
-    bool button_pressed_{};  ///< a press on the in-game OA button is held
-    bool arrange_hovered_{}; ///< the pointer is over Arrange overlays' button
-    bool arrange_pressed_{}; ///< a press on Arrange overlays' button is held
+    bool button_hovered_{}; ///< the pointer is over the in-game OA Settings button
+    bool button_pressed_{}; ///< a press on the in-game OA Settings button is held
     /// Counts the changes to what the match's layer shows that MatchLook
     /// cannot see: the button's hover and press, screens coming and going.
     uint64_t revision_{};

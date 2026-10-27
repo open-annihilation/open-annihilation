@@ -131,6 +131,21 @@ formats::objects3d::FixedVector3 terrain_intersection(
     return {fixed_x, std::bit_cast<int32_t>(static_cast<uint32_t>(height) << 16U), fixed_z};
 }
 
+formats::objects3d::FixedVector3 drag_box_corner(
+    const sim::unit_movement::Terrain& terrain,
+    int32_t map_x,
+    int32_t projected_z,
+    int32_t map_width,
+    int32_t map_height,
+    bool past_edges
+) {
+    const bool on_map =
+        map_x >= 0 && map_x < map_width && projected_z >= 0 && projected_z < map_height;
+    if (!past_edges || on_map || map_width <= 0 || map_height <= 0)
+        return terrain_intersection(terrain, map_x, projected_z, map_width, map_height);
+    return {fixed(map_x), 0, fixed(projected_z)};
+}
+
 bool command_binds_cursor_unit(uint8_t command) noexcept {
     return command != unload_command && command != stop_command && command != build_command;
 }

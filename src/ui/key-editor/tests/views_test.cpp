@@ -278,6 +278,28 @@ void labels_and_layers() {
         mac_comma != nullptr && mac_comma->cap.sub == "Settings" &&
         mac_comma->cap.mark != kit::KeyMark::fixed
     );
+    // A Mac's modifier keys are Cmd, Option, Ctrl and Shift, led by their
+    // symbols where the platform shows them; elsewhere the geometry's own
+    // Ctl, Win and Alt show.
+    const auto label_of = [&](const kit::KeyboardLook& look, std::string_view code) {
+        const kit::KeyboardKey* key = key_of(look, code);
+        return key == nullptr ? std::string{} : key->cap.label;
+    };
+    OA_CHECK(label_of(mac_cmd, "MetaLeft") == "Cmd");
+    OA_CHECK(label_of(mac_cmd, "AltRight") == "Option");
+    OA_CHECK(label_of(mac_cmd, "ControlLeft") == "Ctrl");
+    OA_CHECK(label_of(mac_cmd, "ShiftLeft") == "Shift");
+    editor::EditorInputs mac_symbols = stock_inputs();
+    mac_symbols.platform.primary_is_meta = true;
+    mac_symbols.platform.modifier_symbols = true;
+    const editor::Editor mac_symbols_editor(mac_symbols);
+    const kit::KeyboardLook mac_none = picture_of(mac_symbols_editor, kit::KeyboardShape::ansi, 0);
+    OA_CHECK(label_of(mac_none, "MetaLeft") == "⌘ Cmd");
+    OA_CHECK(label_of(mac_none, "AltLeft") == "⌥ Option");
+    OA_CHECK(label_of(mac_none, "ControlRight") == "⌃ Ctrl");
+    OA_CHECK(label_of(mac_none, "ShiftRight") == "⇧ Shift");
+    OA_CHECK(label_of(windows_ctrl, "MetaLeft").empty());
+    OA_CHECK(label_of(windows_ctrl, "AltLeft").empty());
 
     editor::EditorInputs azerty_inputs = stock_inputs();
     const std::optional<uint16_t> key_q = keys::scancode_of("KeyQ");

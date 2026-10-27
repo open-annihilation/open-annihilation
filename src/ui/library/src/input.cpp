@@ -794,9 +794,12 @@ show_tab(Library& library, ScreenState& state, const kit::DisplayList& list, Tab
     set_tab(library, tab);
     after_browsing(library, state, list);
     // The keys walking the tab strip stay on it. Otherwise the text focus
-    // goes to the tab's search, so the player can type at once.
+    // goes to the tab's search, so the player can type at once; on the
+    // Registries tab, which has none, no focus shows until a key asks.
     if (tab_focused)
         state.interaction.focused = controls::tab_control(tab);
+    else if (tab == Tab::registries)
+        state.interaction.focus_shown = false;
     else
         focus_tab_search(library, state);
     return redrawn();

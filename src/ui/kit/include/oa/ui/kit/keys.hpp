@@ -77,7 +77,8 @@ void draw_keycap(
 
 /// Appends a keycap: one item and, for a control id, one control of kind
 /// button that takes no steps, its text the label, enabled unless the
-/// keycap is disabled. no_control adds the item alone.
+/// keycap is disabled. no_control adds the item alone. A control's text
+/// names a Mac modifier in words: ⌘ Cmd reads Cmd.
 ///
 /// @param[in,out] list the display list
 /// @param rect the keycap, in points
@@ -107,7 +108,9 @@ void add_keycap(
 void draw_chord_chip(const Canvas& canvas, const Rect& rect, const ChordChipLook& look);
 
 /// Appends a chord chip: one item and, for a control id, one control of
-/// kind button that takes no steps. no_control adds the item alone.
+/// kind button that takes no steps, its text the keycaps joined by "+" and
+/// the gesture, each Mac modifier in words (⌘ Cmd+A reads Cmd+A).
+/// no_control adds the item alone.
 ///
 /// @param[in,out] list the display list
 /// @param rect the chip, in points
@@ -174,10 +177,12 @@ inline constexpr Rect keyboard_main_block{0, 9, 60, 12};
 /// colour when the corner mark would be smaller than its glyph. No legend
 /// is cut: one too wide for the regular font is drawn in the small font,
 /// and from 4 points a quarter a point nearer the key's sides where it
-/// needs that; a named key whose legend still does not fit takes its
-/// geometry's own label (Ent for a long Enter), then a shorter one (Cap for
-/// Caps, PU for PgUp), or no legend. Nothing is drawn outside the
-/// rectangle.
+/// needs that; a Mac modifier whose legend leads with its symbol (⌘ Cmd)
+/// keeps the symbol alone, at every scale; a named key whose legend still
+/// does not fit takes its geometry's own label (Ent for a long Enter), then
+/// a shorter one (Cap for Caps, PU for PgUp), or no legend. A command key
+/// the look names (Cmd on a Mac) never takes the geometry's Win. Nothing is
+/// drawn outside the rectangle.
 ///
 /// @param canvas where it is drawn
 /// @param rect the picture, in points
@@ -188,7 +193,8 @@ void draw_keyboard(const Canvas& canvas, const Rect& rect, const KeyboardLook& l
 /// key it draws, in reading order. Each key's number is first plus its place
 /// in keyboard_places, so a key keeps its number in the main block. A
 /// control is named with the picture's name, a dot and the code word, or
-/// with the code word alone when name is empty.
+/// with the code word alone when name is empty; its text is the key's label,
+/// a Mac modifier in words.
 ///
 /// @param[in,out] list the display list
 /// @param rect the picture, in points

@@ -43,6 +43,11 @@ A repair step runs on each tick a builder repairs a damaged unit. Its work is
 `w = WorkerTime / 30`. A target at full health, or one without a type, takes
 no step in any mode.
 
+In every mode the builder pays, as in 3.1c: the energy is asked of the
+builder's own economy, and the builder's owner pays it whoever owns the
+target. A repair pad is the builder for the aircraft it repairs, so the pad
+pays, and the bottom bar shows the cost on the pad.
+
 The first two modes start from the same two amounts, each computed at 53-bit
 precision and truncated:
 

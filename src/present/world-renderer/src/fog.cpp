@@ -143,10 +143,15 @@ struct FogPainter {
         }
     }
 
-    // Whether dithering clears the map pixel (map_x, map_z): every other one.
-    [[nodiscard]] bool dithered_out(int32_t map_x, int32_t map_z) const noexcept {
-        return ((static_cast<uint32_t>(view.camera_x + map_x) +
-                 static_cast<uint32_t>(view.camera_z + map_z)) &
+    // Whether dithering clears the destination pixel (x, y) of the view,
+    // counted from its top-left corner: every other one, in a checkerboard
+    // on the screen's pixels whose phase follows the camera's map pixel, so
+    // that at the whole zoom, where a destination pixel is a map pixel, it
+    // clears every other map pixel as the game does, and at any other zoom
+    // the dither stays one pixel fine.
+    [[nodiscard]] bool dithered_out(int32_t x, int32_t y) const noexcept {
+        return ((static_cast<uint32_t>(view.camera_x + x) +
+                 static_cast<uint32_t>(view.camera_z + y)) &
                 1u) == 0;
     }
 
@@ -157,45 +162,43 @@ struct FogPainter {
         out[2] = rgb[2];
     }
 
-    // Dithering clears every other map pixel to palette index 0.
-    void dither(int32_t map_x, int32_t map_z, PixelSpan xs, PixelSpan ys) noexcept {
-        if (dithered_out(map_x, map_z))
-            fill(xs, ys, shading.dither_rgb);
+    // Moves one pixel half way to the dither colour, the even tone of the
+    // dither, rounding to nearest.
+    void half_dither(uint8_t* out) const noexcept {
+        for (std::size_t channel = 0; channel < 3; ++channel)
+            out[channel] = static_cast<uint8_t>(
+                (static_cast<unsigned>(out[channel]) + shading.dither_rgb[channel] + 1u) / 2u
+            );
     }
 
-    // Grays or dithers the map pixels [map_x0, map_x1) x [map_z0, map_z1).
+    // Dithers one destination pixel at (x, y) of the view: clears it to the
+    // dither colour when dithering clears it, or draws the even tone.
+    void dither_pixel(uint8_t* out, int32_t x, int32_t y) const noexcept {
+        if (shading.dither_even)
+            half_dither(out);
+        else if (dithered_out(x, y))
+            put(out, shading.dither_rgb);
+    }
+
+    // Dithers the destination pixels xs x ys, each by its own place on the
+    // screen, whatever map pixel it shows.
+    void dither(PixelSpan xs, PixelSpan ys) noexcept {
+        for (int32_t y = ys.begin; y < ys.end; ++y) {
+            auto* out = pixel(xs.begin, y);
+            for (int32_t x = xs.begin; x < xs.end; ++x, out += 3)
+                dither_pixel(out, x, y);
+        }
+    }
+
+    // Grays or dithers the destination pixels the map pixels [map_x0,
+    // map_x1) x [map_z0, map_z1) cover.
     void shade(int32_t map_x0, int32_t map_x1, int32_t map_z0, int32_t map_z1) noexcept {
-        if (!shading.dithered) {
-            gray(
-                dest_span(zoom_fp, map_x0, map_x1, clip_x0, clip_x1),
-                dest_span(zoom_fp, map_z0, map_z1, clip_y0, clip_y1)
-            );
-            return;
-        }
-        if (zoom_fp == fog_zoom_one) {
-            // A map pixel is one destination pixel: the clipped rows are
-            // walked along, every other pixel cleared.
-            const int32_t first_x = std::max({map_x0, 0, clip_x0});
-            const int32_t end_x = std::min(map_x1, clip_x1);
-            for (int32_t mz = std::max({map_z0, 0, clip_y0}); mz < std::min(map_z1, clip_y1);
-                 ++mz) {
-                auto* out = pixel(first_x, mz);
-                for (int32_t mx = first_x; mx < end_x; ++mx, out += 3)
-                    if (dithered_out(mx, mz))
-                        put(out, shading.dither_rgb);
-            }
-            return;
-        }
-        for (int32_t mz = std::max(map_z0, 0); mz < map_z1; ++mz) {
-            const auto ys = pixel_span(mz, clip_y0, clip_y1);
-            if (ys.empty())
-                continue;
-            for (int32_t mx = std::max(map_x0, 0); mx < map_x1; ++mx) {
-                const auto xs = pixel_span(mx, clip_x0, clip_x1);
-                if (!xs.empty())
-                    dither(mx, mz, xs, ys);
-            }
-        }
+        const auto xs = dest_span(zoom_fp, map_x0, map_x1, clip_x0, clip_x1);
+        const auto ys = dest_span(zoom_fp, map_z0, map_z1, clip_y0, clip_y1);
+        if (shading.dithered)
+            dither(xs, ys);
+        else
+            gray(xs, ys);
     }
 
     // Draws the opaque texels of a tile whose top-left map pixel is (map_x0,
@@ -306,9 +309,9 @@ void draw_fog_row(FogPainter painter, const FogRows& rows, int32_t row) noexcept
             const auto& art = rows.tiles.at(FogTileSet::gray, variant, tile.unseen);
             if (whole && shading.dithered)
                 painter.masked_whole(
-                    art, map_x0, map_z0, [&](uint8_t* out, uint8_t, int32_t mx, int32_t mz) {
-                        if (painter.dithered_out(mx, mz))
-                            FogPainter::put(out, shading.dither_rgb);
+                    art, map_x0, map_z0, [&](uint8_t* out, uint8_t, int32_t x, int32_t y) {
+                        // At the whole zoom a map pixel is its destination pixel.
+                        painter.dither_pixel(out, x, y);
                     }
                 );
             else if (whole)
@@ -322,9 +325,9 @@ void draw_fog_row(FogPainter painter, const FogRows& rows, int32_t row) noexcept
                     art,
                     map_x0,
                     map_z0,
-                    [&](uint8_t, int32_t mx, int32_t mz, PixelSpan tx, PixelSpan ty) {
+                    [&](uint8_t, int32_t, int32_t, PixelSpan tx, PixelSpan ty) {
                         if (shading.dithered)
-                            painter.dither(mx, mz, tx, ty);
+                            painter.dither(tx, ty);
                         else
                             painter.gray(tx, ty);
                     }

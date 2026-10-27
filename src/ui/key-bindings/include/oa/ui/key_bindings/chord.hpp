@@ -167,10 +167,22 @@ match(const Chord& chord, const InputEvent& event, const KeyboardMap& map, Platf
 /// @return true when that modifier is among those held
 [[nodiscard]] bool held(const Chord& modifier_alone, uint8_t modifiers, Platform platform);
 
+/// Returns one modifier's name as a keycap shows it, in the interface's
+/// language: Ctrl, Alt, Shift and Win, or where Primary is the command key
+/// Ctrl, Option, Shift and Cmd, each led by its symbol (⌃ ⌥ ⇧ ⌘) and a space
+/// where the platform asks for the symbols. Primary is Cmd where it is the
+/// command key and Ctrl elsewhere.
+///
+/// @param modifier one bit of `Modifier`
+/// @param platform which key Primary means, and how the modifiers are named
+/// @return the name; empty for no bit or more than one
+[[nodiscard]] std::string modifier_name(uint8_t modifier, Platform platform);
+
 /// Splits a chord into the keycaps a screen draws, in chord order.
 ///
-/// Modifiers are Ctrl, Alt, Shift, and Cmd or Win. Primary is Cmd where it is
-/// the command key and Ctrl elsewhere. A character is a capital. A place is
+/// Modifiers are named as modifier_name names them: Ctrl, Alt, Shift, and Cmd
+/// or Win, with Alt as Option and each led by its symbol on a Mac where the
+/// platform asks for the symbols. A character is a capital. A place is
 /// the character its key prints, in capitals, or the code's name when it
 /// prints none. A word and a character are separate keycaps. The gesture,
 /// other than a plain press, is one more word. Each word shows in the
@@ -179,7 +191,7 @@ match(const Chord& chord, const InputEvent& event, const KeyboardMap& map, Platf
 ///
 /// @param chord the chord
 /// @param map what the keys print
-/// @param platform which key Primary means, and the name of Meta
+/// @param platform which key Primary means, and how the modifiers are named
 /// @return the keycaps, modifiers first and the gesture last
 [[nodiscard]] std::vector<KeyCap>
 keycaps(const Chord& chord, const KeyboardMap& map, Platform platform);
@@ -188,8 +200,9 @@ keycaps(const Chord& chord, const KeyboardMap& map, Platform platform);
 ///
 /// @param chord the chord
 /// @param map what the keys print
-/// @param platform which key Primary means
-/// @return the text a screen shows, such as `Ctrl+A hold`
+/// @param platform which key Primary means, and how the modifiers are named
+/// @return the text a screen shows, such as `Ctrl+A hold`, or `⌘ Cmd+A` on a
+///         Mac that shows the symbols
 [[nodiscard]] std::string
 display_text(const Chord& chord, const KeyboardMap& map, Platform platform);
 

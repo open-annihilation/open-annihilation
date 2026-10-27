@@ -537,13 +537,21 @@ the game draws its text and how the modern fonts draw it.
     greyed band along an edge reaches a few pixels past the black, and
     under the game's dithered fog (`+dither`) that band, like all ground
     out of sight, has every other pixel blacked out: the thin chequered
-    fringe the original game shows.
+    fringe the original game shows. Zoomed in or out the dither stays one
+    screen pixel fine, as the original game's is at its own scale.
   - **Smooth**: soft edges that fade across each sight cell.
+
+  Under Smooth the dithered fog darkens ground out of sight evenly, by the
+  tone the original game's dither averages to.
 
   While the processor draws the battlefield (Hardware acceleration Off or
   Basic) the fog is always Classic, as the original game drew it. It
   changes only what your screen shows, never what any player can see, and
   takes effect at once, in a multiplayer game or a replay too.
+
+  The processor's dither is one screen pixel fine at every zoom too; where
+  the graphics card enlarges the processor's picture (Basic, zoomed in) it
+  is drawn as the even darkening it averages to.
 - **Zoomed out units**, Rendered or Dots, Rendered by default; Icons is
   shown but cannot be chosen yet. It says how units are drawn when the
   view is zoomed out farther than After zoom. Rendered draws every unit,
@@ -610,7 +618,10 @@ the game draws its text and how the modern fonts draw it.
     them, and shells that strike the water splash. Torpedoes and their hits
     stay at their depth and make no splash.
   - **Coastal waves** run toward the shore, gentler on small, sheltered
-    water.
+    water. Their foam takes the colour of the map's picture under it,
+    lighter than the ground there, so that it blends with sand, grass,
+    rock, snow or dark water rather than drawing a white line round
+    every shore.
   - **Underwater shimmer** tints and lights only the parts of scenery and
     units that are under the water, more the deeper they lie; what stands
     above the water keeps its colours. At 0% your own units under the
@@ -620,6 +631,15 @@ the game draws its text and how the modern fonts draw it.
     surface ship on the water, mirrored under its hull: each part of the
     ship shows as far below its waterline as it stands above it, fainter
     the higher it stands. They fade as the view turns flat.
+
+  They follow the map's sea. On a lava world (a map whose OTA sets
+  `lavaworld=1`) the lava shows none of the four, as the game draws it:
+  no ripples, waves, rings or splashes, no shimmer on what lies in it and
+  no reflections, and shots that land in it show the game's own lava
+  splash. Where the map's sea swallows shots without a splash
+  (`nosealeveltrigger=1`), shots and naval guns leave no rings or
+  splashes on it; its waves stay. A map whose water does damage
+  (`waterdoesdamage=1`, such as an acid world) keeps all four.
 
   Fine detail fades as the view zooms out, and the reflections of distant
   fleets are kept few. These effects change only what your screen shows,
@@ -739,9 +759,8 @@ press OK.
   Choose a layout if you want the same one on every window.
 - **Reset window positions**: **Reset** puts every window you moved back
   in the middle, at once, and the hint then says "Every window is back in
-  the middle." Cancel does not move them again. The places of the
-  overlays you arranged in a match are kept
-  ([Arrange overlays](controls.md#arrange-overlays)).
+  the middle." Cancel does not move them again. The places you gave the
+  overlays are kept ([Arrange overlays](controls.md#arrange-overlays)).
 - **Escape opens the game menu**, On by default on macOS and Off
   elsewhere. The first Escape cancels an order or clears the selection, as
   in 3.1c; the next opens the in-game menu. Turn it on if F2 is awkward to
@@ -833,6 +852,13 @@ off.
 - **Edge scrolling**, Off or On, On by default. Off stops the view
   scrolling while the pointer rests at the window's edge. Arrow keys, and
   the touch controls' edge band while a drag is held, keep moving the view.
+- **Move overlays**, Off or On, Off by default. On, the keys panel, the
+  chat line over the battlefield and the latch chips stand where you put
+  them; off, where the game puts them, and your places are kept.
+- **Overlay places**: whose places the overlays stand at, and
+  **Arrange…**, which can be pressed while Move overlays is on. It opens a
+  picture of the match where you drag them on a grid; each window size
+  keeps its own places ([Arrange overlays](controls.md#arrange-overlays)).
 
 ## Touch
 

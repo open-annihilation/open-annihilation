@@ -56,6 +56,7 @@
 #include "oa/present/world_renderer/world_fog.hpp"
 #include "oa/present/world_renderer/world_overlays.hpp"
 #include "oa/sim/sprite_animation.hpp"
+#include "oa/ui/hud/backed_text.hpp"
 #include "oa/ui/hud/boundary.hpp"
 #include "oa/ui/hud/build_page_fit.hpp"
 #include "oa/ui/hud/camera_scroll.hpp"
@@ -129,6 +130,8 @@ namespace oa::app::renderer_water {
 struct Wind;
 class SurfaceCache;
 struct Disturbance;
+struct Sea;
+struct Levels;
 } // namespace oa::app::renderer_water
 
 namespace oa::app::renderer_effect_events {
@@ -8149,7 +8152,16 @@ class Runtime final : public menu::Host,
     /// Cached water-body fetch for the current match; no per-frame map traversal.
     const renderer_water::SurfaceCache* water_surface() const noexcept;
     /// Recent visible naval firing and water impacts; recheck sight when drawing.
+    /// Empty where the match's sea is not stirred by shots
+    /// (renderer_water::stirred_by_shots).
     std::span<const renderer_water::Disturbance> water_disturbances() const noexcept;
+    /// Gives the match's sea, from its map's lavaworld and nosealeveltrigger
+    /// as the match holds them.
+    /// @return the sea; a plain water sea without a match
+    renderer_water::Sea water_sea() const noexcept;
+    /// Gives the strengths the water effects are drawn at in this match.
+    /// @return the Graphics settings' sliders; none on a lava sea
+    renderer_water::Levels water_levels();
     /// Match a visible impact sprite to a recent EMG hit, independent of merged light centres.
     /// @param point canonical world location in fixed-point units
     /// @return true within six world pixels of an EMG hit in the last game second
@@ -9225,6 +9237,42 @@ class Runtime final : public menu::Host,
         PanelText& operator=(const PanelText&) = delete;
     };
 
+    /// Lays the lines of game text painted while it lives over every
+    /// backing painted with them: while a line's background box, or a
+    /// backdrop a caller fills under its text, would show, each box is laid
+    /// where its line is painted and every line once the outermost group
+    /// ends, in the order they were painted, so that no box covers another
+    /// line of the group. A group opened inside another joins it. Without
+    /// a box to show, each line is painted where it is drawn, as if there
+    /// were no group.
+    struct BackedText {
+        Runtime* runtime{};
+        int exceptions{}; ///< exceptions in flight when the group opened
+
+        /// Opens a group of lines, or joins the one open.
+        ///
+        /// @param owner the runtime
+        explicit BackedText(Runtime& owner);
+        /// Closes the group: the outermost lays the lines it held. A group
+        /// left by an exception lets its lines go unlaid.
+        ~BackedText();
+        BackedText(const BackedText&) = delete;
+        BackedText& operator=(const BackedText&) = delete;
+    };
+
+    /// Tells whether the game text painted now may show a backing: a line's
+    /// background box, which the Language settings' background asks for,
+    /// or the message log's backdrop.
+    ///
+    /// @return true while either shows
+    [[nodiscard]] bool text_backings_shown() const;
+
+    /// Holds a line of text until its BackedText group ends, to be painted
+    /// on the paint target and from the paint origin there are now.
+    ///
+    /// @param paint paints the line, once, while nothing is held
+    void hold_painted_text(std::function<void()> paint);
+
     /// Gives the size a run of game text is painted at where text is
     /// painted now.
     ///
@@ -9530,10 +9578,6 @@ class Runtime final : public menu::Host,
     /// @param cell_z feature cell row
     /// @return true when the feature is not drawn
     bool feature_hidden_by_fog(uint16_t feature_index, int32_t cell_x, int32_t cell_z);
-
-    /// Marks the cells the viewer has mapped or covers as explored for the radar, while mapping is
-    /// on.
-    void absorb_radar_exploration();
 
     /// Blits the radar picture into the HUD's radar well.
     ///
@@ -10916,13 +10960,9 @@ class Runtime final : public menu::Host,
 
     /// Shows a sight rebuild in the view.
     ///
-    /// The runtime's copy of the viewer's explored terrain is dropped when the
-    /// mapped grid is refilled, and the radar, which every rebuild refills and
-    /// composes, is at its next frame. Fog is drawn from the match's sight grids
-    /// every frame.
-    ///
-    /// @param refill_mapped true when the mapped grid was refilled too
-    void reset_sight_presentation(bool refill_mapped);
+    /// The radar refills and composes its picture from the match's sight grids
+    /// at its next frame. Fog is drawn from them every frame.
+    void reset_sight_presentation();
 
     /// Rebuilds the match's sight grids, as a launch, a console visibility command or a respawn
     /// does; nothing while altitude sight is blocked.
@@ -11555,6 +11595,10 @@ class Runtime final : public menu::Host,
         /// A picture-keeping reader draws the world as the standard tier does
         /// (ensure_screen_world).
         bool suspended{};
+        /// The last match frame is drawn again to be read back
+        /// (read_presented_world): finish_match_layers neither draws the
+        /// layers over the battlefield nor presents the frame.
+        bool reading_back{};
         /// The rung: the scene budget, magnify on or off, the chrome's filter
         /// and the card's magnification.
         render_policy::LadderState rung{};
@@ -12319,8 +12363,9 @@ class Runtime final : public menu::Host,
 
     /// Draws one standard-tier world for the moment the last frame showed, the
     /// same tick and fraction, when the accelerated presentation scaled the
-    /// world: the picture a screenshot, a film frame, the load and save
-    /// backdrop, the briefing's backdrop and the end screen keep. The units
+    /// world: the picture a screenshot, a film frame and the end screen keep,
+    /// and the load and save dialogs' and the briefing's backdrop where the
+    /// card's picture cannot be read back (compose_shown_match). The units
     /// drawn are counted for that draw alone and the frame's counts kept,
     /// and the HUD's resource readout is not eased again, so the match's
     /// Game.resource_readout stays as the frame left it. Makes no SDL call.
@@ -12328,6 +12373,39 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error when the world cannot be drawn.
     void ensure_screen_world();
+
+    /// Composes the match canvas as the last match frame showed it, for a
+    /// panel drawn over the paused match from a picture of it: the load and
+    /// save dialogs and the in-game briefing. As compose_match_layers, with
+    /// the battlefield as the frame presented it: where the graphics card
+    /// drew it (the Full tier) or magnified it (Basic above zoom 1), the
+    /// card's own picture read back (read_presented_world), so that the
+    /// units, the water and the fog behind the panel look as they did
+    /// without it; where it cannot be read back, the standard tier's draw
+    /// (ensure_screen_world); and otherwise the world layer as presented,
+    /// the area pass's picture below zoom 1 among them. Before the display
+    /// gamma, as compose_match_layers.
+    ///
+    /// Throws std::runtime_error when the world cannot be drawn.
+    ///
+    /// @param[out] frame canvas-sized RGB frame
+    void compose_shown_match(renderer::Surface& frame);
+
+    /// Draws the last match frame's battlefield again as its tier presented
+    /// it, into the window's frame without presenting it, which the next
+    /// frame draws over, and reads it back at the battlefield's size in
+    /// layout pixels (part of compose_shown_match). The frame is drawn from
+    /// the layers and the card's state the last match frame left, so it is
+    /// that frame's picture; the readback is taken back through the display
+    /// gamma, which the panel's presentation applies again, exactly where
+    /// the gamma is the identity and to the nearest level otherwise. A
+    /// window that shows the layout at another scale is read at its own
+    /// pixels and each layout pixel given the mean of the pixels it covers.
+    ///
+    /// @param[out] world the battlefield's picture, its width and height those of the world layer
+    /// @return false, with `world` left as it was, where the tier did not
+    ///     present the frame from the card or SDL refused a call
+    [[nodiscard]] bool read_presented_world(renderer::Surface& world);
 
     /// Presents the software cursor at the pointer, unless the system's
     /// pointer shows instead (pointer_shows_cursor) or the frame is drawn
@@ -13048,6 +13126,31 @@ class Runtime final : public menu::Host,
     /// @return the pixels the pen moves
     int paint_modern_text(
         const oa::present::TextLayers& layers, int x, int baseline_y, std::array<uint8_t, 3> color
+    );
+
+    /// Gives the canvas paint_modern_text lays lines on: the paint target,
+    /// reduced to the match palette, and on the Full tier's overlay canvas
+    /// the world under it handed to the card.
+    ///
+    /// @return the canvas
+    [[nodiscard]] oa::present::TextCanvas match_text_canvas();
+
+    /// Lays a line of the modern fonts on the paint target at once, as
+    /// paint_modern_text paints it outside a BackedText group, and notes it
+    /// for the checks while painted_lines_ holds a list.
+    ///
+    /// @param layers the line
+    /// @param x paint column of the pen
+    /// @param baseline_y paint row just below the capitals
+    /// @param color the letters' colour
+    /// @param backed whether the line's background box was laid, with it or
+    ///        before it
+    void lay_match_text(
+        const oa::present::TextLayers& layers,
+        int x,
+        int baseline_y,
+        std::array<uint8_t, 3> color,
+        bool backed
     );
 
     /// Measures game text in an FNT font as paint_text paints it.
@@ -14887,10 +14990,6 @@ class Runtime final : public menu::Host,
     /// @return the gadget's name, or null when the pointer is over no gadget
     [[nodiscard]] const char* hovered_gadget_name() const;
 
-    /// Draws the game clock, the message log, the debug keys' line
-    /// (draw_debug_status_line) and the "+stats" overlay over the battlefield.
-    void draw_chat_overlay();
-
     /// Has the extension draw its readouts over the battlefield (Extension::draw_match_overlay).
     ///
     /// Nothing without the hook or a match. The battlefield layer is the paint
@@ -15976,6 +16075,21 @@ class Runtime final : public menu::Host,
     ///
     /// @return 0, or 77 where the machine cannot run the accelerated tiers
     int check_build_preview();
+
+    /// Checks the battlefield behind a dialog over a paused match in the
+    /// standard, Basic and Full tiers at zoom 1, 1.5, 2 and 0.5: over the CORE
+    /// campaign's nineteenth mission, its fleet in view, the in-game
+    /// briefing, the save dialog and the help dialog are each opened from the
+    /// in-game menu, and the frame presented with the dialog must equal the
+    /// frame presented without it in every battlefield pixel outside the
+    /// dialog's panel and the menu's. Then, at a raised display gamma, the
+    /// briefing in the Full tier at zoom 1 may move no level of the
+    /// battlefield by more than half the widest step between the gamma's
+    /// levels. Writes the frames at zoom 1, and any that differ, to
+    /// local/reports. Throws std::runtime_error on a failure.
+    ///
+    /// @return 0, or 77 where the machine cannot run the accelerated tiers
+    int check_dialog_backdrop();
     // Chat line and "+command" console (runtime_console.cpp).
 
     /// Returns the match's console, binding it to the running match's world on first use.
@@ -17210,6 +17324,10 @@ class Runtime final : public menu::Host,
     );
 
     /// Returns the terrain point under the pointer, the pointer held inside the battlefield.
+    ///
+    /// The drag box's corners. While View past the map's edge lets the view
+    /// past the map's edges, a point past them is the point itself at height
+    /// 0 (gameplay_input::drag_box_corner); at Off it is held on the map.
     ///
     /// @param x canvas column
     /// @param y canvas row
@@ -19317,7 +19435,6 @@ class Runtime final : public menu::Host,
     SideHud side_hud_{};
     HudRect radar_picture_{};
     int radar_map_w_ = 0;
-    std::vector<uint8_t> radar_explored_{};
 
     // Radar surfaces over the match's Game block, built by the radar
     // picture set-up when a match is first drawn, and the 0x7e-square well
@@ -19368,12 +19485,14 @@ class Runtime final : public menu::Host,
     /// up by name when a game loads; the file is read once.
     void load_radar_sprites();
 
-    /// Refreshes the mapped radar image from the viewer's explored cells and current coverage
+    /// Refreshes the mapped radar image from the view player's mapped cells and current coverage
     /// through the radar fill.
     ///
     /// The radar fill walks a 32-pixel cell grid; the match sight grid is
-    /// resampled onto it. Disabled mapping or line of sight reads as fully
-    /// explored or seen.
+    /// resampled onto it and read as the battlefield's fog reads it
+    /// (radar_read_sight), so that the radar and the battlefield agree on the
+    /// ground explored and in sight. Disabled mapping or line of sight reads
+    /// as fully explored or seen.
     void refresh_radar_mapped();
 
     /// Composes the final radar image over the match, with the viewer's sight answering for shots.
@@ -20356,6 +20475,18 @@ class Runtime final : public menu::Host,
     renderer::Surface* overlay_target_ = nullptr;
     bool hud_source_space_ = false;
     oa::ui::display_layout::Point paint_origin_{}; // canvas position of the paint target's (0,0)
+    /// The lines the open BackedText groups hold.
+    oa::ui::hud::TextHold text_hold_{};
+
+    /// A line of the modern fonts laid on a layer, for the checks.
+    struct PaintedLine {
+        const renderer::Surface* target{}; ///< the layer
+        oa::ui::hud::LaidLine line{};
+    };
+
+    /// The lines lay_match_text laid, in order, while a check asks for them;
+    /// none noted while empty.
+    std::optional<std::vector<PaintedLine>> painted_lines_{};
     bool match_use_layers_ = false;
     renderer::Surface* capture_frame_ = nullptr;  // receives the next presented frame
     std::unique_ptr<VideoCapture> video_capture_; // --capture-video, while it runs

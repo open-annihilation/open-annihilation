@@ -51,6 +51,20 @@ stockpile, up to 200. After loading, the silo holds the round and can
 launch it again. The missile does not land. A save made with nothing of
 the kind in flight is the same file 3.1c writes.
 
+## Repairs in games from 0.8.6 or earlier
+
+From 0.8.7 a repair costs the unit doing the repairing, as in 3.1c. A
+repair pad pays for the aircraft on it, and a builder pays for the unit it
+repairs, an ally's unit included, so the bottom bar shows the energy on the
+pad or the builder. Open Annihilation 0.8.6 and earlier charged the unit
+being repaired.
+
+A save made with 0.8.6 or earlier while a unit was being repaired still
+loads, but the game goes on from it a little differently from the way the
+older version played it. A recording of such a game, with a repair in it,
+may not play back exactly as it was played. Saves and recordings with no
+repair in them are not affected.
+
 ## Mods with more weapon types or sides
 
 A game played under a mod that numbers more weapon types, or loads more

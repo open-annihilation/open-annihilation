@@ -1941,10 +1941,20 @@ void Runtime::check_library() {
         return std::nullopt;
     };
 
+    // Opening the Library puts the text focus in the tab's search.
+    const std::optional<AutomationControl> search_open = named("oa.library.search");
+    require(
+        search_open.has_value() && search_open->focused,
+        "opening the Library left its search without the focus"
+    );
+    std::cout << "library check: opening the Library focuses its search\n";
+    // Y gives it the focus again once the focus has gone.
+    host.state.interaction.focus_shown = false;
+    run_frame(running);
     const std::optional<AutomationControl> search_before = named("oa.library.search");
     require(
         search_before.has_value() && !search_before->focused,
-        "the search was missing or already focused"
+        "the search was missing or kept the focus"
     );
     tap_pad(SDL_GAMEPAD_BUTTON_NORTH);
     const std::optional<AutomationControl> search = named("oa.library.search");

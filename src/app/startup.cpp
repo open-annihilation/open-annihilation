@@ -375,6 +375,7 @@ void check_game_files_options(Options& options) {
         {options.check_wreck_pick, "--check-wreck-pick"},
         {options.check_click_snap, "--check-click-snap"},
         {options.check_build_preview, "--check-build-preview"},
+        {options.check_dialog_backdrop, "--check-dialog-backdrop"},
         {options.check_pointer_interfaces, "--check-pointer-interfaces"},
         {options.check_megamap_clicks, "--check-megamap-clicks"},
         {options.check_single_player_offers, "--check-single-player-offers"},
@@ -680,6 +681,7 @@ void check_director_options(Options& options) {
         {options.check_wreck_pick, "--check-wreck-pick"},
         {options.check_click_snap, "--check-click-snap"},
         {options.check_build_preview, "--check-build-preview"},
+        {options.check_dialog_backdrop, "--check-dialog-backdrop"},
         {options.check_pointer_interfaces, "--check-pointer-interfaces"},
         {options.check_megamap_clicks, "--check-megamap-clicks"},
         {options.check_single_player_offers, "--check-single-player-offers"},
@@ -812,6 +814,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_wreck_pick, "--check-wreck-pick"},
             {options.check_click_snap, "--check-click-snap"},
             {options.check_build_preview, "--check-build-preview"},
+            {options.check_dialog_backdrop, "--check-dialog-backdrop"},
             {options.check_pointer_interfaces, "--check-pointer-interfaces"},
             {options.check_megamap_clicks, "--check-megamap-clicks"},
             {options.check_single_player_offers, "--check-single-player-offers"},
@@ -1081,6 +1084,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-wreck-pick", &Options::check_wreck_pick},
     {"--check-click-snap", &Options::check_click_snap},
     {"--check-build-preview", &Options::check_build_preview},
+    {"--check-dialog-backdrop", &Options::check_dialog_backdrop},
     {"--check-pointer-interfaces", &Options::check_pointer_interfaces},
     {"--check-key-timing", &Options::check_key_timing},
     {"--check-pointer-keys", &Options::check_pointer_keys},
@@ -1792,7 +1796,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-folder-chooser] "
                      "[--check-patrol-reclaim] [--check-reclaim-cursor] [--check-wreck-pick] "
                      "[--check-click-snap] "
-                     "[--check-build-preview] "
+                     "[--check-build-preview] [--check-dialog-backdrop] "
                      "[--check-megamap-clicks] [--check-single-player-offers] "
                      "[--check-radar-orders] "
                      "[--check-key-latches] [--check-hold-confirm] [--check-order-wheel] "
@@ -2084,10 +2088,11 @@ void write_startup_line(std::string_view text) {
             "--headless-check"
         );
     if (result.force_capable && !result.check_render_tiers && !result.check_build_preview &&
-        !result.check_engine_settings && !result.check_kill_board)
+        !result.check_dialog_backdrop && !result.check_engine_settings && !result.check_kill_board)
         throw std::runtime_error(
             "--force-capable is accepted only with --check-render-tiers, "
-            "--check-build-preview, --check-engine-settings and --check-kill-board"
+            "--check-build-preview, --check-dialog-backdrop, --check-engine-settings and "
+            "--check-kill-board"
         );
     if (result.render_fault && !result.check_renderer_ladder)
         throw std::runtime_error("--render-fault needs --check-renderer-ladder");
@@ -2122,9 +2127,10 @@ void write_startup_line(std::string_view text) {
         result.check_update_offer || result.check_update_download ||
         result.check_update_roll_back || result.check_text_fit || result.check_folder_chooser ||
         result.check_patrol_reclaim || result.check_reclaim_cursor || result.check_wreck_pick ||
-        result.check_build_preview || result.check_pointer_interfaces ||
-        result.check_megamap_clicks || result.check_single_player_offers ||
-        result.check_radar_orders || result.check_touch_controls || result.check_pad_controls ||
+        result.check_build_preview || result.check_dialog_backdrop ||
+        result.check_pointer_interfaces || result.check_megamap_clicks ||
+        result.check_single_player_offers || result.check_radar_orders ||
+        result.check_touch_controls || result.check_pad_controls ||
         result.check_running_while_inactive || result.check_director_view ||
         result.check_director_render || result.check_interpolation || result.check_unit_playout ||
         result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||

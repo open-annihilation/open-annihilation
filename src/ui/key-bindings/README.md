@@ -39,6 +39,15 @@ dispatcher times a double press and a hold from that time.
   keyboard prints them (Leertaste, Espace, Strg); `interface_words.hpp` lists
   every word a keycap can show, and the Home key is looked up as `Home key`
   because the catalogue's `Home` is a folder's place.
+- `modifier_name` names one modifier as a keycap does. Where Primary is the
+  command key (a Mac) the modifiers are Cmd, Option, Ctrl and Shift, and
+  elsewhere Ctrl, Alt, Shift and Win. On a Mac, `Platform::modifier_symbols`
+  leads each with the symbol its keyboard prints: ⌘ Cmd, ⌥ Option, ⌃ Ctrl,
+  ⇧ Shift. A host sets it where the letters it draws in hold those symbols
+  (the modern look's faces), and leaves it off in the classic look's bitmap
+  fonts and for a text that names keys in words alone; `words_only` gives a
+  platform with it off. A chord's text in a layout file (`chord_text`) never
+  holds a symbol.
 - `on_keyboard` is false for a character no key's events carry.
 - `KeyboardMap::us` is the US layout. `set` records, for one position, the
   key code events carry and the character the key prints.
@@ -197,7 +206,10 @@ key code was made Return, and NumpadEnter only against that key's position.
 Primary is the command key on one platform and Ctrl on the other. On an
 AZERTY map, `A` matches the key whose events carry `a`, `@KeyA` matches the
 A key's place, and `@Digit1` is labelled `&`. It checks keycaps for each
-form, and `on_keyboard` for a backtick the map does not carry.
+form, and `on_keyboard` for a backtick the map does not carry. On a Mac the
+modifiers are Cmd, Option, Ctrl and Shift, led by ⌘ ⌥ ⌃ ⇧ where the platform
+shows the symbols, in the interface's language after the symbol; elsewhere no
+symbol shows whatever the platform asks.
 
 `ui-key-bindings-files` (`tests/layout_file_test.cpp`) reads a manifest into
 a layout. A chord `Ctrl+Q:sometimes` is an error at the chord's column. An
