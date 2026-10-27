@@ -935,7 +935,42 @@ void OaLayer::check_clear_screens() {
             read_frames(window_now, picture_now);
             const artless::Surface expected =
                 expected_layer_frame(closed_window, drawing, noticed, 1);
-            const std::size_t differing = layer_differences(window_now, expected, resting);
+            // Over the notice's place: the window's own buttons elsewhere are
+            // drawn in its pixels and darkened apart, which this step is not
+            // about.
+            std::size_t differing = 0;
+            for (int32_t row = std::max(noticed.shown.y, 0);
+                 row <
+                 std::min(
+                     noticed.shown.y + noticed.shown.height, static_cast<int32_t>(window_now.height)
+                 );
+                 ++row)
+                for (int32_t column = std::max(noticed.shown.x, 0);
+                     column < std::min(
+                                  noticed.shown.x + noticed.shown.width,
+                                  static_cast<int32_t>(window_now.width)
+                              );
+                     ++column) {
+                    if (column >= resting.at.x - resting.reach &&
+                        column < resting.at.x + resting.reach &&
+                        row >= resting.at.y - resting.reach && row < resting.at.y + resting.reach)
+                        continue;
+                    const std::size_t at = (static_cast<std::size_t>(row) * window_now.width +
+                                            static_cast<std::size_t>(column)) *
+                                           3U;
+                    if (window_now.rgb.size() != expected.rgb.size() ||
+                        !std::equal(
+                            window_now.rgb.begin() + static_cast<std::ptrdiff_t>(at),
+                            window_now.rgb.begin() + static_cast<std::ptrdiff_t>(at + 3U),
+                            expected.rgb.begin() + static_cast<std::ptrdiff_t>(at)
+                        ))
+                        ++differing;
+                }
+            if (differing != 0) {
+                // Beside the check, to compare.
+                write_ppm("oa-layer-rounded-notice-" + size_name + "-window.ppm", window_now);
+                write_ppm("oa-layer-rounded-notice-" + size_name + "-expected.ppm", expected);
+            }
             require(
                 differing == 0,
                 "the window does not show the notice with rounded corners" + on + ": " +
