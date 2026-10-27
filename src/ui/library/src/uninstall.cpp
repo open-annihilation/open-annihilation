@@ -123,6 +123,16 @@ oa::ui::kit::Question uninstall_question(
     oa::ui::kit::Question question = uninstall_question(entry, folder, text);
     if (question.paragraphs.empty())
         return question;
+    if (entry.id.kind == Kind::key_layout && layout_in_use(library, entry)) {
+        question.paragraphs.insert(
+            question.paragraphs.end() - 1,
+            {filled(
+                 text, words::uninstall_layout_in_use, {{"name", std::string(entry_name(entry))}}
+             ),
+             false}
+        );
+        return question;
+    }
     if (entry.id.kind == Kind::brain && entry.is_default) {
         question.paragraphs.insert(
             question.paragraphs.end() - 1,

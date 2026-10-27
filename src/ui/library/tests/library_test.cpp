@@ -17,6 +17,7 @@
 #include "oa/ui/library/mod_questions.hpp"
 #include "oa/ui/library/text.hpp"
 #include "oa/ui/library/uninstall.hpp"
+#include "oa/ui/library/use_question.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -316,9 +317,9 @@ void test_state_matrix() {
     inputs.updates.push_back(update(core, Kind::mod, "get-mod"));
     const lib::Library library = built(std::move(inputs));
 
-    // Eight packages, the base game, the built-in computer player, and the
-    // built-in languages refresh adds.
-    OA_CHECK(library.entries.size() == 8 + 1 + 1 + built_in_language_rows().size());
+    // Eight packages, the base game, the built-in computer player, the
+    // built-in key layout, and the built-in languages refresh adds.
+    OA_CHECK(library.entries.size() == 8 + 1 + 1 + 1 + built_in_language_rows().size());
     const lib::Entry* built_in_player = lib::find_entry(library, lib::built_in_brain_id());
     OA_CHECK(built_in_player != nullptr && lib::is_built_in_brain(built_in_player->id));
     const lib::Entry* get = at(library, core, Kind::mod, "get-mod");
@@ -4284,16 +4285,18 @@ void test_command_line_lock() {
 }
 
 void test_mutators() {
-    // Mutators sits between Maps and Brains, and Brains between Mutators and
-    // Languages. Updates still opens on Updates; Mutators and Brains open on
-    // All. Each of those tabs keeps its full word.
-    OA_CHECK(lib::tab_total == 8);
+    // Mutators sits between Maps and Brains, Brains between Mutators and
+    // Keys, and Keys between Brains and Languages. Updates still opens on
+    // Updates; Mutators, Brains and Keys open on All. Each of those tabs
+    // keeps its full word.
+    OA_CHECK(lib::tab_total == 9);
     const lib::Tab order[] = {
         lib::Tab::active,
         lib::Tab::mods,
         lib::Tab::maps,
         lib::Tab::mutators,
         lib::Tab::brains,
+        lib::Tab::keys,
         lib::Tab::languages,
         lib::Tab::updates,
         lib::Tab::registries,
@@ -4305,6 +4308,7 @@ void test_mutators() {
     OA_CHECK(fresh.filters[static_cast<std::size_t>(lib::Tab::mods)] == lib::Filter::all);
     OA_CHECK(fresh.filters[static_cast<std::size_t>(lib::Tab::mutators)] == lib::Filter::all);
     OA_CHECK(fresh.filters[static_cast<std::size_t>(lib::Tab::brains)] == lib::Filter::all);
+    OA_CHECK(fresh.filters[static_cast<std::size_t>(lib::Tab::keys)] == lib::Filter::all);
     OA_CHECK(fresh.filters[static_cast<std::size_t>(lib::Tab::languages)] == lib::Filter::all);
     OA_CHECK(fresh.filters[static_cast<std::size_t>(lib::Tab::updates)] == lib::Filter::updates);
     OA_CHECK(fresh.filters[static_cast<std::size_t>(lib::Tab::registries)] == lib::Filter::all);
@@ -4312,6 +4316,8 @@ void test_mutators() {
     OA_CHECK_TEXT(lib::tab_text(lib::Tab::mutators, true), "Mutators");
     OA_CHECK_TEXT(lib::tab_text(lib::Tab::brains, false), "Brains");
     OA_CHECK_TEXT(lib::tab_text(lib::Tab::brains, true), "Brains");
+    OA_CHECK_TEXT(lib::tab_text(lib::Tab::keys, false), "Keys");
+    OA_CHECK_TEXT(lib::tab_text(lib::Tab::keys, true), "Keys");
 
     lib::Inputs inputs = base_inputs();
     lib::Listing fast = listing(core, Kind::mutator, "fast-builders", "Fast Builders");
@@ -4793,6 +4799,371 @@ void test_brains() {
     OA_CHECK(lib::brain_tag_label("rush", hooks) == "Ansturm");
     OA_CHECK(lib::brain_tag_label("economy", hooks) == "Wirtschaft");
     OA_CHECK(lib::brain_tag_label("Rush", hooks) == "Rush");
+}
+
+/// Tells whether an entry's buttons include an action.
+///
+/// @param actions the buttons
+/// @param wanted the action
+/// @return true when one of them is it
+bool has_action(const std::vector<std::pair<Action, bool>>& actions, Action wanted) {
+    for (const auto& [action, enabled] : actions) {
+        static_cast<void>(enabled);
+        if (action == wanted)
+            return true;
+    }
+    return false;
+}
+
+/// The Keys tab: OA default first and left out of every count, the package
+/// states, fit as information, the use question and the Active tile.
+void test_keys() {
+    using Buttons = std::vector<std::pair<Action, bool>>;
+    lib::Inputs inputs = base_inputs();
+
+    lib::Listing lefty = listing(core, Kind::key_layout, "lefty-test", "Lefty Test");
+    lefty.homepage = "https://example.test/lefty";
+    lib::KeyLayoutFacts lefty_facts;
+    lefty_facts.tags = {"left-hand"};
+    lefty.keys = lefty_facts;
+    inputs.listings.push_back(lefty);
+    lib::Installed lefty_held = installed(core, Kind::key_layout, "lefty-test", "Lefty Test");
+    lefty_held.keys = lefty_facts;
+    inputs.installed.push_back(std::move(lefty_held));
+    inputs.updates.push_back(update(core, Kind::key_layout, "lefty-test"));
+
+    lib::Listing grid = listing(core, Kind::key_layout, "grid-test", "Grid Test");
+    lib::KeyLayoutFacts grid_facts;
+    grid_facts.tags = {"grid"};
+    grid_facts.works_with.push_back({"ridge", "", "Ridge"});
+    grid_facts.keyboard = "iso";
+    grid_facts.pointer = "left-click";
+    grid_facts.helpers = {"sticky-modifiers", "toggle:order.queue-modifier"};
+    grid_facts.changes = 4;
+    grid_facts.unknown_actions = 1;
+    grid_facts.own_changes = 2;
+    grid_facts.triggers = {"Q", "@KeyW", "MouseLeft", "Nope", "Ctrl"};
+    grid.keys = grid_facts;
+    inputs.listings.push_back(grid);
+    lib::Installed grid_held = installed(core, Kind::key_layout, "grid-test", "Grid Test");
+    grid_held.keys = grid_facts;
+    inputs.installed.push_back(std::move(grid_held));
+
+    lib::Listing wide = listing(core, Kind::key_layout, "wide-keys", "Wide Keys");
+    lib::KeyLayoutFacts wide_facts;
+    wide_facts.tags = {"classic"};
+    wide_facts.works_with.push_back({"*", "", ""});
+    wide.keys = wide_facts;
+    inputs.listings.push_back(wide);
+    lib::Installed wide_held = installed(core, Kind::key_layout, "wide-keys", "Wide Keys");
+    wide_held.keys = wide_facts;
+    inputs.installed.push_back(std::move(wide_held));
+
+    lib::Listing lantern = listing(core, Kind::key_layout, "lantern-keys", "Lantern Keys");
+    lantern.published = "2026-04-01";
+    lantern.requires_engine = ">= 9.0.0";
+    lib::KeyLayoutFacts lantern_facts;
+    lantern_facts.tags = {"legacy"};
+    lantern_facts.requires_engine = ">= 9.0.0";
+    lantern.keys = lantern_facts;
+    inputs.listings.push_back(std::move(lantern));
+
+    lib::Listing ridge_keys = listing(core, Kind::key_layout, "ridge-keys", "Ridge Keys");
+    ridge_keys.published = "2026-03-01";
+    lib::KeyLayoutFacts ridge_key_facts;
+    ridge_key_facts.works_with.push_back({"ridge", "", "Ridge"});
+    ridge_keys.keys = ridge_key_facts;
+    inputs.listings.push_back(std::move(ridge_keys));
+
+    inputs.listings.push_back(listing(core, Kind::mod, "ridge", "Ridge"));
+    inputs.installed.push_back(installed(core, Kind::mod, "ridge", "Ridge"));
+
+    lib::Library library = built(inputs);
+    lib::set_tab(library, lib::Tab::keys);
+    OA_CHECK(lib::shown_filter(library) == lib::Filter::all);
+
+    const lib::Entry* built_in = lib::find_entry(library, lib::built_in_layout_id());
+    OA_CHECK(built_in != nullptr);
+    OA_CHECK(visible_keys(library).front() == "@oa-default@");
+    if (built_in != nullptr) {
+        OA_CHECK(built_in->state == State::installed);
+        OA_CHECK(built_in->listing == nullptr && built_in->installed == nullptr);
+        OA_CHECK(built_in->can_act && built_in->blocked.empty() && !built_in->not_compatible);
+        const Buttons built_in_actions{{Action::edit_keys, true}};
+        OA_CHECK(actions_of(library, *built_in) == built_in_actions);
+        OA_CHECK_TEXT(lib::entry_name(*built_in), "OA default");
+        OA_CHECK_TEXT(lib::entry_summary(*built_in), "The keys Open Annihilation ships with.");
+    }
+
+    const auto layout_at = [&](std::string_view key) {
+        return at(library, core, Kind::key_layout, key);
+    };
+    const lib::Entry* lefty_row = layout_at("lefty-test");
+    const lib::Entry* grid_row = layout_at("grid-test");
+    const lib::Entry* wide_row = layout_at("wide-keys");
+    const lib::Entry* lantern_row = layout_at("lantern-keys");
+    const lib::Entry* ridge_row = layout_at("ridge-keys");
+    OA_CHECK(lefty_row != nullptr && lefty_row->state == State::update && lefty_row->can_act);
+    OA_CHECK(lefty_row != nullptr && lefty_row->blocked.empty() && !lefty_row->not_compatible);
+    OA_CHECK(
+        grid_row != nullptr && grid_row->state == State::installed && grid_row->not_compatible
+    );
+    OA_CHECK(grid_row != nullptr && grid_row->can_act && grid_row->blocked.empty());
+    OA_CHECK(
+        wide_row != nullptr && wide_row->state == State::installed && !wide_row->not_compatible
+    );
+    OA_CHECK(
+        lantern_row != nullptr && lantern_row->state == State::get && lantern_row->not_compatible
+    );
+    OA_CHECK(lantern_row != nullptr && lantern_row->can_act && lantern_row->blocked.empty());
+    OA_CHECK(ridge_row != nullptr && ridge_row->state == State::get && ridge_row->not_compatible);
+    OA_CHECK(ridge_row != nullptr && ridge_row->can_act && ridge_row->blocked.empty());
+
+    using Keys = std::vector<std::string>;
+    OA_CHECK(
+        visible_keys(library) == Keys({
+                                     "@oa-default@",
+                                     "lefty-test@fixture-core",
+                                     "grid-test@fixture-core",
+                                     "wide-keys@fixture-core",
+                                     "lantern-keys@fixture-core",
+                                     "ridge-keys@fixture-core",
+                                 })
+    );
+    OA_CHECK(lib::tab_count(library, lib::Tab::keys) == 5);
+    OA_CHECK(lib::filter_count(library, lib::Filter::all) == 5);
+    OA_CHECK(lib::filter_count(library, lib::Filter::installed) == 3);
+    OA_CHECK(lib::filter_count(library, lib::Filter::updates) == 1);
+    OA_CHECK(lib::filter_count(library, lib::Filter::newest) == 2);
+    lib::set_filter(library, lib::Filter::newest);
+    OA_CHECK(
+        visible_keys(library) == Keys({"lantern-keys@fixture-core", "ridge-keys@fixture-core"})
+    );
+    OA_CHECK(!shows_key(library, "@oa-default@"));
+    lib::set_filter(library, lib::Filter::installed);
+    OA_CHECK(visible_keys(library).front() == "@oa-default@");
+    lib::set_filter(library, lib::Filter::updates);
+    OA_CHECK(visible_keys(library) == Keys({"lefty-test@fixture-core"}));
+    lib::set_filter(library, lib::Filter::all);
+    OA_CHECK(lib::added_package_count(library.inputs) == 1);
+
+    if (lefty_row != nullptr) {
+        const Buttons lefty_actions = actions_of(library, *lefty_row);
+        const Buttons lefty_expected{
+            {Action::update, true},
+            {Action::use_layout, true},
+            {Action::uninstall, true},
+            {Action::open_folder, true},
+            {Action::homepage, true},
+        };
+        OA_CHECK(lefty_actions == lefty_expected);
+        OA_CHECK(!has_action(lefty_actions, Action::play_now));
+        OA_CHECK(!has_action(lefty_actions, Action::roll_back));
+    }
+    if (lantern_row != nullptr) {
+        const Buttons lantern_actions = actions_of(library, *lantern_row);
+        const Buttons lantern_expected{{Action::get, true}};
+        OA_CHECK(lantern_actions == lantern_expected);
+        OA_CHECK(!has_action(lantern_actions, Action::play_now));
+        OA_CHECK(!has_action(lantern_actions, Action::roll_back));
+    }
+    if (grid_row != nullptr) {
+        const std::vector<lib::Fact> grid_facts_shown = lib::facts(library, *grid_row);
+        const lib::Fact* works = fact(grid_facts_shown, "Works with");
+        const lib::Fact* keyboard = fact(grid_facts_shown, "Keyboard");
+        const lib::Fact* interface_fact = fact(grid_facts_shown, "Interface");
+        const lib::Fact* asks = fact(grid_facts_shown, "Asks for");
+        const lib::Fact* changes = fact(grid_facts_shown, "Changes");
+        const lib::Fact* unknown = fact(grid_facts_shown, "Not in this version");
+        const lib::Fact* own = fact(grid_facts_shown, "Your own changes");
+        OA_CHECK(works != nullptr && works->long_value == "Ridge" && works->mark == Mark::warn);
+        OA_CHECK(keyboard != nullptr && keyboard->long_value == "ISO");
+        OA_CHECK(interface_fact != nullptr && interface_fact->long_value == "Left-click");
+        OA_CHECK(asks != nullptr && asks->long_value == "Sticky modifiers and Latch Queue");
+        OA_CHECK(changes != nullptr && changes->long_value == "Changes 4 actions");
+        OA_CHECK(
+            unknown != nullptr && unknown->long_value == "Not in this version: 1" &&
+            unknown->mark == Mark::warn
+        );
+        OA_CHECK(own != nullptr && own->long_value == "· 2 changes of your own");
+    }
+    if (lantern_row != nullptr) {
+        const std::vector<lib::Fact> lantern_facts_shown = lib::facts(library, *lantern_row);
+        const lib::Fact* needs = fact(lantern_facts_shown, "Needs");
+        OA_CHECK(
+            needs != nullptr && needs->long_value == "Open Annihilation 9.0.0 or later" &&
+            needs->mark == Mark::warn
+        );
+    }
+
+    const lib::Entry* ridge_mod = at(library, core, Kind::mod, "ridge");
+    OA_CHECK(ridge_mod != nullptr);
+    if (ridge_mod != nullptr) {
+        std::vector<std::string> named;
+        std::vector<lib::EntryId> opened;
+        for (const lib::Fact& item : lib::facts(library, *ridge_mod)) {
+            if (item.long_label != "Key layouts")
+                continue;
+            named.push_back(item.long_value);
+            if (item.opens)
+                opened.push_back(*item.opens);
+        }
+        OA_CHECK(named == std::vector<std::string>({"Grid Test", "Ridge Keys"}));
+        OA_CHECK(opened.size() == 2);
+        if (opened.size() == 2) {
+            OA_CHECK(opened[0].key == "grid-test" && opened[0].kind == Kind::key_layout);
+            OA_CHECK(opened[1].key == "ridge-keys" && opened[1].kind == Kind::key_layout);
+        }
+    }
+
+    if (wide_row != nullptr) {
+        lib::open_key_use(library, *wide_row);
+        OA_CHECK(library.key_use.open && !library.key_use.show_own && !library.key_use.show_scope);
+        OA_CHECK(library.key_use.helpers.empty() && library.key_use.pointer_note.empty());
+        const std::optional<lib::KeyUseResult> plain = lib::key_use_result(library);
+        OA_CHECK(plain.has_value() && !plain->keep && !plain->for_mod && plain->helpers_on.empty());
+        lib::close_key_use(library);
+        OA_CHECK(!library.key_use.open);
+        OA_CHECK(!lib::key_use_result(library).has_value());
+    }
+
+    inputs.keys_own_changes = 4;
+    lib::refresh(library, inputs);
+    lib::set_tab(library, lib::Tab::keys);
+    const lib::Entry* lefty_again = at(library, core, Kind::key_layout, "lefty-test");
+    OA_CHECK(lefty_again != nullptr);
+    if (lefty_again != nullptr) {
+        lib::open_key_use(library, *lefty_again);
+        OA_CHECK(
+            library.key_use.show_own && library.key_use.keep && library.key_use.own_count == 4
+        );
+        OA_CHECK_TEXT(library.key_use.saved_with, "OA default");
+        OA_CHECK(!library.key_use.already);
+        const std::optional<lib::KeyUseResult> kept = lib::key_use_result(library);
+        OA_CHECK(kept.has_value() && kept->keep);
+        lib::set_key_use_keep(library, false);
+        const std::optional<lib::KeyUseResult> aside = lib::key_use_result(library);
+        OA_CHECK(aside.has_value() && !aside->keep);
+        lib::close_key_use(library);
+    }
+    const lib::Entry* grid_again = at(library, core, Kind::key_layout, "grid-test");
+    OA_CHECK(grid_again != nullptr);
+    if (grid_again != nullptr) {
+        lib::open_key_use(library, *grid_again);
+        OA_CHECK(library.key_use.already && library.key_use.already_count == 2);
+        OA_CHECK_TEXT(library.key_use.already_name, "Grid Test");
+        OA_CHECK_TEXT(
+            library.key_use.pointer_note, "Made for the left-click interface; yours is right-click."
+        );
+        OA_CHECK(library.key_use.helpers.size() == 2);
+        if (library.key_use.helpers.size() == 2) {
+            OA_CHECK(library.key_use.helpers[0].name == "sticky-modifiers");
+            OA_CHECK(library.key_use.helpers[0].on);
+            OA_CHECK(library.key_use.helpers[1].name == "toggle.order.queue-modifier");
+            OA_CHECK_TEXT(library.key_use.helpers[1].label, "Latch Queue");
+        }
+        const std::optional<lib::KeyUseResult> overwritten = lib::key_use_result(library);
+        OA_CHECK(overwritten.has_value() && !overwritten->keep);
+        lib::set_key_use_helper(library, 0, false);
+        const std::optional<lib::KeyUseResult> one_off = lib::key_use_result(library);
+        OA_CHECK(one_off.has_value() && one_off->helpers_on.size() == 1);
+        if (one_off.has_value() && one_off->helpers_on.size() == 1)
+            OA_CHECK(one_off->helpers_on.front() == "toggle:order.queue-modifier");
+        lib::close_key_use(library);
+    }
+
+    inputs.played = {"ridge", "28", "Ridge"};
+    lib::refresh(library, inputs);
+    lib::set_tab(library, lib::Tab::keys);
+    OA_CHECK(
+        visible_keys(library) == Keys({
+                                     "@oa-default@",
+                                     "grid-test@fixture-core",
+                                     "ridge-keys@fixture-core",
+                                     "lefty-test@fixture-core",
+                                     "wide-keys@fixture-core",
+                                     "lantern-keys@fixture-core",
+                                 })
+    );
+    const lib::Entry* made_for = at(library, core, Kind::key_layout, "grid-test");
+    OA_CHECK(made_for != nullptr);
+    if (made_for != nullptr) {
+        OA_CHECK(!made_for->not_compatible);
+        OA_CHECK_TEXT(lib::layout_made_for_line(library, *made_for), "Made for Ridge");
+        lib::open_key_use(library, *made_for);
+        OA_CHECK(library.key_use.show_scope && library.key_use.for_mod);
+        OA_CHECK_TEXT(library.key_use.mod_name, "Ridge");
+        const std::optional<lib::KeyUseResult> only_mod = lib::key_use_result(library);
+        OA_CHECK(only_mod.has_value() && only_mod->for_mod);
+        lib::set_key_use_scope(library, false);
+        const std::optional<lib::KeyUseResult> every = lib::key_use_result(library);
+        OA_CHECK(every.has_value() && !every->for_mod);
+        lib::set_key_use_scope(library, true);
+        const std::optional<lib::KeyUseResult> again = lib::key_use_result(library);
+        OA_CHECK(again.has_value() && again->for_mod);
+        lib::close_key_use(library);
+    }
+    OA_CHECK(lib::tab_count(library, lib::Tab::keys) == 5);
+
+    lib::set_tab(library, lib::Tab::active);
+    lib::ActiveSetup playing = lib::active_setup(library);
+    OA_CHECK_TEXT(playing.keys_name, "OA default");
+    OA_CHECK_TEXT(playing.keys_badge, "Built in");
+    OA_CHECK_TEXT(playing.keys_line, "· 4 changes of your own");
+    OA_CHECK(playing.keys_with.empty());
+
+    inputs.keys_layout = "grid-test";
+    inputs.keys_own_changes = 9;
+    lib::refresh(library, inputs);
+    playing = lib::active_setup(library);
+    OA_CHECK_TEXT(playing.keys_name, "Grid Test");
+    OA_CHECK_TEXT(playing.keys_badge, "USING");
+    OA_CHECK_TEXT(playing.keys_line, "· 2 changes of your own");
+
+    inputs.keys_layout.clear();
+    inputs.keys_for_mod = "grid-test";
+    inputs.keys_for_mod_name.clear();
+    lib::refresh(library, inputs);
+    playing = lib::active_setup(library);
+    OA_CHECK_TEXT(playing.keys_name, "Grid Test");
+    OA_CHECK_TEXT(playing.keys_badge, "USING");
+    OA_CHECK_TEXT(playing.keys_with, "With Ridge: Grid Test");
+    OA_CHECK_TEXT(playing.keys_line, "· 2 changes of your own");
+
+    lib::set_tab(library, lib::Tab::keys);
+    inputs.keys_layout = "grid-test";
+    inputs.keys_for_mod.clear();
+    inputs.played = {};
+    inputs.keys_own_changes = 0;
+    lib::refresh(library, inputs);
+    lib::set_tab(library, lib::Tab::keys);
+    const lib::Entry* grid_used = at(library, core, Kind::key_layout, "grid-test");
+    const lib::Entry* default_unused = lib::find_entry(library, lib::built_in_layout_id());
+    OA_CHECK(grid_used != nullptr && default_unused != nullptr);
+    if (grid_used != nullptr) {
+        const Buttons used = actions_of(library, *grid_used);
+        OA_CHECK(has_action(used, Action::edit_keys));
+        OA_CHECK(!has_action(used, Action::use_layout));
+        OA_CHECK(!has_action(used, Action::play_now));
+    }
+    if (default_unused != nullptr) {
+        const Buttons default_actions{{Action::use_layout, true}};
+        OA_CHECK(actions_of(library, *default_unused) == default_actions);
+    }
+
+    using Counts = std::vector<std::pair<std::string, std::size_t>>;
+    OA_CHECK(
+        lib::tags_in_tab(library) == Counts({
+                                         {"classic", 1},
+                                         {"grid", 1},
+                                         {"left-hand", 1},
+                                         {"legacy", 1},
+                                     })
+    );
+    OA_CHECK(lib::key_tag_label("grid") == lib::words::tag_grid);
+    OA_CHECK(lib::key_tag_label("classic") == lib::words::tag_classic);
+    OA_CHECK(lib::key_tag_label("left-hand") == lib::words::tag_left_hand);
+    OA_CHECK(lib::key_tag_label("zebra") == "zebra");
 }
 
 void test_lookup() {
@@ -5803,6 +6174,7 @@ int main() {
     test_package_needs();
     test_mutators();
     test_brains();
+    test_keys();
     test_brain_details();
     test_checked_words();
     test_mutator_details();

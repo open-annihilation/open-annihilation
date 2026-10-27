@@ -1201,6 +1201,7 @@ Editor::Editor(EditorInputs inputs) : inputs_(std::move(inputs)) {
     installed_ = inputs_.installed;
     opened_.layout_id = layout_id();
     opened_.number_keys = number_keys_;
+    opened_.scheme = inputs_.scheme;
     opened_.own = own_;
     opened_.helpers = helpers_;
     for (const LayoutSummary& layout : installed_)
@@ -1796,6 +1797,8 @@ std::size_t Editor::unsaved() const {
         count += 1;
     if (number_keys_ != opened_.number_keys)
         count += 1;
+    if (inputs_.scheme != opened_.scheme)
+        count += 1;
     count += binding_diff(own_, opened_.own);
     count += list_diff(helpers_.toggle, opened_.helpers.toggle);
     count += list_diff(helpers_.hold_to_confirm, opened_.helpers.hold_to_confirm);
@@ -1905,6 +1908,14 @@ const oa::ui::key_bindings::KeyboardMap& Editor::keyboard() const noexcept {
 
 oa::ui::key_bindings::Platform Editor::platform() const noexcept {
     return inputs_.platform;
+}
+
+keys::PointerScheme Editor::scheme() const noexcept {
+    return inputs_.scheme;
+}
+
+void Editor::set_scheme(keys::PointerScheme scheme) {
+    inputs_.scheme = scheme;
 }
 
 const std::string& Editor::mod_name() const noexcept {

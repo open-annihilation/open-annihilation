@@ -14,6 +14,7 @@
 #include "oa/ui/kit/looks.hpp"
 #include "oa/ui/kit/theme.hpp"
 #include "oa/ui/library/library.hpp"
+#include "oa/ui/library/use_question.hpp"
 #include "screen_controls.hpp"
 #include "visible.hpp"
 
@@ -751,6 +752,143 @@ std::optional<ScreenResult> registry_press(
     return result;
 }
 
+/// Opens the Keys tab on one layout, with that row in view. The list is
+/// laid out on the next frame, so the scroll is left for reveal_row.
+///
+/// @param[in,out] library the model
+/// @param[in,out] state the screen's state
+/// @param id the layout
+/// @return a redraw, and nothing for the host to do
+ScreenResult open_keys_on(Library& library, ScreenState& state, const EntryId& id) {
+    set_tab(library, Tab::keys);
+    set_filter(library, Filter::all);
+    set_query(library, {});
+    set_tag(library, {});
+    state.search.text.clear();
+    state.search.caret = 0;
+    close_details(library);
+    state.details_page = false;
+    state.menu = MenuKind::none;
+    state.details_scroll = 0;
+    state.list_scroll = 0;
+    select(library, id);
+    state.reveal_row = -1;
+    if (library.selected) {
+        for (std::size_t place = 0; place < library.visible.size(); ++place) {
+            if (library.entries[library.visible[place]].id == *library.selected) {
+                state.reveal_row = static_cast<int32_t>(place);
+                break;
+            }
+        }
+    }
+    if (state.interaction.focus_shown)
+        state.interaction.focused = controls::list;
+    return redrawn();
+}
+
+/// Follows a mod's Key layouts fact onto that layout.
+///
+/// @param[in,out] library the model
+/// @param[in,out] state the screen's state
+/// @param id the fact's link
+/// @return a redraw; nothing when the fact does not open a layout
+ScreenResult open_key_fact(Library& library, ScreenState& state, kit::ControlId id) {
+    const Entry* entry = selected_entry(library);
+    if (entry == nullptr)
+        return {};
+    const auto index = static_cast<std::size_t>(id - controls::first_fact_link);
+    const std::vector<Fact> shown = facts(library, *entry);
+    if (index >= shown.size() || !shown[index].opens)
+        return {};
+    return open_keys_on(library, state, *shown[index].opens);
+}
+
+/// Opens USE's question for a layout and puts the focus on USE.
+///
+/// @param[in,out] library the model
+/// @param[in,out] state the screen's state
+/// @param entry the layout
+/// @return a redraw, and nothing for the host to do yet
+ScreenResult begin_key_use(Library& library, ScreenState& state, const Entry& entry) {
+    open_key_use(library, entry);
+    state.menu = MenuKind::none;
+    state.interaction.focused = controls::use_confirm;
+    state.interaction.focus_shown = true;
+    return redrawn();
+}
+
+/// Answers a press while USE's question is open. Other controls are covered.
+///
+/// USE returns Action::use_layout and leaves the question open, so the host
+/// can read key_use_result. CANCEL and Escape close it and write nothing.
+///
+/// @param[in,out] library the model
+/// @param list the display list
+/// @param id the control
+/// @param key the key, when one was pressed on the control
+/// @param point the point, when the pointer let go on the control
+/// @return what the host is to do
+ScreenResult key_use_press(
+    Library& library,
+    const kit::DisplayList& list,
+    kit::ControlId id,
+    std::optional<kit::Key> key,
+    std::optional<kit::Point> point
+) {
+    if (id == controls::use_blocker)
+        return {};
+    if (id == controls::use_cancel) {
+        close_key_use(library);
+        return redrawn();
+    }
+    if (id == controls::use_confirm) {
+        ScreenResult result = redrawn();
+        result.action = Action::use_layout;
+        result.entry = library.key_use.layout;
+        return result;
+    }
+    if (id == controls::use_keep) {
+        set_key_use_keep(library, true);
+        return redrawn();
+    }
+    if (id == controls::use_aside) {
+        set_key_use_keep(library, false);
+        return redrawn();
+    }
+    if (id == controls::use_for_game) {
+        set_key_use_scope(library, false);
+        return redrawn();
+    }
+    if (id == controls::use_for_mod) {
+        set_key_use_scope(library, true);
+        return redrawn();
+    }
+    if (controls::use_helper_control(id)) {
+        const auto index = static_cast<std::size_t>(id - controls::first_use_helper);
+        if (!library.key_use.open || index >= library.key_use.helpers.size())
+            return {};
+        bool next = !library.key_use.helpers[index].on;
+        if (key) {
+            if (*key == kit::Key::left)
+                next = false;
+            else if (*key == kit::Key::right)
+                next = true;
+            else if (*key != kit::Key::space && *key != kit::Key::enter)
+                return {};
+        } else if (point) {
+            const kit::Control* control = kit::control_of(list, id);
+            if (control == nullptr)
+                return {};
+            next = point->x >= control->rect.x + control->rect.width / 2;
+        }
+        if (next == library.key_use.helpers[index].on)
+            return {};
+        set_key_use_helper(library, index, next);
+        return redrawn();
+    }
+    return {};
+}
+
 /// Opens the Maps tab on the pack a From link names, with that pack's row
 /// in view. The link is followed before the Maps list is laid out, so the
 /// scroll is left for the next layout (reveal_row) rather than read from
@@ -819,6 +957,8 @@ ScreenResult activate(
     const kit::Control* control = kit::control_of(list, id);
     if (control == nullptr || !control->enabled)
         return {};
+    if (library.key_use.open)
+        return key_use_press(library, list, id, key, point);
     if (const std::optional<ScreenResult> registry = registry_press(library, list, id, key, point))
         return *registry;
     if (menu_item_control(id))
@@ -838,8 +978,15 @@ ScreenResult activate(
         return redrawn();
     }
     if (id >= controls::first_action && id < controls::first_tag) {
+        const Action action = static_cast<Action>(id - controls::first_action);
+        if (action == Action::use_layout) {
+            const Entry* entry = selected_entry(library);
+            if (entry == nullptr)
+                return {};
+            return begin_key_use(library, state, *entry);
+        }
         ScreenResult result = redrawn();
-        result.action = static_cast<Action>(id - controls::first_action);
+        result.action = action;
         if (library.selected)
             result.entry = *library.selected;
         return result;
@@ -895,6 +1042,10 @@ ScreenResult activate(
     }
     if (controls::active_from_control(id))
         return open_map_pack(library, state, id);
+    if (id == controls::active_keys_change)
+        return open_keys_on(library, state, active_setup(library).keys_id);
+    if (controls::fact_link_control(id))
+        return open_key_fact(library, state, id);
     if (controls::expansion_control(id)) {
         const ActiveContent face = active_content(library);
         const auto index = static_cast<std::size_t>(id - controls::first_expansion);
@@ -1234,9 +1385,9 @@ ScreenResult library_pointer(
     int32_t finger_reach
 ) {
     kit::Interaction& interaction = state.interaction;
-    // The chooser covers the Library. A press reaches its rows and buttons,
-    // or the shade, and never the tabs, the maps or a drag under it.
-    if (library.chooser.open) {
+    // The chooser and USE's question cover the Library. A press reaches
+    // their rows and buttons, or the shade, and never the tabs under them.
+    if (library.chooser.open || library.key_use.open) {
         switch (kind) {
         case PointerKind::move: {
             const kit::PointerOutcome outcome = kit::pointer_move(interaction, list, at);
@@ -1429,6 +1580,30 @@ ScreenResult library_pointer(
 ScreenResult
 library_key(Library& library, ScreenState& state, const kit::DisplayList& list, kit::Key pressed) {
     kit::Interaction& interaction = state.interaction;
+    if (library.key_use.open) {
+        if (pressed == kit::Key::escape) {
+            close_key_use(library);
+            return redrawn();
+        }
+        // Enter answers USE wherever the focus sits. The other keys stay
+        // with the question's own controls.
+        if (pressed == kit::Key::enter)
+            return activate(library, state, list, controls::use_confirm, pressed, std::nullopt);
+        const kit::KeyOutcome outcome = kit::key(interaction, list, pressed);
+        switch (outcome.result) {
+        case kit::KeyResult::none:
+            return {};
+        case kit::KeyResult::redraw:
+            return redrawn();
+        case kit::KeyResult::to_control:
+            return activate(library, state, list, outcome.control, pressed, std::nullopt);
+        case kit::KeyResult::accept:
+        case kit::KeyResult::scroll:
+        case kit::KeyResult::cancel:
+            return {};
+        }
+        return {};
+    }
     if (library.chooser.open) {
         if (pressed == kit::Key::escape) {
             close_base_chooser(library);
@@ -1670,7 +1845,7 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
 ScreenResult library_text(
     Library& library, ScreenState& state, const kit::DisplayList& list, std::string_view utf8
 ) {
-    if (library.chooser.open)
+    if (library.chooser.open || library.key_use.open)
         return {};
     if (state.interaction.focus_shown && state.interaction.focused == controls::active_search) {
         if (kit::control_of(list, controls::active_search) == nullptr ||
@@ -1689,7 +1864,7 @@ ScreenResult library_text(
 ScreenResult library_wheel(
     Library& library, ScreenState& state, const kit::DisplayList& list, kit::Point at, float notches
 ) {
-    if (library.chooser.open)
+    if (library.chooser.open || library.key_use.open)
         return {};
     if (state.menu != MenuKind::none) {
         for (const kit::Item& item : list.items) {
@@ -1734,6 +1909,13 @@ ScreenResult library_wheel(
 ScreenResult library_command(
     Library& library, ScreenState& state, const kit::DisplayList& list, ScreenCommand command
 ) {
+    if (library.key_use.open) {
+        if (command == ScreenCommand::back) {
+            close_key_use(library);
+            return redrawn();
+        }
+        return {};
+    }
     if (library.chooser.open) {
         if (command == ScreenCommand::back) {
             close_base_chooser(library);
@@ -1801,7 +1983,7 @@ ScreenResult library_command(
 
 ScreenResult
 library_stick(Library& library, ScreenState& state, const kit::DisplayList& list, float notches) {
-    if (library.chooser.open)
+    if (library.chooser.open || library.key_use.open)
         return {};
     return turn_pane(library, state, list, focused_pane(state, list), notches);
 }

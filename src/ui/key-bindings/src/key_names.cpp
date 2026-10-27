@@ -259,12 +259,14 @@ void add_trigger(std::vector<KeyCap>& caps, const Chord& chord, const KeyboardMa
             add_code_name(caps, named_keys()[chord.named].name);
         break;
     case TriggerKind::mouse:
+        // A chord numbers the buttons as it spells them: MouseLeft, MouseRight,
+        // MouseMiddle.
         if (chord.button == 1)
             caps.push_back(KeyCap{"Left button", true});
         else if (chord.button == 2)
-            caps.push_back(KeyCap{"Middle button", true});
-        else if (chord.button == 3)
             caps.push_back(KeyCap{"Right button", true});
+        else if (chord.button == 3)
+            caps.push_back(KeyCap{"Middle button", true});
         else if (chord.button == 4)
             caps.push_back(KeyCap{"Back button", true});
         else if (chord.button == 5)

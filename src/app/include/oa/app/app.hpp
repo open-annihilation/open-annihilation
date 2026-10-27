@@ -797,6 +797,10 @@ struct Options {
     // Captures a chord over a paused skirmish, settles a clash, and opens a
     // draft clash on the Clashes filter. A scratch folder holds the layout.
     bool check_key_capture = false;
+    // The key editor's keyboard and mouse at 640x480, 1280x720 and 1920x1080,
+    // each modifier layer, the shape drop-down, a free key, the mouse's
+    // Forward and Left-click saved as Interface Type.
+    bool check_key_views = false;
     // Opens the mutator picker over the main menu at four window sizes, on
     // a feed of made-up mutators, and requires the rows, a download, the
     // turn-off question, a drag, the handed set and the verdict chip.

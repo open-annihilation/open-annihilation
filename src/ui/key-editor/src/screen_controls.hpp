@@ -71,6 +71,32 @@ inline constexpr kit::ControlId capture_title = 40;
 inline constexpr kit::ControlId capture_status = 41;
 /// The clash prompt's title. Its text is the prompt, for automation.
 inline constexpr kit::ControlId clash_title = 42;
+/// The List tab.
+inline constexpr kit::ControlId view_list = 43;
+/// The Keyboard tab.
+inline constexpr kit::ControlId view_keyboard = 44;
+/// The Mouse tab.
+inline constexpr kit::ControlId view_mouse = 45;
+/// The Nothing layer.
+inline constexpr kit::ControlId layer_none = 46;
+/// The Shift layer.
+inline constexpr kit::ControlId layer_shift = 47;
+/// The Ctrl layer.
+inline constexpr kit::ControlId layer_ctrl = 48;
+/// The Alt layer.
+inline constexpr kit::ControlId layer_alt = 49;
+/// The Cmd layer.
+inline constexpr kit::ControlId layer_cmd = 50;
+/// The keyboard shape drop-down.
+inline constexpr kit::ControlId keyboard_shape = 51;
+/// Right-click on the scheme strip.
+inline constexpr kit::ControlId scheme_right = 52;
+/// Left-click on the scheme strip.
+inline constexpr kit::ControlId scheme_left = 53;
+/// FIND ON KEYBOARD.
+inline constexpr kit::ControlId detail_find = 54;
+/// The key card. It takes no focus.
+inline constexpr kit::ControlId key_card = 55;
 
 /// One nav entry. The category's place among the nav's entries, from 0, is added.
 inline constexpr kit::ControlId nav_first = 100;
@@ -83,6 +109,13 @@ inline constexpr kit::ControlId chord_first = 2000;
 /// chord's place, from 0, is added. This stays below the menu.
 inline constexpr kit::ControlId chord_row_first = 2500;
 /// One item of the open menu. The item's place, from 0, is added.
+/// Keyboard keys start at keyboard_first, so a menu item stays below that.
 inline constexpr kit::ControlId menu_first = 3000;
+/// One key of the keyboard picture. The key's place in keyboard_places, from 0, is added.
+inline constexpr kit::ControlId keyboard_first = 6000;
+/// One button of the mouse picture, in the order add_mouse numbers them.
+inline constexpr kit::ControlId mouse_first = 6300;
+/// One row of the mouse table, in table order.
+inline constexpr kit::ControlId mouse_table_first = 6400;
 
 } // namespace oa::ui::key_editor::controls

@@ -565,6 +565,8 @@ void names() {
     expect_caps(must_parse("NumpadAdd"), us, windows, {KeyCap{"Numpad add", true}});
     expect_caps(must_parse("PrintScreen"), us, windows, {KeyCap{"Print screen", true}});
     expect_caps(must_parse("MouseLeft"), us, windows, {KeyCap{"Left button", true}});
+    expect_caps(must_parse("MouseRight"), us, windows, {KeyCap{"Right button", true}});
+    expect_caps(must_parse("MouseMiddle"), us, windows, {KeyCap{"Middle button", true}});
     expect_caps(must_parse("MouseBack"), us, windows, {KeyCap{"Back button", true}});
     expect_caps(must_parse("Mouse6"), us, windows, {KeyCap{"Button", true}, KeyCap{"6", false}});
     expect_caps(must_parse("WheelUp"), us, windows, {KeyCap{"Wheel up", true}});

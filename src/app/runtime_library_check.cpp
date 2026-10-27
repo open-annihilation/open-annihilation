@@ -443,6 +443,75 @@ library::Inputs fixture_inputs_of(const fs::path& mods, bool updates) {
     raider_facts.works_with.push_back({"ridge", {}, "Ridge"});
     inputs.listings.push_back(brain_listing("ridge-raider", "Ridge Raider", "1.0", raider_facts));
 
+    // Three key layouts, so the tab reads "Keys (3)". OA default is left out
+    // of that count. Grid is the layout in use. Lefty is installed and is
+    // not. Column is only a listing. None of them is an added package, and
+    // none of them is an update, so the OA button's counts stay as they are.
+    library::KeyLayoutFacts grid_facts;
+    grid_facts.own_changes = 2;
+    grid_facts.tags = {"grid"};
+    library::Listing grid_listing;
+    grid_listing.registry = std::string(kBuiltIn);
+    grid_listing.kind = library::Kind::key_layout;
+    grid_listing.key = "grid-test";
+    grid_listing.name = "Grid Test";
+    grid_listing.version = "1.0";
+    grid_listing.release = 1;
+    grid_listing.author = "Ada";
+    grid_listing.summary = "A grid.";
+    grid_listing.size = 1024;
+    grid_listing.keys = grid_facts;
+    inputs.listings.push_back(std::move(grid_listing));
+    library::Installed grid_installed;
+    grid_installed.kind = library::Kind::key_layout;
+    grid_installed.key = "grid-test";
+    grid_installed.folder = "grid-test";
+    grid_installed.name = "Grid Test";
+    grid_installed.version = "1.0";
+    grid_installed.revision = 1;
+    grid_installed.registry = std::string(kBuiltIn);
+    grid_installed.release = 1;
+    grid_installed.keys = grid_facts;
+    inputs.installed.push_back(std::move(grid_installed));
+    library::KeyLayoutFacts lefty_facts;
+    lefty_facts.tags = {"left-hand"};
+    library::Listing lefty_listing;
+    lefty_listing.registry = std::string(kBuiltIn);
+    lefty_listing.kind = library::Kind::key_layout;
+    lefty_listing.key = "lefty-test";
+    lefty_listing.name = "Lefty Test";
+    lefty_listing.version = "1.0";
+    lefty_listing.release = 1;
+    lefty_listing.author = "Bo";
+    lefty_listing.summary = "For the left hand.";
+    lefty_listing.size = 1024;
+    lefty_listing.keys = lefty_facts;
+    inputs.listings.push_back(std::move(lefty_listing));
+    library::Installed lefty_installed;
+    lefty_installed.kind = library::Kind::key_layout;
+    lefty_installed.key = "lefty-test";
+    lefty_installed.folder = "lefty-test";
+    lefty_installed.name = "Lefty Test";
+    lefty_installed.version = "1.0";
+    lefty_installed.revision = 1;
+    lefty_installed.registry = std::string(kBuiltIn);
+    lefty_installed.release = 1;
+    lefty_installed.keys = lefty_facts;
+    inputs.installed.push_back(std::move(lefty_installed));
+    library::Listing column_listing;
+    column_listing.registry = std::string(kBuiltIn);
+    column_listing.kind = library::Kind::key_layout;
+    column_listing.key = "column-keys";
+    column_listing.name = "Column Keys";
+    column_listing.version = "1.0";
+    column_listing.release = 1;
+    column_listing.author = "Ada";
+    column_listing.summary = "A listed layout.";
+    column_listing.size = 1024;
+    column_listing.keys = library::KeyLayoutFacts{};
+    inputs.listings.push_back(std::move(column_listing));
+    inputs.keys_layout = "grid-test";
+
     if (updates) {
         for (const std::string_view key :
              {std::string_view("ridge"), std::string_view("lattice")}) {
@@ -1284,7 +1353,7 @@ void Runtime::check_library() {
             "automation does not list oa.library.tab.updates" + on
         );
         const auto show_tab = [&](std::string_view name) {
-            for (int step = 0; step < 8 && !named(name); ++step) {
+            for (int step = 0; step < 9 && !named(name); ++step) {
                 if (!named("oa.library.tab.scroll-right"))
                     break;
                 click_named("oa.library.tab.scroll-right");
@@ -1365,6 +1434,87 @@ void Runtime::check_library() {
                 "Ridge Raider is not listed with Made for Ridge and GET on" + on
             );
             std::cout << "library check: the Brains tab reads Brains (4) and the built-in row first"
+                      << on << '\n';
+        }
+        show_tab("oa.library.tab.keys");
+        click_named("oa.library.tab.keys");
+        run_frame(running);
+        require(running, "a frame ended the run");
+        {
+            const std::optional<AutomationControl> keys = named("oa.library.tab.keys");
+            const library::Entry* first = host.model.visible.empty()
+                                              ? nullptr
+                                              : &host.model.entries[host.model.visible.front()];
+            require(
+                host.model.tab == library::Tab::keys && keys.has_value() &&
+                    keys->text == "Keys (3)" && first != nullptr &&
+                    library::is_built_in_layout(first->id),
+                "the Keys tab does not read Keys (3) with OA default first" + on
+            );
+            const std::optional<AutomationControl> built_in_row =
+                named("oa.library.row.oa-default");
+            require(
+                built_in_row.has_value() &&
+                    built_in_row->text.find("OA default") != std::string::npos,
+                "OA default is not first on the Keys tab" + on
+            );
+            for (int step = 0; step < 8 && !named("oa.library.row.fixture-core.column-keys");
+                 ++step) {
+                tap(SDLK_PAGEDOWN);
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
+            const std::size_t enqueued = fixture.enqueued.size();
+            show_entry("oa.library.row.fixture-core.column-keys");
+            press_action("get");
+            require(
+                fixture.enqueued.size() == enqueued + 1 &&
+                    fixture.enqueued.back().registry == kBuiltIn &&
+                    fixture.enqueued.back().key == "column-keys" &&
+                    fixture.enqueued.back().reason == content::DownloadReason::install,
+                "GET did not reach the feed for fixture-core's column-keys" + on
+            );
+            show_entry("oa.library.row.fixture-core.lefty-test");
+            press_action("use");
+            require(
+                named("oa.prompt.use").has_value() && named("oa.prompt.cancel").has_value(),
+                "USE did not ask before using Lefty Test" + on
+            );
+            click_named("oa.prompt.use");
+            run_frame(running);
+            require(running, "a frame ended the run");
+            const auto preference = preference_values_.find("open-annihilation.keys.layout");
+            require(
+                preference != preference_values_.end() && preference->second == "lefty-test",
+                "USE did not write the layout preference" + on
+            );
+            // Compact's details page has no tab strip. Back returns to the
+            // list, whose tabs can then be scrolled to Active.
+            if (named("oa.library.back"))
+                click_named("oa.library.back");
+            for (int step = 0; step < 9 && !named("oa.library.tab.active"); ++step) {
+                if (!named("oa.library.tab.scroll-left"))
+                    break;
+                click_named("oa.library.tab.scroll-left");
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
+            click_named("oa.library.tab.active");
+            run_frame(running);
+            require(running, "a frame ended the run");
+            for (int step = 0; step < 8 && !named("oa.library.active.keys"); ++step) {
+                tap(SDLK_PAGEDOWN);
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
+            const std::optional<AutomationControl> tile = named("oa.library.active.keys");
+            const std::optional<AutomationControl> change = named("oa.library.active.keys.change");
+            require(
+                tile.has_value() && tile->text.find("Grid Test") != std::string::npos &&
+                    change.has_value(),
+                "the Active KEYS tile does not name Grid Test" + on
+            );
+            std::cout << "library check: the Keys tab reads Keys (3) and USE writes the preference"
                       << on << '\n';
         }
         show_tab("oa.library.tab.updates");

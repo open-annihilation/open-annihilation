@@ -12,6 +12,7 @@
 #include "oa/formats/oamod/package_keys.hpp"
 #include "oa/ui/library/library.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
@@ -34,6 +35,7 @@ inline constexpr std::string_view tab_mods = "Mods";
 inline constexpr std::string_view tab_maps = "Maps";
 inline constexpr std::string_view tab_mutators = "Mutators";
 inline constexpr std::string_view tab_brains = "Brains";
+inline constexpr std::string_view tab_keys = "Keys";
 inline constexpr std::string_view tab_languages = "Languages";
 inline constexpr std::string_view tab_languages_short = "Lang";
 inline constexpr std::string_view tab_updates = "Updates";
@@ -82,6 +84,12 @@ inline constexpr std::string_view action_check_with_mod = "CHECK WITH THIS MOD";
 /// On an installed brain that is not the default, and on the built-in
 /// computer player while it is not. It makes that player the default.
 inline constexpr std::string_view action_use_by_default = "USE BY DEFAULT";
+/// USE on a key layout. The question's button uses the same word.
+inline constexpr std::string_view action_use = "USE";
+/// EDIT KEYS… on the layout in use.
+inline constexpr std::string_view action_edit_keys = "EDIT KEYS…";
+/// The chip on the layout in use.
+inline constexpr std::string_view chip_using = "USING";
 /// GET's place when one prerequisite is missing. `{name}` is that prerequisite.
 inline constexpr std::string_view action_get_with = "GET WITH {name}";
 /// GET's place when more than one package besides the mutator will download.
@@ -474,6 +482,66 @@ inline constexpr std::string_view made_for = "Made for {names}";
 /// UNINSTALL of the default brain, before the question's last paragraph.
 inline constexpr std::string_view uninstall_default_brain =
     "It is your default computer player: new computer seats go back to the built-in player.";
+/// OA default's name and the line under it.
+inline constexpr std::string_view built_in_layout_name = "OA default";
+inline constexpr std::string_view built_in_layout_summary =
+    "The keys Open Annihilation ships with.";
+/// A key layout's facts.
+inline constexpr std::string_view fact_keyboard = "Keyboard";
+inline constexpr std::string_view fact_interface = "Interface";
+inline constexpr std::string_view fact_asks_for = "Asks for";
+inline constexpr std::string_view fact_not_in_version = "Not in this version";
+inline constexpr std::string_view fact_key_layouts = "Key layouts";
+/// How many actions a layout names. `{count}` is the number.
+inline constexpr std::string_view changes_one = "Changes 1 action";
+inline constexpr std::string_view changes_many = "Changes {count} actions";
+/// Actions this version does not know. `{count}` is the number.
+inline constexpr std::string_view not_in_version_one = "Not in this version: 1";
+inline constexpr std::string_view not_in_version_many = "Not in this version: {count}";
+/// The player's own changes, on the layout they sit on. `{count}` is the number.
+inline constexpr std::string_view own_changes_one = "· 1 change of your own";
+inline constexpr std::string_view own_changes_many = "· {count} changes of your own";
+/// The Active tile, when a layout is set for the mod being played.
+inline constexpr std::string_view keys_with_mod = "With {mod}: {name}";
+/// A layout's keyboard, as the details name it.
+inline constexpr std::string_view keyboard_ansi = "ANSI";
+inline constexpr std::string_view keyboard_iso = "ISO";
+inline constexpr std::string_view keyboard_jis = "JIS";
+inline constexpr std::string_view keyboard_any = "Any keyboard";
+/// A layout's interface, as the details name it.
+inline constexpr std::string_view pointer_right = "Right-click";
+inline constexpr std::string_view pointer_left = "Left-click";
+/// USE's question.
+inline constexpr std::string_view use_title = "Use {name}";
+inline constexpr std::string_view use_own_heading = "Your own changes";
+inline constexpr std::string_view use_keep_one = "Keep my 1 change on top";
+inline constexpr std::string_view use_keep_many = "Keep my {count} changes on top";
+inline constexpr std::string_view use_aside = "Set them aside";
+inline constexpr std::string_view use_stay_saved = "They stay saved with {name}.";
+inline constexpr std::string_view use_already_one =
+    "{name} already has 1 change of your own; it stays.";
+inline constexpr std::string_view use_already_many =
+    "{name} already has {count} changes of your own; they stay.";
+inline constexpr std::string_view use_asks_heading = "This layout asks for";
+inline constexpr std::string_view use_for_heading = "Use it for";
+inline constexpr std::string_view use_every_game = "Every game";
+inline constexpr std::string_view use_only_with = "Only with {mod}";
+inline constexpr std::string_view use_latch = "Latch {action}";
+inline constexpr std::string_view use_hold = "Hold to confirm {action}";
+/// The master switch, when a layout asks for it without naming an action.
+inline constexpr std::string_view use_hold_plain = "Hold to confirm";
+inline constexpr std::string_view use_sticky = "Sticky modifiers";
+inline constexpr std::string_view use_pointer_keys = "Pointer keys";
+inline constexpr std::string_view use_wheel_right = "Order wheel on the held right button";
+inline constexpr std::string_view use_wheel_middle = "Order wheel on the held middle button";
+inline constexpr std::string_view use_edge_off = "Edge scrolling off";
+/// `{layout}` and `{yours}` are "left-click" or "right-click".
+inline constexpr std::string_view use_pointer_mismatch =
+    "Made for the {layout} interface; yours is {yours}.";
+/// UNINSTALL of the layout in use.
+inline constexpr std::string_view uninstall_layout_in_use =
+    "You play with {name} now. Uninstall it and go back to OA default? Your own changes stay "
+    "saved.";
 
 // The download queue in the footer.
 inline constexpr std::string_view queue_package = "{name} {version}";
@@ -516,6 +584,7 @@ inline constexpr std::string_view offline_mark = "offline";
 inline constexpr std::string_view search_mods = "Search mods, authors, tags";
 inline constexpr std::string_view search_mutators = "Search mutators, authors, tags";
 inline constexpr std::string_view search_brains = "Search brains, authors, tags";
+inline constexpr std::string_view search_keys = "Search key layouts";
 inline constexpr std::string_view search_maps = "Search maps, authors, tags";
 inline constexpr std::string_view search_languages = "Search languages";
 /// The Active tab's maps field, above the maps pane.
@@ -545,6 +614,16 @@ inline constexpr std::string_view tag_naval = "Naval";
 inline constexpr std::string_view tag_learned = "Learned";
 inline constexpr std::string_view tag_teaching = "Teaching";
 inline constexpr std::string_view tag_experimental = "Experimental";
+/// The ten key-layout tags of the standard, other than Classic, which uses tag_classic.
+inline constexpr std::string_view tag_grid = "Grid";
+inline constexpr std::string_view tag_left_hand = "Left hand";
+inline constexpr std::string_view tag_right_hand = "Right hand";
+inline constexpr std::string_view tag_one_hand = "One hand";
+inline constexpr std::string_view tag_mouse_first = "Mouse first";
+inline constexpr std::string_view tag_accessibility = "Accessibility";
+inline constexpr std::string_view tag_tournament = "Tournament";
+inline constexpr std::string_view tag_mod = "Mod";
+inline constexpr std::string_view tag_legacy = "Legacy";
 /// The Compact details page's drop-down holding the actions after the first three.
 inline constexpr std::string_view more_menu = "MORE";
 /// How many updates the Updates tab shows.
@@ -552,7 +631,7 @@ inline constexpr std::string_view update_count_one = "{count} update";
 inline constexpr std::string_view update_count_many = "{count} updates";
 /// How many packages the player has added, as the main menu's Library button says.
 /// A package is a mod, a map pack, a language pack, a mutator or a downloaded
-/// expansion. An installed brain is not counted.
+/// expansion. An installed brain is not counted, and neither is a key layout.
 inline constexpr std::string_view package_count_one = "{count} package";
 inline constexpr std::string_view package_count_many = "{count} packages";
 
@@ -564,6 +643,7 @@ inline constexpr std::string_view active_heading_language = "LANGUAGE";
 inline constexpr std::string_view active_heading_expansions = "EXPANSIONS";
 inline constexpr std::string_view active_expansions_count = "EXPANSIONS · {on} OF {count} ON";
 inline constexpr std::string_view active_heading_maps = "MAPS";
+inline constexpr std::string_view active_heading_keys = "KEYS";
 inline constexpr std::string_view active_change = "CHANGE…";
 inline constexpr std::string_view active_add_from = "{name} · ADD FROM…";
 inline constexpr std::string_view active_files_match = "All files match";
@@ -839,6 +919,54 @@ brain_tag_label(std::string_view tag, const TextHooks& text = {}) {
         return shown(text, words::tag_teaching);
     if (tag == "experimental")
         return shown(text, words::tag_experimental);
+    return tag;
+}
+
+/// The ten key-layout tags, in the standard's order. Any other tag is shown as written.
+inline constexpr std::array<std::string_view, 10> key_tag_ids{
+    "classic",
+    "grid",
+    "left-hand",
+    "right-hand",
+    "one-hand",
+    "mouse-first",
+    "accessibility",
+    "tournament",
+    "mod",
+    "legacy",
+};
+
+/// Returns the label a key layout's tag id shows.
+///
+/// The ten ids give their words, looked up. Any other id, including a
+/// different case of one of those, is returned as written. Classic uses the
+/// brains' word. The Keys tab's chips, pills, pane and menu use this.
+///
+/// @param tag the catalogue id
+/// @param text how texts are looked up; empty shows the English label
+/// @return the label; a view of `tag` when the id is not one of the ten
+[[nodiscard]] inline std::string_view
+key_tag_label(std::string_view tag, const TextHooks& text = {}) {
+    if (tag == "classic")
+        return shown(text, words::tag_classic);
+    if (tag == "grid")
+        return shown(text, words::tag_grid);
+    if (tag == "left-hand")
+        return shown(text, words::tag_left_hand);
+    if (tag == "right-hand")
+        return shown(text, words::tag_right_hand);
+    if (tag == "one-hand")
+        return shown(text, words::tag_one_hand);
+    if (tag == "mouse-first")
+        return shown(text, words::tag_mouse_first);
+    if (tag == "accessibility")
+        return shown(text, words::tag_accessibility);
+    if (tag == "tournament")
+        return shown(text, words::tag_tournament);
+    if (tag == "mod")
+        return shown(text, words::tag_mod);
+    if (tag == "legacy")
+        return shown(text, words::tag_legacy);
     return tag;
 }
 

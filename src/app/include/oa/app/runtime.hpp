@@ -175,6 +175,8 @@ enum class Tab : uint8_t;
 enum class Action : uint8_t;
 struct EntryId;
 struct Inputs;
+struct KeyUse;
+struct KeyUseResult;
 } // namespace oa::ui::library
 
 namespace oa::ui::kit {
@@ -2890,6 +2892,20 @@ class Runtime final : public menu::Host,
     /// `.oakeys` file the installer refuses, sets key_bindings_refusal_; any other problem is
     /// logged and the built-in layout is used. [runtime_key_bindings.cpp]
     void load_key_bindings();
+
+    /// Applies USE from the Library's question: copies own changes when Keep
+    /// is marked and the new layout has none, writes the helpers left on,
+    /// writes the layout preference, and loads that layout. CANCEL never
+    /// calls this. The interface mode is left as it is.
+    ///
+    /// @param used what USE applies
+    /// @param question the question, still open, including helpers left off
+    /// @param played_mod_id the mod being played; empty when none is
+    void apply_library_key_use(
+        const oa::ui::library::KeyUseResult& used,
+        const oa::ui::library::KeyUse& question,
+        std::string_view played_mod_id
+    );
 
     /// Reads every GUI file's quick keys for the mod in use.
     ///
@@ -7722,6 +7738,15 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_key_capture();
+
+    /// Runs --check-key-views: the keyboard and the mouse at 640x480,
+    /// 1280x720 and 1920x1080, each modifier layer, the shape drop-down,
+    /// a free key through the capture prompt, the mouse's Forward, and
+    /// Left-click saved as Interface Type. With --snapshot it writes
+    /// key-keyboard-<w>x<h>.ppm and key-mouse-<w>x<h>.ppm.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_key_views();
 
     /// Writes --check-mutator-picker's and --check-brain-picker's registry
     /// list into the player's folder, every built-in registry turned off,
@@ -20841,6 +20866,9 @@ class Runtime final : public menu::Host,
     PointerRoleTable pointer_roles_{};
     /// Set once the view settings have been read, so a later mod change loads again.
     bool key_bindings_armed_{};
+    /// A mouse button 6, 7 or 8 went down this run. The key editor's mouse
+    /// picture draws those buttons once this is set.
+    bool mouse_extra_buttons_{false};
     /// Why `--keys` cannot be played; empty when the run can start. The constructor ends with
     /// status 2 when this is set.
     std::string key_bindings_refusal_{};
