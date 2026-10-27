@@ -2255,8 +2255,9 @@ prompts, Settings › Updates and the headers name one state with one size.
   (`ClassicShapes`, built once from the tile art the fog pass loads), the
   black tile's rectangles in their palette colours, and under the dithered
   option the gray tile's rectangles through a page of the checkerboard,
-  drawn NEAREST over the objects, so that the card's fog is the
-  processor's pixel for pixel; the fog mask is not used. The model stage's shadows, then the list's
+  drawn NEAREST over the objects with its texels on the target's pixels,
+  so that the dither stays one pixel fine at every zoom and the card's fog
+  is the processor's pixel for pixel; the fog mask is not used. The model stage's shadows, then the list's
   draws in painter's order, each to the stage of its kind (`sprite_kind`,
   `model_kind`), a stage's batches never joining another's: the sprites,
   blended sprites, explosions' flashes, particle squares, lines and
