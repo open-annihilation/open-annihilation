@@ -858,29 +858,31 @@ at the state icon's size: the OA badge is the app icon when the game has
 given one, filtered down, and the drawn plate when it has not, and the
 bone is always the drawn bone. These pictures are
 the gallery's own, as its check,
-`native-kit-gallery`, takes them on the main menu with `--snapshot`. First
-run spans the content width at every class. The compact picture is the
-top of that section: the carousel, two rows of language cards, the choice
-cards and Start playing, with CLOSE clear at the bottom right. The regular
-and large pictures
-show the carousel, the first row of language cards, the picture well and
-the coach mark. The rest of First run, and the sections under it, are
-below the window. The language-card pills are on the cards themselves. Keys is the last
-section: keycaps, chord chips, an ANSI, ISO and JIS keyboard, a mouse
-and hold rings. It sits under Badges and tags, below these pictures.
+`native-kit-gallery`, takes them on the main menu with `--snapshot`, in
+the classic look, since the check names its preferences file. First run
+spans the content width at every class. The compact picture is the top of
+that section: the carousel, two rows of language cards, the choice cards
+and Start playing, with Close clear at the bottom right. The larger
+pictures show the carousel, the first row of language cards, the picture
+well and the coach mark, and at 1920x1080 the rows under them too. The
+rest of First run, and the sections under it, are below the window. The
+language-card pills are on the cards themselves. Keys is the last
+section: keycaps, chord chips, an ANSI, ISO and JIS keyboard, a mouse and
+hold rings. It sits under Badges and tags, below these pictures.
 
 Compact at 1x, on a 640x480 window: one column, scrolling between the
 header and the footer.
 
-![The UI kit gallery at Compact on a 640x480 window: the header "Open Annihilation UI kit gallery" with "Compact · 1x", then First run. The carousel shows five tall cards, the centre one facing with an accent border, a large badge and a large name, and two turned cards on each side. Under it, language cards for Built in, Get · 3.4 MB, Downloading… and Active, and five "Start playing" buttons. A second row shows Offline, Checking… and Couldn't download beside the choice cards "Ridge pack" and "Not now". CLOSE is at the bottom right, clear of the cards. The setup window, the picture well and the coach mark are below the window.](../images/ui-kit/gallery-compact.png)
-
-Regular at 2x, on a 1920x1080 window: two columns.
-
-![The UI kit gallery at Regular, 2x, on a 1920x1080 window: the header with "Regular · 2x". First run spans the width. The carousel's centre card is tall, with a large badge, a large own name, the English name, "Built into the game" and a pill at the bottom, and an accent border with a one-point ring. Two turned cards sit on each side. Under the carousel, four language cards, then a picture well with the coach mark "1 Library" under it, wide enough for its words. CLOSE is at the bottom right. The rest of First run is below the window.](../images/ui-kit/gallery-regular.png)
+![The UI kit gallery at Compact on a 640x480 window: the header "Open Annihilation UI kit gallery" with "Compact · 1x", then First run. The carousel shows five tall cards, the centre one facing with an accent border, a large badge and a large name, and two turned cards on each side. Under it, language cards for Built in, Get · 3.4 MB, Downloading… and Active beside five Start playing buttons in their states, then the next row of cards beside the choice cards "Ridge pack" and "Not now". Close is at the bottom right, clear of the cards.](../images/ui-kit/gallery-compact.png)
 
 Large at 1x, on a 1280x720 window: three columns.
 
-![The UI kit gallery at Large on a 1280x720 window: the header with "Large · 1x". First run spans the width at the large card, 232 by 304. The centre card faces the player, with a large badge, a large own name, the facts on one line and a pill at the bottom, and an accent border with a one-point ring. Two turned cards sit on each side. Under it, four language cards, a picture well "Library, Active" and the coach mark "1 Library" with its spotlight. CLOSE is at the bottom right. The rest of First run is below the window.](../images/ui-kit/gallery-large.png)
+![The UI kit gallery at Large on a 1280x720 window: the header with "Large · 1x". First run spans the width. The centre card of the carousel faces the player, with a large badge, its own name, the English name, "Built into the game" and a pill at the bottom, and an accent border. Two turned cards sit on each side. Under it, four language cards, the last Active, a picture well "Library, Active" and the coach mark "1 Library". Close is at the bottom right.](../images/ui-kit/gallery-large.png)
+
+Large at 1x on a 1920x1080 window too, where Auto steps down from 2x: the
+same layout with more of it in view.
+
+![The UI kit gallery at Large on a 1920x1080 window: the header with "Large · 1x". The carousel and the first row of language cards as at 1280x720, with the picture well and the coach mark beside them, then a second row of cards (Offline, Checking… and Couldn't download), the setup window's header and footer with Skip setup, Back and Next, five Start playing buttons in their states, and the choice cards along the bottom. Close is at the bottom right.](../images/ui-kit/gallery-large-1920x1080.png)
 
 To open it in the game: Settings › Developer › UI kit gallery, and SHOW. It
 opens over the whole window, on the main menu or in a match, and Escape or
