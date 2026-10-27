@@ -307,6 +307,40 @@ Canvas placed_at(const Canvas& canvas, Point origin) {
     return shifted;
 }
 
+namespace {
+
+/// Notes that an opaque fill covers the text under a rectangle, in the
+/// units the text was noted in: the smooth form's pixels within its clip,
+/// or the crisp form's points within its clip.
+///
+/// @param canvas where the fill was drawn
+/// @param rect the rectangle, in points
+void cover_text_under(const Canvas& canvas, const Rect& rect) {
+    if (rect.width <= 0 || rect.height <= 0)
+        return;
+    if (is_smooth(canvas)) {
+        paint::Box pixels = pixels_of(canvas, rect);
+        if (canvas.smooth.clip)
+            pixels = paint::intersect(pixels, *canvas.smooth.clip);
+        cover_text_fit(pixels.x, pixels.y, pixels.width, pixels.height);
+        return;
+    }
+    Rect covered = rect;
+    const Rect& clip = canvas.placement.clip;
+    if (clip.width > 0 && clip.height > 0) {
+        const int32_t left = std::max(rect.x, clip.x);
+        const int32_t top = std::max(rect.y, clip.y);
+        const int32_t right = std::min(rect.x + rect.width, clip.x + clip.width);
+        const int32_t bottom = std::min(rect.y + rect.height, clip.y + clip.height);
+        covered = {
+            left, top, std::max(right - left, int32_t{0}), std::max(bottom - top, int32_t{0})
+        };
+    }
+    cover_text_fit(covered.x, covered.y, covered.width, covered.height);
+}
+
+} // namespace
+
 void fill_rect(const Canvas& canvas, const Rect& rect, Colour ink) {
     if (is_smooth(canvas)) {
         paint::Painter* painter = painter_of(canvas);
@@ -326,18 +360,7 @@ void fill_rect(const Canvas& canvas, const Rect& rect, Colour ink) {
     renderer::fill_source_rect(*canvas.surface, canvas.placement, rect, rgb(ink));
     // The crisp painter fills opaquely. Only the part inside the clip shows,
     // and it covers the text under it.
-    Rect covered = rect;
-    const Rect& clip = canvas.placement.clip;
-    if (clip.width > 0 && clip.height > 0) {
-        const int32_t left = std::max(rect.x, clip.x);
-        const int32_t top = std::max(rect.y, clip.y);
-        const int32_t right = std::min(rect.x + rect.width, clip.x + clip.width);
-        const int32_t bottom = std::min(rect.y + rect.height, clip.y + clip.height);
-        covered = {
-            left, top, std::max(right - left, int32_t{0}), std::max(bottom - top, int32_t{0})
-        };
-    }
-    cover_text_fit(covered.x, covered.y, covered.width, covered.height);
+    cover_text_under(canvas, rect);
 }
 
 void blend_rect(const Canvas& canvas, const Rect& rect, Colour ink, uint32_t opacity) {
@@ -623,8 +646,28 @@ void blend_round(
 
 } // namespace
 
+namespace {
+
+/// Notes that a rounded fill covers the text under it: the rectangle less
+/// its corners' squares, as two bands across and down.
+///
+/// @param canvas where the fill was drawn
+/// @param rect the rectangle, in points
+/// @param radius the corners' radius, in points
+/// @param ink the fill's colour; a translucent one covers nothing
+void cover_rounded_text(const Canvas& canvas, const Rect& rect, int32_t radius, Colour ink) {
+    if (ink.a != 255 || !can_draw(canvas))
+        return;
+    const int32_t corner = std::clamp(radius, int32_t{0}, std::min(rect.width, rect.height) / 2);
+    cover_text_under(canvas, {rect.x + corner, rect.y, rect.width - 2 * corner, rect.height});
+    cover_text_under(canvas, {rect.x, rect.y + corner, rect.width, rect.height - 2 * corner});
+}
+
+} // namespace
+
 void fill_round_rect(const Canvas& canvas, const Rect& rect, int32_t radius, Colour ink) {
     blend_round(canvas, rect, radius, 0, ink);
+    cover_rounded_text(canvas, rect, radius, ink);
 }
 
 void outline_round_rect(const Canvas& canvas, const Rect& rect, int32_t radius, Colour ink) {
@@ -633,6 +676,7 @@ void outline_round_rect(const Canvas& canvas, const Rect& rect, int32_t radius, 
 
 void fill_corner_rect(const Canvas& canvas, const Rect& rect, int32_t radius, Colour ink) {
     blend_round(canvas, rect, radius, 0, ink, true);
+    cover_rounded_text(canvas, rect, radius, ink);
 }
 
 void blend_corner_rect(
