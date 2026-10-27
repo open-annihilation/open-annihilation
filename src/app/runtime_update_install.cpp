@@ -37,11 +37,13 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <iterator>
 #include <optional>
@@ -90,18 +92,24 @@ namespace update = oa::app::update;
 constexpr std::string_view kReadyWord = "ready-update";
 /// Keep it ready, the button Escape answers: nothing is scheduled.
 constexpr int32_t kKeepReady = 0;
-/// Install when I quit: the release installs the next time the game quits.
-constexpr int32_t kWhenIQuit = 1;
-/// The install-now button, named for the route; the primary button.
-constexpr int32_t kInstallNow = 2;
+/// The install-now button, named for the route.
+constexpr int32_t kInstallNow = 1;
+/// Install when I quit, the primary button: the release installs the next
+/// time the game quits.
+constexpr int32_t kWhenIQuit = 2;
 /// The receipt notice's word on the layer.
 constexpr std::string_view kReceiptWord = "update-receipt";
-/// The line above the steps the receipt lists.
-constexpr std::string_view kWhatHappened = "What happened:";
-/// The line above the steps that put an unfinished recovery right.
-constexpr std::string_view kPutRight = "To put the game right:";
-/// SHOW THE LOG on the receipt notice.
+/// The heading of the box that lists the receipt's steps.
+constexpr std::string_view kWhatHappened = "What happened";
+/// The heading of the box that lists the steps that put an unfinished recovery right.
+constexpr std::string_view kPutRight = "To put the game right";
+/// The line the recovery screen's callout says where the old version was put back.
+constexpr std::string_view kKeptAsTheyWere =
+    "Your saved games, settings and mods stay as they are.";
+/// Show the log on the recovery screen: quiet, at the footer's left.
 constexpr int32_t kReceiptLog = 0;
+/// The ready prompt's heading over its three answers.
+constexpr std::string_view kWhenShouldItGoIn = "When should it go in?";
 /// A receipt left running this long was cut short, in seconds. A younger one
 /// may belong to a helper that is still at work.
 constexpr int64_t kReceiptCutShortSeconds = 600;
@@ -110,10 +118,6 @@ constexpr std::string_view kUpdatedNotice = "updated-notice";
 
 /// The title of the ready prompt.
 constexpr std::string_view kReadyTitle = "Open Annihilation {version} is ready";
-/// The ready prompt's one paragraph.
-constexpr std::string_view kReadyBody =
-    "It installs when you quit, or now if you restart. Restarting takes a few seconds and "
-    "brings you back to the main menu.";
 /// The helper's window title. {version} is the release being installed.
 constexpr std::string_view kInstalling = "Installing {version}";
 /// The helper's window line. {version} is the version that is running.
@@ -259,23 +263,423 @@ int64_t wall_seconds() {
     return std::chrono::duration_cast<std::chrono::seconds>(now).count();
 }
 
-/// Lines under a heading, one each, each with a bullet. The lines are given
-/// already in the language shown.
+/// Returns a part of a question that holds one box.
 ///
-/// @param heading the heading, looked up
-/// @param lines the lines
-/// @return the paragraph; empty when there are no lines
-std::string bulleted(std::string_view heading, const std::vector<std::string>& lines) {
-    if (lines.empty())
-        return {};
-    std::string written(languages::interface_text(heading));
-    for (const std::string& line : lines) {
-        written += '\n';
-        written += "\u2022 ";
-        written += line;
-    }
-    return written;
+/// @param heading the box's heading, looked up
+/// @param lines the box's lines, each with its mark
+/// @return the part
+kit::QuestionPart box_part(std::string_view heading, std::vector<kit::BoxLine> lines) {
+    kit::QuestionPart part;
+    part.kind = kit::PartKind::boxes;
+    kit::QuestionBox box;
+    box.heading = std::string(languages::interface_text(heading));
+    box.lines = std::move(lines);
+    part.boxes.push_back(std::move(box));
+    return part;
 }
+
+/// The recovery screen of a receipt that failed: its outcome's words as the
+/// title; a callout that says what stayed as it was, or, when recovery did
+/// not finish, what was left; What happened, each step marked done or
+/// failed; the steps that put the game right when recovery did not finish;
+/// the release that waits; and Show the log, Try again where the release
+/// can be tried again, and Continue.
+///
+/// @param receipt the receipt
+/// @param centre the update centre's state for it
+/// @param running this build's version, for the steps that put the game right
+/// @param retry Try again is offered
+/// @return the question; its word is update-receipt and Continue's id is ok
+kit::Question receipt_question(
+    const update::Receipt& receipt,
+    const update::Centre& centre,
+    std::string_view running,
+    bool retry
+) {
+    const library::TextHooks hooks = shown_hooks();
+    const update::CentreWords words = update::centre_words(centre, hooks);
+    kit::Question asked;
+    asked.word = std::string(kReceiptWord);
+    asked.title = words.status;
+    kit::QuestionPart callout;
+    callout.kind = kit::PartKind::callout;
+    callout.tone = kit::CalloutTone::ok;
+    if (centre.stage == update::Stage::recovery_incomplete) {
+        callout.tone = kit::CalloutTone::danger;
+        callout.text = words.detail;
+    } else if (centre.stage == update::Stage::failed_restored) {
+        callout.text = std::string(languages::interface_text(kKeptAsTheyWere));
+    } else {
+        callout.text = words.detail;
+    }
+    if (!callout.text.empty())
+        asked.parts.push_back(std::move(callout));
+    std::vector<kit::BoxLine> happened;
+    for (const update::ReceiptStep& step : receipt.steps)
+        happened.push_back(
+            {step.result == update::StepResult::done ? kit::LineMark::done : kit::LineMark::failed,
+             update::step_words(step, receipt.from_version, receipt.to_version, hooks)}
+        );
+    if (!happened.empty())
+        asked.parts.push_back(box_part(kWhatHappened, std::move(happened)));
+    if (centre.stage == update::Stage::recovery_incomplete) {
+        const std::string version =
+            receipt.from_version.empty() ? std::string(running) : receipt.from_version;
+        std::vector<kit::BoxLine> right;
+        for (std::string& line : update::recovery_steps(version, hooks))
+            right.push_back({kit::LineMark::bullet, std::move(line)});
+        asked.parts.push_back(box_part(kPutRight, std::move(right)));
+    }
+    if (centre.stage == update::Stage::failed_restored && !words.detail.empty()) {
+        kit::QuestionPart waits;
+        waits.kind = kit::PartKind::text;
+        waits.text = words.detail;
+        asked.parts.push_back(std::move(waits));
+    }
+    std::string show_log;
+    std::string try_again;
+    for (const update::ActWords& act :
+         update::centre_words(
+             [&]() {
+                 update::Centre both = centre;
+                 both.actions = {update::Act::show_log, update::Act::retry};
+                 return both;
+             }(),
+             hooks
+         )
+             .actions) {
+        if (act.act == update::Act::show_log)
+            show_log = act.caption;
+        else if (act.act == update::Act::retry)
+            try_again = act.caption;
+    }
+    kit::QuestionButton log_button{show_log, false, "show-the-log"};
+    log_button.quiet = true;
+    asked.buttons.push_back(std::move(log_button));
+    if (retry)
+        asked.buttons.push_back({try_again, false, "try-again"});
+    asked.buttons.push_back({std::string(languages::interface_text("Continue")), true, "ok"});
+    const auto continue_button = static_cast<int32_t>(asked.buttons.size() - 1);
+    asked.cancel_button = continue_button;
+    asked.primary_button = continue_button;
+    asked.marked = continue_button;
+    return asked;
+}
+
+/// The word of the question the update pill's Change asks about a release
+/// scheduled for the quit.
+constexpr std::string_view kScheduledWord = "scheduled-update";
+/// The update pill's button that opens the ready prompt again.
+constexpr std::string_view kPillInstall = "Install\u2026";
+/// The update pill's button that asks what a scheduled release does.
+constexpr std::string_view kPillChange = "Change";
+/// The columns between the update pill and the Library button, in points.
+constexpr int32_t kPillGap = 8;
+/// The update pill's margin from the room's edges when the main menu's
+/// buttons are not drawn, in points.
+constexpr int32_t kPillMargin = 12;
+
+/// Returns the caption the update centre gives one of a state's actions.
+///
+/// @param words the state's words
+/// @param act the action
+/// @return the caption; empty when the state does not offer it
+std::string act_caption(const update::CentreWords& words, update::Act act) {
+    for (const update::ActWords& offered : words.actions)
+        if (offered.act == act)
+            return offered.caption;
+    return {};
+}
+
+/// Returns the update pill for the update centre's state: a download under
+/// way, paused, being checked, ready, scheduled or stopped, with the one
+/// action that fits in it. Every other state shows no pill.
+///
+/// @param centre the update centre's state
+/// @return the pill; nothing when the state shows none
+std::optional<kit::UpdatePill> pill_of(const update::Centre& centre) {
+    const update::CentreWords words = update::centre_words(centre, shown_hooks());
+    kit::UpdatePill pill;
+    pill.text = words.pill;
+    const int32_t percent = std::max(centre.percent, int32_t{0});
+    switch (centre.stage) {
+    case update::Stage::downloading:
+        pill.icon = kit::UpdatePillIcon::download;
+        pill.percent = percent;
+        pill.caption = act_caption(words, update::Act::pause);
+        pill.button_id = "pause";
+        break;
+    case update::Stage::paused_by_player:
+        pill.icon = kit::UpdatePillIcon::paused;
+        pill.percent = percent;
+        pill.paused = true;
+        pill.caption = act_caption(words, update::Act::resume);
+        pill.button_id = "resume";
+        break;
+    case update::Stage::paused_by_match:
+        pill.icon = kit::UpdatePillIcon::paused;
+        pill.percent = percent;
+        pill.paused = true;
+        break;
+    case update::Stage::verifying:
+        pill.icon = kit::UpdatePillIcon::download;
+        pill.percent = 100;
+        break;
+    case update::Stage::ready:
+        pill.icon = kit::UpdatePillIcon::ready;
+        pill.caption = std::string(languages::interface_text(kPillInstall));
+        pill.button_id = "install";
+        break;
+    case update::Stage::scheduled:
+        pill.icon = kit::UpdatePillIcon::scheduled;
+        pill.caption = std::string(languages::interface_text(kPillChange));
+        pill.button_id = "change";
+        break;
+    case update::Stage::could_not_connect:
+    case update::Stage::not_verified:
+        // Only a download's failure: a check's own stays in Settings.
+        if (centre.reason.empty())
+            return std::nullopt;
+        [[fallthrough]];
+    case update::Stage::download_stopped:
+        pill.icon = kit::UpdatePillIcon::problem;
+        pill.caption = act_caption(words, update::Act::retry);
+        pill.button_id = "retry";
+        break;
+    default:
+        return std::nullopt;
+    }
+    return pill;
+}
+
+/// The question the update pill's Change asks about a release scheduled for
+/// the quit: Don't install when I quit, the route's install-now action, and
+/// Continue, which leaves it scheduled.
+///
+/// @param centre the update centre's state, scheduled
+/// @return the question
+kit::Question scheduled_question(const update::Centre& centre) {
+    const update::CentreWords words = update::centre_words(centre, shown_hooks());
+    kit::Question asked;
+    asked.word = std::string(kScheduledWord);
+    asked.title = words.status;
+    if (!words.detail.empty()) {
+        kit::QuestionPart checked;
+        checked.kind = kit::PartKind::callout;
+        checked.tone = kit::CalloutTone::ok;
+        checked.text = words.detail;
+        asked.parts.push_back(std::move(checked));
+    }
+    std::vector<kit::BoxLine> answers;
+    for (const update::ActWords& act : words.actions)
+        answers.push_back(
+            {kit::LineMark::bullet,
+             act.note.empty() ? act.caption : act.caption + " \u00b7 " + act.note}
+        );
+    if (!answers.empty())
+        asked.parts.push_back(box_part(kWhenShouldItGoIn, std::move(answers)));
+    asked.buttons.push_back({act_caption(words, update::Act::unschedule), false, "unschedule"});
+    asked.buttons.push_back({act_caption(words, update::Act::install_now), false, "restart-now"});
+    asked.buttons.push_back({std::string(languages::interface_text("Continue")), true, "ok"});
+    asked.cancel_button = 2;
+    asked.primary_button = 2;
+    asked.marked = 2;
+    return asked;
+}
+
+/// The update pill on the main menu: the update centre's state in short,
+/// beside the Library button, with one small button. A press on the pill
+/// opens Settings › Updates. It takes no key, and what it does not take
+/// goes on to the main menu.
+class UpdatePillScreen final : public LayerScreen {
+  public:
+
+    /// What the pill's host does.
+    struct Host {
+        /// Returns the pill as the update centre's state shows it now;
+        /// nothing closes the pill.
+        std::function<std::optional<kit::UpdatePill>()> look{};
+        /// Opens where the state is told in full.
+        std::function<void()> opened{};
+        /// Takes the pill's button: its id.
+        std::function<void(const std::string& button)> pressed{};
+    };
+
+    /// Makes the pill.
+    ///
+    /// @param layer the layer it shows on, whose fonts it is drawn in
+    /// @param pill how it looks first
+    /// @param host what it does
+    UpdatePillScreen(OaLayer& layer, kit::UpdatePill pill, Host host)
+        : layer_(layer), pill_(std::move(pill)), host_(std::move(host)) {}
+
+    /// Returns "update-pill".
+    ///
+    /// @return the name
+    [[nodiscard]] std::string_view name() const override { return kit::update_pill_word; }
+
+    /// Places the pill beside the Library button, centred on it, or at the
+    /// room's bottom right when the main menu's buttons are not drawn. It
+    /// shows on the main menu alone.
+    ///
+    /// @param view what it is placed on
+    /// @return its place; empty off the main menu
+    [[nodiscard]] LayerPlacement placement(const LayerView& view) const override {
+        if (view.match || view.game_screen != Screen::main_menu || layer_.screen_fonts() == nullptr)
+            return {};
+        const kit::PlacedUpdatePill placed = kit::place_update_pill(pill_, layer_.screen_fonts());
+        const int32_t percent = std::max(view.scale_percent, int32_t{100});
+        const auto points = [percent](int32_t pixels) {
+            return static_cast<int32_t>(int64_t{pixels} * 100 / percent);
+        };
+        const OaLayer::MenuButtonWindows buttons = layer_.menu_button_windows();
+        int32_t right = view.frame.area.x + view.frame.area.width - kPillMargin;
+        int32_t middle =
+            view.frame.area.y + view.frame.area.height - kPillMargin - placed.height / 2;
+        if (buttons.library.width > 0 && buttons.library.height > 0) {
+            right = points(buttons.library.x) - kPillGap;
+            middle = points(buttons.library.y + buttons.library.height / 2);
+        }
+        const kit::Rect at{
+            right - placed.width, middle - placed.height / 2, placed.width, placed.height
+        };
+        const kit::Rect shown = kit::to_canvas(at, percent);
+        return {
+            {shown.x, shown.y, shown.width, shown.height}, placed.width, placed.height, percent
+        };
+    }
+
+    /// Tells that what the pill does not take goes on.
+    ///
+    /// @return false
+    [[nodiscard]] bool modal() const override { return false; }
+
+    /// Tells that the pill darkens nothing.
+    ///
+    /// @return false
+    [[nodiscard]] bool backdrop() const override { return false; }
+
+    /// Tells that the pill's corners show the main menu.
+    ///
+    /// @return false
+    [[nodiscard]] bool opaque() const override { return false; }
+
+    /// Draws the pill.
+    ///
+    /// @param canvas where it draws
+    void draw(const kit::Canvas& canvas) const override { kit::draw_update_pill(canvas, pill_); }
+
+    /// Takes the pointer over the pill: it lights, a press on it holds, and a
+    /// release over what the press held opens Settings › Updates or presses
+    /// the button. Anything off the pill goes on.
+    ///
+    /// @param kind pointer_move, pointer_down or pointer_up
+    /// @param button the pointer's button
+    /// @param at the pointer, in the pill's points
+    /// @return what the pill did
+    LayerAnswer pointer(
+        ScreenInputKind kind, uint8_t button, kit::Point at, int32_t /*finger_reach*/
+    ) override {
+        const kit::Fonts* fonts = layer_.screen_fonts();
+        const kit::PlacedUpdatePill placed = kit::place_update_pill(pill_, fonts);
+        const bool inside = at.x >= 0 && at.y >= 0 && at.x < placed.width && at.y < placed.height;
+        kit::PillPointer what = kit::PillPointer::move;
+        switch (kind) {
+        case ScreenInputKind::pointer_move:
+            break;
+        case ScreenInputKind::pointer_down:
+            if (button != SDL_BUTTON_LEFT || !inside)
+                return LayerAnswer::pass;
+            what = kit::PillPointer::press;
+            break;
+        case ScreenInputKind::pointer_up:
+            if (button != SDL_BUTTON_LEFT || pill_.pressed == kit::no_control)
+                return LayerAnswer::pass;
+            what = kit::PillPointer::release;
+            break;
+        default:
+            return LayerAnswer::pass;
+        }
+        const kit::UpdatePillAction acted = kit::update_pill_pointer(pill_, what, at, fonts);
+        if (acted != kit::UpdatePillAction::none)
+            ++revision_;
+        if (acted == kit::UpdatePillAction::opened && host_.opened)
+            host_.opened();
+        else if (acted == kit::UpdatePillAction::pressed && host_.pressed)
+            host_.pressed(pill_.button_id);
+        if (what == kit::PillPointer::move && !inside)
+            return LayerAnswer::pass;
+        return acted == kit::UpdatePillAction::none ? LayerAnswer::none : LayerAnswer::redraw;
+    }
+
+    /// Lets every key go on.
+    ///
+    /// @return pass
+    LayerAnswer key(kit::Key /*pressed*/, uint32_t /*sdl_key*/) override {
+        return LayerAnswer::pass;
+    }
+
+    /// Lets the wheel go on.
+    ///
+    /// @return pass
+    LayerAnswer wheel(kit::Point /*at*/, float /*notches*/) override { return LayerAnswer::pass; }
+
+    /// Returns the pill's display list.
+    ///
+    /// @return the list
+    [[nodiscard]] kit::DisplayList display_list() const override {
+        return kit::update_pill_list(pill_, layer_.screen_fonts());
+    }
+
+    /// Returns what the pointer lights and holds.
+    ///
+    /// @return the interaction
+    [[nodiscard]] kit::Interaction interaction() const override {
+        kit::Interaction shown{};
+        shown.hovered = pill_.hovered;
+        shown.pressed = pill_.pressed;
+        return shown;
+    }
+
+    /// Follows the update centre: new words, a new share or a new button
+    /// redraw it, and a state that shows no pill closes it.
+    ///
+    /// @return close, redraw or none
+    LayerAnswer tick() override {
+        std::optional<kit::UpdatePill> now = host_.look ? host_.look() : std::nullopt;
+        if (!now)
+            return LayerAnswer::close;
+        if (now->icon == pill_.icon && now->text == pill_.text && now->percent == pill_.percent &&
+            now->paused == pill_.paused && now->caption == pill_.caption &&
+            now->button_id == pill_.button_id)
+            return LayerAnswer::none;
+        now->hovered = pill_.hovered;
+        now->pressed = pill_.pressed;
+        pill_ = std::move(*now);
+        ++revision_;
+        return LayerAnswer::redraw;
+    }
+
+    /// Returns the pill's revision.
+    ///
+    /// @return the revision
+    [[nodiscard]] uint64_t revision() const override { return revision_; }
+
+    /// Tells that the pill draws only what its revision names.
+    ///
+    /// @return true
+    [[nodiscard]] bool revision_covers_drawing() const override { return true; }
+
+    /// Lets the pill go; it keeps nothing open.
+    void close(bool /*by_key*/) override {}
+
+  private:
+
+    OaLayer& layer_;       ///< the layer it shows on
+    kit::UpdatePill pill_; ///< how it looks
+    Host host_;            ///< what it does
+    uint64_t revision_{1}; ///< moves on with each change of look
+};
 
 /// The ready prompt, up or waiting.
 bool ready_question_queued(OaLayer& layer) {
@@ -553,18 +957,10 @@ bool Runtime::hand_off_requested() const {
     if (update_->download->snapshot().state != update::DownloadState::ready)
         return false;
     // Quitting installs only what the player scheduled, or chose to install
-    // now. A package kept ready stays ready, and a quit leaves it.
-    if (options_.update_and_quit ||
-        update::installs_at_quit(preference_values_, update_->download_release))
-        return true;
-    // Settings › Updates' RESTART TO UPDATE asks to install now and quits.
-    // It is the one way out of the game Settings offers on that page beside
-    // ROLL BACK; closing the window does not ask the game to exit.
-    if (!exit_requested_ || roll_back_requested_ || !engine_settings_ || !engine_settings_->dialog)
-        return false;
-    const settings::Dialog& dialog = *engine_settings_->dialog;
-    return dialog.page == settings::Page::updates &&
-           dialog.updates.download == settings::DownloadShown::ready;
+    // now, which schedules it too. A package kept ready stays ready, and a
+    // quit leaves it.
+    return options_.update_and_quit ||
+           update::installs_at_quit(preference_values_, update_->download_release);
 #endif
 }
 
@@ -1018,7 +1414,7 @@ void Runtime::offer_ready() {
 #if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
     return;
 #else
-    if (options_.update_and_quit || update_ == nullptr || update_->download == nullptr)
+    if (options_.update_and_quit || update_ == nullptr)
         return;
     if (match_ != nullptr || screen_ == Screen::match) {
         update_->ready_prompt_release.reset();
@@ -1030,10 +1426,12 @@ void Runtime::offer_ready() {
         return;
     if (!options_.update_feed.has_value() && (options_.unattended || options_.headless_check))
         return;
-    const update::DownloadSnapshot shot = update_->download->snapshot();
-    if (shot.state != update::DownloadState::ready)
+    // The words are the update centre's own for a ready release, so the
+    // prompt, Settings › Updates and the menu pill name one state and one size.
+    const update::Centre centre = update_centre();
+    if (centre.stage != update::Stage::ready && centre.stage != update::Stage::scheduled)
         return;
-    const int64_t release_number = update_->download_release;
+    const int64_t release_number = centre.target_release;
     // A release already scheduled for the quit was chosen; it does not ask.
     // Install updates set to install when I quit schedules it here.
     if (update::installs_at_quit(preference_values_, release_number))
@@ -1054,94 +1452,54 @@ void Runtime::offer_ready() {
     OaLayer& layer = oa_layer();
     if (ready_question_queued(layer))
         return;
-    const std::string version = update_->download_version;
-    const update::Where where = route_for(options_, feed::Way::in_place);
-    // The buttons are the update centre's own for a ready release: Install
-    // when I quit, the install-now action named for the route, and Keep it
-    // ready.
-    update::CentreInputs inputs;
-    inputs.current_version = update_->from_version;
-    inputs.download = update::DownloadState::ready;
-    inputs.download_release = release_number;
-    inputs.download_version = version;
-    inputs.received = shot.total;
-    inputs.total = shot.total;
-    inputs.way = update::install_way(
-        update::replaces_itself(),
-        update::packager_name(),
-        where.route,
-        where.installer,
-        false,
-        installs_at_next_start()
-    );
-    const update::CentreWords words =
-        update::centre_words(update::centre_state(inputs), shown_hooks());
+    const std::string version = centre.target_version;
+    const update::CentreWords words = update::centre_words(centre, shown_hooks());
     std::string keep_ready;
     std::string when_i_quit;
     std::string install_now;
-    std::string install_note;
+    std::vector<kit::BoxLine> answers;
     for (const update::ActWords& act : words.actions) {
         if (act.act == update::Act::keep_ready)
             keep_ready = act.caption;
         else if (act.act == update::Act::install_on_quit)
             when_i_quit = act.caption;
-        else if (act.act == update::Act::install_now) {
+        else if (act.act == update::Act::install_now)
             install_now = act.caption;
-            install_note = act.note;
-        }
+        else
+            continue;
+        answers.push_back(
+            {kit::LineMark::bullet,
+             act.note.empty() ? act.caption : act.caption + " \u00b7 " + act.note}
+        );
     }
     kit::Question asked;
     asked.word = std::string(kReadyWord);
     asked.title = library::filled(shown_hooks(), kReadyTitle, {{"version", version}});
-    switch (inputs.way) {
-    case update::InstallWay::next_start:
-        asked.paragraphs.push_back(
-            {library::filled(shown_hooks(), update::installs_next_start, {{"version", version}}),
-             false}
-        );
-        break;
-    case update::InstallWay::macos_installer:
-        asked.paragraphs.push_back(
-            {library::filled(shown_hooks(), kInstallerWill, {{"version", version}}), false}
-        );
-        break;
-    case update::InstallWay::windows_installer:
-        asked.paragraphs.push_back({std::string(languages::interface_text(kReadyBody)), false});
-        if (!install_note.empty())
-            asked.paragraphs.push_back({install_note, false});
-        break;
-    case update::InstallWay::restart:
-    case update::InstallWay::package_manager:
-    case update::InstallWay::page_only:
-        asked.paragraphs.push_back({std::string(languages::interface_text(kReadyBody)), false});
-        break;
+    if (!words.detail.empty()) {
+        kit::QuestionPart checked;
+        checked.kind = kit::PartKind::callout;
+        checked.tone = kit::CalloutTone::ok;
+        checked.text = words.detail;
+        asked.parts.push_back(std::move(checked));
     }
+    asked.parts.push_back(box_part(kWhenShouldItGoIn, std::move(answers)));
     asked.buttons.push_back({keep_ready, false, "keep-ready"});
-    asked.buttons.push_back({when_i_quit, false, "when-i-quit"});
-    asked.buttons.push_back({install_now, true, "restart-now"});
+    asked.buttons.push_back({install_now, false, "restart-now"});
+    asked.buttons.push_back({when_i_quit, true, "when-i-quit"});
     asked.cancel_button = kKeepReady;
-    asked.primary_button = kInstallNow;
-    asked.marked = kInstallNow;
+    asked.primary_button = kWhenIQuit;
+    asked.marked = kWhenIQuit;
     update_->ready_prompt_release = release_number;
     Runtime* runtime = this;
     QuestionScreen::Host host;
     // Keep it ready schedules nothing. When I quit is stored, so it holds
     // across starts until it is taken back or the release installs. Installing
     // now schedules the release and quits at once.
-    host.answer = [runtime, release_number](int32_t button) {
-        if (button != kWhenIQuit && button != kInstallNow)
-            return true;
-        update::write_scheduled(runtime->preference_values_, release_number);
-        runtime->preferences_dirty_ = true;
-        try {
-            runtime->flush_preferences();
-        } catch (const std::exception& failure) {
-            std::cerr << "open-annihilation: update: " << failure.what() << '\n';
-        }
-        if (button == kInstallNow) {
-            runtime->quit_requested_ = true;
-            runtime->exit_status_ = 0;
-        }
+    host.answer = [runtime](int32_t button) {
+        if (button == kWhenIQuit)
+            runtime->take_update_action(update::Act::install_on_quit);
+        else if (button == kInstallNow)
+            runtime->take_update_action(update::Act::install_now);
         return true;
     };
     host.tick = [runtime]() {
@@ -1199,85 +1557,16 @@ void Runtime::offer_updated_notice() {
                         std::cerr << "open-annihilation: update: " << thrown.what() << '\n';
                     }
                 }
-                const update::ThisBuild running = running_build();
-                update::CentreInputs inputs;
-                inputs.current_version = running.version_text;
-                inputs.held = receipt->release;
-                inputs.receipt = *receipt;
-                const update::Centre centre = update::centre_state(inputs);
-                const update::CentreWords words = update::centre_words(centre, shown_hooks());
-                std::vector<std::string> steps;
-                for (const update::ReceiptStep& step : receipt->steps)
-                    steps.push_back(
-                        update::step_words(
-                            step, receipt->from_version, receipt->to_version, shown_hooks()
-                        )
-                    );
-                kit::Question asked;
-                asked.word = std::string(kReceiptWord);
-                asked.title = words.status;
-                if (!words.detail.empty())
-                    asked.paragraphs.push_back({words.detail, false});
-                const std::string listed = bulleted(kWhatHappened, steps);
-                if (!listed.empty())
-                    asked.paragraphs.push_back({listed, false});
-                if (centre.stage == update::Stage::recovery_incomplete) {
-                    const std::string version = receipt->from_version.empty()
-                                                    ? running.version_text
-                                                    : receipt->from_version;
-                    asked.paragraphs.push_back(
-                        {bulleted(kPutRight, update::recovery_steps(version, shown_hooks())), false}
-                    );
-                }
-                const bool retry = update::holds_release(receipt->outcome) &&
-                                   centre.stage != update::Stage::recovery_incomplete;
-                asked.buttons.push_back(
-                    {std::string(languages::interface_text("SHOW THE LOG")), false, "show-the-log"}
-                );
-                if (retry)
-                    asked.buttons.push_back(
-                        {std::string(languages::interface_text("TRY AGAIN")), false, "try-again"}
-                    );
-                asked.buttons.push_back({std::string(languages::interface_text("OK")), true, "ok"});
-                const int32_t ok_button = retry ? 2 : 1;
-                asked.cancel_button = ok_button;
-                asked.primary_button = ok_button;
-                asked.marked = ok_button;
-                Runtime* runtime = this;
-                const fs::path log_folder = updates ? *updates : fs::path{};
-                QuestionScreen::Host host;
-                host.answer = [runtime, log_folder, retry](int32_t button) {
-                    if (button == kReceiptLog) {
-                        std::ignore = runtime->open_player_folder(log_folder);
-                        return false;
-                    }
-                    if (retry && button == 1) {
-                        update::clear_held(runtime->preference_values_);
-                        runtime->preferences_dirty_ = true;
-                        try {
-                            runtime->flush_preferences();
-                        } catch (const std::exception& thrown) {
-                            std::cerr << "open-annihilation: update: " << thrown.what() << '\n';
-                        }
-#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
-                        if (runtime->update_)
-                            runtime->update_->download_attempted = false;
-#endif
-                        static_cast<void>(runtime->start_update_download());
-                    }
-                    return true;
-                };
-                host.tick = [runtime]() {
-                    return runtime->match_ != nullptr || runtime->screen_ == Screen::match;
-                };
-                OaLayer& layer = oa_layer();
-                auto question = std::make_unique<QuestionScreen>(
-                    layer, Screen::main_menu, std::move(asked), std::move(host)
-                );
-                question->show_on_any_menu();
-                layer.show_when_free(std::move(question));
+                // The recovery screen is the receipt's Show details.
+                update_->receipt = *receipt;
+                update_->receipt_loaded = true;
+                take_update_action(update::Act::details);
                 return;
             }
+        }
+        if (receipt.has_value()) {
+            update_->receipt = std::move(receipt);
+            update_->receipt_loaded = true;
         }
     }
     if (!options_.updated_from.has_value())
@@ -1340,25 +1629,9 @@ void Runtime::offer_updated_notice() {
 }
 
 std::string Runtime::update_header_note() const {
-#if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
-    return {};
-#else
-    if (update_ == nullptr || update_->download == nullptr || update_->download_version.empty())
-        return {};
     // The update centre's short form, the one the menu pill shows, while a
     // package is downloading, paused, being checked, ready or scheduled.
-    const update::DownloadSnapshot shot = update_->download->snapshot();
-    update::CentreInputs inputs;
-    inputs.current_version = update_->from_version;
-    inputs.download = shot.state;
-    inputs.download_failure = shot.failure_kind;
-    inputs.download_release = update_->download_release;
-    inputs.download_version = update_->download_version;
-    inputs.received = shot.received;
-    inputs.total = shot.total;
-    inputs.bytes_per_second = shot.bytes_per_second;
-    inputs.scheduled = update::read_scheduled(preference_values_);
-    const update::Centre centre = update::centre_state(inputs);
+    const update::Centre centre = update_centre();
     switch (centre.stage) {
     case update::Stage::downloading:
     case update::Stage::paused_by_player:
@@ -1370,72 +1643,449 @@ std::string Runtime::update_header_note() const {
     default:
         return {};
     }
-#endif
 }
 
-bool Runtime::apply_update_download(settings::Dialog& dialog) {
-    const bool show = update::replaces_itself() && !options_.check_engine_settings;
-    settings::DownloadShown shown = settings::DownloadShown::none;
-    std::string version;
-    std::string done_text;
-    std::string size_text;
-    std::string reason;
-#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
-    if (show && update_ != nullptr && update_->download != nullptr) {
-        const update::DownloadSnapshot shot = update_->download->snapshot();
-        version = update_->download_version;
-        switch (shot.state) {
-        case update::DownloadState::downloading:
-        case update::DownloadState::verifying:
-            shown = settings::DownloadShown::downloading;
-            break;
-        case update::DownloadState::paused_for_match:
-        case update::DownloadState::paused_by_player:
-            shown = settings::DownloadShown::paused;
-            break;
-        case update::DownloadState::ready:
-            shown = settings::DownloadShown::ready;
-            break;
-        case update::DownloadState::failed:
-            shown = settings::DownloadShown::stopped;
-            reason = shot.failure;
-            break;
-        case update::DownloadState::waiting:
-            shown = settings::DownloadShown::none;
-            break;
-        }
-        if (shown != settings::DownloadShown::none) {
-            done_text = settings::update_size_text(shot.received);
-            size_text = settings::update_size_text(shot.total);
-        }
+update::Centre Runtime::update_centre() const {
+    if (update_ != nullptr && update_->pictured.has_value())
+        return update::centre_state(*update_->pictured);
+    update::CentreInputs inputs;
+    const update::ThisBuild built = update::this_build({});
+    inputs.current_version = built.version_text;
+    inputs.mode = update::read_check_mode(preference_values_);
+    inputs.skipped = update::read_skipped(preference_values_);
+    inputs.held = update::read_held(preference_values_);
+    inputs.scheduled = update::read_scheduled(preference_values_);
+    inputs.manager = std::string(update::packager_name());
+    // This start replaced an older version: the same test the Updated notice makes.
+    if (options_.updated_from.has_value()) {
+        const std::optional<formats::oamod::EngineVersion> previous =
+            formats::oamod::parse_engine_version(*options_.updated_from);
+        if (previous.has_value() && built.version > *previous)
+            inputs.updated_from = *options_.updated_from;
     }
-#else
-    (void)show;
-#endif
-    if (update_ == nullptr)
-        update_.reset(new UpdateState());
+    if (options_.rolled_back_from.has_value())
+        inputs.rolled_back_from = *options_.rolled_back_from;
+    if (update_ == nullptr) {
+        inputs.way = update::install_way(
+            update::replaces_itself(), update::packager_name(), std::nullopt, false, false, false
+        );
+        return update::centre_state(inputs);
+    }
+    // What state.json and the receipt say is read once a run; the update
+    // state's own pointer may be written through from here.
     if (!update_->kept_loaded) {
         update_->kept_loaded = true;
         std::string folder_failure;
         if (const std::optional<fs::path> folder = updates_folder(options_, folder_failure)) {
-            if (const std::optional<update::State> state = read_installed_state(*folder))
+            if (const std::optional<update::State> state = read_installed_state(*folder)) {
                 update_->kept_version = state->kept_version;
+                update_->installed_unconfirmed =
+                    !state->confirmed && state->installed_version == built.version_text;
+            }
         }
     }
-    const std::string kept = update_->kept_version;
+    if (!update_->receipt_loaded) {
+        update_->receipt_loaded = true;
+        std::string folder_failure;
+        if (const std::optional<fs::path> folder = updates_folder(options_, folder_failure))
+            update_->receipt =
+                update::load_receipt(*folder / std::string(update::receipt_file_name));
+    }
+    inputs.kept_version = update_->kept_version;
+    inputs.unconfirmed = update_->installed_unconfirmed && !update_->version_confirmed;
+    inputs.receipt = update_->receipt;
+    const update::CheckSnapshot& held = update_->held;
+    inputs.check = held.state;
+    inputs.check_failure = held.failure_kind;
+    if (held.offer.release != nullptr) {
+        inputs.offer_version = held.offer.release->version_text;
+        inputs.offer_release = held.offer.release->release;
+    }
+    // The way is found once for each kind of offer: it reads the machine.
+    const bool page_only = held.offer.way == feed::Way::page_only;
+    if (!update_->centre_way_known || update_->centre_way_page_only != page_only) {
+        update_->centre_way_known = true;
+        update_->centre_way_page_only = page_only;
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+        const update::Where where =
+            route_for(options_, page_only ? feed::Way::page_only : feed::Way::in_place);
+        update_->centre_installer = where.installer;
+        update_->centre_way = update::install_way(
+            update::replaces_itself(),
+            update::packager_name(),
+            where.route,
+            where.installer,
+            page_only,
+            installs_at_next_start()
+        );
+#else
+        update_->centre_installer = false;
+        update_->centre_way = update::install_way(
+            update::replaces_itself(),
+            update::packager_name(),
+            std::nullopt,
+            false,
+            page_only,
+            false
+        );
+#endif
+    }
+    inputs.way = update_->centre_way;
+    // The offer names the size of the file a download fetches: the
+    // installer where the route uses it, the zip otherwise.
+    if (held.offer.package != nullptr)
+        inputs.offer_size = update_->centre_installer && held.offer.package->installer.has_value()
+                                ? held.offer.package->installer->size
+                                : held.offer.package->zip.size;
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+    if (update_->download != nullptr) {
+        const update::DownloadSnapshot shot = update_->download->snapshot();
+        inputs.download = shot.state;
+        inputs.download_failure = shot.failure_kind;
+        inputs.download_reason = shot.failure;
+        inputs.download_release = update_->download_release;
+        inputs.download_version = update_->download_version;
+        inputs.received = shot.received;
+        inputs.total = shot.total;
+        inputs.bytes_per_second = shot.bytes_per_second;
+    }
+    inputs.handing_over = update_->handed && !roll_back_requested_;
+#endif
+    return update::centre_state(inputs);
+}
+
+void Runtime::take_update_action(update::Act action) {
+    const update::Centre centre = update_centre();
+    const auto store = [this]() {
+        preferences_dirty_ = true;
+        try {
+            flush_preferences();
+        } catch (const std::exception& failure) {
+            std::cerr << "open-annihilation: update: " << failure.what() << '\n';
+        }
+    };
+    const auto updates_log = [this]() {
+        std::string failure;
+        const std::optional<fs::path> folder = updates_folder(options_, failure);
+        if (folder)
+            std::ignore = open_player_folder(*folder);
+        else
+            std::cerr << "open-annihilation: update: " << failure << '\n';
+    };
+    switch (action) {
+    case update::Act::check_now:
+        start_update_check(true);
+        return;
+    case update::Act::download:
+        if (!start_update_download())
+            open_release_page();
+        return;
+    case update::Act::pause:
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+        if (update_ != nullptr && update_->download != nullptr)
+            update_->download->pause();
+#endif
+        return;
+    case update::Act::resume:
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+        if (update_ != nullptr && update_->download != nullptr)
+            update_->download->resume();
+#endif
+        return;
+    case update::Act::cancel_download:
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+        if (update_ != nullptr && update_->download != nullptr) {
+            // Nothing half-downloaded is kept. Download in the background does
+            // not start it again this run; Download update does.
+            update_->download->discard();
+            update_->download_attempted = true;
+            if (update::installs_at_quit(preference_values_, update_->download_release)) {
+                update::clear_scheduled(preference_values_);
+                store();
+            }
+        }
+#endif
+        return;
+    case update::Act::install_on_quit:
+        if (centre.target_release > 0 &&
+            (centre.stage == update::Stage::ready || centre.stage == update::Stage::scheduled)) {
+            update::write_scheduled(preference_values_, centre.target_release);
+            store();
+        }
+        return;
+    case update::Act::install_now:
+        // Installing now: the ready release is scheduled, and the quit hands it over.
+        if (centre.target_release > 0 &&
+            (centre.stage == update::Stage::ready || centre.stage == update::Stage::scheduled)) {
+            update::write_scheduled(preference_values_, centre.target_release);
+            store();
+            quit_requested_ = true;
+            exit_status_ = 0;
+        }
+        return;
+    case update::Act::unschedule:
+        update::clear_scheduled(preference_values_);
+        store();
+        return;
+    case update::Act::skip:
+        if (centre.target_release > 0) {
+            update::write_skipped(preference_values_, centre.target_release);
+            store();
+        }
+        return;
+    case update::Act::try_version:
+        update::clear_skipped(preference_values_);
+        store();
+        return;
+    case update::Act::retry: {
+        // A held release is the player's to try again. A check that failed is
+        // asked again; a download that stopped is started again.
+        if (update::read_held(preference_values_).has_value()) {
+            update::clear_held(preference_values_);
+            store();
+        }
+        bool download_failed = false;
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+        download_failed = update_ != nullptr && update_->download != nullptr &&
+                          update_->download->snapshot().state == update::DownloadState::failed;
+#endif
+        const bool check_failed =
+            centre.stage == update::Stage::could_not_check ||
+            (centre.stage == update::Stage::could_not_connect && !download_failed);
+        if (check_failed)
+            start_update_check(true);
+        else
+            retry_update_download();
+        return;
+    }
+    case update::Act::details: {
+        OaLayer& layer = oa_layer();
+        if (layer.find(kReceiptWord) != nullptr || layer.waiting(kReceiptWord) != nullptr)
+            return;
+        kit::Question asked;
+        const bool receipt_failed = update_ != nullptr && update_->receipt.has_value() &&
+                                    update::failed_outcome(update_->receipt->outcome);
+        if (receipt_failed) {
+            const update::Receipt& receipt = *update_->receipt;
+            update::CentreInputs inputs;
+            inputs.current_version = centre.current_version;
+            inputs.held = receipt.release;
+            inputs.receipt = receipt;
+            const update::Centre failed = update::centre_state(inputs);
+            const bool retry = update::holds_release(receipt.outcome) &&
+                               failed.stage != update::Stage::recovery_incomplete;
+            asked = receipt_question(receipt, failed, centre.current_version, retry);
+        } else {
+            // A refused check or a download that stopped: its words and the
+            // line the check or the download wrote, in English.
+            const update::CentreWords words = update::centre_words(centre, shown_hooks());
+            asked.word = std::string(kReceiptWord);
+            asked.title = words.status;
+            if (!words.detail.empty())
+                asked.paragraphs.push_back({words.detail, false});
+            std::string line = centre.reason;
+            if (line.empty() && update_ != nullptr)
+                line = update_->held.failure;
+            if (!line.empty()) {
+                kit::QuestionPart told;
+                told.kind = kit::PartKind::text;
+                told.text = line;
+                asked.parts.push_back(std::move(told));
+            }
+            asked.buttons.push_back(
+                {std::string(languages::interface_text("Continue")), true, "ok"}
+            );
+        }
+        const int32_t retry_button = asked.buttons.size() == 3 ? 1 : -1;
+        Runtime* runtime = this;
+        QuestionScreen::Host host;
+        host.answer = [runtime, receipt_failed, retry_button](int32_t button) {
+            if (receipt_failed && button == kReceiptLog) {
+                runtime->take_update_action(update::Act::show_log);
+                return false;
+            }
+            if (button == retry_button)
+                runtime->take_update_action(update::Act::retry);
+            return true;
+        };
+        host.tick = [runtime]() {
+            return runtime->match_ != nullptr || runtime->screen_ == Screen::match;
+        };
+        auto question = std::make_unique<QuestionScreen>(
+            layer, Screen::main_menu, std::move(asked), std::move(host)
+        );
+        question->show_on_any_menu();
+        layer.show_when_free(std::move(question));
+        return;
+    }
+    case update::Act::show_log:
+        updates_log();
+        return;
+    case update::Act::open_page:
+    case update::Act::whats_new:
+        open_release_page();
+        return;
+    case update::Act::roll_back: {
+        // The question asks once. Roll back and restart quits, and main()
+        // starts the helper. Cancel leaves the screen under it as it was.
+        if (centre.kept_version.empty())
+            return;
+        kit::Question asked =
+            settings::updates::roll_back_question(centre.kept_version, centre.current_version);
+        Runtime* runtime = this;
+        QuestionScreen::Host host;
+        host.answer = [runtime](int32_t button) {
+            if (button == 1) {
+                runtime->roll_back_requested_ = true;
+                runtime->quit_requested_ = true;
+                runtime->exit_status_ = 0;
+            }
+            return true;
+        };
+        host.tick = [runtime]() {
+            return runtime->match_ != nullptr || runtime->screen_ == Screen::match;
+        };
+        OaLayer& layer = oa_layer();
+        auto question = std::make_unique<QuestionScreen>(
+            layer, Screen::main_menu, std::move(asked), std::move(host)
+        );
+        question->show_on_any_menu();
+        layer.push(std::move(question));
+        return;
+    }
+    case update::Act::keep_ready:
+    case update::Act::later:
+        return;
+    }
+}
+
+bool Runtime::apply_update_download(settings::Dialog& dialog) {
+    // Settings › Updates shows the update centre's one state: the menu pill,
+    // the prompts and the header note read the same. The check's own line,
+    // with when it last reached the server, stands while the centre's state
+    // is the check's; every other state is the centre's line, and a ready
+    // or a stopped download keeps the page's own line and button for it.
+    const bool show = update::replaces_itself() && !options_.check_engine_settings;
+    if (update_ == nullptr)
+        update_.reset(new UpdateState());
+    const update::Centre centre = update_centre();
+    const update::CentreWords words = update::centre_words(centre, shown_hooks());
+    settings::UpdatesOffer offer = dialog.updates;
+    offer.show_download = show;
+    offer.download = settings::DownloadShown::none;
+    offer.download_version.clear();
+    offer.download_done.clear();
+    offer.download_size.clear();
+    offer.download_reason.clear();
+    offer.kept_version = centre.kept_version;
+    {
+        // The check's lines, as the page shows them while the check decides.
+        const update::CheckSnapshot& snapshot = update_snapshot();
+        settings::UpdateReading reading;
+        const std::string version = centre.current_version;
+        reading.version = version;
+        switch (snapshot.state) {
+        case update::CheckState::idle:
+            reading.stand = settings::UpdateStand::idle;
+            break;
+        case update::CheckState::checking:
+            reading.stand = settings::UpdateStand::checking;
+            break;
+        case update::CheckState::up_to_date:
+            reading.stand = settings::UpdateStand::up_to_date;
+            break;
+        case update::CheckState::offered:
+            reading.stand = settings::UpdateStand::offered;
+            break;
+        case update::CheckState::failed:
+            reading.stand = settings::UpdateStand::failed;
+            break;
+        case update::CheckState::cancelled:
+            reading.stand = settings::UpdateStand::cancelled;
+            break;
+        }
+        reading.never = dialog.chosen.update_check == settings::UpdateCheck::never;
+        reading.checked_at = snapshot.checked_at;
+        reading.now = wall_seconds();
+        const std::string offered_version = snapshot.offer.release != nullptr
+                                                ? snapshot.offer.release->version_text
+                                                : std::string{};
+        reading.offer_version = offered_version;
+        reading.replaces_itself = update::replaces_itself();
+        if (!reading.replaces_itself)
+            reading.packager = update::packager_name();
+        const settings::UpdateLines lines = settings::update_lines(reading);
+        offer.status = lines.status;
+        offer.can_check = lines.can_check;
+        offer.offered = lines.offered;
+        offer.updated_by = lines.updated_by;
+    }
+    const auto centre_line = [&words]() {
+        return words.detail.empty() ? words.status : words.status + " \u00b7 " + words.detail;
+    };
+    const auto centre_owns = [&]() {
+        offer.status = centre_line();
+        offer.can_check = false;
+        offer.offered = false;
+        offer.updated_by.clear();
+    };
+    switch (centre.stage) {
+    case update::Stage::not_checked:
+    case update::Stage::never:
+    case update::Stage::checking:
+    case update::Stage::up_to_date:
+    case update::Stage::offered:
+    case update::Stage::page_only:
+    case update::Stage::managed:
+    case update::Stage::could_not_check:
+        // A made-up state for the pictures has no check behind it: its line
+        // is the centre's, with the button the check would offer.
+        if (update_->pictured.has_value()) {
+            offer.status = centre_line();
+            offer.offered =
+                centre.stage == update::Stage::offered || centre.stage == update::Stage::page_only;
+            offer.can_check =
+                centre.stage != update::Stage::checking && centre.stage != update::Stage::never;
+            offer.updated_by.clear();
+        }
+        break;
+    case update::Stage::could_not_connect:
+    case update::Stage::not_verified:
+        if (show && centre.target_release > 0 && !centre.reason.empty()) {
+            offer.download = settings::DownloadShown::stopped;
+            offer.download_reason = centre_line();
+        }
+        break;
+    case update::Stage::download_stopped:
+        if (show) {
+            offer.download = settings::DownloadShown::stopped;
+            offer.download_reason = centre.reason.empty() ? words.status : centre.reason;
+        }
+        break;
+    case update::Stage::ready:
+        if (show) {
+            offer.download = settings::DownloadShown::ready;
+            offer.download_version = centre.target_version;
+            offer.download_size = settings::update_size_text(centre.total);
+            break;
+        }
+        [[fallthrough]];
+    default:
+        centre_owns();
+        break;
+    }
     const std::string note = update_header_note();
     const bool changed =
-        dialog.updates.show_download != show || dialog.updates.download != shown ||
-        dialog.updates.download_version != version || dialog.updates.download_done != done_text ||
-        dialog.updates.download_size != size_text || dialog.updates.download_reason != reason ||
-        dialog.updates.kept_version != kept || dialog.header_note != note;
-    dialog.updates.show_download = show;
-    dialog.updates.download = shown;
-    dialog.updates.download_version = std::move(version);
-    dialog.updates.download_done = std::move(done_text);
-    dialog.updates.download_size = std::move(size_text);
-    dialog.updates.download_reason = std::move(reason);
-    dialog.updates.kept_version = kept;
+        offer.show_download != dialog.updates.show_download ||
+        offer.download != dialog.updates.download ||
+        offer.download_version != dialog.updates.download_version ||
+        offer.download_size != dialog.updates.download_size ||
+        offer.download_reason != dialog.updates.download_reason ||
+        offer.kept_version != dialog.updates.kept_version ||
+        offer.status != dialog.updates.status || offer.can_check != dialog.updates.can_check ||
+        offer.offered != dialog.updates.offered || offer.updated_by != dialog.updates.updated_by ||
+        dialog.header_note != note;
+    dialog.updates = std::move(offer);
     dialog.header_note = note;
     return changed;
 }
@@ -1695,6 +2345,67 @@ void Runtime::tick_update_install() {
     settle_roll_back();
     confirm_installed_version();
     offer_ready();
+    // The update pill shows the centre's state in short on the main menu
+    // while a download is under way, ready, scheduled or stopped.
+    if (screen_ == Screen::main_menu && !options_.update_and_quit &&
+        (options_.update_feed.has_value() || !(options_.unattended || options_.headless_check))) {
+        OaLayer& layer = oa_layer();
+        const bool up = layer.find(kit::update_pill_word) != nullptr ||
+                        layer.waiting(kit::update_pill_word) != nullptr;
+        std::optional<kit::UpdatePill> pill = up ? std::nullopt : pill_of(update_centre());
+        if (pill.has_value() && layer.screen_fonts() != nullptr) {
+            Runtime* runtime = this;
+            UpdatePillScreen::Host host;
+            host.look = [runtime]() { return pill_of(runtime->update_centre()); };
+            host.opened = [runtime]() {
+                runtime->open_engine_settings_from_menu();
+                if (settings::Dialog* dialog = runtime->engine_settings_dialog()) {
+                    dialog->page = settings::Page::updates;
+                    runtime->apply_update_download(*dialog);
+                }
+            };
+            host.pressed = [runtime](const std::string& button) {
+                if (button == "pause") {
+                    runtime->take_update_action(update::Act::pause);
+                } else if (button == "resume") {
+                    runtime->take_update_action(update::Act::resume);
+                } else if (button == "retry") {
+                    runtime->take_update_action(update::Act::retry);
+                } else if (button == "install") {
+                    if (runtime->update_)
+                        runtime->update_->ready_prompt_release.reset();
+                    runtime->offer_ready();
+                } else if (button == "change") {
+                    const update::Centre centre = runtime->update_centre();
+                    if (centre.stage != update::Stage::scheduled)
+                        return;
+                    QuestionScreen::Host asked_host;
+                    asked_host.answer = [runtime](int32_t answered) {
+                        if (answered == 0)
+                            runtime->take_update_action(update::Act::unschedule);
+                        else if (answered == 1)
+                            runtime->take_update_action(update::Act::install_now);
+                        return true;
+                    };
+                    asked_host.tick = [runtime]() {
+                        return runtime->match_ != nullptr || runtime->screen_ == Screen::match;
+                    };
+                    OaLayer& shown_on = runtime->oa_layer();
+                    shown_on.push(
+                        std::make_unique<QuestionScreen>(
+                            shown_on,
+                            Screen::main_menu,
+                            scheduled_question(centre),
+                            std::move(asked_host)
+                        )
+                    );
+                }
+            };
+            layer.show_when_free(
+                std::make_unique<UpdatePillScreen>(layer, std::move(*pill), std::move(host))
+            );
+        }
+    }
     if (!update_menu_settled())
         return;
     offer_roll_back_prompt();

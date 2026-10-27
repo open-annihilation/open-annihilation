@@ -225,6 +225,10 @@ void ready_is_three_choices_and_scheduling_is_revocable() {
     OA_CHECK(caption_of(words, Act::install_now) == "Install and restart");
     OA_CHECK(caption_of(words, Act::keep_ready) == "Keep it ready");
     OA_CHECK(note_of(words, Act::keep_ready) == "Nothing is scheduled.");
+    OA_CHECK(
+        note_of(words, Act::install_on_quit) ==
+        "It installs as you quit. Change it any time in Settings › Updates."
+    );
     // Keep it ready schedules nothing, so quitting installs nothing.
     OA_CHECK(!update::installs_at_quit(values, 12));
 
@@ -289,7 +293,7 @@ void the_install_words_name_the_route() {
     inputs.way = update::InstallWay::restart;
     words = english(update::centre_state(inputs));
     OA_CHECK(caption_of(words, Act::install_now) == "Install and restart");
-    OA_CHECK(note_of(words, Act::install_now).empty());
+    OA_CHECK(note_of(words, Act::install_now) == "The game closes, installs it and starts again.");
 
     // A package manager has no install action, and says who updates the copy.
     update::CentreInputs managed = offered_inputs();

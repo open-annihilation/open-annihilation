@@ -210,11 +210,21 @@ int Runtime::check_update_roll_back() {
                 asked.title == "The update failed. " + version + " was put back.",
                 "the receipt's title was " + asked.title
             );
+            // What happened lists each step, the failed one marked failed.
             bool listed = false;
-            for (const kit::Paragraph& paragraph : asked.paragraphs)
-                if (paragraph.text.find("another program had it open") != std::string::npos)
-                    listed = true;
+            for (const kit::QuestionPart& part : asked.parts)
+                for (const kit::QuestionBox& box : part.boxes)
+                    for (const kit::BoxLine& line : box.lines)
+                        if (line.mark == kit::LineMark::failed &&
+                            line.text.find("another program had it open") != std::string::npos)
+                            listed = true;
             require(listed, "the receipt did not list the failed step");
+            require(
+                asked.buttons.size() == 3 && asked.buttons[0].id == "show-the-log" &&
+                    asked.buttons[0].quiet && asked.buttons[1].id == "try-again" &&
+                    asked.buttons[2].id == "ok" && asked.primary_button == 2,
+                "the receipt's buttons were not Show the log, Try again and Continue"
+            );
             require(
                 update::read_held(preference_values_) == failed_release,
                 "the failed release was not held"

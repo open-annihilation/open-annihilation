@@ -617,26 +617,63 @@ std::string when_phrase(int64_t checked, int64_t now) {
 }
 
 oa::ui::kit::Question roll_back_question(std::string_view kept, std::string_view current) {
-    oa::ui::kit::Question asked;
+    namespace kit = oa::ui::kit;
+    kit::Question asked;
     asked.word = "update-previous";
-    asked.title = geometry::filled("Go back to {version}?", {{"version", kept}});
-    asked.paragraphs.push_back(
-        {geometry::filled(
-             "OA restarts on {version}, with the settings it had. {current} won't be offered "
-             "again until you choose it.",
-             {{"version", kept}, {"current", current}}
-         ),
-         false}
+    asked.title = geometry::filled("Roll back to {version}?", {{"version", kept}});
+    // What the roll back puts back, and what it leaves as it is: the
+    // preferences come back from the copy taken at the update; the player's
+    // folder, with its saves, replays, mods, maps and key layouts, is not touched.
+    kit::QuestionPart scope;
+    scope.kind = kit::PartKind::boxes;
+    kit::QuestionBox back;
+    back.heading = std::string(geometry::shown_text("Comes back"));
+    back.lines.push_back(
+        {kit::LineMark::bullet,
+         geometry::filled("Open Annihilation {version}", {{"version", kept}})}
     );
-    asked.buttons.push_back(
-        {std::string(oa::data::languages::interface_text("CANCEL")), false, "cancel"}
+    back.lines.push_back(
+        {kit::LineMark::bullet,
+         std::string(geometry::shown_text("Your settings from before you updated"))}
     );
-    asked.buttons.push_back(
-        {std::string(oa::data::languages::interface_text("ROLL BACK")), true, "roll-back"}
+    kit::QuestionBox stays;
+    stays.heading = std::string(geometry::shown_text("Stays as it is"));
+    stays.lines.push_back(
+        {kit::LineMark::bullet, std::string(geometry::shown_text("Saved games and replays"))}
     );
+    stays.lines.push_back(
+        {kit::LineMark::bullet, std::string(geometry::shown_text("Mods, maps and key layouts"))}
+    );
+    scope.boxes.push_back(std::move(back));
+    scope.boxes.push_back(std::move(stays));
+    asked.parts.push_back(std::move(scope));
+    kit::QuestionPart replaced;
+    replaced.kind = kit::PartKind::callout;
+    replaced.tone = kit::CalloutTone::caution;
+    replaced.text = std::string(
+        geometry::shown_text(
+            "Settings you changed after updating are replaced by the ones you had then."
+        )
+    );
+    asked.parts.push_back(std::move(replaced));
+    kit::QuestionPart restarts;
+    restarts.kind = kit::PartKind::text;
+    restarts.text = geometry::filled(
+        "The game closes, puts {version} back and starts again. {current} is not offered again "
+        "until a newer release.",
+        {{"version", kept}, {"current", current}}
+    );
+    asked.parts.push_back(std::move(restarts));
+    asked.buttons.push_back({std::string(geometry::shown_text("Cancel")), false, "cancel"});
+    kit::QuestionButton roll{
+        std::string(geometry::shown_text("Roll back and restart")), false, "roll-back"
+    };
+    roll.danger = true;
+    asked.buttons.push_back(std::move(roll));
+    // Cancel is marked, so Enter does not undo an update.
     asked.cancel_button = 0;
     asked.primary_button = 1;
-    asked.marked = 1;
+    asked.marked = 0;
     return asked;
 }
 

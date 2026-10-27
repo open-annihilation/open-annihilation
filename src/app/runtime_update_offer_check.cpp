@@ -134,6 +134,15 @@ bool paragraph_has(const kit::Question& asked, std::string_view line) {
     for (const kit::Paragraph& paragraph : asked.paragraphs)
         if (paragraph.text.find(line) != std::string::npos)
             return true;
+    // The notes are a box of their own, under the paragraphs.
+    for (const kit::QuestionPart& part : asked.parts) {
+        if (part.text.find(line) != std::string::npos)
+            return true;
+        for (const kit::QuestionBox& box : part.boxes)
+            for (const kit::BoxLine& listed : box.lines)
+                if (listed.text.find(line) != std::string::npos)
+                    return true;
+    }
     return false;
 }
 
