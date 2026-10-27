@@ -6333,9 +6333,9 @@
 [Key layout packages (.oakeys)]
 	{
 	de=Tastenbelegungs-Pakete (.oakeys);
-	fr=Paquets de dispositions des touches (.oakeys);
-	es=Paquetes de distribuciones de teclas (.oakeys);
-	it=Pacchetti di disposizioni dei tasti (.oakeys);
+	fr=Paquets de disposition des touches (.oakeys);
+	es=Paquetes de distribución de teclas (.oakeys);
+	it=Pacchetti di disposizione dei tasti (.oakeys);
 	}
 
 [Key Remaps]
@@ -10029,9 +10029,9 @@
 [Search key layouts]
 	{
 	de=Tastenbelegungen suchen;
-	fr=Chercher des dispositions des touches;
-	es=Buscar distribuciones de teclas;
-	it=Cerca disposizioni dei tasti;
+	fr=Chercher une disposition des touches;
+	es=Buscar una distribución de teclas;
+	it=Cerca una disposizione dei tasti;
 	}
 
 [Search languages]
