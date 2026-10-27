@@ -7,8 +7,9 @@
 // the built-in player, and its Mem cell the brain's level. On a computer
 // this machine runs, the name has a notch; the notch, the Resolution cell
 // and the right button on the name open the brain menu as the room's list
-// box, and the Mem cell steps the brain's level. Another machine's brain
-// is read alone. Tab, the arrows and the controller reach the Resolution
+// box, and the Mem cell steps the brain's level, or the built-in player's
+// as 3.1c steps a computer's difficulty. Another machine's brain is read
+// alone. Tab, the arrows and the controller reach the Resolution
 // cells. Resting the pointer on one, or the information key, shows the
 // seat's card. With nothing to show the screen is not there.
 
@@ -1153,15 +1154,17 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
 
     /// One computer row's cells.
     struct SeatRow {
-        int32_t slot{-1};          ///< the slot, from 0
-        uint32_t player_id{};      ///< the computer's player id; 0 for another machine's
-        bool button{};             ///< true for a computer this machine runs
-        bool enabled{true};        ///< false while this player is ready
-        bool steps{};              ///< the Mem cell steps the brain's level
-        kit::ControlId id{};       ///< its control id
-        std::string name{};        ///< its automation name, without oa.
-        room::SourceRect res{};    ///< the Resolution cell, in frame pixels
-        room::SourceRect mem{};    ///< the Mem cell while it shows a brain's level, in frame pixels
+        int32_t slot{-1};       ///< the slot, from 0
+        uint32_t player_id{};   ///< the computer's player id; 0 for another machine's
+        bool button{};          ///< true for a computer this machine runs
+        bool enabled{true};     ///< false while this player is ready
+        bool steps{};           ///< the Mem cell steps the brain's level
+        kit::ControlId id{};    ///< its control id
+        std::string name{};     ///< its automation name, without oa.
+        room::SourceRect res{}; ///< the Resolution cell, in frame pixels
+        /// The Mem cell, in frame pixels: while it shows a brain's level, and
+        /// on the built-in player's row this machine runs, where it steps the level.
+        room::SourceRect mem{};
         room::SourceRect player{}; ///< the name, in frame pixels
         room::SourceRect notch{};  ///< the notch at the name's right end, in frame pixels
         std::string label{};       ///< the whole label, uncut
@@ -1347,9 +1350,16 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
                 row.player_id = player.player_id;
                 row.choice = *choice;
                 row.shown = describe_choice(runtime_, listing, probe, *choice).shown;
-                if (const brain::InstalledBrain* brain_installed =
-                        row.shown.name.empty() ? nullptr : brain::find(listing, choice->brain))
+                if (row.shown.name.empty()) {
+                    // The built-in player's level steps as 3.1c steps its difficulty.
+                    row.steps = true;
+                    row.mem = control_rect("MEM" + std::to_string(slot));
+                } else if (
+                    const brain::InstalledBrain* brain_installed =
+                        brain::find(listing, choice->brain)
+                ) {
                     row.steps = brain_installed->manifest.levels.size() > 1;
+                }
                 if (row.player.width > notch_width * 2)
                     row.notch = room::room_notch_rect(row.player, notch_width);
             } else {
@@ -1866,13 +1876,29 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         ++revision_;
     }
 
-    /// Steps a computer's brain to its level after, or before, round its levels.
+    /// Steps a computer's brain to its level after, or before, round its
+    /// levels; the built-in player's round Easy, Medium and Hard, as 3.1c
+    /// steps a computer's difficulty.
     ///
     /// @param row the row
     /// @param forward true for the level after
     void step_level(const SeatRow& row, bool forward) {
         if (!row.steps)
             return;
+        if (row.choice.brain.empty()) {
+            constexpr std::array<std::string_view, 3> built_in{"easy", "medium", "hard"};
+            std::size_t at = built_in.size() - 1;
+            for (std::size_t index = 0; index < built_in.size(); ++index)
+                if (built_in[index] == row.choice.level)
+                    at = index;
+            at =
+                forward ? (at + 1) % built_in.size() : (at + built_in.size() - 1) % built_in.size();
+            picker::Choice choice = row.choice;
+            choice.level = std::string(built_in[at]);
+            BrainRoomAccess::write(runtime_, mp::multiplayer_lobby(), row.player_id, choice, false);
+            ++revision_;
+            return;
+        }
         const brain::InstalledBrain* installed =
             brain::find(runtime_.installed_brains(), row.choice.brain);
         if (installed == nullptr || installed->manifest.levels.size() < 2)
