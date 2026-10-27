@@ -555,7 +555,9 @@ Touch and Controller; Graphics, User Interface and Language & Text; Game
 files, Downloads, Updates and Game Content; Engine Limits, System and
 Developer (`geometry::nav_group`, `nav_layout`). Each entry draws its icon
 (`section_icons.cpp`) left of its name, lit while the entry is open or
-under the pointer. Updates shows `Dialog::updates_badge`, the host's short
+under the pointer; where a section's name in the language needs the
+icons' room, the list draws its names without icons, from the icons'
+column, and grows only for what is still missing (`fitted_sizes`). Updates shows `Dialog::updates_badge`, the host's short
 word for an update under way, at its right where the name still fits
 whole. At Compact a list of twelve entries or more is taller than the rail
 and scrolls by the wheel, the open entry (or the focused one) kept in view.
@@ -1562,7 +1564,9 @@ The practice pad answers keys only where the host hands them over
 screen does not yet, so on screen the pad shows its words and Turn every
 helper off works, but a key pressed there does nothing. At Compact,
 Developer's list keeps a view of 37 pixels between its line and Show
-Active Only, about two of its rows. The rows' older buttons (CHOOSE…, MANAGE…, SHOW, RESET and the
+Active Only, about two of its rows; in French, where both switch rows'
+labels drop their switches under them and the hints take more lines,
+Developer's three rows pass that line and the list has no room. The rows' older buttons (CHOOSE…, MANAGE…, SHOW, RESET and the
 like) keep their capitals until their words and translations change
 together.
 
