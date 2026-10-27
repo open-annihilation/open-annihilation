@@ -174,7 +174,8 @@ inline constexpr Colour category_developer{0x8a, 0x91, 0x80};
 
 } // namespace colour
 
-/// The Game files screen and the folder chooser.
+/// The Game files screen and the folder chooser: the dialog's tokens, each a
+/// value of its own.
 namespace screen_colour {
 
 /// The screen behind everything.
