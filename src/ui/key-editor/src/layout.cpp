@@ -2125,7 +2125,8 @@ kit::DisplayList exchange_prompt(
         const auto measure = [&](std::string_view measured) {
             return kit::text_width(fonts, font, measured);
         };
-        std::vector<std::string> lines = kit::wrap(std::move(words), column_w, measure);
+        std::vector<std::string> lines =
+            kit::wrap(std::move(words), column_w, measure, kit::WrapRules{.newlines = true});
         int32_t used = 0;
         int32_t drawn = 0;
         for (std::string& line : lines) {
@@ -2232,17 +2233,18 @@ kit::DisplayList exchange_prompt(
         const auto measure = [&](std::string_view measured) {
             return kit::text_width(fonts, font, measured);
         };
-        const std::vector<std::string> lines = kit::wrap(words, column_w, measure);
+        const std::vector<std::string> lines =
+            kit::wrap(words, column_w, measure, kit::WrapRules{.newlines = true});
         const int32_t count = std::min(static_cast<int32_t>(lines.size()), most_lines);
         return count * line_h;
     };
-    /// Draws a block of lines in a well. A block taller than `room` scrolls,
-    /// and the bar sits in the panel's padding so the lines keep their width.
+    /// Draws a block of lines in a well. A new line starts a line, and a line
+    /// wider than the column wraps. A block taller than `room` scrolls, and
+    /// the bar sits in the panel's padding so the lines keep their width.
     ///
     /// @param words the lines, as the control names them
     /// @param font which font
     /// @param ink the colour
-    /// @param most_lines how many lines the block may hold
     /// @param room how tall the block may be, in points
     /// @param id the control
     /// @param name the control's name
@@ -2250,19 +2252,19 @@ kit::DisplayList exchange_prompt(
     auto place_block = [&](const std::string& words,
                            kit::FontRole font,
                            kit::Colour ink,
-                           int32_t most_lines,
                            int32_t room,
                            kit::ControlId id,
                            std::string_view name) -> int32_t {
         const int32_t line_h = line_height(font);
-        if (column_w <= 0 || line_h <= 0 || room <= 0 || words.empty() || most_lines <= 0)
+        if (column_w <= 0 || line_h <= 0 || room <= 0 || words.empty())
             return 0;
         const auto measure = [&](std::string_view measured) {
             return kit::text_width(fonts, font, measured);
         };
-        std::vector<std::string> lines = kit::wrap(words, column_w, measure);
-        if (static_cast<int32_t>(lines.size()) > most_lines)
-            lines.resize(static_cast<std::size_t>(most_lines));
+        // Keep every line. The room is the view, so a text taller than the
+        // room scrolls instead of being cut off after a fixed count.
+        std::vector<std::string> lines =
+            kit::wrap(words, column_w, measure, kit::WrapRules{.newlines = true});
         if (lines.empty())
             return 0;
         const int32_t content_h = static_cast<int32_t>(lines.size()) * line_h;
@@ -2399,9 +2401,16 @@ kit::DisplayList exchange_prompt(
         }
         const std::string from = show(editor.text(), words::starts_from) + " " + summary.base;
         y += wrapped(y, from, kit::FontRole::small, kit::colour::text, 2);
+        std::string_view counted = words::keys_and_helpers;
+        if (summary.keys == 1 && summary.helpers == 1)
+            counted = words::keys_one_helper_one;
+        else if (summary.keys == 1)
+            counted = words::keys_one_helpers;
+        else if (summary.helpers == 1)
+            counted = words::keys_helpers_one;
         const std::string changes = show(editor.text(), words::changes_label) + " " +
                                     fill(
-                                        show(editor.text(), words::keys_and_helpers),
+                                        show(editor.text(), counted),
                                         {{"keys", std::to_string(summary.keys)},
                                          {"helpers", std::to_string(summary.helpers)}}
                                     );
@@ -2424,7 +2433,6 @@ kit::DisplayList exchange_prompt(
             summary.text,
             kit::FontRole::small,
             kit::colour::quiet,
-            6,
             room,
             controls::share_text,
             name_share_text
@@ -2451,8 +2459,10 @@ kit::DisplayList exchange_prompt(
 
     if (state.prompt == Prompt::paste) {
         title(words::paste_title);
+        const std::string_view change_word =
+            state.paste.changes == 1 ? words::text_changes_one : words::text_changes;
         const std::string summary = fill(
-            show(editor.text(), words::text_changes),
+            show(editor.text(), change_word),
             {{"n", std::to_string(state.paste.changes)}, {"layout", editor.layout_name()}}
         );
         std::string spoken = summary;
@@ -2529,7 +2539,6 @@ kit::DisplayList exchange_prompt(
             rows,
             kit::FontRole::small,
             kit::colour::text,
-            8,
             room,
             controls::paste_list,
             name_paste_list
@@ -2543,7 +2552,7 @@ kit::DisplayList exchange_prompt(
         buttons.push_back(make(
             controls::paste_apply,
             name_paste_apply,
-            words::apply_changes,
+            state.paste.changes == 1 ? words::apply_change_one : words::apply_changes,
             true,
             state.paste.changes > 0
         ));
@@ -2644,8 +2653,15 @@ kit::DisplayList exchange_prompt(
             2
         );
     }
+    std::string_view found_word = words::found_differ;
+    if (state.importing.found == 1 && state.importing.differ == 1)
+        found_word = words::found_one_differs_one;
+    else if (state.importing.found == 1)
+        found_word = words::found_one_key;
+    else if (state.importing.differ == 1)
+        found_word = words::found_differs_one;
     const std::string found = fill(
-        show(editor.text(), words::found_differ),
+        show(editor.text(), found_word),
         {{"n", std::to_string(state.importing.found)},
          {"m", std::to_string(state.importing.differ)},
          {"layout", editor.layout_name()}}
@@ -2704,13 +2720,7 @@ kit::DisplayList exchange_prompt(
         window.height - y - tail_h - kSectionGap - metrics.button_height - pad, int32_t{0}
     );
     y += place_block(
-        rows,
-        kit::FontRole::small,
-        kit::colour::text,
-        8,
-        room,
-        controls::import_list,
-        name_import_list
+        rows, kit::FontRole::small, kit::colour::text, room, controls::import_list, name_import_list
     );
     if (!moves.empty())
         y += wrapped(y, moves, kit::FontRole::small, kit::colour::hint, 3);
@@ -2719,7 +2729,7 @@ kit::DisplayList exchange_prompt(
     buttons.push_back(make(
         controls::import_apply,
         name_import_apply,
-        words::import_n_keys,
+        state.importing.differ == 1 ? words::import_one_key : words::import_n_keys,
         true,
         state.importing.differ > 0
     ));

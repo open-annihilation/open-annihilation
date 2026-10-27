@@ -18762,6 +18762,30 @@
 	it=Parte da;
 	}
 
+[1 key, 1 helper]
+	{
+	de=1 Taste, 1 Helfer;
+	fr=1 touche, 1 aide;
+	es=1 tecla, 1 ayuda;
+	it=1 tasto, 1 aiuto;
+	}
+
+[1 key, {helpers} helpers]
+	{
+	de=1 Taste, {helpers} Helfer;
+	fr=1 touche, {helpers} aides;
+	es=1 tecla, {helpers} ayudas;
+	it=1 tasto, {helpers} aiuti;
+	}
+
+[{keys} keys, 1 helper]
+	{
+	de={keys} Tasten, 1 Helfer;
+	fr={keys} touches, 1 aide;
+	es={keys} teclas, 1 ayuda;
+	it={keys} tasti, 1 aiuto;
+	}
+
 [{keys} keys, {helpers} helpers]
 	{
 	de={keys} Tasten, {helpers} Helfer;
@@ -18778,6 +18802,14 @@
 	it=Salvato in {place};
 	}
 
+[The text changes 1 key of {layout}.]
+	{
+	de=Der Text ändert 1 Taste von {layout}.;
+	fr=Le texte change 1 touche de {layout}.;
+	es=El texto cambia 1 tecla de {layout}.;
+	it=Il testo cambia 1 tasto di {layout}.;
+	}
+
 [The text changes {n} keys of {layout}.]
 	{
 	de=Der Text ändert {n} Tasten von {layout}.;
@@ -18792,6 +18824,14 @@
 	fr=place;
 	es=lugar;
 	it=posto;
+	}
+
+[APPLY 1 CHANGE]
+	{
+	de=1 ÄNDERUNG ÜBERNEHMEN;
+	fr=APPLIQUER 1 CHANGEMENT;
+	es=APLICAR 1 CAMBIO;
+	it=APPLICA 1 MODIFICA;
 	}
 
 [APPLY {n} CHANGES]
@@ -18818,12 +18858,44 @@
 	it=Open Annihilation non lo usa;
 	}
 
+[Found 1 key · 1 differs from {layout}]
+	{
+	de=1 Taste gefunden · 1 weicht von {layout} ab;
+	fr=1 touche trouvée · 1 diffère de {layout};
+	es=1 tecla encontrada · 1 difiere de {layout};
+	it=1 tasto trovato · 1 differisce da {layout};
+	}
+
+[Found 1 key · {m} differ from {layout}]
+	{
+	de=1 Taste gefunden · {m} weichen von {layout} ab;
+	fr=1 touche trouvée · {m} diffèrent de {layout};
+	es=1 tecla encontrada · {m} difieren de {layout};
+	it=1 tasto trovato · {m} differiscono da {layout};
+	}
+
+[Found {n} keys · 1 differs from {layout}]
+	{
+	de={n} Tasten gefunden · 1 weicht von {layout} ab;
+	fr={n} touches trouvées · 1 diffère de {layout};
+	es={n} teclas encontradas · 1 difiere de {layout};
+	it={n} tasti trovati · 1 differisce da {layout};
+	}
+
 [Found {n} keys · {m} differ from {layout}]
 	{
 	de={n} Tasten gefunden · {m} weichen von {layout} ab;
 	fr={n} touches trouvées · {m} diffèrent de {layout};
 	es={n} teclas encontradas · {m} difieren de {layout};
 	it={n} tasti trovati · {m} differiscono da {layout};
+	}
+
+[IMPORT 1 KEY]
+	{
+	de=1 TASTE IMPORTIEREN;
+	fr=IMPORTER 1 TOUCHE;
+	es=IMPORTAR 1 TECLA;
+	it=IMPORTA 1 TASTO;
 	}
 
 [IMPORT {n} KEYS]

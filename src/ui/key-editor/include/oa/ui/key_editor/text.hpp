@@ -428,24 +428,42 @@ inline constexpr std::string_view starts_from = "Starts from";
 inline constexpr std::string_view changes_label = "Changes";
 /// How many keys and helpers the share text carries.
 inline constexpr std::string_view keys_and_helpers = "{keys} keys, {helpers} helpers";
+/// The same line when the text carries one key and one helper.
+inline constexpr std::string_view keys_one_helper_one = "1 key, 1 helper";
+/// The same line when the text carries one key.
+inline constexpr std::string_view keys_one_helpers = "1 key, {helpers} helpers";
+/// The same line when the text carries one helper.
+inline constexpr std::string_view keys_helpers_one = "{keys} keys, 1 helper";
 /// Where SAVE FILE… wrote the package. `{place}` is the path.
 inline constexpr std::string_view saved_to = "Saved to {place}";
 /// Opens the folder a package was written to.
 inline constexpr std::string_view open_folder = "OPEN FOLDER";
 /// What the paste text would change. `{n}` is the count and `{layout}` the base.
 inline constexpr std::string_view text_changes = "The text changes {n} keys of {layout}.";
+/// The same line when the text changes one key.
+inline constexpr std::string_view text_changes_one = "The text changes 1 key of {layout}.";
 /// A row whose chord is a key's place.
 inline constexpr std::string_view place_word = "place";
 /// APPLY on the paste prompt. `{n}` is how many rows it writes.
 inline constexpr std::string_view apply_changes = "APPLY {n} CHANGES";
+/// APPLY when it writes one row.
+inline constexpr std::string_view apply_change_one = "APPLY 1 CHANGE";
 /// The line under an imported layout. `{file}` is the file's name.
 inline constexpr std::string_view imported_from_file = "Imported from {file}";
 /// A legacy key Open Annihilation has no action for.
 inline constexpr std::string_view not_used = "not used by Open Annihilation";
 /// The import summary. `{n}` were read, `{m}` differ, `{layout}` is the base.
 inline constexpr std::string_view found_differ = "Found {n} keys · {m} differ from {layout}";
+/// The summary when one key was read and it differs.
+inline constexpr std::string_view found_one_differs_one = "Found 1 key · 1 differs from {layout}";
+/// The summary when one key was read.
+inline constexpr std::string_view found_one_key = "Found 1 key · {m} differ from {layout}";
+/// The summary when one key differs.
+inline constexpr std::string_view found_differs_one = "Found {n} keys · 1 differs from {layout}";
 /// IMPORT on the import prompt. `{n}` is how many keys it writes.
 inline constexpr std::string_view import_n_keys = "IMPORT {n} KEYS";
+/// IMPORT when it writes one key.
+inline constexpr std::string_view import_one_key = "IMPORT 1 KEY";
 /// Asks for another legacy file.
 inline constexpr std::string_view choose_another_file = "CHOOSE ANOTHER FILE…";
 /// A left-hand or right-hand modifier. `{modifier}` is Shift, Ctrl or Alt.

@@ -886,6 +886,204 @@ void check_exchange(const kit::Frame& frame, const std::string& where) {
     OA_CHECK(control_enabled(laid, editor::name_share_save));
 }
 
+/// True when one drawn line holds `kept` and not `other`.
+///
+/// @param list the display list
+/// @param kept the words that line shows
+/// @param other words from the next row, which must not share the line
+/// @return true when such a line is drawn
+bool line_holds(const kit::DisplayList& list, std::string_view kept, std::string_view other) {
+    for (const kit::Item& item : list.items) {
+        if (item.role != kit::Role::text)
+            continue;
+        if (item.text.find(kept) != std::string::npos && item.text.find(other) == std::string::npos)
+            return true;
+    }
+    return false;
+}
+
+/// The share, paste and import blocks keep each source line on its own line,
+/// a count of one uses the singular word, and a share text taller than the
+/// Compact room scrolls under the wheel.
+///
+/// @param frame the frame
+/// @param where the size
+void check_exchange_lines(const kit::Frame& frame, const std::string& where) {
+    const editor::Editor model(editor_fixture());
+    const kit::Point window = editor::window_size(frame);
+    const auto check_list = [&](const kit::DisplayList& list, const std::string& name) {
+        expect_none(outside_window(list, window), name + " drawn");
+        expect_none(rects_outside(list, window), name + " control");
+        expect_none(meeting_controls(list), name + " meets");
+        expect_none(texts_not_fitting(list, fonts()), name + " text");
+    };
+
+    editor::Editor named(editor_fixture());
+    named.set_share_name("Grid, left hand");
+    editor::ScreenState share;
+    share.prompt = editor::Prompt::share;
+    share.share_field.text = "Grid, left hand";
+    const kit::DisplayList shared = laid_out(named, share, frame);
+    check_list(shared, where + " share lines");
+    const kit::Control* share_text = find_named(shared, editor::name_share_text);
+    if (share_text == nullptr || share_text->text.find("\norder.attack:") == std::string::npos ||
+        share_text->text.find("\nselect.all:") == std::string::npos) {
+        std::fprintf(stderr, "%s: the share text is not three lines\n", where.c_str());
+    }
+    OA_CHECK(
+        share_text != nullptr && share_text->text.find("\norder.attack:") != std::string::npos &&
+        share_text->text.find("\nselect.all:") != std::string::npos
+    );
+    if (!line_holds(shared, "order.attack:", "select.all:"))
+        std::fprintf(stderr, "%s: order.attack shares a line with select.all\n", where.c_str());
+    OA_CHECK(line_holds(shared, "order.attack:", "select.all:"));
+    if (!shows(shared, "2 keys, 0 helpers"))
+        std::fprintf(stderr, "%s: the share count is not plural\n", where.c_str());
+    OA_CHECK(shows(shared, "2 keys, 0 helpers"));
+
+    editor::EditorInputs one = editor_fixture();
+    one.chosen.layout.bindings.clear();
+    one.own.bindings.clear();
+    one.own.bindings.push_back(key_editor_fixture::binding_of("order.attack", "W"));
+    one.helpers.sticky_modifiers = true;
+    editor::Editor single(std::move(one));
+    editor::ScreenState one_share;
+    one_share.prompt = editor::Prompt::share;
+    const kit::DisplayList one_laid = laid_out(single, one_share, frame);
+    check_list(one_laid, where + " one key");
+    if (!shows(one_laid, "1 key, 1 helper"))
+        std::fprintf(stderr, "%s: one key and one helper are not singular\n", where.c_str());
+    OA_CHECK(shows(one_laid, "1 key, 1 helper"));
+
+    editor::ScreenState pasted;
+    pasted.prompt = editor::Prompt::paste;
+    constexpr std::string_view sample = "# oakeys bindings, base oa-default\n"
+                                        "order.move: [\"@KeyQ\"]\n"
+                                        "select.all: [Ctrl+B]\n"
+                                        "camera.orbit-left: [Q]\n";
+    const auto* bytes = reinterpret_cast<const uint8_t*>(sample.data());
+    pasted.paste = editor::paste_preview(model, {bytes, sample.size()});
+    const kit::DisplayList paste_list = laid_out(model, pasted, frame);
+    check_list(paste_list, where + " paste lines");
+    const kit::Control* rows = find_named(paste_list, editor::name_paste_list);
+    if (rows == nullptr || rows->text.find('\n') == std::string::npos) {
+        std::fprintf(stderr, "%s: the paste rows are one line\n", where.c_str());
+    }
+    OA_CHECK(rows != nullptr && rows->text.find('\n') != std::string::npos);
+    if (!line_holds(paste_list, "order.move", "select.all"))
+        std::fprintf(stderr, "%s: order.move shares a line with select.all\n", where.c_str());
+    OA_CHECK(line_holds(paste_list, "order.move", "select.all"));
+    const std::string apply = caption_of(paste_list, editor::name_paste_apply);
+    if (apply.find("APPLY 3 CHANGES") == std::string::npos)
+        std::fprintf(stderr, "%s: APPLY is \"%s\"\n", where.c_str(), apply.c_str());
+    OA_CHECK(apply.find("APPLY 3 CHANGES") != std::string::npos);
+
+    editor::ScreenState one_paste;
+    one_paste.prompt = editor::Prompt::paste;
+    one_paste.paste.changes = 1;
+    const kit::DisplayList one_paste_list = laid_out(model, one_paste, frame);
+    const std::string one_summary = caption_of(one_paste_list, editor::name_paste_summary);
+    const std::string one_apply = caption_of(one_paste_list, editor::name_paste_apply);
+    if (one_summary.find("1 key of") == std::string::npos ||
+        one_summary.find("1 keys") != std::string::npos) {
+        std::fprintf(stderr, "%s: paste summary is \"%s\"\n", where.c_str(), one_summary.c_str());
+    }
+    OA_CHECK(
+        one_summary.find("1 key of") != std::string::npos &&
+        one_summary.find("1 keys") == std::string::npos
+    );
+    if (one_apply != "APPLY 1 CHANGE")
+        std::fprintf(stderr, "%s: APPLY one is \"%s\"\n", where.c_str(), one_apply.c_str());
+    OA_CHECK(one_apply == "APPLY 1 CHANGE");
+
+    editor::ScreenState importing;
+    importing.prompt = editor::Prompt::import;
+    importing.import_chosen = 0;
+    editor::ImportOffer offer;
+    offer.file = "Settings.ini";
+    importing.import_offers.push_back(offer);
+    importing.importing.found = 2;
+    importing.importing.differ = 2;
+    importing.importing.file = "Settings.ini";
+    editor::ImportRow first;
+    first.action = "megamap.toggle";
+    editor::ImportRow second;
+    second.action = "whiteboard.draw";
+    importing.importing.rows.push_back(std::move(first));
+    importing.importing.rows.push_back(std::move(second));
+    const kit::DisplayList imported = laid_out(model, importing, frame);
+    check_list(imported, where + " import lines");
+    if (!line_holds(imported, "megamap.toggle", "whiteboard.draw")) {
+        std::fprintf(
+            stderr, "%s: megamap.toggle shares a line with whiteboard.draw\n", where.c_str()
+        );
+    }
+    OA_CHECK(line_holds(imported, "megamap.toggle", "whiteboard.draw"));
+    if (!shows(imported, "Found 2 keys"))
+        std::fprintf(stderr, "%s: two keys are not plural\n", where.c_str());
+    OA_CHECK(shows(imported, "Found 2 keys"));
+
+    importing.importing.found = 1;
+    importing.importing.differ = 1;
+    importing.importing.rows.pop_back();
+    const kit::DisplayList one_import = laid_out(model, importing, frame);
+    const std::string found = caption_of(one_import, editor::name_import_summary);
+    const std::string import_apply = caption_of(one_import, editor::name_import_apply);
+    if (found.find("Found 1 key") == std::string::npos ||
+        found.find("Found 1 keys") != std::string::npos ||
+        found.find("1 differs") == std::string::npos) {
+        std::fprintf(stderr, "%s: import summary is \"%s\"\n", where.c_str(), found.c_str());
+    }
+    OA_CHECK(
+        found.find("Found 1 key") != std::string::npos &&
+        found.find("Found 1 keys") == std::string::npos &&
+        found.find("1 differs") != std::string::npos
+    );
+    if (import_apply != "IMPORT 1 KEY")
+        std::fprintf(stderr, "%s: IMPORT one is \"%s\"\n", where.c_str(), import_apply.c_str());
+    OA_CHECK(import_apply == "IMPORT 1 KEY");
+
+    if (frame.size_class != kit::SizeClass::compact)
+        return;
+    editor::EditorInputs many = editor_fixture();
+    for (int32_t index = 0; index < 40; ++index) {
+        many.own.bindings.push_back(
+            key_editor_fixture::binding_of("shared.line." + std::to_string(index), "Q")
+        );
+    }
+    editor::Editor tall(std::move(many));
+    editor::ScreenState scrolling = share;
+    const kit::DisplayList tall_list = laid_out(tall, scrolling, frame);
+    check_list(tall_list, where + " share scroll");
+    const kit::Control* block = find_named(tall_list, editor::name_share_text);
+    const kit::Control* bar = find_named(tall_list, editor::name_exchange_bar);
+    if (block == nullptr || bar == nullptr || bar->group <= block->rect.height) {
+        std::fprintf(
+            stderr,
+            "%s: the share bar is missing (text %d, bar %d)\n",
+            where.c_str(),
+            block == nullptr ? 0 : block->rect.height,
+            bar == nullptr ? 0 : bar->group
+        );
+    }
+    OA_CHECK(block != nullptr && bar != nullptr && bar->group > block->rect.height);
+    if (block == nullptr || bar == nullptr)
+        return;
+    const kit::Point at{
+        block->rect.x + block->rect.width / 2, block->rect.y + block->rect.height / 2
+    };
+    const editor::EditorResult turned = editor::editor_wheel(tall, scrolling, tall_list, at, -1.F);
+    if (!turned.redraw || scrolling.exchange_scroll <= 0) {
+        std::fprintf(
+            stderr,
+            "%s: the wheel left the share text at %d\n",
+            where.c_str(),
+            scrolling.exchange_scroll
+        );
+    }
+    OA_CHECK(turned.redraw && scrolling.exchange_scroll > 0);
+}
+
 int main() {
     const kit::Frame compact = frame_for(640, 480, 100);
     const kit::Frame large = frame_for(1280, 720, 100);
@@ -919,6 +1117,9 @@ int main() {
     check_exchange(compact, "compact");
     check_exchange(large, "large");
     check_exchange(regular, "regular");
+    check_exchange_lines(compact, "compact");
+    check_exchange_lines(large, "large");
+    check_exchange_lines(regular, "regular");
 
     check_view(
         compact, {480, 324}, "keyboard compact", editor::View::keyboard, kit::KeyboardShape::ansi
