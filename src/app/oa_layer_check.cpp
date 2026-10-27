@@ -15,6 +15,7 @@
 #include "oa/ui/kit/theme.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -1186,6 +1187,10 @@ void OaLayer::check_clear_screens() {
             reset_window_places() && shows_at(0, 0) && stored().empty(),
             "Reset window positions did not centre Settings again"
         );
+        require(
+            placement_of("settings").corner_radius == kit::compact_metrics.window_radius,
+            "Settings at Compact does not take Compact's window radius"
+        );
         press(SDLK_ESCAPE, SDL_KMOD_NONE);
         require(
             runtime_.engine_settings_dialog() == nullptr, "Escape did not close the moved Settings"
@@ -1193,6 +1198,86 @@ void OaLayer::check_clear_screens() {
         std::cout << "OA layer check: Settings moves by its title and keeps its place, a "
                      "double-click centres it, Alt and the arrows move it, and a reset puts it "
                      "back\n";
+    }
+
+    {
+        // Rounded corners: a window's drawing of one colour, its corners
+        // rounded at 1x, 1.5x and 2x. Outside each quarter circle the pixels
+        // are clear, along it the strong edge at the top left and the dark
+        // edge at the bottom right, and everything else as drawn.
+        const kit::Colour face = kit::colour::panel;
+        constexpr int32_t radius_points = 10;
+        for (const int32_t percent : {100, 150, 200}) {
+            const kit::Rect size = kit::to_canvas({0, 0, 60, 40}, percent);
+            const int32_t radius = kit::to_canvas({0, 0, radius_points, 0}, percent).width;
+            LayerDrawing drawn;
+            drawn.picture.width = static_cast<uint32_t>(size.width);
+            drawn.picture.height = static_cast<uint32_t>(size.height);
+            for (int32_t pixel = 0; pixel < size.width * size.height; ++pixel)
+                drawn.picture.rgb.insert(drawn.picture.rgb.end(), {face.r, face.g, face.b});
+            round_layer_corners(drawn, radius_points, percent);
+            const std::string at = " at " + std::to_string(percent) + "%";
+            require(
+                drawn.opacity.size() == static_cast<std::size_t>(size.width * size.height),
+                "a rounded drawing has no opacity for each pixel" + at
+            );
+            const auto pixel_at = [&](int32_t column, int32_t row) {
+                return static_cast<std::size_t>(row) * static_cast<std::size_t>(size.width) +
+                       static_cast<std::size_t>(column);
+            };
+            const auto colour_is = [&](std::size_t pixel, const kit::Colour& ink) {
+                const uint8_t* rgb = drawn.picture.rgb.data() + pixel * 3U;
+                return rgb[0] == ink.r && rgb[1] == ink.g && rgb[2] == ink.b;
+            };
+            int32_t light = 0;
+            int32_t dark = 0;
+            for (int32_t row = 0; row < size.height; ++row)
+                for (int32_t column = 0; column < size.width; ++column) {
+                    const std::size_t pixel = pixel_at(column, row);
+                    const int32_t across = std::min(column, size.width - 1 - column);
+                    const int32_t down = std::min(row, size.height - 1 - row);
+                    const bool in_corner = across < radius && down < radius;
+                    if (!in_corner) {
+                        require(
+                            drawn.opacity[pixel] == 255 && colour_is(pixel, face),
+                            "a pixel outside the corners changed" + at
+                        );
+                        continue;
+                    }
+                    if (drawn.opacity[pixel] == 0)
+                        continue;
+                    require(
+                        drawn.opacity[pixel] == 255,
+                        "a rounded corner has a pixel neither clear nor opaque" + at
+                    );
+                    const bool top_left = column < radius && row < radius;
+                    const bool bottom_right =
+                        column >= size.width - radius && row >= size.height - radius;
+                    if (colour_is(pixel, kit::colour::edge_light)) {
+                        require(!bottom_right, "the bottom right corner has the strong edge" + at);
+                        ++light;
+                    } else if (colour_is(pixel, kit::colour::edge_dark)) {
+                        require(!top_left, "the top left corner has the dark edge" + at);
+                        ++dark;
+                    } else {
+                        require(
+                            colour_is(pixel, face), "a corner's pixel is neither edge nor face" + at
+                        );
+                    }
+                }
+            for (const auto& [column, row] : std::array<std::pair<int32_t, int32_t>, 4>{
+                     {{0, 0},
+                      {size.width - 1, 0},
+                      {0, size.height - 1},
+                      {size.width - 1, size.height - 1}}
+                 })
+                require(
+                    drawn.opacity[pixel_at(column, row)] == 0, "a corner's pixel is not clear" + at
+                );
+            require(light > 0 && dark > 0, "the corners have no edge drawn round them" + at);
+        }
+        std::cout << "OA layer check: a window's and a dialog's corners are clear outside the "
+                     "quarter circle and edged along it, at 1x, 1.5x and 2x\n";
     }
 
     require(
