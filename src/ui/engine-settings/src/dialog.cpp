@@ -804,7 +804,14 @@ Sizes fitted_sizes(const Dialog& dialog, const TextWidth* regular, const TextWid
          dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller)) {
         widest = std::max(widest, (*regular)(std::string(shown_text(page_name(page)))));
     }
-    const int32_t text_room = sized.list_item_width - sized.nav.text_left - list_text_margin;
+    int32_t text_room = sized.list_item_width - sized.nav.text_left - list_text_margin;
+    if (widest > text_room) {
+        // A section name that does not fit beside the icons takes their room:
+        // the list then draws its names without icons, from the icons' column.
+        sized.nav.text_left = sized.nav.icon_left;
+        sized.nav.icon_side = 0;
+        text_room = sized.list_item_width - sized.nav.text_left - list_text_margin;
+    }
     if (widest > text_room) {
         // The open section keeps room for a description. A section name that
         // still does not fit the list takes a shorter word.

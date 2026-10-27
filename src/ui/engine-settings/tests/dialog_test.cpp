@@ -11422,6 +11422,39 @@ void the_section_list_draws_an_icon_before_each_entry() {
     }
 }
 
+/// A section name that does not fit beside the icons takes their room: the
+/// list draws no icons and its names start in the icons' column, and grows
+/// only for what is still missing. Names that fit keep the icons.
+void a_long_section_name_takes_the_icons_room() {
+    settings::Dialog dialog = opened(Page::graphics);
+    const geometry::Sizes plain = geometry::sizes_of(dialog);
+    const int32_t with_icons =
+        plain.list_item_width - plain.nav.text_left - geometry::list_text_margin;
+    const int32_t without_icons =
+        plain.list_item_width - plain.nav.icon_left - geometry::list_text_margin;
+    CHECK(without_icons > with_icons);
+    const auto measured = [](int32_t graphics_width) {
+        return geometry::TextWidth{[graphics_width](std::string_view text) {
+            return text == "Graphics" ? graphics_width : 6 * static_cast<int32_t>(text.size()) / 2;
+        }};
+    };
+    // Every name fits beside the icons: the icons stay.
+    const geometry::TextWidth fits = measured(with_icons);
+    const geometry::Sizes kept = geometry::fitted_sizes(dialog, &fits, &fits);
+    CHECK(kept.nav.icon_side == plain.nav.icon_side && kept.nav.text_left == plain.nav.text_left);
+    CHECK(kept.list_width == plain.list_width);
+    // One name passes them but fits from the icons' column: no icons, and
+    // the list keeps its width.
+    const geometry::TextWidth longer = measured(without_icons);
+    const geometry::Sizes dropped = geometry::fitted_sizes(dialog, &longer, &longer);
+    CHECK(dropped.nav.icon_side == 0 && dropped.nav.text_left == plain.nav.icon_left);
+    CHECK(dropped.list_width == plain.list_width);
+    // Longer still: the list grows by what is missing from the icons' column.
+    const geometry::TextWidth longest = measured(without_icons + 5);
+    const geometry::Sizes grown = geometry::fitted_sizes(dialog, &longest, &longest);
+    CHECK(grown.nav.icon_side == 0 && grown.list_width == plain.list_width + 5);
+}
+
 void updates_entry_shows_its_badge_where_the_caption_keeps_its_width() {
     const auto fonts = block_fonts();
     constexpr renderer::Rgb kAccentLight{0xb6, 0xe0, 0x5a};
@@ -11565,6 +11598,7 @@ int main(int argc, char** argv) {
         the_footer_counts_the_settings_changed();
         window_size_and_reset_window_positions_sit_on_user_interface();
         the_section_list_draws_an_icon_before_each_entry();
+        a_long_section_name_takes_the_icons_room();
         updates_entry_shows_its_badge_where_the_caption_keeps_its_width();
         the_larger_classes_press_each_control_where_it_is_drawn();
         registered_pages_list_under_their_owners_and_write_on_ok();

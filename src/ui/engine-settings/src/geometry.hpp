@@ -91,7 +91,7 @@ struct NavMetrics {
     int32_t rule_margin{};  ///< the rows above and below a rule between two groups
     int32_t margin{};       ///< the rows above the first entry and below the last
     int32_t icon_left{};    ///< the icon's column within its entry
-    int32_t icon_side{};    ///< the icon's side
+    int32_t icon_side{};    ///< the icon's side; 0 draws no icons
     int32_t text_left{};    ///< the caption's column within its entry
     /// The columns the list is wider than the class's (kit::Metrics::nav_width),
     /// so that each section's name stands whole right of its icon.

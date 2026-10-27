@@ -383,21 +383,24 @@ void add_nav(Building& building, const Dialog& dialog) {
             );
             badge_width += layout::list_text_margin;
         }
-        const SourceRect icon{
-            entry.rect.x + metrics.icon_left,
-            entry.rect.y + (entry.rect.height - metrics.icon_side) / 2,
-            metrics.icon_side,
-            metrics.icon_side,
-        };
-        picture(
-            building.list,
-            icon,
-            icons::section_icon(
-                entry.piece->registered ? Page::registered : entry.piece->page,
-                entry.lit ? icons::Tone::lit : icons::Tone::quiet
-            ),
-            layout.area
-        );
+        // No icons where a section's name needs their room (fitted_sizes).
+        if (metrics.icon_side > 0) {
+            const SourceRect icon{
+                entry.rect.x + metrics.icon_left,
+                entry.rect.y + (entry.rect.height - metrics.icon_side) / 2,
+                metrics.icon_side,
+                metrics.icon_side,
+            };
+            picture(
+                building.list,
+                icon,
+                icons::section_icon(
+                    entry.piece->registered ? Page::registered : entry.piece->page,
+                    entry.lit ? icons::Tone::lit : icons::Tone::quiet
+                ),
+                layout.area
+            );
+        }
         text(
             building.list,
             DialogFont::regular,
