@@ -1,13 +1,15 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// --check-key-share: sharing a layout, pasting text, importing one key from
-// an older settings file, and installing a dropped .oakeys. With --snapshot
-// it writes key-share-<w>x<h>.ppm, key-paste-<w>x<h>.ppm,
-// key-import-<w>x<h>.ppm, and the install question's key-install-<w>x<h>.ppm
-// and its refusal's key-install-refused-<w>x<h>.ppm, at 640x480, 1280x720
-// and 1920x1080. The check shows the install question, which a run nobody
-// watches otherwise skips.
+// --check-key-share: sharing a layout, pasting text, refusing a text that is
+// no key layout, importing one key from an older settings file, and
+// installing a dropped .oakeys. With --snapshot it writes
+// key-share-<w>x<h>.ppm, key-paste-<w>x<h>.ppm, the refusal's
+// key-paste-refused-<w>x<h>.ppm, key-import-<w>x<h>.ppm, and the install
+// question's key-install-<w>x<h>.ppm and its refusal's
+// key-install-refused-<w>x<h>.ppm, at 640x480, 1280x720 and 1920x1080. The
+// check shows the install question, which a run nobody watches otherwise
+// skips.
 
 #include "mod_install_state.hpp"
 #include "oa_layer.hpp"
@@ -62,6 +64,9 @@ constexpr SDL_Keycode kPasteKey = SDLK_LCTRL;
 constexpr std::string_view kPasteText = "order.move: [\"@KeyQ\"]\n"
                                         "select.all: [Ctrl+B]\n"
                                         "camera.orbit-left: [Q]\n";
+
+/// A text Paste… is given that is no key layout.
+constexpr std::string_view kNotLayoutText = "Hello, these are my keys\n";
 
 /// One window the check opens the editor in.
 struct CheckWindow {
@@ -430,6 +435,25 @@ void Runtime::check_key_share() {
         require(read.id == "grid-left-hand", "the shared layout's id is not grid-left-hand");
         click_named("oa.key-editor.share.close");
     };
+    // Paste refuses a text that is no key layout in the player's words, and
+    // the sample goes back on the clipboard.
+    const auto open_refused_paste = [&](const CheckWindow& window) {
+        const std::string size = std::to_string(window.width) + 'x' + std::to_string(window.height);
+        note(std::string("PASTE refuses a text that is no key layout ") + size);
+        require(stage_clipboard_text(kNotLayoutText), "the clipboard was not set");
+        press_named("oa.key-editor.paste");
+        require(named("oa.key-editor.paste.cancel").has_value(), "PASTE did not open");
+        const AutomationControl rows =
+            require_named("oa.key-editor.paste.list", "the refusal is not listed");
+        require(
+            rows.text.find(editor::words::text_not_layout) != std::string::npos,
+            "the refusal is not in the player's words: " + rows.text
+        );
+        snapshot("key-paste-refused", window);
+        click_named("oa.key-editor.paste.cancel");
+        require(!named("oa.key-editor.paste.cancel").has_value(), "PASTE stayed open");
+        require(stage_clipboard_text(kPasteText), "the clipboard was not set");
+    };
     const auto open_paste = [&](const CheckWindow& window, bool keep) {
         const std::string size = std::to_string(window.width) + 'x' + std::to_string(window.height);
         note(std::string("PASTE picture ") + size);
@@ -550,6 +574,7 @@ void Runtime::check_key_share() {
         open_editor();
         open_share(window, false);
         open_paste(window, false);
+        open_refused_paste(window);
         open_import(window, false);
         close_editor();
     }
@@ -558,6 +583,7 @@ void Runtime::check_key_share() {
     resize(kLarge);
     open_editor();
     open_share(kLarge, true);
+    open_refused_paste(kLarge);
     open_paste(kLarge, true);
     open_import(kLarge, true);
 
