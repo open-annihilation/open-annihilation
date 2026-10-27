@@ -71,16 +71,6 @@ void outline(const Canvas& canvas, const Rect& rect, Colour ink) {
     outline_rect(canvas, rect, ink);
 }
 
-/// Blends a token over a rectangle.
-///
-/// @param canvas where it is drawn
-/// @param rect the rectangle
-/// @param ink the colour
-/// @param opacity its share of each pixel, in 256ths
-void blend(const Canvas& canvas, const Rect& rect, Colour ink, uint32_t opacity) {
-    blend_rect(canvas, rect, ink, opacity);
-}
-
 /// Draws a text in a box, when the canvas has a surface and fonts.
 ///
 /// @param canvas where it is drawn
@@ -123,6 +113,61 @@ void cut_line(
     if (!drawable(canvas) || canvas.fonts == nullptr || text.empty() || box.width <= 0)
         return;
     line(canvas, role, cut_to_width(*canvas.fonts, role, text, box.width), box, align, ink);
+}
+
+/// Draws a pill: its face, when it has one, inside a one-point border, or
+/// the border alone. The border is the whole pill and the face the pill
+/// one point in, so a partial pixel is one colour or the other.
+///
+/// @param canvas where it is drawn
+/// @param rect the pill
+/// @param face the face; none leaves what is under the pill
+/// @param border the border's colour
+void draw_capsule(
+    const Canvas& canvas, const Rect& rect, std::optional<Colour> face, Colour border
+) {
+    if (rect.width <= 0 || rect.height <= 0)
+        return;
+    const int32_t radius = std::min(rect.width, rect.height) / 2;
+    if (!face) {
+        outline_round_rect(canvas, rect, radius, border);
+        return;
+    }
+    if (*face == border || rect.width <= 2 || rect.height <= 2) {
+        fill_round_rect(canvas, rect, radius, *face);
+        return;
+    }
+    fill_round_rect(canvas, rect, radius, border);
+    fill_round_rect(
+        canvas,
+        {rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2},
+        std::max(radius - 1, int32_t{0}),
+        *face
+    );
+}
+
+/// Draws a rectangle with rounded corners: its face inside a one-point
+/// border, the border the whole shape and the face the shape one point in.
+///
+/// @param canvas where it is drawn
+/// @param rect the rectangle
+/// @param radius the corners' radius, in points
+/// @param face the face
+/// @param border the border's colour
+void draw_capsule_corners(
+    const Canvas& canvas, const Rect& rect, int32_t radius, Colour face, Colour border
+) {
+    if (rect.width <= 2 || rect.height <= 2) {
+        fill_corner_rect(canvas, rect, radius, face);
+        return;
+    }
+    fill_corner_rect(canvas, rect, radius, border);
+    fill_corner_rect(
+        canvas,
+        {rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2},
+        std::max(radius - 1, int32_t{0}),
+        face
+    );
 }
 
 /// Appends a control.
@@ -168,32 +213,34 @@ struct ChipColours {
     Colour text{};                ///< the words
 };
 
-/// Returns a chip's colours.
+/// Returns a chip's colours: a state's tinted fill and its colour's words,
+/// the accent filled while playing, and a filter outlined, on the selected
+/// surface with the accent's edge while it is on.
 ///
 /// @param look the chip
 /// @return its face, border and text
 ChipColours chip_colours(const ChipLook& look) noexcept {
     if (look.disabled)
-        return {std::nullopt, colour::switch_idle, colour::switch_idle};
+        return {std::nullopt, colour::control_border, colour::switch_idle};
     ChipColours colours;
     switch (look.state) {
     case ChipState::get:
-        colours = {std::nullopt, colour::control_hover, colour::hint};
+        colours = {std::nullopt, colour::control_hover, colour::text_secondary};
         break;
     case ChipState::installed:
-        colours = {std::nullopt, colour::accent, colour::accent};
+        colours = {colour::ok_tint, colour::ok_tint, colour::accent_light};
         break;
     case ChipState::update:
-        colours = {std::nullopt, colour::lock, colour::lock};
+        colours = {colour::caution_tint, colour::caution_tint, colour::lock};
         break;
     case ChipState::playing:
         colours = {colour::accent, colour::accent, colour::on_accent};
         break;
     case ChipState::online:
-        colours = {std::nullopt, colour::online, colour::online};
+        colours = {colour::information_tint, colour::information_tint, colour::information};
         break;
     case ChipState::problem:
-        colours = {std::nullopt, colour::danger, colour::danger};
+        colours = {colour::danger_tint, colour::danger_tint, colour::danger};
         break;
     case ChipState::filter:
         if (look.selected)
@@ -202,12 +249,14 @@ ChipColours chip_colours(const ChipLook& look) noexcept {
             colours = {
                 std::nullopt,
                 look.hovered ? colour::control_hover : colour::control_border,
-                colour::hint
+                colour::text_secondary
             };
         break;
     }
     if (look.hovered && !colours.face.has_value())
         colours.face = colour::hover;
+    else if (look.hovered && look.state != ChipState::playing)
+        colours.border = colour::control_hover;
     return colours;
 }
 
@@ -501,7 +550,7 @@ void draw_arrow(const Canvas& canvas, const Rect& rect, const HoverCardLook& loo
             bar = {rect.x + rect.width, rect.y + look.arrow_at - half, reach, across};
             break;
         }
-        fill(canvas, bar, colour::lock);
+        fill(canvas, bar, colour::strong_edge);
     }
 }
 
@@ -580,11 +629,14 @@ Rect list_row_maker_rect(const Rect& row, const ListRowLook& look) {
 void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& look) {
     if (!drawable(canvas))
         return;
+    // Rounded as a control is: the hover face, then a selected row's accent
+    // tint over it and the accent's outline.
+    const int32_t row_radius = kMetrics.control_radius;
     if (look.hovered)
-        fill(canvas, rect, colour::hover);
+        fill_corner_rect(canvas, rect, row_radius, colour::hover);
     if (look.selected) {
-        blend(canvas, rect, colour::accent, selected_tint);
-        outline(canvas, rect, colour::accent);
+        blend_corner_rect(canvas, rect, row_radius, colour::accent, selected_tint);
+        outline_corner_rect(canvas, rect, row_radius, colour::accent);
     }
 
     const int32_t inset = kMetrics.list_row_inset;
@@ -644,7 +696,14 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
                 aside_width,
                 kMetrics.small_line,
             };
-            cut_line(canvas, FontRole::small, look.aside[index], box, Align::right, colour::hint);
+            cut_line(
+                canvas,
+                FontRole::small,
+                look.aside[index],
+                box,
+                Align::right,
+                colour::text_secondary
+            );
         }
         text_right = aside_left - kMetrics.list_row_gap;
     }
@@ -740,14 +799,12 @@ void draw_chip(const Canvas& canvas, const Rect& rect, const ChipLook& look) {
         return;
     if (look.icon.has_value()) {
         if (look.hovered && !look.disabled)
-            fill(canvas, rect, colour::hover);
+            fill_round_rect(canvas, rect, std::min(rect.width, rect.height) / 2, colour::hover);
         draw_state_icon(clipped(canvas, rect), rect, *look.icon, icon_ink(look));
         return;
     }
     const ChipColours colours = chip_colours(look);
-    if (colours.face.has_value())
-        fill(canvas, rect, *colours.face);
-    outline(canvas, rect, colours.border);
+    draw_capsule(canvas, rect, colours.face, colours.border);
     line(clipped(canvas, rect), FontRole::small, look.text, rect, Align::centre, colours.text);
 }
 
@@ -762,11 +819,11 @@ struct PillColours {
     std::optional<Colour> outline{}; ///< the outline; none when the ground is the whole pill
 };
 
-/// Returns a pill's colours from its state alone. Playing and active are
-/// the accent filled, with on_accent text and no separate outline. Neutral
-/// and inactive are the muted ground under the text colour. Installed,
-/// update and problem use that ground with an outline and text in the
-/// colour a chip of that state uses.
+/// Returns a pill's colours from its state alone: a badge's. Playing and
+/// active are the accent filled, with on_accent text. Neutral and inactive
+/// are the selected surface under the secondary text. Installed, update,
+/// problem, information and brand are their colour's tinted fill under
+/// words in that colour.
 ///
 /// @param state the state
 /// @return its colours
@@ -777,37 +834,38 @@ PillColours colours_for(PillState state) noexcept {
         return {colour::accent, colour::on_accent, std::nullopt};
     case PillState::neutral:
     case PillState::inactive:
-        return {colour::control_hover, colour::text, std::nullopt};
+        return {colour::list_selected, colour::text_secondary, std::nullopt};
     case PillState::installed:
-        return {colour::control_hover, colour::accent, colour::accent};
+        return {colour::ok_tint, colour::accent_light, std::nullopt};
     case PillState::update:
-        return {colour::control_hover, colour::lock, colour::lock};
+        return {colour::caution_tint, colour::lock, std::nullopt};
     case PillState::problem:
-        return {colour::control_hover, colour::danger, colour::danger};
+        return {colour::danger_tint, colour::danger, std::nullopt};
+    case PillState::information:
+        return {colour::information_tint, colour::information, std::nullopt};
+    case PillState::brand:
+        return {colour::brand_tint, colour::brand_light, std::nullopt};
     }
-    return {colour::control_hover, colour::text, std::nullopt};
+    return {colour::list_selected, colour::text_secondary, std::nullopt};
 }
 
-/// Returns a pill's colours, including hover, focus and disabled.
+/// Returns a pill's colours, including hover and disabled.
 ///
-/// Hover lightens an accent ground and outlines a muted one. Focus outlines
-/// the pill in the text colour, over a hover outline. Disabled is the muted
-/// ground under the idle colour and ignores the other two.
+/// Hover lightens an accent ground and outlines any other in the hovered
+/// border's grey. Disabled is the hover surface under the idle colour and
+/// ignores hover. Focus is the focus ring, drawn round the pill.
 ///
 /// @param look the pill
 /// @return its colours
 PillColours pill_colours(const PillLook& look) noexcept {
     if (look.disabled)
-        return {colour::control_hover, colour::switch_idle, std::nullopt};
+        return {colour::hover, colour::switch_idle, std::nullopt};
     PillColours colours = colours_for(look.state);
     const bool accent_ground = look.state == PillState::playing || look.state == PillState::active;
-    const bool muted = look.state == PillState::neutral || look.state == PillState::inactive;
     if (look.hovered && accent_ground)
         colours.ground = colour::accent_light;
-    if (look.hovered && muted)
-        colours.outline = colour::accent;
-    if (look.focused)
-        colours.outline = colour::text;
+    else if (look.hovered)
+        colours.outline = colour::control_hover;
     return colours;
 }
 
@@ -911,6 +969,12 @@ void draw_pill(const Canvas& canvas, const Rect& rect, const PillLook& look) {
     // box_text, not line: line draws nothing on the smooth form when the
     // game's fonts are absent, and a pill's words are part of the shape.
     box_text(clipped(canvas, rect), FontRole::small, look.text, words, Align::centre, colours.text);
+    if (look.focused && !look.disabled) {
+        const int32_t out = kMetrics.focus_inset;
+        ring_corner_rect(
+            canvas, grown(rect, out), radius + out, kMetrics.focus_ring, colour::focus
+        );
+    }
 }
 
 void add_pill(
@@ -988,13 +1052,21 @@ int32_t field_scroll(const Fonts& fonts, const Rect& rect, const SearchLook& loo
 void draw_search(const Canvas& canvas, const Rect& rect, const SearchLook& look) {
     if (!drawable(canvas))
         return;
-    fill(canvas, rect, colour::well);
+    const int32_t radius = control_radius_for(rect.height);
     Colour border = colour::control_border;
     if (look.focused)
         border = colour::accent;
     else if (look.hovered)
         border = colour::control_hover;
-    outline(canvas, rect, border);
+    if (look.focused)
+        ring_corner_rect(
+            canvas,
+            grown(rect, kMetrics.focus_inset),
+            radius + kMetrics.focus_inset,
+            kMetrics.focus_inset,
+            colour::field_ring
+        );
+    draw_capsule_corners(canvas, rect, radius, colour::well, border);
     if (look.magnifier)
         draw_mark(
             canvas,
@@ -1331,7 +1403,7 @@ void draw_tabs(const Canvas& canvas, const Rect& strip, const TabsLook& look) {
             caption,
             {tab.x + side, tab.y, caption_columns, above_rule},
             Align::left,
-            selected || hovered ? colour::text : colour::hint,
+            selected || hovered ? colour::text : colour::text_secondary,
             letter_gap
         );
         const int32_t count = count_of(look, index);
@@ -1347,7 +1419,7 @@ void draw_tabs(const Canvas& canvas, const Rect& strip, const TabsLook& look) {
                 };
                 const bool amber =
                     index < look.count_amber.size() && look.count_amber[index] != 0 && count > 0;
-                Colour ink = selected || hovered ? colour::text : colour::hint;
+                Colour ink = selected || hovered ? colour::text : colour::text_secondary;
                 if (amber)
                     ink = colour::lock;
                 line(room, FontRole::small, digits, digits_box, Align::left, ink);
@@ -1359,13 +1431,18 @@ void draw_tabs(const Canvas& canvas, const Rect& strip, const TabsLook& look) {
                 count_width(canvas.fonts, count),
                 kMetrics.tab_count_height,
             };
-            fill(room, pill, colour::lock);
+            fill_round_rect(room, pill, std::min(pill.width, pill.height) / 2, colour::lock);
             line(
                 room, FontRole::small, std::to_string(count), pill, Align::centre, colour::on_accent
             );
         }
         if (selected)
-            fill(room, {tab.x, tab.y + above_rule, tab.width, kMetrics.tab_rule}, colour::accent);
+            fill_round_rect(
+                room,
+                {tab.x, tab.y + above_rule, tab.width, kMetrics.tab_rule},
+                kMetrics.tab_rule / 2,
+                colour::accent
+            );
     }
 }
 
@@ -1587,13 +1664,15 @@ std::vector<Rect> card_cells(const Rect& area, std::size_t count, std::size_t co
 void draw_card(const Canvas& canvas, const Rect& rect, const CardLook& look) {
     if (!drawable(canvas))
         return;
-    fill(canvas, rect, colour::list_selected);
     Colour border = colour::control_border;
     if (look.selected)
         border = colour::accent;
     else if (look.hovered)
         border = colour::control_hover;
-    outline(canvas, rect, border);
+    const int32_t radius = std::min(kMetrics.card_radius, std::min(rect.width, rect.height) / 4);
+    draw_capsule_corners(
+        canvas, rect, radius, look.hovered ? colour::list_selected : colour::hover, border
+    );
 
     const Rect preview = card_preview(rect);
     if (renderer::picture_drawable(look.picture)) {
@@ -1629,7 +1708,7 @@ void draw_card(const Canvas& canvas, const Rect& rect, const CardLook& look) {
     cut_line(canvas, FontRole::small, look.subtitle, subtitle, Align::left, colour::hint);
 
     if (look.greyed)
-        blend(canvas, rect, colour::panel, locked_fade);
+        blend_corner_rect(canvas, rect, radius, colour::panel, locked_fade);
 }
 
 void add_card(
@@ -1705,8 +1784,13 @@ Rect hover_card_rect(const Rect& anchor, const Rect& frame, Point size) noexcept
 void draw_hover_card(const Canvas& canvas, const Rect& rect, const HoverCardLook& look) {
     if (!drawable(canvas))
         return;
-    fill(canvas, rect, colour::band);
-    outline(canvas, rect, colour::lock);
+    draw_capsule_corners(
+        canvas,
+        rect,
+        std::min(kMetrics.card_radius, std::min(rect.width, rect.height) / 4),
+        colour::band,
+        colour::strong_edge
+    );
     draw_arrow(canvas, rect, look);
 
     const int32_t padding = kMetrics.hover_card_padding;
@@ -1728,7 +1812,7 @@ void draw_hover_card(const Canvas& canvas, const Rect& rect, const HoverCardLook
                 draw_picture(canvas, {pen, row + (row_height - side) / 2, side, side}, canvas.icon);
             } else {
                 draw_mark(
-                    canvas, Mark::oa_small, {pen, row + (row_height - mark.y) / 2}, colour::accent
+                    canvas, Mark::oa_small, {pen, row + (row_height - mark.y) / 2}, colour::brand
                 );
             }
             pen += mark.x + padding;

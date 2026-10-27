@@ -1278,26 +1278,32 @@ void draw_question(const Canvas& canvas, const Question& question) {
     draw_window_edge(canvas, whole);
 }
 
-void draw_progress(const Canvas& canvas, const Rect& bar, int32_t done, int32_t whole) {
+void draw_progress(
+    const Canvas& canvas, const Rect& bar, int32_t done, int32_t whole, bool paused
+) {
     if (!can_draw(canvas) || bar.width <= 0 || bar.height <= 0)
         return;
-    fill_rect(canvas, bar, colour::well);
-    outline_rect(canvas, bar, colour::control_border);
+    const int32_t radius = std::min(bar.width, bar.height) / 2;
+    fill_round_rect(canvas, bar, radius, colour::list_selected);
     if (whole <= 0)
         return;
-    const int32_t inner = bar.width - 2;
     const auto filled =
-        static_cast<int32_t>(int64_t{inner} * std::clamp(done, int32_t{0}, whole) / whole);
+        static_cast<int32_t>(int64_t{bar.width} * std::clamp(done, int32_t{0}, whole) / whole);
     if (filled > 0)
-        fill_rect(canvas, {bar.x + 1, bar.y + 1, filled, bar.height - 2}, colour::accent);
+        fill_round_rect(
+            canvas,
+            {bar.x, bar.y, filled, bar.height},
+            radius,
+            paused ? colour::lock : colour::accent
+        );
 }
 
-void add_progress(DisplayList& list, const Rect& bar, int32_t done, int32_t whole) {
+void add_progress(DisplayList& list, const Rect& bar, int32_t done, int32_t whole, bool paused) {
     Item item;
     item.role = Role::progress;
     item.rect = bar;
     item.text = std::to_string(done);
-    item.look = ProgressLook{done, whole};
+    item.look = ProgressLook{done, whole, paused};
     list.items.push_back(std::move(item));
 }
 

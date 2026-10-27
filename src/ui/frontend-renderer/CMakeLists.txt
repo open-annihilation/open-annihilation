@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 add_library(oa-ui-frontend-renderer src/frontend_renderer.cpp src/gadget_draw.cpp src/scroll_bars.cpp
-  src/artless.cpp src/panel_shade.cpp src/game_text.cpp)
+  src/artless.cpp src/panel_shade.cpp src/game_text.cpp src/room_parts.cpp)
 add_library(oa::ui::frontend_renderer ALIAS oa-ui-frontend-renderer)
 target_include_directories(oa-ui-frontend-renderer PUBLIC include)
 target_link_libraries(oa-ui-frontend-renderer PUBLIC
@@ -32,6 +32,15 @@ if(BUILD_TESTING)
   target_link_libraries(oa-artless-draw-test PRIVATE oa-ui-frontend-renderer oa-options oa-test-game-data)
   add_test(NAME frontend-artless-draw COMMAND oa-artless-draw-test)
   oa_add_game_data_test(frontend-artless-draw-data oa-artless-draw-test --data)
+
+  # A room's own parts: the canvas, the plain face, a plate drawn wider than
+  # its art, the notch, the stamp, a lamp and a list's rows; with --data,
+  # every part in the installed game's art over the skirmish setup.
+  add_executable(oa-room-parts-test tests/room_parts_test.cpp)
+  target_link_libraries(oa-room-parts-test PRIVATE oa-ui-frontend-renderer oa-formats-png
+    oa-test-game-data)
+  add_test(NAME frontend-room-parts COMMAND oa-room-parts-test)
+  oa_add_game_data_test(frontend-room-parts-data oa-room-parts-test --data)
 
   # The installed game's MAINMENU.GUI, the one laid out for FrontendX, which
   # the main menu takes with no overlay drawn over it, and a mod folder's own.

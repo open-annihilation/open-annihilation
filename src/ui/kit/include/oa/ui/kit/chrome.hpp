@@ -98,8 +98,8 @@ struct HeadingLook {
 /// @param whole the window
 void draw_window_face(const Canvas& canvas, const Rect& whole);
 
-/// Draws the window's raised edge, light over dark. A screen draws it last,
-/// over the face.
+/// Draws the window's raised edge, the strong edge over dark. A screen
+/// draws it last, over the face.
 ///
 /// @param canvas where it is drawn
 /// @param whole the window

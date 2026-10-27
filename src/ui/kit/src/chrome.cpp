@@ -212,8 +212,9 @@ void draw_nav(const Canvas& canvas, const NavLook& look) {
         rule_rect(canvas, *look.divider, colour::rule);
     for (const NavEntry& entry : look.entries) {
         Colour ink = colour::list_text;
+        const int32_t radius = control_radius_for(entry.rect.height);
         if (entry.selected) {
-            fill_rect(canvas, entry.rect, colour::list_selected);
+            fill_corner_rect(canvas, entry.rect, radius, colour::list_selected);
             fill_rect(
                 canvas,
                 {entry.rect.x + kMarkerOffset,
@@ -224,7 +225,7 @@ void draw_nav(const Canvas& canvas, const NavLook& look) {
             );
             ink = colour::text;
         } else if (entry.hovered) {
-            fill_rect(canvas, entry.rect, colour::hover);
+            fill_corner_rect(canvas, entry.rect, radius, colour::hover);
             ink = colour::text;
         }
         Rect caption{

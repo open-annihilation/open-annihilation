@@ -14,8 +14,10 @@
 // Auto scale) and lays them out at the size class of the points left over:
 // at a whole scale on the kit canvas's crisp form, and at 150% on its smooth
 // form in the modern fonts. In a match the settings dialog takes a scale and
-// size class of its own, capped by the side column's scale, and is drawn at
-// them beside the column (OaLayer::match_dialog). oa_layer.cpp holds it, the
+// size class of its own from the whole window, capped by the side column's
+// scale (OaLayer::match_dialog). A window such as Settings or the Library
+// moves by its title, and keeps its place for each size class
+// (window_placement.hpp). oa_layer.cpp holds it, the
 // settings' screen (Runtime::SettingsScreen), the screens of a notice
 // (NoticeScreen) and a question (QuestionScreen), and the UI kit gallery
 // (GalleryScreen), which covers the whole window over the settings.
@@ -34,6 +36,7 @@
 #include "oa/ui/pad_controls.hpp"
 #include "oa/ui/screen_registry.hpp"
 #include "oa/ui/screen_registry/kit.hpp"
+#include "window_placement.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -68,15 +71,21 @@ struct LayerView {
     bool fit_safe_area{};
     /// The room the screens have, in points, with its size class and scale.
     /// On the front end: the window's canvas less its safe insets while the
-    /// game has touch controls, divided by the scale (kit::frame_of). In a
-    /// match: the safe area, Compact at 100%, as the in-match Settings takes
-    /// its class and scale from the area beside the side column
+    /// game has touch controls, divided by the scale (kit::frame_of), its
+    /// class the Window size's where one is chosen
+    /// (window_placement::class_under). In a match: the safe area, Compact
+    /// at 100%, as the in-match Settings takes its own class and scale
     /// (OaLayer::match_dialog).
     oa::ui::kit::Frame frame{};
+    /// The Window size in effect (window_placement::window_size_key): Auto,
+    /// or the class the player chose, on the front end and in a match.
+    window_placement::WindowSize window_size{window_placement::WindowSize::automatic};
     /// The whole number of window pixels a point takes: the step the
     /// Interface size setting in effect chooses, or for Auto the window
-    /// canvas's Auto scale (kit::auto_scale), no larger than lets Compact's
-    /// settings dialog fit the room, and at least 1 (kit::layer_viewport).
+    /// canvas's Auto scale (kit::auto_scale), one step lower where that
+    /// gives the room the class the Window size wants, no larger than lets
+    /// Compact's settings dialog fit the room, and at least 1
+    /// (kit::layer_viewport).
     /// At 150% it is 1, and scale_percent holds the fraction. 1 in a match.
     int32_t scale{1};
     /// The window pixels a point takes, in percent: scale times 100, or 150
@@ -505,22 +514,6 @@ layer_key(uint32_t sdl_key, uint16_t modifiers, bool in_match = false) noexcept;
 [[nodiscard]] AutomationControlKind
 automation_kind(const oa::ui::kit::AutomationEntry& entry) noexcept;
 
-/// Where the settings dialog shows in a match, and the size class and scale
-/// it is laid out and drawn at there (OaLayer::match_dialog).
-struct MatchDialogPlace {
-    /// The dialog's rectangle on the match's canvas, in its pixels: the
-    /// class's dialog points at the scale (kit::to_canvas), or on a phone
-    /// Compact fitted to the safe area.
-    oa::ui::display_layout::Rect shown{};
-    /// The class the dialog is laid out at: from the points of the area
-    /// right of the side column at the scale; Compact on a phone.
-    oa::ui::kit::SizeClass size_class{oa::ui::kit::SizeClass::compact};
-    /// The scale the dialog is drawn at, in percent: a whole step times 100,
-    /// or 150. 0 on a phone, where Compact is drawn at 1× and fitted to its
-    /// place.
-    int32_t scale_percent{100};
-};
-
 /// The host of Open Annihilation's own screens over every screen of the
 /// game (Runtime::oa_layer).
 ///
@@ -552,7 +545,16 @@ struct MatchDialogPlace {
 /// a match the layer is one picture of the window's size: the in-game OA
 /// button, the backdrop and the screens, drawn again when what it shows
 /// changes (refresh_match); Settings is laid out and drawn there at the
-/// class and scale match_dialog gives, beside the side column.
+/// class and scale match_dialog gives.
+///
+/// A window that moves (window_placement::moves) shows where the player put
+/// it: its title, the window's header, drags it, snapped to the room's
+/// centre and safe edges and kept on screen; a finger holds the title
+/// first; a double-click on the title puts it back in the centre; Alt and an
+/// arrow move the window that takes the keys, by 8 points, or 32 with Shift.
+/// Each window keeps its place for each size class in the preferences
+/// (window_placement::place_key), as an offset from its centre in points.
+/// Notices and questions stay centred.
 class OaLayer {
   public:
 
@@ -678,7 +680,36 @@ class OaLayer {
     /// @return the class; Compact in a match
     [[nodiscard]] oa::ui::kit::SizeClass screen_class() const { return view().frame.size_class; }
 
-    /// Returns where the topmost screen of a name shows now.
+    /// Returns the Window size in effect, as the preferences hold it
+    /// (window_placement::window_size_key).
+    ///
+    /// @return the size; Auto when none is chosen
+    [[nodiscard]] window_placement::WindowSize window_size() const;
+
+    /// Chooses the Window size, which overrides the size class OA's windows
+    /// are laid out at, keeps it in the preferences and writes them, and
+    /// lays every screen out again for it.
+    ///
+    /// @param size the size; Auto erases the preference
+    void set_window_size(window_placement::WindowSize size);
+
+    /// Puts every window back in its centre: forgets each window's place at
+    /// every size class (window_placement::forget_places), writes the
+    /// preferences, and ends a drag under way.
+    ///
+    /// @return true when a window had a place to forget
+    bool reset_window_places();
+
+    /// Returns the offset from its centre at which a window that moves shows
+    /// now, at the class it is laid out at: a drag's while one is under way,
+    /// else the one remembered.
+    ///
+    /// @param name the window's screen name
+    /// @return the offset, in points; 0, 0 when it shows centred
+    [[nodiscard]] oa::ui::kit::Point window_offset(std::string_view name) const;
+
+    /// Returns where the topmost screen of a name shows now, moved where the
+    /// player put it (shown_placement).
     ///
     /// @param name the screen's name
     /// @return its place, in window pixels; empty when no such screen shows
@@ -998,26 +1029,24 @@ class OaLayer {
         bool fit = false
     );
 
-    /// Returns where the settings dialog shows on the match's canvas, and the
-    /// size class and scale it is laid out and drawn at there.
+    /// Returns where the settings dialog shows unmoved on the match's
+    /// canvas, and the size class and scale it is laid out and drawn at
+    /// there (window_placement::match_window).
     ///
-    /// The scale starts as the layer's on the match's canvas
-    /// (kit::layer_viewport of its pixels, density and safe insets at the
-    /// Interface size: its step, 150%, or for Auto the canvas height's).
-    /// Above the side column's scale (MatchLayout::scale, which HUD scaling
-    /// caps) it takes the largest whole step at or below that scale, and at
-    /// least 1. Where Compact's dialog points do not fit the area right of
-    /// the column (the canvas from the column's right edge, its whole
-    /// height) at that scale, it takes the largest whole step at which they
-    /// do, and at least 1. The class comes from that area's points at the
-    /// scale (kit::frame_of), and the dialog is the class's dialog points at
-    /// the scale (kit::to_canvas), centred in the area: left = column's
-    /// right edge + (area width - dialog width) / 2, top = (canvas height -
-    /// dialog height) / 2. A 640 by 480 window is Compact at 1× at (144,
-    /// 78), as before; 1280 by 720 is Regular at 1×, 1920 by 1080 Compact
-    /// at 2× and 2560 by 1080 Regular at 2× with HUD scaling On and 150%
-    /// not offered, 1920 by 1080 Regular at 1.5× with it offered, and 1920
-    /// by 1080 with HUD scaling Off Large at 1×.
+    /// The scale is the layer's on the match's canvas (kit::layer_viewport
+    /// of its pixels, density and safe insets at the Interface size: its
+    /// step, 150%, or for Auto the canvas height's, one step lower where
+    /// that gives the class the Window size wants), and above the side
+    /// column's scale (MatchLayout::scale, which HUD scaling caps) the
+    /// largest whole step at or below that scale, and at least 1. The class
+    /// comes from the points of the window's whole safe area at the scale,
+    /// or the Window size held to what fits it: the dialog may cover the side
+    /// column. It is centred in the safe area, or centred across in the area
+    /// right of the column where that holds it. A 640 by 480 window is
+    /// Compact at 1× at (144, 78), as before; 800 by 600 Regular at 1×;
+    /// 1024 by 768, 1280 by 720, 1366 by 768 and 1280 by 800 Large at 1×;
+    /// 1920 by 1080 Large at 1×, or at 1.5× while 150% is offered; 2560 by
+    /// 1440 Large at 2×.
     ///
     /// Fitted to a phone's safe area, Compact is drawn at 1× and fitted to
     /// the largest scale that shows it whole there (min(safe width /
@@ -1028,25 +1057,22 @@ class OaLayer {
     /// @param interface_percent the Interface size in effect, in percent
     ///     (LayerView::interface_percent): 0 for Auto
     /// @param fit the dialog fits the safe area (match_fits_safe_area)
+    /// @param size the Window size in effect (LayerView::window_size)
     /// @return the dialog's rectangle, class and scale
     [[nodiscard]] static MatchDialogPlace match_dialog(
         const oa::ui::display_layout::MatchLayout& match_layout,
         int32_t interface_percent,
-        bool fit = false
+        bool fit = false,
+        window_placement::WindowSize size = window_placement::WindowSize::automatic
     ) noexcept;
 
     /// Returns the frame the UI kit gallery takes in a match: the match's
     /// canvas less its safe insets, at the layer's scale on it
-    /// (kit::layer_viewport of its pixels, density and safe insets at the
-    /// Interface size: its step, 150%, or for Auto the canvas height's), no
-    /// larger than the side column's scale (MatchLayout::scale, which HUD
-    /// scaling caps: the largest whole step at or below it instead, and at
-    /// least 1), and the size class of the canvas's points at that scale
-    /// (kit::frame_of). Unlike the settings dialog the gallery covers the
-    /// whole canvas, so the room right of the column plays no part: a 640
-    /// by 480 window is Compact at 1×, 1280 by 720 Large at 1× and 1920 by
-    /// 1080 Regular at 2× with HUD scaling On while 150% is not offered,
-    /// and Large at 1.5× while it is.
+    /// (window_placement::match_viewport at Auto's Window size), and the
+    /// size class of the canvas's points at that scale (kit::frame_of). It
+    /// covers the whole canvas: a 640 by 480 window is Compact at 1×, 1280
+    /// by 720 Large at 1× and 1920 by 1080 Large at 1× while 150% is not
+    /// offered, and Large at 1.5× while it is.
     ///
     /// @param match_layout the match's layout
     /// @param interface_percent the Interface size in effect, in percent
@@ -1123,7 +1149,7 @@ class OaLayer {
 
     /// Checks, for --check-engine-settings, screens that are not opaque and
     /// the information key (oa_layer_check.cpp). On the main menu in a 640
-    /// by 480 and a 1920 by 1080 window, such a screen changes no pixel of
+    /// by 480 and a 2560 by 1440 window, such a screen changes no pixel of
     /// the window, nor of the frame without the cursor, but those it draws,
     /// alone, over an opaque screen and under one, and darkens nothing; the
     /// cursor shows above it; opaque screens draw as before; automation
@@ -1134,6 +1160,10 @@ class OaLayer {
     /// to the game, and such a screen changes no pixel of the match's
     /// picture but those it draws. The match's layer lays a pixel over its
     /// own by its opacity, its colours straight.
+    /// Settings, on a 640 by 480 main menu, moves 60 by 40 points by a drag
+    /// on its title and keeps that place in the preferences, a double-click
+    /// on the title centres it again, Alt and Right then Alt, Shift and Down
+    /// move it 8 and 32 points, and reset_window_places centres it.
     ///
     /// Throws std::runtime_error naming the first thing that failed.
     void check_clear_screens();
@@ -1176,7 +1206,9 @@ class OaLayer {
     /// Everything but the screen itself that a front-end screen's drawing
     /// is drawn from.
     struct DrawingInputs {
-        /// Where it shows, in window pixels: left, top, width and height.
+        /// Its place's size, in window pixels: 0, 0, width and height. Where
+        /// it shows does not change what it draws, so a window moved keeps
+        /// its drawing.
         std::array<int32_t, 4> shown{};
         int32_t points_width{};     ///< its width, in its points
         int32_t points_height{};    ///< its height, in its points
@@ -1228,6 +1260,59 @@ class OaLayer {
     /// @param seen what the screens are placed on
     /// @return the screen; null when none shows
     [[nodiscard]] LayerScreen* top_modal(const LayerView& seen) const;
+
+    /// Returns where a screen shows: its own placement, and for a window
+    /// that moves that placement moved to the window's offset and kept on
+    /// screen (window_placement::shown_at). Every place the layer draws,
+    /// hands input to and lists for automation comes from here.
+    ///
+    /// @param screen the screen
+    /// @param seen what the screens are placed on
+    /// @return its place, in window pixels
+    [[nodiscard]] LayerPlacement
+    shown_placement(const LayerScreen& screen, const LayerView& seen) const;
+
+    /// Returns the room a window that moves keeps to and where it shows
+    /// unmoved, when it moves now.
+    ///
+    /// @param screen the screen
+    /// @param seen what the screens are placed on
+    /// @param own the screen's own placement
+    /// @return the room; nothing for a screen that does not move now: not a
+    ///     window that moves, not shown, or fitted to a place of its own size
+    [[nodiscard]] std::optional<window_placement::WindowRoom>
+    window_room(const LayerScreen& screen, const LayerView& seen, const LayerPlacement& own) const;
+
+    /// Returns the size class a window's place is remembered for: the
+    /// in-match Settings' class in a match, the view's on the front end.
+    ///
+    /// @param seen what the screens are placed on
+    /// @return the class
+    [[nodiscard]] oa::ui::kit::SizeClass window_class(const LayerView& seen) const;
+
+    /// Takes the input that moves a window: a press on a window's title,
+    /// which starts a drag or, double-clicked, puts the window back in its
+    /// centre; the moves and release of that press; and Alt with an arrow
+    /// for the top modal screen.
+    ///
+    /// @param seen what the screens are placed on
+    /// @param input the input
+    /// @return true when the input moved, or may yet move, a window
+    bool take_window_move(const LayerView& seen, const ScreenInput& input);
+
+    /// Remembers a window's offset at a class in the preferences, writing
+    /// them when it changed, and draws the match's layer again.
+    ///
+    /// @param window the window's screen name
+    /// @param size_class the class it is laid out at
+    /// @param offset its offset from its centre, in points
+    void remember_window(
+        std::string_view window, oa::ui::kit::SizeClass size_class, oa::ui::kit::Point offset
+    );
+
+    /// Writes the preferences after a window's place or the Window size
+    /// changed, telling of a failure once.
+    void write_window_preferences();
 
     /// Tells whether a screen waits in the queue.
     ///
@@ -1345,6 +1430,12 @@ class OaLayer {
     void present_match();
 
     Runtime& runtime_; ///< the runtime it hosts screens for
+    /// The press on a window's title that moves it; none while no title is held.
+    std::optional<window_placement::TitleDrag> drag_{};
+    /// The screen drag_ moves; null while no title is held.
+    const LayerScreen* dragged_{};
+    /// A failure to write a window's place was told once.
+    bool window_write_failure_told_{};
     /// The screens, bottom first.
     std::vector<std::unique_ptr<LayerScreen>> screens_{};
     /// The screens waiting for the layer to be free, first in first.

@@ -251,6 +251,42 @@ void current_check(fixture::Server& server) {
     OA_CHECK(read_file(scratch.path / "feed.json") == signed_feed.bytes);
 }
 
+void a_stored_feed_is_remembered(fixture::Server& server) {
+    const update::ThisBuild built = update::this_build({});
+    const SignedFeed signed_feed =
+        sign_text(feed_json(built.release + 1, built.package), "test-pin", 0x21);
+    serve(server, signed_feed);
+    Scratch scratch("remembered");
+    const update::Source source = test_source(server, signed_feed);
+    {
+        update::Checker checker(scratch.path);
+        // Nothing is stored yet, so nothing is remembered.
+        OA_CHECK(!checker.remember(source, built));
+        OA_CHECK(checker.snapshot().state == update::CheckState::idle);
+        checker.start(source, built, false);
+        OA_CHECK(wait_until(checker, is_offered, 5000));
+        // A checker that has run does not remember over its own result.
+        OA_CHECK(!checker.remember(source, built));
+    }
+    server.clear_log();
+    update::Checker next_start(scratch.path);
+    OA_CHECK(next_start.remember(source, built));
+    const update::CheckSnapshot shot = next_start.snapshot();
+    OA_CHECK(shot.state == update::CheckState::offered);
+    OA_CHECK(shot.remembered);
+    OA_CHECK(!shot.checked_at.has_value());
+    OA_CHECK(shot.offer.release != nullptr && shot.offer.release->release == built.release + 1);
+    // Remembering makes no request.
+    OA_CHECK(server.requests().empty());
+
+    // A stored feed whose signature no longer verifies is not remembered.
+    update::Source other = source;
+    other.keys[0].text = sign_text("{}", "test-pin", 0x55).key_text;
+    update::Checker refused(scratch.path);
+    OA_CHECK(!refused.remember(other, built));
+    OA_CHECK(refused.snapshot().state == update::CheckState::idle);
+}
+
 void missing_check(fixture::Server& server) {
     server.clear_log();
     Scratch scratch("missing");
@@ -263,6 +299,7 @@ void missing_check(fixture::Server& server) {
     const update::CheckSnapshot shot = checker.snapshot();
     OA_CHECK(shot.state == update::CheckState::failed);
     OA_CHECK(shot.failure == "the feed answered 404");
+    OA_CHECK(shot.failure_kind == update::CheckFailure::connect);
     OA_CHECK(shot.checked_at.has_value());
     std::error_code error;
     OA_CHECK(!fs::exists(scratch.path / "feed.json", error));
@@ -283,6 +320,7 @@ void refused_check(fixture::Server& server) {
     const update::CheckSnapshot shot = checker.snapshot();
     OA_CHECK(shot.state == update::CheckState::failed);
     OA_CHECK(shot.failure == "unknown_key");
+    OA_CHECK(shot.failure_kind == update::CheckFailure::refused);
     OA_CHECK(shot.checked_at.has_value());
     std::error_code error;
     OA_CHECK(!fs::exists(scratch.path / "feed.json", error));
@@ -329,6 +367,7 @@ void timeout_check(fixture::Server& server) {
     const update::CheckSnapshot shot = checker.snapshot();
     OA_CHECK(shot.state == update::CheckState::failed);
     OA_CHECK(shot.failure == http::failure_text(http::Failure::timed_out));
+    OA_CHECK(shot.failure_kind == update::CheckFailure::connect);
     OA_CHECK(!shot.checked_at.has_value());
     std::error_code error;
     OA_CHECK(!fs::exists(scratch.path / "feed.json", error));
@@ -347,6 +386,7 @@ int main() {
         return oa::test::check_exit_status();
     offered_check(server);
     current_check(server);
+    a_stored_feed_is_remembered(server);
     missing_check(server);
     refused_check(server);
     cancelled_check(server);

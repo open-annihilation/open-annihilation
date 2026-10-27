@@ -12,6 +12,9 @@
 #include <chrono>
 #include <cstdint>
 #include <exception>
+#include <filesystem>
+#include <fstream>
+#include <system_error>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -78,6 +81,42 @@ fetch_url(http::Client& client, const std::string& url, const std::atomic<bool>&
     return std::string(which) + " was not read";
 }
 
+/// The pinned keys a source names. Empty means the engine's own.
+///
+/// @param source the feed and its keys
+/// @return the keys as the feed check takes them
+[[nodiscard]] std::vector<oa::data::registry::PinnedKey> pins_of(const Source& source) {
+    std::vector<oa::data::registry::PinnedKey> pins;
+    pins.reserve(source.keys.size());
+    for (const FeedKey& key : source.keys) {
+        oa::data::registry::PinnedKey pin;
+        pin.registry = "test";
+        pin.key_id = key.id;
+        pin.public_key = key.text;
+        pins.push_back(pin);
+    }
+    return pins;
+}
+
+/// Reads a whole file of at most the feed's limit. Empty when it cannot be read.
+///
+/// @param path the file
+/// @return its bytes
+[[nodiscard]] std::vector<uint8_t> read_small_file(const std::filesystem::path& path) {
+    std::error_code error;
+    const uintmax_t size = std::filesystem::file_size(path, error);
+    if (error || size == 0 || size > feed::max_feed_bytes)
+        return {};
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+        return {};
+    std::vector<uint8_t> bytes(static_cast<std::size_t>(size));
+    input.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    if (!input)
+        return {};
+    return bytes;
+}
+
 /// True when the response shows the server answered.
 ///
 /// @param response the outcome
@@ -124,6 +163,7 @@ void Checker::start(const Source& source, const ThisBuild& build, bool asked) {
             CheckSnapshot failed;
             failed.state = CheckState::failed;
             failed.failure = "the check could not start";
+            failed.failure_kind = CheckFailure::storage;
             failed.generation = snapshot_.generation + 1;
             snapshot_ = std::move(failed);
             return;
@@ -131,6 +171,42 @@ void Checker::start(const Source& source, const ThisBuild& build, bool asked) {
         thread_started_ = true;
     }
     wake_.notify_one();
+}
+
+bool Checker::remember(const Source& source, const ThisBuild& build) {
+    {
+        base::threads::LockGuard guard(mutex_);
+        if (busy_ || stop_ || snapshot_.state != CheckState::idle)
+            return false;
+    }
+    feed::CheckRequest request;
+    const std::vector<uint8_t> feed_bytes = read_small_file(folder_ / "feed.json");
+    const std::vector<uint8_t> signature = read_small_file(folder_ / "feed.json.sig");
+    if (feed_bytes.empty() || signature.empty())
+        return false;
+    const std::vector<oa::data::registry::PinnedKey> pins = pins_of(source);
+    request.feed = feed_bytes;
+    request.signature = signature;
+    if (!pins.empty())
+        request.keys = pins;
+    const feed::Checked checked = feed::check_feed(request);
+    if (!checked.usable() || !checked.feed)
+        return false;
+    feed::Build asking;
+    asking.version = build.version;
+    asking.release = build.release;
+    asking.package = build.package;
+    CheckSnapshot known;
+    known.feed = checked.feed;
+    known.offer = feed::choose(*checked.feed, asking);
+    known.state = known.offer.way == feed::Way::none ? CheckState::up_to_date : CheckState::offered;
+    known.remembered = true;
+    base::threads::LockGuard guard(mutex_);
+    if (busy_ || stop_ || snapshot_.state != CheckState::idle)
+        return false;
+    known.generation = snapshot_.generation + 1;
+    snapshot_ = std::move(known);
+    return true;
 }
 
 void Checker::cancel() noexcept {
@@ -166,9 +242,9 @@ void Checker::run() {
         try {
             run_job(client, job);
         } catch (const std::exception& failure) {
-            publish_failed(failure.what(), std::nullopt);
+            publish_failed(CheckFailure::storage, failure.what(), std::nullopt);
         } catch (...) {
-            publish_failed("the check failed", std::nullopt);
+            publish_failed(CheckFailure::storage, "the check failed", std::nullopt);
         }
     }
 }
@@ -187,7 +263,9 @@ void Checker::run_job(http::Client& client, const Job& job) {
         return;
     }
     if (!accepted_response(feed_bytes.response)) {
-        publish_failed(http_failure("the feed", feed_bytes.response), reached);
+        publish_failed(
+            CheckFailure::connect, http_failure("the feed", feed_bytes.response), reached
+        );
         return;
     }
 
@@ -199,19 +277,13 @@ void Checker::run_job(http::Client& client, const Job& job) {
         return;
     }
     if (!accepted_response(signature.response)) {
-        publish_failed(http_failure("the signature", signature.response), reached);
+        publish_failed(
+            CheckFailure::connect, http_failure("the signature", signature.response), reached
+        );
         return;
     }
 
-    std::vector<oa::data::registry::PinnedKey> pins;
-    pins.reserve(job.source.keys.size());
-    for (const FeedKey& key : job.source.keys) {
-        oa::data::registry::PinnedKey pin;
-        pin.registry = "test";
-        pin.key_id = key.id;
-        pin.public_key = key.text;
-        pins.push_back(pin);
-    }
+    const std::vector<oa::data::registry::PinnedKey> pins = pins_of(job.source);
     feed::CheckRequest request;
     request.feed = feed_bytes.body;
     request.signature = signature.body;
@@ -224,7 +296,9 @@ void Checker::run_job(http::Client& client, const Job& job) {
     }
     if (!checked.usable() || !checked.feed) {
         const char* const verdict = feed::verdict_text(checked.verdict);
-        publish_failed(verdict != nullptr ? verdict : "the feed was refused", reached);
+        publish_failed(
+            CheckFailure::refused, verdict != nullptr ? verdict : "the feed was refused", reached
+        );
         return;
     }
 
@@ -243,7 +317,7 @@ void Checker::run_job(http::Client& client, const Job& job) {
     if (!feed_stored || !signature_stored) {
         if (stored.empty())
             stored = "the verified feed could not be stored";
-        publish_failed(std::move(stored), reached);
+        publish_failed(CheckFailure::storage, std::move(stored), reached);
         return;
     }
 
@@ -262,13 +336,16 @@ void Checker::run_job(http::Client& client, const Job& job) {
     publish_done(std::move(done));
 }
 
-void Checker::publish_failed(std::string failure, std::optional<int64_t> checked) {
+void Checker::publish_failed(
+    CheckFailure kind, std::string failure, std::optional<int64_t> checked
+) {
     base::threads::LockGuard guard(mutex_);
     CheckSnapshot next;
     if (cancel_.load() || stop_) {
         next.state = CheckState::cancelled;
     } else {
         next.state = CheckState::failed;
+        next.failure_kind = kind;
         next.failure = std::move(failure);
         next.checked_at = checked;
     }

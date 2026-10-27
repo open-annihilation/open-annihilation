@@ -520,7 +520,7 @@ void Runtime::check_user_folder() {
                 std::to_string(differing_shown) + " pixels differ"
         );
     }
-    // At 1280x720 and 1920x1080 the notice is laid out at the window's
+    // At 800x600 and 2560x1440 the notice is laid out at the window's
     // class and drawn at its scale, centred over the main menu darkened
     // over the whole window.
     oa_layer().read_whole_window(true);

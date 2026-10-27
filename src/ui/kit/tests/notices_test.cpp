@@ -1421,41 +1421,44 @@ void paint_draws_what_draw_question_draws() {
         }
 }
 
-/// Returns how many columns of a bar's inner row are filled in the accent.
+/// Returns how many columns of a bar's middle row are filled in a colour.
 ///
 /// @param surface the surface the bar was drawn on
 /// @param bar the bar
+/// @param fill the fill's colour
 /// @return the columns
-int32_t filled_columns(const renderer::Surface& surface, const kit::Rect& bar) {
+int32_t filled_columns(
+    const renderer::Surface& surface, const kit::Rect& bar, kit::Colour fill = kit::colour::accent
+) {
     int32_t filled = 0;
-    for (int32_t x = bar.x + 1; x < bar.x + bar.width - 1; ++x)
-        if (pixel(surface, x, bar.y + 1) == kit::colour::accent)
+    for (int32_t x = bar.x; x < bar.x + bar.width; ++x)
+        if (pixel(surface, x, bar.y + bar.height / 2) == fill)
             ++filled;
     return filled;
 }
 
 void the_progress_bar_fills_as_far_as_it_came() {
-    // The prompt's bar: 376 by 8, so 374 columns inside its border.
+    // The prompt's bar: 376 by 8, a rounded track filled from its left.
     const kit::Rect bar{2, 2, 376, 8};
     const std::array<std::pair<int32_t, int32_t>, 4> fills{{
         {0, 0},
         {1, 0},
-        {500, 187},
-        {1000, 374},
+        {500, 188},
+        {1000, 376},
     }};
     for (const auto& [done, columns] : fills) {
         renderer::Surface drawn = black(380, 12);
         const kit::Canvas canvas{&drawn, {0, 0, 1, {}}, &fonts(), {}};
         kit::draw_progress(canvas, bar, done, kit::question_progress_whole);
         OA_CHECK(filled_columns(drawn, bar) == columns);
-        // The border, the well past the fill, and the fill from the left.
-        OA_CHECK(pixel(drawn, bar.x, bar.y) == kit::colour::control_border);
-        OA_CHECK(pixel(drawn, bar.x + bar.width - 1, bar.y + 4) == kit::colour::control_border);
-        if (columns < 374)
-            OA_CHECK(pixel(drawn, bar.x + 1 + columns, bar.y + 4) == kit::colour::well);
+        // The rounded ends leave the corners clear; the track past the fill.
+        OA_CHECK(pixel(drawn, bar.x, bar.y) == (kit::Colour{0, 0, 0}));
+        OA_CHECK(pixel(drawn, bar.x + bar.width - 1, bar.y) == (kit::Colour{0, 0, 0}));
+        if (columns < 376)
+            OA_CHECK(pixel(drawn, bar.x + columns + 4, bar.y + 4) == kit::colour::list_selected);
         if (columns > 0) {
-            OA_CHECK(pixel(drawn, bar.x + 1, bar.y + 6) == kit::colour::accent);
-            OA_CHECK(pixel(drawn, bar.x + columns, bar.y + 6) == kit::colour::accent);
+            OA_CHECK(pixel(drawn, bar.x, bar.y + 4) == kit::colour::accent);
+            OA_CHECK(pixel(drawn, bar.x + columns - 1, bar.y + 4) == kit::colour::accent);
         }
         OA_CHECK(pixel(drawn, 0, 0) == (kit::Colour{0, 0, 0}));
         // A progress item paints the same.
@@ -1465,17 +1468,27 @@ void the_progress_bar_fills_as_far_as_it_came() {
         kit::paint({&painted, {0, 0, 1, {}}, &fonts(), {}}, list);
         same(drawn, painted, "progress");
     }
+    // Paused, the fill is amber, and a paused item paints the same.
+    renderer::Surface paused = black(380, 12);
+    kit::draw_progress({&paused, {0, 0, 1, {}}, &fonts(), {}}, bar, 500, 1000, true);
+    OA_CHECK(filled_columns(paused, bar, kit::colour::lock) == 188);
+    OA_CHECK(filled_columns(paused, bar) == 0);
+    renderer::Surface paused_item = black(380, 12);
+    kit::DisplayList paused_list;
+    kit::add_progress(paused_list, bar, 500, 1000, true);
+    kit::paint({&paused_item, {0, 0, 1, {}}, &fonts(), {}}, paused_list);
+    same(paused, paused_item, "paused progress");
     // Past the whole is full, under 0 is empty, and a whole of 0 fills nothing.
     renderer::Surface over = black(380, 12);
     kit::draw_progress({&over, {0, 0, 1, {}}, &fonts(), {}}, bar, 1500, 1000);
-    OA_CHECK(filled_columns(over, bar) == 374);
+    OA_CHECK(filled_columns(over, bar) == 376);
     renderer::Surface under = black(380, 12);
     kit::draw_progress({&under, {0, 0, 1, {}}, &fonts(), {}}, bar, -5, 1000);
     OA_CHECK(filled_columns(under, bar) == 0);
     renderer::Surface no_whole = black(380, 12);
     kit::draw_progress({&no_whole, {0, 0, 1, {}}, &fonts(), {}}, bar, 5, 0);
     OA_CHECK(filled_columns(no_whole, bar) == 0);
-    OA_CHECK(pixel(no_whole, bar.x + 4, bar.y + 4) == kit::colour::well);
+    OA_CHECK(pixel(no_whole, bar.x + 4, bar.y + 4) == kit::colour::list_selected);
     // An empty bar draws nothing.
     renderer::Surface empty = black(380, 12);
     kit::draw_progress({&empty, {0, 0, 1, {}}, &fonts(), {}}, {2, 2, 0, 8}, 500, 1000);

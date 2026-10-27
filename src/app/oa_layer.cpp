@@ -56,6 +56,7 @@
 #include <cstdint>
 #include <exception>
 #include <functional>
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -751,39 +752,6 @@ LayerPlacement centred_box(const LayerView& view, int32_t box_height) noexcept {
     return centred_placement(view, kit::metrics_of(front_class(view)).notice_width, box_height);
 }
 
-/// Returns the match's canvas at the layer's scale on it, as the in-match
-/// Settings and the gallery start from: the Interface size's step, 150%, or
-/// for Auto the Auto scale of its height (kit::layer_viewport, with 150%
-/// among the steps when interface_percent is kit::auto_with_fraction_percent),
-/// never above the side column's scale, which HUD scaling caps: the largest
-/// whole step at or below it instead, and at least 1.
-///
-/// @param match_layout the match's layout
-/// @param interface_percent the Interface size in effect, in percent; 0 for Auto
-/// @return the canvas, its pixels, density and safe insets, at that scale
-kit::Viewport
-match_layer_viewport(const layout::MatchLayout& match_layout, int32_t interface_percent) noexcept {
-    kit::Viewport canvas;
-    canvas.width = match_layout.width;
-    canvas.height = match_layout.height;
-    canvas.density = static_cast<float>(match_layout.px_per_point);
-    canvas.safe = {
-        match_layout.safe.left,
-        match_layout.safe.top,
-        match_layout.safe.right,
-        match_layout.safe.bottom
-    };
-    int32_t percent = kit::layer_viewport(canvas, interface_percent).scale_percent;
-    // A hair under a whole step counts as that step.
-    constexpr double kWhole = 1e-9;
-    if (static_cast<double>(percent) > match_layout.scale * 100.0 + kWhole)
-        percent =
-            std::max(int32_t{1}, static_cast<int32_t>(std::floor(match_layout.scale + kWhole))) *
-            100;
-    canvas.scale_percent = percent;
-    return canvas;
-}
-
 /// Returns one of the Library's words in the language shown.
 ///
 /// @param english the word, in English as the Library's text.hpp writes it
@@ -873,7 +841,8 @@ LayerAnswer with_moved_look(LayerAnswer answer, bool moved, uint64_t& revision) 
 // The settings dialog as a screen of the layer
 
 /// The settings dialog as a screen of the OA layer: modal, over a backdrop,
-/// centred on the main menu's picture or beside the in-game menu's column.
+/// centred on the main menu's picture or on the match's window, and moved by
+/// its title.
 struct Runtime::SettingsScreen final : LayerScreen {
     /// Makes the screen of the dialog open now.
     ///
@@ -887,10 +856,11 @@ struct Runtime::SettingsScreen final : LayerScreen {
     /// @return the name
     [[nodiscard]] std::string_view name() const override { return kSettingsName; }
 
-    /// Returns where the dialog shows: on the main menu at the view's size
-    /// class, centred in the window at its scale; in a match at the class
-    /// and scale OaLayer::match_dialog gives, centred right of the side
-    /// column, or on a phone at Compact fitted to the safe area.
+    /// Returns where the dialog shows unmoved: on the main menu at the
+    /// view's size class, centred in the window at its scale; in a match at
+    /// the class, scale and place OaLayer::match_dialog gives, or on a phone
+    /// at Compact fitted to the safe area. The layer moves it where the
+    /// player put it (OaLayer::shown_placement).
     ///
     /// @param view what the screen is placed on
     /// @return its place; empty once the dialog closed, or off its screen
@@ -907,8 +877,9 @@ struct Runtime::SettingsScreen final : LayerScreen {
         if (!view.match || view.match_layout == nullptr)
             return {};
         // At its own class (lay_out) and scale, which input maps back by.
-        const MatchDialogPlace place =
-            OaLayer::match_dialog(*view.match_layout, view.interface_percent, view.fit_safe_area);
+        const MatchDialogPlace place = OaLayer::match_dialog(
+            *view.match_layout, view.interface_percent, view.fit_safe_area, view.window_size
+        );
         const kit::Metrics& sized = kit::metrics_of(place.size_class);
         return {place.shown, sized.dialog_width, sized.dialog_height, place.scale_percent};
     }
@@ -934,12 +905,14 @@ struct Runtime::SettingsScreen final : LayerScreen {
         // Off its match the dialog keeps its class until its tick closes it.
         if (in_match_ && (!view.match || view.match_layout == nullptr))
             return;
-        const kit::SizeClass size_class =
-            in_match_ ? OaLayer::match_dialog(
-                            *view.match_layout, view.interface_percent, view.fit_safe_area
-                        )
-                            .size_class
-                      : front_class(view);
+        const kit::SizeClass size_class = in_match_ ? OaLayer::match_dialog(
+                                                          *view.match_layout,
+                                                          view.interface_percent,
+                                                          view.fit_safe_area,
+                                                          view.window_size
+                                                      )
+                                                          .size_class
+                                                    : front_class(view);
         if (dialog->size_class == size_class)
             return;
         dialog->size_class = size_class;
@@ -1918,6 +1891,7 @@ LayerView OaLayer::view() const {
     if (chosen == settings::InterfaceSize::automatic && current.modern_fonts &&
         smooth_fonts() != nullptr)
         seen.interface_percent = kit::auto_with_fraction_percent;
+    seen.window_size = window_size();
     if (seen.match) {
         // The in-match Settings takes its own class and scale from the area
         // beside the side column (match_dialog).
@@ -1996,13 +1970,19 @@ LayerView OaLayer::view() const {
         viewport.width - viewport.safe.left - viewport.safe.right,
         viewport.height - viewport.safe.top - viewport.safe.bottom
     };
-    // The Interface size in effect, or the Auto scale, no larger than lets
-    // Compact's dialog fit the room, and at least 1; the class from the
-    // points left over.
-    viewport = kit::layer_viewport(viewport, seen.interface_percent);
+    // The Interface size in effect, or the Auto scale serving the class the
+    // Window size wants, no larger than lets Compact's dialog fit the room,
+    // and at least 1; the class from the points left over, or the Window
+    // size's held to them.
+    viewport = kit::layer_viewport(
+        viewport, seen.interface_percent, window_placement::wanted_class(seen.window_size)
+    );
     seen.scale_percent = viewport.scale_percent;
     seen.scale = std::max(viewport.scale_percent / 100, int32_t{1});
     seen.frame = kit::frame_of(viewport);
+    seen.frame.size_class = window_placement::class_under(
+        seen.window_size, seen.frame.size_class, seen.frame.area.width, seen.frame.area.height
+    );
     return seen;
 }
 
@@ -2010,7 +1990,244 @@ LayerPlacement OaLayer::placement_of(std::string_view name) const {
     const LayerScreen* named = find(name);
     if (named == nullptr)
         return {};
-    return named->placement(view());
+    return shown_placement(*named, view());
+}
+
+LayerPlacement OaLayer::shown_placement(const LayerScreen& screen, const LayerView& seen) const {
+    LayerPlacement own = screen.placement(seen);
+    const auto room = window_room(screen, seen, own);
+    if (!room)
+        return own;
+    const kit::Point offset =
+        drag_ && dragged_ == &screen
+            ? drag_->offset
+            : window_placement::stored_offset(
+                  runtime_.preference_values_, screen.name(), window_class(seen)
+              );
+    const kit::Rect shown = window_placement::shown_at(*room, offset);
+    own.shown = {shown.x, shown.y, shown.width, shown.height};
+    return own;
+}
+
+std::optional<window_placement::WindowRoom> OaLayer::window_room(
+    const LayerScreen& screen, const LayerView& seen, const LayerPlacement& own
+) const {
+    // A window fitted to a place of its own size, as the phone's Settings
+    // is, and one that fills the whole room stay where they are.
+    if (!window_placement::moves(screen.name()) || own.scale_percent <= 0 ||
+        empty_rect(own.shown) || empty_rect(seen.room))
+        return std::nullopt;
+    if (own.shown.width >= seen.room.width && own.shown.height >= seen.room.height)
+        return std::nullopt;
+    window_placement::WindowRoom room;
+    room.room = {seen.room.x, seen.room.y, seen.room.width, seen.room.height};
+    room.centred = {own.shown.x, own.shown.y, own.shown.width, own.shown.height};
+    room.scale_percent = own.scale_percent;
+    return room;
+}
+
+kit::SizeClass OaLayer::window_class(const LayerView& seen) const {
+    if (seen.match && seen.match_layout != nullptr)
+        return match_dialog(
+                   *seen.match_layout, seen.interface_percent, seen.fit_safe_area, seen.window_size
+        )
+            .size_class;
+    return seen.frame.size_class;
+}
+
+window_placement::WindowSize OaLayer::window_size() const {
+    return window_placement::stored_window_size(runtime_.preference_values_);
+}
+
+void OaLayer::set_window_size(window_placement::WindowSize size) {
+    const std::string key(window_placement::window_size_key);
+    bool changed = false;
+    if (size == window_placement::WindowSize::automatic) {
+        changed = runtime_.preference_values_.erase(key) != 0;
+    } else {
+        const std::string word(window_placement::window_size_word(size));
+        std::string& stored = runtime_.preference_values_[key];
+        changed = stored != word;
+        stored = word;
+    }
+    if (changed)
+        write_window_preferences();
+    ++revision_;
+    lay_out_screens();
+}
+
+bool OaLayer::reset_window_places() {
+    drag_.reset();
+    dragged_ = nullptr;
+    ++revision_;
+    if (!window_placement::forget_places(runtime_.preference_values_))
+        return false;
+    write_window_preferences();
+    return true;
+}
+
+kit::Point OaLayer::window_offset(std::string_view name) const {
+    const LayerScreen* named = find(name);
+    if (named == nullptr)
+        return {};
+    const LayerView seen = view();
+    const auto room = window_room(*named, seen, named->placement(seen));
+    if (!room)
+        return {};
+    const LayerPlacement shown = shown_placement(*named, seen);
+    return window_placement::offset_at(
+        *room, {shown.shown.x, shown.shown.y, shown.shown.width, shown.shown.height}
+    );
+}
+
+void OaLayer::remember_window(
+    std::string_view window, kit::SizeClass size_class, kit::Point offset
+) {
+    ++revision_;
+    if (window_placement::store_offset(runtime_.preference_values_, window, size_class, offset))
+        write_window_preferences();
+}
+
+void OaLayer::write_window_preferences() {
+    runtime_.preferences_dirty_ = true;
+    try {
+        runtime_.flush_preferences();
+    } catch (const std::exception& error) {
+        if (window_write_failure_told_)
+            return;
+        window_write_failure_told_ = true;
+        std::cerr << "open-annihilation: a window's place was not saved: " << error.what() << '\n';
+    }
+}
+
+bool OaLayer::take_window_move(const LayerView& seen, const ScreenInput& input) {
+    namespace places = window_placement;
+    const WindowPosition at = window_position(seen, input.x, input.y);
+    const kit::Point pointer{
+        static_cast<int32_t>(std::floor(at.x)), static_cast<int32_t>(std::floor(at.y))
+    };
+    if (drag_) {
+        // A drag ends once the window it moves leaves or no longer moves.
+        std::optional<places::WindowRoom> room;
+        if (dragged_ != nullptr && holds(dragged_))
+            room = window_room(*dragged_, seen, dragged_->placement(seen));
+        if (!room) {
+            drag_.reset();
+            dragged_ = nullptr;
+        } else {
+            switch (input.kind) {
+            case ScreenInputKind::pointer_move: {
+                const kit::Point before = drag_->offset;
+                if (places::drag_move(*drag_, *room, pointer, SDL_GetTicks()) ==
+                    places::DragStep::cancelled) {
+                    drag_.reset();
+                    dragged_ = nullptr;
+                } else if (drag_->offset.x != before.x || drag_->offset.y != before.y) {
+                    ++revision_;
+                }
+                return true;
+            }
+            case ScreenInputKind::pointer_up: {
+                if (input.button != SDL_BUTTON_LEFT)
+                    return true;
+                const places::TitleDrag ended = *drag_;
+                drag_.reset();
+                dragged_ = nullptr;
+                if (ended.moving)
+                    remember_window(ended.window, ended.size_class, ended.offset);
+                return true;
+            }
+            case ScreenInputKind::pointer_down:
+                return true;
+            default:
+                // Keys, text and the wheel go on to the screens.
+                return false;
+            }
+        }
+    }
+    if (input.kind == ScreenInputKind::key_down && (input.modifiers & kInputModifierAlt) != 0) {
+        int32_t across = 0;
+        int32_t down = 0;
+        switch (input.key) {
+        case SDLK_LEFT:
+            across = -1;
+            break;
+        case SDLK_RIGHT:
+            across = 1;
+            break;
+        case SDLK_UP:
+            down = -1;
+            break;
+        case SDLK_DOWN:
+            down = 1;
+            break;
+        default:
+            return false;
+        }
+        LayerScreen* focused = top_modal(seen);
+        if (focused == nullptr)
+            return false;
+        const auto room = window_room(*focused, seen, focused->placement(seen));
+        if (!room)
+            return false;
+        const kit::SizeClass size_class = window_class(seen);
+        const kit::Point offset =
+            places::stored_offset(runtime_.preference_values_, focused->name(), size_class);
+        const bool large = (input.modifiers & SDL_KMOD_SHIFT) != 0;
+        remember_window(
+            focused->name(), size_class, places::moved_by_key(*room, offset, across, down, large)
+        );
+        return true;
+    }
+    if (input.kind != ScreenInputKind::pointer_down || input.button != SDL_BUTTON_LEFT)
+        return false;
+    // The screen the press reaches: the top modal one, else the topmost
+    // that shows under it.
+    LayerScreen* pressed = top_modal(seen);
+    if (pressed == nullptr)
+        for (auto it = screens_.rbegin(); it != screens_.rend() && pressed == nullptr; ++it) {
+            const LayerPlacement shown = shown_placement(**it, seen);
+            if (!empty_rect(shown.shown) &&
+                rect_contains(shown.shown, static_cast<float>(at.x), static_cast<float>(at.y)))
+                pressed = it->get();
+        }
+    if (pressed == nullptr)
+        return false;
+    const auto room = window_room(*pressed, seen, pressed->placement(seen));
+    if (!room)
+        return false;
+    // The title: the window's header, where no control lies.
+    const LayerPlacement shown = shown_placement(*pressed, seen);
+    const kit::Point point = layer_point(shown, static_cast<float>(at.x), static_cast<float>(at.y));
+    const kit::DisplayList list = pressed->display_list();
+    const auto header = std::find_if(list.items.begin(), list.items.end(), [](const auto& item) {
+        return item.role == kit::Role::header;
+    });
+    if (header == list.items.end() || !kit::contains(header->rect, point) ||
+        kit::hit(list, point) != kit::no_control)
+        return false;
+    const kit::SizeClass size_class = window_class(seen);
+    if (input.clicks >= 2) {
+        // A double-click puts the window back in its centre.
+        drag_.reset();
+        dragged_ = nullptr;
+        remember_window(pressed->name(), size_class, {});
+        return true;
+    }
+    places::TitleDrag drag;
+    drag.window = std::string(pressed->name());
+    drag.size_class = size_class;
+    drag.grab = pointer;
+    drag.start_offset = places::offset_at(
+        *room, {shown.shown.x, shown.shown.y, shown.shown.width, shown.shown.height}
+    );
+    drag.offset = drag.start_offset;
+    drag.finger = runtime_.engine_settings_state().finger_pointer;
+    drag.moving = !drag.finger;
+    drag.pressed_ms = SDL_GetTicks();
+    drag_ = std::move(drag);
+    dragged_ = pressed;
+    return true;
 }
 
 void OaLayer::lay_out_screens() {
@@ -2081,6 +2298,12 @@ bool OaLayer::take_input(const ScreenInput& input) {
     }
     lay_out_screens();
     const LayerView seen = view();
+    // A window's title, held or pressed, and Alt with an arrow move it.
+    if (take_window_move(seen, input)) {
+        show_waiting();
+        sync_text_input();
+        return true;
+    }
     const uint32_t key_down = input.kind == ScreenInputKind::key_down ? input.key : 0U;
     bool taken = false;
     if (LayerScreen* modal = top_modal(seen)) {
@@ -2165,7 +2388,7 @@ std::optional<kit::Key> screen_kit_key(std::string_view action) {
 
 LayerAnswer
 OaLayer::hand_input(LayerScreen& screen, const LayerView& seen, const ScreenInput& input) {
-    const LayerPlacement placed = screen.placement(seen);
+    const LayerPlacement placed = shown_placement(screen, seen);
     // The pointer in the window's pixels, mapped to the screen's points by
     // its placement.
     const WindowPosition at = window_position(seen, input.x, input.y);
@@ -2327,6 +2550,10 @@ void OaLayer::remove(const LayerScreen* screen, bool by_key) {
         return;
     std::unique_ptr<LayerScreen> leaving = std::move(*it);
     screens_.erase(it);
+    if (dragged_ == screen) {
+        drag_.reset();
+        dragged_ = nullptr;
+    }
     button_hovered_ = false;
     button_pressed_ = false;
     ++revision_;
@@ -2909,11 +3136,11 @@ void OaLayer::sync_text_input() {
     // The field of a screen, in the coordinates input arrives in: through
     // its placement into the window, and on the front end through the
     // picture's rectangle into the picture.
-    const auto field_of = [&seen](const LayerScreen& screen) -> std::optional<layout::Rect> {
+    const auto field_of = [this, &seen](const LayerScreen& screen) -> std::optional<layout::Rect> {
         const auto field = screen.text_field();
         if (!field)
             return std::nullopt;
-        const LayerPlacement placed = screen.placement(seen);
+        const LayerPlacement placed = shown_placement(screen, seen);
         if (empty_rect(placed.shown) || placed.points_width <= 0 || placed.points_height <= 0 ||
             empty_rect(seen.picture))
             return std::nullopt;
@@ -3057,7 +3284,7 @@ void OaLayer::compose_front_end(renderer::Surface& frame) const {
     const std::vector<uint32_t> above = backdrops_above(seen);
     for (std::size_t index = 0; index < screens_.size(); ++index) {
         const auto& screen = *screens_[index];
-        const LayerPlacement placed = screen.placement(seen);
+        const LayerPlacement placed = shown_placement(screen, seen);
         if (empty_rect(placed.shown))
             continue;
         // A screen under a modal screen with a backdrop darkens with what
@@ -3342,7 +3569,7 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
     std::vector<KeptDrawing> kept_drawings;
     for (std::size_t index = 0; index < screens_.size(); ++index) {
         const auto& screen = *screens_[index];
-        const LayerPlacement placed = screen.placement(seen);
+        const LayerPlacement placed = shown_placement(screen, seen);
         if (empty_rect(placed.shown) || placed.points_width <= 0 || placed.points_height <= 0)
             continue;
         if (darkens(screen))
@@ -3355,7 +3582,8 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
         // setup's.
         const int32_t scale_percent = front_scale_of(placed, seen);
         DrawingInputs inputs = common;
-        inputs.shown = {placed.shown.x, placed.shown.y, placed.shown.width, placed.shown.height};
+        // Where it shows draws nothing different: a window moved keeps its drawing.
+        inputs.shown = {0, 0, placed.shown.width, placed.shown.height};
         inputs.points_width = placed.points_width;
         inputs.points_height = placed.points_height;
         inputs.placed_percent = placed.scale_percent;
@@ -3549,13 +3777,7 @@ bool OaLayer::match_fits_safe_area(const Runtime& runtime) {
 }
 
 layout::Rect OaLayer::match_safe_area(const layout::MatchLayout& match_layout) noexcept {
-    const auto& safe = match_layout.safe;
-    return {
-        safe.left,
-        safe.top,
-        std::max(match_layout.width - safe.left - safe.right, 0),
-        std::max(match_layout.height - safe.top - safe.bottom, 0)
-    };
+    return window_placement::match_safe_area(match_layout);
 }
 
 layout::Rect
@@ -3635,66 +3857,16 @@ renderer::Surface OaLayer::match_button_face(
 kit::Frame OaLayer::match_gallery(
     const layout::MatchLayout& match_layout, int32_t interface_percent
 ) noexcept {
-    return kit::frame_of(match_layer_viewport(match_layout, interface_percent));
+    return kit::frame_of(window_placement::match_viewport(match_layout, interface_percent));
 }
 
 MatchDialogPlace OaLayer::match_dialog(
-    const layout::MatchLayout& match_layout, int32_t interface_percent, bool fit
+    const layout::MatchLayout& match_layout,
+    int32_t interface_percent,
+    bool fit,
+    window_placement::WindowSize size
 ) noexcept {
-    MatchDialogPlace place{};
-    const auto safe = match_safe_area(match_layout);
-    if (fit && safe.width > 0 && safe.height > 0) {
-        // Compact at 1x, fitted at the largest scale that shows the whole
-        // dialog in the safe area.
-        const double scale = std::min(
-            static_cast<double>(safe.width) / settings::dialog_width,
-            static_cast<double>(safe.height) / settings::dialog_height
-        );
-        const int32_t width = std::min(scaled_length(settings::dialog_width, scale), safe.width);
-        const int32_t height = std::min(scaled_length(settings::dialog_height, scale), safe.height);
-        place.shown = {
-            safe.x + (safe.width - width) / 2, safe.y + (safe.height - height) / 2, width, height
-        };
-        place.scale_percent = 0;
-        return place;
-    }
-    int32_t percent = match_layer_viewport(match_layout, interface_percent).scale_percent;
-    // Compact's dialog fits the area right of the column at the scale, or
-    // the scale is the largest whole step at which it does, and at least 1.
-    const int32_t area_width = std::max(match_layout.width - match_layout.left, 0);
-    const int32_t area_height = std::max(match_layout.height, 0);
-    const kit::Metrics& compact = kit::compact_metrics;
-    const bool compact_fits =
-        int64_t{area_width} * 100 >= int64_t{compact.dialog_width} * percent &&
-        int64_t{area_height} * 100 >= int64_t{compact.dialog_height} * percent;
-    if (!compact_fits)
-        percent = std::max(
-                      int32_t{1},
-                      std::min(
-                          {percent / 100,
-                           area_width / compact.dialog_width,
-                           area_height / compact.dialog_height}
-                      )
-                  ) *
-                  100;
-    // The class from the area's points at the scale, and the class's dialog
-    // centred in the area.
-    kit::Viewport area;
-    area.width = area_width;
-    area.height = area_height;
-    area.scale_percent = percent;
-    place.size_class = kit::frame_of(area).size_class;
-    place.scale_percent = percent;
-    const kit::Metrics& sized = kit::metrics_of(place.size_class);
-    const kit::Rect drawn =
-        kit::to_canvas({0, 0, sized.dialog_width, sized.dialog_height}, percent);
-    place.shown = {
-        match_layout.left + (area_width - drawn.width) / 2,
-        (match_layout.height - drawn.height) / 2,
-        drawn.width,
-        drawn.height
-    };
-    return place;
+    return window_placement::match_window(match_layout, interface_percent, size, fit);
 }
 
 void OaLayer::stamp(
@@ -3779,7 +3951,7 @@ bool OaLayer::refresh_match() {
     const std::vector<uint32_t> above = backdrops_above(seen);
     for (std::size_t index = 0; index < screens_.size(); ++index) {
         const auto& screen = *screens_[index];
-        const LayerPlacement placed = screen.placement(seen);
+        const LayerPlacement placed = shown_placement(screen, seen);
         if (empty_rect(placed.shown))
             continue;
         shown_screens.push_back({&screen, placed, above[index]});
@@ -4059,7 +4231,7 @@ void OaLayer::automation_controls(std::vector<AutomationControl>& controls) cons
     // every input: nothing under it takes any.
     for (auto it = screens_.rbegin(); it != screens_.rend(); ++it) {
         const LayerScreen& screen = **it;
-        const LayerPlacement placed = screen.placement(seen);
+        const LayerPlacement placed = shown_placement(screen, seen);
         if (empty_rect(placed.shown) || placed.points_width <= 0 || placed.points_height <= 0)
             continue;
         const std::string dialog = screen.name() == kGetMapScreen ? std::string()
@@ -4112,7 +4284,7 @@ std::optional<float> OaLayer::nearest_control(float x, float y, float radius) co
     float best = radius;
     bool found = false;
     const auto consider = [&](const LayerScreen& screen) {
-        const LayerPlacement placed = screen.placement(seen);
+        const LayerPlacement placed = shown_placement(screen, seen);
         if (empty_rect(placed.shown) || placed.points_width <= 0 || placed.points_height <= 0)
             return;
         const kit::DisplayList list = screen.display_list();

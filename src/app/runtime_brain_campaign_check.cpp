@@ -6,8 +6,9 @@
 // written a frame of each screen is kept. Steady Commander is then written.
 // NEWGAME shows one button under Difficulty, inside the frame and meeting
 // no gadget, reading the built-in player and the Difficulty button's word.
-// Tab reaches it and Up does not. Return opens the picker with no every
-// computer seat. Steady Commander at Firm and USE THIS make the label
+// Tab reaches it and Up does not. Return opens the brain menu, the room's
+// list box, with no every computer seat; its frame is written as
+// brain-campaign-menu-<w>x<h>.png. Steady Commander there makes the label
 // "Steady Commander · Firm", and Any Mission shows that same button. Each
 // screen's frame is written as brain-campaign-<screen>-<w>x<h>.png. With
 // the brain removed, no button remains and each frame matches the one kept
@@ -276,41 +277,6 @@ void Runtime::check_brain_campaign() {
         pointer_at(pixel, SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT);
         frames(1);
     };
-    const auto wheel_list = [&](float notches) {
-        const std::optional<AutomationControl> pane = named("oa.brains.list");
-        if (!pane.has_value())
-            return false;
-        const layout::Point at{
-            pane->window_x + pane->window_width / 2, pane->window_y + pane->window_height / 2
-        };
-        SDL_Event motion =
-            window_pointer_event(sdl_.window, sdl_.renderer, SDL_EVENT_MOUSE_MOTION, at, 0);
-        dispatch_event(motion, running);
-        SDL_Event wheel{};
-        wheel.type = SDL_EVENT_MOUSE_WHEEL;
-        wheel.wheel.windowID = motion.motion.windowID;
-        wheel.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
-        wheel.wheel.y = notches;
-        wheel.wheel.mouse_x = motion.motion.x;
-        wheel.wheel.mouse_y = motion.motion.y;
-        dispatch_event(wheel, running);
-        require(running, "a wheel ended the run");
-        frames(1);
-        return true;
-    };
-    const auto show_row = [&](std::string_view row_name) {
-        if (named(row_name).has_value())
-            return;
-        if (named("oa.brains.back").has_value())
-            click_named("oa.brains.back");
-        for (int32_t turn = 0; turn < 12 && !named(row_name).has_value(); ++turn)
-            if (!wheel_list(1.0F))
-                break;
-        for (int32_t turn = 0; turn < 24 && !named(row_name).has_value(); ++turn)
-            if (!wheel_list(-1.0F))
-                break;
-        require_named(row_name, std::string(row_name) + " is not shown");
-    };
     const auto press_key = [&](SDL_Keycode key, SDL_Scancode scancode, SDL_Keymod mod) {
         SDL_Event event{};
         event.type = SDL_EVENT_KEY_DOWN;
@@ -398,19 +364,6 @@ void Runtime::check_brain_campaign() {
             return std::string(renderer::staged_caption(fields->text, stage));
         }
         return std::string();
-    };
-    const auto list_has = [&](std::string_view needle) {
-        LayerScreen* picker = oa_layer().find(brains::screen_name);
-        require(picker != nullptr, "the brain picker is not open");
-        const kit::DisplayList list = picker->display_list();
-        for (const kit::Item& item : list.items) {
-            if (item.text.find(needle) != std::string::npos)
-                return true;
-            for (const std::string& line : item.lines)
-                if (line.find(needle) != std::string::npos)
-                    return true;
-        }
-        return false;
     };
     const auto seat_focused = [&] {
         const std::optional<AutomationControl> button = named(kButton);
@@ -558,36 +511,37 @@ void Runtime::check_brain_campaign() {
         press_key(SDLK_RETURN, SDL_SCANCODE_RETURN, SDL_KMOD_NONE);
         frames(1);
         require(
-            oa_layer().find(brains::screen_name) != nullptr, "Return did not open the picker" + on
+            named("oa.brain-menu.row.steady-commander").has_value() &&
+                named("oa.brain-menu.row.built-in").has_value(),
+            "Return did not open the brain menu" + on
         );
         require(
-            !named("oa.brains.every-seat").has_value() &&
-                !named("oa.brains.every-seat.on").has_value(),
-            "the picker offers every computer seat" + on
+            !named("oa.brain-menu.every-seat").has_value(),
+            "the menu offers every computer seat" + on
         );
-        std::cout << "brain campaign check: Return opens the picker with no every computer seat"
+        require(oa_layer().find(brains::screen_name) == nullptr, "the menu opened the picker" + on);
+        std::cout << "brain campaign check: Return opens the brain menu with no every computer "
+                     "seat"
                   << on << "\n";
-        show_row("oa.brains.row.steady-commander");
-        click_named("oa.brains.row.steady-commander");
-        require(list_has("Steady Commander"), "Steady Commander is not in the picker" + on);
-        if (!named("oa.brains.level").has_value() && named("oa.brains.details").has_value())
-            click_named("oa.brains.details");
-        const AutomationControl level =
-            require_named("oa.brains.level", "the level is not shown" + on);
-        require(level.text.find("Firm") != std::string::npos, "the level does not read Firm" + on);
-        click_named("oa.brains.use");
+        park();
+        const renderer::Surface menu_shown = capture();
+        const std::string menu_picture = "brain-campaign-menu-" + size + ".png";
+        write_png(fs::path(menu_picture), menu_shown);
+        std::cout << "brain campaign check: wrote " << menu_picture << "\n";
+        click_named("oa.brain-menu.row.steady-commander");
         require(
-            oa_layer().find(brains::screen_name) == nullptr, "USE THIS left the picker open" + on
+            !named("oa.brain-menu.row.steady-commander").has_value(),
+            "choosing Steady Commander left the menu open" + on
         );
         const std::string chosen = "Steady Commander" + std::string(kDot) + "Firm";
         const AutomationControl after =
-            require_named(kButton, std::string(kButton) + " left after USE THIS" + on);
+            require_named(kButton, std::string(kButton) + " left after the menu" + on);
         require(
             after.text == chosen,
-            "USE THIS did not give Steady Commander · Firm (" + after.text + ")" + on
+            "the menu did not give Steady Commander · Firm (" + after.text + ")" + on
         );
-        std::cout << "brain campaign check: Steady Commander at Firm and USE THIS gives "
-                  << after.text << on << "\n";
+        std::cout << "brain campaign check: Steady Commander in the menu gives " << after.text << on
+                  << "\n";
 
         park();
         const renderer::Surface shown = capture();

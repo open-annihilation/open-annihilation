@@ -1195,6 +1195,16 @@ if(BUILD_TESTING)
     add_test(NAME app-retina-layout COMMAND oa-app-retina-layout-test)
     set_tests_properties(app-retina-layout PROPERTIES TIMEOUT 120
       ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+    # The Window size choice, the places of the windows that move (their
+    # preference keys, kept on screen, snapped, dragged, held by a finger and
+    # moved by a key) and the in-match Settings measured on the whole window,
+    # against the resolution table.
+    add_executable(oa-app-window-placement-test src/app/window_placement_test.cpp
+      src/app/window_placement.cpp)
+    target_link_libraries(oa-app-window-placement-test PRIVATE oa-ui-kit oa-ui-display-layout
+      oa-test-support oa-options)
+    add_test(NAME app-window-placement COMMAND oa-app-window-placement-test)
+    set_tests_properties(app-window-placement PROPERTIES TIMEOUT 30)
     # The texture limit the render policy corrects from the probe's report,
     # the line the game logs once its renderer is made, naming the driver,
     # the adapter, the texture limit and the tier with what it does or why
@@ -1323,6 +1333,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_engine_settings_menu.cpp
   src/app/runtime_engine_settings_match.cpp
   src/app/oa_layer.cpp
+  src/app/window_placement.cpp
   src/app/runtime_library.cpp src/app/runtime_library_actions.cpp
   src/app/runtime_map_browser.cpp
   src/app/runtime_key_editor.cpp

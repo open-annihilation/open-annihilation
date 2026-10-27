@@ -3,7 +3,9 @@
 
 // The question a verified release asks at the main menu. It waits through a
 // match, Settings and a message box. Skip remembers the release, Later
-// writes nothing, and Update opens the release's page.
+// writes nothing, and Update downloads the package where this copy can
+// install it, or opens the release's page. A release held after it failed
+// to install, and one whose package is already downloaded, do not ask.
 #include "oa/app/runtime.hpp"
 
 #include "oa_layer.hpp"
@@ -11,9 +13,14 @@
 
 #include "oa/app/game_directory.hpp"
 #include "oa/app/update/build.hpp"
+#include "oa/app/update/choices.hpp"
 #include "oa/app/update/offer.hpp"
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+#include "oa/app/update/download.hpp"
+#endif
 #include "oa/app/update/route.hpp"
 #include "oa/data/languages/interface_text.hpp"
+#include "oa/platform/preferences.hpp"
 #include "oa/ui/library/text.hpp"
 
 #include <SDL3/SDL.h>
@@ -106,6 +113,26 @@ bool update_question_queued(OaLayer& layer) {
 /// The button OPEN THE PAGE answers, when the notice offers it.
 constexpr int32_t kPageButton = 0;
 
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+/// True when the offered package was already downloaded, so the ready prompt
+/// asks instead of this question.
+///
+/// @param options the run's options, which name the data folder
+/// @param offer the offer
+/// @return true when its zip or its installer is kept under `<data>/updates`
+bool offered_package_downloaded(const Options& options, const feed::Offer& offer) {
+    if (offer.release == nullptr || offer.package == nullptr)
+        return false;
+    try {
+        const std::filesystem::path data =
+            options.data_dir ? *options.data_dir : oa::platform::preferences::data_directory();
+        return update::package_downloaded(data / "updates", *offer.release, *offer.package);
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+#endif
+
 } // namespace
 
 void Runtime::offer_update() {
@@ -137,6 +164,16 @@ void Runtime::offer_update() {
     if (options_.update_and_quit || background_download_covers_offer())
         return;
     const int64_t release_number = held.offer.release->release;
+    // A release that did not install waits for the player's Try again, and
+    // its receipt says so. A package already downloaded asks with the ready
+    // prompt instead, and a download already running does not ask again.
+    if (update::release_held(preference_values_, release_number))
+        return;
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+    if (update::replaces_itself() && held.offer.way == feed::Way::in_place &&
+        offered_package_downloaded(options_, held.offer))
+        return;
+#endif
     // Asked once this run for this release. A match that closed the question
     // cleared the number, so the next settled menu asks again. A higher
     // release still asks.

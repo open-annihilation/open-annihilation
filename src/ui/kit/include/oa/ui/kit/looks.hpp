@@ -40,14 +40,16 @@ enum class Mark : uint8_t {
     key,          ///< a signing key, 7 by 7
 };
 
-/// Which of the six button looks a button is drawn in.
+/// Which of the button looks a button is drawn in. Every look has rounded
+/// corners, their radius the control radius of the button's height.
 enum class ButtonStyle : uint8_t {
-    accent, ///< the green button: OK, SWITCH, a notice's OK, MANAGE…
-    plain,  ///< no face at rest: Restore defaults, Cancel, a notice's other button
-    quiet,  ///< no face at rest, and the band while held: Your files, OPEN MODS FOLDER
+    accent, ///< the primary button, lime with dark text: OK, SWITCH, a notice's OK, MANAGE…
+    plain,  ///< the secondary button, raised with the strong edge: Restore defaults, Cancel
+    quiet,  ///< a text button in lime, with no face at rest: Your files, OPEN MODS FOLDER
     inset,  ///< the list's face at rest: a mod row's ROLL BACK
-    /// the deep green face with white text and rounded corners, over a picture: Mutators
+    /// the deep green face with white text, over a picture: Mutators
     filled,
+    danger, ///< outlined in the danger red, its caption red: Uninstall
 };
 
 /// What a button draws in place of its caption.
@@ -259,17 +261,20 @@ struct ChipLook {
     std::optional<StateIcon> icon{};
 };
 
-/// What a pill says, which chooses its colours. A pill is a word on a fully
-/// rounded ground, not a chip: chips stay rectangular. Active and inactive
-/// are the selectable pair: active is drawn as playing, inactive as neutral.
+/// What a pill says, which chooses its colours: a status badge's. A pill is
+/// a word on a fully rounded ground; a state's pill is its colour's tinted
+/// fill under words in that colour. Active and inactive are the selectable
+/// pair: active is drawn as playing, inactive as neutral.
 enum class PillState : uint8_t {
-    playing,   ///< accent ground, on_accent text
-    neutral,   ///< a muted ground, text colour: built in
-    installed, ///< the accent, as a chip's installed state
-    update,    ///< the lock colour, as a chip's update state
-    problem,   ///< the danger colour, as a chip's problem state
-    active,    ///< chosen, as playing: accent ground, on_accent text
-    inactive,  ///< not chosen, as neutral: a muted ground, text colour
+    playing,     ///< accent ground, on_accent text
+    neutral,     ///< a muted ground, text colour: built in
+    installed,   ///< the accent, as a chip's installed state
+    update,      ///< the lock colour, as a chip's update state
+    problem,     ///< the danger colour, as a chip's problem state
+    active,      ///< chosen, as playing: accent ground, on_accent text
+    inactive,    ///< not chosen, as neutral: a muted ground, text colour
+    information, ///< the information blue's tint and words: a release offered
+    brand,       ///< the brand gold's tint and words: a Core Prime badge
 };
 
 /// A pill: a short text on a fully rounded ground about chip_height high.
@@ -432,6 +437,7 @@ struct LinkLook {
 struct ProgressLook {
     int32_t done{};  ///< how far it has come, from 0 to whole
     int32_t whole{}; ///< the whole; 0 or less fills nothing
+    bool paused{};   ///< the work is paused: the fill is amber, not lime
 };
 
 /// A picture of the screen's own, scaled to fill the item's rectangle, such
@@ -667,7 +673,7 @@ struct KeycapLook {
 
 /// A chord chip: keycaps joined by "+", then a gesture word. add draws the
 /// dashed add form, with keys empty. Its caption is add_caption, or
-/// "+ ADD KEY" when that is empty. none_text after that caption is a quiet
+/// "+ Add key" when that is empty. none_text after that caption is a quiet
 /// note. none_text alone, with add clear, is the unbound text.
 struct ChordChipLook {
     std::vector<std::string> keys{}; ///< the keycaps' labels, in order
@@ -676,7 +682,7 @@ struct ChordChipLook {
     bool selected{false};            ///< the chip is chosen
     bool hovered{false};             ///< the pointer is over it
     bool add{false};                 ///< the dashed add form
-    std::string add_caption{};       ///< the add form's words; empty draws "+ ADD KEY"
+    std::string add_caption{};       ///< the add form's words; empty draws "+ Add key"
     std::string none_text{};         ///< a quiet note on the add form, or the unbound text
 };
 

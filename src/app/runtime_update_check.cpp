@@ -131,6 +131,13 @@ update::ThisBuild running_build() {
 
 void Runtime::check_engine_feed() {
     require(options_.data_dir.has_value(), "the run has no --data-dir");
+    // A feed an earlier run of this check stored would be read again at the
+    // first menu; this run starts with none.
+    {
+        std::error_code cleared;
+        fs::remove(*options_.data_dir / "updates" / "feed.json", cleared);
+        fs::remove(*options_.data_dir / "updates" / "feed.json.sig", cleared);
+    }
     preference_values_[std::string(oa::ui::first_run::preference_key)] =
         std::string(oa::ui::first_run::preference_done);
     preferences_dirty_ = true;

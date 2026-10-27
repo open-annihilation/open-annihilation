@@ -131,7 +131,7 @@ constexpr int32_t kWheelStep = 2 * kMetrics.small_line; ///< what a notch of the
 
 constexpr std::string_view kTitle = "Open Annihilation";
 constexpr std::string_view kSecond = "UI kit gallery";
-constexpr std::string_view kCloseCaption = "CLOSE";
+constexpr std::string_view kCloseCaption = "Close";
 constexpr std::array<std::string_view, kTabCount> kTabCaptions{"Mods", "Maps", "Updates"};
 constexpr std::array<int32_t, kTabCount> kTabCounts{0, 0, 2};
 constexpr std::array<std::string_view, kLevelCount> kLevelCaptions{"Off", "Basic", "Full"};
@@ -503,7 +503,7 @@ ListRowLook row_look(const Package& package, bool full) {
 /// @return the look
 CardLook card_look(const Package& package) {
     CardLook look;
-    look.placeholder = "PREVIEW";
+    look.placeholder = "Preview";
     look.title = std::string(package.name);
     look.subtitle = std::string(package.version);
     look.chips.push_back({std::string(package.chip), package.state});
@@ -658,27 +658,27 @@ int32_t tabs(Builder& b, Point at, int32_t width, std::string_view word) {
            );
 }
 
-/// Buttons: a working button and link, the five looks, then a button and a
-/// link in each state.
+/// Buttons: a working button and link, the six looks, then a button and a
+/// link in each state, at Kit 2's Compact control height.
 int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view word) {
     const GalleryModel& model = *b.model;
     int32_t top = at.y;
     {
-        const Rect button{at.x, top, kButtonWidth, kMetrics.button_height};
+        const Rect button{at.x, top, kButtonWidth, kMetrics.control_height};
         const bool over = model.interaction.hovered == kButton;
         const std::size_t part_at = b.list.items.size();
         add_button(
             b.list,
             button,
             button_look(
-                "PRESS", ButtonStyle::accent, over, over && model.interaction.pressed == kButton
+                "Press", ButtonStyle::accent, over, over && model.interaction.pressed == kButton
             ),
             kButton,
             named(word, 1)
         );
         show_working(b, part_at, kButton, button);
         b.order.push_back(kButton);
-        const Rect count{button.x + button.width + kCellGap, top, 96, kMetrics.button_height};
+        const Rect count{button.x + button.width + kCellGap, top, 96, kMetrics.control_height};
         add_words(
             b.list,
             count,
@@ -692,7 +692,7 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
         link.hovered = pointer_on(model, kLink);
         const Rect link_rect{
             count.x + count.width + kCellGap,
-            top + (kMetrics.button_height - kMetrics.small_line) / 2,
+            top + (kMetrics.control_height - kMetrics.small_line) / 2,
             link_width(*b.fonts, link),
             kMetrics.small_line
         };
@@ -700,25 +700,28 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
         add_link(b.list, link_rect, link, kLink, named(word, 2));
         show_working(b, link_at, kLink, link_rect);
         b.order.push_back(kLink);
-        top += kMetrics.button_height + kLineGap;
+        top += kMetrics.control_height + kLineGap;
     }
-    // The five looks, at rest.
-    constexpr std::array<std::string_view, 5> kLooks{"Accent", "Plain", "Quiet", "Inset", "Filled"};
-    constexpr std::array<std::string_view, 5> kLookCaptions{
-        "OK", "Cancel", "Open folder", "Roll back", "Mutators"
+    // The six looks, at rest.
+    constexpr std::array<std::string_view, 6> kLooks{
+        "Accent", "Plain", "Quiet", "Inset", "Filled", "Danger"
     };
-    constexpr std::array<ButtonStyle, 5> kStyles{
+    constexpr std::array<std::string_view, 6> kLookCaptions{
+        "OK", "Cancel", "Open folder", "Roll back", "Mutators", "Uninstall"
+    };
+    constexpr std::array<ButtonStyle, 6> kStyles{
         ButtonStyle::accent,
         ButtonStyle::plain,
         ButtonStyle::quiet,
         ButtonStyle::inset,
-        ButtonStyle::filled
+        ButtonStyle::filled,
+        ButtonStyle::danger
     };
     top += add_cells(
                b.list,
                {at.x, top},
                width,
-               {kButtonWidth, kMetrics.button_height},
+               {kButtonWidth, kMetrics.control_height},
                kLooks,
                [&](const Rect& rect, std::size_t place) {
                    add_fixed(b.list, rect, {}, Sample::idle, false, [&] {
@@ -736,7 +739,7 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
                b.list,
                {at.x, top},
                width,
-               {kButtonWidth, kMetrics.button_height},
+               {kButtonWidth, kMetrics.control_height},
                kFiveStates,
                [&](const Rect& rect, Sample shown) {
                    add_fixed(b.list, rect, rect, shown, false, [&] {
@@ -763,7 +766,7 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
                b.list,
                {at.x, top},
                width,
-               {kMetrics.button_height, kMetrics.button_height},
+               {kMetrics.control_height, kMetrics.control_height},
                kFiveStates,
                [&](const Rect& rect, Sample shown) {
                    add_fixed(b.list, rect, rect, shown, false, [&] {
@@ -806,12 +809,12 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
 /// and locked.
 int32_t toggle_section(Builder& b, Point at, int32_t width, std::string_view word) {
     const GalleryModel& model = *b.model;
-    const Rect field{at.x, at.y, kMetrics.switch_width, kMetrics.regular_line};
+    const Rect field{at.x, at.y, kMetrics.switch_width, kMetrics.switch_height};
     SwitchLook look;
     look.on = model.toggle_on;
     look.hovered = pointer_on(model, kToggle);
-    look.off_caption = "OFF";
-    look.on_caption = "ON";
+    look.off_caption = "Off";
+    look.on_caption = "On";
     const std::size_t part_at = b.list.items.size();
     add_switch(b.list, field, look, kToggle, named(word, 1));
     show_working(b, part_at, kToggle, field);
@@ -821,19 +824,19 @@ int32_t toggle_section(Builder& b, Point at, int32_t width, std::string_view wor
         {field.x + field.width + kCellGap,
          at.y,
          std::max(width - field.width - kCellGap, 0),
-         kMetrics.regular_line},
+         kMetrics.switch_height},
         "Unicode chat",
         FontRole::regular,
         Align::left,
         colour::text
     );
-    const int32_t top = at.y + kMetrics.regular_line + kLineGap;
+    const int32_t top = at.y + kMetrics.switch_height + kLineGap;
     return top - at.y +
            add_states(
                b.list,
                {at.x, top},
                width,
-               {kMetrics.switch_width, kMetrics.regular_line},
+               {kMetrics.switch_width, kMetrics.switch_height},
                kLockedStates,
                [&](const Rect& rect, Sample shown) {
                    SwitchLook sample = look;
@@ -1187,11 +1190,12 @@ int32_t chips_section(Builder& b, Point at, int32_t width, std::string_view word
 }
 
 /// Pills: one of each state, display only, then a selectable pill in each
-/// state. Playing and active are filled; neutral and inactive are the muted
-/// ground; installed, update and problem outline that ground. Hover, focus
-/// and disabled are drawn on the pill, so a sample has no separate ring.
+/// state. Playing and active are filled; neutral and inactive are the
+/// selected surface; installed, update, problem, information and brand are
+/// their colour's tint. Hover and disabled are drawn on the pill, and focus
+/// is the pill's own ring, so a sample has no separate ring.
 int32_t pills_section(Builder& b, Point at, int32_t width, std::string_view /*word*/) {
-    const std::array<PillLook, 7> kinds{{
+    const std::array<PillLook, 9> kinds{{
         {"Playing", PillState::playing},
         {"Built in", PillState::neutral},
         {"Installed", PillState::installed},
@@ -1199,6 +1203,8 @@ int32_t pills_section(Builder& b, Point at, int32_t width, std::string_view /*wo
         {"Problem", PillState::problem},
         {"Active", PillState::active},
         {"Inactive", PillState::inactive},
+        {"Update 0.8.8", PillState::information},
+        {"Core Prime", PillState::brand},
     }};
     int32_t x = at.x;
     int32_t y = at.y;
@@ -1233,13 +1239,15 @@ int32_t pills_section(Builder& b, Point at, int32_t width, std::string_view /*wo
     return y + pill_height() + kLineGap + states - at.y;
 }
 
-/// Progress: a bar waiting, part done and done, each with its share.
+/// Progress: a bar waiting, part done, paused part done and done, each
+/// with its share.
 int32_t progress_section(Builder& b, Point at, int32_t width, std::string_view /*word*/) {
     constexpr int32_t kShareWidth = 40;
-    constexpr std::array<int32_t, 3> kDone{0, 400, 1000};
+    constexpr std::array<int32_t, 4> kDone{0, 400, 400, 1000};
     const int32_t bar_width = std::max(width - kShareWidth - kCellGap, 1);
     int32_t top = at.y;
-    for (const int32_t done : kDone) {
+    for (std::size_t place = 0; place < kDone.size(); ++place) {
+        const int32_t done = kDone[place];
         add_progress(
             b.list,
             {at.x,
@@ -1247,7 +1255,8 @@ int32_t progress_section(Builder& b, Point at, int32_t width, std::string_view /
              bar_width,
              kMetrics.progress_bar_height},
             done,
-            question_progress_whole
+            question_progress_whole,
+            place == 2
         );
         add_words(
             b.list,
@@ -1576,7 +1585,7 @@ int32_t notice_section(Builder& b, Point at, int32_t /*width*/, std::string_view
         {"Sample Mod 4.8 · rev 3 is ready to play, in your Mods folder:", false},
         {"Mods/sample-mod", true},
     };
-    notice.open_caption = "OPEN FOLDER";
+    notice.open_caption = "Open folder";
     GalleryPanel panel;
     panel.origin = at;
     const int32_t height = place_notice(notice, b.fonts).height;
@@ -1594,7 +1603,7 @@ int32_t question_section(Builder& b, Point at, int32_t /*width*/, std::string_vi
     question.paragraphs = {
         {"Sample Mod 4.8 · rev 3 replaces 4.7. Another Mod and Third Mod use it.", false},
     };
-    question.buttons = {{"CANCEL", false, "cancel"}, {"UPDATE", true, "update"}};
+    question.buttons = {{"Cancel", false, "cancel"}, {"Update", true, "update"}};
     question.cancel_button = 0;
     question.primary_button = 1;
     question.progress = 400;
@@ -2146,7 +2155,7 @@ int32_t first_run(Builder& b, Point at, int32_t width, std::string_view /*word*/
             constexpr int32_t kCardLeast = 140;
             const int32_t gaps = coach_gap + 8;
             if (layer.width - gaps - target_w < kCardLeast)
-                target_w = std::max(layer.width - gaps - kCardLeast, int32_t{12});
+                target_w = std::max(layer.width - gaps - kCardLeast, int32_t{8});
             target = {
                 layer.x + 4,
                 layer.y + std::max((layer.height - mark) / 2, int32_t{0}),
@@ -2505,7 +2514,7 @@ int32_t badges_section(Builder& b, Point at, int32_t width, std::string_view /*w
     Question question;
     question.title = "GET GATEHOUSE?";
     question.paragraphs = {{"Install these mutators.", false}};
-    question.buttons = {{"CANCEL", false, "cancel"}, {"GET", true, "get"}};
+    question.buttons = {{"Cancel", false, "cancel"}, {"Get", true, "get"}};
     question.cancel_button = 0;
     question.primary_button = 1;
     QuestionItem gatehouse;

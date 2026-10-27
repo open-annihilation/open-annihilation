@@ -39,10 +39,10 @@ struct LayerWindow {
 };
 
 /// The windows the notice and prompt checks show their screens at beyond
-/// 640 by 480: 1280 by 720, Large at 1×, and 1920 by 1080, Regular at 2×.
+/// 640 by 480: 800 by 600, Regular at 1×, and 2560 by 1440, Large at 2×.
 inline constexpr std::array<LayerWindow, 2> larger_layer_windows{{
-    {1280, 720, oa::ui::kit::SizeClass::large, 1},
-    {1920, 1080, oa::ui::kit::SizeClass::regular, 2},
+    {800, 600, oa::ui::kit::SizeClass::regular, 1},
+    {2560, 1440, oa::ui::kit::SizeClass::large, 2},
 }};
 
 /// Returns a size class's name, as the checks print it.
