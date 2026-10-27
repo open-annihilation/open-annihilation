@@ -2412,8 +2412,14 @@ bool Runtime::feed_input_actions(const SDL_Event& event) {
     if (take_order_wheel_aside(event))
         return true;
     const std::optional<keys::InputEvent> input = input_from_sdl(event, SDL_GetTicks());
-    if (!input)
+    if (!input) {
+        // An event that is no key, button or wheel starts no action. The last
+        // input's events go, or the pointer moving between a chord's press and
+        // its release would answer the press again: Primary+/ would open the
+        // keys overlay and close it at once.
+        state.events.clear();
         return false;
+    }
     const keys::Contexts contexts = input_contexts();
     state.dispatcher.set_contexts(contexts);
     const keys::Fed fed = state.dispatcher.feed(*input);

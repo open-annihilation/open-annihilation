@@ -2579,7 +2579,9 @@ class Runtime final : public menu::Host,
     /// focus releases every held action and role, and clears the keyboard latches, the sticky
     /// modifiers and the shared QUEUE, ADD and x5 latches. A running match answers the events
     /// through handle_match_action. A key held back by slow keys, or dropped by bounce keys,
-    /// does not reach the rest of the game. [runtime_key_bindings.cpp]
+    /// does not reach the rest of the game. Any other event, such as the pointer moving, keeps
+    /// no action events, so a key's press is not answered again by the event after it.
+    /// [runtime_key_bindings.cpp]
     ///
     /// @param event the event dispatch_event is given
     /// @return true when the rest of the game should not see this event
