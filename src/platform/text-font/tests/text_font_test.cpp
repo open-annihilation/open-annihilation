@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The font stack: the fonts found beside the program, the sizes that match
-// the game's fonts, the fallback chain, text that is not UTF-8, the limits,
-// and, with --pixels, a short mixed line drawn pixel for pixel as the pinned
+// the game's fonts, the fallback chain, the interface faces, text that is
+// not UTF-8, the limits, and, with --pixels, a short mixed line drawn pixel for pixel as the pinned
 // FreeType draws it. --show TEXT prints a line as it is drawn.
 
 #include "oa/platform/text_font.hpp"
@@ -26,6 +26,7 @@ namespace {
 namespace text_font = oa::platform::text_font;
 using text_font::Face;
 using text_font::FaceRole;
+using text_font::Family;
 using text_font::Rendering;
 using text_font::Style;
 using text_font::Weight;
@@ -611,9 +612,126 @@ void removed_faces_leave_no_glyphs() {
     }
 }
 
+/// A style of the stack in a family.
+Style family_style(int32_t pixel_size, Weight weight, Family family) {
+    Style style = style_of(pixel_size, weight, Rendering::antialiased);
+    style.family = family;
+    return style;
+}
+
+/// The faces a line's characters are drawn from, in order.
+std::vector<Face> faces_of(text_font::FontStack& stack, std::string_view text, const Style& style) {
+    std::vector<Face> faces;
+    if (const auto placed = stack.layout(text, style))
+        for (const text_font::Placement& placement : *placed)
+            faces.push_back(placement.face);
+    return faces;
+}
+
+void interface_faces_go_first() {
+    auto stack = open_beside();
+    if (!stack)
+        return;
+    for (std::size_t index = 0; index < text_font::interface_face_count; ++index) {
+        OA_CHECK(stack->has_face(text_font::interface_face(index)));
+        OA_CHECK(text_font::is_interface_face(text_font::interface_face(index)));
+    }
+    OA_CHECK(!text_font::is_interface_face(Face::noto_emoji));
+    OA_CHECK(!text_font::is_interface_face(text_font::pack_face(0)));
+    // Each weight of the interface family puts its Barlow face first, then
+    // the sans faces of the weight.
+    const std::vector<Face> semibold = stack->chain(Weight::semibold, Family::interface);
+    const std::vector<Face> semibold_chain{
+        Face::barlow_semibold,
+        Face::dejavu_sans_bold,
+        Face::dejavu_sans,
+        Face::endonyms,
+        Face::noto_emoji,
+    };
+    OA_CHECK(semibold == semibold_chain);
+    OA_CHECK(stack->chain(Weight::regular, Family::interface).front() == Face::barlow);
+    OA_CHECK(stack->chain(Weight::medium, Family::interface).front() == Face::barlow_medium);
+    OA_CHECK(stack->chain(Weight::bold, Family::interface).front() == Face::barlow_bold);
+    OA_CHECK(
+        stack->chain(Weight::bold, Family::interface_condensed).front() ==
+        Face::barlow_condensed_bold
+    );
+    OA_CHECK(
+        stack->chain(Weight::regular, Family::interface_condensed).front() ==
+        Face::barlow_condensed_semibold
+    );
+    // The sans family draws medium as regular and semibold as bold.
+    OA_CHECK(stack->face_for(U'A', Weight::medium) == Face::dejavu_sans);
+    OA_CHECK(stack->face_for(U'A', Weight::semibold) == Face::dejavu_sans_bold);
+    OA_CHECK(stack->chain(Weight::semibold) == stack->chain(Weight::bold));
+    // What Barlow lacks comes from the sans faces, the endonym face and the
+    // emoji face.
+    OA_CHECK(stack->face_for(U'A', Weight::regular, Family::interface) == Face::barlow);
+    OA_CHECK(
+        stack->face_for(0x0416, Weight::regular, Family::interface) == Face::dejavu_sans
+    ); // Cyrillic Zhe
+    OA_CHECK(
+        stack->face_for(0x0416, Weight::semibold, Family::interface) == Face::dejavu_sans_bold
+    );
+    OA_CHECK(stack->face_for(0x4E2D, Weight::semibold, Family::interface) == Face::endonyms);
+    OA_CHECK(stack->face_for(0x1F680, Weight::semibold, Family::interface) == Face::noto_emoji);
+    OA_CHECK(stack->draws("Settings \xD0\x96 \xE4\xB8\xAD", Weight::semibold, Family::interface));
+    // A word in an alphabet Barlow lacks is drawn whole in the sans faces,
+    // its digits with it; ideographs leave the Latin letters in Barlow.
+    const Style label = family_style(14, Weight::semibold, Family::interface);
+    const std::vector<Face> cyrillic = faces_of(*stack, "\xD0\x96\xD0\xB4 1", label);
+    OA_CHECK(cyrillic.size() == 4);
+    OA_CHECK(std::all_of(cyrillic.begin(), cyrillic.end(), [](Face face) {
+        return face == Face::dejavu_sans_bold;
+    }));
+    OA_CHECK(faces_of(*stack, "Ab 1", label) == std::vector<Face>(4, Face::barlow_semibold));
+    const std::vector<Face> with_ideograph{
+        Face::barlow_semibold, Face::barlow_semibold, Face::endonyms
+    };
+    OA_CHECK(faces_of(*stack, "Ab\xE4\xB8\xAD", label) == with_ideograph);
+    // Barlow is narrower than DejaVu Sans at a size, and its condensed face
+    // narrower again; the interface faces take the style's size.
+    const auto width = [&](Family family, Weight weight) {
+        const auto placed = stack->layout("Restore defaults", family_style(14, weight, family));
+        OA_CHECK(placed && !placed->empty());
+        return placed && !placed->empty() ? placed->back().pen + placed->back().advance : 0;
+    };
+    const int32_t sans = width(Family::sans, Weight::bold);
+    const int32_t barlow = width(Family::interface, Weight::semibold);
+    const int32_t condensed = width(Family::interface_condensed, Weight::bold);
+    OA_CHECK(condensed > 0 && condensed < barlow && barlow < sans);
+    const auto rows =
+        stack->face_metrics(Face::barlow, family_style(14, Weight::regular, Family::interface));
+    OA_CHECK(rows && rows->pixel_size == 14);
+    const auto line = stack->metrics(label);
+    const auto plain = stack->metrics(family_style(14, Weight::semibold, Family::sans));
+    OA_CHECK(line && plain && line->ascent >= plain->ascent && line->descent >= plain->descent);
+    // A pack face leaving takes none of the interface faces' glyphs with it.
+    OA_CHECK(stack->draw("Ab", label).has_value());
+    const std::size_t drawn = stack->drawn_glyphs();
+    stack->remove_pack_faces();
+    OA_CHECK(stack->draw("Ab", label).has_value());
+    OA_CHECK(stack->drawn_glyphs() == drawn);
+    // A folder without the interface faces still opens, and their families
+    // draw in the sans faces.
+    TemporaryFonts fonts;
+    auto bare = text_font::FontStack::open(fonts.directory);
+    OA_CHECK(bare != nullptr);
+    if (bare) {
+        OA_CHECK(!bare->has_face(Face::barlow));
+        OA_CHECK(
+            bare->face_for(U'A', Weight::semibold, Family::interface) == Face::dejavu_sans_bold
+        );
+        const std::vector<Face> in_sans(2, Face::dejavu_sans_bold);
+        OA_CHECK(faces_of(*bare, "Ab", label) == in_sans);
+    }
+}
+
 void face_file_opens() {
     const auto bundled = text_font::bundled_font_directory();
     for (const std::string_view name : text_font::face_files)
+        OA_CHECK(text_font::FontStack::face_file_opens(bundled / std::filesystem::path(name)));
+    for (const std::string_view name : text_font::interface_face_files)
         OA_CHECK(text_font::FontStack::face_file_opens(bundled / std::filesystem::path(name)));
     TemporaryFonts fonts;
     {
@@ -692,6 +810,7 @@ int main(int argc, char** argv) {
     endonyms_draw_without_the_cjk_face();
     pack_faces_join_the_chain();
     removed_faces_leave_no_glyphs();
+    interface_faces_go_first();
     face_file_opens();
     return oa::test::check_exit_status();
 }
