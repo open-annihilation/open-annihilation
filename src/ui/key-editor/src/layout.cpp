@@ -4849,30 +4849,59 @@ void add_keyboard_body(
             at += line_h;
             continue;
         }
-        const int32_t box_h = line_h * 2 + metrics.space * 2;
+        // The place and what the key does there each wrap onto a second line
+        // rather than being cut.
+        const int32_t text_w = std::max(inner_w - pad * 2, int32_t{1});
+        const kit::Measure small_measure = [&](std::string_view words_measured) {
+            return kit::text_width(fonts, kit::FontRole::small, words_measured);
+        };
+        const auto two_lines = [&](const std::string& words) {
+            if (small_measure(words) <= text_w)
+                return std::vector<std::string>{words};
+            std::vector<std::string> broken = kit::wrap(words, text_w, small_measure);
+            if (broken.empty())
+                broken.emplace_back();
+            for (std::size_t rest = 2; rest < broken.size(); ++rest)
+                broken[1] += " " + broken[rest];
+            if (broken.size() > 2)
+                broken.resize(2);
+            return broken;
+        };
+        std::string what = line.action;
+        if (!line.note.empty())
+            what += "  " + line.note;
+        const std::vector<std::string> where_lines = two_lines(line.context);
+        const std::vector<std::string> what_lines = two_lines(what);
+        const int32_t box_h =
+            line_h * static_cast<int32_t>(where_lines.size() + what_lines.size()) +
+            metrics.space * 2;
         if (at + box_h > lines_stop)
             continue;
         add_item(built.list, kit::Role::fill, {pane.x + pad, at, inner_w, box_h}).colour =
             kit::colour::panel;
-        add_line(
-            built,
-            fonts,
-            {pane.x + pad * 2, at + metrics.space, inner_w - pad * 2, line_h},
-            line.context,
-            kit::FontRole::small,
-            kit::colour::text_tertiary
-        );
-        std::string what = line.action;
-        if (!line.note.empty())
-            what += "  " + line.note;
-        add_line(
-            built,
-            fonts,
-            {pane.x + pad * 2, at + metrics.space + line_h, inner_w - pad * 2, line_h},
-            what,
-            kit::FontRole::small,
-            line.fixed ? kit::colour::quiet : kit::colour::text
-        );
+        int32_t text_y = at + metrics.space;
+        for (const std::string& piece : where_lines) {
+            add_line(
+                built,
+                fonts,
+                {pane.x + pad * 2, text_y, text_w, line_h},
+                piece,
+                kit::FontRole::small,
+                kit::colour::text_tertiary
+            );
+            text_y += line_h;
+        }
+        for (const std::string& piece : what_lines) {
+            add_line(
+                built,
+                fonts,
+                {pane.x + pad * 2, text_y, text_w, line_h},
+                piece,
+                kit::FontRole::small,
+                line.fixed ? kit::colour::quiet : kit::colour::text
+            );
+            text_y += line_h;
+        }
         at += box_h + metrics.space;
     }
     kit::Control control;
