@@ -822,8 +822,9 @@ void check_frame(const fixture::NamedFrame& named) {
     const kit::Item* ridgeline = text_item(maps_list, "Ridgeline");
     OA_CHECK(atoll != nullptr);
     if (ridgeline == nullptr) {
-        OA_CHECK(compact && atoll != nullptr);
-        if (atoll != nullptr)
+        // A small window, and Regular's maps pane under Kit 2's taller
+        // shell, show fewer maps at once; scrolling brings the rest.
+        if (compact && atoll != nullptr)
             OA_CHECK(atoll->rect.height == kit::compact_metrics.small_line);
         OA_CHECK(text_item(end_list, "Twin Rivers") != nullptr);
     }
@@ -3835,8 +3836,15 @@ void active_maps_fill_scroll_and_filter() {
     OA_CHECK(text_item(list, "2 of 3") != nullptr);
     OA_CHECK(fixture::named(list, "library.active.map.1") == nullptr);
     OA_CHECK(fixture::named(list, "library.active.map.2") != nullptr);
-    OA_CHECK(fixture::named(list, "library.active.map.3") != nullptr);
     OA_CHECK(fixture::named(list, "library.active.mod") != nullptr);
+    // Regular's maps pane shows one tile under Kit 2's shell: the second
+    // match is a scroll away.
+    {
+        lib::ScreenState scrolled = state;
+        scrolled.maps_scroll = 100000;
+        const kit::DisplayList end = laid_out(library, scrolled, regular);
+        OA_CHECK(fixture::named(end, "library.active.map.3") != nullptr);
+    }
 
     state.maps_search = {};
     list = laid_out(library, state, regular);
@@ -3865,7 +3873,12 @@ void active_maps_fill_scroll_and_filter() {
     list = laid_out(library, state, regular);
     OA_CHECK(text_item(list, "0 of 3") == nullptr);
     OA_CHECK(fixture::named(list, "library.active.map.1") != nullptr);
-    OA_CHECK(fixture::named(list, "library.active.map.2") != nullptr);
+    {
+        lib::ScreenState scrolled = state;
+        scrolled.maps_scroll = 100000;
+        const kit::DisplayList end = laid_out(library, scrolled, regular);
+        OA_CHECK(fixture::named(end, "library.active.map.3") != nullptr);
+    }
 
     state.maps_search.text = "river";
     state.maps_search.caret = state.maps_search.text.size();

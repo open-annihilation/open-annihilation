@@ -303,6 +303,7 @@ struct Window {
     int32_t tab_height{};    ///< the tab strip: Kit 2's tab strip height
     int32_t field_height{};  ///< the search field and a drop-down field: Kit 2's text field
     int32_t pill_height{};   ///< a filter pill: Kit 2's filter chip height
+    int32_t header_height{}; ///< the header's band: Kit 2's window header, Compact's at Compact
 };
 
 /// Returns the window's rows and columns for a frame, as the settings
@@ -317,8 +318,8 @@ Window window_of(const kit::Frame& frame) {
     Window window;
     window.width = size.x;
     window.height = size.y;
-    // Kit 2's window padding, and its sizes for the shell's controls. The
-    // header is the kit's, Compact's height at every class. Compact's
+    // Kit 2's window padding, and its sizes for the shell's controls: its
+    // window header, tab strip, fields, pills, controls and footer. Compact's
     // stacked parts sit a space apart and its footer holds its controls
     // with a space above and below, so the list keeps its room.
     window.padding = metrics.window_padding;
@@ -330,7 +331,12 @@ Window window_of(const kit::Frame& frame) {
     window.pill_height = metrics.filter_chip_height;
     window.footer_height =
         compact ? metrics.control_height + 2 * metrics.space : metrics.window_footer_height;
-    window.body_top = metrics.edge + metrics.header_height + 1;
+    // Regular and Large take Kit 2's window header. Compact keeps the kit's
+    // Compact band: ten points more would cost its list a row and leave the
+    // Active page's lowest controls over the footer's, where no arrow
+    // passes them.
+    window.header_height = compact ? metrics.header_height : metrics.window_header_height;
+    window.body_top = metrics.edge + window.header_height + 1;
     window.footer_rule = size.y - metrics.edge - window.footer_height - 1;
     window.footer_top = window.footer_rule + 1;
     window.button_top = window.footer_top + (window.footer_height - window.button_height) / 2;
@@ -1353,6 +1359,7 @@ void add_header(
 
     kit::HeaderLook look;
     look.width = window.width;
+    look.height = window.header_height;
     look.tracking = tracking;
     look.right_inset = right_inset;
     look.title = std::string(title);
@@ -1371,7 +1378,7 @@ void add_header(
     );
     look.version = cut(building, kit::FontRole::small, right, version_room);
     look.version_width = width_of(building, kit::FontRole::small, look.version);
-    const int32_t header_rule = compact.edge + compact.header_height;
+    const int32_t header_rule = compact.edge + window.header_height;
     add_item(building.list, kit::Role::header, {0, 0, window.width, header_rule + 1}, {}).look =
         std::move(look);
 }
@@ -1385,7 +1392,7 @@ kit::Rect header_close_rect(const Window& window) {
     const int32_t side = compact.button_height;
     return {
         window.width - compact.edge - compact.padding - side,
-        compact.edge + (compact.header_height - side) / 2,
+        compact.edge + (window.header_height - side) / 2,
         side,
         side,
     };
@@ -1501,7 +1508,7 @@ void add_offline_mark(Building& building, const Window& window) {
         icon_left - compact.header_gap - mark_width,
         compact.edge,
         std::max(mark_width, int32_t{0}),
-        compact.header_height,
+        window.header_height,
     };
     add_text(building, kit::FontRole::small, mark, box, kit::Align::right, kit::colour::lock, {});
 }
@@ -1660,7 +1667,9 @@ void use_compact_tab_names(const Library& library, kit::TabsLook& look) {
 /// view and the last tab still meets it. The largest padding that does it is
 /// kept, and the theme's tracking while any padding can keep it. Compact's
 /// short names stand in only when the full names cannot, however far the
-/// gaps close.
+/// gaps close. The gaps never close past Kit 2's spacing, a space either
+/// side of a name, so each tab reads apart: when even that does not hold
+/// Updates, the strip scrolls to it with its arrow.
 ///
 /// @param building the layout
 /// @param strip the strip
@@ -1670,8 +1679,9 @@ void keep_updates_in_view(Building& building, const kit::Rect& strip, kit::TabsL
         return;
     const int32_t theme_pad = building.metrics->tab_padding;
     const int32_t theme_track = building.metrics->tab_tracking;
+    const int32_t least_pad = std::min(building.metrics->space, theme_pad);
     const auto tighten = [&](int32_t letter_gap) {
-        for (int32_t side = theme_pad; side >= 0; --side) {
+        for (int32_t side = theme_pad; side >= least_pad; --side) {
             look.side_padding = side;
             look.tracking = letter_gap;
             if (opening_tabs_reached(building, strip, look))
@@ -1688,7 +1698,7 @@ void keep_updates_in_view(Building& building, const kit::Rect& strip, kit::TabsL
         return;
     if (theme_track != 0 && tighten(0))
         return;
-    look.side_padding = 0;
+    look.side_padding = least_pad;
     look.tracking = 0;
 }
 

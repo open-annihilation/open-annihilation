@@ -541,8 +541,14 @@ app removes the folder (`Runtime::library_uninstall`,
     `window_footer_height` (48) at Regular and Large, and at Compact the
     controls with a space above and below (36), with its stacked parts a
     space apart, so the list keeps five of its 36-point rows in a 480 by 324
-    window. Regular and Large stack them `row_gap` apart. The header is the
-    kit's, Compact's height at every class (requests: a taller kit header).
+    window. Regular and Large stack them `row_gap` apart. The header is
+    Kit 2's window header (`window_header_height`, 36, through
+    `HeaderLook::height`) at Regular and Large; Compact keeps the kit's
+    Compact band (26), since ten points more would cost its list a row and
+    leave the Active page's lowest controls over the footer's, where no
+    arrow passes them. When the tabs' names do not all fit, the gaps round
+    them close no further than a space either side, so each tab reads
+    apart, and the strip scrolls to the rest with its arrow.
   - **Compact** shows a list page: the header (the mods icon, the plates
     over drive bays, "Library", this build's version, and a refresh icon
     at the top right; "offline" in the lock colour beside it when the last
@@ -602,7 +608,9 @@ app removes the folder (`Runtime::library_uninstall`,
   Compact keeps them on the line under the name. Its details draw the
   keyboard picture as wide as the details: beside the list the main block
   alone (`KeyboardLook::main_block`), the changed keys filled with the
-  accent under their legends, unless a changed key lies outside that block;
+  accent under their legends, every legend drawn (in the small font where
+  the regular one is too wide for its key), unless a changed key lies
+  outside that block;
   Compact's page draws the whole keyboard. The details say the state once:
   the chip says it in words, "In use for every game" or "In use with {mod}"
   for the layout in use, and the status line under the name is left out
