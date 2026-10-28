@@ -2481,6 +2481,39 @@ kit::DisplayList exchange_prompt(
         const int32_t count = std::min(static_cast<int32_t>(lines.size()), most_lines);
         return count * line_h;
     };
+    /// Adds the scroll bar of a block that scrolls, in the panel's padding at
+    /// the right of the column, so the block keeps its width.
+    ///
+    /// @param port the part of the block shown
+    /// @param content_h the whole block's height, in points
+    /// @param offset how far it is scrolled, in points
+    auto add_bar = [&](kit::Rect port, int32_t content_h, int32_t offset) {
+        const int32_t bar_w = metrics.scroll_thumb_width + 2;
+        const int32_t bar_x = column_x + column_w + std::max((pad - bar_w) / 2, int32_t{1});
+        const kit::Rect bar_rect{bar_x, port.y, bar_w, port.height};
+        if (bar_rect.x + bar_rect.width > box_w)
+            return;
+        kit::ScrollArea scrolled;
+        scrolled.view = port;
+        scrolled.well = bar_rect;
+        scrolled.content_height = content_h;
+        scrolled.limit = std::max(content_h - port.height, int32_t{0});
+        scrolled.offset = offset;
+        kit::ScrollBarLook bar;
+        bar.thumb = scrolled.thumb(metrics.least_thumb_height);
+        bar.hot = hot(state, controls::exchange_bar);
+        add_item(list, kit::Role::scroll_bar, bar_rect).look = bar;
+        kit::Control control;
+        control.id = controls::exchange_bar;
+        control.rect = bar_rect;
+        control.enabled = true;
+        control.focusable = false;
+        control.name = std::string(name_exchange_bar);
+        control.kind = kit::ControlKind::scroll_bar;
+        // The wheel reads the block's height back from the bar.
+        control.group = content_h;
+        list.controls.push_back(std::move(control));
+    };
     /// Draws a block of lines in a well. A new line starts a line, and a line
     /// wider than the column wraps. A block taller than `room` scrolls, and
     /// the bar sits in the panel's padding so the lines keep their width.
@@ -2534,47 +2567,93 @@ kit::DisplayList exchange_prompt(
             text_at({column_x, line_top, column_w, line_h}, lines[line_at], font, ink, clip);
         }
         area(port, id, name, words);
-        if (!scrolling)
-            return view_h;
-        const int32_t bar_w = metrics.scroll_thumb_width + 2;
-        const int32_t bar_x = column_x + column_w + std::max((pad - bar_w) / 2, int32_t{1});
-        const kit::Rect bar_rect{bar_x, y, bar_w, view_h};
-        if (bar_rect.x + bar_rect.width > box_w)
-            return view_h;
-        kit::ScrollArea scrolled;
-        scrolled.view = port;
-        scrolled.well = bar_rect;
-        scrolled.content_height = content_h;
-        scrolled.limit = std::max(content_h - view_h, int32_t{0});
-        scrolled.offset = offset;
-        kit::ScrollBarLook bar;
-        bar.thumb = scrolled.thumb(metrics.least_thumb_height);
-        bar.hot = hot(state, controls::exchange_bar);
-        add_item(list, kit::Role::scroll_bar, bar_rect).look = bar;
-        kit::Control control;
-        control.id = controls::exchange_bar;
-        control.rect = bar_rect;
-        control.enabled = true;
-        control.focusable = false;
-        control.name = std::string(name_exchange_bar);
-        control.kind = kit::ControlKind::scroll_bar;
-        // The wheel reads the block's height back from the bar.
-        control.group = content_h;
-        list.controls.push_back(std::move(control));
+        if (scrolling)
+            add_bar(port, content_h, offset);
         return view_h;
     };
+    /// The lines of a text in a width, broken between words: none is cut.
+    ///
+    /// @param words the text
+    /// @param width the width, in points
+    /// @param font which font
+    /// @return the lines
+    auto lines_in = [&](const std::string& words, int32_t width, kit::FontRole font) {
+        if (words.empty() || width <= 0)
+            return std::vector<std::string>{};
+        const auto measure = [&](std::string_view measured) {
+            return kit::text_width(fonts, font, measured);
+        };
+        return kit::wrap(words, width, measure, kit::WrapRules{.newlines = true});
+    };
+
+    /// The footer's hint: its lines, beside the buttons when two lines there
+    /// hold it, else on lines of their own over the buttons.
+    struct FooterHint {
+        std::vector<std::string> lines{}; ///< the hint's lines
+        int32_t width{};                  ///< the lines' width, in points
+        bool beside{true};                ///< at the left of the buttons
+    };
+
+    /// Lays a hint out for a footer whose right holds `right`.
+    ///
+    /// @param hint the words
+    /// @param right the buttons at the footer's right
+    /// @return where its lines go
+    auto footer_hint = [&](const std::string& hint, const std::vector<ExchangeButton>& right) {
+        FooterHint laid;
+        int32_t right_w = 0;
+        for (const ExchangeButton& button : right)
+            right_w += button_width(fonts, metrics, button.caption) + metrics.button_gap;
+        const int32_t room = column_w - right_w - kSectionGap;
+        laid.lines = lines_in(hint, room, kit::FontRole::small);
+        laid.width = room;
+        const int32_t lines_h = static_cast<int32_t>(laid.lines.size()) * metrics.small_line;
+        laid.beside = room > 0 && laid.lines.size() <= 2 && lines_h <= button_h;
+        if (!laid.beside) {
+            laid.lines = lines_in(hint, column_w, kit::FontRole::small);
+            laid.width = column_w;
+        }
+        return laid;
+    };
+    /// The rows a footer's hint takes over its buttons; none beside them.
+    ///
+    /// @param hint the hint
+    /// @return the height, in points
+    auto hint_rows = [&](const FooterHint& hint) -> int32_t {
+        if (hint.beside || hint.lines.empty())
+            return 0;
+        return static_cast<int32_t>(hint.lines.size()) * metrics.small_line + metrics.space;
+    };
     /// Pins the footer under the content, as the clash question's: a rule,
-    /// the `left` buttons from the left and the `right` ones against the
-    /// right, the main one last; then covers it all with a centred panel.
+    /// the `left` buttons from the left, or a hint in the hint colour, and the
+    /// `right` ones against the right, the main one last; then covers it all
+    /// with a centred panel.
     auto place_footer = [&](const std::vector<ExchangeButton>& left,
-                            const std::vector<ExchangeButton>& right) {
+                            const std::vector<ExchangeButton>& right,
+                            const FooterHint& hint = FooterHint{}) {
         if (y > pad)
             y += kSectionGap;
         int32_t footer_y = y;
-        if (footer_y + footer_h + pad > window.height)
-            footer_y = std::max(window.height - pad - footer_h, int32_t{0});
+        const int32_t above = hint_rows(hint);
+        if (footer_y + footer_h + above + pad > window.height)
+            footer_y = std::max(window.height - pad - footer_h - above, int32_t{0});
         add_item(list, kit::Role::fill, {0, footer_y, box_w, 1}).colour = kit::colour::rule;
         footer_y += metrics.space;
+        const int32_t hint_h = static_cast<int32_t>(hint.lines.size()) * metrics.small_line;
+        int32_t hint_y = footer_y + (button_h - hint_h) / 2;
+        if (!hint.beside) {
+            hint_y = footer_y;
+            footer_y += above;
+        }
+        for (const std::string& line : hint.lines) {
+            text_at(
+                {column_x, hint_y, hint.width, metrics.small_line},
+                line,
+                kit::FontRole::small,
+                kit::colour::hint
+            );
+            hint_y += metrics.small_line;
+        }
         int32_t left_x = column_x;
         if (!left.empty()) {
             const int32_t right_w = [&] {
@@ -2626,18 +2705,171 @@ kit::DisplayList exchange_prompt(
         }
     };
 
+    /// The kit's mark for words cut short.
+    constexpr std::string_view kCut = "...";
+    /// Puts a card's ground under the parts laid since `first`: a shade
+    /// darker than the panel, edged with the rule.
+    ///
+    /// @param first the first item the card holds
+    /// @param rect the card
+    auto ground_card = [&](std::size_t first, kit::Rect rect) {
+        if (rect.width <= 0 || rect.height <= 0 || first > list.items.size())
+            return;
+        kit::Item ground;
+        ground.role = kit::Role::fill;
+        ground.rect = rect;
+        ground.colour = kit::colour::list;
+        kit::Item edge;
+        edge.role = kit::Role::outline;
+        edge.rect = rect;
+        edge.colour = kit::colour::rule;
+        const auto at = list.items.begin() + static_cast<std::ptrdiff_t>(first);
+        list.items.insert(at, {std::move(ground), std::move(edge)});
+    };
+    /// Lays a card's head at `top`: its heading over the line that says what
+    /// it is for, at the left, and its button at the right, the two centred
+    /// on each other. `aside`, when given, follows the heading on its line in
+    /// the ok colour, or takes a line of its own under the others when the
+    /// heading's line has no room for it.
+    ///
+    /// @param top the head's top
+    /// @param left the card's inner left
+    /// @param width the card's inner width
+    /// @param heading_word the heading, in English
+    /// @param line_word what the card is for, in English
+    /// @param button the card's button
+    /// @param aside words that say the button did its work; empty for none
+    /// @return the head's height, in points
+    auto card_head = [&](int32_t top,
+                         int32_t left,
+                         int32_t width,
+                         std::string_view heading_word,
+                         std::string_view line_word,
+                         const ExchangeButton& button,
+                         const std::string& aside) -> int32_t {
+        const int32_t button_w =
+            std::min(button_width(fonts, metrics, button.caption), std::max(width / 2, int32_t{1}));
+        const int32_t words_w = std::max(width - button_w - kSectionGap, int32_t{1});
+        const std::string heading = show(editor.text(), heading_word);
+        const int32_t heading_w =
+            std::min(kit::text_width(fonts, kit::FontRole::regular, heading), words_w);
+        const std::vector<std::string> lines =
+            lines_in(show(editor.text(), line_word), words_w, kit::FontRole::small);
+        const int32_t aside_w = kit::text_width(fonts, kit::FontRole::small, aside);
+        const bool aside_inline = !aside.empty() && heading_w + kSectionGap + aside_w <= words_w;
+        const bool aside_under = !aside.empty() && !aside_inline;
+        const int32_t words_h = metrics.regular_line +
+                                static_cast<int32_t>(lines.size()) * metrics.small_line +
+                                (aside_under ? metrics.small_line : 0);
+        const int32_t head_h = std::max(button_h, words_h);
+        int32_t line_y = top + (head_h - words_h) / 2;
+        text_at(
+            {left, line_y, heading_w, metrics.regular_line},
+            heading,
+            kit::FontRole::regular,
+            kit::colour::text
+        );
+        if (aside_inline)
+            text_at(
+                {left + words_w - aside_w,
+                 line_y + (metrics.regular_line - metrics.small_line) / 2,
+                 aside_w,
+                 metrics.small_line},
+                aside,
+                kit::FontRole::small,
+                kit::colour::accent
+            );
+        line_y += metrics.regular_line;
+        for (const std::string& line : lines) {
+            text_at(
+                {left, line_y, words_w, metrics.small_line},
+                line,
+                kit::FontRole::small,
+                kit::colour::hint
+            );
+            line_y += metrics.small_line;
+        }
+        if (aside_under)
+            text_at(
+                {left, line_y, words_w, metrics.small_line},
+                aside,
+                kit::FontRole::small,
+                kit::colour::accent
+            );
+        place_buttons(
+            left + width - button_w, top + (head_h - button_h) / 2, button_w, {button}, true
+        );
+        return head_h;
+    };
+    /// "Saved to {place}" in a width: the place cut in its middle, "..." in
+    /// place of what is cut, when the whole line is wider.
+    ///
+    /// @param place the path
+    /// @param width the width, in points
+    /// @return the line
+    auto saved_line = [&](const std::string& place, int32_t width) {
+        const std::string pattern = show(editor.text(), words::saved_to);
+        std::string whole = fill(pattern, {{"place", place}});
+        if (kit::text_width(fonts, kit::FontRole::small, whole) <= width)
+            return whole;
+        // Where each character starts, so a cut never splits one.
+        std::vector<std::size_t> starts;
+        for (std::size_t at = 0; at < place.size(); ++at) {
+            if ((static_cast<unsigned char>(place[at]) & 0xC0U) != 0x80U)
+                starts.push_back(at);
+        }
+        const std::size_t total = starts.size();
+        const auto keeping = [&](std::size_t kept) {
+            const std::size_t head = (kept + 1) / 2;
+            const std::size_t tail = kept - head;
+            const std::size_t head_end = head < total ? starts[head] : place.size();
+            const std::size_t tail_start = tail == 0 ? place.size() : starts[total - tail];
+            const std::string cut =
+                place.substr(0, head_end) + std::string(kCut) + place.substr(tail_start);
+            return fill(pattern, {{"place", cut}});
+        };
+        // The most characters kept, half from each end, that still fit.
+        std::size_t low = 0;
+        std::size_t high = total > 0 ? total - 1 : 0;
+        while (low < high) {
+            const std::size_t middle = (low + high + 1) / 2;
+            if (kit::text_width(fonts, kit::FontRole::small, keeping(middle)) <= width)
+                low = middle;
+            else
+                high = middle - 1;
+        }
+        return keeping(low);
+    };
+
     if (state.prompt == Prompt::share) {
+        // One step at a time: the name, one line on what changes, then a
+        // card for the file and a card for the text, each with its button,
+        // and Close alone in the footer.
         const ShareSummary summary = share_summary(editor);
         const std::optional<std::string> id = share_id(editor);
+        const bool changed = summary.keys > 0 || summary.helpers > 0;
         title(words::share_title);
+        // The name's label, and at its right the id the name folds to.
         const int32_t label_h = metrics.small_line;
         if (y + label_h <= content_stop) {
+            const std::string label = show(editor.text(), words::share_name_label);
+            const int32_t label_w =
+                std::min(kit::text_width(fonts, kit::FontRole::small, label), column_w);
             text_at(
-                {column_x, y, column_w, label_h},
-                show(editor.text(), words::share_name_label),
-                kit::FontRole::small,
-                kit::colour::quiet
+                {column_x, y, label_w, label_h}, label, kit::FontRole::small, kit::colour::quiet
             );
+            const std::string shown_id = id ? *id : std::string{};
+            const int32_t id_x = column_x + label_w + kSectionGap;
+            const int32_t id_room = std::max(column_x + column_w - id_x, int32_t{0});
+            const int32_t id_w =
+                std::min(kit::text_width(fonts, kit::FontRole::small, shown_id), id_room);
+            text_at(
+                {column_x + column_w - id_w, y, id_w, label_h},
+                shown_id,
+                kit::FontRole::small,
+                kit::colour::hint
+            );
+            area({id_x, y, id_room, label_h}, controls::share_id, name_share_id, shown_id);
             y += label_h;
         }
         if (y + metrics.text_field_height <= content_stop) {
@@ -2650,74 +2882,131 @@ kit::DisplayList exchange_prompt(
             look.placeholder = show(editor.text(), words::share_name_label);
             kit::add_search(list, field, look, controls::share_name, std::string(name_share_name));
             list.tab_order.push_back(controls::share_name);
-            y += metrics.text_field_height + metrics.space;
+            y += metrics.text_field_height;
         }
-        const int32_t id_h = metrics.small_line;
-        if (y + id_h <= content_stop) {
-            const std::string shown_id = id ? *id : std::string{};
-            text_at(
-                {column_x, y, column_w, id_h}, shown_id, kit::FontRole::small, kit::colour::hint
-            );
-            area({column_x, y, column_w, id_h}, controls::share_id, name_share_id, shown_id);
-            y += id_h;
-        }
-        const std::string from = show(editor.text(), words::starts_from) + " " + summary.base;
-        y += wrapped(y, from, kit::FontRole::small, kit::colour::text, 2);
-        std::string_view counted = words::keys_and_helpers;
-        if (summary.keys == 1 && summary.helpers == 1)
-            counted = words::keys_one_helper_one;
-        else if (summary.keys == 1)
-            counted = words::keys_one_helpers;
-        else if (summary.helpers == 1)
-            counted = words::keys_helpers_one;
-        const std::string changes = show(editor.text(), words::changes_label) + " " +
-                                    fill(
-                                        show(editor.text(), counted),
-                                        {{"keys", std::to_string(summary.keys)},
-                                         {"helpers", std::to_string(summary.helpers)}}
-                                    );
-        y += wrapped(y, changes, kit::FontRole::small, kit::colour::text, 2);
-        if (!state.share_place.empty()) {
-            y += wrapped(
-                y,
-                fill(show(editor.text(), words::saved_to), {{"place", state.share_place}}),
-                kit::FontRole::small,
-                kit::colour::text,
-                2
+        y += metrics.row_gap;
+        std::string from;
+        if (!changed) {
+            from = fill(show(editor.text(), words::nothing_to_share), {{"layout", summary.base}});
+        } else {
+            std::string_view counted = words::share_from;
+            if (summary.keys == 1 && summary.helpers == 1)
+                counted = words::share_from_one_one;
+            else if (summary.keys == 1)
+                counted = words::share_from_one_key;
+            else if (summary.helpers == 1)
+                counted = words::share_from_one_helper;
+            from = fill(
+                show(editor.text(), counted),
+                {{"layout", summary.base},
+                 {"n", std::to_string(summary.keys)},
+                 {"m", std::to_string(summary.helpers)}}
             );
         }
-        const std::string note = show(editor.text(), words::share_file_note);
-        const int32_t note_h = block_height(note, kit::FontRole::small, 4);
-        const int32_t room =
-            std::max(window.height - y - note_h - kSectionGap - footer_h - pad, int32_t{0});
-        y += place_block(
-            summary.text,
-            kit::FontRole::small,
-            kit::colour::quiet,
-            room,
-            controls::share_text,
-            name_share_text
-        );
-        y += wrapped(y, note, kit::FontRole::small, kit::colour::hint, 4);
-        // Copy as text and Open folder at the left; Close and Save file…, the
-        // main one, at the right.
-        std::vector<ExchangeButton> aside;
-        aside.push_back(
-            make(controls::share_copy, name_share_copy, words::copy_as_text, false, true)
-        );
-        if (!state.share_place.empty()) {
-            aside.push_back(
-                make(controls::share_open, name_share_open, words::open_folder, false, true)
-            );
-        }
-        std::vector<ExchangeButton> buttons;
-        buttons.push_back(
+        y += wrapped(y, from, kit::FontRole::small, kit::colour::hint, 2);
+        y += kSectionGap;
+
+        // The cards, one above the other, each a space inside its edge.
+        const int32_t inset_x = kSectionGap;
+        const int32_t inset_y = metrics.space;
+        const int32_t inner_x = column_x + inset_x;
+        const int32_t inner_w = std::max(column_w - inset_x * 2, int32_t{1});
+        const std::vector<ExchangeButton> closing{
             make(controls::share_close, name_share_close, words::close_word, false, true)
+        };
+        // What the footer under the cards takes: its gap, rule and button
+        // row, and the panel's padding under it.
+        const int32_t footer_room = kSectionGap + footer_h + pad;
+
+        const int32_t file_top = y;
+        const std::size_t file_first = list.items.size();
+        y += inset_y;
+        y += card_head(
+            y,
+            inner_x,
+            inner_w,
+            words::as_file,
+            words::as_file_line,
+            make(controls::share_save, name_share_save, words::save_file, true, changed && id),
+            {}
         );
-        buttons.push_back(
-            make(controls::share_save, name_share_save, words::save_file, true, id.has_value())
+        if (!state.share_place.empty()) {
+            // Where the file went, its path cut in the middle to fit, and
+            // Open Folder beside it.
+            y += metrics.space;
+            const ExchangeButton folder =
+                make(controls::share_open, name_share_open, words::open_folder, false, true);
+            const int32_t open_w = std::min(
+                button_width(fonts, metrics, folder.caption), std::max(inner_w / 2, int32_t{1})
+            );
+            const int32_t saved_w = std::max(inner_w - open_w - kSectionGap, int32_t{1});
+            text_at(
+                {inner_x, y + (button_h - metrics.small_line) / 2, saved_w, metrics.small_line},
+                saved_line(state.share_place, saved_w),
+                kit::FontRole::small,
+                kit::colour::text
+            );
+            place_buttons(inner_x + inner_w - open_w, y, open_w, {folder}, true);
+            y += button_h;
+        }
+        y += inset_y;
+        ground_card(file_first, {column_x, file_top, column_w, y - file_top});
+        y += metrics.row_gap;
+
+        const int32_t text_top = y;
+        const std::size_t text_first = list.items.size();
+        y += inset_y;
+        y += card_head(
+            y,
+            inner_x,
+            inner_w,
+            words::as_text,
+            words::as_text_line,
+            make(controls::share_copy, name_share_copy, words::copy_as_text, false, changed),
+            state.share_copied ? show(editor.text(), words::copied) : std::string{}
         );
-        place_footer(aside, buttons);
+        // The text's first lines in a well, as many as the room under the
+        // card leaves, at most six; "..." says there is more.
+        constexpr int32_t kPreviewMost = 6;
+        const int32_t well_pad = std::max(metrics.space / 2, int32_t{1});
+        const int32_t preview_room =
+            window.height - footer_room - y - metrics.space - well_pad * 2 - inset_y;
+        const int32_t fits = std::clamp(
+            metrics.small_line > 0 ? preview_room / metrics.small_line : 0, 0, kPreviewMost
+        );
+        std::vector<std::string> source;
+        for (std::size_t start = 0; start < summary.text.size();) {
+            std::size_t end = summary.text.find('\n', start);
+            if (end == std::string::npos)
+                end = summary.text.size();
+            source.emplace_back(summary.text.substr(start, end - start));
+            start = end + 1;
+        }
+        const int32_t count = std::min(static_cast<int32_t>(source.size()), fits);
+        if (count > 0) {
+            y += metrics.space;
+            const bool more = static_cast<int32_t>(source.size()) > count;
+            const kit::Rect well{inner_x, y, inner_w, count * metrics.small_line + well_pad * 2};
+            add_item(list, kit::Role::fill, well).colour = kit::colour::well;
+            const int32_t line_x = inner_x + metrics.space;
+            const int32_t line_w = std::max(inner_w - metrics.space * 2, int32_t{1});
+            for (int32_t place = 0; place < count; ++place) {
+                std::string line = source[static_cast<std::size_t>(place)];
+                if (more && place == count - 1)
+                    line = count > 1 ? std::string(kCut) : line + " " + std::string(kCut);
+                text_at(
+                    {line_x, y + well_pad + place * metrics.small_line, line_w, metrics.small_line},
+                    std::move(line),
+                    kit::FontRole::small,
+                    kit::colour::quiet
+                );
+            }
+            area(well, controls::share_text, name_share_text, summary.text);
+            y += well.height;
+        }
+        y += inset_y;
+        ground_card(text_first, {column_x, text_top, column_w, y - text_top});
+        place_footer({}, closing);
         return list;
     }
 
@@ -2816,6 +3105,26 @@ kit::DisplayList exchange_prompt(
 
     if (state.prompt == Prompt::paste) {
         title(words::paste_title);
+        if (state.paste.not_layout) {
+            // The clipboard holds no key layout: say so, and what to do.
+            const std::string refusal = show(editor.text(), words::text_not_layout);
+            const std::string how = show(editor.text(), words::paste_how);
+            const int32_t told_top = y;
+            y += wrapped(y, refusal, kit::FontRole::small, kit::colour::text, 2);
+            y += metrics.row_gap;
+            y += wrapped(y, how, kit::FontRole::small, kit::colour::hint, 4);
+            area(
+                {column_x, told_top, column_w, std::max(y - told_top, int32_t{1})},
+                controls::paste_list,
+                name_paste_list,
+                refusal + '\n' + how
+            );
+            place_footer(
+                {},
+                {make(controls::paste_cancel, name_paste_cancel, words::close_word, false, true)}
+            );
+            return list;
+        }
         const std::string_view change_word =
             state.paste.changes == 1 ? words::text_changes_one : words::text_changes;
         const std::string summary = fill(
@@ -2840,80 +3149,8 @@ kit::DisplayList exchange_prompt(
                 name_paste_summary,
                 spoken
             );
-        // Each row names its action as the list does, then its keys: "{chord}
-        // does two things" for a clash, "place" for a key's place, and "Not in
-        // this version" for an action only a later version knows.
-        std::string rows;
-        for (const PasteRow& row : state.paste.rows) {
-            if (!rows.empty())
-                rows += '\n';
-            rows += listed_name(editor, row.action);
-            const std::string chords = chords_text(editor, row.after);
-            if (row.clash && !chords.empty())
-                rows += " · " + fill(show(editor.text(), words::does_two), {{"chord", chords}});
-            else if (!chords.empty())
-                rows += " · " + chords;
-            for (const keys::Chord& chord : row.after) {
-                if (chord.kind != keys::TriggerKind::place)
-                    continue;
-                rows += " · ";
-                rows += show(editor.text(), words::place_word);
-                break;
-            }
-            if (row.unknown)
-                rows += " · " + show(editor.text(), words::not_in_version);
-        }
-        for (const auto& problem : state.paste.problems) {
-            if (!rows.empty())
-                rows += '\n';
-            rows += std::to_string(problem.line);
-            rows += ':';
-            rows += std::to_string(problem.column);
-            rows += ": ";
-            rows += problem.message;
-        }
-        std::string tail;
-        for (const PasteRow& row : state.paste.rows) {
-            if (!row.clash)
-                continue;
-            const std::string chord =
-                row.after.empty() ? std::string{} : keys::chord_text(row.after.front());
-            const std::string holder =
-                listed_name(editor, row.holder.empty() ? row.action : row.holder);
-            tail = fill(
-                show(editor.text(), words::paste_clash), {{"chord", chord}, {"action", holder}}
-            );
-            break;
-        }
-        std::string kept;
-        for (const PasteRow& row : state.paste.rows) {
-            if (!row.unknown)
-                continue;
-            kept = fill(
-                show(editor.text(), words::kept_for_later),
-                {{"action", listed_name(editor, row.action)}}
-            );
-            break;
-        }
-        const std::string until = show(editor.text(), words::nothing_until_apply);
-        const int32_t tail_h = block_height(tail, kit::FontRole::small, 3) +
-                               block_height(kept, kit::FontRole::small, 2) +
-                               block_height(until, kit::FontRole::small, 2);
-        const int32_t room =
-            std::max(window.height - y - tail_h - kSectionGap - footer_h - pad, int32_t{0});
-        y += place_block(
-            rows,
-            kit::FontRole::small,
-            kit::colour::text,
-            room,
-            controls::paste_list,
-            name_paste_list
-        );
-        if (!tail.empty())
-            y += wrapped(y, tail, kit::FontRole::small, kit::colour::hint, 3);
-        if (!kept.empty())
-            y += wrapped(y, kept, kit::FontRole::small, kit::colour::hint, 2);
-        y += wrapped(y, until, kit::FontRole::small, kit::colour::hint, 2);
+        y += metrics.row_gap;
+
         std::vector<ExchangeButton> buttons;
         buttons.push_back(
             make(controls::paste_cancel, name_paste_cancel, words::cancel, false, true)
@@ -2928,7 +3165,211 @@ kit::DisplayList exchange_prompt(
         // The caption keeps {n}. Fill it after make, which looks the word up whole.
         buttons.back().caption =
             fill(buttons.back().caption, {{"n", std::to_string(state.paste.changes)}});
-        place_footer({}, buttons);
+        const FooterHint hint =
+            footer_hint(show(editor.text(), words::nothing_until_apply), buttons);
+
+        // One row a change, at the kit's list row height: the action's name
+        // as the list shows it, the key it gets, and a chip where one is
+        // needed. Under a clash and under an action this version does not
+        // know, a line says what Apply does with it. A line the reader
+        // refused follows the rows, with where it is.
+        struct PasteLine {
+            std::string name{};                       ///< the action's name
+            std::vector<keys::Chord> chords{};        ///< the keys it gets
+            std::vector<kit::PillLook> chips{};       ///< By place, Clash, Not in this version
+            std::vector<std::string> under{};         ///< the lines under the row
+            kit::Colour under_ink{kit::colour::hint}; ///< their colour
+            bool row{true};                           ///< a change; else a refused line alone
+            int32_t height{};                         ///< the row and its lines, in points
+        };
+
+        const int32_t row_h = metrics.row_height;
+        const int32_t row_inset = kSectionGap;
+        const int32_t under_w = std::max(column_w - row_inset * 2, int32_t{1});
+        const auto chip_word = [&](std::string_view word, kit::PillState tone) {
+            kit::PillLook pill;
+            pill.text = show(editor.text(), word);
+            pill.state = tone;
+            return pill;
+        };
+        std::vector<PasteLine> rows;
+        std::string listed;
+        const auto speak = [&](const std::string& said) {
+            if (!listed.empty())
+                listed += '\n';
+            listed += said;
+        };
+        for (const PasteRow& row : state.paste.rows) {
+            PasteLine line;
+            line.name = listed_name(editor, row.action);
+            line.chords = row.after;
+            for (const keys::Chord& chord : row.after) {
+                if (chord.kind != keys::TriggerKind::place)
+                    continue;
+                line.chips.push_back(chip_word(words::by_place, kit::PillState::neutral));
+                break;
+            }
+            if (row.clash)
+                line.chips.push_back(chip_word(words::clash_chip, kit::PillState::problem));
+            if (row.unknown)
+                line.chips.push_back(chip_word(words::not_in_version, kit::PillState::neutral));
+            std::string said = line.name;
+            const std::string chords = chords_text(editor, row.after);
+            if (!chords.empty())
+                said += " · " + chords;
+            for (const kit::PillLook& pill : line.chips)
+                said += " · " + pill.text;
+            std::string note;
+            if (row.clash) {
+                // The key that clashes, as the chips show it, and the action
+                // that keeps it.
+                std::string clashing;
+                for (const keys::Chord& chord : row.after) {
+                    if (editor.clashes_for(row.action, chord).empty())
+                        continue;
+                    clashing = keys::display_text(chord, editor.keyboard(), editor.platform());
+                    break;
+                }
+                if (clashing.empty() && !row.after.empty())
+                    clashing =
+                        keys::display_text(row.after.front(), editor.keyboard(), editor.platform());
+                const std::string holder =
+                    listed_name(editor, row.holder.empty() ? row.action : row.holder);
+                note = fill(
+                    show(editor.text(), words::paste_clash), {{"key", clashing}, {"action", holder}}
+                );
+            } else if (row.unknown) {
+                note = show(editor.text(), words::kept_for_later);
+            }
+            line.under = lines_in(note, under_w, kit::FontRole::small);
+            if (!note.empty())
+                said += '\n' + note;
+            speak(said);
+            line.height = row_h;
+            if (!line.under.empty())
+                line.height += static_cast<int32_t>(line.under.size()) * metrics.small_line;
+            rows.push_back(std::move(line));
+        }
+        for (const auto& problem : state.paste.problems) {
+            PasteLine line;
+            line.row = false;
+            const std::string where = std::to_string(problem.line) + ':' +
+                                      std::to_string(problem.column) + ": " + problem.message;
+            line.under = lines_in(where, under_w, kit::FontRole::small);
+            line.under_ink = kit::colour::danger;
+            line.height =
+                static_cast<int32_t>(line.under.size()) * metrics.small_line + metrics.space * 2;
+            speak(where);
+            rows.push_back(std::move(line));
+        }
+
+        int32_t content_h = 0;
+        for (const PasteLine& line : rows)
+            content_h += line.height;
+        const int32_t room = std::max(
+            window.height - y - kSectionGap - footer_h - hint_rows(hint) - pad, int32_t{0}
+        );
+        int32_t view_h = std::min(content_h, room);
+        if (content_h > 0 && view_h > 0) {
+            const bool scrolling = content_h > view_h;
+            int32_t offset = 0;
+            if (scrolling) {
+                offset = std::clamp(state.exchange_scroll, int32_t{0}, content_h - view_h);
+                if (metrics.small_line > 0)
+                    offset = (offset / metrics.small_line) * metrics.small_line;
+            }
+            const kit::Rect port{column_x, y, column_w, view_h};
+            add_item(list, kit::Role::fill, port).colour = kit::colour::list;
+            add_item(list, kit::Role::outline, port).colour = kit::colour::rule;
+            // A row the list scrolls past is clipped to the list.
+            const kit::Rect clip = scrolling ? port : kit::Rect{};
+            const auto clipped_last = [&] {
+                if (scrolling && !list.items.empty())
+                    list.items.back().clip = clip;
+            };
+            const int32_t left = column_x + row_inset;
+            const int32_t right_edge = column_x + column_w - row_inset;
+            const int32_t chip_h = std::clamp(row_h - metrics.space * 2, int32_t{1}, int32_t{24});
+            int32_t top = y - offset;
+            for (std::size_t place = 0; place < rows.size(); ++place) {
+                const PasteLine& line = rows[place];
+                const int32_t bottom = top + line.height;
+                if (bottom <= y || top >= y + view_h) {
+                    top = bottom;
+                    continue;
+                }
+                if (place > 0) {
+                    add_item(list, kit::Role::fill, {left, top, right_edge - left, 1}).colour =
+                        kit::colour::rule;
+                    clipped_last();
+                }
+                int32_t under_y = top + metrics.space;
+                if (line.row) {
+                    const int32_t middle = top + row_h / 2;
+                    int32_t right = right_edge;
+                    for (std::size_t back = line.chords.size(); back > 0; --back) {
+                        const kit::ChordChipLook look =
+                            chip_of(editor, line.chords[back - 1], kit::KeyMark::none);
+                        const int32_t chip_w = kit::chord_chip_width(fonts, look);
+                        if (chip_w <= 0 || right - chip_w < left)
+                            break;
+                        right -= chip_w;
+                        kit::add_chord_chip(
+                            list,
+                            {right, middle - chip_h / 2, chip_w, chip_h},
+                            look,
+                            kit::no_control,
+                            {}
+                        );
+                        clipped_last();
+                        right -= metrics.chip_gap;
+                    }
+                    for (std::size_t back = line.chips.size(); back > 0; --back) {
+                        const kit::PillLook& pill = line.chips[back - 1];
+                        const int32_t pill_w = kit::pill_width(fonts, pill);
+                        if (right - pill_w < left)
+                            break;
+                        right -= pill_w;
+                        kit::add_pill(
+                            list,
+                            {right, middle - kit::pill_height() / 2, pill_w, kit::pill_height()},
+                            pill,
+                            kit::no_control,
+                            {}
+                        );
+                        clipped_last();
+                        right -= metrics.chip_gap;
+                    }
+                    text_at(
+                        {left,
+                         middle - metrics.regular_line / 2,
+                         std::max(right - kSectionGap - left, int32_t{1}),
+                         metrics.regular_line},
+                        line.name,
+                        kit::FontRole::regular,
+                        kit::colour::text,
+                        clip
+                    );
+                    under_y = top + row_h - metrics.space;
+                }
+                for (const std::string& said : line.under) {
+                    text_at(
+                        {left, under_y, under_w, metrics.small_line},
+                        said,
+                        kit::FontRole::small,
+                        line.under_ink,
+                        clip
+                    );
+                    under_y += metrics.small_line;
+                }
+                top = bottom;
+            }
+            area(port, controls::paste_list, name_paste_list, listed);
+            if (scrolling)
+                add_bar(port, content_h, offset);
+            y += view_h;
+        }
+        place_footer({}, buttons, hint);
         return list;
     }
 

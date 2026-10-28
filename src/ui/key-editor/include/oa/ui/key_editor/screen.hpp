@@ -441,6 +441,7 @@ struct ScreenState {
     /// Their description.
     kit::TextField layout_description_field{};
     std::string share_place{}; ///< "Saved to {place}" once a file is written; empty before
+    bool share_copied{false};  ///< Copy as Text put the share text on the clipboard
     PastePreview paste{};      ///< the paste prompt's rows
     ImportPreview importing{}; ///< the import prompt's rows
     std::string import_date{}; ///< the date the host stamps on imported-from

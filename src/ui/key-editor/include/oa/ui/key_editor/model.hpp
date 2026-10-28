@@ -265,6 +265,8 @@ struct PastePreview {
     std::size_t changes{0};                               ///< rows APPLY writes
     std::size_t clashes{0};                               ///< rows that keep the old chord
     std::size_t unknown{0};                               ///< rows this version does not know
+    /// The text is no key layout: no line of it names an action and its keys.
+    bool not_layout{false};
 };
 
 /// One key IMPORT… would bring in.

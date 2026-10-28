@@ -2369,8 +2369,10 @@ if(OA_BUILD_PLATFORM)
       # reason, and Select moving SELMAP's selection. Then, as the run is one
       # nobody watches, a map pack posted as the download queue hands one
       # over waits in the inbox while the browser is closed and installs with
-      # no prompt while it shows. It leaves each size's frame in its folder
-      # for review. Each run starts from a clean folder.
+      # no prompt while it shows. Last it hosts a battle room alone on any
+      # free DirectPlay port and checks MORE MAPS… over the room's map
+      # dialog. It leaves each size's frame in its folder for review. Each
+      # run starts from a clean folder.
       set(oa_map_browser_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/map-browser")
       file(MAKE_DIRECTORY "${oa_map_browser_dir}")
       add_test(NAME map-browser-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
@@ -2378,7 +2380,7 @@ if(OA_BUILD_PLATFORM)
         "${oa_map_browser_dir}/data" "${oa_map_browser_dir}/map-browser.conf")
       set_tests_properties(map-browser-clean PROPERTIES FIXTURES_SETUP map-browser-clean)
       add_test(NAME native-map-browser COMMAND oa-game --game-dir "${OA_GAME_DIR}"
-        --skip-intro --mute --check-map-browser
+        --skip-intro --mute --check-map-browser --dplay-port 0
         --preferences-file "${oa_map_browser_dir}/map-browser.conf"
         --user-folder "${oa_map_browser_dir}/Open Annihilation"
         --data-dir "${oa_map_browser_dir}/data")
