@@ -169,3 +169,5 @@ hacks:
 | `select.box-builders` | `@KeyB` | Held as a box is released: keep constructors |
 | `select.box-factories` | `@KeyY` | Held as a box is released: keep factories |
 <!-- END GENERATED: keys -->
+
+These keys move in the [key editor](../../keys.md#the-key-editor), in **Pointer** and **Selection**, while this hack is on.

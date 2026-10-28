@@ -22,6 +22,8 @@ server in [tools/mcp](../tools/mcp/README.md) ([below](#through-mcp)).
 - [Requests](#requests)
 - [OA's own screens](#oas-own-screens)
 - [Input](#input)
+- [Pressing a bound key](#pressing-a-bound-key)
+- [Opening the key screens](#opening-the-key-screens)
 - [Events](#events)
 - [What it never does](#what-it-never-does)
 - [A map list's names](#a-map-lists-names)
@@ -458,6 +460,75 @@ scancode and key code, `text`, `pointer_move`, `button_down` and
   Ctrl, a held button) until an event lets them go or the client leaves.
   The desktop's pointer is never moved.
 - Text is typed only into a field that takes it, as SDL types it.
+
+### Pressing a bound key
+
+A script does not name an action. It sends the same device events a
+keyboard, a mouse or a touch screen would, and the layout in use decides
+which action that chord starts. Moving Stop off S means a script that
+still sends S no longer stops: it sends the key the player bound.
+
+`key_down` and `key_up` carry `scancode`, a whole number from 1 to 511,
+the physical key. `keycode` is optional, a whole number from 0 to
+4294967295, the character the key types, and 0 when it types none or when
+the field is left out. `key` may name the key; the game does not require
+it. A missing `scancode`, a scancode of 0 or 512 or more, or a keycode
+below 0, is refused.
+
+A chord is the modifiers' `key_down`, then the key's, then `key_up` in
+the reverse order. The events stay held, as a real key would, until
+`key_up` or the client leaves. `text` types into a field that takes it.
+It does not press a command. `button_down`, `button_up` and `wheel` are
+the mouse chords in the same layout (`MouseLeft`, `WheelUp` and the
+rest).
+
+```json
+{"events":[
+  {"kind":"key_down","scancode":4,"keycode":97},
+  {"kind":"key_up","scancode":4,"keycode":97}
+]}
+```
+
+Scancode 4 is the physical A key, and keycode 97 is the letter a. With
+the default layout that press is Attack (`order.attack`) while playing,
+because Attack is bound to A. A field that is taking text gets the letter
+instead, as it would from the keyboard.
+
+### Opening the key screens
+
+The key editor, the keys panel and Settings › Controls and ›
+Accessibility are ordinary controls. `controls` lists them, and a click
+through `input` presses the name. There is no separate request for them.
+
+| Screen | How a script opens it |
+| --- | --- |
+| The key editor | click `oa.settings.key-layout.edit` (Edit keys… on Controls), or `oa.keys-overlay.edit` (EDIT KEYS… on the keys panel). The list opens on Common commands. A draft that already has a clash, or a chord taken from another command, opens on Clashes instead |
+| The key editor, on Latchable | click `oa.settings.latching.choose` (CHOOSE… beside Hold keys that latch) |
+| Settings › Controls | click `oa.settings.nav.controls` |
+| Settings › Accessibility | click `oa.settings.nav.accessibility` |
+| The keys panel | it is `dialog` `oa.keys-overlay`, opened by the **Keys overlay** chord (Primary+/ by default) sent as `input`, or left as the player opened it |
+
+The editor's controls are `oa.key-editor.` and the name in its module.
+The ones a script uses most are already listed under
+[The key editor](#the-key-editor): `oa.key-editor.search`,
+`oa.key-editor.find`, `oa.key-editor.row.<id>`,
+`oa.key-editor.detail.add`, `oa.key-editor.capture` and
+`oa.key-editor.capture.ok`, `oa.key-editor.clash.confirm`,
+`oa.key-editor.save`, and the tabs `oa.key-editor.view.list`,
+`.keyboard` and `.mouse`. A press on `oa.key-editor.keyboard.<code word>`
+only inspects that key.
+
+The keys panel's controls are `oa.keys-overlay.list`,
+`oa.keys-overlay.edit`, `oa.keys-overlay.close` and, while it scrolls,
+`oa.keys-overlay.bar`.
+
+Settings' key rows follow the same `oa.settings.<row>` rule as the other
+rows: `oa.settings.key-layout.edit`, `oa.settings.key-layout.change`,
+`oa.settings.key-layout-for-mod` (and `.same` or `.<id>` while open),
+`oa.settings.show-keys-on-buttons` with `.off` and `.on`,
+`oa.settings.sticky-modifiers`, `oa.settings.hold-to-confirm`,
+`oa.settings.order-wheel`, `oa.settings.pointer-keys`,
+`oa.settings.edge-scroll` and `oa.settings.move-overlays`.
 
 ## Events
 
