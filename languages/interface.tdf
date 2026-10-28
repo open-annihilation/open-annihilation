@@ -20290,12 +20290,12 @@
 	it=Basata su {layout};
 	}
 
-[A key layout of your own, from {layout} and your changes. It opens here; Save changes keeps it, and Share… saves it as a file.]
+[A key layout of your own, from {layout} and your changes. It opens here. Save changes keeps it, and Share… saves it as a file.]
 	{
-	de=Eine eigene Tastenbelegung aus {layout} und deinen Änderungen. Sie öffnet sich hier; Änderungen speichern behält sie, und Teilen… speichert sie als Datei.;
-	fr=Une disposition des touches à toi, faite de {layout} et de tes changements. Elle s'ouvre ici ; Enregistrer la garde, et Partager… l'enregistre dans un fichier.;
-	es=Una distribución de teclas propia, de {layout} y tus cambios. Se abre aquí; Guardar cambios la conserva, y Compartir… la guarda como archivo.;
-	it=Una disposizione dei tasti tutta tua, da {layout} e dalle tue modifiche. Si apre qui; Salva le modifiche la conserva, e Condividi… la salva come file.;
+	de=Eine eigene Tastenbelegung aus {layout} und deinen Änderungen. Sie öffnet sich hier. Änderungen speichern behält sie, und Teilen… speichert sie als Datei.;
+	fr=Une disposition des touches à toi, faite de {layout} et de tes changements. Elle s'ouvre ici. Enregistrer la garde, et Partager… l'enregistre dans un fichier.;
+	es=Una distribución de teclas propia, de {layout} y tus cambios. Se abre aquí. Guardar cambios la conserva, y Compartir… la guarda como archivo.;
+	it=Una disposizione dei tasti tutta tua, da {layout} e dalle tue modifiche. Si apre qui. Salva le modifiche la conserva, e Condividi… la salva come file.;
 	}
 
 [Another key layout is called {name}.]
