@@ -150,12 +150,12 @@ constexpr std::array<WindowLayout, 5> kWindowLayouts{{
 }};
 static_assert(kWindowLayouts.size() == kWindowSizes.size(), "one layout for each window size");
 
-/// Graphics' scroll limit at Compact: its twenty-one rows, Smooth motion and
-/// Fog of War among them, after Menu scaling, Window frame, HUD scaling and
-/// Interface size left for User Interface.
-constexpr int32_t kGraphicsScrollLimit = 988;
+/// Graphics' scroll limit at Compact: its twenty-two rows, Smooth motion,
+/// Fog of War and New unit shadows among them, after Menu scaling, Window
+/// frame, HUD scaling and Interface size left for User Interface.
+constexpr int32_t kGraphicsScrollLimit = 1047;
 /// Graphics' scroll limit at Large, whose taller view holds more of its rows.
-constexpr int32_t kGraphicsLargeScrollLimit = 626;
+constexpr int32_t kGraphicsLargeScrollLimit = 673;
 /// Interface size's place on User Interface, from the section's first row.
 constexpr int32_t kInterfaceSizeRow = 3;
 
@@ -508,6 +508,8 @@ std::string_view label_of(settings::Setting setting) {
         return "Welcome setup";
     case settings::Setting::fog_of_war:
         return "Fog of War";
+    case settings::Setting::new_unit_shadows:
+        return "New unit shadows";
     case settings::Setting::window_size:
         return "Window size";
     case settings::Setting::reset_window_positions:

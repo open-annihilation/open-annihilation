@@ -627,6 +627,52 @@ void draw_shadow_silhouette(Sprite& target, const ModelRef& model);
 /// @return false when the silhouette does not fit or cannot be allocated
 bool build_shadow_image(ModelRenderer& renderer, const ModelRef& model, const Sprite& image);
 
+/// The ground shadow a model drawn from its cached image casts, as the game
+/// draws it: the pixels it darkens and where they lie, in game pixels.
+struct GroundShadow {
+    /// The shadow's left column and top row, in game pixels from the
+    /// camera's corner of the battlefield; the renderer's origin is not
+    /// added.
+    int32_t left{};
+    int32_t top{};
+    int32_t width{};
+    int32_t height{};
+    /// width by height bytes, rows top to bottom: 1 where the shadow darkens
+    /// what is under it, 0 elsewhere.
+    std::vector<uint8_t> coverage;
+};
+
+/// Works out the ground shadow draw_model casts for a model drawn from its
+/// cached image at one sample a game pixel, without drawing it.
+///
+/// A building casts its sheared shadow image (build_shadow_image); any
+/// other model with shadows on casts its image's silhouette, without the
+/// part a digger has below the ground and, where the image has a depth
+/// plane, without the part under the water. The shadow lies shadow_offset_x
+/// right of the model, at the ground's height under it. The model's images
+/// are read as its last plan or draw left them; nothing is built.
+///
+/// @param graphics_flags Game.graphics_flags as the draw reads them: shadows
+///     and vehicle shadows
+/// @param game the match's game record: its sea level
+/// @param model the model
+/// @param camera_x camera x in 16.16 map pixels
+/// @param camera_z camera z in 16.16 map pixels
+/// @param ground the terrain height under the unit, pixels (ModelDrawPlan::ground)
+/// @param[out] shadow the shadow; its coverage keeps its memory from call to call
+/// @return false where the draw casts none: shadows off, a type that casts
+///     none, a vehicle without vehicle shadows, a building's image not built,
+///     or a sunken feature's building shadow
+bool ground_shadow(
+    uint16_t graphics_flags,
+    const Game& game,
+    const ModelRef& model,
+    int32_t camera_x,
+    int32_t camera_z,
+    int32_t ground,
+    GroundShadow& shadow
+);
+
 /// Stores a new root shift when any rotation word moved by at least shift_threshold.
 ///
 /// The transforms are marked dirty and the root piece's transform is reset;

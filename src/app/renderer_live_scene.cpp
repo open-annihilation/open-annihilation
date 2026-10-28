@@ -58,13 +58,18 @@ Fog fog_at(const full::SightView& sight, int32_t x, int32_t z) {
         return sight.mapping ? Fog::black : Fog::seen;
     const std::size_t index = static_cast<std::size_t>(row) * sight.width + column;
     if (sight.mapping &&
-        (index >= sight.player_bits.size() || (sight.player_bits[index] & sight.viewer_bit) == 0))
+        (index >= sight.player_bits.size() || (sight.player_bits[index] & sight.mapped_bits) == 0))
         return Fog::black;
-    const bool visible = index < sight.coverage.size() &&
-                         sim::visibility_state::count_in_sight(
-                             sight.coverage[index], sim::visibility_state::SightReading::player
-                         );
-    return sight.line_of_sight && !visible ? Fog::grey : Fog::seen;
+    const present::world_renderer::FogOptions options{
+        sight.line_of_sight, sight.mapping, sight.shared_bits
+    };
+    const bool visible = present::world_renderer::cell_shown_in_sight(
+        index < sight.coverage.size() ? sight.coverage[index] : uint16_t{0},
+        index < sight.player_bits.size() ? sight.player_bits[index] : uint16_t{0},
+        static_cast<uint16_t>(sight.mapped_bits & ~sight.shared_bits),
+        options
+    );
+    return present::world_renderer::view_greys(options) && !visible ? Fog::grey : Fog::seen;
 }
 
 /// Interpolates fog inside known ground and fades to black before unknown cells.
@@ -1067,7 +1072,8 @@ void unit_shadows(const Inputs& in, Scene& scene) {
             height_at(*in.map, position.x / 65536, position.z / 65536), float(in.sea_level)
         );
         const float altitude = std::max(0.0F, position.y / fixed_scale - receiver);
-        const bool aircraft = (flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 && altitude > 0;
+        const bool aircraft =
+            in.new_unit_shadows && (flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 && altitude > 0;
         if (aircraft && image.width <= 256 && image.height <= 256) {
             const uint32_t radius = renderer_aircraft_shadow::edge_radius(altitude);
             uint64_t key = hash_start;

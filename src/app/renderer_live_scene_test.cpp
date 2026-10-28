@@ -69,7 +69,7 @@ struct Fixture {
         inputs.sight.player_bits = mapped;
         inputs.sight.width = 1;
         inputs.sight.height = 1;
-        inputs.sight.viewer_bit = viewer_bit;
+        inputs.sight.mapped_bits = viewer_bit;
         inputs.sight.line_of_sight = true;
         inputs.sight.mapping = true;
         inputs.right = tile_edge;
@@ -1728,6 +1728,44 @@ void aircraft_shadow_altitude() {
     OA_CHECK(fixture.scene.texture_revision == revision);
 }
 
+/// With New unit shadows off an aircraft casts the game's shadow: its plain
+/// silhouette, laid on the ground under it rather than on the water, at the
+/// vehicles' opacity and with no soft edge, as every other unit's.
+void aircraft_shadow_as_the_game_casts_it() {
+    Fixture fixture;
+    oa::present::model::ModelState state{};
+    state.image = oa::present::create_sprite(8, 8);
+    state.image.sprite.key = 1;
+    std::fill(state.image.pixels.begin(), state.image.pixels.end(), 0);
+    constexpr int32_t fixed = 65536;
+    oa::Unit unit{};
+    unit.position = {16 * fixed, 104 * fixed, 16 * fixed};
+    oa::UnitDef definition{};
+    definition.flags = OA_UNIT_DEF_FLAG_CAN_FLY;
+    fixture.draws.models.resize(1);
+    auto& draw = fixture.draws.models[0];
+    draw.model.unit = &unit;
+    draw.model.def = &definition;
+    draw.model.state = &state;
+    draw.plan.linked.drawn = true;
+    draw.plan.model.from_image = true;
+    fixture.inputs.sea_level = 8;
+    fixture.inputs.graphics_flags =
+        oa::present::model::graphics_shadows | oa::present::model::graphics_vehicle_shadows;
+    fixture.inputs.new_unit_shadows = false;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.shadow_count == 1);
+    OA_CHECK(fixture.scene.aircraft_shadow_materials.empty());
+    OA_CHECK(fixture.scene.vertices.size() > fixture.scene.terrain_vertex_count);
+    for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+         ++i) {
+        const auto& vertex = fixture.scene.vertices[i];
+        OA_CHECK(vertex.height < 8.0F);
+        OA_CHECK(std::abs(vertex.opacity - 0.5F) < tolerance);
+        OA_CHECK(vertex.terrain_size != -1);
+    }
+}
+
 /// Crops cover their intersecting cells but never leave the map, and invalid inputs fail cleanly.
 void bounds_and_invalid_inputs() {
     Fixture fixture;
@@ -2381,6 +2419,7 @@ int main() {
     foundation_candidates();
     cached_unit_shadows();
     aircraft_shadow_altitude();
+    aircraft_shadow_as_the_game_casts_it();
     flash_masks_and_effect_altitude();
     spatial_particles();
     particle_screen_bounds();

@@ -732,7 +732,8 @@ if(OA_BUILD_PLATFORM)
     # lie each over the next, drawn with holes, a lit building and its bright
     # page, a cloaked unit, a unit under construction, units under water
     # of both sides, carried units, shadows into the target and straight
-    # into the frame, shadows lighter at zoom 0.5 and none at a quarter on
+    # into the frame, the game's own shadows each drawn with its model (New
+    # unit shadows off), shadows lighter at zoom 0.5 and none at a quarter on
     # both sides, a projectile, a debris piece and a fragment, a
     # back-facing polygon left out, the pages placed once and uploaded, and
     # a frame at zoom 2; with --data, every unit model of the installed
@@ -1401,6 +1402,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_skirmish_sides_check.cpp
   src/app/runtime_mod_limits_check.cpp
   src/app/runtime_render_tiers_check.cpp src/app/runtime_smooth_pan_check.cpp
+  src/app/runtime_unit_shadows_check.cpp
   src/app/runtime_reclaim_check.cpp src/app/runtime_weapon_fire_check.cpp
   src/app/runtime_patrol_check.cpp
   src/app/runtime_reclaim_cursor_check.cpp src/app/runtime_wreck_pick_check.cpp
@@ -1758,6 +1760,9 @@ if(OA_BUILD_PLATFORM)
       # standard tier's. Shadows are drawn at their zoom's level: the game's
       # own at zoom 1, half as dark at 0.5 in the standard tier and on the
       # card, lighter at a third and none at a quarter and the Full floor.
+      # A tank and an aircraft beside a tree draw the same frame with New
+      # unit shadows On and Off in the standard and Basic tiers, and Off the
+      # Full tier's shadows shade the standard tier's pixels.
       # Health bars keep the game's 35 by 5 pixels at zoom 1 and in, and
       # shrink zoomed out to 13 by 3 at the Full floor, alike in every tier.
       # Zoomed out to the whole map, past the zoom units are drawn whole at,
@@ -1766,8 +1771,10 @@ if(OA_BUILD_PLATFORM)
       # lens's centre lies off the battlefield draws no lens, and a laser's
       # shot after it lists the lines it lists alone. The Arm commander's
       # laser lights in its beam's colour.
-      # Pictures of one moment at zoom 0.5, 1 and 2.5 in both tiers, and of
-      # the shadows at each of those zooms, go to local/reports. Skips under
+      # Pictures of one moment at zoom 0.5, 1 and 2.5 in both tiers, of the
+      # shadows at each of those zooms and of the tree, the tank and the
+      # aircraft in each tier with New unit shadows On, Off and without
+      # shadows, go to local/reports. Skips under
       # 2 GiB of memory.
       set(oa_render_tiers_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/render-tiers")
       file(MAKE_DIRECTORY "${oa_render_tiers_check_dir}")

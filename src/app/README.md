@@ -2369,7 +2369,13 @@ prompts, Settings › Updates and the headers name one state with one size.
   list's draws, or
   straight into the battlefield where the target cannot be made
   (`emit_shadows`, the extension point a later better-shadows option
-  replaces). Zoomed out, the shadows' alpha, and a feature's shadow frame's
+  replaces); with New unit shadows off (`ModelFrameInputs::new_unit_shadows`)
+  the target is left empty: each shot casts its shadow sprite just before
+  its draw, and each unit and 3D feature the game's own shadow, the silhouette
+  the processor blends (`ground_shadow`) as a frame on the texture pages,
+  numbered by a digest of its shape so that units of one pose share it,
+  one quad at the shadows' darkness sampled as a feature's shadow frame is
+  (`game_shadow_of_model`). Zoomed out, the shadows' alpha, and a feature's shadow frame's
   colour and alpha on the sprite stage, take the list's shadow level's
   share; at level 0, which the fade reaches before its strength does
   (`shadow_least_level`), the stage emits no shadow and neither clears nor

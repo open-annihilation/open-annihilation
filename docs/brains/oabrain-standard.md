@@ -1071,8 +1071,8 @@ On a seat with full awareness, `"site"` is the clear-for-site test and
 building (`site tests buildings; %s is not one`). `"site"` is the map-edge
 test and then
 the building site with the seat as the placing player, and `"yard"` is the
-building site alone. Full awareness is the only choice. Being Classic does
-not decide it.
+building site alone. The mapped ground is the seat's own. Full awareness
+is the only choice. Being Classic does not decide it.
 
 `brain.place(type, near, radius [, facing])` starts at the footprint cell
 whose centre is `near`, then walks rings at Chebyshev distance up to
