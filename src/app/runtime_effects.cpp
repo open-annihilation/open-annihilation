@@ -85,7 +85,16 @@ struct Runtime::MatchEffects {
     std::vector<Source> sources;
     renderer_effect_events::Log events;
     std::vector<renderer_effect_events::Event> emg_impacts;
+    /// The water's fetch and foam grids, sampled from the map the first
+    /// time the Full tier draws the water (water_surface).
     renderer_water::SurfaceCache water;
+    /// The game's palette as the match's first observed tick held it, which
+    /// the foam takes the map picture's colours from.
+    oa::PaletteBytes water_palette{};
+    /// The match had a map when its effects began, so the water is sampled.
+    bool water_has_map{};
+    /// `water` has sampled the map, or could not.
+    bool water_sampled{};
     renderer_water::History disturbances;
     renderer_water::WindState wind;
 };
@@ -104,7 +113,10 @@ void Runtime::observe_match_effect_tick() noexcept try {
         match_effects_->match = match_.get();
         if (selected_tnt_) {
             // The palette gives the foam the colours of the map's picture.
-            match_effects_->water.reset(*selected_tnt_, match_palette_);
+            // The water itself is sampled when the Full tier first draws it:
+            // a match the processor draws never reads its grids.
+            match_effects_->water_palette = match_palette_;
+            match_effects_->water_has_map = true;
             match_effects_->wind.reset(*selected_tnt_);
         }
     }
@@ -356,9 +368,21 @@ renderer_water::Wind Runtime::water_wind() const noexcept {
 }
 
 const renderer_water::SurfaceCache* Runtime::water_surface() const noexcept {
-    return match_ && match_effects_ && match_effects_->match == match_.get()
-               ? &match_effects_->water
-               : nullptr;
+    if (!match_ || !match_effects_ || match_effects_->match != match_.get())
+        return nullptr;
+    MatchEffects& effects = *match_effects_;
+    // Sampled once, from the map and the palette the match's effects began
+    // with, so the grids are the same whenever the first draw asks.
+    if (!effects.water_sampled && effects.water_has_map && selected_tnt_) {
+        effects.water_sampled = true;
+        try {
+            effects.water.reset(*selected_tnt_, effects.water_palette);
+        } catch (...) {
+            // Without memory for the grids the water draws without waves.
+            effects.water = renderer_water::SurfaceCache{};
+        }
+    }
+    return &effects.water;
 }
 
 std::span<const renderer_water::Disturbance> Runtime::water_disturbances() const noexcept {
