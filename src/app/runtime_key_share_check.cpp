@@ -3,12 +3,17 @@
 
 // --check-key-share: sharing a layout, pasting text, refusing a text that is
 // no key layout, importing one key from an older settings file, and
-// installing a dropped .oakeys. With --snapshot it writes
+// installing a dropped .oakeys; then cloning OA default, renaming and
+// describing the clone, changing one of its keys, saving it, exporting it as
+// an .oakeys and installing that file back. With --snapshot it writes
 // key-share-<w>x<h>.ppm, key-paste-<w>x<h>.ppm, the refusal's
 // key-paste-refused-<w>x<h>.ppm, Import's sources'
 // key-import-sources-<w>x<h>.ppm, key-import-<w>x<h>.ppm, and the install
 // question's key-install-<w>x<h>.ppm and its refusal's
-// key-install-refused-<w>x<h>.ppm, at 640x480, 1280x720 and 1920x1080. The
+// key-install-refused-<w>x<h>.ppm, and Clone's flow: More with Clone…
+// (key-clone-more), the question (key-clone), a taken name (key-clone-taken),
+// the clone chosen (key-clone-made) and Rename and Describe (key-describe),
+// at 640x480, 1280x720 and 1920x1080. The
 // check shows the install question, which a run nobody watches otherwise
 // skips.
 
@@ -709,6 +714,206 @@ void Runtime::check_key_share() {
         if (entry.first.starts_with(layout_key))
             require(entry.second != "ridge-good", "a layout preference names the installed layout");
     }
+
+    // Clone: More holds Clone…, at Compact among the layouts.
+    const auto open_more_item = [&](std::string_view item, std::string_view compact_item) {
+        click_named("oa.key-editor.more");
+        if (!named(item) && !named(compact_item)) {
+            key_event(SDL_EVENT_KEY_DOWN, SDLK_END, SDL_KMOD_NONE);
+            key_event(SDL_EVENT_KEY_UP, SDLK_END, SDL_KMOD_NONE);
+            frames(1);
+        }
+        click_named(named(item) ? item : compact_item);
+    };
+    const auto erase_field = [&] {
+        for (int32_t erase = 0; erase < 64; ++erase) {
+            key_event(SDL_EVENT_KEY_DOWN, SDLK_BACKSPACE, SDL_KMOD_NONE);
+            key_event(SDL_EVENT_KEY_UP, SDLK_BACKSPACE, SDL_KMOD_NONE);
+        }
+        frames(1);
+    };
+    const auto field_text = [&](std::string_view name) {
+        return require_named(name, std::string(name) + " is not shown").text;
+    };
+    for (const CheckWindow& window : kWindows) {
+        const std::string size = std::to_string(window.width) + 'x' + std::to_string(window.height);
+        note("CLONE pictures " + size);
+        resize(window);
+        open_editor();
+        click_named("oa.key-editor.more");
+        require(
+            named("oa.key-editor.clone") || named("oa.key-editor.layout.clone"),
+            "More does not offer Clone…"
+        );
+        snapshot("key-clone-more", window);
+        PadAccess::send_key(*this, SDLK_ESCAPE);
+        frames(1);
+        open_more_item("oa.key-editor.clone", "oa.key-editor.layout.clone");
+        require(named("oa.key-editor.layout-ok").has_value(), "Clone… did not ask");
+        snapshot("key-clone", window);
+        erase_field();
+        type_chars("oa DEFAULT");
+        require(
+            !require_named("oa.key-editor.layout-ok", "Clone is not shown").enabled,
+            "a taken name may be cloned"
+        );
+        snapshot("key-clone-taken", window);
+        erase_field();
+        type_chars("Grid Clone");
+        click_named("oa.key-editor.layout-ok");
+        require(!named("oa.key-editor.layout-ok").has_value(), "Clone left the question open");
+        snapshot("key-clone-made", window);
+        open_more_item("oa.key-editor.describe", "oa.key-editor.layout.describe");
+        require(named("oa.key-editor.layout-ok").has_value(), "Rename and Describe… did not ask");
+        snapshot("key-describe", window);
+        click_named("oa.key-editor.layout-cancel");
+        close_editor();
+    }
+
+    note("CLONE OA default, rename and describe it, change one key and save");
+    resize(kLarge);
+    open_editor();
+    open_more_item("oa.key-editor.clone", "oa.key-editor.layout.clone");
+    require(
+        field_text("oa.key-editor.layout-name") == "Copy of OA default",
+        "Clone does not offer Copy of OA default: " + field_text("oa.key-editor.layout-name")
+    );
+    require(
+        field_text("oa.key-editor.layout-description") == "Based on OA default",
+        "Clone does not offer Based on OA default"
+    );
+    erase_field();
+    type_chars("OA default");
+    require(
+        field_text("oa.key-editor.layout-status")
+                .find("Another key layout is called OA default.") != std::string::npos,
+        "a taken name is not named"
+    );
+    require(
+        !require_named("oa.key-editor.layout-ok", "Clone is not shown").enabled,
+        "Clone takes OA default's name"
+    );
+    erase_field();
+    type_chars("Grid Clone");
+    require(require_named("oa.key-editor.layout-ok", "Clone is not shown").enabled, "Clone is off");
+    click_named("oa.key-editor.layout-ok");
+    require(
+        field_text("oa.key-editor.layout").find("Grid Clone") != std::string::npos,
+        "the clone is not the layout in use"
+    );
+    open_more_item("oa.key-editor.describe", "oa.key-editor.layout.describe");
+    require(
+        field_text("oa.key-editor.layout-name") == "Grid Clone", "Rename and Describe lost the name"
+    );
+    click_named("oa.key-editor.layout-description");
+    type_chars(", left hand");
+    click_named("oa.key-editor.layout-ok");
+    require(!named("oa.key-editor.layout-ok").has_value(), "Save left the question open");
+    click_named("oa.key-editor.search");
+    type_chars("attack");
+    show_row("oa.key-editor.row.order.attack");
+    click_named("oa.key-editor.row.order.attack");
+    click_named("oa.key-editor.detail.chord.1.remove");
+    require(
+        require_named("oa.key-editor.row.order.attack", "Attack left the list").text == "Attack",
+        "removing A did not leave Attack unbound"
+    );
+    click_named("oa.key-editor.save");
+    require(oa_layer().find(editor::screen_name) == nullptr, "SAVE did not close the editor");
+    const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
+    const auto read_layout = [&](const fs::path& file) {
+        const std::vector<uint8_t> bytes = read_all(file);
+        oakeys::Manifest read;
+        std::vector<oakeys::Problem> problems;
+        require(
+            !bytes.empty() && oakeys::read_manifest(bytes, read, problems) && problems.empty(),
+            "the layout at " + path_to_utf8(file) + " does not read"
+        );
+        return read;
+    };
+    const auto attack_unbound = [](const oakeys::Manifest& manifest) {
+        for (const oakeys::BindingEntry& binding : manifest.bindings) {
+            if (binding.action == "order.attack")
+                return binding.chords.empty();
+        }
+        return false;
+    };
+    const oakeys::Manifest made =
+        read_layout(keys_folder / "grid-clone" / std::string(oakeys::manifest_file));
+    require(made.name == "Grid Clone", "the clone was not saved as Grid Clone");
+    require(
+        made.description == "Based on OA default, left hand", "the clone's description is not saved"
+    );
+    require(made.author.name == "You", "the clone's author is not You");
+    const oakeys::Manifest own = read_layout(
+        keys_folder / library::own_folder_name("grid-clone") / std::string(oakeys::manifest_file)
+    );
+    require(attack_unbound(own), "the clone's own change to Attack was not saved");
+    require(preference_values_[layout_key] == "grid-clone", "the clone is not the layout in use");
+    require(
+        fs::exists(keys_folder / library::own_folder_name("oa-default")),
+        "the clone took OA default's own changes away"
+    );
+
+    note("SHARE the clone as an .oakeys, then install it back");
+    open_editor();
+    press_named("oa.key-editor.share");
+    require(
+        field_text("oa.key-editor.share.name") == "Grid Clone",
+        "SHARE does not start on the clone's name"
+    );
+    require(
+        field_text("oa.key-editor.share.id") == "grid-clone", "SHARE does not keep the clone's id"
+    );
+    key_share_save_path_ = user_folder_.parent_path() / "share-files" / "grid-clone.oakeys";
+    click_named("oa.key-editor.share.save-file");
+    const std::vector<uint8_t> exported = read_all(key_share_save_path_);
+    require(!exported.empty(), "SAVE FILE wrote no file for the clone");
+    zip::CentralDirectory directory;
+    zip::ZipError zip_fault;
+    require(
+        zip::read_directory(exported, directory, zip_fault), "the clone's package did not read"
+    );
+    const zip::Entry* entry = zip::find_entry(directory, oakeys::manifest_file);
+    require(entry != nullptr, "the clone's package holds no oakeys.yaml");
+    std::vector<uint8_t> yaml;
+    require(
+        zip::read_entry(exported, *entry, yaml, zip_fault), "the clone's oakeys.yaml did not unpack"
+    );
+    oakeys::Manifest shared;
+    std::vector<oakeys::Problem> problems;
+    require(
+        oakeys::read_manifest(yaml, shared, problems) && problems.empty(),
+        "the clone's package has a problem"
+    );
+    require(
+        shared.id == "grid-clone" && shared.name == "Grid Clone", "the package is not the clone"
+    );
+    require(
+        shared.description == "Based on OA default, left hand", "the package lost the description"
+    );
+    require(attack_unbound(shared), "the package lost the change to Attack");
+    click_named("oa.key-editor.share.close");
+    close_editor();
+
+    // Another machine has no Grid Clone: its folder goes, and the file puts it back.
+    std::error_code removed;
+    fs::remove_all(keys_folder / "grid-clone", removed);
+    require(!removed && !fs::exists(keys_folder / "grid-clone"), "the clone's folder stayed");
+    drop_file(key_share_save_path_);
+    until_title("INSTALL KEY LAYOUT", "the exported clone");
+    frames(1);
+    click_named("oa.prompt.alongside");
+    until_title("KEY LAYOUT INSTALLED", "the exported clone installed");
+    dismiss();
+    const oakeys::Manifest back =
+        read_layout(keys_folder / "grid-clone" / std::string(oakeys::manifest_file));
+    require(back.name == "Grid Clone", "the installed clone is not Grid Clone");
+    require(
+        back.description == "Based on OA default, left hand",
+        "the installed clone lost its description"
+    );
+    require(attack_unbound(back), "the installed clone lost the change to Attack");
     note("done");
 }
 
