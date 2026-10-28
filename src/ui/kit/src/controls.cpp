@@ -669,17 +669,29 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
 
     // The text: the title's line, then each line, then the tags' line,
     // centred down the row. A short row's text fills it from its top. A row
-    // with the room keeps the tags a little below the line over them, so the
-    // chips stand apart from its letters.
+    // with the room keeps list_row_line_gap clear under the title's line and
+    // over the tags, so the lines and the chips stand apart. A row with less
+    // keeps the tags a little below the line over them when it can.
     const auto line_count = static_cast<int32_t>(look.lines.size()) + (look.tags.empty() ? 0 : 1);
     const int32_t packed_height = std::max(
                                       kMetrics.list_row_title_top + kMetrics.regular_line,
                                       kMetrics.list_row_line_top + line_count * kMetrics.small_line
                                   ) +
                                   kMetrics.list_row_title_top;
-    const int32_t chip_lead =
-        !look.tags.empty() && rect.height >= packed_height + kChipLead ? kChipLead : 0;
-    const int32_t text_height = packed_height + chip_lead;
+    const auto lines_height = static_cast<int32_t>(look.lines.size()) * kMetrics.small_line;
+    const int32_t spaced_height =
+        kMetrics.list_row_title_top + kMetrics.regular_line + kMetrics.list_row_line_gap +
+        lines_height +
+        (look.tags.empty()
+             ? 0
+             : (look.lines.empty() ? 0 : kMetrics.list_row_line_gap) + kMetrics.chip_height) +
+        kMetrics.list_row_title_top;
+    const bool spaced = line_count > 0 && rect.height >= spaced_height;
+    const int32_t chip_lead = spaced ? (look.lines.empty() ? 0 : kMetrics.list_row_line_gap)
+                              : !look.tags.empty() && rect.height >= packed_height + kChipLead
+                                  ? kChipLead
+                                  : 0;
+    const int32_t text_height = spaced ? spaced_height : packed_height + chip_lead;
     const int32_t top = rect.y + std::max((rect.height - text_height) / 2, int32_t{0});
     const int32_t title_row = top + kMetrics.list_row_title_top;
     // The aside's lines are the small font's, the first centred on the title's line.
@@ -751,7 +763,9 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
         );
     }
 
-    int32_t line_row = top + kMetrics.list_row_line_top;
+    int32_t line_row = top + (spaced ? kMetrics.list_row_title_top + kMetrics.regular_line +
+                                           kMetrics.list_row_line_gap
+                                     : kMetrics.list_row_line_top);
     for (const std::string& text : look.lines) {
         cut_line(
             canvas,
@@ -877,7 +891,7 @@ PillColours pill_colours(const PillLook& look) noexcept {
 /// Returns the padding either side of a pill's word, in points.
 ///
 /// Each end is a semicircle of half the pill's height. A word then keeps
-/// chip_padding clear of that curve, 4 points at 1x, and the points scale
+/// chip_padding clear of that curve, 6 points at 1x, and the points scale
 /// with the interface. An empty pill has no word, so the padding is only
 /// the semicircle and the pill stays a circle.
 ///

@@ -221,11 +221,12 @@ void shared_sizes() {
         OA_CHECK(metrics->list_row_title_top == 1);
         OA_CHECK(metrics->list_row_line_top == 15);
         OA_CHECK(metrics->list_row_gap == 6);
+        OA_CHECK(metrics->list_row_line_gap == 3);
         OA_CHECK(metrics->hairline == 1);
         OA_CHECK(metrics->badge_dash == 2);
         OA_CHECK(metrics->badge_dash_gap == 1);
-        OA_CHECK(metrics->chip_height == 12);
-        OA_CHECK(metrics->chip_padding == 4);
+        OA_CHECK(metrics->chip_height == 14);
+        OA_CHECK(metrics->chip_padding == 6);
         OA_CHECK(metrics->chip_gap == 4);
         OA_CHECK(metrics->state_icon_side == 14);
         OA_CHECK(metrics->tab_height == 18);

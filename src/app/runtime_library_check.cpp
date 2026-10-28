@@ -15,7 +15,10 @@
 // PLAY NOW asks for a soft restart. The settings shortcut opens Settings over the Library, Settings ›
 // Language's MORE IN THE LIBRARY… the Library over Settings, and never two
 // of either; the shortcut and the in-match OA button open Settings. At
-// 640x480 and 1920x1080. Then, at 640x480, a stand-in controller: Y focuses
+// 640x480 and 1920x1080. At 640x480, 1024x660, 1280x720 and 1920x1080 each
+// Active map tile keeps clear rows between its title, its players line and
+// its description, and every action of the Mods, Maps, Mutators and Brains
+// tabs' details shows its words whole. Then, at 640x480, a stand-in controller: Y focuses
 // the search, RB and LB change the tab and come back, X queues the selected
 // entry's UPDATE, the right stick scrolls the list, and B leaves Compact's
 // details and then closes the Library. The same buttons over Settings do
@@ -64,6 +67,7 @@
 #include <string_view>
 #include <system_error>
 #include <tuple>
+#include <variant>
 #include <vector>
 
 namespace oa::app {
@@ -1106,9 +1110,16 @@ void Runtime::check_library() {
         require(running, "a frame ended the run");
     };
     // Shows an entry's details: its row selected, and at Compact its page.
+    // A row below or above the list's view is paged to first.
     const auto show_entry = [&](std::string_view row) {
         if (named("oa.library.back"))
             click_named("oa.library.back");
+        for (const SDL_Keycode page : {SDLK_PAGEDOWN, SDLK_PAGEUP})
+            for (int step = 0; step < 8 && !named(row); ++step) {
+                tap(page);
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
         click_named(row);
     };
     // Presses one of the shown entry's actions: a button, or an item of
@@ -1850,6 +1861,154 @@ void Runtime::check_library() {
         );
         std::cout << "library check: the OA button, its dot, the Library's actions and Settings"
                   << on << '\n';
+    }
+
+    // 8b. The Library's spacing at 640x480, 1024x660, 1280x720 and 1920x1080.
+    // Each Active map tile keeps a clear row between its title and its
+    // players line, and between that line and its description. On the Mods,
+    // Maps, Mutators and Brains tabs every action of the first row's details
+    // shows its words whole. With --snapshot, each of those tabs.
+    {
+        library::Inputs described = fixture_inputs_of(mods, false);
+        constexpr std::string_view map_about = "A made-up map of the Library check.";
+        for (library::InstalledMaps& pack : described.map_packs)
+            for (library::MapLine& map : pack.maps)
+                map.description = std::string(map_about);
+        const auto shown_list = [&]() -> kit::DisplayList {
+            const LayerScreen* top = oa_layer().top();
+            require(top != nullptr, "no screen shows over the main menu");
+            return top->display_list();
+        };
+        const auto shown_tab = [&](std::string_view name) {
+            for (int step = 0; step < 9 && !named(name); ++step) {
+                if (!named("oa.library.tab.scroll-right"))
+                    break;
+                click_named("oa.library.tab.scroll-right");
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
+            click_named(name);
+            run_frame(running);
+            require(running, "a frame ended the run");
+        };
+        // Every action button's drawn words are its whole caption.
+        const auto actions_whole = [&](const std::string& where) {
+            const kit::DisplayList list = shown_list();
+            constexpr std::string_view prefix = "library.action.";
+            int checked = 0;
+            for (const kit::Control& control : list.controls) {
+                if (control.kind != kit::ControlKind::button ||
+                    control.name.compare(0, prefix.size(), prefix) != 0)
+                    continue;
+                for (const kit::Item& item : list.items) {
+                    if (item.role != kit::Role::button || item.control != control.id)
+                        continue;
+                    const auto* button_look = std::get_if<kit::ButtonLook>(&item.look);
+                    require(
+                        button_look != nullptr && button_look->caption == control.text,
+                        "the action \"" + control.text + "\" is cut to \"" +
+                            (button_look != nullptr ? button_look->caption : std::string{}) + "\"" +
+                            where
+                    );
+                    ++checked;
+                }
+            }
+            return checked;
+        };
+        const std::array<std::array<int, 2>, 4> spaced{
+            {{kCanvasWidth, kCanvasHeight}, {1024, 660}, {1280, 720}, {1920, 1080}}
+        };
+        for (const auto& [width, height] : spaced) {
+            const std::string size = std::to_string(width) + 'x' + std::to_string(height);
+            const std::string on = " on the " + size + " window";
+            window_of(width, height);
+            settle();
+            fixture.inputs = described;
+            ++fixture.generation;
+            run_frame(running);
+            require(running, "a frame ended the run");
+            press_button();
+            run_frame(running);
+            require(
+                top_is(library_screen_name) && host.model.tab == library::Tab::active,
+                "the OA button did not open the Library on Active" + on
+            );
+            snapshot("spacing-active-" + size);
+            {
+                // The line over a description is its players line, and the
+                // line over that its title, in the same column.
+                const kit::DisplayList list = shown_list();
+                int tiles = 0;
+                for (const kit::Item& about_line : list.items) {
+                    if (about_line.role != kit::Role::text || about_line.text != map_about)
+                        continue;
+                    const kit::Item* players = nullptr;
+                    const kit::Item* title_line = nullptr;
+                    for (const kit::Item& item : list.items) {
+                        if (item.role != kit::Role::text || item.rect.x != about_line.rect.x ||
+                            item.rect.y >= about_line.rect.y)
+                            continue;
+                        if (players == nullptr || item.rect.y > players->rect.y) {
+                            title_line = players;
+                            players = &item;
+                        } else if (title_line == nullptr || item.rect.y > title_line->rect.y) {
+                            title_line = &item;
+                        }
+                    }
+                    require(
+                        players != nullptr && title_line != nullptr,
+                        "a map tile's description has no title and players line over it" + on
+                    );
+                    require(
+                        players->rect.y + players->rect.height < about_line.rect.y,
+                        "a map tile's players line \"" + players->text +
+                            "\" touches its description" + on
+                    );
+                    require(
+                        title_line->rect.y + title_line->rect.height < players->rect.y,
+                        "a map tile's title \"" + title_line->text + "\" touches its players line" +
+                            on
+                    );
+                    ++tiles;
+                }
+                require(
+                    width < 1280 || tiles > 0, "no map tile's description shows on Active" + on
+                );
+                std::cout << "library check: " << tiles << " map tiles keep their lines apart" << on
+                          << '\n';
+            }
+            int actions_checked = 0;
+            for (const std::string_view tab_word : {"mods", "maps", "mutators", "brains"}) {
+                const std::string tab_name = "oa.library.tab." + std::string(tab_word);
+                shown_tab(tab_name);
+                std::string first_row;
+                for (const kit::Control& control : shown_list().controls)
+                    if (control.kind == kit::ControlKind::list_item &&
+                        control.name.rfind("library.row.", 0) == 0) {
+                        first_row = "oa." + control.name;
+                        break;
+                    }
+                snapshot("spacing-" + std::string(tab_word) + "-" + size);
+                // The fixture's map pack is installed maps, not a package, so
+                // the Maps tab can list none.
+                if (first_row.empty())
+                    continue;
+                click_named(first_row);
+                run_frame(running);
+                require(running, "a frame ended the run");
+                snapshot("spacing-" + std::string(tab_word) + "-details-" + size);
+                actions_checked += actions_whole(" on the " + std::string(tab_word) + " tab" + on);
+                if (named("oa.library.back"))
+                    click_named("oa.library.back");
+            }
+            require(actions_checked > 0, "no tab's details show an action" + on);
+            click_named("oa.library.close");
+            require(oa_layer().top() == nullptr, "CLOSE did not close the Library" + on);
+            std::cout << "library check: map tiles and actions keep their room" << on << '\n';
+        }
+        window_of(1920, 1080);
+        settle();
+        feed_changes(false);
     }
 
     // 9. In a skirmish the in-match OA button opens Settings, the Library
