@@ -390,6 +390,7 @@ bool Runtime::render_live_match_surface() {
         inputs.nanolathe_intensity = engine_settings().nanolathe_lighting / 100.0F;
         inputs.tick = match_->simulation().tick;
         inputs.translucent_units = match_->state().game.debug_overlay != 0;
+        inputs.new_unit_shadows = engine_settings().new_unit_shadows;
         inputs.view_direction = {live.projection[8], live.projection[9], live.projection[10]};
         inputs.clip_projection = live.projection;
         inputs.clip_width = match_world_cpu_.width;
@@ -404,7 +405,10 @@ bool Runtime::render_live_match_surface() {
         inputs.sight.player_bits = sight.player_bits;
         inputs.sight.width = sight.width;
         inputs.sight.height = sight.height;
-        inputs.sight.viewer_bit = static_cast<uint16_t>(1U << (sight.viewpoint_player & 0x1fU));
+        inputs.sight.shared_bits = allied_mapped_bits();
+        inputs.sight.mapped_bits = static_cast<uint16_t>(
+            (1U << (sight.viewpoint_player & 0x1fU)) | inputs.sight.shared_bits
+        );
         inputs.sight.mapping = match_mapping_on();
         inputs.sight.line_of_sight = match_line_of_sight_on();
         inputs.sight.dithered =

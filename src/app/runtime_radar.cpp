@@ -160,7 +160,7 @@ void Runtime::refresh_radar_mapped() {
         match_->sight(),
         viewer,
         live,
-        {los_on, match_mapping_on()},
+        {los_on, match_mapping_on(), allied_mapped_bits()},
         static_cast<uint16_t>(1u << (game.viewpoint_player & 0x1fu)),
         grid_w,
         grid_h,
@@ -175,6 +175,14 @@ void Runtime::refresh_radar_mapped() {
         game,
         radar.surfaces,
         {radar.sight_bits.data(), radar.coverage.data(), radar.gray_table.data()}
+    );
+}
+
+uint16_t Runtime::allied_mapped_bits() const {
+    if (!match_ || !match_->rules().intel.allied_los_sharing.enabled)
+        return 0;
+    return oa::present::world_renderer::allied_mapped_players(
+        match_->state().game, match_view_player()
     );
 }
 

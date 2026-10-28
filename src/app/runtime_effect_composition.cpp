@@ -6,6 +6,7 @@
 #include "renderer_effects.hpp"
 #include "renderer_water.hpp"
 #include "renderer_water_effects.hpp"
+#include "oa/present/world_renderer/world_fog.hpp"
 #include "oa/sim/visibility_state.hpp"
 
 #include <algorithm>
@@ -235,10 +236,15 @@ void Runtime::compose_match_effect_pixels(
     } else {
         const auto& sight = match_->sight();
         const auto coverage = match_->player_coverage(match_view_player());
-        const auto bit = static_cast<uint16_t>(1U << (match_view_player() & 0x1fU));
+        // The view player's mapped bit, and those of the players whose ground
+        // it is shown under allied vision.
+        const auto own = static_cast<uint16_t>(1U << (match_view_player() & 0x1fU));
+        const present::world_renderer::FogOptions fog_rules{
+            match_line_of_sight_on(), match_mapping_on(), allied_mapped_bits()
+        };
+        const auto bit = static_cast<uint16_t>(own | fog_rules.shared_mapped);
         constexpr float cell = present::world_renderer::fog_cell_pixels;
-        const bool mapping = match_mapping_on();
-        const bool los = match_line_of_sight_on();
+        const bool mapping = fog_rules.mapping;
         const auto visible = [&](int column, int row) {
             if (column < 0 || row < 0 || column >= sight.width || row >= sight.height)
                 return false;
@@ -246,10 +252,12 @@ void Runtime::compose_match_effect_pixels(
             if (mapping &&
                 (index >= sight.player_bits.size() || (sight.player_bits[index] & bit) == 0))
                 return false;
-            return !los || (index < coverage.size() &&
-                            sim::visibility_state::count_in_sight(
-                                coverage[index], sim::visibility_state::SightReading::player
-                            ));
+            return present::world_renderer::cell_shown_in_sight(
+                index < coverage.size() ? coverage[index] : uint16_t{0},
+                index < sight.player_bits.size() ? sight.player_bits[index] : uint16_t{0},
+                own,
+                fog_rules
+            );
         };
         visibility.resize(static_cast<std::size_t>(width) * height);
         // The compose reads only pixels inside the lights' rectangles. Each

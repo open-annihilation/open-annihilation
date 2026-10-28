@@ -115,6 +115,10 @@ struct Inputs {
     /// Every unit drawn half transparent, as the debug overlay draws them;
     /// a cloaked unit is drawn so whatever this says.
     bool translucent_units{};
+    /// An aircraft's shadow has a soft edge and lies on the water under it
+    /// (New unit shadows); false lays the game's silhouette where the game
+    /// does, on the ground or the sea bed, as every other unit's.
+    bool new_unit_shadows{true};
 };
 
 /// Rebuilds live terrain, visible models and GAF cutouts from a frame's plan.

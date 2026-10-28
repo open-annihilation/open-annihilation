@@ -19,7 +19,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <span>
 #include <utility>
+#include <vector>
 
 namespace oa::present::model {
 using base::game_math::truncate_low32;
@@ -1594,6 +1596,95 @@ bool build_shadow_image(ModelRenderer& renderer, const ModelRef& model, const Sp
     shadow.sprite.origin_x = composite.origin_x;
     shadow.sprite.origin_y = composite.origin_y;
     shadow.sprite.encoding = OA_SPRITE_ROW_RLE;
+    return true;
+}
+
+bool ground_shadow(
+    uint16_t graphics_flags,
+    const Game& game,
+    const ModelRef& model,
+    int32_t camera_x,
+    int32_t camera_z,
+    int32_t ground,
+    GroundShadow& shadow
+) {
+    shadow.left = shadow.top = shadow.width = shadow.height = 0;
+    shadow.coverage.clear();
+    if (model.state == nullptr || model.unit == nullptr || !has_image(*model.state))
+        return false;
+    const ModelState& state = *model.state;
+    const Unit& unit = *model.unit;
+    const uint32_t flags = def_flags(model);
+    if ((graphics_flags & graphics_shadows) == 0 || (flags & OA_UNIT_DEF_FLAG_NO_SHADOW) != 0)
+        return false;
+    // The choice draw_model makes, at one sample a game pixel.
+    const bool vehicle_shadow =
+        (graphics_flags & graphics_vehicle_shadows) != 0 &&
+        (flags & (OA_UNIT_DEF_FLAG_FLOATER | OA_UNIT_DEF_FLAG_CAN_HOVER)) == 0;
+    const int32_t unit_height = hi(unit.position.y);
+    const bool submerged_standin =
+        unit.type_index == 0 && static_cast<int16_t>(unit_height) < game.sea_level;
+    const bool digger = (flags & OA_UNIT_DEF_FLAG_DIGGER) != 0;
+    const bool building = is_building(unit);
+    const Sprite& image = state.image.sprite;
+    bool building_shadow = false;
+    bool silhouette = false;
+    // Depths at or below this are left out of the silhouette; -1 keeps all.
+    int32_t clear_at_or_below = -1;
+    if (image.aux == nullptr) {
+        if (building && !digger)
+            building_shadow = true;
+        else
+            silhouette = vehicle_shadow;
+    } else if (digger) {
+        silhouette = true;
+        clear_at_or_below = static_cast<uint8_t>(vertex_depth_base(model));
+    } else if (building) {
+        building_shadow = true;
+    } else if (vehicle_shadow) {
+        silhouette = true;
+        const int32_t lift = static_cast<int32_t>(game.sea_level) - unit_height;
+        if (lift > 0)
+            clear_at_or_below = static_cast<uint8_t>(vertex_depth_base(model) + lift);
+    }
+    if ((!building_shadow && !silhouette) || (building_shadow && submerged_standin))
+        return false;
+    const present::SpriteBuffer& buffer = building_shadow ? state.shadow : state.image;
+    const Sprite& source = buffer.sprite;
+    if (source.data == nullptr || source.width == 0 || source.height == 0)
+        return false;
+    const std::size_t count = static_cast<std::size_t>(source.width) * source.height;
+    shadow.coverage.assign(count, 0);
+    if (source.encoding == OA_SPRITE_RAW) {
+        // The silhouette is every pixel of the image that is not its key.
+        const auto* pixels = static_cast<const uint8_t*>(source.data);
+        const auto* depth = static_cast<const uint8_t*>(source.aux);
+        for (std::size_t i = 0; i < count; ++i)
+            shadow.coverage[i] =
+                pixels[i] != source.key && (clear_at_or_below < 0 || depth == nullptr ||
+                                            depth[i] > static_cast<uint8_t>(clear_at_or_below));
+    } else if (source.encoding == OA_SPRITE_ROW_RLE) {
+        // A row-RLE stream draws every pixel its literals and runs write,
+        // whatever their colour: decoded over two different fills, a pixel
+        // either changed is one it writes.
+        const std::span<const uint8_t> stream(buffer.pixels);
+        const Rect32 rectangle{0, 0, source.width - 1, source.height - 1};
+        thread_local std::vector<uint8_t> low;
+        thread_local std::vector<uint8_t> high;
+        low.assign(count, 0x00);
+        high.assign(count, 0xff);
+        if (!present::decode_rle_rows(low.data(), source.width, rectangle, stream, rectangle) ||
+            !present::decode_rle_rows(high.data(), source.width, rectangle, stream, rectangle))
+            return false;
+        for (std::size_t i = 0; i < count; ++i)
+            shadow.coverage[i] = low[i] != 0x00 || high[i] != 0xff;
+    } else {
+        return false;
+    }
+    shadow.left = hi(wrap_sub(unit.position.x, camera_x)) + shadow_offset_x - source.origin_x;
+    shadow.top = hi(wrap_sub(unit.position.z, camera_z)) - (ground >> 1) - source.origin_y;
+    shadow.width = source.width;
+    shadow.height = source.height;
     return true;
 }
 

@@ -17,7 +17,10 @@ Namespace `oa::present::model`, headers in `include/oa/present/model/`:
   without a depth plane.
 - `model_draw.hpp`: units from their cached images and the pieces that move
   every frame, shadows, the build effect, carried units, features, debris,
-  fragments and projectiles.
+  fragments and projectiles; and `ground_shadow`, the pixels a model's
+  shadow darkens and where they lie, as the draw casts it, for a renderer
+  that draws the game's own shadow another way (the Full tier with New unit
+  shadows off).
 - `unit_supersampling.hpp`: enhanced anti-aliasing of units, drawn at several
   samples a pixel and reduced into the frame.
 - `rgb_bridge.hpp`: the bridge between the 8-bit surfaces and the RGB frame.
@@ -144,7 +147,11 @@ sampled regions among the draws, at scales of 1, 2, 0.5, 0.75, 1.1, 1.5 and
 the strength curve to its ends, its middle and its easing, the levels, the
 faded table to the mix of each colour and the display's own elsewhere, and a
 silhouette drawn through it. `mesh_raster_test.cpp` draws
-textured quads, twisted ones among them, whole and band by band. The native
+textured quads, twisted ones among them, whole and band by band.
+`model_draw_test.cpp` holds `ground_shadow` to the pixels the draw darkens:
+a vehicle's, an aircraft's and a building's shadows, a vehicle half under
+the water and a digger whose square lies under the water or the ground and
+whose barrel casts alone, and the cases that cast none. The native
 checks and the director render pin the frames the match draws through the
 bridge; `native-draw-threads` draws a fight on 1 to 7 bands.
 
