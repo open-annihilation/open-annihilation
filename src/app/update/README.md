@@ -62,6 +62,10 @@ snapshots. Nothing here installs a package.
   tries again. `read_install_policy` reads Install updates. `clear_skipped`
   takes a skip back.
 - `read_plan` and `plan_text` are the plan the game writes for the helper.
+  `helper_inherits_open_files` is false: the helper is not given the files
+  this process still has open, so it can rename the fonts folder once this
+  process has left. `windows_helper_command` is the command line that
+  starts it.
   `read_state`, `state_text` and `write_state` are the record of what was
   installed and what was kept. `count_failed_start` counts a start that has
   not reached the main menu, `uncount_quit_start` takes back one the player

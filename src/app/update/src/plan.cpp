@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -203,6 +204,45 @@ std::optional<Plan> read_plan(std::span<const uint8_t> bytes, std::string* error
     plan.package = std::move(package);
     plan.file = std::move(file);
     return plan;
+}
+
+std::string windows_command_argument(std::string_view argument) {
+    const bool plain = !argument.empty() && argument.back() != '\\' &&
+                       argument.find_first_of(" \t\n\v\"") == std::string_view::npos;
+    if (plain)
+        return std::string(argument);
+    std::string quoted;
+    quoted.push_back('"');
+    std::size_t index = 0;
+    while (index < argument.size()) {
+        std::size_t slashes = 0;
+        while (index < argument.size() && argument[index] == '\\') {
+            ++slashes;
+            ++index;
+        }
+        if (index == argument.size()) {
+            quoted.append(slashes * 2, '\\');
+            break;
+        }
+        if (argument[index] == '"')
+            quoted.append(slashes * 2 + 1, '\\');
+        else
+            quoted.append(slashes, '\\');
+        quoted.push_back(argument[index]);
+        ++index;
+    }
+    quoted.push_back('"');
+    return quoted;
+}
+
+std::string
+windows_helper_command(std::string_view program, std::span<const std::string> arguments) {
+    std::string line = windows_command_argument(program);
+    for (const std::string& argument : arguments) {
+        line.push_back(' ');
+        line += windows_command_argument(argument);
+    }
+    return line;
 }
 
 std::string plan_text(const Plan& plan) {

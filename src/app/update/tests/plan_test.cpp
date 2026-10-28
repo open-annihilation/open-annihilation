@@ -358,6 +358,22 @@ void state_round_trip() {
     }
 }
 
+void the_helper_is_not_given_open_files() {
+    OA_CHECK(!update::helper_inherits_open_files());
+    const std::vector<std::string> arguments{"--plan", "C:\\OA DATA\\updates\\plan.json"};
+    const std::string line =
+        update::windows_helper_command("C:\\Games\\Open Annihilation\\oa-update.exe", arguments);
+    OA_CHECK(
+        line == "\"C:\\Games\\Open Annihilation\\oa-update.exe\" --plan "
+                "\"C:\\OA DATA\\updates\\plan.json\""
+    );
+    OA_CHECK(update::windows_command_argument("plain") == "plain");
+    OA_CHECK(update::windows_command_argument("say \"hi\"") == "\"say \\\"hi\\\"\"");
+    OA_CHECK(update::windows_command_argument("C:\\Games\\") == "\"C:\\Games\\\\\"");
+    OA_CHECK(update::windows_command_argument("") == "\"\"");
+    OA_CHECK(update::windows_command_argument("a\\b") == "a\\b");
+}
+
 void state_refusals() {
     const Scratch scratch("state-refuse");
     const std::string good = update::state_text(sample_state(scratch));
@@ -407,5 +423,6 @@ int main() {
     refusals();
     state_round_trip();
     state_refusals();
+    the_helper_is_not_given_open_files();
     return oa::test::check_exit_status();
 }
