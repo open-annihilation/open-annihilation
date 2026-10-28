@@ -1183,7 +1183,7 @@ own_rest(std::string_view layout_id, const oa::formats::oakeys::Helpers& helpers
     manifest.version.major = 1;
     manifest.version.minor = 0;
     manifest.version.parts = 2;
-    manifest.author.name = "You";
+    manifest.author.name = std::string(own_author);
     manifest.tags = {"own"};
     manifest.base = oa::formats::oakeys::Base::oa_default;
     manifest.helpers = helpers;
@@ -1202,7 +1202,8 @@ oa::formats::oakeys::Manifest manifest_of(const LayoutSummary& summary) {
     rest.version.major = 1;
     rest.version.minor = 0;
     rest.version.parts = 2;
-    rest.author.name = summary.author.empty() ? "You" : summary.author;
+    rest.author.name = summary.author.empty() ? std::string(own_author) : summary.author;
+    rest.description = summary.description;
     rest.tags = {"own"};
     rest.base = oa::formats::oakeys::Base::oa_default;
     rest.helpers = summary.helpers;
@@ -1258,7 +1259,7 @@ Editor::Editor(EditorInputs inputs) : inputs_(std::move(inputs)) {
     opened_.own = own_;
     opened_.helpers = helpers_;
     for (const LayoutSummary& layout : installed_)
-        opened_.names.push_back(layout.id + "\t" + layout.name);
+        opened_.names.push_back(layout.id + "\t" + layout.name + "\t" + layout.description);
 }
 
 keys::ResolveInput Editor::resolve_input() const {
@@ -1895,9 +1896,75 @@ bool Editor::choose_layout(std::string_view id, KeepChanges keep) {
     return true;
 }
 
-bool Editor::duplicate(std::string_view name) {
+namespace {
+
+/// The longest name a layout takes, in bytes: the share id it folds to stays
+/// under the 64 bytes a package allows.
+constexpr std::size_t kLongestLayoutName = 60;
+
+/// True when two names are the same, ASCII letters compared without case.
+///
+/// @param left one name
+/// @param right the other
+/// @return true when they match
+bool same_name(std::string_view left, std::string_view right) {
+    if (left.size() != right.size())
+        return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        char one = left[index];
+        char two = right[index];
+        if (one >= 'A' && one <= 'Z')
+            one = static_cast<char>(one - 'A' + 'a');
+        if (two >= 'A' && two <= 'Z')
+            two = static_cast<char>(two - 'A' + 'a');
+        if (one != two)
+            return false;
+    }
+    return true;
+}
+
+/// The name with spaces trimmed from both ends.
+///
+/// @param name the name the player typed
+/// @return the name without its outer spaces
+std::string_view trimmed(std::string_view name) {
+    while (!name.empty() && (name.front() == ' ' || name.front() == '\t'))
+        name.remove_prefix(1);
+    while (!name.empty() && (name.back() == ' ' || name.back() == '\t'))
+        name.remove_suffix(1);
+    return name;
+}
+
+} // namespace
+
+bool Editor::name_taken(std::string_view name, std::string_view except_id) const {
+    const std::string_view asked = trimmed(name);
+    if (same_name(asked, show(inputs_.text, words::oa_default)) || same_name(asked, "OA default"))
+        return true;
+    for (const LayoutSummary& layout : installed_) {
+        if (layout.id != except_id && same_name(asked, trimmed(layout.name)))
+            return true;
+    }
+    return false;
+}
+
+std::string Editor::clone_name() const {
+    const std::string first =
+        fill(show(inputs_.text, words::clone_name), {{"layout", layout_name()}});
+    if (!name_taken(first, {}))
+        return first;
+    for (int number = 2; number < 1000; ++number) {
+        const std::string next = first + " " + std::to_string(number);
+        if (!name_taken(next, {}))
+            return next;
+    }
+    return first;
+}
+
+bool Editor::clone(std::string_view name, std::string_view description) {
     const EditStep step(*this);
-    if (name.empty())
+    const std::string_view asked = trimmed(name);
+    if (asked.empty() || asked.size() > kLongestLayoutName || name_taken(asked, {}))
         return false;
     const std::vector<Listed> before =
         listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
@@ -1907,9 +1974,10 @@ bool Editor::duplicate(std::string_view name) {
             unknowns.push_back(binding);
     }
     LayoutSummary made;
-    made.id = unique_slug(name, installed_);
-    made.name = std::string(name);
-    made.author = "You";
+    made.id = unique_slug(asked, installed_);
+    made.name = std::string(asked);
+    made.description = std::string(trimmed(description));
+    made.author = std::string(own_author);
     made.version = "1.0";
     made.layout.id = made.id;
     made.layout.base = keys::Base::oa_default;
@@ -1940,15 +2008,22 @@ bool Editor::duplicate(std::string_view name) {
     return true;
 }
 
-bool Editor::rename(std::string_view name) {
+bool Editor::describe(std::string_view name, std::string_view description) {
     const EditStep step(*this);
-    if (!has_chosen_ || name.empty() || chosen_.name == name)
+    const std::string_view asked = trimmed(name);
+    const std::string_view described = trimmed(description);
+    if (!has_chosen_ || asked.empty() || asked.size() > kLongestLayoutName ||
+        name_taken(asked, chosen_.id))
         return false;
-    chosen_.name = std::string(name);
+    if (chosen_.name == asked && chosen_.description == described)
+        return false;
+    chosen_.name = std::string(asked);
+    chosen_.description = std::string(described);
     bool found = false;
     for (LayoutSummary& layout : installed_) {
         if (layout.id == chosen_.id) {
             layout.name = chosen_.name;
+            layout.description = chosen_.description;
             found = true;
             break;
         }
@@ -1958,6 +2033,16 @@ bool Editor::rename(std::string_view name) {
     if (!listed_id(written_, chosen_.id))
         written_.push_back(chosen_.id);
     return true;
+}
+
+std::string Editor::layout_description() const {
+    if (!has_chosen_)
+        return {};
+    return chosen_.description;
+}
+
+bool Editor::layout_is_own() const {
+    return has_chosen_ && (chosen_.author == own_author || listed_id(written_, chosen_.id));
 }
 
 std::size_t Editor::changes() const {
@@ -1982,7 +2067,7 @@ std::size_t Editor::unsaved() const {
     count += list_diff(helpers_.hold_to_confirm, opened_.helpers.hold_to_confirm);
     std::vector<std::string> now;
     for (const LayoutSummary& layout : installed_)
-        now.push_back(layout.id + "\t" + layout.name);
+        now.push_back(layout.id + "\t" + layout.name + "\t" + layout.description);
     for (const std::string& line : now) {
         bool same = false;
         for (const std::string& opened : opened_.names) {
@@ -2356,10 +2441,12 @@ std::string Editor::draft_print(const Draft& draft) {
     list(draft.helpers.toggle);
     list(draft.helpers.hold_to_confirm);
     print += draft.number_keys ? "n1" : "n0";
-    print += draft.has_chosen ? draft.chosen.id + "\t" + draft.chosen.name : std::string("-");
+    print += draft.has_chosen
+                 ? draft.chosen.id + "\t" + draft.chosen.name + "\t" + draft.chosen.description
+                 : std::string("-");
     print += '\n';
     for (const LayoutSummary& layout : draft.installed)
-        print += layout.id + "\t" + layout.name + "\n";
+        print += layout.id + "\t" + layout.name + "\t" + layout.description + "\n";
     for (const std::string& id : draft.written)
         print += id + ",";
     print += '\n';

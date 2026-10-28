@@ -210,9 +210,30 @@ inline constexpr std::string_view cancel = "Cancel";
 inline constexpr std::string_view settle = "Settle {n} clashes to save";
 /// The footer while one clash is left.
 inline constexpr std::string_view settle_one = "Settle 1 clash to save";
-/// The layout menu.
-inline constexpr std::string_view duplicate = "Duplicate…";
-inline constexpr std::string_view rename = "Rename…";
+/// The layout menu and More: a new layout of the player's own from the one in use.
+inline constexpr std::string_view clone_item = "Clone…";
+/// The layout menu and More, on a layout other than OA default.
+inline constexpr std::string_view describe_item = "Rename and Describe…";
+/// Clone's question. `{layout}` is the layout in use.
+inline constexpr std::string_view clone_title = "Clone {layout}";
+/// Rename and Describe's question.
+inline constexpr std::string_view describe_title = "Rename and Describe {layout}";
+/// The label over the description field.
+inline constexpr std::string_view description_label = "Description";
+/// The name Clone… offers. `{layout}` is the layout in use.
+inline constexpr std::string_view clone_name = "Copy of {layout}";
+/// The description Clone… offers.
+inline constexpr std::string_view based_on = "Based on {layout}";
+/// What Clone makes, under the fields.
+inline constexpr std::string_view clone_note =
+    "A key layout of your own, from {layout} and your changes. It opens here; Save changes "
+    "keeps it, and Share… saves it as a file.";
+/// A name another layout already has.
+inline constexpr std::string_view name_taken = "Another key layout is called {name}.";
+/// A name longer than a layout takes.
+inline constexpr std::string_view name_too_long = "This name is too long.";
+/// Clone's main button.
+inline constexpr std::string_view clone_button = "Clone";
 
 /// Choosing another layout while the draft has changes.
 inline constexpr std::string_view keep_question = "Keep your {n} changes on top of {layout}?";
@@ -220,8 +241,6 @@ inline constexpr std::string_view keep_question = "Keep your {n} changes on top 
 inline constexpr std::string_view keep_question_one = "Keep your 1 change on top of {layout}?";
 inline constexpr std::string_view keep_them = "Keep them";
 inline constexpr std::string_view set_aside = "Set them aside";
-/// Duplicate and rename ask this. The field is the layout's name.
-inline constexpr std::string_view name_layout = "Name this layout";
 /// A layout could not be written. `{reason}` is the sentence the writer gave.
 inline constexpr std::string_view write_failed = "The layout was not saved: {reason}";
 /// The name question's accept, and a notice's OK. The catalogue already has this word.

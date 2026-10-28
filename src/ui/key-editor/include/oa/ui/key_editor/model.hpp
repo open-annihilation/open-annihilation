@@ -26,12 +26,16 @@ namespace oa::ui::key_editor {
 
 namespace kit = oa::ui::kit;
 
+/// The author a layout the player made names, as its manifest writes it.
+inline constexpr std::string_view own_author = "You";
+
 /// One installed layout the editor can switch to, beside OA default.
 struct LayoutSummary {
     std::string id{};                       ///< the layout's id
     std::string name{};                     ///< the name players see
     std::string author{};                   ///< who wrote it
     std::string version{};                  ///< the version, as shown
+    std::string description{};              ///< what it is for; empty when unwritten
     oa::ui::key_bindings::Layout layout{};  ///< its bindings
     oa::formats::oakeys::Helpers helpers{}; ///< the helpers it sets
 };
@@ -406,19 +410,53 @@ class Editor {
     /// @return true when the layout or the draft changed
     bool choose_layout(std::string_view id, KeepChanges keep);
 
-    /// Makes a new layout from the current one, under this name, and chooses it.
-    /// The draft's bindings and helpers become that layout's. An empty name
-    /// does nothing.
+    /// Makes a new layout of the player's own from the one in use, under
+    /// this name and description, and chooses it. The layout's bindings with
+    /// the draft over them, and its helpers, become the new layout's; the
+    /// draft keeps only actions this version does not know. Its id is new:
+    /// no layout is overwritten. SAVE writes it.
+    ///
+    /// An empty name, or a name another layout already has (OA default's
+    /// among them, letters compared without case), makes nothing.
     ///
     /// @param name the name the player typed
+    /// @param description the description the player typed; may be empty
     /// @return true when the layout was made
-    bool duplicate(std::string_view name);
+    bool clone(std::string_view name, std::string_view description);
 
-    /// Renames the chosen layout. OA default is not renamed.
+    /// Renames the chosen layout and sets its description. OA default keeps
+    /// its name, and a name another layout already has is refused. SAVE
+    /// writes the layout again.
     ///
     /// @param name the name the player typed
-    /// @return true when the name changed
-    bool rename(std::string_view name);
+    /// @param description the description the player typed; may be empty
+    /// @return true when the name or the description changed
+    bool describe(std::string_view name, std::string_view description);
+
+    /// True when a layout other than `except_id` is already called this,
+    /// letters compared without case. OA default's name counts.
+    ///
+    /// @param name the name
+    /// @param except_id the layout being renamed; empty when cloning
+    /// @return true when the name is taken
+    [[nodiscard]] bool name_taken(std::string_view name, std::string_view except_id) const;
+
+    /// The name Clone… offers: "Copy of {layout}", with a number after it
+    /// while that name is taken.
+    ///
+    /// @return the name
+    [[nodiscard]] std::string clone_name() const;
+
+    /// The layout's description, already looked up for OA default.
+    ///
+    /// @return the description; empty when the layout has none
+    [[nodiscard]] std::string layout_description() const;
+
+    /// True when the layout in use is one the player made: one Clone… made,
+    /// or a layout whose author is the player.
+    ///
+    /// @return true for the player's own layout
+    [[nodiscard]] bool layout_is_own() const;
 
     /// How many of the player's own changes sit on the layout: the draft's
     /// bindings, its latch list and, when set, its hold list. Number keys are
@@ -723,6 +761,8 @@ class Editor {
     friend std::vector<std::string> keys_of(const Editor& editor, std::string_view action);
     /// The shared layout, including bindings this version does not know.
     friend oa::formats::oakeys::Manifest share_manifest(const Editor& editor);
+    /// The id SAVE FILE… writes.
+    friend std::optional<std::string> share_id(const Editor& editor);
     /// SHARE…'s facts, from the shared layout.
     friend ShareSummary share_summary(const Editor& editor);
     /// Writes a paste into the draft. A clash is held; an unknown action is kept.
@@ -749,6 +789,14 @@ class Editor {
 /// @param editor the draft
 /// @return the manifest; its id is empty when the name cannot be one
 [[nodiscard]] oa::formats::oakeys::Manifest share_manifest(const Editor& editor);
+
+/// The id SHARE… gives the package. The player's own layout shared under its
+/// own name keeps its id, so the file installs as that layout; any other name
+/// folds into an id as `id_from_name` does.
+///
+/// @param editor the draft and the share name
+/// @return the id, or nothing when the name cannot be one
+[[nodiscard]] std::optional<std::string> share_id(const Editor& editor);
 
 /// SHARE…'s facts.
 ///

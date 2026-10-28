@@ -177,6 +177,18 @@ inline constexpr kit::ControlId leave_save = 93;
 inline constexpr kit::ControlId leave_discard = 94;
 /// The close question's Keep editing.
 inline constexpr kit::ControlId leave_keep = 95;
+/// The Clone and the Rename and Describe questions' name field.
+inline constexpr kit::ControlId layout_name_field = 96;
+/// Their description field.
+inline constexpr kit::ControlId layout_description_field = 97;
+/// Their main button.
+inline constexpr kit::ControlId layout_ok = 98;
+/// Their Cancel.
+inline constexpr kit::ControlId layout_cancel = 99;
+/// Their title, what the new layout starts from, and why a name cannot be used:
+/// a label, shown only while their question is, so it sits after the nav's
+/// entries, which never show with it.
+inline constexpr kit::ControlId layout_status = 399;
 
 /// One nav entry. The category's place among the nav's entries, from 0, is added.
 inline constexpr kit::ControlId nav_first = 100;

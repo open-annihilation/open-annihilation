@@ -6,6 +6,7 @@
 // Buttons grow to the words they show.
 #include "oa/ui/key_editor/screen.hpp"
 
+#include "layout_question.hpp"
 #include "list_geom.hpp"
 #include "menu_geom.hpp"
 #include "screen_controls.hpp"
@@ -2627,7 +2628,7 @@ kit::DisplayList exchange_prompt(
 
     if (state.prompt == Prompt::share) {
         const ShareSummary summary = share_summary(editor);
-        const std::optional<std::string> id = id_from_name(editor.share_name());
+        const std::optional<std::string> id = share_id(editor);
         title(words::share_title);
         const int32_t label_h = metrics.small_line;
         if (y + label_h <= content_stop) {
@@ -2717,6 +2718,99 @@ kit::DisplayList exchange_prompt(
             make(controls::share_save, name_share_save, words::save_file, true, id.has_value())
         );
         place_footer(aside, buttons);
+        return list;
+    }
+
+    if (state.prompt == Prompt::clone || state.prompt == Prompt::describe) {
+        // The question names its layout; the fields are its name and its
+        // description, each under its label; then what Clone makes, or why
+        // the name cannot be used.
+        const bool cloning = state.prompt == Prompt::clone;
+        const std::string heading = fill(
+            show(editor.text(), cloning ? words::clone_title : words::describe_title),
+            {{"layout", editor.layout_name()}}
+        );
+        const int32_t heading_top = y;
+        y += std::max(
+            wrapped(y, heading, kit::FontRole::regular, kit::colour::text, 2), metrics.regular_line
+        );
+        const int32_t heading_h = y - heading_top;
+        y += kSectionGap;
+        const auto field_at = [&](std::string_view label,
+                                  const kit::TextField& typed,
+                                  kit::ControlId id,
+                                  std::string_view name) {
+            const int32_t label_h = metrics.small_line;
+            if (y + label_h <= content_stop) {
+                text_at(
+                    {column_x, y, column_w, label_h},
+                    show(editor.text(), label),
+                    kit::FontRole::small,
+                    kit::colour::quiet
+                );
+                y += label_h;
+            }
+            if (y + metrics.text_field_height > content_stop)
+                return;
+            kit::SearchLook look;
+            look.field = typed;
+            look.focused = focused_on(state, id);
+            look.hovered = hot(state, id);
+            look.magnifier = false;
+            look.placeholder = show(editor.text(), label);
+            kit::add_search(
+                list,
+                {column_x, y, column_w, metrics.text_field_height},
+                look,
+                id,
+                std::string(name)
+            );
+            list.tab_order.push_back(id);
+            y += metrics.text_field_height + metrics.space;
+        };
+        field_at(
+            words::share_name_label,
+            state.layout_name_field,
+            controls::layout_name_field,
+            name_layout_name
+        );
+        field_at(
+            words::description_label,
+            state.layout_description_field,
+            controls::layout_description_field,
+            name_layout_description
+        );
+        const std::string problem = layout_name_problem(editor, state);
+        std::string line = problem;
+        if (line.empty() && cloning)
+            line = fill(show(editor.text(), words::clone_note), {{"layout", editor.layout_name()}});
+        y += wrapped(
+            y,
+            line,
+            kit::FontRole::small,
+            problem.empty() ? kit::colour::hint : kit::colour::danger,
+            4
+        );
+        // The question and the line under the fields, on the question's
+        // heading, so a check reads them.
+        area(
+            {column_x, heading_top, column_w, heading_h},
+            controls::layout_status,
+            name_layout_status,
+            heading + "\n" + line
+        );
+        std::vector<ExchangeButton> buttons;
+        buttons.push_back(
+            make(controls::layout_cancel, name_layout_cancel, words::cancel, false, true)
+        );
+        buttons.push_back(make(
+            controls::layout_ok,
+            name_layout_ok,
+            cloning ? words::clone_button : words::save_word,
+            true,
+            layout_answer_ready(editor, state)
+        ));
+        place_footer({}, buttons);
         return list;
     }
 
@@ -3099,7 +3193,8 @@ kit::DisplayList prompt_layout(
     const Editor& editor, const ScreenState& state, const kit::Frame& frame, const kit::Fonts& fonts
 ) {
     if (state.prompt == Prompt::share || state.prompt == Prompt::paste ||
-        state.prompt == Prompt::import)
+        state.prompt == Prompt::import || state.prompt == Prompt::clone ||
+        state.prompt == Prompt::describe)
         return exchange_prompt(editor, state, frame, fonts);
     kit::DisplayList list;
     const kit::Metrics& metrics = kit::metrics_of(frame.size_class);

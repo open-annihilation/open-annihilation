@@ -3149,6 +3149,7 @@ bool summary_from_manifest(const oakeys::Manifest& manifest, editor::LayoutSumma
     summary.name = manifest.name;
     summary.author = manifest.author.name;
     summary.version = oa::formats::oamut::version_text(manifest.version);
+    summary.description = manifest.description;
     summary.helpers = manifest.helpers;
     summary.layout = std::move(layout);
     return true;
