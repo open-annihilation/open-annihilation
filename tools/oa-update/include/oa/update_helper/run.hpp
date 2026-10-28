@@ -106,12 +106,15 @@ line_after_failed_roll_back(const std::filesystem::path& updates) {
 /// @param elevated_swap true when this process only swaps a folder and does not start the game
 /// @param stage_only true to stage a Linux update and not start the game; a
 ///        self-check build's `--stage-only`. Ignored for any other route
+/// @param helper_parent the process that copied this helper out of the install;
+///        0 when this is that first process. The copy waits for it, then swaps
 /// @return an exit status
 [[nodiscard]] int run_plan(
     const std::filesystem::path& plan_path,
     const std::vector<FeedKey>& keys,
     bool elevated_swap,
-    bool stage_only
+    bool stage_only,
+    int64_t helper_parent
 );
 
 /// Undoes a journal left under `updates`.

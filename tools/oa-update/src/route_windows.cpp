@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iterator>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -26,6 +27,8 @@
 #endif
 #include <windows.h>
 #include <shellapi.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace oa::update_helper {
@@ -824,6 +827,155 @@ MoveOutcome classify_move(const MoveAttempt& attempt, bool on_windows_9x) noexce
     if (on_windows_9x && attempt.error == destination_exists)
         return MoveOutcome::postponed;
     return MoveOutcome::failed;
+}
+
+namespace {
+
+/// A folder's spelling, with forward slashes and no trailing separator.
+///
+/// On Windows the comparison ignores ASCII case, as the install path and the
+/// running program's path need not use the same case.
+std::string folder_spell(const fs::path& path) {
+    std::string text = utf8_of(path.lexically_normal());
+    while (text.size() > 3 && text.back() == '/')
+        text.pop_back();
+#if defined(_WIN32)
+    for (char& character : text) {
+        const unsigned char byte = static_cast<unsigned char>(character);
+        if (byte >= 'A' && byte <= 'Z')
+            character = static_cast<char>(byte - 'A' + 'a');
+    }
+#endif
+    return text;
+}
+
+bool same_folder(const fs::path& left, const fs::path& right) {
+    std::error_code io;
+    if (fs::equivalent(left, right, io) && !io)
+        return true;
+    return folder_spell(left) == folder_spell(right);
+}
+
+/// True for a Windows library. The extension match ignores ASCII case.
+bool library_file(const fs::path& name) {
+    std::string text = utf8_of(name.filename());
+    if (text.size() < 4)
+        return false;
+    for (std::size_t index = text.size() - 4; index < text.size(); ++index) {
+        const unsigned char byte = static_cast<unsigned char>(text[index]);
+        if (byte >= 'A' && byte <= 'Z')
+            text[index] = static_cast<char>(byte - 'A' + 'a');
+    }
+    return text.compare(text.size() - 4, 4, ".dll") == 0;
+}
+
+/// Copies each library beside `from` to the folder of `to`.
+///
+/// Windows looks in the program's own folder before anywhere else. The copy
+/// has to bring those libraries with it: loading the install's copies would
+/// keep them open, and a folder swap on Windows XP cannot rename an open file.
+bool copy_libraries_beside(const fs::path& from, const fs::path& to, std::string* error) {
+    const fs::path folder = from.parent_path();
+    const fs::path destination_folder = to.parent_path();
+    if (folder.empty() || destination_folder.empty() || same_folder(folder, destination_folder))
+        return true;
+    std::error_code io;
+    fs::directory_iterator it(folder, io);
+    while (!io && it != fs::directory_iterator()) {
+        const fs::path child = it->path();
+        it.increment(io);
+        std::error_code kind;
+        if (!fs::is_regular_file(child, kind) || kind || !library_file(child))
+            continue;
+        fs::copy_file(
+            child, destination_folder / child.filename(), fs::copy_options::overwrite_existing, kind
+        );
+        if (kind) {
+            set_error(error, "the helper could not be copied");
+            return false;
+        }
+    }
+    if (io) {
+        set_error(error, "the helper could not be copied");
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
+bool helper_image_blocks_swap(const fs::path& program, const fs::path& install) {
+    if (!own_helper_file(program) || program.parent_path().empty() || install.empty())
+        return false;
+    return same_folder(program.parent_path(), install);
+}
+
+bool folder_swap_must_step_aside(
+    const fs::path& program, const fs::path& install, int64_t helper_parent
+) {
+    if (helper_parent != 0)
+        return false;
+    return helper_image_blocks_swap(program, install);
+}
+
+fs::path helper_aside_path(const fs::path& updates) {
+    return updates / "oa-update-running.exe";
+}
+
+std::vector<std::string> helper_aside_arguments(
+    const fs::path& plan_file,
+    const std::vector<FeedKey>& keys,
+    bool elevated_swap,
+    bool stage_only,
+    int64_t parent_pid
+) {
+    std::vector<std::string> arguments;
+    if (elevated_swap)
+        arguments.emplace_back("--elevated-swap");
+    arguments.emplace_back("--plan");
+    arguments.emplace_back(utf8_of(plan_file));
+    for (const FeedKey& feed_key : keys) {
+        arguments.emplace_back("--feed-key");
+        arguments.emplace_back(feed_key.id + "=" + feed_key.text);
+    }
+    if (stage_only)
+        arguments.emplace_back("--stage-only");
+    arguments.emplace_back("--helper-parent");
+    arguments.emplace_back(std::to_string(parent_pid));
+    return arguments;
+}
+
+bool copy_helper_aside(const fs::path& from, const fs::path& to, std::string* error) {
+    std::error_code io;
+    if (!to.parent_path().empty()) {
+        fs::create_directories(to.parent_path(), io);
+        if (io) {
+            set_error(error, "the helper could not be copied");
+            return false;
+        }
+    }
+    fs::copy_file(from, to, fs::copy_options::overwrite_existing, io);
+    if (io) {
+        set_error(error, "the helper could not be copied");
+        return false;
+    }
+    return copy_libraries_beside(from, to, error);
+}
+
+fs::path running_helper_program() {
+#if defined(_WIN32)
+    return this_program();
+#else
+    return {};
+#endif
+}
+
+int64_t helper_process_id() noexcept {
+#if defined(_WIN32)
+    return static_cast<int64_t>(GetCurrentProcessId());
+#else
+    return static_cast<int64_t>(::getpid());
+#endif
 }
 
 std::vector<Operation>

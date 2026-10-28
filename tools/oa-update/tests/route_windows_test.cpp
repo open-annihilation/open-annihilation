@@ -235,8 +235,10 @@ void folder_operations() {
     const fs::path top = staged / "Game";
     write_file(install / "previous" / "stale.txt", "stale");
     write_file(install / "open-annihilation.exe", "old-game");
+    write_file(install / "oa-update.exe", "old-helper");
     write_file(install / "notes.txt", "player");
     write_file(top / "open-annihilation.exe", "new-game");
+    write_file(top / "oa-update.exe", "new-helper");
     write_file(top / "extra.dll", "extra");
     const update::Plan plan = folder_plan(scratch, install);
     const fs::path helper_path = scratch.path / "oa-update.exe";
@@ -251,6 +253,8 @@ void folder_operations() {
     bool removed = false;
     bool moved_old = false;
     bool moved_new = false;
+    bool moved_old_helper = false;
+    bool moved_new_helper = false;
     bool moved_notes = false;
     for (const helper::Operation& operation : writable.operations) {
         if (operation.kind == helper::Operation::Kind::remove_tree &&
@@ -264,6 +268,14 @@ void folder_operations() {
             helper::utf8_of(operation.from.filename()) == "extra.dll" &&
             helper::utf8_of(operation.to.parent_path()) == helper::utf8_of(install))
             moved_new = true;
+        if (operation.kind == helper::Operation::Kind::rename &&
+            helper::utf8_of(operation.from.filename()) == "oa-update.exe" &&
+            helper::utf8_of(operation.to.parent_path().filename()) == "previous")
+            moved_old_helper = true;
+        if (operation.kind == helper::Operation::Kind::rename &&
+            helper::utf8_of(operation.from.filename()) == "oa-update.exe" &&
+            helper::utf8_of(operation.to.parent_path()) == helper::utf8_of(install))
+            moved_new_helper = true;
         if (helper::utf8_of(operation.from.filename()) == "notes.txt" ||
             helper::utf8_of(operation.path.filename()) == "notes.txt")
             moved_notes = true;
@@ -271,6 +283,8 @@ void folder_operations() {
     OA_CHECK(removed);
     OA_CHECK(moved_old);
     OA_CHECK(moved_new);
+    OA_CHECK(moved_old_helper);
+    OA_CHECK(moved_new_helper);
     OA_CHECK(!moved_notes);
 
     const helper::FolderPlan elevated =
@@ -590,6 +604,111 @@ void a_closed_window_can_let_go_of_font_files() {
     OA_CHECK(!placed.line_text.empty());
 }
 
+void a_folder_swap_keeps_the_game_and_replaces_the_helper() {
+    Scratch scratch("folder-helper");
+    const fs::path install = scratch.path / "Open Annihilation";
+    const fs::path staged = scratch.path / "stage";
+    const fs::path top = staged / "Game";
+    const fs::path updates = scratch.path / "updates";
+    write_file(install / "open-annihilation.exe", "old-game");
+    write_file(install / "oa-update.exe", "old-helper");
+    write_file(top / "open-annihilation.exe", "new-game");
+    write_file(top / "oa-update.exe", "new-helper");
+    write_file(updates / "oa-update-running.exe", "running-copy");
+    const update::Plan plan = folder_plan(scratch, install);
+    std::string why;
+    const std::vector<helper::Operation> operations =
+        helper::windows_folder_operations(plan, staged, &why);
+    OA_CHECK(why.empty());
+    for (const helper::Operation& operation : operations) {
+        const std::string name = operation.kind == helper::Operation::Kind::remove_tree
+                                     ? helper::utf8_of(operation.path.filename())
+                                     : helper::utf8_of(operation.from.filename());
+        OA_CHECK(name != "oa-update-running.exe");
+    }
+    fs::create_directories(updates);
+    std::string error;
+    OA_CHECK(
+        helper::apply_journal(updates, operations, helper::JournalHooks{}, &error) ==
+        helper::JournalResult::finished
+    );
+    OA_CHECK(read_file(install / "previous" / "open-annihilation.exe") == "old-game");
+    OA_CHECK(read_file(install / "previous" / "oa-update.exe") == "old-helper");
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "new-game");
+    OA_CHECK(read_file(install / "oa-update.exe") == "new-helper");
+    OA_CHECK(read_file(updates / "oa-update-running.exe") == "running-copy");
+    OA_CHECK(helper::undo_journal(updates, helper::JournalHooks{}, &error));
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "old-game");
+    OA_CHECK(read_file(install / "oa-update.exe") == "old-helper");
+}
+
+void the_running_helper_steps_aside_before_the_swap() {
+    Scratch scratch("step-aside");
+    const fs::path install = scratch.path / "Open Annihilation";
+    const fs::path updates = scratch.path / "updates";
+    fs::create_directories(install);
+    fs::create_directories(updates);
+    const fs::path running = install / "oa-update.exe";
+    write_file(running, "helper-bytes");
+    OA_CHECK(helper::helper_image_blocks_swap(running, install));
+    OA_CHECK(helper::helper_image_blocks_swap(install / "oa-update", install));
+    OA_CHECK(!helper::helper_image_blocks_swap(install / "open-annihilation.exe", install));
+    OA_CHECK(!helper::helper_image_blocks_swap(updates / "oa-update.exe", install));
+    OA_CHECK(helper::folder_swap_must_step_aside(running, install, 0));
+    OA_CHECK(!helper::folder_swap_must_step_aside(running, install, 4242));
+    const fs::path aside = helper::helper_aside_path(updates);
+    OA_CHECK(aside.filename() == "oa-update-running.exe");
+    OA_CHECK(!helper::helper_image_blocks_swap(aside, install));
+    OA_CHECK(!helper::folder_swap_must_step_aside(aside, install, 0));
+
+    const fs::path plan_file = scratch.path / "plan.json";
+    const helper::FeedKey feed_key{"ridge", "ed25519:abc"};
+    const std::vector<std::string> arguments =
+        helper::helper_aside_arguments(plan_file, {feed_key}, false, false, 4242);
+    OA_CHECK(arguments.size() == 6u);
+    OA_CHECK(arguments[0] == "--plan");
+    OA_CHECK(arguments[1] == helper::utf8_of(plan_file));
+    OA_CHECK(arguments[2] == "--feed-key");
+    OA_CHECK(arguments[3] == "ridge=ed25519:abc");
+    OA_CHECK(arguments[4] == "--helper-parent");
+    OA_CHECK(arguments[5] == "4242");
+    const std::vector<std::string> elevated =
+        helper::helper_aside_arguments(plan_file, {}, true, true, 7);
+    OA_CHECK(elevated.front() == "--elevated-swap");
+    OA_CHECK(elevated[1] == "--plan");
+    bool saw_stage = false;
+    bool saw_parent = false;
+    for (const std::string& argument : elevated) {
+        if (argument == "--stage-only")
+            saw_stage = true;
+        if (argument == "--helper-parent")
+            saw_parent = true;
+        OA_CHECK(argument != "--feed-key");
+    }
+    OA_CHECK(saw_stage);
+    OA_CHECK(saw_parent);
+
+    write_file(install / "SDL3.dll", "sdl-bytes");
+    write_file(install / "LIBGCC.DLL", "runtime");
+    write_file(install / "notes.txt", "notes");
+    write_file(install / "extra" / "nested.dll", "nested");
+    write_file(updates / "SDL3.dll", "stale");
+
+    std::string error;
+    OA_CHECK(helper::copy_helper_aside(running, aside, &error));
+    OA_CHECK(read_file(aside) == "helper-bytes");
+    OA_CHECK(read_file(running) == "helper-bytes");
+    OA_CHECK(read_file(updates / "SDL3.dll") == "sdl-bytes");
+    OA_CHECK(read_file(updates / "LIBGCC.DLL") == "runtime");
+    OA_CHECK(!fs::exists(updates / "notes.txt"));
+    OA_CHECK(!fs::exists(updates / "nested.dll"));
+    write_file(running, "newer");
+    write_file(install / "SDL3.dll", "sdl-newer");
+    OA_CHECK(helper::copy_helper_aside(running, aside, &error));
+    OA_CHECK(read_file(aside) == "newer");
+    OA_CHECK(read_file(updates / "SDL3.dll") == "sdl-newer");
+}
+
 void an_open_file_keeps_its_folder() {
     Scratch scratch("held-folder");
     const fs::path folder = scratch.path / "fonts";
@@ -628,6 +747,8 @@ void test_windows_routes() {
     restore_and_markers();
     journal_restores_the_folder_and_the_installer();
     postponed_rename_undoes_as_nothing();
+    a_folder_swap_keeps_the_game_and_replaces_the_helper();
+    the_running_helper_steps_aside_before_the_swap();
     a_closed_window_can_let_go_of_font_files();
     an_open_file_keeps_its_folder();
 }

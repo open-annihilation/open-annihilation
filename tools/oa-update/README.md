@@ -37,6 +37,9 @@ line a step, kept under 1 MiB), `receipt.json` for the game, `journal.json`
 and `journal-held/` while a swap is in progress, `<release>/stage/` for the
 unpacked package, `previous/` for the version that was kept and the
 preferences copy, and `state.json` for what is installed and what was kept.
+A Windows folder swap copies this program, and the libraries beside it, to
+`oa-update-running.exe` and continues from there, so the install's own
+`oa-update.exe` can be renamed.
 
 ## The receipt
 
