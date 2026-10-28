@@ -43,7 +43,7 @@ and answers (`src/app/runtime_mod_install.cpp`,
 - `recover_changes` settles what a stop left, and `Discarder` deletes the
   folders a change drops a little at a time.
 - `read_installed_mod` and `read_backup`, the oamod kind's, read what a
-  folder and its `.backup` hold, for the plan and the Library's ROLL BACK.
+  folder and its `.backup` hold, for the plan and the Library's Roll back.
 
 `oa/app/package_install/inbox.hpp` keeps what outlives each run of the game in
 one process: the packages waiting for the main menu (`post_package_file`,
@@ -251,7 +251,7 @@ that does not hold this mutator's `oamut.yaml` is left as it is. A folder
 that holds nothing but empty folders reads as missing.
 
 The installed prompt says "{name} is installed. Turn it on with the Mutators
-button when you set up a game." and offers OPEN FOLDER and OK. PLAY NOW is never
+button when you set up a game." and offers Open folder and OK. Play now is never
 offered: installing a mutator does not turn it on.
 
 A catalogue mutator also installs when the main menu is not showing, on
@@ -308,7 +308,7 @@ brain's `oabrain.yaml` is left as it is. A folder that holds nothing but
 empty folders reads as missing.
 
 The installed prompt says "{name} is installed. Choose it for a computer
-player when you set up a game." and offers OPEN FOLDER and OK. PLAY NOW is
+player when you set up a game." and offers Open folder and OK. Play now is
 never offered: installing a brain does not seat it.
 
 A catalogue brain also installs when the main menu is not showing, on any
@@ -360,7 +360,7 @@ is left as it is, and no package may take an id that starts `own-`. A
 folder that holds nothing but empty folders reads as missing.
 
 The installed prompt says "{name} is installed. Choose USE in the Library's
-Keys tab to play with it." and offers OPEN FOLDER and OK. PLAY NOW is never
+Keys tab to play with it." and offers Open folder and OK. Play now is never
 offered: installing a key layout does not make it the one in use, and it
 never writes that preference.
 
@@ -497,7 +497,7 @@ point whose tag is a name surrogate (`reparse_tag_is_link`): a junction,
 mount point or symbolic link, which names another place. A folder or file
 with any other tag is itself, such as one a file sync keeps in the cloud,
 as the sync of Documents does on many Windows machines: the plan reads it
-as a mod, recovery settles it, the `Discarder` enters it and ROLL BACK
+as a mod, recovery settles it, the `Discarder` enters it and Roll back
 takes it. A reparse point whose tag cannot be read counts as a link.
 
 ## Origin records
@@ -603,7 +603,7 @@ a replace that fails leaves the previous record as it was.
   registry, a folder that holds something else left as it was, an uninstall
   the discarder deletes, a package inside one top folder, and each refusal,
   including a script, an icon, an unmet engine and more folders than a
-  mutator may take. The installed prompt offers no PLAY NOW.
+  mutator may take. The installed prompt offers no Play now.
 - `app-package-install-oabrain`: a brain installed into a scratch Brains
   folder, `check_staged` accepting its network, a reinstall question for
   the same package, an update that keeps `.backup` and a roll back that
@@ -612,7 +612,7 @@ a replace that fails leaves the previous record as it was.
   else left as it was, an uninstall the discarder deletes, a package inside
   one top folder, and each refusal, including a script, an icon, a network,
   a table, an unmet engine and a staged network whose bytes differ from the
-  manifest's SHA-256. The installed prompt offers no PLAY NOW.
+  manifest's SHA-256. The installed prompt offers no Play now.
 - `app-package-install-oakeys`: a key layout installed into a scratch Keys
   folder, a reinstall question for the same package, an update that keeps
   `.backup` and a roll back that swaps them, a catalogue replace from the
@@ -621,7 +621,7 @@ a replace that fails leaves the previous record as it was.
   know listed on the question, and each refusal, including a missing
   manifest, a malformed chord, the ids `own-oa-default`, `classic` and
   `con`, a note inside a folder, an icon, an unmet engine, and an own
-  folder left as it was. The installed prompt offers no PLAY NOW.
+  folder left as it was. The installed prompt offers no Play now.
 - `app-package-install-oalang`: the pseudo pack installed into a scratch
   Languages folder, a Reinstall question for the same package, a Replace
   that keeps the old revision in `.backup`, a manifest inside one top

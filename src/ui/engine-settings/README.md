@@ -72,7 +72,7 @@ the locks a running game puts on them (`settings_locks`).
 | | Reset window positions: Reset puts every window the player moved back in the middle, at once (`Dialog::window_reset_asked`); the row then says so (`Dialog::window_places_reset`). Cancel does not move them again | | | none. The host forgets every `open-annihilation.window.*` key |
 | | Escape opens the game menu | Off, On | On on macOS, Off elsewhere and with `--preferences-file` | `open-annihilation.escape-opens-menu` |
 | | Look, the section's last row, as it is chosen, the open dialog among them: the letters of Open Annihilation's own screens and overlays (Settings, the Library, the key editor, the pickers, the notices and prompts, the overlays in a match). Modern draws them in Barlow, tracked titles and headings in Barlow Condensed, at the kit's type scale, with DejaVu Sans, the endonym face and Noto Emoji drawing what Barlow lacks; Classic in the game's own two fonts. The 3.1c game's own screens keep the game's fonts either way. Cancel puts back the look the dialog opened with | Modern, Classic | Modern with the player's own file, one written before the setting existed among them; Classic with `--preferences-file` | `open-annihilation.ui.look` (`modern` or `classic`; absent or any other text is the default) |
-| Accessibility, listed in every dialog of the engine's settings, after Controls and before Touch, with its practice pad ([The practice pad](#the-practice-pad)) | Hold keys that latch: how many latchable actions the layout in use has turned on, of how many the game offers, and CHOOSE…, which opens the key editor on Latchable. Edit keys… on the key layout card still opens on All | the count, as "2 of 7", and CHOOSE… | | none. The count is the host's (`Dialog::latched_count`) |
+| Accessibility, listed in every dialog of the engine's settings, after Controls and before Touch, with its practice pad ([The practice pad](#the-practice-pad)) | Hold keys that latch: how many latchable actions the layout in use has turned on, of how many the game offers, and Choose…, which opens the key editor on Latchable. Edit keys… on the key layout card still opens on All | the count, as "2 of 7", and Choose… | | none. The count is the host's (`Dialog::latched_count`) |
 | | Sticky modifiers: a tapped Shift, Ctrl or Alt holds for the next key or click; a second tap locks it | Off, On | Off | `open-annihilation.access.sticky-modifiers` |
 | | Hold to confirm: self-destruct, surrender and quitting need a long press, and a ring fills while it is held | Off, On | Off | `open-annihilation.access.hold-to-confirm` |
 | | Long press: how long a hold is, for Hold to confirm and for keys bound to a hold | 200 to 1000 ms, steps of 50 | 500 ms | `open-annihilation.access.long-press-ms` |
@@ -108,7 +108,7 @@ the locks a running game puts on them (`settings_locks`).
 | | Control size, Hold delay, QUEUE and ADD | Touch's own rows, shared | | as in Touch |
 | Game files, listed only in the main menu's dialog where the platform brings game files in | Include in device backups | Off, On | Off | `open-annihilation.game-files-backed-up` |
 | Downloads, listed in every dialog of the engine's settings, before Updates | Check for content updates | Automatically, Only when I open the Library, Never | Automatically | `open-annihilation.content-updates` (`automatically`, `library` or `never`); takes effect at OK, and Cancel and Restore defaults apply |
-| Updates, listed in every dialog of the engine's settings, after Downloads and before Game Content | The update card, the update centre's state as the host fills it (`UpdatesOffer::card_status` and the rest): "Installed {version}", the state, its detail, a bar while a download moves (amber while paused), up to three of the state's actions as buttons (`UpdateCardAction`, `DialogAction::update_action` with `Dialog::update_act`) and a note. With no card the row is the older status line with CHECK NOW, UPDATE…, RESTART TO UPDATE or RETRY | the buttons act at once and the dialog stays open | | none. The lines come from the host's offer (`Dialog::updates`) |
+| Updates, listed in every dialog of the engine's settings, after Downloads and before Game Content | The update card, the update centre's state as the host fills it (`UpdatesOffer::card_status` and the rest): "Installed {version}", the state, its detail, a bar while a download moves (amber while paused), up to three of the state's actions as buttons (`UpdateCardAction`, `DialogAction::update_action` with `Dialog::update_act`) and a note. With no card the row is the older status line with Check now, Update…, Restart to update or Retry | the buttons act at once and the dialog stays open | | none. The lines come from the host's offer (`Dialog::updates`) |
 | | Download automatically: a release that can be installed here starts downloading at the settled main menu | Off ("Off: OA asks before downloading."), On | Off | `open-annihilation.update-download` (`0` or `1`); takes effect at OK |
 | | Check for updates | Automatically, Only when I ask, Never | Automatically | `open-annihilation.update-check` (`automatically`, `when-asked` or `never`); takes effect at OK, and Cancel and Restore defaults apply. Check now makes no request while the choice is Never |
 | | Install updates: how a ready release is installed | Ask each time, When I quit | Ask each time | `open-annihilation.update-install` (`ask` or `when-i-quit`; any other text reads as `ask`); takes effect at OK, and Cancel and Restore defaults apply |
@@ -382,7 +382,7 @@ page.
 
 The Mod, the mod folder the game plays, layered over the game folder as
 `--mod-dir` would play it, has no section of the dialog: the application's
-Library chooses it, with PLAY NOW, and SWITCH OFF for No Mod, stores it
+Library chooses it, with Play now, and Switch off for No Mod, stores it
 with `write_settings`, and reloads the game for it. The dialog keeps it as
 it is, through Restore defaults too. A stored mod folder the game folder
 does not offer reads as the stored one (`EngineSettings::picked_mod_folder`);
@@ -466,7 +466,7 @@ icon, so its badge is the plates, not the gears.
 
 Where a game font has no ellipsis, as neither of the dialog's has, the
 dialog draws and measures each ellipsis in a text as three full stops in
-the game font, so that a caption such as MANAGE… keeps the game font's
+the game font, so that a caption such as Manage… keeps the game font's
 look and fits its button like every other caption; the mark between a
 location's folders (›) is drawn as a greater-than sign the same way, and
 a no-break space as the font's space. The texts themselves, and their
@@ -599,8 +599,8 @@ first section, Controls. Its three rows:
 
 - Installed: what is installed and, under it, the sizes line, both the
   host's texts (`Dialog::game_files_summary`, `game_files_sizes`), with
-  MANAGE… at the label line's right, a green button like OK with its
-  caption, drawn "MANAGE...", centred inside it. MANAGE… is a button: a click on it, or
+  Manage… at the label line's right, a green button like OK with its
+  caption, drawn "Manage...", centred inside it. Manage… is a button: a click on it, or
   Space while it has the focus, returns `DialogAction::manage_game_files`,
   and the host opens the Game files screen with the dialog left open under
   it. It takes no steps: Left moves the focus to the section's entry at its
@@ -641,7 +641,7 @@ host's offer (`set_downloads_offer`), not from a fixed list of settings:
   kept. EMPTY acts at once. It is disabled when nothing is kept, and while
   a download is queued, running or paused the value names that the files
   are in use and EMPTY stays disabled.
-- REGISTRIES IN THE LIBRARY… (`settings.registries-in-library`), on the
+- Registries in the Library… (`settings.registries-in-library`), on the
   main menu only (`Dialog::library_link`): a link whose hint reads
   "Registries are in the Library." It asks the host to open the Library
   on the Registries tab (`DialogAction::open_library`,
@@ -665,16 +665,16 @@ offer (`Dialog::updates`), not from a fixed list of settings:
 - The version line (`settings.update-status`): the label is "Open
   Annihilation" and the version, and the hint is the status (up to date,
   checking, a release out, could not check, not checked yet, or "OA never
-  checks"). CHECK NOW (`settings.update-status.check-now`) asks the host
+  checks"). Check now (`settings.update-status.check-now`) asks the host
   at once (`DialogAction::check_updates`). While a release is offered the
-  same button is UPDATE… (`settings.update-status.update`,
+  same button is Update… (`settings.update-status.update`,
   `DialogAction::open_release`). The button is hidden while Check for
   updates is Never and greyed while a check is running.
 - Check for updates (`settings.update-check`): a drop-down of
   Automatically, Only when I ask, and Never. It is a setting
   (`update_check`, stored as `open-annihilation.update-check`). A change
   takes effect at OK. Cancel puts the opened choice back, and Restore
-  defaults sets Automatically. CHECK NOW makes no request while the
+  defaults sets Automatically. Check now makes no request while the
   choice showing is Never.
 
 `open_language_text_dialog` opens a dialog of the third kind,
@@ -965,7 +965,7 @@ Input notice and a Steam Deck's rate, and the host's texts.
 
 Everything the dialog decides about one setting is read from its row: its
 kind (`geometry::kind_of`: a switch is `toggle`, a strip `levels`, a slider
-`slider`, a drop-down `choice`, MANAGE… a `value_and_button` with no value,
+`slider`, a drop-down `choice`, Manage… a `value_and_button` with no value,
 Your files `buttons`, and Where the files are and the Steam Input notice
 `text`), its label and hints, its stops, levels or items and their
 captions and value texts, its lock and whether its hints are its status.
@@ -1031,14 +1031,14 @@ engine's section entries are `settings.nav.<page>` (`controls`,
 `developer`, `game-files`, `mod-keys`, `mod-patrol`, `mod-guard`,
 `mod-tools`, `mod-chat`); `settings.restore-defaults`, `settings.cancel`,
 `settings.ok` and `settings.scroll-bar`; each row `settings.<row>`, its
-setting's name (`settings.vertical-sync`), MANAGE…
+setting's name (`settings.vertical-sync`), Manage…
 `settings.game-files-summary.manage`, and Your files `settings.user-folder`;
 an open drop-down's items `settings.<row>.<value>` while it is open;
 Developer's `settings.active-only`,
 `settings.restore-profile-values`, `settings.hack-area.<area>`,
 `settings.hack.<hack id>` and `settings.hack.<hack id>.<parameter>`, with
 `.<value>` for a set's value, `.<n>` for a list's item and `.length` for
-its length; Downloads' REGISTRIES IN THE LIBRARY…
+its length; Downloads' Registries in the Library…
 `settings.registries-in-library`, on the main menu, which opens the
 Library on its Registries tab.
 
@@ -1072,7 +1072,7 @@ dialog's own fonts, colours, switches and sliders:
   with its hint, under it **Show performance statistics**, which
   Developer Mode leaves alone, and under that **UI kit gallery**, its hint
   "Every part of OA's own screens, in each of its states, at this size."
-  and a **SHOW** button (`settings.kit-gallery.show` to automation) that
+  and a **Show** button (`settings.kit-gallery.show` to automation) that
   asks the host to show the UI kit gallery over the dialog
   (`DialogAction::show_gallery`; [src/ui/kit](../kit/README.md#gallery)),
   the dialog staying open under it and no setting changing: three rows
@@ -1468,7 +1468,7 @@ their Compact sizes and in their order; its sections, switches and their one tab
 slider stops, both level strips, keys, footer buttons, locks and the faces
 it draws; the arrows by geometry (`the_arrows_move_by_geometry`: down a
 section's rows to the footer and back, from a section's entry to the row
-at its height, from MANAGE… to the entry at its height and back, from Developer's entry
+at its height, from Manage… to the entry at its height and back, from Developer's entry
 to Restore defaults, down Graphics past its view, from no focus, and Tab's
 order on every section); the OA button's icon at its size in both buttons, at rest, under
 the pointer, held and twice as large, and the mark without it; with the
@@ -1489,7 +1489,7 @@ lock, and lists that scroll or open over their field;
 the Graphics section's twenty-one rows, Naval reflections last, their places at every offset
 and under every lock, the focus scrolling them into view, both forms of a
 locked row, Smooth motion's switch and its two hints, Zoomed out units' faded Icons and After zoom's lock, every status of Hardware acceleration, Full's included, and
-the requests to try the graphics card afresh; User Interface's seven rows, Menu scaling, Window frame, HUD scaling, Interface size, Window size, Reset window positions and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Accessibility's fifteen rows, the captions at both ends of each range, CHOOSE… opening the key editor on Latchable while Edit keys… stays on All, and each change applying at once; Interface size's drop-down
+the requests to try the graphics card afresh; User Interface's seven rows, Menu scaling, Window frame, HUD scaling, Interface size, Window size, Reset window positions and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Accessibility's fifteen rows, the captions at both ends of each range, Choose… opening the key editor on Latchable while Edit keys… stays on All, and each change applying at once; Interface size's drop-down
 offering 150% only with the modern fonts shown On, and turning them Off
 taking 150% to 100%; Graphics drawn on the kit canvas's smooth form at 1.5×
 with every pixel painted whole; on sections of the test's own taller than the
@@ -1525,7 +1525,7 @@ its track and an open list's nearest item; Game files: listed only with
 its flag, between Touch or User Interface and Downloads, the line and
 Developer under it, its entry numbered 8 with Touch 5, Controller 6,
 Developer 7, Downloads 9, System 10, Game Content 11 and Updates 12, the
-focus walking it, its three rows and their texts, MANAGE… returning
+focus walking it, its three rows and their texts, Manage… returning
 `manage_game_files` to a click, to Space and to a finger beside it, the
 switch by either half and the keys, Restore defaults and Cancel, where the
 files are taking no press and no focus, and the lines a location breaks
@@ -1568,16 +1568,16 @@ column, is drawn there pixel for pixel as the dialog drawn offscreen at
 them, and shows a section a click on its entry's middle asks for.
 It finds no Mods section, and the mods in the application's Library: no
 mod played, and a folder stored by an earlier version's Pick Folder...
-listed by its oamod.yaml's name with PLAY NOW; --base-game greys PLAY NOW
-with its note and PLAY NOW then changes nothing; on that folder played,
-SWITCH OFF asks the Switch Mod question, which Escape and CANCEL put away
+listed by its oamod.yaml's name with Play now; --base-game greys Play now
+with its note and Play now then changes nothing; on that folder played,
+Switch off asks the Switch Mod question, which Escape and CANCEL put away
 with the Mod unchanged, and SWITCH erases its keys, after which the next
 start no longer lists it, and a start erases a picked folder's key that
 names a folder other than the mod stored; a stored mod folder that is gone
 reads as no mod played, and OK replaces it; and a start that plays a
 folder without a profile keeps the overrides under the folder's own id.
-Over a match it finds no Mods section, the Library closed, PLAY NOW and
-SWITCH OFF greyed and asking nothing, and the keys never moving the focus
+Over a match it finds no Mods section, the Library closed, Play now and
+Switch off greyed and asking nothing, and the keys never moving the focus
 onto a row the game locks. `native-mod-switch` switches the mod ten times
 through the Library, each a soft restart.
 
@@ -1604,9 +1604,8 @@ their own in place of their numbers.
 The practice pad answers keys only where the host hands them over
 (`dialog_practice_key`, `dialog_practice_tick`); the OA layer's settings
 screen does not yet, so on screen the pad shows its words and Turn every
-helper off works, but a key pressed there does nothing. The rows' older buttons (CHOOSE…, MANAGE…, SHOW, RESET and the
-like) keep their capitals until their words and translations change
-together.
+helper off works, but a key pressed there does nothing. The rows' buttons
+read Choose…, Manage…, Show, Reset and the like, in title case.
 
 ## The missing-language notice
 
@@ -1635,16 +1634,16 @@ cropped to the pixels that show (`branding/open-annihilation-256.png`). It write
 `accessibility-1.png`, and
 `page_word` plus `.png` for the others), and `controls-2.png`,
 `downloads-2.png`, `system-2.png`, `accessibility-2.png` with those sections scrolled to their
-ends, and `updates-2.png` with a release offered. The
+ends, `updates-2.png` with a release offered on the card, and
+`updates-3.png` scrolled to Previous version. The
 rows a host fills (Your files, Game files, Downloads' install ID, Game
-Content) are the defaults the manual describes. Updates is dressed with
-the older status row, not the card the game fills, so the manual's three
-Updates pictures are cut from the native update check's pictures case
-instead (docs/settings.md says so). The data test
+Content) are the defaults the manual describes. Updates is the card the
+game fills: Installed 0.8.7 and Up to date with Check now, then 0.8.8 is
+out with Download update and Skip this version, and at the end Previous
+version · 0.8.6 with Roll back…. The data test
 `ui-engine-settings-pictures` runs the same program into a scratch folder
 under the build. To refresh the manual, build the tests, draw the
-pictures into a scratch folder and copy every one but the Updates
-pictures into `docs/images/settings`:
+pictures into a scratch folder and copy them into `docs/images/settings`:
 
 ```sh
 oa-ui-engine-settings-pictures pictures --modern local/deps/text-fonts

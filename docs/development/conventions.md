@@ -753,8 +753,9 @@ and writes them under the names that folder uses (`engine-limits.png`,
 `controls-1.png`, `downloads-2.png` for Downloads scrolled to its end, and
 the same for the other sections). It needs `OA_GAME_DIR`. The data test
 `ui-engine-settings-pictures` runs it into a scratch folder. Refresh the
-manual by drawing into a scratch folder and copying every picture but the
-Updates ones, which are cut from the native update check's pictures
+manual by drawing into a scratch folder and copying the pictures, Updates
+included (`updates-1.png` up to date, `updates-2.png` a release offered,
+`updates-3.png` the end with Previous version)
 ([the settings' module](../../src/ui/engine-settings/README.md#the-manuals-pictures)):
 
 ```sh

@@ -103,8 +103,8 @@ the command it is bound to. Escape still closes the field.
 
 ## The key editor
 
-Edit keys… on the key layout card, EDIT KEYS… on the keys panel and in
-the Library, and CHOOSE… beside Hold keys that latch open the editor. In
+Edit keys… on the key layout card, Edit keys… on the keys panel and in
+the Library, and Choose… beside Hold keys that latch open the editor. In
 a game you play alone it pauses the game. It has three tabs:
 **Commands**, **Keyboard** and **Mouse**.
 
@@ -112,9 +112,9 @@ a game you play alone it pauses the game. It has three tabs:
 
 **Commands** opens on Common commands, the commands players change first
 (Attack, Move, Stop, Patrol and the rest), each with its area beside it.
-Edit keys… and EDIT KEYS… open there, on the All filter. A draft that
+Edit keys… and Edit keys… open there, on the All filter. A draft that
 already has a clash, or a chord taken from another command, opens on
-Clashes, across every area. CHOOSE…, beside Hold keys that latch, opens
+Clashes, across every area. Choose…, beside Hold keys that latch, opens
 on Latchable. The other areas follow Common commands, and All actions
 comes last. The filters are All, Changed, Clashes, Unbound and Latchable.
 The search finds commands by name, description, area and a 3.1c order
@@ -253,7 +253,7 @@ cannot be renamed. The [default keys](#the-default-keys) are its chords.
 A layout you install lives in the Library's
 [Keys tab](library.md#the-keys-tab), and on disk under `Keys/<id>` in
 your Open Annihilation folder
-([where packages go](library.md#where-packages-go)). **USE** asks three
+([where packages go](library.md#where-packages-go)). **Use** asks three
 things before it switches:
 
 1. **Where**, while a mod is played: every game, or only with that mod.
@@ -287,13 +287,13 @@ uses your chords, and one you have not named keeps the layout's.
 folds to, the base layout, how many keys and helpers change, and the
 text form.
 
-- **SAVE FILE…** writes a `.oakeys` file anyone can open in Open
+- **Save file…** writes a `.oakeys` file anyone can open in Open
   Annihilation. The id is a lower-case name of 1 to 64 bytes. OA default,
   and an id that starts with `own-`, are refused.
-- **COPY AS TEXT** copies the chords alone, for a forum or a chat. The
+- **Copy as text** copies the chords alone, for a forum or a chat. The
   [text form](keys/oakeys-standard.md#9-the-text-form) is that copy.
 - **PASTE**, and Ctrl+V (Cmd+V on a Mac) while the search is not focused,
-  reads the clipboard and lists what would change. **APPLY** writes it
+  reads the clipboard and lists what would change. **Apply** writes it
   into the draft. A chord that is already in use stays where it is and
   is listed as a clash, which holds Save changes until it is settled. A
   command this version does not know is kept for a version that has it.
@@ -368,7 +368,7 @@ without it reaching the game.
 
 | Helper | What it does | Default |
 | --- | --- | --- |
-| Hold keys that latch | How many latchable commands the layout has turned on. CHOOSE… opens the editor on Latchable. A tap latches, a tap again lets go, and a chip shows each one that is on | None latched |
+| Hold keys that latch | How many latchable commands the layout has turned on. Choose… opens the editor on Latchable. A tap latches, a tap again lets go, and a chip shows each one that is on | None latched |
 | Sticky modifiers | A tapped Shift, Ctrl or Alt holds for the next key or click. Tap twice to lock it. The system's own sticky keys still work | Off |
 | Hold to confirm | Self-destruct, and Yes on the surrender question, wait until the long press finishes. A ring fills as you hold | Off |
 | Long press | How long that hold is, and how long a chord bound as a hold must be held | 500 ms (200 to 1000, steps of 50) |
@@ -399,7 +399,7 @@ name those layouts, including `left-hand`, `one-hand`, `mouse-first` and
 Ctrl+/ (Cmd+/ on a Mac) opens the keys panel: the commands that work
 right now, grouped as the editor groups them, with a hack's own commands
 under **This mod**. Its key is **Keys overlay** (`ui.keys-overlay`), and
-it moves in the editor like any other. EDIT KEYS… opens the editor.
+it moves in the editor like any other. Edit keys… opens the editor.
 Escape, or the same chord again, closes the panel. The match keeps
 running, and a click or a key the panel does not use goes to the match.
 

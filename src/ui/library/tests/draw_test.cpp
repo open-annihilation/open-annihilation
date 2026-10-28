@@ -20,7 +20,9 @@
 // test, as the game draws them. The Active pictures and the Maps pictures
 // dress the fixture's maps with made-up minimaps on that drawing only, so
 // the tiles, the row and the details show those pictures and not a file
-// from the game. Given --frames DIR, it writes
+// from the game. Given --frames DIR, it writes the pictures in the modern
+// look, Barlow from the fonts beside the test at the window's size class.
+// The checks above still measure and draw the game's fonts. It writes
 // library-<class>.png, library-details-compact.png, library-active-<class>.png,
 // library-active-compact-maps.png, library-active-many-regular.png,
 // library-active-locked-compact.png,
@@ -1119,8 +1121,14 @@ int main(int argc, char** argv) {
         OA_CHECK(first.surface.rgb == second.surface.rgb);
         check_edges(scene, first);
         if (frames) {
+            kit::Fonts shown = fonts;
+            if (modern) {
+                shown.modern = modern.get();
+                shown.size_class = kit::frame_of(scene.window).size_class;
+            }
+            const Drawing pictured = draw_scene(scene, shown);
             const std::filesystem::path path = *frames / ("library-" + scene.name + ".png");
-            const bool written = write_window(first, path);
+            const bool written = write_window(pictured, path);
             if (!written)
                 std::fprintf(stderr, "draw: cannot write %s\n", path.string().c_str());
             OA_CHECK(written);

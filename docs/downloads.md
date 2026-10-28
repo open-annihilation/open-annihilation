@@ -53,7 +53,7 @@ asks first ([which downloads ask first](library.md#which-downloads-ask-first)).
 
 The Library's **Registries** tab lists them
 ([the Registries tab](library.md#the-registries-tab)). Settings ›
-Downloads, on the main menu, has **REGISTRIES IN THE LIBRARY…**, which
+Downloads, on the main menu, has **Registries in the Library…**, which
 opens the Library on that tab ([picture](settings.md#downloads)).
 
 ### Core Prime's registry
@@ -69,7 +69,7 @@ not removed,
 so it is always one switch away. Its packages are published by the OA team.
 
 A download from Core Prime's registry installs when you press its button,
-GET, UPDATE, UPDATE ALL, a language in Settings › Language or the
+GET, UPDATE, Update all, a language in Settings › Language or the
 language notice's Download, the map browser's Download and select, or GET
 MAP, with no question, mods and their updates included. The one exception
 is a map pack that would replace a copy of it you did not get from Core
@@ -126,7 +126,7 @@ registry** window shows what you are about to trust:
 - "Not reviewed by the OA team. Only add registries you trust. OA checks
   every package it downloads."
 
-**CANCEL**, which has the focus, adds nothing; **ADD** adds the registry at
+**Cancel**, which has the focus, adds nothing; **ADD** adds the registry at
 once, and its packages join the Library. From then on OA trusts the keys
 you saw and no others for that registry: a catalogue signed by any other
 key is refused. When you gave a signing key, that one key is the
@@ -166,9 +166,9 @@ replaces a copy you did not get from that registry
 
 On the Library's Registries tab each registry has a switch. Off, its
 packages leave the Library at once and nothing downloads from it; what you
-installed from it keeps working. A registry you added also has **REMOVE**,
+installed from it keeps working. A registry you added also has **Remove**,
 which forgets the registry and the list OA kept of it at once, and leaves
-what you installed from it in place. **CLOSE** does not put a switch or a
+what you installed from it in place. **Close** does not put a switch or a
 removal back. Core Prime's registry can be turned off, never removed.
 Turning a registry on fetches its list at once.
 
@@ -207,7 +207,7 @@ and serve one, and how to sign its catalogue.
 Settings › Downloads ([pictures](settings.md#downloads)) holds when OA
 checks for content, the install ID and the files downloads keep. The
 registries are on the Library's Registries tab. On the main menu,
-**REGISTRIES IN THE LIBRARY…** opens it there.
+**Registries in the Library…** opens it there.
 
 ### When OA checks for content
 
@@ -220,7 +220,7 @@ updates wait. **Check for content updates** says when:
 | **Only when I open the Library** | when the Library opens, at most once a minute, and when you ask |
 | **Never** | only when you ask |
 
-You ask with **CHECK NOW** at the foot of the Library. Whatever the choice, OA also
+You ask with **Check now** at the foot of the Library. Whatever the choice, OA also
 fetches a registry's list when you turn that registry on or add it, when a
 download finds that its release is no longer offered, and when GET MAP
 needs the host's registry's list.
@@ -247,7 +247,7 @@ install ID" never receives one.
   install ID" shows the ID in part, as "7f3a90d2 · · · c91e".
 - **Sent only when asking that registry for a download**, never with
   anything else ([what a download sends](#what-a-download-sends)).
-- **RESET** replaces it at once with a new random ID. Cancel does not undo
+- **Reset** replaces it at once with a new random ID. Cancel does not undo
   it.
 - **Turned off**, OA forgets the ID and makes none while it is off, and
   downloads from that registry are off ([below](#turning-the-install-id-off)).
@@ -262,7 +262,7 @@ more than one registry uses one. It is kept in your preferences file as
 Downloads are written to a downloads folder in the game's data folder
 ([where](#where-it-is-all-kept)), a part at a time, so that one cut short
 resumes where it stopped, even at the next start. **Downloaded files** says
-how much that folder keeps, "Nothing kept" when it is empty, and **EMPTY**
+how much that folder keeps, "Nothing kept" when it is empty, and **Empty**
 deletes those package files at once. It never touches what you installed,
 nor a file a download is using: EMPTY is greyed while a download is
 waiting, running or paused, and during a game.
@@ -270,7 +270,7 @@ waiting, running or paused, and during a game.
 ## When a download fails
 
 The package's line in the Library says why, naming the reason once, and
-**RETRY** tries again ([the download queue](library.md#the-download-queue)). A
+**Retry** tries again ([the download queue](library.md#the-download-queue)). A
 package the installer refuses says the installer's own reason, such as "The
 folder cavedog-evad-river-delta does not hold this map pack. It is left as
 it is."
@@ -299,7 +299,7 @@ address around it. The Library says:
 
 > Core Prime asked for a check the game cannot do. Try again later. · RETRY
 
-and **RETRY** asks again when you choose. The log line says `the server
+and **Retry** asks again when you choose. The log line says `the server
 asked for a check the game cannot do`, with the status, the header and the
 page's length.
 
@@ -333,7 +333,7 @@ a key and sends:
 | `platform` | `windows`, `macos`, `linux`, `ios` or `android` |
 | `arch` | `x64`, `x86`, `arm64` or `arm` |
 | `language` | the language the game shows its text in, such as `de` |
-| `reason` | why: `install` (GET, a language you choose, Download and select), `update` (UPDATE and UPDATE ALL) or `offered-in-lobby` (GET MAP in the battle room); `oa-tool registry mirror` sends `mirror` as it copies a registry |
+| `reason` | why: `install` (GET, a language you choose, Download and select), `update` (UPDATE and Update all) or `offered-in-lobby` (GET MAP in the battle room); `oa-tool registry mirror` sends `mirror` as it copies a registry |
 
 The registry answers with a web address for the package, good for one
 download and a short time. When the download ends, the second request

@@ -297,7 +297,7 @@ player opened lists up to three warnings.
 
 ## 9. The text form
 
-COPY AS TEXT in the editor writes the `bindings` mapping alone, in the
+Copy as text in the editor writes the `bindings` mapping alone, in the
 writer's form, preceded by one comment line naming the base:
 
 ```yaml
