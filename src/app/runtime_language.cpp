@@ -176,14 +176,10 @@ void Runtime::load_language_packs() {
     // available until one of those lists installs it.
     register_available_languages();
     state.system = &languages::preferred_language(oa::platform::locale::preferred_locales());
-    // The catalogue is built again from nothing, in the same order as the
-    // start: the files beside the game, then the engine's packs, the
-    // player's and the mod's.
+    // English is the text the source writes, so the catalogue is not read
+    // here. apply_language_now reads it when the language shown needs a
+    // translation, and drops it again when the game shows English.
     state.catalogue = {};
-    read_interface_catalogue();
-    add_pack_interface_texts(state.engine_packs, state.catalogue);
-    add_pack_interface_texts(state.player_packs, state.catalogue);
-    add_pack_interface_texts(state.mod_packs, state.catalogue);
 }
 
 void Runtime::start_language() {
@@ -746,6 +742,20 @@ void Runtime::apply_language_now() {
         state.words = languages::data_words(*state.shown, {});
     }
     state.data_word = data_word_for(state.choice);
+    // The catalogue holds every shipped translation. English never reads it:
+    // a missing catalogue shows the source text. Another language reads it
+    // once, packs included, and a return to English drops it.
+    const bool want_catalogue =
+        state.shown != nullptr && state.shown->tag != languages::english().tag;
+    if (!want_catalogue) {
+        if (state.catalogue.size() != 0)
+            state.catalogue = {};
+    } else if (state.catalogue.size() == 0) {
+        read_interface_catalogue();
+        add_pack_interface_texts(state.engine_packs, state.catalogue);
+        add_pack_interface_texts(state.player_packs, state.catalogue);
+        add_pack_interface_texts(state.mod_packs, state.catalogue);
+    }
     // The game data's translation table and fonts, loaded again only for a
     // new word.
     if (!state.loaded || state.loaded_word != state.data_word) {
