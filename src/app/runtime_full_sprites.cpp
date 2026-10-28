@@ -273,14 +273,18 @@ CellFog cell_fog(const SightView& sight, int32_t map_x, int32_t map_z) noexcept 
         return CellFog::seen;
     const auto index = static_cast<std::size_t>(cell_z) * static_cast<std::size_t>(sight.width) +
                        static_cast<std::size_t>(cell_x);
-    const bool in_sight = index < sight.coverage.size() &&
-                          oa::sim::visibility_state::count_in_sight(
-                              sight.coverage[index], oa::sim::visibility_state::SightReading::player
-                          );
-    if (!in_sight && sight.line_of_sight)
+    namespace wr = oa::present::world_renderer;
+    const wr::FogOptions options{sight.line_of_sight, sight.mapping, sight.shared_bits};
+    const bool in_sight = wr::cell_shown_in_sight(
+        index < sight.coverage.size() ? sight.coverage[index] : uint16_t{0},
+        index < sight.player_bits.size() ? sight.player_bits[index] : uint16_t{0},
+        static_cast<uint16_t>(sight.mapped_bits & ~sight.shared_bits),
+        options
+    );
+    if (!in_sight && wr::view_greys(options))
         return CellFog::unseen;
     const bool mapped = !sight.mapping || (index < sight.player_bits.size() &&
-                                           (sight.player_bits[index] & sight.viewer_bit) != 0);
+                                           (sight.player_bits[index] & sight.mapped_bits) != 0);
     return mapped ? CellFog::seen : CellFog::unmapped;
 }
 

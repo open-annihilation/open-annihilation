@@ -69,7 +69,7 @@ struct Fixture {
         inputs.sight.player_bits = mapped;
         inputs.sight.width = 1;
         inputs.sight.height = 1;
-        inputs.sight.viewer_bit = viewer_bit;
+        inputs.sight.mapped_bits = viewer_bit;
         inputs.sight.line_of_sight = true;
         inputs.sight.mapping = true;
         inputs.right = tile_edge;

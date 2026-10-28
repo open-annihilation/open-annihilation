@@ -1265,7 +1265,7 @@ void test_fog_states() {
     sight.player_bits = player_bits;
     sight.width = cells;
     sight.height = cells;
-    sight.viewer_bit = 1U << 3;
+    sight.mapped_bits = 1U << 3;
     sight.line_of_sight = true;
     sight.mapping = true;
     constexpr int32_t cell = wr::fog_cell_pixels;
@@ -1284,6 +1284,27 @@ void test_fog_states() {
     OA_CHECK(full::cell_fog(no_sight, 5, cell + 5) == full::CellFog::seen);
     OA_CHECK(full::cell_fog(no_sight, 2 * cell + 1, 2 * cell + 1) == full::CellFog::unmapped);
     OA_CHECK(full::cell_fog(no_sight, cell + 5, cell + 5) == full::CellFog::seen);
+    // Ground only an ally mapped: never mapped to the viewer's own bit, and
+    // explored where the view counts the ally's bit beside it, as it does
+    // under allied vision; without the line-of-sight rule it is drawn out of
+    // sight, the viewer's own ground in colour.
+    player_bits[3 * cells + 3] = 1U << 5;
+    OA_CHECK(full::cell_fog(no_sight, 3 * cell + 1, 3 * cell + 1) == full::CellFog::unmapped);
+    full::SightView shared = no_sight;
+    shared.mapped_bits = static_cast<uint16_t>((1U << 3) | (1U << 5));
+    shared.shared_bits = static_cast<uint16_t>(1U << 5);
+    OA_CHECK(full::cell_fog(shared, 3 * cell + 1, 3 * cell + 1) == full::CellFog::unseen);
+    OA_CHECK(full::cell_fog(shared, 5, cell + 5) == full::CellFog::seen);
+    OA_CHECK(full::cell_fog(shared, cell + 5, cell + 5) == full::CellFog::seen);
+    // Never mapped by either: out of sight first, then black, as under the
+    // line-of-sight rule.
+    OA_CHECK(full::cell_fog(shared, 2 * cell + 1, 2 * cell + 1) == full::CellFog::unseen);
+    // The ally's ground in sight under the line-of-sight rule is in colour.
+    shared.line_of_sight = true;
+    coverage[3 * cells + 3] = 1;
+    OA_CHECK(full::cell_fog(shared, 3 * cell + 1, 3 * cell + 1) == full::CellFog::seen);
+    coverage[3 * cells + 3] = 0;
+    player_bits[3 * cells + 3] = 1U << 3;
     full::SightView no_mapping = sight;
     no_mapping.mapping = false;
     OA_CHECK(full::cell_fog(no_mapping, 2 * cell + 1, 2 * cell + 1) == full::CellFog::unseen);
@@ -1389,7 +1410,7 @@ void test_fog_by_pixel() {
     sight.player_bits = grid.player_bits;
     sight.width = cells_wide;
     sight.height = cells_high;
-    sight.viewer_bit = static_cast<uint16_t>(1U << viewer);
+    sight.mapped_bits = static_cast<uint16_t>(1U << viewer);
     sight.line_of_sight = true;
     sight.mapping = true;
     const wr::FogGrid fog_grid =
