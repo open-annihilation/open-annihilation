@@ -306,3 +306,5 @@ hacks:
 | `megamap.close-wheel` | `WheelUp` | Closes the megamap and centres on the pointer |
 | `megamap.jump` | `—` | Jumps the view to a point of the megamap |
 <!-- END GENERATED: keys -->
+
+These keys move in the [key editor](../../keys.md#the-key-editor), in **Megamap**, while this hack is on.

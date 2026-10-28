@@ -248,3 +248,5 @@ hacks:
 | `build.spacing-down` | `PageDown, WheelDown` | Lowers the spacing of a build line |
 | `build.snap-override` | `Alt` | Held: no mex or wreck snap, and drag queued orders |
 <!-- END GENERATED: keys -->
+
+These keys move in the [key editor](../../keys.md#the-key-editor), in **Building**, while this hack is on.

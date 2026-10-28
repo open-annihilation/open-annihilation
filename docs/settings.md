@@ -157,7 +157,9 @@ A setting that cannot change now is faded, with a padlock and the reason:
 
 Each of these takes effect at once.
 
-- **Key layout** is a card at the top of the section: the layout in use,
+- **Key layout** is a card at the top of the section. [Keys](keys.md)
+  is the chapter: the editor, the layouts, sharing and the default chords.
+  The card shows the layout in use,
   its whole name, a badge counting your own changes to it ("4 changes of
   your own", none while you have changed none), where it applies
   ("Applies to every game.", or "Applies with {mod} only." while the mod
@@ -791,7 +793,9 @@ press OK.
 
 ![The end of the Accessibility section: Edge scrolling On, then the practice pad: Try it here, "Press a key, alone or with Shift, Ctrl or Alt.", its well, "Keys pressed here never reach the game." and Turn every helper off, greyed while every helper is off.](images/settings/accessibility-2.png)
 
-The Accessibility section gathers the input helpers in one place. Each
+The Accessibility section gathers the input helpers in one place.
+[Keys](keys.md#accessibility) lists each helper, what it does in a match
+and where it is kept. Each
 setting takes effect at once. The pictures show two of the seven latchable
 actions on, so Hold keys that latch reads "2 of 7".
 

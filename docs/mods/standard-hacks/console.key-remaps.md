@@ -90,3 +90,5 @@ hacks:
 | `game.repeat-command` | `Insert` | Runs the last chat command again |
 | `debug.keys` | `F11, F10` | Debug keys on or off |
 <!-- END GENERATED: keys -->
+
+These keys move in the [key editor](../../keys.md#the-key-editor), in **Game** and **Developer**, while this hack is on.
