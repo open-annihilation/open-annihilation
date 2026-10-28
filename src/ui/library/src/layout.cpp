@@ -308,7 +308,9 @@ struct Window {
     int32_t footer_height{};
     int32_t button_height{}; ///< a footer's or a bar's button: Kit 2's control height
     int32_t tab_height{};    ///< the tab strip: Kit 2's tab strip height
-    int32_t field_height{};  ///< the search field and a drop-down field: Kit 2's text field
+    /// The search field, and Compact's filter drop-down beside it: Kit 2's
+    /// control height, as Settings' buttons and fields have it.
+    int32_t field_height{};
     int32_t pill_height{};   ///< a filter pill: Kit 2's filter chip height
     int32_t header_height{}; ///< the header's band: Kit 2's window header, Compact's at Compact
 };
@@ -337,7 +339,7 @@ Window window_of(const kit::Frame& frame) {
     window.right = size.x - metrics.edge - window.gutter;
     window.button_height = metrics.control_height;
     window.tab_height = metrics.tab_strip_height;
-    window.field_height = metrics.text_field_height;
+    window.field_height = metrics.control_height;
     window.pill_height = metrics.filter_chip_height;
     window.footer_height =
         compact ? metrics.control_height + 2 * metrics.space : metrics.window_footer_height;
@@ -4714,8 +4716,9 @@ void add_maps_search(Building& building, const kit::Rect& rect, const kit::Rect&
     tab_stop(building, added);
 }
 
-/// Appends the MAPS heading and, at its right, the maps search. While the
-/// search holds text, the count of tiles shown sits after the heading.
+/// Appends the MAPS heading and, at its right, the maps search, a control
+/// high as the other tabs' search is. While the search holds text, the count
+/// of tiles shown sits after the heading.
 ///
 /// @param[in,out] building the layout
 /// @param left the row's left column
@@ -4756,7 +4759,7 @@ void add_maps_heading_row(
     const int32_t field_width =
         std::max(std::min(maps_search_width, std::max(width - beside, int32_t{0})), int32_t{0});
     const int32_t field_x = left + std::max(width - field_width, int32_t{0});
-    const int32_t text_top = top + std::max((metrics.field_height - metrics.small_line) / 2, 0);
+    const int32_t text_top = top + std::max((metrics.control_height - metrics.small_line) / 2, 0);
     const int32_t heading_room =
         std::max(std::min(heading_width, std::max(field_x - gap - left, int32_t{0})), int32_t{0});
     if (heading_room > 0) {
@@ -4785,7 +4788,7 @@ void add_maps_heading_row(
             );
     }
     if (field_width > 0)
-        add_maps_search(building, {field_x, top, field_width, metrics.field_height}, clip);
+        add_maps_search(building, {field_x, top, field_width, metrics.control_height}, clip);
 }
 
 /// Appends the line the maps pane shows when it has no tile.
@@ -5534,7 +5537,7 @@ void add_active(Building& building, const kit::Rect& area) {
         if (map_matches_query(setup.maps[index], query))
             matching.push_back(index);
 
-    const int32_t heading_span = metrics.field_height + metrics.hint_gap;
+    const int32_t heading_span = metrics.control_height + metrics.hint_gap;
     const int32_t full_bottom = measured_identity_bottom(building, setup, area);
     const int32_t pane_height = area.y + area.height - (full_bottom + heading_span);
     const bool page = building.size_class == kit::SizeClass::compact &&
@@ -7774,7 +7777,7 @@ kit::DisplayList library_layout(
         add_library_header(
             building,
             window,
-            shown(library.text, words::title_library),
+            shown(library.text, words::title_library_header),
             {},
             library.inputs.version_text
         );
@@ -7783,7 +7786,7 @@ kit::DisplayList library_layout(
             building,
             window,
             shown(library.text, words::title_open_annihilation),
-            shown(library.text, words::title_library),
+            shown(library.text, words::title_library_header),
             library.inputs.version_text
         );
     }
@@ -7900,7 +7903,9 @@ kit::DisplayList details_page_layout(
     const kit::Metrics& metrics = *building.metrics;
     const Entry* entry = selected_entry(library);
     if (entry == nullptr) {
-        add_library_header(building, window, shown(library.text, words::title_library), {}, {});
+        add_library_header(
+            building, window, shown(library.text, words::title_library_header), {}, {}
+        );
         return finish(building, window);
     }
     // A mutator's name sits beside its 40-point badge in the body, so the
@@ -7911,7 +7916,7 @@ kit::DisplayList details_page_layout(
         add_library_header(
             building,
             window,
-            shown(library.text, words::title_library),
+            shown(library.text, words::title_library_header),
             shown(library.text, words::tab_mutators),
             library.inputs.version_text
         );

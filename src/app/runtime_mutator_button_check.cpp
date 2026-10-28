@@ -23,7 +23,9 @@
 // mutator-button-newgame-four-<w>x<h>.png, and with the card open as
 // mutator-button-<screen>-card-<w>x<h>.png. The last step starts a
 // skirmish with nothing chosen and logs that V02 was handed an empty set.
+// Each frame's lamp is read back: red with none chosen, green with four.
 
+#include "brain_seats_room.hpp"
 #include "oa_layer.hpp"
 #include "oa_layer_check.hpp"
 #include "touch_state.hpp"
@@ -316,6 +318,28 @@ void Runtime::check_mutator_button() {
         require(control.has_value(), why);
         return *control;
     };
+    // The button's lamp as a frame of the window shows it: red with none
+    // chosen and green with mutators on, as 3.1c's on and off buttons light
+    // theirs.
+    const auto require_lamp = [&](const renderer::Surface& picture,
+                                  renderer::RoomLamp expected,
+                                  std::string_view what,
+                                  const std::string& on) {
+        const AutomationControl button = summary_of("the button left before its lamp" + on);
+        const renderer::RoomLamp lamp = mutators_lamp_seen(
+            *this,
+            oa_layer().view(),
+            {button.window_x, button.window_y, button.window_width, button.window_height},
+            false,
+            picture
+        );
+        require(
+            lamp == expected,
+            "the lamp is not " + std::string(what) + " (it reads " +
+                std::to_string(static_cast<int32_t>(lamp)) + ")" + on
+        );
+        std::cout << "mutator button check: the lamp is " << what << on << "\n";
+    };
     // The button is one of the room's own parts: the screen draws no button
     // or chip of the kit (its card is the kit's), and its one button control
     // is the mutators button.
@@ -424,6 +448,7 @@ void Runtime::check_mutator_button() {
         write_png(fs::path(picture), four_frame);
         std::cout << "mutator button check: four chosen count Mutators · 4 on; wrote " << picture
                   << "\n";
+        require_lamp(four_frame, renderer::RoomLamp::green, "green with four chosen", on);
         check_card(screen, 4, size, on);
         replace_setup_mutators(setup, kept);
         frames(1);
@@ -637,6 +662,7 @@ void Runtime::check_mutator_button() {
         );
         write_png(fs::path("mutator-button-skirmish-" + size + ".png"), presented);
         std::cout << "mutator button check: wrote mutator-button-skirmish-" << size << ".png\n";
+        require_lamp(presented, renderer::RoomLamp::red, "red with none chosen", on);
         capture_four(mutators_memory::Setup::skirmish, "skirmish", size, window, on);
 
         // A finger on the button opens the picker. A finger on Difficulty
@@ -1057,6 +1083,7 @@ void Runtime::check_mutator_button() {
         );
         write_png(fs::path("mutator-button-newgame-" + size + ".png"), campaign_frame);
         std::cout << "mutator button check: wrote mutator-button-newgame-" << size << ".png\n";
+        require_lamp(campaign_frame, renderer::RoomLamp::red, "red with none chosen", on);
         capture_four(mutators_memory::Setup::campaign, "newgame", size, window, on);
 
         const int64_t button_key =

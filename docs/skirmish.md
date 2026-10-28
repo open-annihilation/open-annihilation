@@ -26,8 +26,9 @@ with one **Player** is unchanged.
 **Mutators** is one of the setup's own on and off buttons, as large as
 **Previous Menu**, in its column, centred between **Difficulty** and
 **Previous Menu**, with the OA stamp at its left. The button reads
-**Mutators**. No lamp is lit while this skirmish will play none, and its
-green lamp is lit while some are on. Resting the pointer on it, or the
+**Mutators**. As on the setup's own on and off buttons, its red lamp is
+lit while this skirmish will play none, and its green lamp while some are
+on. Resting the pointer on it, or the
 information key, shows a card that lists them in the order they apply. The setup starts with mutators off.
 It remembers the last set **START** handed on here, with its order and its
 options. **Mutators** opens the picker on the set already chosen, or, when
