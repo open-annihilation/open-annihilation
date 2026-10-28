@@ -2244,17 +2244,34 @@ void underwater_features() {
         OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
         OA_CHECK(fixture.scene.sprite_count == 1);
         bool marked = false;
+        float min_u = 1, max_u = 0, min_v = 1, max_v = 0;
+        float min_grey_u = 1, max_grey_u = 0, min_grey_v = 1, max_grey_v = 0;
         for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
              ++i) {
             const auto& vertex = fixture.scene.vertices[i];
             OA_CHECK(vertex.terrain_size == -6);
             OA_CHECK(std::abs(vertex.terrain_known - 1) < tolerance);
             OA_CHECK(std::abs(vertex.terrain_grey - 1) < tolerance);
-            OA_CHECK(atlas_texel(fixture.scene, vertex.u, vertex.v) == ground_color);
-            OA_CHECK(atlas_texel(fixture.scene, vertex.terrain_x, vertex.terrain_y) == grey_color);
+            min_u = std::min(min_u, vertex.u);
+            max_u = std::max(max_u, vertex.u);
+            min_v = std::min(min_v, vertex.v);
+            max_v = std::max(max_v, vertex.v);
+            min_grey_u = std::min(min_grey_u, vertex.terrain_x);
+            max_grey_u = std::max(max_grey_u, vertex.terrain_x);
+            min_grey_v = std::min(min_grey_v, vertex.terrain_y);
+            max_grey_v = std::max(max_grey_v, vertex.terrain_y);
             marked = true;
         }
         OA_CHECK(marked);
+        // The frame's far edge is the next atlas texel. Its middle is the image.
+        OA_CHECK(
+            atlas_texel(fixture.scene, (min_u + max_u) / 2, (min_v + max_v) / 2) == ground_color
+        );
+        OA_CHECK(
+            atlas_texel(
+                fixture.scene, (min_grey_u + max_grey_u) / 2, (min_grey_v + max_grey_v) / 2
+            ) == grey_color
+        );
         const auto still = fixture.scene.vertices;
         fixture.inputs.water.ripples = 1;
         OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
@@ -2266,6 +2283,40 @@ void underwater_features() {
             moved = moved || fixture.scene.vertices[i].x != still[i].x;
         }
         OA_CHECK(moved);
+    }
+
+    // Permanent allied vision. Ground only an ally explored is grey, as ground
+    // out of sight is. The viewer's own explored ground stays in colour.
+    {
+        constexpr uint16_t ally_bit = 1U << 2;
+        const auto on_ground = [&](uint16_t explored_by, bool greyed) {
+            Fixture fixture;
+            std::fill_n(fixture.palette.begin() + grey_index * oa::palette_entry_bytes, 3, 70);
+            fixture.mapped[0] = explored_by;
+            fixture.coverage[0] = 0;
+            fixture.inputs.sight.line_of_sight = false;
+            fixture.inputs.sight.mapped_bits = static_cast<uint16_t>(viewer_bit | ally_bit);
+            fixture.inputs.sight.shared_bits = ally_bit;
+            fixture.draws.sprites.push_back({&frame, {12, 12}, false, true, true});
+            OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+            OA_CHECK(fixture.scene.sprite_count == 1);
+            bool marked = false;
+            for (std::size_t i = fixture.scene.terrain_vertex_count;
+                 i < fixture.scene.vertices.size();
+                 ++i) {
+                const auto& vertex = fixture.scene.vertices[i];
+                OA_CHECK(vertex.terrain_size == -6);
+                OA_CHECK(std::abs(vertex.terrain_known - 1) < tolerance);
+                if (greyed)
+                    OA_CHECK(std::abs(vertex.terrain_grey - 1) < tolerance);
+                else
+                    OA_CHECK(vertex.terrain_grey == 0);
+                marked = true;
+            }
+            OA_CHECK(marked);
+        };
+        on_ground(ally_bit, true);
+        on_ground(viewer_bit, false);
     }
 
     // Shallows, still under the water and fully in sight: the same marker, no grey.
