@@ -754,8 +754,7 @@ kit::SizeClass front_class(const LayerView& view) noexcept {
 /// @param box_width its width, in points
 /// @param box_height its height, in points
 /// @return its place
-LayerPlacement
-centred_box(const LayerView& view, int32_t box_width, int32_t box_height) noexcept {
+LayerPlacement centred_box(const LayerView& view, int32_t box_width, int32_t box_height) noexcept {
     const kit::Metrics& sized = kit::metrics_of(front_class(view));
     LayerPlacement placed = centred_placement(view, box_width, box_height);
     placed.corner_radius = sized.dialog_radius;

@@ -887,8 +887,7 @@ PlacedRows place_rows(std::span<const RowView> views, const RowPlacement& placem
         // A switch and a level strip grow with the class. A button stays on
         // the regular line, as does a lock that has dropped under the label.
         const bool grows = view.kind == RowKind::toggle || view.kind == RowKind::levels;
-        const int32_t grown =
-            placement.control_height > 0 ? placement.control_height : line_height;
+        const int32_t grown = placement.control_height > 0 ? placement.control_height : line_height;
         const int32_t control_line = grows ? grown : line_height;
         const int32_t label_line = on_label && grows ? grown : line_height;
         int32_t control_top = label_top;
