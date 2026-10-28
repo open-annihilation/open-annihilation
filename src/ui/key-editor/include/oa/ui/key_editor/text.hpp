@@ -226,7 +226,7 @@ inline constexpr std::string_view clone_name = "Copy of {layout}";
 inline constexpr std::string_view based_on = "Based on {layout}";
 /// What Clone makes, under the fields.
 inline constexpr std::string_view clone_note =
-    "A key layout of your own, from {layout} and your changes. It opens here; Save changes "
+    "A key layout of your own, from {layout} and your changes. It opens here. Save changes "
     "keeps it, and Share… saves it as a file.";
 /// A name another layout already has.
 inline constexpr std::string_view name_taken = "Another key layout is called {name}.";
