@@ -11,6 +11,7 @@
 #include "oa/ui/key_bindings/layout.hpp"
 
 #include <array>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -219,9 +220,19 @@ bool better_role(const Role& role, const Role& best) noexcept {
 } // namespace
 
 kit::MouseLook mouse_look(const Editor& editor, keys::PointerScheme scheme) {
-    const keys::ResolveInput input = with_scheme(editor.resolve_input(), scheme);
-    const keys::Resolved bound = keys::resolve(input);
-    const std::vector<keys::Clash> clashes = keys::find_clashes(bound, input);
+    // The scheme in use is kept resolved; the other is resolved here.
+    std::shared_ptr<const Editor::InUse> kept;
+    if (scheme == editor.scheme()) {
+        kept = editor.in_use();
+    } else {
+        const keys::ResolveInput input = with_scheme(editor.resolve_input(), scheme);
+        auto made = std::make_shared<Editor::InUse>();
+        made->resolved = keys::resolve(input);
+        made->clashes = keys::find_clashes(made->resolved, input);
+        kept = std::move(made);
+    }
+    const keys::Resolved& bound = kept->resolved;
+    const std::vector<keys::Clash>& clashes = kept->clashes;
     const TextHooks& hooks = editor.text();
 
     std::array<std::vector<Role>, 10> roles;
@@ -287,8 +298,13 @@ kit::MouseLook mouse_look(const Editor& editor, keys::PointerScheme scheme) {
 }
 
 std::vector<RoleLine> mouse_table(const Editor& editor, keys::PointerScheme scheme) {
-    const keys::ResolveInput input = with_scheme(editor.resolve_input(), scheme);
-    const keys::Resolved bound = keys::resolve(input);
+    std::shared_ptr<const Editor::InUse> kept;
+    keys::Resolved other;
+    if (scheme == editor.scheme())
+        kept = editor.in_use();
+    else
+        other = keys::resolve(with_scheme(editor.resolve_input(), scheme));
+    const keys::Resolved& bound = kept ? kept->resolved : other;
     const TextHooks& hooks = editor.text();
     const PlaceWant places[] = {
         {"playing", words::card_while_playing, acts::Target::battlefield},

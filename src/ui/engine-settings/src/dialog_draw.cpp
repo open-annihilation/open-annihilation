@@ -1323,12 +1323,35 @@ void add_open_menu(Building& building, const Dialog& dialog, const layout::Scrol
 
 namespace geometry {
 
+Sizes shown_sizes(const Dialog& dialog, const DialogFonts* fonts) {
+    if (fonts == nullptr)
+        return sizes_of(dialog);
+    const auto regular = width_in(fonts, DialogFont::regular);
+    const auto small = width_in(fonts, DialogFont::small);
+    return fitted_sizes(dialog, &regular, &small);
+}
+
+ShownSection shown_section(const Dialog& dialog, const DialogFonts* fonts) {
+    const auto regular = width_in(fonts, DialogFont::regular);
+    const auto small = width_in(fonts, DialogFont::small);
+    ShownSection shown;
+    shown.sizes = shown_sizes(dialog, fonts);
+    shown.open = open_rows(
+        dialog,
+        fonts != nullptr ? &small : nullptr,
+        &shown.sizes,
+        fonts != nullptr ? &regular : nullptr
+    );
+    return shown;
+}
+
 kit::DisplayList dialog_list(const Dialog& dialog, const DialogFonts* fonts) {
     Building building;
     building.fonts = fonts;
-    const auto regular = width_in(fonts, DialogFont::regular);
     const auto small = width_in(fonts, DialogFont::small);
-    building.fitted = fonts != nullptr ? fitted_sizes(dialog, &regular, &small) : sizes_of(dialog);
+    // The sizes and the open section a press finds too (shown_section).
+    const ShownSection shown = shown_section(dialog, fonts);
+    building.fitted = shown.sizes;
     building.have_fitted = true;
     const Sizes& sized = building.fitted;
     const SourceRect whole{0, 0, sized.dialog_width, sized.dialog_height};
@@ -1360,12 +1383,7 @@ kit::DisplayList dialog_list(const Dialog& dialog, const DialogFonts* fonts) {
         std::move(header);
     add_header_close(building, dialog);
     add_nav(building, dialog);
-    const ScrolledRows open = open_rows(
-        dialog,
-        fonts != nullptr ? &small : nullptr,
-        &building.fitted,
-        fonts != nullptr ? &regular : nullptr
-    );
+    const ScrolledRows& open = shown.open;
     add_section(building, dialog, open);
     add_footer(building, dialog);
     if (open.limit > 0) {

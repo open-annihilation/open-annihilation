@@ -57,6 +57,12 @@ inline constexpr std::array<ChoiceWord<WindowEdge>, 3> window_edge_words{{
     {WindowEdge::sticky, "sticky"},
     {WindowEdge::free, "free"},
 }};
+/// Group keys centre the view's words, in group_keys_centre_choices' order.
+inline constexpr std::array<ChoiceWord<GroupKeysCentre>, 3> group_keys_centre_words{{
+    {GroupKeysCentre::double_press, "double-press"},
+    {GroupKeysCentre::never, "never"},
+    {GroupKeysCentre::every_press, "every-press"},
+}};
 /// Window frame's words, in window_frame_choices' order.
 inline constexpr std::array<ChoiceWord<WindowFrame>, 2> window_frame_words{{
     {WindowFrame::hidden_in_play, "hidden-in-play"},

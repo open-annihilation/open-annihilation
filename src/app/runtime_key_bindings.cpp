@@ -2449,8 +2449,14 @@ bool Runtime::feed_input_actions(const SDL_Event& event) {
     if (take_order_wheel_aside(event))
         return true;
     const std::optional<keys::InputEvent> input = input_from_sdl(event, SDL_GetTicks());
-    if (!input)
+    if (!input) {
+        // An event that is no key, button or wheel starts no action. The last
+        // input's events go, or the pointer moving between a chord's press and
+        // its release would answer the press again: Primary+/ would open the
+        // keys overlay and close it at once.
+        state.events.clear();
         return false;
+    }
     const keys::Contexts contexts = input_contexts();
     state.dispatcher.set_contexts(contexts);
     const keys::Fed fed = state.dispatcher.feed(*input);
@@ -2514,6 +2520,37 @@ void Runtime::advance_input_actions(bool& running) {
         match_key_already_fed_ = false;
     }
     advance_order_wheel();
+}
+
+Runtime::GroupViewMove Runtime::group_key_view_move(int squad) {
+    namespace settings = oa::ui::engine_settings;
+    const uint64_t now_ms = SDL_GetTicks();
+    switch (engine_settings().group_keys_centre) {
+    case settings::GroupKeysCentre::never:
+        group_key_last_ = 0;
+        return GroupViewMove::never;
+    case settings::GroupKeysCentre::every_press:
+        group_key_last_ = 0;
+        // A press centres only when the group is already exactly the
+        // selection, however long after the last press.
+        return GroupViewMove::when_selected;
+    case settings::GroupKeysCentre::double_press:
+        break;
+    }
+    // The double-press time is the one the key bindings use, Settings ›
+    // Accessibility's Double press. Zero there means the system's, which the
+    // bindings keep as 500 ms.
+    uint32_t within_ms = key_bindings_state_ != nullptr
+                             ? key_bindings_state_->dispatcher.timings().double_press_ms
+                             : keys::Timings{}.double_press_ms;
+    if (within_ms == 0)
+        within_ms = 500;
+    const bool second = group_key_last_ == squad && now_ms >= group_key_last_ms_ &&
+                        now_ms - group_key_last_ms_ <= within_ms;
+    // A third press starts again: it selects and leaves the view.
+    group_key_last_ = second ? 0 : squad;
+    group_key_last_ms_ = now_ms;
+    return second ? GroupViewMove::always : GroupViewMove::never;
 }
 
 std::span<const keys::ActionEvent> Runtime::match_action_events() const {
@@ -3143,6 +3180,7 @@ bool summary_from_manifest(const oakeys::Manifest& manifest, editor::LayoutSumma
     summary.name = manifest.name;
     summary.author = manifest.author.name;
     summary.version = oa::formats::oamut::version_text(manifest.version);
+    summary.description = manifest.description;
     summary.helpers = manifest.helpers;
     summary.layout = std::move(layout);
     return true;
@@ -3191,6 +3229,12 @@ void Runtime::fill_key_editor(editor::EditorInputs& inputs) {
         }
     }
 
+    // A new layout's id keeps off every folder already in Keys, one whose
+    // manifest does not read among them.
+    std::error_code walk_error;
+    for (fs::directory_iterator entry(keys_folder, walk_error), end; !walk_error && entry != end;
+         entry.increment(walk_error))
+        inputs.taken_ids.push_back(path_to_utf8(entry->path().filename()));
     const library::Listing listing = library::list_installed(keys_folder);
     bool chosen_listed = false;
     for (const library::Installed& installed : listing.layouts) {

@@ -640,6 +640,8 @@ bool run_game_files_language_dialog(const GameFilesLanguageRequest& request) {
     settings::DialogFonts fonts{};
     if (current.look == settings::Look::modern)
         fonts.modern = request.fonts;
+    // A press finds each control where these fonts draw it.
+    dialog.drawn_fonts = &fonts;
     const GameFilesDialogHooks& hooks = request.hooks;
     bool dirty = true;
     std::optional<SDL_FingerID> finger;

@@ -8,6 +8,8 @@
 // between the sprites and the models.
 #include "runtime_full.hpp"
 
+#include "full_fog.hpp"
+
 #include "oa/present/world_renderer/world_fog.hpp"
 #include "oa/sim/visibility_state.hpp"
 
@@ -16,6 +18,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -156,6 +160,26 @@ class Emitter {
         open(key);
         card::append_quad(frame_, x, y, width, height, u0, v0, u1, v1, colour);
         frame_.batches[last_].index_count += indices_per_quad;
+    }
+
+    /// Appends a convex polygon, its corners in order round it, each with
+    /// its own place, colour and texture coordinates, to the batch of a
+    /// key, as a fan of triangles from its first corner.
+    ///
+    /// @param key the batch's page, blend and sampling
+    /// @param corners the corners, in target pixels; fewer than 3 append nothing
+    void polygon(const BatchKey& key, std::span<const card::Vertex> corners) {
+        if (corners.size() < 3)
+            return;
+        open(key);
+        const auto first = static_cast<card::Index>(frame_.vertices.size());
+        frame_.vertices.insert(frame_.vertices.end(), corners.begin(), corners.end());
+        for (std::size_t corner = 1; corner + 1 < corners.size(); ++corner) {
+            frame_.indices.push_back(first);
+            frame_.indices.push_back(static_cast<card::Index>(first + corner));
+            frame_.indices.push_back(static_cast<card::Index>(first + corner + 1));
+        }
+        frame_.batches[last_].index_count += static_cast<uint32_t>((corners.size() - 2) * 3);
     }
 
     /// Appends a line's quad (append_line_quad) to the untextured batch.
@@ -381,6 +405,18 @@ struct SpriteFrame::Impl {
     float zoom{1.0F};
     float width{1.0F}; ///< a line's width in target pixels
     bool greys{};      ///< the pages hold a gray table
+    /// The greyed pass's pieces over the sprite drawn last, kept so that a
+    /// frame's sprites reuse its storage.
+    std::vector<full_fog::CoverPiece> cover_pieces{};
+
+    /// A sprite's cell on the card: its page and its texture coordinates.
+    struct Cell {
+        card::PageHandle page{};
+        float u0{};
+        float v0{};
+        float u1{};
+        float v1{};
+    };
 
     /// Readies the frame's emission.
     ///
@@ -428,27 +464,6 @@ struct SpriteFrame::Impl {
             return;
         }
         const SceneView& view = inputs.view;
-        // The fog's state where the sprite is drawn: the map pixel under
-        // its place, as the fog lays its tiles by map column and row alone,
-        // whatever height the point was lifted by.
-        const CellFog fog =
-            cell_fog(inputs.sight, view.camera_x + sprite.place.x, view.camera_y + sprite.place.y);
-        const bool greyed = fog == CellFog::unseen && greys && !inputs.sight.dithered;
-        const auto mode = greyed ? gpu::DrawMode::greyed : gpu::DrawMode::opaque;
-        const uint64_t key = frame_key(sprite.frame, decoded_from);
-        const gpu::FrameResult found = pages.frame(key, mode, *sprite.frame);
-        if (found.status != gpu::FrameStatus::ok) {
-            ++result.refused;
-            return;
-        }
-        const card::PageHandle page = hooks.card_page(hooks.context, found.record.page);
-        if (page == card::PageHandle{}) {
-            ++result.refused;
-            return;
-        }
-        placed.push_back({key, mode, found.record});
-        const auto size = static_cast<float>(pages.pages()[found.record.page].size);
-        const gpu::TexelRect& rect = found.record.rect;
         // The frame lies over the map pixels from its place less its
         // origin, where the terrain draws them at the zoom.
         const float left =
@@ -457,6 +472,65 @@ struct SpriteFrame::Impl {
         const float top =
             static_cast<float>(sprite.place.y - sprite.frame->origin_y * sprite.effect_scale) *
             zoom;
+        const float x = emitter.place_x(left);
+        const float y = emitter.place_y(top);
+        const float wide =
+            static_cast<float>(sprite.frame->width) * sprite.effect_scale * zoom * view.scale;
+        const float high =
+            static_cast<float>(sprite.frame->height) * sprite.effect_scale * zoom * view.scale;
+        // A feature's opaque frame takes the fog's greyed pass pixel by
+        // pixel, as the ground under it does; any other sprite takes the
+        // fog's state where it is drawn: the map pixel under its place, as
+        // the fog lays its tiles by map column and row alone, whatever
+        // height the point was lifted by.
+        const bool fog_by_pixel = inputs.fog != nullptr && inputs.fog->grid != nullptr && greys &&
+                                  !inputs.sight.dithered && sprite.on_map && !sprite.shadow &&
+                                  !blended;
+        full_fog::Cover cover = full_fog::Cover::none;
+        if (fog_by_pixel) {
+            cover = full_fog::greyed_cover(
+                *inputs.fog->grid,
+                inputs.fog->shapes,
+                fog_placement(),
+                x,
+                y,
+                x + wide,
+                y + high,
+                cover_pieces
+            );
+        } else {
+            const CellFog fog = cell_fog(
+                inputs.sight, view.camera_x + sprite.place.x, view.camera_y + sprite.place.y
+            );
+            if (fog == CellFog::unseen && greys && !inputs.sight.dithered)
+                cover = full_fog::Cover::whole;
+        }
+        const bool greyed = cover == full_fog::Cover::whole;
+        const auto mode = greyed ? gpu::DrawMode::greyed : gpu::DrawMode::opaque;
+        const uint64_t key = frame_key(sprite.frame, decoded_from);
+        const auto cell = [&](gpu::DrawMode drawn) -> std::optional<Cell> {
+            const gpu::FrameResult found = pages.frame(key, drawn, *sprite.frame);
+            if (found.status != gpu::FrameStatus::ok)
+                return std::nullopt;
+            const card::PageHandle page = hooks.card_page(hooks.context, found.record.page);
+            if (page == card::PageHandle{})
+                return std::nullopt;
+            placed.push_back({key, drawn, found.record});
+            const auto size = static_cast<float>(pages.pages()[found.record.page].size);
+            const gpu::TexelRect& rect = found.record.rect;
+            return Cell{
+                page,
+                static_cast<float>(rect.x) / size,
+                static_cast<float>(rect.y) / size,
+                static_cast<float>(rect.x + rect.width) / size,
+                static_cast<float>(rect.y + rect.height) / size,
+            };
+        };
+        const std::optional<Cell> drawn = cell(mode);
+        if (!drawn) {
+            ++result.refused;
+            return;
+        }
         // A feature's shadow frame draws as dark as the list's shadow
         // level: under the premultiplied blend, a vertex colour and alpha of
         // the level's strength mix that much of the frame (or of its blend)
@@ -467,24 +541,70 @@ struct SpriteFrame::Impl {
         const card::Colour opaque{strength, strength, strength, strength};
         const float level = translucent_level * strength;
         const card::Colour translucent{level, level, level, level};
+        const card::Sampling reading = sprite.soft_effect ? card::Sampling::linear : sampling;
         emitter.quad(
-            {page,
-             card::Blend::alpha_premultiplied,
-             sprite.soft_effect ? card::Sampling::linear : sampling,
-             sprite.on_map},
-            emitter.place_x(left),
-            emitter.place_y(top),
-            static_cast<float>(sprite.frame->width) * sprite.effect_scale * zoom * view.scale,
-            static_cast<float>(sprite.frame->height) * sprite.effect_scale * zoom * view.scale,
-            static_cast<float>(rect.x) / size,
-            static_cast<float>(rect.y) / size,
-            static_cast<float>(rect.x + rect.width) / size,
-            static_cast<float>(rect.y + rect.height) / size,
+            {drawn->page, card::Blend::alpha_premultiplied, reading, sprite.on_map},
+            x,
+            y,
+            wide,
+            high,
+            drawn->u0,
+            drawn->v0,
+            drawn->u1,
+            drawn->v1,
             blended ? translucent : opaque
         );
         ++result.sprites;
         if (greyed)
             ++result.greyed;
+        if (cover != full_fog::Cover::part)
+            return;
+        // The greyed cell over the pieces the greyed pass covers, at their
+        // alphas, by straight alpha with a white vertex colour: a vertex
+        // alpha of the pass's alpha mixes that much of the grey into the
+        // colour drawn, as the pass mixes the ground's, and the key's clear
+        // texels leave it. Straight alpha, which the pieces' texels give as
+        // premultiplied alpha does where they are opaque or clear, is the
+        // blend every renderer draws on triangles cut to any shape.
+        const std::optional<Cell> grey = cell(gpu::DrawMode::greyed);
+        if (!grey)
+            return;
+        const BatchKey grey_key{grey->page, card::Blend::alpha, reading, sprite.on_map};
+        std::array<card::Vertex, full_fog::most_cover_points> corners{};
+        for (const full_fog::CoverPiece& piece : cover_pieces) {
+            for (uint32_t index = 0; index < piece.count; ++index) {
+                const full_fog::FogPoint& point = piece.points[index];
+                corners[index] = {
+                    point.x,
+                    point.y,
+                    {1.0F, 1.0F, 1.0F, point.alpha * strength},
+                    grey->u0 + (grey->u1 - grey->u0) * (point.x - x) / wide,
+                    grey->v0 + (grey->v1 - grey->v0) * (point.y - y) / high,
+                };
+            }
+            emitter.polygon(grey_key, std::span<const card::Vertex>(corners.data(), piece.count));
+        }
+        ++result.greyed;
+        ++result.fog_cut;
+    }
+
+    /// Returns where the frame's fog grid lands in the view's target: the
+    /// grid's camera at its map pixel's place, each map pixel the zoom
+    /// times the view's scale.
+    ///
+    /// @return the placement
+    [[nodiscard]] full_fog::FogPlacement fog_placement() const noexcept {
+        const SceneView& view = inputs.view;
+        const float scale = zoom * view.scale;
+        full_fog::FogPlacement placement;
+        placement.camera_x = inputs.fog->camera_x;
+        placement.camera_z = inputs.fog->camera_z;
+        placement.origin_x =
+            emitter.place_x(static_cast<float>(inputs.fog->camera_x - view.camera_x) * zoom);
+        placement.origin_y =
+            emitter.place_y(static_cast<float>(inputs.fog->camera_z - view.camera_y) * zoom);
+        placement.scale = scale;
+        return placement;
     }
 
     /// Emits an explosion's flash: a quad from its frame's lit cell on the

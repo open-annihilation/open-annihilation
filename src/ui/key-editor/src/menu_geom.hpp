@@ -16,8 +16,8 @@ namespace oa::ui::key_editor {
 /// What choosing one menu item does.
 enum class MenuKind : uint8_t {
     layout_id, ///< choose that layout
-    duplicate, ///< ask the layout's name
-    rename,    ///< ask the layout's new name
+    clone,     ///< ask the new layout's name and description
+    describe,  ///< ask the layout's new name and description
     category,  ///< show that category
     filter,    ///< keep that filter
     restore,   ///< restore the defaults

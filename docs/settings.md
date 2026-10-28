@@ -157,7 +157,9 @@ A setting that cannot change now is faded, with a padlock and the reason:
 
 Each of these takes effect at once.
 
-- **Key layout** is a card at the top of the section: the layout in use,
+- **Key layout** is a card at the top of the section. [Keys](keys.md)
+  is the chapter: the editor, the layouts, sharing and the default chords.
+  The card shows the layout in use,
   its whole name, a badge counting your own changes to it ("4 changes of
   your own", none while you have changed none), where it applies
   ("Applies to every game.", or "Applies with {mod} only." while the mod
@@ -263,6 +265,15 @@ Each of these takes effect at once.
   level, so 5.0 holds five times as firmly. At 0.0 the edge never holds.
   Only Sticky uses it: with Capture or Free it is greyed, says Needs
   Sticky, and keeps its value.
+- **Group keys centre the view**, On a double press, Never or On every
+  press, On a double press by default. A group's key always selects the
+  group. On a double press, a second press of the same group's key within
+  the double-press time (Accessibility's Double press), with no other key
+  between, also moves the view to the group's centre, and one press leaves
+  the view where it is. Never leaves the view. On every press moves it when
+  the group is already exactly the selection, however long after the last
+  press, which is what 0.8.6 did. 3.1c leaves the view where it is on a
+  first press and on a second. It applies at once.
 
 ![The end of the Controls section: View past the map's edge at 50%, Middle-click pans On, Window edge at Capture, and Edge stickiness greyed at 1.0, Needs Sticky.](images/settings/controls-2.png)
 
@@ -618,16 +629,31 @@ the game draws its text and how the modern fonts draw it.
     them, and shells that strike the water splash. Torpedoes and their hits
     stay at their depth and make no splash.
   - **Coastal waves** run toward the shore, gentler on small, sheltered
-    water.
-  - **Underwater shimmer** tints and lights only the parts of scenery and
-    units that are under the water, more the deeper they lie; what stands
-    above the water keeps its colours. At 0% your own units under the
+    water. Their foam takes the colour of the map's picture under it,
+    lighter than the ground there, so that it blends with sand, grass,
+    rock, snow or dark water rather than drawing a white line round
+    every shore.
+  - **Underwater shimmer** tints and lights only the parts of units,
+    wrecks and shots that are under the water, more the deeper they lie;
+    what stands above the water keeps its colours. In the classic view,
+    scenery the map draws in its own art, such as an underwater metal
+    patch, keeps the colours the map gives it, as the water's art around
+    it does, so that it blends into the water as the game draws it. At 0% your own units under the
     water are darkened and tinted blue as the game draws them at every
     other Hardware acceleration.
   - **Naval reflections** draw a faint, soft picture of each visible
     surface ship on the water, mirrored under its hull: each part of the
     ship shows as far below its waterline as it stands above it, fainter
     the higher it stands. They fade as the view turns flat.
+
+  They follow the map's sea. On a lava world (a map whose OTA sets
+  `lavaworld=1`) the lava shows none of the four, as the game draws it:
+  no ripples, waves, rings or splashes, no shimmer on what lies in it and
+  no reflections, and shots that land in it show the game's own lava
+  splash. Where the map's sea swallows shots without a splash
+  (`nosealeveltrigger=1`), shots and naval guns leave no rings or
+  splashes on it; its waves stay. A map whose water does damage
+  (`waterdoesdamage=1`, such as an acid world) keeps all four.
 
   Fine detail fades as the view zooms out, and the reflections of distant
   fleets are kept few. These effects change only what your screen shows,
@@ -791,7 +817,9 @@ press OK.
 
 ![The end of the Accessibility section: Edge scrolling On, then the practice pad: Try it here, "Press a key, alone or with Shift, Ctrl or Alt.", its well, "Keys pressed here never reach the game." and Turn every helper off, greyed while every helper is off.](images/settings/accessibility-2.png)
 
-The Accessibility section gathers the input helpers in one place. Each
+The Accessibility section gathers the input helpers in one place.
+[Keys](keys.md#accessibility) lists each helper, what it does in a match
+and where it is kept. Each
 setting takes effect at once. The pictures show two of the seven latchable
 actions on, so Hold keys that latch reads "2 of 7".
 

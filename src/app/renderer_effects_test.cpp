@@ -3,6 +3,7 @@
 
 // Optional effects preserve hidden pixels, depth edges, alpha, and paused animation.
 #include "renderer_effects.hpp"
+#include "oa/platform/job_pool.hpp"
 #include "oa/test/check.hpp"
 
 #include <algorithm>
@@ -387,9 +388,138 @@ void distance_detail() {
     compose(surface(pixels), {&tiny_heat, 1}, {false, false, true}, 0);
     OA_CHECK(pixels == original);
 }
+
+/// A scene several bands tall: overlapping lights, glows and heat, some
+/// past the surface's edges, over a picture with hidden pixels and depth.
+struct BandScene {
+    static constexpr int width = 157;
+    static constexpr int height = 131;
+    static constexpr int stride = width * channels + 12;
+    std::vector<uint8_t> pixels = std::vector<uint8_t>(size_t(stride) * height);
+    std::vector<uint8_t> visibility = std::vector<uint8_t>(size_t(width) * height);
+    std::vector<float> depth = std::vector<float>(size_t(width) * height);
+    std::vector<Source> sources;
+
+    BandScene() {
+        uint32_t state = 2463534242U;
+        const auto random = [&] {
+            state = state * 1664525U + 1013904223U;
+            return float(state >> 8) / 16777216.0F;
+        };
+        for (auto& value : pixels)
+            value = uint8_t(random() * 256);
+        for (auto& value : visibility)
+            value = random() < 0.1F ? 0 : uint8_t(random() * 256);
+        for (auto& value : depth)
+            value = random() * 40 - 20;
+        for (int index = 0; index < 40; ++index) {
+            Source light{};
+            light.screen_x = random() * (width + 40) - 20;
+            light.screen_y = random() * (height + 40) - 20;
+            light.depth = random() * 40 - 20;
+            light.radius_pixels = 0.5F + random() * 40;
+            light.depth_radius = 2 + random() * 30;
+            light.red = random();
+            light.green = random();
+            light.blue = random();
+            light.light = random() * 2;
+            light.glow = index % 3 == 0 ? 0 : random() * 2;
+            light.heat = index % 4 == 0 ? random() * 2 : 0;
+            light.phase = random() * 6;
+            light.radius_y_pixels = index % 2 == 0 ? 0 : 0.5F + random() * 40;
+            sources.push_back(light);
+        }
+    }
+
+    /// The scene's picture with its masks, depth only where asked.
+    Surface surface(std::vector<uint8_t>& target, bool with_depth) const {
+        return {
+            target,
+            width,
+            height,
+            stride,
+            channels,
+            visibility,
+            with_depth ? depth : std::span<const float>{}
+        };
+    }
+};
+
+/// Light and glow reach every pixel of a light's ellipse and nothing beyond
+/// it, as each pixel's own distance from the centre gives them.
+void footprint_bounds() {
+    const BandScene scene;
+    auto composed = scene.pixels;
+    compose(scene.surface(composed, false), scene.sources, {true, true, false}, 0);
+    auto expected = scene.pixels;
+    for (const auto& light : scene.sources) {
+        const float radius = std::min(light.radius_pixels, 256.0F);
+        const float radius_y =
+            light.radius_y_pixels > 0 ? std::min(light.radius_y_pixels, 256.0F) : radius;
+        const float colour[]{light.red, light.green, light.blue};
+        for (int y = 0; y < scene.height; ++y)
+            for (int x = 0; x < scene.width; ++x) {
+                if (float(x) < light.screen_x - radius || float(x) > light.screen_x + radius ||
+                    float(y) < light.screen_y - radius_y || float(y) > light.screen_y + radius_y)
+                    continue;
+                const float visibility =
+                    float(scene.visibility[size_t(y * scene.width + x)]) / 255.0f;
+                if (visibility == 0)
+                    continue;
+                const float dx = (float(x) - light.screen_x) / radius;
+                const float dy = (float(y) - light.screen_y) / radius_y;
+                const float distance_squared = dx * dx + dy * dy;
+                const float reach = 1 - distance_squared;
+                if (reach <= 0)
+                    continue;
+                const float attenuation = reach * reach * visibility;
+                float energy = light.light * 110 * attenuation;
+                if (light.glow > 0) {
+                    const float core = std::max(0.0f, 1 - distance_squared / (0.35f * 0.35f));
+                    energy += light.glow * 150 * core * core * visibility;
+                }
+                for (int channel = 0; channel < 3; ++channel) {
+                    const auto address = size_t(y * scene.stride + x * channels + channel);
+                    expected[address] = uint8_t(
+                        std::min(
+                            255.0f, float(expected[address]) + std::floor(energy * colour[channel])
+                        )
+                    );
+                }
+            }
+    }
+    OA_CHECK(composed != scene.pixels);
+    OA_CHECK(composed == expected);
+}
+
+/// Bands composed on any number of threads give the picture one thread gives.
+void pooled_bands() {
+    const BandScene scene;
+    for (const bool with_depth : {false, true}) {
+        auto alone = scene.pixels;
+        compose(scene.surface(alone, with_depth), scene.sources, {true, true, true}, 1.25);
+        OA_CHECK(alone != scene.pixels);
+        for (const uint32_t threads : {1U, 2U, 3U, 4U, 8U}) {
+            oa::platform::job_pool::Pool pool(threads);
+            for (int repeat = 0; repeat < 20; ++repeat) {
+                auto pooled = scene.pixels;
+                compose(
+                    scene.surface(pooled, with_depth),
+                    scene.sources,
+                    {true, true, true},
+                    1.25,
+                    &pool
+                );
+                OA_CHECK(pooled == alone);
+            }
+        }
+    }
+}
 } // namespace
 
 int main() {
+    footprint_bounds();
+    pooled_bands();
     intensity_levels();
     terrain_and_units();
     distance_detail();

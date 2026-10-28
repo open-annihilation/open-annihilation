@@ -21,7 +21,9 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -113,6 +115,80 @@ int32_t count_of(const std::string& text) {
 /// @return the step's snapshot path
 fs::path step_snapshot(const fs::path& snapshot, std::string_view step) {
     return snapshot.parent_path() / (snapshot.stem().string() + '-' + std::string(step) + ".ppm");
+}
+
+/// A window part the pointer sweeps, in window pixels.
+struct SweepBox {
+    int32_t x{};      ///< its left column
+    int32_t y{};      ///< its top row
+    int32_t width{};  ///< its width
+    int32_t height{}; ///< its height
+};
+
+/// The points a sweep visits: 120 of them, back and forth along four rows,
+/// or down and up two columns of a box taller than it is wide, as a hand
+/// moves the pointer over a list or a picture.
+///
+/// @param box the part swept
+/// @return the points, in order
+std::vector<layout::Point> sweep_points(const SweepBox& box) {
+    constexpr int32_t total = 120;
+    const bool tall = box.height > box.width;
+    const int32_t lines = tall ? 2 : 4;
+    const int32_t per_line = total / lines;
+    std::vector<layout::Point> points;
+    points.reserve(static_cast<std::size_t>(total));
+    for (int32_t line = 0; line < lines; ++line) {
+        for (int32_t step = 0; step < per_line; ++step) {
+            const int32_t along = line % 2 == 0 ? step : per_line - 1 - step;
+            const int32_t across = (2 * line + 1);
+            if (tall)
+                points.push_back(
+                    {box.x + box.width * across / (2 * lines),
+                     box.y + 2 + (box.height - 4) * along / (per_line - 1)}
+                );
+            else
+                points.push_back(
+                    {box.x + 2 + (box.width - 4) * along / (per_line - 1),
+                     box.y + box.height * across / (2 * lines)}
+                );
+        }
+    }
+    return points;
+}
+
+/// One sweep's times, in milliseconds.
+struct SweepTimes {
+    std::vector<double> input{}; ///< taking each move: the editor's answer and its layout
+    std::vector<double> frame{}; ///< the frame after it: the drawing and its present
+    std::vector<double> whole{}; ///< both
+    int32_t hovers{};            ///< moves that changed what the editor draws
+};
+
+/// The value below which a share of the times fall.
+///
+/// @param times the times
+/// @param share 0.5 for the median, 0.95 for the 95th percentile
+/// @return the time
+double percentile(std::vector<double> times, double share) {
+    if (times.empty())
+        return 0.0;
+    std::sort(times.begin(), times.end());
+    const auto at = static_cast<std::size_t>(share * static_cast<double>(times.size() - 1) + 0.5);
+    return times[std::min(at, times.size() - 1)];
+}
+
+/// One line of a sweep's times: median, 95th percentile and slowest.
+///
+/// @param times the times
+/// @return "2.1 / 3.0 / 4.5"
+std::string spread(const std::vector<double>& times) {
+    std::ostringstream line;
+    line.setf(std::ios::fixed);
+    line.precision(1);
+    line << percentile(times, 0.5) << " / " << percentile(times, 0.95) << " / "
+         << (times.empty() ? 0.0 : *std::max_element(times.begin(), times.end()));
+    return line.str();
 }
 
 /// Puts a stream's buffer back when this goes.
@@ -296,6 +372,89 @@ void Runtime::check_key_editor() {
         }
         require(all > 0, std::string("All counts nothing ") + std::string(where));
     };
+
+    // The pointer moves over each part of the editor, in each look and at the
+    // large windows, each move and the frame after it timed: what a player
+    // feels while the editor follows the pointer. The log gives the times;
+    // only a move that changes what the editor shows may lay it out again.
+    const auto box_of = [this](std::string_view prefix) -> std::optional<SweepBox> {
+        std::vector<AutomationControl> controls;
+        oa_layer().automation_controls(controls);
+        std::optional<SweepBox> box;
+        for (const AutomationControl& control : controls) {
+            if (!control.visible || control.window_width <= 0 || control.window_height <= 0 ||
+                !control.name.starts_with(prefix))
+                continue;
+            if (!box) {
+                box = SweepBox{
+                    control.window_x, control.window_y, control.window_width, control.window_height
+                };
+                continue;
+            }
+            const int32_t right =
+                std::max(box->x + box->width, control.window_x + control.window_width);
+            const int32_t bottom =
+                std::max(box->y + box->height, control.window_y + control.window_height);
+            box->x = std::min(box->x, control.window_x);
+            box->y = std::min(box->y, control.window_y);
+            box->width = right - box->x;
+            box->height = bottom - box->y;
+        }
+        return box;
+    };
+    const auto editor_revision = [this]() -> uint64_t {
+        const LayerScreen* open = oa_layer().find(editor::screen_name);
+        return open == nullptr ? 0 : open->revision();
+    };
+    const auto milliseconds = [](auto from, auto to) {
+        return std::chrono::duration<double, std::milli>(to - from).count();
+    };
+    const auto sweep = [&](std::string_view where, std::string_view prefix) {
+        const std::optional<SweepBox> box = box_of(prefix);
+        require(box.has_value(), std::string(where) + " is not shown");
+        SweepTimes times;
+        for (const layout::Point point : sweep_points(*box)) {
+            const uint64_t before = editor_revision();
+            const auto start = std::chrono::steady_clock::now();
+            pointer_at(point, SDL_EVENT_MOUSE_MOTION, 0);
+            const auto taken = std::chrono::steady_clock::now();
+            frames(1);
+            const auto drawn = std::chrono::steady_clock::now();
+            times.input.push_back(milliseconds(start, taken));
+            times.frame.push_back(milliseconds(taken, drawn));
+            times.whole.push_back(milliseconds(start, drawn));
+            if (editor_revision() != before)
+                ++times.hovers;
+        }
+        std::cout << "key editor check: hover " << where << ": " << times.whole.size() << " moves, "
+                  << times.hovers << " redrawn; ms median / 95% / slowest: move and frame "
+                  << spread(times.whole) << ", move " << spread(times.input) << ", frame "
+                  << spread(times.frame) << '\n';
+    };
+    const settings::EngineSettings kept_settings = engine_settings();
+    for (const settings::Look look : {settings::Look::classic, settings::Look::modern}) {
+        settings::EngineSettings chosen = kept_settings;
+        chosen.look = look;
+        apply_engine_settings(chosen);
+        const std::string look_word = look == settings::Look::modern ? "modern" : "classic";
+        for (const CheckWindow& window : {kWindows[1], kWindows[2]}) {
+            const std::string where = look_word + ' ' + std::to_string(window.width) + 'x' +
+                                      std::to_string(window.height) + ' ';
+            resize(window);
+            prepare_menu();
+            open_over_settings();
+            click_named("oa.key-editor.row.order.attack");
+            sweep(where + "nav", "oa.key-editor.nav.");
+            sweep(where + "list", "oa.key-editor.row.");
+            sweep(where + "details", "oa.key-editor.detail.");
+            click_named("oa.key-editor.view.keyboard");
+            sweep(where + "keyboard", "oa.key-editor.keyboard.");
+            click_named("oa.key-editor.view.mouse");
+            sweep(where + "mouse", "oa.key-editor.mouse");
+            close_editor();
+        }
+    }
+    apply_engine_settings(kept_settings);
 
     for (const CheckWindow& window : kWindows) {
         const std::string size = std::to_string(window.width) + 'x' + std::to_string(window.height);

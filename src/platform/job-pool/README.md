@@ -7,9 +7,10 @@ namespace `oa::platform::job_pool`.
 The drawing passes that work row by row hand their rows to it in bands: the
 terrain fill (`fill_scaled_viewport`) and the fog (`draw_fog_grid`) in
 [the world renderer](../../present/world-renderer/README.md), the
-battlefield's units, features and effects (`draw_world_band`), and the
-conversion of each frame to the window's pixel format before it is shown
-([src/app](../../app/README.md)).
+battlefield's units, features and effects (`draw_world_band`), the
+conversion of each frame to the window's pixel format before it is shown,
+the effects' light and heat (`renderer_effects::compose`) and the 3D view's
+depth under them (`live_scene_visibility`) ([src/app](../../app/README.md)).
 
 ## Results do not depend on the threads
 
@@ -17,9 +18,13 @@ Each band writes only its own rows and reads nothing another band writes,
 so the order bands run in, and the threads they run on, never change a byte
 of the result. A pool of any size gives the frame one thread gives.
 
-The terrain fill, the fog and the conversion split their work into bands
-by its data, never by the number of threads: the terrain fill and the
-conversion by 32 rows, the fog by one row of its grid. The battlefield's
+The terrain fill, the fog, the conversion and the effects split their work
+into bands by its data, never by the number of threads: the terrain fill,
+the conversion and the effects by 32 rows, the fog by one row of its grid,
+and the 3D view's depth by 16 rows, or one band without a pool. Each band
+of the effects takes every light in turn, and each band of the 3D view's
+depth the triangles that reach it in their order, so each pixel takes them
+in the order one band gives. The battlefield's
 draws take one band for each thread instead: the model bridge splits into
 that many bands of whole tile rows, only where its rows and the frame's
 split alike (`bridge_split` in

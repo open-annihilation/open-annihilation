@@ -150,3 +150,5 @@ hacks:
 | `game.options-dialog` | `Ctrl+F2` | The mod's options dialog |
 | `game.chat-macro` | `F11` | Sends the mod's chat macro |
 <!-- END GENERATED: keys -->
+
+These keys move in the [key editor](../../keys.md#the-key-editor), in **Game**, while this hack is on.

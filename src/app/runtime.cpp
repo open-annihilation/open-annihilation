@@ -780,6 +780,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_selection_keys) {
+            check_selection_keys();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_mutator_picker) {
             check_mutator_picker();
             flush_preferences();
@@ -907,6 +912,11 @@ int Runtime::run() {
         }
         if (options_.check_build_preview) {
             const int status = check_build_preview();
+            flush_preferences();
+            return status;
+        }
+        if (options_.check_dialog_backdrop) {
+            const int status = check_dialog_backdrop();
             flush_preferences();
             return status;
         }
@@ -1104,6 +1114,11 @@ int Runtime::run() {
             check_wreck_pick();
             flush_preferences();
             return 0;
+        }
+        if (options_.check_underwater_features) {
+            const int status = check_underwater_features();
+            flush_preferences();
+            return status;
         }
         if (options_.check_click_snap) {
             check_click_snap();

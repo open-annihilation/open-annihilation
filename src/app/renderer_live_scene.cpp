@@ -1595,6 +1595,34 @@ void models(const Inputs& in, Scene& scene) {
                                std::all_of(projection.begin(), projection.end(), [](float value) {
                                    return std::isfinite(value);
                                });
+    // The nanolathe particles that light units' vertices: the emissive ones
+    // in sight among an even sample of at most 16 of the frame's particles,
+    // the same for every vertex, in map pixels.
+    constexpr std::size_t light_samples = 16;
+    constexpr float light_radius = 32.0F;
+    std::vector<std::array<float, 3>> nanolathe_lights;
+    if (in.nanolathe_lighting) {
+        const auto& particles = in.draws->spatial_particles;
+        const auto stride = std::max<std::size_t>(1, particles.size() / light_samples);
+        for (std::size_t sample = 0, count = 0; sample < particles.size() && count < light_samples;
+             sample += stride, ++count) {
+            const auto& particle = particles[sample];
+            if (!particle.emissive ||
+                fog_at(
+                    in.sight,
+                    particle.position.x / 65536,
+                    static_cast<int32_t>(
+                        (particle.position.z - particle.position.y * 0.5F) / fixed_scale
+                    )
+                ) != Fog::seen)
+                continue;
+            nanolathe_lights.push_back(
+                {particle.position.x / fixed_scale,
+                 particle.position.y / fixed_scale,
+                 particle.position.z / fixed_scale}
+            );
+        }
+    }
     for (const auto& draw : in.draws->models) {
         if (!draw.plan.linked.drawn)
             continue;
@@ -1862,28 +1890,15 @@ void models(const Inputs& in, Scene& scene) {
                                      ? 0.65F * remaining *
                                            renderer_effect_sources::construction_pulse(in.tick)
                                      : 0.0F;
-                    constexpr std::size_t light_samples = 16;
-                    constexpr float light_radius = 32.0F;
-                    const auto& particles = in.draws->spatial_particles;
-                    const auto stride = std::max<std::size_t>(1, particles.size() / light_samples);
-                    for (std::size_t sample = 0, count = 0;
-                         in.nanolathe_lighting && sample < particles.size() &&
-                         count < light_samples;
-                         sample += stride, ++count) {
-                        const auto& particle = particles[sample];
-                        if (!particle.emissive ||
-                            fog_at(
-                                in.sight,
-                                particle.position.x / 65536,
-                                static_cast<int32_t>(
-                                    (particle.position.z - particle.position.y * 0.5F) / fixed_scale
-                                )
-                            ) != Fog::seen)
+                    for (const auto& light : nanolathe_lights) {
+                        const float dx = vertex.x - light[0];
+                        const float dy = vertex.height - light[1];
+                        const float dz = vertex.z - light[2];
+                        const float distance_squared = dx * dx + dy * dy + dz * dz;
+                        // A light a radius or more away adds nothing.
+                        if (distance_squared >= light_radius * light_radius)
                             continue;
-                        const float dx = vertex.x - particle.position.x / fixed_scale;
-                        const float dy = vertex.height - particle.position.y / fixed_scale;
-                        const float dz = vertex.z - particle.position.z / fixed_scale;
-                        const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+                        const float distance = std::sqrt(distance_squared);
                         glow = std::max(glow, 0.5F * std::max(0.0F, 1 - distance / light_radius));
                     }
                     const float visible_glow =
@@ -2497,6 +2512,21 @@ void water_surface(const Inputs& in, Scene& scene) {
             }))
             continue;
         for (auto& vertex : triangle) {
+            // The foam takes the colour of the picture the ground under it
+            // shows (SurfaceCache::foam_colour); the fragment stage draws it
+            // in the vertex's material colour.
+            const auto foam = in.water_surface
+                                  ? in.water_surface->foam_colour(
+                                        vertex.x, vertex.z - vertex.height * height_lift
+                                    )
+                                  : std::array<float, 3>{
+                                        renderer_water_appearance::foam_red,
+                                        renderer_water_appearance::foam_green,
+                                        renderer_water_appearance::foam_blue
+                                    };
+            vertex.red = foam[0];
+            vertex.green = foam[1];
+            vertex.blue = foam[2];
             vertex.terrain_x = in.sea_level - vertex.height;
             vertex.terrain_y = in.water_surface ? in.water_surface->fetch(vertex.x, vertex.z) : 1;
             vertex.terrain_size = -2;

@@ -1,6 +1,8 @@
 # Controls
 
-The keys a match answers, beyond the buttons on the order panel.
+The keys a match answers, beyond the buttons on the order panel. Every
+key named here can be moved in the [key editor](keys.md#the-key-editor).
+The chapter is [Keys](keys.md).
 
 ## Keys in a match
 
@@ -23,7 +25,9 @@ default), each order button wears its key in its top right corner and each
 build cell its key in its bottom left. An order button's underlined
 letter, where its caption has one, is the letter that presses it, so a key
 you move leaves no line under the old letter. Turn **Show keys on buttons**
-off to take the badges away.
+off to take the badges away. The panel's own key is **Keys overlay**
+(`ui.keys-overlay`), Primary+/ by default (Cmd+/ on a Mac), and it moves
+in the editor.
 
 Resting the pointer on an order button shows that order's name in the
 bottom panel, and its description ending with its key. A build button's
@@ -37,7 +41,8 @@ Edit keys… on the key layout card in Settings › Controls, EDIT KEYS… on
 the keys panel and in the Library, and CHOOSE… beside Hold keys that latch
 open the key editor. It shows every key and button the game answers, and
 lets you change them. It has three tabs: **Commands**, **Keyboard** and
-**Mouse**.
+**Mouse**. Every command it lists moves here.
+[Keys](keys.md#the-key-editor) is the full account.
 
 **Commands** opens on Common commands, the two dozen commands players
 change first (Attack, Move, Stop, Patrol, Guard, Repair, Reclaim and the
@@ -119,7 +124,8 @@ or the clash question changes a key until its own button writes it.
 
 OA's overlays stand where the game puts them unless you turn on **Move
 overlays** in Settings › Accessibility (it is off by default). The
-overlays are the keys panel (Ctrl+/), the chat line that stands over the
+overlays are the keys panel (Ctrl+/, **Keys overlay**, `ui.keys-overlay`,
+which moves in the editor), the chat line that stands over the
 battlefield while the touch controls are on or while the line you type is
 taller than the TALK field, and the chips that show latches and sticky
 modifiers. With Move overlays on, they stand where you put them; turned
@@ -158,16 +164,22 @@ them alone.
 
 ## Pause and the game menu
 
-Pause toggles the simulation pause. On a Mac, Cmd+P does the same during a
-match, without needing a Pause key.
+**Pause** (`game.pause`) toggles the simulation pause. Its keys are Pause
+and Ctrl+Pause, and they move in the editor. On a Mac, Cmd+P does the same
+during a match, without needing a Pause key.
 
+**Game menu** (`game.menu`) is F2 and Ctrl+F2, and it moves in the editor.
 F2 opens the game menu; Mac keyboards may require Fn+F2. In a local match,
 Resume or another press of F2 closes the menu and resumes the simulation,
 including a pause set with Pause or Cmd+P. In a shared match, closing the
 menu leaves the synchronized pause unchanged; use Pause or Cmd+P to toggle
 it.
 
-Escape first cancels an armed command, then clears the selection. With
+**Back** (`game.back`) is Escape and Ctrl+Escape, and it moves in the
+editor. Escape still closes the chat line and Open Annihilation's own
+screens, which that binding cannot take away
+([Escape's one fixed job](keys.md#escapes-one-fixed-job)). Escape first
+cancels an armed command, then clears the selection. With
 **Escape opens the game menu** enabled under Settings › User Interface, another
 press opens the game menu when there is nothing left to cancel. Escape
 closes the open game menu as Resume does. Canceling a surrender dialog or
@@ -175,6 +187,8 @@ closing a team panel does not clear an explicit simulation pause.
 
 ## Unit information
 
+**Unit info** (`game.unit-info`) is F1 and Ctrl+F1, and **Pin unit**
+(`game.pin-unit`) is Shift+F1 and Ctrl+Shift+F1. Both move in the editor.
 F1 opens the unit information panel for the build button or the unit under
 the pointer: its picture, costs and statistics. OK closes it, with either
 mouse button, and so do Enter, Escape and O. As in 3.1c, what drops the
@@ -193,6 +207,12 @@ a gamepad.
 
 ## The 3D camera
 
+**Orbit camera** (`pointer.camera-orbit`) is Alt with the left button, and
+Alt with the middle button. **Pan camera** (`pointer.camera-pan`) is
+Alt+Shift and the left button. **Classic view** (`camera.classic-view`) is
+Alt and the place of the R key, and **Unlocked camera** (`camera.unlocked`)
+is Alt and the place of the U key. Each moves in the editor.
+
 With **Allow Full 3D Mode** on under Settings > Graphics and Full hardware
 acceleration, Alt and a left drag on the battlefield turns the camera
 about the point under the pointer (Option on a Mac), and Alt, Shift and a
@@ -207,25 +227,36 @@ and keys keep their classic use.
 
 ## Groups
 
-Ctrl and a digit from 1 to 9 stores the selection in that group. Alt and
+Storing a group is `group.assign-1` through `group.assign-9`: Ctrl and
+that digit's place, and the keypad. Selecting one is `group.select-1`
+through `group.select-9`, Alt and the digit. Adding one is `group.add-1`
+through `group.add-9`. **Follow** (`camera.follow`) is T, and **Centre**
+(`camera.centre`) is Home. Each moves in the editor. Ctrl and a digit
+from 1 to 9 stores the selection in that group. Alt and
 the digit selects the group. **Number keys select groups**, in the key
 editor, is 3.1c's SwitchAlt (`+switchalt`): with it on, the digit alone
 selects the group and Alt and the digit picks a build button.
 
-The first press selects the group, or adds it when Shift is held. A later
-press, at once or after a pause, centres the view on the group when that
-group is already exactly the selection. The view goes to the average of
-the units' positions, and the camera does not
-start following a unit. T follows the selection. Home centres on the
-selected unit and does not follow it.
+A press selects the group, or adds it when Shift is held, and leaves the
+view where it is. Two presses of the same group's key back to back, within
+the double-press time (Settings › Accessibility › Double press) and with no
+other key between, also centre the view on the group. **Group keys centre
+the view**, in Settings › Controls, changes that: On a double press is the
+default, Never leaves the view, and On every press centres it when the
+group is already exactly the selection, however long after the last press,
+which is what 0.8.6 did. 3.1c leaves the view where it is on a first press
+and on a second. The view goes to the average of the units' positions, and
+the camera does not start following a unit. T follows the selection. Home
+centres on the selected unit and does not follow it.
 
-A gamepad's group buttons do the same. With the groups grip held, a tap
-selects the group and a second tap centres on it. See
-[controllers.md](controllers.md).
+A gamepad's group buttons centre on the group when it is already exactly
+the selection. With the groups grip held, a tap selects the group and a
+second tap centres on it. See [controllers.md](controllers.md).
 
 ## Queueing with Shift
 
-An order given with Shift held joins the end of the selected units'
+**Queue** (`order.queue-modifier`) is Shift by default, and it moves in
+the editor. An order given with Shift held joins the end of the selected units'
 queues. An order armed from its button, or a building being placed, stays
 armed for the next click while Shift is held. Letting Shift go returns to
 the default order, as in 3.1c: the next click gives the default order, and
@@ -241,6 +272,12 @@ Shift, Ctrl or Alt. Losing the window clears every latch and sticky
 modifier, including a QUEUE latched from the touch controls.
 
 ## The window's edge
+
+**Edge scrolling**, in [Settings › Accessibility](settings.md#accessibility),
+is on by default. Turned off, the view does not scroll while the pointer
+rests at the window's edge. The arrow keys, and the touch controls' edge
+band while a drag is held, keep moving the view.
+[Keys](keys.md#accessibility) lists it with the other helpers.
 
 **Window edge**, under Settings > Controls, decides what a window does with
 the pointer while a match's battlefield shows. It has three ways: Capture,
@@ -305,7 +342,8 @@ the view scrolls.
 
 ## Panning
 
-A middle click on the battlefield starts a pan. A small mark stays where
+**Pan** (`pointer.pan`) is the middle button by default, and it moves in
+the editor. A middle click on the battlefield starts a pan. A small mark stays where
 you clicked, and the view scrolls from that mark towards the pointer. Close
 to the mark the view stays still. Further away it speeds up, up to the
 game's Scroll speed, and the pointer shows the way. Another mouse button, a

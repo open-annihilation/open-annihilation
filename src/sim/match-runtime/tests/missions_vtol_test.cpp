@@ -3,8 +3,10 @@
 
 #include "match_tick_access.hpp"
 #include "oa/sim/match_runtime.hpp"
+#include "oa/sim/match_runtime/construction_orders.hpp"
 #include <cstdint>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -269,6 +271,39 @@ int main() {
     arrived.simulation().players[0].status = 1;
     arrived.configure_player_alliances(0, allies);
     CHECK(landing_voice(arrived, arrived_services) == 6);
+
+    // A repair pad pays for the aircraft it repairs, as in 3.1c: the landed
+    // aircraft's SelfRepair asks the pad for each step, and the energy is
+    // requested in the pad's economy block, never the aircraft's. The bottom
+    // bar shows a unit's own block, so the cost shows on the pad.
+    defs[pad_type].worker_time = 60;
+    defs[aircraft_type].build_cost_energy = 200;
+    defs[aircraft_type].build_time = 100;
+    auto* repaired = match.create({0, aircraft_type, at(40, 232), true, 1, 0});
+    auto* repair_pad = match.create({0, pad_type, at(72, 232), true, 1, 0});
+    CHECK(repaired && repair_pad);
+    repaired->record.health = 40;
+    repaired->record.state_flags |= OA_UNIT_STATE_ACTIVE;
+    repair_pad->record.state_flags |= OA_UNIT_STATE_ACTIVE;
+    repaired->record.economy.energy = {};
+    repair_pad->record.economy.energy = {};
+    auto& mend = match.insert_ground_order(
+        repaired->unit_index,
+        sim::match_runtime::self_repair_kind,
+        std::nullopt,
+        0,
+        repair_pad->unit_index
+    );
+    sim::match_runtime::MatchTickAccess mender(match);
+    CHECK(mender.dispatch_mission(match.state(), repaired->record, mend, 0) == 1);
+    ++mend.phase;
+    CHECK(mender.dispatch_mission(match.state(), repaired->record, mend, 0) == 2);
+    CHECK(repaired->record.health == 41);
+    // Under 3.1c's repair rate a step pays 1 energy for 1 hit point.
+    CHECK(repair_pad->record.economy.energy.requested == 1.0F);
+    CHECK(repair_pad->record.economy.energy.accepted == 1.0F);
+    CHECK(repaired->record.economy.energy.requested == 0.0F);
+    CHECK(repaired->record.economy.energy.accepted == 0.0F);
 
     std::cout << "vtol missions ok\n";
     return 0;

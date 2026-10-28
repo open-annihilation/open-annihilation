@@ -27,7 +27,7 @@
 // key-badges-off-<w>x<h>.ppm (Show keys on buttons Off) and
 // rotate-hint-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080;
 // arrange-overlays-<w>x<h>.ppm and arrange-overlays-modern-<w>x<h>.ppm at
-// 640x480, 800x600 and 1280x720; overlays-placed-<w>x<h>.ppm,
+// 640x480, 800x600 and 1280x720; overlays-placed-<w>x<h>.ppm, chips-placed-<w>x<h>.ppm,
 // ingame-menu-<w>x<h>.ppm and rounded-settings-<w>x<h>.ppm at 640x480 and
 // 1280x720; arrange-overlays-match-1280x720.ppm and
 // overlays-default-1280x720.ppm; and keys-overlay-focus-640x480.ppm and
@@ -956,7 +956,7 @@ void Runtime::check_keys_overlay() {
             match_hud_.has_value() && !match_hud_->layout.gadgets.empty(),
             "the in-game menu has no layout"
         );
-        const auto& panel = match_hud_->layout.gadgets.front().common;
+        // The panel's records stand on the frame, the root's place among them.
         const double scale =
             match_layout_.column_narrowed() ? match_layout_.column_scale : match_layout_.scale;
         const auto at = [scale](int32_t source) {
@@ -965,8 +965,8 @@ void Runtime::check_keys_overlay() {
         for (const auto& gadget : match_hud_->layout.gadgets)
             if (tdf_names_equal(gadget.common.name, "OK"))
                 return layout::Rect{
-                    at(panel.x + gadget.common.x),
-                    at(panel.y + gadget.common.y),
+                    at(gadget.common.x),
+                    at(gadget.common.y),
                     at(static_cast<int32_t>(gadget.common.width)),
                     at(static_cast<int32_t>(gadget.common.height))
                 };
@@ -995,8 +995,10 @@ void Runtime::check_keys_overlay() {
                 button->window_y >= resume.y + resume.height &&
                 button->window_x + button->window_width <= match_layout_.left,
             "OA Settings is not as wide as Resume and under it: " +
-                std::to_string(button->window_x) + "+" + std::to_string(button->window_width) +
-                " against " + std::to_string(resume.x) + "+" + std::to_string(resume.width) + where
+                std::to_string(button->window_x) + "," + std::to_string(button->window_y) + " " +
+                std::to_string(button->window_width) + " wide against " + std::to_string(resume.x) +
+                "," + std::to_string(resume.y) + " " + std::to_string(resume.width) + "x" +
+                std::to_string(resume.height) + where
         );
         click_named("oa.button");
         frames(2);
@@ -1009,19 +1011,26 @@ void Runtime::check_keys_overlay() {
         frames(2);
         require(oa_layer().find("settings") != nullptr, "Settings did not open on the main menu");
     };
-    // Accessibility's last rows: Move overlays and Overlay places.
+    // Accessibility's last rows, Move overlays and Overlay places, scrolled
+    // into view a step at a time.
     const auto show_overlay_rows = [&] {
         settings::Dialog* dialog = engine_settings_dialog();
         require(dialog != nullptr, "Settings is not open");
         dialog->page = settings::Page::accessibility;
-        dialog->scroll[static_cast<std::size_t>(settings::Page::accessibility)] =
-            std::numeric_limits<int32_t>::max() / 4;
-        frames(2);
-        require(
-            named("oa.settings.move-overlays.on").has_value() &&
-                named("oa.settings.arrange-overlays.arrange").has_value(),
-            "Accessibility does not show Move overlays and Overlay places"
-        );
+        frames(1);
+        const auto both_shown = [&] {
+            return named("oa.settings.move-overlays.on").has_value() &&
+                   named("oa.settings.arrange-overlays.arrange").has_value();
+        };
+        constexpr std::size_t accessibility =
+            static_cast<std::size_t>(settings::Page::accessibility);
+        for (int32_t step = 0; step < 80 && !both_shown(); ++step) {
+            dialog = engine_settings_dialog();
+            require(dialog != nullptr, "Settings closed while scrolling");
+            dialog->scroll[accessibility] += 16;
+            frames(1);
+        }
+        require(both_shown(), "Accessibility does not show Move overlays and Overlay places");
     };
     const auto set_move_overlays = [&](bool on) {
         show_overlay_rows();
@@ -1317,7 +1326,13 @@ void Runtime::check_keys_overlay() {
         chips_and_line_at(true, at);
         render_match_surface();
         snapshot("overlays-placed", arranged.width, arranged.height);
+        // With the keys overlay closed QUEUE's chip shows on the battlefield.
         close_overlay();
+        render_match_surface();
+        require(
+            !key_latch_chips_drawn_.empty(), "QUEUE's chip did not come back to the battlefield"
+        );
+        snapshot("chips-placed", arranged.width, arranged.height);
     }
     resize(1920, 1080);
     keys_overlay_at(true, " at 1920x1080");

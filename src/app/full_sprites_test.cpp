@@ -24,6 +24,7 @@
 #include "oa/present/model/rgb_bridge.hpp"
 #include "oa/present/surface.hpp"
 #include "oa/present/world_renderer/world_fog.hpp"
+#include "oa/sim/visibility_state.hpp"
 #include "oa/test/check.hpp"
 #include "oa/test/game_assets.hpp"
 #include "oa/test/game_data.hpp"
@@ -456,12 +457,14 @@ CardDraw draw_card(
     float zoom,
     const full::SightView& sight = {},
     const std::array<uint8_t, 256>* gamma = nullptr,
-    bool hooks_given = true
+    bool hooks_given = true,
+    const full::FogCover* fog = nullptr
 ) {
     CardDraw drawn;
     side.fill(background);
     full::SpriteStageInputs inputs;
     inputs.list = &list;
+    inputs.fog = fog;
     inputs.view.origin_x = static_cast<float>(field_left);
     inputs.view.origin_y = static_cast<float>(field_top);
     inputs.view.scale = 1.0F;
@@ -1366,6 +1369,161 @@ void test_fog_states() {
     OA_CHECK(compare(under_dither.field, colour_expected, {}).most_beside == 0);
 }
 
+/// A feature's opaque frame given the frame's fog takes the greyed pass
+/// pixel by pixel, as the ground under it does: drawn in colour where its
+/// fog tiles are wholly in sight, from its greyed cell where they are
+/// wholly out of sight, and between the two at the fog's soft edge; one
+/// wholly under the fog is drawn from its greyed cell alone, one wholly in
+/// sight in colour. An effect, a shadow and a blended frame keep the fog
+/// of the cell under their place, and under the dithered option every
+/// sprite is drawn in colour.
+void test_fog_by_pixel() {
+    const auto palette = test_palette();
+    const oa::Palette entries = oa::present::palette_from_bytes(palette);
+    // The sight grid: 6 by 4 cells, the two left columns out of sight, the
+    // rest in sight, every cell mapped.
+    constexpr int32_t cells_wide = 6;
+    constexpr int32_t cells_high = 4;
+    constexpr uint8_t viewer = 3;
+    oa::sim::visibility_state::PlayerSightGrid grid;
+    grid.width = cells_wide;
+    grid.height = cells_high;
+    grid.viewpoint_player = viewer;
+    grid.player_bits.assign(cells_wide * cells_high, static_cast<uint16_t>(1U << viewer));
+    std::vector<uint16_t> coverage(cells_wide * cells_high, 1);
+    for (int32_t z = 0; z < cells_high; ++z)
+        for (int32_t x = 0; x < 2; ++x)
+            coverage[static_cast<std::size_t>(z) * cells_wide + x] = 0;
+    full::SightView sight;
+    sight.coverage = coverage;
+    sight.player_bits = grid.player_bits;
+    sight.width = cells_wide;
+    sight.height = cells_high;
+    sight.viewer_bit = static_cast<uint16_t>(1U << viewer);
+    sight.line_of_sight = true;
+    sight.mapping = true;
+    const wr::FogGrid fog_grid =
+        wr::build_fog_grid(grid, viewer, coverage, {true, true}, 0, 0, field_width, field_height);
+    full::FogCover fog;
+    fog.grid = &fog_grid;
+    std::array<uint8_t, 256> levels{};
+    wr::build_gray_levels(entries, levels);
+    std::array<uint8_t, gpu::gray_table_entries> gray{};
+    for (std::size_t index = 0; index < gray.size(); ++index) {
+        const auto& entry = entries.entries[index];
+        gray[index] = levels[(static_cast<unsigned>(entry.r) + entry.g + entry.b) / 3U];
+    }
+    // A feature across the fog's edge, the cells' boundary at map pixel 64
+    // with the soft edge from 48 to 80; one wholly under the fog and one
+    // wholly in sight.
+    constexpr int32_t cell = wr::fog_cell_pixels;
+    const RenderedFrame across = gradient_frame(64, 20, 0, 0, 128, 16);
+    const RenderedFrame under = block_frame(12, 12, 0, 0, 100);
+    const RenderedFrame clear = block_frame(12, 12, 0, 0, 70);
+    const RenderedFrame across_greyed = mapped_frame(across, gray);
+    const RenderedFrame under_greyed = mapped_frame(under, gray);
+    const auto scene = [&](const RenderedFrame& first, const RenderedFrame& second) {
+        WorldDrawList list;
+        add_sprite(list, first, 2 * cell - 32, 4, false);
+        add_sprite(list, second, cell - 12, cell + 40, false);
+        add_sprite(list, clear, 4 * cell + 4, cell + 40, false);
+        for (auto& sprite : list.sprites)
+            sprite.on_map = true;
+        list.shown_map_width = field_width;
+        list.shown_map_height = field_height;
+        return list;
+    };
+    const WorldDrawList list = scene(across, under);
+    model_render::ModelDisplay display;
+    model_render::build_model_display(display, entries);
+    const Picture background = grey_background(palette, field_width, field_height);
+    const Picture colour = draw_processor(list, palette, display, background, 1.0F);
+    const Picture greyed =
+        draw_processor(scene(across_greyed, under_greyed), palette, display, background, 1.0F);
+    CardSide side(
+        field_left + field_width + border, field_top + field_height + border, gpu::Limits{}
+    );
+    side.pages.set_palette(entries, plain_gamma);
+    side.pages.set_gray_table(gray);
+    const CardDraw drawn =
+        draw_card(side, list, palette, background, 1.0F, sight, nullptr, true, &fog);
+    OA_CHECK(drawn.result.sprites == 3 && drawn.result.refused == 0);
+    OA_CHECK(drawn.result.greyed == 2 && drawn.result.fog_cut == 1);
+    // Each pixel of the frame across the edge by the fog tile it lies in.
+    std::size_t in_sight = 0;
+    std::size_t out_of_sight = 0;
+    std::size_t at_edge = 0;
+    int most_whole = 0;
+    int most_spill = 0;
+    for (int32_t y = 4; y < 24; ++y)
+        for (int32_t x = 2 * cell - 32; x < 2 * cell + 32; ++x) {
+            const int32_t column = (x - fog_grid.offset_x) / cell;
+            const int32_t row = (y - fog_grid.offset_z) / cell;
+            const auto& tile = fog_grid.at(column, row);
+            const auto seen = drawn.field.at(static_cast<uint32_t>(x), static_cast<uint32_t>(y));
+            const auto wanted_colour =
+                colour.at(static_cast<uint32_t>(x), static_cast<uint32_t>(y));
+            const auto wanted_grey = greyed.at(static_cast<uint32_t>(x), static_cast<uint32_t>(y));
+            for (std::size_t channel = 0; channel < 3; ++channel) {
+                const int value = seen[channel];
+                if (tile.unseen == 0) {
+                    most_whole = std::max(most_whole, std::abs(value - wanted_colour[channel]));
+                } else if (tile.unseen == wr::fog_mask_full) {
+                    most_whole = std::max(most_whole, std::abs(value - wanted_grey[channel]));
+                } else {
+                    const int low = std::min(wanted_colour[channel], wanted_grey[channel]);
+                    const int high = std::max(wanted_colour[channel], wanted_grey[channel]);
+                    most_spill = std::max({most_spill, low - value, value - high});
+                }
+            }
+            if (tile.unseen == 0)
+                ++in_sight;
+            else if (tile.unseen == wr::fog_mask_full)
+                ++out_of_sight;
+            else
+                ++at_edge;
+        }
+    std::printf(
+        "fog by pixel: %zu pixels in sight, %zu out of sight, %zu at the edge; most %d off "
+        "the edge, %d past the edge's range\n",
+        in_sight,
+        out_of_sight,
+        at_edge,
+        most_whole,
+        most_spill
+    );
+    OA_CHECK(in_sight > 0 && out_of_sight > 0 && at_edge > 0);
+    OA_CHECK(most_whole == 0);
+    OA_CHECK(most_spill <= 1);
+    // The frames wholly under the fog and wholly in sight.
+    for (int32_t y = cell + 40; y < cell + 52; ++y) {
+        for (int32_t x = cell - 12; x < cell; ++x)
+            OA_CHECK(
+                drawn.field.at(static_cast<uint32_t>(x), static_cast<uint32_t>(y)) ==
+                greyed.at(static_cast<uint32_t>(x), static_cast<uint32_t>(y))
+            );
+        for (int32_t x = 4 * cell + 4; x < 4 * cell + 16; ++x)
+            OA_CHECK(
+                drawn.field.at(static_cast<uint32_t>(x), static_cast<uint32_t>(y)) ==
+                colour.at(static_cast<uint32_t>(x), static_cast<uint32_t>(y))
+            );
+    }
+    // Not a feature's frame: each by the cell under its place, the first two
+    // out of sight and wholly greyed, the third in sight.
+    WorldDrawList effects = list;
+    for (auto& sprite : effects.sprites)
+        sprite.on_map = false;
+    const CardDraw effect =
+        draw_card(side, effects, palette, background, 1.0F, sight, nullptr, true, &fog);
+    OA_CHECK(effect.result.fog_cut == 0 && effect.result.greyed == 2);
+    // Under the dithered option every sprite is drawn in colour.
+    full::SightView dithered = sight;
+    dithered.dithered = true;
+    const CardDraw under_dither =
+        draw_card(side, list, palette, background, 1.0F, dithered, nullptr, true, &fog);
+    OA_CHECK(under_dither.result.greyed == 0 && under_dither.result.fog_cut == 0);
+}
+
 /// A frame whose distinct sprites exceed the pages' memory draws nothing,
 /// and leaves the frame as it was, or, where another stage's batches lie
 /// among the sprites', empties its own; with room for them, every sprite
@@ -1732,6 +1890,7 @@ int main(int argc, char** argv) {
         test_lines(1.0F);
         test_lines(2.0F);
         test_fog_states();
+        test_fog_by_pixel();
         test_pages_overflow();
         test_refusals();
     }

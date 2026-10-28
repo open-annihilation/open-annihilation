@@ -199,7 +199,27 @@ Lower-case kebab-case words joined by dots, at most 96 bytes:
 
 `gui.` actions exist only while the mod that defines them is loaded; their
 names are `gui.<gui file stem>.<gadget name>`, lower-cased with spaces and
-underscores turned to hyphens. An action that a standard hack adds exists
+underscores turned to hyphens.
+
+`select.category-` and `select.tag-` are made from the loaded units'
+`Category` lines, folded the same way: lower case, and spaces and
+underscores turned to hyphens. One action for each word that folds.
+
+A word `CTRL_` and one letter is not a `select.tag-` id. `CTRL_B`,
+`CTRL_C`, `CTRL_F` and `CTRL_V` are `select.builders`,
+`select.commander`, `select.factories` and `select.aircraft`. Any other
+`CTRL_<letter>` whose Ctrl+letter chord is not already a permanent
+command while playing is `select.category-<letter>`, and the family's
+default is `Ctrl+<letter>`. Every other word that folds to a tag suffix
+is `select.tag-<word>`. A suffix is a kebab of letters and digits, no
+empty part, at most 85 bytes. A word that does not fold to one has no
+action.
+
+A `select.tag-` binding is kept when the loaded units do not carry the
+word. The editor lists it in Tags, greyed, with the aside "not in the
+loaded units".
+
+An action that a standard hack adds exists
 while its hack is on; the registry names the hack. The full list is the
 [action registry](../../src/data/input-actions/registry/actions.yaml).
 
@@ -269,6 +289,7 @@ player opened lists up to three warnings.
 | --- | --- | --- |
 | An action id this build does not know | warning | "Not in this version of Open Annihilation" in the editor's Unknown group; kept and written back |
 | A `gui.` action, or a hack's action, whose mod or hack is not on | none | listed under that mod or hack, greyed |
+| A `select.tag-` binding whose word the loaded units do not carry | none | listed in Tags, greyed, "not in the loaded units"; kept and written back |
 | Two bindings that clash | warning | the later one dropped, both named |
 | A character no key types on this keyboard | warning | "Not on this keyboard" |
 | A binding that takes Escape from the chat line or Open Annihilation's screens | warning | "Escape always closes the chat line and Open Annihilation's screens" |

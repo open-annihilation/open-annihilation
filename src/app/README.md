@@ -1853,7 +1853,12 @@ prompts, Settings › Updates and the headers name one state with one size.
   rendered far view (`far_view_dot_covers`, in `selection_hooks`), and a
   press on the black
   past the map's edges, at any zoom, takes the nearest point of the shown
-  map (`ground_point_under`). In the Full tier the far frame's world layer
+  map (`ground_point_under`). The drag box's corner there is the point
+  itself at height 0 while View past the map's edge lets the view past the
+  edges (`match_pointer_ground`, `drag_box_corner`), so that a box reaches
+  as far as the view shows and selects the units drawn there, as a click on
+  one does; at Off it is held on the map's ground, as 3.1c holds it
+  (`native-off-map-selection`). In the Full tier the far frame's world layer
   is the processor's picture, which Basic's presentation draws without
   leaving Full. `app-far-view` checks the floors, the pyramid, the filter
   before and past the map, the dots and the pixels they cover, and the
@@ -2088,12 +2093,20 @@ prompts, Settings › Updates and the headers name one state with one size.
   the tier is dropped for the run and the frame presented as the standard
   tier presents it (`drop_acceleration`); the failing call is struck
   against the driver, but an error of the game's own, which no driver call
-  made (`AccelerationFault::engine`), is not (`take_acceleration_error`). Screenshots, film frames, the
-  load and save backdrop, the briefing's backdrop and the end screen keep
-  the standard tier's picture of the same moment (`ensure_screen_world`),
-  drawn again with the frame's counts of units drawn kept and the HUD's
-  resource readout, which saves keep in `Game.resource_readout`, not eased
-  again. MakePoster draws every view of its poster as the standard tier
+  made (`AccelerationFault::engine`), is not (`take_acceleration_error`). Screenshots, film frames
+  and the end screen keep the standard tier's picture of the same moment
+  (`ensure_screen_world`), drawn again with the frame's counts of units
+  drawn kept and the HUD's resource readout, which saves keep in
+  `Game.resource_readout`, not eased again. The load and save dialogs and
+  the in-game briefing, drawn over a picture of the paused match, keep the
+  battlefield as the frame presented it (`compose_shown_match`), so that
+  the units, the water and the fog behind them look as they did without
+  the dialog: a battlefield the card drew in the Full tier, or magnified in
+  Basic, is drawn again as the last frame drew it, into the window's frame
+  without presenting it, and read back at the layout's size and back
+  through the display gamma (`read_presented_world`); the area pass's
+  picture below zoom 1 is the world layer as presented; and a picture the
+  card cannot give is the standard tier's draw. MakePoster draws every view of its poster as the standard tier
   draws it too (`render_poster`), and the frame again in its own tier
   after.
   `app-scaled-world-software` checks the drawing on SDL's software
@@ -2287,10 +2300,18 @@ prompts, Settings › Updates and the headers name one state with one size.
   of one half where the planner blends it through the alpha table, so the
   card blends to the true mean where the table snaps to the palette,
   sampled nearest at a whole-number zoom, linear below 1 and pixel-art
-  above, from its greyed cell where the map pixel under its drawn point
+  above; a feature's opaque frame takes the fog's greyed pass pixel by
+  pixel, as the ground under it does and as the processor greys the
+  features with the ground (`full_fog::greyed_cover`): drawn in colour,
+  then from its greyed cell over the pieces of the pass that cover it, at
+  the alphas the pass draws the terrain at there, the Smooth fog's
+  quarter-tile triangles or the Classic fog's FOG.GAF rectangles, or from
+  its greyed cell alone where the pass covers it whole, so that a feature
+  at the fog's edge greys where the ground beside it greys; any other
+  sprite from its greyed cell where the map pixel under its drawn point
   lies in a cell out of sight (`cell_fog`), since the fog lays its tiles
-  by map column and row alone, so a sprite at the fog's edge is wholly
-  grey or wholly colour, and in colour under the dithered option; squares
+  by map column and row alone; every sprite in colour under the dithered
+  option; squares
   as the planner's rectangles; lines as quads `max(1, zoom)` pixels wide
   through the centres of their end pixels, selection lines the same from
   the bridge's map pixels. The sprite pages, and the model stage's two
@@ -2382,7 +2403,8 @@ prompts, Settings › Updates and the headers name one state with one size.
   dialogs, the cursor and the present follow as in Basic, and the readers
   that keep a picture, the capture and the checks among them, get the
   standard tier's draw (`ensure_screen_world`), since the world layer
-  holds no picture. Between the frame and the overlay, the effects pass
+  holds no picture, but for the dialogs drawn over a picture of the paused
+  match, which keep the card's (`compose_shown_match`). Between the frame and the overlay, the effects pass
   (`full_effects::compose`) works within the lights' bounds. Light alone,
   the weapons', the nanolathes' and the wrecks', is painted over opaque
   black on the processor and added by the card (`full_effects::Pass::light`),
@@ -2915,12 +2937,22 @@ prompts, Settings › Updates and the headers name one state with one size.
   selection, `interface left` or `interface right` sets the interface type,
   `arm COMMAND` arms an order button's command (`none`, `move`, `attack`,
   `patrol`, `guard`, `repair`, `reclaim`, `capture`, `load` or `unload`),
-  `hover GROUP` centres the view on the group's first live unit and moves
-  the pointer onto it, printing `stage: hover GROUP: unit N under the
+  `hover GROUP` centres the view on the group's first live unit, as far as
+  the view's limits let it go, past the map's edges too, and moves the
+  pointer onto it, printing `stage: hover GROUP: unit N under the
   pointer, cursor NAME` with the unit the pointer picked and the cursor's
   CURSORS.GAF sequence, and `press left` or `press right` presses and lets
   go of that button there, printing `stage: press BUTTON: ORDER` with the
   order the press gave (`-` for none); `native-air-pads` uses them.
+  `drag X0 Z0 X1 Z1` holds the select button from the point of the
+  battlefield that shows map pixel X0, Z0 at height 0 to the one that shows
+  X1, Z1, past the map's edges too, and lets go there, as the player drags a
+  box; a point out of view is held a pixel inside the battlefield's edges,
+  and the same point twice is a click there. It prints
+  `stage: drag X0,Z0 to X1,Z1: RESULT` with what the box or the click did
+  (`2 selected`, `No units`, the unit a click selected, `-` for nothing);
+  with `--snapshot` the frame with the box still held is written beside it
+  as `-drag`. `native-off-map-selection` uses it.
   `at TICK` before any action keeps its line for that match tick, and the line
   runs before the tick does (`run_due_stage_lines`, from every step of the
   match), the lines of a tick in the order the file gives them; each tick
@@ -2943,16 +2975,20 @@ prompts, Settings › Updates and the headers name one state with one size.
   `convert_rgb24_keyed_overlay_argb` makes the overlay of it by that key,
   opaque exactly where the painters painted, in the same bands. The
   Runtime keeps a [job pool](../platform/job-pool/README.md)
-  (`draw_pool_`) that this conversion, the terrain fill, the fog and the
-  battlefield's draws (`world_draws.hpp`) run their bands on:
+  (`draw_pool_`) that this conversion, the terrain fill, the fog, the
+  battlefield's draws (`world_draws.hpp`), the effects' light and heat
+  (`renderer_effects::compose`) and the 3D view's depth under them
+  (`live_scene_visibility`) run their bands on:
   `--draw-threads N` (1 to 32), else the `OA_DRAW_THREADS`
   environment variable, else the pool's default, one thread on a machine of
   one or two logical processors and otherwise one fewer than the
   processors, at most four. With one thread there is no pool and every
-  band runs on the drawing thread. The conversion's, the terrain's and the
-  fog's bands are fixed by the rows; the battlefield's are one a thread, and
-  any number of them draws the same frames, so every count draws the same
-  frames.
+  band runs on the drawing thread. The conversion's, the terrain's, the
+  fog's and the effects' bands are fixed by the rows, and the 3D view's
+  depth is worked out in bands of 16 rows, or in one band with no pool,
+  each band taking the triangles that reach it in their order; the
+  battlefield's are one a thread, and any number of them draws the same
+  frames, so every count draws the same frames.
   `app-xrgb-conversion` checks each pixel's packing and gamma for rows of
   any width, that pools of 2, 3, 4 and 8 threads convert the same bytes,
   the key colour as the lowest outside a palette and the keyed overlay
@@ -4852,7 +4888,14 @@ into the records and decisions of the modules that carry them out, and
   bottom bar's top row, so that its status line, whose ideographs would
   rise above the bar, is lowered to keep within it (`panel_text_drop`);
   the unit's metal and energy figures under it then move down as far and
-  one outline further, clear of its outline and shadow.
+  one outline further, clear of its outline and shadow. While a line's box
+  or the log's backdrop shows (`text_backings_shown`), the bars' text and
+  each overlay's over the battlefield are painted within a `BackedText`
+  group (`runtime_match_render.cpp`): each box is laid where its line is
+  drawn and the lines, in either font, once the group ends
+  (`hold_painted_text`, `oa::ui::hud::TextHold`), so that no box covers
+  another line of its group; a fading clock's lines are painted at once
+  (`paint_faded`).
 - **Language** (`runtime_language.cpp`, `language_state.hpp`): the
   language the game shows its text in ([docs/languages.md](../../docs/languages.md)).
   `start_language` asks the operating system for its preferred locales

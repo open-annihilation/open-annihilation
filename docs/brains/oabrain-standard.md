@@ -820,11 +820,12 @@ is 2. It returns nil when the seat's table does not reach the type.
 | `me.side`, `me.side_name` | The side index, and the name of any side the mod loaded. A side past that table has no name. |
 | `me.team` | The team. |
 | `me.color` | The colour. |
-| `me.energy`, `me.metal` | Stocks, as `f32`. |
-| `me.energy_storage`, `me.metal_storage` | Storage, as `f32`. |
-| `me.energy_produced`, `me.metal_produced` | Produced, as `f32`. |
-| `me.energy_requested`, `me.metal_requested` | Requested, as `f32`. |
-| `me.energy_surplus`, `me.metal_surplus` | Surpluses, as Lua numbers. |
+| `me.energy`, `me.metal` | What the stores hold now, in energy and in metal, as `f32`. |
+| `me.energy_storage`, `me.metal_storage` | How much the stores can hold, in energy and in metal, as `f32`. |
+| `me.energy_produced`, `me.metal_produced` | Income, per second, as `f32`. See [7.5.1 The economy](#751-the-economy). |
+| `me.energy_requested`, `me.metal_requested` | Demand, per second, as `f32`: what the seat's units asked for, paid or not. |
+| `me.energy_spent`, `me.metal_spent` | What was actually paid out, per second, as `f32`. Never more than the store and the income could pay. Nil with no match. |
+| `me.energy_surplus`, `me.metal_surplus` | Produced less requested, per second, as Lua numbers. |
 | `me.tick` | The match tick. |
 | `me.handed_over` | False when the seat is made before the built-in player's set-up has run. |
 | `me.refused_assignments` | Assignments the seat refused. |
@@ -865,6 +866,84 @@ still a contact. A contact has no type, no owner and no unit handle.
 `brain.distance` and `brain.direction` measure between two units or two
 positions with the engine's own maths. A unit whose position the seat may
 not read contributes nil.
+
+#### 7.5.1 The economy
+
+Energy and metal are counted in the game's own units, the numbers the
+resource bar shows. Each player's economy settles once a second of game
+time, every 30 ticks. `produced`, `requested`, `spent` and `surplus` are
+the figures of the seat's last settlement: amounts per second. They hold
+until the next settlement, and a turn reads the last one before it. They
+are 0 until the seat's first settlement. `me.energy` and `me.metal` are
+the stores as they are now, which change between settlements.
+
+`produced` is the second's income: each finished unit's EnergyMake and
+MetalMake, a negative EnergyUse (a solar collector's -20 makes 20 energy a
+second), wind and tidal output, metal extracted or made, what was
+reclaimed, and what allies gave. A computer seat's income is scaled by
+its level's difficulty: easy makes half, medium 0.7 of it, hard all of it,
+unless the mod sets its own income rules. `produced` is after that
+scaling.
+
+`requested` is the second's demand: what the seat's units asked for,
+whether it was paid or not. That is construction (a build's cost spread
+over its build time at the builders' rate), a positive EnergyUse while a
+unit is active or moving (upkeep, such as a commander's 1 energy a
+second, or a metal maker's), cloak upkeep, the energy and metal a weapon
+takes per shot, and what the seat gave its allies. It is demand, not
+spending. The resource bar shows `produced` and `requested` as its two
+rates.
+
+`surplus` is `produced` less `requested`, in a Lua number at double
+precision, the same difference the built-in computer player compares with
+0. It is negative whenever the units ask for more than comes in, which is
+nearly every second something is built: building is paid for from the
+store, and income alone rarely covers it.
+
+`spent` is what was actually paid out. A shot, a cloak's upkeep and a
+gift are paid whole from the store, or not at all. The rest is paid at
+the settlement from the store and the second's income together. When
+they cannot pay a unit's share in full, the unit owes what is left: until
+a later settlement pays it, the unit's construction does not advance and
+a metal maker or extractor that owes energy stops, while what the unit
+asks for meanwhile still counts as requested. Owing either resource holds
+construction back, so a builder that owes metal leaves its energy unspent
+too. A settlement pays what is owed first. So `spent` is never more than
+the store held plus the second's income. With enough in store, `spent`
+equals `requested`. With the store empty, `spent` is about the income and
+falls short of `requested`. That difference is the real shortfall; a
+negative `surplus` alone is not.
+
+A worked example, from the base game's data. A Core commander makes 25
+energy and 1 metal a second, uses 1 energy a second, and works through
+300 of a build time a second (its WorkerTime), 10 a tick. A Core solar
+collector costs 790 energy and 141 metal with a build time of 2416, so
+the commander takes 2416 / 300, about 8 seconds, to build it. While it
+builds, every second:
+
+| Figure | Energy | Metal |
+| --- | --- | --- |
+| `produced`, hard | 25 | 1 |
+| `requested` | 790 × 300 / 2416 + 1 = 99.10 | 141 × 300 / 2416 = 17.51 |
+| `surplus`, hard | -74.10 | -16.51 |
+| `spent`, 1000 in store | 99.10 | 17.51 |
+| `produced` and `surplus`, easy | 12.5 and -86.60 | 0.5 and -17.01 |
+
+With 1000 energy in store, the store falls by about 74 a second, nearly
+600 over the build, and the collector is finished at full speed. With an
+empty energy store, `spent` is about the 25 that comes in each second
+while `requested` stays at 99.10: the commander builds one second in four
+and the collector takes about four times as long. With both stores empty,
+once the energy owed is paid the commander still owes metal, so energy
+`spent` drops to the upkeep of 1 while energy `requested` stays at 99.10
+and the energy store fills. An Arm commander has no upkeep, and an Arm
+solar collector costs 760 energy and 145 metal with a build time of 2495:
+91.38 energy and 17.43 metal requested a second.
+
+`me.energy_spent` and `me.metal_spent` came with the engine's 0.8.7. On
+an earlier engine they are nil. A brain that needs them asks for
+`">= 0.8.7"` in `requires.engine`
+([3.7 works-with and requires](#37-works-with-and-requires)).
 
 ### 7.6 What a handle reads
 
@@ -1468,6 +1547,7 @@ ask whether this build meets it. Reading the manifest does not.
 | Bank | The balance a turn spends. It gains 2,000,000 instructions a tick and holds at most 30 ticks. |
 | Loadout entry | One object in the seats JSON: `brain`, `level`, `name`, `options`, `package_sha256`, `place` and `version`. |
 | Handle | The Lua object for one unit slot and one generation. |
+| Settlement | A player's economy settling, once a second of game time: the second's income comes in and the units' requests are paid. |
 | `fixed` | A 16.16 count, 65536 to one world unit. |
 | `f32` | One binary32 value, the width of a player's resources. |
 | Network | A format-1 `.oann` file the manifest names, run with `brain.network`. |

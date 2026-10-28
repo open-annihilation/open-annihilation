@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Composition of the match battlefield frame.
+// Composition of the match battlefield frame, and the groups of text it
+// lays over the backings painted with them (BackedText).
 #include "oa/app/runtime.hpp"
 #include "gui_actions.hpp"
 #include "oa/app/far_view.hpp"
@@ -11,6 +12,8 @@
 #include "oa/app/hook_call.hpp"
 #include "oa/app/match_model_draws.hpp"
 #include "presentation_interpolation.hpp"
+#include "render_run.hpp"
+#include "render_state.hpp"
 #include "world_draws.hpp"
 #include "renderer_weapon_style.hpp"
 #include "xrgb_conversion.hpp"
@@ -24,6 +27,7 @@
 #include "oa/present/raster.hpp"
 #include "oa/present/scene_grid.hpp"
 #include "oa/ui/console/game_fields.hpp"
+#include "oa/ui/hud/backed_text.hpp"
 #include "oa/ui/hud/health_bar.hpp"
 #include "oa/ui/hud/shared_views.hpp"
 #include "oa/present/model/sprite_placement.hpp"
@@ -32,6 +36,7 @@
 #include "oa/present/world_renderer/world_draw_order.hpp"
 #include "oa/present/world_renderer/world_overlays.hpp"
 #include "oa/ui/decoded.hpp"
+#include <SDL3/SDL.h>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -40,7 +45,11 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
+#include <functional>
 #include <iostream>
+#include <limits>
+#include <memory>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -821,6 +830,54 @@ renderer::ButtonCondition Runtime::match_button_condition(std::size_t index) con
     if ((match_hud_held_ == index && hovered_ == index) || match_command_lit(index))
         return renderer::ButtonCondition::pressed;
     return renderer::ButtonCondition::normal;
+}
+
+Runtime::BackedText::BackedText(Runtime& owner)
+    : runtime(&owner), exceptions(std::uncaught_exceptions()) {
+    owner.text_hold_.open(owner.text_backings_shown());
+}
+
+Runtime::BackedText::~BackedText() {
+    // A frame an exception leaves lays nothing more.
+    if (std::uncaught_exceptions() > exceptions)
+        runtime->text_hold_.drop();
+    else
+        runtime->text_hold_.close();
+}
+
+bool Runtime::text_backings_shown() const {
+    const auto settings = game_text_settings();
+    // A line's box comes with the lines the modern fonts draw, whole or the
+    // characters a game font lacks; the message log's backdrop with either
+    // font.
+    return (settings.style.background && modern_fonts_open()) || chat_backdrop_shown();
+}
+
+void Runtime::hold_painted_text(std::function<void()> paint) {
+    text_hold_.hold([this,
+                     target = overlay_target_,
+                     source_space = hud_source_space_,
+                     origin = paint_origin_,
+                     painter = std::move(paint)] {
+        // Painted where the line was drawn, and the frame's paint target
+        // given back after it.
+        struct KeptPaint {
+            Runtime* runtime{};
+            renderer::Surface* kept_target{};
+            bool kept_source_space{};
+            oa::ui::display_layout::Point kept_origin{};
+
+            ~KeptPaint() {
+                runtime->overlay_target_ = kept_target;
+                runtime->hud_source_space_ = kept_source_space;
+                runtime->paint_origin_ = kept_origin;
+            }
+        } const kept{this, overlay_target_, hud_source_space_, paint_origin_};
+        overlay_target_ = target;
+        hud_source_space_ = source_space;
+        paint_origin_ = origin;
+        painter();
+    });
 }
 
 void Runtime::compose_match_hud() {
@@ -2383,6 +2440,8 @@ bool Runtime::draw_match_surface() {
     // The bars shrink as the view zooms out, and keep the game's size at
     // zoom 1 and in.
     const auto bar_size = oa::ui::hud::health_bar_size(match_zoom());
+    // The digits lie over every unit's bar and over each other's boxes.
+    std::optional<BackedText> unit_digits(std::in_place, *this);
     for (const auto& slot : match_->world().slots) {
         if (live_renderer_active())
             break;
@@ -2446,6 +2505,7 @@ bool Runtime::draw_match_surface() {
                 bar_x - 4, bar_y - bar_size.half_height - 10, std::to_string(count), 1
             );
     }
+    unit_digits.reset();
     // The rotated view replaces the battlefield's picture, so it is drawn
     // before what lies over the battlefield: the megamap, the markers and
     // the commander placement. A rotated frame the card cannot draw ends the
@@ -2463,12 +2523,18 @@ bool Runtime::draw_match_surface() {
         // The bars' text keeps to the game fonts' size at most; the chat
         // line follows the text size.
         const PanelText panel(*this);
-        // The unit panel shows the unit under the cursor alone, never the
-        // selection.
-        draw_unit_panel();
-        draw_resource_readout();
-        draw_clock_line(PaintLayer::hud);
-        draw_build_captions();
+        {
+            // The bars' lines lie over every box laid among them: the
+            // unit's status over the rate figures beside it, the figures
+            // and the clock line over each other.
+            const BackedText bars(*this);
+            // The unit panel shows the unit under the cursor alone, never
+            // the selection.
+            draw_unit_panel();
+            draw_resource_readout();
+            draw_clock_line(PaintLayer::hud);
+            draw_build_captions();
+        }
         draw_key_badges();
         call_hook_or_report<&Extension::draw_match_hud>(extension_, hook_error_report(), *this);
     }
@@ -2476,20 +2542,48 @@ bool Runtime::draw_match_surface() {
     paint_on(PaintLayer::battlefield);
     // The markers' map points are placed as the classic view draws them, so
     // the rotated view leaves them out rather than drawing them elsewhere.
-    if (!live_renderer_active())
+    // Each overlay's lines lie over every box laid among them (BackedText).
+    if (!live_renderer_active()) {
+        const BackedText markers(*this);
         draw_whiteboard(painted);
+    }
     draw_middle_pan_marks();
-    draw_commander_placement();
-    draw_match_kill_board();
+    {
+        const BackedText prompt(*this);
+        draw_commander_placement();
+    }
+    {
+        const BackedText board(*this);
+        draw_match_kill_board();
+    }
     // Then the status strip over the bottom of the battlefield. The panels'
     // text keeps to the game fonts' size at most (PanelText).
     {
         const PanelText panel(*this);
+        const BackedText strip(*this);
         draw_status_panel();
     }
-    draw_resource_panel_overlay();
-    draw_clock_line(PaintLayer::battlefield);
-    draw_chat_overlay();
+    {
+        const BackedText rows(*this);
+        draw_resource_panel_overlay();
+    }
+    // The clock line, the game clock and the message log share the
+    // battlefield's top left: their lines lie over each other's boxes and
+    // the log's backdrops alike.
+    {
+        const BackedText lines(*this);
+        draw_clock_line(PaintLayer::battlefield);
+        draw_console_clock();
+        draw_match_message_log();
+    }
+    {
+        const BackedText debug_line(*this);
+        draw_debug_status_line();
+    }
+    {
+        const BackedText stats(*this);
+        draw_frame_stats();
+    }
     draw_key_latch_chips();
     draw_hold_ring();
     draw_extension_overlay();
@@ -2506,6 +2600,178 @@ bool Runtime::draw_match_surface() {
     // Director mode composes its own frame (draw_director_frame).
     if (!match_use_layers_ && !directed)
         compose_match_frame(surface_);
+    return true;
+}
+
+void Runtime::compose_shown_match(renderer::Surface& frame) {
+    // The card drew the battlefield, or magnified the processor's scene,
+    // into a picture the world layer does not hold: that picture is read
+    // back. Any other frame presented the world layer as it stands, the
+    // area pass's picture below zoom 1 among them.
+    const bool card_world = full_frame_drawn();
+    const bool magnified = !card_world && !full_presentation() && !live_renderer_active() &&
+                           accelerated_presentation() &&
+                           accelerated_.frame.method == SceneMethod::magnify &&
+                           accelerated_.magnified;
+    if (!card_world && !magnified) {
+        compose_match_layers(frame);
+        return;
+    }
+    renderer::Surface presented;
+    if (!read_presented_world(presented)) {
+        ensure_screen_world();
+        compose_match_layers(frame);
+        return;
+    }
+
+    // The world layer stays the frame's own: the picture stands in for it
+    // while the canvas is composed.
+    struct WorldBack {
+        renderer::Surface& world;
+        renderer::Surface& kept;
+
+        WorldBack(renderer::Surface& layer, renderer::Surface& picture)
+            : world(layer), kept(picture) {
+            std::swap(world, kept);
+        }
+
+        WorldBack(const WorldBack&) = delete;
+        WorldBack& operator=(const WorldBack&) = delete;
+
+        ~WorldBack() { std::swap(world, kept); }
+    } world_back{match_world_cpu_, presented};
+
+    compose_match_layers(frame);
+}
+
+bool Runtime::read_presented_world(renderer::Surface& world) {
+    if (sdl_.renderer == nullptr || screen_ != Screen::match || !match_ || !match_use_layers_ ||
+        match_hud_cpu_.rgb.empty() || match_world_cpu_.rgb.empty() ||
+        (render_run_ && render_run_->device_lost))
+        return false;
+    const uint32_t bf_w = match_world_cpu_.width;
+    const uint32_t bf_h = match_world_cpu_.height;
+    if (bf_w == 0 || bf_h == 0)
+        return false;
+
+    // The frame drawn again as its tier presents it, from the layers and the
+    // card's state the last frame left, into the window's frame, which the
+    // next frame clears; finish_match_layers neither draws over it nor
+    // presents it.
+    struct ReadingBack {
+        bool& flag;
+
+        explicit ReadingBack(bool& reading) : flag(reading) { flag = true; }
+
+        ReadingBack(const ReadingBack&) = delete;
+        ReadingBack& operator=(const ReadingBack&) = delete;
+
+        ~ReadingBack() { flag = false; }
+    } reading_back{accelerated_.reading_back};
+
+    try {
+        if (full_frame_drawn()) {
+            if (!full_presentation() || !present_full_match_layers(false))
+                return false;
+        } else {
+            present_accelerated_match_layers(false);
+            if (!accelerated_.magnified)
+                return false;
+        }
+    } catch (const AccelerationError&) {
+        // The next frame meets the failure again and handles it.
+        return false;
+    } catch (const PresentError&) {
+        return false;
+    }
+
+    // The battlefield's place in the window's own pixels, through the
+    // logical presentation and the scale the match is drawn with.
+    SDL_Renderer* drawn_on = sdl_.renderer;
+    int logical_width = 0;
+    int logical_height = 0;
+    SDL_RendererLogicalPresentation mode = SDL_LOGICAL_PRESENTATION_DISABLED;
+    SDL_FRect shown{};
+    float scale_x = 1.0F;
+    float scale_y = 1.0F;
+    if (!SDL_GetRenderLogicalPresentation(drawn_on, &logical_width, &logical_height, &mode) ||
+        !SDL_GetRenderLogicalPresentationRect(drawn_on, &shown) ||
+        !SDL_GetRenderScale(drawn_on, &scale_x, &scale_y))
+        return false;
+    if (mode != SDL_LOGICAL_PRESENTATION_DISABLED && logical_width > 0 && logical_height > 0) {
+        scale_x *= shown.w / static_cast<float>(logical_width);
+        scale_y *= shown.h / static_cast<float>(logical_height);
+    } else {
+        shown.x = 0.0F;
+        shown.y = 0.0F;
+    }
+    const SDL_Rect area{
+        static_cast<int>(std::lround(shown.x + static_cast<float>(match_layout_.left) * scale_x)),
+        static_cast<int>(std::lround(shown.y + static_cast<float>(match_layout_.top) * scale_y)),
+        std::max(1, static_cast<int>(std::lround(static_cast<float>(bf_w) * scale_x))),
+        std::max(1, static_cast<int>(std::lround(static_cast<float>(bf_h) * scale_y)))
+    };
+    using SurfaceOwner = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>;
+    SurfaceOwner rgb(nullptr, SDL_DestroySurface);
+    {
+        const RenderState state(drawn_on);
+        state.use_window_pixels();
+        const SurfaceOwner read(SDL_RenderReadPixels(drawn_on, &area), SDL_DestroySurface);
+        rgb.reset(read ? SDL_ConvertSurface(read.get(), SDL_PIXELFORMAT_RGB24) : nullptr);
+    }
+    if (!rgb || rgb->w <= 0 || rgb->h <= 0)
+        return false;
+
+    // Each layout pixel the mean of the window pixels it covers, which at
+    // the layout's own scale is the one pixel under it.
+    const auto read_w = static_cast<uint32_t>(rgb->w);
+    const auto read_h = static_cast<uint32_t>(rgb->h);
+    const auto* pixels = static_cast<const uint8_t*>(rgb->pixels);
+    const auto pitch = static_cast<std::size_t>(rgb->pitch);
+    renderer::Surface picture{bf_w, bf_h, std::vector<uint8_t>(std::size_t{bf_w} * bf_h * 3U)};
+    for (uint32_t y = 0; y < bf_h; ++y) {
+        const uint32_t top = static_cast<uint32_t>(uint64_t{y} * read_h / bf_h);
+        const uint32_t bottom =
+            std::max(top + 1U, static_cast<uint32_t>(uint64_t{y + 1U} * read_h / bf_h));
+        for (uint32_t x = 0; x < bf_w; ++x) {
+            const uint32_t left = static_cast<uint32_t>(uint64_t{x} * read_w / bf_w);
+            const uint32_t right =
+                std::max(left + 1U, static_cast<uint32_t>(uint64_t{x + 1U} * read_w / bf_w));
+            std::array<uint32_t, 3> sum{};
+            for (uint32_t row = top; row < bottom; ++row)
+                for (uint32_t column = left; column < right; ++column) {
+                    const uint8_t* source = pixels + row * pitch + std::size_t{column} * 3U;
+                    for (std::size_t channel = 0; channel < 3; ++channel)
+                        sum[channel] += source[channel];
+                }
+            const uint32_t count = (bottom - top) * (right - left);
+            uint8_t* target = picture.rgb.data() + (std::size_t{y} * bf_w + x) * 3U;
+            for (std::size_t channel = 0; channel < 3; ++channel)
+                target[channel] = static_cast<uint8_t>((sum[channel] + count / 2U) / count);
+        }
+    }
+
+    // The card drew at the display gamma, which the panel's presentation
+    // applies again: each level goes back to the level the gamma takes
+    // nearest to it.
+    if (!gamma_identity_) {
+        std::array<uint8_t, 256> undone{};
+        for (int shown_level = 0; shown_level < 256; ++shown_level) {
+            int nearest = 0;
+            int nearest_distance = std::numeric_limits<int>::max();
+            for (int level = 0; level < 256; ++level) {
+                const int distance = std::abs(int{gamma_table_[level]} - shown_level);
+                if (distance < nearest_distance) {
+                    nearest = level;
+                    nearest_distance = distance;
+                }
+            }
+            undone[shown_level] = static_cast<uint8_t>(nearest);
+        }
+        for (uint8_t& channel : picture.rgb)
+            channel = undone[channel];
+    }
+    world = std::move(picture);
     return true;
 }
 

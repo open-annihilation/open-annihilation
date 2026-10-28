@@ -4,6 +4,7 @@
 #include "oa/app/runtime.hpp"
 #include "renderer_effect_sources.hpp"
 #include "renderer_effects.hpp"
+#include "renderer_water.hpp"
 #include "renderer_water_effects.hpp"
 #include "oa/sim/visibility_state.hpp"
 
@@ -106,6 +107,8 @@ void Runtime::compose_match_effect_pixels(
         return;
     const auto place = match_view_place();
     const auto& settings = engine_settings();
+    // Underwater shimmer's strength, which a lava sea leaves at none.
+    const float shimmer = std::min(water_levels().shimmer, 2.0F);
     std::vector<renderer_effects::Source> projected;
     projected.reserve(match_effect_sources().size());
     constexpr float heat_spatial_frequency = 0.55F;
@@ -131,8 +134,7 @@ void Runtime::compose_match_effect_pixels(
             source.z,
             float(selected_tnt_->sea_level) - source.height,
             match_->simulation().tick / 30.0,
-            std::min(settings.underwater_shimmer, 200U) / 100.0F *
-                std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
+            shimmer * std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
         );
         const float heat = std::clamp(source.heat, 0.0F, 1.0F) * detail[1] * heat_scale * water[3];
         if (light < minimum_light_strength && glow < minimum_glow_strength &&
@@ -253,39 +255,92 @@ void Runtime::compose_match_effect_pixels(
                             ));
         };
         visibility.resize(static_cast<std::size_t>(width) * height);
+        // The compose reads only pixels inside the lights' rectangles. Each
+        // pixel column's map position and cell are worked out once, and a
+        // cell's sight and its eight neighbours' once along a row.
+        uint32_t reach_left = width;
+        uint32_t reach_right = 0;
         for (uint32_t y = 0; y < height; ++y)
-            for (uint32_t x = row_left[y]; x < row_right[y]; ++x) {
-                const float map_x =
-                    static_cast<float>(place[0]) + (origin_x + (x + 0.5F) / scale_x) / zoom;
-                const float map_y =
-                    static_cast<float>(place[1]) + (origin_y + (y + 0.5F) / scale_y) / zoom;
-                const int column = static_cast<int>(std::floor(map_x / cell));
-                const int row = static_cast<int>(std::floor(map_y / cell));
-                if (!visible(column, row))
-                    continue;
-                // Fade toward unseen neighbours without adding light to their pixels.
-                float attenuation = 1;
-                for (int dz = -1; dz <= 1; ++dz)
-                    for (int dx = -1; dx <= 1; ++dx)
-                        if (!visible(column + dx, row + dz)) {
-                            const float distance_x = std::max(
-                                {(column + dx) * cell - map_x,
-                                 map_x - (column + dx + 1) * cell,
-                                 0.0F}
-                            );
-                            const float distance_y = std::max(
-                                {(row + dz) * cell - map_y, map_y - (row + dz + 1) * cell, 0.0F}
-                            );
-                            attenuation = std::min(
-                                attenuation,
-                                std::clamp(
-                                    std::hypot(distance_x, distance_y) / (cell * 0.5F), 0.0F, 1.0F
-                                )
-                            );
-                        }
-                visibility[static_cast<std::size_t>(y) * width + x] =
-                    static_cast<uint8_t>(attenuation * 255);
+            if (row_left[y] < row_right[y]) {
+                reach_left = std::min(reach_left, row_left[y]);
+                reach_right = std::max(reach_right, row_right[y]);
             }
+        std::vector<float> map_xs;
+        std::vector<int> columns;
+        for (uint32_t x = reach_left; x < reach_right; ++x) {
+            const float map_x =
+                static_cast<float>(place[0]) + (origin_x + (x + 0.5F) / scale_x) / zoom;
+            map_xs.push_back(map_x);
+            columns.push_back(static_cast<int>(std::floor(map_x / cell)));
+        }
+        // Bit (dz + 1) * 3 + dx + 1 holds whether the cell dx, dz from a
+        // pixel's own cell is in sight; bit 4 is the pixel's own cell.
+        constexpr uint16_t own_cell = 1U << 4;
+        constexpr uint16_t every_cell = 0x1ff;
+        std::vector<std::array<uint32_t, 2>> spans;
+        for (uint32_t y = 0; y < height; ++y) {
+            if (row_left[y] >= row_right[y])
+                continue;
+            const float map_y =
+                static_cast<float>(place[1]) + (origin_y + (y + 0.5F) / scale_y) / zoom;
+            const int row = static_cast<int>(std::floor(map_y / cell));
+            spans.clear();
+            for (const auto& region : regions)
+                if (region[1] <= y && y < region[3] && region[0] < region[2])
+                    spans.push_back({region[0], region[2]});
+            std::sort(spans.begin(), spans.end());
+            bool sight_known = false;
+            int sight_column = 0;
+            uint16_t in_sight = 0;
+            uint32_t filled = 0;
+            for (const auto& span : spans) {
+                for (uint32_t x = std::max(span[0], filled); x < span[1]; ++x) {
+                    const int column = columns[x - reach_left];
+                    if (!sight_known || column != sight_column) {
+                        in_sight = 0;
+                        for (int dz = -1; dz <= 1; ++dz)
+                            for (int dx = -1; dx <= 1; ++dx)
+                                if (visible(column + dx, row + dz))
+                                    in_sight |=
+                                        static_cast<uint16_t>(1U << ((dz + 1) * 3 + dx + 1));
+                        sight_known = true;
+                        sight_column = column;
+                    }
+                    if ((in_sight & own_cell) == 0)
+                        continue;
+                    uint8_t& pixel_visibility = visibility[static_cast<std::size_t>(y) * width + x];
+                    if (in_sight == every_cell) {
+                        pixel_visibility = 255;
+                        continue;
+                    }
+                    const float map_x = map_xs[x - reach_left];
+                    // Fade toward unseen neighbours without adding light to their pixels.
+                    float attenuation = 1;
+                    for (int dz = -1; dz <= 1; ++dz)
+                        for (int dx = -1; dx <= 1; ++dx)
+                            if ((in_sight & (1U << ((dz + 1) * 3 + dx + 1))) == 0) {
+                                const float distance_x = std::max(
+                                    {(column + dx) * cell - map_x,
+                                     map_x - (column + dx + 1) * cell,
+                                     0.0F}
+                                );
+                                const float distance_y = std::max(
+                                    {(row + dz) * cell - map_y, map_y - (row + dz + 1) * cell, 0.0F}
+                                );
+                                attenuation = std::min(
+                                    attenuation,
+                                    std::clamp(
+                                        std::hypot(distance_x, distance_y) / (cell * 0.5F),
+                                        0.0F,
+                                        1.0F
+                                    )
+                                );
+                            }
+                    pixel_visibility = static_cast<uint8_t>(attenuation * 255);
+                }
+                filled = std::max(filled, span[1]);
+            }
+        }
     }
     renderer_effects::compose(
         {pixels,
@@ -297,7 +352,8 @@ void Runtime::compose_match_effect_pixels(
          depths},
         projected,
         {true, true, settings.heat_distortion != 0},
-        static_cast<double>(match_->simulation().tick) / 30.0
+        static_cast<double>(match_->simulation().tick) / 30.0,
+        draw_pool_.get()
     );
 }
 

@@ -360,6 +360,8 @@ std::string_view label_of(settings::Setting setting) {
         return "Middle-click pans";
     case settings::Setting::escape_opens_menu:
         return "Escape opens the game menu";
+    case settings::Setting::group_keys_centre:
+        return "Group keys centre the view";
     case settings::Setting::switch_alt:
         return "Select groups without Alt";
     case settings::Setting::window_edge:
@@ -498,6 +500,10 @@ std::string_view label_of(settings::Setting setting) {
         return "Drag threshold";
     case settings::Setting::edge_scroll:
         return "Edge scrolling";
+    case settings::Setting::move_overlays:
+        return "Move overlays";
+    case settings::Setting::arrange_overlays:
+        return "Overlay places";
     case settings::Setting::welcome_setup:
         return "Welcome setup";
     case settings::Setting::fog_of_war:

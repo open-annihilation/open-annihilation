@@ -1753,7 +1753,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             renderer_water_classic::Inputs ripples;
             ripples.map = &*selected_tnt_;
             ripples.view.zoom = zoom;
-            ripples.ripples = engine_settings().water_ripples / 100.0F;
+            ripples.ripples = water_levels().ripples;
             ripples.wind = water_wind();
             const double reach = 2.0 * oa::present::gpu_world::tile_edge;
             water_art = renderer_water_classic::art_motion(
@@ -1836,6 +1836,16 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             sprite_inputs.sight.mapping = match_mapping_on();
             sprite_inputs.sight.dithered = fog.dithered;
         }
+        // A feature's frame takes the greyed pass the ground under it takes,
+        // pixel by pixel: the processor greys the features with the ground.
+        full::FogCover fog_cover;
+        if (fogged) {
+            fog_cover.grid = &fog.grid;
+            fog_cover.camera_x = fog.camera_x;
+            fog_cover.camera_z = fog.camera_z;
+            fog_cover.shapes = classic ? &full.fog_shapes : nullptr;
+            sprite_inputs.fog = &fog_cover;
+        }
         sprite_inputs.palette = &match_palette_;
         sprite_inputs.gamma = gamma;
         const full::SpritePageHooks hooks{&full, &FullPresentation::card_page_hook};
@@ -1875,12 +1885,16 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 water.map = &*selected_tnt_;
                 water.view = scene;
                 water.seconds = double(match_->simulation().tick) / 30.0;
-                const auto& water_settings = engine_settings();
-                water.ripples = water_settings.water_ripples / 100.0F;
-                water.coast = water_settings.coastal_waves / 100.0F;
-                water.shimmer = water_settings.underwater_shimmer / 100.0F;
-                water.reflections = water_settings.naval_reflections / 100.0F;
+                // The sliders' strengths, which a lava sea leaves at none.
+                const auto levels = water_levels();
+                water.ripples = levels.ripples;
+                water.coast = levels.coast;
+                water.shimmer = levels.shimmer;
+                water.reflections = levels.reflections;
                 water.water_surface = water_surface();
+                // The water's effects end where the terrain does.
+                const auto shown_map = shown_map_size();
+                water.shown = {float(shown_map[0]), float(shown_map[1])};
                 water.disturbances = water_disturbances();
                 water.wind = water_wind();
                 water.art = &water_art;

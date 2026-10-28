@@ -945,13 +945,17 @@ struct Runtime::SettingsScreen final : LayerScreen {
     [[nodiscard]] bool backdrop() const override { return true; }
 
     /// Lays the dialog out at the view's size class on the main menu, and in
-    /// a match at the class OaLayer::match_dialog gives (Dialog::size_class).
+    /// a match at the class OaLayer::match_dialog gives (Dialog::size_class),
+    /// and gives it the fonts it is drawn in, which its input measures in.
     ///
     /// @param view what the screen is placed on
     void lay_out(const LayerView& view) override {
         auto* dialog = runtime_.engine_settings_dialog();
         if (dialog == nullptr)
             return;
+        // The pointer, the keys and the wheel find each control where the
+        // drawing puts it (draw passes the same fonts on the canvas).
+        dialog->drawn_fonts = runtime_.oa_layer().screen_fonts();
         // Off its match the dialog keeps its class until its tick closes it.
         if (in_match_ && (!view.match || view.match_layout == nullptr))
             return;

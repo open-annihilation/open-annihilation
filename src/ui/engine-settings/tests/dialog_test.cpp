@@ -36,7 +36,9 @@
 // Those names at each size class, and at Regular and Large: every section
 // inside the dialog with its parts apart, hints kept to their lines,
 // Graphics showing more whole rows, the footer's buttons at their Compact
-// sizes, and each control pressed where it is drawn.
+// sizes, and each control pressed where it is drawn. Every control, at each
+// class, answering where the fonts the dialog is drawn in place it, where
+// they wrap its rows otherwise than the estimate.
 // Interface size offering 150% only while Use modern fonts for game text
 // shows On, and turning that switch Off taking 150% back to 100%. Graphics
 // drawn on the canvas's smooth form at 1.5x, every pixel painted whole.
@@ -694,10 +696,11 @@ void each_section_shows_its_rows() {
     // Controls: the layout in use, whether buttons show their key, then the
     // wheel's switch with the zoom's two limits under it, how far past the
     // map's edges the view goes, middle-click panning, whether a window
-    // keeps the pointer, and how firmly a sticky edge holds. Select groups
-    // without Alt stays off this section. While a mod is played, Key layout
-    // with that mod sits under Key layout.
-    CHECK(settings::page_settings(Page::controls).size() == 9);
+    // keeps the pointer, how firmly a sticky edge holds, and whether a
+    // group's key moves the view. Select groups without Alt stays off this
+    // section. While a mod is played, Key layout with that mod sits under Key
+    // layout.
+    CHECK(settings::page_settings(Page::controls).size() == 10);
     CHECK(settings::page_settings(Page::controls)[0] == Setting::key_layout);
     CHECK(settings::page_settings(Page::controls)[1] == Setting::show_keys_on_buttons);
     CHECK(settings::page_settings(Page::controls)[2] == Setting::wheel_zoom);
@@ -707,12 +710,13 @@ void each_section_shows_its_rows() {
     CHECK(settings::page_settings(Page::controls)[6] == Setting::middle_click_pan);
     CHECK(settings::page_settings(Page::controls)[7] == Setting::window_edge);
     CHECK(settings::page_settings(Page::controls)[8] == Setting::window_edge_stickiness);
+    CHECK(settings::page_settings(Page::controls)[9] == Setting::group_keys_centre);
     for (const Setting setting : settings::page_settings(Page::controls))
         CHECK(setting != Setting::switch_alt);
     geometry::RowContext played;
     played.played_mod = true;
     const auto with_mod = geometry::section_settings(Page::controls, nullptr, played);
-    CHECK(with_mod.size() == 10);
+    CHECK(with_mod.size() == 11);
     CHECK(with_mod[0] == Setting::key_layout);
     CHECK(with_mod[1] == Setting::key_layout_for_mod);
     CHECK(with_mod[2] == Setting::show_keys_on_buttons);
@@ -723,6 +727,7 @@ void each_section_shows_its_rows() {
     CHECK(with_mod[7] == Setting::middle_click_pan);
     CHECK(with_mod[8] == Setting::window_edge);
     CHECK(with_mod[9] == Setting::window_edge_stickiness);
+    CHECK(with_mod[10] == Setting::group_keys_centre);
     for (const Setting setting : with_mod)
         CHECK(setting != Setting::switch_alt);
     CHECK(settings::key_layout_summary_text("OA default", 0) == "OA default");
@@ -850,7 +855,7 @@ void each_section_shows_its_rows() {
           "OK"})
         CHECK(find_part(parts, text, settings::no_control) != nullptr);
     const auto controls_rows = geometry::place_rows(Page::controls, {});
-    CHECK(controls_rows.rows.size() == 9);
+    CHECK(controls_rows.rows.size() == 10);
     // View past the map's edge, scrolled into view. The key layout card and
     // the rows down to Maximum zoom in sit above it, so 300 shows the row and
     // its hint.
@@ -862,14 +867,14 @@ void each_section_shows_its_rows() {
           "Up to half the battlefield past the map's edges; a",
           "zoom keeps the ground under the pointer."})
         CHECK(find_part(parts, text, settings::no_control) != nullptr);
-    // The rows from Middle-click pans down, scrolled into view.
+    // The rows from Window edge down, scrolled into view: Group keys centre
+    // the view is the section's last.
     settings::Dialog scrolled = opened(Page::controls);
     scrolled.scroll[static_cast<std::size_t>(Page::controls)] = std::numeric_limits<int32_t>::max();
     parts = settings::dialog_layout(scrolled);
     for (const std::string_view text :
-         {"Middle-click pans",
-          "A middle click pans the view towards the pointer",
-          "until you click or press a key.",
+         {"Group keys centre the view",
+          "On a double press",
           "Window edge",
           "The pointer stays in the window while you play.",
           "Capture",
@@ -2438,6 +2443,7 @@ void the_focus_moves_round_every_control() {
         settings::first_row_control + 5,
         settings::first_row_control + 6,
         settings::first_row_control + 7,
+        settings::first_row_control + 9,
         settings::restore_control,
         settings::cancel_control,
         settings::ok_control,
@@ -2682,7 +2688,8 @@ void sections_that_fit_do_not_scroll() {
     // Each section's content: its rows, and the end gap under the last.
     // Controls' key layout card, Show keys on buttons, Mouse wheel zoom, the
     // zoom's two drop-downs, View past the map's edge's strip, Middle-click
-    // pans, Window edge's strip and Edge stickiness's slider are 603.
+    // pans, Window edge's strip, Edge stickiness's slider and Group keys
+    // centre the view's drop-down are 682.
     // Engine Limits' three sliders, the mod's heading and its two
     // rows are 369. Graphics' twenty-one rows are 1208, Language's
     // drop-down, five switches and slider 424, and User Interface's five
@@ -2692,8 +2699,8 @@ void sections_that_fit_do_not_scroll() {
     const std::array<Page, 5> pages{
         Page::controls, Page::common_tweaks, Page::graphics, Page::language, Page::user_interface
     };
-    const std::array<int32_t, 5> content{603, 369, 1208, 424, 497};
-    const std::array<int32_t, 5> limits{383, 149, 988, 204, 277};
+    const std::array<int32_t, 5> content{682, 369, 1208, 424, 497};
+    const std::array<int32_t, 5> limits{462, 149, 988, 204, 277};
     for (std::size_t index = 0; index < content.size(); ++index) {
         const Page page = pages[index];
         if (limits[index] != 0) {
@@ -6557,8 +6564,8 @@ void hint_lines_part_while_the_modern_fonts_draw_the_words() {
     oa::data::languages::set_interface_language(nullptr, modern);
     const auto tall = geometry::place_rows(Page::controls, {});
     oa::data::languages::set_interface_language(nullptr, oa::data::languages::english());
-    CHECK(game_fonts.rows.size() == 9 && tall.rows.size() == 9);
-    if (game_fonts.rows.size() != 9 || tall.rows.size() != 9)
+    CHECK(game_fonts.rows.size() == 10 && tall.rows.size() == 10);
+    if (game_fonts.rows.size() != 10 || tall.rows.size() != 10)
         return;
     // The key layout card keeps its height. Show keys on buttons wraps to
     // two lines, so it is 3 rows taller beside the modern fonts and the rows
@@ -10361,22 +10368,24 @@ std::vector<int32_t> tab_round(settings::Dialog dialog) {
 }
 
 void the_arrows_move_by_geometry() {
-    // Controls: Down walks the eight of its rows that take the focus (Edge
-    // stickiness, locked while Window edge shows Capture, takes none), and
-    // from the last, which it brings into view, reaches the footer under
-    // it. A row lies across the
-    // section, so Cancel and OK both lie in line with it; Cancel's middle
-    // is nearer the row's. Up comes back to the last row.
+    // Controls: Down walks the nine of its rows that take the focus (Edge
+    // stickiness, locked while Window edge shows Capture, takes none, and
+    // Group keys centre the view comes after it), and from the last, which
+    // it brings into view, reaches the footer under it. A row lies across
+    // the section, so Cancel and OK both lie in line with it; Cancel's
+    // middle is nearer the row's. Up comes back to the last row.
     settings::Dialog controls = opened(Page::controls);
     for (int32_t row = 0; row < 8; ++row) {
         CHECK(settings::dialog_key(controls, DialogKey::down) == DialogAction::redraw);
         CHECK(controls.focused == settings::first_row_control + row);
     }
-    CHECK(inside(geometry::open_rows(controls).rows.rows[7].control_area, geometry::view));
+    CHECK(settings::dialog_key(controls, DialogKey::down) == DialogAction::redraw);
+    CHECK(controls.focused == settings::first_row_control + 9);
+    CHECK(inside(geometry::open_rows(controls).rows.rows[9].control_area, geometry::view));
     CHECK(settings::dialog_key(controls, DialogKey::down) == DialogAction::redraw);
     CHECK(controls.focused == settings::cancel_control);
     CHECK(settings::dialog_key(controls, DialogKey::up) == DialogAction::redraw);
-    CHECK(controls.focused == settings::first_row_control + 7);
+    CHECK(controls.focused == settings::first_row_control + 9);
     // Down from the footer finds nothing: the focus stays.
     controls.focused = settings::ok_control;
     CHECK(settings::dialog_key(controls, DialogKey::down) == DialogAction::none);
@@ -10467,7 +10476,7 @@ void the_arrows_move_by_geometry() {
     };
     CHECK(
         tab_round(opened(Page::controls)) ==
-        then_rest({row, row + 1, row + 2, row + 3, row + 4, row + 5, row + 6, row + 7})
+        then_rest({row, row + 1, row + 2, row + 3, row + 4, row + 5, row + 6, row + 7, row + 9})
     );
     CHECK(tab_round(opened(Page::common_tweaks)) == then_rest({row, row + 1, row + 2}));
     // Language: Text size waits for the modern fonts.
@@ -10986,6 +10995,115 @@ void the_larger_classes_press_each_control_where_it_is_drawn() {
             CHECK(graphics_scroll(dialog) == std::min(geometry::wheel_step, before.limit));
         }
     }
+}
+
+/// Every control of every section answers at the centre of where the fonts
+/// the dialog is drawn in place it, at each size class, at the top of its
+/// section and scrolled to its end, while those fonts wrap the rows' texts
+/// otherwise than the estimate does: the pointer finds the control at the
+/// centre of the part of it a press reaches, and dialog_layout lists its
+/// parts there; on User Interface a click there opens Interface size's and
+/// Window size's drop-downs, and a click on HUD scaling's other half sets
+/// it. The estimate places some of the rows elsewhere, where a press found
+/// them while the dialog's input measured without its fonts.
+void every_control_answers_where_its_fonts_draw_it() {
+    oa::present::GameTextHooks hooks{};
+    hooks.draw = scripted_modern_draw;
+    hooks.settings = scripted_text_settings;
+    oa::present::set_game_text_hooks(hooks);
+    settings::DialogFonts fonts{};
+    // The part of a control a press reaches: its rectangle within its clip.
+    const auto reached = [](const oa::ui::kit::Control& control) {
+        if (control.clip.width <= 0 || control.clip.height <= 0)
+            return control.rect;
+        return oa::ui::kit::intersect(control.rect, control.clip);
+    };
+    bool estimate_differs = false;
+    int32_t pointed_at = 0;
+    for (const auto size_class :
+         {oa::ui::kit::SizeClass::compact,
+          oa::ui::kit::SizeClass::regular,
+          oa::ui::kit::SizeClass::large}) {
+        fonts.size_class = size_class;
+        for (const Page page : kAllPages) {
+            for (const int32_t offset : {0, 100000}) {
+                settings::Dialog dialog = opened_at(size_class, page);
+                dialog.scroll[static_cast<std::size_t>(page)] = offset;
+                const auto estimated = geometry::dialog_list(dialog, nullptr);
+                dialog.drawn_fonts = &fonts;
+                const auto drawn = geometry::dialog_list(dialog, &fonts);
+                const auto parts = settings::dialog_layout(dialog);
+                for (const oa::ui::kit::Control& control : drawn.controls) {
+                    const renderer::SourceRect area = reached(control);
+                    // A control the view cuts is pressed where it shows, and
+                    // one it hides not at all.
+                    if (!control.enabled || area.width <= 0 || area.height < control.rect.height)
+                        continue;
+                    const oa::ui::kit::Control* guessed =
+                        oa::ui::kit::control_of(estimated, control.id);
+                    if (guessed == nullptr || !same_entry(reached(*guessed), area))
+                        estimate_differs = true;
+                    const Point point = centre(area);
+                    settings::Dialog pointed = dialog;
+                    static_cast<void>(settings::dialog_pointer_move(pointed, point.x, point.y));
+                    ++pointed_at;
+                    if (pointed.hovered != control.id)
+                        std::cerr << class_name(size_class) << " " << control.name << " at "
+                                  << point.x << "," << point.y << " finds " << pointed.hovered
+                                  << ", not " << control.id << "\n";
+                    CHECK(pointed.hovered == control.id);
+                    // A part listed for the control lies where it is reached.
+                    for (const settings::LayoutPart& part : parts)
+                        if (part.control == control.id && part.text.empty())
+                            CHECK(inside(part.rect, control.rect));
+                }
+            }
+        }
+        // User Interface, where Interface size answered under where it was
+        // drawn at 150% and 200%: each control is scrolled into view first.
+        const auto shown = [&](std::string_view name) {
+            settings::Dialog dialog = opened_at(size_class, Page::user_interface);
+            dialog.drawn_fonts = &fonts;
+            for (int32_t offset = 0; offset <= 2000; offset += 8) {
+                dialog.scroll[static_cast<std::size_t>(Page::user_interface)] = offset;
+                for (const oa::ui::kit::Control& control :
+                     geometry::dialog_list(dialog, &fonts).controls) {
+                    const renderer::SourceRect area = reached(control);
+                    if (control.name == name && area.width > 0 &&
+                        area.height == control.rect.height)
+                        return std::pair{dialog, control};
+                }
+            }
+            return std::pair{dialog, oa::ui::kit::Control{}};
+        };
+        for (const std::string_view name : {"settings.interface-size", "settings.window-size"}) {
+            auto [clicked, field] = shown(name);
+            CHECK(field.id != settings::no_control);
+            if (field.id == settings::no_control)
+                continue;
+            static_cast<void>(click(clicked, centre(reached(field))));
+            if (clicked.open_list != field.id)
+                std::cerr << class_name(size_class) << " " << name << " did not open\n";
+            CHECK(clicked.open_list == field.id);
+        }
+        auto [flipped, hud] = shown("settings.hud-scaling");
+        CHECK(hud.id != settings::no_control);
+        const bool was = flipped.chosen.hud_scaling;
+        const std::string_view other = was ? geometry::off_text : geometry::on_text;
+        const auto halves = settings::dialog_layout(flipped);
+        const auto half =
+            std::find_if(halves.begin(), halves.end(), [&](const settings::LayoutPart& part) {
+                return part.control == hud.id && part.text == other;
+            });
+        CHECK(half != halves.end());
+        if (half != halves.end()) {
+            static_cast<void>(click(flipped, centre(half->rect)));
+            CHECK(flipped.chosen.hud_scaling != was);
+        }
+    }
+    CHECK(estimate_differs);
+    CHECK(pointed_at > 300);
+    oa::present::set_game_text_hooks({});
 }
 
 /// The nav's texts, top to bottom: entries and owner names. The footer's
@@ -12119,6 +12237,7 @@ int main(int argc, char** argv) {
         rows_start_under_each_class_header();
         updates_entry_shows_its_badge_where_the_caption_keeps_its_width();
         the_larger_classes_press_each_control_where_it_is_drawn();
+        every_control_answers_where_its_fonts_draw_it();
         registered_pages_list_under_their_owners_and_write_on_ok();
     }
     if (failures != 0)

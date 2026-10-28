@@ -87,11 +87,16 @@ void Match::run_load_pass() {
     sim::ai::prepare_match_computer_players(*this);
     advance_path_search();
     update_player_slots();
-    if (!input_.resuming_saved_game)
+    if (!input_.resuming_saved_game) {
         for (std::size_t player = 0; player < stores.size(); ++player) {
             game.players[player].energy = stores[player][0];
             game.players[player].metal = stores[player][1];
         }
+        // The stores the pass settled are put back, so the next settlement
+        // does not measure from what the pass left.
+        for (auto& spending : settled_spending_)
+            spending.stores_left_known = false;
+    }
     simulation_.tick = clock_tick;
 }
 

@@ -103,3 +103,5 @@ hacks:
 | --- | --- | --- |
 | `game.team-menu` | `Tab, Shift+Tab` | The allies menu |
 <!-- END GENERATED: keys -->
+
+These keys move in the [key editor](../../keys.md#the-key-editor), in **Game**, while this hack is on.

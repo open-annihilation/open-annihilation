@@ -220,7 +220,7 @@ distortion at 0%, and its pinned sound with them at their defaults. With a
 named file Hardware acceleration and Vertical sync are
 Off, and the windowed checks' `SDL_RENDER_DRIVER=software` locks both, so no
 check draws through the graphics card or waits for the display; game text
-keeps the game's own fonts there too, as modern fonts are Off. Five
+keeps the game's own fonts there too, as modern fonts are Off. Six
 checks pass `--force-capable`, which lifts those locks:
 `native-engine-settings`, so that it can turn Vertical sync On and read it
 back, and set Hardware acceleration to Basic, Full and Off through the
@@ -257,6 +257,13 @@ panel among them, leaves to the card in the Full tier what of it lies over
 the battlefield, and the cases above hold it to what it asks: beside the
 processor's picture, under the fog, over the never-mapped ground's black
 and over the kill board.
+`native-underwater-features` draws metal patches on the sea bed of Steel
+Jungle, in open water, at a shore and at the edge of a boat's sight, in
+the Off, Basic and Full tiers with `--hardware-acceleration`, and holds
+each to the processor's picture: exactly with the water's effects off and
+the fog Classic, in the processor's colours with the water's effects at
+their defaults, and pixel by pixel through the Smooth fog's edge; its
+pictures go to `local/reports` in its folder of the build tree.
 
 No window of a check opens at the display's own pixel density but
 `native-render-tiers-density`'s, which `--native-density` opens so, and
@@ -305,7 +312,7 @@ up to four threads, one on a machine of one or two logical processors.
 `OA_DRAW_THREADS` (1 to 32) sets the count for every run of the game a test
 starts, and `--draw-threads N` for one run; every count draws the same
 frames, which `native-draw-threads`, `world-draw-bands`,
-`app-xrgb-conversion`, `present-surface-band`,
+`app-xrgb-conversion`, `app-renderer-effects`, `present-surface-band`,
 `model-render-rgb-bridge` and `model-render-mesh-raster`
 check. To run the whole suite on one drawing thread, or on many:
 
@@ -600,9 +607,13 @@ dialog's field and scrolls a skirmish's camera with an arrow key the
 endpoint holds down; `native-automation-frame`
 (`tools/check_native_automation_frame.py`) asks the game on the main menu
 for the frames it presents, in a 640x480 window and in a 1280x720 one,
-and checks them against the frame it composed; and
-`native-automation-digest` (`tools/check_native_automation_digest.py`)
-plays a recorded network game back in the main loop with and without the
+and checks them against the frame it composed;
+`native-automation-hit-areas` (`tools/check_native_automation_hit_areas.py`)
+presses every control of Settings, and clicks a sample of the Library's
+and the key editor's, at the centre of where it is drawn, at each
+Interface size and Window size Settings offers in both looks, and
+requires each to answer there; and `native-automation-digest`
+(`tools/check_native_automation_digest.py`) plays a recorded network game back in the main loop with and without the
 endpoint, a client reading the match and every event at every frame, and
 requires the same trace stream.
 `native-automation-extension-windows`
@@ -718,6 +729,19 @@ walk runs:
   back lifts, and, tripped while Full draws, drops Full first, freeing its
   pages, and Basic at the next sample while memory stays short. Each skips
   under 2 GiB.
+
+`native-dialog-backdrop` (`--check-dialog-backdrop`) opens the in-game
+briefing, the save dialog and the help dialog over a paused CORE mission
+at sea in the standard, Basic and Full tiers, at zoom 1, 1.5, 2 and 0.5,
+and holds the frame presented with each dialog to the frame presented
+without it in every battlefield pixel outside the dialog's panel, the
+units' among them, and at a raised display gamma the Full tier's within
+half a step of the gamma's levels. Unlike the checks above it leaves the video driver to
+the environment: on SDL's dummy driver it runs on the software renderer,
+switched to every tier as `--force-capable` allows, and on a machine with
+a graphics card, run without `SDL_VIDEO_DRIVER=dummy`, on the card (Metal
+on a Mac), in a window. It writes the frames at zoom 1, and any that
+differ, to `local/reports` in its folder, and skips under 2 GiB.
 
 ### Touch controls
 
@@ -1102,7 +1126,21 @@ off putting every overlay back while keeping the places. With
 `arrange-overlays-match-1280x720.ppm` and `overlays-default-1280x720.ppm`.
 `native-keys-overlay-restart` starts the game again on the preferences the
 first run left, Move overlays on, and finds the keys overlay and the chat
-line where they were put. `native-match-layers` holds the frame a match
+line where they were put. `native-selection-keys`
+(`--check-selection-keys`) presses each of 3.1c's Ctrl+letter keys in a
+skirmish as the system sends them: the modifier's own key down first, the
+key down and up, then the modifier up, each through the event queue with
+the pointer moving between them. It plants radar, sonar and jammer units,
+a fighter, a bomber, a scout plane and armed kbots, and an enemy radar
+tower, and requires Ctrl+A to take only the units that can be selected,
+each other selection the loaded data's Category words name,
+the rings Ctrl+R draws on the minimap, Ctrl+Shift+R and Ctrl+Shift+P
+adding, Ctrl+1 and its group key, and Primary+/ opening and closing the
+keys overlay. It plays Group keys centre the view each way: On a double
+press, one press of the group's key selects it and leaves the view, two
+quick presses centre the view on it and two slow ones do not; Never leaves
+the view; On every press leaves the view on the first press and centres it
+on a later press, past the double-press time. `native-match-layers` holds the frame a match
 ends on to the one the game kept with Show keys on buttons Off, since the
 key badges are drawn on the presented frame alone.
 
@@ -1505,6 +1543,17 @@ on the deep water must stand on their build grid at the sea level less
 their waterlines, a solar collector on a hill at the lowest corner under
 its footprint, read from the map with `oa-tool asset-extract`, and a patrol
 boat at a placed one's height, each to the end of the run.
+`native-lava-water-effects` (`tools/check_native_lava_water_effects.py`)
+finds a shore of flat land beside the sea in three maps' terrain, read with
+`oa-tool asset-extract`: Lava & Two Hills (`lavaworld=1`), Higher Ground
+(`lavaworld=1` and `nosealeveltrigger=1`) and Coast To Coast. On each, a
+stage walks a kbot along the shore's edge while two destroyers off it
+shell each other, and a director script renders it on the graphics card's
+Full tier, four seconds in the classic view and four turned, once with
+the four water effects at 100% and once at 0%. On the lava worlds every
+frame of the two renders is the same picture; on Coast To Coast every
+frame differs. It needs the system's video driver and skips under SDL's
+dummy driver; `--pictures DIR` keeps a still of each view of each render.
 
 ## Writing a test
 
