@@ -265,6 +265,16 @@ inline constexpr int32_t filters_group = 3;
     return first_action + static_cast<kit::ControlId>(action);
 }
 
+/// Returns how far apart the list's rows lie, from their height: the row and
+/// a gap of an eighth of it under it, 4 points under Compact's 36-point row,
+/// so the tags of one row stand clear of the title of the next.
+///
+/// @param row_height the rows' height, in points
+/// @return the step from one row's top to the next's, in points
+[[nodiscard]] constexpr int32_t list_row_step(int32_t row_height) noexcept {
+    return row_height + row_height / 8;
+}
+
 /// Tells whether a control is a row's.
 ///
 /// @param id the control
