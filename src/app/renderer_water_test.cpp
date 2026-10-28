@@ -93,9 +93,11 @@ int main() {
         picture.attributes.resize(16);
         picture.tile_count = 2;
         picture.tile_indices = {0, 1, 0, 1};
-        picture.tile_palette_indices.assign(2 * 1024, 1);
+        picture.tile_palette_indices.assign(2 * 1024, uint8_t{1});
         std::fill(
-            picture.tile_palette_indices.begin() + 1024, picture.tile_palette_indices.end(), 2
+            picture.tile_palette_indices.begin() + 1024,
+            picture.tile_palette_indices.end(),
+            uint8_t{2}
         );
         std::array<uint8_t, 768> palette{};
         palette[3] = 40, palette[4] = 120, palette[5] = 60;
