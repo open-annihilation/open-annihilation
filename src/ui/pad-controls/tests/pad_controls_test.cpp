@@ -926,25 +926,24 @@ void layer_tables() {
                 if (trackpads)
                     groups.push_back(group(PadButton::left_pad, 0));
                 check_table(ctx, Layer::groups, groups);
-                check_table(
-                    ctx,
-                    Layer::game,
-                    with_grips(
-                        {
-                            row(PadButton::a, Action::chat),
-                            row(PadButton::b, Action::kill_board),
-                            row(PadButton::x, Action::pause),
-                            row(PadButton::y, Action::health_bars),
-                            row(PadButton::dpad_up, Action::faster),
-                            row(PadButton::dpad_down, Action::slower),
-                            row(PadButton::dpad_left, Action::clear_messages),
-                            row(PadButton::dpad_right, Action::team_menu),
-                            row(PadButton::l1, Action::share_panel),
-                            row(PadButton::r2, Action::screenshot),
-                        },
-                        grips
-                    )
+                auto game = with_grips(
+                    {
+                        row(PadButton::a, Action::chat),
+                        row(PadButton::b, Action::kill_board),
+                        row(PadButton::x, Action::pause),
+                        row(PadButton::y, Action::health_bars),
+                        row(PadButton::dpad_up, Action::faster),
+                        row(PadButton::dpad_down, Action::slower),
+                        row(PadButton::dpad_left, Action::clear_messages),
+                        row(PadButton::dpad_right, Action::team_menu),
+                        row(PadButton::l1, Action::share_panel),
+                        row(PadButton::r2, Action::screenshot),
+                    },
+                    grips
                 );
+                if (!fallback)
+                    game.push_back(row(PadButton::r1, Action::keys_overlay));
+                check_table(ctx, Layer::game, game);
                 check_table(
                     ctx,
                     Layer::standing_orders,
@@ -1107,6 +1106,7 @@ void chords_for_every_badge() {
     OA_CHECK(
         chord_is(pad::chord_for(deck, Action::unit_info), PadButton::none, PadButton::view, true)
     );
+    OA_CHECK(chord_is(pad::chord_for(deck, Action::keys_overlay), PadButton::view, PadButton::r1));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::left_button), PadButton::none, PadButton::r2));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::right_button), PadButton::none, PadButton::l2));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::order_ring), PadButton::none, PadButton::r1));
@@ -1157,6 +1157,7 @@ void chords_for_every_badge() {
     OA_CHECK(chord_is(
         pad::chord_for(xbox, Action::build_ring), PadButton::none, PadButton::l1, false, true
     ));
+    OA_CHECK(!pad::chord_for(xbox, Action::keys_overlay));
     OA_CHECK(!pad::chord_for(xbox, Action::force));
     OA_CHECK(!pad::chord_for(xbox, Action::self_destruct));
     OA_CHECK(chord_is(pad::chord_for(xbox, Action::pause), PadButton::menu, PadButton::x));
@@ -1177,6 +1178,7 @@ void chords_for_every_badge() {
     OA_CHECK(chord_is(pad::chord_for(left, Action::group, 1), PadButton::r5, PadButton::dpad_up));
     OA_CHECK(chord_is(pad::chord_for(left, Action::group, 9), PadButton::r5, PadButton::right_pad));
     OA_CHECK(chord_is(pad::chord_for(left, Action::pause), PadButton::view, PadButton::x));
+    OA_CHECK(chord_is(pad::chord_for(left, Action::keys_overlay), PadButton::view, PadButton::l1));
     OA_CHECK(chord_is(pad::chord_for(left, Action::centre), PadButton::none, PadButton::r3));
 }
 

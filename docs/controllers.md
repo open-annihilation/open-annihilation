@@ -161,6 +161,7 @@ adds.
 | D-pad ← | Clears the messages | F12 |
 | D-pad → | The team menu (multiplayer), the next primary unit (single player) | Tab |
 | L1 | The share panel (multiplayer), the previous primary unit (single player) | h, Shift+Tab |
+| R1 | The keys overlay | Cmd+/ or Ctrl+/ |
 | R2 | A screenshot | Ctrl+F9 |
 
 **Standing orders (hold R5 with a face button or the D-pad).** R5 with R2
@@ -378,7 +379,8 @@ over the battlefield, beside the 3.1c screen:
 ([touch-controls.md](touch-controls.md)), and each control gains a small
 badge with its gamepad input when a gamepad has been used in this run:
 QUEUE R4, ADD L4, CLEAR B, SELECT ▾ D-pad ←, PAUSE View+X, CHAT View+A,
-CENTRE L3, FOLLOW R3, NEXT D-pad → and INFO View. The FORCE chip joins the
+CENTRE L3, FOLLOW R3, NEXT D-pad → and INFO View. The keys overlay is
+View+R1. The FORCE chip joins the
 thumb column. Badges change how controls look, never where they are. The
 long-press help on a touch control names the gamepad input too, for
 example "QUEUE: hold or tap R4".

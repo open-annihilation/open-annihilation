@@ -19,6 +19,7 @@
 #include "oa/app/runtime.hpp"
 #include "engine_settings_state.hpp"
 #include "pad_state.hpp"
+#include "oa_layer.hpp"
 #include "touch_state.hpp"
 #include "oa/app/frame_pacing.hpp"
 #include "oa/app/game_directory.hpp"
@@ -33,6 +34,7 @@
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/hud/camera_scroll.hpp"
 #include "oa/ui/hud/kill_board.hpp"
+#include "oa/ui/key_editor/overlay.hpp"
 #include "oa/ui/pad_controls.hpp"
 #include "oa/ui/touch_hud.hpp"
 #include <SDL3/SDL.h>
@@ -3061,9 +3063,9 @@ struct PadCheckAccess {
     }
 
     /// K13. View: a tap shows the info of the unit under the pointer, held it is the game
-    /// layer (View and X pause) and its release then is no tap. Menu opens the in-game menu,
-    /// where the D-pad moves the focus as the arrow keys do, A presses as Space does and B goes
-    /// back as Escape does.
+    /// layer (View and X pause, and View and R1 toggles the keys overlay) and its release
+    /// then is no tap. Menu opens the in-game menu, where the D-pad moves the focus as the
+    /// arrow keys do, A presses as Space does and B goes back as Escape does.
     static void case_view_and_menu(Runtime& runtime, PadRun& run) {
         require_attached(run.deck);
         const auto a = run.peewees[0];
@@ -3078,6 +3080,24 @@ struct PadCheckAccess {
         );
         runtime.close_unit_info();
         step(runtime, run, kFrameMs);
+        const auto overlay_open = [&] {
+            return runtime.oa_layer().find(oa::ui::key_editor::name_keys_overlay) != nullptr;
+        };
+        push(runtime, run, run.deck, pad::PadButton::view);
+        tap(runtime, run, run.deck, pad::PadButton::r1);
+        require(overlay_open(), Part::dispatch, "View held with R1 did not open the keys overlay");
+        tap(runtime, run, run.deck, pad::PadButton::r1);
+        require(
+            !overlay_open(),
+            Part::dispatch,
+            "View held with R1 again did not close the keys overlay"
+        );
+        lift(runtime, run, run.deck, pad::PadButton::view);
+        require(
+            !runtime.unit_info_panel_.has_value(),
+            Part::dispatch,
+            "View's release after the keys overlay gave its tap too"
+        );
         push(runtime, run, run.deck, pad::PadButton::view);
         tap(runtime, run, run.deck, pad::PadButton::x);
         const bool paused_by_pad = paused(runtime);
