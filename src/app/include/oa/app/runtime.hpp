@@ -16818,7 +16818,8 @@ class Runtime final : public menu::Host,
     /// Pictures of the tree and the units in each tier, On, Off and without
     /// shadows, go to the report. The units stay in the match; the settings
     /// and the shadows' option are put back. Ends in the last tier given.
-    /// Throws std::runtime_error on a failure.
+    /// A game with none of the tanks or none of the aircraft skips the cases
+    /// and leaves the tier as it was. Throws std::runtime_error on a failure.
     ///
     /// @param set_level sets the flag's level and decides the tier again
     /// @param levels the tiers checked, by the level that draws in each,
