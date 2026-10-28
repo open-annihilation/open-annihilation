@@ -678,7 +678,7 @@ OverlayLayout overlay_layout(
     const int32_t close_side = button_h;
     kit::ButtonLook edit_look;
     edit_look.caption = edit;
-    edit_look.style = kit::ButtonStyle::quiet;
+    edit_look.style = kit::ButtonStyle::plain;
     const int32_t edit_w = std::min(
         kit::text_width(fonts, kit::FontRole::small, edit) + 2 * metrics.chip_padding + kLineGap,
         inner

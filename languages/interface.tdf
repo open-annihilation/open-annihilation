@@ -7434,14 +7434,6 @@
 	it=ORA;
 	}
 
-[Name this layout]
-	{
-	de=Diese Tastenbelegung benennen;
-	fr=Nommer cette disposition des touches;
-	es=Nombrar esta distribución de teclas;
-	it=Dai un nome a questa disposizione dei tasti;
-	}
-
 [Nanolathe glow]
 	{
 	de=Nanolathe-Leuchten;
@@ -17594,6 +17586,110 @@
 	it=Prendi altri cervelli...;
 	}
 
+[OA Settings]
+	{
+	de=OA-Einstellungen;
+	fr=Réglages OA;
+	es=Ajustes de OA;
+	it=Impostazioni OA;
+	}
+
+[Side panel]
+	{
+	de=Seitenleiste;
+	fr=Panneau latéral;
+	es=Panel lateral;
+	it=Pannello laterale;
+	}
+
+[Top bar]
+	{
+	de=Obere Leiste;
+	fr=Barre du haut;
+	es=Barra superior;
+	it=Barra superiore;
+	}
+
+[Bottom bar]
+	{
+	de=Untere Leiste;
+	fr=Barre du bas;
+	es=Barra inferior;
+	it=Barra inferiore;
+	}
+
+[Ready when you are]
+	{
+	de=Bereit, wenn ihr es seid;
+	fr=Prêt quand vous voulez;
+	es=Listo cuando queráis;
+	it=Pronto quando volete;
+	}
+
+[Move overlays]
+	{
+	de=Overlays verschieben;
+	fr=Déplacer les surcouches;
+	es=Mover las capas;
+	it=Sposta gli overlay;
+	}
+
+[The keys overlay, the chat line and the latch chips show where you put them.]
+	{
+	de=Das Tasten-Overlay, die Chatzeile und die Einrast-Chips stehen dort, wo du sie hingelegt hast.;
+	fr=La surcouche des touches, la ligne de discussion et les pastilles de verrou s'affichent là où tu les as mises.;
+	es=La capa de teclas, la línea de chat y las fichas de fijado aparecen donde las pusiste.;
+	it=L'overlay dei tasti, la riga di chat e i chip di blocco compaiono dove li hai messi.;
+	}
+
+[Off, they show where the game puts them.]
+	{
+	de=Aus: Sie stehen dort, wo das Spiel sie hinlegt.;
+	fr=Désactivé, elles s'affichent là où le jeu les met.;
+	es=Desactivado, aparecen donde las pone el juego.;
+	it=Disattivato, compaiono dove li mette il gioco.;
+	}
+
+[Overlay places]
+	{
+	de=Overlay-Positionen;
+	fr=Places des surcouches;
+	es=Lugares de las capas;
+	it=Posizioni degli overlay;
+	}
+
+[Your places]
+	{
+	de=Deine Positionen;
+	fr=Tes places;
+	es=Tus lugares;
+	it=Le tue posizioni;
+	}
+
+[The game's places]
+	{
+	de=Positionen des Spiels;
+	fr=Places du jeu;
+	es=Lugares del juego;
+	it=Posizioni del gioco;
+	}
+
+[Arrange…]
+	{
+	de=Anordnen…;
+	fr=Disposer…;
+	es=Colocar…;
+	it=Disponi…;
+	}
+
+[Drag them on a picture of the match. Each window size keeps its own places.]
+	{
+	de=Zieh sie auf einem Bild der Partie zurecht. Jede Fenstergröße behält ihre eigenen Positionen.;
+	fr=Fais-les glisser sur une image de la partie. Chaque taille de fenêtre garde ses propres places.;
+	es=Arrástralas sobre una imagen de la partida. Cada tamaño de ventana guarda sus propios lugares.;
+	it=Trascinali su un'immagine della partita. Ogni dimensione della finestra conserva le proprie posizioni.;
+	}
+
 [Mutators · off]
 	{
 	de=Mutatoren · keine;
@@ -19986,14 +20082,6 @@
 	it=Chip di blocco;
 	}
 
-[Overlays]
-	{
-	de=Overlays;
-	fr=Surcouches;
-	es=Capas;
-	it=Overlay;
-	}
-
 [Drag an overlay where it suits you. Each screen size keeps its own places.]
 	{
 	de=Zieh ein Overlay dorthin, wo es dir passt. Jede Bildschirmgröße behält ihre eigenen Plätze.;
@@ -20114,12 +20202,92 @@
 	it=Dettagli…;
 	}
 
-[Duplicate…]
+[Clone…]
 	{
-	de=Duplizieren…;
-	fr=Dupliquer…;
-	es=Duplicar…;
-	it=Duplica…;
+	de=Klonen…;
+	fr=Cloner…;
+	es=Clonar…;
+	it=Clona…;
+	}
+
+[Rename and Describe…]
+	{
+	de=Umbenennen und beschreiben…;
+	fr=Renommer et décrire…;
+	es=Renombrar y describir…;
+	it=Rinomina e descrivi…;
+	}
+
+[Clone {layout}]
+	{
+	de={layout} klonen;
+	fr=Cloner {layout};
+	es=Clonar {layout};
+	it=Clona {layout};
+	}
+
+[Rename and Describe {layout}]
+	{
+	de={layout} umbenennen und beschreiben;
+	fr=Renommer et décrire {layout};
+	es=Renombrar y describir {layout};
+	it=Rinomina e descrivi {layout};
+	}
+
+[Description]
+	{
+	de=Beschreibung;
+	fr=Description;
+	es=Descripción;
+	it=Descrizione;
+	}
+
+[Copy of {layout}]
+	{
+	de=Kopie von {layout};
+	fr=Copie de {layout};
+	es=Copia de {layout};
+	it=Copia di {layout};
+	}
+
+[Based on {layout}]
+	{
+	de=Basiert auf {layout};
+	fr=Basée sur {layout};
+	es=Basada en {layout};
+	it=Basata su {layout};
+	}
+
+[A key layout of your own, from {layout} and your changes. It opens here; Save changes keeps it, and Share… saves it as a file.]
+	{
+	de=Eine eigene Tastenbelegung aus {layout} und deinen Änderungen. Sie öffnet sich hier; Änderungen speichern behält sie, und Teilen… speichert sie als Datei.;
+	fr=Une disposition des touches à toi, faite de {layout} et de tes changements. Elle s'ouvre ici ; Enregistrer la garde, et Partager… l'enregistre dans un fichier.;
+	es=Una distribución de teclas propia, de {layout} y tus cambios. Se abre aquí; Guardar cambios la conserva, y Compartir… la guarda como archivo.;
+	it=Una disposizione dei tasti tutta tua, da {layout} e dalle tue modifiche. Si apre qui; Salva le modifiche la conserva, e Condividi… la salva come file.;
+	}
+
+[Another key layout is called {name}.]
+	{
+	de=Eine andere Tastenbelegung heißt bereits {name}.;
+	fr=Une autre disposition des touches s'appelle déjà {name}.;
+	es=Otra distribución de teclas ya se llama {name}.;
+	it=Un'altra disposizione dei tasti si chiama già {name}.;
+	}
+
+[This name is too long.]
+	{
+	de=Dieser Name ist zu lang.;
+	fr=Ce nom est trop long.;
+	es=Este nombre es demasiado largo.;
+	it=Questo nome è troppo lungo.;
+	}
+
+[Clone]
+	{
+	de=Klonen;
+	fr=Cloner;
+	es=Clonar;
+	it=Clona;
 	}
 
 [Empty]
@@ -20344,14 +20512,6 @@
 	fr=Retirer;
 	es=Quitar;
 	it=Rimuovi;
-	}
-
-[Rename…]
-	{
-	de=Umbenennen…;
-	fr=Renommer…;
-	es=Renombrar…;
-	it=Rinomina…;
 	}
 
 [Replacing keeps {installed}, and Roll back in the Library brings it back.]

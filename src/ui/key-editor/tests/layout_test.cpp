@@ -736,6 +736,58 @@ void check_prompts(const kit::Frame& frame, const std::string& where) {
         };
         OA_CHECK(list.tab_order == expected);
     }
+    {
+        // Clone's question: the name and description fields, the line under
+        // them, Cancel and Clone at control height, Tab through them in that
+        // order; a taken name says so and keeps Clone off.
+        editor::ScreenState state;
+        state.prompt = editor::Prompt::clone;
+        state.layout_name_field.text = model.clone_name();
+        state.layout_description_field.text = "Based on Ridge grid";
+        const kit::DisplayList list = laid_out(model, state, frame);
+        check_list(list, where + " clone");
+        const kit::Metrics& metrics = kit::metrics_of(frame.size_class);
+        for (const std::string_view name :
+             {editor::name_layout_name,
+              editor::name_layout_description,
+              editor::name_layout_status,
+              editor::name_layout_ok,
+              editor::name_layout_cancel})
+            require_named(list, name, where + " clone");
+        for (const std::string_view name : {editor::name_layout_ok, editor::name_layout_cancel}) {
+            const kit::Control* button = find_named(list, name);
+            OA_CHECK(button != nullptr && button->rect.height == metrics.control_height);
+        }
+        OA_CHECK(control_enabled(list, editor::name_layout_ok));
+        const std::vector<kit::ControlId> expected{
+            kit::control_named(list, editor::name_layout_name),
+            kit::control_named(list, editor::name_layout_description),
+            kit::control_named(list, editor::name_layout_cancel),
+            kit::control_named(list, editor::name_layout_ok),
+        };
+        OA_CHECK(list.tab_order == expected);
+        const kit::Control* status = find_named(list, editor::name_layout_status);
+        OA_CHECK(status != nullptr && status->text.find("Clone Ridge grid") == 0);
+
+        state.layout_name_field.text = "ridge GRID";
+        const kit::DisplayList taken = laid_out(model, state, frame);
+        check_list(taken, where + " clone taken");
+        OA_CHECK(!control_enabled(taken, editor::name_layout_ok));
+        const kit::Control* said = find_named(taken, editor::name_layout_status);
+        OA_CHECK(
+            said != nullptr &&
+            said->text.find("Another key layout is called ridge GRID.") != std::string::npos
+        );
+
+        state.prompt = editor::Prompt::describe;
+        state.layout_name_field.text = "Ridge grid";
+        state.layout_description_field.text = {};
+        const kit::DisplayList same = laid_out(model, state, frame);
+        check_list(same, where + " describe");
+        OA_CHECK(!control_enabled(same, editor::name_layout_ok));
+        state.layout_description_field.text = "Mine";
+        OA_CHECK(control_enabled(laid_out(model, state, frame), editor::name_layout_ok));
+    }
 }
 
 /// True for one key of the keyboard picture.

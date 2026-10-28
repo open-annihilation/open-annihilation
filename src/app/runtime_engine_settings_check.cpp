@@ -1425,17 +1425,23 @@ void Runtime::check_engine_settings_controls() {
     );
     std::cout << "engine settings check: the Ridge layout is open-annihilation.keys.layout.ridge\n";
 
-    click_named("oa.settings.show-keys-on-buttons.off");
+    // Show keys on buttons is Off until the player turns it on.
+    require(
+        require_named("oa.settings.show-keys-on-buttons.off", "Show keys on buttons is not shown")
+            .checked,
+        "Show keys on buttons is not Off by default"
+    );
+    click_named("oa.settings.show-keys-on-buttons.on");
     click_named("oa.settings.ok");
     require(engine_settings_dialog() == nullptr, "OK did not close Settings");
     const auto saved = oa::platform::preferences::load(preference_path_);
     const auto shown = saved.find("open-annihilation.keys.show-on-buttons");
     require(
-        shown != saved.end() && shown->second == "0",
-        "Show keys on buttons Off did not write open-annihilation.keys.show-on-buttons 0"
+        shown != saved.end() && shown->second == "1",
+        "Show keys on buttons On did not write open-annihilation.keys.show-on-buttons 1"
     );
-    std::cout << "engine settings check: Show keys on buttons Off writes "
-                 "open-annihilation.keys.show-on-buttons 0\n";
+    std::cout << "engine settings check: Show keys on buttons is Off by default, and On writes "
+                 "open-annihilation.keys.show-on-buttons 1\n";
 }
 
 } // namespace oa::app

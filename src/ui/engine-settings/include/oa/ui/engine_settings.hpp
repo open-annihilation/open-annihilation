@@ -40,6 +40,8 @@ inline constexpr std::string_view pointer_keys = "open-annihilation.access.point
 inline constexpr std::string_view hold_to_confirm = "open-annihilation.access.hold-to-confirm";
 /// 1 or 0 (EngineSettings::edge_scroll). Absent means on.
 inline constexpr std::string_view edge_scroll = "open-annihilation.access.edge-scroll";
+/// 1 or 0 (EngineSettings::move_overlays). Absent means off.
+inline constexpr std::string_view move_overlays = "open-annihilation.access.move-overlays";
 /// "off", "hold-right" or "hold-middle" (EngineSettings::order_wheel). Absent means off.
 inline constexpr std::string_view order_wheel = "open-annihilation.access.order-wheel";
 /// "automatic", "whole-map", or the share of normal size: "1/32", "1/16",
@@ -352,6 +354,8 @@ static_assert(hold_to_confirm.find('|') == std::string_view::npos);
 static_assert(hold_to_confirm.find('\\') == std::string_view::npos);
 static_assert(edge_scroll.find('|') == std::string_view::npos);
 static_assert(edge_scroll.find('\\') == std::string_view::npos);
+static_assert(move_overlays.find('|') == std::string_view::npos);
+static_assert(move_overlays.find('\\') == std::string_view::npos);
 static_assert(order_wheel.find('|') == std::string_view::npos);
 static_assert(order_wheel.find('\\') == std::string_view::npos);
 static_assert(access_slow_keys.find('|') == std::string_view::npos);
@@ -1232,9 +1236,10 @@ struct EngineSettings {
     /// open-annihilation.keys.layout.<mod id> as the choice moves. With no
     /// mod it stays `same` and nothing is written.
     std::string key_layout_for_mod{"same"};
-    /// Order buttons and build cells show their key. Absent in the
-    /// preferences is on.
-    bool show_keys_on_buttons{true};
+    /// Order buttons and build cells show their key. Off until the player
+    /// turns it on: the badges are drawn on the 3.1c game's own panel.
+    /// Absent in the preferences is off.
+    bool show_keys_on_buttons{false};
     /// Whether a window keeps the pointer while a match's battlefield
     /// shows. Full screen holds the pointer either way.
     WindowEdge window_edge{WindowEdge::capture};
@@ -1457,6 +1462,11 @@ struct EngineSettings {
     /// that scroll only. Arrow keys, and the touch edge band while a drag is
     /// held, keep scrolling. Absent in the preferences is on.
     bool edge_scroll{true};
+    /// The keys overlay, the chat line and the latch chips show where the
+    /// player put them (Accessibility's Arrange…). Off, they show where they
+    /// lay themselves out, and the places the player gave them are kept for
+    /// when it is on again. Absent in the preferences is off.
+    bool move_overlays{false};
 
     friend bool operator==(const EngineSettings&, const EngineSettings&) = default;
 };

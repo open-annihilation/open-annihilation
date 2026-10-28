@@ -350,7 +350,7 @@ void Runtime::check_match_overlays(
     );
     // The radar redraws for the changed rules as after a sight rebuild; the
     // match's own grids are left as they were.
-    reset_sight_presentation(false);
+    reset_sight_presentation();
     frame_of(frame);
     const CanvasRect radar{
         radar_picture_.x, radar_picture_.y, radar_picture_.width, radar_picture_.height
@@ -482,7 +482,7 @@ void Runtime::check_match_overlays(
     game.chat_head = saved_head;
     game.chat_tail = saved_tail;
     visibility = saved_visibility;
-    reset_sight_presentation(false);
+    reset_sight_presentation();
     // An extension's overlay shows over the battlefield: the probe's bar
     // holds its colour in every pixel, and its two lines of text show.
     const int scale = hud_text_scale();

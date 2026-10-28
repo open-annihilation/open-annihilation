@@ -95,6 +95,29 @@ hit_candidates(std::span<const PickUnit> units, const Camera& camera, ScreenPoin
     int32_t map_width,
     int32_t map_height
 );
+/// Finds the point a drag box's corner takes at a screen-plane position.
+///
+/// Over the map it is the terrain point seen there (terrain_intersection).
+/// A view that may show past the map's edges shows no ground there: a
+/// position past them is its own point at height 0, so that the box reaches
+/// as far as the view shows and takes the units drawn there. A view kept on
+/// the map takes the terrain point wherever the position lies, as 3.1c does.
+///
+/// @param terrain height and sea level queries
+/// @param map_x camera-adjusted map column, whole units
+/// @param projected_z camera-adjusted screen-plane row, whole units
+/// @param map_width map width, whole units
+/// @param map_height map height, whole units
+/// @param past_edges true when the view may show past the map's edges
+/// @return the corner, 16.16 world coordinates
+[[nodiscard]] formats::objects3d::FixedVector3 drag_box_corner(
+    const sim::unit_movement::Terrain& terrain,
+    int32_t map_x,
+    int32_t projected_z,
+    int32_t map_width,
+    int32_t map_height,
+    bool past_edges
+);
 
 // Command bytes that never take the unit under the pointer as their target. 5 is
 // UNLOAD. 10 is the command that resolves to STOP. 0x0e is the build cursor a

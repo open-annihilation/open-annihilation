@@ -319,15 +319,15 @@ void a_blank_badge_and_tags() {
         kit::ChipLook{"VIEW", kit::ChipState::filter, true},
     };
     kit::draw_list_row(canvas_on(surface), {10, 140, 400, 48}, tagged);
-    // The text is centred: title at 145, its line at 159, the tags at 171,
-    // each tag a pill.
-    expect(surface, 46, 148, kit::colour::text);
-    expect(surface, 47, 160, kit::colour::list_text);
+    // The text is centred: title at 144, its line at 158, the tags two
+    // points below it at 172, each tag a pill.
+    expect(surface, 46, 147, kit::colour::text);
+    expect(surface, 47, 159, kit::colour::list_text);
     expect(surface, 46, 171, kBlack);
-    expect(surface, 46, 177, kit::colour::chip_border);
-    expect(surface, 55, 182, kit::colour::chip_border);
-    expect(surface, 69, 177, kit::colour::accent);
-    expect(surface, 70, 177, kit::colour::list_selected);
+    expect(surface, 46, 178, kit::colour::chip_border);
+    expect(surface, 55, 183, kit::colour::chip_border);
+    expect(surface, 69, 178, kit::colour::accent);
+    expect(surface, 70, 178, kit::colour::list_selected);
     // The badge stays 28 in a taller row, centred down it.
     expect(surface, 14, 150, kit::colour::accent);
     expect(surface, 14, 149, kBlack);
@@ -368,14 +368,14 @@ void chips_take_every_state() {
         colour::information
     );
     pin_chip({"GET", State::problem}, colour::danger_tint, colour::danger_tint, colour::danger);
-    // A label chip: a flat tint inside the strong edge, so it stands apart
-    // from the text over it; the pointer lightens only its edge.
+    // A label chip: a flat tint inside a clear edge, so it stands apart from
+    // the text over it; the pointer changes nothing on it.
     pin_chip(
         {"GET", State::filter}, colour::chip_border, colour::chip_face, colour::text_secondary
     );
     pin_chip(
         {"GET", State::filter, false, true},
-        colour::control_hover,
+        colour::chip_border,
         colour::chip_face,
         colour::text_secondary
     );

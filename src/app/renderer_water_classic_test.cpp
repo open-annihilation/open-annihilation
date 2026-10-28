@@ -7,10 +7,13 @@
 #include "renderer_water_surface.hpp"
 #include "renderer_water_effects.hpp"
 #include "oa/test/check.hpp"
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <chrono>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <map>
 #include <string_view>
@@ -19,7 +22,81 @@
 
 using namespace oa::app;
 
+namespace {
+/// Draws a frame's draw batches over a picture, each triangle's colour and
+/// alpha blended between its corners, within its batch's scissor: enough to
+/// see where the water's geometry lands.
+/// @param frame the frame to draw
+/// @param[in,out] rgb the picture, 3 bytes a pixel, `width` across
+/// @param width pixels across
+/// @param height pixels down
+void draw_frame(
+    const card::CardFrame& frame, std::vector<uint8_t>& rgb, int32_t width, int32_t height
+) {
+    for (const auto& batch : frame.batches) {
+        if (batch.operation != card::Operation::draw)
+            continue;
+        int32_t clip_left = 0, clip_top = 0, clip_right = width, clip_bottom = height;
+        if (batch.scissored) {
+            clip_left = std::max(clip_left, batch.scissor.x);
+            clip_top = std::max(clip_top, batch.scissor.y);
+            clip_right = std::min(clip_right, batch.scissor.x + batch.scissor.width);
+            clip_bottom = std::min(clip_bottom, batch.scissor.y + batch.scissor.height);
+        }
+        for (uint32_t i = 0; i + 2 < batch.index_count; i += 3) {
+            const auto& a = frame.vertices[frame.indices[batch.first_index + i]];
+            const auto& b = frame.vertices[frame.indices[batch.first_index + i + 1]];
+            const auto& c = frame.vertices[frame.indices[batch.first_index + i + 2]];
+            const float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+            if (area == 0)
+                continue;
+            const int32_t left =
+                std::max(clip_left, int32_t(std::floor(std::min({a.x, b.x, c.x}))));
+            const int32_t right =
+                std::min(clip_right, int32_t(std::ceil(std::max({a.x, b.x, c.x}))));
+            const int32_t top = std::max(clip_top, int32_t(std::floor(std::min({a.y, b.y, c.y}))));
+            const int32_t bottom =
+                std::min(clip_bottom, int32_t(std::ceil(std::max({a.y, b.y, c.y}))));
+            for (int32_t y = top; y < bottom; ++y)
+                for (int32_t x = left; x < right; ++x) {
+                    const float px = float(x) + 0.5F, py = float(y) + 0.5F;
+                    const float wa = ((b.x - px) * (c.y - py) - (b.y - py) * (c.x - px)) / area;
+                    const float wb = ((c.x - px) * (a.y - py) - (c.y - py) * (a.x - px)) / area;
+                    const float wc = 1 - wa - wb;
+                    if (wa < 0 || wb < 0 || wc < 0)
+                        continue;
+                    const auto mix = [&](float va, float vb, float vc) {
+                        return va * wa + vb * wb + vc * wc;
+                    };
+                    const float alpha = mix(a.colour.alpha, b.colour.alpha, c.colour.alpha);
+                    const std::array<float, 3> colour{
+                        mix(a.colour.red, b.colour.red, c.colour.red),
+                        mix(a.colour.green, b.colour.green, c.colour.green),
+                        mix(a.colour.blue, b.colour.blue, c.colour.blue)
+                    };
+                    auto* pixel = &rgb[(std::size_t(y) * std::size_t(width) + std::size_t(x)) * 3];
+                    for (std::size_t channel = 0; channel < 3; ++channel)
+                        pixel[channel] = uint8_t(
+                            std::lround(
+                                std::clamp(
+                                    float(pixel[channel]) * (1 - alpha) +
+                                        colour[channel] * 255.0F * alpha,
+                                    0.0F,
+                                    255.0F
+                                )
+                            )
+                        );
+                }
+        }
+    }
+}
+} // namespace
+
 int main(int argc, char** argv) {
+    // --pictures DIR also writes the map-edge case's pictures there.
+    std::filesystem::path pictures;
+    if (argc > 2 && std::string_view(argv[1]) == "--pictures")
+        pictures = argv[2];
     if (argc > 1 && std::string_view(argv[1]) == "--benchmark") {
         oa::formats::tnt::Map ocean;
         ocean.attribute_width = ocean.attribute_height = 1024;
@@ -752,6 +829,106 @@ int main(int argc, char** argv) {
         card::CardFrame none;
         renderer_water_classic::surface(none, shore);
         OA_CHECK(none.vertices.empty());
+    }
+    // The foam ends at the edges of the map's picture the game shows, as
+    // the terrain does, though the map's heights run on past the bottom and
+    // right edges: a view past those edges, and past the top and left
+    // ones, draws foam up to each edge and none beyond it.
+    {
+        oa::formats::tnt::Map islands;
+        islands.attribute_width = islands.attribute_height = 40;
+        islands.sea_level = 24;
+        islands.attributes.resize(40 * 40);
+        // Islands three cells square every six, in a sea 24 deep.
+        for (uint32_t z = 0; z < 40; ++z)
+            for (uint32_t x = 0; x < 40; ++x)
+                islands.attributes[z * 40 + x].height = x % 6 < 3 && z % 6 < 3 ? 40 : 0;
+        renderer_water_classic::Inputs edge;
+        edge.map = &islands;
+        edge.view.width = 800;
+        edge.view.height = 720;
+        edge.view.zoom = 1;
+        edge.view.camera_x = -40;
+        edge.view.camera_y = -60;
+        edge.coast = 1;
+        edge.wind.strength = 1;
+        edge.seconds = 1.61;
+        edge.visible = [](float, float) { return true; };
+        // The map's picture is 640 across and down, of which the game shows
+        // all but the last 32 across and 128 down.
+        constexpr std::array<float, 2> shown{608, 512};
+        const auto picture = [&](const card::CardFrame& frame, const char* name) {
+            const int32_t width = edge.view.width, height = edge.view.height;
+            std::vector<uint8_t> rgb(std::size_t(width) * std::size_t(height) * 3);
+            // The terrain where the game draws it, sea blue and land sand,
+            // and black past the map's edges.
+            for (int32_t y = 0; y < height; ++y)
+                for (int32_t x = 0; x < width; ++x) {
+                    const float mx = float(x + edge.view.camera_x);
+                    const float my = float(y + edge.view.camera_y);
+                    if (mx < 0 || my < 0 || mx >= shown[0] || my >= shown[1])
+                        continue;
+                    const auto cell =
+                        islands.attributes[std::size_t((my + 12) / 16) * 40 + std::size_t(mx / 16)];
+                    const std::array<uint8_t, 3> ground =
+                        cell.height > 24 ? std::array<uint8_t, 3>{214, 200, 160}
+                                         : std::array<uint8_t, 3>{30, 80, 140};
+                    std::copy(
+                        ground.begin(),
+                        ground.end(),
+                        rgb.begin() + (std::ptrdiff_t(y) * width + x) * 3
+                    );
+                }
+            draw_frame(frame, rgb, width, height);
+            if (pictures.empty())
+                return;
+            std::filesystem::create_directories(pictures);
+            std::ofstream out(pictures / name, std::ios::binary);
+            out << "P6\n" << width << ' ' << height << "\n255\n";
+            out.write(reinterpret_cast<const char*>(rgb.data()), std::streamsize(rgb.size()));
+        };
+        card::CardFrame unclipped;
+        renderer_water_classic::surface(unclipped, edge);
+        picture(unclipped, "classic-edge-before.ppm");
+        // Without the shown size the view's edges alone bound it, and the
+        // islands past the map's bottom and right edges have foam.
+        OA_CHECK(!unclipped.batches.empty());
+        if (!unclipped.batches.empty()) {
+            const auto& scissor = unclipped.batches.back().scissor;
+            OA_CHECK(scissor.x == 0 && scissor.y == 0 && scissor.width == 800);
+            OA_CHECK(scissor.height == 720);
+        }
+        const bool past_bottom = std::any_of(
+            unclipped.vertices.begin(), unclipped.vertices.end(), [](const card::Vertex& vertex) {
+                return vertex.colour.alpha > 0.01F && vertex.y > 60 + 512 + 8;
+            }
+        );
+        const bool past_right = std::any_of(
+            unclipped.vertices.begin(), unclipped.vertices.end(), [](const card::Vertex& vertex) {
+                return vertex.colour.alpha > 0.01F && vertex.x > 40 + 608 + 8;
+            }
+        );
+        OA_CHECK(past_bottom && past_right);
+        edge.shown = shown;
+        card::CardFrame clipped;
+        renderer_water_classic::surface(clipped, edge);
+        picture(clipped, "classic-edge-after.ppm");
+        // The same foam, its batch held to the map's picture on screen: from
+        // its top left, at 40 and 60 in the view, to 608 and 512 on.
+        OA_CHECK(clipped.vertices.size() == unclipped.vertices.size());
+        OA_CHECK(!clipped.batches.empty());
+        if (!clipped.batches.empty()) {
+            const auto& batch = clipped.batches.back();
+            OA_CHECK(batch.scissored);
+            OA_CHECK(batch.scissor.x == 40 && batch.scissor.y == 60);
+            OA_CHECK(batch.scissor.width == 608 && batch.scissor.height == 512);
+        }
+        OA_CHECK(card::check_frame(clipped).empty());
+        // A view wholly past the map's edge draws nothing.
+        edge.view.camera_x = 700;
+        card::CardFrame beyond;
+        renderer_water_classic::surface(beyond, edge);
+        OA_CHECK(beyond.batches.empty());
     }
     return oa::test::check_exit_status();
 }

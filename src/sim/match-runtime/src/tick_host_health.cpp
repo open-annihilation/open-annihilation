@@ -249,7 +249,11 @@ bool TickHost::nano_repair(
         &patient_type
     };
     projected.type_index = patient_slot.record.type_index;
-    HealthHost health(match, patient_slot.unit_index);
+    // The repairer pays, as in 3.1c: a repair pad for the aircraft on it, a
+    // builder for the unit it repairs, whoever owns that unit. The request
+    // goes into the repairer's economy block, whose gate decides whether the
+    // step is afforded.
+    HealthHost health(match, repairer_slot.unit_index);
     // Every repair order passes the repairer's worker time per tick.
     const auto rate = static_cast<float>(
         static_cast<uint32_t>(static_cast<uint16_t>(definition->worker_time)) / 30u

@@ -1518,18 +1518,18 @@ void classic_passes_draw_the_processors_tiles() {
                     quad.corners[0].colour.alpha == 1.0F
                 );
                 const Box box = box_of(quad);
-                // The page's texel under the box's corner is its pixel's
-                // place in its fog tile.
-                const int32_t in_x = ((box.x - field.left) % tile_edge + tile_edge) % tile_edge;
-                const int32_t in_z = ((box.z - field.top) % tile_edge + tile_edge) % tile_edge;
-                OA_CHECK(near(
-                    quad.corners[0].u * static_cast<float>(fog::dither_page_edge),
-                    static_cast<float>(in_x)
-                ));
-                OA_CHECK(near(
-                    quad.corners[0].v * static_cast<float>(fog::dither_page_edge),
-                    static_cast<float>(in_z)
-                ));
+                // The page's texel under the box's corner pixel is cleared
+                // exactly when the processor clears that map pixel: its
+                // column and row sum have the map pixel's parity.
+                const auto texel = [](float coordinate) {
+                    return static_cast<int32_t>(
+                        std::floor(coordinate * static_cast<float>(fog::dither_page_edge) + 0.5F)
+                    );
+                };
+                OA_CHECK(
+                    ((texel(quad.corners[0].u) + texel(quad.corners[0].v)) & 1) ==
+                    ((box.x + box.z) & 1)
+                );
                 for (int32_t z = box.z; z < box.z + box.height; ++z)
                     for (int32_t x = box.x; x < box.x + box.width; ++x) {
                         const auto at = field.at(x, z);
@@ -1570,6 +1570,88 @@ void classic_passes_draw_the_processors_tiles() {
         ) == 0
     );
     OA_CHECK(frame.vertices.empty() && frame.batches.empty());
+}
+
+/// The Classic dither at zooms other than the whole one: every target pixel
+/// under a dithered quad reads the page's texel whose parity is the pixel's
+/// own, less the view's corner and plus the camera's map pixel, so that the
+/// dither is one pixel fine on the screen at any zoom, as the processor's
+/// is; each quad's texels lie within the page.
+void classic_dither_keeps_to_the_targets_pixels() {
+    const Sight sight = mixed_sight();
+    const wr::FogTileSet tiles = seeded_tiles();
+    fog::ClassicShapes shapes;
+    fog::build_classic_shapes(tiles, shapes);
+    const card::Colour dither{0.0F, 0.5F, 0.25F, 0.0F};
+    constexpr auto page_edge = static_cast<double>(fog::dither_page_edge);
+
+    struct ZoomCase {
+        float scale{};
+        float origin_x{};
+        float origin_y{};
+        bool whole_pixels{};
+    };
+
+    for (const auto& zoom_case :
+         {ZoomCase{2.0F, 3.0F, 5.0F, false},
+          ZoomCase{4.0F, 0.0F, 1.0F, false},
+          ZoomCase{1.5F, 2.0F, 0.0F, true},
+          ZoomCase{0.5F, 7.0F, 2.0F, true},
+          ZoomCase{1.0F / 6.0F, 1.0F, 1.0F, true}}) {
+        for (const auto& [camera_x, camera_z] : {std::pair{0, 0}, std::pair{45, 23}}) {
+            const auto grid = sight.fog(camera_x, camera_z);
+            fog::FogPlacement placement = plain(camera_x, camera_z);
+            placement.scale = zoom_case.scale;
+            placement.origin_x = zoom_case.origin_x;
+            placement.origin_y = zoom_case.origin_y;
+            placement.whole_pixels = zoom_case.whole_pixels;
+            card::CardFrame frame;
+            const uint32_t appended = fog::append_unseen_dither_classic(
+                frame, grid, shapes, card::PageHandle{9}, dither, placement, {}, nullptr
+            );
+            const auto quads = quads_of(frame);
+            OA_CHECK(appended == quads.size() && appended != 0);
+            int32_t pixels = 0;
+            int32_t wrong = 0;
+            for (const auto& quad : quads) {
+                const auto& first = quad.corners[0];
+                const auto& last = quad.corners[2];
+                OA_CHECK(first.u >= 0.0F && first.v >= 0.0F && last.u <= 1.0F && last.v <= 1.0F);
+                // A rectangle narrower than a pixel may round to no width.
+                if (!(last.x > first.x) || !(last.y > first.y))
+                    continue;
+                // The pixels whose centres the quad covers, each reading the
+                // texel at its centre as the card's nearest sampling does.
+                const auto first_x = static_cast<int32_t>(std::ceil(first.x - 0.5F));
+                const auto first_y = static_cast<int32_t>(std::ceil(first.y - 0.5F));
+                const auto end_x = static_cast<int32_t>(std::ceil(last.x - 0.5F));
+                const auto end_y = static_cast<int32_t>(std::ceil(last.y - 0.5F));
+                const double texels_x = (static_cast<double>(last.u) - first.u) * page_edge /
+                                        (static_cast<double>(last.x) - first.x);
+                const double texels_y = (static_cast<double>(last.v) - first.v) * page_edge /
+                                        (static_cast<double>(last.y) - first.y);
+                OA_CHECK(near(static_cast<float>(texels_x), 1.0F));
+                OA_CHECK(near(static_cast<float>(texels_y), 1.0F));
+                for (int32_t y = first_y; y < end_y; ++y)
+                    for (int32_t x = first_x; x < end_x; ++x) {
+                        const auto column = static_cast<int64_t>(
+                            std::floor(first.u * page_edge + (x + 0.5 - first.x) * texels_x)
+                        );
+                        const auto row = static_cast<int64_t>(
+                            std::floor(first.v * page_edge + (y + 0.5 - first.y) * texels_y)
+                        );
+                        const int64_t pixel_parity =
+                            (int64_t{x} + y - static_cast<int64_t>(zoom_case.origin_x) -
+                             static_cast<int64_t>(zoom_case.origin_y) + camera_x + camera_z) &
+                            1;
+                        ++pixels;
+                        if (((column + row) & 1) != pixel_parity)
+                            ++wrong;
+                    }
+            }
+            OA_CHECK(pixels != 0 && wrong == 0);
+        }
+    }
 }
 
 } // namespace
@@ -1809,14 +1891,15 @@ int main() {
     dither_page_is_the_checkerboard();
     classic_passes_draw_the_processors_tiles();
     greyed_cover_takes_the_terrains_alphas();
+    classic_dither_keeps_to_the_targets_pixels();
     if (oa::test::check_exit_status() != 0)
         return 1;
     std::puts(
         "full fog: the greyed pass covers the ground out of sight once at its tiles' texels, "
         "the black and dithered passes their tiles with runs merged, at the corner alphas; "
         "the fog mask reads the corner alphas across each tile; shade and light levels as quads; "
-        "the Classic passes draw the processor's FOG.GAF tiles; a greyed cover takes the "
-        "terrain's alphas"
+        "the Classic passes draw the processor's FOG.GAF tiles, the dither one pixel fine at every "
+        "zoom; a greyed cover takes the terrain's alphas"
     );
     return 0;
 }

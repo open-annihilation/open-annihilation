@@ -371,11 +371,13 @@ bool Runtime::render_live_match_surface() {
         inputs.light_scale = models.renderer.light_scale;
         inputs.sea_level = map.sea_level;
         inputs.detail_scale = zoom;
+        // The sliders' strengths, which a lava sea leaves at none.
+        const auto levels = water_levels();
         inputs.water = {
-            engine_settings().water_ripples / 100.0F,
-            engine_settings().coastal_waves / 100.0F,
-            engine_settings().underwater_shimmer / 100.0F,
-            engine_settings().naval_reflections / 100.0F,
+            levels.ripples,
+            levels.coast,
+            levels.shimmer,
+            levels.reflections,
             float(map.sea_level),
             float(match_->simulation().tick % 108000U) / 30.0F,
             std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)

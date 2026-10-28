@@ -89,11 +89,8 @@ constexpr int16_t kLayerOverlayZ = 100;
 
 /// The settings' screen's name.
 constexpr std::string_view kSettingsName = "settings";
-/// Arrange overlays' button's words in the in-game menu, beside its OA
-/// stamp, where the screen's title does not fit.
-constexpr std::string_view kArrangeWords = "Overlays";
-/// Arrange overlays' button's automation name, after the oa. prefix.
-constexpr std::string_view kArrangeButtonName = "arrange-button";
+/// The in-game OA Settings button's words, beside its OA stamp.
+constexpr std::string_view kMatchButtonWords = "OA Settings";
 
 /// The match's layer's opacity where it darkens the screen, in 255ths.
 constexpr uint32_t kBackdropAlpha = (kit::ingame_backdrop_opacity * 255U + 128U) / 256U;
@@ -948,13 +945,17 @@ struct Runtime::SettingsScreen final : LayerScreen {
     [[nodiscard]] bool backdrop() const override { return true; }
 
     /// Lays the dialog out at the view's size class on the main menu, and in
-    /// a match at the class OaLayer::match_dialog gives (Dialog::size_class).
+    /// a match at the class OaLayer::match_dialog gives (Dialog::size_class),
+    /// and gives it the fonts it is drawn in, which its input measures in.
     ///
     /// @param view what the screen is placed on
     void lay_out(const LayerView& view) override {
         auto* dialog = runtime_.engine_settings_dialog();
         if (dialog == nullptr)
             return;
+        // The pointer, the keys and the wheel find each control where the
+        // drawing puts it (draw passes the same fonts on the canvas).
+        dialog->drawn_fonts = runtime_.oa_layer().screen_fonts();
         // Off its match the dialog keeps its class until its tick closes it.
         if (in_match_ && (!view.match || view.match_layout == nullptr))
             return;
@@ -3340,51 +3341,31 @@ bool OaLayer::take_match_button(const ScreenInput& input) {
     if (!pointer)
         return false;
     if (!match_button_shown(runtime_)) {
-        if (button_hovered_ || button_pressed_ || arrange_hovered_ || arrange_pressed_)
+        if (button_hovered_ || button_pressed_)
             ++revision_;
         button_hovered_ = false;
         button_pressed_ = false;
-        arrange_hovered_ = false;
-        arrange_pressed_ = false;
         return false;
     }
+    // The OA Settings button is hovered while the pointer is over it, held
+    // by a left press on it, and opens Settings on the release over it.
     const bool fit = match_fits_safe_area(runtime_);
-    // The OA button and Arrange overlays' button beside it: each is hovered
-    // while the pointer is over it, held by a left press on it, and acts on
-    // the release over it.
-    const auto take_button = [&](const layout::Rect& place, bool& hovered, bool& pressed) {
-        const bool over = rect_contains(place, input.x, input.y);
-        if (over != hovered)
-            ++revision_;
-        hovered = over;
-        if (input.kind == ScreenInputKind::pointer_down && input.button == SDL_BUTTON_LEFT &&
-            over) {
-            pressed = true;
-            ++revision_;
-            return std::optional<bool>{false};
-        }
-        if (input.kind == ScreenInputKind::pointer_up && input.button == SDL_BUTTON_LEFT &&
-            pressed) {
-            pressed = false;
-            ++revision_;
-            return std::optional<bool>{over};
-        }
-        return std::optional<bool>{};
-    };
-    const auto settings_taken = take_button(
-        match_button_rect(runtime_.match_layout_, fit), button_hovered_, button_pressed_
-    );
-    const auto arrange_taken = take_button(
-        arrange_button_rect(runtime_.match_layout_, fit), arrange_hovered_, arrange_pressed_
-    );
-    if (settings_taken) {
-        if (*settings_taken)
-            runtime_.open_engine_settings_in_match();
+    const bool over =
+        rect_contains(match_button_rect(runtime_.match_layout_, fit), input.x, input.y);
+    if (over != button_hovered_)
+        ++revision_;
+    button_hovered_ = over;
+    if (input.kind == ScreenInputKind::pointer_down && input.button == SDL_BUTTON_LEFT && over) {
+        button_pressed_ = true;
+        ++revision_;
         return true;
     }
-    if (arrange_taken) {
-        if (*arrange_taken)
-            open_arrange_overlays();
+    if (input.kind == ScreenInputKind::pointer_up && input.button == SDL_BUTTON_LEFT &&
+        button_pressed_) {
+        button_pressed_ = false;
+        ++revision_;
+        if (over)
+            runtime_.open_engine_settings_in_match();
         return true;
     }
     return false;
@@ -4082,61 +4063,18 @@ OaLayer::match_button_rect(const layout::MatchLayout& match_layout, bool fit) no
         match_layout,
         {match_button_source_x,
          match_button_source_y,
-         settings::ingame_button_side,
-         settings::ingame_button_side},
+         match_button_source_width,
+         match_button_source_height},
         fit
     );
 }
 
-layout::Rect
-OaLayer::arrange_button_rect(const layout::MatchLayout& match_layout, bool fit) noexcept {
-    return column_rect(
-        match_layout,
-        {arrange_button_source_x,
-         arrange_button_source_y,
-         arrange_button_source_width,
-         arrange_button_source_height},
-        fit
-    );
-}
-
-renderer::Surface OaLayer::match_button_face(
-    const layout::MatchLayout& match_layout,
-    settings::ButtonLook look,
-    bool darkened,
-    const settings::DialogFonts& fonts,
-    const artless::RgbaPicture& icon,
-    bool fit
-) {
-    // Fitted, the face takes the button's own scale; else the side column's.
-    const double shown_scale =
-        fit ? static_cast<double>(match_button_rect(match_layout, true).width) /
-                  settings::ingame_button_side
-            : column_scale(match_layout);
-    const int32_t scale = std::max(1, static_cast<int32_t>(std::ceil(shown_scale)));
-    const artless::Placement placement{0, 0, scale};
-    renderer::Surface face;
-    face.width = static_cast<uint32_t>(settings::ingame_button_side * scale);
-    face.height = face.width;
-    face.rgb.assign(static_cast<std::size_t>(face.width) * face.height * 3U, 0);
-    settings::draw_oa_button(face, placement, settings::ingame_button_side, look, fonts, icon);
-    if (darkened)
-        artless::blend_source_rect(
-            face,
-            placement,
-            {0, 0, settings::ingame_button_side, settings::ingame_button_side},
-            settings::backdrop_color,
-            settings::ingame_backdrop_opacity
-        );
-    return face;
-}
-
-LayerDrawing OaLayer::arrange_button_face(
+LayerDrawing OaLayer::match_button_face(
     const artless::ScreenResources* resources, settings::ButtonLook look, bool darkened
 ) {
     // In the in-game menu's own art: the game's button plate, the OA stamp
     // that marks a part 3.1c does not have, and the menu's caption font.
-    const artless::SourceRect rect{0, 0, arrange_button_source_width, arrange_button_source_height};
+    const artless::SourceRect rect{0, 0, match_button_source_width, match_button_source_height};
     artless::RoomArt art;
     art.resources = resources;
     if (resources != nullptr)
@@ -4144,7 +4082,7 @@ LayerDrawing OaLayer::arrange_button_face(
     artless::RoomCanvas canvas = artless::room_canvas(rect, nullptr);
     const artless::SourceRect stamp = artless::room_stamp_rect(rect);
     const std::string caption =
-        artless::room_text(oa::data::languages::interface_text(kArrangeWords));
+        artless::room_text(oa::data::languages::interface_text(kMatchButtonWords));
     artless::RoomButtonLook button;
     button.rect = rect;
     button.caption = caption;
@@ -4261,11 +4199,6 @@ bool OaLayer::refresh_match() {
         : button_hovered_                  ? settings::ButtonLook::hovered
                                            : settings::ButtonLook::idle
     );
-    look.arrange_look = static_cast<uint8_t>(
-        arrange_pressed_ && arrange_hovered_ ? settings::ButtonLook::pressed
-        : arrange_hovered_                   ? settings::ButtonLook::hovered
-                                             : settings::ButtonLook::idle
-    );
     look.revision = revision_;
     if (fonts == nullptr || look.width <= 0 || look.height <= 0 || !seen.match)
         return false;
@@ -4307,25 +4240,13 @@ bool OaLayer::refresh_match() {
     const auto pixels =
         static_cast<std::size_t>(look.width) * static_cast<std::size_t>(look.height);
     rgba_.assign(pixels * 4U, 0);
-    // The in-game OA button opens Settings, so it shows the settings icon,
-    // as the main menu's Settings button does.
-    const renderer::Surface button = match_button_face(
-        laid_out,
-        static_cast<settings::ButtonLook>(look.button_look),
-        look.darkened,
-        *fonts,
-        Runtime::EngineSettingsMenuHost::settings_icon(runtime_),
-        fit
-    );
-    // Arrange overlays' button beside it, under Resume, in the in-game
-    // menu's own art.
-    const layout::Rect arrange_at = arrange_button_rect(laid_out, fit);
-    const LayerDrawing arrange = arrange_button_face(
+    // The OA Settings button under Resume, in the in-game menu's own art.
+    const LayerDrawing button = match_button_face(
         runtime_.match_hud_ ? &*runtime_.match_hud_ : nullptr,
-        static_cast<settings::ButtonLook>(look.arrange_look),
+        static_cast<settings::ButtonLook>(look.button_look),
         look.darkened
     );
-    bounds_ = look.button_shown ? union_rect(button_at, arrange_at) : layout::Rect{};
+    bounds_ = look.button_shown ? button_at : layout::Rect{};
     if (look.darkened) {
         // The whole screen darkens, the button with it; the screens go over.
         for (std::size_t pixel = 0; pixel < pixels; ++pixel) {
@@ -4337,12 +4258,9 @@ bool OaLayer::refresh_match() {
         }
         bounds_ = {0, 0, look.width, look.height};
     }
-    // The button's face, drawn at the whole step at or above its place's
-    // scale, fitted to its place.
-    if (look.button_shown) {
-        stamp(rgba_, look.width, look.height, button, button_at);
-        stamp(rgba_, look.width, look.height, arrange.picture, arrange_at, arrange.opacity);
-    }
+    // The button's face, at its source size, fitted to its place.
+    if (look.button_shown)
+        stamp(rgba_, look.width, look.height, button.picture, button_at, button.opacity);
     for (const auto& shown : shown_screens) {
         // At its placement's scale, as large as its place, never drawn at 1x
         // and enlarged: Settings at its own (match_dialog). A screen under a
@@ -4549,18 +4467,16 @@ void OaLayer::automation_controls(std::vector<AutomationControl>& controls) cons
     // column. On the main menu it opens the Library, and says how many
     // packages the player has added (mods, map packs, language packs and
     // downloaded expansions) and how many updates wait; the Settings button
-    // beside it opens Settings. In the in-game menu the OA button opens
-    // Settings and its text stays empty.
+    // beside it opens Settings. In the in-game menu the OA Settings button
+    // opens Settings, its text its words.
     const std::string button_name = std::string(kAutomationPrefix) + "button";
     if (seen.match) {
         if (match_button_shown(runtime_)) {
             const bool fit = match_fits_safe_area(runtime_);
-            add_button(button_name, {}, match_button_rect(runtime_.match_layout_, fit));
-            // Arrange overlays' button beside it, with its words.
             add_button(
-                std::string(kAutomationPrefix) + std::string(kArrangeButtonName),
-                std::string(oa::data::languages::interface_text(kArrangeWords)),
-                arrange_button_rect(runtime_.match_layout_, fit)
+                button_name,
+                std::string(oa::data::languages::interface_text(kMatchButtonWords)),
+                match_button_rect(runtime_.match_layout_, fit)
             );
         }
     } else if (Runtime::EngineSettingsMenuHost::button_shown(runtime_)) {

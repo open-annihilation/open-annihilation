@@ -339,7 +339,19 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
         return true;
     }
     if (id == "select.all") {
-        select_units_matching([](const oa::sim::unit_spawn::Slot&) { return true; });
+        // Ctrl+A selects every unit of the player's that can be selected, as
+        // 3.1c does: a place in the player's unit list that holds no unit stays
+        // as it is. The panel shows the first of them, as before.
+        auto& world = match_->state();
+        world.game.local_player_index = match_local_player_;
+        oa::sim::selection::select_all(world, selection_hooks());
+        selected_match_unit_ = 0;
+        adopt_selected_units();
+        int count = 0;
+        for (const auto& slot : match_->world().slots)
+            count += slot.unit != nullptr && slot.owner_index == match_local_player_ &&
+                     (slot.unit->flags & OA_UNIT_FLAG_SELECTED) != 0;
+        status_ = count == 0 ? "No units" : std::to_string(count) + " selected";
         return true;
     }
     if (id == "select.commander") {
@@ -1358,13 +1370,6 @@ void Runtime::draw_unit_info_panel() {
     );
 }
 
-void Runtime::draw_chat_overlay() {
-    draw_console_clock();
-    draw_match_message_log();
-    draw_debug_status_line();
-    draw_frame_stats();
-}
-
 void Runtime::ensure_talk_panel() {
     if (talk_layout_)
         return;
@@ -1669,17 +1674,19 @@ std::optional<std::array<int32_t, 3>> Runtime::match_pointer_ground(float x, flo
             match_layout_.top + match_layout_.battlefield_height() - 1
         )
     };
-    // The map pixel drawn under the pointer.
+    // The map pixel drawn under the pointer. Where the view may show past
+    // the map's edges, the box reaches as far as it shows.
     const auto map = map_pixel_drawn_at(viewport, pointer);
     if (!map)
         return std::nullopt;
     const oa::sim::unit_movement::Terrain terrain(*selected_tnt_);
-    const auto ground = oa::sim::gameplay_input::terrain_intersection(
+    const auto ground = oa::sim::gameplay_input::drag_box_corner(
         terrain,
         static_cast<int32_t>(map->x),
         static_cast<int32_t>(map->y),
         static_cast<int32_t>(selected_tnt_->attribute_width * 16U),
-        static_cast<int32_t>(selected_tnt_->attribute_height * 16U)
+        static_cast<int32_t>(selected_tnt_->attribute_height * 16U),
+        past_map_edge_share() > 0.0
     );
     const auto whole = [](int32_t fixed) {
         return static_cast<int32_t>(static_cast<int16_t>(fixed >> 16));

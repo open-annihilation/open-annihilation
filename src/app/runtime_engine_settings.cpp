@@ -2515,6 +2515,11 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         // under it; Escape and its CLOSE come back to Developer.
         oa_layer().open_gallery();
         return false;
+    case settings::DialogAction::arrange_overlays:
+        // The picture of the match covers the window over the dialog, which
+        // stays open under it; Done and Cancel come back to Accessibility.
+        std::ignore = oa_layer().open_arrange_overlays();
+        return false;
     case settings::DialogAction::edit_keys: {
         // The key editor covers the window over the dialog, which stays open
         // under it, in the menus and in a match. CHOOSE… opens on Latchable.

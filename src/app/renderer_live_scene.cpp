@@ -2497,6 +2497,21 @@ void water_surface(const Inputs& in, Scene& scene) {
             }))
             continue;
         for (auto& vertex : triangle) {
+            // The foam takes the colour of the picture the ground under it
+            // shows (SurfaceCache::foam_colour); the fragment stage draws it
+            // in the vertex's material colour.
+            const auto foam = in.water_surface
+                                  ? in.water_surface->foam_colour(
+                                        vertex.x, vertex.z - vertex.height * height_lift
+                                    )
+                                  : std::array<float, 3>{
+                                        renderer_water_appearance::foam_red,
+                                        renderer_water_appearance::foam_green,
+                                        renderer_water_appearance::foam_blue
+                                    };
+            vertex.red = foam[0];
+            vertex.green = foam[1];
+            vertex.blue = foam[2];
             vertex.terrain_x = in.sea_level - vertex.height;
             vertex.terrain_y = in.water_surface ? in.water_surface->fetch(vertex.x, vertex.z) : 1;
             vertex.terrain_size = -2;

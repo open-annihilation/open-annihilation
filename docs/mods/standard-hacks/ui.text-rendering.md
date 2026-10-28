@@ -102,7 +102,12 @@ how game text is drawn, with or without the hack:
   each channel to the grey at the most, which is black over black ground);
   a shadow 1 pixel down and right at half strength; and a black box
   behind each line, over the rows its letters and borders take, the message
-  log's from 4 pixels left of the log to 4 past each line's text.
+  log's from 4 pixels left of the log to 4 past each line's text. In the
+  match's bars and over the battlefield every box goes down before the
+  lines drawn with it, so a box never covers the line beside it: the
+  unit's status keeps clear of the metal and energy figures under it, the
+  clock line, the game clock and the message log of each other, and each
+  overlay's lines of their neighbours'.
 - Where the match's frame is drawn larger than the game's 640 by 480, the
   modern text is drawn at the larger size, its outline and shadow as many
   pixels thick, so it stays crisp. The outline and the shadow's offset
@@ -245,6 +250,13 @@ page. Without it, chat goes out in the code page, as 3.1c's does.
   lays each line's backdrop (`chat_backdrop_rect` in
   [view_rules.cpp](../../../src/app/view_rules.cpp)) while the accessible
   chat or the background setting asks for it.
+- `Runtime::BackedText`
+  ([runtime_match_render.cpp](../../../src/app/runtime_match_render.cpp))
+  groups the lines of the bars and of each overlay over the battlefield
+  while a box or a backdrop shows: each line's box is laid where it is
+  drawn (`oa::ui::hud::lay_text_backing`), and every line, in the modern
+  fonts or the game's, once the group ends (`oa::ui::hud::TextHold` in
+  [backed_text.hpp](../../../src/ui/hud/include/oa/ui/hud/backed_text.hpp)).
 - `Runtime::submit_chat_line`
   ([runtime_console.cpp](../../../src/app/runtime_console.cpp)) and the
   whiteboard ([runtime_whiteboard.cpp](../../../src/app/runtime_whiteboard.cpp))
@@ -262,6 +274,13 @@ page. Without it, chat goes out in the code page, as 3.1c's does.
     their end.
   - `ui-hud-chat-panel` (`test_message_log_rows`): a line of several rows
     takes a step for each, and the oldest lines give way to the most rows.
+  - `ui-hud-backed-text` (`src/ui/hud/tests/backed_text_test.cpp`): a box
+    laid apart from its line makes the pixels of the whole line; lines
+    whose boxes reach over each other, as the unit's status over the rate
+    figures, cover each other's letters laid in turn and keep every letter
+    and every box when held; groups join, pause and close in order.
+    `native-pointer-interfaces` draws the bottom bar with the background on
+    and finds every line of the bars whole on its box.
   - `base-text` (`cuts_between_characters`) and `sim-messages`: lines cut
     between UTF-8 characters, code-page bytes cut as before.
   - `frontend-gadget-draw` (`test_gadget_text_game_runs`) and

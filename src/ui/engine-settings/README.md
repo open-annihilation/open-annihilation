@@ -20,7 +20,7 @@ the locks a running game puts on them (`settings_locks`).
 | | Expansions of that base game | on or off for each expansion that is copied | every copied expansion that can be on, when the key is absent | `open-annihilation.expansions.<game>` (comma-separated ids; empty means none on) |
 | Controls | Key layout, a card at the section's top ([The key layout card](#the-key-layout-card)): the layout in use, how many of its keys you changed, where it applies, with Change layout… (the Library on Keys, on the main menu) and Edit keys…, which opens the key editor over Settings | the layout's name, whole; a badge "N changes of your own" ("1 change of your own"); "Applies to every game." or "Applies with {mod} only." | OA default, the layout in use | the layout in use is `open-annihilation.keys.layout`, or `open-annihilation.keys.layout.<mod id>` while that mod chooses one |
 | | Key layout with <mod>, a drop-down, only while a mod is played. Same as the game uses Key layout. Installed layouts follow, those made for the mod first and marked made for it | Same as the game, or a layout id | Same as the game | `open-annihilation.keys.layout.<mod id>` (`same`, or a layout id). A choice is written at once, and Cancel writes the choice the dialog opened with |
-| | Show keys on buttons: order buttons and build cells show their key in a corner | Off, On | On | `open-annihilation.keys.show-on-buttons` (`0` or `1`; absent reads as on) |
+| | Show keys on buttons: order buttons and build cells show their key in a corner | Off, On | Off | `open-annihilation.keys.show-on-buttons` (`0` or `1`; absent reads as off) |
 | | Mouse wheel zoom | Off, On | On | `open-annihilation.wheel-zoom` |
 | | Maximum zoom out, a drop-down: how far out the wheel, a pinch, the touch zoom buttons and a controller zoom | Automatic (half the game's scale, a sixth while Full draws the battlefield), Whole map, 1/32, 1/16, 1/8, 1/4, 1/2; no choice but Automatic goes past the whole map | Automatic | `open-annihilation.max-zoom-out` (`automatic`, `whole-map`, `1/32`, `1/16`, `1/8`, `1/4` or `1/2`) |
 | | Maximum zoom in, a drop-down: how close the same zooms go | None (the game's own scale), 2x, 3x, 4x | 4x | `open-annihilation.max-zoom-in` (`1`, `2`, `3` or `4`) |
@@ -84,6 +84,8 @@ the locks a running game puts on them (`settings_locks`).
 | | Key repeat rate: how fast that key then repeats | System (the system's repeat), then 2 to 30 a second | System | `open-annihilation.access.repeat-rate` |
 | | Drag threshold: how far a press may move and still be a click | 32 to 96 px, steps of 8 | 32 px | `open-annihilation.access.drag-threshold` |
 | | Edge scrolling: Off stops the view scrolling while the pointer rests at the window's edge. Arrow keys, and the touch edge band while a drag is held, keep moving the view | Off, On | On | `open-annihilation.access.edge-scroll` |
+| | Move overlays: On, the keys overlay, the chat line and the latch chips show where the player put them; Off, where they lay themselves out, and the places stay kept | Off, On | Off | `open-annihilation.access.move-overlays` |
+| | Overlay places: "Your places" or "The game's places", and ARRANGE… (`DialogAction::arrange_overlays`), pressable while Move overlays is on: the host opens a picture of the match over the dialog where the overlays are placed | | | none. The places are the host's `open-annihilation.overlay.*` keys |
 | Touch, listed only while the game has touch controls | One-finger drag | Automatic (a selection box on a tablet, scrolling on a phone), Box, Scroll | Automatic | `open-annihilation.touch-drag` (`automatic`, `box` or `scroll`) |
 | | Hold delay | 250 to 700 ms, steps of 50; a stored delay is held to the range and put on its nearest step | 350 ms | `open-annihilation.touch-hold-delay` |
 | | QUEUE and ADD | Stay on, One action | Stay on | `open-annihilation.touch-latches` (`stay-on` or `one-action`) |
@@ -1000,8 +1002,15 @@ and the kit's components. Tab follows the declared order
 the list holds (`DisplayList::tab_order`), which `dialog_list` builds as it
 adds the controls.
 
-The dialog's input reads this list through the kit: the control under a
-point is `kit::hit`'s, a finger's `kit::reach`'s, Tab's next control
+The dialog's input reads this list through the kit, built in the fonts the
+dialog is drawn in (`Dialog::drawn_fonts`, which the host sets to the fonts
+it draws with): the sizes they widen and the lines they wrap the rows'
+texts into come from one place (`geometry::shown_section`), so a control
+answers where it is drawn whatever its Interface size, size class, type
+step or language. Without fonts every character is measured at
+`estimated_character_width`, for drawing and input alike. `dialog_layout`
+lists the parts in the same fonts unless it is given others. The control
+under a point is `kit::hit`'s, a finger's `kit::reach`'s, Tab's next control
 `kit::next_in_tab_order`'s, an arrow's `kit::focus_toward`'s, and the wheel
 carries its fraction with `kit::wheel_offset`. A row's control lies across
 the section at its control's line, and its clip, the view narrowed to the
@@ -1479,7 +1488,7 @@ lock, and lists that scroll or open over their field;
 the Graphics section's twenty-one rows, Naval reflections last, their places at every offset
 and under every lock, the focus scrolling them into view, both forms of a
 locked row, Smooth motion's switch and its two hints, Zoomed out units' faded Icons and After zoom's lock, every status of Hardware acceleration, Full's included, and
-the requests to try the graphics card afresh; User Interface's seven rows, Menu scaling, Window frame, HUD scaling, Interface size, Window size, Reset window positions and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Accessibility's thirteen rows, the captions at both ends of each range, CHOOSE… opening the key editor on Latchable while Edit keys… stays on All, and each change applying at once; Interface size's drop-down
+the requests to try the graphics card afresh; User Interface's seven rows, Menu scaling, Window frame, HUD scaling, Interface size, Window size, Reset window positions and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Accessibility's fifteen rows, the captions at both ends of each range, CHOOSE… opening the key editor on Latchable while Edit keys… stays on All, and each change applying at once; Interface size's drop-down
 offering 150% only with the modern fonts shown On, and turning them Off
 taking 150% to 100%; Graphics drawn on the kit canvas's smooth form at 1.5×
 with every pixel painted whole; on sections of the test's own taller than the

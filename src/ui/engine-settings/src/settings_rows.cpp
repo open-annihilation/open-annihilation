@@ -127,7 +127,7 @@ constexpr std::array<Setting, 8> kUserInterfaceRows{
     Setting::look,
 };
 /// Accessibility's rows: the helpers, each applying as it is changed.
-constexpr std::array<Setting, 13> kAccessibilityRows{
+constexpr std::array<Setting, 15> kAccessibilityRows{
     Setting::latching,
     Setting::sticky_modifiers,
     Setting::hold_to_confirm,
@@ -141,6 +141,8 @@ constexpr std::array<Setting, 13> kAccessibilityRows{
     Setting::repeat_rate,
     Setting::drag_threshold,
     Setting::edge_scroll,
+    Setting::move_overlays,
+    Setting::arrange_overlays,
 };
 /// Language's rows: the language first, and the text size right
 /// under the switch it needs.
@@ -2516,6 +2518,35 @@ constexpr Spec latching_row() noexcept {
     return spec;
 }
 
+/// Overlay places: whose places the overlays show at.
+std::string overlay_places_value(const SettingsModel& model) {
+    return std::string(
+        shown_text(model.settings->move_overlays ? "Your places" : "The game's places")
+    );
+}
+
+/// Overlay places' ARRANGE… can be pressed while Move overlays is on.
+bool overlays_move(const SettingsModel& model) {
+    return model.settings->move_overlays;
+}
+
+/// Overlay places: whose places the overlays show at, and ARRANGE…, which
+/// opens a picture of the match where they are placed.
+constexpr Spec arrange_overlays_row() noexcept {
+    Spec spec = kit::value_and_button<SettingsModel>(
+        "arrange-overlays",
+        "Overlay places",
+        &overlay_places_value,
+        "Arrange…",
+        "arrange",
+        arrange_overlays_action,
+        {"Drag them on a picture of the match. Each window size keeps its own places.", {}}
+    );
+    spec.enabled = &overlays_move;
+    spec.hint_lines = &lines<1>;
+    return spec;
+}
+
 using LongPress = Linear<uint32_t, &EngineSettings::long_press_ms, 200, 1000, 50>;
 using SlowKeys = Linear<uint32_t, &EngineSettings::slow_keys_ms, 0, 1000, 50>;
 using BounceKeys = Linear<uint32_t, &EngineSettings::bounce_keys_ms, 0, 1000, 50>;
@@ -2989,6 +3020,15 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
          "Edge scrolling",
          {"Off stops the view scrolling while the pointer rests at the window's edge.", {}}),
      .copy = &copy_field<&E::edge_scroll>},
+    {.setting = S::move_overlays,
+     .spec = engine_switch<&E::move_overlays>(
+         "move-overlays",
+         "Move overlays",
+         {"The keys overlay, the chat line and the latch chips show where you put them.",
+          "Off, they show where the game puts them."}),
+     .copy = &copy_field<&E::move_overlays>},
+    {.setting = S::arrange_overlays,
+     .spec = arrange_overlays_row()},
     {.setting = S::window_size,
      .spec = wide(kit::choice("window-size", "Window size",
                               DropDown<WindowSize, 4, window_size_choices, &E::window_size, kWindowSizeCaptions, &table_word<window_size_words, WindowSize>>::stepper(),
@@ -3123,6 +3163,8 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "repeat-rate",
     "drag-threshold",
     "edge-scroll",
+    "move-overlays",
+    "arrange-overlays",
     "window-size",
     "reset-window-positions",
     "look",

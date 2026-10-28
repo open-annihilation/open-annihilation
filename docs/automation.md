@@ -370,15 +370,18 @@ module's ([src/ui/key-editor](../src/ui/key-editor/README.md)):
 
 ### Arrange Overlays
 
-The in-game menu's Overlays button opens Arrange Overlays (`dialog`
-`oa.arrange-overlays`), a modal screen over the battlefield that moves the
-keys overlay, the chat line and the latch chips:
+Settings › Accessibility's **Move overlays** (`oa.settings.move-overlays.on`,
+`.off`) turns the overlays' places on; **Overlay places**' ARRANGE…
+(`oa.settings.arrange-overlays.arrange`, enabled while Move overlays is on)
+opens Arrange Overlays (`dialog` `oa.arrange-overlays`), a modal screen as
+large as the window that pictures the match and places the keys overlay,
+the chat line and the latch chips. In a match the in-game menu's OA
+Settings button (`oa.button`, its text "OA Settings") opens Settings.
 
 | Control | Name | Kind, and what it reports |
 |---|---|---|
-| Overlays, under Resume in the in-game menu | `oa.arrange-button` | button; no dialog; its text "Overlays" |
-| A handle | `oa.arrange-overlays.keys-overlay`, `.chat-line`, `.latch-chips` | button, its text the handle's words ("Keys Overlay", "Chat Line", "Latch Chips"), its rectangle where that overlay shows. A drag moves it on the 8-point grid; a double-click puts it back |
-| Reset, Done | `oa.arrange-overlays.reset`, `oa.arrange-overlays.done` | button. Reset puts every overlay back where it lays itself out; Done goes back to the in-game menu |
+| A handle | `oa.arrange-overlays.keys-overlay`, `.chat-line`, `.latch-chips` | button, its text the handle's words ("Keys Overlay", "Chat Line", "Latch Chips"), its rectangle where that overlay's sample shows. A drag moves it on the 8-point grid; a double-click puts it back |
+| Reset, Cancel, Done | `oa.arrange-overlays.reset`, `oa.arrange-overlays.cancel`, `oa.arrange-overlays.done` | button. Reset puts every overlay back where it lays itself out; Cancel puts the places back as they were when the screen opened; Done keeps them. Cancel and Done go back to Settings |
 
 ### The key editor
 
@@ -592,10 +595,11 @@ it all.
 The engine's tests of the endpoint are `automation-protocol`,
 `automation-options`, `automation-input`, `automation-reports` and the
 native checks `native-automation-menus`, `native-automation-input`,
-`native-automation-frame`, `native-automation-settings` and
-`native-automation-digest`, which run the game with `--fark` on the dummy
-drivers over an installed game. `mcp-server-selftest` and
-`native-mcp-server` check the MCP server ([below](#through-mcp)).
+`native-automation-frame`, `native-automation-settings`,
+`native-automation-hit-areas` and `native-automation-digest`, which run
+the game with `--fark` on the dummy drivers over an installed game.
+`mcp-server-selftest` and `native-mcp-server` check the MCP server
+([below](#through-mcp)).
 [testing.md](development/testing.md#the-automation-endpoint) says how to run them,
 and [src/app/automation](../src/app/automation/README.md#tests) what each
 checks.

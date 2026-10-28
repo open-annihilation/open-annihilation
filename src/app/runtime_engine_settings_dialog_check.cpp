@@ -498,6 +498,10 @@ std::string_view label_of(settings::Setting setting) {
         return "Drag threshold";
     case settings::Setting::edge_scroll:
         return "Edge scrolling";
+    case settings::Setting::move_overlays:
+        return "Move overlays";
+    case settings::Setting::arrange_overlays:
+        return "Overlay places";
     case settings::Setting::welcome_setup:
         return "Welcome setup";
     case settings::Setting::fog_of_war:

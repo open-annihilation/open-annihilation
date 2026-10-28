@@ -780,6 +780,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_selection_keys) {
+            check_selection_keys();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_mutator_picker) {
             check_mutator_picker();
             flush_preferences();
@@ -907,6 +912,11 @@ int Runtime::run() {
         }
         if (options_.check_build_preview) {
             const int status = check_build_preview();
+            flush_preferences();
+            return status;
+        }
+        if (options_.check_dialog_backdrop) {
+            const int status = check_dialog_backdrop();
             flush_preferences();
             return status;
         }

@@ -64,6 +64,9 @@ inline constexpr oa::ui::kit::ActionId edit_keys_action = 15;
 /// What CHOOSE…, Accessibility's Hold keys that latch, asks for: the key
 /// editor over Settings, on the Latchable filter. It follows EDIT KEYS….
 inline constexpr oa::ui::kit::ActionId choose_latch_action = 16;
+/// What ARRANGE…, Accessibility's Overlay places, asks for: the picture of
+/// the match where the overlays are placed. It follows CHOOSE….
+inline constexpr oa::ui::kit::ActionId arrange_overlays_action = 17;
 /// What Reset, User Interface's Reset window positions, asks for: every moved
 /// window back in its place (Dialog::window_reset_asked). It stands clear of
 /// the numbers the pages' own buttons take.

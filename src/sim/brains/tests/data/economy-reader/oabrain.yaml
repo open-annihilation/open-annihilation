@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+oabrain: 1
+id: economy-reader
+name: "Economy Reader"
+version: "1.0"
+author:
+  name: "Ridge Testers"
+description: "Builds one energy building and reads the seat's economy every turn."
+tags: ["teaching"]
+works-with: ["*"]
+fullAwareness: true
+levels:
+  - id: hard
+    name: "Hard"
+    difficulty: hard
+  - id: easy
+    name: "Easy"
+    difficulty: easy
+options:
+  build:
+    type: toggle
+    label: "Build an energy building"
+    default: true
+entry: brain.lua

@@ -75,21 +75,23 @@ constexpr kit::Colour untouched{0x12, 0x34, 0x56};
 
 /// Which screen a picture shows.
 enum class Shown : uint8_t {
-    list,      ///< the list, or Compact's details page
-    waiting,   ///< the capture, before a key
-    complete,  ///< the capture, with a free chord
-    taken,     ///< the capture, with a clash
-    refused,   ///< the capture, with a fixed chord
-    question,  ///< the clash prompt
-    card,      ///< the draft card
-    share,     ///< Share your keys
-    pasted,    ///< Paste keys
-    importing, ///< Import keys from an older setup
-    found,     ///< Find by key, with Ctrl+B heard
-    settling,  ///< the clash question settling the draft clash
-    draft,     ///< the list with an unsaved edit and Undo
-    more,      ///< the capture with More options open
-    leave,     ///< the close question over the list with unsaved edits
+    list,       ///< the list, or Compact's details page
+    waiting,    ///< the capture, before a key
+    complete,   ///< the capture, with a free chord
+    taken,      ///< the capture, with a clash
+    refused,    ///< the capture, with a fixed chord
+    question,   ///< the clash prompt
+    card,       ///< the draft card
+    share,      ///< Share your keys
+    pasted,     ///< Paste keys
+    importing,  ///< Import keys from an older setup
+    found,      ///< Find by key, with Ctrl+B heard
+    settling,   ///< the clash question settling the draft clash
+    draft,      ///< the list with an unsaved edit and Undo
+    more,       ///< the capture with More options open
+    leave,      ///< the close question over the list with unsaved edits
+    cloning,    ///< Clone's question, on the name and description it offers
+    taken_name, ///< Clone's question on a name another layout has
 };
 
 /// One picture.
@@ -311,6 +313,10 @@ std::vector<Scene> all_scenes() {
         picture("leave-compact", 640, 480, 100, compact, false, false, Shown::leave),
         picture("leave-regular", 1920, 1080, 200, regular, false, false, Shown::leave),
         picture("leave-large", 1280, 720, 100, large, false, false, Shown::leave),
+        picture("clone-compact", 640, 480, 100, compact, false, false, Shown::cloning),
+        picture("clone-regular", 1920, 1080, 200, regular, false, false, Shown::cloning),
+        picture("clone-large", 1280, 720, 100, large, false, false, Shown::cloning),
+        picture("clone-taken-large", 1280, 720, 100, large, false, false, Shown::taken_name),
         [&] {
             Scene scene = shaped(
                 "keyboard-list-large",
@@ -408,6 +414,15 @@ void arm_scene(editor::Editor& model, editor::ScreenState& state, const Scene& s
         state.selected = "order.stop";
         if (scene.shown == Shown::leave)
             state.prompt = editor::Prompt::leave;
+        return;
+    }
+    if (scene.shown == Shown::cloning || scene.shown == Shown::taken_name) {
+        state.prompt = editor::Prompt::clone;
+        state.layout_name_field.text =
+            scene.shown == Shown::cloning ? model.clone_name() : std::string("Ridge grid");
+        state.layout_name_field.caret = state.layout_name_field.text.size();
+        state.layout_description_field.text = "Based on Ridge grid";
+        state.layout_description_field.caret = state.layout_description_field.text.size();
         return;
     }
     if (scene.shown == Shown::more) {
