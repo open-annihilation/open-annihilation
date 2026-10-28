@@ -51,6 +51,12 @@ struct GuiKey {
     std::string gadget{}; ///< the gadget name, which may hold a registry word
     char32_t letter{};    ///< the quick key
     std::string help{};   ///< the help the mod gives, unused by resolution
+    /// The text the button draws, in the player's language, stages separated
+    /// by `|`. Empty when the button draws no words.
+    std::string caption{};
+    /// The screen's title, as its title gadget draws it, or the screen's name
+    /// when it has none. Empty when the gather did not name a screen.
+    std::string menu{};
 };
 
 /// The mod data resolution reads. Gathering it is another ticket's work.

@@ -232,12 +232,19 @@ bool modifier_held(std::string_view code, uint8_t layer) noexcept {
 
 /// The action's short name, already looked up.
 ///
+/// A menu button with no registry name uses the name the list shows, which
+/// is the text the button draws. The id stays in the line's id.
+///
+/// @param editor the list's names
 /// @param bound the action
 /// @param hooks the lookup
 /// @return the name
-std::string action_name(const keys::Bound& bound, const TextHooks& hooks) {
+std::string action_name(const Editor& editor, const keys::Bound& bound, const TextHooks& hooks) {
     if (bound.entry != nullptr && !bound.entry->words.name.empty())
         return show(hooks, bound.entry->words.name);
+    const std::string named = editor.details(bound.id).name;
+    if (!named.empty())
+        return named;
     return bound.id;
 }
 
@@ -267,10 +274,11 @@ std::string number_tail(std::string_view id, std::string_view prefix) {
 /// Anything else keeps the catalogue name, which is already short for
 /// Attack, Settings and the other one-word actions.
 ///
+/// @param editor the list's names
 /// @param bound the action
 /// @param hooks the lookup
 /// @return the caption
-std::string key_caption(const keys::Bound& bound, const TextHooks& hooks) {
+std::string key_caption(const Editor& editor, const keys::Bound& bound, const TextHooks& hooks) {
     const std::string_view id = bound.id;
 
     struct Numbered {
@@ -353,7 +361,7 @@ std::string key_caption(const keys::Bound& bound, const TextHooks& hooks) {
         text.push_back(letter);
         return text;
     }
-    return action_name(bound, hooks);
+    return action_name(editor, bound, hooks);
 }
 
 /// Puts an area's tint and letter on a key. A tint without a letter is not set.
@@ -581,7 +589,7 @@ keyboard_look(const Editor& editor, const KeyboardViewInputs& inputs, const Labe
         if (face) {
             const keys::Bound& action = bound.actions[face->action];
             const keys::BoundChord& chord = action.chords[face->chord];
-            key.cap.sub = key_caption(action, hooks);
+            key.cap.sub = key_caption(editor, action, hooks);
             if (action.entry != nullptr)
                 apply_style(key.cap, action.entry->area, hooks);
             if (clashing_key(clashes, place.code, inputs.layer, map, platform))
@@ -615,7 +623,7 @@ std::vector<CardLine> key_card(const Editor& editor, std::string_view code, uint
                 continue;
             CardLine line;
             line.context = card_context(action.contexts, hooks);
-            line.action = action_name(action, hooks);
+            line.action = action_name(editor, action, hooks);
             line.note = chord_note(action, chord, hooks);
             line.id = action.id;
             lines.push_back(std::move(line));

@@ -957,31 +957,31 @@ struct Runtime::SettingsScreen final : LayerScreen {
 
     /// Lays the dialog out at the view's size class on the main menu, and in
     /// a match at the class OaLayer::match_dialog gives (Dialog::size_class),
-    /// and gives it the fonts it is drawn in, which its input measures in.
+    /// and gives it that class's fonts, which its drawing and its input share.
     ///
     /// @param view what the screen is placed on
     void lay_out(const LayerView& view) override {
         auto* dialog = runtime_.engine_settings_dialog();
         if (dialog == nullptr)
             return;
-        // The pointer, the keys and the wheel find each control where the
-        // drawing puts it (draw passes the same fonts on the canvas).
-        dialog->drawn_fonts = runtime_.oa_layer().screen_fonts();
         // Off its match the dialog keeps its class until its tick closes it.
-        if (in_match_ && (!view.match || view.match_layout == nullptr))
-            return;
-        const kit::SizeClass size_class = in_match_ ? OaLayer::match_dialog(
-                                                          *view.match_layout,
-                                                          view.interface_percent,
-                                                          view.fit_safe_area,
-                                                          view.window_size
-                                                      )
-                                                          .size_class
-                                                    : front_class(view);
-        if (dialog->size_class == size_class)
-            return;
-        dialog->size_class = size_class;
-        ++revision_;
+        if (!(in_match_ && (!view.match || view.match_layout == nullptr))) {
+            const kit::SizeClass size_class = in_match_ ? OaLayer::match_dialog(
+                                                              *view.match_layout,
+                                                              view.interface_percent,
+                                                              view.fit_safe_area,
+                                                              view.window_size
+                                                          )
+                                                              .size_class
+                                                        : front_class(view);
+            if (dialog->size_class != size_class) {
+                dialog->size_class = size_class;
+                ++revision_;
+            }
+        }
+        // The pointer, the keys and the wheel find each control where the
+        // drawing puts it (drawing_fonts passes the same fonts on the canvas).
+        dialog->drawn_fonts = runtime_.oa_layer().screen_fonts(dialog->size_class);
     }
 
     /// Draws the dialog with the dialog's fonts and the settings icon, at
@@ -1081,14 +1081,26 @@ struct Runtime::SettingsScreen final : LayerScreen {
         return take_action(settings::dialog_wheel(*dialog, at.x, at.y, notches));
     }
 
-    /// Returns the dialog's display list.
+    /// Returns the dialog's display list, measured in the fonts it is drawn in.
     ///
     /// @return the list; empty once the dialog closed
     [[nodiscard]] kit::DisplayList display_list() const override {
         const auto* dialog = runtime_.engine_settings_dialog();
         if (dialog == nullptr)
             return {};
-        return settings::geometry::dialog_list(*dialog, runtime_.oa_layer().screen_fonts());
+        return settings::geometry::dialog_list(
+            *dialog, runtime_.oa_layer().screen_fonts(dialog->size_class)
+        );
+    }
+
+    /// Returns the fonts of the dialog's size class, on the menu and in a match.
+    ///
+    /// @return the fonts; null once the dialog closed
+    [[nodiscard]] const kit::Fonts* drawing_fonts() const override {
+        const auto* dialog = runtime_.engine_settings_dialog();
+        if (dialog == nullptr)
+            return nullptr;
+        return runtime_.oa_layer().screen_fonts(dialog->size_class);
     }
 
     /// Returns the dialog's hover, press and focus.
@@ -2092,15 +2104,46 @@ LayerScreen* OaLayer::waiting(std::string_view name) const noexcept {
     return nullptr;
 }
 
-const kit::Fonts* OaLayer::screen_fonts() const {
-    if (runtime_.engine_settings_fonts() == nullptr)
+const kit::Fonts* OaLayer::screen_fonts(kit::SizeClass size_class) const {
+    const kit::Fonts* source = runtime_.engine_settings_fonts();
+    if (source == nullptr)
         return nullptr;
-    // One set of fonts serves every screen: it takes the class they are laid
-    // out at, as it takes the Look in effect. A match's overlays and notices
-    // are Compact from its first frame, before its screens are laid out.
-    auto& fonts = *runtime_.engine_settings_state().fonts;
-    fonts.size_class = runtime_.screen_ == Screen::match ? kit::SizeClass::compact : fonts_class_;
-    return &fonts;
+    const auto index = static_cast<std::size_t>(size_class);
+    if (index >= class_fonts_.size())
+        return nullptr;
+    // Copied once a load. A later call only follows the Look, and leaves each
+    // slot's class where the copy pinned it. The shared fonts' class is set
+    // by screen_fonts(), after this, and must not be copied onto a slot.
+    if (!class_fonts_ready_ || class_fonts_source_ != source) {
+        for (std::size_t slot = 0; slot < class_fonts_.size(); ++slot) {
+            class_fonts_[slot] = *source;
+            class_fonts_[slot].size_class = static_cast<kit::SizeClass>(static_cast<uint8_t>(slot));
+        }
+        class_fonts_ready_ = true;
+        class_fonts_source_ = source;
+    } else {
+        for (kit::Fonts& slot : class_fonts_)
+            slot.modern = source->modern;
+    }
+    return &class_fonts_[index];
+}
+
+const kit::Fonts* OaLayer::screen_fonts() const {
+    // Compact in a match from the first frame, before its screens are laid
+    // out: the overlays, the gallery, the key editor and the HUD. The HUD
+    // reads the shared fonts' class, so that class is set here too.
+    const kit::SizeClass shown =
+        runtime_.screen_ == Screen::match ? kit::SizeClass::compact : fonts_class_;
+    const kit::Fonts* shown_fonts = screen_fonts(shown);
+    if (runtime_.engine_settings_state().fonts)
+        runtime_.engine_settings_state().fonts->size_class = shown;
+    return shown_fonts;
+}
+
+const kit::Fonts* OaLayer::fonts_for(const LayerScreen& screen) const {
+    if (const kit::Fonts* own = screen.drawing_fonts())
+        return own;
+    return screen_fonts();
 }
 
 text_font::FontStack* OaLayer::smooth_fonts() const {
@@ -3459,13 +3502,14 @@ LayerDrawing OaLayer::draw_screen(
     // At the scale itself: never drawn at another and enlarged.
     const bool whole = scale_percent % 100 == 0;
     text_font::FontStack* modern = whole ? nullptr : smooth_fonts();
+    const kit::Fonts* fonts = fonts_for(screen);
     const auto draw = [&screen](const kit::Canvas& canvas) { screen.draw(canvas); };
     if (!screen.opaque())
         return clear_drawing(
             placed.points_width,
             placed.points_height,
             scale_percent,
-            screen_fonts(),
+            fonts,
             modern,
             runtime_.engine_settings_icon(),
             draw
@@ -3475,7 +3519,7 @@ LayerDrawing OaLayer::draw_screen(
         placed.points_width,
         placed.points_height,
         scale_percent,
-        screen_fonts(),
+        fonts,
         modern,
         runtime_.engine_settings_icon(),
         draw
@@ -3830,6 +3874,7 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
         inputs.darkenings = above[index];
         inputs.corner_radius = placed.corner_radius;
         inputs.opaque = screen.opaque();
+        inputs.fonts = fonts_for(screen);
         inputs.modern_fonts = scale_percent % 100 == 0 ? nullptr : smooth_fonts();
         // A screen whose revision covers what it draws keeps its drawing
         // while the revision and everything else it is drawn from hold;
