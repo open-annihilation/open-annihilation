@@ -76,10 +76,20 @@ const char* copy_into(char*& at, std::string_view text) noexcept {
 
 /// The catalogue and language the interface's own words show in.
 struct Installed {
-    const InterfaceText* catalogue{}; ///< null for English alone
-    const Language* language{};       ///< null before any is installed
-    uint64_t generation{};            ///< counts the installations
+    const InterfaceText* catalogue{};  ///< null for English alone
+    const Language* language{};        ///< null before any is installed
+    uint64_t generation{};             ///< counts the installations
+    InterfaceCatalogueLoader loader{}; ///< null until one is registered
+    void* loader_context{};            ///< passed to loader
 };
+
+/// Tells whether a word is wanted in a language other than English.
+///
+/// @param language the language
+/// @return false for English, which is the text the source writes
+bool asks_for_translation(const Language& language) noexcept {
+    return language.tag != english().tag;
+}
 
 /// The one installation the interface reads.
 Installed& installed() noexcept {
@@ -286,6 +296,12 @@ void set_interface_language(const InterfaceText* catalogue, const Language& lang
     ++state.generation;
 }
 
+void set_interface_catalogue_loader(InterfaceCatalogueLoader loader, void* context) noexcept {
+    Installed& state = installed();
+    state.loader = loader;
+    state.loader_context = context;
+}
+
 const Language& interface_language() noexcept {
     const Language* language = installed().language;
     return language != nullptr ? *language : english();
@@ -296,10 +312,19 @@ uint64_t interface_generation() noexcept {
 }
 
 std::string_view interface_text_in(std::string_view english, const Language& language) {
-    const Installed& state = installed();
-    if (state.catalogue == nullptr)
+    if (asks_for_translation(language)) {
+        Installed& held = installed();
+        const bool unread = held.catalogue == nullptr || held.catalogue->size() == 0;
+        if (unread && held.loader != nullptr) {
+            const InterfaceCatalogueLoader load = held.loader;
+            void* const context = held.loader_context;
+            load(context);
+        }
+    }
+    const InterfaceText* installed_catalogue = installed().catalogue;
+    if (installed_catalogue == nullptr)
         return english;
-    return state.catalogue->text(english, language);
+    return installed_catalogue->text(english, language);
 }
 
 std::string_view interface_text(std::string_view english) {

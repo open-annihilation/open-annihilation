@@ -6584,7 +6584,8 @@ void opening_a_tab_focuses_its_search() {
     kit::DisplayList list = laid_out(library, state, large);
     static_cast<void>(click(library, state, list, "library.tab.maps"));
     OA_CHECK(library.tab == lib::Tab::maps);
-    const kit::Control* search = fixture::named(laid_out(library, state, large), "library.search");
+    list = laid_out(library, state, large);
+    const kit::Control* search = fixture::named(list, "library.search");
     OA_CHECK(search != nullptr);
     OA_CHECK(
         search != nullptr && state.interaction.focus_shown &&

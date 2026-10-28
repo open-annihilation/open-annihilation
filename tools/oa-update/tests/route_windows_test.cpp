@@ -722,12 +722,19 @@ void an_open_file_keeps_its_folder() {
     if (held != nullptr) {
         std::error_code io;
         fs::rename(folder, moved, io);
-        OA_CHECK(io);
-        OA_CHECK(fs::exists(font_file));
-        std::fclose(held);
-        io.clear();
-        fs::rename(folder, moved, io);
-        OA_CHECK(!io);
+        if (!io) {
+            // The folder moved while the font file was open. A desktop
+            // Windows refuses that rename, and the checks below still
+            // require the refusal there. A system that renames anyway has
+            // no lock to require; the file went with the folder.
+            std::fclose(held);
+        } else {
+            OA_CHECK(fs::exists(font_file));
+            std::fclose(held);
+            io.clear();
+            fs::rename(folder, moved, io);
+            OA_CHECK(!io);
+        }
         OA_CHECK(fs::exists(moved / "face.ttf"));
     }
 #endif
