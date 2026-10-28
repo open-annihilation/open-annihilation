@@ -409,6 +409,15 @@ class LayerScreen {
     /// @return false, the default; true for a screen that keeps to it
     [[nodiscard]] virtual bool revision_covers_drawing() const { return false; }
 
+    /// Returns the fonts this screen is measured and drawn in, when they are
+    /// not the layer's own (OaLayer::screen_fonts). Settings in a match, and
+    /// a notice or a question over the match, return the fonts of their size
+    /// class, and the layer draws them with those, the same fonts their
+    /// input measures in. Null, the default, keeps the layer's fonts.
+    ///
+    /// @return the fonts; null to use the layer's
+    [[nodiscard]] virtual const oa::ui::kit::Fonts* drawing_fonts() const { return nullptr; }
+
     /// Returns a number no other screen made in this run has, by which the
     /// layer tells a screen's kept drawing from another's.
     ///
@@ -731,12 +740,24 @@ class OaLayer {
     /// type scale. The class is the view's when the layer last laid its
     /// screens out (lay_out_screens): on the front end the class Settings,
     /// the Library and the other screens take, and in a match Compact, the
-    /// class of the overlays and the notices there. The in-match Settings
-    /// and the gallery, which a match lays out at a class of their own, are
-    /// measured and drawn at Compact's type.
+    /// class of the overlays, the gallery and the key editor. Each call also
+    /// sets that class on the shared fonts, which a match's HUD reads. A
+    /// dialog the match lays out at a class of its own (Settings, and a
+    /// notice or a question over the match) measures and draws with
+    /// screen_fonts(its class) instead.
     ///
     /// @return the fonts; null when they cannot be loaded
     [[nodiscard]] const oa::ui::kit::Fonts* screen_fonts() const;
+
+    /// Returns the fonts of one size class: the same glyphs and modern stack
+    /// as screen_fonts(), with that class's steps on the type scale. The
+    /// pointer for a class stays put until the shared fonts are loaded again.
+    /// It does not change the class of the shared fonts.
+    ///
+    /// @param size_class the class
+    /// @return the fonts; null when they cannot be loaded, or the class is
+    ///     not one of the three
+    [[nodiscard]] const oa::ui::kit::Fonts* screen_fonts(oa::ui::kit::SizeClass size_class) const;
 
     /// Returns what the screens are placed on now: the window over the front
     /// end's picture, with the scale and size class of the window's canvas
@@ -1639,11 +1660,18 @@ class OaLayer {
     /// size class (screen_fonts).
     void lay_out_screens();
 
+    /// Returns the fonts a screen is drawn in: its own (LayerScreen::drawing_fonts),
+    /// or the layer's (screen_fonts) when it names none.
+    ///
+    /// @param screen the screen
+    /// @return the fonts; null when they cannot be loaded
+    [[nodiscard]] const oa::ui::kit::Fonts* fonts_for(const LayerScreen& screen) const;
+
     /// Draws a screen from its own top left corner at a scale, never drawn
     /// at another and enlarged (layer_drawing): an opaque screen on a
     /// picture cleared to black, its corners then rounded by its placement's
     /// radius (round_layer_corners); one that is not opaque on a surface
-    /// cleared to clear (clear_drawing).
+    /// cleared to clear (clear_drawing). The canvas carries fonts_for.
     ///
     /// @param screen the screen
     /// @param placed where it shows
@@ -1756,6 +1784,14 @@ class OaLayer {
     /// The size class the screens were last laid out at, which their fonts
     /// take (screen_fonts).
     oa::ui::kit::SizeClass fonts_class_{oa::ui::kit::SizeClass::compact};
+    /// One kit::Fonts a size class (screen_fonts(SizeClass)), copied from the
+    /// shared fonts the first time they are asked for. A slot's class stays
+    /// its own. The shared fonts' class is still what screen_fonts() sets,
+    /// Compact in a match, which the HUD reads.
+    mutable std::array<oa::ui::kit::Fonts, 3> class_fonts_{};
+    /// The shared fonts class_fonts_ were copied from. A new load copies again.
+    mutable const oa::ui::kit::Fonts* class_fonts_source_{nullptr};
+    mutable bool class_fonts_ready_{}; ///< class_fonts_ holds a copy
     /// Settings pages registered for this runtime.
     SettingsRegistry settings_pages_{};
     /// The next id queue_notice and queue_prompt hand out. Never 0.
