@@ -1034,7 +1034,9 @@ hosts them on the OA layer.
   (SELMAP) shows, or the host's map dialog in the battle room
   (`multiplayer_map_list_rect`), by `keep_more_maps_screen`, which
   `OaLayer::tick` calls once a frame, and taken off when they close. It is
-  one kit button, `oa.more-maps` to automation, directly under the picker's
+  one kit button, the lime accent button at the regular size (Regular's
+  control height, the caption in the regular font), `oa.more-maps` to
+  automation, directly under the picker's
   MAPNAMES list with its right edge on the list's, or above the list when
   that place meets another gadget of the picker, at the layer's scale. It
   hides while a message box shows. A mouse presses the drawn rectangle. A
@@ -1091,7 +1093,8 @@ hosts them on the OA layer.
   (`prepare_map_browser_check`), and at 640x480, 1280x720, 1920x1080 and
   2560x1440 opens SELMAP and presses MORE MAPS…. It requires the layer's
   size class and scale (Compact 1x, Large 1x, Large 1x, Large 2x) and the
-  grid's columns (3, 6, 6, 6); MORE MAPS… over none of SELMAP's gadgets;
+  grid's columns (3, 6, 6, 6); MORE MAPS… over none of SELMAP's gadgets,
+  the accent button at the regular size;
   every card and control inside the browser's window; Online empty;
   Installed packs showing the two check maps alone; the clashing map's card
   greyed, "New names" in the footer and Select disabled; the search "isle"
@@ -1105,7 +1108,11 @@ hosts them on the OA layer.
   over SELMAP with the browser closed, then installs with no prompt once
   MORE MAPS… opens the browser, its folder holding the catalogue's origin
   record and the installed packs listing its map; the clashing one is
-  refused there for New names, with no prompt. A FIXTURES_SETUP test
+  refused there for New names, with no prompt. Then it hosts a battle room
+  alone (`--dplay-port 0`), presses Select Map, and at 640x480 and 1280x720
+  requires MORE MAPS… over none of the map dialog's gadgets with the same
+  look, writing `more-maps-selmap-<w>x<h>.png` and
+  `more-maps-room-<w>x<h>.png`. A FIXTURES_SETUP test
   (`map-browser-clean`) clears its folders before each run, and the check
   removes the packs an earlier run installed as a catalogue's.
 - **Limitations.** The fit of an installed pack map is checked on the main

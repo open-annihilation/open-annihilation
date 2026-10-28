@@ -92,6 +92,12 @@ constexpr std::string_view more_maps_control_name = "more-maps";
 constexpr kit::ControlId more_maps_control = 1;
 /// MORE MAPS…'s words.
 constexpr std::string_view word_more_maps = "MORE MAPS…";
+/// MORE MAPS…'s sizes: the kit's buttons at the regular size, Regular's
+/// control height and the buttons' least width, the caption in the regular
+/// font with a button's padding.
+constexpr const kit::Metrics& more_maps_metrics = kit::regular_metrics;
+/// MORE MAPS…'s caption's font: the regular buttons'.
+constexpr kit::FontRole more_maps_font = kit::FontRole::regular;
 /// The words for a download the queue would not start.
 constexpr std::string_view word_not_queued = "The download could not start: {reason}";
 /// The words for a download that failed.
@@ -1206,8 +1212,9 @@ struct Runtime::MapBrowserScreen final : LayerScreen {
 // ---------------------------------------------------------------------------------------------
 // MORE MAPS…
 
-/// MORE MAPS… as a screen of the OA layer: not modal, no backdrop, a kit
-/// button under the picker's map list, its right edge on the list's, or
+/// MORE MAPS… as a screen of the OA layer: not modal, no backdrop, the
+/// kit's primary button, lime at the regular size, under the picker's map
+/// list, its right edge on the list's, or
 /// above the list where the place under it meets another gadget of the
 /// picker. It takes a press or a tap on its button, and the controller's
 /// Y and the find action, which the pickers leave unused; a plain slash
@@ -1352,7 +1359,8 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
             return list;
         kit::ButtonLook look;
         look.caption = shown(word_more_maps);
-        look.style = kit::ButtonStyle::inset;
+        look.style = kit::ButtonStyle::accent;
+        look.font = more_maps_font;
         look.hovered = hovered_;
         look.held = pressed_ && hovered_;
         kit::add_button(
@@ -1528,10 +1536,10 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
         std::vector<kit::Rect> others;
         if (fonts == nullptr || !picker_rects(list_rect, others))
             return std::nullopt;
-        const kit::Metrics& metrics = kit::compact_metrics;
+        const kit::Metrics& metrics = more_maps_metrics;
         const int32_t width = std::max(
             metrics.button_width,
-            kit::text_width(*fonts, kit::FontRole::small, shown(word_more_maps)) +
+            kit::text_width(*fonts, more_maps_font, shown(word_more_maps)) +
                 metrics.prompt_button_padding
         );
         const kit::Rect list_points = frame_to_points(placed_on, list_rect);
@@ -1549,13 +1557,13 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
             list_points.x + list_points.width - width,
             point_on_or_below(frame_window_bottom(placed_on, framed), percent),
             width,
-            metrics.button_height
+            metrics.control_height
         };
         const bool blocked = std::any_of(others.begin(), others.end(), [&](const kit::Rect& other) {
             return meet(place, frame_to_points(placed_on, other));
         });
         if (blocked)
-            place.y = frame_points.y - metrics.button_height;
+            place.y = frame_points.y - metrics.control_height;
         return place;
     }
 

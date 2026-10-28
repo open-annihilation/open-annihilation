@@ -6,7 +6,9 @@
 // Maps folder, with every built-in registry turned off so that nothing is
 // fetched, and at 640x480, 1280x720, 1920x1080 and 2560x1440 opens SELMAP and
 // presses MORE MAPS…. It requires the size class and scale the window gives
-// and the grid's columns there; MORE MAPS… over none of SELMAP's gadgets;
+// and the grid's columns there; MORE MAPS… over none of SELMAP's gadgets,
+// the kit's lime accent button at the regular size with its caption in the
+// regular font;
 // every card and control inside the browser's window; Downloads showing
 // the two check maps alone; the search "isle" leaving one; the clashing
 // map's card greyed with "New names" in the footer's reason and the primary
@@ -16,7 +18,13 @@
 // nobody watches: last, the two packs are posted again under ids of their
 // own, as the download queue hands a catalogue's over, and the fitting one
 // must wait in the inbox with the browser closed and install with no prompt
-// while it is the top screen, the clashing one be refused there.
+// while it is the top screen, the clashing one be refused there. Then it
+// hosts a battle room alone, opens Select Map, and at 640x480 and 1280x720
+// requires MORE MAPS… over none of the map dialog's gadgets and with the
+// same look. Each picker's frame is written as more-maps-selmap-<w>x<h>.png
+// and more-maps-room-<w>x<h>.png. MORE MAPS…'s look is told for every
+// window and both pickers at the end, so one run names each place it is
+// wrong.
 
 #include "map_pack_check_packs.hpp"
 #include "map_packs.hpp"
@@ -41,9 +49,17 @@
 #include "oa/formats/png.hpp"
 #include "oa/formats/zip.hpp"
 #include "oa/ui/display_layout.hpp"
+#include "oa/ui/frontend_dialogs.hpp"
+#include "oa/ui/frontend_multiplayer/get_map.hpp"
+#include "oa/ui/frontend_multiplayer/launch_block.hpp"
+#include "oa/ui/frontend_multiplayer/lobby.hpp"
+#include "oa/ui/frontend_multiplayer/panel.hpp"
+#include "oa/ui/frontend_multiplayer/screens.hpp"
 #include "oa/ui/kit/input.hpp"
 #include "oa/ui/kit/layout.hpp"
 #include "oa/ui/kit/looks.hpp"
+#include "oa/ui/kit/text.hpp"
+#include "oa/ui/kit/theme.hpp"
 #include "oa/ui/map_browser/screen.hpp"
 
 #include <SDL3/SDL.h>
@@ -75,6 +91,8 @@ namespace mb = oa::ui::map_browser;
 namespace layout = oa::ui::display_layout;
 namespace registry = oa::data::registry;
 namespace map_pack = oa::data::map_pack;
+namespace mp = oa::ui::frontend_multiplayer;
+namespace dialogs = oa::ui::frontend_dialogs;
 
 /// One window the check opens the browser in, and what the OA layer gives
 /// there: the design's table of windows.
@@ -366,6 +384,63 @@ void Runtime::check_map_browser() {
         const kit::DisplayList list = screen->display_list();
         return card_names(list);
     };
+    // Writes the window's frame, for review.
+    const auto write_picker_frame =
+        [&](const std::string& file, const CheckWindow& window, const std::string& on) {
+            oa_layer().read_whole_window(true);
+            renderer::Surface presented;
+            capture_frame_ = &presented;
+            render();
+            capture_frame_ = nullptr;
+            oa_layer().read_whole_window(false);
+            require(
+                presented.width == static_cast<uint32_t>(window.width) &&
+                    presented.height == static_cast<uint32_t>(window.height),
+                "the frame is not the window's size" + on
+            );
+            write_png(fs::path(file), presented);
+        };
+    // MORE MAPS… is the kit's primary button at the regular size: lime with
+    // dark text, Regular's control height, at least the buttons' least
+    // width, and its caption in the regular font with a button's padding.
+    std::vector<std::string> look_faults;
+    const auto more_maps_look = [&](std::string_view picker, const std::string& on) {
+        const std::string where = " over " + std::string(picker) + on;
+        LayerScreen* screen = oa_layer().find("more-maps");
+        const kit::Fonts* fonts = oa_layer().screen_fonts();
+        require(screen != nullptr && fonts != nullptr, "MORE MAPS… is not on the layer" + where);
+        const kit::DisplayList list = screen->display_list();
+        const kit::ButtonLook* look = nullptr;
+        for (const kit::Item& item : list.items)
+            if (const auto* button = std::get_if<kit::ButtonLook>(&item.look))
+                look = button;
+        if (look == nullptr) {
+            look_faults.push_back("MORE MAPS… draws no button" + where);
+            return;
+        }
+        const std::size_t faults_before = look_faults.size();
+        if (look->style != kit::ButtonStyle::accent)
+            look_faults.push_back("MORE MAPS… is not the accent button" + where);
+        if (look->font != kit::FontRole::regular)
+            look_faults.push_back("MORE MAPS…'s caption is not in the regular font" + where);
+        const kit::Metrics& regular = kit::regular_metrics;
+        const int32_t least_width = std::max(
+            regular.button_width,
+            kit::text_width(*fonts, kit::FontRole::regular, look->caption) +
+                regular.prompt_button_padding
+        );
+        const LayerPlacement placed = oa_layer().placement_of("more-maps");
+        const std::string sized =
+            std::to_string(placed.points_width) + " by " + std::to_string(placed.points_height);
+        if (placed.points_height != regular.control_height || placed.points_width < least_width)
+            look_faults.push_back(
+                "MORE MAPS… is " + sized + " points, not at least " + std::to_string(least_width) +
+                " by " + std::to_string(regular.control_height) + where
+            );
+        if (look_faults.size() == faults_before)
+            std::cout << "map browser check: MORE MAPS… is the accent button, " << sized
+                      << " points" << where << '\n';
+    };
 
     for (const CheckWindow& window : kWindows) {
         const std::string size = std::to_string(window.width) + 'x' + std::to_string(window.height);
@@ -440,6 +515,8 @@ void Runtime::check_map_browser() {
                 "MORE MAPS… overlaps the map list's frame" + on
             );
         }
+        write_picker_frame("more-maps-selmap-" + size + ".png", window, on);
+        more_maps_look("SELMAP", on);
 
         // A finger on MORE MAPS… opens the browser. A finger in the middle
         // of the map list does not. The mouse click below still opens it.
@@ -819,6 +896,126 @@ void Runtime::check_map_browser() {
     close_map_modal();
     frames(2);
     load(Screen::main_menu);
+    frames(2);
+
+    // MORE MAPS… over the battle room's map dialog: a room hosted alone, its
+    // Select Map pressed, at 640x480 and 1280x720.
+    mp::DirectGame room_game;
+    room_game.kind = mp::DirectGame::Kind::host;
+    room_game.player_name = "Steve";
+    room_game.game_name = "Ridge";
+    mp::multiplayer_bind_direct_game(room_game);
+    // The host's transport is named here, as --host names it before the
+    // menus open, and put back once the room is up.
+    mp::launch::LaunchBlock* const launch = mp::multiplayer_lobby().launch_link.block;
+    require(launch != nullptr, "the battle room has no launch block");
+    const int32_t saved_connection = launch->connection_type;
+    launch->connection_type = mp::launch::connection_type::tcpip;
+    exercise_click(menu::resource_name(menu::Button::multiplayer));
+    frontend_pass_requested_ = true;
+    bool room_opened = false;
+    std::string room_notice;
+    for (int32_t frame = 0; frame < kMostFrames && !room_opened; ++frame) {
+        frames(1);
+        if (frame % 15 == 14) {
+            dialogs::reset_dialogs();
+            if (LayerScreen* notice = oa_layer().find(NoticeScreen::screen_name))
+                oa_layer().close(notice);
+        }
+        mp::BattleRoomMap battle;
+        room_opened = mp::multiplayer_battle_room_map(&battle) && !battle.joiner;
+        const mp::DirectGameProgress& progress = mp::multiplayer_direct_game_progress();
+        if (progress.reached == mp::DirectGameStep::failed)
+            room_notice = progress.notice;
+    }
+    require(
+        room_opened,
+        room_notice.empty() ? "the battle room did not open"
+                            : "the battle room did not open: " + room_notice
+    );
+    launch->connection_type = saved_connection;
+    {
+        auto room_context = screen_context();
+        require(mp::multiplayer_click(&room_context, "MAP"), "the battle room has no Select Map");
+    }
+    bool dialog_open = false;
+    for (int32_t frame = 0; frame < kWaitingFrames && !dialog_open; ++frame) {
+        frames(1);
+        dialog_open = mp::multiplayer_map_list_rect(nullptr, nullptr, nullptr, nullptr);
+    }
+    require(dialog_open, "Select Map did not open the battle room's map dialog");
+    for (const CheckWindow& window : kWindows) {
+        if (window.width != 640 && window.width != 1280)
+            continue;
+        const std::string size = std::to_string(window.width) + 'x' + std::to_string(window.height);
+        const std::string on = " on the " + size + " window";
+        require(
+            SDL_SetWindowSize(sdl_.window, window.width, window.height) &&
+                SDL_SyncWindow(sdl_.window),
+            "the window did not take " + size
+        );
+        apply_output_mode();
+        frames(2);
+        int32_t list_x = 0;
+        int32_t list_y = 0;
+        int32_t list_width = 0;
+        int32_t list_height = 0;
+        require(
+            mp::multiplayer_map_list_rect(&list_x, &list_y, &list_width, &list_height),
+            "the battle room's map dialog closed" + on
+        );
+        require(
+            named("oa.more-maps").has_value(),
+            "MORE MAPS… is not listed as oa.more-maps over the room's map dialog" + on
+        );
+        const LayerPlacement button = oa_layer().placement_of("more-maps");
+        const kit::Rect button_rect{
+            button.shown.x, button.shown.y, button.shown.width, button.shown.height
+        };
+        require(
+            button_rect.width > 0 && button_rect.height > 0,
+            "MORE MAPS… does not show over the room's map dialog" + on
+        );
+        const LayerView seen = oa_layer().view();
+        const mp::Panel* panel = mp::multiplayer_modal();
+        require(panel != nullptr, "the battle room's map dialog has no panel" + on);
+        const mp::Control* listed = mp::panel_control(*panel, "MAPNAMES");
+        require(listed != nullptr, "the battle room's map dialog has no map list" + on);
+        // The panel's controls, where the dialog is drawn.
+        const int32_t shift_x = list_x - listed->x;
+        const int32_t shift_y = list_y - listed->y;
+        for (int32_t index = 1; index < panel->count; ++index) {
+            const mp::Control& control = panel->controls[static_cast<std::size_t>(index)];
+            if (control.width <= 0 || control.height <= 0)
+                continue;
+            const kit::Rect gadget = frame_to_window(
+                seen, {control.x + shift_x, control.y + shift_y, control.width, control.height}
+            );
+            const kit::Rect shared = kit::intersect(button_rect, gadget);
+            require(
+                shared.width <= 0 || shared.height <= 0,
+                "MORE MAPS… overlaps the room's map dialog's " +
+                    std::string(mp::control_name(control)) + on
+            );
+        }
+        // The list draws its frame three frame pixels outside the gadget.
+        const kit::Rect frame =
+            frame_to_window(seen, {list_x - 3, list_y - 3, list_width + 6, list_height + 6});
+        const kit::Rect on_frame = kit::intersect(button_rect, frame);
+        require(
+            on_frame.width <= 0 || on_frame.height <= 0,
+            "MORE MAPS… overlaps the room's map list's frame" + on
+        );
+        std::cout << "map browser check: MORE MAPS… over the room's map dialog meets none of its "
+                     "gadgets"
+                  << on << '\n';
+        write_picker_frame("more-maps-room-" + size + ".png", window, on);
+        more_maps_look("the room's map dialog", on);
+    }
+    std::string told;
+    for (const std::string& fault : look_faults)
+        told += (told.empty() ? "" : "; ") + fault;
+    require(look_faults.empty(), told);
     std::cout << "map browser check passed\n";
 }
 
