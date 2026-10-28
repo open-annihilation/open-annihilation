@@ -222,10 +222,10 @@ Result render(
     const auto unit_range = [](float value) { return value >= 0 && value <= 1; };
     bool vertices_valid = true;
     for (const auto& vertex : vertices) {
-        const bool known_terrain_size = vertex.terrain_size == -5 || vertex.terrain_size == -4 ||
-                                        vertex.terrain_size == -3 || vertex.terrain_size == -2 ||
-                                        vertex.terrain_size == -1 || vertex.terrain_size == 0 ||
-                                        vertex.terrain_size == 32;
+        const bool known_terrain_size =
+            vertex.terrain_size == -7 || vertex.terrain_size == -6 || vertex.terrain_size == -5 ||
+            vertex.terrain_size == -4 || vertex.terrain_size == -3 || vertex.terrain_size == -2 ||
+            vertex.terrain_size == -1 || vertex.terrain_size == 0 || vertex.terrain_size == 32;
         const bool valid =
             std::abs(vertex.x) <= coordinate_limit && std::abs(vertex.height) <= coordinate_limit &&
             std::abs(vertex.z) <= coordinate_limit && unit_range(vertex.u) &&

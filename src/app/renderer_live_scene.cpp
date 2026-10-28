@@ -124,6 +124,41 @@ float brightness_at(const full::SightView& sight, float x, float y, float unseen
     return value * edge_fade;
 }
 
+/// The ground's fog at a painted map point: how much of it is known, and how
+/// far the known part blends toward the grey palette. The same figures the
+/// terrain stores on each vertex, so a feature can grey with the ground.
+struct GroundFog {
+    float known{1};
+    float grey{};
+};
+
+GroundFog fog_of_ground(const Inputs& in, float painted_x, float painted_y, float brightness) {
+    GroundFog ground;
+    ground.known = brightness >= 1   ? 1
+                   : brightness <= 0 ? 0
+                                     : brightness_at(in.sight, painted_x, painted_y, 1);
+    const float grey_brightness = in.sight.dithered ? 0.5F : 0.35F;
+    ground.grey =
+        ground.known > 0
+            ? std::clamp(
+                  (ground.known - brightness) / (ground.known * (1 - grey_brightness)), 0.0F, 1.0F
+              )
+            : 0;
+    return ground;
+}
+
+/// How many times a fog boundary splits a cell. Distant views keep fewer.
+int32_t fog_divisions(const Inputs& in) {
+    constexpr int32_t most = 4;
+    const bool distant =
+        std::isfinite(in.detail_scale) && in.detail_scale > 0 && in.detail_scale < 1;
+    if (distant && in.detail_scale <= 0.25F)
+        return 1;
+    if (distant && in.detail_scale <= 0.5F)
+        return 2;
+    return most;
+}
+
 /// Samples the canonical world grid at a bounded world coordinate.
 float height_at(const formats::tnt::Map& map, int32_t x, int32_t y) {
     const auto column = std::clamp(x / cell_edge, 0, static_cast<int32_t>(map.attribute_width) - 1);
@@ -534,20 +569,9 @@ void terrain(const Inputs& in, Scene& scene) {
                     vertex.terrain_x = static_cast<float>(rect.x);
                     vertex.terrain_y = static_cast<float>(rect.y);
                     vertex.terrain_size = tile_edge;
-                    vertex.terrain_known = point.brightness >= 1 ? 1
-                                           : point.brightness <= 0
-                                               ? 0
-                                               : brightness_at(in.sight, point.x, point.y, 1);
-                    const float grey_brightness = in.sight.dithered ? 0.5F : 0.35F;
-                    vertex.terrain_grey =
-                        vertex.terrain_known > 0
-                            ? std::clamp(
-                                  (vertex.terrain_known - point.brightness) /
-                                      (vertex.terrain_known * (1 - grey_brightness)),
-                                  0.0F,
-                                  1.0F
-                              )
-                            : 0;
+                    const auto ground = fog_of_ground(in, point.x, point.y, point.brightness);
+                    vertex.terrain_known = ground.known;
+                    vertex.terrain_grey = ground.grey;
                 }
                 for (std::size_t index = 1; index + 1 < clipped.count; ++index) {
                     const auto& a = output[0];
@@ -686,9 +710,7 @@ void terrain(const Inputs& in, Scene& scene) {
             }
             // Refine only sight transitions, retaining each original terrain plane.
             constexpr int32_t maximum_divisions = 4;
-            const int32_t divisions = distant && in.detail_scale <= 0.25F  ? 1
-                                      : distant && in.detail_scale <= 0.5F ? 2
-                                                                           : maximum_divisions;
+            const int32_t divisions = fog_divisions(in);
             const auto triangle = [&](const Vertex& a, const Vertex& b, const Vertex& c) {
                 const auto make_point = [&](int32_t column, int32_t row) {
                     const float u = static_cast<float>(column) / divisions;
@@ -772,7 +794,9 @@ void decal(
     const FixedVec3* anchor = nullptr,
     float footprint_scale = 1,
     bool water_receiver = false,
-    bool soft_edges = false
+    bool soft_edges = false,
+    bool scenery = false,
+    const AtlasRect* grey = nullptr
 ) {
     constexpr float surface_lift = 0.05F;
     if (in.detail_scale > 0 && in.detail_scale < 1) {
@@ -851,29 +875,127 @@ void decal(
                 clipped = clip_ground_fixed(clipped, true, right, false);
                 clipped = clip_ground_fixed(clipped, false, top, true);
                 clipped = clip_ground_fixed(clipped, false, bottom, false);
+                if (clipped.count < 3)
+                    continue;
                 std::array<Vertex, 8> corners{};
                 for (std::size_t corner = 0; corner < clipped.count; ++corner) {
                     const auto& p = clipped.points[corner];
                     const float h = p.height + surface_lift;
+                    const float painted_y =
+                        p.y + (anchor ? anchor_lift - p.height * height_lift : 0);
                     corners[corner] = {
                         p.x,
                         h,
                         p.y + (anchor ? anchor_lift : p.height * height_lift),
                         (rect.x + (p.x - left) / footprint_scale) / scene.texture_width,
                         (rect.y + (p.y - top) / footprint_scale) / scene.texture_height,
-                        shadow ? 1.0F
-                               : brightness_at(
-                                     in.sight,
-                                     p.x,
-                                     p.y + (anchor ? anchor_lift - p.height * height_lift : 0)
-                                 ),
+                        shadow ? 1.0F : brightness_at(in.sight, p.x, painted_y),
                         opacity
                     };
-                    if (soft_edges)
+                    // A map feature keeps the ground's sampling. Its grey image
+                    // shares the colour image's place in the frame, and the
+                    // fragment stage reads that from terrain_x and terrain_y.
+                    if (scenery) {
+                        corners[corner].terrain_size = soft_edges ? -7 : -6;
+                        if (grey != nullptr) {
+                            corners[corner].terrain_x =
+                                (grey->x + (p.x - left) / footprint_scale) / scene.texture_width;
+                            corners[corner].terrain_y =
+                                (grey->y + (p.y - top) / footprint_scale) / scene.texture_height;
+                            const auto ground =
+                                fog_of_ground(in, p.x, painted_y, corners[corner].brightness);
+                            corners[corner].terrain_known = ground.known;
+                            corners[corner].terrain_grey = ground.grey;
+                        }
+                    } else if (soft_edges) {
                         corners[corner].terrain_size = -1;
-                    move_with_swells(in, corners[corner]);
+                    }
                 }
-                polygon(scene, std::span(corners).first(clipped.count));
+                float low_brightness = corners[0].brightness;
+                float high_brightness = low_brightness;
+                for (std::size_t corner = 1; corner < clipped.count; ++corner) {
+                    low_brightness = std::min(low_brightness, corners[corner].brightness);
+                    high_brightness = std::max(high_brightness, corners[corner].brightness);
+                }
+                // Even fog keeps the polygon the ground pass has always emitted.
+                // A boundary is split as the terrain under the feature is, in
+                // map space, before the swells move the sea bed.
+                const int32_t divisions = fog_divisions(in);
+                if (grey == nullptr || high_brightness - low_brightness < 0.001F ||
+                    divisions <= 1) {
+                    for (std::size_t corner = 0; corner < clipped.count; ++corner)
+                        move_with_swells(in, corners[corner]);
+                    polygon(scene, std::span(corners).first(clipped.count));
+                    continue;
+                }
+                const auto sample_point = [&](const Vertex& a,
+                                              const Vertex& b,
+                                              const Vertex& c,
+                                              int32_t column,
+                                              int32_t row) {
+                    const float u = static_cast<float>(column) / divisions;
+                    const float v = static_cast<float>(row) / divisions;
+                    const auto blend = [u, v](float first, float second, float third) {
+                        return first + u * (second - first) + v * (third - first);
+                    };
+                    Vertex result{
+                        blend(a.x, b.x, c.x),
+                        blend(a.height, b.height, c.height),
+                        blend(a.z, b.z, c.z),
+                        blend(a.u, b.u, c.u),
+                        blend(a.v, b.v, c.v),
+                        1.0F,
+                        blend(a.opacity, b.opacity, c.opacity),
+                        blend(a.emission_r, b.emission_r, c.emission_r),
+                        blend(a.emission_g, b.emission_g, c.emission_g),
+                        blend(a.emission_b, b.emission_b, c.emission_b),
+                        blend(a.terrain_x, b.terrain_x, c.terrain_x),
+                        blend(a.terrain_y, b.terrain_y, c.terrain_y),
+                        a.terrain_size
+                    };
+                    const float painted_x = result.x;
+                    const float painted_y = result.z - (result.height - surface_lift) * height_lift;
+                    result.brightness = brightness_at(in.sight, painted_x, painted_y);
+                    const auto ground = fog_of_ground(in, painted_x, painted_y, result.brightness);
+                    result.terrain_known = ground.known;
+                    result.terrain_grey = ground.grey;
+                    move_with_swells(in, result);
+                    return result;
+                };
+                constexpr int32_t row_stride = 5;
+                for (std::size_t fan = 1; fan + 1 < clipped.count; ++fan) {
+                    const Vertex& a = corners[0];
+                    const Vertex& b = corners[fan];
+                    const Vertex& c = corners[fan + 1];
+                    std::array<Vertex, row_stride * row_stride> points{};
+                    for (int32_t row = 0; row <= divisions; ++row)
+                        for (int32_t column = 0; column <= divisions - row; ++column)
+                            points[static_cast<std::size_t>(row * row_stride + column)] =
+                                sample_point(a, b, c, column, row);
+                    for (int32_t row = 0; row < divisions; ++row)
+                        for (int32_t column = 0; column < divisions - row; ++column) {
+                            const auto at = [&](int32_t point_column, int32_t point_row) {
+                                return points[static_cast<std::size_t>(
+                                    point_row * row_stride + point_column
+                                )];
+                            };
+                            polygon(
+                                scene,
+                                std::array{
+                                    at(column, row), at(column + 1, row), at(column, row + 1)
+                                }
+                            );
+                            if (column + row + 1 < divisions)
+                                polygon(
+                                    scene,
+                                    std::array{
+                                        at(column + 1, row),
+                                        at(column + 1, row + 1),
+                                        at(column, row + 1)
+                                    }
+                                );
+                        }
+                }
             }
         }
 }
@@ -1022,8 +1144,8 @@ clip_foundation(std::span<const Vertex> source, bool horizontal, float edge, boo
                  std::lerp(previous.emission_r, current.emission_r, t),
                  std::lerp(previous.emission_g, current.emission_g, t),
                  std::lerp(previous.emission_b, current.emission_b, t),
-                 previous.terrain_x,
-                 previous.terrain_y,
+                 std::lerp(previous.terrain_x, current.terrain_x, t),
+                 std::lerp(previous.terrain_y, current.terrain_y, t),
                  previous.terrain_size,
                  std::lerp(previous.terrain_known, current.terrain_known, t),
                  std::lerp(previous.terrain_grey, current.terrain_grey, t)}
@@ -2235,10 +2357,17 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
     // survives a build, so animated or recoloured frames are hashed again.
     std::unordered_map<const formats::gaf::RenderedFrame*, std::array<std::optional<AtlasRect>, 4>>
         prepared;
+    std::unordered_map<const formats::gaf::RenderedFrame*, std::optional<AtlasRect>> grey_frames;
     std::vector<bool> light_masks(in.draws->sprites.size());
-    for (const auto& draw : in.draws->draws)
-        if (draw.kind == WorldDrawKind::lit_sprite && draw.index < light_masks.size())
+    std::vector<bool> blended_sprites(in.draws->sprites.size());
+    for (const auto& draw : in.draws->draws) {
+        if (draw.index >= light_masks.size())
+            continue;
+        if (draw.kind == WorldDrawKind::lit_sprite)
             light_masks[draw.index] = true;
+        if (draw.kind == WorldDrawKind::blended_sprite)
+            blended_sprites[draw.index] = true;
+    }
     for (std::size_t index = 0; index < in.draws->sprites.size(); ++index) {
         const auto& sprite = in.draws->sprites[index];
         const bool light_mask = light_masks[index];
@@ -2308,6 +2437,27 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
                 in.draws->flash_strength
             );
         const auto rect = *cached;
+        // Scenery keeps its colours under the water. An opaque frame also
+        // greys with the ground; a blended frame does not, as the classic
+        // view leaves a blended feature's fog to the cell it is drawn in.
+        const bool scenery = sprite.on_map && !sprite.shadow && !light_mask;
+        const bool ground_fog = scenery && !blended_sprites[index];
+        std::optional<AtlasRect> grey_rect;
+        if (ground_fog) {
+            auto& cached_grey = grey_frames[sprite.frame];
+            if (!cached_grey)
+                cached_grey = material(
+                    scene,
+                    scene.terrain_grey_palette,
+                    frame.width,
+                    frame.height,
+                    frame.pixels,
+                    frame.coverage,
+                    frame.transparency_index,
+                    Fog::seen
+                );
+            grey_rect = cached_grey;
+        }
         if (ground_pass) {
             if (sprite.shadow && in.draws->shadow_level == 0)
                 continue;
@@ -2328,7 +2478,12 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
                     frame.origin_y,
                 opacity,
                 sprite.shadow,
-                sprite.world_position ? &*sprite.world_position : nullptr
+                sprite.world_position ? &*sprite.world_position : nullptr,
+                1,
+                false,
+                false,
+                scenery,
+                grey_rect ? &*grey_rect : nullptr
             );
             ++scene.sprite_count;
             continue;
@@ -2362,25 +2517,40 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
             const float across = (dx - frame.origin_x) * sprite.effect_scale;
             const float above = (frame.origin_y - dy) * sprite.effect_scale;
             const bool facing = sprite.world_position.has_value() && !sprite.on_map;
+            const float sample_x =
+                sprite.soft_effect ? std::clamp(dx, 0.5F, float(rect.width) - 0.5F) : dx;
+            const float sample_y =
+                sprite.soft_effect ? std::clamp(dy, 0.5F, float(rect.height) - 0.5F) : dy;
             Vertex result{
                 origin_x + (facing ? right[0] * across + up[0] * above : across),
                 origin_h + surface_lift + (facing ? up[1] * above : above / height_lift),
                 origin_z + (facing ? right[2] * across + up[2] * above : 0),
-                (rect.x + dx) / scene.texture_width,
-                (rect.y + dy) / scene.texture_height,
+                (rect.x + (sprite.soft_effect || submerged_effect ? sample_x : dx)) /
+                    scene.texture_width,
+                (rect.y + (sprite.soft_effect || submerged_effect ? sample_y : dy)) /
+                    scene.texture_height,
                 brightness_at(in.sight, static_cast<float>(x), static_cast<float>(y)),
                 sprite.effect_opacity
             };
-            if (sprite.soft_effect || submerged_effect) {
-                result.u =
-                    (rect.x + std::clamp(dx, 0.5F, float(rect.width) - 0.5F)) / scene.texture_width;
-                result.v = (rect.y + std::clamp(dy, 0.5F, float(rect.height) - 0.5F)) /
-                           scene.texture_height;
+            if ((sprite.soft_effect || submerged_effect) && !scenery)
                 result.terrain_size = -1;
-            }
             if (submerged_effect) {
                 result.terrain_size = -5;
                 result.terrain_x = in.sea_level - origin_h;
+            } else if (scenery) {
+                result.terrain_size = sprite.soft_effect ? -7 : -6;
+                if (ground_fog && grey_rect) {
+                    result.terrain_x = (grey_rect->x + sample_x) / scene.texture_width;
+                    result.terrain_y = (grey_rect->y + sample_y) / scene.texture_height;
+                    const float painted_x = result.x;
+                    const float painted_y = result.z - result.height * height_lift;
+                    result.brightness = brightness_at(in.sight, painted_x, painted_y);
+                    const auto ground = fog_of_ground(in, painted_x, painted_y, result.brightness);
+                    result.terrain_known = ground.known;
+                    result.terrain_grey = ground.grey;
+                }
+                if (!facing)
+                    move_with_swells(in, result);
             } else if (!facing) {
                 move_with_swells(in, result);
             }
@@ -2388,11 +2558,41 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
         };
         const std::array corners{
             vertex(0, 0),
-            vertex(frame.width, 0),
-            vertex(frame.width, frame.height),
-            vertex(0, frame.height)
+            vertex(static_cast<float>(frame.width), 0),
+            vertex(static_cast<float>(frame.width), static_cast<float>(frame.height)),
+            vertex(0, static_cast<float>(frame.height))
         };
-        polygon(scene, corners);
+        float low_brightness = corners[0].brightness;
+        float high_brightness = low_brightness;
+        for (const auto& point : corners) {
+            low_brightness = std::min(low_brightness, point.brightness);
+            high_brightness = std::max(high_brightness, point.brightness);
+        }
+        // A frame standing in even fog stays one card. A fog boundary splits
+        // it on the map, as the ground under it is split.
+        if (!ground_fog || high_brightness - low_brightness < 0.001F) {
+            polygon(scene, corners);
+        } else {
+            const int step = std::max(1, cell_edge / fog_divisions(in));
+            for (int top_row = 0; top_row < frame.height; top_row += step) {
+                const int bottom_row = std::min(static_cast<int>(frame.height), top_row + step);
+                for (int left_column = 0; left_column < frame.width; left_column += step) {
+                    const int right_column =
+                        std::min(static_cast<int>(frame.width), left_column + step);
+                    polygon(
+                        scene,
+                        std::array{
+                            vertex(static_cast<float>(left_column), static_cast<float>(top_row)),
+                            vertex(static_cast<float>(right_column), static_cast<float>(top_row)),
+                            vertex(
+                                static_cast<float>(right_column), static_cast<float>(bottom_row)
+                            ),
+                            vertex(static_cast<float>(left_column), static_cast<float>(bottom_row))
+                        }
+                    );
+                }
+            }
+        }
         ++scene.sprite_count;
     }
 }

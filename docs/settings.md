@@ -635,10 +635,11 @@ the game draws its text and how the modern fonts draw it.
     every shore.
   - **Underwater shimmer** tints and lights only the parts of units,
     wrecks and shots that are under the water, more the deeper they lie;
-    what stands above the water keeps its colours. In the classic view,
-    scenery the map draws in its own art, such as an underwater metal
-    patch, keeps the colours the map gives it, as the water's art around
-    it does, so that it blends into the water as the game draws it. At 0% your own units under the
+    what stands above the water keeps its colours. In the classic and the
+    rotated view, scenery the map draws in its own art, such as an
+    underwater metal patch, keeps the colours the map gives it, as the
+    water's art around it does, so that it blends into the water as the
+    game draws it. At 0% your own units under the
     water are darkened and tinted blue as the game draws them at every
     other Hardware acceleration.
   - **Naval reflections** draw a faint, soft picture of each visible
