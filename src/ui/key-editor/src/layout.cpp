@@ -1543,7 +1543,7 @@ std::vector<Piece> detail_pieces(
         more_caption,
         controls::detail_more,
         name_detail_more,
-        kit::ButtonStyle::quiet,
+        kit::ButtonStyle::plain,
         0,
         y,
         width,
@@ -3902,7 +3902,6 @@ kit::DisplayList prompt_layout(
             another.id = controls::clash_another;
             another.name = std::string(name_clash_another);
             another.caption = show(editor.text(), words::choose_another_key);
-            another.quiet = true;
             footer_left.push_back(std::move(another));
         }
         PromptButton cancel;
@@ -4046,7 +4045,6 @@ kit::DisplayList prompt_layout(
             more.name = std::string(name_capture_more);
             more.caption = std::string(state.capture_more ? "▾ " : "› ") +
                            show(editor.text(), words::more_options);
-            more.quiet = true;
             place_buttons(column_x, y, column_w, {more}, false);
             y += metrics.control_height;
         }
@@ -4999,7 +4997,6 @@ void add_keyboard_body(
                 show(editor.text(), words::use_key_for),
                 {{"key", key_label}, {"action", chosen.name}}
             );
-            use.quiet = true;
             buttons.push_back(std::move(use));
         }
     }
@@ -5827,7 +5824,7 @@ void add_mouse_body(
             button.caption = kit::cut_to_width(
                 fonts, kit::FontRole::small, caption, std::max(table_w, int32_t{1})
             );
-            button.style = kit::ButtonStyle::quiet;
+            button.style = kit::ButtonStyle::plain;
             const kit::ControlId id =
                 controls::mouse_table_first + static_cast<kit::ControlId>(row_index);
             const std::string name = std::string(name_mouse_table_prefix) + row.place_id + "." +
@@ -6139,7 +6136,7 @@ lay(const Editor& editor,
         const int32_t back_w = std::min(button_width(fonts, metrics, caption), content_w);
         kit::ButtonLook back;
         back.caption = kit::cut_to_width(fonts, kit::FontRole::small, caption, back_w);
-        back.style = kit::ButtonStyle::quiet;
+        back.style = kit::ButtonStyle::plain;
         back.hovered = hot(state, controls::back);
         back.held = held(state, controls::back);
         place_button(
