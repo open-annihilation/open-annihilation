@@ -206,10 +206,37 @@ void draw_room_button(RoomCanvas& canvas, const RoomArt& art, const RoomButtonLo
 
 /// The lamp a room's on and off button lights.
 enum class RoomLamp : uint8_t {
-    unlit, ///< neither lamp: the art's third frame
-    green, ///< the green lamp, which the room lights for On: the art's second frame
-    red,   ///< the red lamp, which the room lights for Off: the art's first frame
+    unlit,        ///< neither lamp: the art's third frame
+    green,        ///< the green lamp, which the room lights for On: the art's second frame
+    red,          ///< the red lamp, which the room lights for Off: the art's first frame
+    red_blinking, ///< the red lamp lit and dark in turn (room_lamp_shown); drawn alone, it is red
 };
+
+/// How long a blinking lamp stays lit, and then dark, in milliseconds: as
+/// long as the room's text cursor shows and hides.
+inline constexpr uint64_t room_lamp_blink_ms = 500;
+
+/// Returns the lamp drawn at a time. A blinking red lamp is red for
+/// room_lamp_blink_ms, then unlit as long, and so on; any other lamp is
+/// itself.
+///
+/// @param lamp the lamp
+/// @param milliseconds the time, in milliseconds from any fixed start
+/// @return red, green or unlit
+[[nodiscard]] RoomLamp room_lamp_shown(RoomLamp lamp, uint64_t milliseconds) noexcept;
+
+/// Returns the lamp a picture of an on and off button shows, from the
+/// colours over its lamps: red where the left lamp glows red well past the
+/// right one's green, green where the right lamp glows green well past the
+/// left one's red, else unlit. The picture may be the room's frame or a
+/// window it is scaled into.
+///
+/// @param rgb the picture, three bytes a pixel, row after row
+/// @param width the picture's width, in pixels
+/// @param lamp the lamps (room_lamp_parts), in the picture's pixels
+/// @return red, green or unlit; unlit for an empty lamp or one off the picture
+[[nodiscard]] RoomLamp
+room_lamp_seen(std::span<const uint8_t> rgb, int32_t width, SourceRect lamp) noexcept;
 
 /// The parts of a room's on and off button, in frame pixels.
 struct RoomLampParts {

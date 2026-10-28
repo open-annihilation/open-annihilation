@@ -3,9 +3,10 @@
 The host chooses the mutators. **Mutators** is one of the battle room's
 own on and off buttons, with the OA stamp, directly above **Select Map**
 and as large as it, and does not grow for its words. It opens the same
-picker a skirmish uses. The button reads **Mutators**. No lamp is lit
-while the room has none, and its green lamp is lit while it plays some;
-its red lamp lights while a seated player lacks one. Resting the pointer
+picker a skirmish uses. The button reads **Mutators**. As on the room's
+own on and off buttons, its red lamp is lit while the room has none, and
+its green lamp while it plays some; the red lamp blinks while a seated
+player lacks one. Resting the pointer
 on it shows a card that lists
 them in the order they apply. While a launch locks the host's options,
 **Mutators** is greyed and opens nothing. How the picker works, including
@@ -22,8 +23,8 @@ A guest sees that list and cannot change it. Where the host's button
 stands, a guest has the same on and off button, as large as **Select
 Map** and over it, with no widening. It reads **Mutators**. Its lamp is
 green once this
-machine has built the host's list, red while one is missing, and unlit
-with no set. A press on it, Return or the controller's Y opens the picker
+machine has built the host's list, blinking red while one is missing,
+and red with no set. A press on it, Return or the controller's Y opens the picker
 read-only. Its hint is "The host's mutators. Only the host can change
 them." The footer is **CLOSE**. Resting the pointer on the button shows
 the card, a missing one reading "{name}: not installed", and "Click to

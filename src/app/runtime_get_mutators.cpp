@@ -6,9 +6,9 @@
 // from the room's own art (brain_seats_room.hpp). It shows while the guest
 // is in the battle room. The host's set is the room's own on and off button
 // with the OA stamp and the word "Mutators", where the host's button stands,
-// as large as Select Map and over it: no lamp lit while the host plays none,
-// the green lamp while this machine has every one and the red lamp while it
-// lacks one. A press opens the picker read-only on that set, and resting the
+// as large as Select Map and over it: the red lamp while the host plays none,
+// the green lamp while this machine has every one and the red lamp blinking
+// while it lacks one. A press opens the picker read-only on that set, and resting the
 // pointer on it shows its card, which names them. To its left, GET MUTATORS, a button in the room's art,
 // queues the releases the host named, through the fetch the room already
 // owns; a bar takes its place while one downloads, and a line in the room's
@@ -422,7 +422,7 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
             parts,
             art,
             laid.view,
-            lamp(laid),
+            room::room_lamp_shown(lamp(laid), static_cast<uint64_t>(SDL_GetTicks())),
             pressed_ == view_control && hovered_ == view_control ? room::ButtonCondition::pressed
                                                                  : room::ButtonCondition::normal,
             focused_ == Held::view
@@ -589,7 +589,8 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
     ///
     /// The button is mutators-view: its text counts the host's set,
     /// "Mutators · off" or "Mutators · 2 on" (mutators_automation_text),
-    /// and it is checked while its lamp is green. GET MUTATORS is get-mutators. The bar is
+    /// and it is checked while its lamp is green, not while it is red or
+    /// blinks. GET MUTATORS is get-mutators. The bar is
     /// get-mutators-progress and its text is the percent. The line is
     /// get-mutators-text and stores the whole line, uncut: the set while
     /// nothing is being fetched, otherwise the state. The ready line is
@@ -722,17 +723,17 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
         return {&*art_, room::room_palette(*art_)};
     }
 
-    /// The button's lamp: unlit while the host plays no mutator, red while
-    /// this machine lacks one (READY waits on it), otherwise green.
+    /// The button's lamp: red while the host plays no mutator, blinking red
+    /// while this machine lacks one (READY waits on it), otherwise green.
     ///
     /// @param laid the place
     /// @return the lamp
     [[nodiscard]] static room::RoomLamp lamp(const Geometry& laid) noexcept {
         if (laid.listed.empty())
-            return room::RoomLamp::unlit;
+            return room::RoomLamp::red;
         for (const Listed& one : laid.listed)
             if (one.lacking)
-                return room::RoomLamp::red;
+                return room::RoomLamp::red_blinking;
         return room::RoomLamp::green;
     }
 
@@ -1195,7 +1196,12 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
         stamp += std::to_string(laid.bar_done);
         stamp += laid.line;
         stamp += laid.ready_text;
-        stamp += std::to_string(static_cast<int32_t>(lamp(laid)));
+        // Each turn of a blinking lamp is a new picture; a steady lamp asks for none.
+        stamp += std::to_string(
+            static_cast<int32_t>(
+                room::room_lamp_shown(lamp(laid), static_cast<uint64_t>(SDL_GetTicks()))
+            )
+        );
         stamp += std::to_string(laid.view.x) + ',' + std::to_string(laid.view.y) + ',' +
                  std::to_string(laid.view.width);
         stamp += std::to_string(laid.side.x) + ',' + std::to_string(laid.side.width);
