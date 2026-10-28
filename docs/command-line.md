@@ -458,7 +458,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-map-packs` | Checks which maps of two map packs the skirmish list shows. |
 | `--check-map-pack-lists` | Installs a map pack while both map lists exist. |
 | `--check-mod-map-settings` | Checks a mod's settings for a map pack's map, with `--mod-dir`. |
-| `--check-map-browser` | Checks the map browser at four window sizes, and MORE MAPS… on the skirmish map picker and, in a battle room it hosts alone, the room's map dialog: the lime button under the list, from its old height up to the regular size, clear of every other control and of the title. |
+| `--check-map-browser` | Checks the map browser at four window sizes, and MORE MAPS… on the skirmish map picker and, in a battle room it hosts alone, the room's map dialog: the lime button under the list at its old size, clear of every other control and of the title, in the Classic and the Modern look. |
 | `--check-key-editor` | Checks the key editor at 640x480, 1280x720 and 1920x1080, on the menus and in a paused skirmish. |
 | `--check-key-capture` | Captures a chord and settles a clash in the key editor, over a paused skirmish: the clash question's outcome written only by its confirm button, Escape held for a second, Find by key, and a draft clash settled from Settle…. |
 | `--check-key-views` | Checks the key editor's keyboard and mouse at 640x480, 1280x720 and 1920x1080. |

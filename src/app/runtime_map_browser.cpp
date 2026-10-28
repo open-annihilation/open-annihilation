@@ -92,12 +92,15 @@ constexpr std::string_view more_maps_control_name = "more-maps";
 constexpr kit::ControlId more_maps_control = 1;
 /// MORE MAPS…'s words.
 constexpr std::string_view word_more_maps = "MORE MAPS…";
-/// MORE MAPS…'s sizes: the kit's buttons at the regular size. Its height
-/// is at most Regular's control height, its width at least the buttons'
-/// least width, and its caption keeps a button's padding and inset.
-constexpr const kit::Metrics& more_maps_metrics = kit::regular_metrics;
-/// MORE MAPS…'s least height: the compact footer button's, its old height.
-constexpr int32_t more_maps_least_height = kit::compact_metrics.button_height;
+/// MORE MAPS…'s sizes: the kit's compact buttons. It is a footer button's
+/// height, growing toward the compact control height where the rows under
+/// the list are clear, and its caption is in the small font those buttons
+/// use, with a button's padding.
+constexpr const kit::Metrics& more_maps_metrics = kit::compact_metrics;
+/// How far above the description box under the map list its drawn top
+/// border begins, a dark row over a metal bar, in frame pixels. MORE MAPS…
+/// grows only into the clear rows above it.
+constexpr int32_t description_border_rise = 11;
 /// The words for a download the queue would not start.
 constexpr std::string_view word_not_queued = "The download could not start: {reason}";
 /// The words for a download that failed.
@@ -1214,13 +1217,13 @@ struct Runtime::MapBrowserScreen final : LayerScreen {
 
 /// MORE MAPS… as a screen of the OA layer: not modal, no backdrop, the
 /// kit's primary button, lime, under the picker's map list, its right edge
-/// on the list's, as tall as the room down to the next gadget lets it, up
-/// to the regular size, or at its old size above the list where the place
-/// under it meets another gadget of the picker. It takes a press or a tap
-/// on its button, and the controller's Y and the find action, which the
-/// pickers leave unused; a plain slash stays with the picker. Everything
-/// else, a pointer move that only changes its hover included, goes on to
-/// the picker.
+/// on the list's, at a footer button's height, taller only where the rows
+/// down to the description box's border are clear, or above the list where
+/// the place under it meets another gadget of the picker. It takes a press
+/// or a tap on its button, and the controller's Y and the find action,
+/// which the pickers leave unused; a plain slash stays with the picker.
+/// Everything else, a pointer move that only changes its hover included,
+/// goes on to the picker.
 struct Runtime::MoreMapsScreen final : LayerScreen {
     /// Makes the button.
     ///
@@ -1358,11 +1361,9 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
         const std::optional<kit::Rect> place = place_of(view_);
         if (!place)
             return list;
-        const kit::Fonts* fonts = runtime_.oa_layer().screen_fonts();
         kit::ButtonLook look;
         look.caption = shown(word_more_maps);
         look.style = kit::ButtonStyle::accent;
-        look.font = fonts != nullptr ? caption_font(*fonts, place->height) : kit::FontRole::small;
         look.hovered = hovered_;
         look.held = pressed_ && hovered_;
         kit::add_button(
@@ -1524,10 +1525,11 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
     }
 
     /// Returns where the button lies, in the layer's points: under the map
-    /// list's frame, its right edge on the list's, as tall as the room down
-    /// to the first gadget under the list, from its old height up to the
-    /// regular control height; or at its old height above the frame when
-    /// the place under it meets another gadget of the picker.
+    /// list's frame, its right edge on the list's, at a footer button's
+    /// height, or taller, up to the compact control height, where the rows
+    /// down to the border of the first gadget under the list are clear; or at
+    /// a footer button's height above the frame when the place under it meets
+    /// another gadget of the picker.
     ///
     /// @param placed_on what the screen is placed on
     /// @return the place; none while it does not show
@@ -1540,6 +1542,11 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
         if (fonts == nullptr || !picker_rects(list_rect, others))
             return std::nullopt;
         const kit::Metrics& metrics = more_maps_metrics;
+        const int32_t width = std::max(
+            metrics.button_width,
+            kit::text_width(*fonts, kit::FontRole::small, shown(word_more_maps)) +
+                metrics.prompt_button_padding
+        );
         const kit::Rect list_points = frame_to_points(placed_on, list_rect);
         kit::Rect framed = list_rect;
         framed.x -= list_frame_outset;
@@ -1552,57 +1559,34 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
         // edge. The picture's scale rounds that edge outward, and a point
         // just inside it draws on the frame.
         const int32_t top = point_on_or_below(frame_window_bottom(placed_on, framed), percent);
-        // As tall as the room down to the first gadget under the list, up to
-        // the regular control height and never below the old height.
-        int32_t room = metrics.control_height;
+        // Taller than a footer button only into the clear rows down to the
+        // drawn border of the first gadget under the list.
+        int32_t clear = metrics.control_height;
         for (const kit::Rect& other : others) {
-            const kit::Rect points = frame_to_points(placed_on, other);
-            const bool across = points.x < list_points.x + list_points.width &&
-                                points.x + points.width > list_points.x;
-            if (across && points.y >= top)
-                room = std::min(room, points.y - top);
+            const bool under = other.y >= list_rect.y + list_rect.height &&
+                               other.x < list_rect.x + list_rect.width &&
+                               other.x + other.width > list_rect.x;
+            if (!under)
+                continue;
+            const kit::Rect bordered{
+                other.x, other.y - description_border_rise, other.width, other.height
+            };
+            clear = std::min(clear, frame_to_points(placed_on, bordered).y - top);
         }
-        const int32_t height = std::max(room, more_maps_least_height);
-        const int32_t width = width_of(*fonts, height);
-        kit::Rect place{list_points.x + list_points.width - width, top, width, height};
+        kit::Rect place{
+            list_points.x + list_points.width - width,
+            top,
+            width,
+            std::max(clear, metrics.button_height)
+        };
         const bool blocked = std::any_of(others.begin(), others.end(), [&](const kit::Rect& other) {
             return meet(place, frame_to_points(placed_on, other));
         });
         if (blocked) {
-            place.height = more_maps_least_height;
-            place.width = width_of(*fonts, place.height);
-            place.x = list_points.x + list_points.width - place.width;
-            place.y = frame_points.y - place.height;
+            place.height = metrics.button_height;
+            place.y = frame_points.y - metrics.button_height;
         }
         return place;
-    }
-
-    /// Returns the font MORE MAPS…'s caption is drawn in at a height: the
-    /// regular buttons' font when its capitals fit with a button's inset
-    /// above and below, else the small font.
-    ///
-    /// @param fonts the layer's fonts
-    /// @param height the button's height, in points
-    /// @return the font
-    [[nodiscard]] static kit::FontRole caption_font(const kit::Fonts& fonts, int32_t height) {
-        const int32_t needed =
-            kit::capitals(fonts, kit::FontRole::regular) + 2 * more_maps_metrics.button_icon_inset;
-        return needed <= height ? kit::FontRole::regular : kit::FontRole::small;
-    }
-
-    /// Returns MORE MAPS…'s width at a height: its caption in the font the
-    /// height gives, with a button's padding, and at least the buttons'
-    /// least width.
-    ///
-    /// @param fonts the layer's fonts
-    /// @param height the button's height, in points
-    /// @return the width, in points
-    [[nodiscard]] static int32_t width_of(const kit::Fonts& fonts, int32_t height) {
-        return std::max(
-            more_maps_metrics.button_width,
-            kit::text_width(fonts, caption_font(fonts, height), shown(word_more_maps)) +
-                more_maps_metrics.prompt_button_padding
-        );
     }
 
     /// Opens the browser over the picker.
