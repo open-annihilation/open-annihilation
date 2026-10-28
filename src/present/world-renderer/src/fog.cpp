@@ -356,6 +356,34 @@ void draw_fog_row(FogPainter painter, const FogRows& rows, int32_t row) noexcept
 
 } // namespace
 
+uint16_t allied_mapped_players(const Game& game, uint8_t viewer) noexcept {
+    uint16_t players = 0;
+    if (viewer >= OA_PLAYER_COUNT)
+        return players;
+    for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player) {
+        const auto& record = game.players[player];
+        if (player != viewer && record.in_use != 0 && record.alliance[viewer] != 0)
+            players = static_cast<uint16_t>(players | (1u << player));
+    }
+    return players;
+}
+
+bool view_greys(FogOptions options) noexcept {
+    return options.line_of_sight || (options.mapping && options.shared_mapped != 0);
+}
+
+bool cell_shown_in_sight(
+    uint16_t count, uint16_t mapped, uint16_t own_bits, FogOptions options
+) noexcept {
+    if (options.line_of_sight)
+        return sim::visibility_state::count_in_sight(
+            count, sim::visibility_state::SightReading::player
+        );
+    if (!view_greys(options))
+        return true;
+    return (mapped & own_bits) != 0;
+}
+
 int32_t fog_map_span(uint32_t zoom_fp, int32_t count) noexcept {
     if (count <= 0)
         return 0;
@@ -388,7 +416,10 @@ FogGrid build_fog_grid(
     grid.tiles.assign(
         static_cast<std::size_t>(grid.width) * static_cast<std::size_t>(grid.height), FogTile{}
     );
-    const auto viewer_bit = static_cast<uint16_t>(1u << (viewer & 0x1fu));
+    // The viewer's mapped bit, and those of the players whose ground it is shown.
+    const auto own_bit = static_cast<uint16_t>(1u << (viewer & 0x1fu));
+    const auto viewer_bit = static_cast<uint16_t>(own_bit | options.shared_mapped);
+    const bool greys = view_greys(options);
     const auto cells = static_cast<std::size_t>(sight.width > 0 ? sight.width : 0) *
                        static_cast<std::size_t>(sight.height > 0 ? sight.height : 0);
     for (int32_t row = 0; row < grid.height; ++row) {
@@ -401,11 +432,13 @@ FogGrid build_fog_grid(
                                static_cast<std::size_t>(x);
             if (index >= cells)
                 continue;
-            const bool in_sight = index < coverage.size() &&
-                                  sim::visibility_state::count_in_sight(
-                                      coverage[index], sim::visibility_state::SightReading::player
-                                  );
-            if (!in_sight && options.line_of_sight)
+            const bool in_sight = cell_shown_in_sight(
+                index < coverage.size() ? coverage[index] : uint16_t{0},
+                index < sight.player_bits.size() ? sight.player_bits[index] : uint16_t{0},
+                own_bit,
+                options
+            );
+            if (!in_sight && greys)
                 mark_cell_corners(grid, FogLayer::unseen, column, row);
             const bool mapped = !options.mapping || (index < sight.player_bits.size() &&
                                                      (sight.player_bits[index] & viewer_bit) != 0);
@@ -417,7 +450,7 @@ FogGrid build_fog_grid(
     // tile, which straddle the border when the view is a whole number of
     // tiles wide; here the straddling tile is found from the border cell so
     // any view size and zoom keeps a clean border.
-    const bool unseen_layer = options.line_of_sight;
+    const bool unseen_layer = greys;
     const auto tile = [&](int32_t column, int32_t row) -> FogTile& {
         return grid.tiles
             [static_cast<std::size_t>(row) * static_cast<std::size_t>(grid.width) +
@@ -470,7 +503,8 @@ bool update_fog_grid(
                 source.view_width == view_width && source.view_height == view_height &&
                 source.sight_width == sight.width && source.sight_height == sight.height &&
                 source.viewer == viewer && source.options.line_of_sight == options.line_of_sight &&
-                source.options.mapping == options.mapping;
+                source.options.mapping == options.mapping &&
+                source.options.shared_mapped == options.shared_mapped;
     // The cells build_fog_grid reads, read as it reads them.
     const int32_t width = (view_width + fog_cell_pixels - 1) / fog_cell_pixels + 2;
     const int32_t height = (view_height + fog_cell_pixels - 1) / fog_cell_pixels + 2;
@@ -483,7 +517,9 @@ bool update_fog_grid(
     }
     const int32_t first_x = first_cell(camera_x);
     const int32_t first_z = first_cell(camera_z);
-    const auto viewer_bit = static_cast<uint16_t>(1u << (viewer & 0x1fu));
+    // The viewer's mapped bit, and those of the players whose ground it is shown.
+    const auto own_bit = static_cast<uint16_t>(1u << (viewer & 0x1fu));
+    const auto viewer_bit = static_cast<uint16_t>(own_bit | options.shared_mapped);
     const auto cells = static_cast<std::size_t>(sight.width > 0 ? sight.width : 0) *
                        static_cast<std::size_t>(sight.height > 0 ? sight.height : 0);
     std::size_t at = 0;
@@ -498,9 +534,12 @@ bool update_fog_grid(
                     static_cast<std::size_t>(x);
                 if (index < cells) {
                     read = fog_source_on_map;
-                    if (index < coverage.size() &&
-                        sim::visibility_state::count_in_sight(
-                            coverage[index], sim::visibility_state::SightReading::player
+                    if (cell_shown_in_sight(
+                            index < coverage.size() ? coverage[index] : uint16_t{0},
+                            index < sight.player_bits.size() ? sight.player_bits[index]
+                                                             : uint16_t{0},
+                            own_bit,
+                            options
                         ))
                         read |= fog_source_in_sight;
                     if (index < sight.player_bits.size() &&

@@ -17,7 +17,8 @@
 // water line of the viewpoint's side and the other, a digger's clipped
 // polygons, a polygon of the image key clearing what it covers of the
 // picture, a carried unit composed into its carrier, vehicle and building
-// shadows through the shadow target and straight into the frame, a
+// shadows through the shadow target and straight into the frame, the
+// game's own shadows drawn with their models (New unit shadows off), a
 // projectile with its shadow sprite, a debris piece and a shatter fragment,
 // the texture frames placed once and uploaded once and the pages emptied by
 // a palette change, and a frame at zoom 2 against the raster enlarged. With
@@ -53,6 +54,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <memory>
@@ -666,6 +668,8 @@ struct Scene {
     float water_shimmer{};
     std::vector<float>* vertex_heights{}; ///< where the stage keeps its vertices' heights
     uint32_t build_pulse_lag{};
+    /// New unit shadows; false casts each model's shadow as the game does.
+    bool new_unit_shadows{true};
 
     explicit Scene(
         oa::Palette scene_palette = gray_palette(),
@@ -906,6 +910,7 @@ struct Scene {
         in.moving_pieces_once_built = renderer.moving_pieces_once_built;
         in.team_colors = team_colors;
         in.projectile_shadow = with_shadow_sprite ? &shadow_frame : nullptr;
+        in.new_unit_shadows = new_unit_shadows;
         return in;
     }
 };
@@ -2238,6 +2243,117 @@ void test_aircraft_shadows() {
     OA_CHECK(grounded.far == 0 && grounded.far_coverage == 0);
 }
 
+// New unit shadows off: each model casts the processor's own shadow with
+// its draw, at the game's darkness. A vehicle's silhouette, a building's
+// sheared one and an aircraft's at cruise height shade exactly the pixels
+// the processor's shade, the aircraft's with no soft edge, where New unit
+// shadows gives it one; a unit drawn after another casts its shadow over
+// that unit's body, as the processor's does, where New unit shadows lays
+// every shadow under every unit; and two units that cast the same
+// silhouette share one frame on the pages.
+void test_game_shadows() {
+    constexpr uint16_t flags = draw::graphics_shadows | draw::graphics_vehicle_shadows;
+
+    /// What the card shades of a frame against the processor.
+    struct Shading {
+        std::size_t matched{}; ///< pixels both shade, the card at the game's darkness
+        std::size_t apart{};   ///< pixels one shades and the other does not, or not as dark
+    };
+
+    const auto shading =
+        [](const CardPicture& drawn, const ProcessorPicture& processor, const Scene& scene) {
+            Shading result;
+            for (uint32_t y = 0; y < drawn.height; ++y)
+                for (uint32_t x = 0; x < drawn.width; ++x) {
+                    const uint8_t* pixel = drawn.at(x, y);
+                    // The processor's shadow: what it draws where the card draws
+                    // no body; the card's, its pixels between clear and opaque.
+                    const bool by_processor =
+                        drawn_by_processor(processor.at(x, y), scene.key) && pixel[3] != 255;
+                    const bool by_card = pixel[3] != 0 && pixel[3] != 255;
+                    const bool half_dark = pixel[0] == 0 && pixel[1] == 0 && pixel[2] == 0 &&
+                                           pixel[3] >= 126 && pixel[3] <= 129;
+                    if (by_processor && half_dark)
+                        ++result.matched;
+                    else if (by_processor || by_card)
+                        ++result.apart;
+                }
+            return result;
+        };
+    Scene scene;
+    scene.world->unit_defs[2].flags = OA_UNIT_DEF_FLAG_CAN_FLY;
+    SceneUnit& vehicle = scene.add_unit(square_model(), 1, 40, 40);
+    vehicle.unit->position.y = 4 * unit;
+    SceneUnit& tower = scene.add_unit(turret_model(), 2, 112, 40);
+    tower.unit->flags |= OA_UNIT_FLAG_BUILDING;
+    SceneUnit& aircraft = scene.add_unit(square_model(), 3, 80, 112);
+    aircraft.unit->def = oa::oa_ref_from_index(2);
+    aircraft.unit->type_index = 2;
+    aircraft.unit->position.y = 160 * unit;
+    Card card(scene);
+    ProcessorPicture processor;
+    const auto frame = [&](bool new_shadows) {
+        scene.new_unit_shadows = new_shadows;
+        scene.begin_frame(processor, flags);
+        scene.plan_unit(vehicle);
+        scene.plan_unit(tower);
+        scene.plan_unit(aircraft);
+        scene.raster_processor(processor);
+        return card.raster(scene);
+    };
+    const uint64_t shadows_before = card.stage.counts().shadows;
+    const Shading game = shading(frame(false), processor, scene);
+    const uint64_t cast = card.stage.counts().shadows - shadows_before;
+    const Shading layered = shading(frame(true), processor, scene);
+    std::printf(
+        "game shadows: matched %zu, apart %zu, %llu cast; new shadows: matched %zu, apart %zu\n",
+        game.matched,
+        game.apart,
+        static_cast<unsigned long long>(cast),
+        layered.matched,
+        layered.apart
+    );
+    OA_CHECK(game.matched > 0 && game.apart == 0);
+    OA_CHECK(cast == 3);
+    // The aircraft's soft edge shades past the processor's shadow.
+    OA_CHECK(layered.matched == game.matched && layered.apart > 0);
+
+    // A second square drawn after the first, its shadow over the first's
+    // body: the processor darkens that body, and so does the card with New
+    // unit shadows off; with them on the body is drawn over its shadow.
+    Scene order;
+    SceneUnit& first = order.add_unit(square_model(), 1, 60, 60);
+    SceneUnit& second = order.add_unit(square_model(second_ink), 2, 52, 64);
+    Card ordered(order);
+    ProcessorPicture by_processor;
+    const auto ordered_frame = [&](bool new_shadows) {
+        order.new_unit_shadows = new_shadows;
+        order.begin_frame(by_processor, flags);
+        order.plan_unit(first);
+        order.plan_unit(second);
+        order.raster_processor(by_processor);
+        return ordered.raster(order);
+    };
+    // A pixel of the first square's body under the second's shadow, past
+    // the second's body.
+    constexpr uint32_t under_x = 63;
+    constexpr uint32_t under_y = 60;
+    const uint64_t placed = ordered.stage.counts().frames_placed;
+    const CardPicture own = ordered_frame(false);
+    // The two squares, of one shape and pose, cast one silhouette: one
+    // frame on the pages for both.
+    OA_CHECK(ordered.stage.counts().frames_placed == placed + 1);
+    const auto c = compare(own, by_processor, order);
+    print("a shadow over the unit drawn before it", c);
+    OA_CHECK(c.far == 0 && c.far_coverage == 0 && c.phase == 0);
+    const uint8_t* darkened = own.at(under_x, under_y);
+    const uint8_t* expected = by_processor.at(under_x, under_y);
+    OA_CHECK(darkened[3] == 255 && expected[0] < ink);
+    OA_CHECK(std::abs(int{darkened[0]} - int{expected[0]}) <= 1);
+    const CardPicture laid = ordered_frame(true);
+    OA_CHECK(laid.at(under_x, under_y)[0] == ink && laid.at(under_x, under_y)[3] == 255);
+}
+
 // An unfinished building near the start of building: the bands clear its
 // image, and its shadow, cut by the image's place as the processor cuts it,
 // lies only past the building, so that the ground shows unshaded through
@@ -3049,6 +3165,7 @@ int main(int argc, char** argv) {
         test_carried();
         test_shadows();
         test_aircraft_shadows();
+        test_game_shadows();
         test_unfinished_building_shadow();
         test_faded_shadows();
         test_underwater_projectile();

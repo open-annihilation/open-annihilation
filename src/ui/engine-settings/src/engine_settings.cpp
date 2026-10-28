@@ -741,6 +741,8 @@ EngineSettings read_settings(
         settings.unlocked_camera = *number > 0;
     if (const auto number = stored_number(values, key::smooth_motion))
         settings.smooth_motion = *number > 0;
+    if (const auto number = stored_number(values, key::new_unit_shadows))
+        settings.new_unit_shadows = *number > 0;
     // An effect with no stored percent follows the stored acceleration.
     const auto unset_effect = [&](uint32_t EngineSettings::* percent) {
         return default_effect_intensity(percent, settings.hardware_acceleration);
@@ -1107,6 +1109,14 @@ void write_settings(
         switch_text(chosen.smooth_motion),
         chosen.smooth_motion != opened.smooth_motion,
         chosen.smooth_motion == defaults.smooth_motion,
+        restored
+    );
+    store(
+        values,
+        key::new_unit_shadows,
+        switch_text(chosen.new_unit_shadows),
+        chosen.new_unit_shadows != opened.new_unit_shadows,
+        chosen.new_unit_shadows == defaults.new_unit_shadows,
         restored
     );
     // Coloured weapon lighting, Nanolathe glow, Wreck glow and Heat

@@ -658,12 +658,25 @@ the game draws its text and how the modern fonts draw it.
   Fine detail fades as the view zooms out, and the reflections of distant
   fleets are kept few. These effects change only what your screen shows,
   never the water's depth, movement or what any player can see. With
-  shadows on and Full hardware acceleration, an aircraft's shadow also has
-  a soft edge, a little wider once it climbs to cruise height above the
-  ground or water under it; it keeps the place and the darkness it has at
-  every other Hardware acceleration.
+  shadows on, Full hardware acceleration and **New unit shadows** On, an
+  aircraft's shadow also has a soft edge, a little wider once it climbs to
+  cruise height above the ground or water under it; it keeps the place and
+  the darkness it has at every other Hardware acceleration.
+- **New unit shadows**, On by default. It says which shadows units, their
+  wrecks and their shots cast where the graphics card draws the
+  battlefield (Hardware acceleration Full). On, Open Annihilation's: every
+  unit's shadow is laid on the ground under everything that stands on it,
+  so shadows that overlap darken it once and a shadow never falls across a
+  tree or another unit, and an aircraft's shadow has a soft edge. Off, the
+  original game's: each unit casts its shadow as the game drew it, with
+  the unit, darkening the ground and whatever stands under it, the same
+  kind of shadow as the trees and rocks cast, which comes with their own
+  art. With Hardware acceleration Off or Basic the processor draws the
+  original game's shadows whatever it says. It changes only what your
+  screen shows, never the game, and takes effect at once, in a multiplayer
+  game or a replay too.
 
-![The end of the Graphics section: the Water ripples, Coastal waves, Underwater shimmer and Naval reflections sliders at their defaults, 60%, 30%, 100% and 100%.](images/settings/graphics-2.png)
+![The end of the Graphics section: the Coastal waves, Underwater shimmer and Naval reflections sliders at their defaults, 30%, 100% and 100%, and New unit shadows On.](images/settings/graphics-2.png)
 
 Some computers start with other defaults, which Restore defaults puts back
 and which a value you choose always replaces:

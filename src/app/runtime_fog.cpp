@@ -73,7 +73,7 @@ void Runtime::apply_match_fog(
         sight,
         viewer,
         coverage,
-        {los_on, mapping_on},
+        {los_on, mapping_on, allied_mapped_bits()},
         view.camera_x,
         view.camera_z,
         oa::present::world_renderer::fog_map_span(zoom_fp, dest_w),
@@ -252,6 +252,10 @@ bool Runtime::feature_hidden_by_fog(uint16_t feature_index, int32_t cell_x, int3
     }
     const auto& footprint = feature_fog_rules_.footprints[feature_index];
     try {
+        // Ground an ally explored that the view player cannot see is drawn
+        // out of sight under every rule (allied_mapped_bits), so a feature
+        // hidden out of sight is hidden there too, by the view player's own
+        // sight as before.
         return !match_->cell_or_footprint_corner_shown(
             static_cast<uint8_t>(match_view_player()),
             static_cast<int16_t>(cell_x),

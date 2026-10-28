@@ -792,9 +792,9 @@ void each_section_shows_its_rows() {
     CHECK(bundle_rows[1].setting == Setting::welcome_setup);
     CHECK(bundle_rows[2].setting == Setting::file_types_note);
     CHECK(settings::page_settings(Page::language)[0] == Setting::language);
+    CHECK(settings::page_settings(Page::graphics).size() == 22);
     CHECK(settings::page_settings(Page::graphics)[0] == Setting::max_frame_rate);
     CHECK(settings::page_settings(Page::graphics)[1] == Setting::anti_aliasing);
-    CHECK(settings::page_settings(Page::graphics).size() == 21);
     CHECK(settings::page_settings(Page::graphics)[2] == Setting::screen_size);
     CHECK(settings::page_settings(Page::graphics)[3] == Setting::hardware_acceleration);
     CHECK(settings::page_settings(Page::graphics)[4] == Setting::vertical_sync);
@@ -814,6 +814,7 @@ void each_section_shows_its_rows() {
     CHECK(settings::page_settings(Page::graphics)[18] == Setting::coastal_waves);
     CHECK(settings::page_settings(Page::graphics)[19] == Setting::underwater_shimmer);
     CHECK(settings::page_settings(Page::graphics)[20] == Setting::naval_reflections);
+    CHECK(settings::page_settings(Page::graphics)[21] == Setting::new_unit_shadows);
     CHECK(settings::page_settings(Page::user_interface).size() == 8);
     CHECK(settings::page_settings(Page::user_interface)[0] == Setting::menu_scaling);
     CHECK(settings::page_settings(Page::user_interface)[1] == Setting::window_frame);
@@ -827,10 +828,10 @@ void each_section_shows_its_rows() {
     CHECK(settings::page_settings(Page::developer)[0] == Setting::developer_mode);
     CHECK(settings::page_settings(Page::developer)[1] == Setting::frame_stats);
     CHECK(settings::page_settings(Page::developer)[2] == Setting::kit_gallery);
-    // Graphics' twenty-one rows are taller than the view, by 988 rows.
+    // Graphics' twenty-two rows are taller than the view, by 1047 rows.
     const auto graphics = geometry::place_rows(Page::graphics, {});
-    CHECK(graphics.rows.size() == 21);
-    CHECK(geometry::scroll_limit(geometry::content_height(graphics, 0)) == 988);
+    CHECK(graphics.rows.size() == 22);
+    CHECK(geometry::scroll_limit(geometry::content_height(graphics, 0)) == 1047);
 
     auto parts = settings::dialog_layout(opened(Page::controls));
     for (const std::string_view text :
@@ -2691,7 +2692,7 @@ void sections_that_fit_do_not_scroll() {
     // pans, Window edge's strip, Edge stickiness's slider and Group keys
     // centre the view's drop-down are 682.
     // Engine Limits' three sliders, the mod's heading and its two
-    // rows are 369. Graphics' twenty-one rows are 1208, Language's
+    // rows are 369. Graphics' twenty-two rows are 1267, Language's
     // drop-down, five switches and slider 424, and User Interface's five
     // strips and switches with the Interface and Window size rows and Reset
     // window positions are 497. All of them scroll. Developer's list scrolls
@@ -2699,8 +2700,8 @@ void sections_that_fit_do_not_scroll() {
     const std::array<Page, 5> pages{
         Page::controls, Page::common_tweaks, Page::graphics, Page::language, Page::user_interface
     };
-    const std::array<int32_t, 5> content{682, 369, 1208, 424, 497};
-    const std::array<int32_t, 5> limits{462, 149, 988, 204, 277};
+    const std::array<int32_t, 5> content{682, 369, 1267, 424, 497};
+    const std::array<int32_t, 5> limits{462, 149, 1047, 204, 277};
     for (std::size_t index = 0; index < content.size(); ++index) {
         const Page page = pages[index];
         if (limits[index] != 0) {
@@ -3539,19 +3540,19 @@ constexpr int32_t zoomed_out_units_in_view = 454;
 void the_graphics_page_scrolls_its_rows() {
     settings::Dialog dialog = graphics_page();
     const auto open = geometry::open_rows(dialog);
-    CHECK(open.rows.rows.size() == 21);
-    const std::array<int32_t, 21> tops{54,  119, 178, 255, 314, 361, 420,  479,  538,  597, 656,
-                                       735, 782, 829, 882, 935, 988, 1041, 1094, 1147, 1200};
-    const std::array<int32_t, 21> heights{65, 59, 77, 59, 47, 59, 59, 59, 59, 59, 79,
-                                          47, 47, 53, 53, 53, 53, 53, 53, 53, 53};
+    CHECK(open.rows.rows.size() == 22);
+    const std::array<int32_t, 22> tops{54,  119, 178, 255, 314, 361, 420,  479,  538,  597,  656,
+                                       735, 782, 829, 882, 935, 988, 1041, 1094, 1147, 1200, 1253};
+    const std::array<int32_t, 22> heights{65, 59, 77, 59, 47, 59, 59, 59, 59, 59, 79,
+                                          47, 47, 53, 53, 53, 53, 53, 53, 53, 53, 59};
     for (std::size_t index = 0; index < open.rows.rows.size() && index < tops.size(); ++index) {
         const auto& row = open.rows.rows[index];
         CHECK(row.top == tops[index]);
         CHECK(row.height == heights[index]);
         CHECK(row.control == settings::first_row_control + static_cast<int32_t>(index));
     }
-    CHECK(open.rows.bottom == 1253);
-    CHECK(open.limit == 988);
+    CHECK(open.rows.bottom == 1312);
+    CHECK(open.limit == 1047);
     // Hardware acceleration: a strip of Off, Basic and Full, 34 columns a
     // level inside its border, with two status lines; Vertical sync a
     // switch with one hint line.
@@ -3630,15 +3631,16 @@ void the_graphics_page_scrolls_its_rows() {
     CHECK(find_part(top, {}, settings::first_row_control + 3) == nullptr);
     dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 1200;
     const auto end = geometry::open_rows(dialog);
-    CHECK(end.scroll == 988);
+    CHECK(end.scroll == 1047);
     CHECK(end.rows.bottom == 265);
-    CHECK(end.rows.rows[1].control_area.y == -860);
-    CHECK(end.rows.rows[7].label.y == -500);
-    CHECK(end.rows.rows[8].label.y == -441);
-    CHECK(end.rows.rows[9].label.y == -382);
-    CHECK(end.rows.rows[10].label.y == -323);
-    CHECK(end.rows.rows[10].control_area.y == -277);
-    // At the end, the effect sliders show, down to Naval reflections.
+    CHECK(end.rows.rows[1].control_area.y == -919);
+    CHECK(end.rows.rows[7].label.y == -559);
+    CHECK(end.rows.rows[8].label.y == -500);
+    CHECK(end.rows.rows[9].label.y == -441);
+    CHECK(end.rows.rows[10].label.y == -382);
+    CHECK(end.rows.rows[10].control_area.y == -336);
+    // At the end, the effect sliders show, down to Naval reflections, and
+    // New unit shadows under them.
     // Menu scaling, Window frame, HUD scaling and Interface size are on
     // User Interface.
     const auto last = settings::dialog_layout(dialog);
@@ -3646,6 +3648,7 @@ void the_graphics_page_scrolls_its_rows() {
     CHECK(find_part(last, "Window frame", settings::no_control) == nullptr);
     CHECK(find_part(last, "Interface size", settings::no_control) == nullptr);
     CHECK(find_part(last, "Naval reflections", settings::no_control) != nullptr);
+    CHECK(find_part(last, "New unit shadows", settings::no_control) != nullptr);
     CHECK(find_part(last, "Needs Dots", settings::no_control) == nullptr);
 
     // Tab from no focus: the first three rows at 0, Hardware acceleration at
@@ -3696,7 +3699,7 @@ void the_graphics_page_scrolls_its_rows() {
     // it is checked at several offsets.
     for (const auto& locks : lock_states()) {
         settings::Dialog locked = graphics_page({}, locks);
-        for (int32_t scroll = 0; scroll <= 988; scroll += 18)
+        for (int32_t scroll = 0; scroll <= 1047; scroll += 18)
             check_dialog_layout_at(locked, scroll);
     }
 
@@ -4056,8 +4059,8 @@ void the_new_rows_lock_in_their_own_forms() {
     CHECK(same_rect(rows[4].control_area, {415, 341, 52, 16}));
     CHECK(same_rect(rows[4].lock_area, {259, 341, 148, 16}));
     CHECK(same_rect(rows[4].label, {158, 341, 93, 16}));
-    // The extra lock line adds 18 pixels to Graphics' 972-pixel scroll range.
-    CHECK(geometry::open_rows(dialog).limit == 1006);
+    // The extra lock line adds 18 pixels to Graphics' 1047-pixel scroll range.
+    CHECK(geometry::open_rows(dialog).limit == 1065);
 
     // Scrolled down to Native pixel density: both lock texts, the status,
     // the strip's captions and the kept switch's, each with no control.
@@ -4098,6 +4101,7 @@ void the_new_rows_lock_in_their_own_forms() {
           settings::first_row_control + 14,
           settings::first_row_control + 15,
           settings::first_row_control + 16,
+          settings::first_row_control + 21,
           settings::restore_control}) {
         CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
         CHECK(dialog.focused == expected);
@@ -8294,6 +8298,59 @@ void menu_scaling_and_native_density_show_and_change() {
     }
 }
 
+/// New unit shadows' hint while it is On.
+constexpr std::string_view new_unit_shadows_on_hint =
+    "Softer aircraft shadows, laid under every unit and tree (Full).";
+/// New unit shadows' hint while it is Off.
+constexpr std::string_view new_unit_shadows_off_hint =
+    "Units cast the original game's shadows, as trees and rocks do.";
+
+// New unit shadows: Graphics' last row, a switch On by default whose hint
+// says which shadows each way casts; a press, Space and Restore defaults
+// turn it as the other switches turn.
+void new_unit_shadows_shows_and_changes() {
+    CHECK(geometry::kind_of(Setting::new_unit_shadows) == geometry::RowKind::toggle);
+    CHECK(settings::EngineSettings{}.new_unit_shadows);
+    settings::EngineSettings state{};
+    CHECK(geometry::switch_on(state, Setting::new_unit_shadows));
+    geometry::set_switch(state, Setting::new_unit_shadows, false);
+    CHECK(!state.new_unit_shadows && !geometry::switch_on(state, Setting::new_unit_shadows));
+
+    // Scrolled to the end, under Naval reflections: its label and On's hint.
+    settings::Dialog dialog = graphics_page();
+    dialog.scroll[static_cast<std::size_t>(Page::graphics)] = std::numeric_limits<int32_t>::max();
+    const auto rows = geometry::open_rows(dialog).rows.rows;
+    CHECK(rows.size() == 22);
+    const auto row = rows.back();
+    CHECK(row.setting == Setting::new_unit_shadows);
+    CHECK(rows[rows.size() - 2].setting == Setting::naval_reflections);
+    CHECK(row.control == settings::first_row_control + 21);
+    CHECK(inside(row.control_area, geometry::view));
+    auto parts = settings::dialog_layout(dialog);
+    CHECK(find_part(parts, "New unit shadows", settings::no_control) != nullptr);
+    CHECK(shows_wrapped(parts, new_unit_shadows_on_hint, dialog));
+
+    // A press on Off turns it off, and the hint says what Off casts.
+    CHECK(click(dialog, {row.control_area.x + 3, row.control_area.y + 4}) == DialogAction::changed);
+    CHECK(!dialog.chosen.new_unit_shadows);
+    parts = settings::dialog_layout(dialog);
+    CHECK(shows_wrapped(parts, new_unit_shadows_off_hint, dialog));
+    CHECK(!shows_wrapped(parts, new_unit_shadows_on_hint, dialog));
+    // Space turns it on and off again.
+    dialog.focused = row.control;
+    CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::changed);
+    CHECK(dialog.chosen.new_unit_shadows);
+    CHECK(shows_wrapped(settings::dialog_layout(dialog), new_unit_shadows_on_hint, dialog));
+    CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::changed);
+    CHECK(!dialog.chosen.new_unit_shadows);
+
+    // Restore defaults gives On; Cancel what it opened with.
+    CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
+    CHECK(dialog.chosen.new_unit_shadows);
+    CHECK(settings::dialog_key(dialog, DialogKey::escape) == DialogAction::cancelled);
+    CHECK(dialog.chosen == dialog.opened);
+}
+
 /// Smooth motion's hint while it is On.
 constexpr std::string_view smooth_motion_on_hint =
     "Units, shots and spinning parts move smoothly between the game's ticks.";
@@ -10484,7 +10541,7 @@ void the_arrows_move_by_geometry() {
         tab_round(opened(Page::language)) ==
         then_rest({row, row + 1, row + 3, row + 4, row + 5, row + 6})
     );
-    // Graphics: After zoom waits for Dots.
+    // Graphics: After zoom waits for Dots, and the water's sliders for Full.
     CHECK(
         tab_round(opened(Page::graphics)) == then_rest(
                                                  {row,
@@ -10502,7 +10559,8 @@ void the_arrows_move_by_geometry() {
                                                   row + 13,
                                                   row + 14,
                                                   row + 15,
-                                                  row + 16}
+                                                  row + 16,
+                                                  row + 21}
                                              )
     );
     // User Interface: every row takes a change, Interface size, Window size,
@@ -12161,6 +12219,7 @@ int main(int argc, char** argv) {
         interface_size_offers_150_with_the_modern_fonts();
         menu_scaling_and_native_density_show_and_change();
         smooth_motion_shows_and_changes();
+        new_unit_shadows_shows_and_changes();
         visual_effects_show_and_change();
         hardware_acceleration_moves_the_effects();
         explosion_flash_shows_and_changes();
