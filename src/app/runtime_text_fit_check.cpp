@@ -15,10 +15,12 @@
 // files screen and the folder chooser paint through their own painter, which
 // records the same way. A startup notice drawn by the game's own windows is
 // opened too; that painter keeps no record. SKIRMISH is painted with
-// Mutators reading "Mutators" and "Mutators (5)", with three computer rows'
-// brain buttons, one of them a long name, and NEWGAME with Mutators and with
-// the campaign brain button showing that long name, in every language and
-// every size; Mutators' words must read whole.
+// Mutators reading "Mutators", its text "Mutators · off" and then
+// "Mutators · 5 on", with three computer rows' brain buttons, one of them
+// a long name, and NEWGAME with Mutators and with the campaign brain button
+// showing that long name, in every language and every size. The button's
+// word must read whole: the check looks for "…" in oa.mutators' text, whose
+// first word is the word as drawn.
 // The battle room is painted with one computer row whose brain has a long
 // name, in every language and every size.
 // The Brains tab's details are painted too: one brain not installed and one

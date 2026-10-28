@@ -182,7 +182,7 @@ device's file picker and drives the screen by taps and keys:
 | `--game-files-source PATH` | the folder, or the installer, the scripted picker answers with |
 | `--game-files-free-bytes N` | the free space the scripted hooks report |
 | `--game-files-copy-rate BYTES` | the bytes a second the scripted copy is held to |
-| `--game-files-stop-after BYTES` | STOP is pressed once this much was copied; the scripted copy waits there for it |
+| `--game-files-stop-after BYTES` | Stop is pressed once this much was copied; the scripted copy waits there for it |
 
 The scripted hooks use the working directory as the device: its
 `Documents/Total Annihilation` is the game folder, and the platform's
@@ -202,16 +202,16 @@ failed: <why>`, and its status follows it.
 
 | Variant | Route |
 |---|---|
-| `folder` | S1, Tab and its focus ring, OA · Aa and Escape, CHOOSE FOLDER, Ready to copy (the rows dragged when they scroll, SHOW and its sheet closed by Escape, a switch off and on), COPY, Ready to play, PLAY, the main menu; the game folder then holds the subset without the files left out, kept out of the backups |
+| `folder` | S1, Tab and its focus ring, OA · Aa and Escape, Choose folder, Ready to copy (the rows dragged when they scroll, Show and its sheet closed by Escape, a switch off and on), Copy, Ready to play, Play, the main menu; the game folder then holds the subset without the files left out, kept out of the backups |
 | `phone` | the same at 852x393, the phone form, where the rows scroll; the dialog is left with Return (OK) |
-| `demo` | CHOOSE INSTALLER, the demo's row, COPY, the demo unpacked, Ready to play, the main menu |
-| `copy-yourself` | I HAVE COPIED IT, No game folder yet, the files copied in under another name, CHECK AGAIN, Found your files, USE IT, the main menu |
-| `stop` | a copy held to 4 MB a second; after 8 MB the game leaves the screen and comes back (Copying went on), leaves again and its time away runs out (the copy pauses, then starts again on return); STOP, KEEP WHAT WAS COPIED, the continue banner |
+| `demo` | Choose installer, the demo's row, Copy, the demo unpacked, Ready to play, the main menu |
+| `copy-yourself` | I have copied it, No game folder yet, the files copied in under another name, Check again, Found your files, Use it, the main menu |
+| `stop` | a copy held to 4 MB a second; after 8 MB the game leaves the screen and comes back (Copying went on), leaves again and its time away runs out (the copy pauses, then starts again on return); Stop, Keep what was copied, the continue banner |
 | `resume` | the next start in the same folder: the banner, the same folder chosen, files skipped, Ready to play, the main menu |
-| `not-game` | CHOOSE FOLDER clicked with the mouse on a folder with no installation: the problem, Escape, S1 |
-| `short-space` | 50 MB free: the shortage shown with COPY off, CHECK AGAIN, still short |
-| `manage` | the management state over an installed folder: ADD FILES…, a mod added, CHECK AGAIN, REMOVE Music, DONE and its note |
-| `manage-next-start` | the next start in the same folder: the removal applied, the mod in `mods/`, DONE |
+| `not-game` | Choose folder clicked with the mouse on a folder with no installation: the problem, Escape, S1 |
+| `short-space` | 50 MB free: the shortage shown with Copy off, Check again, still short |
+| `manage` | the management state over an installed folder: Add files…, a mod added, Check again, Remove Music, Done and its note |
+| `manage-next-start` | the next start in the same folder: the removal applied, the mod in `mods/`, Done |
 
 At every state a route waits for, the check writes three pictures in the
 working directory, named

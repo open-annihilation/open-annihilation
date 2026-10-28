@@ -492,10 +492,10 @@ void Runtime::check_mod_install() {
         const int32_t scale = oa_layer().screen_scale();
         settings::Prompt sized = prompt;
         sized.size_class = oa_layer().screen_class();
+        const oa::ui::kit::PlacedQuestion laid = oa::ui::kit::place_question(sized, fonts);
         require(
-            oa_layer().holds(state.prompt) &&
-                placed.points_width == oa::ui::kit::metrics_of(sized.size_class).notice_width &&
-                placed.points_height == settings::prompt_height(sized, fonts) &&
+            oa_layer().holds(state.prompt) && placed.points_width == laid.width &&
+                placed.points_height == laid.height &&
                 placed.shown.width == placed.points_width * scale &&
                 placed.shown.height == placed.points_height * scale,
             "the prompt does not show on the OA layer at its class and scale"
@@ -881,10 +881,10 @@ void Runtime::check_mod_install() {
             settings::Prompt sized = state.prompt->question();
             sized.size_class = larger.size_class;
             const auto* fonts = engine_settings_fonts();
-            const int32_t sized_height = settings::prompt_height(sized, fonts);
+            const oa::ui::kit::PlacedQuestion laid = oa::ui::kit::place_question(sized, fonts);
+            const int32_t sized_height = laid.height;
             const auto at = state.prompt->placement(oa_layer().view());
-            const int32_t shown_width =
-                oa::ui::kit::metrics_of(larger.size_class).notice_width * larger.scale;
+            const int32_t shown_width = laid.width * larger.scale;
             require(
                 at.shown.width == shown_width && at.shown.height == sized_height * larger.scale &&
                     at.shown.x == (larger.width - shown_width) / 2 &&

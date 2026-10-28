@@ -305,11 +305,12 @@ struct QuestionAt {
 ///
 /// @param text the paragraph
 /// @param count how many lines
+/// @param width the line's width; 376 is a Compact notice
 /// @return the lines
-std::vector<LineAt> small_rows(std::string_view text, int32_t count) {
+std::vector<LineAt> small_rows(std::string_view text, int32_t count, int32_t width = 376) {
     std::vector<LineAt> lines;
     for (int32_t index = 0; index < count; ++index)
-        lines.push_back({text, false, false, {12, 38 + 18 * index, 376, 12}});
+        lines.push_back({text, false, false, {12, 38 + 18 * index, width, 12}});
     return lines;
 }
 
@@ -477,24 +478,24 @@ void questions_place_as_before() {
     };
     check_question(
         kit::place_question(question_of({"OK"}), estimated, estimated),
-        {150, {38, 1, 350, 26}, false, {}, 116, {{336, 124, 52, 17}}, example}
+        {136, {38, 1, 350, 26}, false, {}, 98, {{336, 103, 52, 28}}, example}
     );
     check_question(
         kit::place_question(question_of({"CANCEL", "REPLACE"}), estimated, estimated),
-        {150, {38, 1, 350, 26}, false, {}, 116, {{260, 124, 58, 17}, {323, 124, 65, 17}}, example}
+        {136, {38, 1, 350, 26}, false, {}, 98, {{260, 103, 58, 28}, {323, 103, 65, 28}}, example}
     );
-    // The narrow measure keeps the path on one line; the buttons are placed
-    // at the estimated width whatever the measure.
+    // The narrow measure keeps the path on one line. The box stays as wide as
+    // the estimate of that path, and the buttons keep the estimate's widths.
     check_question(
         kit::place_question(
             question_of({"CANCEL", "INSTALL ALONGSIDE", "REPLACE"}), narrow_regular, narrow_small
         ),
-        {150,
+        {120,
          {38, 1, 350, 26},
          false,
          {},
-         116,
-         {{120, 124, 58, 17}, {183, 124, 135, 17}, {323, 124, 65, 17}},
+         82,
+         {{120, 87, 58, 28}, {183, 87, 135, 28}, {323, 87, 65, 28}},
          {
              {"Example Mod 1.0, revision 1, is installed.", false, false, {12, 38, 376, 12}},
              {"/Users/someone/Documents/Open Annihilation/Mods/example-mod",
@@ -505,30 +506,32 @@ void questions_place_as_before() {
     );
     check_question(
         kit::place_question(progress_question(), estimated, estimated),
-        {150, {38, 1, 350, 26}, false, {12, 94, 376, 8}, 116, {{330, 124, 58, 17}}, example}
+        {150, {38, 1, 350, 26}, false, {12, 94, 376, 8}, 112, {{330, 117, 58, 28}}, example}
     );
-    // Twenty rows fit; the bar under them does not, and is left out.
+    // Twenty rows fit; the bar under them does not, and is left out. The
+    // short lines size the box to half a Compact notice.
     check_question(
         kit::place_question(bar_cut_question(), estimated, estimated),
-        {440, {38, 1, 350, 26}, true, {}, 406, {{336, 414, 52, 17}}, small_rows("A row.", 20)}
+        {440, {38, 1, 150, 26}, true, {}, 402, {{136, 407, 52, 28}}, small_rows("A row.", 20, 176)}
     );
-    // Four buttons: the first three are placed.
+    // Four buttons: the first three are placed, and the long caption sizes
+    // the box to those buttons.
     check_question(
         kit::place_question(four_question(), estimated, estimated),
         {440,
-         {38, 1, 350, 26},
+         {38, 1, 334, 26},
          true,
          {},
-         406,
-         {{28, 414, 52, 17}, {85, 414, 58, 17}, {148, 414, 240, 17}},
-         small_rows("A line of the prompt's text that takes a row.", 20)}
+         402,
+         {{12, 407, 52, 28}, {69, 407, 58, 28}, {132, 407, 240, 28}},
+         small_rows("A line of the prompt's text that takes a row.", 20, 360)}
     );
     // The buttons alone, at a height of 200.
     const auto rects = kit::question_button_rects(question_of({"CANCEL", "REPLACE"}), 200);
     OA_CHECK(rects.size() == 2);
     if (rects.size() == 2) {
-        OA_CHECK(same_rect(rects[0], {260, 174, 58, 17}));
-        OA_CHECK(same_rect(rects[1], {323, 174, 65, 17}));
+        OA_CHECK(same_rect(rects[0], {260, 167, 58, 28}));
+        OA_CHECK(same_rect(rects[1], {323, 167, 65, 28}));
     }
 }
 
@@ -540,20 +543,21 @@ void question_buttons_fit_their_captions() {
     const auto measured = kit::question_button_rects(load, 200, wide_small);
     OA_CHECK(measured.size() == 2);
     if (measured.size() == 2) {
-        OA_CHECK(same_rect(measured[0], {216, 174, 52, 17}));
-        OA_CHECK(same_rect(measured[1], {273, 174, 115, 17}));
+        OA_CHECK(same_rect(measured[0], {216, 167, 52, 28}));
+        OA_CHECK(same_rect(measured[1], {273, 167, 115, 28}));
     }
     const auto estimated = kit::question_button_rects(load, 200);
     OA_CHECK(estimated.size() == 2);
     if (estimated.size() == 2) {
-        OA_CHECK(same_rect(estimated[0], {238, 174, 52, 17}));
-        OA_CHECK(same_rect(estimated[1], {295, 174, 93, 17}));
+        OA_CHECK(same_rect(estimated[0], {238, 167, 52, 28}));
+        OA_CHECK(same_rect(estimated[1], {295, 167, 93, 28}));
     }
-    // place_question places them with its small measure.
+    // place_question places them with its small measure. Nine points a
+    // character wraps the first line, so the footer sits under that extra row.
     const kit::PlacedQuestion placed = kit::place_question(load, kit::estimated_width, wide_small);
     OA_CHECK(placed.buttons.size() == 2);
     if (placed.buttons.size() == 2)
-        OA_CHECK(same_rect(placed.buttons[1], {273, 124, 115, 17}));
+        OA_CHECK(same_rect(placed.buttons[1], {273, 115, 115, 28}));
 
     // A row wider than the room between the paddings, 376 points at Compact,
     // is narrowed from its widest buttons: 268 and 205 come to 148 each, and
@@ -563,9 +567,9 @@ void question_buttons_fit_their_captions() {
     const auto narrowed = kit::question_button_rects(wide_row, 200, wide_small);
     OA_CHECK(narrowed.size() == 3);
     if (narrowed.size() == 3) {
-        OA_CHECK(same_rect(narrowed[0], {12, 174, 70, 17}));
-        OA_CHECK(same_rect(narrowed[1], {87, 174, 148, 17}));
-        OA_CHECK(same_rect(narrowed[2], {240, 174, 148, 17}));
+        OA_CHECK(same_rect(narrowed[0], {12, 167, 70, 28}));
+        OA_CHECK(same_rect(narrowed[1], {87, 167, 148, 28}));
+        OA_CHECK(same_rect(narrowed[2], {240, 167, 148, 28}));
     }
 
     // In fonts wider than the estimate the display list's buttons, the
@@ -903,12 +907,17 @@ void a_finger_lands_as_before() {
     // Two buttons, tried left to right: from the gap two columns from
     // CANCEL and three from REPLACE, CANCEL; a row further from REPLACE than
     // its reach, nothing.
+    // The word-sized box is 136 high and its buttons are the class's control
+    // height, so a press is tried where those buttons are drawn: CANCEL at
+    // 260, 103 and REPLACE at 323, 103, each 28 high. The finger press uses
+    // that same height.
     const kit::Question two = question_of({"CANCEL", "REPLACE"});
     const auto press_question = [](const kit::Question& question) {
-        return [question](const Landing& landing) {
+        const int32_t height = kit::place_question(question, nullptr).height;
+        return [question, height](const Landing& landing) {
             kit::Question pressed = question;
             static_cast<void>(
-                kit::question_finger_down(pressed, landing.finger, 150, landing.reach)
+                kit::question_finger_down(pressed, landing.finger, height, landing.reach)
             );
             return Press{pressed.pressed, {pressed.finger_shift_x, pressed.finger_shift_y}};
         };
@@ -916,25 +925,26 @@ void a_finger_lands_as_before() {
     check_landings(
         kit::question_list(two, nullptr),
         {
-            {{333, 132}, 6, 1, {333, 132}},
-            {{320, 132}, 6, 0, {317, 132}},
-            {{321, 132}, 6, 1, {323, 132}},
-            {{333, 146}, 6, 1, {333, 140}},
-            {{333, 147}, 6, kit::no_control, {333, 147}},
-            {{333, 148}, 6, kit::no_control, {333, 148}},
-            {{256, 120}, 6, 0, {260, 124}},
+            {{333, 120}, 6, 1, {333, 120}},
+            {{320, 120}, 6, 0, {317, 120}},
+            {{321, 120}, 6, 1, {323, 120}},
+            {{333, 136}, 6, 1, {333, 130}},
+            {{333, 137}, 6, kit::no_control, {333, 137}},
+            {{333, 138}, 6, kit::no_control, {333, 138}},
+            {{256, 99}, 6, 0, {260, 103}},
         },
         press_question(two)
     );
 
-    // Three buttons: from the gaps three columns from each side, the left one.
+    // Three buttons, on the same box: from the gaps three columns from each
+    // side, the left one.
     const kit::Question three = question_of({"CANCEL", "INSTALL ALONGSIDE", "REPLACE"});
     check_landings(
         kit::question_list(three, nullptr),
         {
-            {{203, 145}, 22, 1, {203, 140}},
-            {{320, 132}, 6, 1, {317, 132}},
-            {{180, 121}, 6, 0, {177, 124}},
+            {{203, 135}, 22, 1, {203, 130}},
+            {{320, 120}, 6, 1, {317, 120}},
+            {{180, 100}, 6, 0, {177, 103}},
             {{5, 5}, 22, kit::no_control, {5, 5}},
         },
         press_question(three)

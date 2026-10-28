@@ -632,6 +632,7 @@ geometry::Rows place(
     placement.tall = oa::data::languages::interface_language().needs !=
                      oa::data::languages::TextNeeds::game_fonts;
     placement.first_control = first_row_control;
+    geometry::modern_control_heights(placement, dialog, sized.size_class);
     kit::PlacedRows kit_rows = kit::place_rows(row_views, placement);
 
     geometry::Rows rows;

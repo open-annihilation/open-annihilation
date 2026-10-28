@@ -22,7 +22,8 @@
 void layout_tests();
 
 /// Writes map-browser-compact.png, map-browser-regular.png and
-/// map-browser-large.png into directory, in the game's fonts, and returns
+/// map-browser-large.png into directory, in the modern look when the fonts
+/// are beside the test, and returns
 /// 0. Returns 1 when a picture could not be written. A missing game
 /// directory ends the process as a skipped test.
 ///

@@ -66,7 +66,7 @@ The Library opens on the main menu, from:
   top right corner, from the moment OA finds them: you
   need not open the Library to learn of them, and its **Updates** tab lists
   them;
-- **MORE IN THE LIBRARY…** in Settings › Language, which opens it on
+- **More in the Library…** in Settings › Language, which opens it on
   Languages, over the settings, which stay open under it;
 - **Change layout…** on the key layout card in Settings › Controls, which
   opens it on Keys, over the settings;
@@ -95,8 +95,8 @@ the icon turns, one full turn every 1.6 seconds, and it cannot be pressed
 again until they answer. When the refresh has read a list, the icon shows
 a check for 0.8 seconds and then the arrow again. A refresh that fails goes
 straight back to the arrow; the offline line says why. Pressing it during
-the check asks again at once. The close mark does what **CLOSE** does.
-**CLOSE**, or Escape, goes back to the main menu.
+the check asks again at once. The close mark does what **Close** does.
+**Close**, or Escape, goes back to the main menu.
 The Library shows only on the main menu: it closes when the menu gives way
 to another screen, and in a game the in-game menu's button, which shows the
 gears too, opens the settings, not the Library.
@@ -131,8 +131,8 @@ under them, so the maps pane keeps a row.
   stay only when that picture cannot be drawn. A source the
   host knows is named on the version line ("3.1c · from GOG for macOS").
   A file check the host knows is the next line: "All files match", or
-  "1 file differs", or "2 files differ". **CHANGE…** sits at the bottom
-  right. It opens the base game chooser over the Library. **CHANGE…** is
+  "1 file differs", or "2 files differ". **Change…** sits at the bottom
+  right. It opens the base game chooser over the Library. **Change…** is
   greyed during a game, while the command line named the choice for this
   run, and while the command line chose the run's mod.
 - **EXPANSIONS**: one pill for each expansion of that base game. A pill
@@ -155,8 +155,8 @@ under them, so the maps pane keeps a row.
   rules for turning an expansion on or off, and the choice waits on this
   tab until the Library closes. The hint then names that wait ("Battle
   Tactics turns off when the Library closes."). Turning one off that the
-  mod you are playing needs asks first. **CANCEL** leaves the choice as
-  it was. **TURN OFF** keeps the change on this tab, still until the
+  mod you are playing needs asks first. **Cancel** leaves the choice as
+  it was. **Turn off** keeps the change on this tab, still until the
   Library closes, and says that the mod is unloaded and the game plays
   with **No Mod**. The hint then names the mod and the expansion: "Ridge
   was unloaded because Campaign is off. The game plays with No Mod."
@@ -181,13 +181,13 @@ under them, so the maps pane keeps a row.
   Choosing the base game you started with again, before the Library
   closes, plays that mod again. A base game that is not copied asks for
   its source and copies it before that choice is kept. The demo asks for
-  its installer. **USE THIS GAME** keeps the marked game. **CANCEL**
+  its installer. **Use this game** keeps the marked game. **Cancel**
   leaves the choice as it was.
 - **MOD**: a tile for the mod you are playing. Its badge is large, and the
   tile names the mod, its version and revision ("4.8 (rev 3)") and who made
   it ("by the Ridge team"). **Playing** is a rounded pill at the top right,
-  on the title's line. **UNLOAD MOD** sits at the bottom right. It asks the
-  same **SWITCH MOD** question as **SWITCH OFF** and, on **SWITCH**, goes
+  on the title's line. **Unload mod** sits at the bottom right. It asks the
+  same **SWITCH MOD** question as **Switch off** and, on **Switch**, goes
   back to the game as it was made
   ([choosing a mod](#choosing-a-mod)). It is greyed during a game and while
   the command line chose the run's mod; resting on it then shows "The
@@ -207,9 +207,9 @@ under them, so the maps pane keeps a row.
   the mod you are playing, a further line reads "With {mod}: {name}".
   While OA default is in use the pill reads **Built in**. While another
   layout is in use the pill reads **USING**, in the same green as
-  **PLAYING**. **CHANGE…** opens the Keys tab with that layout selected.
+  **PLAYING**. **Change…** opens the Keys tab with that layout selected.
   On a small window that block is the **KEYS** heading and one line: the
-  layout's name, the own-changes line and **CHANGE…**, with no badge, so
+  layout's name, the own-changes line and **Change…**, with no badge, so
   the expansion rows stay on screen when the maps scroll into view. On a
   larger window it is a full-width tile.
 - **MAPS**: each map you have installed. On a small window a map is one
@@ -235,7 +235,7 @@ under them, so the maps pane keeps a row.
 
 The badge, the title and the lines start at the top of each tile, with the
 same small padding above them and below the last line or, on a tile with a
-button, below **CHANGE…** or **UNLOAD MOD**. In a row, the two tiles share
+button, below **Change…** or **Unload mod**. In a row, the two tiles share
 a title line and the same height, and so do maps in one row. Extra room
 stays under the shorter tile's lines. A minimap keeps its shape: it is
 centred in its square, and the rest of the square is the list's well colour.
@@ -245,10 +245,10 @@ is one line. On the largest the maps stand in two columns when you have
 more than one. The tab has no catalogue search and no filters. The base,
 expansions, mod and language labels and each map's title line take no
 press, except the title of a map whose pack holds only that map: that
-title is the link to the pack. **CHANGE…**, each expansion pill but a
+title is the link to the pack. **Change…**, each expansion pill but a
 locked one (the
 download arrow sits inside a pill a registry offers, and that pill is
-the press), **UNLOAD MOD**, each map's link to its pack while that link
+the press), **Unload mod**, each map's link to its pack while that link
 shows, and the maps search do take a press. Tab and the arrows reach
 them. The expansions hint wraps onto as many lines as it needs.
 
@@ -325,9 +325,9 @@ name in the details:
 | a download arrow, grey | not installed |
 
 The icons are drawn as shapes at the screen's own pixels, so they stay
-sharp at every Interface size. The download arrow is the row's **GET** and
-the circled up-arrow its **UPDATE**: pressing either does exactly what the
-details' GET or UPDATE does, with the same questions, without opening the
+sharp at every Interface size. The download arrow is the row's **Get** and
+the circled up-arrow its **Update**: pressing either does exactly what the
+details' Get or Update does, with the same questions, without opening the
 details. Anywhere else on the row, a press only chooses it. To automation
 they are `oa.library.row.<registry>.<key>.get` and `.update`
 ([automation](automation.md#the-library)).
@@ -351,7 +351,7 @@ When a mark shows, the row's read text gains " · Open Annihilation" or
 
 ![Languages: the languages built into the game lead the list, each marked Built in, then the packs. Polski is the language in use. Portugues (Brasil), author OA team, is installed from the built-in registry, with the OA badge under its check.](images/library/library-languages-compact.png)
 
-A GET or UPDATE that cannot act has its icon dimmed and takes no press,
+A Get or Update that cannot act has its icon dimmed and takes no press,
 and the details say why:
 
 - "Downloads from Core Prime are off (Settings › Downloads)": the
@@ -382,15 +382,15 @@ the search you choose do not change it. **New** holds the ten packages the
 registries published last, newest first, by the day each release came out;
 a package whose registry gives no day is never among them. The filters are
 pills over the list in the Regular layout, an active one in the accent
-ground and an inactive one in the muted ground, with a TAGS menu for the
+ground and an inactive one in the muted ground, with a Tags menu for the
 tags that do not fit, a column of their own in Large, and one drop-down in
 Compact. Choosing the tag already chosen clears it.
 
 Each tab keeps its own filter: choosing Installed on Mods leaves Maps and
 Updates as they were. The **Updates** tab holds every kind of package and
 has the same filters, and it opens on Updates, every update together. Over
-its list a line says how many updates it shows ("3 updates"), with **UPDATE
-ALL**.
+its list a line says how many updates it shows ("3 updates"), with **Update
+all**.
 
 An empty list says "Nothing matches "*search*".", "No updates.", "Nothing
 to show.", or, with no registry at all, "Nothing here yet. Turn a registry
@@ -403,8 +403,8 @@ with its picture, its name, "by {author}", its summary, its version, its
 size beside the version, and its state icon. A mutator with no picture
 shows its first tag's icon. Letters show only when it has no tag, or the
 tag is not one of the eight. One that is not installed reads "Not
-installed · {version}". There is no Size fact, and no **ROLL BACK**.
-**GET** and **UPDATE** are the state icon, as on the other tabs. The
+installed · {version}". There is no Size fact, and no **Roll back**.
+**Get** and **Update** are the state icon, as on the other tabs. The
 filters are **All**, **New**, **Installed** and **Updates**, and **TAGS**
 for the tags a mutator carries: Statistics, Economy, Commanders, New
 Units, Disable, Gameplay, AI and Maps. The search reads "Search mutators,
@@ -432,14 +432,14 @@ the parts of the game the mutator says it changes: Files, Units, Weapons,
 Features, Sides, Game tables, Build menus, Maps or Hacks. **Rules** reads
 "Changes the game: unranked on Core Prime". **From** names the registry.
 
-The actions are **GET**, **UPDATE**, **CHECK WITH THIS MOD** (it checks
+The actions are **Get**, **Update**, **Check with this mod** (it checks
 the installed copy, with its default options, against the mod being
-played), **UNINSTALL**, **OPEN FOLDER** and **HOMEPAGE**. A missing
-prerequisite makes **GET** read **GET WITH {name}** or **GET WITH {count}
+played), **Uninstall**, **Open folder** and **Homepage**. A missing
+prerequisite makes **Get** read **Get with {name}** or **Get with {count}
 MORE**, and asks "Get {name}?" before it downloads. When it can act, the
 note is "{names} downloads first, then sits above {name} in every list."
 or, for several, "{names} download first, then sit above {name} in every
-list." **GET WITH** is shown but off when no registry offers a
+list." **Get with** is shown but off when no registry offers a
 prerequisite, or when mutators need each other. The details then say
 "Needs {name} {range}, which no registry offers", "Needs {name}, which no
 registry offers", or "These mutators need each other: {ids}".
@@ -449,7 +449,7 @@ row only, in the lock colour. At Compact the row ends "· needs {name}" or
 "· not compatible with this mod", in the lock colour. Regular shows
 neither. The details of one that does not work with the mod say "Not
 compatible with this mod: it works with {names}". That note is
-information. The row is not dimmed, and **GET** and **UPDATE** stay on.
+information. The row is not dimmed, and **Get** and **Update** stay on.
 Only the picker locks an incompatible mutator, and
 [Playing with mutators](playing-with-mutators.md) says what that lock
 reads.
@@ -496,26 +496,26 @@ list the brain's options. Those are on the seat's picker.
 The built-in computer player's details are **Levels** (Easy, Medium and
 Hard) and **Works with** **Any mod**, and nothing else.
 
-A brain that does not fit the game being played keeps **GET** and
-**UPDATE** on. That is information. At Compact the row ends "· {reason}".
+A brain that does not fit the game being played keeps **Get** and
+**Update** on. That is information. At Compact the row ends "· {reason}".
 The reason is "Made for {names}", the engine requirement, or
 "Needs {name}".
 
-The actions are **GET** or **UPDATE** (still on when the brain does not
-fit), then **USE BY DEFAULT** when it is installed and is not the
-default, then **CHECK WITH THIS MOD** for an installed copy whose
-verdict is set, then **UNINSTALL** and **OPEN FOLDER** when installed,
-then **HOMEPAGE** when the listing has one. **CHECK WITH THIS MOD**
+The actions are **Get** or **Update** (still on when the brain does not
+fit), then **Use by default** when it is installed and is not the
+default, then **Check with this mod** for an installed copy whose
+verdict is set, then **Uninstall** and **Open folder** when installed,
+then **Homepage** when the listing has one. **Check with this mod**
 loads the installed copy and runs its fit. It does not seat the brain.
 It is off during a game and while that check is running. There is no
-**ROLL BACK**. **GET** stays **GET**: it does not become **GET WITH
-{name}** or **GET WITH {count} MORE**. **USE BY DEFAULT** makes that brain
+**Roll back**. **Get** stays **Get**: it does not become **Get with
+{name}** or **Get with {count} more**. **Use by default** makes that brain
 the one new computer seats start with. On the built-in computer player
 it is offered while the built-in player is not the default, and it
 clears the preference. While the built-in player is the default, its
 details offer nothing.
 
-**UNINSTALL** on the default brain adds, before the question's last
+**Uninstall** on the default brain adds, before the question's last
 paragraph, "It is your default computer player: new computer seats go
 back to the built-in player."
 
@@ -539,7 +539,7 @@ A layout's row says what the layout does: its name and author, its
 summary, and its state in a word where other packages show an icon,
 **In use**, filled with the accent, **Built in**, **Installed**,
 **Update**, or **Get** with its size, as "Get · 1 KB", which is the row's
-GET. It shows no version. At Regular and Large a second line carries
+Get. It shows no version. At Regular and Large a second line carries
 your own changes to it, "2 changes of your own", then "Made for {mod}"
 while a mod is played and the layout is made for it, then its tags;
 Compact keeps the one line. While a mod is played, layouts made for that
@@ -552,7 +552,7 @@ first, Accessibility, Tournament, Mod and Legacy. Any other tag is shown
 as written.
 
 At Compact the list is the page, and choosing a row opens its details,
-with **BACK** and **MORE ▾**; the whole keyboard is on that page. At
+with **Back** and **More**; the whole keyboard is on that page. At
 Regular and Large the list and the details sit side by side, and the
 details show the keyboard's main block, Tab to Enter and Shift to Shift,
 the keys the layout changes filled with the accent under their legends.
@@ -577,17 +577,17 @@ The facts lead with what the layout does:
   the layout has them.
 
 An unmet engine range, or a layout made for another mod, is information:
-the row stays bright and **GET** stays on.
+the row stays bright and **Get** stays on.
 
 The actions stand in a bar at the foot of the details that does not
-scroll: **GET** or **UPDATE** (and **CANCEL** or **RETRY** while one is in
-the queue), then **USE** when the layout is installed and is not the one
-in use, or **EDIT KEYS…** when it is, then **UNINSTALL** and **OPEN
-FOLDER** when it is installed, then **HOMEPAGE** when the listing has one.
-There is no **PLAY NOW** and no **ROLL BACK**. **GET**, an install and a
+scroll: **Get** or **Update** (and **Cancel** or **Retry** while one is in
+the queue), then **Use** when the layout is installed and is not the one
+in use, or **Edit keys…** when it is, then **Uninstall** and **OPEN
+FOLDER** when it is installed, then **Homepage** when the listing has one.
+There is no **Play now** and no **Roll back**. **Get**, an install and a
 catalogue update never switch a layout on.
 
-**USE** asks first, in a question over the Library, the whole window at
+**Use** asks first, in a question over the Library, the whole window at
 Compact, titled "Use {name}". Its parts are numbered:
 
 1. **Where**, while a mod is played: **Every game**, or **Only with
@@ -624,11 +624,11 @@ own changes only when USE made it. USE never deletes or writes over your
 own changes: Keep copies them to the new layout only when it has none,
 and Start clean writes nothing.
 
-**EDIT KEYS…** opens the key editor on the layout in use
+**Edit keys…** opens the key editor on the layout in use
 ([the key editor](controls.md#the-key-editor)). How a layout, a share and
 the helpers fit together is [Keys](keys.md).
 
-**UNINSTALL** of the layout in use asks, before the question's last
+**Uninstall** of the layout in use asks, before the question's last
 paragraph, "You play with {name} now. Uninstall it and go back to OA
 default? Your own changes stay saved." Confirming erases the preferences
 that name that layout and loads OA default. Your own changes stay in
@@ -649,8 +649,8 @@ The Compact and Large pictures are `library-keys-compact.png` and
 
 Choosing a row shows its details: beside the list in the Regular and Large
 layouts, or as a page of its own in Compact. On that page the footer's
-right button is **BACK**. It returns to the same tab, filter, search,
-scroll and row. The list's button stays **CLOSE**. Escape and the pad's
+right button is **Back**. It returns to the same tab, filter, search,
+scroll and row. The list's button stays **Close**. Escape and the pad's
 back button follow whichever of those is showing.
 
 - **A status line**: "Not installed · 41.0 MB", "Installed", "Playing",
@@ -712,36 +712,36 @@ back button follow whichever of those is showing.
   packs, mutators and language packs. A mutator's own facts, and the
   order they take, are [the Mutators tab](#the-mutators-tab). A mutator
   has no Size fact.
-- **The buttons**: **TURN ON Battle Tactics** first, when turning on the
+- **The buttons**: **Turn on Battle Tactics** first, when turning on the
   expansions the package needs, through the same rules as the Active tab's
   pills, would let it run. The choice waits until the Library closes.
-  **GET** stays, and the package stays in the list. **GET** or **UPDATE**,
-  **CANCEL** while it is in the download queue, **RETRY** after a download
+  **Get** stays, and the package stays in the list. **Get** or **Update**,
+  **Cancel** while it is in the download queue, **Retry** after a download
   that can be tried again;
-  **PLAY NOW** for an installed mod you are not playing, which switches to
-  it, or **SWITCH OFF** in its place for the mod you are playing, which
+  **Play now** for an installed mod you are not playing, which switches to
+  it, or **Switch off** in its place for the mod you are playing, which
   goes back to the game as 3.1c plays it ([choosing a mod](#choosing-a-mod)).
-  **PLAY NOW** and **USE NOW** are greyed when the package's games are not
+  **Play now** and **Use now** are greyed when the package's games are not
   this choice's game, or a required expansion is off;
-  **USE NOW** for a built-in language, or an installed language pack, that
+  **Use now** for a built-in language, or an installed language pack, that
   is not the one the game is showing ([choosing a language](#choosing-a-language));
-  **ROLL BACK** while an earlier copy is kept
-  ([rolling back](#rolling-back)); **UNINSTALL** and **OPEN FOLDER** for an
-  installed package ([uninstalling](#uninstalling)); and **HOMEPAGE**, which
+  **Roll back** while an earlier copy is kept
+  ([rolling back](#rolling-back)); **Uninstall** and **Open folder** for an
+  installed package ([uninstalling](#uninstalling)); and **Homepage**, which
   opens the package's web page in your browser. At Regular and Large the
   buttons stand in a bar at the foot of the details, which stays put while
   the details scroll; on Compact's details page they are in the footer,
-  with **MORE ▾** and **BACK**.
+  with **More** and **Back**.
 - **A note** for mods while you play one: "Finishes when you leave Ridge."
   on the mod being played, or "You are playing Ridge. Updating Cinder
   doesn't restart the game." on another
   ([finishes when you leave …](#finishes-when-you-leave-)); on every
   installed mod, first, "The command line chose this run's mod." while
-  `--mod-dir` or `--base-game` chose it; and, while UNINSTALL is off, why:
+  `--mod-dir` or `--base-game` chose it; and, while Uninstall is off, why:
   "Map packs can't be uninstalled during a game." or "It is in the download
-  queue: CANCEL it before you uninstall it." While **TURN ON** is showing,
+  queue: Cancel it before you uninstall it." While **Turn on** is showing,
   the note under the buttons says "Turning it on applies when the Library
-  closes, and then PLAY NOW works." A language says USE NOW, several
+  closes, and then Play now works." A language says Use now, several
   expansions say "them", and a map pack stops at "closes."
 
 The Regular and Large layouts show who made a package, and its download
@@ -755,13 +755,13 @@ icon as the Active tab's base-game tile, or an em dash when that icon
 cannot be read. Its details say "Total Annihilation as it was made". It is
 not a mod: All, New, Installed and Updates leave it out of their counts,
 New never lists it, and Active, Updates and Registries do not list it. It
-has no update, and its details never offer UPDATE, ROLL BACK, UNINSTALL or
-OPEN FOLDER. The base game itself is named on the Active tab's own tile.
+has no update, and its details never offer Update, Roll back, Uninstall or
+Open folder. The base game itself is named on the Active tab's own tile.
 
 While no mod is played it is marked **PLAYING** and its details offer no
-action. While a mod is played its details offer **PLAY NOW**. That asks
-the same **SWITCH MOD** question as **SWITCH OFF** on the mod you play
-and, on **SWITCH**, reloads the game with no mod. It is greyed during a
+action. While a mod is played its details offer **Play now**. That asks
+the same **SWITCH MOD** question as **Switch off** on the mod you play
+and, on **Switch**, reloads the game with no mod. It is greyed during a
 game and while the command line chose the run's mod, and the details then
 say "The command line chose this run's mod."
 
@@ -783,7 +783,7 @@ A mod's details name the key layouts made for it, under **Key layouts**.
 Each value is that layout's name, and it is a link: it opens the Keys tab
 with that layout selected.
 
-- **PLAY NOW**, on any other mod, plays it: the game reloads its data for
+- **Play now**, on any other mod, plays it: the game reloads its data for
   that mod, saying "Switching on Ridge…" meanwhile, without closing the
   window, and comes back to the main menu with the Library open again as
   you left it ([after a switch](#after-a-switch)). It plays the mod at
@@ -791,28 +791,28 @@ with that layout selected.
   base game this choice is not playing ("For the Total Annihilation demo
   only", or "For Total Annihilation only") or an expansion that is off
   ("Needs Battle Tactics, which is off"). That sentence replaces the
-  summary on the row. The same words are on Maps and Languages. **TURN ON**
+  summary on the row. The same words are on Maps and Languages. **Turn on**
   turns those expansions on in the choice the Library is holding. **PLAY
   NOW** is then offered, and the choice takes effect when the Library
-  closes. A package that cannot run stays in the list, and **GET** stays
+  closes. A package that cannot run stays in the list, and **Get** stays
   on. A folder the game cannot play is
   refused, and a note over the Library says why under **SWITCH MOD**:
   "That folder cannot be played; the log says why.", with **OK**.
-- **SWITCH OFF**, on the mod you play, goes back to the game as 3.1c plays
+- **Switch off**, on the mod you play, goes back to the game as 3.1c plays
   it. It asks first, **SWITCH MOD**: "Switch to No Mod now? The game
   reloads its data for the new mod and returns to the main menu. Your
-  other settings are kept.", with **CANCEL**, marked, and **SWITCH**.
-  **SWITCH** (Y) reloads the game with no mod, saying "Switching off
-  Ridge…" meanwhile, and the Library opens again as PLAY NOW's does;
-  **CANCEL** (Escape) leaves everything as it was.
+  other settings are kept.", with **Cancel**, marked, and **Switch**.
+  **Switch** (Y) reloads the game with no mod, saying "Switching off
+  Ridge…" meanwhile, and the Library opens again as Play now's does;
+  **Cancel** (Escape) leaves everything as it was.
 
-**UNLOAD MOD**, on the Active tab while a mod is played, asks that same
+**Unload mod**, on the Active tab while a mod is played, asks that same
 question and follows that same path back to the base game. It is greyed in
 the same places, and resting on it shows the same note.
 
 ### After a switch
 
-A switch made in the Library, by PLAY NOW, SWITCH OFF or UNLOAD MOD,
+A switch made in the Library, by Play now, Switch off or Unload mod,
 opens the Library again over the main menu once the game has reloaded: on
 the tab you left, with each tab's filter, the tag, the search and the
 details as they were, and the entry you had chosen selected. The list is
@@ -825,7 +825,7 @@ The wait lasts at most five seconds from the main menu's first frame: the
 Library then opens with what has been found, and if the main menu is still
 not free, as when a notice is still open, it stays closed and does not
 open later. An entry the Library does not list yet is selected once it
-does, unless you have chosen another. Any other reload, such as ROLL BACK
+does, unless you have chosen another. Any other reload, such as Roll back
 on the mod you play, comes back to the main menu with the Library closed.
 
 ## Choosing a language
@@ -839,21 +839,21 @@ Installed show these rows; New and Updates do not. The tab's count and
 the filters' counts leave them out, as Mods leaves out the base game.
 Search finds one by its name in itself, by its name in English, or by
 its tag. Its details say "Built into the game", and they never offer
-GET, UNINSTALL or OPEN FOLDER.
+Get, Uninstall or Open folder.
 
-**USE NOW**, on a built-in language or an installed language pack that is
+**Use now**, on a built-in language or an installed language pack that is
 not the one the game is showing, switches to it in the same way as
 choosing it in Settings › Language: the choice is saved, and every screen
 is drawn again in that language. The Library stays open. The language in
-use is marked **In use**, in place of USE NOW. A language pack that is
-listed and not yet installed keeps **GET**, and offers USE NOW once it
+use is marked **In use**, in place of Use now. A language pack that is
+listed and not yet installed keeps **Get**, and offers Use now once it
 is installed. The Active tab's LANGUAGE card still names the language in
 use as it did.
 
 Both change the mod only from the main menu: the Library shows only there,
 and a game keeps the mod it started with. While `--mod-dir` or
 `--base-game` chose the run's mod, both are greyed and the details say "The
-command line chose this run's mod." **OPEN FOLDER** shows a mod's folder,
+command line chose this run's mod." **Open folder** shows a mod's folder,
 and **MODS** under Your files in Settings › System your Mods folder,
 where a mod's folder goes to be listed
 ([settings](settings.md#system)).
@@ -865,27 +865,27 @@ where a mod's folder goes to be listed
 | Tab, Shift+Tab | the next and previous control |
 | arrow keys | move by where controls are; on the list, Up and Down choose the row |
 | Page Up, Page Down, Home, End | move through the list, or scroll the details while they have the focus, and on the Active tab scroll the maps pane |
-| Enter, Space | on a row: open its details page in Compact, or go to its first button; on UNLOAD MOD: ask SWITCH MOD; on a map's From link: open Maps on that pack; on the maps search, Enter moves to the first map link |
+| Enter, Space | on a row: open its details page in Compact, or go to its first button; on Unload mod: ask SWITCH MOD; on a map's From link: open Maps on that pack; on the maps search, Enter moves to the first map link |
 | Cmd+F (Ctrl+F elsewhere), or `/` | the search; on the Active tab, the maps search |
 | F5 | the header's refresh icon, when a registry can be asked |
 | Ctrl+Tab, Ctrl+Shift+Tab | the next and previous tab |
 | Escape | clears the search while it has the focus, else leaves the details page, else closes the Library |
 
 With a controller, Y focuses the search (the maps search on the Active tab),
-X presses the chosen entry's GET,
-UPDATE, CANCEL or RETRY, L1 and R1 change tab, B goes back as Escape does,
+X presses the chosen entry's Get,
+Update, Cancel or Retry, L1 and R1 change tab, B goes back as Escape does,
 and the right stick scrolls ([gamepad controls](controllers.md#menus)).
 The wheel over the tab strip, or a drag along it, scrolls the tabs when
 they do not fit; elsewhere the wheel scrolls the page under the pointer. Every scroll bar can be
 dragged by its thumb, and a press above or below the thumb moves it
 there.
 A finger or the mouse presses any control. A press, double click or tap on
-a row chooses it: nothing installs until you press GET or UPDATE, in the
+a row chooses it: nothing installs until you press Get or Update, in the
 details or as the row's download arrow or up-arrow.
 
 ## Installing
 
-**GET** installs a package, in the details or as the download arrow on its
+**Get** installs a package, in the details or as the download arrow on its
 row. It is the only way anything gets onto your machine from the Library:
 OA never installs a package, or an update, that you did not press a button
 for.
@@ -896,7 +896,7 @@ same checks as a file you open, its limits, the hacks a mod needs, and for
 a map pack whether its maps fit 3.1c. Each failure keeps whatever was
 installed before. Then:
 
-- **a mod** goes into your Mods folder, and **PLAY NOW** switches to it;
+- **a mod** goes into your Mods folder, and **Play now** switches to it;
 - **a map pack** goes into your Maps folder, and its maps join the map
   browser at once. The ones that fit the mod you are playing join the
   skirmish list and the battle room's map list at once, including when
@@ -907,11 +907,11 @@ installed before. Then:
   not fit is left out of those two lists
   ([map packs](maps/README.md));
 - **a mutator** goes into your Mutators folder. It is not switched on.
-  A prerequisite it still needs is named, and **GET WITH** brings that
+  A prerequisite it still needs is named, and **Get with** brings that
   prerequisite with it
   ([the Mutators tab](#the-mutators-tab));
 - **a language pack** goes into your Languages folder. Its row offers
-  **USE NOW** at once, and Settings › Language offers it at once
+  **Use now** at once, and Settings › Language offers it at once
   ([languages](languages.md));
 - **an expansion** goes into the game's folder. Its pill turns on, and
   the game mounts it when the Library closes. It is not mounted while
@@ -942,19 +942,19 @@ The queue is at the foot of the Library, under the list:
   bar between them.
 
 After an update that changes the rules the line says so: "Updated Ridge ·
-revision 4 changes the game's rules · ROLL BACK restores revision 3", or
+revision 4 changes the game's rules · Roll back restores revision 3", or
 "… may change …" when OA cannot tell.
 
-**CANCEL** in the details stops a download; what has come is kept, so a
-later GET resumes it. A download cut short by quitting resumes at the next
+**Cancel** in the details stops a download; what has come is kept, so a
+later Get resumes it. A download cut short by quitting resumes at the next
 start. A failure says why, once, as "The server could not be reached", "The
 registry no longer offers this release", "There is not enough free space"
 or "The download was not the file the catalogue promised"; a package the
 installer refuses says the installer's own reason, and a server that asks
 for a check meant for a web browser, "Core Prime asked for a check the game
-cannot do. Try again later." **RETRY**
+cannot do. Try again later." **Retry**
 tries again, except when downloads from that registry are off or the
-release is no longer offered: then GET or UPDATE comes back, and for a
+release is no longer offered: then Get or Update comes back, and for a
 release no longer offered OA fetches that registry's list again. Every
 failure is in the log too
 ([when a download fails](downloads.md#when-a-download-fails)).
@@ -982,14 +982,14 @@ registry is not an update.
 
 An update shows:
 
-- as the circled up-arrow on the package's row, which is its **UPDATE**,
+- as the circled up-arrow on the package's row, which is its **Update**,
   and in its details with what changes;
 - on the **Updates** tab, every kind together, including a key layout,
-  with **UPDATE ALL** over the
+  with **Update all** over the
   list, which starts every update the list shows that can be installed;
 - as the dot on the main menu's **OA** button.
 
-**UPDATE** and **UPDATE ALL** start updates; OA finds updates by itself, but
+**Update** and **Update all** start updates; OA finds updates by itself, but
 never installs one on its own. A mod that changes its rules is your call,
 mid-campaign above all.
 
@@ -999,7 +999,7 @@ mid-campaign above all.
 from, each on its own card, one under another with a gap between them,
 with no search and no filters. Turning one off, or removing one, changes
 the other tabs at once: its packages leave the lists as soon as the switch
-or **REMOVE** is pressed.
+or **Remove** is pressed.
 
 Each card shows:
 
@@ -1021,13 +1021,13 @@ Each card shows:
   and its full public key (`ed25519:…`), and "built in" or "added by you",
   wide enough or wrapped so those words show whole. A registry that names
   no key says "No signing key". Pressing the icon asks for nothing;
-- **REFRESH**, a standard button beside the switch. It asks that registry
+- **Refresh**, a standard button beside the switch. It asks that registry
   for its catalogue. It is greyed while the
   registry is off or already being asked, and while it is being asked the
   refresh icon beside it turns, one full turn every 1.6 seconds. When that
   ask reads a catalogue the icon shows a check for 0.8 seconds, then the
   arrow; an ask that finds nothing goes straight back to the arrow.
-  Pressing **REFRESH** during the check asks again at once;
+  Pressing **Refresh** during the check asks again at once;
 - an Off/On switch, the same switch Settings draws;
 - the address it was added from, or its catalogue's address when it was
   not added from one;
@@ -1045,10 +1045,10 @@ A registry that ships with the game has a **Built in** pill on the title's
 line, at its right, the same neutral pill the Active tab's Language tile
 uses. It does not look like an installed chip.
 
-A registry you added also has **REMOVE** and **ADD MIRROR…**, standard
-buttons, under the subtitle. **REMOVE** forgets the registry at once and
+A registry you added also has **Remove** and **Add mirror…**, standard
+buttons, under the subtitle. **Remove** forgets the registry at once and
 leaves what you installed from it in place. Core Prime's registry can be
-turned off and never removed, and it has no **ADD MIRROR…**: its mirrors
+turned off and never removed, and it has no **Add mirror…**: its mirrors
 come only from its own catalogue. Turning a registry on fetches its list
 at once.
 
@@ -1060,20 +1060,20 @@ and North", "Core Prime, North and West"), or, when none is built in,
 change is refused, the reason stands over the note ("OA could not change
 the registries: …").
 
-**ADD REGISTRY…** sits at the top right of the tab, above the cards. The
-footer holds **CLOSE**. It opens the Add registry window
+**Add registry…** sits at the top right of the tab, above the cards. The
+footer holds **Close**. It opens the Add registry window
 ([adding a registry](downloads.md#adding-a-registry)). An address may be
 `http` or `https`. Where this system has no TLS, `https` is read as
-`http`, and Settings › Downloads says so. **CLOSE** leaves a switch or a
+`http`, and Settings › Downloads says so. **Close** leaves a switch or a
 removal as it was stored. During a game the padlock and "Choose from the
-main menu." stand where **ADD REGISTRY…** was, and **ADD MIRROR…** is
-locked the same way; the switches, **REFRESH** and **REMOVE** stay.
+main menu." stand where **Add registry…** was, and **Add mirror…** is
+locked the same way; the switches, **Refresh** and **Remove** stay.
 
 The cards and the note scroll together when they are taller than the
-window. Settings › Downloads, on the main menu, has **REGISTRIES IN THE
-LIBRARY…**, which opens the Library on this tab.
+window. Settings › Downloads, on the main menu, has **Registries in the
+Library…**, which opens the Library on this tab.
 
-![The Registries tab at Compact: Core Prime's card, with its title and the Built in pill beside it, then the description, key icon, REFRESH and switch.](images/library/library-registries-compact.png)
+![The Registries tab at Compact: Core Prime's card, with its title and the Built in pill beside it, then the description, key icon, Refresh and switch.](images/library/library-registries-compact.png)
 
 ![The Registries tab at Regular: the same cards, one under another.](images/library/library-registries-regular.png)
 
@@ -1082,7 +1082,7 @@ LIBRARY…**, which opens the Library on this tab.
 ## Which downloads ask first
 
 **Downloads from Core Prime's registry install when you press the button,
-with no question.** GET, UPDATE, UPDATE ALL, a language in Settings ›
+with no question.** Get, Update, Update all, a language in Settings ›
 Language or its notice, the map browser's Download and select, and GET MAP
 install the package from Core Prime's registry as soon as it has
 downloaded and passed its checks, mods and language packs always. The one
@@ -1090,14 +1090,14 @@ exception is a map pack that would replace a copy of it you did not get
 from Core Prime ([map packs, below](#map-packs-that-replace-a-copy)). A mod
 update that changes
 the rules does not ask either: its row and its details say so before you
-press UPDATE ("Revision 4 changes the rules", "Rules: 9c1f 4e0b → 51d2 07aa
+press Update ("Revision 4 changes the rules", "Rules: 9c1f 4e0b → 51d2 07aa
 · changes the game's rules; saved games from revision 3 won't load under
-revision 4"), the queue says so after it, and ROLL BACK brings the earlier
+revision 4"), the queue says so after it, and Roll back brings the earlier
 revision back. Core Prime's mod replaces whatever copy of it your Mods
 folder holds, keeping that copy to roll back to. It never goes beside a
 folder of your own: when a folder of the mod's name holds something else,
 it is not installed, and the Library's queue says "Mods/*folder* is a
-folder of your own, not *name*. Move or rename it, then RETRY.", or, with
+folder of your own, not *name*. Move or rename it, then Retry.", or, with
 the Library closed, a **MOD NOT INSTALLED** notice says so.
 
 **Registries you add yourself ask first.** A mod from a registry you added
@@ -1107,13 +1107,13 @@ asks before it changes anything you did not get from that same registry:
   change them ([below](#the-update-question));
 - **REPLACE MOD**, when the mod is installed from another registry:
   "*Name* from *installed registry* is installed. Replace it with *name*
-  from *new registry*? The one from *installed registry* is kept, and ROLL
-  BACK brings it back.", with **CANCEL** and **REPLACE**;
+  from *new registry*? The one from *installed registry* is kept, and Roll
+  back brings it back.", with **Cancel** and **Replace**;
 - **FOLDER IN USE**, when your Mods folder has a folder of the mod's name
   that holds something else: "Your Mods folder already has a folder named
   *folder* that does not hold *title*. It is left as it is. Install *title*
-  *version* alongside it, in a folder of its own?", with **CANCEL** and
-  **INSTALL ALONGSIDE**;
+  *version* alongside it, in a folder of its own?", with **Cancel** and
+  **Install alongside**;
 - over a copy you installed from a file, the questions that file would
   ask: **UPDATE MOD**, **ANOTHER VERSION** or **ALREADY INSTALLED**
   ([installing a .oamod file](mods/README.md#installing-a-oamod-file)).
@@ -1149,37 +1149,36 @@ rules they were saved with:
 > Ridge 4.8 · revision 3 → 4
 >
 > Revision 4 changes the game's rules. Saved games from revision 3 won't
-> load under revision 4. Revision 3 is kept, and ROLL BACK brings it back.
+> load under revision 4. Revision 3 is kept, and Roll back brings it back.
 >
 > Rules: 9c1f 4e0b → 51d2 07aa
 > Download: 3.2 MB
 >
-> **NOT NOW** · **UPDATE**
+> **Not now** · **Update**
 
 When OA cannot tell, it says "OA can't tell whether revision 4 changes the
 game's rules. If it does, saved games from revision 3 won't load under it.
-Revision 3 is kept, and ROLL BACK brings it back.", with "Rules: unknown".
+Revision 3 is kept, and Roll back brings it back.", with "Rules: unknown".
 For the mod being played it adds "It finishes when you leave Ridge.".
-**NOT NOW**, or Escape, leaves the mod as it is; **UPDATE** starts the
+**Not now**, or Escape, leaves the mod as it is; **Update** starts the
 download. An update whose rules stay the same does not ask.
 
-**UPDATE ALL** asks once for all the updates that would ask: "1 update
+**Update all** asks once for all the updates that would ask: "1 update
 changes the game's rules: Ridge. …" or "2 updates change the game's rules:
 Ridge, Cinder. Saved games from their current versions won't load under
-the new ones. Each is kept, and ROLL BACK brings it back." The updates that
+the new ones. Each is kept, and Roll back brings it back." The updates that
 do not ask start whatever the answer.
 
 ## Rolling back
 
 Updating or replacing a mod keeps the copy it replaced, one copy back.
-**ROLL BACK**, in the Library's details, brings it back. It shows on a mod
+**Roll back**, in the Library's details, brings it back. It shows on a mod
 only while the copy kept is one the game can play. It asks first, **ROLL
 BACK MOD**: "Roll back Ridge to 4.8 revision 3? 4.8 revision 4 is kept in
-its place, and ROLL BACK again brings it back.", with **CANCEL** and **ROLL
-BACK**. The two copies swap, so a second ROLL BACK undoes the first. The
+its place, and Roll back again brings it back.", with **Cancel** and **Roll back**. The two copies swap, so a second Roll back undoes the first. The
 record of where the mod came from goes back with it, so the update you
 rolled back is offered again, and nothing installs it until you press
-UPDATE. A roll back that cannot be made, as when the copy kept can no
+Update. A roll back that cannot be made, as when the copy kept can no
 longer be played, changes nothing, and **MOD NOT ROLLED BACK** over the
 Library says why.
 
@@ -1191,43 +1190,43 @@ nothing there.
 
 ## Uninstalling
 
-**UNINSTALL**, in an installed package's details after ROLL BACK, removes a
+**Uninstall**, in an installed package's details after Roll back, removes a
 mod, map pack, mutator or language pack you no longer play. A mutator has
-no ROLL BACK, so **UNINSTALL** is the action after the others. It asks
+no Roll back, so **Uninstall** is the action after the others. It asks
 first:
 
 > **Uninstall Ridge**
 >
 > Uninstall Ridge? Its folder, Mods/ridge, is removed, and with it the copy
-> ROLL BACK keeps.
+> Roll back keeps.
 >
-> GET installs it again.
+> Get installs it again.
 >
-> **CANCEL** · **UNINSTALL**
+> **Cancel** · **Uninstall**
 
 The question names the package's folder in your own Open Annihilation
 folder, `Mods/<id>`, `Maps/<id>`, `Mutators/<id>` or `Languages/<tag>`,
-and says when the copy ROLL BACK keeps goes with it. A mutator another
+and says when the copy Roll back keeps goes with it. A mutator another
 installed mutator needs adds "{name} needs it: it stays installed, and
 cannot be switched on until this is back." Several add "{names} need it:
 they stay installed, and cannot be switched on until this is back." For a package you installed
 yourself that no registry lists, it says "No registry lists it, so the Library
-cannot get it again." **CANCEL**, or Escape, removes nothing. **UNINSTALL**
+cannot get it again." **Cancel**, or Escape, removes nothing. **Uninstall**
 removes the folder and everything in it; the Library then shows the
-package as not installed, with GET, or drops it when no registry lists it.
+package as not installed, with Get, or drops it when no registry lists it.
 
 Some packages cannot go yet, and nothing is removed:
 
 - **the mod you are playing**: a notice says "You are playing Ridge.
-  Switch it off first with SWITCH OFF, then uninstall it.";
+  Switch it off first with Switch off, then uninstall it.";
 - **the language pack the game is shown in**, or one its words fall back
   to: a notice says "The game is shown in 简体中文. Choose another language
   in Settings › Language first, then uninstall it.";
-- **a map pack during a game**: UNINSTALL is off, and the note under the
+- **a map pack during a game**: Uninstall is off, and the note under the
   buttons says "Map packs can't be uninstalled during a game.";
 - **a package in the download queue**, while it downloads, is checked or
-  installed, or waits for you to leave the mod being played: UNINSTALL is
-  off until you press CANCEL.
+  installed, or waits for you to leave the mod being played: Uninstall is
+  off until you press Cancel.
 
 Uninstalling stays inside your Mods, Maps, Mutators and Languages folders.
 The package's folder is moved aside in one step, under a hidden name the
@@ -1242,9 +1241,9 @@ A file sync, such as iCloud Drive's Desktop & Documents or OneDrive, can
 bring back the package's empty folders, `Maps/<id>/maps` and
 `Maps/<id>/previews` say, after the folder was moved aside. Once the
 deletion is done, OA removes a folder of the package's name that holds
-nothing but empty folders, and GET installs into such a folder as into a
+nothing but empty folders, and Get installs into such a folder as into a
 missing one. A folder that holds anything else, a file of your own
-included, is left as it is: GET then says "The folder <id> does not hold
+included, is left as it is: Get then says "The folder <id> does not hold
 this map pack. It is left as it is.", and the log says so too.
 
 ## Finishes when you leave …
@@ -1256,7 +1255,7 @@ Until then the details say "Finishes when you leave Ridge.", and the queue
 says "Waiting · finishes when you leave Ridge". Once it is made, the mod's
 row shows the new revision. No notice is shown. A file you opened still
 says so on the main menu.
-**CANCEL** on the waiting update drops it, and leaves the mod as it was; it
+**Cancel** on the waiting update drops it, and leaves the mod as it was; it
 is offered again.
 
 Updating any other mod changes nothing you are playing, and the details
@@ -1292,16 +1291,16 @@ and OA shows it on the main menu, over the Library or the settings:
 >
 > Waiting for the check. This updates by itself.
 >
-> **CANCEL** · **OPEN THE CHECK**
+> **Cancel** · **Open the check**
 
-**OPEN THE CHECK** opens the check's page in your browser. Where OA has no
+**Open the check** opens the check's page in your browser. Where OA has no
 browser to open, as on a Steam Deck in Game Mode, the window says "Go to
 downloads.coreprime.net/verify on another device and enter:", and you
 enter the code on your phone or another computer; you can always do that
 instead, from any device. Once the check is passed the window closes by
 itself and the download goes on; your install ID is then trusted for a
 day. A check left too long says "The check ran out. Try again for a new
-code.", and **TRY AGAIN** asks for a new one. **CANCEL** cancels that
+code.", and **Try again** asks for a new one. **Cancel** cancels that
 download and the others waiting for that registry. A check that comes
 during a game waits for the main menu. What a check keeps is under
 [privacy](downloads.md#what-core-prime-records).
@@ -1315,5 +1314,5 @@ each in a folder named by its key: `Mods/<id>`, `Maps/<id>`,
 Changes of your own sit in `Keys/own-<id>`, beside the layout they change,
 and uninstalling a layout leaves that folder. Beside a package's files OA keeps
 `.oa-origin.yaml`, the record of where it came from, and `.backup`, the
-copy an update replaced. **UNINSTALL** removes a package's folder with
-both ([uninstalling](#uninstalling)), and **OPEN FOLDER** shows it.
+copy an update replaced. **Uninstall** removes a package's folder with
+both ([uninstalling](#uninstalling)), and **Open folder** shows it.

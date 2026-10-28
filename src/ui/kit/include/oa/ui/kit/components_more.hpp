@@ -292,6 +292,7 @@ struct PlacedPart {
 
 /// A question, placed, in points from its top left corner.
 struct PlacedQuestion {
+    int32_t width{};                 ///< the question's width, sized to its words
     int32_t height{};                ///< the question's height
     Rect title{};                    ///< the title's place in the header
     std::vector<PlacedLine> lines{}; ///< the lines that fit, top to bottom
@@ -331,9 +332,10 @@ place_notice(const Notice& notice, const Measure& regular, const Measure& small)
 [[nodiscard]] PlacedNotice place_notice(const Notice& notice, const Fonts* fonts);
 
 /// Returns a question's buttons' places, right-aligned in the footer of a box
-/// of a height and of its size class's width, button_gap columns apart; a
-/// first button marked quiet stands alone at the footer's left. Each
-/// is as wide as its caption and prompt_button_padding more, at least
+/// of a height and as wide as its words (at the estimate for its text),
+/// button_gap columns apart; a first button marked quiet
+/// stands alone at the footer's left. Each is the class's control height, and
+/// as wide as its caption and prompt_button_padding more, at least
 /// button_width. A caption counts as the wider of its estimated_width and its
 /// width in the small font, so a caption the font draws wider than the
 /// estimate keeps the padding, and one it draws narrower keeps the place the
@@ -360,17 +362,21 @@ question_button_rects(const Question& question, int32_t height, const Measure& s
 [[nodiscard]] std::vector<Rect>
 question_button_rects(const Question& question, int32_t height, const Fonts* fonts = nullptr);
 
-/// Places a question: its text as a notice's, then its items when it has
-/// any (one a line, a 20-point badge, a gap and the name with the aside,
-/// cut with the kit's ellipsis), then its parts in order, paragraph_gap rows
-/// apart (a paragraph wrapped in the small font; a callout, its mark and its
-/// text wrapped in a tinted box; one box across or two side by side, each a
-/// heading and its lines, a line's mark before it and its text wrapped
-/// under itself), the failure under them, its progress bar
-/// paragraph_gap rows under that, its height from all of it, and its buttons
-/// (question_button_rects). With no items and no parts the text, the bar
-/// and the height are placed as before. A line, an item or a bar the height
-/// cuts is left out, and found cut; so is a part the height cuts any of.
+/// Places a question: as wide as its words on one line or its buttons in a
+/// row, with the class's window padding either side, from half the class's
+/// notice width to that width; its text as a notice's at that width, then
+/// its items when it has any (one a line, a 20-point badge, a gap and the
+/// name with the aside, cut with the kit's ellipsis), then its parts in
+/// order, paragraph_gap rows apart (a paragraph wrapped in the small font; a
+/// callout, its mark and its text wrapped in a tinted box; one box across or
+/// two side by side, each a heading and its lines, a line's mark before it
+/// and its text wrapped under itself), the failure under them, its progress
+/// bar paragraph_gap rows under that. Its height is that text and a footer
+/// the class's control height tall (the window footer at Regular and Large),
+/// with no least height, and at most the class's greatest. Its buttons are
+/// the class's control height. With no items and no parts the text and the
+/// bar are placed as before. A line, an item or a bar the height cuts is
+/// left out, and found cut; so is a part the height cuts any of.
 ///
 /// @param question the question
 /// @param regular a text's width in the regular font

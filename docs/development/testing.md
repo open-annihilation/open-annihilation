@@ -88,7 +88,7 @@ player's copy, and its preferences and player folder stay in the build tree.
 `native-library-update-question` (`--check-library-update-question`) installs
 made-up Ridge from an added registry and offers an update whose rules change.
 At 640x480 it opens that row's details page, where the tabs are not shown.
-NOT NOW leaves the page. UPDATE, fifty times, leaves the Library on top with
+Not now leaves the page. UPDATE, fifty times, leaves the Library on top with
 its tabs on the next frames, including once the update is no longer offered.
 Its preferences, data and player folder stay in the build tree.
 
@@ -159,8 +159,8 @@ settings' Your files buttons through a recorded opener, and the `Mods`
 folder's mods offered to the Library. With `--snapshot` it writes the
 notice and the Your files row beside the snapshot. `native-mod-switch`
 (`--check-mod-switch`) writes two test profiles into that folder's `Mods`
-and switches the mod thirteen times through the Library, with PLAY NOW, and
-SWITCH OFF and its Switch Mod question for no mod, each a soft restart on
+and switches the mod thirteen times through the Library, with Play now, and
+Switch off and its Switch Mod question for no mod, each a soft restart on
 the same window: each run plays the mod chosen, shown as played, and what
 the heap holds in live allocations as the last
 round's runs reach the main menu stays level with the first round's after
@@ -174,8 +174,8 @@ declines an older revision, installs another version alongside, leaves a
 folder that holds another mod as it is, refuses a profile that does not
 resolve, rolls a mod back twice in the Library, offers no roll back to a
 kept version this build cannot play and refuses, in a prompt, one that
-became so while it asked, and plays the mod with PLAY
-NOW; the second replaces the mod played, the change staged until the run
+became so while it asked, and plays the mod with Play
+now; the second replaces the mod played, the change staged until the run
 ends; the third finds it put in place, told, and rolls it back; the fourth
 finds that put in place and leaves the folder as a stop after a replace's
 first rename would; the fifth finds the mod played all the same, put back
@@ -192,8 +192,8 @@ that folder's `Mods`: one whose second side's interface art and font are
 missing, one whose unit files are missing, one whose commander's file the
 catalog refuses and one that plays whole; and two folders without a
 profile: one whose SIDEDATA names the same missing art and font, and one
-that lacks a side's LOGO, which the Library's PLAY NOW refuses in a note.
-It switches to each of the others with PLAY NOW, in one run: the folder
+that lacks a side's LOGO, which the Library's Play now refuses in a note.
+It switches to each of the others with Play now, in one run: the folder
 and the
 profile whose side files are missing each warn of both files once over the
 main menu and say that their games still start, and a skirmish on that
@@ -913,28 +913,28 @@ keyboard would, fails with the step it waited for when one does not come,
 and each test passes when the game prints `game-files check: <variant>:
 passed`:
 
-- `native-game-files`: CHOOSE FOLDER through Ready to copy (its list of
+- `native-game-files`: Choose folder through Ready to copy (its list of
   files left out, a switch off and on), copying and Ready to play to the
   main menu, at 1194x834, with the OA · Aa dialog opened and cancelled on
   the way; the game folder then holds the subset and none of the files left
   out, and it was kept out of the device's backups;
 - `native-game-files-phone`: the same in the phone form, at 852x393;
-- `native-game-files-demo`: CHOOSE INSTALLER with the demo's installer, its
+- `native-game-files-demo`: Choose installer with the demo's installer, its
   game data unpacked (skipped without `OA_DEMO_INSTALLER`);
-- `native-game-files-copy-yourself`: I HAVE COPIED IT with nothing there,
-  the files copied in by the check under another name, CHECK AGAIN, USE IT;
+- `native-game-files-copy-yourself`: I have copied it with nothing there,
+  the files copied in by the check under another name, Check again, Use it;
 - `native-game-files-stop`: a copy held to 4 MB a second; after 8 MB the
   game leaves the screen and comes back while it goes on, then leaves again
   until its time away runs out and the copy pauses and starts again on
-  return; then STOP, keeping what was copied;
+  return; then Stop, keeping what was copied;
 - `native-game-files-resume`: the next start continues that copy, skipping
   the files already copied (it needs `native-game-files-stop`);
 - `native-game-files-not-game`: a folder that holds no installation, chosen
   with a mouse click, left with Escape;
-- `native-game-files-short-space`: not enough space for the copy, COPY off,
-  CHECK AGAIN;
+- `native-game-files-short-space`: not enough space for the copy, Copy off,
+  Check again;
 - `native-game-files-manage`: the management state: adding a mod,
-  checking, removing the music, DONE;
+  checking, removing the music, Done;
 - `native-game-files-manage-next-start`: the next start applies the
   removal (it needs `native-game-files-manage`).
 
@@ -1443,7 +1443,7 @@ every commander's turn rate and worker time. The verdict stays compatible,
 each of those fields is held at 65535 on ARMCOM and CORCOM, and the dry
 run notes each held value once and prints the note. No match starts. `native-mutator-prompts` (`--check-mutator-prompts`) starts a skirmish with
 two made-up mutators, one of whose plans raises an error, and requires the
-start question, START WITHOUT IT, BACK, the question after a crash, Get
+start question, Start without it, Back, the question after a crash, Get
 mutators with RETRY, and the host's "The game did not start" for a guest
 without its release and for one with it. `native-mutator-picker`
 (`--check-mutator-picker`) opens the picker over the main menu at four
@@ -1485,14 +1485,17 @@ and its level change the record the room sends, and the Mem cell steps the
 built-in player's difficulty. `native-mutator-button`
 (`--check-mutator-button`) and `native-mutator-room`
 (`--check-mutator-room`) check Mutators as one of the room's own on and
-off buttons on the skirmish setup, NEWGAME and the battle room: its place
-and size, "Mutators: off" and "Mutators: N on" with the green lamp, the
-card the pointer shows on it, and, in the battle room, the button disabled
-while the room's options are locked. Among the battle room's steps of
+off buttons on the skirmish setup, NEWGAME and the battle room: as large
+as its neighbour with the same edges (Previous Menu; on NEWGAME and Any
+Mission at the head of Difficulty's column; Select Map in the battle
+room), reading "Mutators", automation "Mutators · off" and "Mutators · N
+on" with the green lamp, the card the pointer shows on it, and, in the
+battle room, the button disabled while the room's options are locked.
+Among the battle room's steps of
 `native-net-room-mutators` (`tools/check_native_room_mutators.py`), which
 runs a host and a joiner as two programs, the host's button reads
-"Mutators: 1 on" for an installed copy named by its id, and the room's chat
-names it by its name.
+"Mutators" and its automation text "Mutators · 1 on" for an installed copy
+named by its id, and the room's chat names it by its name.
 `frontend-room-parts` draws the rooms' parts (a plate wider than its art,
 the notch, the OA stamp, a lamp, the bar and a list's rows) against a gray
 palette, and `frontend-room-parts-data` draws each over the skirmish

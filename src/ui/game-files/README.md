@@ -36,8 +36,8 @@ see it.
   presses.
 - `press_down`, `press_up`, `key` and `scroll` change the sheets, switches,
   focus and scroll themselves and return what the app must do (`Outcome`).
-  STOP, COPY with a replacement, SHOW, WHY, REMOVE, REMOVE OLD FOLDER,
-  REMOVE ALL, ADD FILES… and DONE with a change waiting open their sheets;
+  Stop, Copy with a replacement, Show, Why, Remove, Remove old folder,
+  Remove all, Add files… and Done with a change waiting open their sheets;
   a sheet's button closes it and returns its command. The app keeps the
   kit's `Interaction` (the focused and held controls by their numbers, and
   whether a key has shown the focus). Tab and Shift+Tab move the focus in the
@@ -46,7 +46,7 @@ see it.
   shows where it is first. Up and Down scroll the rows, as the page keys do.
   Return and Space press (Return with no focus shown presses the main
   button); Esc closes a sheet, else goes back (cancels the listing, opens
-  the Stop sheet while copying, acts as DONE in the management state).
+  the Stop sheet while copying, acts as Done in the management state).
 - The app marks the focused and held parts with `kit::mark_states` before
   painting; `lay_out` leaves both clear.
 - `platform_word`, `size_text`, `time_left_text`, `ready_text` and

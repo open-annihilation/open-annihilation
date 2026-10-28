@@ -12,15 +12,15 @@ of the dialog and says what every setting does, its default, when it takes
 effect and when you might change it.
 
 The mod you play is not a setting here: you choose it in
-[the Library](library.md#choosing-a-mod), where **PLAY NOW** plays a mod
-and **SWITCH OFF** goes back to the game as 3.1c plays it.
+[the Library](library.md#choosing-a-mod), where **Play now** plays a mod
+and **Switch off** goes back to the game as 3.1c plays it.
 
 The pictures show each section at its defaults on a Mac, the dialog alone,
 unlocked, at Compact drawn at 2× (960 by 648), in the modern look, with
 Touch, Controller and Game files listed. They are drawn by
 `oa-ui-engine-settings-pictures` with `--modern`
-([how to draw them](../src/ui/engine-settings/README.md#the-manuals-pictures)),
-apart from the Updates pictures ([Updates](#updates)). A section taller
+([how to draw them](../src/ui/engine-settings/README.md#the-manuals-pictures)).
+A section taller
 than the dialog shows its top; Controls, Downloads, System and
 Accessibility have a second picture of their end.
 
@@ -635,10 +635,11 @@ the game draws its text and how the modern fonts draw it.
     every shore.
   - **Underwater shimmer** tints and lights only the parts of units,
     wrecks and shots that are under the water, more the deeper they lie;
-    what stands above the water keeps its colours. In the classic view,
-    scenery the map draws in its own art, such as an underwater metal
-    patch, keeps the colours the map gives it, as the water's art around
-    it does, so that it blends into the water as the game draws it. At 0% your own units under the
+    what stands above the water keeps its colours. In the classic and the
+    rotated view, scenery the map draws in its own art, such as an
+    underwater metal patch, keeps the colours the map gives it, as the
+    water's art around it does, so that it blends into the water as the
+    game draws it. At 0% your own units under the
     water are darkened and tinted blue as the game draws them at every
     other Hardware acceleration.
   - **Naval reflections** draw a faint, soft picture of each visible
@@ -826,7 +827,7 @@ press OK.
 
 ## Accessibility
 
-![The top of the Accessibility section: Hold keys that latch 2 of 7 with CHOOSE…, Sticky modifiers Off, Hold to confirm Off and the start of Long press.](images/settings/accessibility-1.png)
+![The top of the Accessibility section: Hold keys that latch 2 of 7 with Choose…, Sticky modifiers Off, Hold to confirm Off and the start of Long press.](images/settings/accessibility-1.png)
 
 ![The end of the Accessibility section: Edge scrolling On, then the practice pad: Try it here, "Press a key, alone or with Shift, Ctrl or Alt.", its well, "Keys pressed here never reach the game." and Turn every helper off, greyed while every helper is off.](images/settings/accessibility-2.png)
 
@@ -851,7 +852,7 @@ off.
 
 - **Hold keys that latch** shows how many latchable actions the layout in
   use has turned on, of how many the game offers, as "2 of 7", and
-  **CHOOSE…**. CHOOSE… opens the key editor on Latchable, over the
+  **Choose…**. Choose… opens the key editor on Latchable, over the
   settings. Key layout's Edit keys… still opens the editor on All. Queue
   and the status strip latch: tap on, tap off. A chip shows each one on.
 - **Sticky modifiers**, Off or On, Off by default. A tapped Shift, Ctrl or
@@ -963,7 +964,7 @@ each setting's choices and default, and what every input does.
 
 ## Game files
 
-![The Game files section: Installed reading 3.1c, Core Contingency, Battle Tactics and music, with MANAGE…, Include in device backups Off, and Where the files are.](images/settings/game-files.png)
+![The Game files section: Installed reading 3.1c, Core Contingency, Battle Tactics and music, with Manage…, Include in device backups Off, and Where the files are.](images/settings/game-files.png)
 
 On an iPhone or an iPad, the main menu's settings have a Game files
 section for the Total Annihilation files copied onto the device:
@@ -983,7 +984,7 @@ them.
 
 ![The top of the Downloads section: Check for content updates at Automatically, Install ID On with its hint, and under that hint the line "Made at your first download".](images/settings/downloads-1.png)
 
-![The end of the Downloads section: Install ID On with "Made at your first download", Downloaded files reading "Nothing kept" with EMPTY greyed, and REGISTRIES IN THE LIBRARY… with the line "Registries are in the Library."](images/settings/downloads-2.png)
+![The end of the Downloads section: Install ID On with "Made at your first download", Downloaded files reading "Nothing kept" with Empty greyed, and Registries in the Library… with the line "Registries are in the Library."](images/settings/downloads-2.png)
 
 Downloads says when Open Annihilation looks for new content, holds the
 install ID a registry asks for, and keeps the files downloads leave behind.
@@ -1006,16 +1007,16 @@ download sends and records.
   are off; installed content keeps working. Before an ID is made, the
   line under the hint says "Made at your first download". Once one exists,
   a row labelled **Your install ID** shows it in part, as
-  "7f3a90d2 · · · c91e", or "Off" while the switch is off, and **RESET**
+  "7f3a90d2 · · · c91e", or "Off" while the switch is off, and **Reset**
   replaces it with a new random one at once. Each registry that asks for
   an install ID has its own,
   labelled "Install ID · *registry*" when there is more than one. The
   switch takes effect at OK; RESET acts at once, and Cancel does not undo
   it.
 - **Downloaded files**: how much the download folder keeps for resuming and
-  repairs, or "Nothing kept". **EMPTY** removes those files at once; it is
+  repairs, or "Nothing kept". **Empty** removes those files at once; it is
   greyed while nothing is kept, or while a download is using them.
-- **REGISTRIES IN THE LIBRARY…**, on the main menu only: opens the Library
+- **Registries in the Library…**, on the main menu only: opens the Library
   on its Registries tab, where every registry is listed, switched, removed
   or added. The line under it says "Registries are in the Library." During
   a game the row is not listed. [The Registries tab](library.md#the-registries-tab)
@@ -1115,7 +1116,7 @@ installation is not used or changed.
 
 ## System
 
-![The top of the System section: Your files with the folder path and SAVES, SCREENSHOTS and MODS, Welcome setup with SHOW AGAIN, File Type Registration, and the Mod packages and Map packs switches On.](images/settings/system-1.png)
+![The top of the System section: Your files with the folder path and SAVES, SCREENSHOTS and MODS, Welcome setup with Show again, File Type Registration, and the Mod packages and Map packs switches On.](images/settings/system-1.png)
 
 System is where the game sits on your computer: your own folder, and which
 of the game's file types this copy opens.
@@ -1133,7 +1134,7 @@ of the game's file types this copy opens.
   [Windows](installation/windows.md#where-it-keeps-its-files),
   [Linux](installation/linux.md#where-it-keeps-its-files)).
 - **Welcome setup** walks through the language, online features and the OA
-  buttons again. **SHOW AGAIN**, then **OK**, clears
+  buttons again. **Show again**, then **OK**, clears
   `open-annihilation.first-run`, and the welcome shows at the next main
   menu. **Cancel** leaves it as it was. During a game the row is locked
   and says "Choose from the main menu." The welcome itself is
@@ -1222,10 +1223,10 @@ The Developer section sits at the foot of the column, under the divider.
   battlefield at, and the display's size, refresh rate and scale (2x on a
   Retina display), as the `+stats` console command shows them. It works whether or not Developer Mode is
   on, and takes effect at once.
-- **UI kit gallery** is not a setting: **SHOW** opens the gallery over the
+- **UI kit gallery** is not a setting: **Show** opens the gallery over the
   settings, every part of Open Annihilation's own screens in each of its
   states, at the size and layout the window gives them now (see Interface
-  size, in [User Interface](#user-interface)). **CLOSE** goes back to the
+  size, in [User Interface](#user-interface)). **Close** goes back to the
   settings.
   It is for checking how OA's screens look, and for people building
   them ([the UI kit](extensions/ui-kit.md)).
@@ -1250,7 +1251,7 @@ a page for each in [standard-hacks](mods/standard-hacks/).
 These options set a setting for one run without changing what is kept.
 The row then shows "Set on the command line". The mod options choose the
 mod for the run: the Library then says "The command line chose this run's
-mod." and turns PLAY NOW and SWITCH OFF off.
+mod." and turns Play now and Switch off off.
 
 | Option | Setting | For the run |
 |---|---|---|

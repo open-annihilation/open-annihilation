@@ -432,9 +432,9 @@ the mod folders in the game folder's `mods` folder and in the player's own
 ([4.5](#45-the-badge)), and from its `oamod.yaml` its `name` and its
 `version`, and its details its `description`; a folder without an
 `oamod.yaml` shows the folder's name, "N/A" and, in its details, "No
-oamod.yaml present". PLAY NOW on another mod reloads the game's data for
+oamod.yaml present". Play now on another mod reloads the game's data for
 that mod and returns to the main menu without restarting the game, and the
-choice is remembered for later starts; SWITCH OFF on the mod being played,
+choice is remembered for later starts; Switch off on the mod being played,
 once the player confirms it, does the same with no mod. A remembered mod
 folder that is gone is dropped with a notice. There is no detection of
 installed mods and no built-in list of mods. The

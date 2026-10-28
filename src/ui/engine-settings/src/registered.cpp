@@ -113,6 +113,7 @@ RegisteredContent registered_content(const Dialog& dialog, const geometry::Sizes
     placement.row_padding = geometry::row_padding;
     placement.tall = tall;
     placement.first_control = first_row_control;
+    geometry::modern_control_heights(placement, dialog, sized.size_class);
     kit::PlacedRows placed = kit::place_rows(views, placement);
     content.scroll = kit::rows_scroll(
         placed,

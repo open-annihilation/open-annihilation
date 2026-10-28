@@ -992,9 +992,17 @@ struct Runtime::GetMutatorsScreen final : LayerScreen {
         laid.below = column_below(laid.focusable, anchor_frame_x, laid.view_points);
         const kit::Metrics& metrics = kit::compact_metrics;
         if (have_start && deciding != nullptr && guest_awaits_mutators(mp::multiplayer_lobby())) {
-            const place::PlaceRect box = mp::reason_box(
+            place::PlaceRect box = mp::reason_box(
                 start_rect, reason_others, metrics.small_line, summary_line_width * 2
             );
+            // The line is right-aligned, and at 1280x720 its words meet the
+            // chat entry's pipe and sit on the entry's frame. A few points
+            // left and up clear that frame. The host's waiting line is left
+            // where reason_box puts it.
+            constexpr int32_t kClearEntry = 10;
+            constexpr int32_t kLift = 6;
+            box.width = std::max(box.width - kClearEntry, int32_t{1});
+            box.y = std::max(box.y - kLift, int32_t{0});
             if (box.width > 0 && box.height > 0) {
                 laid.ready = as_kit(box);
                 laid.ready_text = mp::guest_ready_line(deciding_name);

@@ -473,6 +473,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-underwater-features", &Options::check_underwater_features, {}},
         {"--check-click-snap", &Options::check_click_snap, {}},
         {"--check-build-preview", &Options::check_build_preview, {}},
+        {"--check-dialog-backdrop", &Options::check_dialog_backdrop, {}},
         {"--check-pointer-interfaces", &Options::check_pointer_interfaces, {}},
         {"--check-key-timing", &Options::check_key_timing, {}},
         {"--check-pointer-keys", &Options::check_pointer_keys, {}},
@@ -1433,17 +1434,23 @@ int main() {
         "--force-capable goes with --check-build-preview"
     );
     expect(
+        parse({"--check-dialog-backdrop", "--force-capable"}).force_capable,
+        "--force-capable goes with --check-dialog-backdrop"
+    );
+    expect(
         parse({"--check-underwater-features", "--force-capable"}).force_capable,
         "--force-capable goes with --check-underwater-features"
     );
     expect(
         rejection({"--force-capable"}) ==
                 "--force-capable is accepted only with --check-render-tiers, "
-                "--check-build-preview, --check-engine-settings, --check-kill-board and "
+                "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
+                "--check-kill-board and "
                 "--check-underwater-features" &&
             rejection({"--force-capable", "--check-navigation"}) ==
                 "--force-capable is accepted only with --check-render-tiers, "
-                "--check-build-preview, --check-engine-settings, --check-kill-board and "
+                "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
+                "--check-kill-board and "
                 "--check-underwater-features",
         "--force-capable is refused without a check that takes it"
     );
@@ -2199,14 +2206,16 @@ int main() {
     expect(
         rejection({"--force-capable"}) ==
             "--force-capable is accepted only with --check-render-tiers, "
-            "--check-build-preview, --check-engine-settings, --check-kill-board and "
+            "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
+            "--check-kill-board and "
             "--check-underwater-features",
         "--force-capable alone is refused"
     );
     expect(
         rejection({"--check-match-layers", "--force-capable"}) ==
             "--force-capable is accepted only with --check-render-tiers, "
-            "--check-build-preview, --check-engine-settings, --check-kill-board and "
+            "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
+            "--check-kill-board and "
             "--check-underwater-features",
         "--force-capable with another check is refused"
     );

@@ -2,24 +2,26 @@
 
 The host chooses the mutators. **Mutators** is one of the battle room's
 own on and off buttons, with the OA stamp, directly above **Select Map**
-and as large as it, and opens the same picker a skirmish uses. It reads
-**Mutators: off**, no lamp lit, while the room has none, and **Mutators: 2
-on**, its green lamp lit, while it plays two; its red lamp lights while a
-seated player lacks one. Resting the pointer on it shows a card that lists
+and as large as it, and does not grow for its words. It opens the same
+picker a skirmish uses. The button reads **Mutators**. No lamp is lit
+while the room has none, and its green lamp is lit while it plays some;
+its red lamp lights while a seated player lacks one. Resting the pointer
+on it shows a card that lists
 them in the order they apply. While a launch locks the host's options,
 **Mutators** is greyed and opens nothing. How the picker works, including
-**USE THESE** and **CANCEL**, is
+**Use these** and **Cancel**, is
 [Playing with mutators](../playing-with-mutators.md).
 
 **Mutators** opens on the room's set. When the room has none, it opens
 on the last set the host started a battle-room game with, already on.
 Only the host's machine remembers that set, and only when **START**
-really starts the match. **USE THESE** makes the set the room's.
-**CANCEL** leaves the room's list as it was.
+really starts the match. **Use these** makes the set the room's.
+**Cancel** leaves the room's list as it was.
 
 A guest sees that list and cannot change it. Where the host's button
-stands, a guest has the same on and off button: **Mutators: 2 on**, or
-**Mutators: off** while the host plays none. Its lamp is green once this
+stands, a guest has the same on and off button, as large as **Select
+Map** and over it, with no widening. It reads **Mutators**. Its lamp is
+green once this
 machine has built the host's list, red while one is missing, and unlit
 with no set. A press on it, Return or the controller's Y opens the picker
 read-only. Its hint is "The host's mutators. Only the host can change

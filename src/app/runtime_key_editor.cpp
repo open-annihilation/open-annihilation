@@ -440,9 +440,8 @@ class MatchPrompt final : public LayerScreen {
             return {};
         kit::Question sized = question_;
         sized.size_class = dialog.size_class;
-        const int32_t height = settings::prompt_height(sized, fonts);
-        const int32_t width = kit::metrics_of(dialog.size_class).notice_width;
-        return place_in_dialog(dialog, width, height);
+        const kit::PlacedQuestion placed = kit::place_question(sized, fonts);
+        return place_in_dialog(dialog, placed.width, placed.height);
     }
 
     /// Tells that the question takes every input.

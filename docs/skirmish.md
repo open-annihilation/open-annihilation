@@ -23,16 +23,16 @@ with one **Player** is unchanged.
 
 ## Mutators
 
-**Mutators** is one of the setup's own on and off buttons, between
-**Difficulty** and **Previous Menu**, with the OA stamp at its left. It
-reads **Mutators: off**, no lamp lit, while this skirmish will play none,
-and **Mutators: 2 on**, its green lamp lit, while it will play two.
-Resting the pointer on it, or the information key, shows a card that
-lists them in the order they apply. The setup starts with mutators off.
+**Mutators** is one of the setup's own on and off buttons, as large as
+**Previous Menu**, in its column, centred between **Difficulty** and
+**Previous Menu**, with the OA stamp at its left. The button reads
+**Mutators**. No lamp is lit while this skirmish will play none, and its
+green lamp is lit while some are on. Resting the pointer on it, or the
+information key, shows a card that lists them in the order they apply. The setup starts with mutators off.
 It remembers the last set **START** handed on here, with its order and its
 options. **Mutators** opens the picker on the set already chosen, or, when
-nothing is chosen, on that remembered set. **USE THESE** makes it this
-skirmish's set, and **START** plays it. **CANCEL** changes nothing. The
+nothing is chosen, on that remembered set. **Use these** makes it this
+skirmish's set, and **START** plays it. **Cancel** changes nothing. The
 picker, the campaign launch and a battle room are
 [Playing with mutators](playing-with-mutators.md).
 

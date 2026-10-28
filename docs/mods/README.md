@@ -22,7 +22,7 @@ mod is installed: a folder without a profile plays exactly as 3.1c.
 ## Installing a mod
 
 A mod published to a registry, Core Prime's or one you added, installs from
-the Library: the **OA** button on the main menu opens it, and **GET** on a
+the Library: the **OA** button on the main menu opens it, and **Get** on a
 mod installs it ([from the Library](#from-the-library)). A mod you have as
 a folder or a file installs as follows:
 
@@ -34,13 +34,13 @@ a folder or a file installs as follows:
    installs itself there when you open the file
    ([Installing a .oamod file](#installing-a-oamod-file)).
 2. Open the Library (the **OA** button on the main menu), choose the mod
-   on its **Mods** tab and press **PLAY NOW**
+   on its **Mods** tab and press **Play now**
    ([choosing a mod](#choosing-a-mod)). The game reloads its data for the
    mod and returns to the main menu playing it.
 
 **MODS** in the **Your files** row under **System** in the settings
 opens the Mods folder in the file manager, making it the first time, and a
-mod's **OPEN FOLDER** in the Library opens the mod's own folder.
+mod's **Open folder** in the Library opens the mod's own folder.
 
 **Mod folder.** A mod folder holds the mod's files, `oamod.yaml` among them:
 
@@ -86,9 +86,9 @@ The Library lists every mod of the registries that are on, with what each
 does to the game: how many standard hacks change the game and how many
 only the view, the base game and the Open Annihilation it needs, and its
 rules hash. A mod that needs hacks this build does not have is listed, and
-says which, but cannot be got. **GET** downloads the mod, checks it as a
+says which, but cannot be got. **Get** downloads the mod, checks it as a
 `.oamod` file is checked, and installs it in your Mods folder as
-`Mods/<id>`; **PLAY NOW** then switches to it
+`Mods/<id>`; **Play now** then switches to it
 ([the Library](../library.md)). That install shows no notice: the Library's
 row says it is in place. A file you open still does.
 
@@ -104,8 +104,8 @@ your own and is never offered an update.
 **Updates.** When the registry lists a newer release, the Library says so,
 on the mod's row, in its details ("Revision 4 available · 3.2 MB to
 download", and its Rules fact when the update changes the rules) with an
-**UPDATE** button, and on its Updates tab; the main menu's **OA** button
-wears a dot. Nothing updates until you press UPDATE or UPDATE ALL. An update from
+**Update** button, and on its Updates tab; the main menu's **OA** button
+wears a dot. Nothing updates until you press Update or Update all. An update from
 Core Prime's registry installs with no question; a mod from a registry you
 added asks before an update that changes the rules, or before it replaces
 a copy you did not get from that registry
@@ -115,8 +115,8 @@ quit ("Finishes when you leave …").
 
 **Rolling back an update.** The update keeps the version it replaced, as a
 file's replace does ([one version back](#installing-a-oamod-file)), and
-**ROLL BACK** brings it back, with its record of where it came from: the
-update is then offered again, and installs only when you press UPDATE.
+**Roll back** brings it back, with its record of where it came from: the
+update is then offered again, and installs only when you press Update.
 
 ### Installing a .oamod file
 
@@ -138,19 +138,19 @@ folder holds already:
 
 | Your Mods folder holds | What happens |
 |---|---|
-| no folder of the mod's id | it installs, and says where (**MOD INSTALLED**, with **OPEN FOLDER** and **OK**); **PLAY NOW** plays it |
-| the same mod and version, another revision | **UPDATE MOD**: **REPLACE** or **CANCEL**; it says when the file is the older revision |
-| the same mod, version and revision | **ALREADY INSTALLED**: **REINSTALL** puts its files back as they came, or **CANCEL** |
-| the same mod at another version | **ANOTHER VERSION**: **REPLACE**, **INSTALL ALONGSIDE** in a folder of its own (`Mods/<id>-<version>`), or **CANCEL** |
-| a folder of that name that holds something else | **FOLDER IN USE**: **INSTALL ALONGSIDE**, or **CANCEL**; that folder is never changed |
+| no folder of the mod's id | it installs, and says where (**MOD INSTALLED**, with **Open folder** and **OK**); **Play now** plays it |
+| the same mod and version, another revision | **UPDATE MOD**: **Replace** or **Cancel**; it says when the file is the older revision |
+| the same mod, version and revision | **ALREADY INSTALLED**: **Reinstall** puts its files back as they came, or **Cancel** |
+| the same mod at another version | **ANOTHER VERSION**: **Replace**, **Install alongside** in a folder of its own (`Mods/<id>-<version>`), or **Cancel** |
+| a folder of that name that holds something else | **FOLDER IN USE**: **Install alongside**, or **Cancel**; that folder is never changed |
 
 A version installed alongside is updated in its own folder the next time a
 file of that version and another revision is opened.
 
 **One version back.** Replacing a mod keeps the version it replaced in the
 mod's folder, in `.backup`, and drops the one kept before: after revisions
-1, 2 and 3, the folder holds 3 and keeps 2. **ROLL BACK** in the mod's
-details in the Library swaps the two, so a second **ROLL BACK** undoes the
+1, 2 and 3, the folder holds 3 and keeps 2. **Roll back** in the mod's
+details in the Library swaps the two, so a second **Roll back** undoes the
 first; it is offered while the kept version is one the game can still play.
 A reinstall keeps the version kept as it is. The game never reads
 `.backup`: the kept version is not layered over the game folder and the
@@ -221,12 +221,12 @@ To play a mod folder kept elsewhere, put it in the Mods folder. **MODS**
 under Your files in Settings › System opens your Mods folder in the
 system's file manager.
 
-- **PLAY NOW**, on a mod you are not playing, remembers the new mod and
+- **Play now**, on a mod you are not playing, remembers the new mod and
   reloads the game for it in place, without closing the window or
   restarting the game. The main menu then shows, playing the new mod. The
   folder chosen is played as `--mod-dir` would play it, and so are later
   starts.
-- **SWITCH OFF**, on the mod being played, opens **Switch Mod**: "Switch to
+- **Switch off**, on the mod being played, opens **Switch Mod**: "Switch to
   No Mod now? The game reloads its data for the new mod and returns to the
   main menu. Your other settings are kept." **Cancel** (Escape) leaves
   everything as it was; **Switch** (Y) plays 3.1c as it is, from then on.
@@ -259,7 +259,7 @@ over a game folder that is a mod's copied install, and a folder without an
 `oamod.yaml` whose SIDEDATA the game's own rules cannot start with, such as
 one that lacks a section a side needs; the log says why. A remembered mod folder that has gone
 is dropped with a notice, and No Mod is played. While `--mod-dir` or
-`--base-game` decides the run's mod, the Library's PLAY NOW and SWITCH OFF
+`--base-game` decides the run's mod, the Library's Play now and Switch off
 are greyed, its details saying "The command line chose this run's mod.",
 and the stored choice is kept, which a start without them plays. A game
 keeps the mod it started with: the Library shows only on the main menu.
