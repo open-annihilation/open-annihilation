@@ -304,9 +304,9 @@ struct Placement {
 /// The fonts of the stack, opened from one folder, with the glyphs drawn so
 /// far kept for the lines that draw them again.
 ///
-/// The fonts are read as glyphs are needed. On Windows each file is read
-/// whole when the stack opens and then closed. One thread at a time uses a
-/// stack.
+/// The fonts are read from their files as glyphs are needed. In the Windows
+/// 95 build each file is read whole when the stack opens and then closed.
+/// One thread at a time uses a stack.
 class FontStack {
   public:
 
@@ -316,9 +316,9 @@ class FontStack {
     /// FreeType cannot read, or a file that is not scalable fails the open.
     /// Each interface face (interface_face_files) opens when its file is
     /// there and is skipped otherwise: an interface family whose face did
-    /// not open draws in the sans family. On Windows each file is read whole
-    /// and closed, so the few files that system can keep open stay free for
-    /// the game's archives and for saving a game.
+    /// not open draws in the sans family. In the Windows 95 build each file
+    /// is read whole and closed, so the few files that system can keep open
+    /// stay free for the game's archives and for saving a game.
     ///
     /// @param directory the folder that holds the files of face_files
     /// @return the stack; null when a required file is missing or FreeType

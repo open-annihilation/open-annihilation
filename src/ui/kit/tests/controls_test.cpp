@@ -178,11 +178,11 @@ void a_short_row_lies_as_the_mods_row() {
     expect(surface, 38, 26, kit::colour::list_text);
     // The chip: UPDATE is 15 columns and its padding, at the right inset.
     const kit::Rect chip = kit::list_row_chip_rect(fonts(), rect, *look.chip);
-    OA_CHECK(chip.x == 283 && chip.y == 18 && chip.width == 23 && chip.height == 12);
+    OA_CHECK(chip.x == 279 && chip.y == 17 && chip.width == 27 && chip.height == 14);
     // A pill of the caution tint.
-    expect(surface, 283, 18, kBlack);
-    expect(surface, 294, 18, kit::colour::caution_tint);
-    expect(surface, 283, 24, kit::colour::caution_tint);
+    expect(surface, 279, 17, kBlack);
+    expect(surface, 292, 17, kit::colour::caution_tint);
+    expect(surface, 279, 24, kit::colour::caution_tint);
 }
 
 /// The full form: a 28-point badge with a picture, the title and its byline,
@@ -215,28 +215,30 @@ void a_full_row_cuts_its_summary_before_the_aside() {
     expect(surface, 14, 54, kit::colour::control_border);
     expect(surface, 20, 60, kit::colour::online);
     expect(surface, 41, 81, kit::colour::control_border);
-    // The title, then its byline six columns after it in the hint colour.
-    expect(surface, 46, 58, kit::colour::text);
-    expect(surface, 69, 58, kit::colour::hint);
-    // The aside, right-aligned at 354 to 381, one entry a line.
-    expect(surface, 354, 58, kit::colour::text_secondary);
-    expect(surface, 362, 70, kit::colour::text_secondary);
+    // The title at row 52, then its byline six columns after it in the hint
+    // colour. The row has the room to keep list_row_line_gap under the
+    // title's line, so the summary starts at row 71.
+    expect(surface, 46, 55, kit::colour::text);
+    expect(surface, 69, 55, kit::colour::hint);
+    // The aside, right-aligned at 350 to 377, one entry a line.
+    expect(surface, 350, 55, kit::colour::text_secondary);
+    expect(surface, 358, 67, kit::colour::text_secondary);
     // The chip at the right inset: a pill's left end.
-    expect(surface, 388, 68, kit::colour::control_hover);
+    expect(surface, 384, 68, kit::colour::control_hover);
     // The summary, cut so that nothing of it reaches the aside's gap.
-    expect(surface, 47, 70, kit::colour::list_text);
+    expect(surface, 47, 72, kit::colour::list_text);
     bool reaches_end = false;
-    for (int32_t y = 70; y < 78; ++y) {
-        for (int32_t x = 330; x < 348; ++x)
+    for (int32_t y = 72; y < 80; ++y) {
+        for (int32_t x = 326; x < 344; ++x)
             reaches_end = reaches_end || pixel(surface, x, y) == kit::colour::list_text;
-        for (int32_t x = 348; x < 354; ++x)
+        for (int32_t x = 344; x < 350; ++x)
             OA_CHECK(pixel(surface, x, y) != kit::colour::list_text);
     }
     OA_CHECK(reaches_end);
     const std::string cut =
-        kit::cut_to_width(fonts(), kit::FontRole::small, look.lines[0], 348 - 46);
+        kit::cut_to_width(fonts(), kit::FontRole::small, look.lines[0], 344 - 46);
     OA_CHECK(cut.size() > 3 && cut.substr(cut.size() - 3) == "...");
-    OA_CHECK(kit::text_width(fonts(), kit::FontRole::small, cut) <= 302);
+    OA_CHECK(kit::text_width(fonts(), kit::FontRole::small, cut) <= 298);
     OA_CHECK(kit::cut_to_width(fonts(), kit::FontRole::small, "Ridge", 17) == "Ridge");
     OA_CHECK(kit::cut_to_width(fonts(), kit::FontRole::small, "Ridge", 16) == "R...");
     OA_CHECK(kit::cut_to_width(fonts(), kit::FontRole::small, "Ridge", 15) == "...");
@@ -320,14 +322,15 @@ void a_blank_badge_and_tags() {
     };
     kit::draw_list_row(canvas_on(surface), {10, 140, 400, 48}, tagged);
     // The text is centred: title at 144, its line at 158, the tags two
-    // points below it at 172, each tag a pill.
+    // points below it at 172, each tag a pill. The row is too short to keep
+    // list_row_line_gap round its line, so its lines are packed.
     expect(surface, 46, 147, kit::colour::text);
     expect(surface, 47, 159, kit::colour::list_text);
     expect(surface, 46, 171, kBlack);
-    expect(surface, 46, 178, kit::colour::chip_border);
-    expect(surface, 55, 183, kit::colour::chip_border);
-    expect(surface, 69, 178, kit::colour::accent);
-    expect(surface, 70, 178, kit::colour::list_selected);
+    expect(surface, 46, 179, kit::colour::chip_border);
+    expect(surface, 55, 185, kit::colour::chip_border);
+    expect(surface, 73, 179, kit::colour::accent);
+    expect(surface, 74, 179, kit::colour::list_selected);
     // The badge stays 28 in a taller row, centred down it.
     expect(surface, 14, 150, kit::colour::accent);
     expect(surface, 14, 149, kBlack);
@@ -350,9 +353,9 @@ void pin_chip(const kit::ChipLook& look, kit::Colour border, kit::Colour face, k
 }
 
 void chips_take_every_state() {
-    OA_CHECK(kit::chip_width(fonts(), {"GET"}) == 18);
-    OA_CHECK(kit::chip_width(fonts(), {"UPDATE"}) == 23);
-    OA_CHECK(kit::chip_width(fonts(), {""}) == 8);
+    OA_CHECK(kit::chip_width(fonts(), {"GET"}) == 22);
+    OA_CHECK(kit::chip_width(fonts(), {"UPDATE"}) == 27);
+    OA_CHECK(kit::chip_width(fonts(), {""}) == 12);
 
     using State = kit::ChipState;
     namespace colour = kit::colour;
@@ -414,13 +417,13 @@ void chips_take_every_state() {
 /// A pill's corner at 1x is a step, and its cap and its straight edge are
 /// its ground: a state's tinted fill, the accent, or the selected surface.
 void pills_are_rounded_and_stepped_at_1x() {
-    OA_CHECK(kit::pill_width(fonts(), {"GET"}) == 30);
-    OA_CHECK(kit::pill_width(fonts(), {""}) == 12);
+    OA_CHECK(kit::pill_width(fonts(), {"GET"}) == 36);
+    OA_CHECK(kit::pill_width(fonts(), {""}) == 14);
     kit::PillLook with_icon;
     with_icon.text = "GET";
     with_icon.icon = kit::StateIcon::download_arrow;
-    OA_CHECK(kit::pill_width(fonts(), with_icon) == 42);
-    OA_CHECK(kit::pill_height() == 12);
+    OA_CHECK(kit::pill_width(fonts(), with_icon) == 50);
+    OA_CHECK(kit::pill_height() == 14);
 
     const kit::Rect pill{10, 10, 40, 12};
     const auto pin = [&](kit::PillState state, kit::Colour ground) {
@@ -1148,7 +1151,7 @@ void a_card_shows_its_placeholder_chips_and_lines() {
     expect(surface, 45, 65, kit::colour::hint);
     // The chips at the preview's bottom left, 4 in and 4 apart, each a pill.
     expect(surface, 18, 110, kit::colour::well);
-    expect(surface, 24, 110, kit::colour::control_hover);
+    expect(surface, 26, 108, kit::colour::control_hover);
     expect(surface, 29, 121, kit::colour::control_hover);
     expect(surface, 51, 110, kit::colour::ok_tint);
     expect(surface, 17, 110, kit::colour::well);

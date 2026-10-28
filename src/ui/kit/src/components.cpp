@@ -36,6 +36,10 @@ namespace {
 /// The app icon the maker's mark draws, or empty so the badge stays a plate.
 OpenAnnihilationMark installed_oa_mark{};
 
+/// The points between a button's refresh arrow and its caption. A button
+/// is not a chip, so a chip's padding does not move it.
+constexpr int32_t kRefreshIconGap = 4;
+
 } // namespace
 
 void set_open_annihilation_mark(OpenAnnihilationMark mark) {
@@ -1575,7 +1579,7 @@ void draw_refresh_caption(
     const Canvas& canvas, const Rect& area, const ButtonLook& look, Colour ink
 ) {
     const int32_t room = refresh_icon_room(area.height);
-    const int32_t side = room > 0 ? room - compact_metrics.chip_padding : 0;
+    const int32_t side = room > 0 ? room - kRefreshIconGap : 0;
     const int32_t words = measure_text(canvas, look.font, look.caption);
     const int32_t whole = room + words;
     const int32_t left = area.x + std::max((area.width - whole) / 2, int32_t{0});
@@ -1635,7 +1639,7 @@ int32_t refresh_icon_room(int32_t height) noexcept {
     constexpr int32_t inset = 2;
     const int32_t side =
         std::clamp(height - 2 * inset, int32_t{0}, compact_metrics.state_icon_side);
-    return side > 0 ? side + compact_metrics.chip_padding : 0;
+    return side > 0 ? side + kRefreshIconGap : 0;
 }
 
 int32_t filled_radius(const Rect& area) noexcept {
