@@ -9,6 +9,7 @@
 #include "oa/ui/key_bindings/tags.hpp"
 
 #include <algorithm>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -958,6 +959,54 @@ std::vector<DraftTake> takes_of(const keys::Resolved& resolved, const keys::Layo
     return takes;
 }
 
+/// Every row the editor lists, in category order, from bindings already resolved.
+///
+/// @param inputs the inputs
+/// @param own the draft
+/// @param has_chosen a layout other than OA default is in use
+/// @param chosen that layout
+/// @param helpers the draft's helpers
+/// @param resolved the bindings in use
+/// @param found their clashing pairs
+/// @return the rows
+std::vector<Listed> list_resolved(
+    const EditorInputs& inputs,
+    const keys::Layout& own,
+    bool has_chosen,
+    const LayoutSummary& chosen,
+    const oa::formats::oakeys::Helpers& helpers,
+    const keys::Resolved& resolved,
+    const std::vector<keys::Clash>& found
+) {
+    std::vector<keys::Clash> clashes = found;
+    // A chord the draft took is still listed, on both actions, even though
+    // resolution already dropped the loser's copy.
+    for (const DraftTake& take : takes_of(resolved, own)) {
+        keys::Clash mark;
+        mark.a = take.winner;
+        mark.b = take.loser;
+        mark.chord = take.chord;
+        clashes.push_back(std::move(mark));
+    }
+    oa::formats::oakeys::Helpers effective =
+        has_chosen ? chosen.helpers : oa::formats::oakeys::Helpers{};
+    if (helpers.toggle)
+        effective.toggle = helpers.toggle;
+    if (helpers.hold_to_confirm)
+        effective.hold_to_confirm = helpers.hold_to_confirm;
+
+    std::vector<Listed> rows;
+    rows.reserve(resolved.actions.size() + resolved.unknown.size());
+    for (const keys::Bound& bound : resolved.actions) {
+        Listed listed = list_bound(bound, inputs, own, effective, clashes, inputs.keyboard);
+        if (!listed.category.empty())
+            rows.push_back(std::move(listed));
+    }
+    for (const keys::LayoutBinding& binding : resolved.unknown)
+        rows.push_back(list_unknown(binding, inputs, own, clashes));
+    return rows;
+}
+
 /// Every row the editor lists, in category order.
 ///
 /// @param inputs the inputs
@@ -986,32 +1035,8 @@ std::vector<Listed> build_list(
     input.platform = inputs.platform;
     input.keyboard = &inputs.keyboard;
     const keys::Resolved resolved = keys::resolve(input);
-    std::vector<keys::Clash> clashes = keys::find_clashes(resolved, input);
-    // A chord the draft took is still listed, on both actions, even though
-    // resolution already dropped the loser's copy.
-    for (const DraftTake& take : takes_of(resolved, own)) {
-        keys::Clash mark;
-        mark.a = take.winner;
-        mark.b = take.loser;
-        mark.chord = take.chord;
-        clashes.push_back(std::move(mark));
-    }
-    oa::formats::oakeys::Helpers effective =
-        has_chosen ? chosen.helpers : oa::formats::oakeys::Helpers{};
-    if (helpers.toggle)
-        effective.toggle = helpers.toggle;
-    if (helpers.hold_to_confirm)
-        effective.hold_to_confirm = helpers.hold_to_confirm;
-
-    std::vector<Listed> rows;
-    for (const keys::Bound& bound : resolved.actions) {
-        Listed listed = list_bound(bound, inputs, own, effective, clashes, inputs.keyboard);
-        if (!listed.category.empty())
-            rows.push_back(std::move(listed));
-    }
-    for (const keys::LayoutBinding& binding : resolved.unknown)
-        rows.push_back(list_unknown(binding, inputs, own, clashes));
-    return rows;
+    const std::vector<keys::Clash> clashes = keys::find_clashes(resolved, input);
+    return list_resolved(inputs, own, has_chosen, chosen, helpers, resolved, clashes);
 }
 
 /// The words a search matches, folded.
@@ -1251,8 +1276,7 @@ keys::ResolveInput Editor::resolve_input() const {
 }
 
 keys::Resolved Editor::resolved() const {
-    const keys::ResolveInput input = resolve_input();
-    return keys::resolve(input);
+    return in_use()->resolved;
 }
 
 oa::formats::oakeys::Helpers Editor::effective_helpers() const {
@@ -1464,11 +1488,13 @@ std::vector<Row> tag_group_rows(
     return out;
 }
 
-} // namespace
-
-std::vector<CategoryEntry> Editor::categories() const {
-    const std::vector<Listed> listed =
-        listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
+/// The categories, in the order the nav shows them, with how many rows each holds.
+///
+/// @param listed the rows
+/// @param inputs the inputs
+/// @return the categories
+std::vector<CategoryEntry>
+categories_of(const std::vector<Listed>& listed, const EditorInputs& inputs) {
     auto count_of = [&](std::string_view id) {
         std::size_t count = 0;
         for (const Listed& row : listed) {
@@ -1483,7 +1509,7 @@ std::vector<CategoryEntry> Editor::categories() const {
         entry.id = std::move(id);
         entry.count = count;
         entry.read_only = read_only;
-        category_look(inputs_.text, entry.id, inputs_, entry.title, entry.tint, entry.letter);
+        category_look(inputs.text, entry.id, inputs, entry.title, entry.tint, entry.letter);
         out.push_back(std::move(entry));
     };
     std::size_t common = 0;
@@ -1498,39 +1524,38 @@ std::vector<CategoryEntry> Editor::categories() const {
     }
     std::vector<std::string> hacks;
     for (const std::string_view hack : acts::hack_ids()) {
-        if (listed_id(inputs_.hacks_on, hack))
+        if (listed_id(inputs.hacks_on, hack))
             hacks.emplace_back(hack);
     }
-    for (const std::string& hack : inputs_.hacks_on) {
+    for (const std::string& hack : inputs.hacks_on) {
         if (!listed_id(hacks, hack))
             hacks.push_back(hack);
     }
     if (!hacks.empty()) {
         CategoryEntry heading;
         heading.id = "heading.hacks";
-        heading.title = show(inputs_.text, words::hacks_on);
+        heading.title = show(inputs.text, words::hacks_on);
         heading.read_only = true;
         out.push_back(std::move(heading));
         for (const std::string& hack : hacks)
             add(hack, count_of(hack), false);
     }
-    const std::size_t tag_count = tag_group_rows(listed, inputs_, Filter::all, "").size();
+    const std::size_t tag_count = tag_group_rows(listed, inputs, Filter::all, "").size();
     const bool mod_rows = tag_count > 0 || count_of("mod.menus") > 0;
     const bool mod_data =
-        !inputs_.mod.categories.empty() || !inputs_.mod.keys.empty() || !inputs_.mod.tags.empty();
-    if (!inputs_.mod_name.empty() || mod_rows || mod_data) {
+        !inputs.mod.categories.empty() || !inputs.mod.keys.empty() || !inputs.mod.tags.empty();
+    if (!inputs.mod_name.empty() || mod_rows || mod_data) {
         CategoryEntry heading;
         heading.id = "heading.mod";
-        heading.title =
-            inputs_.mod_name.empty() ? show(inputs_.text, words::tags) : inputs_.mod_name;
+        heading.title = inputs.mod_name.empty() ? show(inputs.text, words::tags) : inputs.mod_name;
         heading.read_only = true;
         out.push_back(std::move(heading));
     }
-    if (tag_count > 0 || !inputs_.mod.categories.empty() || !inputs_.mod.tags.empty())
+    if (tag_count > 0 || !inputs.mod.categories.empty() || !inputs.mod.tags.empty())
         add("mod.categories", tag_count, false);
-    if (count_of("mod.menus") > 0 || !inputs_.mod.keys.empty())
+    if (count_of("mod.menus") > 0 || !inputs.mod.keys.empty())
         add("mod.menus", count_of("mod.menus"), false);
-    if (inputs_.developer_mode)
+    if (inputs.developer_mode)
         add("developer", count_of("developer"), false);
     add("oa-screens", count_of("oa-screens"), false);
     if (count_of("unknown") > 0)
@@ -1539,12 +1564,58 @@ std::vector<CategoryEntry> Editor::categories() const {
     return out;
 }
 
+} // namespace
+
+/// The list's rows and the nav's categories, as the draft lists them.
+struct Editor::Listing {
+    std::vector<Listed> listed{};            ///< every row, in category order
+    std::vector<CategoryEntry> categories{}; ///< the nav's categories
+};
+
+std::shared_ptr<const Editor::InUse> Editor::in_use() const {
+    if (in_use_)
+        return in_use_;
+    auto made = std::make_shared<InUse>();
+    const keys::ResolveInput input = resolve_input();
+    made->resolved = keys::resolve(input);
+    made->clashes = keys::find_clashes(made->resolved, input);
+    std::shared_ptr<const InUse> found = std::move(made);
+    // During a change the draft may move between two questions.
+    if (step_depth_ == 0)
+        in_use_ = found;
+    return found;
+}
+
+std::shared_ptr<const Editor::Listing> Editor::listing() const {
+    if (listing_)
+        return listing_;
+    const std::shared_ptr<const InUse> bound = in_use();
+    auto made = std::make_shared<Listing>();
+    made->listed = list_resolved(
+        inputs_, own_, has_chosen_, chosen_, helpers_, bound->resolved, bound->clashes
+    );
+    made->categories = categories_of(made->listed, inputs_);
+    std::shared_ptr<const Listing> found = std::move(made);
+    if (step_depth_ == 0)
+        listing_ = found;
+    return found;
+}
+
+void Editor::forget_kept() noexcept {
+    in_use_.reset();
+    listing_.reset();
+}
+
+std::vector<CategoryEntry> Editor::categories() const {
+    return listing()->categories;
+}
+
 std::vector<Row>
 Editor::rows(std::string_view category, Filter filter, std::string_view query) const {
     if (category.starts_with("heading."))
         return {};
-    const std::vector<Listed> listed =
-        listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
+    const std::shared_ptr<const Listing> listing_now = listing();
+    const std::vector<Listed>& listed = listing_now->listed;
     if (category == "mod.categories")
         return tag_group_rows(listed, inputs_, filter, query);
     if (category == "common") {
@@ -1572,17 +1643,18 @@ Editor::rows(std::string_view category, Filter filter, std::string_view query) c
         return out;
     }
     const bool every = category.empty() || category == "all";
-    std::vector<Row> out;
-    for (const Listed& row : listed) {
-        if (!every && row.category != category)
-            continue;
-        if (!kept(row, filter) || !matches(row, query))
-            continue;
-        out.push_back(row_of(row));
-    }
-    if (!every)
+    if (!every) {
+        std::vector<Row> out;
+        for (const Listed& row : listed) {
+            if (row.category != category || !kept(row, filter) || !matches(row, query))
+                continue;
+            out.push_back(row_of(row));
+        }
         return out;
-    const std::vector<CategoryEntry> order = categories();
+    }
+    // Every category's rows in the nav's order: each row's place in the nav
+    // is found once, then the rows are put in that order.
+    const std::vector<CategoryEntry>& order = listing_now->categories;
     auto index_of = [&](const std::string& id) {
         std::size_t index = 0;
         for (const CategoryEntry& entry : order) {
@@ -1594,16 +1666,27 @@ Editor::rows(std::string_view category, Filter filter, std::string_view query) c
         }
         return order.size();
     };
-    std::stable_sort(out.begin(), out.end(), [&](const Row& left, const Row& right) {
-        return index_of(left.category) < index_of(right.category);
+    std::vector<std::pair<std::size_t, const Listed*>> placed;
+    placed.reserve(listed.size());
+    for (const Listed& row : listed) {
+        if (!kept(row, filter) || !matches(row, query))
+            continue;
+        placed.emplace_back(index_of(row.category), &row);
+    }
+    std::stable_sort(placed.begin(), placed.end(), [](const auto& left, const auto& right) {
+        return left.first < right.first;
     });
+    std::vector<Row> out;
+    out.reserve(placed.size());
+    for (const auto& [index, row] : placed)
+        out.push_back(row_of(*row));
     return out;
 }
 
 Details Editor::details(std::string_view id) const {
     Details shown;
-    const std::vector<Listed> listed =
-        listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
+    const std::shared_ptr<const Listing> listing_now = listing();
+    const std::vector<Listed>& listed = listing_now->listed;
     const Listed* row = find_listed(listed, id);
     // A hack's actions stay out of the list until the hack is on. An import
     // can still have written their chords, and those chords are what SAVE writes.
@@ -1662,8 +1745,8 @@ Details Editor::details(std::string_view id) const {
 
 FilterCounts Editor::counts() const {
     FilterCounts counts;
-    const std::vector<Listed> listed =
-        listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
+    const std::shared_ptr<const Listing> listing_now = listing();
+    const std::vector<Listed>& listed = listing_now->listed;
     for (const Listed& row : listed) {
         ++counts.all;
         if (row.changed)
@@ -1922,16 +2005,13 @@ std::size_t Editor::unsaved() const {
 }
 
 std::size_t Editor::clashes() const {
-    const keys::ResolveInput input = resolve_input();
-    const keys::Resolved bound = keys::resolve(input);
-    return keys::find_clashes(bound, input).size();
+    return in_use()->clashes.size();
 }
 
 std::size_t Editor::draft_clashes() const {
-    const keys::ResolveInput input = resolve_input();
-    const keys::Resolved bound = keys::resolve(input);
+    const std::shared_ptr<const InUse> bound = in_use();
     std::size_t count = 0;
-    for (const keys::Clash& clash : keys::find_clashes(bound, input)) {
+    for (const keys::Clash& clash : bound->clashes) {
         if (draft_names(own_, clash.a) || draft_names(own_, clash.b))
             ++count;
     }
@@ -2070,7 +2150,8 @@ std::vector<keys::Clash> Editor::clashes_for(std::string_view id, const keys::Ch
     if (asked.kind == keys::TriggerKind::character)
         asked.scancode = 0;
     const keys::ResolveInput input = resolve_input();
-    const keys::Resolved bound = keys::resolve(input);
+    const std::shared_ptr<const InUse> kept_now = in_use();
+    const keys::Resolved& bound = kept_now->resolved;
     std::vector<keys::Clash> found = keys::clashes_with(bound, input, id, asked);
     const std::optional<keys::Chord> paired = paired_chord(asked, inputs_.platform);
     if (paired) {
@@ -2123,7 +2204,7 @@ std::vector<keys::Clash> Editor::clashes_for(std::string_view id, const keys::Ch
 }
 
 std::vector<DraftTake> Editor::draft_takes() const {
-    return takes_of(resolved(), own_);
+    return takes_of(in_use()->resolved, own_);
 }
 
 std::optional<keys::Clash> Editor::draft_clash(std::string_view id) const {
@@ -2136,9 +2217,9 @@ std::optional<keys::Clash> Editor::draft_clash(std::string_view id) const {
         oriented.b = held.pasted == id ? held.holder : held.pasted;
         return oriented;
     }
-    const keys::ResolveInput input = resolve_input();
-    const keys::Resolved bound = keys::resolve(input);
-    for (const keys::Clash& clash : keys::find_clashes(bound, input)) {
+    const std::shared_ptr<const InUse> kept_now = in_use();
+    const keys::Resolved& bound = kept_now->resolved;
+    for (const keys::Clash& clash : kept_now->clashes) {
         if (!draft_names(own_, clash.a) && !draft_names(own_, clash.b))
             continue;
         if (clash.a != id && clash.b != id)
@@ -2221,12 +2302,14 @@ bool Editor::settle_paste_clash(const keys::Clash& clash, Settle which) {
 }
 
 EditStep::EditStep(Editor& editor) : editor_(editor) {
+    editor_.forget_kept();
     if (editor_.step_depth_ == 0)
         editor_.undo_.push_back(editor_.draft_now());
     ++editor_.step_depth_;
 }
 
 EditStep::~EditStep() {
+    editor_.forget_kept();
     --editor_.step_depth_;
     if (editor_.step_depth_ != 0 || editor_.undo_.empty())
         return;
@@ -2290,6 +2373,7 @@ std::string Editor::draft_print(const Draft& draft) {
 bool Editor::undo() {
     if (undo_.empty() || step_depth_ != 0)
         return false;
+    forget_kept();
     Draft draft = std::move(undo_.back());
     undo_.pop_back();
     own_ = std::move(draft.own);

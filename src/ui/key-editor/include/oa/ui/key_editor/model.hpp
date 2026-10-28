@@ -15,6 +15,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -647,6 +648,37 @@ class Editor {
     std::string share_name_{};  ///< the name SHARE… is packing
     std::vector<Draft> undo_{}; ///< the draft before each step, the latest last
     uint32_t step_depth_{0};    ///< how many EditStep are open
+
+    /// The bindings in use and their clashing pairs, as resolution puts them.
+    struct InUse {
+        oa::ui::key_bindings::Resolved resolved{};          ///< the bindings in use
+        std::vector<oa::ui::key_bindings::Clash> clashes{}; ///< their clashing pairs
+    };
+
+    /// The list's rows and the nav's categories, as the draft lists them.
+    struct Listing;
+
+    /// The bindings in use while the draft holds still; empty until asked,
+    /// and again once a change starts.
+    mutable std::shared_ptr<const InUse> in_use_{};
+    /// The rows and categories while the draft holds still; empty until
+    /// asked, and again once a change starts.
+    mutable std::shared_ptr<const Listing> listing_{};
+
+    /// The bindings in use and their clashes. While no change is under way
+    /// they are kept, so the screen's many questions about one draft resolve
+    /// it once; during a change each question resolves the draft as it is.
+    ///
+    /// @return the bindings and clashes
+    [[nodiscard]] std::shared_ptr<const InUse> in_use() const;
+
+    /// The rows and categories, kept as `in_use` keeps the bindings.
+    ///
+    /// @return the rows and categories
+    [[nodiscard]] std::shared_ptr<const Listing> listing() const;
+
+    /// Forgets the kept bindings, rows and categories: the draft is changing.
+    void forget_kept() noexcept;
 
     /// The draft as it is now.
     ///

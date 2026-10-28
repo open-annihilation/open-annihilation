@@ -1468,6 +1468,13 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
     /// @return the revision
     [[nodiscard]] uint64_t revision() const override { return revision_; }
 
+    /// Tells that the editor draws its last layout alone, and each layout
+    /// moves its revision, so a frame in which nothing changed keeps its
+    /// drawing.
+    ///
+    /// @return true
+    [[nodiscard]] bool revision_covers_drawing() const override { return true; }
+
     /// Has nothing of its own to close. The draft is kept only by SAVE.
     void close(bool /*by_key*/) override {}
 
