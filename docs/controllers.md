@@ -57,7 +57,7 @@ pad.
           L2 right button            R2 left button
           L1 BUILD ring              R1 ORDER ring
    ┌───────────────────────────────────────────────────────────────┐
-   │  [View] unit info / hold: game layer   [Menu] game menu       │
+   │  [View] keys overlay                   [Menu] game menu       │
    │                                                               │
    │  (L) left stick: pan                       Y  select type     │
    │      L3: centre                         X     B  clear        │
@@ -104,8 +104,7 @@ pad.
 | D-pad → | The next unit of your own | N |
 | D-pad ↓ | The next unit that reported | F3 |
 | D-pad ← | **SELECT ▾**: All, Builders, Factories, Aircraft, On screen, Commander, Same type, Centre, Follow, Next unit and Next report; the D-pad moves through it and A picks, or point and click | The keys each item names |
-| View: tap | Unit info for the unit under the pointer; with R4 held, pinned | F1, Shift+F1 |
-| View: hold | The game layer while held | |
+| View | Toggles the keys overlay, which shows what the keys do in the match. A hold does nothing else | Ctrl+/ or Cmd+/ |
 | Menu | The in-game menu | F2 |
 | Touch screen | The touch controls, unchanged ([touch-controls.md](touch-controls.md)) | |
 | Gyro | Off unless the Gyro pointer setting turns it on | |
@@ -149,20 +148,6 @@ These are the touch group chips' rules, and give the same keys: Alt and
 the number selects, Ctrl and the number stores, Shift, Alt and the number
 adds.
 
-**Game (hold View).**
-
-| With View held | Does | Key |
-|---|---|---|
-| A | The chat line (multiplayer); Steam's keyboard opens | Enter |
-| B | The kill board | F4 |
-| X | Pauses and resumes | Pause |
-| Y | Health bars | `` ` ``, the key below Esc on any layout |
-| D-pad ↑ and ↓ | Faster and slower (not for a watcher) | `+` and `−` |
-| D-pad ← | Clears the messages | F12 |
-| D-pad → | The team menu (multiplayer), the next primary unit (single player) | Tab |
-| L1 | The share panel (multiplayer), the previous primary unit (single player) | h, Shift+Tab |
-| R2 | A screenshot | Ctrl+F9 |
-
 **Standing orders (hold R5 with a face button or the D-pad).** R5 with R2
 or A stays a forced click.
 
@@ -175,8 +160,11 @@ or A stays a forced click.
 | X held for a second | Self-destruct (starts or stops the countdown); a ring fills at the pointer | Ctrl+D |
 | L2 with the right trackpad | Mouse look (Ctrl and a right drag) | |
 
-A layer takes effect the moment its button goes down; a button pressed
-with View held uses the game layer, and View's release is then no tap.
+A layer takes effect the moment its button goes down. On the default map
+View holds no layer: a tap toggles the keys overlay and a hold does
+nothing else. On the fallback map a button pressed with View held uses
+the groups layer, and with Menu held the game layer, and that button's
+release is then no tap.
 
 ### The rings
 
@@ -316,9 +304,23 @@ move:
 | R4 QUEUE and L4 ADD | **Tap R1** latches QUEUE on or off, **tap L1** latches ADD; holding R1 or L1 opens its ring. The on-screen chips work too |
 | R5 FORCE | Arm Attack from the ring and click: attacking the ground is Attack's own behaviour |
 | L5 groups | **Hold View**: the D-pad and A/B/X/Y are groups 1 to 8; a tap of View is still unit info |
-| View's game layer | **Hold Menu**; a tap of Menu still opens the in-game menu |
+| View's game layer | **Hold Menu**; a tap of Menu still opens the in-game menu. The default map has no game layer: View toggles the keys overlay |
 | The left trackpad | The left stick only |
 | Ring aim by the right trackpad | Move the pointer toward the wedge, or push the right stick |
+
+**Game (hold Menu, fallback map only).**
+
+| With Menu held | Does | Key |
+|---|---|---|
+| A | The chat line (multiplayer); Steam's keyboard opens | Enter |
+| B | The kill board | F4 |
+| X | Pauses and resumes | Pause |
+| Y | Health bars | `` ` ``, the key below Esc on any layout |
+| D-pad ↑ and ↓ | Faster and slower (not for a watcher) | `+` and `−` |
+| D-pad ← | Clears the messages | F12 |
+| D-pad → | The team menu (multiplayer), the next primary unit (single player) | Tab |
+| L1 | The share panel (multiplayer), the previous primary unit (single player) | h, Shift+Tab |
+| R2 | A screenshot | Ctrl+F9 |
 
 Once one of F13 to F16 is pressed, the gamepad plays the full map for the
 rest of the run. F13 stands for R4, F14 for R5, F15 for L4
@@ -377,8 +379,10 @@ over the battlefield, beside the 3.1c screen:
 **Once a finger lands**, the full touch controls appear as they always do
 ([touch-controls.md](touch-controls.md)), and each control gains a small
 badge with its gamepad input when a gamepad has been used in this run:
-QUEUE R4, ADD L4, CLEAR B, SELECT ▾ D-pad ←, PAUSE View+X, CHAT View+A,
-CENTRE L3, FOLLOW R3, NEXT D-pad → and INFO View. The FORCE chip joins the
+QUEUE R4, ADD L4, CLEAR B, SELECT ▾ D-pad ←, CENTRE L3, FOLLOW R3 and
+NEXT D-pad →. On the default map View toggles the keys overlay, so pause,
+chat and unit info have no badge there. On the fallback map the badges add
+PAUSE Menu+X, CHAT Menu+A and INFO View. The FORCE chip joins the
 thumb column. Badges change how controls look, never where they are. The
 long-press help on a touch control names the gamepad input too, for
 example "QUEUE: hold or tap R4".

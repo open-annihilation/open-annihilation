@@ -2027,6 +2027,7 @@ actions:
     by: letter
     source: [OA]
     default: ["Primary+/"]
+    pad: keys_overlay
     words: {name: "Keys overlay", description: "The keys overlay for the screen shown"}
   ui.release-pointer:
     area: window

@@ -152,7 +152,9 @@ Binding base_binding(const MapContext& ctx, PadButton role) noexcept {
     case PadButton::y:
         return bind(Action::select_type);
     case PadButton::view:
-        return bind_hold(ctx.fallback ? Action::groups_layer : Action::game_layer);
+        // The default map: View only toggles the keys overlay, from its tap.
+        // The fallback map: holding View is the groups layer.
+        return ctx.fallback ? bind_hold(Action::groups_layer) : Binding{};
     case PadButton::menu:
         return ctx.fallback ? bind_hold(Action::game_layer) : bind(Action::game_menu);
     case PadButton::l1:
@@ -359,7 +361,8 @@ PadButton layer_key(const MapContext& ctx, Layer layer) noexcept {
     case Layer::groups:
         return ctx.fallback ? PadButton::view : PadButton::l5;
     case Layer::game:
-        return ctx.fallback ? PadButton::menu : PadButton::view;
+        // The default map has no game layer. The fallback holds it with Menu.
+        return ctx.fallback ? PadButton::menu : PadButton::none;
     case Layer::standing_orders:
         return ctx.fallback ? PadButton::none : PadButton::r5;
     default:
@@ -543,7 +546,7 @@ Binding tap_binding_for(const MapContext& ctx, Layer layer, PadButton button) no
     const PadButton role = ctx.left_handed ? mirrored(button) : button;
     switch (role) {
     case PadButton::view:
-        return bind(Action::unit_info);
+        return bind(ctx.fallback ? Action::unit_info : Action::keys_overlay);
     case PadButton::menu:
         return ctx.fallback ? bind(Action::game_menu) : Binding{};
     case PadButton::r1:
