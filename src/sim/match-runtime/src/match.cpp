@@ -1391,6 +1391,15 @@ bool Match::point_mapped(const std::array<uint32_t, 3>& position) const {
     return (sight_.player_bits[*index] & (1u << sight_.viewpoint_player)) != 0;
 }
 
+bool Match::player_mapped(uint8_t player, const std::array<uint32_t, 3>& position) const {
+    if (player >= OA_PLAYER_COUNT)
+        return false;
+    const auto index = sight_cell(sight_, position);
+    if (!index)
+        return false;
+    return (sight_.player_bits[*index] & (1u << player)) != 0;
+}
+
 bool Match::point_seen_by(uint8_t player, const std::array<uint32_t, 3>& position) const {
     if (player == state().game.viewpoint_player ||
         (state().game.visibility_flags & sim::visibility_state::update_sight_grid) != 0)
