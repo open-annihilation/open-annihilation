@@ -12,15 +12,19 @@
 #include "oa/app/update/offer.hpp"
 #include "oa/ui/library/interface_words.hpp"
 
+#include "oa/platform/preferences.hpp"
 #include "oa/test/check.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
-#include <set>
+#include <filesystem>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace {
@@ -257,6 +261,42 @@ void ready_is_three_choices_and_scheduling_is_revocable() {
     OA_CHECK(update::centre_state(inputs).stage == Stage::ready);
     values[std::string(update::key::install_on_quit)] = "twelve";
     OA_CHECK(!update::read_scheduled(values).has_value());
+}
+
+/// The kept file is the preferences from before the quit, and a later write
+/// to the live file does not change it.
+void kept_preferences_are_the_file_from_before_the_quit() {
+    oa::platform::preferences::Values values;
+    values["open-annihilation.first-run"] = "done";
+    values["open-annihilation.update-checked"] = "1793169171";
+    update::write_scheduled(values, 807);
+    const oa::platform::preferences::Values kept = update::preferences_before_update(values);
+    OA_CHECK(update::read_scheduled(values) == 807);
+    OA_CHECK(!update::read_scheduled(kept).has_value());
+    OA_CHECK(kept.find("open-annihilation.first-run") != kept.end());
+    OA_CHECK(kept.find("open-annihilation.update-checked") != kept.end());
+    OA_CHECK(kept.at("open-annihilation.update-checked") == "1793169171");
+    OA_CHECK(kept.find("open-annihilation.window-place") == kept.end());
+
+    const auto ticks = std::chrono::steady_clock::now().time_since_epoch().count();
+    const std::filesystem::path folder =
+        std::filesystem::temp_directory_path() / ("oa-v20-kept-" + std::to_string(ticks));
+    std::filesystem::create_directories(folder);
+    const std::filesystem::path snapshot = folder / "preferences-before.conf";
+    const std::filesystem::path live = folder / "preferences.conf";
+    oa::platform::preferences::save(snapshot, kept);
+    values["open-annihilation.window-place"] = "window 1920x1080 at -448,-156 on 0,0,1024,768";
+    oa::platform::preferences::save(live, values);
+
+    const oa::platform::preferences::Values kept_again = oa::platform::preferences::load(snapshot);
+    const oa::platform::preferences::Values live_values = oa::platform::preferences::load(live);
+    OA_CHECK(kept_again.find("open-annihilation.window-place") == kept_again.end());
+    OA_CHECK(!update::read_scheduled(kept_again).has_value());
+    OA_CHECK(kept_again.at("open-annihilation.update-checked") == "1793169171");
+    OA_CHECK(live_values.find("open-annihilation.window-place") != live_values.end());
+    OA_CHECK(update::read_scheduled(live_values) == 807);
+    std::error_code error;
+    std::filesystem::remove_all(folder, error);
 }
 
 void the_install_policy() {
@@ -750,6 +790,7 @@ int main() {
     a_download_shows_bytes_rate_and_controls();
     pauses_say_why();
     ready_is_three_choices_and_scheduling_is_revocable();
+    kept_preferences_are_the_file_from_before_the_quit();
     the_install_policy();
     the_install_words_name_the_route();
     install_way_follows_the_route();

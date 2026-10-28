@@ -1106,9 +1106,6 @@ void Runtime::hand_off_update() {
     plan.package = update_->download_package;
     plan.file = absolute_utf8(shot.path);
     plan.installer = where.installer;
-    plan.preferences = preference_path_.empty() ? plan.install : absolute_utf8(preference_path_);
-    if (options_.preferences_file && !options_.preferences_file->empty())
-        plan.preferences = absolute_utf8(*options_.preferences_file);
     plan.updates = absolute_utf8(*folder);
     plan.title = library::filled(hooks, kInstalling, {{"version", update_->download_version}});
     if (where.installer) {
@@ -1120,6 +1117,36 @@ void Runtime::hand_off_update() {
         );
     } else {
         plan.line = library::filled(hooks, kKept, {{"version", kept}});
+    }
+
+    // The helper copies plan.preferences only after this process has left.
+    // The window's place is written as the window closes, which is after
+    // this hand-off, and the schedule for this quit is spent once the helper
+    // has started. The kept file has to be the preferences from before either
+    // of those, so it is written here. The arguments above still name the
+    // live file, which is the one the new version reads.
+    fs::path live_preferences;
+    if (options_.preferences_file && !options_.preferences_file->empty())
+        live_preferences = *options_.preferences_file;
+    else if (!preference_path_.empty())
+        live_preferences = preference_path_;
+    if (live_preferences.empty()) {
+        plan.preferences = plan.install;
+    } else {
+        oa::platform::preferences::Values before = preference_values_;
+        try {
+            std::error_code preference_io;
+            if (fs::is_regular_file(live_preferences, preference_io) && !preference_io)
+                before = oa::platform::preferences::load(live_preferences);
+            const fs::path snapshot = *folder / "preferences-before.conf";
+            oa::platform::preferences::save(
+                snapshot, update::preferences_before_update(std::move(before))
+            );
+            plan.preferences = absolute_utf8(snapshot);
+        } catch (const std::exception& failure) {
+            std::cerr << "open-annihilation: update: " << failure.what() << '\n';
+            return;
+        }
     }
 
     const fs::path plan_file = *folder / "plan.json";

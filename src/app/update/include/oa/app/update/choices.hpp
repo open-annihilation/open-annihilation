@@ -68,6 +68,18 @@ void write_scheduled(platform::preferences::Values& values, int64_t release);
 /// @param[in,out] values the preference values
 void clear_scheduled(platform::preferences::Values& values);
 
+/// The preferences an update keeps: every value except the release scheduled
+/// to install on this quit.
+///
+/// That schedule is spent once the helper starts. The kept file is written
+/// from these values before the game closes, so a later write to the live
+/// file, such as the window's place, is not part of what the player had.
+///
+/// @param values the preference values, including a schedule when one is set
+/// @return a copy without the schedule
+[[nodiscard]] platform::preferences::Values
+preferences_before_update(platform::preferences::Values values);
+
 /// Tells whether quitting installs a ready release.
 ///
 /// Only a release scheduled for that number installs. Install updates set to

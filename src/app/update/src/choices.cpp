@@ -60,6 +60,11 @@ void clear_scheduled(platform::preferences::Values& values) {
     values.erase(std::string(key::install_on_quit));
 }
 
+platform::preferences::Values preferences_before_update(platform::preferences::Values values) {
+    clear_scheduled(values);
+    return values;
+}
+
 bool installs_at_quit(const platform::preferences::Values& values, int64_t ready_release) {
     const std::optional<int64_t> scheduled = read_scheduled(values);
     return scheduled.has_value() && *scheduled == ready_release && ready_release > 0;
