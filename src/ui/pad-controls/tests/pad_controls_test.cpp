@@ -859,7 +859,7 @@ void base_tables() {
     };
     const auto grips_map = [&] {
         auto rows = with_grips(shared, true);
-        rows.push_back({PadButton::view, {}, {Action::keys_overlay, 0, false}});
+        rows.push_back(tap_hold(PadButton::view, Action::unit_info, Action::game_layer));
         rows.push_back(row(PadButton::menu, Action::game_menu));
         rows.push_back(row(PadButton::l1, Action::build_ring));
         rows.push_back(row(PadButton::r1, Action::order_ring));
@@ -926,25 +926,24 @@ void layer_tables() {
                 if (trackpads)
                     groups.push_back(group(PadButton::left_pad, 0));
                 check_table(ctx, Layer::groups, groups);
-                check_table(
-                    ctx,
-                    Layer::game,
-                    with_grips(
-                        {
-                            row(PadButton::a, Action::chat),
-                            row(PadButton::b, Action::kill_board),
-                            row(PadButton::x, Action::pause),
-                            row(PadButton::y, Action::health_bars),
-                            row(PadButton::dpad_up, Action::faster),
-                            row(PadButton::dpad_down, Action::slower),
-                            row(PadButton::dpad_left, Action::clear_messages),
-                            row(PadButton::dpad_right, Action::team_menu),
-                            row(PadButton::l1, Action::share_panel),
-                            row(PadButton::r2, Action::screenshot),
-                        },
-                        grips
-                    )
+                auto game = with_grips(
+                    {
+                        row(PadButton::a, Action::chat),
+                        row(PadButton::b, Action::kill_board),
+                        row(PadButton::x, Action::pause),
+                        row(PadButton::y, Action::health_bars),
+                        row(PadButton::dpad_up, Action::faster),
+                        row(PadButton::dpad_down, Action::slower),
+                        row(PadButton::dpad_left, Action::clear_messages),
+                        row(PadButton::dpad_right, Action::team_menu),
+                        row(PadButton::l1, Action::share_panel),
+                        row(PadButton::r2, Action::screenshot),
+                    },
+                    grips
                 );
+                if (!fallback)
+                    game.push_back(row(PadButton::r1, Action::keys_overlay));
+                check_table(ctx, Layer::game, game);
                 check_table(
                     ctx,
                     Layer::standing_orders,
@@ -1097,17 +1096,17 @@ void chords_for_every_badge() {
     OA_CHECK(
         chord_is(pad::chord_for(deck, Action::select_menu), PadButton::none, PadButton::dpad_left)
     );
-    OA_CHECK(!pad::chord_for(deck, Action::pause));
-    OA_CHECK(!pad::chord_for(deck, Action::chat));
+    OA_CHECK(chord_is(pad::chord_for(deck, Action::pause), PadButton::view, PadButton::x));
+    OA_CHECK(chord_is(pad::chord_for(deck, Action::chat), PadButton::view, PadButton::a));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::centre), PadButton::none, PadButton::l3));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::follow), PadButton::none, PadButton::r3));
     OA_CHECK(
         chord_is(pad::chord_for(deck, Action::next_unit), PadButton::none, PadButton::dpad_right)
     );
     OA_CHECK(
-        chord_is(pad::chord_for(deck, Action::keys_overlay), PadButton::none, PadButton::view, true)
+        chord_is(pad::chord_for(deck, Action::unit_info), PadButton::none, PadButton::view, true)
     );
-    OA_CHECK(!pad::chord_for(deck, Action::unit_info));
+    OA_CHECK(chord_is(pad::chord_for(deck, Action::keys_overlay), PadButton::view, PadButton::r1));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::left_button), PadButton::none, PadButton::r2));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::right_button), PadButton::none, PadButton::l2));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::order_ring), PadButton::none, PadButton::r1));
@@ -1115,7 +1114,9 @@ void chords_for_every_badge() {
     OA_CHECK(chord_is(pad::chord_for(deck, Action::ring_arm), PadButton::none, PadButton::a));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::ring_close), PadButton::none, PadButton::b));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::ring_give), PadButton::none, PadButton::r2));
-    OA_CHECK(!pad::chord_for(deck, Action::game_layer));
+    OA_CHECK(chord_is(
+        pad::chord_for(deck, Action::game_layer), PadButton::none, PadButton::view, false, true
+    ));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::groups_layer), PadButton::none, PadButton::l5));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::group, 1), PadButton::l5, PadButton::dpad_up));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::group, 6), PadButton::l5, PadButton::b));
@@ -1156,6 +1157,7 @@ void chords_for_every_badge() {
     OA_CHECK(chord_is(
         pad::chord_for(xbox, Action::build_ring), PadButton::none, PadButton::l1, false, true
     ));
+    OA_CHECK(!pad::chord_for(xbox, Action::keys_overlay));
     OA_CHECK(!pad::chord_for(xbox, Action::force));
     OA_CHECK(!pad::chord_for(xbox, Action::self_destruct));
     OA_CHECK(chord_is(pad::chord_for(xbox, Action::pause), PadButton::menu, PadButton::x));
@@ -1175,10 +1177,8 @@ void chords_for_every_badge() {
     OA_CHECK(chord_is(pad::chord_for(left, Action::left_button), PadButton::none, PadButton::l2));
     OA_CHECK(chord_is(pad::chord_for(left, Action::group, 1), PadButton::r5, PadButton::dpad_up));
     OA_CHECK(chord_is(pad::chord_for(left, Action::group, 9), PadButton::r5, PadButton::right_pad));
-    OA_CHECK(!pad::chord_for(left, Action::pause));
-    OA_CHECK(
-        chord_is(pad::chord_for(left, Action::keys_overlay), PadButton::none, PadButton::view, true)
-    );
+    OA_CHECK(chord_is(pad::chord_for(left, Action::pause), PadButton::view, PadButton::x));
+    OA_CHECK(chord_is(pad::chord_for(left, Action::keys_overlay), PadButton::view, PadButton::l1));
     OA_CHECK(chord_is(pad::chord_for(left, Action::centre), PadButton::none, PadButton::r3));
 }
 
@@ -1413,9 +1413,8 @@ void feels_by_strength() {
     );
 }
 
-/// Checks the View button: in the menus it is the information key, as F1, left-handed too.
-/// In a match on the default map a tap toggles the keys overlay and the button holds no
-/// layer. On the fallback map a tap is still the unit's information.
+/// Checks the View button: in the menus it is the information key, as F1, left-handed too; in
+/// the match a tap of it is still the unit's information.
 void view_is_information_in_the_menus() {
     for (const bool left_handed : {false, true})
         for (const bool fallback : {false, true})
@@ -1426,13 +1425,12 @@ void view_is_information_in_the_menus() {
                     OA_CHECK(
                         pad::binding_for(ctx, Layer::menus, PadButton::view).action == Action::info
                     );
-                    const Action match_tap = fallback ? Action::unit_info : Action::keys_overlay;
                     OA_CHECK(
-                        pad::tap_binding_for(ctx, Layer::base, PadButton::view).action == match_tap
+                        pad::tap_binding_for(ctx, Layer::base, PadButton::view).action ==
+                        Action::unit_info
                     );
-                    const Action match_hold = fallback ? Action::groups_layer : Action::none;
                     OA_CHECK(
-                        pad::binding_for(ctx, Layer::base, PadButton::view).action == match_hold
+                        pad::binding_for(ctx, Layer::base, PadButton::view).action != Action::info
                     );
                 }
     const auto deck = map_of(pad::Scheme::trackpads, false, true);

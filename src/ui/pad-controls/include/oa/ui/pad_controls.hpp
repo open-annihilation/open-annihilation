@@ -225,7 +225,7 @@ enum class Layer : uint8_t {
 struct Held {
     bool in_match{};     ///< the match screen shows with no menu over it; else Layer::menus
     bool groups{};       ///< L5 held (fallback: View held)
-    bool game{};         ///< Menu held on the fallback map; the default map has no game layer
+    bool game{};         ///< View held (fallback: Menu held)
     bool standing{};     ///< R5 held
     bool order_ring{};   ///< the order ring is open
     bool build_ring{};   ///< the build ring is open
@@ -313,7 +313,7 @@ enum class Action : uint8_t {
     /// menus: the selected Library entry's first action (X), when that action
     /// can be pressed. On any other screen it does nothing.
     library_action,
-    /// Toggles the keys overlay in a match. On the default map this is View's only job.
+    /// Toggles the keys overlay. On the default map, hold View and press R1.
     keys_overlay,
 };
 

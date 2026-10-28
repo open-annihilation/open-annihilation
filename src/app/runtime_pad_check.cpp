@@ -3062,9 +3062,9 @@ struct PadCheckAccess {
         return {runtime.match_hud_panel_, runtime.match_hud_focus_, runtime.match_paused_};
     }
 
-    /// K13. On the default map View toggles the keys overlay and does nothing
-    /// else: a hold with X does not pause, and the release opens no unit info.
-    /// Menu opens the in-game menu, where the D-pad moves the focus as the
+    /// K13. View: a tap shows the info of the unit under the pointer, held it is the game
+    /// layer (View and X pause, and View and R1 toggles the keys overlay) and its release
+    /// then is no tap. Menu opens the in-game menu, where the D-pad moves the focus as the
     /// arrow keys do, A presses as Space does and B goes back as Escape does.
     static void case_view_and_menu(Runtime& runtime, PadRun& run) {
         require_attached(run.deck);
@@ -3072,29 +3072,41 @@ struct PadCheckAccess {
         look_at_units(runtime, {a});
         step(runtime, run, kFrameMs);
         point_at(runtime, run, canvas_of(runtime, a), "a Peewee");
+        tap(runtime, run, run.deck, pad::PadButton::view);
+        require(
+            runtime.unit_info_panel_.has_value(),
+            Part::dispatch,
+            "a tap of View on a Peewee did not show its unit info (F1)"
+        );
+        runtime.close_unit_info();
+        step(runtime, run, kFrameMs);
         const auto overlay_open = [&] {
             return runtime.oa_layer().find(oa::ui::key_editor::name_keys_overlay) != nullptr;
         };
-        tap(runtime, run, run.deck, pad::PadButton::view);
-        require(overlay_open(), Part::dispatch, "a tap of View did not open the keys overlay");
+        push(runtime, run, run.deck, pad::PadButton::view);
+        tap(runtime, run, run.deck, pad::PadButton::r1);
+        require(overlay_open(), Part::dispatch, "View held with R1 did not open the keys overlay");
+        tap(runtime, run, run.deck, pad::PadButton::r1);
+        require(
+            !overlay_open(),
+            Part::dispatch,
+            "View held with R1 again did not close the keys overlay"
+        );
+        lift(runtime, run, run.deck, pad::PadButton::view);
         require(
             !runtime.unit_info_panel_.has_value(),
             Part::dispatch,
-            "a tap of View showed unit info as well as the keys overlay"
-        );
-        tap(runtime, run, run.deck, pad::PadButton::view);
-        require(
-            !overlay_open(), Part::dispatch, "a second tap of View did not close the keys overlay"
+            "View's release after the keys overlay gave its tap too"
         );
         push(runtime, run, run.deck, pad::PadButton::view);
         tap(runtime, run, run.deck, pad::PadButton::x);
         const bool paused_by_pad = paused(runtime);
         lift(runtime, run, run.deck, pad::PadButton::view);
-        require(!paused_by_pad, Part::dispatch, "View held with X paused; View has no game layer");
+        require(paused_by_pad, Part::dispatch, "View held with X did not pause (game layer)");
         require(
-            !runtime.unit_info_panel_.has_value() && !overlay_open(),
+            !runtime.unit_info_panel_.has_value(),
             Part::dispatch,
-            "View's release after a hold did something other than nothing"
+            "View's release after the game layer gave its tap too"
         );
         auto& game = runtime.match_->state().game;
         game.sim_run_flags = static_cast<uint16_t>(game.sim_run_flags & ~console::kSimRunPaused);

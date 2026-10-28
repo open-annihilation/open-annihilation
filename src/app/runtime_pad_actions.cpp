@@ -324,8 +324,7 @@ void PadAccess::act_press(
         runtime.toggle_keys_overlay_screen();
         return;
     case pc::Action::unit_info:
-        // The unit under the pointer; with R4 held it is pinned. The fallback
-        // map's tap of View. The default map's View is the keys overlay.
+        // The unit under the pointer; with R4 held it is pinned.
         sync_pointer(runtime);
         runtime.press_match_action(queue_held ? "game.pin-unit" : "game.unit-info");
         if (queue_held)
