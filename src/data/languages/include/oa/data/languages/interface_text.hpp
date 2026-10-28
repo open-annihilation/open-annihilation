@@ -118,9 +118,23 @@ void set_interface_language(const InterfaceText* catalogue, const Language& lang
 /// @return the generation; 0 before any installation
 [[nodiscard]] uint64_t interface_generation() noexcept;
 
+/// Reads the catalogue when a word is wanted in a language other than
+/// English and none is installed. The language the interface shows stays
+/// as it was. Called on the thread that draws the interface.
+using InterfaceCatalogueLoader = void (*)(void* context);
+
+/// Registers that loader, or none. With none, a missing catalogue leaves
+/// every word in English. English never calls it.
+///
+/// @param loader the loader; null clears it
+/// @param context passed to the loader
+void set_interface_catalogue_loader(InterfaceCatalogueLoader loader, void* context) noexcept;
+
 /// Returns one of the interface's own words in a named language, from the
 /// catalogue set_interface_language installed. The language the interface
-/// shows is left as it was. Nothing is loaded to answer it.
+/// shows is left as it was. A language other than English may read the
+/// catalogue through the registered loader when none is installed; English
+/// does not, and with no loader nothing is read.
 ///
 /// @param english the word, in English as the source writes it
 /// @param language the language to read it in

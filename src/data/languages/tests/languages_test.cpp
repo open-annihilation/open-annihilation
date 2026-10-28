@@ -513,6 +513,54 @@ void named_language_reads_one_text() {
     OA_CHECK(&languages::interface_language() == &languages::english());
 }
 
+/// The catalogue a test loader installs, and how many times it was asked.
+struct CatalogueLoad {
+    languages::InterfaceText catalogue;
+    int calls = 0;
+
+    /// Installs this catalogue and leaves the language shown as it was.
+    ///
+    /// @param context a CatalogueLoad
+    static void load(void* context) {
+        auto& held = *static_cast<CatalogueLoad*>(context);
+        ++held.calls;
+        languages::set_interface_language(&held.catalogue, languages::interface_language());
+    }
+};
+
+/// English does not read a catalogue. A word asked for in another language
+/// does, through a loader, the first time, and the language shown stays.
+void a_translated_word_reads_the_catalogue_once() {
+    clear_pack_languages();
+    CatalogueLoad load;
+    OA_CHECK(load.catalogue.add(kCatalogue));
+
+    struct ClearLoader {
+        ~ClearLoader() {
+            languages::set_interface_catalogue_loader(nullptr, nullptr);
+            languages::set_interface_language(nullptr, languages::english());
+        }
+    } clear_loader;
+
+    languages::set_interface_language(nullptr, languages::english());
+    languages::set_interface_catalogue_loader(&CatalogueLoad::load, &load);
+    OA_CHECK(languages::interface_text("Mouse wheel zoom") == "Mouse wheel zoom");
+    OA_CHECK(load.calls == 0);
+    const auto& german = *languages::find_by_tag("de");
+    OA_CHECK(languages::interface_text_in("Mouse wheel zoom", german) == "Mausrad-Zoom");
+    OA_CHECK(load.calls == 1);
+    OA_CHECK(&languages::interface_language() == &languages::english());
+    OA_CHECK(languages::interface_text_in("Mouse wheel zoom", german) == "Mausrad-Zoom");
+    OA_CHECK(load.calls == 1);
+    // An empty catalogue is missing too, so the next translated word reads again.
+    languages::InterfaceText empty;
+    languages::set_interface_language(&empty, languages::english());
+    OA_CHECK(languages::interface_text_in("Mouse wheel zoom", german) == "Mausrad-Zoom");
+    OA_CHECK(load.calls == 2);
+    OA_CHECK(&languages::interface_language() == &languages::english());
+    static_cast<void>(clear_loader);
+}
+
 /// Copies text into a zero-filled character field, keeping its last byte zero.
 ///
 /// @param field the field
@@ -913,6 +961,7 @@ int main() {
     installed_language_answers_interface_text();
     every_installation_moves_the_interface_generation();
     named_language_reads_one_text();
+    a_translated_word_reads_the_catalogue_once();
     data_words_follow_the_chain();
     unit_texts_fall_back_to_the_types_own();
     installed_unit_texts_answer_the_interface();

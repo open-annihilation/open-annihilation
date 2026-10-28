@@ -104,6 +104,7 @@ void Runtime::destroy_language_state(LanguageState* state) noexcept {
         languages::set_unit_texts(nullptr, {});
         languages::set_unit_text_sink(nullptr);
         languages::set_interface_language(nullptr, languages::english());
+        languages::set_interface_catalogue_loader(nullptr, nullptr);
         languages::set_translation_hooks({});
     }
     delete state;
@@ -178,12 +179,17 @@ void Runtime::load_language_packs() {
     state.system = &languages::preferred_language(oa::platform::locale::preferred_locales());
     // English is the text the source writes, so the catalogue is not read
     // here. apply_language_now reads it when the language shown needs a
-    // translation, and drops it again when the game shows English.
+    // translation, and drops it again when the game shows English. A word
+    // asked for in another language reads it then (ensure_interface_catalogue).
     state.catalogue = {};
+    state.catalogue_sought = false;
 }
 
 void Runtime::start_language() {
     auto& state = language_state();
+    // Before the catalogue is dropped below. A word in another language reads
+    // it on that request; English does not. The state's deleter clears this.
+    install_interface_catalogue_loader();
     load_language_packs();
     // The loaders read every live language's unit texts, one that is not
     // installed included, and the command line's word when it names one no
@@ -667,6 +673,26 @@ void Runtime::read_interface_catalogue() {
     }
 }
 
+void Runtime::ensure_interface_catalogue() {
+    auto& state = language_state();
+    if (state.catalogue.size() != 0 || state.catalogue_sought)
+        return;
+    state.catalogue_sought = true;
+    read_interface_catalogue();
+    add_pack_interface_texts(state.engine_packs, state.catalogue);
+    add_pack_interface_texts(state.player_packs, state.catalogue);
+    add_pack_interface_texts(state.mod_packs, state.catalogue);
+    // The language shown stays. A lookup in another language reads this
+    // catalogue without switching the interface to it.
+    languages::set_interface_language(&state.catalogue, languages::interface_language());
+}
+
+void Runtime::install_interface_catalogue_loader() {
+    languages::set_interface_catalogue_loader(
+        [](void* context) { static_cast<Runtime*>(context)->ensure_interface_catalogue(); }, this
+    );
+}
+
 void Runtime::set_language_choice(std::string_view choice) {
     auto& state = language_state();
     if (state.choice == choice)
@@ -750,11 +776,15 @@ void Runtime::apply_language_now() {
     if (!want_catalogue) {
         if (state.catalogue.size() != 0)
             state.catalogue = {};
-    } else if (state.catalogue.size() == 0) {
+        // The next word in another language reads it again. A sought flag
+        // left set would answer that word from the empty catalogue.
+        state.catalogue_sought = false;
+    } else if (state.catalogue.size() == 0 && !state.catalogue_sought) {
         read_interface_catalogue();
         add_pack_interface_texts(state.engine_packs, state.catalogue);
         add_pack_interface_texts(state.player_packs, state.catalogue);
         add_pack_interface_texts(state.mod_packs, state.catalogue);
+        state.catalogue_sought = true;
     }
     // The game data's translation table and fonts, loaded again only for a
     // new word.

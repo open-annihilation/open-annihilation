@@ -10835,6 +10835,15 @@ class Runtime final : public menu::Host,
     /// read is reported and skipped.
     void read_interface_catalogue();
 
+    /// Reads that catalogue the first time a word is wanted in a language
+    /// other than English, when it is empty. The language shown stays as it
+    /// was. English does not ask, so its run leaves the catalogue unread.
+    void ensure_interface_catalogue();
+
+    /// Installs ensure_interface_catalogue as that reader. Cleared when the
+    /// language state is destroyed.
+    void install_interface_catalogue_loader();
+
     /// Takes the setting's choice of language and puts it in effect when it
     /// changed, readying the modern fonts for it (warm_game_text) and
     /// showing it at once on the screen shown (show_language_change).
