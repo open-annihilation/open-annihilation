@@ -126,6 +126,12 @@ class PictureCache {
     /// @return true while one does
     [[nodiscard]] bool waiting() const;
 
+    /// Tells whether a picture was asked for and not yet taken: one waits,
+    /// is being read or fetched, or is ready.
+    ///
+    /// @return true while one is
+    [[nodiscard]] bool holding() const;
+
     /// Returns a count that moves on whenever a picture becomes ready.
     ///
     /// @return the count, from 0

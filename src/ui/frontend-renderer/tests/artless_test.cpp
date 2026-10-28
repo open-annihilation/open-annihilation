@@ -624,6 +624,36 @@ void pictures_shrink_to_the_mean_of_their_pixels() {
     CHECK((pixel(grey, 0, 0) == renderer::Rgb{100, 100, 100}));
 }
 
+void a_picture_at_its_own_size_is_laid_pixel_by_pixel() {
+    constexpr renderer::Rgb red{0xff, 0, 0};
+    constexpr renderer::Rgb blue{0, 0, 0xff};
+    // Opaque red, half covered blue and clear, drawn three surface pixels
+    // wide at scale 1, its first column off the surface's left edge.
+    PicturePixels pixels;
+    for (const auto& pixel :
+         {opaque(red), std::array<uint8_t, 4>{0, 0, 255, 128}, std::array<uint8_t, 4>{}})
+        pixels.insert(pixels.end(), pixel.begin(), pixel.end());
+    const auto picture = picture_of(3, 1, pixels);
+
+    auto grey = blank(3, 2);
+    std::fill(grey.rgb.begin(), grey.rgb.end(), uint8_t{100});
+    renderer::draw_picture(grey, {-1, 1, 1}, {0, 0, 3, 1}, picture);
+    // The red column falls off the edge; the blue one is (colour x 128 + 100
+    // x 127 + 127) / 255; the clear one leaves the grey.
+    CHECK((pixel(grey, 0, 1) == renderer::Rgb{50, 50, 178}));
+    CHECK((pixel(grey, 1, 1) == renderer::Rgb{100, 100, 100}));
+    CHECK((pixel(grey, 0, 0) == renderer::Rgb{100, 100, 100}));
+
+    // At scale 2 a picture twice the rectangle's size is at its own size.
+    auto doubled = blank(2, 2);
+    PicturePixels four;
+    for (const auto& pixel : {opaque(red), opaque(blue), opaque(blue), opaque(red)})
+        four.insert(four.end(), pixel.begin(), pixel.end());
+    renderer::draw_picture(doubled, {0, 0, 2}, {0, 0, 1, 1}, picture_of(2, 2, four));
+    CHECK(pixel(doubled, 0, 0) == red && pixel(doubled, 1, 0) == blue);
+    CHECK(pixel(doubled, 0, 1) == blue && pixel(doubled, 1, 1) == red);
+}
+
 void pictures_are_drawn_at_the_surface_resolution() {
     // Four colours across, drawn two source pixels wide at scale 3: six
     // surface columns share the picture's four, so source pixels split.
@@ -708,6 +738,7 @@ int main(int argc, char** argv) {
     text_fonts_keep_the_shading_and_drop_the_ring();
     marks_draw_their_set_pixels();
     pictures_shrink_to_the_mean_of_their_pixels();
+    a_picture_at_its_own_size_is_laid_pixel_by_pixel();
     pictures_are_drawn_at_the_surface_resolution();
     pictures_that_cannot_draw_draw_nothing();
     if (failures != 0)

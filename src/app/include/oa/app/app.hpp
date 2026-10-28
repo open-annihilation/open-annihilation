@@ -647,6 +647,11 @@ struct Options {
     /// --no-game-files-screen: with no usable game folder, the notice with its look-again
     /// button instead of the Game files screen, where the platform offers both.
     bool no_game_files_screen = false;
+    /// --classic-main-menu: the main menu is MAINMENU.GUI as the game has it,
+    /// without the LIBRARY and SETTINGS buttons the engine adds
+    /// (runtime_main_menu.cpp), and Settings and the Library open from it as
+    /// their own dialogs. Every check and every unattended run takes it too.
+    bool classic_main_menu = false;
     /// --game-files-route folder|demo|copy-yourself|manage: the check's route.
     GameFilesRoute game_files_route{};
     /// --game-files-expect main-menu|stopped-kept|resumed|not-a-game|short-space|next-start:
@@ -830,6 +835,11 @@ struct Options {
     // mod made in the Library, in the language shown, such as "Switching on
     // Ridge…"; empty says "Applying your changes".
     std::string restart_line;
+    // The window as the run before last showed it as that switch began: the
+    // Library with the switch's line over it. The window shows it, with no
+    // progress dialog over it, until the Library opens again; null shows the
+    // progress dialog over the quiet colour.
+    std::shared_ptr<const renderer::Surface> restart_picture;
     // Forces each renderer failure the game handles while it runs, on the
     // renderer the start made, and checks that it goes on presenting: the
     // walk of the render drivers, a present error on a menu, match or

@@ -46,6 +46,12 @@ enum class LongWorkClose : uint8_t {
     ends_game, ///< the game ends at once, after the renderer records a clean exit
 };
 
+/// What the window shows while the work runs.
+enum class LongWorkLook : uint8_t {
+    dialog,      ///< the progress dialog over the picture behind it, dimmed
+    behind_only, ///< the picture behind it alone, as it is, with no dialog
+};
+
 /// How far a piece of work has come, written by the worker and read by the
 /// thread that draws. `done` of -1 is a spinner. Otherwise `done` and
 /// `whole` are counts the dialog scales to a full bar.
@@ -146,6 +152,22 @@ void show_work_frame(
     std::string_view line
 );
 
+/// Shows a picture once, stretched over the window, and leaves it on the
+/// window until the next picture replaces it: for work on the thread that
+/// draws, such as a soft restart's. With no window, or a picture without
+/// pixels, nothing is drawn.
+///
+/// @param window the window; null draws nothing
+/// @param renderer the window's renderer; null draws nothing
+/// @param host told of the presented frame; null is left untold
+/// @param picture the picture
+void show_still_frame(
+    SDL_Window* window,
+    SDL_Renderer* renderer,
+    RendererHost* host,
+    const oa::ui::frontend_renderer::Surface& picture
+);
+
 /// Runs `job` off the thread that draws, and shows the progress dialog while
 /// it lasts longer than long_work_show_after_ms.
 ///
@@ -163,7 +185,9 @@ void show_work_frame(
 /// full screen follows them (drop_window_events). A close is put back for
 /// after the dialog has closed, unless `close` is LongWorkClose::ends_game:
 /// the game then ends at once, after the renderer records a clean exit,
-/// without waiting for the job. The dialog closes on its own.
+/// without waiting for the job. The dialog closes on its own. With `look`
+/// LongWorkLook::behind_only the window shows what `behind` paints alone,
+/// and nothing holds it up once the job has finished.
 ///
 /// With no window, or while a dialog is already running, `job` runs on the
 /// caller and nothing is drawn. The job must not call back onto this thread
@@ -180,6 +204,7 @@ void show_work_frame(
 /// @param show_after_ms how long the work runs before the dialog appears;
 ///        long_work_show_after_ms when the caller leaves it
 /// @param close what closing the window does while the job runs
+/// @param look whether the dialog is drawn over what `behind` paints
 /// @return what the dialog did
 [[nodiscard]] LongWorkResult run_long_work(
     SDL_Window* window,
@@ -190,7 +215,8 @@ void show_work_frame(
     const std::function<void(oa::ui::paint::Canvas&)>& behind,
     const std::function<void(LongWork&)>& job,
     uint32_t show_after_ms = long_work_show_after_ms,
-    LongWorkClose close = LongWorkClose::after_job
+    LongWorkClose close = LongWorkClose::after_job,
+    LongWorkLook look = LongWorkLook::dialog
 );
 
 /// Requires icloud_download_line, in English and in German, French, Spanish

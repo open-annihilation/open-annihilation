@@ -54,6 +54,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <exception>
 #include <functional>
 #include <limits>
@@ -396,6 +397,50 @@ bool same_picture(const renderer::Surface& first, const renderer::Surface& secon
 /// @return true when their pictures and opacity are the same
 bool same_drawing(const LayerDrawing& first, const LayerDrawing& second) {
     return same_picture(first.picture, second.picture) && first.opacity == second.opacity;
+}
+
+/// Returns the rows of the window two drawings of one screen differ in,
+/// within the part of the window the screen shows.
+///
+/// @param was the drawing before
+/// @param now the drawing now
+/// @param window the part of the window the screen shows, in window pixels
+/// @param shown where the screen shows, in window pixels
+/// @return the first row that differs and the row past the last, in window
+///     pixels; the same row twice when none does
+std::pair<int32_t, int32_t> differing_rows(
+    const LayerDrawing& was,
+    const LayerDrawing& now,
+    const layout::Rect& window,
+    const layout::Rect& shown
+) {
+    const int32_t top = window.y;
+    const int32_t bottom = window.y + window.height;
+    if (was.picture.width != now.picture.width || was.picture.height != now.picture.height ||
+        was.picture.rgb.size() != now.picture.rgb.size() ||
+        was.opacity.size() != now.opacity.size())
+        return {top, bottom};
+    const auto width = static_cast<std::size_t>(window.width);
+    const auto first_column = static_cast<std::size_t>(window.x - shown.x);
+    const auto row_differs = [&](int32_t y) {
+        const std::size_t first =
+            static_cast<std::size_t>(y - shown.y) * now.picture.width + first_column;
+        if (std::memcmp(
+                was.picture.rgb.data() + first * 3U, now.picture.rgb.data() + first * 3U, width * 3U
+            ) != 0)
+            return true;
+        return !now.opacity.empty() &&
+               std::memcmp(was.opacity.data() + first, now.opacity.data() + first, width) != 0;
+    };
+    int32_t first_row = top;
+    while (first_row < bottom && !row_differs(first_row))
+        ++first_row;
+    if (first_row == bottom)
+        return {top, top};
+    int32_t end_row = bottom;
+    while (end_row > first_row && !row_differs(end_row - 1))
+        --end_row;
+    return {first_row, end_row};
 }
 
 /// Darkens a picture once for each modal screen with a backdrop over it:
@@ -1150,16 +1195,42 @@ void Runtime::take_settings_screen_action(settings::DialogAction action) {
 // A work dialog as a screen of the layer
 
 WorkScreen::WorkScreen(
-    OaLayer& layer, Screen shown_over, std::string title, std::string line, Host answers
+    OaLayer& layer,
+    Screen shown_over,
+    std::string title,
+    std::string line,
+    Host answers,
+    std::shared_ptr<const renderer::Surface> picture
 )
     : layer_(layer), over_(shown_over), host_(std::move(answers)),
       began_ms_(oa::platform::tick_ms()) {
     dialog_.title = std::move(title);
     dialog_.line = std::move(line);
+    // The picture's RGB, opaque, as the kit draws pictures.
+    if (picture && picture->width > 0 && picture->height > 0 &&
+        picture->rgb.size() / 3 >= std::size_t{picture->width} * picture->height) {
+        const std::size_t pixels = std::size_t{picture->width} * picture->height;
+        picture_.width = picture->width;
+        picture_.height = picture->height;
+        picture_.pixels.resize(pixels * 4);
+        for (std::size_t at = 0; at < pixels; ++at) {
+            picture_.pixels[at * 4] = picture->rgb[at * 3];
+            picture_.pixels[at * 4 + 1] = picture->rgb[at * 3 + 1];
+            picture_.pixels[at * 4 + 2] = picture->rgb[at * 3 + 2];
+            picture_.pixels[at * 4 + 3] = 255;
+        }
+    }
 }
 
 LayerPlacement WorkScreen::placement(const LayerView& view) const {
-    if (view.match || layer_.screen_fonts() == nullptr || view.game_screen != over_)
+    if (view.match || view.game_screen != over_)
+        return {};
+    if (!picture_.pixels.empty()) {
+        if (view.room.width <= 0 || view.room.height <= 0)
+            return {};
+        return {view.room, view.room.width, view.room.height, 100};
+    }
+    if (layer_.screen_fonts() == nullptr)
         return {};
     kit::WorkDialog sized = dialog_;
     sized.size_class = front_class(view);
@@ -1167,6 +1238,10 @@ LayerPlacement WorkScreen::placement(const LayerView& view) const {
 }
 
 void WorkScreen::lay_out(const LayerView& view) {
+    if (view.room.width != room_.x || view.room.height != room_.y) {
+        room_ = {view.room.width, view.room.height};
+        ++revision_;
+    }
     const kit::SizeClass size_class = front_class(view);
     if (dialog_.size_class == size_class)
         return;
@@ -1175,6 +1250,12 @@ void WorkScreen::lay_out(const LayerView& view) {
 }
 
 void WorkScreen::draw(const kit::Canvas& canvas) const {
+    if (!picture_.pixels.empty()) {
+        kit::draw_picture(
+            canvas, {0, 0, room_.x, room_.y}, {picture_.width, picture_.height, picture_.pixels}
+        );
+        return;
+    }
     if (!kit::can_draw(canvas) || canvas.fonts == nullptr)
         return;
     kit::draw_work_dialog(canvas, dialog_);
@@ -3021,18 +3102,20 @@ bool OaLayer::draws_presence_badges() noexcept {
            artless::picture_drawable(runtime_.engine_settings_icon());
 }
 
-void OaLayer::present_presence_badges(const LayerView& seen, int output_width, int output_height) {
+bool OaLayer::compose_presence_badges(
+    const LayerView& seen, int output_width, int output_height
+) {
     if (!draws_presence_badges() || output_width <= 0 || output_height <= 0 ||
         seen.picture_size.x <= 0 || seen.picture_size.y <= 0 || seen.picture.width <= 0 ||
         seen.picture.height <= 0)
-        return;
+        return false;
     // The same list the frame uses, so a dialog that hides the frame's badge
     // hides this one too.
     std::array<mp::PresenceBadgeSpot, 10> spots{};
     const int32_t count =
         mp::multiplayer_presence_badges(spots.data(), static_cast<int32_t>(spots.size()));
     if (count <= 0)
-        return;
+        return false;
     const artless::RgbaPicture icon = runtime_.engine_settings_icon();
     std::vector<PresenceBadgeDrawn> drawn;
     drawn.reserve(static_cast<std::size_t>(count));
@@ -3094,7 +3177,7 @@ void OaLayer::present_presence_badges(const LayerView& seen, int output_width, i
         }
         if (empty_rect(bounds)) {
             badges_uploaded_ = false;
-            return;
+            return false;
         }
         std::vector<uint8_t> rgba(
             static_cast<std::size_t>(bounds.width) * static_cast<std::size_t>(bounds.height) * 4U, 0
@@ -3222,29 +3305,31 @@ void OaLayer::present_presence_badges(const LayerView& seen, int output_width, i
         badges_gamma_ = runtime_.gamma_table_;
         badge_bounds_ = bounds;
         badges_uploaded_ = true;
+        ++front_uploads_;
     }
-    const SDL_FRect at{
-        static_cast<float>(badge_bounds_.x),
-        static_cast<float>(badge_bounds_.y),
-        static_cast<float>(badge_bounds_.width),
-        static_cast<float>(badge_bounds_.height)
-    };
-    badge_texture_.draw(runtime_.sdl_.renderer, nullptr, &at);
+    return true;
 }
 
 void OaLayer::present_front_end(const SDL_FRect& area) {
+    draw_front_end(prepare_front_end(area));
+}
+
+OaLayer::FrontFrame OaLayer::prepare_front_end(const SDL_FRect& area) {
+    FrontFrame frame{};
     SDL_Renderer* sdl_renderer = runtime_.sdl_.renderer;
+    if (sdl_renderer == nullptr || runtime_.screen_ == Screen::match)
+        return frame;
     lay_out_screens();
     const LayerView seen = view();
     if (seen.match)
         front_drawings_.clear();
     if (seen.match || !(area.w > 0.0F) || !(area.h > 0.0F))
-        return;
+        return frame;
     int output_width = 0;
     int output_height = 0;
     if (!SDL_GetRenderOutputSize(sdl_renderer, &output_width, &output_height) ||
         output_width <= 0 || output_height <= 0)
-        return;
+        return frame;
     const layout::Rect output{0, 0, output_width, output_height};
     FrontLook look{};
     look.picture_width = seen.picture_size.x;
@@ -3339,10 +3424,6 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
         look.pieces.push_back(std::move(piece));
     }
     front_drawings_ = std::move(kept_drawings);
-    // In the window's own pixels, not through the picture's logical
-    // presentation; everything is put back for the cursor and the next frame.
-    const RenderState kept(sdl_renderer);
-    kept.use_window_pixels();
     // Under a modal screen with a backdrop the whole window darkens: the
     // picture is darkened in the frame (darken_front_end), and the window
     // outside it, where SDL clears to black, takes black darkened as often.
@@ -3354,15 +3435,10 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
         darken(black, darkenings, kit::menu_backdrop_opacity);
         if (!runtime_.gamma_identity_)
             runtime_.apply_gamma_rgb(black.rgb.data(), 1U, 3);
-        std::vector<SDL_FRect> bars;
-        const auto bar = [&bars](int32_t x, int32_t y, int32_t width, int32_t height) {
+        frame.bar_colour = {black.rgb[0], black.rgb[1], black.rgb[2]};
+        const auto bar = [&frame](int32_t x, int32_t y, int32_t width, int32_t height) {
             if (width > 0 && height > 0)
-                bars.push_back(
-                    {static_cast<float>(x),
-                     static_cast<float>(y),
-                     static_cast<float>(width),
-                     static_cast<float>(height)}
-                );
+                frame.bars.push_back({x, y, width, height});
         };
         const layout::Rect& picture = seen.picture;
         bar(0, 0, output_width, picture.y);
@@ -3374,18 +3450,17 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
             picture.y,
             output_width - picture.x - picture.width,
             picture.height);
-        if (!bars.empty()) {
-            SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_NONE);
-            SDL_SetRenderDrawColor(
-                sdl_renderer, black.rgb[0], black.rgb[1], black.rgb[2], SDL_ALPHA_OPAQUE
-            );
-            SDL_RenderFillRects(sdl_renderer, bars.data(), static_cast<int>(bars.size()));
-        }
     }
     // Under the screens, so an open card covers the badge it describes.
-    present_presence_badges(seen, output_width, output_height);
-    if (look.pieces.empty())
-        return;
+    frame.badges = compose_presence_badges(seen, output_width, output_height);
+    if (frame.badges)
+        frame.badge_bounds = {
+            badge_bounds_.x, badge_bounds_.y, badge_bounds_.width, badge_bounds_.height
+        };
+    if (look.pieces.empty()) {
+        frame.uploads = front_uploads_;
+        return frame;
+    }
     const auto limit = runtime_.render_texture_limit();
     const bool made = texture_.ensure(
         sdl_renderer,
@@ -3395,46 +3470,45 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
         limit,
         SDL_BLENDMODE_BLEND
     );
-    const auto same_look = [&look](const FrontLook& held) {
+    // The pieces lie where the texture's pieces lie: only the pixels of the
+    // drawings made since can differ.
+    const auto same_places = [&look](const FrontLook& held) {
         if (held.picture_width != look.picture_width ||
             held.picture_height != look.picture_height || held.area != look.area ||
             held.pieces.size() != look.pieces.size())
             return false;
-        for (std::size_t index = 0; index < held.pieces.size(); ++index) {
-            const auto& was = held.pieces[index];
-            const auto& now = look.pieces[index];
-            if (!same_rect(was.window, now.window) || !same_rect(was.shown, now.shown))
+        for (std::size_t index = 0; index < held.pieces.size(); ++index)
+            if (!same_rect(held.pieces[index].window, look.pieces[index].window) ||
+                !same_rect(held.pieces[index].shown, look.pieces[index].shown))
                 return false;
-            // A drawing kept from before is the one uploaded; one drawn
-            // again is compared pixel by pixel.
-            if (was.drawing != now.drawing && !same_drawing(*was.drawn, *now.drawn))
-                return false;
-        }
         return true;
     };
-    if (made || !front_uploaded_ || !same_look(*front_uploaded_) ||
-        !same_rect(front_bounds_, bounds) || uploaded_gamma_ != runtime_.gamma_table_) {
-        std::vector<uint8_t> rgba(
-            static_cast<std::size_t>(bounds.width) * static_cast<std::size_t>(bounds.height) * 4U, 0
+    const auto row_bytes = static_cast<std::size_t>(bounds.width) * 4U;
+    // Composes rows of the texture from the top of bounds: each piece's
+    // pixels as drawn, one window pixel each, bottom first, an opaque
+    // screen's copied, fully opaque, one that is not opaque laid over what is
+    // already there (src over, straight colours); then at the display gamma,
+    // as the picture under it is uploaded.
+    const auto compose_rows = [&](int32_t first_row, int32_t end_row) {
+        std::fill(
+            front_rgba_.begin() + static_cast<std::ptrdiff_t>(first_row * row_bytes),
+            front_rgba_.begin() + static_cast<std::ptrdiff_t>(end_row * row_bytes),
+            uint8_t{0}
         );
-        // Each piece's pixels as drawn, one window pixel each, bottom first:
-        // an opaque screen's copied, fully opaque; one that is not opaque
-        // laid over what is already there (src over, straight colours).
         for (const auto& piece : look.pieces) {
             const renderer::Surface& drawn = piece.drawn->picture;
             const bool laid = !piece.drawn->opacity.empty();
             const int32_t first_column = piece.window.x - piece.shown.x;
-            for (int32_t row = 0; row < piece.window.height; ++row) {
-                const auto source_row =
-                    static_cast<std::size_t>(piece.window.y + row - piece.shown.y);
+            const int32_t top = std::max(piece.window.y, bounds.y + first_row);
+            const int32_t bottom =
+                std::min(piece.window.y + piece.window.height, bounds.y + end_row);
+            for (int32_t y = top; y < bottom; ++y) {
+                const auto source_row = static_cast<std::size_t>(y - piece.shown.y);
                 const std::size_t first =
                     source_row * drawn.width + static_cast<std::size_t>(first_column);
                 const auto* from = drawn.rgb.data() + first * 3U;
-                auto* to =
-                    rgba.data() + (static_cast<std::size_t>(piece.window.y + row - bounds.y) *
-                                       static_cast<std::size_t>(bounds.width) +
-                                   static_cast<std::size_t>(piece.window.x - bounds.x)) *
-                                      4U;
+                auto* to = front_rgba_.data() + static_cast<std::size_t>(y - bounds.y) * row_bytes +
+                           static_cast<std::size_t>(piece.window.x - bounds.x) * 4U;
                 if (laid) {
                     const uint8_t* opacity = piece.drawn->opacity.data() + first;
                     for (int32_t column = 0; column < piece.window.width; ++column) {
@@ -3454,22 +3528,102 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
                 }
             }
         }
-        // At the display gamma, as the picture under it is uploaded.
         if (!runtime_.gamma_identity_)
-            runtime_.apply_gamma_rgb(rgba.data(), rgba.size() / 4U, 4);
-        texture_.update(rgba.data(), bounds.width * 4, 4);
+            runtime_.apply_gamma_rgb(
+                front_rgba_.data() + static_cast<std::size_t>(first_row) * row_bytes,
+                static_cast<std::size_t>(end_row - first_row) *
+                    static_cast<std::size_t>(bounds.width),
+                4
+            );
+    };
+    const bool in_place = !made && front_uploaded_ && same_rect(front_bounds_, bounds) &&
+                          uploaded_gamma_ == runtime_.gamma_table_ &&
+                          front_rgba_.size() == row_bytes * static_cast<std::size_t>(bounds.height) &&
+                          same_places(*front_uploaded_);
+    if (in_place) {
+        // Only the rows a drawing made since differs in are composed and
+        // uploaded again: a button the pointer comes over sends its own
+        // rows, not the window's.
+        int32_t first_row = bounds.height;
+        int32_t end_row = 0;
+        for (std::size_t index = 0; index < look.pieces.size(); ++index) {
+            const auto& was = front_uploaded_->pieces[index];
+            const auto& now = look.pieces[index];
+            if (was.drawing == now.drawing)
+                continue;
+            const auto [top, bottom] = differing_rows(*was.drawn, *now.drawn, now.window, now.shown);
+            if (bottom <= top)
+                continue;
+            first_row = std::min(first_row, top - bounds.y);
+            end_row = std::max(end_row, bottom - bounds.y);
+        }
+        if (end_row > first_row) {
+            compose_rows(first_row, end_row);
+            texture_.update(
+                front_rgba_.data(),
+                bounds.width * 4,
+                4,
+                static_cast<uint32_t>(first_row),
+                static_cast<uint32_t>(end_row)
+            );
+            ++front_uploads_;
+        }
+        front_uploaded_ = std::move(look);
+    } else {
+        front_rgba_.assign(row_bytes * static_cast<std::size_t>(bounds.height), 0);
+        compose_rows(0, bounds.height);
+        texture_.update(front_rgba_.data(), bounds.width * 4, 4);
         front_uploaded_ = std::move(look);
         front_bounds_ = bounds;
         uploaded_.reset();
         uploaded_gamma_ = runtime_.gamma_table_;
+        ++front_uploads_;
     }
-    const SDL_FRect at{
-        static_cast<float>(bounds.x),
-        static_cast<float>(bounds.y),
-        static_cast<float>(bounds.width),
-        static_cast<float>(bounds.height)
+    frame.screens = true;
+    frame.bounds = {bounds.x, bounds.y, bounds.width, bounds.height};
+    frame.uploads = front_uploads_;
+    return frame;
+}
+
+void OaLayer::draw_front_end(const FrontFrame& frame) {
+    SDL_Renderer* sdl_renderer = runtime_.sdl_.renderer;
+    if (sdl_renderer == nullptr || (frame.bars.empty() && !frame.badges && !frame.screens))
+        return;
+    const auto rect_of = [](const std::array<int32_t, 4>& rect) {
+        return SDL_FRect{
+            static_cast<float>(rect[0]),
+            static_cast<float>(rect[1]),
+            static_cast<float>(rect[2]),
+            static_cast<float>(rect[3])
+        };
     };
-    texture_.draw(sdl_renderer, nullptr, &at);
+    // In the window's own pixels, not through the picture's logical
+    // presentation; everything is put back for the cursor and the next frame.
+    const RenderState kept(sdl_renderer);
+    kept.use_window_pixels();
+    if (!frame.bars.empty()) {
+        std::vector<SDL_FRect> bars;
+        bars.reserve(frame.bars.size());
+        for (const auto& bar : frame.bars)
+            bars.push_back(rect_of(bar));
+        SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_NONE);
+        SDL_SetRenderDrawColor(
+            sdl_renderer,
+            frame.bar_colour[0],
+            frame.bar_colour[1],
+            frame.bar_colour[2],
+            SDL_ALPHA_OPAQUE
+        );
+        SDL_RenderFillRects(sdl_renderer, bars.data(), static_cast<int>(bars.size()));
+    }
+    if (frame.badges) {
+        const SDL_FRect at = rect_of(frame.badge_bounds);
+        badge_texture_.draw(sdl_renderer, nullptr, &at);
+    }
+    if (frame.screens) {
+        const SDL_FRect at = rect_of(frame.bounds);
+        texture_.draw(sdl_renderer, nullptr, &at);
+    }
 }
 
 bool OaLayer::match_button_shown(Runtime& runtime) {

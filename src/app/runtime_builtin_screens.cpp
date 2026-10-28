@@ -115,6 +115,7 @@ struct BuiltinScreens {
     static void close_main_menu_panel(void* host) {
         auto& runtime = *static_cast<Runtime*>(host);
         runtime.resources_.layout.gadgets.clear();
+        runtime.main_menu_entries_ = false;
         runtime.selected_ = -1;
         runtime.hovered_.reset();
         runtime.menu_sparks_ = {};
@@ -396,6 +397,8 @@ struct BuiltinScreens {
             if (auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields))
                 button->grayed_out = control.grayed != 0;
         }
+        // LIBRARY and SETTINGS, on plates of their own.
+        runtime.add_main_menu_entries();
     }
 
     static void enter_single_player(ScreenContext* ctx, void*) {

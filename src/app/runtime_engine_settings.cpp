@@ -2158,7 +2158,7 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         // The Library's Registries tab asks for these itself.
         return false;
     case settings::DialogAction::open_library:
-        // MORE IN THE LIBRARY…: the Library opens over the dialog, which
+        // REGISTRIES IN THE LIBRARY…: the Library opens over the dialog, which
         // stays open under it; where the Library is under the dialog
         // already, the dialog closes back to it.
         open_library(library_tab_of(dialog->library_tab));

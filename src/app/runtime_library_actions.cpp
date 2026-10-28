@@ -8,7 +8,8 @@
 // the game with no mod; UPDATE and UPDATE ALL, which start updates through
 // request_update, the one place an update reaches the download queue;
 // UNINSTALL, which asks first and removes an installed package's folder,
-// never the mod being played or the language pack in use; and the footer's
+// never the language pack in use, and switches the mod being played off
+// first, the next run removing its folder; and the footer's
 // the header's refresh icon, which asks the registries for their lists again. An update that
 // may stop saved games loading, of a mod from a registry the player added,
 // asks the update question first (oa::ui::library::asks_before_update);
@@ -70,6 +71,19 @@ void library_log(std::string_view line) {
 /// The hole in the switch's line that the mod's name fills.
 constexpr std::string_view kNameHole = "{name}";
 
+/// Returns a line of the interface in the language shown, a name in its
+/// hole.
+///
+/// @param english the line in English, as the interface words it
+/// @param name the name
+/// @return the line, such as "Uninstalling Ridge…"
+std::string filled_name(std::string_view english, std::string_view name) {
+    std::string line(oa::data::languages::interface_text(english));
+    if (const std::size_t hole = line.find(kNameHole); hole != std::string::npos)
+        line.replace(hole, kNameHole.size(), name);
+    return line;
+}
+
 /// Returns what the progress dialog says while a switch of the mod applies,
 /// in the language shown.
 ///
@@ -77,12 +91,7 @@ constexpr std::string_view kNameHole = "{name}";
 /// @param name the mod's name
 /// @return the line, such as "Switching on Ridge…"
 std::string switching_line(bool on, std::string_view name) {
-    std::string line(
-        oa::data::languages::interface_text(on ? "Switching on {name}…" : "Switching off {name}…")
-    );
-    if (const std::size_t hole = line.find(kNameHole); hole != std::string::npos)
-        line.replace(hole, kNameHole.size(), name);
-    return line;
+    return filled_name(on ? "Switching on {name}…" : "Switching off {name}…", name);
 }
 
 /// Returns the place of a question's button with an id.
@@ -254,10 +263,8 @@ void Runtime::library_entry_action(library::Action action, const library::EntryI
     }
     if (action == library::Action::switch_off ||
         (action == library::Action::play_now && base_game)) {
-        // The Switch Mod question of no mod: CANCEL leaves the mod played,
-        // SWITCH plays none. PLAY NOW on the base game entry asks it too.
-        oa::ui::kit::Question asked = library::switch_off_question(host.model.text);
-        const int32_t switch_button = button_named(asked, library::switch_button_id);
+        // No mod is played at once, with no question, as PLAY NOW plays a
+        // mod. PLAY NOW on the base game entry does the same.
         // The mod switched off: the one played, which PLAY NOW on the base
         // game entry leaves too.
         std::string played_name(library::entry_name(*found));
@@ -265,26 +272,16 @@ void Runtime::library_entry_action(library::Action action, const library::EntryI
             if (each.id.kind == library::Kind::mod && each.state == library::State::playing &&
                 !library::is_base_game(each.id))
                 played_name = std::string(library::entry_name(each));
-        QuestionScreen::Host answers;
-        answers.answer = [this, switch_button, played_name](int32_t button) {
-            if (button != switch_button)
-                return true;
-            // The Library opens again after the soft restart, as it shows now.
-            keep_library_for_restart();
-            restart_line_ = switching_line(false, played_name);
-            std::string refusal;
-            if (!switch_to_mod_folder({}, refusal)) {
-                library_kept_.reset();
-                restart_line_.clear();
-                status_ = refusal;
-                library_log("SWITCH OFF: " + refusal);
-            }
-            return true;
-        };
-        answers.tick = [this] { return screen_ != Screen::main_menu; };
-        layer.push(
-            std::make_unique<QuestionScreen>(layer, Screen::main_menu, std::move(asked), answers)
-        );
+        // The Library opens again after the soft restart, as it shows now.
+        keep_library_for_restart();
+        restart_line_ = switching_line(false, played_name);
+        std::string refusal;
+        if (!switch_to_mod_folder({}, refusal)) {
+            library_kept_.reset();
+            restart_line_.clear();
+            status_ = refusal;
+            library_log("SWITCH OFF: " + refusal);
+        }
         return;
     }
     if (action != library::Action::roll_back)
@@ -359,22 +356,20 @@ void Runtime::library_uninstall(const library::EntryId& entry) {
             return library::UninstallStep::language_first;
         return step;
     };
-    // A notice over the Library: it goes with the main menu, as the Library does.
-    const auto show_notice = [this](oa::ui::kit::Question told) {
-        QuestionScreen::Host answers;
-        answers.tick = [this] { return screen_ != Screen::main_menu; };
-        OaLayer& layer = oa_layer();
-        layer.push(
-            std::make_unique<QuestionScreen>(layer, Screen::main_menu, std::move(told), answers)
-        );
+    // The mod played changes only from the main menu, and never while the
+    // command line chose it: the mod being played is switched off first
+    // where SWITCH OFF could switch it off.
+    const auto switches_first = [this](library::UninstallStep step) {
+        return step == library::UninstallStep::switch_off_first && screen_ == Screen::main_menu &&
+               match_ == nullptr && options_.mod_dir.empty() && !options_.base_game;
     };
     const library::UninstallStep step = step_now(*found);
     if (step == library::UninstallStep::off)
         return;
     const std::string name(library::entry_name(*found));
-    if (step != library::UninstallStep::ask) {
+    if (step != library::UninstallStep::ask && !switches_first(step)) {
         library_log("UNINSTALL: " + name + " is in use; nothing is removed");
-        show_notice(library::uninstall_notice(*found, step, host.model.text));
+        ask_over_library(library::uninstall_notice(*found, step, host.model.text));
         return;
     }
     // The question names the folder as the player knows it, under their own
@@ -384,15 +379,14 @@ void Runtime::library_uninstall(const library::EntryId& entry) {
         std::string(kind->root_folder) + "/" + path_to_utf8(folder.filename());
     const install::InstalledPackage expected = kind->read_installed(folder);
     oa::ui::kit::Question asked =
-        library::uninstall_question(host.model, *found, shown_folder, host.model.text);
-    int32_t uninstall_button = -1;
-    for (std::size_t place = 0; place < asked.buttons.size(); ++place)
-        if (asked.buttons[place].id == library::uninstall_button_id)
-            uninstall_button = static_cast<int32_t>(place);
+        step == library::UninstallStep::ask
+            ? library::uninstall_question(host.model, *found, shown_folder, host.model.text)
+            : library::uninstall_playing_question(host.model, *found, shown_folder, host.model.text);
+    const int32_t uninstall_button = button_named(asked, library::uninstall_button_id);
     // UNINSTALL looks again: the entry, still installed, its button still
-    // on and still not in use, then its folder, which must lie in the
-    // player's own folder for its kind and hold what the question named.
-    const auto uninstall_now = [this, kind, entry, expected, step_now, show_notice] {
+    // on and still not in use, or still the mod being played that can be
+    // switched off; then its folder.
+    const auto uninstall_now = [this, entry, expected, step_now, switches_first] {
         const library::Library& model = library_host().model;
         const library::Entry* still = library::find_entry(model, entry);
         if (still == nullptr || still->installed == nullptr)
@@ -400,60 +394,122 @@ void Runtime::library_uninstall(const library::EntryId& entry) {
         const library::UninstallStep again = step_now(*still);
         if (again == library::UninstallStep::off)
             return;
-        if (again != library::UninstallStep::ask) {
-            show_notice(library::uninstall_notice(*still, again, model.text));
-            return;
-        }
         const std::string title(library::entry_name(*still));
-        const fs::path at = still->installed->folder;
-        const fs::path root = user_folder_ / std::string(kind->root_folder);
-        std::optional<library::UninstallProblem> problem;
-        if (user_folder_.empty() || !same_folder(kept_path(at.parent_path()), kept_path(root))) {
-            library_log("UNINSTALL: " + path_to_utf8(at) + " is not in " + path_to_utf8(root));
-            problem = library::UninstallProblem::outside;
-        } else {
-            install::ChangeOptions options{};
-            options.expected = expected;
-            options.hooks.wait = wait_pumping_events;
-            const install::UninstallResult result =
-                install::uninstall_package(*kind, root, path_to_utf8(at.filename()), options);
-            mod_install_state().discarder.add(result.discards);
-            if (!result.removed) {
-                library_log("UNINSTALL: " + title + " not removed: " + result.detail);
-                problem = uninstall_problem_of(result.refusal);
-            }
-        }
-        if (problem) {
-            show_notice(library::uninstall_failed_notice(title, *problem, model.text));
+        if (switches_first(again)) {
+            switch_off_to_uninstall(entry, title, still->installed->folder, expected);
             return;
         }
-        library_log("UNINSTALL: removed " + title + " from " + path_to_utf8(at));
-        // Uninstalling the default computer player clears the preference, so
-        // it does not keep naming a brain that is gone. The built-in player
-        // is the default again.
-        if (entry.kind == library::Kind::brain) {
-            const auto stored =
-                preference_values_.find(std::string(oa::ui::engine_settings::key::brain_default));
-            if (stored != preference_values_.end() && stored->second == entry.key)
-                set_default_brain({});
+        if (again != library::UninstallStep::ask) {
+            ask_over_library(library::uninstall_notice(*still, again, model.text));
+            return;
         }
-        // What reads the kind's folder reads it again, and the Library's
-        // feed lists what is installed again.
-        package_changed(*kind, at);
-        if (library_) {
-            library_->look_again(*this);
-            library_->refreshed = false;
-        }
+        if (std::optional<oa::ui::kit::Question> told =
+                remove_package_folder(entry, title, still->installed->folder, expected))
+            ask_over_library(std::move(*told));
     };
-    QuestionScreen::Host answers;
-    answers.answer = [uninstall_now, uninstall_button](int32_t button) {
+    ask_over_library(std::move(asked), [uninstall_now, uninstall_button](int32_t button) {
         if (button == uninstall_button)
             uninstall_now();
-        return true;
-    };
-    // It goes with the main menu, as the Library does.
-    answers.tick = [this] { return screen_ != Screen::main_menu; };
+    });
+}
+
+void Runtime::switch_off_to_uninstall(
+    const library::EntryId& entry,
+    std::string_view title,
+    const fs::path& folder,
+    const install::InstalledPackage& expected
+) {
+    // The Library opens again after the soft restart, as it shows now, and
+    // the next run removes the folder as it opens.
+    keep_library_for_restart();
+    if (library_kept_ == nullptr) {
+        library_log("UNINSTALL: " + std::string(title) + " is played and the Library is not shown");
+        return;
+    }
+    auto kept = std::make_shared<LibraryReturn>(*library_kept_);
+    kept->uninstall = LibraryReturn::Uninstall{entry, std::string(title), folder, expected};
+    library_kept_ = std::move(kept);
+    restart_line_ = filled_name("Uninstalling {name}…", title);
+    std::string refusal;
+    if (!switch_to_mod_folder({}, refusal)) {
+        library_kept_.reset();
+        restart_line_.clear();
+        status_ = refusal;
+        library_log("UNINSTALL: " + refusal);
+        ask_over_library(library::switch_refused_note(
+            oa::data::languages::interface_text(refusal), library_host().model.text
+        ));
+        return;
+    }
+    library_log("UNINSTALL: switching off " + std::string(title) + " to remove " + path_to_utf8(folder));
+}
+
+std::optional<oa::ui::kit::Question> Runtime::remove_package_folder(
+    const library::EntryId& entry,
+    std::string_view title,
+    const fs::path& folder,
+    const install::InstalledPackage& expected
+) {
+    const install::PackageKind* kind = package_kind_of(entry.kind);
+    if (kind == nullptr)
+        return std::nullopt;
+    const library::TextHooks& text = library_host().model.text;
+    const fs::path root = user_folder_ / std::string(kind->root_folder);
+    std::optional<library::UninstallProblem> problem;
+    if (user_folder_.empty() || !same_folder(kept_path(folder.parent_path()), kept_path(root))) {
+        library_log("UNINSTALL: " + path_to_utf8(folder) + " is not in " + path_to_utf8(root));
+        problem = library::UninstallProblem::outside;
+    } else {
+        install::ChangeOptions options{};
+        options.expected = expected;
+        options.hooks.wait = wait_pumping_events;
+        const install::UninstallResult result =
+            install::uninstall_package(*kind, root, path_to_utf8(folder.filename()), options);
+        mod_install_state().discarder.add(result.discards);
+        if (!result.removed) {
+            library_log("UNINSTALL: " + std::string(title) + " not removed: " + result.detail);
+            problem = uninstall_problem_of(result.refusal);
+        }
+    }
+    if (problem)
+        return library::uninstall_failed_notice(title, *problem, text);
+    library_log("UNINSTALL: removed " + std::string(title) + " from " + path_to_utf8(folder));
+    // Uninstalling the default computer player clears the preference, so
+    // it does not keep naming a brain that is gone. The built-in player
+    // is the default again.
+    if (entry.kind == library::Kind::brain) {
+        const auto stored =
+            preference_values_.find(std::string(oa::ui::engine_settings::key::brain_default));
+        if (stored != preference_values_.end() && stored->second == entry.key)
+            set_default_brain({});
+    }
+    // What reads the kind's folder reads it again, and the Library's
+    // feed lists what is installed again.
+    package_changed(*kind, folder);
+    if (library_) {
+        library_->look_again(*this);
+        library_->refreshed = false;
+    }
+    return std::nullopt;
+}
+
+void Runtime::ask_over_library(oa::ui::kit::Question asked, std::function<void(int32_t)> answer) {
     OaLayer& layer = oa_layer();
+    // The Library drawn with the game's art asks in its own panel.
+    const LayerScreen* top = layer.top();
+    if (top != nullptr && top->name() == library_screen_name && main_menu_opens_game_art_screens()) {
+        LibraryHost& host = library_host();
+        host.menu_question = std::move(asked);
+        host.menu_answer = std::move(answer);
+        return;
+    }
+    QuestionScreen::Host answers;
+    if (answer)
+        answers.answer = [answer = std::move(answer)](int32_t button) {
+            answer(button);
+            return true;
+        };
+    answers.tick = [this] { return screen_ != Screen::main_menu; };
     layer.push(
         std::make_unique<QuestionScreen>(layer, Screen::main_menu, std::move(asked), answers)
     );

@@ -171,6 +171,18 @@ oa::ui::kit::Question uninstall_question(
     return question;
 }
 
+oa::ui::kit::Question uninstall_playing_question(
+    const Library& library, const Entry& entry, std::string_view folder, const TextHooks& text
+) {
+    oa::ui::kit::Question question = uninstall_question(library, entry, folder, text);
+    question.paragraphs.insert(
+        question.paragraphs.begin(),
+        {filled(text, words::uninstall_playing_first, {{"name", std::string(entry_name(entry))}}),
+         false}
+    );
+    return question;
+}
+
 oa::ui::kit::Question
 uninstall_notice(const Entry& entry, UninstallStep step, const TextHooks& text) {
     const std::string name(entry_name(entry));

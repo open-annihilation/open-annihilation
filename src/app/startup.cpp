@@ -704,6 +704,111 @@ void check_director_options(Options& options) {
     options.skip_intro = true;
 }
 
+/// Returns the first self-check the options ask for: a --check-* option or
+/// --reclaim-check.
+///
+/// @param options the parsed options
+/// @return its option, such as "--check-navigation"; null when none is asked for
+[[nodiscard]] const char* first_self_check(const Options& options) {
+    const std::pair<bool, const char*> checks[] = {
+        {options.reclaim_check, "--reclaim-check"},
+        {options.check_navigation, "--check-navigation"},
+        {options.check_match_dialogs, "--check-match-dialogs"},
+        {options.check_load_save, "--check-load-save"},
+        {options.check_frontend_controls, "--check-frontend-controls"},
+        {options.check_scroll_bars, "--check-scroll-bars"},
+        {options.check_briefing_narration, "--check-briefing-narration"},
+        {options.check_match_layers, "--check-match-layers"},
+        {options.check_render_tiers, "--check-render-tiers"},
+        {options.check_match_orders, "--check-match-orders"},
+        {options.check_side_orders, "--check-side-orders"},
+        {options.check_factory_orders, "--check-factory-orders"},
+        {options.check_unit_speech, "--check-unit-speech"},
+        {options.check_mutator_layer, "--check-mutator-layer"},
+        {options.check_mutator_verdicts, "--check-mutator-verdicts"},
+        {options.check_mutator_dry_run, "--check-mutator-dry-run"},
+        {options.check_replay_loadout, "--check-replay-loadout"},
+        {options.check_side_data_per_match, "--check-side-data-per-match"},
+        {options.check_gadget_art_per_match, "--check-gadget-art-per-match"},
+        {options.check_download_builds, "--check-download-builds"},
+        {options.check_stockpile_builds, "--check-stockpile-builds"},
+        {options.check_unit_page_memory, "--check-unit-page-memory"},
+        {options.check_side_column, "--check-side-column"},
+        {options.check_match_bars, "--check-match-bars"},
+        {!options.check_unit_pages.empty(), "--check-unit-pages"},
+        {options.check_kill_board, "--check-kill-board"},
+        {options.check_paused_save, "--check-paused-save"},
+        {options.check_saved_brains, "--check-saved-brains"},
+        {options.check_simulation_hash, "--check-simulation-hash"},
+        {options.check_zoom_memory, "--check-zoom-memory"},
+        {!options.check_unit_language.empty(), "--check-unit-language"},
+        {options.check_language_switch, "--check-language-switch"},
+        {options.check_language_registry, "--check-language-registry"},
+        {options.check_language_notice, "--check-language-notice"},
+        {options.check_first_run, "--check-first-run"},
+        {options.check_setup_window, "--check-setup-window"},
+        {options.check_window_place, "--check-window-place"},
+        {options.check_progress, "--check-progress"},
+        {options.check_icloud_wait, "--check-icloud-wait"},
+        {options.check_text_fit, "--check-text-fit"},
+        {!options.check_languages.empty(), "--check-language"},
+        {options.check_folder_chooser, "--check-folder-chooser"},
+        {options.check_patrol_reclaim, "--check-patrol-reclaim"},
+        {options.check_reclaim_cursor, "--check-reclaim-cursor"},
+        {options.check_wreck_pick, "--check-wreck-pick"},
+        {options.check_click_snap, "--check-click-snap"},
+        {options.check_build_preview, "--check-build-preview"},
+        {options.check_pointer_interfaces, "--check-pointer-interfaces"},
+        {options.check_megamap_clicks, "--check-megamap-clicks"},
+        {options.check_radar_orders, "--check-radar-orders"},
+        {options.check_touch_controls, "--check-touch-controls"},
+        {options.check_pad_controls, "--check-pad-controls"},
+        {options.check_running_while_inactive, "--check-running-while-inactive"},
+        {options.check_game_files, "--check-game-files"},
+        {!options.check_content_copy.empty(), "--check-content-copy"},
+        {!options.check_installer.empty(), "--check-installer"},
+        {options.check_multiplayer_menu, "--check-multiplayer-menu"},
+        {options.check_director_view, "--check-director-view"},
+        {options.check_director_render, "--check-director-render"},
+        {options.check_interpolation, "--check-interpolation"},
+        {options.check_unit_playout, "--check-unit-playout"},
+        {options.check_engine_settings, "--check-engine-settings"},
+        {options.check_registered_kit, "--check-registered-kit"},
+        {options.check_kit_gallery, "--check-kit-gallery"},
+        {options.check_user_folder, "--check-user-folder"},
+        {options.check_mod_switch, "--check-mod-switch"},
+        {options.check_map_packs, "--check-map-packs"},
+        {options.check_map_browser, "--check-map-browser"},
+        {options.check_mutator_picker, "--check-mutator-picker"},
+        {options.check_brain_picker, "--check-brain-picker"},
+        {options.check_brain_seat_buttons, "--check-brain-seat-buttons"},
+        {options.check_brain_campaign, "--check-brain-campaign"},
+        {options.check_mutator_prompts, "--check-mutator-prompts"},
+        {options.check_mutator_button, "--check-mutator-button"},
+        {options.check_mutator_room, "--check-mutator-room"},
+        {options.check_brain_room, "--check-brain-room"},
+        {options.check_map_pack_lists, "--check-map-pack-lists"},
+        {options.check_mod_map_settings, "--check-mod-map-settings"},
+        {options.check_mod_warning, "--check-mod-warning"},
+        {options.check_mod_install, "--check-mod-install"},
+        {options.check_language_install, "--check-language-install"},
+        {options.check_challenge, "--check-challenge"},
+        {options.check_registries, "--check-registries"},
+        {options.check_library, "--check-library"},
+        {options.check_library_install, "--check-library-install"},
+        {options.check_library_map_previews, "--check-library-map-previews"},
+        {options.check_library_content, "--check-library-content"},
+        {options.check_library_update_question, "--check-library-update-question"},
+        {options.check_renderer_ladder, "--check-renderer-ladder"},
+        {options.check_renderer_proof, "--check-renderer-proof"},
+        {options.check_live_renderer, "--check-live-renderer"},
+    };
+    for (const auto& [given, name] : checks)
+        if (given)
+            return name;
+    return nullptr;
+}
+
 /// Refuses the self-checks, a --check-* option or --reclaim-check, in a build
 /// that leaves them out (self_checks_built).
 ///
@@ -712,106 +817,12 @@ void check_director_options(Options& options) {
 /// @param options the parsed options
 void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
     if constexpr (!self_checks_built) {
-        const std::pair<bool, const char*> checks[] = {
-            {options.reclaim_check, "--reclaim-check"},
-            {options.check_navigation, "--check-navigation"},
-            {options.check_match_dialogs, "--check-match-dialogs"},
-            {options.check_load_save, "--check-load-save"},
-            {options.check_frontend_controls, "--check-frontend-controls"},
-            {options.check_scroll_bars, "--check-scroll-bars"},
-            {options.check_briefing_narration, "--check-briefing-narration"},
-            {options.check_match_layers, "--check-match-layers"},
-            {options.check_render_tiers, "--check-render-tiers"},
-            {options.check_match_orders, "--check-match-orders"},
-            {options.check_side_orders, "--check-side-orders"},
-            {options.check_factory_orders, "--check-factory-orders"},
-            {options.check_unit_speech, "--check-unit-speech"},
-            {options.check_mutator_layer, "--check-mutator-layer"},
-            {options.check_mutator_verdicts, "--check-mutator-verdicts"},
-            {options.check_mutator_dry_run, "--check-mutator-dry-run"},
-            {options.check_replay_loadout, "--check-replay-loadout"},
-            {options.check_side_data_per_match, "--check-side-data-per-match"},
-            {options.check_gadget_art_per_match, "--check-gadget-art-per-match"},
-            {options.check_download_builds, "--check-download-builds"},
-            {options.check_stockpile_builds, "--check-stockpile-builds"},
-            {options.check_unit_page_memory, "--check-unit-page-memory"},
-            {options.check_side_column, "--check-side-column"},
-            {options.check_match_bars, "--check-match-bars"},
-            {!options.check_unit_pages.empty(), "--check-unit-pages"},
-            {options.check_kill_board, "--check-kill-board"},
-            {options.check_paused_save, "--check-paused-save"},
-            {options.check_saved_brains, "--check-saved-brains"},
-            {options.check_simulation_hash, "--check-simulation-hash"},
-            {options.check_zoom_memory, "--check-zoom-memory"},
-            {!options.check_unit_language.empty(), "--check-unit-language"},
-            {options.check_language_switch, "--check-language-switch"},
-            {options.check_language_registry, "--check-language-registry"},
-            {options.check_language_notice, "--check-language-notice"},
-            {options.check_first_run, "--check-first-run"},
-            {options.check_setup_window, "--check-setup-window"},
-            {options.check_window_place, "--check-window-place"},
-            {options.check_progress, "--check-progress"},
-            {options.check_icloud_wait, "--check-icloud-wait"},
-            {options.check_text_fit, "--check-text-fit"},
-            {!options.check_languages.empty(), "--check-language"},
-            {options.check_folder_chooser, "--check-folder-chooser"},
-            {options.check_patrol_reclaim, "--check-patrol-reclaim"},
-            {options.check_reclaim_cursor, "--check-reclaim-cursor"},
-            {options.check_wreck_pick, "--check-wreck-pick"},
-            {options.check_click_snap, "--check-click-snap"},
-            {options.check_build_preview, "--check-build-preview"},
-            {options.check_pointer_interfaces, "--check-pointer-interfaces"},
-            {options.check_megamap_clicks, "--check-megamap-clicks"},
-            {options.check_radar_orders, "--check-radar-orders"},
-            {options.check_touch_controls, "--check-touch-controls"},
-            {options.check_pad_controls, "--check-pad-controls"},
-            {options.check_running_while_inactive, "--check-running-while-inactive"},
-            {options.check_game_files, "--check-game-files"},
-            {!options.check_content_copy.empty(), "--check-content-copy"},
-            {!options.check_installer.empty(), "--check-installer"},
-            {options.check_multiplayer_menu, "--check-multiplayer-menu"},
-            {options.check_director_view, "--check-director-view"},
-            {options.check_director_render, "--check-director-render"},
-            {options.check_interpolation, "--check-interpolation"},
-            {options.check_unit_playout, "--check-unit-playout"},
-            {options.check_engine_settings, "--check-engine-settings"},
-            {options.check_registered_kit, "--check-registered-kit"},
-            {options.check_kit_gallery, "--check-kit-gallery"},
-            {options.check_user_folder, "--check-user-folder"},
-            {options.check_mod_switch, "--check-mod-switch"},
-            {options.check_map_packs, "--check-map-packs"},
-            {options.check_map_browser, "--check-map-browser"},
-            {options.check_mutator_picker, "--check-mutator-picker"},
-            {options.check_brain_picker, "--check-brain-picker"},
-            {options.check_brain_seat_buttons, "--check-brain-seat-buttons"},
-            {options.check_brain_campaign, "--check-brain-campaign"},
-            {options.check_mutator_prompts, "--check-mutator-prompts"},
-            {options.check_mutator_button, "--check-mutator-button"},
-            {options.check_mutator_room, "--check-mutator-room"},
-            {options.check_brain_room, "--check-brain-room"},
-            {options.check_map_pack_lists, "--check-map-pack-lists"},
-            {options.check_mod_map_settings, "--check-mod-map-settings"},
-            {options.check_mod_warning, "--check-mod-warning"},
-            {options.check_mod_install, "--check-mod-install"},
-            {options.check_language_install, "--check-language-install"},
-            {options.check_challenge, "--check-challenge"},
-            {options.check_registries, "--check-registries"},
-            {options.check_library, "--check-library"},
-            {options.check_library_install, "--check-library-install"},
-            {options.check_library_map_previews, "--check-library-map-previews"},
-            {options.check_library_content, "--check-library-content"},
-            {options.check_library_update_question, "--check-library-update-question"},
-            {options.check_renderer_ladder, "--check-renderer-ladder"},
-            {options.check_renderer_proof, "--check-renderer-proof"},
-            {options.check_live_renderer, "--check-live-renderer"},
-        };
-        for (const auto& [given, name] : checks)
-            if (given)
-                throw std::runtime_error(
-                    std::string(name) +
-                    " is a self-check, and this build leaves the self-checks out; Check and "
-                    "Debug builds hold them"
-                );
+        if (const char* name = first_self_check(options))
+            throw std::runtime_error(
+                std::string(name) +
+                " is a self-check, and this build leaves the self-checks out; Check and "
+                "Debug builds hold them"
+            );
     }
 }
 
@@ -1015,6 +1026,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--touch-controls", &Options::touch_controls},
     {"--check-game-files", &Options::check_game_files},
     {"--no-game-files-screen", &Options::no_game_files_screen},
+    {"--classic-main-menu", &Options::classic_main_menu},
     {"--check-multiplayer-menu", &Options::check_multiplayer_menu},
     {"--check-director-view", &Options::check_director_view},
     {"--check-director-render", &Options::check_director_render},
@@ -1671,6 +1683,7 @@ void write_startup_line(std::string_view text) {
                      "[--game-files-source PATH] [--game-files-free-bytes N] "
                      "[--game-files-copy-rate BYTES] [--game-files-stop-after BYTES] "
                      "[--no-game-files-screen] "
+                     "[--classic-main-menu] "
                      "[--zoom FACTOR] [--combat UNITS [--busy-combat]] [--stage FILE] "
                      "[--reclaim-check] "
                      "[--camera X,Z] "
@@ -1968,6 +1981,10 @@ void write_startup_line(std::string_view text) {
         result.unattended = true;
     if (!result.check_installer.empty())
         result.unattended = true;
+    // The checks, and every run nobody watches, drive the game's own main
+    // menu, MAINMENU.GUI's buttons where 3.1c has them.
+    if (result.unattended || result.headless_check || first_self_check(result) != nullptr)
+        result.classic_main_menu = true;
     if (!result.display_modes.empty() && !result.unattended)
         throw std::runtime_error(
             "--display-modes is accepted only with checks, snapshots, benchmarks and frame "

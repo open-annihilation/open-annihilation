@@ -274,6 +274,21 @@ void show_work_frame(
     std::ignore = window_frame.show(pixels, kept, host);
 }
 
+void show_still_frame(
+    SDL_Window* window, SDL_Renderer* renderer, RendererHost* host, const renderer::Surface& picture
+) {
+    if (window == nullptr || renderer == nullptr || picture.width == 0 || picture.height == 0)
+        return;
+    WindowFrame window_frame(renderer, "the progress dialog");
+    paint::Canvas pixels;
+    const kit::Frame room = progress_room(window, renderer, pixels);
+    if (room.area.width <= 0 || pixels.width <= 0)
+        return;
+    fill_progress_behind(pixels, &picture);
+    const RenderState kept(renderer);
+    std::ignore = window_frame.show(pixels, kept, host);
+}
+
 LongWorkResult run_long_work(
     SDL_Window* window,
     SDL_Renderer* renderer,
@@ -283,7 +298,8 @@ LongWorkResult run_long_work(
     const std::function<void(paint::Canvas&)>& behind,
     const std::function<void(LongWork&)>& job,
     uint32_t show_after_ms,
-    LongWorkClose close
+    LongWorkClose close,
+    LongWorkLook look
 ) {
     if (window == nullptr || renderer == nullptr || long_work_running()) {
         LongWork inline_work;
@@ -374,11 +390,14 @@ LongWorkResult run_long_work(
             const kit::Frame dialog_frame = progress_room(window, renderer, pixels);
             if (dialog_frame.area.width > 0 && pixels.width > 0) {
                 behind(pixels);
-                paint_progress_dialog(pixels, dialog_frame, title_shown, line_shown, amount, turn);
+                if (look == LongWorkLook::dialog)
+                    paint_progress_dialog(
+                        pixels, dialog_frame, title_shown, line_shown, amount, turn
+                    );
                 const RenderState kept(renderer);
                 std::ignore = window_frame.show(pixels, kept, host);
             }
-            if (done && now - shown_at >= long_work_stay_ms)
+            if (done && (look == LongWorkLook::behind_only || now - shown_at >= long_work_stay_ms))
                 break;
             SDL_Delay(16);
         }

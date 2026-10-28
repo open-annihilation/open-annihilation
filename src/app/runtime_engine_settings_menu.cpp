@@ -7,10 +7,13 @@
 // wait there, and beside it the Settings button, which opens Settings with
 // no Library under it; and the settings dialog as a screen of the OA layer
 // (oa_layer.hpp), which the Settings button, the shortcut, the requests and
-// the Library's SETTINGS… open on whichever screen can show them.
+// the Library's SETTINGS… open on whichever screen can show them. While
+// MAINMENU.GUI has LIBRARY and SETTINGS buttons of its own
+// (Runtime::add_main_menu_entries) the two buttons step aside for them.
 
 #include "engine_settings_menu_host.hpp"
 #include "engine_settings_state.hpp"
+#include "gui_record.hpp"
 #include "library_host.hpp"
 #include "oa_layer.hpp"
 
@@ -321,17 +324,33 @@ Runtime::EngineSettingsMenuHost& Runtime::engine_settings_menu_host() {
 
 bool Runtime::EngineSettingsMenuHost::button_shown(Runtime& runtime) {
     return runtime.screen_ == Screen::main_menu && !runtime.frame_owned_by_package() &&
+           !runtime.main_menu_entries_ &&
            runtime.surface_.width >= static_cast<uint32_t>(kCanvasWidth) &&
            runtime.surface_.height >= static_cast<uint32_t>(kCanvasHeight) &&
            runtime.engine_settings_fonts() != nullptr;
 }
 
+std::optional<artless::SourceRect>
+Runtime::EngineSettingsMenuHost::entry_rect(const Runtime& runtime, std::string_view name) {
+    if (!runtime.main_menu_entries_ || runtime.screen_ != Screen::main_menu)
+        return std::nullopt;
+    const auto found = gui_record_named(runtime.resources_.layout.gadgets, name);
+    if (!found)
+        return std::nullopt;
+    const auto& common = runtime.resources_.layout.gadgets[*found].common;
+    return artless::SourceRect{common.x, common.y, common.width, common.height};
+}
+
 artless::SourceRect Runtime::EngineSettingsMenuHost::button_rect(const Runtime& runtime) {
+    if (const auto entry = entry_rect(runtime, main_menu_library_record))
+        return *entry;
     const artless::SourceRect beside = settings_button_rect(runtime);
     return {beside.x - kButtonGap - beside.width, beside.y, beside.width, beside.height};
 }
 
 artless::SourceRect Runtime::EngineSettingsMenuHost::settings_button_rect(const Runtime& runtime) {
+    if (const auto entry = entry_rect(runtime, main_menu_settings_record))
+        return *entry;
     constexpr int32_t side = settings::menu_button_side;
     const int32_t y =
         runtime.main_menu_overlay_ ? kButtonInset : kCanvasHeight - kButtonInset - side;
@@ -384,17 +403,21 @@ int Runtime::EngineSettingsMenuHost::button_event(ScreenContext* context, void*)
     const auto& input = *context->input;
     // Under a modal screen of the OA layer the buttons see no input: the
     // layer takes it first.
-    if (runtime.oa_layer().modal_shown(false) || !button_shown(runtime)) {
+    const bool covered = runtime.oa_layer().modal_shown(false);
+    // The shortcut opens Settings on MAINMENU.GUI with or without these
+    // buttons; its own SETTINGS, when it has one, is pressed as its others.
+    if (!covered && input.kind == ScreenInputKind::key_down &&
+        runtime.screen_ == Screen::main_menu &&
+        engine_settings_shortcut(input.key, input.modifiers)) {
+        runtime.open_engine_settings_from_menu();
+        return 1;
+    }
+    if (covered || !button_shown(runtime)) {
         host.button_hovered = false;
         host.button_pressed = false;
         host.settings_hovered = false;
         host.settings_pressed = false;
         return 0;
-    }
-    if (input.kind == ScreenInputKind::key_down &&
-        engine_settings_shortcut(input.key, input.modifiers)) {
-        runtime.open_engine_settings_from_menu();
-        return 1;
     }
     int32_t x = 0;
     int32_t y = 0;
@@ -889,8 +912,8 @@ void Runtime::register_engine_settings_button() {
 }
 
 void Runtime::open_engine_settings_from_menu() {
-    // Nothing opens over a message box, over a frame a package owns, or a
-    // second time.
+    // It opens from the main menu. Nothing opens over a message box, over a
+    // frame a package owns, or a second time.
     if (screen_ != Screen::main_menu || frame_owned_by_package() ||
         oa::ui::frontend_dialogs::dialog_count() != 0 || engine_settings_dialog() != nullptr ||
         saves_notice_shown() || engine_settings_fonts() == nullptr)
@@ -903,7 +926,11 @@ void Runtime::open_engine_settings_from_menu() {
         oa_layer().close_top();
     }
     open_engine_settings_dialog();
-    push_settings_screen(false);
+    // On the main menu, unless the run takes the game's untouched main menu,
+    // the dialog shows in the Settings screen drawn with the game's art, over
+    // the whole window, with the game's own options.
+    if (!main_menu_opens_game_art_screens() || !push_settings_menu_screen())
+        push_settings_screen(false);
     auto& host = engine_settings_menu_host();
     host.button_hovered = false;
     host.button_pressed = false;

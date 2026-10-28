@@ -84,6 +84,7 @@
 #include "oa/app/brain_seats.hpp"
 #include "oa/app/seat_chat.hpp"
 #include "oa/ui/frontend_multiplayer/host_mutators.hpp"
+#include "oa/app/window_icon.hpp"
 #include "oa/ui/frontend_renderer/scroll_bars.hpp"
 #include "oa/present/world_renderer/world_radar.hpp"
 #include "oa/sim/messages.hpp"
@@ -173,6 +174,7 @@ enum class Tab : uint8_t;
 enum class Action : uint8_t;
 struct EntryId;
 struct Inputs;
+struct ScreenResult;
 } // namespace oa::ui::library
 
 namespace oa::ui::kit {
@@ -374,6 +376,7 @@ struct MissionMoveGoal {
 };
 
 namespace package_install {
+struct InstalledPackage;
 struct PackageKind;
 struct PackageOptions;
 } // namespace package_install
@@ -642,6 +645,17 @@ class Runtime final : public menu::Host,
     /// @return the line, such as "Switching on Ridge…"; empty when the run
     ///     did not end for such a switch
     [[nodiscard]] const std::string& restart_line() const noexcept { return restart_line_; }
+
+    /// Returns the window as the switch of the mod in the Library that ended
+    /// the run began: the Library with the switch's line over it, which the
+    /// next run shows until the Library opens again
+    /// (Options::restart_picture).
+    ///
+    /// @return the picture, read back from the window; null when the run did
+    ///     not end for such a switch, or no window showed it
+    [[nodiscard]] std::shared_ptr<const renderer::Surface> switch_picture() const {
+        return switch_picture_;
+    }
 
     /// Frees what the runtime made on the renderer it borrows: its streamed
     /// textures and the match's layers. A runtime that ends for a soft
@@ -1334,6 +1348,11 @@ class Runtime final : public menu::Host,
     /// @param path the save or the recording
     void note_content_beside(const fs::path& path) const;
 
+    /// The record names of the LIBRARY and SETTINGS buttons MAINMENU.GUI is
+    /// given (add_main_menu_entries).
+    static constexpr std::string_view main_menu_library_record = "LIBRARY";
+    static constexpr std::string_view main_menu_settings_record = "SETTINGS";
+
   private:
 
     /// Runs one pass of the idle loop.
@@ -1381,9 +1400,9 @@ class Runtime final : public menu::Host,
     /// It shows where the game draws no cursor of its own: without the game's
     /// cursors, while the application is inactive, and while a screen that
     /// the system's pointer drives is open over the game (the Game files
-    /// screen). Everywhere else, in play and in the game's own menus, dialogs
-    /// and message boxes, the game draws its cursor and the system's pointer
-    /// is hidden.
+    /// screen), and in the game's own menus, where it shows the game's cursor
+    /// (show_system_cursor). Everywhere else, and where it cannot, the game
+    /// draws its cursor and the system's pointer is hidden.
     ///
     /// @return true where the system's pointer is to show
     [[nodiscard]] bool system_pointer_wanted() const;
@@ -6521,9 +6540,9 @@ class Runtime final : public menu::Host,
     /// a prompt over the Library (MOD NOT ROLLED BACK). PLAY NOW switches the
     /// game to the installed mod's folder (switch_to_mod_folder), a refusal
     /// told in a note over the Library
-    /// (oa::ui::library::switch_refused_note). SWITCH OFF asks the Switch
-    /// Mod question for no mod (oa::ui::library::switch_off_question), whose
-    /// SWITCH plays the game with no mod and whose CANCEL leaves it. A switch
+    /// (oa::ui::library::switch_refused_note). SWITCH OFF, and PLAY NOW
+    /// on the base game entry, play the game with no mod at once, through the
+    /// same switch, with no question. A switch
     /// made while the Library shows opens it again after the soft restart,
     /// as it showed (keep_library_for_restart). PLAY NOW and SWITCH OFF do
     /// nothing during a game, or while the command line chose the mod. A
@@ -6543,12 +6562,26 @@ class Runtime final : public menu::Host,
     void
     library_entry_action(oa::ui::library::Action action, const oa::ui::library::EntryId& entry);
 
+    /// Carries out one of the Library's entry buttons pressed outside the
+    /// Library, on Settings › Language & Text's list of languages: GET,
+    /// CANCEL, RETRY, UPDATE, ROLL BACK, UNINSTALL, OPEN FOLDER or HOMEPAGE,
+    /// as the Library's own press of it does. Any other does nothing.
+    ///
+    /// @param action the button
+    /// @param entry the entry
+    void
+    library_entry_press(oa::ui::library::Action action, const oa::ui::library::EntryId& entry);
+
     /// Carries out an installed entry's UNINSTALL, which library_entry_action
     /// hands here. For the mod being played, or the language pack the game
     /// shows its words from, as the Library's model or this run says
     /// (package_target_in_use, language_pack_in_use), it shows the notice of
-    /// what comes first over the Library and removes nothing. Otherwise it
-    /// asks the Uninstall question (oa::ui::library::uninstall_question),
+    /// what comes first over the Library and removes nothing. The mod being
+    /// played, where the player could switch it off, is asked about instead
+    /// (oa::ui::library::uninstall_playing_question): its UNINSTALL switches
+    /// it off, the game starting again with no mod, and the next run removes
+    /// its folder as the Library opens again (LibraryReturn::uninstall).
+    /// Otherwise it asks the Uninstall question (oa::ui::library::uninstall_question),
     /// whose UNINSTALL looks again and removes the package's folder in the
     /// player's Mods, Maps or Languages folder, with the copy ROLL BACK
     /// keeps (package_install::uninstall_package), the folders it drops
@@ -6558,6 +6591,52 @@ class Runtime final : public menu::Host,
     ///
     /// @param entry the entry
     void library_uninstall(const oa::ui::library::EntryId& entry);
+
+    /// UNINSTALL's answer for the mod being played: keeps the Library for
+    /// the next run (keep_library_for_restart) with the mod's folder to
+    /// remove (LibraryReturn::uninstall), and switches to no mod, the switch's
+    /// line "Uninstalling {name}…". A refusal shows in the status line and in
+    /// a notice over the Library, and nothing is removed.
+    ///
+    /// @param entry the mod's entry
+    /// @param title its name as the player sees it
+    /// @param folder its folder
+    /// @param expected what the folder held as the question was asked
+    void switch_off_to_uninstall(
+        const oa::ui::library::EntryId& entry,
+        std::string_view title,
+        const std::filesystem::path& folder,
+        const package_install::InstalledPackage& expected
+    );
+
+    /// Removes an installed package's folder, as UNINSTALL's answer does:
+    /// only a folder in the player's own folder for its kind that still
+    /// holds what the question named; the folders it drops deleted a step a
+    /// frame. What reads the kind's folder reads it again, and the Library's
+    /// feed lists what is installed again.
+    ///
+    /// @param entry the package's entry
+    /// @param title its name as the player sees it
+    /// @param folder its folder
+    /// @param expected what the folder held as the question was asked
+    /// @return the notice of a refusal, which removed nothing; none when the
+    ///     folder was removed
+    std::optional<oa::ui::kit::Question> remove_package_folder(
+        const oa::ui::library::EntryId& entry,
+        std::string_view title,
+        const std::filesystem::path& folder,
+        const package_install::InstalledPackage& expected
+    );
+
+    /// Asks a question, or tells a notice, over the Library: in the
+    /// Library's own panel while the Library in the main menu's look shows
+    /// (LibraryMenuQuestion), in the kit's prompt over the screen otherwise.
+    /// It goes with the main menu, as the Library does.
+    ///
+    /// @param asked the question, or a notice of one button
+    /// @param answer what an answer does, given the button pressed from 0;
+    ///     unset for nothing
+    void ask_over_library(oa::ui::kit::Question asked, std::function<void(int32_t)> answer = {});
 
     /// Tells whether a language pack's folder is one the game shows its words
     /// from now: the language shown's, or one of its fallbacks'
@@ -6605,15 +6684,26 @@ class Runtime final : public menu::Host,
     /// (library_return). Without the Library on the OA layer, nothing.
     void keep_library_for_restart();
 
+    /// Draws the window once more as a switch of the mod in the Library ends
+    /// the run, the switch's line over the Library, and keeps what it shows
+    /// (switch_picture). The Library drawn with the game's art writes the
+    /// line in a frame of that art; the Library's own screen leaves it to
+    /// the switch's work dialog (WorkScreen). Without such a switch, a
+    /// window or the Library on the OA layer, nothing is kept.
+    void keep_switch_picture();
+
     /// Opens the Library again as the run before left it
     /// (take_library_return), once the main menu lets it open
     /// (kept_library_may_show) and its feed lists the installed packages
     /// (LibraryFeed::installed_listed), so that no entry moves as they
     /// arrive; the chosen entry's row is in view. Until then the switch's
     /// work dialog (WorkScreen) shows over the main menu where the Library
-    /// could. The wait is kept_library_wait_ms from the first frame on the
+    /// could: the window as the switch began where the run before kept it
+    /// (Options::restart_picture). The wait is kept_library_wait_ms from the first frame on the
     /// main menu: then the Library opens unlisted if it can, and is dropped
-    /// if it cannot, on whichever screen shows.
+    /// if it cannot, on whichever screen shows. That picture goes on showing
+    /// over the Library opened again until the pictures of its rows have
+    /// arrived, for at most kept_library_pictures_wait_ms.
     void reopen_kept_library();
 
     /// Tells whether open_library opens the Library now.
@@ -7253,10 +7343,83 @@ class Runtime final : public menu::Host,
     /// @param in_match the dialog was opened in a match; otherwise on the main menu
     void push_settings_screen(bool in_match);
 
+    /// What the Settings screen drawn with the game's art
+    /// (runtime_settings_menu.cpp) reads and sets: the open settings dialog's sections and the game's
+    /// own options, which the game's Options screen sets.
+    struct SettingsMenuHost;
+
+    /// Puts the Settings screen drawn with the game's art (settings_menu.hpp)
+    /// on the OA layer as its top screen, over the open settings dialog,
+    /// which it shows over the whole window: on the main menu while
+    /// main_menu_opens_game_art_screens says yes.
+    ///
+    /// @return false when the game's art for it cannot be read; nothing is
+    ///     pushed then
+    bool push_settings_menu_screen();
+
+    /// The Settings screen's category that the next Settings screen opens
+    /// on, by its word, such as "language"; empty opens on the first. The
+    /// screen clears it as it opens.
+    std::string settings_menu_first_category_{};
+
+    /// What the Library screen drawn with the game's art
+    /// (runtime_library_menu.cpp) reads and asks for: the Library's model and the actions of its
+    /// buttons.
+    struct LibraryMenuHost;
+
+    /// Puts the Library screen drawn with the game's art (library_menu.hpp)
+    /// on the OA layer as its top screen, named library, over the whole
+    /// window: on the main menu while main_menu_opens_game_art_screens says
+    /// yes.
+    ///
+    /// @return false when the game's art for it cannot be read; nothing is
+    ///     pushed then
+    bool push_library_menu_screen();
+
+    /// Carries out what a press of the Library asked for, as the Library's
+    /// own screen does: an entry's button, UPDATE ALL, the refresh, a
+    /// registry's switch, REFRESH, REMOVE, ADD MIRROR… and ADD REGISTRY…,
+    /// SETTINGS, CLOSE, CHANGE…, a base game to copy, TURN ON and the
+    /// questions about the expansions.
+    ///
+    /// @param result what was asked for
+    /// @return true when the Library closes
+    bool library_act(const oa::ui::library::ScreenResult& result);
+
+    /// Does what the Library's leaving does: stores what its Active tab
+    /// holds, and forgets the pictures it waits for.
+    void library_screen_closed();
+
     /// Keeps the presence card's screen (runtime_presence_card.cpp) on the OA
     /// layer while the multiplayer screens show: pushes it when the layer
     /// has none. OaLayer::tick calls it once a frame.
     void keep_presence_card_screen();
+
+    /// Adds MAINMENU.GUI's LIBRARY and SETTINGS buttons as the main menu
+    /// loads: copies of SINGLE and INTRO, with a copy of each one's plate
+    /// from the menu's picture one button's step above it, and stands the
+    /// six buttons on three rows of two, SINGLE and MULTI, SETTINGS and
+    /// LIBRARY, INTRO and EXIT (main_menu_entries_). Not with `--classic-main-menu`, under
+    /// an extension's overlay, or on a MAINMENU.GUI without SINGLE and INTRO
+    /// or without room above them; the main menu then keeps its corner
+    /// buttons (EngineSettingsMenuHost).
+    void add_main_menu_entries();
+
+    /// Opens what MAINMENU.GUI's LIBRARY or SETTINGS button opens when the
+    /// selected record is one of them.
+    ///
+    /// @return true when it was one of them
+    bool activate_main_menu_entry();
+
+    /// Tells whether Settings and the Library, opened on the main menu, show
+    /// as screens drawn with the game's art over the whole window: while the
+    /// main menu shows, the run does not take the game's untouched main menu
+    /// (Options::classic_main_menu), no package owns the frame, the OA layer
+    /// has fonts and the game's art for them can be read
+    /// (game_menu_art_readable_). Otherwise they open as their own dialogs.
+    ///
+    /// @return true while they do
+    [[nodiscard]] bool main_menu_opens_game_art_screens();
 
     /// GET MAP over the battle room, as a screen of the OA layer
     /// (runtime_get_map.cpp).
@@ -11202,6 +11365,34 @@ class Runtime final : public menu::Host,
     ///
     /// Throws PresentError when SDL refuses a call.
     void present_front_end();
+
+    /// Tells whether the run is in a window that nothing drives, records or
+    /// times frame by frame, without the frame statistics shown: only then
+    /// may the system's pointer show the game's cursor.
+    ///
+    /// @return true when it is
+    [[nodiscard]] bool quiet_frames_allowed() const;
+
+    /// Tells whether the game's cursor may show as the system's pointer:
+    /// not while the cursor is hidden, lifted by touch, a middle-click pan's
+    /// or left out of the frame, nor while quiet_frames_allowed says no.
+    ///
+    /// @return true when it may
+    [[nodiscard]] bool system_cursor_may_show() const;
+
+    /// Shows the game's cursor as the system's pointer over the game's own
+    /// menus (front_end_system_cursor_), enlarged as the picture is, so that
+    /// the pointer moves without a frame being drawn. Not where system_cursor_may_show says no.
+    ///
+    /// @param area where the picture lies in the window, in window pixels
+    /// @param picture_width the picture's width, in its pixels
+    /// @return true when the system draws the cursor this frame; the frame
+    ///     then draws none
+    bool show_system_cursor(const SDL_FRect& area, int picture_width);
+
+    /// Puts the system's own pointer back and forgets the game's cursors
+    /// made for it (show_system_cursor).
+    void release_system_cursor() noexcept;
 
     /// Returns the current frontend screen's gadgets and selection as the input handlers' menu.
     ///
@@ -18318,6 +18509,13 @@ class Runtime final : public menu::Host,
     // A package overlay stands over the main menu, so it takes the
     // MAINMENU.GUI laid out under that overlay.
     bool main_menu_overlay_ = false;
+    // MAINMENU.GUI as loaded now holds the LIBRARY and SETTINGS buttons
+    // add_main_menu_entries adds.
+    bool main_menu_entries_ = false;
+    // Whether the game's art Settings and the Library are drawn with over
+    // the main menu can be read, as the first look found it; none before it
+    // (main_menu_opens_game_art_screens).
+    std::optional<bool> game_menu_art_readable_;
     // Replaces the frontend clock while a headless check steps it.
     std::optional<uint32_t> fake_frontend_tick_;
     renderer::Surface modal_parent_surface_;
@@ -18694,6 +18892,24 @@ class Runtime final : public menu::Host,
     int match_dialog_side_tex_w_ = 0, match_dialog_side_tex_h_ = 0;
     int match_cursor_tex_w_ = 0, match_cursor_tex_h_ = 0;
 
+    /// One cursor of the game made as the system's pointer.
+    struct SystemCursor {
+        const oa::formats::gaf::Frame* frame{}; ///< the cursor's frame it was made from
+        SDL_Cursor* cursor{};                   ///< the system's pointer
+    };
+
+    /// The game's cursors made as the system's pointer (show_system_cursor), at
+    /// system_cursor_scale_ and the display gamma system_cursor_gamma_.
+    std::vector<SystemCursor> system_cursors_{};
+    float system_cursor_scale_ = 0.0F;             ///< the scale system_cursors_ were made at
+    std::array<uint8_t, 256> system_cursor_gamma_{}; ///< the gamma system_cursors_ were made at
+    /// The system's pointer shows the game's cursor (show_system_cursor).
+    bool system_cursor_shown_ = false;
+    /// This frame of the game's own menus left the cursor out of its
+    /// picture for the system's pointer to show (tick_and_draw_cursor);
+    /// present_front_end draws it above the picture where the system
+    /// cannot.
+    bool front_end_system_cursor_ = false;
     /// Accumulated wall time per frame phase, in nanoseconds, for --benchmark.
     struct PhaseTimes {
         int64_t simulation = 0;
@@ -19291,6 +19507,10 @@ class Runtime final : public menu::Host,
     // What the progress dialog says while a switch of the mod in the Library
     // applies (restart_line); empty for none.
     std::string restart_line_{};
+    // The window as a switch of the mod in the Library that ends this run
+    // began (keep_switch_picture), for the next (switch_picture); null for
+    // none.
+    std::shared_ptr<const renderer::Surface> switch_picture_{};
     // The player's own folder for this run (start_user_folder); empty
     // before it is chosen.
     fs::path user_folder_;

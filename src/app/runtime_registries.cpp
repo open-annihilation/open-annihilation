@@ -9,8 +9,10 @@
 // with the keys being trusted. Nothing here fetches, verifies or writes a
 // registry itself.
 
+#include "add_registry_menu.hpp"
 #include "library_host.hpp"
 #include "oa_layer.hpp"
+#include "runtime_game_menu_art.hpp"
 #include "user_folder_state.hpp"
 
 #include "oa/app/content/service.hpp"
@@ -276,7 +278,9 @@ RegistriesHold hold;
 } // namespace
 
 /// The Add registry window as a screen of the OA layer: modal over a
-/// backdrop, centred over the front end, named add-registry. It reads a
+/// backdrop, centred over the front end, named add-registry; over the game's
+/// own main menu, and the Library over it, it covers the screen in the
+/// Library's look there (AddRegistryGameLook). It reads a
 /// typed address before it asks the content service anything, polls the
 /// check each frame, and adds through the content service at ADD.
 struct Runtime::AddRegistryScreen final : LayerScreen {
@@ -289,6 +293,12 @@ struct Runtime::AddRegistryScreen final : LayerScreen {
         : runtime_(runtime), model_(std::move(window)), registry_id_(std::move(registry_id)) {
         settings::add_registry_settle(model_);
         hold.live = this;
+        // Over the game's own main menu the window looks as the Library
+        // there does.
+        if (runtime_.main_menu_opens_game_art_screens())
+            if (std::optional<GameMenuArt> art =
+                    read_game_menu_art(runtime_.assets_, "LIBRARY", "add-registry"))
+                game_look_.emplace(std::move(*art));
     }
 
     AddRegistryScreen(const AddRegistryScreen&) = delete;
@@ -319,6 +329,12 @@ struct Runtime::AddRegistryScreen final : LayerScreen {
         const kit::Fonts* fonts = runtime_.oa_layer().screen_fonts();
         if (placed_on.match || fonts == nullptr)
             return {};
+        // In the game's look it covers the room, a point a window pixel.
+        if (game_look_) {
+            if (placed_on.room.width <= 0 || placed_on.room.height <= 0)
+                return {};
+            return {placed_on.room, placed_on.room.width, placed_on.room.height, 100};
+        }
         settings::AddRegistry sized = model_;
         sized.size_class = placed_on.frame.size_class;
         return centred_placement(
@@ -332,6 +348,9 @@ struct Runtime::AddRegistryScreen final : LayerScreen {
     ///
     /// @param placed_on what the screen is placed on
     void lay_out(const LayerView& placed_on) override {
+        if (game_look_ && !placed_on.match &&
+            game_look_->lay_out({placed_on.room.width, placed_on.room.height}))
+            ++revision_;
         const kit::SizeClass size_class =
             placed_on.match ? kit::SizeClass::compact : placed_on.frame.size_class;
         if (model_.size_class == size_class)
@@ -348,12 +367,22 @@ struct Runtime::AddRegistryScreen final : LayerScreen {
     /// Tells that what lies under the window darkens.
     ///
     /// @return true
-    [[nodiscard]] bool backdrop() const override { return true; }
+    [[nodiscard]] bool backdrop() const override { return !game_look_; }
+
+    /// Tells whether the window covers its place: in the game's look it
+    /// shades the screen and leaves round its frame clear.
+    ///
+    /// @return false in the game's look
+    [[nodiscard]] bool opaque() const override { return !game_look_; }
 
     /// Draws the window.
     ///
     /// @param canvas where it draws
     void draw(const kit::Canvas& canvas) const override {
+        if (game_look_) {
+            game_look_->draw(canvas, model_);
+            return;
+        }
         settings::draw_add_registry(canvas, model_);
     }
 
@@ -368,6 +397,8 @@ struct Runtime::AddRegistryScreen final : LayerScreen {
     LayerAnswer
     pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int32_t finger_reach) override {
         const kit::Fonts* fonts = runtime_.oa_layer().screen_fonts();
+        if (game_look_)
+            return game_pointer(kind, button, at, finger_reach);
         settings::AddRegistryAction action = settings::AddRegistryAction::none;
         switch (kind) {
         case ScreenInputKind::pointer_move:
@@ -395,6 +426,8 @@ struct Runtime::AddRegistryScreen final : LayerScreen {
     /// @param pressed the key
     /// @return what the window did
     LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override {
+        if (game_look_)
+            return take(settings::add_registry_key(model_, pressed, game_look_->list(model_)));
         return take(
             settings::add_registry_key(model_, pressed, runtime_.oa_layer().screen_fonts())
         );
@@ -417,6 +450,8 @@ struct Runtime::AddRegistryScreen final : LayerScreen {
     ///
     /// @return the field's rectangle, in the window's points
     [[nodiscard]] std::optional<kit::Rect> text_field() const override {
+        if (game_look_)
+            return game_look_->field(model_);
         return settings::add_registry_field(model_);
     }
 
@@ -424,6 +459,8 @@ struct Runtime::AddRegistryScreen final : LayerScreen {
     ///
     /// @return the list
     [[nodiscard]] kit::DisplayList display_list() const override {
+        if (game_look_)
+            return game_look_->list(model_);
         return settings::add_registry_list(model_, runtime_.oa_layer().screen_fonts());
     }
 
@@ -515,6 +552,35 @@ struct Runtime::AddRegistryScreen final : LayerScreen {
     }
 
   private:
+
+    /// Takes a pointer's move, press or release in the game's look.
+    ///
+    /// @param kind pointer_move, pointer_down or pointer_up
+    /// @param button the pointer's button; 1 is the left
+    /// @param at the pointer, in the screen's points
+    /// @param finger_reach a finger's reach, in the screen's points; 0 for a mouse
+    /// @return what the window did
+    LayerAnswer game_pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int32_t finger_reach) {
+        const kit::DisplayList list = game_look_->list(model_);
+        kit::Interaction& interaction = model_.interaction;
+        switch (kind) {
+        case ScreenInputKind::pointer_move:
+            return take(settings::add_registry_pointer(model_, kit::pointer_move(interaction, list, at)));
+        case ScreenInputKind::pointer_down:
+            if (button != 1)
+                return LayerAnswer::none;
+            return take(settings::add_registry_pointer(
+                model_, finger_reach > 0 ? kit::finger_down(interaction, list, at, finger_reach)
+                                         : kit::pointer_down(interaction, list, at)
+            ));
+        case ScreenInputKind::pointer_up:
+            if (button != 1)
+                return LayerAnswer::none;
+            return take(settings::add_registry_pointer(model_, kit::pointer_up(interaction, list, at)));
+        default:
+            return LayerAnswer::none;
+        }
+    }
 
     /// Waits on a check the content service started.
     ///
@@ -686,6 +752,7 @@ struct Runtime::AddRegistryScreen final : LayerScreen {
 
     Runtime& runtime_;                     ///< the runtime
     settings::AddRegistry model_;          ///< what the window shows
+    std::optional<AddRegistryGameLook> game_look_; ///< its look over the game's own main menu; none for its own
     std::string registry_id_;              ///< the registry a mirror is for
     std::vector<std::string> mirror_keys_; ///< that registry's trusted keys
     std::string fallback_address_;         ///< the address checked, before a descriptor names one

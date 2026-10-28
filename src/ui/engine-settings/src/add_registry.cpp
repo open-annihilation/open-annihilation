@@ -74,13 +74,7 @@ struct Line {
 };
 
 /// Which label a line belongs to.
-enum class Label : uint8_t {
-    none,    ///< no label
-    name,    ///< add-registry.name
-    address, ///< add-registry.address
-    key,     ///< add-registry.key
-    refusal, ///< add-registry.refusal
-};
+using Label = AddRegistryLabel;
 
 /// A line and the label it belongs to.
 struct LabelledLine {
@@ -240,30 +234,12 @@ bool fits_over(const kit::Rect& rect, int32_t footer_rule) noexcept {
     return rect.y + rect.height <= footer_rule - metrics.text_bottom_gap / 2;
 }
 
-/// Returns the buttons a phase offers, left to right, before they are placed.
+/// Returns a text in the language shown.
 ///
-/// @param window the window
-/// @return the buttons
-std::vector<PlacedButton> buttons_of(const AddRegistry& window) {
-    std::vector<PlacedButton> buttons;
-    buttons.push_back(
-        {add_registry_cancel_control, std::string(kCancelCaption), "add-registry.cancel", false, {}}
-    );
-    if (add_registry_editable(window))
-        buttons.push_back(
-            {add_registry_check_control, std::string(kCheckCaption), "add-registry.check", true, {}}
-        );
-    else if (window.phase == AddRegistry::Phase::ready)
-        buttons.push_back(
-            {add_registry_add_control,
-             std::string(
-                 window.mode == AddRegistry::Mode::mirror ? kAddMirrorCaption : kAddCaption
-             ),
-             "add-registry.add",
-             true,
-             {}}
-        );
-    return buttons;
+/// @param english the text in English
+/// @return the text
+std::string worded(std::string_view english) {
+    return std::string(oa::data::languages::interface_text(english));
 }
 
 /// Places the window: its text from the top, its height from that, and its
@@ -273,6 +249,7 @@ std::vector<PlacedButton> buttons_of(const AddRegistry& window) {
 /// @param fonts the fonts; null estimates each character
 /// @return the placed window
 Placed place(const AddRegistry& window, const kit::Fonts* fonts) {
+    const AddRegistryContent content = add_registry_content(window);
     Placed placed;
     placed.width = add_registry_width(window.size_class);
     const int32_t line_width = placed.width - 2 * metrics.padding;
@@ -301,9 +278,12 @@ Placed place(const AddRegistry& window, const kit::Fonts* fonts) {
         lines.push_back({std::move(line), label});
         row += metrics.small_line;
     };
-    // A fact: its label at the left, in the hint colour, and its value after it.
-    // The signing-key label widens the column before the facts are placed.
+    // A fact: its label at the left, in the hint colour, and its value after
+    // it. A label longer than kLabelWidth widens the column for every fact.
     int32_t column = kLabelWidth;
+    for (const AddRegistryLine& line : content.lines)
+        if (line.kind == AddRegistryLine::Kind::fact && !line.label.empty())
+            column = std::max(column, fact_column(fonts, line.label));
     const auto fact = [&](std::string_view label_text, std::string value, Label label) {
         if (!label_text.empty()) {
             Line name;
@@ -322,100 +302,58 @@ Placed place(const AddRegistry& window, const kit::Fonts* fonts) {
     };
 
     const FieldGeometry fields = field_geometry(window);
-    const bool mirror = window.mode == AddRegistry::Mode::mirror;
-    if (mirror) {
-        heading_line(filled("Mirror of {name}", "name", window.mirror_of), Label::name, 0);
+    if (!content.heading.empty()) {
+        heading_line(content.heading, Label::name, 0);
         row += metrics.paragraph_gap;
     }
-    if (window.mode == AddRegistry::Mode::from_file) {
-        text_line(filled("From {file}", "file", window.file_name), kit::colour::text, Label::none);
-    } else {
+    if (!content.file.empty()) {
+        text_line(content.file, kit::colour::text, Label::none);
+    } else if (content.address_field) {
         placed.field =
             kit::Rect{metrics.padding, fields.row, fields.line_width, metrics.field_height};
         row = fields.row + metrics.field_height;
     }
-    if (fields.key_label && fields.key_field) {
+    if (content.key_field && fields.key_label && fields.key_field) {
         row = *fields.key_label;
-        text_line(
-            std::string(oa::data::languages::interface_text(library::words::registry_key_one)),
-            kit::colour::hint,
-            Label::none
-        );
+        text_line(content.key_label, kit::colour::hint, Label::none);
         placed.key_field =
             kit::Rect{metrics.padding, *fields.key_field, fields.line_width, metrics.field_height};
         row = *fields.key_field + metrics.field_height;
     }
     row += metrics.paragraph_gap;
 
-    switch (window.phase) {
-    case AddRegistry::Phase::editing:
-        break;
-    case AddRegistry::Phase::checking:
-        text_line(
-            filled("Checking {address}…", "address", window.checking),
-            kit::colour::text,
-            Label::none
-        );
-        break;
-    case AddRegistry::Phase::ready: {
-        const ProbeView& shown = window.shown;
-        if (!mirror) {
+    for (const AddRegistryLine& line : content.lines) {
+        if (line.gap == AddRegistryGap::name)
+            row += kNameGap;
+        else if (line.gap == AddRegistryGap::paragraph)
+            row += metrics.paragraph_gap;
+        const Label label = line.belongs;
+        const kit::Colour colour = line.ink == AddRegistryInk::warning ? kit::colour::lock
+                                   : line.ink == AddRegistryInk::hint  ? kit::colour::hint
+                                                                       : kit::colour::text;
+        switch (line.kind) {
+        case AddRegistryLine::Kind::heading: {
             // The icon sits in the name's line, at that line's height. The
             // name stays put while the picture has not arrived.
             int32_t name_inset = 0;
-            oa::ui::frontend_renderer::RgbaPicture icon_picture{
-                shown.icon_width, shown.icon_height, shown.icon_rgba
+            const oa::ui::frontend_renderer::RgbaPicture icon_picture{
+                window.shown.icon_width, window.shown.icon_height, window.shown.icon_rgba
             };
             if (oa::ui::frontend_renderer::picture_drawable(icon_picture))
                 name_inset = metrics.small_line + metrics.list_row_gap;
-            heading_line(shown.name, Label::name, name_inset);
-            row += kNameGap;
-        }
-        std::string key_label;
-        if (!mirror && shown.is_signed) {
-            // Copy before the next lookup. One key and several keys are different texts.
-            key_label =
-                shown.fingerprints.size() > 1
-                    ? std::string(
-                          oa::data::languages::interface_text(library::words::registry_key_many)
-                      )
-                    : std::string(
-                          oa::data::languages::interface_text(library::words::registry_key_one)
-                      );
-            column = fact_column(fonts, key_label);
-        }
-        fact("Address", shown.address, Label::address);
-        if (mirror) {
-            row += metrics.paragraph_gap;
-            wrapped(
-                filled("Checked against the keys you trust for {name}", "name", window.mirror_of),
-                kit::colour::text,
-                Label::none
-            );
-            for (const std::string& key : fingerprint_lines(shown.fingerprints))
-                text_line(key, kit::colour::text, Label::key);
+            heading_line(line.text, label, name_inset);
             break;
         }
-        fact("Packages", packages_value(shown), Label::none);
-        if (shown.is_signed) {
-            const std::vector<std::string> keys = fingerprint_lines(shown.fingerprints);
-            for (std::size_t index = 0; index < keys.size(); ++index)
-                fact(
-                    index == 0 ? std::string_view{key_label} : std::string_view{},
-                    keys[index],
-                    Label::key
-                );
-        } else {
-            text_line(std::string(kUnsignedText), kit::colour::lock, Label::key);
+        case AddRegistryLine::Kind::line:
+            text_line(line.text, colour, label);
+            break;
+        case AddRegistryLine::Kind::paragraph:
+            wrapped(line.text, colour, label);
+            break;
+        case AddRegistryLine::Kind::fact:
+            fact(line.label, line.text, label);
+            break;
         }
-        fact("Downloads", shown.downloads, Label::none);
-        row += metrics.paragraph_gap;
-        wrapped(kWarningText, kit::colour::lock, Label::none);
-        break;
-    }
-    case AddRegistry::Phase::refused:
-        wrapped(window.shown.refusal, kit::colour::lock, Label::refusal);
-        break;
     }
 
     const kit::Metrics& sized = kit::metrics_of(window.size_class);
@@ -433,7 +371,8 @@ Placed place(const AddRegistry& window, const kit::Fonts* fonts) {
     if (placed.key_field && !fits_over(*placed.key_field, placed.footer_rule))
         placed.key_field.reset();
 
-    placed.buttons = buttons_of(window);
+    for (const AddRegistryButton& button : content.buttons)
+        placed.buttons.push_back({button.id, button.caption, button.name, button.accent, {}});
     int32_t right = placed.width - metrics.padding;
     for (std::size_t index = placed.buttons.size(); index-- > 0;) {
         PlacedButton& button = placed.buttons[index];
@@ -561,6 +500,101 @@ insert_into(std::string& text, std::size_t& caret, std::string_view utf8, std::s
 
 } // namespace
 
+AddRegistryContent add_registry_content(const AddRegistry& window) {
+    using Kind = AddRegistryLine::Kind;
+    AddRegistryContent content;
+    const bool mirror = window.mode == AddRegistry::Mode::mirror;
+    content.title = worded(title_of(window));
+    if (mirror)
+        content.heading = filled(worded("Mirror of {name}"), "name", window.mirror_of);
+    if (window.mode == AddRegistry::Mode::from_file) {
+        content.file = filled(worded("From {file}"), "file", window.file_name);
+    } else {
+        content.address_field = true;
+        content.address_placeholder = std::string(kPlaceholder);
+    }
+    if (window.mode == AddRegistry::Mode::by_url) {
+        content.key_field = true;
+        content.key_label = worded(library::words::registry_key_one);
+        content.key_placeholder = std::string(kKeyPlaceholder);
+    }
+
+    std::vector<AddRegistryLine>& lines = content.lines;
+    const auto add = [&lines](Kind kind,
+                              std::string label,
+                              std::string text,
+                              AddRegistryInk ink,
+                              AddRegistryLabel belongs,
+                              AddRegistryGap gap) {
+        lines.push_back({kind, std::move(label), std::move(text), ink, belongs, gap});
+    };
+    switch (window.phase) {
+    case AddRegistry::Phase::editing:
+        break;
+    case AddRegistry::Phase::checking:
+        add(Kind::line, {}, filled(worded("Checking {address}…"), "address", window.checking),
+            AddRegistryInk::text, AddRegistryLabel::none, AddRegistryGap::none);
+        break;
+    case AddRegistry::Phase::ready: {
+        const ProbeView& shown = window.shown;
+        if (!mirror)
+            add(Kind::heading, {}, shown.name, AddRegistryInk::text, AddRegistryLabel::name,
+                AddRegistryGap::none);
+        add(Kind::fact, worded("Address"), shown.address, AddRegistryInk::text,
+            AddRegistryLabel::address, mirror ? AddRegistryGap::none : AddRegistryGap::name);
+        if (mirror) {
+            add(Kind::paragraph, {},
+                filled(worded("Checked against the keys you trust for {name}"), "name",
+                       window.mirror_of),
+                AddRegistryInk::text, AddRegistryLabel::none, AddRegistryGap::paragraph);
+            for (std::string& key : fingerprint_lines(shown.fingerprints))
+                add(Kind::line, {}, std::move(key), AddRegistryInk::text, AddRegistryLabel::key,
+                    AddRegistryGap::none);
+            break;
+        }
+        add(Kind::fact, worded("Packages"), packages_value(shown), AddRegistryInk::text,
+            AddRegistryLabel::none, AddRegistryGap::none);
+        if (shown.is_signed) {
+            // One key and several keys are different texts.
+            const std::string key_label = worded(
+                shown.fingerprints.size() > 1 ? library::words::registry_key_many
+                                              : library::words::registry_key_one
+            );
+            const std::vector<std::string> keys = fingerprint_lines(shown.fingerprints);
+            for (std::size_t index = 0; index < keys.size(); ++index)
+                add(Kind::fact, index == 0 ? key_label : std::string(), keys[index],
+                    AddRegistryInk::text, AddRegistryLabel::key, AddRegistryGap::none);
+        } else {
+            add(Kind::line, {}, worded(kUnsignedText), AddRegistryInk::warning,
+                AddRegistryLabel::key, AddRegistryGap::none);
+        }
+        add(Kind::fact, worded("Downloads"), shown.downloads, AddRegistryInk::text,
+            AddRegistryLabel::none, AddRegistryGap::none);
+        add(Kind::paragraph, {}, worded(kWarningText), AddRegistryInk::warning,
+            AddRegistryLabel::none, AddRegistryGap::paragraph);
+        break;
+    }
+    case AddRegistry::Phase::refused:
+        add(Kind::paragraph, {}, window.shown.refusal, AddRegistryInk::warning,
+            AddRegistryLabel::refusal, AddRegistryGap::none);
+        break;
+    }
+
+    content.buttons.push_back(
+        {add_registry_cancel_control, worded(kCancelCaption), "add-registry.cancel", false}
+    );
+    if (add_registry_editable(window))
+        content.buttons.push_back(
+            {add_registry_check_control, worded(kCheckCaption), "add-registry.check", true}
+        );
+    else if (window.phase == AddRegistry::Phase::ready)
+        content.buttons.push_back(
+            {add_registry_add_control, worded(mirror ? kAddMirrorCaption : kAddCaption),
+             "add-registry.add", true}
+        );
+    return content;
+}
+
 int32_t add_registry_width(kit::SizeClass size_class) noexcept {
     return kit::metrics_of(size_class).notice_width;
 }
@@ -600,7 +634,7 @@ kit::DisplayList add_registry_list(const AddRegistry& window, const kit::Fonts* 
     face.colour = kit::colour::panel;
     list.items.push_back(std::move(face));
 
-    const std::string title = title_of(window);
+    const std::string title = add_registry_content(window).title;
     kit::HeaderLook header{};
     header.width = placed.width;
     header.title = title;
@@ -779,7 +813,11 @@ AddRegistryAction add_registry_text(AddRegistry& window, std::string_view utf8) 
 }
 
 AddRegistryAction add_registry_key(AddRegistry& window, kit::Key pressed, const kit::Fonts* fonts) {
-    const kit::DisplayList list = add_registry_list(window, fonts);
+    return add_registry_key(window, pressed, add_registry_list(window, fonts));
+}
+
+AddRegistryAction
+add_registry_key(AddRegistry& window, kit::Key pressed, const kit::DisplayList& list) {
     const kit::KeyOutcome outcome = kit::key(window.interaction, list, pressed);
     switch (outcome.result) {
     case kit::KeyResult::none:
@@ -838,6 +876,10 @@ AddRegistryAction
 add_registry_pointer_up(AddRegistry& window, kit::Point at, const kit::Fonts* fonts) {
     const kit::DisplayList list = add_registry_list(window, fonts);
     return from_pointer(window, kit::pointer_up(window.interaction, list, at));
+}
+
+AddRegistryAction add_registry_pointer(AddRegistry& window, const kit::PointerOutcome& outcome) {
+    return from_pointer(window, outcome);
 }
 
 void draw_add_registry(const kit::Canvas& canvas, const AddRegistry& window) {

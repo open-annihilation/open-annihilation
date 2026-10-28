@@ -253,16 +253,6 @@ automation name is `oa.settings.language.` and the tag in lower case:
 `oa.settings.language.zh-hans`, `oa.settings.language.pt-br`. The divider
 above those rows has no automation name.
 
-While the host says the Library can open over the dialog
-(`Dialog::library_link`, which the game sets on the main menu's engine
-settings alone), MORE IN THE LIBRARY… stands right under Language's row, a
-link (`Setting::more_in_library`, named `settings.more-in-library`) whose
-hint says "More languages are in the Library.". Its press sets
-`Dialog::library_tab` to Languages and asks the host for the Library
-(`DialogAction::open_library`); the dialog stays open under it. In a match
-and in Language & Text alone it is not listed, and Language's rows stand as
-`page_settings` gives them.
-
 The rest of Language & Text says how game text is drawn. Use modern fonts
 for game text draws it in modern fonts, which hold the letters of many
 languages, in place of the game's own 8-bit fonts; Text size scales every
@@ -729,6 +719,26 @@ it. Page Up, Page Down, Home and End scroll whatever has the focus, and
 never show or move it. A key that moves the focus onto a row, or acts on a
 focused row, first scrolls the least that shows the row whole; a key that
 moves it to a button or a section's entry does not scroll.
+
+## Another look
+
+A screen that shows the settings in a look of its own, as the Settings
+screen drawn with the game's art does ([src/app](../../app/README.md#the-settings-screen)),
+reads and moves the dialog through three functions, so that the dialog
+keeps deciding every lock, step and action:
+
+- `section_rows` returns the open section's rows as the dialog shows them:
+  each row's view (`kit::RowView`, its words as shown), its control and
+  what Restore defaults would give it (`SectionRow::default_value`). On
+  Developer it holds Developer's own rows, without the list.
+- `dialog_control_key` acts on one control as a key does while that
+  control has the focus: a section's entry, Restore defaults or a row. A
+  drop-down's list never stays open, and the focus is put back where it
+  was.
+- `undo_dialog_changes` puts back what the dialog opened with, as Cancel
+  does, and leaves it open.
+
+`section_name` gives a section's name as its entry shows it, in English.
 
 ## Sizes
 

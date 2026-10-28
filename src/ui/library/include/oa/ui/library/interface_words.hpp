@@ -215,6 +215,7 @@ inline constexpr std::string_view interface_words[] = {
     words::queue_waiting,
     words::queue_held,
     words::uninstall_playing,
+    words::uninstall_playing_first,
     words::note_playing_other,
     words::from_own,
     words::registry_key_added,

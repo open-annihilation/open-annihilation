@@ -447,6 +447,46 @@ void rgba_pictures_scale_filtered() {
     OA_CHECK(clipped_painter.painted().empty());
 }
 
+/// Checks an RGBA picture filtered to a size: drawn at its own size it lays
+/// the pixels the picture drawn scaled lays, grown or shrunk, half covered or
+/// clipped; a pixel nothing covers is clear; and a picture without pixels, or
+/// shorter than its size, gives none.
+void rgba_pictures_resize_as_they_draw() {
+    // Opaque red, half covered green, clear, and opaque white, two by two.
+    const std::array<uint8_t, 16> picture{
+        255, 0, 0, 255, 0, 255, 0, 128, 0, 0, 0, 0, 255, 255, 255, 255
+    };
+    for (const paint::Box box :
+         {paint::Box{1, 1, 5, 3}, paint::Box{0, 0, 1, 1}, paint::Box{2, 0, 6, 6}}) {
+        auto scaled = paint::make_canvas(8, 6);
+        paint::Painter scaled_painter(scaled);
+        scaled_painter.fill_rect({0, 0, 8, 6}, blue);
+        scaled_painter.set_clip({1, 1, 6, 4});
+        scaled_painter.draw_rgba(picture, 2, 2, box);
+
+        const auto resized = paint::resized_rgba(picture, 2, 2, box.width, box.height);
+        OA_CHECK(resized.size() == static_cast<std::size_t>(box.width * box.height * 4));
+        auto copied = paint::make_canvas(8, 6);
+        paint::Painter copied_painter(copied);
+        copied_painter.fill_rect({0, 0, 8, 6}, blue);
+        copied_painter.set_clip({1, 1, 6, 4});
+        copied_painter.draw_rgba(resized, box.width, box.height, box);
+
+        OA_CHECK(copied.rgba == scaled.rgba);
+        OA_CHECK(copied_painter.painted() == scaled_painter.painted());
+    }
+
+    // At its own size it is the picture, its clear pixel all zeros.
+    const std::array<uint8_t, 8> red_clear{255, 0, 0, 255, 9, 9, 9, 0};
+    const auto same = paint::resized_rgba(red_clear, 2, 1, 2, 1);
+    OA_CHECK((same == std::vector<uint8_t>{255, 0, 0, 255, 0, 0, 0, 0}));
+
+    OA_CHECK(paint::resized_rgba(red_clear, 2, 1, 0, 1).empty());
+    OA_CHECK(paint::resized_rgba(red_clear, 0, 1, 2, 1).empty());
+    OA_CHECK(paint::resized_rgba(std::span<const uint8_t>(red_clear.data(), 4), 2, 1, 2, 1)
+                 .empty());
+}
+
 /// Counts a canvas's painted pixels and tells whether any lies outside a box, a pixel of
 /// smoothing beyond its edge allowed.
 ///
@@ -584,6 +624,7 @@ int main() {
     text_paints_in_its_colour();
     pictures_scale_into_their_area();
     rgba_pictures_scale_filtered();
+    rgba_pictures_resize_as_they_draw();
     pad_glyphs_paint_inside_their_boxes();
     return oa::test::check_exit_status();
 }

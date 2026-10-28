@@ -278,10 +278,6 @@ enum class Setting : uint8_t {
     /// Interface size: a drop-down of Auto, 100%, 200%, 300% and 400%, on
     /// User Interface
     interface_size,
-    /// MORE IN THE LIBRARY…: a link under Language's row that opens the
-    /// Library on Languages, listed only while Dialog::library_link is set;
-    /// it changes no setting
-    more_in_library,
     /// UI kit gallery: Developer's row whose SHOW opens the gallery of every
     /// part of Open Annihilation's own screens (DialogAction::show_gallery);
     /// it changes no setting
@@ -563,7 +559,7 @@ enum class DialogAction : uint8_t {
     /// Kept so a host's switch over every action still compiles. The Library's
     /// Registries tab asks for its own mirror, not this.
     add_mirror,
-    /// MORE IN THE LIBRARY… was pressed: the host opens the Library on
+    /// REGISTRIES IN THE LIBRARY… was pressed: the host opens the Library on
     /// Dialog::library_tab over the dialog, which stays open under it
     open_library,
     /// SHOW on Developer's UI kit gallery: the host opens the gallery over
@@ -915,7 +911,7 @@ struct Dialog {
     std::vector<AvailableLanguage> available_languages{};
     /// The tag DialogAction::download_language asks the host to download.
     std::string download_request;
-    /// Language lists MORE IN THE LIBRARY… under its row: a host sets it as
+    /// Downloads lists REGISTRIES IN THE LIBRARY…: a host sets it as
     /// the engine's settings open on the main menu, where the Library can
     /// open over them; never in a match, and never for Language alone.
     bool library_link{};
@@ -1314,6 +1310,59 @@ set_controller_section(Dialog& dialog, bool controller, bool steam_input) noexce
 /// @param key the key's meaning
 /// @return what the key asks of the host
 [[nodiscard]] DialogAction dialog_key(Dialog& dialog, DialogKey key);
+
+/// One row of the open section, as a screen that shows the settings in a
+/// look of its own reads it (section_rows).
+struct SectionRow {
+    oa::ui::kit::RowView view{}; ///< what the row shows now, every word as shown
+    int32_t control{no_control}; ///< its control's number, which dialog_control_key takes
+    /// What Restore defaults gives the row, as it would show it: a switch's
+    /// ON or OFF, a strip's level, a drop-down's item or a slider's value;
+    /// empty for a row Restore defaults leaves alone or that shows no value.
+    std::string default_value{};
+};
+
+/// Returns the name of a section as its entry in the list shows it, in
+/// English; the registered page's is empty, as each such page has its own
+/// title (RegisteredPage::title).
+///
+/// @param page the section
+/// @return the name
+[[nodiscard]] std::string_view section_name(Page page) noexcept;
+
+/// Returns the open section's rows, top to bottom, as the dialog shows them:
+/// each row's view with its words as shown, its lock and its control. On
+/// Developer, its own rows, without Developer Mode's list under them.
+///
+/// @param dialog the dialog
+/// @return the rows; none for a section without any
+[[nodiscard]] std::vector<SectionRow> section_rows(const Dialog& dialog);
+
+/// Acts on one of the dialog's controls as a key does while the control has
+/// the focus (dialog_key): Left and Right step a switch, a strip, a slider
+/// or a drop-down, Space flips a switch, presses a button, a link, Restore
+/// defaults or a section's entry. Space on a drop-down opens no list: the
+/// list a press would open is closed again. For a row of buttons, the
+/// button the press is for is marked first. The focus is put back where it
+/// was, so that the dialog's own look shows no focus the key moved.
+///
+/// @param[in,out] dialog the dialog
+/// @param control the control: a section's entry (page_control,
+///     registered_nav_control), restore_control, or a row's (SectionRow::control)
+/// @param key the key's meaning
+/// @param button for a row of buttons, the button pressed, from 0 at the left
+/// @return what the key asks of the host
+[[nodiscard]] DialogAction
+dialog_control_key(Dialog& dialog, int32_t control, DialogKey key, std::size_t button = 0);
+
+/// Puts back every setting the dialog opened with, as Cancel does, and
+/// leaves the dialog open: the settings, the install IDs' switches and the
+/// registered pages' values, and the request to show the welcome setup
+/// again. Restore defaults pressed before counts as not pressed.
+///
+/// @param[in,out] dialog the dialog
+/// @return DialogAction::changed, so that the host puts the settings back in effect
+[[nodiscard]] DialogAction undo_dialog_changes(Dialog& dialog);
 
 /// Turns the mouse wheel over the dialog: scrolls the open section 24 source
 /// pixels a notch, when its rows are taller than the space they scroll in.

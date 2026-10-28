@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 namespace oa::app {
@@ -116,15 +117,27 @@ struct Runtime::EngineSettingsMenuHost {
     [[nodiscard]] const WindowIcon* icon_for(bool mods, int32_t side);
 
     /// Tells whether the main menu's buttons show: the menu's own panel is
-    /// drawn, no package owns the frame, and the dialog's fonts are there.
+    /// drawn without the LIBRARY and SETTINGS buttons add_main_menu_entries
+    /// gives it, no package owns the frame, and the dialog's fonts are
+    /// there.
     ///
     /// @param runtime the runtime
     /// @return true while the buttons show and answer the pointer
     [[nodiscard]] static bool button_shown(Runtime& runtime);
 
+    /// Returns where one of the LIBRARY and SETTINGS buttons MAINMENU.GUI
+    /// is given stands on the main menu's picture.
+    ///
+    /// @param runtime the runtime
+    /// @param name the button's record name
+    /// @return its rectangle, in source pixels; none while MAINMENU.GUI has
+    ///     no such button
+    [[nodiscard]] static std::optional<oa::ui::frontend_renderer::SourceRect>
+    entry_rect(const Runtime& runtime, std::string_view name);
+
     /// Returns where the OA button, which opens the Library, stands on the
     /// main menu's picture: left of the Settings button, a quarter of a
-    /// button's side from it.
+    /// button's side from it; or MAINMENU.GUI's LIBRARY while it has one.
     ///
     /// @param runtime the runtime
     /// @return the button's square, in source pixels
@@ -132,7 +145,8 @@ struct Runtime::EngineSettingsMenuHost {
 
     /// Returns where the Settings button stands on the main menu's picture:
     /// its bottom-right corner, or its top-right corner while an extension's
-    /// overlay stands over the main menu.
+    /// overlay stands over the main menu; or MAINMENU.GUI's SETTINGS while it
+    /// has one.
     ///
     /// @param runtime the runtime
     /// @return the button's square, in source pixels

@@ -44,8 +44,18 @@ picture of their end.
 
 The settings open from:
 
+- **SETTINGS** on the main menu, a button in the menu's own look beside
+  **LIBRARY**, which opens [the Library](library.md). The main menu's
+  buttons stand on three rows of two: SINGLE and MULTI, SETTINGS and
+  LIBRARY, INTRO and EXIT. Settings then opens over the whole window,
+  drawn with the game's own art: its frame, buttons, list boxes and font,
+  laid out on a 1024x768 stage enlarged by whole steps, with the game's
+  own options (Sound, Music, Graphics and Game Speeds, marked 3.1c) beside
+  the engine's;
 - the **Settings** button, the gears at the bottom right of the main menu,
-  right of the **OA** button, which opens [the Library](library.md);
+  right of the **OA** button, which opens the Library, in their place where
+  the main menu has no room for SETTINGS and LIBRARY or the game's art for
+  the screens cannot be read, and with `--classic-main-menu`;
 - **SETTINGS…** at the foot of the Library;
 - the button under **Resume** in the in-game menu (F2), which shows the
   gears too;
@@ -247,7 +257,7 @@ replay they show "Set by the host".
 
 ## Language & Text
 
-![The top of the Language & Text section: Language set to System default (English), More in the Library… under it, Use modern fonts for game text On, and the Text size row.](images/settings/language-1.png)
+![The top of the Language & Text section: Language set to System default (English), Use modern fonts for game text On, and the Text size row.](images/settings/language-1.png)
 
 The Language & Text section says which language the game's text is shown in and
 how that text is drawn. None of these changes the game itself, so no game
@@ -283,9 +293,6 @@ locks them, and players in different languages play together.
   languages only.
   [Languages](languages.md) says what the game data and the language packs
   translate.
-- **More in the Library…**, under Language on the main menu, opens the
-  Library on its Languages tab, over the settings, for every language pack
-  the registries offer ([the Library](library.md)).
 - **Use modern fonts for game text**, On by default. The game's text is
   drawn in modern fonts, which hold the letters of many languages and stay
   sharp at any size, in place of the game's own 8-bit fonts. Turn it off

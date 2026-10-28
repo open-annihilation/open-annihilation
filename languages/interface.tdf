@@ -130,6 +130,14 @@
 	it=1 giocatore;
 	}
 
+[1 saved game]
+	{
+	de=1 gespeichertes Spiel;
+	fr=1 partie sauvegardée;
+	es=1 partida guardada;
+	it=1 partita salvata;
+	}
+
 [1 track]
 	{
 	de=1 Titel;
@@ -2712,6 +2720,14 @@
 	fr=Pas comme chez l'hôte : {name} est activé.;
 	es=Distinto del anfitrión: {name} está activado.;
 	it=Diverso dall'host: {name} è attivo.;
+	}
+
+[Difficulty]
+	{
+	de=Schwierigkeit;
+	fr=Difficulté;
+	es=Dificultad;
+	it=Difficoltà;
 	}
 
 [Difficulty Names]
@@ -5882,14 +5898,6 @@
 	it=ALTRO;
 	}
 
-[MORE IN THE LIBRARY…]
-	{
-	de=MEHR IN DER BIBLIOTHEK…;
-	fr=PLUS DANS LA BIBLIOTHÈQUE…;
-	es=MÁS EN LA BIBLIOTECA…;
-	it=ALTRO NELLA BIBLIOTECA…;
-	}
-
 [MORE MAPS…]
 	{
 	de=MEHR KARTEN…;
@@ -6130,6 +6138,14 @@
 	it=Scambia i ruoli: il pad sinistro punta, il destro il pad muove la mappa, grilletti e impugnature si scambiano.;
 	}
 
+[Mission]
+	{
+	de=Mission;
+	fr=Mission;
+	es=Misión;
+	it=Missione;
+	}
+
 [Mobile Unit Yard Maps]
 	{
 	de=Grundrisse mobiler Einheiten;
@@ -6184,14 +6200,6 @@
 	fr=Plus de cycles trouvent les routes plus vite mais utilisent plus de CPU.;
 	es=Más ciclos encuentran rutas más rápido, pero usan más CPU.;
 	it=Più cicli trovano i percorsi più in fretta, ma usano più CPU.;
-	}
-
-[More languages are in the Library.]
-	{
-	de=Weitere Sprachen sind in der Bibliothek.;
-	fr=D'autres langues sont dans la Bibliothèque.;
-	es=Hay más idiomas en la Biblioteca.;
-	it=Altre lingue sono nella Biblioteca.;
 	}
 
 [Mouse wheel zoom]
@@ -8474,6 +8482,14 @@
 	it=STESSO TIPO;
 	}
 
+[SAVED GAMES]
+	{
+	de=GESPEICHERTE SPIELE;
+	fr=PARTIES SAUVEGARDÉES;
+	es=PARTIDAS GUARDADAS;
+	it=PARTITE SALVATE;
+	}
+
 [SAVED GAMES MOVED]
 	{
 	de=SPEICHERSTÄNDE VERSCHOBEN;
@@ -9058,6 +9074,14 @@
 	it=Mostra la pagina precedente.;
 	}
 
+[Side]
+	{
+	de=Seite;
+	fr=Camp;
+	es=Bando;
+	it=Fazione;
+	}
+
 [Sides]
 	{
 	de=Seiten;
@@ -9080,6 +9104,14 @@
 	fr=Clés de signature;
 	es=Claves de firma;
 	it=Chiavi di firma;
+	}
+
+[Single]
+	{
+	de=Einzelspieler;
+	fr=Solo;
+	es=Un jugador;
+	it=Giocatore singolo;
 	}
 
 [Size]
@@ -9448,6 +9480,14 @@
 	fr=Activation de {name}…;
 	es=Activando {name}…;
 	it=Attivazione di {name}…;
+	}
+
+[Uninstalling {name}…]
+	{
+	de={name} wird deinstalliert…;
+	fr=Désinstallation de {name}…;
+	es=Desinstalando {name}…;
+	it=Disinstallazione di {name}…;
 	}
 
 [Switching to {name} restarts the game's files, then loads this save.]
@@ -11026,6 +11066,14 @@
 	it=Due pulsanti per tutto ciò che Open Annihilation aggiunge;
 	}
 
+[Type]
+	{
+	de=Art;
+	fr=Type;
+	es=Tipo;
+	it=Tipo;
+	}
+
 [UI kit gallery]
 	{
 	de=Galerie des Oberflächenbausatzes;
@@ -12040,6 +12088,14 @@
 	fr=Tu joues {name}. Désactive-le d'abord avec DÉSACTIVER, puis désinstalle-le.;
 	es=Estás jugando {name}. Apágalo primero con DESACTIVAR y luego desinstálalo.;
 	it=Stai giocando {name}. Disattivalo prima con DISATTIVA, poi disinstallalo.;
+	}
+
+[You are playing {name}. UNINSTALL switches it off first, and the game starts again with no mod.]
+	{
+	de=Du spielst {name}. DEINSTALLIEREN schaltet es zuerst aus, und das Spiel startet ohne Mod neu.;
+	fr=Tu joues {name}. DÉSINSTALLER le désactive d'abord, et le jeu redémarre sans mod.;
+	es=Estás jugando {name}. DESINSTALAR lo apaga primero y el juego se reinicia sin mod.;
+	it=Stai giocando {name}. DISINSTALLA lo disattiva prima, e il gioco riparte senza mod.;
 	}
 
 [You are playing {playing}. Updating {name} doesn't restart the game.]
@@ -14530,6 +14586,22 @@
 	it={n} giorni fa;
 	}
 
+[{n} expansion]
+	{
+	de={n} Erweiterung;
+	fr={n} extension;
+	es={n} expansión;
+	it={n} espansione;
+	}
+
+[{n} expansions]
+	{
+	de={n} Erweiterungen;
+	fr={n} extensions;
+	es={n} expansiones;
+	it={n} espansioni;
+	}
+
 [{n} files]
 	{
 	de={n} Dateien;
@@ -14576,6 +14648,46 @@
 	fr=il y a {n} min;
 	es=hace {n} min;
 	it={n} min fa;
+	}
+
+[{n} language]
+	{
+	de={n} Sprache;
+	fr={n} langue;
+	es={n} idioma;
+	it={n} lingua;
+	}
+
+[{n} languages]
+	{
+	de={n} Sprachen;
+	fr={n} langues;
+	es={n} idiomas;
+	it={n} lingue;
+	}
+
+[{n} map pack]
+	{
+	de={n} Kartenpaket;
+	fr={n} pack de cartes;
+	es={n} paquete de mapas;
+	it={n} pacchetto di mappe;
+	}
+
+[{n} map packs]
+	{
+	de={n} Kartenpakete;
+	fr={n} packs de cartes;
+	es={n} paquetes de mapas;
+	it={n} pacchetti di mappe;
+	}
+
+[{n} mod]
+	{
+	de={n} Mod;
+	fr={n} mod;
+	es={n} mod;
+	it={n} mod;
 	}
 
 [{n} mirror]
@@ -15322,6 +15434,14 @@
 	it=Pausa;
 	}
 
+[Contents]
+	{
+	de=Inhalt;
+	fr=Contenu;
+	es=Contenido;
+	it=Contenuto;
+	}
+
 [Continue]
 	{
 	de=Weiter;
@@ -15480,4 +15600,956 @@
 	fr=Depuis {place}…;
 	es=Desde {place}…;
 	it=Da {place}…;
+	}
+
+[MULTIPLAYER]
+	{
+	de=MEHRSPIELER;
+	fr=MULTIJOUEUR;
+	es=MULTIJUGADOR;
+	it=MULTIGIOCATORE;
+	}
+
+[LIBRARY]
+	{
+	de=BIBLIOTHEK;
+	fr=BIBLIOTHÈQUE;
+	es=BIBLIOTECA;
+	it=BIBLIOTECA;
+	}
+
+[INTRO]
+	{
+	de=INTRO;
+	fr=INTRO;
+	es=INTRO;
+	it=INTRO;
+	}
+
+[EXIT]
+	{
+	de=BEENDEN;
+	fr=QUITTER;
+	es=SALIR;
+	it=ESCI;
+	}
+
+[EASY]
+	{
+	de=LEICHT;
+	fr=FACILE;
+	es=FÁCIL;
+	it=FACILE;
+	}
+
+[MEDIUM]
+	{
+	de=MITTEL;
+	fr=MOYEN;
+	es=MEDIO;
+	it=MEDIO;
+	}
+
+[HARD]
+	{
+	de=SCHWER;
+	fr=DIFFICILE;
+	es=DIFÍCIL;
+	it=DIFFICILE;
+	}
+
+[START]
+	{
+	de=START;
+	fr=COMMENCER;
+	es=EMPEZAR;
+	it=INIZIA;
+	}
+
+[PLAYER]
+	{
+	de=SPIELER;
+	fr=JOUEUR;
+	es=JUGADOR;
+	it=GIOCATORE;
+	}
+
+[SIDE]
+	{
+	de=SEITE;
+	fr=CAMP;
+	es=BANDO;
+	it=FAZIONE;
+	}
+
+[METAL]
+	{
+	de=METALL;
+	fr=MÉTAL;
+	es=METAL;
+	it=METALLO;
+	}
+
+[ENERGY]
+	{
+	de=ENERGIE;
+	fr=ÉNERGIE;
+	es=ENERGÍA;
+	it=ENERGIA;
+	}
+
+[MAP]
+	{
+	de=KARTE;
+	fr=CARTE;
+	es=MAPA;
+	it=MAPPA;
+	}
+
+[CATEGORIES]
+	{
+	de=KATEGORIEN;
+	fr=CATÉGORIES;
+	es=CATEGORÍAS;
+	it=CATEGORIE;
+	}
+
+[CLASSIC OPTIONS]
+	{
+	de=KLASSISCHE OPTIONEN;
+	fr=OPTIONS CLASSIQUES;
+	es=OPCIONES CLÁSICAS;
+	it=OPZIONI CLASSICHE;
+	}
+
+[LANGUAGES]
+	{
+	de=SPRACHEN;
+	fr=LANGUES;
+	es=IDIOMAS;
+	it=LINGUE;
+	}
+
+[BROWSE MAPS]
+	{
+	de=KARTEN DURCHSUCHEN;
+	fr=PARCOURIR LES CARTES;
+	es=EXPLORAR MAPAS;
+	it=SFOGLIA MAPPE;
+	}
+
+[CHOOSE MOD]
+	{
+	de=MOD WÄHLEN;
+	fr=CHOISIR UN MOD;
+	es=ELEGIR MOD;
+	it=SCEGLI MOD;
+	}
+
+[NO MOD]
+	{
+	de=KEIN MOD;
+	fr=AUCUN MOD;
+	es=SIN MOD;
+	it=NESSUN MOD;
+	}
+
+[CHOOSE MOD shows the mods, and PLAY NOW there plays one.]
+	{
+	de=MOD WÄHLEN zeigt die Mods, und JETZT SPIELEN spielt dort einen.;
+	fr=CHOISIR UN MOD affiche les mods, et JOUER y en lance un.;
+	es=ELEGIR MOD muestra los mods, y JUGAR AHORA juega uno allí.;
+	it=SCEGLI MOD mostra le mod, e GIOCA ORA ne avvia una.;
+	}
+
+[Changes apply when the Library closes.]
+	{
+	de=Änderungen gelten, wenn die Bibliothek geschlossen wird.;
+	fr=Les changements s'appliquent à la fermeture de la Bibliothèque.;
+	es=Los cambios se aplican al cerrar la Biblioteca.;
+	it=Le modifiche si applicano alla chiusura della Libreria.;
+	}
+
+[Choose a package to read about it.]
+	{
+	de=Wähle ein Paket, um mehr darüber zu lesen.;
+	fr=Choisissez un paquet pour en savoir plus.;
+	es=Elige un paquete para leer sobre él.;
+	it=Scegli un pacchetto per leggerne i dettagli.;
+	}
+
+[Choose a registry to read about it.]
+	{
+	de=Wähle ein Verzeichnis, um mehr darüber zu lesen.;
+	fr=Choisissez un registre pour en savoir plus.;
+	es=Elige un registro para leer sobre él.;
+	it=Scegli un registro per leggerne i dettagli.;
+	}
+
+[Point at a tile to read about it.]
+	{
+	de=Zeige auf eine Kachel, um mehr darüber zu lesen.;
+	fr=Pointez une tuile pour en savoir plus.;
+	es=Señala una casilla para leer sobre ella.;
+	it=Punta un riquadro per leggerne i dettagli.;
+	}
+
+[Every tag]
+	{
+	de=Alle Schlagwörter;
+	fr=Tous les mots-clés;
+	es=Todas las etiquetas;
+	it=Tutti i tag;
+	}
+
+[Installed: {count}]
+	{
+	de=Installiert: {count};
+	fr=Installés : {count};
+	es=Instalados: {count};
+	it=Installati: {count};
+	}
+
+[Mirrors]
+	{
+	de=Spiegelserver;
+	fr=Miroirs;
+	es=Réplicas;
+	it=Mirror;
+	}
+
+[Pack]
+	{
+	de=Paket;
+	fr=Paquet;
+	es=Paquete;
+	it=Pacchetto;
+	}
+
+[Packages]
+	{
+	de=Pakete;
+	fr=Paquets;
+	es=Paquetes;
+	it=Pacchetti;
+	}
+
+[Packs]
+	{
+	de=Pakete;
+	fr=Paquets;
+	es=Paquetes;
+	it=Pacchetti;
+	}
+
+[Not copied]
+	{
+	de=Nicht kopiert;
+	fr=Non copiée;
+	es=No copiada;
+	it=Non copiata;
+	}
+
+[Press an expansion to turn it on or off. The change applies when the Library closes.]
+	{
+	de=Drücke eine Erweiterung, um sie ein- oder auszuschalten. Die Änderung gilt, wenn die Bibliothek geschlossen wird.;
+	fr=Appuyez sur une extension pour l'activer ou la désactiver. Le changement s'applique à la fermeture de la Bibliothèque.;
+	es=Pulsa una expansión para activarla o desactivarla. El cambio se aplica al cerrar la Biblioteca.;
+	it=Premi un'espansione per attivarla o disattivarla. La modifica si applica alla chiusura della Libreria.;
+	}
+
+[The game Open Annihilation plays, from the files you added. CHANGE… chooses another one you added, or adds one.]
+	{
+	de=Das Spiel, das Open Annihilation spielt, aus den Dateien, die du hinzugefügt hast. WECHSELN… wählt ein anderes hinzugefügtes oder fügt eines hinzu.;
+	fr=Le jeu qu'Open Annihilation lance, à partir des fichiers que vous avez ajoutés. CHANGER… en choisit un autre déjà ajouté, ou en ajoute un.;
+	es=El juego que ejecuta Open Annihilation, a partir de los archivos que añadiste. CAMBIAR… elige otro que añadiste o añade uno.;
+	it=Il gioco che Open Annihilation esegue, dai file che hai aggiunto. CAMBIA… ne sceglie un altro già aggiunto o ne aggiunge uno.;
+	}
+
+[The language the game shows its words in. Its SETTINGS button opens Settings › Language & Text, where the languages are chosen and got.]
+	{
+	de=Die Sprache, in der das Spiel seine Texte zeigt. Die Schaltfläche EINSTELLUNGEN öffnet Einstellungen › Sprache und Text, wo die Sprachen gewählt und geholt werden.;
+	fr=La langue dans laquelle le jeu affiche ses textes. Son bouton RÉGLAGES ouvre Réglages › Langue et texte, où les langues sont choisies et obtenues.;
+	es=El idioma en que el juego muestra sus textos. Su botón AJUSTES abre Ajustes › Idioma y texto, donde se eligen y obtienen los idiomas.;
+	it=La lingua in cui il gioco mostra i suoi testi. Il pulsante IMPOSTAZIONI apre Impostazioni › Lingua e testo, dove si scelgono e si ottengono le lingue.;
+	}
+
+[Sound]
+	{
+	de=Sound;
+	fr=Son;
+	es=Sonido;
+	it=Suono;
+	}
+
+[Game Speeds]
+	{
+	de=Geschwindigkeiten;
+	fr=Vitesses;
+	es=Velocidades;
+	it=Velocità;
+	}
+
+[Game Files]
+	{
+	de=Spieldateien;
+	fr=Fichiers du jeu;
+	es=Archivos del juego;
+	it=File di gioco;
+	}
+
+[Standard hacks]
+	{
+	de=Standard-Hacks;
+	fr=Hacks standard;
+	es=Hacks estándar;
+	it=Hack standard;
+	}
+
+[OPEN LIST...]
+	{
+	de=LISTE ÖFFNEN...;
+	fr=OUVRIR LA LISTE...;
+	es=ABRIR LISTA...;
+	it=APRI ELENCO...;
+	}
+
+[Developer Mode's list of the standard hacks opens in the settings dialog. The game's own options changed here are kept.]
+	{
+	de=Die Liste der Standard-Hacks des Entwicklermodus öffnet sich im Einstellungsdialog. Die hier geänderten Optionen des Spiels bleiben erhalten.;
+	fr=La liste des hacks standard du mode développeur s'ouvre dans la fenêtre des réglages. Les options du jeu modifiées ici sont conservées.;
+	es=La lista de hacks estándar del modo desarrollador se abre en el diálogo de ajustes. Las opciones del juego cambiadas aquí se conservan.;
+	it=L'elenco degli hack standard della modalità sviluppatore si apre nella finestra delle impostazioni. Le opzioni del gioco cambiate qui restano.;
+	}
+
+[Point at a setting to read what it does.]
+	{
+	de=Zeige auf eine Einstellung, um zu lesen, was sie bewirkt.;
+	fr=Pointe un réglage pour lire ce qu'il fait.;
+	es=Señala un ajuste para leer qué hace.;
+	it=Punta un'impostazione per leggere cosa fa.;
+	}
+
+[Nothing to set here.]
+	{
+	de=Hier gibt es nichts einzustellen.;
+	fr=Rien à régler ici.;
+	es=Aquí no hay nada que ajustar.;
+	it=Qui non c'è nulla da impostare.;
+	}
+
+[Locked: {reason}]
+	{
+	de=Gesperrt: {reason};
+	fr=Verrouillé : {reason};
+	es=Bloqueado: {reason};
+	it=Bloccato: {reason};
+	}
+
+[Default: {value}]
+	{
+	de=Standard: {value};
+	fr=Par défaut : {value};
+	es=Predeterminado: {value};
+	it=Predefinito: {value};
+	}
+
+[Takes effect immediately]
+	{
+	de=Wirkt sofort;
+	fr=Prend effet immédiatement;
+	es=Se aplica al instante;
+	it=Ha effetto subito;
+	}
+
+[Takes effect when you press OK]
+	{
+	de=Wirkt, sobald du OK drückst;
+	fr=Prend effet quand tu appuies sur OK;
+	es=Se aplica al pulsar OK;
+	it=Ha effetto quando premi OK;
+	}
+
+[Takes effect from the next start]
+	{
+	de=Wirkt ab dem nächsten Start;
+	fr=Prend effet au prochain démarrage;
+	es=Se aplica desde el próximo inicio;
+	it=Ha effetto dal prossimo avvio;
+	}
+
+[Takes effect from the next game]
+	{
+	de=Wirkt ab dem nächsten Spiel;
+	fr=Prend effet à la prochaine partie;
+	es=Se aplica desde la próxima partida;
+	it=Ha effetto dalla prossima partita;
+	}
+
+[OPEN]
+	{
+	de=ÖFFNEN;
+	fr=OUVRIR;
+	es=ABRIR;
+	it=APRI;
+	}
+
+[TEST]
+	{
+	de=TEST;
+	fr=TEST;
+	es=PROBAR;
+	it=PROVA;
+	}
+
+[{count} secs]
+	{
+	de={count} s;
+	fr={count} s;
+	es={count} s;
+	it={count} s;
+	}
+
+[Sound Mode]
+	{
+	de=Soundmodus;
+	fr=Mode sonore;
+	es=Modo de sonido;
+	it=Modalità audio;
+	}
+
+[How the game plays its sounds, or whether it plays none.]
+	{
+	de=Wie das Spiel seine Klänge abspielt, oder ob gar keine.;
+	fr=Comment le jeu joue ses sons, ou s'il n'en joue aucun.;
+	es=Cómo reproduce el juego sus sonidos, o si no reproduce ninguno.;
+	it=Come il gioco riproduce i suoni, o se non ne riproduce.;
+	}
+
+[Sound Volume]
+	{
+	de=Lautstärke der Effekte;
+	fr=Volume des effets;
+	es=Volumen de efectos;
+	it=Volume effetti;
+	}
+
+[How loud the game's sound effects play.]
+	{
+	de=Wie laut die Soundeffekte des Spiels sind.;
+	fr=Le volume des effets sonores du jeu.;
+	es=Lo fuerte que suenan los efectos del juego.;
+	it=Quanto forte suonano gli effetti del gioco.;
+	}
+
+[Unit Speech]
+	{
+	de=Einheitensprache;
+	fr=Voix des unités;
+	es=Voz de unidades;
+	it=Voce delle unità;
+	}
+
+[How much the units say when they are given orders.]
+	{
+	de=Wie viel die Einheiten sagen, wenn sie Befehle erhalten.;
+	fr=Ce que disent les unités quand elles reçoivent des ordres.;
+	es=Cuánto hablan las unidades al recibir órdenes.;
+	it=Quanto parlano le unità quando ricevono ordini.;
+	}
+
+[Test Sound]
+	{
+	de=Testklang;
+	fr=Son de test;
+	es=Sonido de prueba;
+	it=Suono di prova;
+	}
+
+[Plays a sound at the volume set.]
+	{
+	de=Spielt einen Klang in der eingestellten Lautstärke.;
+	fr=Joue un son au volume réglé.;
+	es=Reproduce un sonido con el volumen fijado.;
+	it=Riproduce un suono al volume impostato.;
+	}
+
+[Whether the game plays its music.]
+	{
+	de=Ob das Spiel seine Musik spielt.;
+	fr=Si le jeu joue sa musique.;
+	es=Si el juego reproduce su música.;
+	it=Se il gioco riproduce la sua musica.;
+	}
+
+[Music Volume]
+	{
+	de=Musiklautstärke;
+	fr=Volume de la musique;
+	es=Volumen de la música;
+	it=Volume musica;
+	}
+
+[How loud the music plays.]
+	{
+	de=Wie laut die Musik spielt.;
+	fr=Le volume de la musique.;
+	es=Lo fuerte que suena la música.;
+	it=Quanto forte suona la musica.;
+	}
+
+[Play Mode]
+	{
+	de=Wiedergabe;
+	fr=Mode de lecture;
+	es=Modo de reproducción;
+	it=Modalità di riproduzione;
+	}
+
+[Which tracks the music plays, and in what order.]
+	{
+	de=Welche Stücke die Musik spielt, und in welcher Reihenfolge.;
+	fr=Quelles pistes la musique joue, et dans quel ordre.;
+	es=Qué pistas suenan y en qué orden.;
+	it=Quali brani suonano e in quale ordine.;
+	}
+
+[Gamma]
+	{
+	de=Gamma;
+	fr=Gamma;
+	es=Gamma;
+	it=Gamma;
+	}
+
+[How bright the game's pictures are drawn.]
+	{
+	de=Wie hell die Bilder des Spiels gezeichnet werden.;
+	fr=La luminosité des images du jeu.;
+	es=Lo brillantes que se dibujan las imágenes del juego.;
+	it=Quanto sono luminose le immagini del gioco.;
+	}
+
+[Shadows]
+	{
+	de=Schatten;
+	fr=Ombres;
+	es=Sombras;
+	it=Ombre;
+	}
+
+[Whether units, vehicles and features cast shadows.]
+	{
+	de=Ob Einheiten, Fahrzeuge und Objekte Schatten werfen.;
+	fr=Si les unités, les véhicules et les éléments projettent des ombres.;
+	es=Si unidades, vehículos y objetos proyectan sombras.;
+	it=Se unità, veicoli e oggetti proiettano ombre.;
+	}
+
+[Shading]
+	{
+	de=Schattierung;
+	fr=Ombrage;
+	es=Sombreado;
+	it=Ombreggiatura;
+	}
+
+[Whether the units are shaded by the light.]
+	{
+	de=Ob die Einheiten vom Licht schattiert werden.;
+	fr=Si les unités sont ombrées par la lumière.;
+	es=Si las unidades se sombrean con la luz.;
+	it=Se le unità sono ombreggiate dalla luce.;
+	}
+
+[Anti-Aliasing]
+	{
+	de=Kantenglättung;
+	fr=Anticrénelage;
+	es=Suavizado;
+	it=Antialiasing;
+	}
+
+[Whether the units' edges are smoothed, as the game smooths them.]
+	{
+	de=Ob die Kanten der Einheiten geglättet werden, wie das Spiel sie glättet.;
+	fr=Si les bords des unités sont lissés, comme le jeu les lisse.;
+	es=Si los bordes de las unidades se suavizan, como los suaviza el juego.;
+	it=Se i bordi delle unità sono smussati, come li smussa il gioco.;
+	}
+
+[Game Speed]
+	{
+	de=Spielgeschwindigkeit;
+	fr=Vitesse du jeu;
+	es=Velocidad de juego;
+	it=Velocità di gioco;
+	}
+
+[How fast a game plays when it starts. 0 is the game's normal speed.]
+	{
+	de=Wie schnell ein Spiel zu Beginn läuft. 0 ist die normale Geschwindigkeit.;
+	fr=La vitesse d'une partie à son début. 0 est la vitesse normale.;
+	es=Lo rápido que va una partida al empezar. 0 es la velocidad normal.;
+	it=Quanto è veloce una partita all'inizio. 0 è la velocità normale.;
+	}
+
+[Scroll Speed]
+	{
+	de=Scrollgeschwindigkeit;
+	fr=Vitesse de défilement;
+	es=Velocidad de desplazamiento;
+	it=Velocità di scorrimento;
+	}
+
+[How fast the view scrolls over the battlefield.]
+	{
+	de=Wie schnell die Ansicht über das Schlachtfeld scrollt.;
+	fr=La vitesse à laquelle la vue défile sur le champ de bataille.;
+	es=Lo rápido que se desplaza la vista por el campo de batalla.;
+	it=Quanto velocemente la vista scorre sul campo di battaglia.;
+	}
+
+[Message Lines]
+	{
+	de=Nachrichtenzeilen;
+	fr=Lignes de messages;
+	es=Líneas de mensajes;
+	it=Righe dei messaggi;
+	}
+
+[How many lines of messages show over the battlefield.]
+	{
+	de=Wie viele Nachrichtenzeilen über dem Schlachtfeld stehen.;
+	fr=Le nombre de lignes de messages sur le champ de bataille.;
+	es=Cuántas líneas de mensajes se ven sobre el campo de batalla.;
+	it=Quante righe di messaggi si vedono sul campo di battaglia.;
+	}
+
+[Message Time]
+	{
+	de=Nachrichtendauer;
+	fr=Durée des messages;
+	es=Duración de mensajes;
+	it=Durata dei messaggi;
+	}
+
+[How long a message stays before it scrolls away.]
+	{
+	de=Wie lange eine Nachricht bleibt, bevor sie wegscrollt.;
+	fr=Combien de temps un message reste avant de défiler.;
+	es=Cuánto tiempo queda un mensaje antes de desaparecer.;
+	it=Quanto resta un messaggio prima di scorrere via.;
+	}
+
+[Mouse Buttons]
+	{
+	de=Maustasten;
+	fr=Boutons de la souris;
+	es=Botones del ratón;
+	it=Tasti del mouse;
+	}
+
+[Which mouse button selects and which gives orders.]
+	{
+	de=Welche Maustaste auswählt und welche Befehle gibt.;
+	fr=Quel bouton de la souris sélectionne et lequel donne les ordres.;
+	es=Qué botón del ratón selecciona y cuál da órdenes.;
+	it=Quale tasto del mouse seleziona e quale dà ordini.;
+	}
+
+[Unit Chat Text]
+	{
+	de=Einheiten-Text;
+	fr=Texte des unités;
+	es=Texto de unidades;
+	it=Testo delle unità;
+	}
+
+[How much of what the units say shows as text.]
+	{
+	de=Wie viel von dem, was die Einheiten sagen, als Text erscheint.;
+	fr=Ce que disent les unités qui s'affiche en texte.;
+	es=Cuánto de lo que dicen las unidades aparece como texto.;
+	it=Quanto di ciò che dicono le unità appare come testo.;
+	}
+
+[Left click]
+	{
+	de=Linksklick;
+	fr=Clic gauche;
+	es=Clic izquierdo;
+	it=Clic sinistro;
+	}
+
+[Right click]
+	{
+	de=Rechtsklick;
+	fr=Clic droit;
+	es=Clic derecho;
+	it=Clic destro;
+	}
+
+[CONNECTION]
+	{
+	de=VERBINDUNG;
+	fr=CONNEXION;
+	es=CONEXIÓN;
+	it=CONNESSIONE;
+	}
+
+[Address]
+	{
+	de=Adresse;
+	fr=Adresse;
+	es=Dirección;
+	it=Indirizzo;
+	}
+
+[Connection]
+	{
+	de=Verbindung;
+	fr=Connexion;
+	es=Conexión;
+	it=Connessione;
+	}
+
+[Your name]
+	{
+	de=Dein Name;
+	fr=Ton nom;
+	es=Tu nombre;
+	it=Il tuo nome;
+	}
+
+[Password]
+	{
+	de=Passwort;
+	fr=Mot de passe;
+	es=Contraseña;
+	it=Password;
+	}
+
+[Map]
+	{
+	de=Karte;
+	fr=Carte;
+	es=Mapa;
+	it=Mappa;
+	}
+
+[Players]
+	{
+	de=Spieler;
+	fr=Joueurs;
+	es=Jugadores;
+	it=Giocatori;
+	}
+
+[Ping]
+	{
+	de=Ping;
+	fr=Ping;
+	es=Ping;
+	it=Ping;
+	}
+
+[Status]
+	{
+	de=Status;
+	fr=État;
+	es=Estado;
+	it=Stato;
+	}
+
+[OPTIONS]
+	{
+	de=OPTIONEN;
+	fr=OPTIONS;
+	es=OPCIONES;
+	it=OPZIONI;
+	}
+
+[WATCH]
+	{
+	de=ZUSCHAUEN;
+	fr=REGARDER;
+	es=OBSERVAR;
+	it=GUARDA;
+	}
+
+[JOIN]
+	{
+	de=BEITRETEN;
+	fr=REJOINDRE;
+	es=UNIRSE;
+	it=PARTECIPA;
+	}
+
+[Modem and serial connections are not available in this build.]
+	{
+	de=Modem- und serielle Verbindungen sind in dieser Version nicht verfügbar.;
+	fr=Les connexions par modem et série ne sont pas disponibles dans cette version.;
+	es=Las conexiones por módem y serie no están disponibles en esta versión.;
+	it=Le connessioni via modem e seriale non sono disponibili in questa versione.;
+	}
+
+[Closed]
+	{
+	de=Geschlossen;
+	fr=Fermée;
+	es=Cerrada;
+	it=Chiusa;
+	}
+
+[Game continues]
+	{
+	de=Spiel geht weiter;
+	fr=La partie continue;
+	es=La partida continúa;
+	it=La partita continua;
+	}
+
+[Game ends]
+	{
+	de=Spiel endet;
+	fr=La partie s'arrête;
+	es=La partida termina;
+	it=La partita finisce;
+	}
+
+[Permanent]
+	{
+	de=Dauerhaft;
+	fr=Permanente;
+	es=Permanente;
+	it=Permanente;
+	}
+
+[True]
+	{
+	de=Echt;
+	fr=Réelle;
+	es=Real;
+	it=Reale;
+	}
+
+[Circular]
+	{
+	de=Kreisförmig;
+	fr=Circulaire;
+	es=Circular;
+	it=Circolare;
+	}
+
+[Commander]
+	{
+	de=Kommandant;
+	fr=Commandant;
+	es=Comandante;
+	it=Comandante;
+	}
+
+[Line of sight]
+	{
+	de=Sichtlinie;
+	fr=Ligne de vue;
+	es=Línea de visión;
+	it=Linea di vista;
+	}
+
+[Mapping]
+	{
+	de=Kartierung;
+	fr=Cartographie;
+	es=Cartografía;
+	it=Mappatura;
+	}
+
+[Unmapped]
+	{
+	de=Unkartiert;
+	fr=Non cartographiée;
+	es=Sin cartografiar;
+	it=Non mappata;
+	}
+
+[Mapped]
+	{
+	de=Kartiert;
+	fr=Cartographiée;
+	es=Cartografiada;
+	it=Mappata;
+	}
+
+[Metal]
+	{
+	de=Metall;
+	fr=Métal;
+	es=Metal;
+	it=Metallo;
+	}
+
+[Energy]
+	{
+	de=Energie;
+	fr=Énergie;
+	es=Energía;
+	it=Energia;
+	}
+
+[Watching]
+	{
+	de=Zuschauen;
+	fr=Spectateurs;
+	es=Espectadores;
+	it=Spettatori;
+	}
+
+[Allowed]
+	{
+	de=Erlaubt;
+	fr=Autorisés;
+	es=Permitidos;
+	it=Consentiti;
+	}
+
+[Asked]
+	{
+	de=Verlangt;
+	fr=Demandé;
+	es=Requerida;
+	it=Richiesta;
+	}
+
+[PLANET]
+	{
+	de=PLANET;
+	fr=PLANÈTE;
+	es=PLANETA;
+	it=PIANETA;
+	}
+
+[Planet]
+	{
+	de=Planet;
+	fr=Planète;
+	es=Planeta;
+	it=Pianeta;
+	}
+
+[Gravity]
+	{
+	de=Schwerkraft;
+	fr=Gravité;
+	es=Gravedad;
+	it=Gravità;
+	}
+
+[BACK TO START]
+	{
+	de=ZURÜCK ZUM ANFANG;
+	fr=RETOUR AU DÉBUT;
+	es=VOLVER AL INICIO;
+	it=TORNA ALL'INIZIO;
 	}

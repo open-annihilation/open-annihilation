@@ -384,8 +384,9 @@ system's sockets elsewhere.
   read: no list, too many events, an unknown kind, missing or out-of-range
   fields, text too long or with a zero character.
 - `native-automation-menus` (`tools/check_native_automation.py`) starts the
-  game with `--fark` on SDL's dummy drivers, over the installation
-  `OA_GAME_DIR` names: the file and its mode, a connection that speaks no
+  game with `--fark` and `--classic-main-menu` on SDL's dummy drivers, over
+  the installation `OA_GAME_DIR` names: the file and its mode, a
+  connection that speaks no
   frames and one whose first frame is larger than a hello closed
   unanswered, a wrong token denied, hello, a second client busy, the main
   menu's screen, the preferences, refusals, the main menu's controls, input

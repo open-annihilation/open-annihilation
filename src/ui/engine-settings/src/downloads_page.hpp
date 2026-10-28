@@ -23,8 +23,7 @@ inline constexpr int32_t reset_install_id_action = 4;
 /// What EMPTY asks the host for.
 inline constexpr int32_t empty_downloads_action = 5;
 /// What REGISTRIES IN THE LIBRARY… asks for: the Library's Registries tab.
-/// It follows every other row's button's action, MORE IN THE LIBRARY…'s
-/// among them. The page lists the row only while the Library can open
+/// It follows every other row's button's action. The page lists the row only while the Library can open
 /// (Dialog::library_link).
 inline constexpr int32_t manage_registries_action = 7;
 

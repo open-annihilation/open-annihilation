@@ -275,6 +275,11 @@ bool PictureCache::waiting() const {
     return false;
 }
 
+bool PictureCache::holding() const {
+    base::threads::LockGuard guard(state_->mutex);
+    return !state_->entries.empty();
+}
+
 uint64_t PictureCache::generation() const noexcept {
     return state_->generation.load();
 }

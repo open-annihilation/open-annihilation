@@ -29,7 +29,7 @@ inline constexpr std::string_view uninstall_ok_button_id = "ok";
 enum class UninstallStep : uint8_t {
     off,              ///< nothing: it is not installed, or uninstall_off_reason says why
     ask,              ///< the Uninstall question, whose UNINSTALL removes it
-    switch_off_first, ///< the mod being played: a notice that it must be switched off first
+    switch_off_first, ///< the mod being played: it is switched off first, or a notice says so
     language_first,   ///< the language pack in use: a notice to choose another language first
 };
 
@@ -87,6 +87,20 @@ uninstall_question(const Entry& entry, std::string_view folder, const TextHooks&
 /// @param text how texts are looked up
 /// @return the question
 [[nodiscard]] oa::ui::kit::Question uninstall_question(
+    const Library& library, const Entry& entry, std::string_view folder, const TextHooks& text = {}
+);
+
+/// The Uninstall question for the mod being played, whose UNINSTALL switches
+/// it off before it removes its folder: "You are playing {name}. UNINSTALL
+/// switches it off first, and the game starts again with no mod." before the
+/// question's own paragraphs. The buttons are the question's.
+///
+/// @param library the Library
+/// @param entry the entry, installed and played
+/// @param folder its folder as the player knows it, such as "Mods/ridge"
+/// @param text how texts are looked up
+/// @return the question
+[[nodiscard]] oa::ui::kit::Question uninstall_playing_question(
     const Library& library, const Entry& entry, std::string_view folder, const TextHooks& text = {}
 );
 

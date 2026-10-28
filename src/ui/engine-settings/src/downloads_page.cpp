@@ -42,7 +42,6 @@ static_assert(
     manage_registries_action != reset_install_id_action &&
         manage_registries_action != empty_downloads_action &&
         manage_registries_action != geometry::manage_game_files_action &&
-        manage_registries_action != geometry::open_library_action &&
         (manage_registries_action < geometry::first_folder_action ||
          manage_registries_action >=
              geometry::first_folder_action + static_cast<int32_t>(folder_button_count)),

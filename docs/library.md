@@ -47,7 +47,14 @@ Choosing a brain is [Playing with brains](playing-with-brains.md).
 
 The Library opens on the main menu, from:
 
-- **the OA button**, the plates over drive bays at the bottom right of
+- **LIBRARY** on the main menu, a button in the menu's own look beside
+  **SETTINGS**. It opens on the [Active](#the-active-tab) tab, over the
+  whole window, drawn with the game's own art: its frame, buttons, list
+  boxes, check boxes, scroll bars and font, laid out on a 1024x768 stage
+  enlarged by whole steps;
+- **the OA button**, in LIBRARY's place where the main menu has no room for
+  LIBRARY and SETTINGS or the game's art for the Library cannot be read,
+  and with `--classic-main-menu`: the plates over drive bays at the bottom right of
   the main menu, a 48-pixel square left of the **Settings** button and its
   gears (the same size, a quarter of a side apart, 12 pixels in from the
   frame). It opens on the [Active](#the-active-tab) tab. Its bottom-right
@@ -65,8 +72,8 @@ The Library opens on the main menu, from:
   top right corner, from the moment OA finds them: you
   need not open the Library to learn of them, and its **Updates** tab lists
   them;
-- **MORE IN THE LIBRARY…** in Settings › Language, which opens it on
-  Languages, over the settings, which stay open under it.
+- **REGISTRIES IN THE LIBRARY…** in Settings › Downloads, which opens it
+  on Registries, over the settings, which stay open under it.
 
 The
 skirmish and battle room map lists have **MORE MAPS…** instead, which opens

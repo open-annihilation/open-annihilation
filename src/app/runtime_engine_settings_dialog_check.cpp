@@ -1306,19 +1306,14 @@ void Runtime::check_engine_settings_dialog() {
     chosen.language = "en";
     expect("Language English");
     require(shown_language().tag == "en", "Language English did not put English back");
-    // On the main menu MORE IN THE LIBRARY… stands right under Language's
-    // row, and the rows under it come one control later.
-    const int32_t library_link = engine_settings_dialog()->library_link ? 1 : 0;
-    click(
-        settings::first_row_control + 1 + library_link, "ON", "Use modern fonts for game text's On"
-    );
+    click(settings::first_row_control + 1, "ON", "Use modern fonts for game text's On");
     chosen.modern_fonts = true;
     expect("Use modern fonts for game text On");
     require(
         !shows_text(settings::dialog_layout(*engine_settings_dialog()), "Needs modern fonts"),
         "Text size stayed locked with the modern fonts On"
     );
-    focus(settings::first_row_control + 2 + library_link, "Text size");
+    focus(settings::first_row_control + 2, "Text size");
     tap(SDLK_RIGHT);
     chosen.text_size = settings::default_text_size + settings::text_size_step;
     expect("Text size a stop up");
@@ -1328,7 +1323,7 @@ void Runtime::check_engine_settings_dialog() {
         "Text size a stop up did not reach the text style"
     );
     // Font shadow lies under the view's edge: the focus brings it in.
-    focus(settings::first_row_control + 4 + library_link, "Font shadow");
+    focus(settings::first_row_control + 4, "Font shadow");
     tap(SDLK_LEFT);
     chosen.text_shadow = false;
     expect("Font shadow Off");
@@ -1875,13 +1870,6 @@ void Runtime::check_engine_settings_dialog() {
                 }
             );
         };
-        // Answers the question on top of the OA layer with a key, as the layer does.
-        const auto answer = [this](oa::ui::kit::Key key, uint32_t sdl_key) {
-            LayerScreen* top = oa_layer().top();
-            require(top != nullptr, "no question shows to answer");
-            oa_layer().take_answer(*top, top->key(key, sdl_key), sdl_key);
-            oa_layer().forget_latched_key();
-        };
         const auto switch_question = [this]() -> const QuestionScreen* {
             const auto* asked = dynamic_cast<const QuestionScreen*>(oa_layer().top());
             if (asked == nullptr || asked->question().title != "SWITCH MOD")
@@ -1951,39 +1939,12 @@ void Runtime::check_engine_settings_dialog() {
                 "the picked folder played offers no SWITCH OFF"
             );
             const library::EntryId id = played->id;
+            // SWITCH OFF plays no mod at once, asking nothing.
             library_entry_action(library::Action::switch_off, id);
-            {
-                const QuestionScreen* asked = switch_question();
-                require(
-                    asked != nullptr && asked->question().buttons.size() == 2 &&
-                        asked->question().buttons[0].id == "cancel" &&
-                        asked->question().buttons[1].id == "switch" &&
-                        asked->question().buttons[1].caption == "SWITCH" &&
-                        asked->question().marked == 0,
-                    "SWITCH OFF did not ask the Switch Mod question"
-                );
-            }
-            if (!options_.snapshot.empty())
-                write_ppm(step_snapshot(options_.snapshot, "menu-switch-off-question"), frame());
-            answer(oa::ui::kit::Key::escape, SDLK_ESCAPE);
-            require(
-                switch_question() == nullptr && !soft_restart_requested() &&
-                    engine_settings().mod_folder == picked,
-                "Escape on the question did not put it away and keep the Mod as it was"
-            );
-            library_entry_action(library::Action::switch_off, id);
-            require(switch_question() != nullptr, "a second SWITCH OFF did not ask again");
-            answer(oa::ui::kit::Key::enter, SDLK_RETURN);
-            require(
-                switch_question() == nullptr && !soft_restart_requested() &&
-                    engine_settings().mod_folder == picked,
-                "CANCEL changed the Mod"
-            );
-            library_entry_action(library::Action::switch_off, id);
-            answer(oa::ui::kit::Key::yes, SDLK_Y);
             const auto switched = oa::platform::preferences::load(preference_path_);
             require(
-                soft_restart_requested() && engine_settings_dialog() == nullptr &&
+                switch_question() == nullptr && soft_restart_requested() &&
+                    engine_settings_dialog() == nullptr &&
                     !switched.contains(mod_key) && !switched.contains(picked_key),
                 "SWITCH away from the picked folder did not forget it"
             );
@@ -2662,10 +2623,7 @@ void Runtime::check_engine_settings_window_sizes() {
         tap(SDLK_COMMA, kShortcutModifier);
         auto* fraction_dialog = engine_settings_dialog();
         require(fraction_dialog != nullptr, "the shortcut did not open the dialog" + on);
-        // On the main menu MORE IN THE LIBRARY… stands right under
-        // Language's row, and the rows under it come one control later.
-        const int32_t fonts_row =
-            settings::first_row_control + 1 + (fraction_dialog->library_link ? 1 : 0);
+        const int32_t fonts_row = settings::first_row_control + 1;
         open_sizes(*fraction_dialog);
         require(
             !shows_text(settings::dialog_layout(*fraction_dialog), "150%"),

@@ -108,16 +108,6 @@ void set_language(SettingsModel& model, int32_t index);
     return spec;
 }
 
-/// MORE IN THE LIBRARY…: a link under Language's row, its hint saying the
-/// Library holds more languages. The section lists it while the dialog says
-/// the Library can open over it (Dialog::library_link).
-[[nodiscard]] inline constexpr kit::RowSpec<SettingsModel> more_in_library_row() noexcept {
-    kit::RowSpec<SettingsModel> spec =
-        kit::link<SettingsModel>("more-in-library", "MORE IN THE LIBRARY…", open_library_action);
-    spec.hint = {"More languages are in the Library.", {}};
-    return spec;
-}
-
 /// Moves a marked Language item by a step, skipping the divider one further
 /// in the same direction.
 ///

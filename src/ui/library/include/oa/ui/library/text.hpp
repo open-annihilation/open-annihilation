@@ -216,7 +216,11 @@ inline constexpr std::string_view uninstall_ask_kept =
 inline constexpr std::string_view uninstall_listed = "GET installs it again.";
 inline constexpr std::string_view uninstall_own =
     "No registry lists it, so the Library cannot get it again.";
-/// The notice for the mod being played.
+/// What the question says first for the mod being played, which UNINSTALL
+/// switches off before it removes its folder.
+inline constexpr std::string_view uninstall_playing_first =
+    "You are playing {name}. UNINSTALL switches it off first, and the game starts again with no mod.";
+/// The notice for the mod being played, while the command line chose it.
 inline constexpr std::string_view uninstall_playing =
     "You are playing {name}. Switch it off first with SWITCH OFF, then uninstall it.";
 /// The notice for the language pack in use.

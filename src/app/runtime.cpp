@@ -552,14 +552,22 @@ void Runtime::run_progress(std::string_view line, const std::function<void(LongW
         window = sdl_.window;
         renderer = sdl_.renderer;
     }
+    // A switch made in the Library shows the window as it began, with no
+    // dialog over it, until the Library opens again.
+    const renderer::Surface* picture = options_.restart_picture.get();
     std::ignore = run_long_work(
         window,
         renderer,
         nullptr,
         "Open Annihilation",
         line,
-        [this](oa::ui::paint::Canvas& canvas) { fill_progress_behind(canvas, &surface_); },
-        job
+        [this, picture](oa::ui::paint::Canvas& canvas) {
+            fill_progress_behind(canvas, picture != nullptr ? picture : &surface_);
+        },
+        job,
+        long_work_show_after_ms,
+        LongWorkClose::after_job,
+        picture != nullptr ? LongWorkLook::behind_only : LongWorkLook::dialog
     );
 }
 
@@ -1122,6 +1130,7 @@ int Runtime::run() {
     if constexpr (self_checks_built)
         if (options_.check_running_while_inactive)
             finish_inactive_loop_check();
+    keep_switch_picture();
     if (video_capture_) {
         video_capture_->finish();
         video_capture_.reset();

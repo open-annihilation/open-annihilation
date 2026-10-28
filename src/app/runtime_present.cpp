@@ -33,6 +33,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -1335,8 +1337,19 @@ void Runtime::render() {
     // before the frame is composed; the memory guard may drop it first.
     update_render_tier();
     watch_accelerated_memory();
+    // The game's own menus show the cursor as the system's pointer where it
+    // may show (tick_and_draw_cursor); any other frame draws it.
+    const bool menus_may_use_system_cursor =
+        screen_ != Screen::match && screen_ != Screen::loading && system_cursor_may_show();
+    if (!menus_may_use_system_cursor && (system_cursor_shown_ || !system_cursors_.empty()))
+        release_system_cursor();
+    front_end_system_cursor_ = false;
     const auto compose_start = std::chrono::steady_clock::now();
     rebuild_surface();
+    // A frame of the game's menus that drew its cursor, or none, leaves the
+    // system's pointer to the game.
+    if (!front_end_system_cursor_ && (system_cursor_shown_ || !system_cursors_.empty()))
+        release_system_cursor();
     const auto composed = elapsed_since(compose_start);
     phase_times_.compose += composed;
     frame_pacing::note_frame_measure(
@@ -1460,6 +1473,11 @@ void Runtime::present_front_end() {
     }
     if (!drawn)
         draw_frame(sdl_.renderer, frontend_texture_, standard_mode);
+    // The cursor as the system's pointer, as large as the picture's pixels
+    // are in the window's, so that it moves between frames.
+    // tick_and_draw_cursor left it out of the picture for it.
+    const bool system_cursor =
+        front_end_system_cursor_ && show_system_cursor(sdl_places ? reckoned : wanted, frame_w);
     // The icons go over the scaled picture and under the screens, which cover
     // the buttons while a dialog is open.
     if (sharp_menu_buttons)
@@ -1481,8 +1499,11 @@ void Runtime::present_front_end() {
             if (SDL_GetRenderLogicalPresentationRect(sdl_.renderer, &picture_area))
                 oa_layer().present(&picture_area);
         }
-        present_software_cursor(false);
     }
+    // A cursor left out of the picture that the system's pointer does not
+    // show is drawn above it.
+    if (front_end_system_cursor_ ? !system_cursor : oa_layer().shows(false))
+        present_software_cursor(false);
     capture_render_target();
     if (render_fault_due(RenderFaultPoint::present))
         throw PresentError("injected present error");
@@ -1494,6 +1515,119 @@ void Runtime::present_front_end() {
     const auto present_ns = static_cast<uint64_t>(elapsed_since(present_start));
     frame_pacing::note_frame_measure(frame_stats_, frame_pacing::FrameMeasure::present, present_ns);
     note_present_time(present_ns);
+}
+
+bool Runtime::quiet_frames_allowed() const {
+    return sdl_.window != nullptr && sdl_.renderer != nullptr && !options_.remote_controlled &&
+           !options_.frame_limit && !options_.headless_check && !options_.unattended &&
+           director_ == nullptr && !video_capture_ && !frame_run_clock_ns_ && !frame_stats_shown_;
+}
+
+bool Runtime::system_cursor_may_show() const {
+    return quiet_frames_allowed() && cursors_loaded_ && cursor_image_ != nullptr &&
+           !frame_without_cursor_ && !system_pointer_screen_open_ && application_active_ &&
+           !middle_pan_shows_direction() && !touch_cursor().replaces_pointer;
+}
+
+bool Runtime::show_system_cursor(const SDL_FRect& area, int picture_width) {
+    const bool wanted = system_cursor_may_show() && picture_width > 0 && area.w > 0.0F;
+    if (!wanted) {
+        if (system_cursor_shown_ || !system_cursors_.empty())
+            release_system_cursor();
+        return false;
+    }
+    // As large as the cursor the picture enlarges, at the display gamma.
+    const float scale = area.w / static_cast<float>(picture_width);
+    if (scale != system_cursor_scale_ || system_cursor_gamma_ != gamma_table_) {
+        for (const SystemCursor& made : system_cursors_)
+            SDL_DestroyCursor(made.cursor);
+        system_cursors_.clear();
+        system_cursor_scale_ = scale;
+        system_cursor_gamma_ = gamma_table_;
+    }
+    auto made = std::find_if(system_cursors_.begin(), system_cursors_.end(), [this](const auto& held) {
+        return held.frame == cursor_image_;
+    });
+    if (made == system_cursors_.end()) {
+        const auto rendered = oa::formats::gaf::render_normal(*cursor_image_);
+        if (!rendered.ok())
+            return false;
+        const auto& frame = *rendered.frame;
+        const int width = std::max(static_cast<int>(std::lround(frame.width * scale)), 1);
+        const int height = std::max(static_cast<int>(std::lround(frame.height * scale)), 1);
+        SDL_Surface* picture = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_ARGB8888);
+        if (picture == nullptr)
+            return false;
+        const auto& pal = match_palette_.size() >= 1024 ? match_palette_ : resources_.gui_palette;
+        for (int row = 0; row < height; ++row) {
+            auto* dst = reinterpret_cast<uint32_t*>(
+                static_cast<uint8_t*>(picture->pixels) + static_cast<std::size_t>(row) * picture->pitch
+            );
+            const auto from_row = std::min(
+                static_cast<std::size_t>(row) * frame.height / static_cast<std::size_t>(height),
+                static_cast<std::size_t>(frame.height) - 1U
+            );
+            for (int column = 0; column < width; ++column) {
+                const auto from_column = std::min(
+                    static_cast<std::size_t>(column) * frame.width / static_cast<std::size_t>(width),
+                    static_cast<std::size_t>(frame.width) - 1U
+                );
+                const std::size_t offset = from_row * frame.width + from_column;
+                uint32_t texel = 0;
+                if (offset < frame.coverage.size() && frame.coverage[offset] != 0) {
+                    const auto pal_i = static_cast<std::size_t>(frame.pixels[offset]) * 4U;
+                    if (pal_i + 2 < pal.size())
+                        texel = 0xff000000U | (static_cast<uint32_t>(pal[pal_i]) << 16) |
+                                (static_cast<uint32_t>(pal[pal_i + 1]) << 8) |
+                                static_cast<uint32_t>(pal[pal_i + 2]);
+                }
+                dst[column] = texel;
+            }
+            if (!gamma_identity_)
+                gamma_xrgb_row(dst, width, gamma_table_);
+        }
+        SDL_Cursor* cursor = SDL_CreateColorCursor(
+            picture,
+            std::clamp(static_cast<int>(std::lround(frame.origin_x * scale)), 0, width - 1),
+            std::clamp(static_cast<int>(std::lround(frame.origin_y * scale)), 0, height - 1)
+        );
+        SDL_DestroySurface(picture);
+        if (cursor == nullptr)
+            return false;
+        // Each frame of each cursor is made once, the match's animated
+        // cursors with them; past most_system_cursors the set starts again.
+        constexpr std::size_t most_system_cursors = 128;
+        if (system_cursors_.size() >= most_system_cursors) {
+            for (const SystemCursor& held : system_cursors_)
+                if (held.cursor != SDL_GetCursor())
+                    SDL_DestroyCursor(held.cursor);
+            std::erase_if(system_cursors_, [](const auto& held) {
+                return held.cursor != SDL_GetCursor();
+            });
+        }
+        system_cursors_.push_back({cursor_image_, cursor});
+        made = std::prev(system_cursors_.end());
+    }
+    if (SDL_GetCursor() != made->cursor)
+        std::ignore = SDL_SetCursor(made->cursor);
+    if (!system_cursor_shown_) {
+        system_cursor_shown_ = true;
+        if (!SDL_CursorVisible())
+            std::ignore = SDL_ShowCursor();
+    }
+    return true;
+}
+
+void Runtime::release_system_cursor() noexcept {
+    system_cursor_shown_ = false;
+    if (SDL_Cursor* system = SDL_GetDefaultCursor())
+        std::ignore = SDL_SetCursor(system);
+    for (const SystemCursor& made : system_cursors_)
+        SDL_DestroyCursor(made.cursor);
+    system_cursors_.clear();
+    system_cursor_scale_ = 0.0F;
+    // The game draws its cursor again, the system's pointer hidden.
+    apply_system_pointer(false);
 }
 
 [[nodiscard]] oa::ui::gui_input::MenuObject Runtime::input_menu() const {

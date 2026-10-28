@@ -13,7 +13,7 @@
 // GET and CANCEL reach the feed, OPEN FOLDER and HOMEPAGE the recorded
 // openers, ROLL BACK asks the Roll Back Mod question over the Library and
 // PLAY NOW asks for a soft restart. The settings shortcut opens Settings over the Library, Settings ›
-// Language's MORE IN THE LIBRARY… the Library over Settings, and never two
+// Downloads' REGISTRIES IN THE LIBRARY… the Library over Settings, and never two
 // of either; the shortcut and the in-match OA button open Settings. At
 // 640x480 and 1920x1080. Then, at 640x480, a stand-in controller: Y focuses
 // the search, RB and LB change the tab and come back, X queues the selected
@@ -1502,15 +1502,17 @@ void Runtime::check_library() {
             "the shortcut did not open Settings alone" + on
         );
 
-        // 8. Settings › Language's MORE IN THE LIBRARY… opens the Library on
-        // Languages over Settings, and closing it goes back to Settings.
+        // 8. Settings › Downloads' REGISTRIES IN THE LIBRARY… opens the
+        // Library on Registries over Settings, and closing it goes back to
+        // Settings.
         click_named("oa.settings.nav.language");
         snapshot("settings-language-" + size);
-        click_named("oa.settings.more-in-library");
+        click_named("oa.settings.nav.downloads");
+        click_named("oa.settings.registries-in-library");
         require(
             top_is(library_screen_name) && oa_layer().find("settings") != nullptr &&
-                engine_settings_dialog() != nullptr && host.model.tab == library::Tab::languages,
-            "MORE IN THE LIBRARY… did not open the Library on Languages over Settings" + on
+                engine_settings_dialog() != nullptr && host.model.tab == library::Tab::registries,
+            "REGISTRIES IN THE LIBRARY… did not open the Library on Registries over Settings" + on
         );
         click_named("oa.library.close");
         require(
@@ -1519,16 +1521,16 @@ void Runtime::check_library() {
         );
         tap(SDLK_ESCAPE);
         require(oa_layer().top() == nullptr, "Escape did not close Settings" + on);
-        // From the Library, Settings, then MORE IN THE LIBRARY… goes back to
-        // the Library: never two of either.
+        // From the Library, Settings, then REGISTRIES IN THE LIBRARY… goes
+        // back to the Library: never two of either.
         press_button();
         tap(SDLK_COMMA, kShortcutModifier);
-        click_named("oa.settings.nav.language");
-        click_named("oa.settings.more-in-library");
+        click_named("oa.settings.nav.downloads");
+        click_named("oa.settings.registries-in-library");
         require(
             top_is(library_screen_name) && oa_layer().find("settings") == nullptr &&
-                engine_settings_dialog() == nullptr && host.model.tab == library::Tab::languages,
-            "MORE IN THE LIBRARY… over the Library stacked a second Library" + on
+                engine_settings_dialog() == nullptr && host.model.tab == library::Tab::registries,
+            "REGISTRIES IN THE LIBRARY… over the Library stacked a second Library" + on
         );
         click_named("oa.library.close");
         require(
@@ -1540,7 +1542,7 @@ void Runtime::check_library() {
     }
 
     // 9. In a skirmish the in-match OA button opens Settings, the Library
-    // opens nowhere, and Language does not link to it.
+    // opens nowhere, and Downloads does not link to it.
     start_benchmark_skirmish();
     require(screen_ == Screen::match && match_ != nullptr, "the skirmish did not start");
     open_library(std::nullopt);
@@ -1558,7 +1560,7 @@ void Runtime::check_library() {
             oa_layer().find(library_screen_name) == nullptr,
         "the in-match OA button did not open Settings"
     );
-    require(!engine_settings_dialog()->library_link, "Language links to the Library in a match");
+    require(!engine_settings_dialog()->library_link, "Downloads links to the Library in a match");
     std::ignore = take_engine_settings_action(settings::DialogAction::cancelled);
     leave_match();
     load(Screen::main_menu);

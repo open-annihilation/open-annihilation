@@ -50,11 +50,6 @@ namespace {
 /// mods it takes turns with (main.cpp's kModSwitches, which judges them).
 constexpr uint32_t kSwitches = 13;
 
-/// The run whose turn is the first SWITCH OFF: the third, from the second
-/// test profile to no mod. Its question is put away with CANCEL once before
-/// it is answered.
-constexpr uint32_t kFirstSwitchOff = 2;
-
 /// One test profile of the check: its folder's name in the player's Mods
 /// folder, and its oamod.yaml.
 struct TestMod {
@@ -196,45 +191,19 @@ void Runtime::check_mod_switch() {
     }
 
     // A test profile is chosen with PLAY NOW, which stores it and ends the
-    // run; no mod with SWITCH OFF on the mod played, which asks the Switch
-    // Mod question. On the first SWITCH OFF, CANCEL leaves everything as it
-    // was, and SWITCH OFF asks again; SWITCH stores no mod and ends the run.
+    // run; no mod with SWITCH OFF on the mod played, which asks nothing,
+    // stores no mod and ends the run.
     const std::string& next = turns[(playing_turn + 1) % turns.size()];
     const auto question_shows = [this] {
-        const auto* asked = dynamic_cast<const QuestionScreen*>(oa_layer().top());
-        if (asked == nullptr)
-            return false;
-        const oa::ui::kit::Question& question = asked->question();
-        return question.title == "SWITCH MOD" && question.buttons.size() == 2 &&
-               question.buttons[0].id == library::cancel_button_id &&
-               question.buttons[1].id == library::switch_button_id && question.marked == 0;
-    };
-    // Answers the question on top of the OA layer with a key, as the layer does.
-    const auto answer = [this](oa::ui::kit::Key key, uint32_t sdl_key) {
-        LayerScreen* top = oa_layer().top();
-        require(top != nullptr, "no question shows to answer");
-        oa_layer().take_answer(*top, top->key(key, sdl_key), sdl_key);
-        oa_layer().forget_latched_key();
+        return dynamic_cast<const QuestionScreen*>(oa_layer().top()) != nullptr;
     };
     if (next.empty()) {
         const library::Entry* played = entry_of(turns[playing_turn]);
         require(played != nullptr, "the Library does not list the mod played");
         const library::EntryId id = played->id;
+        // SWITCH OFF plays no mod at once, asking nothing.
         library_entry_action(library::Action::switch_off, id);
-        require(question_shows(), "SWITCH OFF did not ask the Switch Mod question");
-        if (options_.restarts == kFirstSwitchOff) {
-            const std::string before = engine_settings().mod_folder;
-            answer(oa::ui::kit::Key::escape, SDLK_ESCAPE);
-            require(
-                !question_shows() && !soft_restart_requested() &&
-                    engine_settings().mod_folder == before,
-                "CANCEL changed the Mod setting or left the question"
-            );
-            library_entry_action(library::Action::switch_off, id);
-            require(question_shows(), "a second SWITCH OFF did not ask again");
-        }
-        answer(oa::ui::kit::Key::yes, SDLK_Y);
-        require(!question_shows(), "SWITCH did not put the question away");
+        require(!question_shows(), "SWITCH OFF asked a question");
     } else {
         const library::Entry* chosen = entry_of(next);
         require(chosen != nullptr, "the Library does not list the next mod");

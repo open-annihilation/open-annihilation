@@ -155,7 +155,7 @@ std::string picture_name(Page page) {
 
 /// Fills the rows a host supplies, at the defaults the manual shows.
 void dress(Dialog& dialog) {
-    // The main menu lists More in the Library… and REGISTRIES IN THE LIBRARY….
+    // The main menu lists REGISTRIES IN THE LIBRARY….
     dialog.library_link = true;
     dialog.user_folder = "/Users/player/Documents/Open Annihilation";
     dialog.game_files_summary = "3.1c · Core Contingency · Battle Tactics · music";

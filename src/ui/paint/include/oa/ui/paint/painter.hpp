@@ -427,6 +427,21 @@ line_metrics(oa::platform::text_font::FontStack& fonts, int pixel_size, bool bol
     int max_width
 );
 
+/// Returns an RGBA picture, its alpha straight, filtered to another size as
+/// Painter::draw_rgba filters it, so that drawing the result at its own size
+/// lays the same pixels as drawing the picture scaled. A pixel nothing of the
+/// picture covers is clear: all four bytes 0.
+///
+/// @param rgba the picture, four bytes a pixel, rows top to bottom
+/// @param width the picture's width in pixels
+/// @param height the picture's height in pixels
+/// @param columns the width it is filtered to, in pixels
+/// @param rows the height it is filtered to, in pixels
+/// @return columns × rows pixels, four bytes each; empty when either picture
+///     has no pixels or rgba is shorter than width × height pixels
+[[nodiscard]] std::vector<uint8_t>
+resized_rgba(std::span<const uint8_t> rgba, int width, int height, int columns, int rows);
+
 /// Blends a drawn line with its pen at a place on its baseline.
 ///
 /// @param painter the painter

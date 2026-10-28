@@ -71,6 +71,11 @@ struct Registry {
     /// its catalogue's address when it was not added from one.
     std::string address{};
     std::size_t packages{}; ///< the packages the catalogue kept for it lists
+    /// The packages counted by kind. Together they make `packages`.
+    std::size_t mods{};       ///< the mods among them
+    std::size_t map_packs{};  ///< the map packs among them
+    std::size_t languages{};  ///< the language packs among them
+    std::size_t expansions{}; ///< the expansion packages among them
     /// How long ago a refresh last found a usable catalogue, in seconds.
     /// None when no refresh ever has.
     std::optional<int64_t> checked_ago{};

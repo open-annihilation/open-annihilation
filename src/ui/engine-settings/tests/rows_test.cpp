@@ -139,7 +139,6 @@ constexpr std::array<Expected, 96> kExpected{{
     {Setting::window_frame, RowKind::levels, "Window frame", 1, 1, 2, 85, 2, false, Lock::none, nullptr},
     {Setting::hud_scaling, RowKind::toggle, "HUD scaling", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::interface_size, RowKind::choice, "Interface size", 1, 1, 5, 200, 0, false, Lock::none, nullptr},
-    {Setting::more_in_library, RowKind::link, "", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::kit_gallery, RowKind::value_and_button, "UI kit gallery", 2, 2, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::file_type_registration, RowKind::text, "File Type Registration", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::file_type_oamod, RowKind::toggle, "Mod packages (.oamod)", 0, 0, 0, 0, 0, false, Lock::none, nullptr},

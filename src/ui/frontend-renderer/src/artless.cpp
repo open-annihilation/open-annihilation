@@ -433,6 +433,36 @@ void draw_picture(
     const int64_t picture_columns = picture.width;
     const int64_t picture_rows = picture.height;
     constexpr uint64_t opaque = 255;
+    if (rect_columns == picture_columns && rect_rows == picture_rows) {
+        // At the picture's own size each pixel is the picture's, laid over
+        // the surface by its alpha.
+        for (int64_t row = top; row < bottom; ++row) {
+            const uint8_t* from = picture.pixels.data() +
+                                  static_cast<std::size_t>(
+                                      (row - rect_top) * picture_columns + (left - rect_left)
+                                  ) * picture_pixel_bytes;
+            uint8_t* to = surface.rgb.data() +
+                          static_cast<std::size_t>(row * int64_t{surface.width} + left) * 3U;
+            for (int64_t column = left; column < right;
+                 ++column, from += picture_pixel_bytes, to += 3) {
+                const uint64_t alpha = from[3];
+                if (alpha == opaque) {
+                    to[0] = from[0];
+                    to[1] = from[1];
+                    to[2] = from[2];
+                    continue;
+                }
+                if (alpha == 0)
+                    continue;
+                for (std::size_t channel = 0; channel < 3; ++channel)
+                    to[channel] = static_cast<uint8_t>(
+                        (from[channel] * alpha + to[channel] * (opaque - alpha) + opaque / 2) /
+                        opaque
+                    );
+            }
+        }
+        return;
+    }
     for (int64_t row = top; row < bottom; ++row) {
         const int64_t shown_row = row - rect_top;
         const int64_t first_row = shown_row * picture_rows / rect_rows;

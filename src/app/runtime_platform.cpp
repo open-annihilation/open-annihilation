@@ -94,7 +94,8 @@ bool Runtime::pointer_shows_cursor() const {
 bool Runtime::system_pointer_wanted() const {
     return !cursors_loaded_ || !application_active_ || system_pointer_screen_open_ ||
            (sdl_.window != nullptr &&
-            (SDL_GetWindowFlags(sdl_.window) & SDL_WINDOW_MOUSE_FOCUS) == 0);
+            (SDL_GetWindowFlags(sdl_.window) & SDL_WINDOW_MOUSE_FOCUS) == 0) ||
+           system_cursor_shown_;
 }
 
 void Runtime::apply_system_pointer(bool redraw) {

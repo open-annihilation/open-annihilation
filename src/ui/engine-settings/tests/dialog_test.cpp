@@ -9195,42 +9195,15 @@ named_control(const settings::Dialog& dialog, std::string_view name) {
     return *control;
 }
 
-void language_links_to_the_library_where_the_host_says() {
-    // Without the host's word, Language lists its own rows alone.
-    auto plain = language_dialog();
-    CHECK(!named_control(plain, "settings.more-in-library"));
-    CHECK(
-        geometry::open_rows(plain).rows.rows.size() ==
-        settings::page_settings(Page::language).size()
-    );
-
-    // With it, MORE IN THE LIBRARY… stands right under the language's row,
-    // and a click asks the host for the Library on Languages.
+void language_lists_its_own_rows_where_the_library_can_open() {
+    // Language lists its own rows alone, whatever the host says.
     auto linked = language_dialog();
     linked.library_link = true;
-    const auto rows = geometry::open_rows(linked).rows.rows;
-    CHECK(rows.size() == settings::page_settings(Page::language).size() + 1);
-    CHECK(rows.size() > 1 && rows[1].setting == Setting::more_in_library);
-    const std::optional<oa::ui::kit::Control> link =
-        named_control(linked, "settings.more-in-library");
-    CHECK(link && link->text == "MORE IN THE LIBRARY…");
-    if (link) {
-        linked.library_tab = settings::LibraryTab::mods;
-        CHECK(
-            click(
-                linked, {link->rect.x + link->rect.width / 2, link->rect.y + link->rect.height / 2}
-            ) == DialogAction::open_library
-        );
-        CHECK(linked.library_tab == settings::LibraryTab::languages);
-    }
-    const auto parts = settings::dialog_layout(linked);
-    CHECK(find_part(parts, "More languages are in the Library.", settings::no_control) != nullptr);
-
-    // Language alone never lists it, whatever the host says.
-    settings::Dialog alone;
-    settings::open_language_text_dialog(alone, {}, {}, {}, "v0.6");
-    alone.library_link = true;
-    CHECK(!named_control(alone, "settings.more-in-library"));
+    CHECK(!named_control(linked, "settings.more-in-library"));
+    CHECK(
+        geometry::open_rows(linked).rows.rows.size() ==
+        settings::page_settings(Page::language).size()
+    );
 }
 
 void the_endpoint_names_every_control_and_part_once() {
@@ -10493,7 +10466,7 @@ int main(int argc, char** argv) {
         the_notice_wraps_its_text_and_places_its_buttons();
         the_notice_answers_its_buttons_and_keys();
         the_notice_draws_in_the_dialogs_colours(settings::DialogFonts{});
-        language_links_to_the_library_where_the_host_says();
+        language_lists_its_own_rows_where_the_library_can_open();
         the_endpoint_names_every_control_and_part_once();
         the_larger_classes_lay_out_every_section_inside_the_dialog();
         the_larger_classes_keep_hints_to_their_lines();

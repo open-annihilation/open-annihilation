@@ -1000,8 +1000,8 @@ struct RowContext {
     /// Maximum frame rate's hint has a second line naming a Steam Deck's
     /// screen rate (Dialog::steam_deck_panel_hz); 0 for none.
     uint32_t steam_deck_panel_hz{};
-    /// Language lists MORE IN THE LIBRARY… under its row
-    /// (Dialog::library_link, for the engine's settings).
+    /// Downloads lists REGISTRIES IN THE LIBRARY… (Dialog::library_link,
+    /// for the engine's settings).
     bool library_link{};
     /// System lists the file-type switches (Dialog::file_type_switches).
     /// Off, it shows the text row. The default is this system's own.
@@ -1028,9 +1028,7 @@ struct RowContext {
 /// @param page the section
 /// @param section a check's own section; null for the dialog's
 /// @param context what the dialog shows beyond each setting's rows:
-///     Controller starts with the Steam Input notice while it applies, and
-///     Language has MORE IN THE LIBRARY… under its row while it links to
-///     the Library
+///     Controller starts with the Steam Input notice while it applies
 /// @return its settings, top to bottom
 [[nodiscard]] std::span<const Setting>
 section_settings(Page page, const SectionHooks* section, const RowContext& context = {});

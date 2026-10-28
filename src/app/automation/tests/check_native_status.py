@@ -5,8 +5,8 @@
 """A skirmish reports its status on standard output and then leaves.
 
 The game runs through its main loop on the dummy SDL drivers, started with
---status-stdout, --quit-after-game and --fark. Standard output and standard
-error are read apart. Every line of standard output is one JSON object:
+--status-stdout, --quit-after-game, --classic-main-menu and --fark.
+Standard output and standard error are read apart. Every line of standard output is one JSON object:
 hello first, then a screen, the match starting, game_over with each
 player's result, and exit last with reason game-ended and code 0. The
 process exits 0. The log goes to a scratch folder.
@@ -111,7 +111,7 @@ class Game:
                            SDL_RENDER_DRIVER="software")
         self.process = subprocess.Popen(
             [*RUNNER, str(native), "--game-dir", str(game_dir), "--skip-intro", "--mute",
-             "--status-stdout", "--quit-after-game", "--fark", "--fark-file",
+             "--status-stdout", "--quit-after-game", "--classic-main-menu", "--fark", "--fark-file",
              str(self.endpoint_file), "--preferences-file", str(self.preferences),
              "--log-dir", str(self.log_dir), "--user-folder", str(self.user_folder)],
             cwd=workdir, env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

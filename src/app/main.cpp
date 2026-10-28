@@ -891,6 +891,9 @@ struct RestartCarry {
     std::shared_ptr<const Runtime::LibraryReturn> library{};
     /// What the progress dialog says while the switch applies; empty for none.
     std::string line{};
+    /// The window as the switch began, the Library with the line over it,
+    /// which shows until the Library opens again; null for none.
+    std::shared_ptr<const renderer::Surface> picture{};
 };
 
 /// The switches --check-mod-switch makes: four rounds of the mods it takes
@@ -2153,6 +2156,9 @@ int run_once(
     if (archives.empty())
         throw std::runtime_error("no game archives were selected");
     const uint32_t mount_began = oa::platform::tick_ms();
+    // A switch made in the Library leaves the window as it began, and it
+    // stays, with no dialog over it.
+    const std::shared_ptr<const renderer::Surface> restart_picture = options.restart_picture;
     const bool mount_shown = display.window != nullptr && !options.headless_check;
     const std::string_view mount_line =
         options.restarts == 0          ? std::string_view("Loading the game's archives")
@@ -2164,7 +2170,9 @@ int run_once(
         mount_shown ? &display.renderer_host : nullptr,
         "Open Annihilation",
         mount_line,
-        [](oa::ui::paint::Canvas& canvas) { fill_progress_behind(canvas, nullptr); },
+        [&restart_picture](oa::ui::paint::Canvas& canvas) {
+            fill_progress_behind(canvas, restart_picture.get());
+        },
         [&](LongWork& work) {
             const std::size_t count = archives.size();
             const int32_t whole =
@@ -2183,7 +2191,10 @@ int run_once(
                     ++mounted;
             }
             work.done.store(whole > 0 ? whole : 1, std::memory_order_release);
-        }
+        },
+        long_work_show_after_ms,
+        LongWorkClose::after_job,
+        restart_picture ? LongWorkLook::behind_only : LongWorkLook::dialog
     );
     oa::platform::log_files::note_timing_span("mounting", mount_began);
     if (game_directory->demo.outcome == DemoOutcome::ready)
@@ -2243,8 +2254,14 @@ int run_once(
     display.full_screen = runtime->full_screen_switch();
     carried.library = runtime->library_return();
     carried.line = runtime->restart_line();
-    // The switch's dialog shows at once, and stays while the game reloads.
-    if (!carried.line.empty() && window_shown)
+    carried.picture = runtime->switch_picture();
+    // The switch's picture, or its dialog, shows at once, and stays while the
+    // game reloads.
+    if (carried.picture && window_shown)
+        show_still_frame(
+            display.window, display.renderer_host.renderer(), &display.renderer_host, *carried.picture
+        );
+    else if (!carried.line.empty() && window_shown)
         show_work_frame(
             display.window,
             display.renderer_host.renderer(),
@@ -2693,6 +2710,7 @@ int main(int argc, char** argv) {
             auto options = parsed;
             options.restarts = restarts;
             options.restart_line = std::exchange(carried.line, {});
+            options.restart_picture = std::exchange(carried.picture, {});
             options.native_density_windows = kNativeDensityWindows;
             // A soft restart returns to the main menu without the movies.
             if (restarts > 0)

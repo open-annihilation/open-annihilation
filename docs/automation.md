@@ -204,7 +204,6 @@ centre would land on the line between Off and On.
 | Your files' buttons, on System | `oa.settings.user-folder.saves`, `.screenshots`, `.mods` | button |
 | File Type Registration, on System on Windows, Linux and macOS | `oa.settings.file-type-registration` (the heading); `oa.settings.file-type-oamod`, `oa.settings.file-type-oamap`, `oa.settings.file-type-oalang`, `oa.settings.file-type-oareg`, `oa.settings.file-type-oamut`, `oa.settings.file-type-oabrain`, `oa.settings.file-type-oalaunch` | the heading a label; each switch as a switch |
 | File types, on System on iOS | `oa.settings.file-types` | label |
-| Language's MORE IN THE LIBRARY… (main menu only) | `oa.settings.more-in-library` | button |
 | Downloads' REGISTRIES IN THE LIBRARY… (main menu only) | `oa.settings.registries-in-library` | button; opens the Library on its Registries tab |
 | Developer's own controls | `oa.settings.developer-mode.off`/`.on`, `oa.settings.frame-stats.off`/`.on`, `oa.settings.kit-gallery.show` (SHOW, which opens the UI kit gallery), `oa.settings.active-only.off`/`.on`, `oa.settings.restore-profile-values` | as above |
 | Developer's list | `oa.settings.hack-area.<area>`, `oa.settings.hack.<hack>` (its header, with its switch's `.off`/`.on`), `oa.settings.hack.<hack>.<parameter>` (a switch's with `.off`/`.on`) | the headers check boxes, a hack's checked while it is on; a parameter's switch as above, its slider a slider |

@@ -5,8 +5,10 @@
 """Check the automation endpoint of a running game, end to end.
 
 The game runs through its main loop on the dummy SDL drivers, started with
---fark and --fark-file. The check reads the address and token from the file,
-which only its owner may read, and then, over 127.0.0.1:
+--fark, --fark-file and --classic-main-menu: this check and those that
+start the game through it read the game's own main menu, MAINMENU.GUI. The
+check reads the address and token from the file, which only its owner may
+read, and then, over 127.0.0.1:
 
 - a connection that speaks no frames is closed unanswered, and so is one
   whose first frame is larger than a hello may be;
@@ -204,7 +206,7 @@ class Game:
         self.process = subprocess.Popen(
             [*RUNNER, str(native), "--game-dir", str(game_dir), "--skip-intro", "--mute",
              "--preferences-file", str(self.preferences), "--fark", "--fark-file", str(self.file),
-             *arguments],
+             "--classic-main-menu", *arguments],
             cwd=workdir, env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, errors="replace")
         threading.Thread(target=self._read, daemon=True).start()

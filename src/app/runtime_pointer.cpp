@@ -138,6 +138,10 @@ void Runtime::activate() {
                   << " signal=" << static_cast<int>(state_.signal)
                   << " pending=" << static_cast<int>(state_.pending_signal)
                   << " selected=" << selected_ << '\n';
+    // MAINMENU.GUI's LIBRARY and SETTINGS are the engine's, not the
+    // menu handler's.
+    if (activate_main_menu_entry())
+        return;
     const menu::Event event{{kFrontendMenuHandle}, 0};
     // These screens' handlers read the layout itself, so the release steps a
     // staged button here first, as the panel pointer handling does.

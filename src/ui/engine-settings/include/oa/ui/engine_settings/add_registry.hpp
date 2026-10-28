@@ -116,6 +116,77 @@ struct AddRegistry {
     oa::ui::kit::Interaction interaction{}; ///< the hover, the press and the focus
 };
 
+/// Which label a line of the window belongs to. Automation reads each
+/// label's lines as one.
+enum class AddRegistryLabel : uint8_t {
+    none,    ///< no label
+    name,    ///< add-registry.name
+    address, ///< add-registry.address
+    key,     ///< add-registry.key
+    refusal, ///< add-registry.refusal
+};
+
+/// What a line of the window is coloured as.
+enum class AddRegistryInk : uint8_t {
+    text,    ///< plain text
+    hint,    ///< a fact's label, a field's caption
+    warning, ///< what to heed: amber
+};
+
+/// The room left above a line of the window.
+enum class AddRegistryGap : uint8_t {
+    none,      ///< none
+    name,      ///< the little room under the registry's name
+    paragraph, ///< a paragraph's room
+};
+
+/// One line of what the window's phase shows, before it is placed.
+struct AddRegistryLine {
+    /// How the line is laid out.
+    enum class Kind : uint8_t {
+        heading,   ///< the registry's name, its icon before it while there is one
+        line,      ///< one line, cut short where it is too long
+        paragraph, ///< wrapped onto as many lines as it takes
+        fact,      ///< its label at the left and its value after it
+    };
+    Kind kind{Kind::line};                          ///< how it is laid out
+    std::string label{};                            ///< a fact's label; empty for a fact's further line
+    std::string text{};                             ///< its words, or a fact's value
+    AddRegistryInk ink{AddRegistryInk::text};       ///< its colour
+    AddRegistryLabel belongs{AddRegistryLabel::none}; ///< the label it belongs to
+    AddRegistryGap gap{AddRegistryGap::none};       ///< the room above it
+};
+
+/// One button of the window's footer, before it is placed.
+struct AddRegistryButton {
+    oa::ui::kit::ControlId id{oa::ui::kit::no_control}; ///< its number
+    std::string caption{};                              ///< its words
+    std::string name{};                                 ///< its automation name
+    bool accent{};                                      ///< drawn as the accent button
+};
+
+/// What the window shows, in the language shown, before any look places it.
+struct AddRegistryContent {
+    std::string title{};               ///< "Add registry", or "Add mirror" for a mirror
+    std::string heading{};             ///< "Mirror of {name}" for a mirror; empty otherwise
+    std::string file{};                ///< "From {file}" for a file; empty otherwise
+    bool address_field{};              ///< the address field shows: an address or a mirror
+    std::string address_placeholder{}; ///< what the empty address field shows
+    bool key_field{};                  ///< the signing-key field shows: an address add
+    std::string key_label{};           ///< the line over the signing-key field
+    std::string key_placeholder{};     ///< what the empty signing-key field shows
+    std::vector<AddRegistryLine> lines{};     ///< what its phase shows, top to bottom
+    std::vector<AddRegistryButton> buttons{}; ///< the footer's buttons, left to right
+};
+
+/// Returns what the window shows, as add_registry_list tells, for a look to
+/// place: its title, the mirror's heading or the file's line, its fields,
+/// its phase's lines and its buttons.
+///
+/// @param window the window
+/// @return what it shows
+[[nodiscard]] AddRegistryContent add_registry_content(const AddRegistry& window);
+
 /// What an event on the window asks of its host.
 enum class AddRegistryAction : uint8_t {
     none,   ///< nothing
@@ -265,6 +336,26 @@ add_registry_field(const AddRegistry& window) noexcept;
 [[nodiscard]] AddRegistryAction add_registry_pointer_up(
     AddRegistry& window, oa::ui::kit::Point at, const oa::ui::kit::Fonts* fonts = nullptr
 );
+
+/// Takes a key, as add_registry_key does, over a look's own display list.
+///
+/// @param[in,out] window the window
+/// @param pressed the key
+/// @param list the look's display list, its controls those add_registry_list names
+/// @return what the host does
+[[nodiscard]] AddRegistryAction add_registry_key(
+    AddRegistry& window, oa::ui::kit::Key pressed, const oa::ui::kit::DisplayList& list
+);
+
+/// Takes a pointer's move, press or release, as add_registry_pointer_move,
+/// add_registry_pointer_down and add_registry_pointer_up do, over a look's
+/// own display list.
+///
+/// @param[in,out] window the window
+/// @param outcome what the kit's pointer did on the look's list
+/// @return the control's action, redraw when the look changed, otherwise none
+[[nodiscard]] AddRegistryAction
+add_registry_pointer(AddRegistry& window, const oa::ui::kit::PointerOutcome& outcome);
 
 /// Draws the window at the canvas's origin, in the canvas's fonts.
 ///

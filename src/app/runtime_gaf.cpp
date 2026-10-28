@@ -573,8 +573,17 @@ void Runtime::tick_and_draw_cursor() {
     // button a larger window draws again, it is presented above that button
     // too: in the picture it would cover the button, and the window-pixel
     // icon would not replace it.
-    if (sdl_.renderer != nullptr && screen_ != Screen::match && oa_layer().shows(false))
+    if (sdl_.renderer != nullptr && screen_ != Screen::match && oa_layer().shows(false)) {
+        front_end_system_cursor_ = system_cursor_may_show();
         return;
+    }
+    // Over the game's own menus the system's pointer shows the cursor where
+    // it may (present_front_end), so that it moves between frames.
+    if (sdl_.renderer != nullptr && screen_ != Screen::match && screen_ != Screen::loading &&
+        system_cursor_may_show()) {
+        front_end_system_cursor_ = true;
+        return;
+    }
     if (hold_menu_button_cursor())
         return;
     if (surface_.rgb.empty() || cursor_image_ == nullptr)

@@ -255,8 +255,7 @@ nobody watches, and it does not install while a match loads or runs.
 
 Language packs are downloaded from inside the game: from Settings ›
 Language's list, from the notice at start, and from the Library's
-Languages tab, which Settings › Language's **MORE IN THE LIBRARY…** opens
-([the Library](library.md)). Each pack and revision is also a release of
+Languages tab ([the Library](library.md)). Each pack and revision is also a release of
 the open-annihilation/languages repository on GitHub, named by the pack's
 tag and revision (`zh-Hans-r2`), whose `.oalang` file installs as above
 when you open it, with no install ID

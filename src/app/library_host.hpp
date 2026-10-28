@@ -15,9 +15,11 @@
 #include "oa/app/content/service.hpp"
 #include "oa/app/content/updates.hpp"
 #include "oa/app/mod_summary.hpp"
+#include "oa/app/package_install.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/base/threads.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
+#include "oa/ui/kit/components_more.hpp"
 #include "oa/data/brain_library/library.hpp"
 #include "oa/data/catalogue/catalogue.hpp"
 #include "oa/data/mutator_library/library.hpp"
@@ -297,6 +299,11 @@ struct KeptUpdate {
 /// opened by then is dropped.
 inline constexpr uint32_t kept_library_wait_ms = 5000;
 
+/// The longest the window as a switch of the mod began goes on showing over
+/// the Library opened again while the pictures it asked for arrive, in
+/// milliseconds.
+inline constexpr uint32_t kept_library_pictures_wait_ms = 1500;
+
 /// What the Library showed when a switch of the mod from it ended a run.
 /// The next run opens it again with them.
 struct Runtime::LibraryReturn {
@@ -310,6 +317,15 @@ struct Runtime::LibraryReturn {
     int32_t list_scroll{};    ///< how far the list was scrolled, in points
     bool details_open{};      ///< the selected entry's details were open
     bool details_page{};      ///< they showed as their own page
+    /// The mod UNINSTALL switched off, whose folder the next run removes as
+    /// the Library opens again; none for none.
+    struct Uninstall {
+        oa::ui::library::EntryId entry{};               ///< its entry
+        std::string title{};                            ///< its name as the player sees it
+        std::filesystem::path folder{};                 ///< its folder
+        package_install::InstalledPackage expected{};   ///< what it held as UNINSTALL was answered
+    };
+    std::optional<Uninstall> uninstall{};               ///< the mod to remove; none for none
 };
 
 /// The Library's host: its model and screen state, its feed, the pictures
@@ -354,6 +370,11 @@ struct Runtime::LibraryHost {
     /// packages no longer lets that item hide its update.
     std::map<uint64_t, uint64_t> finished_scans{};
     LibraryWork work{}; ///< the worker and what it found
+    /// The question the Library in the main menu's look asks over itself
+    /// (Runtime::ask_over_library); none for none.
+    std::optional<oa::ui::kit::Question> menu_question{};
+    /// What its answer does, given the button pressed from 0; may be unset.
+    std::function<void(int32_t)> menu_answer{};
     /// The package whose check is running. Empty when none is.
     std::string checking_id{};
     /// Which kind `checking_id` names. A mutator and a brain may share an id.
@@ -517,6 +538,13 @@ struct Runtime::LibraryHost {
     /// @param list the display list the Library shows
     void request_pictures(const oa::ui::kit::DisplayList& list);
 
+    /// Asks for the pictures of some of the visible entries, the first
+    /// first, and for the registry icons the Registries tab or the
+    /// selection shows, as request_pictures does for the rows a display
+    /// list shows.
+    /// @param places the entries, by their place among the visible ones
+    void request_row_pictures(std::span<const std::size_t> places);
+
     /// Returns the logo the game ships, decoded once from the app icon.
     ///
     /// The visible part of the window icon, so the plates fill the card.
@@ -583,6 +611,17 @@ struct Runtime::LibraryHost {
     /// @param runtime the runtime, whose game palette colours a terrain minimap
     /// @param list the display list the Library shows
     void pump_map_previews(Runtime& runtime, const oa::ui::kit::DisplayList& list);
+
+    /// Decodes a few minimaps, as the display list's pump_map_previews does,
+    /// for the Active tab's maps and the map packs a screen says it shows.
+    /// @param runtime the runtime, whose game palette colours a terrain minimap
+    /// @param map_shows tells whether the Active tab shows a map, by its place from 1
+    /// @param row_shows tells whether a map pack's row shows
+    void pump_map_previews(
+        Runtime& runtime,
+        const std::function<bool(std::size_t)>& map_shows,
+        const std::function<bool(const oa::ui::library::EntryId&)>& row_shows
+    );
 
     /// The runtime's own feed: the Library's inputs (Runtime::library_inputs).
     ///

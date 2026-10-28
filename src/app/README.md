@@ -579,6 +579,225 @@ latched the closing key and drew a backdrop.
   rectangle in the window's pixels and that rectangle mapped back onto the
   canvas.
 
+## The game's main menu's LIBRARY and SETTINGS
+
+MAINMENU.GUI, the game's own main menu, has two buttons more, LIBRARY and SETTINGS, in its own look
+(`Runtime::add_main_menu_entries`, `runtime_main_menu.cpp`).
+
+- **What they are.** Records of MAINMENU.GUI, copies of SINGLE and INTRO,
+  with the game's button art, font, hover and press. A copy of SINGLE's
+  and of INTRO's plate from the menu's picture is added one button's step
+  (SINGLE to MULTI) above each, the plate's 10 columns left and 9 right
+  of the button and 7 rows above it and 6 below; the pipes beside the
+  plate are not copied. The six buttons then stand on the six plates,
+  three rows of two, left to right and top to bottom: SINGLE and MULTI,
+  SETTINGS and LIBRARY, INTRO and EXIT. The left column is SINGLE's, the
+  right INTRO's.
+  Their captions come from the interface catalogue; their quick keys are
+  L and T. Automation lists them as `LIBRARY` and `SETTINGS`, as the
+  game's own buttons are listed.
+- **What they do.** A press on LIBRARY opens the Library on Active and a
+  press on SETTINGS opens Settings (`Runtime::activate_main_menu_entry`),
+  both as screens drawn with the game's art over the whole window
+  ([The Settings screen](#the-settings-screen),
+  [The Library screen](#the-library-screen)) where that art can be read
+  (`Runtime::main_menu_opens_game_art_screens`). The menu handler of the
+  game never sees them. Cmd+, (Ctrl+, elsewhere) opens Settings as well.
+- **When they are added.** Each time MAINMENU.GUI loads, its language
+  changes included, unless the run takes MAINMENU.GUI untouched
+  (`--classic-main-menu`), as every check and every unattended run does, an extension's overlay stands over the main
+  menu, or MAINMENU.GUI has no SINGLE or INTRO, already has a record of
+  either name, or has no room above them. Without them the main menu
+  keeps the Library and Settings buttons in its corner
+  (`EngineSettingsMenuHost`), which open the same screens, or the Library
+  and Settings in their own looks under `--classic-main-menu`.
+- **Limitations.** Their plates join none of the picture's pipes.
+
+## The Settings screen
+
+On the main menu, the main menu's SETTINGS and Cmd+, (Ctrl+, elsewhere)
+open the settings dialog in a look of its own
+(`Runtime::push_settings_menu_screen`, `runtime_settings_menu.cpp`): one
+screen, `settings` like the dialog's (`settings_menu.hpp`,
+`settings_menu.cpp`), modal over the whole window and drawn with the game's
+art (`game_menu_art.hpp`, `game_menu_art.cpp`; read by
+`runtime_game_menu_art.cpp`), as the game's Options screen is: FRONTBG
+under a SETTINGS title in the game's font where the Options screen has its
+OPTIONS, the score board's frame round a CATEGORIES panel, the chosen
+category's panel and a DETAILS panel, commongui.gaf's buttons, sliders,
+list boxes and scroll bar within them, then RESTORE DEFAULTS and UNDO on
+the left, CANCEL and OK on the right, the Options screen's Restore Default,
+Undo Changes, Cancel and OK each on its plate. It is laid out as the
+Library is ([The Library screen](#the-library-screen)). With
+`--classic-main-menu`, where the game's art cannot be read, and in a match,
+the dialog shows in its own look (`Runtime::SettingsScreen`).
+
+- **Categories.** Sound, Music, Graphics and Game Speeds, the game's own
+  options, then Controls, Interface, Language & Text and Engine Limits,
+  Touch and Controller while the dialog lists them, and under a divider
+  Game Files where it is listed, Downloads, Game Content, System,
+  Developer and the registered pages, each with a small picture. The
+  chosen one is held, its caption amber.
+- **Sections.** A category's panel holds up to two sections, each under
+  its heading: CLASSIC OPTIONS, marked 3.1c, the options the game's Options
+  screen sets (Sound Mode, Sound Volume, Unit Speech and TEST; Music,
+  Music Volume and Play Mode; Gamma, Shadows, Shading and Anti-Aliasing;
+  Game Speed, Scroll Speed, Message Lines, Message Time, Mouse Buttons and
+  Unit Chat Text), and OPEN ANNIHILATION, the open section of the dialog,
+  read with `section_rows`. A switch, a strip and a drop-down show their
+  value between the game's two scroll arrows, a slider its track, knob and value, a
+  row of buttons its buttons, and a text row its text. A locked row is
+  faded with a padlock. The rows scroll with the wheel, the scroll bar and
+  Home and End.
+- **Languages.** Language & Text adds a third section, LANGUAGES: the
+  Library's languages (`Runtime::LibraryHost`), the ones built into the
+  game first, then the packs in the Library's order with no search. A row
+  shows the language's name in itself and up to two of the Library's
+  buttons for it that can be pressed, USE NOW, GET, UPDATE, CANCEL, RETRY
+  and UNINSTALL; with one, In use, Built in, the size to download or the
+  Library's status line beside it. DETAILS tells its summary, maker,
+  status and the Library's facts, one to a line. USE NOW chooses the
+  language on the dialog, as Language does, so OK keeps it and UNDO and
+  CANCEL put it back; the other buttons are the Library's own presses
+  (`Runtime::library_entry_press`), their questions over the screen.
+- **What the presses do.** The dialog's rows are moved with
+  `dialog_control_key`, as the dialog's own keys move them, and what they
+  ask goes to `Runtime::take_engine_settings_action`, so every lock, every
+  setting put in effect as it changes and every action stay the dialog's.
+  A drop-down steps item by item. The game's options are the
+  preferences their panels' handlers set, put in effect as there: the
+  volumes and the gamma at once, the music's switch and play mode at the
+  next frame (`Runtime::step_music`). Their stages' captions come from
+  SOUNDS.GUI, MUSIC.GUI and SPEEDS.GUI in the language shown. A step of
+  one of them plays the Options sound. Developer's last row, Standard
+  hacks, hands the dialog to its own look on Developer, for Developer
+  Mode's list; the game's options changed until then are saved there.
+- **The four buttons.** RESTORE DEFAULTS sets the dialog's settings as its
+  own Restore defaults does and the game's options as their panels'
+  RESTORE does, except the screen size, which the dialog's Screen size
+  sets. UNDO puts back what the screen opened with and stays open
+  (`undo_dialog_changes`). CANCEL puts it back and closes, OK keeps both
+  and saves them. Their quick keys R, U, C and O, Return and Escape press
+  them too.
+- **Details.** DETAILS names the row under the pointer, or the one the
+  keys gave the focus, says what it does in its hints' words, why it is
+  locked, its default (`SectionRow::default_value`) and when a change
+  takes effect.
+- **Input.** Up and Down move the focus along the rows, Left and Right
+  step the focused row, Space steps it on or presses its first button,
+  Tab, Page Down, Shift+Tab and Page Up change the category. Automation
+  lists `oa.settings.nav.<word>`, each row's `<word>-previous` and
+  `<word>-next`, a slider as `<word>`, a row's buttons as `<word>` or
+  `<word>.<place>`, `scroll-up`, `scroll-down`, `restore-defaults`,
+  `undo`, `cancel` and `ok`; the game's options' words start with
+  `classic-`.
+- **Limitations.** The game's own options show only on the main menu: in
+  a match they stay on the in-game menu's PREFS panel. Music's CD
+  transport buttons and the track display are not on the screen.
+
+## The Library screen
+
+On the main menu the Library opens in a look of its own
+(`Runtime::push_library_menu_screen`, `runtime_library_menu.cpp`): one
+screen named `library`, as the Library's own (`library_menu.hpp`,
+`library_menu.cpp`), modal over the whole window, with a LIBRARY panel of
+tabs, the chosen tab's panel and a DETAILS panel, then the tab's button on
+the left (UPDATE ALL, or ADD REGISTRY… on Registries) and CLOSE on the
+right. With `--classic-main-menu`, and where the game's art cannot be
+read, the Library shows in its own look (`Runtime::LibraryScreen`).
+
+The Library, as Settings, is drawn with the game's art: FRONTBG under a LIBRARY title in the game's
+font with REFRESH right of it, the score board's frame round the panels and
+its tube between the tabs and over the facts, and commongui.gaf's pieces
+within them: plain buttons for the tabs, filters, switches and small
+buttons, held while chosen; the list box for the search, the rows, cards,
+tiles, badges and boxes; the sunk bar for the strips, the foot and the
+pills; the check box's lamp for the expansions and the base games; and its
+scroll bar. A row that can be got shows a green arrow dropping into an
+open steel tray, drawn in the colours of the game's scroll arrows, the
+arrow amber under the pointer. UPDATE ALL and CLOSE stand on the
+Options screen's plates. Every text is in the game's font, amber under the
+pointer and where it warns. The Library and Settings are drawn in the window's own pixels, whatever Interface size is.
+Their panels, buttons, title and text are laid out on a 1024x768 stage,
+taken as many whole times as the window holds it and centred in it, so
+that they keep the same sizes against each other on every window; the
+picture alone fills the window round the stage. Every text on them is at
+one size: a pixel of the font is 1.5 rows of a 1080-row window, cut to
+whole pixels, smaller only in a box too small for it. Where the stage cuts
+the picture's top off, the title stands at least half as far below the
+stage's top as it stands below the picture's.
+
+- **Tabs.** Active, then under a divider Mods, Maps and Updates, then
+  under another Registries, each with a small picture and its count; an
+  amber dot beside Updates while an update can be installed. The panel's
+  foot says how many packages are installed, and the download queue's
+  line stands over it while the queue holds one. The languages are on
+  Settings › Language & Text: a Library opened on Languages shows Active.
+- **Active.** Five tiles, each under its heading. BASE GAME: the game's icon,
+  name, version and source, the file check, and CHANGE…, which opens the
+  base game chooser in the tab's place (its games with their radio, badge,
+  state and line, the note, USE THIS GAME and CANCEL). LANGUAGE: the
+  language in itself, Built in or the pack's version, and SETTINGS, which
+  opens Settings on Language & Text (`settings_menu_first_category_`).
+  EXPANSIONS: a row for each expansion in the small font, parted by
+  faint rules, its sunken box ticked amber while on and its name faded
+  while off, the row under the pointer washed amber, with its
+  download arrow, cancel or retry mark, or a padlock while the command
+  line's mod needs it, and the hint and lock words under them. MOD: the
+  mod played or No Mod, its release and maker and Playing, CHOOSE MOD,
+  which shows Mods, and NO MOD, the Library's SWITCH OFF of the mod
+  played. MAPS: the installed maps' minimaps that fit, their names, and
+  BROWSE MAPS, which shows Maps. DETAILS tells of the tile under the
+  pointer, and its foot says when a change applies as the Library closes.
+- **Mods, Maps and Updates.** The search field with TAGS ▾ at its right,
+  whose list chooses a tag or every tag, the filters with their counts
+  under them, and the rows in
+  the Library's order: the badge, or the minimap of a map pack without
+  one, or the letters; the name; the maker and summary, or the download's
+  state in amber with its bar under it, or why GET is blocked; the
+  version and size; and a mark: a download arrow, an amber up-arrow in a
+  ring, or a check in a ring. A press on a row chooses it; a press on its
+  arrow asks for GET or UPDATE by the Library's rule for a row's icon.
+  DETAILS tells of the row chosen: badge, name, status line, summary,
+  tags, which choose the tag, facts, the Library's note, and its buttons
+  two to a line.
+- **Registries.** A card for each registry: its icon or initials, its
+  title with Built in or an amber not reviewed, its address, its packages
+  and when it was refreshed (amber when it could not be reached), its
+  OFF/ON switch and REFRESH; then the dashed ADD REGISTRY… box, and the
+  note on review under the cards with a refusal over it in amber. DETAILS
+  tells of the card chosen: its facts, its signing keys' fingerprints and
+  whether they are built in or added by you, and ADD MIRROR… and REMOVE
+  for a registry the player added.
+- **What the presses do.** Browsing, the search, the filters, the tags and
+  the selection change the model as the Library's own screen does. Every
+  other press is the Library's own action (`Runtime::library_act`, the
+  Library screen's `act`), so its questions, sounds and refusals stay the
+  same, and leaving stores what the Active tab holds
+  (`Runtime::library_screen_closed`). The pictures of the rows in view
+  and a few beyond are asked for (`LibraryHost::request_row_pictures`),
+  and the minimaps of the maps and packs shown are decoded a few at a time
+  (`LibraryHost::pump_map_previews`).
+- **Input.** Up and Down choose the row or card before or after, Page Up,
+  Page Down, Home and End move further, Tab and Shift+Tab (and Ctrl+Tab)
+  change the tab, Return and Space press the details' first button that
+  can be pressed, F5 refreshes, Ctrl+F (Cmd+F on macOS) and `/` focus the
+  search, and Escape closes TAGS' list, clears the search, closes the
+  chooser, or closes the Library. The wheel scrolls TAGS' list, the rows
+  or the cards. Automation lists `oa.library.tab.<word>`, `refresh`,
+  `search`, `filter.<word>`, `tags` and `tags.<tag>`, `row.<registry>.<key>`
+  and its `.get` or `.update`, `action.<word>`, `detail.tag.<tag>`, the
+  Active tab's `active.change`, `active.language`,
+  `active.expansion.<id>`, `active.choose-mod`, `active.unload`,
+  `active.browse-maps` and the tiles, the chooser's `base.<id>`,
+  `base.use` and `base.cancel`, each card's `registry.<id>` with `.off`,
+  `.on` and `.refresh`, `add-registry-box`, `update-all` or
+  `add-registry`, `settings` and `close`.
+- **Limitations.** The Library's controller buttons (Y, X, LB, RB, B and
+  the right stick) and a finger's drag that scrolls are not taken; the
+  rows scroll by the wheel, the scroll bar and the keys. The maps search
+  of the Library's own Active tab is not on the screen.
+
 ## The Library
 
 `library_host.hpp`, `runtime_library.cpp` and `runtime_library_actions.cpp`
@@ -589,15 +808,15 @@ centred in the window at its scale. Its model, its screen's state and its feed a
 the host's (`Runtime::LibraryHost`, made on first use, joined as the
 runtime goes).
 
-- **How it opens.** The main menu's OA button opens it
-  (`Runtime::open_library`) when a press is released over it, on Active,
-  with the button's sound;
-  Settings › Language's MORE IN THE LIBRARY… opens it on Languages over
-  Settings (`DialogAction::open_library`). It opens only where the
+- **How it opens.** MAINMENU.GUI's LIBRARY, or the main menu's OA button
+  where LIBRARY is not added, opens it (`Runtime::open_library`) when a
+  press is released over it, on Active, with the button's sound;
+  Settings › Downloads' REGISTRIES IN THE LIBRARY… opens it on Registries
+  over Settings (`DialogAction::open_library`). It opens only where the
   settings do: on the main menu, never over a message box, a frame a
   package owns or the saves notice. The layer never holds two Libraries or
   two Settings: opening one already on the stack goes back to it
-  (`OaLayer::return_to`), so Library › SETTINGS… › MORE IN THE LIBRARY…
+  (`OaLayer::return_to`), so Library › SETTINGS… › REGISTRIES IN THE LIBRARY…
   returns to the first Library. The main menu's Settings button beside
   the OA button, Cmd+, (Ctrl+, elsewhere), the macOS menu's Settings… and
   the in-game OA button open Settings.
@@ -701,7 +920,7 @@ runtime goes).
   ([the soft restart](#mod-profile-and-mod-folders)); ROLL BACK asks the
   Roll Back Mod question
   (`library::roll_back_question`, with the reload line for the mod being
-  played), pushed and marked the same way, and its ROLL BACK rolls the
+  played), pushed over the Library at once, CANCEL marked, and its ROLL BACK rolls the
   folder back (`roll_back_mod_folder`), the feed looking again afterwards,
   a refusal told in MOD NOT ROLLED BACK over the Library. Every refusal
   shows in the status line too. PLAY NOW and SWITCH OFF do nothing during
@@ -2657,9 +2876,14 @@ language and both sizes.
   pointer go (`release_pointer`) before it shows an error or information
   box, before breaking into a debugger and on exit. The system's pointer is
   hidden wherever the game draws its own cursor, in play and in the game's
-  menus, dialogs and message boxes; it shows only without the game's
-  cursors, while the game is inactive and over the Game files screen
-  (`system_pointer_wanted`). Every event, every frame of the loop and every
+  dialogs and message boxes; it shows without the game's cursors, while
+  the game is inactive and over the Game files screen
+  (`system_pointer_wanted`). Over the game's own menus it shows the game's
+  cursor itself, made as the system's pointer at the size the window
+  enlarges the picture to (`show_system_cursor`), so that the pointer moves
+  between frames; a run that is driven, recorded or timed frame by frame,
+  the frame statistics, a middle-click pan and the touch controls have the
+  cursor drawn in the frame instead. Every event, every frame of the loop and every
   change of screen apply that rule again (`apply_system_pointer`), so a
   pointer shown anywhere else is hidden again by the next frame. A window
   that leaves full screen, by Alt+Enter, by the window system's own control
@@ -2823,7 +3047,8 @@ language and both sizes.
   `Runtime::SettingsScreen` in `oa_layer.cpp`, on the main menu and in a
   match. `engine_settings_menu_host.hpp` and
   `runtime_engine_settings_menu.cpp` hold the main menu's OA button and
-  Settings button, an overlay at the picture's bottom-right corner (its
+  Settings button, while MAINMENU.GUI has no LIBRARY and SETTINGS of its
+  own, an overlay at the picture's bottom-right corner (its
   top-right corner while an extension's overlay stands over the main menu)
   under the extensions' overlays, drawn into the main menu's picture: the
   Settings button in the corner, showing the settings icon
