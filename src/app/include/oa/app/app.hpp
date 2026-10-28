@@ -666,6 +666,12 @@ struct Options {
     // high ground through the SDL presenter and checks each is picked where
     // it is drawn.
     bool check_wreck_pick = false;
+    // Draws metal patches under the water, in open water, at a shore and at
+    // the edge of a unit's sight, in the Off, Basic and Full tiers and checks
+    // each against the processor's picture; skips (exit code 77) under 2 GiB
+    // of memory or on a renderer the probe finds not capable
+    // (<report dir>/native-underwater-features-*.png).
+    bool check_underwater_features = false;
     // Clicks RECLAIM beside a wreck and builds a metal extractor beside a
     // deposit through the SDL presenter, with ui.click-snap on or off, and
     // checks the cursor RECLAIM shows and where each click lands.

@@ -1115,6 +1115,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_underwater_features) {
+            const int status = check_underwater_features();
+            flush_preferences();
+            return status;
+        }
         if (options_.check_click_snap) {
             check_click_snap();
             flush_preferences();

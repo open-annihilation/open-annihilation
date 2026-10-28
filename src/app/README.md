@@ -2300,10 +2300,18 @@ prompts, Settings › Updates and the headers name one state with one size.
   of one half where the planner blends it through the alpha table, so the
   card blends to the true mean where the table snaps to the palette,
   sampled nearest at a whole-number zoom, linear below 1 and pixel-art
-  above, from its greyed cell where the map pixel under its drawn point
+  above; a feature's opaque frame takes the fog's greyed pass pixel by
+  pixel, as the ground under it does and as the processor greys the
+  features with the ground (`full_fog::greyed_cover`): drawn in colour,
+  then from its greyed cell over the pieces of the pass that cover it, at
+  the alphas the pass draws the terrain at there, the Smooth fog's
+  quarter-tile triangles or the Classic fog's FOG.GAF rectangles, or from
+  its greyed cell alone where the pass covers it whole, so that a feature
+  at the fog's edge greys where the ground beside it greys; any other
+  sprite from its greyed cell where the map pixel under its drawn point
   lies in a cell out of sight (`cell_fog`), since the fog lays its tiles
-  by map column and row alone, so a sprite at the fog's edge is wholly
-  grey or wholly colour, and in colour under the dithered option; squares
+  by map column and row alone; every sprite in colour under the dithered
+  option; squares
   as the planner's rectangles; lines as quads `max(1, zoom)` pixels wide
   through the centres of their end pixels, selection lines the same from
   the bridge's map pixels. The sprite pages, and the model stage's two

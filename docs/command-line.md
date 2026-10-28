@@ -420,6 +420,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-patrol-reclaim` | Checks a construction kbot on patrol reclaims on its way. |
 | `--check-reclaim-cursor` | Checks the cursor over trees, features and wrecks. |
 | `--check-wreck-pick` | Checks a sunken wreck and a wreck on high ground are picked where they are drawn. |
+| `--check-underwater-features` | Draws metal patches under the water, in open water, at a shore and at the edge of a unit's sight, in every tier, and checks each against the processor's picture. |
 | `--check-click-snap` | Checks the cursor RECLAIM shows beside a wreck, and where a RECLAIM click there and a metal extractor's build click beside a deposit land, with `ui.click-snap` on or off. |
 | `--check-build-preview` | Checks the building drawn under the build cursor. |
 | `--check-dialog-backdrop` | Checks that the briefing, the save dialog and the help dialog over a paused match leave the battlefield as the match showed it, in every tier. |

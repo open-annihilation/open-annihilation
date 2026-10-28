@@ -1835,6 +1835,16 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             sprite_inputs.sight.mapping = match_mapping_on();
             sprite_inputs.sight.dithered = fog.dithered;
         }
+        // A feature's frame takes the greyed pass the ground under it takes,
+        // pixel by pixel: the processor greys the features with the ground.
+        full::FogCover fog_cover;
+        if (fogged) {
+            fog_cover.grid = &fog.grid;
+            fog_cover.camera_x = fog.camera_x;
+            fog_cover.camera_z = fog.camera_z;
+            fog_cover.shapes = classic ? &full.fog_shapes : nullptr;
+            sprite_inputs.fog = &fog_cover;
+        }
         sprite_inputs.palette = &match_palette_;
         sprite_inputs.gamma = gamma;
         const full::SpritePageHooks hooks{&full, &FullPresentation::card_page_hook};

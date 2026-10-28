@@ -824,7 +824,7 @@ if(OA_BUILD_PLATFORM)
     # through its palette and alpha table.
     add_executable(oa-app-full-sprites-test src/app/full_sprites_test.cpp
       src/app/runtime_full_sprites.cpp src/app/world_draws.cpp)
-    target_link_libraries(oa-app-full-sprites-test PRIVATE oa-app-card-executor
+    target_link_libraries(oa-app-full-sprites-test PRIVATE oa-app-card-executor oa-app-full-fog
       oa-present-gpu-world oa-present oa-present-model oa-present-world-renderer
       oa-formats-gaf oa-formats-hpi oa-sim-effect-particles oa-sim-model-runtime
       oa-platform-job-pool SDL3::SDL3 oa-test-game-data oa-test-support oa-options)
@@ -1404,6 +1404,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_reclaim_check.cpp src/app/runtime_weapon_fire_check.cpp
   src/app/runtime_patrol_check.cpp
   src/app/runtime_reclaim_cursor_check.cpp src/app/runtime_wreck_pick_check.cpp
+  src/app/runtime_underwater_features_check.cpp
   src/app/runtime_click_snap_check.cpp
   src/app/runtime_build_preview_check.cpp src/app/runtime_dialog_backdrop_check.cpp
   src/app/runtime_pointer_check.cpp src/app/runtime_key_table_check.cpp
@@ -3905,6 +3906,28 @@ endforeach()
         --preferences-file "${oa_wreck_pick_dir}/wreck-pick.conf")
       set_tests_properties(native-wreck-pick PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_wreck_pick_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # On Steel Jungle, metal patches on the sea bed, one in open water, one
+      # on the shallows of a shore and one at the west edge of a Skeeter's
+      # sight, drawn at zoom 1 in the Off, Basic and Full tiers on SDL's
+      # software renderer taken as capable: with the water's effects off and
+      # the fog Classic, Basic and Full draw the processor's pixels over each
+      # patch, in sight, at the edge of sight and at the edge of never-mapped
+      # ground; with the water's effects at their defaults, Full draws the
+      # patches in the processor's colours, not darkened and tinted blue;
+      # with the fog Smooth, the edge's patch takes the fog pixel by pixel as
+      # the ground under it does. Pictures of each case in each tier go to
+      # local/reports. Skips under 2 GiB of memory.
+      set(oa_underwater_features_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/underwater-features")
+      file(MAKE_DIRECTORY "${oa_underwater_features_dir}")
+      file(WRITE "${oa_underwater_features_dir}/underwater-features.conf"
+        "open-annihilation-preferences 1\n")
+      add_test(NAME native-underwater-features COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-underwater-features --hardware-acceleration --force-capable
+        --preferences-file "${oa_underwater_features_dir}/underwater-features.conf")
+      set_tests_properties(native-underwater-features PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_underwater_features_dir}" SKIP_RETURN_CODE 77
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Under a profile with ui.click-snap (wreck radius 1, mex radius 3), the
       # selected commander's RECLAIM, through SDL input, shows the Reclaim

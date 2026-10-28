@@ -46,6 +46,14 @@
 #include <unordered_map>
 #include <vector>
 
+namespace oa::present::world_renderer {
+struct FogGrid;
+} // namespace oa::present::world_renderer
+
+namespace oa::app::full_fog {
+struct ClassicShapes;
+} // namespace oa::app::full_fog
+
 namespace oa::app::full {
 
 // ---------------------------------------------------------------------------
@@ -230,11 +238,30 @@ struct SpritePageHooks {
     card::PageHandle (*card_page)(void* context, uint32_t page){};
 };
 
+/// The fog's greyed pass as the frame's fog draws it over the ground: the
+/// grid, the camera it was built for and its form, which a feature's frame
+/// takes pixel by pixel (full_fog::greyed_cover), as the processor greys
+/// every pixel of the battlefield under its gray FOG.GAF tiles, the ground
+/// and the features alike.
+struct FogCover {
+    const oa::present::world_renderer::FogGrid* grid{}; ///< the frame's fog grid
+    int32_t camera_x{};                                 ///< the map pixel the grid was built for
+    int32_t camera_z{};
+    /// The Classic fog's shapes, for Fog of War's Classic; null for the
+    /// smooth pass.
+    const full_fog::ClassicShapes* shapes{};
+};
+
 /// What the sprite stage reads.
 struct SpriteStageInputs {
     const WorldDrawList* list{}; ///< the frame's draws, in order
     SceneView view{};
     SightView sight{};
+    /// The greyed pass a feature's opaque frame takes pixel by pixel where
+    /// the pages hold a gray table and the fog is not dithered; null where
+    /// the frame draws no fog, which leaves each sprite wholly greyed or
+    /// wholly in colour by the cell under its place (cell_fog).
+    const FogCover* fog{};
     /// The match's palette, 4 bytes a colour, for a selection line's colour.
     const oa::PaletteBytes* palette{};
     /// The display gamma's table, applied to every flat colour as the
@@ -245,7 +272,8 @@ struct SpriteStageInputs {
 /// What the sprite stage did.
 struct SpriteStageResult {
     uint32_t sprites{}; ///< sprite draws emitted, greyed ones among them
-    uint32_t greyed{};  ///< sprites drawn from their greyed cells
+    uint32_t greyed{};  ///< sprites drawn from their greyed cells, wholly or in part
+    uint32_t fog_cut{}; ///< of those, sprites the greyed pass covers in part
     uint32_t lit{};     ///< explosions' flashes drawn from their lit cells
     uint32_t refused{}; ///< sprites the pages or the host refused
     uint32_t squares{}; ///< particle squares emitted
@@ -264,9 +292,14 @@ struct SpriteStageResult {
 /// the frame the planner drew from), a quad `w * zoom` by `h * zoom` with
 /// the hotspot scaled exactly, drawn by premultiplied alpha, which keeps
 /// the key transparent: at a vertex alpha of one half where the planner
-/// blends it through the alpha table, else opaque. Under a cell out of
-/// sight it is drawn from its greyed cell when the pages hold a gray table;
-/// under never-mapped ground it is drawn as under any other, since the
+/// blends it through the alpha table, else opaque. Where the pages hold a
+/// gray table and the fog is not dithered, a feature's opaque frame given
+/// the frame's fog (SpriteStageInputs::fog) takes the greyed pass pixel by
+/// pixel, as the ground under it does: drawn in colour, then from its
+/// greyed cell over the pieces the pass covers at their alphas, or from
+/// its greyed cell alone where the pass covers it whole; any other sprite
+/// under a cell out of sight is drawn from its greyed cell. Under
+/// never-mapped ground a sprite is drawn as under any other, since the
 /// black pass over that ground goes over it. An explosion's flash is its
 /// frame's lit cell (DrawMode::lit) drawn by the lighten blend, which
 /// lights what is under it close to the light table's rows without
