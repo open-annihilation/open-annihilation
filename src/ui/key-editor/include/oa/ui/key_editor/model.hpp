@@ -109,6 +109,9 @@ struct Row {
     /// The category's title, for a row listed outside its own category, as
     /// Common commands lists it; empty in the row's own category.
     std::string area{};
+    /// A menu button's screen title, already in title case. Empty for every
+    /// other row. The list groups menu buttons under it.
+    std::string menu{};
     bool changed{false}; ///< the draft names the action, whatever its mark shows
 };
 

@@ -89,6 +89,7 @@ struct Listed {
     bool confirm_on{false};
     const acts::Action* entry = nullptr;
     std::string gadget{};
+    std::string menu{}; ///< a menu button's screen title, in title case
     std::string base{};
     std::string where{};
     std::string kind{};
@@ -96,6 +97,78 @@ struct Listed {
     kit::KeyTint tint{kit::KeyTint::none};
     std::string letter{};
 };
+
+/// Title case, as the editor's other names.
+///
+/// The first letter of the text, and of each word, is a capital. A capital
+/// that follows a small letter stays a capital, so a name written in parts
+/// keeps them. Every other ASCII letter is small. A space starts a word.
+///
+/// @param text the words
+/// @return the title
+std::string title_case_words(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    bool word = true;
+    bool small_before = false;
+    for (const unsigned char byte : text) {
+        if (byte == ' ' || byte == '\t') {
+            if (!out.empty() && out.back() != ' ')
+                out.push_back(' ');
+            word = true;
+            small_before = false;
+            continue;
+        }
+        unsigned char written = byte;
+        if (byte >= 'A' && byte <= 'Z') {
+            if (!word && !small_before)
+                written = static_cast<unsigned char>(byte - 'A' + 'a');
+            word = false;
+            small_before = false;
+        } else if (byte >= 'a' && byte <= 'z') {
+            if (word)
+                written = static_cast<unsigned char>(byte - 'a' + 'A');
+            word = false;
+            small_before = true;
+        } else {
+            word = false;
+            small_before = false;
+        }
+        out.push_back(static_cast<char>(written));
+    }
+    while (!out.empty() && out.back() == ' ')
+        out.pop_back();
+    return out;
+}
+
+/// The name a menu button shows.
+///
+/// Each stage the button can draw, separated by `|`, is title-cased, and the
+/// stages are joined. An empty caption stays empty.
+///
+/// @param text the text the button draws
+/// @return the name
+std::string button_name(std::string_view text) {
+    std::string out;
+    std::string piece;
+    auto flush = [&]() {
+        const std::string titled = title_case_words(piece);
+        piece.clear();
+        if (titled.empty())
+            return;
+        if (!out.empty())
+            out += " · ";
+        out += titled;
+    };
+    for (const char byte : text) {
+        if (byte == '|')
+            flush();
+        else
+            piece.push_back(byte);
+    }
+    flush();
+    return out;
+}
 
 /// Folds ASCII letters to lower case. Any other byte is kept.
 ///
@@ -805,9 +878,13 @@ Listed list_bound(
         listed.confirmable = bound.entry->confirmable;
         listed.gadget = std::string(bound.entry->gadget);
     } else if (made != nullptr) {
-        listed.name = made->gadget.empty() ? bound.id : made->gadget;
+        if (!made->caption.empty())
+            listed.name = button_name(made->caption);
+        else
+            listed.name = made->gadget.empty() ? bound.id : made->gadget;
         listed.description = made->help;
         listed.gadget = made->gadget;
+        listed.menu = button_name(made->menu);
     } else if (
         bound.id.starts_with("select.category-") &&
         bound.id.size() > std::string("select.category-").size()
@@ -858,7 +935,8 @@ Listed list_bound(
     }
     listed.aside = joined(aside, " · ");
     const bool held = kind == acts::Kind::hold;
-    listed.where = where_text(hooks, bound.contexts, held, listed.category_title);
+    const std::string& place = listed.menu.empty() ? listed.category_title : listed.menu;
+    listed.where = where_text(hooks, bound.contexts, held, place);
     listed.works_with = works_text(hooks, bound.when);
     std::vector<std::string> defaults;
     std::string source;
@@ -1046,7 +1124,7 @@ std::vector<Listed> build_list(
 std::string haystack_of(const Listed& listed) {
     return folded(
         listed.name + " " + listed.description + " " + listed.aside + " " + listed.id + " " +
-        listed.gadget + " " + listed.category_title
+        listed.gadget + " " + listed.menu + " " + listed.category_title
     );
 }
 
@@ -1109,6 +1187,7 @@ Row row_of(const Listed& listed) {
     row.chords = listed.chords;
     row.read_only = listed.read_only;
     row.category = listed.category;
+    row.menu = listed.menu;
     row.changed = listed.changed;
     return row;
 }
@@ -1660,7 +1739,7 @@ Editor::rows(std::string_view category, Filter filter, std::string_view query) c
             if (row == nullptr || !kept(*row, filter) || !matches(*row, query))
                 continue;
             Row copy = row_of(*row);
-            copy.area = row->category_title;
+            copy.area = row->menu.empty() ? row->category_title : row->menu;
             out.push_back(std::move(copy));
         }
         if (query.empty())
@@ -1669,7 +1748,7 @@ Editor::rows(std::string_view category, Filter filter, std::string_view query) c
             if (common_command(row.id))
                 continue;
             if (const Listed* one = find_listed(listed, row.id))
-                row.area = one->category_title;
+                row.area = one->menu.empty() ? one->category_title : one->menu;
             out.push_back(std::move(row));
         }
         return out;

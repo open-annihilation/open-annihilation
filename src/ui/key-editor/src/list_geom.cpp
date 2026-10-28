@@ -60,6 +60,61 @@ group_heading(const Editor& editor, const std::vector<const Row*>& rows, std::st
     return best;
 }
 
+/// True when a menu button names the screen it sits on.
+///
+/// @param rows the rows the list is showing
+/// @return true when one of them has a screen title
+bool menus_named(const std::vector<Row>& rows) {
+    for (const Row& row : rows) {
+        if (row.category == "mod.menus" && !row.menu.empty())
+            return true;
+    }
+    return false;
+}
+
+/// The Menus title, for a button whose screen was not named.
+///
+/// @param editor the categories
+/// @return the title, or empty when Menus is absent
+std::string menus_title(const Editor& editor) {
+    for (const CategoryEntry& category : editor.categories()) {
+        if (category.id == "mod.menus")
+            return category.title;
+    }
+    return {};
+}
+
+/// One screen's heading, then its buttons, in the order the rows arrive.
+///
+/// A run of buttons with the same title shares a heading. A button with no
+/// title uses the Menus title, so it stays with the flat list's name.
+///
+/// @param[in,out] slots the slots
+/// @param rows the menu buttons
+/// @param fallback the title when a button names no screen
+void append_menu_group(
+    std::vector<Slot>& slots, const std::vector<const Row*>& rows, std::string_view fallback
+) {
+    std::string previous;
+    bool have_heading = false;
+    for (const Row* row : rows) {
+        const std::string heading_text = row->menu.empty() ? std::string(fallback) : row->menu;
+        if (!have_heading || heading_text != previous) {
+            Slot heading;
+            heading.kind = Slot::Kind::heading;
+            heading.id = row->menu.empty() ? std::string("mod.menus") : row->menu;
+            heading.text = heading_text;
+            slots.push_back(std::move(heading));
+            previous = heading_text;
+            have_heading = true;
+        }
+        Slot slot;
+        slot.kind = Slot::Kind::row;
+        slot.id = row->id;
+        slots.push_back(std::move(slot));
+    }
+}
+
 } // namespace
 
 int32_t list_row_height(kit::SizeClass size_class) noexcept {
@@ -81,6 +136,14 @@ std::vector<Slot> list_slots(const Editor& editor, const ScreenState& state) {
             switch_slot.id = "groups";
             slots.push_back(std::move(switch_slot));
         }
+        if (state.category == "mod.menus" && menus_named(rows)) {
+            std::vector<const Row*> menu_rows;
+            menu_rows.reserve(rows.size());
+            for (const Row& row : rows)
+                menu_rows.push_back(&row);
+            append_menu_group(slots, menu_rows, menus_title(editor));
+            return slots;
+        }
         for (const Row& row : rows) {
             Slot slot;
             slot.kind = Slot::Kind::row;
@@ -101,6 +164,10 @@ std::vector<Slot> list_slots(const Editor& editor, const ScreenState& state) {
         const bool groups = category.id == "groups";
         if (in_category.empty() && !groups)
             continue;
+        if (category.id == "mod.menus" && menus_named(rows)) {
+            append_menu_group(slots, in_category, category.title);
+            continue;
+        }
         Slot heading;
         heading.kind = Slot::Kind::heading;
         heading.id = category.id;

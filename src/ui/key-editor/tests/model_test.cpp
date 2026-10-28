@@ -822,6 +822,95 @@ void developer_category() {
     );
 }
 
+/// A menu button is named from the text it draws. The id stays under Known as.
+void menu_button_names() {
+    editor::EditorInputs inputs = editor_fixture();
+    auto add = [&](std::string action,
+                   std::string caption,
+                   std::string menu,
+                   char32_t letter,
+                   std::string gadget) {
+        keys::GuiKey key;
+        key.action = std::move(action);
+        key.caption = std::move(caption);
+        key.menu = std::move(menu);
+        key.letter = letter;
+        key.gadget = std::move(gadget);
+        inputs.mod.keys.push_back(std::move(key));
+    };
+    add("gui.mainmenu.single", "SINGLE", "Mainmenu", U'S', "");
+    add("gui.mainmenu.multi", "MULTI", "Mainmenu", U'M', "");
+    add("gui.armopt.on", "Off|On", "GAME OPTIONS", U'N', "");
+    add("gui.armopt.load", "LoadList", "GAME OPTIONS", U'L', "");
+    add("gui.armopt.destruct", "SELF-DESTRUCT", "GAME OPTIONS", U'D', "");
+    add("gui.armopt.ok", "OK", "GAME OPTIONS", U'O', "");
+    add("gui.armgen.armattack", "", "ARMGEN", U'A', "ARMATTACK");
+
+    const editor::Editor model(std::move(inputs));
+    const std::vector<editor::Row> menus = model.rows("mod.menus", editor::Filter::all, "");
+    const editor::Row* ridge = row_named(menus, "gui.ridge");
+    const editor::Row* single = row_named(menus, "gui.mainmenu.single");
+    const editor::Row* stages = row_named(menus, "gui.armopt.on");
+    const editor::Row* hump = row_named(menus, "gui.armopt.load");
+    const editor::Row* destruct = row_named(menus, "gui.armopt.destruct");
+    const editor::Row* ok = row_named(menus, "gui.armopt.ok");
+    const editor::Row* attack = row_named(menus, "gui.armgen.armattack");
+    expect(
+        ridge != nullptr && ridge->name == "RIDGE" && ridge->menu.empty(), "Ridge lost its name"
+    );
+    expect(
+        single != nullptr && single->name == "Single" && single->menu == "Mainmenu",
+        "Single is not named from its caption"
+    );
+    expect(
+        stages != nullptr && stages->name == "Off · On",
+        "stages are not joined: " + (stages != nullptr ? stages->name : "")
+    );
+    expect(hump != nullptr && hump->name == "LoadList", "LoadList was split");
+    expect(
+        destruct != nullptr && destruct->name == "Self-destruct" &&
+            destruct->menu == "Game Options",
+        "SELF-DESTRUCT is not Self-destruct"
+    );
+    expect(ok != nullptr && ok->name == "Ok", "OK is not Ok");
+    expect(
+        attack != nullptr && attack->name == "ARMATTACK" && attack->menu == "Armgen",
+        "a button with no text lost its gadget name"
+    );
+
+    const editor::Details details = model.details("gui.mainmenu.single");
+    expect(details.name == "Single", "the details do not say Single");
+    expect(
+        details.technical == "gui.mainmenu.single", "Known as is not the id: " + details.technical
+    );
+    expect(
+        details.where.find("Mainmenu") != std::string::npos &&
+            details.where.find("Menus") != std::string::npos,
+        "the place is not the screen and Menus: " + details.where
+    );
+
+    const std::vector<editor::Row> by_text = model.rows("mod.menus", editor::Filter::all, "single");
+    const std::vector<editor::Row> by_id =
+        model.rows("all", editor::Filter::all, "gui.mainmenu.single");
+    expect(has_row(by_text, "gui.mainmenu.single"), "search did not find Single by its text");
+    expect(has_row(by_id, "gui.mainmenu.single"), "search did not find Single by its id");
+
+    bool card_names_it = false;
+    for (const editor::CardLine& line : editor::key_card(model, "KeyS", 0)) {
+        if (line.id == "gui.mainmenu.single" && line.action == "Single")
+            card_names_it = true;
+    }
+    expect(card_names_it, "the key card still names gui.mainmenu.single");
+
+    const std::vector<std::string> ids = category_ids(model.categories());
+    int menus_entries = 0;
+    for (const std::string& id : ids) {
+        if (id == "mod.menus")
+            ++menus_entries;
+    }
+    expect(menus_entries == 1, "Menus was split in the nav");
+}
+
 } // namespace
 
 /// Common commands lists the commands players change first, each with its
@@ -911,5 +1000,6 @@ int main() {
     unknown_binding();
     tag_group();
     developer_category();
+    menu_button_names();
     return oa::test::failed_checks() == 0 ? 0 : 1;
 }
