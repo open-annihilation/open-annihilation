@@ -32,7 +32,8 @@ inline constexpr std::string_view screen_name = "key-editor";
 // The controls' automation names, which journeys press as oa. and the name.
 
 /// The layout drop-down. Its items are key-editor.layout.<id>, and
-/// key-editor.layout.duplicate and key-editor.layout.rename.
+/// key-editor.layout.clone and, on a layout other than OA default,
+/// key-editor.layout.describe.
 inline constexpr std::string_view name_layout = "key-editor.layout";
 /// The search field.
 inline constexpr std::string_view name_search = "key-editor.search";
@@ -206,6 +207,21 @@ inline constexpr std::string_view name_share = "key-editor.share";
 inline constexpr std::string_view name_paste = "key-editor.paste";
 /// The share prompt's name field.
 inline constexpr std::string_view name_share_name = "key-editor.share.name";
+/// CLONE…, an item of MORE.
+inline constexpr std::string_view name_clone = "key-editor.clone";
+/// RENAME AND DESCRIBE…, an item of MORE on a layout other than OA default.
+inline constexpr std::string_view name_describe = "key-editor.describe";
+/// The Clone and the Rename and Describe questions' name field.
+inline constexpr std::string_view name_layout_name = "key-editor.layout-name";
+/// Their description field.
+inline constexpr std::string_view name_layout_description = "key-editor.layout-description";
+/// Their line under the fields: what the new layout starts from, or why the
+/// name cannot be used.
+inline constexpr std::string_view name_layout_status = "key-editor.layout-status";
+/// Their main button: Clone, or Save.
+inline constexpr std::string_view name_layout_ok = "key-editor.layout-ok";
+/// Their Cancel.
+inline constexpr std::string_view name_layout_cancel = "key-editor.layout-cancel";
 /// COPY AS TEXT.
 inline constexpr std::string_view name_share_copy = "key-editor.share.copy";
 /// SAVE FILE….
@@ -287,7 +303,6 @@ enum class EditorAction : uint8_t {
     cancel,            ///< close the editor
     save,              ///< write the draft
     ask_keep_changes,  ///< ask before choosing another layout; id is that layout
-    ask_name,          ///< ask the layout's name; id is "duplicate" or "rename"
     copy_text,         ///< put the share text on the clipboard
     save_share,        ///< write the .oakeys package; id is the layout id
     open_share_folder, ///< show the folder the package was written to
@@ -325,14 +340,16 @@ enum class EditorCommand : uint8_t {
 
 /// Which prompt covers the editor. The list is not laid out while one is open.
 enum class Prompt : uint8_t {
-    none,    ///< the list
-    capture, ///< New key for an action
-    clash,   ///< the chord is in use, or a draft clash is settled
-    find,    ///< Find by key
-    share,   ///< Share your keys
-    paste,   ///< Paste keys
-    import,  ///< Import keys from an older setup
-    leave,   ///< Save your edits before closing? Save, Discard or Keep editing
+    none,     ///< the list
+    capture,  ///< New key for an action
+    clash,    ///< the chord is in use, or a draft clash is settled
+    find,     ///< Find by key
+    share,    ///< Share your keys
+    paste,    ///< Paste keys
+    import,   ///< Import keys from an older setup
+    leave,    ///< Save your edits before closing? Save, Discard or Keep editing
+    clone,    ///< Clone a layout: its name and description
+    describe, ///< Rename and Describe the layout in use
 };
 
 /// One file IMPORT… can read, or the mod's Ctrl+F2 keys.
@@ -419,6 +436,10 @@ struct ScreenState {
 
     /// The share prompt's name. Typing calls set_share_name.
     kit::TextField share_field{};
+    /// The Clone and the Rename and Describe questions' name.
+    kit::TextField layout_name_field{};
+    /// Their description.
+    kit::TextField layout_description_field{};
     std::string share_place{}; ///< "Saved to {place}" once a file is written; empty before
     PastePreview paste{};      ///< the paste prompt's rows
     ImportPreview importing{}; ///< the import prompt's rows

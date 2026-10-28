@@ -6,6 +6,7 @@
 // Buttons grow to the words they show.
 #include "oa/ui/key_editor/screen.hpp"
 
+#include "layout_question.hpp"
 #include "list_geom.hpp"
 #include "menu_geom.hpp"
 #include "screen_controls.hpp"
@@ -1089,7 +1090,9 @@ void add_list(
                 std::string value = row->name;
                 for (const keys::Chord& chord : row->chords) {
                     value.push_back(' ');
-                    value += keys::display_text(chord, editor.keyboard(), editor.platform());
+                    value += keys::display_text(
+                        chord, editor.keyboard(), keys::words_only(editor.platform())
+                    );
                 }
                 built.rest.back().text = std::move(value);
                 built.rest.back().checked = state.selected == row->id;
@@ -1420,10 +1423,27 @@ std::vector<Piece> detail_pieces(
             break;
         }
     }
-    const int32_t chord_h = control_h + metrics.space * 2;
+    const int32_t one_row_h = control_h + metrics.space * 2;
     for (std::size_t index = 0; index < action.chords.size(); ++index) {
         const ChordDetail& chord = action.chords[index];
         const kit::KeyMark mark = chord.fixed ? kit::KeyMark::fixed : row_mark;
+        const int32_t remove_side = std::min(control_h, metrics.button_height + 4);
+        const kit::ChordChipLook chip_look = chip_of(editor, chord.chord, mark);
+        const int32_t chip_natural = kit::chord_chip_width(fonts, chip_look);
+        // A chord too wide for the room beside its buttons takes a row of
+        // its own over them, whole.
+        int32_t buttons_w = 0;
+        if (chord.removable)
+            buttons_w += remove_side + metrics.space;
+        if (!chord.fixed && !action.read_only)
+            buttons_w +=
+                std::min(
+                    button_width(fonts, metrics, show(editor.text(), words::change_button)),
+                    (width - metrics.space) / 2
+                ) +
+                metrics.space;
+        const bool apart = chip_natural + metrics.space * 2 + buttons_w > width;
+        const int32_t chord_h = apart ? one_row_h + control_h + metrics.space : one_row_h;
         Piece well;
         well.kind = Piece::Kind::well;
         well.y = y;
@@ -1431,9 +1451,9 @@ std::vector<Piece> detail_pieces(
         well.width = width;
         well.ink = kit::colour::list;
         pieces.push_back(well);
-        const int32_t row = y + metrics.space;
+        const int32_t chip_row = y + metrics.space;
+        const int32_t row = apart ? chip_row + control_h + metrics.space : chip_row;
         int32_t right = width - metrics.space;
-        const int32_t remove_side = std::min(control_h, metrics.button_height + 4);
         // The remove mark sits at the right, but Tab reaches it after
         // Change…, as the two are read.
         std::optional<Piece> remove;
@@ -1470,8 +1490,9 @@ std::vector<Piece> detail_pieces(
                     true
                 );
                 // Its text for automation is the chord it changes.
-                pieces.back().said =
-                    keys::display_text(chord.chord, editor.keyboard(), editor.platform());
+                pieces.back().said = keys::display_text(
+                    chord.chord, editor.keyboard(), keys::words_only(editor.platform())
+                );
                 right -= change_w + metrics.space;
             }
         }
@@ -1480,13 +1501,12 @@ std::vector<Piece> detail_pieces(
         Piece chip;
         chip.kind = Piece::Kind::chip;
         chip.x = metrics.space;
-        chip.y = row + (control_h - std::min(control_h, int32_t{24})) / 2;
+        chip.y = chip_row + (control_h - std::min(control_h, int32_t{24})) / 2;
         chip.height = std::min(control_h, int32_t{24});
-        chip.chip = chip_of(editor, chord.chord, mark);
-        chip.width = std::min(
-            kit::chord_chip_width(fonts, chip.chip), std::max(right - metrics.space, int32_t{0})
-        );
-        const int32_t kind_x = chip.x + chip.width + metrics.space * 2;
+        chip.chip = chip_look;
+        const int32_t chip_room = apart ? width - metrics.space * 2 : right - metrics.space;
+        chip.width = std::min(chip_natural, std::max(chip_room, int32_t{0}));
+        const int32_t kind_x = apart ? metrics.space : chip.x + chip.width + metrics.space * 2;
         pieces.push_back(std::move(chip));
         if (!action.kind.empty() && right - kind_x > 24) {
             Piece kind;
@@ -1524,7 +1544,7 @@ std::vector<Piece> detail_pieces(
         more_caption,
         controls::detail_more,
         name_detail_more,
-        kit::ButtonStyle::quiet,
+        kit::ButtonStyle::plain,
         0,
         y,
         width,
@@ -2255,16 +2275,20 @@ struct ImportSource {
 /// @param note the reader's sentence; empty when the key is not a sided modifier
 /// @return the sentence, or empty
 std::string hands_sentence(const Editor& editor, std::string_view note) {
-    std::string_view modifier;
+    uint8_t modifier = 0;
     if (note.find("Shift") != std::string_view::npos)
-        modifier = "Shift";
+        modifier = keys::Modifier::shift;
     else if (note.find("Ctrl") != std::string_view::npos)
-        modifier = "Ctrl";
+        modifier = keys::Modifier::ctrl;
     else if (note.find("Alt") != std::string_view::npos)
-        modifier = "Alt";
-    if (modifier.empty())
+        modifier = keys::Modifier::alt;
+    if (modifier == 0)
         return std::string(note);
-    return fill(show(editor.text(), words::hands_are_one), {{"modifier", std::string(modifier)}});
+    // The modifier as the keyboard names it: Option on a Mac.
+    return fill(
+        show(editor.text(), words::hands_are_one),
+        {{"modifier", keys::modifier_name(modifier, editor.platform())}}
+    );
 }
 
 /// Lays SHARE…, PASTE… or IMPORT… as a Kit 2 question over the editor, as the
@@ -2604,7 +2628,7 @@ kit::DisplayList exchange_prompt(
 
     if (state.prompt == Prompt::share) {
         const ShareSummary summary = share_summary(editor);
-        const std::optional<std::string> id = id_from_name(editor.share_name());
+        const std::optional<std::string> id = share_id(editor);
         title(words::share_title);
         const int32_t label_h = metrics.small_line;
         if (y + label_h <= content_stop) {
@@ -2694,6 +2718,99 @@ kit::DisplayList exchange_prompt(
             make(controls::share_save, name_share_save, words::save_file, true, id.has_value())
         );
         place_footer(aside, buttons);
+        return list;
+    }
+
+    if (state.prompt == Prompt::clone || state.prompt == Prompt::describe) {
+        // The question names its layout; the fields are its name and its
+        // description, each under its label; then what Clone makes, or why
+        // the name cannot be used.
+        const bool cloning = state.prompt == Prompt::clone;
+        const std::string heading = fill(
+            show(editor.text(), cloning ? words::clone_title : words::describe_title),
+            {{"layout", editor.layout_name()}}
+        );
+        const int32_t heading_top = y;
+        y += std::max(
+            wrapped(y, heading, kit::FontRole::regular, kit::colour::text, 2), metrics.regular_line
+        );
+        const int32_t heading_h = y - heading_top;
+        y += kSectionGap;
+        const auto field_at = [&](std::string_view label,
+                                  const kit::TextField& typed,
+                                  kit::ControlId id,
+                                  std::string_view name) {
+            const int32_t label_h = metrics.small_line;
+            if (y + label_h <= content_stop) {
+                text_at(
+                    {column_x, y, column_w, label_h},
+                    show(editor.text(), label),
+                    kit::FontRole::small,
+                    kit::colour::quiet
+                );
+                y += label_h;
+            }
+            if (y + metrics.text_field_height > content_stop)
+                return;
+            kit::SearchLook look;
+            look.field = typed;
+            look.focused = focused_on(state, id);
+            look.hovered = hot(state, id);
+            look.magnifier = false;
+            look.placeholder = show(editor.text(), label);
+            kit::add_search(
+                list,
+                {column_x, y, column_w, metrics.text_field_height},
+                look,
+                id,
+                std::string(name)
+            );
+            list.tab_order.push_back(id);
+            y += metrics.text_field_height + metrics.space;
+        };
+        field_at(
+            words::share_name_label,
+            state.layout_name_field,
+            controls::layout_name_field,
+            name_layout_name
+        );
+        field_at(
+            words::description_label,
+            state.layout_description_field,
+            controls::layout_description_field,
+            name_layout_description
+        );
+        const std::string problem = layout_name_problem(editor, state);
+        std::string line = problem;
+        if (line.empty() && cloning)
+            line = fill(show(editor.text(), words::clone_note), {{"layout", editor.layout_name()}});
+        y += wrapped(
+            y,
+            line,
+            kit::FontRole::small,
+            problem.empty() ? kit::colour::hint : kit::colour::danger,
+            4
+        );
+        // The question and the line under the fields, on the question's
+        // heading, so a check reads them.
+        area(
+            {column_x, heading_top, column_w, heading_h},
+            controls::layout_status,
+            name_layout_status,
+            heading + "\n" + line
+        );
+        std::vector<ExchangeButton> buttons;
+        buttons.push_back(
+            make(controls::layout_cancel, name_layout_cancel, words::cancel, false, true)
+        );
+        buttons.push_back(make(
+            controls::layout_ok,
+            name_layout_ok,
+            cloning ? words::clone_button : words::save_word,
+            true,
+            layout_answer_ready(editor, state)
+        ));
+        place_footer({}, buttons);
         return list;
     }
 
@@ -3076,7 +3193,8 @@ kit::DisplayList prompt_layout(
     const Editor& editor, const ScreenState& state, const kit::Frame& frame, const kit::Fonts& fonts
 ) {
     if (state.prompt == Prompt::share || state.prompt == Prompt::paste ||
-        state.prompt == Prompt::import)
+        state.prompt == Prompt::import || state.prompt == Prompt::clone ||
+        state.prompt == Prompt::describe)
         return exchange_prompt(editor, state, frame, fonts);
     kit::DisplayList list;
     const kit::Metrics& metrics = kit::metrics_of(frame.size_class);
@@ -3879,7 +3997,6 @@ kit::DisplayList prompt_layout(
             another.id = controls::clash_another;
             another.name = std::string(name_clash_another);
             another.caption = show(editor.text(), words::choose_another_key);
-            another.quiet = true;
             footer_left.push_back(std::move(another));
         }
         PromptButton cancel;
@@ -4023,7 +4140,6 @@ kit::DisplayList prompt_layout(
             more.name = std::string(name_capture_more);
             more.caption = std::string(state.capture_more ? "▾ " : "› ") +
                            show(editor.text(), words::more_options);
-            more.quiet = true;
             place_buttons(column_x, y, column_w, {more}, false);
             y += metrics.control_height;
         }
@@ -4319,22 +4435,20 @@ int32_t add_view_tabs(
     return width;
 }
 
-/// The word of one modifier layer.
+/// The word of one modifier layer, as the platform's keyboard names the
+/// modifier: on a Mac Ctrl, Option, Shift and Cmd, led by their symbols in
+/// the modern look.
 ///
-/// @param editor the words
+/// @param editor the words and the platform
 /// @param layer the layer's bit; 0 is Nothing
+/// @param words_alone the name without its symbol, as automation reads it
 /// @return the word
-std::string layer_name(const Editor& editor, uint8_t layer) {
-    std::string_view word = words::holding_nothing;
-    if (layer == keys::Modifier::shift)
-        word = words::layer_shift;
-    else if (layer == keys::Modifier::ctrl)
-        word = words::layer_ctrl;
-    else if (layer == keys::Modifier::alt)
-        word = words::layer_alt;
-    else if (layer == keys::Modifier::meta)
-        word = words::layer_cmd;
-    return show(editor.text(), word);
+std::string layer_name(const Editor& editor, uint8_t layer, bool words_alone = false) {
+    if (layer == 0)
+        return show(editor.text(), words::holding_nothing);
+    const keys::Platform platform =
+        words_alone ? keys::words_only(editor.platform()) : editor.platform();
+    return keys::modifier_name(layer, platform);
 }
 
 /// The keyboard shape's name: ANSI, ISO or JIS.
@@ -4496,6 +4610,9 @@ int32_t add_layer_bar(
             break;
         const std::size_t before = built.list.controls.size();
         kit::add_pill(built.list, rect, looks[index], ids[index], std::string(names[index]));
+        // Automation reads a modifier by its name, never its symbol.
+        if (built.list.controls.size() > before)
+            built.list.controls.back().text = layer_name(editor, bits[index], true);
         steal(built.list, built.rest, before);
         x += widths[index] + metrics.chip_gap;
     }
@@ -4975,7 +5092,6 @@ void add_keyboard_body(
                 show(editor.text(), words::use_key_for),
                 {{"key", key_label}, {"action", chosen.name}}
             );
-            use.quiet = true;
             buttons.push_back(std::move(use));
         }
     }
@@ -5803,7 +5919,7 @@ void add_mouse_body(
             button.caption = kit::cut_to_width(
                 fonts, kit::FontRole::small, caption, std::max(table_w, int32_t{1})
             );
-            button.style = kit::ButtonStyle::quiet;
+            button.style = kit::ButtonStyle::plain;
             const kit::ControlId id =
                 controls::mouse_table_first + static_cast<kit::ControlId>(row_index);
             const std::string name = std::string(name_mouse_table_prefix) + row.place_id + "." +
@@ -6115,7 +6231,7 @@ lay(const Editor& editor,
         const int32_t back_w = std::min(button_width(fonts, metrics, caption), content_w);
         kit::ButtonLook back;
         back.caption = kit::cut_to_width(fonts, kit::FontRole::small, caption, back_w);
-        back.style = kit::ButtonStyle::quiet;
+        back.style = kit::ButtonStyle::plain;
         back.hovered = hot(state, controls::back);
         back.held = held(state, controls::back);
         place_button(

@@ -7442,14 +7442,6 @@
 	it=ORA;
 	}
 
-[Name this layout]
-	{
-	de=Diese Tastenbelegung benennen;
-	fr=Nommer cette disposition des touches;
-	es=Nombrar esta distribución de teclas;
-	it=Dai un nome a questa disposizione dei tasti;
-	}
-
 [Nanolathe glow]
 	{
 	de=Nanolathe-Leuchten;
@@ -20242,12 +20234,92 @@
 	it=Dettagli…;
 	}
 
-[Duplicate…]
+[Clone…]
 	{
-	de=Duplizieren…;
-	fr=Dupliquer…;
-	es=Duplicar…;
-	it=Duplica…;
+	de=Klonen…;
+	fr=Cloner…;
+	es=Clonar…;
+	it=Clona…;
+	}
+
+[Rename and Describe…]
+	{
+	de=Umbenennen und beschreiben…;
+	fr=Renommer et décrire…;
+	es=Renombrar y describir…;
+	it=Rinomina e descrivi…;
+	}
+
+[Clone {layout}]
+	{
+	de={layout} klonen;
+	fr=Cloner {layout};
+	es=Clonar {layout};
+	it=Clona {layout};
+	}
+
+[Rename and Describe {layout}]
+	{
+	de={layout} umbenennen und beschreiben;
+	fr=Renommer et décrire {layout};
+	es=Renombrar y describir {layout};
+	it=Rinomina e descrivi {layout};
+	}
+
+[Description]
+	{
+	de=Beschreibung;
+	fr=Description;
+	es=Descripción;
+	it=Descrizione;
+	}
+
+[Copy of {layout}]
+	{
+	de=Kopie von {layout};
+	fr=Copie de {layout};
+	es=Copia de {layout};
+	it=Copia di {layout};
+	}
+
+[Based on {layout}]
+	{
+	de=Basiert auf {layout};
+	fr=Basée sur {layout};
+	es=Basada en {layout};
+	it=Basata su {layout};
+	}
+
+[A key layout of your own, from {layout} and your changes. It opens here; Save changes keeps it, and Share… saves it as a file.]
+	{
+	de=Eine eigene Tastenbelegung aus {layout} und deinen Änderungen. Sie öffnet sich hier; Änderungen speichern behält sie, und Teilen… speichert sie als Datei.;
+	fr=Une disposition des touches à toi, faite de {layout} et de tes changements. Elle s'ouvre ici ; Enregistrer la garde, et Partager… l'enregistre dans un fichier.;
+	es=Una distribución de teclas propia, de {layout} y tus cambios. Se abre aquí; Guardar cambios la conserva, y Compartir… la guarda como archivo.;
+	it=Una disposizione dei tasti tutta tua, da {layout} e dalle tue modifiche. Si apre qui; Salva le modifiche la conserva, e Condividi… la salva come file.;
+	}
+
+[Another key layout is called {name}.]
+	{
+	de=Eine andere Tastenbelegung heißt bereits {name}.;
+	fr=Une autre disposition des touches s'appelle déjà {name}.;
+	es=Otra distribución de teclas ya se llama {name}.;
+	it=Un'altra disposizione dei tasti si chiama già {name}.;
+	}
+
+[This name is too long.]
+	{
+	de=Dieser Name ist zu lang.;
+	fr=Ce nom est trop long.;
+	es=Este nombre es demasiado largo.;
+	it=Questo nome è troppo lungo.;
+	}
+
+[Clone]
+	{
+	de=Klonen;
+	fr=Cloner;
+	es=Clonar;
+	it=Clona;
 	}
 
 [Empty]
@@ -20472,14 +20544,6 @@
 	fr=Retirer;
 	es=Quitar;
 	it=Rimuovi;
-	}
-
-[Rename…]
-	{
-	de=Umbenennen…;
-	fr=Renommer…;
-	es=Renombrar…;
-	it=Rinomina…;
 	}
 
 [Replacing keeps {installed}, and Roll back in the Library brings it back.]

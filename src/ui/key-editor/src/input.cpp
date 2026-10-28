@@ -6,6 +6,7 @@
 // and the screen state, and tells the host when to ask or to close.
 #include "oa/ui/key_editor/screen.hpp"
 
+#include "layout_question.hpp"
 #include "list_geom.hpp"
 #include "menu_geom.hpp"
 #include "screen_controls.hpp"
@@ -147,6 +148,8 @@ bool detail_control(kit::ControlId id) {
 
 void close_prompt(ScreenState& state);
 void open_share(Editor& editor, ScreenState& state);
+void open_layout_question(const Editor& editor, ScreenState& state, Prompt which);
+EditorResult answer_layout_question(Editor& editor, ScreenState& state);
 void open_import(ScreenState& state);
 void focus_finished(const Editor& editor, ScreenState& state);
 void start_capture(const Editor& editor, ScreenState& state, std::optional<std::size_t> replacing);
@@ -515,9 +518,12 @@ std::vector<int32_t> choice_places(const std::vector<MenuEntry>& entries) {
 EditorResult choose_entry(Editor& editor, ScreenState& state, const MenuEntry& entry) {
     if (entry.kind == MenuKind::divider)
         return {};
-    if (entry.kind == MenuKind::duplicate || entry.kind == MenuKind::rename) {
+    if (entry.kind == MenuKind::clone || entry.kind == MenuKind::describe) {
         close_menu(state);
-        return asked(EditorAction::ask_name, entry.id, true);
+        open_layout_question(
+            editor, state, entry.kind == MenuKind::clone ? Prompt::clone : Prompt::describe
+        );
+        return redrawn();
     }
     if (entry.kind == MenuKind::layout_id) {
         if (entry.id != editor.layout_id() && editor.unsaved() > 0) {
@@ -835,15 +841,21 @@ activate(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::
     if (id == controls::share_copy)
         return asked(EditorAction::copy_text, {}, false);
     if (id == controls::share_save) {
-        const std::optional<std::string> folded = id_from_name(editor.share_name());
+        const std::optional<std::string> folded = share_id(editor);
         if (!folded)
             return {};
         return asked(EditorAction::save_share, *folded, false);
     }
     if (id == controls::share_open)
         return asked(EditorAction::open_share_folder, {}, false);
-    if (id == controls::share_close || id == controls::paste_cancel ||
-        id == controls::import_cancel) {
+    if (id == controls::layout_name_field || id == controls::layout_description_field) {
+        focus_on(state, id);
+        return redrawn();
+    }
+    if (id == controls::layout_ok)
+        return answer_layout_question(editor, state);
+    if (id == controls::layout_cancel || id == controls::share_close ||
+        id == controls::paste_cancel || id == controls::import_cancel) {
         close_prompt(state);
         return redrawn();
     }
@@ -1267,7 +1279,8 @@ void close_prompt(ScreenState& state) {
     state.exchange_scroll = 0;
 }
 
-/// Opens SHARE… on an empty name. A built-in layout does not start named.
+/// Opens SHARE…. The player's own layout starts under its own name, so its
+/// file installs as that layout; any other starts with an empty name.
 ///
 /// @param[in,out] editor the share name
 /// @param[in,out] state the prompt
@@ -1277,8 +1290,75 @@ void open_share(Editor& editor, ScreenState& state) {
     state.exchange_scroll = 0;
     state.share_field = {};
     state.share_place.clear();
-    editor.set_share_name("");
+    if (editor.layout_is_own()) {
+        state.share_field.text = editor.layout_name();
+        state.share_field.caret = state.share_field.text.size();
+    }
+    editor.set_share_name(state.share_field.text);
     focus_on(state, controls::share_name);
+}
+
+/// Opens Clone's question, on the name and description it offers, or Rename
+/// and Describe's, on the layout's own.
+///
+/// @param editor the layout in use
+/// @param[in,out] state the question
+/// @param which Prompt::clone or Prompt::describe
+void open_layout_question(const Editor& editor, ScreenState& state, Prompt which) {
+    state.menu = Menu::none;
+    state.prompt = which;
+    state.exchange_scroll = 0;
+    state.layout_name_field = {};
+    state.layout_description_field = {};
+    if (which == Prompt::clone) {
+        state.layout_name_field.text = editor.clone_name();
+        state.layout_description_field.text =
+            fill(show(editor.text(), words::based_on), {{"layout", editor.layout_name()}});
+    } else {
+        state.layout_name_field.text = editor.layout_name();
+        state.layout_description_field.text = editor.layout_description();
+    }
+    state.layout_name_field.caret = state.layout_name_field.text.size();
+    state.layout_description_field.caret = state.layout_description_field.text.size();
+    focus_on(state, controls::layout_name_field);
+}
+
+/// Clone or Save in the layout question: makes the clone, or renames and
+/// describes the layout in use, then closes the question. A name that cannot
+/// be used leaves it open, with the line that says why.
+///
+/// @param[in,out] editor the layouts
+/// @param[in,out] state the question
+/// @return what the host is to do
+EditorResult answer_layout_question(Editor& editor, ScreenState& state) {
+    if (!layout_answer_ready(editor, state))
+        return redrawn();
+    const std::string name(typed_layout_name(state));
+    const std::string description = state.layout_description_field.text;
+    const bool made = state.prompt == Prompt::clone ? editor.clone(name, description)
+                                                    : editor.describe(name, description);
+    if (!made)
+        return redrawn();
+    if (state.prompt == Prompt::clone) {
+        state.list_scroll = 0;
+        state.details_scroll = 0;
+    }
+    close_prompt(state);
+    return redrawn();
+}
+
+/// The layout question's field that has the focus.
+///
+/// @param state the question
+/// @return the field; null when neither has the focus
+kit::TextField* layout_field(ScreenState& state) noexcept {
+    if (state.prompt != Prompt::clone && state.prompt != Prompt::describe)
+        return nullptr;
+    if (state.interaction.focused == controls::layout_name_field)
+        return &state.layout_name_field;
+    if (state.interaction.focused == controls::layout_description_field)
+        return &state.layout_description_field;
+    return nullptr;
 }
 
 /// Opens IMPORT… before the host has filled the offers.
@@ -2199,6 +2279,14 @@ focused_field(const ScreenState& state, const kit::DisplayList& list) noexcept {
             return std::nullopt;
         return field->rect;
     }
+    if ((state.prompt == Prompt::clone || state.prompt == Prompt::describe) &&
+        (state.interaction.focused == controls::layout_name_field ||
+         state.interaction.focused == controls::layout_description_field)) {
+        const kit::Control* field = kit::control_of(list, state.interaction.focused);
+        if (field == nullptr)
+            return std::nullopt;
+        return field->rect;
+    }
     if (state.prompt != Prompt::none)
         return std::nullopt;
     if (state.interaction.focused != controls::search)
@@ -2300,6 +2388,17 @@ editor_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit
                 return redrawn();
             }
             return {};
+        }
+        if (kit::TextField* field = layout_field(state)) {
+            if (pressed == kit::Key::enter)
+                return answer_layout_question(editor, state);
+            if (pressed == kit::Key::left || pressed == kit::Key::right ||
+                pressed == kit::Key::home || pressed == kit::Key::end ||
+                pressed == kit::Key::backspace || pressed == kit::Key::delete_forward) {
+                if (kit::edit_text(*field, pressed))
+                    return redrawn();
+                return {};
+            }
         }
         const kit::KeyOutcome outcome = kit::key(state.interaction, list, pressed);
         if (outcome.result == kit::KeyResult::redraw)
@@ -2468,6 +2567,11 @@ EditorResult editor_text(
     Editor& editor, ScreenState& state, const kit::DisplayList& list, std::string_view utf8
 ) {
     static_cast<void>(list);
+    if (kit::TextField* field = layout_field(state)) {
+        if (!kit::insert_text(*field, utf8))
+            return {};
+        return redrawn();
+    }
     if (state.prompt == Prompt::share && state.interaction.focused == controls::share_name) {
         if (!kit::insert_text(state.share_field, utf8))
             return {};

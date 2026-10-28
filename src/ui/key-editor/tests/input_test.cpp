@@ -483,9 +483,60 @@ void finger_scrolls_and_taps() {
 
 } // namespace
 
+/// More › Clone… opens Clone's question on Copy of Ridge grid and Based on
+/// Ridge grid; typing a taken name keeps Clone off, a new one and Enter make
+/// the clone and choose it; More › Rename and Describe… then changes its
+/// description, and Escape closes the question with nothing changed.
+void clone_from_more() {
+    Session session(frame_for(1280, 720, 100));
+    session.click(editor::name_more);
+    session.click(editor::name_clone);
+    OA_CHECK(session.state.prompt == editor::Prompt::clone);
+    OA_CHECK(session.state.layout_name_field.text == "Copy of Ridge grid");
+    OA_CHECK(session.state.layout_description_field.text == "Based on Ridge grid");
+    OA_CHECK(
+        session.state.interaction.focused ==
+        kit::control_named(session.list, editor::name_layout_name)
+    );
+    // Escape leaves the layouts as they were.
+    session.take(editor::editor_key(session.model, session.state, session.list, kit::Key::escape));
+    OA_CHECK(session.state.prompt == editor::Prompt::none);
+    OA_CHECK(session.model.layout_id() == "ridge-grid");
+
+    session.click(editor::name_more);
+    session.click(editor::name_clone);
+    for (int erase = 0; erase < 40; ++erase)
+        session.take(
+            editor::editor_key(session.model, session.state, session.list, kit::Key::backspace)
+        );
+    session.take(editor::editor_text(session.model, session.state, session.list, "Ridge grid"));
+    const kit::Control* ok = find_named(session.list, editor::name_layout_ok);
+    OA_CHECK(ok != nullptr && !ok->enabled);
+    session.take(editor::editor_key(session.model, session.state, session.list, kit::Key::enter));
+    OA_CHECK(session.state.prompt == editor::Prompt::clone);
+    OA_CHECK(session.model.layout_id() == "ridge-grid");
+    session.take(editor::editor_text(session.model, session.state, session.list, " left"));
+    session.take(editor::editor_key(session.model, session.state, session.list, kit::Key::enter));
+    OA_CHECK(session.state.prompt == editor::Prompt::none);
+    OA_CHECK(session.model.layout_id() == "ridge-grid-left");
+    OA_CHECK(session.model.layout_name() == "Ridge grid left");
+    OA_CHECK(session.model.layout_description() == "Based on Ridge grid");
+
+    session.click(editor::name_more);
+    session.click(editor::name_describe);
+    OA_CHECK(session.state.prompt == editor::Prompt::describe);
+    OA_CHECK(session.state.layout_name_field.text == "Ridge grid left");
+    session.click(editor::name_layout_description);
+    session.take(editor::editor_text(session.model, session.state, session.list, ", mine"));
+    session.click(editor::name_layout_ok);
+    OA_CHECK(session.state.prompt == editor::Prompt::none);
+    OA_CHECK(session.model.layout_description() == "Based on Ridge grid, mine");
+}
+
 int main() {
     search_and_escape();
     leave_and_save();
+    clone_from_more();
     arrows_move_the_row();
     nav_and_pills_are_one_stop();
     enter_opens_details();
