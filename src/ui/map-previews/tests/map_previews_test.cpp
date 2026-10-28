@@ -105,8 +105,9 @@ request_of(std::string key, PreviewSource source, std::string map, std::filesyst
     return request;
 }
 
-/// A terrain file whose minimap is four pixels and whose body is padding.
-std::vector<uint8_t> stand_in_terrain() {
+/// A terrain file of `cells_wide` by `cells_high` map squares, with a four-pixel
+/// minimap (indices 1, 2, 3 and 4) and a padded body.
+std::vector<uint8_t> stand_in_terrain(uint32_t cells_wide = 16, uint32_t cells_high = 16) {
     std::vector<uint8_t> terrain(4096, 0);
     const auto put = [&](std::size_t offset, uint32_t value) {
         terrain[offset] = static_cast<uint8_t>(value);
@@ -117,8 +118,8 @@ std::vector<uint8_t> stand_in_terrain() {
     using oa::formats::tnt::layout::header_bytes;
     using oa::formats::tnt::layout::minimap_header_bytes;
     put(0, static_cast<uint32_t>(oa::formats::tnt::Version::total_annihilation));
-    put(4, 16);
-    put(8, 16);
+    put(4, cells_wide);
+    put(8, cells_high);
     put(0x28, static_cast<uint32_t>(header_bytes));
     put(0x2c, oa::formats::tnt::layout::minimap_present_flag);
     put(header_bytes, 2);
@@ -149,7 +150,72 @@ std::vector<uint8_t> encode_png(
     return file;
 }
 
+/// True when the pixel is opaque black.
+bool black_pixel(const Thumbnail& thumb, int32_t x, int32_t y) {
+    const uint8_t* pixel =
+        thumb.rgba.data() + (static_cast<std::size_t>(y) * static_cast<std::size_t>(thumb.width) +
+                             static_cast<std::size_t>(x)) *
+                                4U;
+    return pixel[0] == 0 && pixel[1] == 0 && pixel[2] == 0 && pixel[3] == 255;
+}
+
+/// A map of `cells_wide` by `cells_high` squares keeps that shape in the
+/// square: centred, with black bars, and the minimap's four corners at the
+/// picture's four corners (fitted, not cropped).
+void expect_shape(int32_t cells_wide, int32_t cells_high, int32_t side) {
+    StandIn stand;
+    stand.files["maps/ridge.tnt"] =
+        stand_in_terrain(static_cast<uint32_t>(cells_wide), static_cast<uint32_t>(cells_high));
+    oa::PaletteBytes palette{};
+    palette[1 * 4 + 0] = 10;
+    palette[2 * 4 + 0] = 20;
+    palette[3 * 4 + 1] = 30;
+    palette[4 * 4 + 2] = 40;
+    const PreviewHost host = host_of(stand, &palette);
+    PreviewCache cache(4, side);
+    const auto request = request_of("ridge", PreviewSource::base, "ridge", {});
+    cache.ask(request);
+    cache.pump(host, 1);
+    const Thumbnail* thumb = cache.ask(request);
+    expect(
+        thumb != nullptr && thumb->width == side && thumb->height == side, "the picture is square"
+    );
+    if (thumb == nullptr || thumb->width != side || thumb->height != side)
+        return;
+    const int32_t picture_w =
+        cells_wide >= cells_high ? side : std::max(1, side * cells_wide / cells_high);
+    const int32_t picture_h =
+        cells_wide >= cells_high ? std::max(1, side * cells_high / cells_wide) : side;
+    const int32_t left = (side - picture_w) / 2;
+    const int32_t top = (side - picture_h) / 2;
+    const auto at = [&](int32_t x, int32_t y) {
+        return thumb->rgba.data() + (static_cast<std::size_t>(y) * static_cast<std::size_t>(side) +
+                                     static_cast<std::size_t>(x)) *
+                                        4U;
+    };
+    expect(at(left, top)[0] == 10, "the minimap's top left is the picture's");
+    expect(at(left + picture_w - 1, top)[0] == 20, "the minimap's top right is the picture's");
+    expect(at(left, top + picture_h - 1)[1] == 30, "the minimap's bottom left is the picture's");
+    expect(
+        at(left + picture_w - 1, top + picture_h - 1)[2] == 40,
+        "the minimap's bottom right is the picture's"
+    );
+    bool bars = true;
+    if (top > 0)
+        bars = black_pixel(*thumb, side / 2, 0);
+    if (left > 0)
+        bars = bars && black_pixel(*thumb, 0, side / 2);
+    expect(bars, "the rest of the square is black");
+    expect(
+        !black_pixel(*thumb, left + picture_w / 2, top + picture_h / 2),
+        "the picture itself is not a bar"
+    );
+}
+
 void synthetic_tests() {
+    expect_shape(18, 6, 18);
+    expect_shape(6, 18, 18);
+    expect_shape(16, 16, 16);
     constexpr int32_t kSide = 4;
     StandIn stand;
     stand.files["maps/ridge.tnt"] = stand_in_terrain();
@@ -193,9 +259,9 @@ void synthetic_tests() {
     cache.pump(host, 4);
     const Thumbnail* pack = cache.ask(picture);
     expect(
-        pack != nullptr && pack->width == kSide && pack->height == kSide / 2 &&
-            pack->rgba[0] == 255 && pack->rgba[2] == 0,
-        "a pack preview keeps its shape"
+        pack != nullptr && pack->width == kSide && pack->height == kSide && pack->rgba[0] == 0 &&
+            pack->rgba[(static_cast<std::size_t>(kSide) + 0) * 4U] == 255,
+        "a pack preview keeps its shape, centred on black"
     );
     expect(stand.map_reads == map_reads, "a pack preview does not read a terrain file");
 
@@ -217,7 +283,8 @@ void synthetic_tests() {
     waiting.pump(host, 1);
     const Thumbnail* fetched = waiting.ask(online);
     expect(
-        fetched != nullptr && fetched->width == kSide && fetched->rgba[1] == 255,
+        fetched != nullptr && fetched->width == kSide && fetched->height == kSide &&
+            fetched->rgba[(static_cast<std::size_t>(kSide) + 0) * 4U + 1U] == 255,
         "an online picture decodes once its bytes are ready"
     );
 
