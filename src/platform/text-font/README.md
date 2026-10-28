@@ -148,7 +148,11 @@ sizes and never under 7 px, mono at every size.
   machine draws alike.
 - The fonts are read from their files as glyphs are needed, through the
   module's own file stream, so a folder whose path is not in the Windows code
-  page opens too.
+  page opens too. A stack keeps the tables FreeType reads and the glyphs it
+  drew, not the fonts' outlines. The Windows 95 build reads each base and
+  interface font whole when the stack opens and closes its file, since the
+  C library Windows 95 ships keeps only a few files open at once and the
+  game's archives and a saved game need them.
 - Each glyph is drawn once per font, size, weight and rendering and kept, up
   to `FontStack::kept_glyphs`; past it, the glyphs used longest ago are
   forgotten, and only between lines.
@@ -184,7 +188,9 @@ narrower than DejaVu Sans and its condensed face narrower again, their
 glyphs kept when pack faces leave, and a folder without them opening with
 their families in the sans faces (`interface_faces_go_first`), and
 `face_file_opens` accepting each bundled file and refusing a text file and
-a missing path.
+a missing path, and in the Windows 95 build an open stack leaving each of
+its font files free for an exclusive open
+(`an_open_stack_closes_its_font_files`).
 `platform-text-font-pixels`
 runs the same program with `--pixels`: "Ab", a Chinese character and an emoji
 in bold at 14 px, mono, pixel for pixel as FreeType 2.14.3 draws them; it

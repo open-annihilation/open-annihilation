@@ -8158,7 +8158,8 @@ class Runtime final : public menu::Host,
     std::span<const renderer_effect_sources::Source> match_effect_sources() const noexcept;
     /// Stable map-derived surface flow and absolute-tick texture drift.
     renderer_water::Wind water_wind() const noexcept;
-    /// Cached water-body fetch for the current match; no per-frame map traversal.
+    /// Cached water-body fetch for the current match, sampled from its map the
+    /// first time it is asked for; no per-frame map traversal.
     const renderer_water::SurfaceCache* water_surface() const noexcept;
     /// Recent visible naval firing and water impacts; recheck sight when drawing.
     /// Empty where the match's sea is not stirred by shots
