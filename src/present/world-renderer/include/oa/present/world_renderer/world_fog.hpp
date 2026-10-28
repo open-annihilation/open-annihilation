@@ -126,6 +126,11 @@ struct FogShading {
     // Dithered fog clears every other grayed pixel to palette index 0 instead.
     std::array<uint8_t, 3> dither_rgb{};
     bool dithered{};
+    // Dithered fog drawn as the even tone its every other pixel averages to:
+    // each pixel out of sight half way to the dither colour. For a picture
+    // whose pixels are enlarged or resampled after the fog, where a dither
+    // of single pixels would grow into blocks or break into a pattern.
+    bool dither_even{};
 };
 
 // The zoomed map view the fog is drawn over: destination rectangle on the

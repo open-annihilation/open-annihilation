@@ -6,6 +6,7 @@
 #include "renderer_water_surface.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <numbers>
 
@@ -133,6 +134,28 @@ card::Batch batch(const Inputs& in, std::size_t first) {
         int32_t(in.view.height * in.view.scale)
     };
     return out;
+}
+
+/// Narrows a scissor to the part of the target that shows the map's picture
+/// (Inputs::shown), so that nothing drawn through it reaches past the map's
+/// edges into the black beyond them; each edge rounds to the nearest whole
+/// pixel, as the terrain's own edge falls.
+card::Rect within_shown_map(const Inputs& in, card::Rect scissor) {
+    if (!(in.shown[0] > 0) || !(in.shown[1] > 0))
+        return scissor;
+    const auto top_left = screen(in, 0, 0);
+    const auto bottom_right = screen(in, in.shown[0], in.shown[1]);
+    for (const float value : {top_left[0], top_left[1], bottom_right[0], bottom_right[1]})
+        if (!std::isfinite(value))
+            return scissor;
+    const auto edge = [](float value) {
+        return int32_t(std::clamp(std::lround(value), -(1L << 30), 1L << 30));
+    };
+    const int32_t left = std::max(scissor.x, edge(top_left[0]));
+    const int32_t top = std::max(scissor.y, edge(top_left[1]));
+    const int32_t right = std::min(scissor.x + scissor.width, edge(bottom_right[0]));
+    const int32_t bottom = std::min(scissor.y + scissor.height, edge(bottom_right[1]));
+    return {left, top, std::max(0, right - left), std::max(0, bottom - top)};
 }
 
 /// The sprite of a draw, where it is one: a feature, its shadow or an effect.
@@ -293,6 +316,9 @@ void surface(card::CardFrame& frame, const Inputs& in) {
     if (!std::isfinite(scale) || scale <= 0)
         return;
     auto out = batch(in, frame.indices.size());
+    out.scissor = within_shown_map(in, out.scissor);
+    if (out.scissor.width <= 0 || out.scissor.height <= 0)
+        return;
     const float sea = float(in.map->sea_level);
     const int left = std::max(0, int(in.view.camera_x / cell) - 1);
     const int top = std::max(0, int((in.view.camera_y + sea * 0.5F) / cell) - 1);
@@ -325,14 +351,15 @@ void surface(card::CardFrame& frame, const Inputs& in) {
     struct FoamCorner {
         float alpha{};
         bool shown{};
+        /// The foam's colour over the picture there (SurfaceCache::foam_colour).
+        std::array<float, 3> colour{};
     };
 
     std::vector<FoamCorner> corners(std::size_t(across + 1) * std::size_t(across + 1));
-    const card::Colour foam_colour{
+    const std::array<float, 3> plain_foam{
         renderer_water_appearance::foam_red,
         renderer_water_appearance::foam_green,
-        renderer_water_appearance::foam_blue,
-        1
+        renderer_water_appearance::foam_blue
     };
     // Each cell's depth once, a cell past the view's on each side too: the
     // depths blended at a cell's corners lie between those of the cells
@@ -370,6 +397,16 @@ void surface(card::CardFrame& frame, const Inputs& in) {
             const float z = row * cell;
             if (!may_foam(col, row))
                 continue;
+            // The foam's colour at the cell's corners, over the picture
+            // where the water's plane shows it, blended across the cell.
+            std::array<std::array<float, 3>, 4> cell_colour{
+                plain_foam, plain_foam, plain_foam, plain_foam
+            };
+            if (in.water_surface)
+                for (std::size_t k = 0; k < cell_colour.size(); ++k)
+                    cell_colour[k] = in.water_surface->foam_colour(
+                        x + float(k % 2) * cell, z + float(k / 2) * cell - sea * 0.5F
+                    );
             float most = 0;
             for (int down = 0; down <= across; ++down)
                 for (int along = 0; along <= across; ++along) {
@@ -393,6 +430,17 @@ void surface(card::CardFrame& frame, const Inputs& in) {
                                   in.wind.strength
                               ) * detail(in)
                             : 0;
+                    const float tx = float(along) / float(across);
+                    const float tz = float(down) / float(across);
+                    for (std::size_t channel = 0; channel < corner.colour.size(); ++channel) {
+                        const float upper =
+                            cell_colour[0][channel] +
+                            (cell_colour[1][channel] - cell_colour[0][channel]) * tx;
+                        const float lower =
+                            cell_colour[2][channel] +
+                            (cell_colour[3][channel] - cell_colour[2][channel]) * tx;
+                        corner.colour[channel] = upper + (lower - upper) * tz;
+                    }
                     most = std::max(most, corner.alpha);
                 }
             if (most < 0.002F)
@@ -404,8 +452,10 @@ void surface(card::CardFrame& frame, const Inputs& in) {
                     const auto point = screen(
                         in, x + float(along * spacing), z + float(down * spacing) - sea * 0.5F
                     );
-                    auto colour = foam_colour;
-                    colour.alpha = corners[std::size_t(down) * (across + 1) + along].alpha;
+                    const auto& corner = corners[std::size_t(down) * (across + 1) + along];
+                    const card::Colour colour{
+                        corner.colour[0], corner.colour[1], corner.colour[2], corner.alpha
+                    };
                     frame.vertices.push_back({point[0], point[1], colour, 0, 0});
                 }
             for (int down = 0; down < across; ++down)
@@ -561,27 +611,21 @@ void objects(
     const float sea = float(in.map->sea_level);
     if (!wet(in, x, z))
         return;
-    if (draw.kind != WorldDrawKind::model && y < sea && in.shimmer > 0) {
-        // Terrain decals lie at their world height; upright feature sprites
-        // rise from their anchor, so their dry tops retain their original colour.
-        // Effect artwork is an optical halo at its actual event height, not
-        // a tall object whose upper pixels emerge through the water surface.
-        const auto& sprite = draws.sprites[draw.index];
-        const auto anchor = screen(in, x, z - y * 0.5F);
+    // A feature's frame is the map's own art, which already shows it under
+    // the water as the terrain's art shows the sea bed: it keeps its colours,
+    // as the terrain does, so that it blends into the water around it as the
+    // game draws it. Effect artwork is an optical halo at its event's height,
+    // which the water tints whole.
+    if (draw.kind != WorldDrawKind::model && !draws.sprites[draw.index].on_map && y < sea &&
+        in.shimmer > 0) {
         for (std::size_t i = first_vertex; i < frame.vertices.size(); ++i) {
             auto& vertex = frame.vertices[i];
-            const float height =
-                (sprite.terrain_decal || !sprite.on_map || draw.kind == WorldDrawKind::lit_sprite)
-                    ? y
-                    : y + std::max(
-                              0.0F, (anchor[1] - vertex.y) / (in.view.zoom * in.view.scale) * 2
-                          );
             const auto point = water_position(in, vertex);
             renderer_water_shading::apply(
                 vertex,
                 point[0],
                 point[1],
-                sea - height,
+                sea - y,
                 in.seconds,
                 in.shimmer * detail(in),
                 in.view.scale * in.view.zoom
@@ -665,6 +709,9 @@ void objects(
         // on the software card's textured, non-axis-aligned triangles.
         copy.blend = card::Blend::alpha;
         copy.sampling = card::Sampling::linear;
+        // The reflection ends at the map's edges as the water does.
+        copy.scissor = within_shown_map(in, copy.scissored ? copy.scissor : batch(in, 0).scissor);
+        copy.scissored = true;
         for (auto i = begin; i + 2 < end; i += 3) {
             std::array<Corner, 3> triangle{};
             bool valid = true;

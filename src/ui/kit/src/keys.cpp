@@ -743,6 +743,53 @@ constexpr std::array<ShorterLegend, 15> kShorterLegends{{
     {"Escape", {"Es", {}}},
 }};
 
+/// The symbols a Mac's modifier keys print, which may lead a legend before a
+/// space and the key's name: ⌘ Cmd, ⌥ Option, ⌃ Ctrl and ⇧ Shift.
+constexpr std::array<std::string_view, 4> kModifierSymbols{{"⌘", "⌥", "⌃", "⇧"}};
+
+/// Returns the Mac modifier symbol a legend leads with, before a space and
+/// the key's name.
+///
+/// @param legend the legend
+/// @return the symbol; empty when the legend does not lead with one
+std::string_view leading_symbol(std::string_view legend) noexcept {
+    for (const std::string_view symbol : kModifierSymbols) {
+        if (legend.size() > symbol.size() + 1 && legend.starts_with(symbol) &&
+            legend[symbol.size()] == ' ')
+            return symbol;
+    }
+    return {};
+}
+
+/// Tells whether a key is the command or Windows key, either side, whose
+/// geometry label (Win) names a PC's key.
+///
+/// @param code the W3C code
+/// @return true for MetaLeft and MetaRight
+bool meta_key(std::string_view code) noexcept {
+    return code.starts_with("Meta");
+}
+
+/// Returns a text as an automation control reads it: a Mac modifier's symbol
+/// and the space after it are left out, so "⌘ Cmd+A" reads "Cmd+A".
+///
+/// @param text the text a keycap, chip or key shows
+/// @return the text in words
+std::string worded(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (std::size_t at = 0; at < text.size();) {
+        const std::string_view symbol = leading_symbol(text.substr(at));
+        if (!symbol.empty()) {
+            at += symbol.size() + 1;
+            continue;
+        }
+        out.push_back(text[at]);
+        ++at;
+    }
+    return out;
+}
+
 /// Tells whether a keycap draws a legend whole in its box: in the cap's font,
 /// or in the small one where the cap's is the regular font.
 ///
@@ -766,12 +813,14 @@ struct WholeLegend {
 };
 
 /// Returns the legend a key of a keyboard picture draws whole: its label in
-/// the regular font or the small one, else the geometry's own label of a
-/// named key (Ent for a long Enter), else that key's shorter legends, else
-/// none. Each is tried in the legend's box and then in the roomy one, so a
-/// longer legend that needs the roomy box wins over a shorter one. A
-/// printed mark is never swapped for the geometry's, which a keyboard map
-/// may print differently.
+/// the regular font or the small one, else a Mac modifier's symbol alone
+/// where the label leads with one (⌘ for ⌘ Cmd), else the geometry's own
+/// label of a named key (Ent for a long Enter), else that key's shorter
+/// legends, else none. Each is tried in the legend's box and then in the
+/// roomy one, so a longer legend that needs the roomy box wins over a
+/// shorter one. A printed mark is never swapped for the geometry's, which a
+/// keyboard map may print differently, and nor is a command key the caller
+/// named for its platform (Cmd): the geometry's Win is a PC keyboard's.
 ///
 /// @param canvas where the picture is drawn
 /// @param place the key
@@ -794,7 +843,9 @@ whole_legend(const Canvas& canvas, const KeyPlace& place, const KeycapLook& cap,
             found = WholeLegend{std::string(legend), true};
     };
     take(cap.label);
-    if (place.label.size() >= 2) {
+    take(leading_symbol(cap.label));
+    const bool named_command = meta_key(place.code) && cap.label != place.label;
+    if (place.label.size() >= 2 && !named_command) {
         if (place.label != cap.label)
             take(place.label);
         for (const ShorterLegend& shorter : kShorterLegends) {
@@ -880,8 +931,15 @@ void settle_small_labels(
         if (!cap.sub.empty() && !line_is_whole(canvas, FontRole::small, cap.sub, boxes.sub))
             cap.sub.clear();
         if (!cap.label.empty() &&
-            !legend_is_whole(canvas, cap, cap.label, legend_box(canvas, rects[index], cap)))
-            cap.label.clear();
+            !legend_is_whole(canvas, cap, cap.label, legend_box(canvas, rects[index], cap))) {
+            // A Mac modifier keeps its symbol where its name does not fit.
+            const std::string_view symbol = leading_symbol(cap.label);
+            if (!symbol.empty() &&
+                legend_is_whole(canvas, cap, symbol, legend_box(canvas, rects[index], cap)))
+                cap.label = std::string(symbol);
+            else
+                cap.label.clear();
+        }
     }
 }
 
@@ -1221,7 +1279,7 @@ void add_keycap(
     list.items.push_back(std::move(item));
     if (id == no_control)
         return;
-    add_button(list, rect, id, std::move(name), look.label, !look.disabled);
+    add_button(list, rect, id, std::move(name), worded(look.label), !look.disabled);
 }
 
 int32_t chord_chip_width(const Fonts& fonts, const ChordChipLook& look) {
@@ -1357,7 +1415,7 @@ void add_chord_chip(
     list.items.push_back(std::move(item));
     if (id == no_control)
         return;
-    add_button(list, rect, id, std::move(name), std::move(text), true);
+    add_button(list, rect, id, std::move(name), worded(text), true);
 }
 
 std::span<const KeyPlace> keyboard_places(KeyboardShape shape) {
@@ -1454,7 +1512,7 @@ void add_keyboard(
             key,
             first + static_cast<ControlId>(index),
             hang_name(name, code_word(place.code)),
-            cap.label,
+            worded(cap.label),
             !cap.disabled
         );
     }

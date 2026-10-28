@@ -251,34 +251,6 @@ void Runtime::check_engine_settings_in_match() {
         apply_gamma_rgb(copy.rgb.data(), copy.rgb.size() / 3U, 3);
         return copy;
     };
-    // Each window pixel of `rect` shows the source pixel it lands on.
-    const auto drawn_at = [&](const renderer::Surface& frame,
-                              const renderer::Surface& source,
-                              const layout::Rect& rect,
-                              const std::string& what) {
-        const auto expected = shown(source);
-        std::size_t differing = 0;
-        for (int row = 0; row < rect.height; ++row)
-            for (int column = 0; column < rect.width; ++column) {
-                const auto source_offset =
-                    (static_cast<std::size_t>(row * static_cast<int>(source.height) / rect.height) *
-                         source.width +
-                     static_cast<std::size_t>(
-                         column * static_cast<int>(source.width) / rect.width
-                     )) *
-                    3U;
-                const auto frame_offset = (static_cast<std::size_t>(rect.y + row) * frame.width +
-                                           static_cast<std::size_t>(rect.x + column)) *
-                                          3U;
-                for (std::size_t channel = 0; channel < 3; ++channel)
-                    if (frame.rgb[frame_offset + channel] !=
-                        expected.rgb[source_offset + channel]) {
-                        ++differing;
-                        break;
-                    }
-            }
-        require(differing == 0, what + ": " + std::to_string(differing) + " pixels differ");
-    };
     // `rect` shows the source pixel for pixel: as large as it, each window
     // pixel the source's pixel at the same place, its corners rounded as the
     // layer rounds the placement's (round_layer_corners). Outside the
@@ -320,15 +292,46 @@ void Runtime::check_engine_settings_in_match() {
             }
         require(differing == 0, what + ": " + std::to_string(differing) + " pixels differ");
     };
-    // The dialog's header and the in-game OA button, which opens Settings,
-    // show the settings icon.
+    // The dialog's header shows the settings icon.
     const auto gears = EngineSettingsMenuHost::settings_icon(*this);
-    require(
-        renderer::picture_drawable(gears),
-        "the dialog and the in-game OA button have no icon to show"
-    );
-    const auto button_face = [&](settings::ButtonLook look, bool darkened, const auto& fonts) {
-        return OaLayer::match_button_face(match_layout_, look, darkened, fonts, gears);
+    require(renderer::picture_drawable(gears), "the dialog has no icon to show");
+    // The in-game OA Settings button, in the in-game menu's own art.
+    const auto button_face = [&](settings::ButtonLook look, bool darkened) {
+        return OaLayer::match_button_face(match_hud_ ? &*match_hud_ : nullptr, look, darkened);
+    };
+    // `rect` shows a face fitted to it where the face is opaque: each window
+    // pixel the face's pixel at the same share of its width and height.
+    const auto face_drawn_at = [&](const renderer::Surface& frame,
+                                   const LayerDrawing& face,
+                                   const layout::Rect& rect,
+                                   const std::string& what) {
+        const auto expected = shown(face.picture);
+        std::size_t differing = 0;
+        std::size_t opaque = 0;
+        for (int row = 0; row < rect.height; ++row)
+            for (int column = 0; column < rect.width; ++column) {
+                const auto source_pixel =
+                    static_cast<std::size_t>(
+                        row * static_cast<int>(face.picture.height) / rect.height
+                    ) * face.picture.width +
+                    static_cast<std::size_t>(
+                        column * static_cast<int>(face.picture.width) / rect.width
+                    );
+                if (source_pixel >= face.opacity.size() || face.opacity[source_pixel] != 255)
+                    continue;
+                ++opaque;
+                const auto frame_offset = (static_cast<std::size_t>(rect.y + row) * frame.width +
+                                           static_cast<std::size_t>(rect.x + column)) *
+                                          3U;
+                for (std::size_t channel = 0; channel < 3; ++channel)
+                    if (frame.rgb[frame_offset + channel] !=
+                        expected.rgb[source_pixel * 3U + channel]) {
+                        ++differing;
+                        break;
+                    }
+            }
+        require(opaque > 0, what + " draws nothing");
+        require(differing == 0, what + ": " + std::to_string(differing) + " pixels differ");
     };
     // The dialog drawn offscreen at a size class and a whole scale: the
     // class's dialog points at the scale, crisp. Compact at 1x is 0.7.3's.
@@ -633,17 +636,14 @@ void Runtime::check_engine_settings_in_match() {
         );
         if (!options_.snapshot.empty())
             write_ppm(step_snapshot(options_.snapshot, "match-menu-" + shot), menu);
-        drawn_at(
-            menu,
-            button_face(settings::ButtonLook::idle, false, fonts),
-            button,
-            "the OA button" + on
+        face_drawn_at(
+            menu, button_face(settings::ButtonLook::idle, false), button, "the OA button" + on
         );
         send_check_pointer(SDL_EVENT_MOUSE_MOTION, centre(button), 0);
         render();
-        drawn_at(
+        face_drawn_at(
             composed(),
-            button_face(settings::ButtonLook::hovered, false, fonts),
+            button_face(settings::ButtonLook::hovered, false),
             button,
             "the hovered OA button" + on
         );
@@ -652,9 +652,9 @@ void Runtime::check_engine_settings_in_match() {
             engine_settings_dialog() == nullptr, "a press opened the dialog before its release"
         );
         render();
-        drawn_at(
+        face_drawn_at(
             composed(),
-            button_face(settings::ButtonLook::pressed, false, fonts),
+            button_face(settings::ButtonLook::pressed, false),
             button,
             "the pressed OA button" + on
         );
@@ -712,9 +712,9 @@ void Runtime::check_engine_settings_in_match() {
             oa_layer().placement_of("settings"),
             "the dialog" + on
         );
-        drawn_at(
+        face_drawn_at(
             open,
-            button_face(settings::ButtonLook::idle, true, fonts),
+            button_face(settings::ButtonLook::idle, true),
             button,
             "the darkened OA button" + on
         );

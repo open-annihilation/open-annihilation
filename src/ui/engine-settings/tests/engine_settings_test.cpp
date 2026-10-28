@@ -2335,6 +2335,45 @@ void the_window_edge_default_read_and_round_trip() {
     CHECK(settings::read_settings(values, players_own_on_linux, false) == defaults);
 }
 
+/// Group keys centre the view: On a double press everywhere by default, also
+/// for a file an earlier build wrote without the key; "double-press",
+/// "never" and "every-press" read their choices; any other text reads On a
+/// double press; writing Never or On every press writes that key alone, and
+/// Restore defaults then OK erases it.
+void the_group_keys_centre_default_read_and_round_trip() {
+    CHECK(settings::key::group_keys_centre == "open-annihilation.group-keys-centre");
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(defaults.group_keys_centre == settings::GroupKeysCentre::double_press);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    const auto centre = [](const char* text) {
+        return read_one(settings::key::group_keys_centre, text).group_keys_centre;
+    };
+    CHECK(centre("double-press") == settings::GroupKeysCentre::double_press);
+    CHECK(centre("never") == settings::GroupKeysCentre::never);
+    CHECK(centre("every-press") == settings::GroupKeysCentre::every_press);
+    for (const char* text : {"", "Never", "always", "every press", "1"})
+        CHECK(centre(text) == settings::GroupKeysCentre::double_press);
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    for (const auto way :
+         {settings::GroupKeysCentre::never, settings::GroupKeysCentre::every_press}) {
+        auto chosen = defaults;
+        chosen.group_keys_centre = way;
+        Values values;
+        settings::write_settings(values, defaults, chosen, defaults, false);
+        CHECK(values.size() == 1);
+        CHECK(
+            values.at(std::string{settings::key::group_keys_centre}) ==
+            (way == settings::GroupKeysCentre::never ? "never" : "every-press")
+        );
+        CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+        settings::write_settings(values, chosen, defaults, defaults, true);
+        CHECK(values.empty());
+    }
+}
+
 /// Edge stickiness: 1.0 everywhere by default and for a file without the
 /// key; a decimal reads to the nearest tenth, a half rounding up, held to
 /// 0.0 to 5.0; any other text reads 1.0; it is written with one decimal,
@@ -3252,6 +3291,7 @@ int main() {
     fog_of_war_default_read_and_round_trip();
     the_zoomed_out_units_default_read_and_round_trip();
     the_window_edge_default_read_and_round_trip();
+    the_group_keys_centre_default_read_and_round_trip();
     the_edge_stickiness_default_read_and_round_trip();
     the_window_frame_default_read_and_round_trip();
     the_window_size_default_read_and_round_trip();

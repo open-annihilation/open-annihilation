@@ -102,7 +102,9 @@ void main() {
             camera.water.y * shelter * (0.12 + 0.88 * camera.water_wind.z) * cover
         );
         const float visibility = in_attenuation.x;
-        colour = vec4(vec3(0.88, 0.94, 0.97), foam * visibility * detail);
+        // White here: the vertex's material colour below gives the foam the
+        // colour of the ground beneath it.
+        colour = vec4(vec3(1.0), foam * visibility * detail);
     } else if (in_terrain.z > 0.0) {
         const vec2 local = in_uv * atlas_size - in_terrain.xy;
         const float footprint =

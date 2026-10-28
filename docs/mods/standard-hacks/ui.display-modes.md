@@ -149,3 +149,5 @@ hacks:
 | --- | --- | --- |
 | `game.screenshot` | `Ctrl+F9, PrintScreen` | Saves a screenshot |
 <!-- END GENERATED: keys -->
+
+These keys move in the [key editor](../../keys.md#the-key-editor), in **Game**, while this hack is on.

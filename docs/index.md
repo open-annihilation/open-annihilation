@@ -72,6 +72,10 @@ Every document in the repository, by what you want to do.
   key, the clash question, the keyboard and the mouse, Undo), Arrange
   overlays, group keys, and a second recall of the group that is already
   selected, which centres the view and does not follow it.
+- [keys.md](keys.md): key bindings. Actions and chords, letter or place,
+  Escape's one fixed job, the key editor, keys for a unit's tags,
+  layouts, sharing, older keys from tdraw, zdraw and cnc-ddraw,
+  the accessibility helpers, the keys in a match, and the default chords.
 - [skirmish.md](skirmish.md): the skirmish setup's one **Player** row,
   which a campaign mission leaves as you set it, the **Mutators** button
   on that setup, and a computer row's brain menu.
@@ -163,6 +167,9 @@ Every document in the repository, by what you want to do.
   format of a mod profile (`oamod.yaml`) and its rules: parameters,
   presets, settings, limits, script extensions, data keys, hashes and
   network compatibility.
+- [keys/oakeys-standard.md](keys/oakeys-standard.md): the OAKeys standard,
+  the format of a key layout (`.oakeys`) and its rules: the manifest,
+  chords, action ids (including `select.tag-`), helpers and the text form.
 - [mutators/README.md](mutators/README.md): mutators: a package that changes
   one game, what it can and cannot change, and where the format, the guide
   and the command line are.

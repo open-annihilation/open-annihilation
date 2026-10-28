@@ -68,7 +68,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 120> kExpected{{
+constexpr std::array<Expected, 123> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -190,8 +190,11 @@ constexpr std::array<Expected, 120> kExpected{{
     {Setting::repeat_rate, RowKind::slider, "Key repeat rate", 1, 1, 30, 0, 0, false, Lock::none, nullptr},
     {Setting::drag_threshold, RowKind::slider, "Drag threshold", 1, 1, 9, 0, 0, false, Lock::none, nullptr},
     {Setting::edge_scroll, RowKind::toggle, "Edge scrolling", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::move_overlays, RowKind::toggle, "Move overlays", 2, 2, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::arrange_overlays, RowKind::value_and_button, "Overlay places", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::window_size, RowKind::choice, "Window size", 1, 1, 4, 200, 0, false, Lock::none, nullptr},
     {Setting::reset_window_positions, RowKind::value_and_button, "Reset window positions", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::group_keys_centre, RowKind::choice, "Group keys centre the view", 1, 1, 3, 248, 0, false, Lock::none, nullptr},
     {Setting::look, RowKind::levels, "Look", 1, 1, 2, 60, 2, false, Lock::none, nullptr},
 }};
 // clang-format on
@@ -517,7 +520,7 @@ struct StoredChoice {
 };
 
 /// Every strip's and drop-down's setting, with its key.
-constexpr std::array<StoredChoice, 28> kStoredChoices{{
+constexpr std::array<StoredChoice, 29> kStoredChoices{{
     {Setting::key_layout_for_mod, "open-annihilation.keys.layout.ridge"},
     {Setting::max_zoom_out, settings::key::max_zoom_out},
     {Setting::max_zoom_in, settings::key::max_zoom_in},
@@ -545,6 +548,7 @@ constexpr std::array<StoredChoice, 28> kStoredChoices{{
     {Setting::interface_size, settings::key::interface_size},
     {Setting::order_wheel, settings::key::order_wheel},
     {Setting::window_size, settings::key::window_size},
+    {Setting::group_keys_centre, settings::key::group_keys_centre},
     {Setting::look, settings::key::look},
 }};
 
@@ -695,28 +699,35 @@ void tab_follows_the_dialogs_focus_order() {
     // only where the Library opens over the dialog.
     const settings::Dialog controls =
         engine_dialog_of({}, settings::Page::controls, true, true, true);
-    OA_CHECK(tab_order(controls) == with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25}));
+    OA_CHECK(tab_order(controls) == with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 27}));
     settings::Dialog linked = controls;
     linked.library_link = true;
     OA_CHECK(
         tab_order(linked) ==
-        with_footer_and_list({settings::change_layout_control, 18, 19, 20, 21, 22, 23, 24, 25})
+        with_footer_and_list({settings::change_layout_control, 18, 19, 20, 21, 22, 23, 24, 25, 27})
     );
     // Accessibility: every row, Bounce keys included, then the footer and the
     // list. A row below the fold stays in the order, and Tab scrolls it into
-    // view. The practice pad's Turn every helper off follows the rows while a
-    // helper is on.
+    // view. Overlay places' ARRANGE… joins it while Move overlays is on. The
+    // practice pad's Turn every helper off follows the rows while a helper
+    // is on.
     settings::Dialog accessibility = controls;
     accessibility.page = settings::Page::accessibility;
     OA_CHECK(
         tab_order(accessibility) ==
-        with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30})
+        with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31})
     );
+    accessibility.chosen.move_overlays = true;
+    OA_CHECK(
+        tab_order(accessibility) ==
+        with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32})
+    );
+    accessibility.chosen.move_overlays = false;
     accessibility.chosen.sticky_modifiers = true;
     OA_CHECK(
         tab_order(accessibility) ==
         with_footer_and_list(
-            {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, settings::helpers_off_control}
+            {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, settings::helpers_off_control}
         )
     );
     // Graphics: After zoom, locked while units are drawn whole, takes none,

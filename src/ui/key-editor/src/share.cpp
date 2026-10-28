@@ -82,8 +82,15 @@ std::optional<std::string> id_from_name(std::string_view name) {
     return id;
 }
 
+std::optional<std::string> share_id(const Editor& editor) {
+    if (editor.layout_is_own() && !editor.share_name_.empty() &&
+        editor.share_name_ == editor.chosen_.name && !editor.chosen_.id.empty())
+        return editor.chosen_.id;
+    return id_from_name(editor.share_name_);
+}
+
 oakeys::Manifest share_manifest(const Editor& editor) {
-    const std::optional<std::string> id = id_from_name(editor.share_name_);
+    const std::optional<std::string> id = share_id(editor);
     oakeys::Manifest rest;
     rest.format = oakeys::format_version;
     rest.id = id ? *id : std::string{};
@@ -91,7 +98,10 @@ oakeys::Manifest share_manifest(const Editor& editor) {
     rest.version.major = 1;
     rest.version.minor = 0;
     rest.version.parts = 2;
-    rest.author.name = "You";
+    rest.author.name = std::string(own_author);
+    // The player's own layout keeps its description in the file.
+    if (editor.layout_is_own())
+        rest.description = editor.chosen_.description;
     rest.tags = {"shared"};
     rest.base = oakeys::Base::oa_default;
     rest.helpers = editor.effective_helpers();

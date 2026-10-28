@@ -55,9 +55,10 @@ constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::look) + 
 /// zoom's limits right under the switch for the wheel, how far past the
 /// map's edges the view goes under them, middle-click panning, whether a
 /// window keeps the pointer, and how firmly a sticky edge holds right under
-/// that. Select groups without Alt stays declared and is the editor's
-/// Number keys select groups, not a row here.
-constexpr std::array<Setting, 9> kControlsRows{
+/// that, then whether a group's key moves the view. Select groups without
+/// Alt stays declared and is the editor's Number keys select groups, not a
+/// row here.
+constexpr std::array<Setting, 10> kControlsRows{
     Setting::key_layout,
     Setting::show_keys_on_buttons,
     Setting::wheel_zoom,
@@ -67,9 +68,10 @@ constexpr std::array<Setting, 9> kControlsRows{
     Setting::middle_click_pan,
     Setting::window_edge,
     Setting::window_edge_stickiness,
+    Setting::group_keys_centre,
 };
 /// Controls while a mod is played: Key layout with that mod under Key layout.
-constexpr std::array<Setting, 10> kControlsModRows{
+constexpr std::array<Setting, 11> kControlsModRows{
     Setting::key_layout,
     Setting::key_layout_for_mod,
     Setting::show_keys_on_buttons,
@@ -80,6 +82,7 @@ constexpr std::array<Setting, 10> kControlsModRows{
     Setting::middle_click_pan,
     Setting::window_edge,
     Setting::window_edge_stickiness,
+    Setting::group_keys_centre,
 };
 /// Engine Limits' rows: the unit limit, pathfinding, then how many player
 /// rows the skirmish setup shows, then the heading and the two rows for the
@@ -127,7 +130,7 @@ constexpr std::array<Setting, 8> kUserInterfaceRows{
     Setting::look,
 };
 /// Accessibility's rows: the helpers, each applying as it is changed.
-constexpr std::array<Setting, 13> kAccessibilityRows{
+constexpr std::array<Setting, 15> kAccessibilityRows{
     Setting::latching,
     Setting::sticky_modifiers,
     Setting::hold_to_confirm,
@@ -141,6 +144,8 @@ constexpr std::array<Setting, 13> kAccessibilityRows{
     Setting::repeat_rate,
     Setting::drag_threshold,
     Setting::edge_scroll,
+    Setting::move_overlays,
+    Setting::arrange_overlays,
 };
 /// Language's rows: the language first, and the text size right
 /// under the switch it needs.
@@ -376,6 +381,14 @@ constexpr std::array<std::string_view, 3> kWindowEdgeCaptions{"Capture", "Sticky
 static_assert(
     kWindowEdgeCaptions.size() == window_edge_choices.size(),
     "every way of Window edge has its caption"
+);
+/// Group keys centre the view's captions, in group_keys_centre_choices' order.
+constexpr std::array<std::string_view, 3> kGroupKeysCentreCaptions{
+    "On a double press", "Never", "On every press"
+};
+static_assert(
+    kGroupKeysCentreCaptions.size() == group_keys_centre_choices.size(),
+    "every way of Group keys centre the view has its caption"
 );
 /// Window frame's captions, in window_frame_choices' order.
 constexpr std::array<std::string_view, 2> kWindowFrameCaptions{"Hidden in play", "Always shown"};
@@ -2525,6 +2538,35 @@ constexpr Spec latching_row() noexcept {
     return spec;
 }
 
+/// Overlay places: whose places the overlays show at.
+std::string overlay_places_value(const SettingsModel& model) {
+    return std::string(
+        shown_text(model.settings->move_overlays ? "Your places" : "The game's places")
+    );
+}
+
+/// Overlay places' ARRANGE… can be pressed while Move overlays is on.
+bool overlays_move(const SettingsModel& model) {
+    return model.settings->move_overlays;
+}
+
+/// Overlay places: whose places the overlays show at, and ARRANGE…, which
+/// opens a picture of the match where they are placed.
+constexpr Spec arrange_overlays_row() noexcept {
+    Spec spec = kit::value_and_button<SettingsModel>(
+        "arrange-overlays",
+        "Overlay places",
+        &overlay_places_value,
+        "Arrange…",
+        "arrange",
+        arrange_overlays_action,
+        {"Drag them on a picture of the match. Each window size keeps its own places.", {}}
+    );
+    spec.enabled = &overlays_move;
+    spec.hint_lines = &lines<1>;
+    return spec;
+}
+
 using LongPress = Linear<uint32_t, &EngineSettings::long_press_ms, 200, 1000, 50>;
 using SlowKeys = Linear<uint32_t, &EngineSettings::slow_keys_ms, 0, 1000, 50>;
 using BounceKeys = Linear<uint32_t, &EngineSettings::bounce_keys_ms, 0, 1000, 50>;
@@ -3001,6 +3043,15 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
          "Edge scrolling",
          {"Off stops the view scrolling while the pointer rests at the window's edge.", {}}),
      .copy = &copy_field<&E::edge_scroll>},
+    {.setting = S::move_overlays,
+     .spec = engine_switch<&E::move_overlays>(
+         "move-overlays",
+         "Move overlays",
+         {"The keys overlay, the chat line and the latch chips show where you put them.",
+          "Off, they show where the game puts them."}),
+     .copy = &copy_field<&E::move_overlays>},
+    {.setting = S::arrange_overlays,
+     .spec = arrange_overlays_row()},
     {.setting = S::window_size,
      .spec = wide(kit::choice("window-size", "Window size",
                               DropDown<WindowSize, 4, window_size_choices, &E::window_size, kWindowSizeCaptions, &table_word<window_size_words, WindowSize>>::stepper(),
@@ -3008,6 +3059,11 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
                   choice_width)},
     {.setting = S::reset_window_positions,
      .spec = reset_windows_row()},
+    {.setting = S::group_keys_centre,
+     .spec = wide(kit::choice("group-keys-centre", "Group keys centre the view",
+                              DropDown<GroupKeysCentre, 3, group_keys_centre_choices, &E::group_keys_centre, kGroupKeysCentreCaptions, &table_word<group_keys_centre_words, GroupKeysCentre>>::stepper(),
+                              {"Whether a group's key also moves the view to the group."}),
+                  wide_choice_width)},
     {.setting = S::look,
      .spec = changing(kit::levels("look", "Look",
                                   LevelStrip<Look, 2, look_choices, &E::look, kLookCaptions, &table_word<look_words, Look>>::stepper(),
@@ -3136,8 +3192,11 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "repeat-rate",
     "drag-threshold",
     "edge-scroll",
+    "move-overlays",
+    "arrange-overlays",
     "window-size",
     "reset-window-positions",
+    "group-keys-centre",
     "look",
 };
 

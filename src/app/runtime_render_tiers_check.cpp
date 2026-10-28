@@ -4570,12 +4570,12 @@ void Runtime::check_full_overlays(
             dithered ? saved_graphics | init::preference_flags::dithered_fog
                      : saved_graphics & ~init::preference_flags::dithered_fog
         );
-        reset_sight_presentation(false);
+        reset_sight_presentation();
     };
     const auto restore_fog = [&]() {
         game.visibility_flags = saved_visibility;
         game.graphics_flags = saved_graphics;
-        reset_sight_presentation(false);
+        reset_sight_presentation();
     };
     // The gray table's colour of a frame's pixel, as the fog grays it.
     ensure_fog_frames();

@@ -441,7 +441,7 @@ void choose_layouts() {
         has_row(kept.rows("all", editor::Filter::changed, ""), "select.all"),
         "keep dropped the own binding"
     );
-    expect(!kept.rename("Ridge renamed"), "oa-default was renamed");
+    expect(!kept.describe("Ridge renamed", ""), "oa-default was renamed");
 
     editor::EditorInputs inputs = editor_fixture();
     editor::LayoutSummary plain;
@@ -463,38 +463,101 @@ void choose_layouts() {
     );
 }
 
-/// Duplicate makes a layout and clears the known draft. An empty name and OA default's
-/// rename do nothing.
-void duplicate_and_rename() {
+/// Clone makes a layout of the player's own from the one in use, with the
+/// draft in it, under a name no layout has, and chooses it. An empty name, a
+/// taken name and OA default's rename do nothing; Rename and Describe changes
+/// the clone's name and description, and Undo takes each step back.
+void clone_and_describe() {
     editor::Editor model(editor_fixture());
-    expect(!model.duplicate(""), "an empty name duplicated");
-    expect(model.layout_id() == "ridge-grid", "a refused duplicate changed the layout");
-    expect(model.duplicate("Ridge copy"), "duplicate did not make Ridge copy");
-    expect(model.layout_id() == "ridge-copy", "the copy's id is not ridge-copy");
-    expect(model.layout_name() == "Ridge copy", "the copy's name is not Ridge copy");
-    expect(model.layout_author() == "You", "the copy's author is not You");
+    expect(model.clone_name() == "Copy of Ridge grid", "Clone does not offer Copy of Ridge grid");
+    expect(!model.clone("", "Based on Ridge grid"), "an empty name cloned");
+    expect(!model.clone("  ", ""), "a name of spaces cloned");
+    expect(!model.clone("ridge GRID", ""), "a taken name cloned");
+    expect(!model.clone("OA default", ""), "OA default's name cloned");
+    expect(model.layout_id() == "ridge-grid", "a refused clone changed the layout");
+    expect(model.unsaved() == 0, "a refused clone left an edit");
+    expect(model.clone(" Ridge copy ", "Based on Ridge grid"), "clone did not make Ridge copy");
+    expect(model.layout_id() == "ridge-copy", "the clone's id is not ridge-copy");
+    expect(model.layout_name() == "Ridge copy", "the clone's name is not Ridge copy");
+    expect(model.layout_author() == "You", "the clone's author is not You");
+    expect(model.layout_is_own(), "the clone is not the player's own");
+    expect(
+        model.layout_description() == "Based on Ridge grid", "the clone's description is not kept"
+    );
+    expect(model.unsaved() > 0, "the clone is not an unsaved edit");
     expect(
         !has_row(model.rows("all", editor::Filter::changed, ""), "select.all"),
-        "duplicate kept the known own binding"
+        "clone kept the known own binding in the draft"
     );
+    expect(model.name_taken("Ridge copy", {}), "the clone's name is not taken");
+    expect(!model.clone("Ridge copy", ""), "a second clone took the same name");
+    expect(model.clone_name() == "Copy of Ridge copy", "Clone does not offer a copy of the copy");
     const editor::SaveResult saved = model.result();
     bool found = false;
     for (const auto& manifest : saved.layouts) {
         if (manifest.id == "ridge-copy" && manifest.name == "Ridge copy" &&
-            manifest.author.name == "You")
-            found = true;
+            manifest.author.name == "You" && manifest.description == "Based on Ridge grid") {
+            for (const auto& binding : manifest.bindings) {
+                if (binding.action == "select.all")
+                    found = true;
+            }
+        }
     }
-    expect(found, "result().layouts has no Ridge copy");
+    expect(found, "result().layouts has no Ridge copy with the draft's Select all");
 
-    expect(model.rename("Ridge renamed"), "rename did not change the copy");
+    expect(!model.describe("Ridge copy", "Based on Ridge grid"), "an unchanged answer described");
+    expect(!model.describe("Ridge grid", "Mine"), "a rename took Ridge grid's name");
+    expect(model.describe("Ridge renamed", "Mine"), "describe did not change the clone");
     expect(model.layout_name() == "Ridge renamed", "layout_name is not Ridge renamed");
-    expect(model.layout_id() == "ridge-copy", "rename changed the id");
+    expect(model.layout_description() == "Mine", "layout_description is not Mine");
+    expect(model.layout_id() == "ridge-copy", "describe changed the id");
     bool renamed = false;
     for (const auto& manifest : model.result().layouts) {
-        if (manifest.id == "ridge-copy" && manifest.name == "Ridge renamed")
+        if (manifest.id == "ridge-copy" && manifest.name == "Ridge renamed" &&
+            manifest.description == "Mine")
             renamed = true;
     }
-    expect(renamed, "result().layouts did not rename the copy");
+    expect(renamed, "result().layouts did not rename and describe the clone");
+    expect(model.describe("Ridge renamed", "Mine again"), "a new description alone was refused");
+    expect(model.undo(), "Undo did not take the description back");
+    expect(model.layout_description() == "Mine", "Undo did not put the description back");
+    expect(model.undo(), "Undo did not take the rename back");
+    expect(model.layout_name() == "Ridge copy", "Undo did not put the name back");
+    expect(model.undo(), "Undo did not take the clone back");
+    expect(model.layout_id() == "ridge-grid", "Undo did not choose Ridge grid again");
+    expect(
+        has_row(model.rows("all", editor::Filter::changed, ""), "select.all"),
+        "Undo did not put the draft back"
+    );
+
+    // A folder already in Keys, one that does not read among them, keeps its
+    // id: the clone takes the next.
+    editor::EditorInputs crowded = editor_fixture();
+    crowded.taken_ids = {"Ridge-Copy", "ridge-copy-2"};
+    editor::Editor beside(std::move(crowded));
+    expect(beside.clone("Ridge copy", ""), "clone did not make Ridge copy beside the folders");
+    expect(beside.layout_id() == "ridge-copy-3", "the clone took a folder's id");
+}
+
+/// The rows the editor lists stay the same after a change and its Undo, so
+/// the kept rows follow every change.
+void kept_rows_follow_changes() {
+    editor::Editor model(editor_fixture());
+    const std::size_t changed = model.rows("all", editor::Filter::changed, "").size();
+    const editor::FilterCounts before = model.counts();
+    expect(model.reset_action("select.all"), "Reset did not drop Select all's change");
+    expect(
+        model.rows("all", editor::Filter::changed, "").size() + 1 == changed,
+        "the rows did not follow Reset"
+    );
+    expect(model.counts().changed + 1 == before.changed, "the counts did not follow Reset");
+    expect(model.undo(), "Undo did not take Reset back");
+    expect(
+        model.rows("all", editor::Filter::changed, "").size() == changed,
+        "the rows did not follow Undo"
+    );
+    expect(model.counts().changed == before.changed, "the counts did not follow Undo");
+    expect(model.clashes() == editor::Editor(editor_fixture()).clashes(), "the clashes moved");
 }
 
 /// Home on order.move in the chosen layout meets camera.centre's base Home.
@@ -840,7 +903,8 @@ int main() {
     latch_and_confirm();
     number_keys_swap();
     choose_layouts();
-    duplicate_and_rename();
+    clone_and_describe();
+    kept_rows_follow_changes();
     chosen_home_clash();
     mod_data_clash_can_save();
     draft_chord_blocks_save();

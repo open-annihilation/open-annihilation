@@ -695,6 +695,83 @@ void every_word_listed() {
     }
 }
 
+/// On a Mac the modifiers are Cmd, Option, Ctrl and Shift, and where the
+/// platform asks for the symbols each is led by the one its keyboard prints;
+/// elsewhere they stay Ctrl, Alt, Shift and Win, with no symbol.
+void mac_modifier_names() {
+    const KeyboardMap us = KeyboardMap::us();
+    const Platform windows{};
+    const Platform mac{true};
+    const Platform mac_symbols{true, true};
+    const Platform windows_symbols{false, true};
+
+    OA_CHECK(keys::modifier_name(keys::primary, mac) == "Cmd");
+    OA_CHECK(keys::modifier_name(keys::meta, mac) == "Cmd");
+    OA_CHECK(keys::modifier_name(keys::alt, mac) == "Option");
+    OA_CHECK(keys::modifier_name(keys::ctrl, mac) == "Ctrl");
+    OA_CHECK(keys::modifier_name(keys::shift, mac) == "Shift");
+    OA_CHECK(keys::modifier_name(keys::primary, mac_symbols) == "⌘ Cmd");
+    OA_CHECK(keys::modifier_name(keys::meta, mac_symbols) == "⌘ Cmd");
+    OA_CHECK(keys::modifier_name(keys::alt, mac_symbols) == "⌥ Option");
+    OA_CHECK(keys::modifier_name(keys::ctrl, mac_symbols) == "⌃ Ctrl");
+    OA_CHECK(keys::modifier_name(keys::shift, mac_symbols) == "⇧ Shift");
+    OA_CHECK(keys::modifier_name(keys::primary, windows_symbols) == "Ctrl");
+    OA_CHECK(keys::modifier_name(keys::alt, windows_symbols) == "Alt");
+    OA_CHECK(keys::modifier_name(keys::meta, windows_symbols) == "Win");
+    OA_CHECK(keys::modifier_name(keys::shift, windows) == "Shift");
+    OA_CHECK(keys::modifier_name(0, mac_symbols).empty());
+    OA_CHECK(keys::modifier_name(keys::alt | keys::shift, mac_symbols).empty());
+
+    expect_caps(
+        must_parse("Alt+Shift+@Digit1"),
+        us,
+        mac_symbols,
+        {KeyCap{"⌥ Option", true}, KeyCap{"⇧ Shift", true}, KeyCap{"1", false}}
+    );
+    expect_caps(
+        must_parse("Alt+Shift+@Digit1"),
+        us,
+        mac,
+        {KeyCap{"Option", true}, KeyCap{"Shift", true}, KeyCap{"1", false}}
+    );
+    expect_caps(
+        must_parse("Alt+Shift+@Digit1"),
+        us,
+        windows_symbols,
+        {KeyCap{"Alt", true}, KeyCap{"Shift", true}, KeyCap{"1", false}}
+    );
+    // Primary and Meta are the one command key, named once.
+    expect_caps(
+        must_parse("Primary+Meta+A"), us, mac_symbols, {KeyCap{"⌘ Cmd", true}, KeyCap{"A", false}}
+    );
+    OA_CHECK(
+        keys::display_text(must_parse("Primary+Shift+Z"), us, mac_symbols) == "⌘ Cmd+⇧ Shift+Z"
+    );
+    OA_CHECK(keys::display_text(must_parse("Ctrl+A:hold"), us, mac_symbols) == "⌃ Ctrl+A hold");
+    OA_CHECK(keys::display_text(must_parse("Alt+WheelUp"), us, mac) == "Option+Wheel up");
+    OA_CHECK(
+        keys::display_text(must_parse("Primary+Shift+Z"), us, keys::words_only(mac_symbols)) ==
+        "Cmd+Shift+Z"
+    );
+    OA_CHECK(!keys::words_only(mac_symbols).modifier_symbols);
+    OA_CHECK(keys::words_only(mac_symbols).primary_is_meta);
+
+    // A modifier's name shows in the interface's language, after its symbol.
+    namespace languages = oa::data::languages;
+    languages::InterfaceText catalogue;
+    OA_CHECK(catalogue.add("[Option]{de=Alt;} [Shift]{de=Umschalt;}"));
+    const languages::Language* german = languages::find_by_tag("de");
+    OA_CHECK(german != nullptr);
+    if (german == nullptr)
+        return;
+    languages::set_interface_language(&catalogue, *german);
+    OA_CHECK(
+        keys::display_text(must_parse("Alt+Shift+Q"), us, mac_symbols) == "⌥ Alt+⇧ Umschalt+Q"
+    );
+    OA_CHECK(keys::display_text(must_parse("Alt+Shift+Q"), us, mac) == "Alt+Umschalt+Q");
+    languages::set_interface_language(nullptr, languages::english());
+}
+
 /// A keycap's word shows in the interface's language, and the Home key is
 /// looked up apart from the catalogue's Home.
 void words_shown_in_the_language() {
@@ -726,6 +803,7 @@ int main() {
     azerty();
     names();
     every_word_listed();
+    mac_modifier_names();
     words_shown_in_the_language();
     return oa::test::check_exit_status();
 }

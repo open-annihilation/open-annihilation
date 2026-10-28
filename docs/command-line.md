@@ -202,7 +202,8 @@ id is refused the same way when no player folder can be worked out.
 | `--keys ID\|PATH` | Plays this run with one key layout. `ID` is a layout installed in the Keys folder, or `oa-default` for the game's own layout. `PATH` is a folder holding `oakeys.yaml`, that file itself, or a `.oakeys` file. A `.oakeys` file is read in memory. The player's own changes are not laid on top. Nothing is saved: not the layout preference, not an own layout, and not which mods have had their stored keys carried over. |
 | `--keys-reset` | Plays this run with `oa-default` and no own changes. Nothing is saved. |
 
-`--keys` and `--keys-reset` together are refused with status 1. An id `--keys` names that is not installed, a path it cannot read, a manifest with an error, or a `.oakeys` file the installer refuses, ends the run with status 2 before the game starts; each problem is printed, and nothing is installed or written. `oa-default` is the built-in layout, not an installed folder. A layout named in the preferences, rather than by `--keys`, that is not installed is left unused for that run and `oa-default` is played instead: that does not end the run.
+What a layout is, where it is kept, and the chords `oa-default` ships
+with, is [Keys](keys.md). `--keys` and `--keys-reset` together are refused with status 1. An id `--keys` names that is not installed, a path it cannot read, a manifest with an error, or a `.oakeys` file the installer refuses, ends the run with status 2 before the game starts; each problem is printed, and nothing is installed or written. `oa-default` is the built-in layout, not an installed folder. A layout named in the preferences, rather than by `--keys`, that is not installed is left unused for that run and `oa-default` is played instead: that does not end the run.
 
 ### Display and sound
 
@@ -363,7 +364,7 @@ Network play's own checks, the last rows, are in every build.
 | `--frames N` | Ends the run after N frames of the main menu's loop. |
 | `--snapshot PATH.ppm` | Writes a picture of what a headless run ends on, such as the main menu, to `PATH`; a check writes its own pictures beside it. |
 | `--display-modes MODES` | A made-up monitor for a check on SDL's dummy video driver: `WIDTHxHEIGHT[@RATE][/DENSITY]` modes, separated by commas, or `none`. |
-| `--force-capable` | Counts the renderer as one the graphics card can scale frames on, for `--check-render-tiers`, `--check-build-preview`, `--check-engine-settings` and `--check-kill-board` only. |
+| `--force-capable` | Counts the renderer as one the graphics card can scale frames on, for `--check-render-tiers`, `--check-build-preview`, `--check-dialog-backdrop`, `--check-engine-settings` and `--check-kill-board` only. |
 | `--check-navigation [GROUP]` | Walks the menus and a skirmish through their keys and buttons: every group, or one of `screens`, `orders`, `outcomes`, `zoom`, `zoom-1366x768`, `zoom-1920x1080`, `zoom-2560x1440` and `campaign`. |
 | `--check-match-dialogs` | Opens the help dialog over a live match, then the briefing and the in-game dialogs, in the language the preferences file names, such as an installed pack's. |
 | `--check-match-layers` | Checks the presented match frame against the processor's composition. |
@@ -419,8 +420,10 @@ Network play's own checks, the last rows, are in every build.
 | `--check-patrol-reclaim` | Checks a construction kbot on patrol reclaims on its way. |
 | `--check-reclaim-cursor` | Checks the cursor over trees, features and wrecks. |
 | `--check-wreck-pick` | Checks a sunken wreck and a wreck on high ground are picked where they are drawn. |
+| `--check-underwater-features` | Draws metal patches under the water, in open water, at a shore and at the edge of a unit's sight, in every tier, and checks each against the processor's picture. |
 | `--check-click-snap` | Checks the cursor RECLAIM shows beside a wreck, and where a RECLAIM click there and a metal extractor's build click beside a deposit land, with `ui.click-snap` on or off. |
 | `--check-build-preview` | Checks the building drawn under the build cursor. |
+| `--check-dialog-backdrop` | Checks that the briefing, the save dialog and the help dialog over a paused match leave the battlefield as the match showed it, in every tier. |
 | `--check-megamap-clicks` | Checks clicks on the megamap. |
 | `--check-single-player-offers` | Opens Single Player and checks New Campaign and Any Mission when a side has a campaign, and when neither side has one. |
 | `--check-radar-orders` | Checks presses on the radar for every order. |
@@ -459,7 +462,8 @@ Network play's own checks, the last rows, are in every build.
 | `--check-key-editor` | Checks the key editor at 640x480, 1280x720 and 1920x1080, on the menus and in a paused skirmish. |
 | `--check-key-capture` | Captures a chord and settles a clash in the key editor, over a paused skirmish: the clash question's outcome written only by its confirm button, Escape held for a second, Find by key, and a draft clash settled from Settle…. |
 | `--check-key-views` | Checks the key editor's keyboard and mouse at 640x480, 1280x720 and 1920x1080. |
-| `--check-keys-overlay` | Checks the keys overlay in a skirmish, with `--mod-dir` and `--user-folder`: Primary+/ and Escape, EDIT KEYS…, the order and build cell badges, the help lines, the rotate hint and a latched QUEUE in the overlay. Then Arrange Overlays from the in-game menu's Overlays button: a handle on each overlay, the keys overlay and the chat line dragged to places on the 8-point grid, Reset, Done, and the places kept at another window of the same size class and not at Compact. Run again on the same preferences, it finds the keys overlay and the chat line where they were left. With `--snapshot`, writes the overlay and the badges at 640x480, 1280x720 and 1920x1080, and `arrange-overlays-<w>x<h>.ppm` and `rounded-settings-<w>x<h>.ppm` at those sizes and 800x600. |
+| `--check-keys-overlay` | Checks the keys overlay in a skirmish, with `--mod-dir` and `--user-folder`: Primary+/ and Escape, EDIT KEYS…, the order and build cell badges, the help lines, the rotate hint and a latched QUEUE in the overlay. Then the overlays' places: Settings › Accessibility's Move overlays, off by default, turned on; Arrange… opening a picture of the match on the main menu and in a match, its handles dragged on the 8-point grid, Cancel and Reset; the keys overlay, a latched QUEUE's chip and the chat line at their places in a second skirmish, and back where they lay themselves out with Move overlays off; the in-game menu's OA Settings button as wide as Resume. Run again on the same preferences, it finds the keys overlay and the chat line where they were left. With `--snapshot`, writes the overlay and the badges at 640x480, 1280x720 and 1920x1080, Arrange Overlays in both looks at 640x480, 800x600 and 1280x720, and the placed overlays, the in-game menu and the rounded Settings at 640x480 and 1280x720. |
+| `--check-selection-keys` | Presses each of 3.1c's Ctrl+letter keys in a skirmish as the system sends them, with the pointer moving between the key's events, and checks the selection each makes from the units' Category words (Ctrl+R the radar, sonar and jammer units, with their rings on the minimap; Ctrl+P the combat aircraft), Ctrl+Shift+R and Ctrl+Shift+P adding, Ctrl+1 and its group key, Group keys centre the view each way (one press leaves the view, two quick presses centre it, two slow presses do not, Never leaves it, and On every press centres a later press past the double-press time), and Primary+/ opening and closing the keys overlay. Runs under a mod with `--mod-dir`. |
 | `--check-mutator-button` | Checks Mutators on the skirmish setup and the campaign launch at 640x480 and 1280x720: the room's own on and off button, its size and place, "Mutators: off" and "Mutators: N on", the card the pointer shows on it, Tab, Down, a finger's reach, Y, the remembered set and the set a start hands on. |
 | `--check-mutator-room` | Hosts a battle room alone and checks Mutators above Select Map, the room's own on and off button as large as it, at 640x480 and 1280x720, "Mutators: off" and "Mutators: N on" with its lamp, the remembered multiplayer set, the chat lines, and the button while the room's options are locked. |
 | `--check-brain-room` | Hosts a battle room alone and checks each computer row at 640x480 and 1280x720: its Resolution cell naming the brain and its Mem cell the level over the room's greyed difficulty, the notch on its name opening the brain menu, the built-in player and its level, the Mem cell stepping the built-in player's difficulty, Use for every computer seat, the hover card, and the cell meeting no control of the room but its row's empty screen-size column. |
@@ -560,7 +564,7 @@ Each action event writes one line:
 input action pressed order.attack chord=A context=play
 ```
 
-The word after `input action` is `pressed`, `released`, `repeated`, `double`, `held`, `active` or `inactive`. Then the action's id, the chord that matched, and the context that took the event, such as `play`.
+The word after `input action` is `pressed`, `released`, `repeated`, `double`, `held`, `active` or `inactive`. Then the action's id, the chord that matched, and the context that took the event, such as `play`. The ids and the default chords are in [Keys](keys.md#the-default-keys).
 
 Each move of the pointer over a match writes one line:
 

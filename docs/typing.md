@@ -33,6 +33,21 @@ composition is open the keys are the input method's: Backspace, Enter,
 the arrows and the game's own keys act on the composition and do nothing
 in the field or the game. Escape still closes the field.
 
+## Keys while a field is open
+
+While a field is taking text, the text wins. A key is typed, or it
+belongs to the input method, and it does not run the command it is bound
+to. Escape still closes the field.
+
+On the chat line that close is **Cancel chat** (`chat.cancel`). On Open
+Annihilation's own screens it is **Cancel screen** (`ui.screen-cancel`).
+Both are fixed on Escape: a layout may add keys to them, and it cannot
+take Escape away ([Keys](keys.md#escapes-one-fixed-job)).
+
+The other chat keys move in the editor. **Open chat** (`chat.open`) is
+Enter. **Open allies chat** (`chat.open-allies`) has no default key.
+**Send chat** (`chat.send`) is Enter and Ctrl+Enter. Send is not fixed.
+
 ## Commands
 
 A line that starts with an ASCII `+` or `.` is a command, such as a cheat

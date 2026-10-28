@@ -12,6 +12,7 @@
 #include "oa/ui/key_bindings/layout.hpp"
 #include "oa/ui/kit/keys.hpp"
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -189,6 +190,27 @@ std::string printed_label(std::string_view code, const keys::KeyboardMap& map) {
     if (printed >= U'a' && printed <= U'z')
         printed = printed - U'a' + U'A';
     return utf8_of(printed);
+}
+
+/// The name a Mac's modifier key shows: ⌘ Cmd, ⌥ Option, ⌃ Ctrl and ⇧ Shift,
+/// or the name alone where the platform shows no symbols. Off a Mac, and for
+/// any other key, it is empty, and the geometry's own label shows.
+///
+/// @param code the W3C code
+/// @param platform which key Primary means, and how the modifiers are named
+/// @return the name, or empty
+std::string mac_modifier_label(std::string_view code, keys::Platform platform) {
+    if (!platform.primary_is_meta)
+        return {};
+    if (code == "ShiftLeft" || code == "ShiftRight")
+        return keys::modifier_name(keys::shift, platform);
+    if (code == "ControlLeft" || code == "ControlRight")
+        return keys::modifier_name(keys::ctrl, platform);
+    if (code == "AltLeft" || code == "AltRight")
+        return keys::modifier_name(keys::alt, platform);
+    if (code == "MetaLeft" || code == "MetaRight")
+        return keys::modifier_name(keys::meta, platform);
+    return {};
 }
 
 /// True when this key is the modifier the layer is holding.
@@ -538,9 +560,9 @@ std::optional<Face> best_face(
 
 kit::KeyboardLook
 keyboard_look(const Editor& editor, const KeyboardViewInputs& inputs, const Labels& labels) {
-    const keys::Resolved bound = editor.resolved();
-    const keys::ResolveInput input = editor.resolve_input();
-    const std::vector<keys::Clash> clashes = keys::find_clashes(bound, input);
+    const std::shared_ptr<const Editor::InUse> kept = editor.in_use();
+    const keys::Resolved& bound = kept->resolved;
+    const std::vector<keys::Clash>& clashes = kept->clashes;
     const keys::KeyboardMap& map = editor.keyboard();
     const keys::Platform platform = editor.platform();
     const TextHooks& hooks = editor.text();
@@ -550,7 +572,9 @@ keyboard_look(const Editor& editor, const KeyboardViewInputs& inputs, const Labe
     for (const kit::KeyPlace& place : kit::keyboard_places(inputs.shape)) {
         kit::KeyboardKey key;
         key.code = std::string(place.code);
-        const std::string word = named_word(place.code, labels);
+        std::string word = named_word(place.code, labels);
+        if (word.empty())
+            word = mac_modifier_label(place.code, platform);
         key.cap.label = word.empty() ? printed_label(place.code, map) : word;
         key.cap.held = modifier_held(place.code, inputs.layer);
         const std::optional<Face> face = best_face(bound, place.code, inputs.layer, map, platform);
@@ -575,7 +599,8 @@ keyboard_look(const Editor& editor, const KeyboardViewInputs& inputs, const Labe
 }
 
 std::vector<CardLine> key_card(const Editor& editor, std::string_view code, uint8_t layer) {
-    const keys::Resolved bound = editor.resolved();
+    const std::shared_ptr<const Editor::InUse> kept = editor.in_use();
+    const keys::Resolved& bound = kept->resolved;
     const keys::KeyboardMap& map = editor.keyboard();
     const keys::Platform platform = editor.platform();
     const TextHooks& hooks = editor.text();
@@ -616,7 +641,8 @@ std::vector<CardLine> key_card(const Editor& editor, std::string_view code, uint
 }
 
 std::vector<std::string> keys_of(const Editor& editor, std::string_view action) {
-    const keys::Resolved bound = editor.resolved();
+    const std::shared_ptr<const Editor::InUse> kept = editor.in_use();
+    const keys::Resolved& bound = kept->resolved;
     const keys::Bound* found = nullptr;
     for (const keys::Bound& row : bound.actions) {
         if (row.id == action)

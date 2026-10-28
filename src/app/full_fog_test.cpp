@@ -1518,18 +1518,18 @@ void classic_passes_draw_the_processors_tiles() {
                     quad.corners[0].colour.alpha == 1.0F
                 );
                 const Box box = box_of(quad);
-                // The page's texel under the box's corner is its pixel's
-                // place in its fog tile.
-                const int32_t in_x = ((box.x - field.left) % tile_edge + tile_edge) % tile_edge;
-                const int32_t in_z = ((box.z - field.top) % tile_edge + tile_edge) % tile_edge;
-                OA_CHECK(near(
-                    quad.corners[0].u * static_cast<float>(fog::dither_page_edge),
-                    static_cast<float>(in_x)
-                ));
-                OA_CHECK(near(
-                    quad.corners[0].v * static_cast<float>(fog::dither_page_edge),
-                    static_cast<float>(in_z)
-                ));
+                // The page's texel under the box's corner pixel is cleared
+                // exactly when the processor clears that map pixel: its
+                // column and row sum have the map pixel's parity.
+                const auto texel = [](float coordinate) {
+                    return static_cast<int32_t>(
+                        std::floor(coordinate * static_cast<float>(fog::dither_page_edge) + 0.5F)
+                    );
+                };
+                OA_CHECK(
+                    ((texel(quad.corners[0].u) + texel(quad.corners[0].v)) & 1) ==
+                    ((box.x + box.z) & 1)
+                );
                 for (int32_t z = box.z; z < box.z + box.height; ++z)
                     for (int32_t x = box.x; x < box.x + box.width; ++x) {
                         const auto at = field.at(x, z);
@@ -1572,7 +1572,309 @@ void classic_passes_draw_the_processors_tiles() {
     OA_CHECK(frame.vertices.empty() && frame.batches.empty());
 }
 
+/// The Classic dither at zooms other than the whole one: every target pixel
+/// under a dithered quad reads the page's texel whose parity is the pixel's
+/// own, less the view's corner and plus the camera's map pixel, so that the
+/// dither is one pixel fine on the screen at any zoom, as the processor's
+/// is; each quad's texels lie within the page.
+void classic_dither_keeps_to_the_targets_pixels() {
+    const Sight sight = mixed_sight();
+    const wr::FogTileSet tiles = seeded_tiles();
+    fog::ClassicShapes shapes;
+    fog::build_classic_shapes(tiles, shapes);
+    const card::Colour dither{0.0F, 0.5F, 0.25F, 0.0F};
+    constexpr auto page_edge = static_cast<double>(fog::dither_page_edge);
+
+    struct ZoomCase {
+        float scale{};
+        float origin_x{};
+        float origin_y{};
+        bool whole_pixels{};
+    };
+
+    for (const auto& zoom_case :
+         {ZoomCase{2.0F, 3.0F, 5.0F, false},
+          ZoomCase{4.0F, 0.0F, 1.0F, false},
+          ZoomCase{1.5F, 2.0F, 0.0F, true},
+          ZoomCase{0.5F, 7.0F, 2.0F, true},
+          ZoomCase{1.0F / 6.0F, 1.0F, 1.0F, true}}) {
+        for (const auto& [camera_x, camera_z] : {std::pair{0, 0}, std::pair{45, 23}}) {
+            const auto grid = sight.fog(camera_x, camera_z);
+            fog::FogPlacement placement = plain(camera_x, camera_z);
+            placement.scale = zoom_case.scale;
+            placement.origin_x = zoom_case.origin_x;
+            placement.origin_y = zoom_case.origin_y;
+            placement.whole_pixels = zoom_case.whole_pixels;
+            card::CardFrame frame;
+            const uint32_t appended = fog::append_unseen_dither_classic(
+                frame, grid, shapes, card::PageHandle{9}, dither, placement, {}, nullptr
+            );
+            const auto quads = quads_of(frame);
+            OA_CHECK(appended == quads.size() && appended != 0);
+            int32_t pixels = 0;
+            int32_t wrong = 0;
+            for (const auto& quad : quads) {
+                const auto& first = quad.corners[0];
+                const auto& last = quad.corners[2];
+                OA_CHECK(first.u >= 0.0F && first.v >= 0.0F && last.u <= 1.0F && last.v <= 1.0F);
+                // A rectangle narrower than a pixel may round to no width.
+                if (!(last.x > first.x) || !(last.y > first.y))
+                    continue;
+                // The pixels whose centres the quad covers, each reading the
+                // texel at its centre as the card's nearest sampling does.
+                const auto first_x = static_cast<int32_t>(std::ceil(first.x - 0.5F));
+                const auto first_y = static_cast<int32_t>(std::ceil(first.y - 0.5F));
+                const auto end_x = static_cast<int32_t>(std::ceil(last.x - 0.5F));
+                const auto end_y = static_cast<int32_t>(std::ceil(last.y - 0.5F));
+                const double texels_x = (static_cast<double>(last.u) - first.u) * page_edge /
+                                        (static_cast<double>(last.x) - first.x);
+                const double texels_y = (static_cast<double>(last.v) - first.v) * page_edge /
+                                        (static_cast<double>(last.y) - first.y);
+                OA_CHECK(near(static_cast<float>(texels_x), 1.0F));
+                OA_CHECK(near(static_cast<float>(texels_y), 1.0F));
+                for (int32_t y = first_y; y < end_y; ++y)
+                    for (int32_t x = first_x; x < end_x; ++x) {
+                        const auto column = static_cast<int64_t>(
+                            std::floor(first.u * page_edge + (x + 0.5 - first.x) * texels_x)
+                        );
+                        const auto row = static_cast<int64_t>(
+                            std::floor(first.v * page_edge + (y + 0.5 - first.y) * texels_y)
+                        );
+                        const int64_t pixel_parity =
+                            (int64_t{x} + y - static_cast<int64_t>(zoom_case.origin_x) -
+                             static_cast<int64_t>(zoom_case.origin_y) + camera_x + camera_z) &
+                            1;
+                        ++pixels;
+                        if (((column + row) & 1) != pixel_parity)
+                            ++wrong;
+                    }
+            }
+            OA_CHECK(pixels != 0 && wrong == 0);
+        }
+    }
+}
+
 } // namespace
+
+/// The alpha a triangle of a frame draws at a point, by its corners'
+/// alphas interpolated linearly across it, as the card interpolates them;
+/// none where the point lies outside it.
+///
+/// @param a a corner
+/// @param b the next
+/// @param c the last
+/// @param x the point's column
+/// @param y its row
+/// @return the alpha, or none outside the triangle
+std::optional<float> triangle_alpha(
+    const fog::FogPoint& a, const fog::FogPoint& b, const fog::FogPoint& c, float x, float y
+) {
+    const float area = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
+    if (std::fabs(area) < 1e-6F)
+        return std::nullopt;
+    const float wa = ((b.x - x) * (c.y - y) - (c.x - x) * (b.y - y)) / area;
+    const float wb = ((c.x - x) * (a.y - y) - (a.x - x) * (c.y - y)) / area;
+    const float wc = 1.0F - wa - wb;
+    constexpr float inside = -1e-5F;
+    if (wa < inside || wb < inside || wc < inside)
+        return std::nullopt;
+    return wa * a.alpha + wb * b.alpha + wc * c.alpha;
+}
+
+/// The alpha a list of triangles draws at a point: the first that holds it.
+///
+/// @param triangles the triangles, three points each
+/// @param x the point's column
+/// @param y its row
+/// @return the alpha, 0 where none holds it
+float alpha_over(const std::vector<std::array<fog::FogPoint, 3>>& triangles, float x, float y) {
+    for (const auto& triangle : triangles)
+        if (const auto alpha = triangle_alpha(triangle[0], triangle[1], triangle[2], x, y))
+            return *alpha;
+    return 0.0F;
+}
+
+/// The triangles of a frame's quads, as the card lays them out: top-left,
+/// top-right, bottom-right, and top-left, bottom-right, bottom-left.
+///
+/// @param frame the frame
+/// @return the triangles, with each corner's alpha
+std::vector<std::array<fog::FogPoint, 3>> quad_triangles(const card::CardFrame& frame) {
+    std::vector<std::array<fog::FogPoint, 3>> triangles;
+    for (const Quad& quad : quads_of(frame)) {
+        const auto point = [&](std::size_t corner) {
+            return fog::FogPoint{
+                quad.corners[corner].x, quad.corners[corner].y, quad.corners[corner].colour.alpha
+            };
+        };
+        triangles.push_back({point(0), point(1), point(2)});
+        triangles.push_back({point(0), point(2), point(3)});
+    }
+    return triangles;
+}
+
+/// The triangles of a greyed cover's pieces, each a fan from its first point.
+///
+/// @param pieces the pieces
+/// @return the triangles
+std::vector<std::array<fog::FogPoint, 3>>
+cover_triangles(const std::vector<fog::CoverPiece>& pieces) {
+    std::vector<std::array<fog::FogPoint, 3>> triangles;
+    for (const auto& piece : pieces) {
+        OA_CHECK(piece.count >= 3 && piece.count <= fog::most_cover_points);
+        for (uint32_t point = 1; point + 1 < piece.count; ++point)
+            triangles.push_back({piece.points[0], piece.points[point], piece.points[point + 1]});
+    }
+    return triangles;
+}
+
+/// A greyed cover draws, at every pixel of a rectangle, the alpha the
+/// greyed pass draws the terrain at there and nothing past the rectangle:
+/// the smooth pass's triangles and the Classic pass's rectangles, at an
+/// aligned camera, one between tiles and through a placement; a rectangle
+/// wholly in sight is covered by nothing and one wholly out of sight whole.
+void greyed_cover_takes_the_terrains_alphas() {
+    const Atlas built = build_atlas();
+    const Sight sight = mixed_sight();
+    const wr::FogTileSet tiles = seeded_tiles();
+    fog::ClassicShapes shapes;
+    fog::build_classic_shapes(tiles, shapes);
+    const fog::GreyedLevel levels[] = {{0, card::Sampling::nearest, 1.0F}};
+    std::size_t parts = 0;
+    for (const auto& [camera_x, camera_z] :
+         {std::pair{0, 0}, std::pair{45, 23}, std::pair{32, 64}, std::pair{150, 77}}) {
+        const auto grid = sight.fog(camera_x, camera_z);
+        for (const bool classic : {false, true})
+            for (const bool moved : {false, true}) {
+                fog::FogPlacement placement = plain(camera_x, camera_z);
+                if (moved) {
+                    placement.origin_x = 7.0F;
+                    placement.origin_y = -5.0F;
+                    placement.scale = 2.0F;
+                }
+                card::CardFrame frame;
+                if (classic)
+                    fog::append_unseen_terrain_classic(
+                        frame,
+                        grid,
+                        shapes,
+                        built.atlas,
+                        built.pages,
+                        levels,
+                        placement,
+                        {},
+                        nullptr
+                    );
+                else
+                    fog::append_unseen_terrain(
+                        frame, grid, built.atlas, built.pages, levels, placement, {}, nullptr
+                    );
+                const auto terrain = quad_triangles(frame);
+                // Rectangles over the view, on whole and on fractional pixels.
+                for (const auto& rect :
+                     {std::array<float, 4>{20.0F, 13.0F, 103.0F, 97.0F},
+                      std::array<float, 4>{3.5F, 40.25F, 61.75F, 119.5F},
+                      std::array<float, 4>{70.0F, 2.0F, 140.0F, 60.0F}}) {
+                    std::vector<fog::CoverPiece> pieces;
+                    const fog::Cover cover = fog::greyed_cover(
+                        grid,
+                        classic ? &shapes : nullptr,
+                        placement,
+                        rect[0],
+                        rect[1],
+                        rect[2],
+                        rect[3],
+                        pieces
+                    );
+                    const auto covering = cover_triangles(pieces);
+                    OA_CHECK((cover == fog::Cover::part) == !pieces.empty());
+                    parts += cover == fog::Cover::part ? 1 : 0;
+                    float most = 0.0F;
+                    bool past = false;
+                    for (float y = rect[1] - 3.5F; y < rect[3] + 3.5F; y += 1.0F)
+                        for (float x = rect[0] - 3.5F; x < rect[2] + 3.5F; x += 1.0F) {
+                            const bool within =
+                                x > rect[0] && x < rect[2] && y > rect[1] && y < rect[3];
+                            const float drawn = cover == fog::Cover::whole
+                                                    ? (within ? 1.0F : 0.0F)
+                                                    : alpha_over(covering, x, y);
+                            if (!within) {
+                                past = past || drawn != 0.0F;
+                                continue;
+                            }
+                            // Past the map's edges the terrain draws nothing,
+                            // and a feature's frame is cut off by its scissor.
+                            const float map_x = (x - placement.origin_x) / placement.scale +
+                                                static_cast<float>(camera_x);
+                            const float map_z = (y - placement.origin_y) / placement.scale +
+                                                static_cast<float>(camera_z);
+                            if (map_x < 0.0F || map_z < 0.0F ||
+                                map_x >= static_cast<float>(map_tiles_wide * tile_edge) ||
+                                map_z >= static_cast<float>(map_tiles_high * tile_edge))
+                                continue;
+                            most = std::max(most, std::fabs(drawn - alpha_over(terrain, x, y)));
+                        }
+                    OA_CHECK(most <= 1e-4F);
+                    OA_CHECK(!past);
+                    if (most > 1e-4F || past)
+                        std::printf(
+                            "greyed cover at %d,%d %s%s over %.2f,%.2f-%.2f,%.2f: most %.5f%s\n",
+                            camera_x,
+                            camera_z,
+                            classic ? "classic" : "smooth",
+                            moved ? " moved" : "",
+                            rect[0],
+                            rect[1],
+                            rect[2],
+                            rect[3],
+                            static_cast<double>(most),
+                            past ? ", past the rectangle" : ""
+                        );
+                }
+            }
+    }
+    OA_CHECK(parts > 0);
+    // Wholly in sight: nothing; wholly out of sight: whole; an empty
+    // rectangle or an empty grid: nothing.
+    {
+        const Sight seen;
+        std::vector<fog::CoverPiece> pieces;
+        OA_CHECK(
+            fog::greyed_cover(seen.fog(0, 0), nullptr, plain(0, 0), 10, 10, 90, 90, pieces) ==
+            fog::Cover::none
+        );
+        Sight unseen;
+        for (int32_t z = 0; z < unseen.grid.height; ++z)
+            for (int32_t x = 0; x < unseen.grid.width; ++x)
+                unseen.unsee(x, z);
+        OA_CHECK(
+            fog::greyed_cover(unseen.fog(0, 0), nullptr, plain(0, 0), 10, 10, 90, 90, pieces) ==
+            fog::Cover::whole
+        );
+        OA_CHECK(pieces.empty());
+        OA_CHECK(
+            fog::greyed_cover(unseen.fog(0, 0), &shapes, plain(0, 0), 10, 10, 90, 90, pieces) ==
+            fog::Cover::whole
+        );
+        OA_CHECK(
+            fog::greyed_cover(unseen.fog(0, 0), nullptr, plain(0, 0), 10, 10, 10, 90, pieces) ==
+            fog::Cover::none
+        );
+        OA_CHECK(
+            fog::greyed_cover(wr::FogGrid{}, nullptr, plain(0, 0), 10, 10, 90, 90, pieces) ==
+            fog::Cover::none
+        );
+        // Never mapped at every corner: the black pass covers it, not the grey.
+        Sight unmapped;
+        for (int32_t z = 0; z < unmapped.grid.height; ++z)
+            for (int32_t x = 0; x < unmapped.grid.width; ++x)
+                unmapped.unmap(x, z);
+        OA_CHECK(
+            fog::greyed_cover(unmapped.fog(0, 0), nullptr, plain(0, 0), 10, 10, 90, 90, pieces) ==
+            fog::Cover::none
+        );
+    }
+}
 
 int main() {
     corner_alphas_follow_the_mask();
@@ -1588,13 +1890,16 @@ int main() {
     classic_shapes_cover_the_art();
     dither_page_is_the_checkerboard();
     classic_passes_draw_the_processors_tiles();
+    greyed_cover_takes_the_terrains_alphas();
+    classic_dither_keeps_to_the_targets_pixels();
     if (oa::test::check_exit_status() != 0)
         return 1;
     std::puts(
         "full fog: the greyed pass covers the ground out of sight once at its tiles' texels, "
         "the black and dithered passes their tiles with runs merged, at the corner alphas; "
         "the fog mask reads the corner alphas across each tile; shade and light levels as quads; "
-        "the Classic passes draw the processor's FOG.GAF tiles"
+        "the Classic passes draw the processor's FOG.GAF tiles, the dither one pixel fine at every "
+        "zoom; a greyed cover takes the terrain's alphas"
     );
     return 0;
 }

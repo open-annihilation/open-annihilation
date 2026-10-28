@@ -1000,6 +1000,9 @@ void Runtime::finish_match_layers(
     std::chrono::steady_clock::time_point upload_start,
     std::chrono::steady_clock::time_point present_start
 ) {
+    // A frame drawn again to be read back is read as the battlefield stands.
+    if (accelerated_.reading_back)
+        return;
     // The layers laid out 1:1 reach the display's pixels on a window at
     // native density: NEAREST, but in the accelerated tier at a density
     // that is not a whole number.

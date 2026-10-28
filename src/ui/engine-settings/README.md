@@ -29,6 +29,7 @@ the locks a running game puts on them (`settings_locks`).
 | | Number keys select groups is the key editor's switch, not a row of this section | Off, On | Off | 3.1c's SwitchAlt |
 | | Window edge, a strip: what a window does with the pointer while a match's battlefield shows. Capture keeps it in the window until the game menu, the pause screen, Settings, Escape or a lost focus, and a click on the battlefield captures it again. Sticky holds it on the edges so the view edge-scrolls, until a firm push or a flick lets it leave. Free leaves it free. Full screen holds the pointer either way | Capture, Sticky, Free | Capture | `open-annihilation.window-edge` (`capture`, `sticky` or `free`) |
 | | Edge stickiness, a slider: how firmly Sticky holds, the push and the flick growing with it; 0.0 never holds. Locked Needs Sticky (`Lock::needs_sticky`, which the dialog sets itself in `shown_locks`) while Window edge shows Capture or Free, when it keeps its value | 0.0 to 5.0 in steps of 0.1 | 1.0 | `open-annihilation.window-edge-stickiness` (a decimal, `1.0`) |
+| | Group keys centre the view, a drop-down: whether a group's key, which selects the group, also moves the view to the group's centre. On a double press moves it on the second of two presses of the same group's key within the double-press time with no other key between; Never never moves it; On every press moves it when the group is already exactly the selection, however long after. It applies at once | On a double press, Never, On every press | On a double press | `open-annihilation.group-keys-centre` (`double-press`, `never` or `every-press`) |
 | Engine Limits | Unit limit | 50 to 1500 per player, steps of 50, or on to a mod's higher maximum | the installation's `totala.ini` UnitLimit, else 250 or a mod's default | `open-annihilation.unit-limit` |
 | | Pathfinding cycles | 1× to 8× of 1333 path nodes a tick, or of a mod's budget | 1× | `open-annihilation.path-search-nodes` |
 | | Skirmish players: how many player rows the skirmish setup shows. The dialog's working copy of the setup's own count; OK stores it only when the slider moved, and the setup's key codes write the same count | 2 to 10; a stored count outside that shows as it is until the slider moves | 10 when none is stored | `NumSkirmishPlayers` |
@@ -85,6 +86,8 @@ the locks a running game puts on them (`settings_locks`).
 | | Key repeat rate: how fast that key then repeats | System (the system's repeat), then 2 to 30 a second | System | `open-annihilation.access.repeat-rate` |
 | | Drag threshold: how far a press may move and still be a click | 32 to 96 px, steps of 8 | 32 px | `open-annihilation.access.drag-threshold` |
 | | Edge scrolling: Off stops the view scrolling while the pointer rests at the window's edge. Arrow keys, and the touch edge band while a drag is held, keep moving the view | Off, On | On | `open-annihilation.access.edge-scroll` |
+| | Move overlays: On, the keys overlay, the chat line and the latch chips show where the player put them; Off, where they lay themselves out, and the places stay kept | Off, On | Off | `open-annihilation.access.move-overlays` |
+| | Overlay places: "Your places" or "The game's places", and ARRANGE… (`DialogAction::arrange_overlays`), pressable while Move overlays is on: the host opens a picture of the match over the dialog where the overlays are placed | | | none. The places are the host's `open-annihilation.overlay.*` keys |
 | Touch, listed only while the game has touch controls | One-finger drag | Automatic (a selection box on a tablet, scrolling on a phone), Box, Scroll | Automatic | `open-annihilation.touch-drag` (`automatic`, `box` or `scroll`) |
 | | Hold delay | 250 to 700 ms, steps of 50; a stored delay is held to the range and put on its nearest step | 350 ms | `open-annihilation.touch-hold-delay` |
 | | QUEUE and ADD | Stay on, One action | Stay on | `open-annihilation.touch-latches` (`stay-on` or `one-action`) |
@@ -1013,8 +1016,15 @@ and the kit's components. Tab follows the declared order
 the list holds (`DisplayList::tab_order`), which `dialog_list` builds as it
 adds the controls.
 
-The dialog's input reads this list through the kit: the control under a
-point is `kit::hit`'s, a finger's `kit::reach`'s, Tab's next control
+The dialog's input reads this list through the kit, built in the fonts the
+dialog is drawn in (`Dialog::drawn_fonts`, which the host sets to the fonts
+it draws with): the sizes they widen and the lines they wrap the rows'
+texts into come from one place (`geometry::shown_section`), so a control
+answers where it is drawn whatever its Interface size, size class, type
+step or language. Without fonts every character is measured at
+`estimated_character_width`, for drawing and input alike. `dialog_layout`
+lists the parts in the same fonts unless it is given others. The control
+under a point is `kit::hit`'s, a finger's `kit::reach`'s, Tab's next control
 `kit::next_in_tab_order`'s, an arrow's `kit::focus_toward`'s, and the wheel
 carries its fraction with `kit::wheel_offset`. A row's control lies across
 the section at its control's line, and its clip, the view narrowed to the
@@ -1492,7 +1502,7 @@ lock, and lists that scroll or open over their field;
 the Graphics section's twenty-two rows, New unit shadows last, their places at every offset
 and under every lock, the focus scrolling them into view, both forms of a
 locked row, Smooth motion's and New unit shadows' switches and their two hints each, Zoomed out units' faded Icons and After zoom's lock, every status of Hardware acceleration, Full's included, and
-the requests to try the graphics card afresh; User Interface's seven rows, Menu scaling, Window frame, HUD scaling, Interface size, Window size, Reset window positions and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Accessibility's thirteen rows, the captions at both ends of each range, CHOOSE… opening the key editor on Latchable while Edit keys… stays on All, and each change applying at once; Interface size's drop-down
+the requests to try the graphics card afresh; User Interface's seven rows, Menu scaling, Window frame, HUD scaling, Interface size, Window size, Reset window positions and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Accessibility's fifteen rows, the captions at both ends of each range, CHOOSE… opening the key editor on Latchable while Edit keys… stays on All, and each change applying at once; Interface size's drop-down
 offering 150% only with the modern fonts shown On, and turning them Off
 taking 150% to 100%; Graphics drawn on the kit canvas's smooth form at 1.5×
 with every pixel painted whole; on sections of the test's own taller than the

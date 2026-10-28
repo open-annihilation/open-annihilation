@@ -6,7 +6,7 @@ add_library(oa-ui-hud ${oa_ui_hud_sources})
 add_library(oa::ui::hud ALIAS oa-ui-hud)
 target_link_libraries(oa-ui-hud PRIVATE oa-base-game-math)
 target_include_directories(oa-ui-hud PUBLIC include)
-target_link_libraries(oa-ui-hud PUBLIC oa-core-types oa-data-campaign oa-data-persist
+target_link_libraries(oa-ui-hud PUBLIC oa-core-types oa-data-campaign oa-data-persist oa-present
   PRIVATE oa-data-defs oa-data-languages oa-formats-tdf oa-sim-feature-runtime oa-sim-messages
   oa-sim-unit-movement oa-ui-console oa-options)
 target_compile_features(oa-ui-hud PUBLIC cxx_std_20)

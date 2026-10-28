@@ -337,13 +337,13 @@ void Runtime::bind_player_records(oa::World& world) {
 void Runtime::bind_respawn_view() {
     match_->respawn = {
         this,
-        [](void* context) { static_cast<Runtime*>(context)->reset_sight_presentation(true); },
+        [](void* context) { static_cast<Runtime*>(context)->reset_sight_presentation(); },
         [](void* context) { static_cast<Runtime*>(context)->select_side_commander(); },
     };
     match_->watch = {
         this, [](void* context, oa::sim::match_runtime::Match::WatchNotice notice) {
             auto& self = *static_cast<Runtime*>(context);
-            self.reset_sight_presentation(true);
+            self.reset_sight_presentation();
             if (notice == oa::sim::match_runtime::Match::WatchNotice::continue_prompt) {
                 auto ctx = self.screen_context();
                 oa::ui::frontend_dialogs::open_continue_watching(
@@ -382,9 +382,7 @@ void Runtime::bind_respawn_view() {
     };
 }
 
-void Runtime::reset_sight_presentation(bool refill_mapped) {
-    if (refill_mapped)
-        radar_explored_.clear();
+void Runtime::reset_sight_presentation() {
     radar_state_.reset_sight = true;
 }
 
@@ -392,7 +390,7 @@ void Runtime::reset_match_sight(bool refill_mapped) {
     if (!match_ || altitude_sight_blocked_)
         return;
     match_->reset_sight_buffers(refill_mapped);
-    reset_sight_presentation(refill_mapped);
+    reset_sight_presentation();
 }
 
 void Runtime::select_side_commander() {

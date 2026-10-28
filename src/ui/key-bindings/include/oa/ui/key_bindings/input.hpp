@@ -39,10 +39,30 @@ struct InputEvent {
     uint64_t time_ms{};  ///< when the event happened, in milliseconds
 };
 
-/// Which physical key the word Primary means on this platform.
+/// Which physical key the word Primary means on this platform, and how its
+/// modifiers are named.
+///
+/// Where Primary is the command key (a Mac), the modifiers are Cmd, Option,
+/// Ctrl and Shift; elsewhere Ctrl, Alt, Shift and Win.
 struct Platform {
     bool primary_is_meta{}; ///< true where Primary is the platform's command key
+    /// True where each modifier's name is led by the symbol a Mac's keyboard
+    /// prints: ⌘ Cmd, ⌥ Option, ⌃ Ctrl and ⇧ Shift. Read only where Primary
+    /// is the command key. A host sets it where the letters that draw the
+    /// names hold those symbols (the modern look), and leaves it off for a
+    /// text that names keys in words alone.
+    bool modifier_symbols{};
 };
+
+/// Returns a platform whose modifiers are named in words alone, without
+/// their symbols, as the text of an automation control is.
+///
+/// @param platform the platform
+/// @return the same platform with modifier_symbols off
+[[nodiscard]] constexpr Platform words_only(Platform platform) noexcept {
+    platform.modifier_symbols = false;
+    return platform;
+}
 
 /// What each key's events carry, and the character the key prints.
 ///

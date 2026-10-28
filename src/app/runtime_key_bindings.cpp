@@ -27,6 +27,7 @@
 #include "oa/data/key_library/library.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/data/mod_profile.hpp"
+#include "oa/present/game_text.hpp"
 #include "oa/formats/oamod.hpp"
 #include "oa/formats/oakeys/manifest.hpp"
 #include "oa/formats/oamut/manifest.hpp"
@@ -37,6 +38,7 @@
 #include "oa/ui/key_bindings/layout_file.hpp"
 #include "oa/ui/key_editor/model.hpp"
 #include "oa/ui/key_bindings/legacy.hpp"
+#include "oa/ui/kit/text.hpp"
 #include "oa/ui/library/library.hpp"
 #include "oa/ui/touch_hud.hpp"
 
@@ -215,6 +217,37 @@ keys::Platform platform_here() {
     where.primary_is_meta = false;
 #endif
     return where;
+}
+
+/// The platform a chord is named on in Open Annihilation's own screens and
+/// overlays: on a Mac, each modifier led by its symbol (⌘ Cmd) where those
+/// screens draw the modern look, whose faces hold the symbols, and the name
+/// alone in the classic look's bitmap fonts.
+///
+/// @param platform the bindings' platform
+/// @param fonts the fonts the screens draw in; null names keys in words
+/// @return the platform to name keys on
+keys::Platform screen_platform(keys::Platform platform, const oa::ui::kit::Fonts* fonts) {
+    platform.modifier_symbols = fonts != nullptr && oa::ui::kit::modern_look(*fonts);
+    return platform;
+}
+
+/// The platform a chord is named on in game text, the 3.1c screens' help
+/// lines and the rotate hint: the symbols only where screen_platform shows
+/// them and game text is UTF-8 drawn with the modern fonts, which draw what
+/// the game's fonts lack; otherwise the code page would turn a symbol into
+/// a question mark.
+///
+/// @param platform the bindings' platform
+/// @param fonts the fonts Open Annihilation's screens draw in
+/// @param text how game text is drawn now
+/// @return the platform to name keys on
+keys::Platform game_text_platform(
+    keys::Platform platform, const oa::ui::kit::Fonts* fonts, const oa::present::TextSettings& text
+) {
+    keys::Platform shown = screen_platform(platform, fonts);
+    shown.modifier_symbols = shown.modifier_symbols && text.utf8 && text.style.modern_fonts;
+    return shown;
 }
 
 /// A key, button or wheel as the dispatcher reads it, or nothing for another event.
@@ -1402,7 +1435,9 @@ std::string Runtime::bound_chord_text(std::string_view action_id) {
         chord = &held;
     }
     return keys::display_text(
-        *chord, key_bindings_state_->dispatcher.keyboard(), key_bindings_state_->platform
+        *chord,
+        key_bindings_state_->dispatcher.keyboard(),
+        screen_platform(key_bindings_state_->platform, oa_layer().screen_fonts())
     );
 }
 
@@ -1875,7 +1910,9 @@ bool Runtime::begin_confirm_hold(
         if (bound.id != id || bound.chords.empty())
             continue;
         session.chord = keys::display_text(
-            bound.chords.front().chord, state.dispatcher.keyboard(), state.platform
+            bound.chords.front().chord,
+            state.dispatcher.keyboard(),
+            screen_platform(state.platform, oa_layer().screen_fonts())
         );
         break;
     }
@@ -2412,8 +2449,14 @@ bool Runtime::feed_input_actions(const SDL_Event& event) {
     if (take_order_wheel_aside(event))
         return true;
     const std::optional<keys::InputEvent> input = input_from_sdl(event, SDL_GetTicks());
-    if (!input)
+    if (!input) {
+        // An event that is no key, button or wheel starts no action. The last
+        // input's events go, or the pointer moving between a chord's press and
+        // its release would answer the press again: Primary+/ would open the
+        // keys overlay and close it at once.
+        state.events.clear();
         return false;
+    }
     const keys::Contexts contexts = input_contexts();
     state.dispatcher.set_contexts(contexts);
     const keys::Fed fed = state.dispatcher.feed(*input);
@@ -2477,6 +2520,37 @@ void Runtime::advance_input_actions(bool& running) {
         match_key_already_fed_ = false;
     }
     advance_order_wheel();
+}
+
+Runtime::GroupViewMove Runtime::group_key_view_move(int squad) {
+    namespace settings = oa::ui::engine_settings;
+    const uint64_t now_ms = SDL_GetTicks();
+    switch (engine_settings().group_keys_centre) {
+    case settings::GroupKeysCentre::never:
+        group_key_last_ = 0;
+        return GroupViewMove::never;
+    case settings::GroupKeysCentre::every_press:
+        group_key_last_ = 0;
+        // A press centres only when the group is already exactly the
+        // selection, however long after the last press.
+        return GroupViewMove::when_selected;
+    case settings::GroupKeysCentre::double_press:
+        break;
+    }
+    // The double-press time is the one the key bindings use, Settings ›
+    // Accessibility's Double press. Zero there means the system's, which the
+    // bindings keep as 500 ms.
+    uint32_t within_ms = key_bindings_state_ != nullptr
+                             ? key_bindings_state_->dispatcher.timings().double_press_ms
+                             : keys::Timings{}.double_press_ms;
+    if (within_ms == 0)
+        within_ms = 500;
+    const bool second = group_key_last_ == squad && now_ms >= group_key_last_ms_ &&
+                        now_ms - group_key_last_ms_ <= within_ms;
+    // A third press starts again: it selects and leaves the view.
+    group_key_last_ = second ? 0 : squad;
+    group_key_last_ms_ = now_ms;
+    return second ? GroupViewMove::always : GroupViewMove::never;
 }
 
 std::span<const keys::ActionEvent> Runtime::match_action_events() const {
@@ -3106,6 +3180,7 @@ bool summary_from_manifest(const oakeys::Manifest& manifest, editor::LayoutSumma
     summary.name = manifest.name;
     summary.author = manifest.author.name;
     summary.version = oa::formats::oamut::version_text(manifest.version);
+    summary.description = manifest.description;
     summary.helpers = manifest.helpers;
     summary.layout = std::move(layout);
     return true;
@@ -3120,7 +3195,7 @@ void Runtime::fill_key_editor(editor::EditorInputs& inputs) {
     const KeyBindingsState& state = *key_bindings_state_;
     inputs.base = state.base;
     inputs.keyboard = state.dispatcher.keyboard();
-    inputs.platform = state.platform;
+    inputs.platform = screen_platform(state.platform, oa_layer().screen_fonts());
     inputs.hacks_on = state.hacks;
     inputs.scheme = state.scheme;
     inputs.number_keys_select_groups = engine_settings().switch_alt;
@@ -3154,6 +3229,12 @@ void Runtime::fill_key_editor(editor::EditorInputs& inputs) {
         }
     }
 
+    // A new layout's id keeps off every folder already in Keys, one whose
+    // manifest does not read among them.
+    std::error_code walk_error;
+    for (fs::directory_iterator entry(keys_folder, walk_error), end; !walk_error && entry != end;
+         entry.increment(walk_error))
+        inputs.taken_ids.push_back(path_to_utf8(entry->path().filename()));
     const library::Listing listing = library::list_installed(keys_folder);
     bool chosen_listed = false;
     for (const library::Installed& installed : listing.layouts) {
@@ -3654,7 +3735,7 @@ void Runtime::fill_keys_overlay(oa::ui::key_editor::OverlayInputs& inputs) {
     inputs.resolved = state.dispatcher.bindings();
     inputs.contexts = input_contexts();
     inputs.keyboard = state.dispatcher.keyboard();
-    inputs.platform = state.platform;
+    inputs.platform = screen_platform(state.platform, oa_layer().screen_fonts());
     inputs.layout_name = keys_overlay_layout_name_;
     inputs.changes = keys_overlay_changes_;
     std::vector<KeyLatchChip> chips;
@@ -3678,7 +3759,11 @@ std::string Runtime::active_key_chord(std::string_view id) {
     const keys::Chord* chord = first_key_chord(*found);
     if (chord == nullptr)
         return {};
-    return keys::display_text(*chord, state.dispatcher.keyboard(), state.platform);
+    return keys::display_text(
+        *chord,
+        state.dispatcher.keyboard(),
+        game_text_platform(state.platform, oa_layer().screen_fonts(), game_text_settings())
+    );
 }
 
 std::optional<char> Runtime::order_quick_letter(std::string_view action, std::string_view caption) {
@@ -3738,12 +3823,14 @@ std::string Runtime::rotate_wheel_text() {
     if (wheels.empty())
         return {};
     const keys::KeyboardMap& keyboard = state.dispatcher.keyboard();
+    const keys::Platform shown =
+        game_text_platform(state.platform, oa_layer().screen_fonts(), game_text_settings());
     const bool pair = wheels.size() == 2 && wheels[0].modifiers == wheels[1].modifiers &&
                       wheels[0].wheel != wheels[1].wheel;
     if (!pair)
-        return keys::display_text(wheels[0], keyboard, state.platform);
+        return keys::display_text(wheels[0], keyboard, shown);
     // The two turns: their modifiers' keycaps and the word for the wheel.
-    const std::vector<keys::KeyCap> caps = keys::keycaps(wheels[0], keyboard, state.platform);
+    const std::vector<keys::KeyCap> caps = keys::keycaps(wheels[0], keyboard, shown);
     std::string text;
     for (std::size_t index = 0; index + 1 < caps.size(); ++index) {
         text += caps[index].text;
@@ -3762,7 +3849,13 @@ std::string Runtime::rotate_hint_line() {
             contexts.active |= found->contexts;
             const keys::Chord* chord = first_key_chord(*found);
             if (chord != nullptr && action_live(*found, contexts))
-                key = keys::display_text(*chord, state.dispatcher.keyboard(), state.platform);
+                key = keys::display_text(
+                    *chord,
+                    state.dispatcher.keyboard(),
+                    game_text_platform(
+                        state.platform, oa_layer().screen_fonts(), game_text_settings()
+                    )
+                );
         }
     }
     const std::string wheel = rotate_wheel_text();

@@ -22,6 +22,8 @@ server in [tools/mcp](../tools/mcp/README.md) ([below](#through-mcp)).
 - [Requests](#requests)
 - [OA's own screens](#oas-own-screens)
 - [Input](#input)
+- [Pressing a bound key](#pressing-a-bound-key)
+- [Opening the key screens](#opening-the-key-screens)
 - [Events](#events)
 - [What it never does](#what-it-never-does)
 - [A map list's names](#a-map-lists-names)
@@ -370,15 +372,18 @@ module's ([src/ui/key-editor](../src/ui/key-editor/README.md)):
 
 ### Arrange Overlays
 
-The in-game menu's Overlays button opens Arrange Overlays (`dialog`
-`oa.arrange-overlays`), a modal screen over the battlefield that moves the
-keys overlay, the chat line and the latch chips:
+Settings › Accessibility's **Move overlays** (`oa.settings.move-overlays.on`,
+`.off`) turns the overlays' places on; **Overlay places**' ARRANGE…
+(`oa.settings.arrange-overlays.arrange`, enabled while Move overlays is on)
+opens Arrange Overlays (`dialog` `oa.arrange-overlays`), a modal screen as
+large as the window that pictures the match and places the keys overlay,
+the chat line and the latch chips. In a match the in-game menu's OA
+Settings button (`oa.button`, its text "OA Settings") opens Settings.
 
 | Control | Name | Kind, and what it reports |
 |---|---|---|
-| Overlays, under Resume in the in-game menu | `oa.arrange-button` | button; no dialog; its text "Overlays" |
-| A handle | `oa.arrange-overlays.keys-overlay`, `.chat-line`, `.latch-chips` | button, its text the handle's words ("Keys Overlay", "Chat Line", "Latch Chips"), its rectangle where that overlay shows. A drag moves it on the 8-point grid; a double-click puts it back |
-| Reset, Done | `oa.arrange-overlays.reset`, `oa.arrange-overlays.done` | button. Reset puts every overlay back where it lays itself out; Done goes back to the in-game menu |
+| A handle | `oa.arrange-overlays.keys-overlay`, `.chat-line`, `.latch-chips` | button, its text the handle's words ("Keys Overlay", "Chat Line", "Latch Chips"), its rectangle where that overlay's sample shows. A drag moves it on the 8-point grid; a double-click puts it back |
+| Reset, Cancel, Done | `oa.arrange-overlays.reset`, `oa.arrange-overlays.cancel`, `oa.arrange-overlays.done` | button. Reset puts every overlay back where it lays itself out; Cancel puts the places back as they were when the screen opened; Done keeps them. Cancel and Done go back to Settings |
 
 ### The key editor
 
@@ -455,6 +460,75 @@ scancode and key code, `text`, `pointer_move`, `button_down` and
   Ctrl, a held button) until an event lets them go or the client leaves.
   The desktop's pointer is never moved.
 - Text is typed only into a field that takes it, as SDL types it.
+
+### Pressing a bound key
+
+A script does not name an action. It sends the same device events a
+keyboard, a mouse or a touch screen would, and the layout in use decides
+which action that chord starts. Moving Stop off S means a script that
+still sends S no longer stops: it sends the key the player bound.
+
+`key_down` and `key_up` carry `scancode`, a whole number from 1 to 511,
+the physical key. `keycode` is optional, a whole number from 0 to
+4294967295, the character the key types, and 0 when it types none or when
+the field is left out. `key` may name the key; the game does not require
+it. A missing `scancode`, a scancode of 0 or 512 or more, or a keycode
+below 0, is refused.
+
+A chord is the modifiers' `key_down`, then the key's, then `key_up` in
+the reverse order. The events stay held, as a real key would, until
+`key_up` or the client leaves. `text` types into a field that takes it.
+It does not press a command. `button_down`, `button_up` and `wheel` are
+the mouse chords in the same layout (`MouseLeft`, `WheelUp` and the
+rest).
+
+```json
+{"events":[
+  {"kind":"key_down","scancode":4,"keycode":97},
+  {"kind":"key_up","scancode":4,"keycode":97}
+]}
+```
+
+Scancode 4 is the physical A key, and keycode 97 is the letter a. With
+the default layout that press is Attack (`order.attack`) while playing,
+because Attack is bound to A. A field that is taking text gets the letter
+instead, as it would from the keyboard.
+
+### Opening the key screens
+
+The key editor, the keys panel and Settings › Controls and ›
+Accessibility are ordinary controls. `controls` lists them, and a click
+through `input` presses the name. There is no separate request for them.
+
+| Screen | How a script opens it |
+| --- | --- |
+| The key editor | click `oa.settings.key-layout.edit` (Edit keys… on Controls), or `oa.keys-overlay.edit` (EDIT KEYS… on the keys panel). The list opens on Common commands. A draft that already has a clash, or a chord taken from another command, opens on Clashes instead |
+| The key editor, on Latchable | click `oa.settings.latching.choose` (CHOOSE… beside Hold keys that latch) |
+| Settings › Controls | click `oa.settings.nav.controls` |
+| Settings › Accessibility | click `oa.settings.nav.accessibility` |
+| The keys panel | it is `dialog` `oa.keys-overlay`, opened by the **Keys overlay** chord (Primary+/ by default) sent as `input`, or left as the player opened it |
+
+The editor's controls are `oa.key-editor.` and the name in its module.
+The ones a script uses most are already listed under
+[The key editor](#the-key-editor): `oa.key-editor.search`,
+`oa.key-editor.find`, `oa.key-editor.row.<id>`,
+`oa.key-editor.detail.add`, `oa.key-editor.capture` and
+`oa.key-editor.capture.ok`, `oa.key-editor.clash.confirm`,
+`oa.key-editor.save`, and the tabs `oa.key-editor.view.list`,
+`.keyboard` and `.mouse`. A press on `oa.key-editor.keyboard.<code word>`
+only inspects that key.
+
+The keys panel's controls are `oa.keys-overlay.list`,
+`oa.keys-overlay.edit`, `oa.keys-overlay.close` and, while it scrolls,
+`oa.keys-overlay.bar`.
+
+Settings' key rows follow the same `oa.settings.<row>` rule as the other
+rows: `oa.settings.key-layout.edit`, `oa.settings.key-layout.change`,
+`oa.settings.key-layout-for-mod` (and `.same` or `.<id>` while open),
+`oa.settings.show-keys-on-buttons` with `.off` and `.on`,
+`oa.settings.sticky-modifiers`, `oa.settings.hold-to-confirm`,
+`oa.settings.order-wheel`, `oa.settings.pointer-keys`,
+`oa.settings.edge-scroll` and `oa.settings.move-overlays`.
 
 ## Events
 
@@ -592,10 +666,11 @@ it all.
 The engine's tests of the endpoint are `automation-protocol`,
 `automation-options`, `automation-input`, `automation-reports` and the
 native checks `native-automation-menus`, `native-automation-input`,
-`native-automation-frame`, `native-automation-settings` and
-`native-automation-digest`, which run the game with `--fark` on the dummy
-drivers over an installed game. `mcp-server-selftest` and
-`native-mcp-server` check the MCP server ([below](#through-mcp)).
+`native-automation-frame`, `native-automation-settings`,
+`native-automation-hit-areas` and `native-automation-digest`, which run
+the game with `--fark` on the dummy drivers over an installed game.
+`mcp-server-selftest` and `native-mcp-server` check the MCP server
+([below](#through-mcp)).
 [testing.md](development/testing.md#the-automation-endpoint) says how to run them,
 and [src/app/automation](../src/app/automation/README.md#tests) what each
 checks.

@@ -6604,6 +6604,10 @@ void opening_a_tab_focuses_its_search() {
         static_cast<void>(lib::library_key(library, state, list, kit::Key::space));
         OA_CHECK(library.tab == lib::Tab::mods && state.interaction.focused == mods_tab->id);
     }
+    // Registries has no search: opened by a click, it shows no focus.
+    list = laid_out(library, state, large);
+    static_cast<void>(click(library, state, list, "library.tab.registries"));
+    OA_CHECK(library.tab == lib::Tab::registries && !state.interaction.focus_shown);
     // A host opening the Library does the same.
     lib::ScreenState opened;
     lib::set_tab(library, lib::Tab::registries);
