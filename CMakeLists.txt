@@ -4488,6 +4488,15 @@ endforeach()
           set_tests_properties(native-navigation-${oa_navigation_group} PROPERTIES
             TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         endforeach()
+        # The four effects at 100% through the standard tier's composition,
+        # which a named preferences file otherwise reads as 0%.
+        add_test(NAME native-navigation-zoom-effects COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_navigation.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks"
+          --group zoom --effects 100)
+        set_tests_properties(native-navigation-zoom-effects PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # A large battlefield eased out and back three times with the model
         # picture limited to 8 MiB, then back at the main menu. The budget is
         # the test's own; a replaced environment has to name the dummy drivers too.
