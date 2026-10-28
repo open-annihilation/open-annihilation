@@ -3198,6 +3198,12 @@ void Runtime::fill_key_editor(editor::EditorInputs& inputs) {
         }
     }
 
+    // A new layout's id keeps off every folder already in Keys, one whose
+    // manifest does not read among them.
+    std::error_code walk_error;
+    for (fs::directory_iterator entry(keys_folder, walk_error), end; !walk_error && entry != end;
+         entry.increment(walk_error))
+        inputs.taken_ids.push_back(path_to_utf8(entry->path().filename()));
     const library::Listing listing = library::list_installed(keys_folder);
     bool chosen_listed = false;
     for (const library::Installed& installed : listing.layouts) {

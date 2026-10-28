@@ -529,6 +529,14 @@ void clone_and_describe() {
         has_row(model.rows("all", editor::Filter::changed, ""), "select.all"),
         "Undo did not put the draft back"
     );
+
+    // A folder already in Keys, one that does not read among them, keeps its
+    // id: the clone takes the next.
+    editor::EditorInputs crowded = editor_fixture();
+    crowded.taken_ids = {"Ridge-Copy", "ridge-copy-2"};
+    editor::Editor beside(std::move(crowded));
+    expect(beside.clone("Ridge copy", ""), "clone did not make Ridge copy beside the folders");
+    expect(beside.layout_id() == "ridge-copy-3", "the clone took a folder's id");
 }
 
 /// The rows the editor lists stay the same after a change and its Undo, so
