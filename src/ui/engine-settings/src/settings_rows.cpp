@@ -99,8 +99,8 @@ constexpr std::array<Setting, 6> kEngineLimitsRows{
 /// Vertical sync, the fog's edges under the explosions' flash, then how
 /// units look zoomed out, and the zoom they look so from right under the
 /// way. The camera's rotation, then the lighting, glow, heat and water
-/// effects follow.
-constexpr std::array<Setting, 21> kGraphicsRows{
+/// effects follow, and last the units' shadows.
+constexpr std::array<Setting, 22> kGraphicsRows{
     Setting::max_frame_rate,     Setting::anti_aliasing,
     Setting::screen_size,        Setting::hardware_acceleration,
     Setting::vertical_sync,      Setting::smooth_motion,
@@ -111,7 +111,7 @@ constexpr std::array<Setting, 21> kGraphicsRows{
     Setting::nanolathe_lighting, Setting::wreck_glow,
     Setting::heat_distortion,    Setting::water_ripples,
     Setting::coastal_waves,      Setting::underwater_shimmer,
-    Setting::naval_reflections,
+    Setting::naval_reflections,  Setting::new_unit_shadows,
 };
 /// User Interface's rows: how the menus scale, the window's frame, the
 /// HUD's scaling, the size Open Annihilation's own screens are drawn at and
@@ -1699,6 +1699,15 @@ std::string fog_of_war_hint(const SettingsModel& model, std::size_t line) {
     return {};
 }
 
+/// Returns a line of New unit shadows' hint, by the switch.
+std::string new_unit_shadows_hint(const SettingsModel& model, std::size_t line) {
+    // Which shadows units cast where the graphics card draws the
+    // battlefield; the processor always casts the game's own.
+    if (model.settings->new_unit_shadows)
+        return line_of({"Softer aircraft shadows, laid under every unit and tree (Full)."}, line);
+    return line_of({"Units cast the original game's shadows, as trees and rocks do."}, line);
+}
+
 /// Returns a line of Zoomed out units' hint, by the way chosen.
 std::string zoomed_out_units_hint(const SettingsModel& model, std::size_t line) {
     // What the way chosen draws past After zoom, and what it costs.
@@ -2945,6 +2954,9 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
                                   fog_of_war_level_width),
                       &fog_of_war_hint, &lines<1>),
      .copy = &copy_field<&E::fog_of_war>},
+    {.setting = S::new_unit_shadows,
+     .spec = changing(engine_switch<&E::new_unit_shadows>("new-unit-shadows", "New unit shadows", {}),
+                      &new_unit_shadows_hint, &lines<1>)},
     {.setting = S::mod_limits_heading, .spec = mod_limits_heading_row()},
     {.setting = S::weapon_types, .spec = weapon_types_row()},
     {.setting = S::sides, .spec = sides_row()},
@@ -3160,6 +3172,7 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "unlocked-camera",
     "first-run",
     "fog-of-war",
+    "new-unit-shadows",
     "set-by-the-mod",
     "weapon-types",
     "sides",
