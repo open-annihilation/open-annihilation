@@ -1089,7 +1089,9 @@ void add_list(
                 std::string value = row->name;
                 for (const keys::Chord& chord : row->chords) {
                     value.push_back(' ');
-                    value += keys::display_text(chord, editor.keyboard(), editor.platform());
+                    value += keys::display_text(
+                        chord, editor.keyboard(), keys::words_only(editor.platform())
+                    );
                 }
                 built.rest.back().text = std::move(value);
                 built.rest.back().checked = state.selected == row->id;
@@ -1420,10 +1422,27 @@ std::vector<Piece> detail_pieces(
             break;
         }
     }
-    const int32_t chord_h = control_h + metrics.space * 2;
+    const int32_t one_row_h = control_h + metrics.space * 2;
     for (std::size_t index = 0; index < action.chords.size(); ++index) {
         const ChordDetail& chord = action.chords[index];
         const kit::KeyMark mark = chord.fixed ? kit::KeyMark::fixed : row_mark;
+        const int32_t remove_side = std::min(control_h, metrics.button_height + 4);
+        const kit::ChordChipLook chip_look = chip_of(editor, chord.chord, mark);
+        const int32_t chip_natural = kit::chord_chip_width(fonts, chip_look);
+        // A chord too wide for the room beside its buttons takes a row of
+        // its own over them, whole.
+        int32_t buttons_w = 0;
+        if (chord.removable)
+            buttons_w += remove_side + metrics.space;
+        if (!chord.fixed && !action.read_only)
+            buttons_w +=
+                std::min(
+                    button_width(fonts, metrics, show(editor.text(), words::change_button)),
+                    (width - metrics.space) / 2
+                ) +
+                metrics.space;
+        const bool apart = chip_natural + metrics.space * 2 + buttons_w > width;
+        const int32_t chord_h = apart ? one_row_h + control_h + metrics.space : one_row_h;
         Piece well;
         well.kind = Piece::Kind::well;
         well.y = y;
@@ -1431,9 +1450,9 @@ std::vector<Piece> detail_pieces(
         well.width = width;
         well.ink = kit::colour::list;
         pieces.push_back(well);
-        const int32_t row = y + metrics.space;
+        const int32_t chip_row = y + metrics.space;
+        const int32_t row = apart ? chip_row + control_h + metrics.space : chip_row;
         int32_t right = width - metrics.space;
-        const int32_t remove_side = std::min(control_h, metrics.button_height + 4);
         // The remove mark sits at the right, but Tab reaches it after
         // Change…, as the two are read.
         std::optional<Piece> remove;
@@ -1470,8 +1489,9 @@ std::vector<Piece> detail_pieces(
                     true
                 );
                 // Its text for automation is the chord it changes.
-                pieces.back().said =
-                    keys::display_text(chord.chord, editor.keyboard(), editor.platform());
+                pieces.back().said = keys::display_text(
+                    chord.chord, editor.keyboard(), keys::words_only(editor.platform())
+                );
                 right -= change_w + metrics.space;
             }
         }
@@ -1480,13 +1500,12 @@ std::vector<Piece> detail_pieces(
         Piece chip;
         chip.kind = Piece::Kind::chip;
         chip.x = metrics.space;
-        chip.y = row + (control_h - std::min(control_h, int32_t{24})) / 2;
+        chip.y = chip_row + (control_h - std::min(control_h, int32_t{24})) / 2;
         chip.height = std::min(control_h, int32_t{24});
-        chip.chip = chip_of(editor, chord.chord, mark);
-        chip.width = std::min(
-            kit::chord_chip_width(fonts, chip.chip), std::max(right - metrics.space, int32_t{0})
-        );
-        const int32_t kind_x = chip.x + chip.width + metrics.space * 2;
+        chip.chip = chip_look;
+        const int32_t chip_room = apart ? width - metrics.space * 2 : right - metrics.space;
+        chip.width = std::min(chip_natural, std::max(chip_room, int32_t{0}));
+        const int32_t kind_x = apart ? metrics.space : chip.x + chip.width + metrics.space * 2;
         pieces.push_back(std::move(chip));
         if (!action.kind.empty() && right - kind_x > 24) {
             Piece kind;
@@ -2255,16 +2274,20 @@ struct ImportSource {
 /// @param note the reader's sentence; empty when the key is not a sided modifier
 /// @return the sentence, or empty
 std::string hands_sentence(const Editor& editor, std::string_view note) {
-    std::string_view modifier;
+    uint8_t modifier = 0;
     if (note.find("Shift") != std::string_view::npos)
-        modifier = "Shift";
+        modifier = keys::Modifier::shift;
     else if (note.find("Ctrl") != std::string_view::npos)
-        modifier = "Ctrl";
+        modifier = keys::Modifier::ctrl;
     else if (note.find("Alt") != std::string_view::npos)
-        modifier = "Alt";
-    if (modifier.empty())
+        modifier = keys::Modifier::alt;
+    if (modifier == 0)
         return std::string(note);
-    return fill(show(editor.text(), words::hands_are_one), {{"modifier", std::string(modifier)}});
+    // The modifier as the keyboard names it: Option on a Mac.
+    return fill(
+        show(editor.text(), words::hands_are_one),
+        {{"modifier", keys::modifier_name(modifier, editor.platform())}}
+    );
 }
 
 /// Lays SHARE…, PASTE… or IMPORT… as a Kit 2 question over the editor, as the
@@ -4319,22 +4342,20 @@ int32_t add_view_tabs(
     return width;
 }
 
-/// The word of one modifier layer.
+/// The word of one modifier layer, as the platform's keyboard names the
+/// modifier: on a Mac Ctrl, Option, Shift and Cmd, led by their symbols in
+/// the modern look.
 ///
-/// @param editor the words
+/// @param editor the words and the platform
 /// @param layer the layer's bit; 0 is Nothing
+/// @param words_alone the name without its symbol, as automation reads it
 /// @return the word
-std::string layer_name(const Editor& editor, uint8_t layer) {
-    std::string_view word = words::holding_nothing;
-    if (layer == keys::Modifier::shift)
-        word = words::layer_shift;
-    else if (layer == keys::Modifier::ctrl)
-        word = words::layer_ctrl;
-    else if (layer == keys::Modifier::alt)
-        word = words::layer_alt;
-    else if (layer == keys::Modifier::meta)
-        word = words::layer_cmd;
-    return show(editor.text(), word);
+std::string layer_name(const Editor& editor, uint8_t layer, bool words_alone = false) {
+    if (layer == 0)
+        return show(editor.text(), words::holding_nothing);
+    const keys::Platform platform =
+        words_alone ? keys::words_only(editor.platform()) : editor.platform();
+    return keys::modifier_name(layer, platform);
 }
 
 /// The keyboard shape's name: ANSI, ISO or JIS.
@@ -4496,6 +4517,9 @@ int32_t add_layer_bar(
             break;
         const std::size_t before = built.list.controls.size();
         kit::add_pill(built.list, rect, looks[index], ids[index], std::string(names[index]));
+        // Automation reads a modifier by its name, never its symbol.
+        if (built.list.controls.size() > before)
+            built.list.controls.back().text = layer_name(editor, bits[index], true);
         steal(built.list, built.rest, before);
         x += widths[index] + metrics.chip_gap;
     }

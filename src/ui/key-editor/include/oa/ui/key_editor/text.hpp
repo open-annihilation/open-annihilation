@@ -258,13 +258,10 @@ inline constexpr std::string_view does_two = "{chord} does two things";
 inline constexpr std::string_view view_list = "Commands";
 inline constexpr std::string_view view_keyboard = "Keyboard";
 inline constexpr std::string_view view_mouse = "Mouse";
-/// The layer strip. Nothing is the catalogue's word.
+/// The layer strip; the modifiers are named as keycaps name them. Nothing is the
+/// catalogue's word.
 inline constexpr std::string_view holding = "Holding";
 inline constexpr std::string_view holding_nothing = "Nothing";
-inline constexpr std::string_view layer_shift = "Shift";
-inline constexpr std::string_view layer_ctrl = "Ctrl";
-inline constexpr std::string_view layer_alt = "Alt";
-inline constexpr std::string_view layer_cmd = "Cmd";
 /// The shape drop-down. `{shape}` is ANSI, ISO or JIS.
 inline constexpr std::string_view shape_from_system = "{shape} · from your system";
 inline constexpr std::string_view shape_system = "From your system";
