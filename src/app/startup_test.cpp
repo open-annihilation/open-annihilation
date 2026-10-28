@@ -1433,17 +1433,23 @@ int main() {
         "--force-capable goes with --check-build-preview"
     );
     expect(
+        parse({"--check-dialog-backdrop", "--force-capable"}).force_capable,
+        "--force-capable goes with --check-dialog-backdrop"
+    );
+    expect(
         parse({"--check-underwater-features", "--force-capable"}).force_capable,
         "--force-capable goes with --check-underwater-features"
     );
     expect(
         rejection({"--force-capable"}) ==
                 "--force-capable is accepted only with --check-render-tiers, "
-                "--check-build-preview, --check-engine-settings, --check-kill-board and "
+                "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
+                "--check-kill-board and "
                 "--check-underwater-features" &&
             rejection({"--force-capable", "--check-navigation"}) ==
                 "--force-capable is accepted only with --check-render-tiers, "
-                "--check-build-preview, --check-engine-settings, --check-kill-board and "
+                "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
+                "--check-kill-board and "
                 "--check-underwater-features",
         "--force-capable is refused without a check that takes it"
     );
@@ -2199,14 +2205,16 @@ int main() {
     expect(
         rejection({"--force-capable"}) ==
             "--force-capable is accepted only with --check-render-tiers, "
-            "--check-build-preview, --check-engine-settings, --check-kill-board and "
+            "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
+            "--check-kill-board and "
             "--check-underwater-features",
         "--force-capable alone is refused"
     );
     expect(
         rejection({"--check-match-layers", "--force-capable"}) ==
             "--force-capable is accepted only with --check-render-tiers, "
-            "--check-build-preview, --check-engine-settings, --check-kill-board and "
+            "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
+            "--check-kill-board and "
             "--check-underwater-features",
         "--force-capable with another check is refused"
     );
