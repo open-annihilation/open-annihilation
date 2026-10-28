@@ -404,8 +404,10 @@ bool Runtime::render_live_match_surface() {
         inputs.sight.player_bits = sight.player_bits;
         inputs.sight.width = sight.width;
         inputs.sight.height = sight.height;
-        inputs.sight.mapped_bits =
-            static_cast<uint16_t>((1U << (sight.viewpoint_player & 0x1fU)) | allied_mapped_bits());
+        inputs.sight.shared_bits = allied_mapped_bits();
+        inputs.sight.mapped_bits = static_cast<uint16_t>(
+            (1U << (sight.viewpoint_player & 0x1fU)) | inputs.sight.shared_bits
+        );
         inputs.sight.mapping = match_mapping_on();
         inputs.sight.line_of_sight = match_line_of_sight_on();
         inputs.sight.dithered =

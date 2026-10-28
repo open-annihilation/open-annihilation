@@ -252,44 +252,18 @@ bool Runtime::feature_hidden_by_fog(uint16_t feature_index, int32_t cell_x, int3
     }
     const auto& footprint = feature_fog_rules_.footprints[feature_index];
     try {
-        if (match_->cell_or_footprint_corner_shown(
-                static_cast<uint8_t>(match_view_player()),
-                static_cast<int16_t>(cell_x),
-                static_cast<int16_t>(cell_z),
-                footprint[0],
-                footprint[1],
-                plot_height
-            ))
-            return false;
-        // Without the line-of-sight rule a feature shows on mapped ground,
-        // and under allied vision the view is shown the ground its allies
-        // mapped too (allied_mapped_bits): a feature at the cell or its
-        // footprint's far corner on such ground shows, as that ground does.
-        const auto allies = allied_mapped_bits();
-        if (allies == 0 || (match_->state().game.visibility_flags &
-                            oa::sim::visibility_state::update_sight_grid) != 0)
-            return true;
-        // The sight cell under a point of the feature's plot: a cell is 32
-        // world units, and a point is raised by half its height, as the
-        // shown test reads it.
-        constexpr int32_t units_per_cell = 16;
-        constexpr int32_t sight_cell_shift = 5;
-        const auto& grid = match_->sight();
-        const auto mapped_by_allies = [&](int32_t x, int32_t z) {
-            const auto column = static_cast<int16_t>(x * units_per_cell) >> sight_cell_shift;
-            const auto row =
-                (static_cast<int16_t>(z * units_per_cell) - (plot_height >> 1)) >> sight_cell_shift;
-            if (column < 0 || row < 0 || column >= grid.width || row >= grid.height)
-                return false;
-            const auto index =
-                static_cast<std::size_t>(row) * static_cast<std::size_t>(grid.width) +
-                static_cast<std::size_t>(column);
-            return index < grid.player_bits.size() && (grid.player_bits[index] & allies) != 0;
-        };
-        if (mapped_by_allies(cell_x, cell_z) ||
-            mapped_by_allies(cell_x + footprint[0], cell_z + footprint[1]))
-            return false;
-        return true;
+        // Ground an ally explored that the view player cannot see is drawn
+        // out of sight under every rule (allied_mapped_bits), so a feature
+        // hidden out of sight is hidden there too, by the view player's own
+        // sight as before.
+        return !match_->cell_or_footprint_corner_shown(
+            static_cast<uint8_t>(match_view_player()),
+            static_cast<int16_t>(cell_x),
+            static_cast<int16_t>(cell_z),
+            footprint[0],
+            footprint[1],
+            plot_height
+        );
     } catch (const std::exception&) {
         return true;
     }

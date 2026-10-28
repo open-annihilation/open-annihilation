@@ -173,6 +173,10 @@ struct SightView {
     /// and under allied vision those of the players who ally it
     /// (Runtime::allied_mapped_bits).
     uint16_t mapped_bits{};
+    /// The bits of mapped_bits that are other players': under permanent line
+    /// of sight the ground only they mapped is drawn out of sight
+    /// (cell_shown_in_sight in world_fog.hpp); 0 without allied vision.
+    uint16_t shared_bits{};
     bool line_of_sight{}; ///< the line-of-sight rule is on
     bool mapping{true};   ///< the mapping rule is on
     /// The dithered option: the fog dithers the cells out of sight instead

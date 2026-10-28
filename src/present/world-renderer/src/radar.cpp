@@ -262,11 +262,13 @@ void radar_read_sight(
     const auto cells = static_cast<std::size_t>(std::max(grid_width, 0)) *
                        static_cast<std::size_t>(std::max(grid_height, 0));
     sight_bits.assign(cells, options.mapping ? uint16_t{0} : explored_bit);
-    covered.assign(cells, options.line_of_sight ? uint8_t{0} : uint8_t{1});
+    const bool greys = view_greys(options);
+    covered.assign(cells, greys ? uint8_t{0} : uint8_t{1});
     if ((!options.mapping && !options.line_of_sight) || sight.width <= 0 || sight.height <= 0)
         return;
     // The viewer's mapped bit, and those of the players whose ground it is shown.
-    const auto viewer_bit = static_cast<uint16_t>((1U << (viewer & 0x1fU)) | options.shared_mapped);
+    const auto own_bit = static_cast<uint16_t>(1U << (viewer & 0x1fU));
+    const auto viewer_bit = static_cast<uint16_t>(own_bit | options.shared_mapped);
     for (int32_t row = 0; row < grid_height; ++row) {
         const auto sight_row =
             static_cast<std::size_t>(static_cast<int64_t>(row) * sight.height / grid_height);
@@ -279,9 +281,12 @@ void radar_read_sight(
             if (options.mapping && index < sight.player_bits.size() &&
                 (sight.player_bits[index] & viewer_bit) != 0)
                 sight_bits[cell] = explored_bit;
-            if (options.line_of_sight && index < coverage.size() &&
-                sim::visibility_state::count_in_sight(
-                    coverage[index], sim::visibility_state::SightReading::player
+            if (greys &&
+                cell_shown_in_sight(
+                    index < coverage.size() ? coverage[index] : uint16_t{0},
+                    index < sight.player_bits.size() ? sight.player_bits[index] : uint16_t{0},
+                    own_bit,
+                    options
                 ))
                 covered[cell] = 1;
         }

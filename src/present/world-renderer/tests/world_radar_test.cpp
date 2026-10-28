@@ -860,13 +860,26 @@ void allied_exploration_agrees() {
                     const uint16_t allies = wr::allied_mapped_players(*game, sight_viewer);
                     OA_CHECK(allies == ally_bit);
                     const Views shared = draw_views(allies);
-                    const auto explored_out_of_sight =
-                        line_of_sight ? CellShown::gray : CellShown::clear;
+                    // Under permanent line of sight, ground only the ally
+                    // explored is gray, as ground out of sight is under the
+                    // other rules, and the viewer's own stays clear.
+                    const bool greys = line_of_sight || mapping;
+                    const auto explored_out_of_sight = greys ? CellShown::gray : CellShown::clear;
                     OA_CHECK(shown_on_both(shared, ally_only, explored_out_of_sight));
                     OA_CHECK(shown_on_both(shared, cell(12, 1), explored_out_of_sight));
-                    OA_CHECK(shown_on_both(shared, ally_sees, CellShown::clear));
+                    OA_CHECK(shown_on_both(
+                        shared,
+                        ally_sees,
+                        line_of_sight || !mapping ? CellShown::clear : CellShown::gray
+                    ));
                     OA_CHECK(shown_on_both(shared, lifted, CellShown::clear));
                     OA_CHECK(shown_on_both(shared, own, CellShown::clear));
+                    // Without the line-of-sight rule, the viewer's own
+                    // explored ground stays clear everywhere, as in 3.1c.
+                    if (!line_of_sight && mapping)
+                        for (std::size_t index = 0; index < cell_count; ++index)
+                            if ((sight.player_bits[index] & viewer_bit) != 0)
+                                OA_CHECK(shown_on_both(shared, index, CellShown::clear));
                     // Ground no one has mapped stays black, and nothing the
                     // views show explored is ground neither player mapped.
                     for (std::size_t index = 0; index < cell_count; ++index) {

@@ -134,9 +134,9 @@ void radar_free_surfaces(RadarSurfaces& surfaces, const RadarSurfaceHost& host) 
 /// The radar's cells are the sight grid's, scaled to `grid_width` by
 /// `grid_height`. A cell is explored where the viewer's mapped bit is set,
 /// or the mapped bit of a player options.shared_mapped names,
-/// and every cell is without mapping; it is in sight where the viewer's count
-/// of the stamps seeing it is not zero, read as the player is shown it, and
-/// every cell is without line of sight. A sight grid with no cells leaves
+/// and every cell is without mapping; it is in sight where
+/// cell_shown_in_sight says so, and every cell is where the views grey
+/// nothing (view_greys). A sight grid with no cells leaves
 /// every cell unexplored and out of sight under those rules.
 ///
 /// Under allied vision (intel.allied-los-sharing) an ally's units add to the
