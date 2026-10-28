@@ -614,10 +614,14 @@ inline constexpr std::string_view phase_failed = "failed";
 inline constexpr std::string_view phase_installed = "installed";
 
 // The screens (screen.hpp): the header.
-/// The title at Compact.
+/// The Library's name, as the main menu's Library button shows it.
 inline constexpr std::string_view title_library = "Library";
-/// The title's first words at Regular and Large; title_library follows them.
-inline constexpr std::string_view title_open_annihilation = "Open Annihilation";
+/// The header's title at Compact, and its second word at Regular and Large,
+/// in capitals as Settings' header has its own.
+inline constexpr std::string_view title_library_header = "LIBRARY";
+/// The header's first words at Regular and Large; title_library_header
+/// follows them.
+inline constexpr std::string_view title_open_annihilation = "OPEN ANNIHILATION";
 /// Beside the header's refresh icon when the last refresh could not reach a registry.
 inline constexpr std::string_view offline_mark = "offline";
 

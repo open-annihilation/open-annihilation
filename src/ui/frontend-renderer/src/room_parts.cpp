@@ -55,6 +55,9 @@ constexpr Rgb lamp_green_foot{31, 159, 31};
 constexpr Rgb lamp_red_top{255, 171, 156};
 constexpr Rgb lamp_red_foot{179, 38, 26};
 constexpr Rgb notch_ink{239, 231, 168};
+// How far, on average over a lamp's pixels, one lamp's glow must stand
+// above the other's for room_lamp_seen to read it as lit.
+constexpr int32_t lamp_seen_margin = 24;
 /// How bright a notch triangle's slanted sides are, in percent of its face.
 constexpr int32_t notch_shade_percent = 45;
 
@@ -811,6 +814,46 @@ RoomLampParts room_lamp_parts(const RoomArt& art, SourceRect rect) {
     return parts;
 }
 
+RoomLamp room_lamp_shown(RoomLamp lamp, uint64_t milliseconds) noexcept {
+    if (lamp != RoomLamp::red_blinking)
+        return lamp;
+    return (milliseconds / room_lamp_blink_ms) % 2 == 0 ? RoomLamp::red : RoomLamp::unlit;
+}
+
+RoomLamp room_lamp_seen(std::span<const uint8_t> rgb, int32_t width, SourceRect lamp) noexcept {
+    if (width <= 0 || lamp.width < 2 || lamp.height <= 0 || lamp.x < 0 || lamp.y < 0 ||
+        lamp.x + lamp.width > width)
+        return RoomLamp::unlit;
+    const std::size_t stride = static_cast<std::size_t>(width);
+    if (static_cast<std::size_t>(lamp.y) + static_cast<std::size_t>(lamp.height) >
+        rgb.size() / (stride * 3U))
+        return RoomLamp::unlit;
+    // The red lamp is the left one and the green the right: each half adds
+    // how far its own colour stands above the other two.
+    const int32_t half = lamp.width / 2;
+    int64_t red_glow = 0;
+    int64_t green_glow = 0;
+    for (int32_t row = lamp.y; row < lamp.y + lamp.height; ++row)
+        for (int32_t step = 0; step < half; ++step) {
+            const std::size_t line = static_cast<std::size_t>(row) * stride;
+            const std::size_t left = (line + static_cast<std::size_t>(lamp.x + step)) * 3U;
+            const std::size_t right =
+                (line + static_cast<std::size_t>(lamp.x + lamp.width - 1 - step)) * 3U;
+            red_glow += std::max(
+                0, int32_t{rgb[left]} - std::max(int32_t{rgb[left + 1]}, int32_t{rgb[left + 2]})
+            );
+            green_glow += std::max(
+                0, int32_t{rgb[right + 1]} - std::max(int32_t{rgb[right]}, int32_t{rgb[right + 2]})
+            );
+        }
+    const int64_t margin = int64_t{lamp_seen_margin} * half * lamp.height;
+    if (red_glow > green_glow + margin)
+        return RoomLamp::red;
+    if (green_glow > red_glow + margin)
+        return RoomLamp::green;
+    return RoomLamp::unlit;
+}
+
 void draw_room_switch(
     RoomCanvas& canvas, const RoomArt& art, const RoomButtonLook& look, RoomLamp lamp
 ) {
@@ -842,7 +885,7 @@ void draw_room_switch(
     std::size_t index = switch_unlit_frame;
     if (lamp == RoomLamp::green)
         index = switch_green_frame;
-    else if (lamp == RoomLamp::red)
+    else if (lamp == RoomLamp::red || lamp == RoomLamp::red_blinking)
         index = switch_red_frame;
     formats::gaf::RenderResult drawn;
     const std::optional<FramePixels> pixels = frame_pixels(found->sequence->frames[index], drawn);
@@ -882,7 +925,7 @@ void draw_room_lamp(RoomCanvas& canvas, const RoomArt& art, SourceRect rect, Roo
     if (lamp == RoomLamp::green) {
         top = lamp_green_top;
         foot = lamp_green_foot;
-    } else if (lamp == RoomLamp::red) {
+    } else if (lamp == RoomLamp::red || lamp == RoomLamp::red_blinking) {
         top = lamp_red_top;
         foot = lamp_red_foot;
     }

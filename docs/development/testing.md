@@ -1493,8 +1493,10 @@ off buttons on the skirmish setup, NEWGAME and the battle room: as large
 as its neighbour with the same edges (Previous Menu; on NEWGAME and Any
 Mission at the head of Difficulty's column; Select Map in the battle
 room), reading "Mutators", automation "Mutators · off" and "Mutators · N
-on" with the green lamp, the card the pointer shows on it, and, in the
-battle room, the button disabled while the room's options are locked.
+on", the lamp read from each frame (red with none on, green with some on
+and, in the battle room, blinking red while Visitor lacks one), the card
+the pointer shows on it, and, in the battle room, the button disabled
+while the room's options are locked.
 Among the battle room's steps of
 `native-net-room-mutators` (`tools/check_native_room_mutators.py`), which
 runs a host and a joiner as two programs, the host's button reads
@@ -1502,7 +1504,8 @@ runs a host and a joiner as two programs, the host's button reads
 named by its id, and the room's chat names it by its name.
 `frontend-room-parts` draws the rooms' parts (a plate wider than its art,
 the notch, the OA stamp, a lamp, the bar and a list's rows) against a gray
-palette, and `frontend-room-parts-data` draws each over the skirmish
+palette, steps a blinking lamp through its turns and reads lamps back from
+a picture, and `frontend-room-parts-data` draws each over the skirmish
 setup's background from the installed game's art and, with `--frames DIR`,
 writes `room-parts.png`.
 `native-replay-loadout` starts the game with

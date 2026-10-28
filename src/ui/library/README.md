@@ -538,8 +538,9 @@ app removes the folder (`Runtime::library_uninstall`,
     base game chooser and Use's question keep), the tab strip standing on
     the header's rule and a space between the last part and the footer, a
     tab strip of `Metrics::tab_strip_height`
-    (32/38/44), the search field and the drop-down fields of
-    `text_field_height` (30/36/40), the filter pills of `filter_chip_height`
+    (32/38/44), the search fields (the Active tab's maps search too) and
+    Compact's filter drop-down of `control_height` (28/34/38), as Settings'
+    buttons are, the filter pills of `filter_chip_height`
     (24/26/28, each wider by what it gains in height), buttons of
     `control_height` (28/34/38) in the footer, on the Updates line and over
     the Registries cards, and the footer itself, a rule and a band of
@@ -555,7 +556,7 @@ app removes the folder (`Runtime::library_uninstall`,
     them close no further than a space either side, so each tab reads
     apart, and the strip scrolls to the rest with its arrow.
   - **Compact** shows a list page: the header (the mods icon, the plates
-    over drive bays, "Library", this build's version, and a refresh icon
+    over drive bays, "LIBRARY", this build's version, and a refresh icon
     at the top right; "offline" in the lock colour beside it when the last
     refresh could not reach a registry),
     the tabs with their full names and All counts in brackets ("Active",
@@ -581,7 +582,7 @@ app removes the folder (`Runtime::library_uninstall`,
     the playing note, and in the footer the first three actions, More
     holding the rest, and BACK. BACK returns to the list and keeps its tab,
     filter, search, scroll and row. The list page's button stays CLOSE;
-  - **Regular** shows "Open Annihilation Library" and "v0.8.0", the same
+  - **Regular** shows "OPEN ANNIHILATION LIBRARY" and "v0.8.0", the same
     refresh icon, the tabs with their All counts and a 240-point search
     beside them (on a row of its own under them when the tabs do not all
     fit beside it, so that none hides beside the search; the same at

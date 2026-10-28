@@ -228,6 +228,63 @@ void a_lamp_is_lit_from_its_top() {
     CHECK(at(unlit, 2, 1)[0] < at(canvas, 2, 1)[0]);
 }
 
+void a_blinking_lamp_is_red_then_dark() {
+    using renderer::RoomLamp;
+    constexpr uint64_t turn = renderer::room_lamp_blink_ms;
+    CHECK(turn == 500);
+    CHECK(renderer::room_lamp_shown(RoomLamp::red_blinking, 0) == RoomLamp::red);
+    CHECK(renderer::room_lamp_shown(RoomLamp::red_blinking, turn - 1) == RoomLamp::red);
+    CHECK(renderer::room_lamp_shown(RoomLamp::red_blinking, turn) == RoomLamp::unlit);
+    CHECK(renderer::room_lamp_shown(RoomLamp::red_blinking, 2 * turn - 1) == RoomLamp::unlit);
+    CHECK(renderer::room_lamp_shown(RoomLamp::red_blinking, 2 * turn) == RoomLamp::red);
+    CHECK(renderer::room_lamp_shown(RoomLamp::red_blinking, 7 * turn + 3) == RoomLamp::unlit);
+    // A steady lamp stays as it is.
+    for (const RoomLamp steady : {RoomLamp::red, RoomLamp::green, RoomLamp::unlit})
+        for (const uint64_t time : {uint64_t{0}, turn, 3 * turn + 7})
+            CHECK(renderer::room_lamp_shown(steady, time) == steady);
+    // Drawn alone, a blinking lamp is the red one.
+    renderer::RoomArt art{nullptr, gray_palette()};
+    renderer::RoomCanvas red = renderer::room_canvas({0, 0, 6, 12}, nullptr);
+    renderer::draw_room_lamp(red, art, {0, 0, 6, 12}, RoomLamp::red);
+    renderer::RoomCanvas blinking = renderer::room_canvas({0, 0, 6, 12}, nullptr);
+    renderer::draw_room_lamp(blinking, art, {0, 0, 6, 12}, RoomLamp::red_blinking);
+    CHECK(red.surface.rgb == blinking.surface.rgb);
+}
+
+void a_picture_of_the_lamps_reads_back() {
+    using renderer::RoomLamp;
+    // Two lamps side by side, 8 by 4 pixels, in a 10 by 6 picture: the red
+    // one on the left, the green on the right.
+    const auto picture = [](renderer::Rgb left, renderer::Rgb right) {
+        std::vector<uint8_t> rgb(10U * 6U * 3U, uint8_t{90});
+        for (int32_t y = 1; y < 5; ++y)
+            for (int32_t x = 1; x < 9; ++x) {
+                const renderer::Rgb colour = x < 5 ? left : right;
+                const std::size_t at =
+                    (static_cast<std::size_t>(y) * 10U + static_cast<std::size_t>(x)) * 3U;
+                rgb[at] = colour[0];
+                rgb[at + 1] = colour[1];
+                rgb[at + 2] = colour[2];
+            }
+        return rgb;
+    };
+    const renderer::SourceRect lamps{1, 1, 8, 4};
+    const renderer::Rgb dark_red{90, 30, 30};
+    const renderer::Rgb dark_green{30, 90, 30};
+    CHECK(renderer::room_lamp_seen(picture({240, 40, 30}, dark_green), 10, lamps) == RoomLamp::red);
+    CHECK(renderer::room_lamp_seen(picture(dark_red, {40, 240, 40}), 10, lamps) == RoomLamp::green);
+    CHECK(renderer::room_lamp_seen(picture(dark_red, dark_green), 10, lamps) == RoomLamp::unlit);
+    // Lamps off the picture, or none, read as unlit.
+    CHECK(
+        renderer::room_lamp_seen(picture({240, 40, 30}, dark_green), 10, {4, 1, 8, 4}) ==
+        RoomLamp::unlit
+    );
+    CHECK(
+        renderer::room_lamp_seen(picture({240, 40, 30}, dark_green), 10, {1, 1, 0, 0}) ==
+        RoomLamp::unlit
+    );
+}
+
 void a_bar_fills_from_its_left() {
     renderer::RoomArt art{nullptr, gray_palette()};
     renderer::RoomCanvas canvas = renderer::room_canvas({0, 0, 22, 8}, nullptr);
@@ -340,6 +397,11 @@ void the_parts_draw_in_the_game_art(const std::filesystem::path& frames) {
         renderer::draw_room_switch(canvas, art, switch_look, lamps[index]);
         renderer::draw_room_stamp(canvas, art, renderer::room_stamp_rect(rect));
         const renderer::RoomLampParts lamp = renderer::room_lamp_parts(art, rect);
+        // The picture reads back the lamp drawn: the canvas is the whole frame.
+        CHECK(
+            renderer::room_lamp_seen(canvas.surface.rgb, canvas.area.width, lamp.lamp) ==
+            lamps[index]
+        );
         for (int32_t y = lamp.lamp.y; y < lamp.lamp.y + lamp.lamp.height; ++y)
             for (int32_t x = lamp.lamp.x; x < lamp.lamp.x + lamp.lamp.width; ++x) {
                 const renderer::Rgb colour = at(canvas, x, y);
@@ -416,6 +478,8 @@ int main(int argc, char** argv) {
     the_notch_sits_in_the_right_end();
     the_stamp_cuts_the_mark_into_a_dark_plate();
     a_lamp_is_lit_from_its_top();
+    a_blinking_lamp_is_red_then_dark();
+    a_picture_of_the_lamps_reads_back();
     a_bar_fills_from_its_left();
     a_list_lays_out_its_rows();
     if (failures != 0)
