@@ -4,8 +4,8 @@
 // The font stack: the fonts found beside the program, the sizes that match
 // the game's fonts, the fallback chain, the interface faces, text that is
 // not UTF-8, the limits, a font file that a started program is not given,
-// an open stack that does not keep its font files open on Windows, and,
-// with --pixels, a short mixed line drawn pixel for pixel as the pinned
+// an open stack that does not keep its font files open in the Windows 95
+// build, and, with --pixels, a short mixed line drawn pixel for pixel as the pinned
 // FreeType draws it. --show TEXT prints a line as it is drawn.
 
 #include "oa/platform/text_font.hpp"
@@ -432,9 +432,9 @@ void holds_ideographs_to_a_least_size() {
 }
 
 /// A copy of the bundled fonts, removed when this dies. The stack that opened
-/// it must die first on every system but Windows: there it keeps the files
-/// open. On Windows the files are read and closed, so the folder can go while
-/// the stack still draws.
+/// it must die first: it keeps the files open. In the Windows 95 build the
+/// files are read and closed, so there the folder can go while the stack
+/// still draws.
 struct TemporaryFonts {
     std::filesystem::path directory;
 
@@ -763,14 +763,14 @@ void face_file_opens() {
     OA_CHECK(!text_font::FontStack::face_file_opens(fonts.directory / "missing.otf"));
 }
 
-/// On Windows an open stack does not keep its font files open.
+/// In the Windows 95 build an open stack does not keep its font files open.
 ///
 /// Windows 95's library allows only a small number of open files. The game's
 /// archives and a saved game still have to open after the fonts, so an
 /// exclusive open of each face file must succeed while the stack draws.
-/// Other systems keep the files open and are not the case this holds.
+/// Every other build keeps the files open and is not the case this holds.
 void an_open_stack_closes_its_font_files() {
-#if defined(_WIN32)
+#if defined(_WIN32) && defined(OA_WINDOWS_95)
     TemporaryFonts fonts;
     const auto bundled = text_font::bundled_font_directory();
     for (const std::string_view name : text_font::interface_face_files) {
