@@ -4,7 +4,9 @@
 // Writes the manual's pictures of the settings dialog: each section alone,
 // unlocked, at Compact and 2x (960 by 648), in the installed game's fonts,
 // and Controls, Graphics, Downloads and System scrolled to their ends.
-// Updates is drawn twice: up to date, then with a release offered.
+// Updates is the update centre's card: up to date (updates-1), a release
+// offered (updates-2), and the section's end with Previous version
+// (updates-3). An empty card heading would leave the older status row.
 //
 // Usage: oa-ui-engine-settings-pictures DIRECTORY [--classes] [--modern FONTS]
 //
@@ -53,7 +55,7 @@ using settings::Dialog;
 using settings::Page;
 
 constexpr int32_t kScale = 2;
-constexpr std::string_view kVersion = "v0.8.0";
+constexpr std::string_view kVersion = "v0.8.7";
 
 /// The app icon, cropped to the pixels that show, as the dialog's header
 /// draws it. The file is the plates the window icon is made from.
@@ -169,9 +171,31 @@ std::string picture_name(Page page) {
     return word + ".png";
 }
 
+/// Adds one of the update card's actions, already as the manual shows it.
+///
+/// @param dialog the dialog
+/// @param id the button's word to automation
+/// @param caption the button's words
+void add_update_action(Dialog& dialog, std::string id, std::string caption) {
+    settings::UpdateCardAction action;
+    action.id = std::move(id);
+    action.caption = std::move(caption);
+    dialog.updates.actions.push_back(std::move(action));
+}
+
+/// Sets Look from the fonts: Modern while they hold Barlow, otherwise Classic.
+///
+/// @param dialog the dialog
+/// @param fonts the fonts the picture is drawn in
+void apply_look(Dialog& dialog, const settings::DialogFonts& fonts) {
+    dialog.chosen.look =
+        oa::ui::kit::modern_look(fonts) ? settings::Look::modern : settings::Look::classic;
+}
+
 /// Fills the rows a host supplies, at the defaults the manual shows.
+/// Updates is the card: Installed 0.8.7, Up to date, Check now.
 void dress(Dialog& dialog) {
-    // The main menu lists More in the Library… and REGISTRIES IN THE LIBRARY….
+    // The main menu lists More in the Library… and Registries in the Library….
     dialog.library_link = true;
     dialog.user_folder = "/Users/player/Documents/Open Annihilation";
     dialog.game_files_summary = "3.1c · Core Contingency · Battle Tactics · music";
@@ -200,11 +224,14 @@ void dress(Dialog& dialog) {
     dialog.game_content.push_back(bundle("bt", "Battle Tactics", "28 MB"));
     dialog.game_content.push_back(bundle("ta-music", "Total Annihilation Music", "61 MB"));
 
-    dialog.updates.version_line = "Open Annihilation 0.8.0";
-    dialog.updates.status = "Up to date \u00b7 Stable \u00b7 checked today at 09:00";
+    dialog.updates.version_line = "Open Annihilation 0.8.7";
+    dialog.updates.status = "Up to date";
     dialog.updates.can_check = true;
     dialog.updates.offered = false;
     dialog.updates.mode = static_cast<int32_t>(settings::UpdateCheck::automatically);
+    dialog.updates.card_installed = "Installed 0.8.7";
+    dialog.updates.card_status = "Up to date";
+    add_update_action(dialog, "check", "Check now");
     // Two of the registry's latchable actions are on, so the row reads "2 of 7".
     dialog.latched_count = 2;
 }
@@ -256,6 +283,8 @@ bool draw_section(
     const renderer::RgbaPicture& icon,
     const std::filesystem::path& path
 ) {
+    settings::DialogFonts drawn = fonts;
+    drawn.size_class = dialog.size_class;
     const oa::ui::kit::Metrics& metrics = oa::ui::kit::metrics_of(dialog.size_class);
     const int32_t width = metrics.dialog_width * kScale;
     const int32_t height = metrics.dialog_height * kScale;
@@ -263,7 +292,7 @@ bool draw_section(
     surface.width = static_cast<uint32_t>(width);
     surface.height = static_cast<uint32_t>(height);
     surface.rgb.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3, 0);
-    settings::draw_dialog(surface, {0, 0, kScale}, dialog, fonts, icon);
+    settings::draw_dialog(surface, {0, 0, kScale}, dialog, drawn, icon);
     if (dialog.size_class == oa::ui::kit::SizeClass::compact &&
         (surface.width != 960 || surface.height != 648)) {
         std::cerr << "pictures: " << path.filename().string() << " is " << surface.width << " by "
@@ -376,15 +405,30 @@ int main(int argc, char** argv) {
     bool ok = true;
     for (const Page page : settings::dialog_pages(settings::DialogKind::engine, true, true, true)) {
         Dialog dialog = section_dialog(page);
+        apply_look(dialog, fonts);
         if (!draw_section(dialog, fonts, icon.picture, directory / picture_name(page)))
             ok = false;
-        // Updates again, with a release offered: UPDATE… in place of CHECK NOW.
-        // That picture is not the section scrolled to its end.
+        // Updates again: the card while 0.8.8 is out. That picture is not
+        // the section scrolled to its end.
         if (page == Page::updates) {
             dialog.updates.offered = true;
             dialog.updates.can_check = true;
-            dialog.updates.status = "0.8.7 is out \u00b7 Stable \u00b7 checked today at 09:00";
+            dialog.updates.card_status = "0.8.8 is out";
+            dialog.updates.card_detail = "You have 0.8.7. The update is 24.5 MB.";
+            dialog.updates.card_note = "Your saved games, settings and mods stay as they are.";
+            dialog.updates.actions.clear();
+            add_update_action(dialog, "download", "Download update");
+            add_update_action(dialog, "skip", "Skip this version");
             if (!draw_section(dialog, fonts, icon.picture, directory / "updates-2.png"))
+                ok = false;
+            // The end: Check for updates, Install updates, and Previous
+            // version · 0.8.6 with Roll back….
+            Dialog end = section_dialog(page);
+            apply_look(end, fonts);
+            end.updates.show_download = true;
+            end.updates.kept_version = "0.8.6";
+            end.scroll[static_cast<std::size_t>(page)] = settings::scroll_limit(end);
+            if (!draw_section(end, fonts, icon.picture, directory / "updates-3.png"))
                 ok = false;
         }
         // Controls, Engine Limits, Graphics, Downloads, System and

@@ -768,7 +768,7 @@ runtime goes).
   The runtime's own feed answers `remembered_verdict`, `start_check` and
   `keep_verdict`. A Checked fact is the verdict the file holds for that
   mutator with its prerequisites above it, every one at its default
-  options, against the mod being played. CHECK WITH THIS MOD prepares that
+  options, against the mod being played. Check with this mod prepares that
   list on the main thread and the Library's worker runs the dry run; the
   worker does not touch the live asset store. The verdict is kept when the
   worker finishes, back on the main thread, and a later rebuild reads it
@@ -807,39 +807,39 @@ runtime goes).
   bottom-right badge is the number of mods that model lists (the Mods tab's
   All), or a spinner while a fetch has not yet produced a list. With no
   updates the button is that face and that badge.
-- **The actions.** OPEN FOLDER shows the package's folder
+- **The actions.** Open folder shows the package's folder
   (`open_player_folder`) and HOMEPAGE opens its page (`open_web_link`),
   both recorded in a run nobody watches. SETTINGS… opens Settings over the
-  Library and CLOSE closes it. UPDATE, UPDATE ALL, PLAY NOW, SWITCH OFF,
-  ROLL BACK and CHECK NOW go through `library_entry_action`
+  Library and CLOSE closes it. UPDATE, Update all, Play now, Switch off,
+  Roll back and Check now go through `library_entry_action`
   (`runtime_library_actions.cpp`): UPDATE calls `Runtime::request_update`,
   the one place an update reaches the download queue
   (`DownloadReason::update`). An added registry's mod whose rules hash changes or cannot be known
   (`library::asks_before_update`) asks the update question first
-  (`update_question`), pushed at once over the screen that asked, NOT NOW
-  marked; its UPDATE queues the update and NOT NOW leaves it. Every other
+  (`update_question`), pushed at once over the screen that asked, Not now
+  marked; its UPDATE queues the update and Not now leaves it. Every other
   update, every built-in registry's among them, is queued at once. UPDATE
   ALL calls it at once for every update that can act, is not queued and
   asks nothing, in list order, and asks one question about the others
-  (`update_all_question`), whose UPDATE queues them in list order; PLAY NOW
+  (`update_all_question`), whose UPDATE queues them in list order; Play now
   switches the game to the installed mod's folder (`switch_to_mod_folder`,
   the soft restart), and a folder it cannot play is told in a note over the
-  Library (`library::switch_refused_note`); SWITCH OFF, on the mod played,
+  Library (`library::switch_refused_note`); Switch off, on the mod played,
   asks the Switch Mod question of No Mod (`library::switch_off_question`),
   pushed over the Library at once, CANCEL marked, whose SWITCH plays no mod
   through the same switch. Either switch notes what the Library shows
   first (`keep_library_for_restart`, a `LibraryReturn`) and the line its
   progress dialog says (`restart_line`), and the next run opens the
   Library again as it showed
-  ([the soft restart](#mod-profile-and-mod-folders)); ROLL BACK asks the
+  ([the soft restart](#mod-profile-and-mod-folders)); Roll back asks the
   Roll Back Mod question
   (`library::roll_back_question`, with the reload line for the mod being
-  played), pushed and marked the same way, and its ROLL BACK rolls the
+  played), pushed and marked the same way, and its Roll back rolls the
   folder back (`roll_back_mod_folder`), the feed looking again afterwards,
   a refusal told in MOD NOT ROLLED BACK over the Library. Every refusal
-  shows in the status line too. PLAY NOW and SWITCH OFF do nothing during
+  shows in the status line too. Play now and Switch off do nothing during
   a game or while `--mod-dir` or `--base-game` chose the mod, where the
-  Library greys them. CHECK NOW asks the registries again
+  Library greys them. Check now asks the registries again
   (`content::RefreshReason::check_now`, due whatever Check for updates
   says). UNINSTALL goes there too, to
   `library_uninstall`: for the mod being played or the language pack in use
@@ -890,8 +890,8 @@ runtime goes).
   keeping the own changes on top at 640x480 and starting clean at
   1920x1080, Grid Test's own changes never lost, and Undo on the notice
   after USE putting Grid Test back and removing only the own folder USE
-  made, GET and CANCEL reaching the feed, OPEN FOLDER and HOMEPAGE through the
-  recorded openers, ROLL BACK's question over the Library, PLAY NOW's soft
+  made, GET and CANCEL reaching the feed, Open folder and HOMEPAGE through the
+  recorded openers, Roll back's question over the Library, Play now's soft
   restart, Settings over the Library and the Library over Settings, never
   two of either, the shortcut opening Settings, and in a skirmish the
   in-game OA button opening Settings and the Library opening nowhere.
@@ -903,7 +903,7 @@ runtime goes).
   - a built-in registry's asks nothing: an update, a reinstall or another
     version replaces whatever copy the folder holds (the same registry's,
     another's, a file's or one with no record), the copy going to
-    `.backup` for ROLL BACK; a folder of the player's own that does not
+    `.backup` for Roll back; a folder of the player's own that does not
     hold the mod is never replaced nor joined, and the install is refused;
   - an added registry's replaces its own copy, and a copy with no record,
     with no question; asks REPLACE MOD (CANCEL, REPLACE) over another
@@ -917,7 +917,7 @@ runtime goes).
   questions are pushed over the Library at once, and its progress, a
   refusal ("Mods/cinder is a folder of your own, not Cinder. Move or rename
   it, then RETRY.") and its outcome show in the Library's queue rather than
-  in a prompt, the entry then offering PLAY NOW; with the Library closed,
+  in a prompt, the entry then offering Play now; with the Library closed,
   its questions wait in the OA layer's queue and its prompts show as a
   file's do. Catalogue map packs and language packs keep their own rules.
 
@@ -966,7 +966,7 @@ runtime goes).
   folder whole. CANCEL on that queue line drops the held update
   (`discard_pending_change`): the staged files are settled away the same
   way, the mod being played stays as it is, the line goes and the Library
-  offers the update again. It waits for UPDATE or UPDATE ALL; nothing
+  offers the update again. It waits for UPDATE or Update all; nothing
   fetches it on its own. A roll back waiting in its place is left.
 - **The install check.** `native-library-install`
   (`--check-library-install`, `runtime_library_actions_check.cpp`) posts
@@ -975,11 +975,11 @@ runtime goes).
   in, `check-added` and `check-added-2` added), and checks each rule above
   over four runs: the questions each registry asks or does not, the
   `.backup` and origin records after each, the refusals in the queue and
-  told with the Library closed, a file still asking UPDATE MOD, ROLL BACK
-  and PLAY NOW from the Library, and an update to the mod played held,
+  told with the Library closed, a file still asking UPDATE MOD, Roll back
+  and Play now from the Library, and an update to the mod played held,
   named by `pending_change_target`. CANCEL on that line drops it, the
   update is taken again and held, and it is made as the mod is switched.
-  The second and third runs, which PLAY NOW began, check the Library
+  The second and third runs, which Play now began, check the Library
   opened again: the work dialog waiting for a notice raised at the start,
   then saying "Switching on Ridge…" until the fixture lists the installed
   packages, the Library on Mods with the mod played selected, before the
@@ -990,7 +990,7 @@ runtime goes).
   The third run also checks UNINSTALL: off for a map pack during a game, a
   notice for the language pack in use and for the mod being played, the
   question for a built-in registry's mod and for one of the player's own,
-  and each folder gone, with the copy ROLL BACK keeps, once answered.
+  and each folder gone, with the copy Roll back keeps, once answered.
   The fourth run is one nobody watches, on the dummy video driver without
   the prompts the other runs show: a built-in registry's update waits in
   the inbox with the Library closed and installs with no prompt once the
@@ -1007,12 +1007,12 @@ runtime goes).
 - **The update question check.** `native-library-update-question`
   (`--check-library-update-question`, `runtime_library_actions_check.cpp`)
   installs made-up Ridge from an added registry and offers an update whose
-  rules change. At 640x480 the row's details page has no tabs. NOT NOW
+  rules change. At 640x480 the row's details page has no tabs. Not now
   leaves that page. UPDATE, fifty times, leaves the Library on top with its
   tabs on the next frames, and it is still there once the update is no
   longer offered. A FIXTURES_SETUP test (`library-update-question-clean`)
   clears its folders before each run.
-- **Limitations.** A held update is replaced by a ROLL BACK of the mod
+- **Limitations.** A held update is replaced by a Roll back of the mod
   being played, which waits for the run to end in its place; the download
   queue has counted the update installed by then. CANCEL on the held line
   does not drop that roll back. In a run nobody watches, a file opened
@@ -1120,12 +1120,15 @@ battle room carry Mutators as one of the room's own on and off buttons,
 drawn from the room's art (`brain_seats_room.hpp`,
 [src/ui/frontend-renderer](../ui/frontend-renderer/README.md)): COMMONGUI's
 on and off button, its plate and its lamps, with the engraved OA stamp at
-its left and its words after it, "Mutators: off", or "Mutators: 4 on" for
-the count of the set chosen ("Mutators: {count} on" in the catalogue;
-`mutators_words`). Its lamp is unlit while none is on, green while
-mutators are on, and red in the battle room while a seated player lacks
-one. The words are drawn in the room's caption font, else its label font,
-and cut with … only when even that does not fit. No part of it is the
+its left and the word "Mutators" after it. The count is not on the button.
+It lives in the hover card and in the automation text
+(`mutators_automation_text`): "Mutators · off" while none is on, or
+"Mutators · {count} on", its first word the button's word as drawn, ended
+with "…" only where the button cuts it. Its lamp is unlit while none is
+on, green while mutators are on, and red in the battle room while a seated
+player lacks one. The word is drawn in the room's caption font, else its
+label font, and cut with … only when even that does not fit. The button
+does not grow for its words. No part of it is the
 kit's, so a mod's art and palette carry through. It is a screen of the
 layer of its own (`mutators-button`, not modal, no backdrop, not opaque,
 so the picture shows round it), which draws only the pixels the button
@@ -1137,21 +1140,22 @@ running and no front-end dialog is up. MORE MAPS… and Mutators never show
 at once: the map picker is its own screen.
 
 - **Placement.** Every place and size is worked out from the 3.1c
-  gadgets' rectangles on each window (`oa_button_place`). On SKIRMISH (and
-  Any Mission) `place_in_column` makes the button as large as the gadget
-  under Difficulty in its column (Previous Menu), with the same left edge,
-  centred down the space between Difficulty and that gadget. On NEWGAME
-  `place_under_middle` makes it as large as the SELECT SIDE middle of the
-  side bar: the space between the gadgets Arm and Core, set in from each
-  by the bolt between them, nine twentieths of the bar's height
-  (`bar_middle`), and stands it under that middle, the left edges
-  together, a bolt's width under the bar. When that place meets a gadget
-  the column rule is used, and when neither is clear `place_block`, MORE
-  MAPS…'s rule, at the button's own size. Where the words need more room
-  than that place gives, the button grows to the left, as far as the room
-  is free and inside the frame (`widen_mutators_switch`); one that cannot
-  grow keeps its width and draws its words narrower. The screen's place
-  also covers the room's focus marker round the button and the open card.
+  gadgets' rectangles on each window (`oa_button_place`). The button does
+  not grow for its words. On SKIRMISH `place_in_column` makes it as large
+  as the gadget under Difficulty in its column (Previous Menu), with the
+  same left edge, centred down the space between Difficulty and that
+  gadget. On NEWGAME and Any Mission `place_at_column_head` makes it as
+  large as Previous Menu, its left edge, at the head of Difficulty's
+  column, over the Set Difficulty label and under the side bar. Where that
+  meets a gadget, `place_under_middle` makes it as large as the SELECT SIDE
+  middle of the side bar: the space between the gadgets Arm and Core, set
+  in from each by the bolt between them, nine twentieths of the bar's
+  height (`bar_middle`), and stands it under that middle, the left edges
+  together, a bolt's width under the bar. When neither is clear
+  `place_in_column` is used, and when that is not clear either
+  `place_block`, MORE MAPS…'s rule, at the button's own size. The screen's
+  place also covers the room's focus marker round the button and the open
+  card.
 - **Focus.** The button is pushed onto the screen's own Tab order. Tab
   from the record just before it, and Shift+Tab from the one just after,
   hand the focus over: the GUI's focus goes to none and the room's own
@@ -1188,17 +1192,18 @@ at once: the map picker is its own screen.
   leaves to the main menu, which empties both sets, so a campaign save
   loaded from there never starts with an earlier run's set. The button
   opens the picker with the chosen set, or, when that is empty, with the
-  setup's remembered last set. USE THESE replaces the chosen set. CANCEL
+  setup's remembered last set. Use these replaces the chosen set. CANCEL
   changes nothing. START, and each campaign mission, hands the chosen set
   on: an empty set starts the game as before, and a set that cannot be
-  read refuses the start as any failed start does. The button counts the
-  chosen set: "Mutators: off" with none, "Mutators: 4 on" with four.
+  read refuses the start as any failed start does. The button reads
+  "Mutators". Its text for automation counts the chosen set: "Mutators ·
+  off" with none, "Mutators · 4 on" with four.
 - **The check.** `native-mutator-button` (`--check-mutator-button`,
   `runtime_mutator_button_check.cpp`) uses the mutator picker's feed and a
   scratch preferences file holding Gatehouse with Gatehouse Keep for
   skirmish and Fast Builders for the campaign. At 640x480 and 1280x720 it
-  requires the button's size and place, no part of the kit, its words and
-  count, the card with four chosen, the pad's badges leaving it as it is,
+  requires the button's size and place, no part of the kit, the word
+  "Mutators" and the automation count, the card with four chosen, the pad's badges leaving it as it is,
   Tab, Down, a finger's reach, Y, SELMAP keeping the
   set, START handing it on, and a return to the main menu clearing it;
   then NEWGAME's size and place, Tab, the remembered campaign set and the
@@ -1218,15 +1223,16 @@ at once: the map picker is its own screen.
   A FIXTURES_SETUP test (`mutator-button-clean`) clears its folders before
   each run.
 - **The battle room.** The host's battle room shows the same button as
-  large as Select Map, directly over it with the same left edge
+  large as Select Map, directly over it with Select Map's edges
   (`place_over`), centred down the space between the player rows and
-  Select Map, counting the room's list. Where that place meets a control,
-  MORE MAPS…'s rule at the button's own size (`place_over_anchor`); it
-  grows to the left for its words as on the setups. Its lamp is green while
+  Select Map. It reads "Mutators"; its text for automation counts the
+  room's list. Where that place meets a control, MORE MAPS…'s rule at the
+  button's own size (`place_over_anchor`). The button does not grow for
+  its words. Its lamp is green while
   mutators are on and red while a seated player lacks one. Y, Return,
   Space and a
   press open the picker for multiplayer, on the room's set, or on the
-  remembered multiplayer set when the room has none. USE THESE stores that
+  remembered multiplayer set when the room has none. Use these stores that
   set as the room's. CANCEL changes nothing. A guest's battle room shows
   the same button for the host's set, read-only, described under
   [A guest's Mutators in the battle room](#a-guests-mutators-in-the-battle-room).
@@ -1275,14 +1281,15 @@ at once: the map picker is its own screen.
   `runtime_mutator_room_check.cpp`) hosts a battle room alone and uses the
   mutator picker's feed and a scratch preferences file holding Gatehouse
   with Gatehouse Keep. At 640x480 and 1280x720 it requires the button as
-  large as Select Map, or wider to the left where its words need it, over
-  it to its right edge, with no part of the kit, reading "Mutators: off"
-  and meeting no control of the room. Y opens the remembered set, USE THESE
-  stores it and the chat reads the turned-on lines, and at both sizes the
-  button reads "Mutators: 2 on" with its lamp lit, and "Mutators: 4 on"
-  with four on. Turning them off posts the off line. Then,
+  large as Select Map, over it with Select Map's edges and no widening,
+  with no part of the kit. The button reads "Mutators" and meets no control
+  of the room. Its text for automation reads "Mutators · off". Y opens the
+  remembered set, Use these stores it and the chat reads the turned-on
+  lines, and at both sizes the text reads "Mutators · 2 on" with its lamp
+  lit, and "Mutators · 4 on" with four on. Turning them off posts the off
+  line. Then,
   in French at 640x480 with Unicode chat off and the host named "Jörg" in
-  the code page, as a 3.1c player's name arrives, USE THESE posts lines
+  the code page, as a 3.1c player's name arrives, Use these posts lines
   that hold é and ö as one code-page byte each, that each fit the chat
   list in hattfont12, and whose unranked line wraps with every word kept.
   Then the room plays Ridge Tough alone, and at 640x480 in English, German,
@@ -1344,7 +1351,7 @@ when that screen goes or a match starts.
 
 - **The request.** `open_mutator_picker` takes a `MutatorPickerRequest`: the
   setup, the set it opens on (each mutator with its options), whether a
-  guest is only looking, and two calls. USE THESE calls the first with the
+  guest is only looking, and two calls. Use these calls the first with the
   set, in order with its options, once every mutator in it is installed.
   CANCEL, the header's close mark, and the screen underneath going away call
   the second and hand nothing back. It refuses while a match is running,
@@ -1373,18 +1380,18 @@ when that screen goes or a match starts.
   back with `restore_mutator_picker_feed`. Switching on a mutator that is
   not installed queues it and the prerequisites it lacks (`get_plan` on the
   runtime's own catalogue; the listing itself when a check's feed has none).
-  USE THESE does the same for every On mutator that is not installed yet.
+  Use these does the same for every On mutator that is not installed yet.
   While one is still not installed it asks "Get mutators", pushed over the
   picker, and hands the set back once the last install finishes. CANCEL
   closes that question and leaves the picker open, with the downloads still
   queued. `waiting` only replaces the summary's words; it does not disable
-  USE THESE. A refusal switches it off and the
+  Use these. A refusal switches it off and the
   row reads why. A package whose download is already under way, such as one
   the Library queued, is not refused: its row shows that download. Becoming
   On, changing an option, or a download finishing asks `check` again, and
   the row reads the checking words until a later list brings the verdict.
 - **Turn off.** Switching off a prerequisite asks "Turn off X?" over the
-  picker, pushed at once. TURN OFF turns it and what needs it off. Switching
+  picker, pushed at once. Turn off turns it and what needs it off. Switching
   a mutator off, by its switch or by that question, cancels a download the
   picker queued that is still waiting (queued, asking for its key, or
   waiting for the player's confirmation). CANCEL on the question leaves them
@@ -1396,7 +1403,7 @@ when that screen goes or a match starts.
   mended On order, every row's grip and switch, one download with the
   waiting words, that download's cancel, one more check when it installs and
   when an installed mutator is switched on, the turn-off question, a drag,
-  the set USE THESE hands back, USE THESE fetching an On mutator that is not
+  the set Use these hands back, Use these fetching an On mutator that is not
   installed (the question stays up, and the install hands the set), CANCEL
   handing nothing, and the verdict chip. At 2560x1440 it
   switches on a mutator whose download is already under way, and restores
@@ -1596,11 +1603,11 @@ screens are unchanged.
 
 Four questions live in the picker module (`prompts.hpp`) and the app raises
 them. "Start without X?" is pushed over the skirmish setup or the campaign
-briefing when a mutator stops that start and no match was built. BACK leaves
-the set. START WITHOUT IT, or START WITHOUT THEM, drops the mutators that
+briefing when a mutator stops that start and no match was built. Back leaves
+the set. Start without it, or Start without them, drops the mutators that
 stopped and the ones that need them, and starts again. "Forget the last set?"
-is queued once the main menu shows, when the crash record named a set. KEEP
-IT leaves the remembered set. FORGET IT clears that setup's set and
+is queued once the main menu shows, when the crash record named a set. Keep
+it leaves the remembered set. Forget it clears that setup's set and
 uninstalls nothing. "Get mutators" is pushed over the picker, as the feed
 section says. "The game did not start" is pushed where a network start was
 refused because the machines' results differ, on the machine that pressed
@@ -1613,12 +1620,12 @@ offer it (`Runtime::mutator_offer`, by the rule a guest's button follows).
 `native-mutator-prompts` (`--check-mutator-prompts`,
 `runtime_mutator_prompts_check.cpp`) writes Lantern and Slip into a scratch
 user folder. Slip's plan raises an error. A skirmish with both shows the
-start question naming Slip. START WITHOUT IT starts with Lantern. BACK, on
+start question naming Slip. Start without it starts with Lantern. Back, on
 a second start, leaves SKIRMISH with both chosen. A crash record written
 beside the preferences file shows the forget question on the main menu, and
-FORGET IT empties the skirmish set. On the picker's check feed, USE THESE
+Forget it empties the skirmish set. On the picker's check feed, Use these
 with Grounded not installed shows Get mutators. Stopping that download shows
-RETRY, RETRY asks the feed again, and installing Grounded hands the set.
+Retry, Retry asks the feed again, and installing Grounded hands the set.
 Hosting a room with Lantern, START held on a guest whose record has another
 release, or none, names no release, and one who has it and built another
 layer shows the release line, with no GET MUTATORS paragraph. A
@@ -3446,7 +3453,7 @@ prompts, Settings › Updates and the headers name one state with one size.
   deletes it; a file that cannot be read is a leftover with no mutators,
   logged once, and is never fatal. `runtime_mutators_memory.cpp` is the
   game's side of it: `remembered_mutators` (the picker), `remember_mutators`
-  and `forget_mutators` (FORGET IT), `start_with_mutators` (a setup's
+  and `forget_mutators` (Forget it), `start_with_mutators` (a setup's
   START), `take_mutator_crash` (the crash question) and
   `mutators_refused_for_run` (`--no-mutators`). The record is opened when
   the preferences are loaded, including under `--preferences-file`, and a
@@ -4120,7 +4127,7 @@ the game's window ([docs/game-files.md](../../docs/game-files.md)).
 - `game_files_check.cpp` is `--check-game-files`: scripted hooks, the route
   driven by taps and keys, pictures of each step and the verdict line.
 - `runtime_game_files.cpp` fills Settings › Game files and opens the
-  screen's management state from its MANAGE… button over the main menu.
+  screen's management state from its Manage… button over the main menu.
 - `render_state.hpp` (`RenderState`) keeps the renderer's target, logical
   presentation, scale, viewport, clip, colour and blend mode and puts them
   back, and `use_window_pixels` draws in the window's own pixels: the Game
@@ -4246,7 +4253,7 @@ A mod plays in one of two ways, which give the same game:
   plays without the remembered one, and one that is gone is dropped with a
   notice (the game then plays no mod, and the next save of the settings
   stores that over it: `EngineSettingsState::dropped_mod_folder`). Either
-  flag greys the Library's PLAY NOW and SWITCH OFF for the run
+  flag greys the Library's Play now and Switch off for the run
   (`library::Inputs::mod_from_command_line`), as a match does while it
   runs. A game folder holding its own
   `oamod.yaml` cannot carry a mod folder. A mod folder without an
@@ -4279,7 +4286,7 @@ for its version and "No oamod.yaml present" in its status line
 why in the details. Settings › Your files' Mods opens
 `Documents/Open Annihilation/Mods`.
 
-PLAY NOW on a mod not played, and SWITCH OFF's SWITCH on the mod played,
+Play now on a mod not played, and Switch off's SWITCH on the mod played,
 call `Runtime::switch_to_mod_folder` (`runtime_mod_install.cpp`), with no
 folder for no mod. A folder is first checked as the next start will play
 it (`check_picked_mod_folder`): one it could not play is refused, a note
@@ -4296,8 +4303,8 @@ the full-screen state Alt+Enter left and the intro movies skipped
 (`Options::restarts`), which opens on the main menu playing the new mod. The
 player never exits the game.
 
-A switch made in the Library, PLAY NOW or the SWITCH of the question SWITCH
-OFF and UNLOAD MOD ask, also opens the Library again in the next run as it
+A switch made in the Library, Play now or the SWITCH of the question SWITCH
+OFF and Unload mod ask, also opens the Library again in the next run as it
 showed. Before switching, `Runtime::keep_library_for_restart` notes what it
 shows in a `Runtime::LibraryReturn`: the tab, each tab's filter, the tag,
 the search, the selected entry and its place in the list, the list's scroll
@@ -4353,7 +4360,7 @@ panels and one without its font in COMIX, unmeasured, as sides that name
 none (`Runtime::match_side_file`). The game played without a mod ends its
 start instead when such a file is missing, naming the first: every side's
 intgaf before any side's font (`Runtime::require_side_files`). The
-Library's PLAY NOW refuses a folder without a profile whose start would
+Library's Play now refuses a folder without a profile whose start would
 end on a side's missing section or no side at all, before anything is
 stored
 (`Runtime::side_data_problem_over`). SIDEDATA and the files its sides name
@@ -4362,7 +4369,7 @@ first (`gamedata-German`, `anims-German`, `fonts-German`), once for the
 run; a language chosen later reads them at the next start. The main menu
 shows the warning (`mod_files_missing_notice`) once from each start of a
 mod that lacks any of these (`Runtime::tell_incomplete_mod`), as the notice of the saved games' move, in
-the settings dialog's look, its OPEN MOD FOLDER button showing the mod's
+the settings dialog's look, its Open mod folder button showing the mod's
 folder through the same opener. Every start of a game asks
 `Runtime::refuse_incomplete_mod_start` first, which refuses it only for
 missing units or a missing commander: Skirmish's Start, the main
@@ -4376,7 +4383,7 @@ same (`Runtime::start_skirmish_from_setup`) leaves no match and sets the
 skirmish setup up again, with the warning or the failure in a message box,
 in place of ending the program. `--check-mod-warning`
 (`native-mod-warning`, `runtime_mod_warning_check.cpp`) checks the warning
-and the refused start through the Library's PLAY NOW and its note, the
+and the refused start through the Library's Play now and its note, the
 main menu's warning in 800x600 and 2560x1440 windows at Regular 1× and
 Large 2× too.
 
@@ -4493,14 +4500,14 @@ in place, and how what a stop leaves is settled). The runtime's part:
   the files are being put in place, and the next frame makes the change,
   pumping events while it waits for files another program holds. What came
   of it is told: MOD INSTALLED, MOD UPDATED or MOD NOT INSTALLED, with OPEN
-  FOLDER and, where the Mod setting is the player's to change, PLAY NOW
+  FOLDER and, where the Mod setting is the player's to change, Play now
   (`Runtime::switch_to_mod_folder`, the Library's own switch). A run
   nobody watches leaves packages waiting, but for a catalogue language
   pack, a mod chosen in the Library while the Library is the top screen,
   and a catalogue map pack while the map browser is the top screen or GET
   MAP shows over the battle room ([The Library](#the-library)).
 - **The mod played.** A replace or reinstall of the folder the game plays,
-  once unpacked and checked as PLAY NOW checks a folder, waits in
+  once unpacked and checked as Play now checks a folder, waits in
   `set_pending_change`, holding the Mods folder's lock, and the run ends
   (`request_soft_restart`); `main()` makes the change between runs, once
   the runtime and its archives are gone, and the next run tells it. A mod
@@ -4510,9 +4517,9 @@ in place, and how what a stop leaves is settled). The runtime's part:
   for each kind's root folder (Mods for a mod, Maps for a map pack), before the mod
   folder is resolved, so that a stop mid-change never drops the Mod
   setting. A file of no known kind is told NOT INSTALLED and is not read.
-- **ROLL BACK** in the Library (`Runtime::roll_back_mod_folder`, which
+- **Roll back** in the Library (`Runtime::roll_back_mod_folder`, which
   takes the folder): a folder of the player's own Mods folder whose
-  `.backup` keeps an earlier version of its mod, one PLAY NOW would accept,
+  `.backup` keeps an earlier version of its mod, one Play now would accept,
   offers it (`OfferedMod::roll_back`, filled by `list_offered_mods`; the
   Library hides the kept version otherwise). The kept version is checked
   again first; then the folder is swapped at once, or, for the mod played,
@@ -5751,10 +5758,11 @@ room's chat follow, once a frame). It shows for every guest in the battle
 room. The host's own room leaves it with nothing to draw.
 
 The button is the room's on and off button with the OA stamp, where the
-host's stands: as large as Select Map, over it, and wider to the left
-where its words need it, missing every control of the room and GET MAP's
-rectangle while that shows. It reads "Mutators: off" while the host plays
-none, else "Mutators: N on". Its lamp is unlit with no set, green while
+host's stands: as large as Select Map and over it, its edges Select Map's,
+with no widening, missing every control of the room and GET MAP's
+rectangle while that shows. It reads "Mutators". Its text for automation
+is "Mutators · off" while the host plays none, else "Mutators · N on".
+Its lamp is unlit with no set, green while
 this machine has built the host's list, and red while READY waits on a
 mutator it lacks. A press, Return or Y opens the picker read-only on the
 host's set: CLOSE leaves the set as it is, and nothing readies the player.

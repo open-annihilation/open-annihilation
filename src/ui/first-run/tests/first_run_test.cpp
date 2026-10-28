@@ -315,7 +315,7 @@ void check_lookup() {
     Model english;
     const std::string plain = oa::ui::first_run::sample_words(english);
     OA_CHECK(plain.find("Active\n") != std::string::npos);
-    OA_CHECK(plain.find("UNLOAD MOD\n") != std::string::npos);
+    OA_CHECK(plain.find("Unload mod\n") != std::string::npos);
     OA_CHECK(plain.find("Built in\n") != std::string::npos);
     OA_CHECK(plain.find("~") == std::string::npos);
 
@@ -343,13 +343,13 @@ void check_lookup() {
                                  "{\n"
                                  "fr=~Mods~;\n"
                                  "}\n"
-                                 "[PLAYING]\n"
+                                 "[Playing]\n"
                                  "{\n"
-                                 "fr=~PLAYING~;\n"
+                                 "fr=~Playing~;\n"
                                  "}\n"
-                                 "[UNLOAD MOD]\n"
+                                 "[Unload mod]\n"
                                  "{\n"
-                                 "fr=~UNLOAD MOD~;\n"
+                                 "fr=~Unload mod~;\n"
                                  "}\n"
                                  "[Built in]\n"
                                  "{\n"
@@ -378,8 +378,8 @@ void check_lookup() {
     const std::string marked = oa::ui::first_run::sample_words(english);
     OA_CHECK(marked.find("~Active~\n") != std::string::npos);
     OA_CHECK(marked.find("~Mods~\n") != std::string::npos);
-    OA_CHECK(marked.find("~PLAYING~\n") != std::string::npos);
-    OA_CHECK(marked.find("~UNLOAD MOD~\n") != std::string::npos);
+    OA_CHECK(marked.find("~Playing~\n") != std::string::npos);
+    OA_CHECK(marked.find("~Unload mod~\n") != std::string::npos);
     OA_CHECK(marked.find("~Built in~\n") != std::string::npos);
 
     oa::data::languages::set_interface_language(nullptr, oa::data::languages::english());

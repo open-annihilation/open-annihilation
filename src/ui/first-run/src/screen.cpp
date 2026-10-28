@@ -1588,7 +1588,7 @@ void lay_changed_question(
     question.marked = kit::no_control;
     const kit::PlacedQuestion placed = kit::place_question(question, fonts);
     const kit::DisplayList box = kit::question_list(question, fonts);
-    const int32_t width = kit::metrics_of(frame.size_class).notice_width;
+    const int32_t width = placed.width;
     const kit::Point at{
         std::max((scene.width - width) / 2, int32_t{0}),
         std::max((scene.height - placed.height) / 2, int32_t{0}),

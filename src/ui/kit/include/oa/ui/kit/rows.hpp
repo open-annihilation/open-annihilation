@@ -994,6 +994,13 @@ struct RowPlacement {
     /// tall_hint_line_gap further apart.
     bool tall{};
     ControlId first_control{}; ///< the first row's control number; each next row's is one more
+    /// 0 keeps a switch, a level strip and a drop-down at regular_line.
+    /// Above 0, those three take this height. A button, a link and a slider's
+    /// track stay as they are. Settings sets it from the size class in the
+    /// modern look at Regular and Large.
+    int32_t control_height{};
+    /// 0 keeps a text field at field_height. Above 0, the field takes this height.
+    int32_t field_height{};
 };
 
 /// One row, placed. An empty rectangle is a part the row does not have.
@@ -1049,9 +1056,14 @@ struct PlacedRows {
 /// tall_hint_line_gap more between lines while tall. A slider's track and value, slider_gap
 /// under the hints and slider_line_height high (the value slider_value_width
 /// wide at the right, slider_value_gap from the track), a drop-down's field
-/// (regular_line high) or a text field (field_height high), each slider_gap
-/// under the hints and choice_width wide or the control width, stand on a
-/// line of their own. row_padding follows the last part.
+/// (regular_line high, or control_height when that is set) or a text field
+/// (field_height high, or the placement's field_height when that is set),
+/// each slider_gap under the hints and choice_width wide or the control
+/// width, stand on a line of their own. A switch or a level strip on the
+/// label line is control_height high when that is set, and the label and a
+/// lock on that line match it; a lock that dropped under the label stays
+/// regular_line, and the hints start under whichever of those extends lower.
+/// A button stays regular_line. row_padding follows the last part.
 ///
 /// @param views the rows, top to bottom
 /// @param placement where the column lies

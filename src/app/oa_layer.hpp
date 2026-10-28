@@ -514,15 +514,14 @@ centred_placement(const LayerView& view, int32_t width_points, int32_t height_po
     const std::function<void(const oa::ui::kit::Canvas&)>& draw
 );
 
-/// Rounds the corners of a screen's drawing as the layer shows it: in each
-/// corner's square, what lies outside the rounded rectangle becomes clear,
-/// a pixel the rounded edge cuts takes the share of it the shape covers, and
-/// a ring a point thick inside the edge takes the window's edge colours, the
-/// strong edge (kit::colour::edge_light) where the corner meets the top or
-/// the left edge and the dark edge (kit::colour::edge_dark) where it meets
-/// the bottom or the right, as kit::bevel_rect draws the straight edges. The
-/// shape is the kit's (kit::corner_coverage): a step at 1×, a blended edge
-/// at every other scale. A drawing with no opacity takes an opaque one
+/// Rounds the corners of a screen's drawing as the layer shows it. Stepped
+/// at every scale: a pixel the rounded shape does not cover is fully clear
+/// (opacity 0, colour 0), and a pixel in the ring a point thick inside the
+/// edge takes the window's edge colour whole, the strong edge
+/// (kit::colour::edge_light) where the corner meets the top or the left and
+/// the dark edge (kit::colour::edge_dark) where it meets the bottom or the
+/// right. On the diagonal the dark edge wins, except at the top left. There
+/// is no coverage blend. A drawing with no opacity takes an opaque one
 /// first. Nothing changes for a radius of 0 or less.
 ///
 /// @param[in,out] drawing the screen's drawing, straight colours, as large

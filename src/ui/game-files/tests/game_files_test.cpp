@@ -1036,7 +1036,7 @@ void presses_return_their_commands() {
     Model there = base_model();
     there.step = Step::already_there;
     OA_CHECK(press(there, tablet, {ControlKind::check_it}).command == Command::check_in_place);
-    // S3: switches, WHY, SHOW, COPY and the replace confirm.
+    // S3: switches, Why, Show, Copy and the replace confirm.
     Model ready = ready_model();
     OA_CHECK(press(ready, tablet, {ControlKind::part_switch, 2}).command == Command::redraw);
     OA_CHECK(!ready.parts[2].on);
@@ -1106,7 +1106,7 @@ void presses_return_their_commands() {
     OA_CHECK(play.sheet == Sheet::remove_old_confirm);
     OA_CHECK(press(play, tablet, {ControlKind::sheet_option, 0}).command == Command::remove_old);
     OA_CHECK(play.sheet == Sheet::none);
-    // In the management state, CHECK AGAIN's report goes back to the list with DONE.
+    // In the management state, Check again's report goes back to the list with Done.
     Model checked = play;
     checked.management = true;
     const Layout checked_layout = lay_out(checked, tablet);
@@ -1297,7 +1297,7 @@ void keys_move_focus_and_press() {
     OA_CHECK(
         game_files::key(model, fresh, layout, game_files::Key::space).command == Command::none
     );
-    // Esc: nothing on the first run, back elsewhere, the Stop sheet while copying, DONE in
+    // Esc: nothing on the first run, back elsewhere, the Stop sheet while copying, Done in
     // the management state, and a sheet closes first.
     OA_CHECK(
         game_files::key(model, fresh, layout, game_files::Key::escape).command == Command::none

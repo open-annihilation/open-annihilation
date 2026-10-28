@@ -15,22 +15,22 @@ first. Its name is **Built-in computer player**, and the line under it
 reads "Open Annihilation's own computer player. It plays as Total
 Annihilation's does." While it is the default, its status is
 **Built in · Default**. While it is not, the status is **Built in**. It
-cannot be removed: the details offer **USE BY DEFAULT** only while it is
+cannot be removed: the details offer **Use by default** only while it is
 not already the default, and they offer nothing while it is.
 
-**GET** downloads a brain. **UPDATE** takes a newer release. **UNINSTALL**
+**Get** downloads a brain. **Update** takes a newer release. **Uninstall**
 removes one you installed. Uninstalling the brain that is your default
 adds "It is your default computer player: new computer seats go back to
 the built-in player."
 
 A `.oabrain` file, from a website or a friend, installs too: double-click
 it, or start the game with `--open` and its path. It waits for the main
-menu and asks "Install the brain {name} {version}?" with **CANCEL** and
-**INSTALL**. It installs into the `Brains` folder of your own Open
+menu and asks "Install the brain {name} {version}?" with **Cancel** and
+**Install**. It installs into the `Brains` folder of your own Open
 Annihilation folder, as `Brains/<id>`
 ([where that folder is](installation/macos.md#where-it-keeps-its-files)).
 **BRAIN INSTALLED** then says "{name} is installed. Choose it for a
-computer player when you set up a game." with **OPEN FOLDER** and **OK**.
+computer player when you set up a game." with **Open folder** and **OK**.
 **Brain packages (.oabrain)** in [Settings › System](settings.md#system)
 chooses whether the file manager opens these files with the game. The
 hint there is "Open these files with the game from your file manager."
@@ -41,10 +41,10 @@ Learned, Teaching and Experimental. Any other tag is shown as written.
 
 ## The default brain
 
-**USE BY DEFAULT** on an installed brain makes that brain the one new
+**Use by default** on an installed brain makes that brain the one new
 computer seats start with. The row's status becomes
-**Installed · Default**, and the chip **Default** marks it. **USE BY
-DEFAULT** on the built-in computer player, while some other brain is the
+**Installed · Default**, and the chip **Default** marks it. **Use by
+default** on the built-in computer player, while some other brain is the
 default, hands new computer seats back to the built-in player. While the
 built-in player already is the default, that button is not shown.
 
@@ -97,11 +97,11 @@ brain cannot play, the picker opens on the built-in player and says
 The details name the **Level** and the brain's options. The built-in
 player's levels, while the Difficulty button owns them, sit under
 "Set by the Difficulty button: {level}". **Use for every computer seat**
-is a switch, **OFF** or **ON**. While it is on, the footer reads
-"{label} · every computer seat". **USE THIS** hands the choice back.
-**CANCEL**, and the header's close mark, hand nothing back. On a narrow
-layout the details are a page of their own, opened with **DETAILS** and
-closed with **BACK**.
+is a switch, **Off** or **On**. While it is on, the footer reads
+"{label} · every computer seat". **Use this** hands the choice back.
+**Cancel**, and the header's close mark, hand nothing back. On a narrow
+layout the details are a page of their own, opened with **Details** and
+closed with **Back**.
 
 Skirmish, the battle room on this machine, and a campaign each remember
 their own computer seats: the brain, the level and the options. An empty

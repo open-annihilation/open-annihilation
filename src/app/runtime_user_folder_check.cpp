@@ -699,9 +699,10 @@ void Runtime::check_user_folder() {
             "the question Settings asks is not over it"
         );
         const auto& question = static_cast<const QuestionScreen*>(asked)->question();
-        const int32_t question_height = settings::prompt_height(question, fonts);
+        const kit::PlacedQuestion laid = kit::place_question(question, fonts);
+        const int32_t question_height = laid.height;
         const artless::Placement question_at{
-            (kCanvasWidth - settings::notice_width) / 2, (kCanvasHeight - question_height) / 2, 1
+            (kCanvasWidth - laid.width) / 2, (kCanvasHeight - question_height) / 2, 1
         };
         const auto question_placed = asked->placement(oa_layer().view());
         require(

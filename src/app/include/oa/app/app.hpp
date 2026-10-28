@@ -242,16 +242,16 @@ enum class MatchCommand {
 
 /// Where the Game files screen's check goes (--game-files-route).
 enum class GameFilesRoute : uint8_t {
-    folder,        ///< CHOOSE FOLDER: a folder copied in (default)
-    demo,          ///< CHOOSE INSTALLER: the demo's installer
-    copy_yourself, ///< I HAVE COPIED IT: files the player copied into the game folder's parent
+    folder,        ///< Choose folder: a folder copied in (default)
+    demo,          ///< Choose installer: the demo's installer
+    copy_yourself, ///< I have copied it: files the player copied into the game folder's parent
     manage,        ///< the management state over an installed folder
 };
 
 /// What the Game files screen's check expects (--game-files-expect).
 enum class GameFilesExpect : uint8_t {
     main_menu,    ///< the route ends at the main menu (default)
-    stopped_kept, ///< STOP, KEEP WHAT WAS COPIED, then quit (with --game-files-stop-after)
+    stopped_kept, ///< Stop, Keep what was copied, then quit (with --game-files-stop-after)
     resumed,      ///< the continue banner, the same folder chosen, files skipped, main menu
     not_a_game,   ///< the problem "This folder does not hold a Total Annihilation installation"
     short_space,  ///< the problem "Not enough space"
@@ -640,7 +640,7 @@ struct Options {
     std::optional<std::string> rolled_back_from;
     /// Why that roll back happened: `failed-starts` or `player`.
     std::string roll_back_reason;
-    /// Checks confirming, the prompt, ROLL BACK and that a check is not a start.
+    /// Checks confirming, the prompt, Roll back… and that a check is not a start.
     bool check_update_roll_back = false;
     /// Which part of --check-update-roll-back to run.
     std::string roll_back_case;
@@ -731,7 +731,7 @@ struct Options {
     std::optional<uint64_t> game_files_free_bytes{};
     /// --game-files-copy-rate BYTES: the bytes a second the check's copy is held to.
     std::optional<uint64_t> game_files_copy_rate{};
-    /// --game-files-stop-after BYTES: the check presses STOP once this much was copied.
+    /// --game-files-stop-after BYTES: the check presses Stop once this much was copied.
     std::optional<uint64_t> game_files_stop_after{};
     // Clicks MULTI on the main menu through the SDL presenter and checks
     // what it reaches: network play's check of the multiplayer screens (the
@@ -841,7 +841,7 @@ struct Options {
     // and a loaded campaign save seat. A scratch preferences file holds
     // the seat.
     bool check_brain_campaign = false;
-    // A skirmish one made-up mutator stops, START WITHOUT IT and BACK, the
+    // A skirmish one made-up mutator stops, START WITHOUT IT and Back, the
     // question after a crash, and Get mutators over the picker.
     bool check_mutator_prompts = false;
     // On SKIRMISH and NEWGAME at 640x480 and 1280x720, requires MUTATORS…,
@@ -901,8 +901,8 @@ struct Options {
     bool check_library = false;
     // Installs made-up mod packages posted as the download queue posts them,
     // from a built-in registry and two added ones, while the Library shows:
-    // the questions each registry asks, the refusals in its queue, ROLL BACK
-    // and PLAY NOW from it, and an update to the mod played held until the
+    // the questions each registry asks, the refusals in its queue, Roll back…
+    // and Play now from it, and an update to the mod played held until the
     // mod is switched, over soft restarts.
     bool check_library_install = false;
     // Opens the Library on Maps with three packs, one picture from a pack,

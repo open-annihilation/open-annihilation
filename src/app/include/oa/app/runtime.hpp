@@ -7626,8 +7626,9 @@ class Runtime final : public menu::Host,
 
     /// The Mutators button on the skirmish setup and the campaign launch, one
     /// of the room's own on and off buttons with the OA stamp, a screen of
-    /// the OA layer named mutators-button. It reads "Mutators: off" with no
-    /// lamp lit and "Mutators: N on" with the green lamp.
+    /// the OA layer named mutators-button. It reads "Mutators". Its lamp is
+    /// unlit while none is on and green while some are on. Its text for
+    /// automation counts the set: "Mutators · off", or "Mutators · N on".
     struct MutatorButtonScreen;
 
     /// Keeps MUTATORS… on the OA layer while the skirmish setup, NEWGAME,

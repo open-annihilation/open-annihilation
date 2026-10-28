@@ -573,7 +573,7 @@ enum class PointerKind : uint8_t {
 [[nodiscard]] Outcome wheel(Session& session, const Scene& scene, float notches);
 
 /// Words the sample Library looks up through the model's text hook: the Active
-/// and Mods tabs, PLAYING, UNLOAD MOD and Built in, one a line.
+/// and Mods tabs, Playing, Unload mod and Built in, one a line.
 ///
 /// The picture well draws the same Library. A hook that marks each text
 /// changes these words; an empty hook leaves them in English.

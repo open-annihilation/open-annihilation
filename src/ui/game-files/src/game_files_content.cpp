@@ -242,7 +242,7 @@ std::string left_out_kinds_text() {
 ProblemContent problem_content(const Model& model) {
     ProblemContent content{};
     const std::string device = platform_word(model, word_device);
-    const Action back = action("BACK", {ControlKind::back}, Command::back);
+    const Action back = action("Back", {ControlKind::back}, Command::back);
     const auto choose_folder = [](std::string_view label, Role role) {
         return action(label, {ControlKind::choose_folder}, Command::pick_game_folder, role);
     };
@@ -257,7 +257,7 @@ ProblemContent problem_content(const Model& model) {
                      "files) and no installer of the Total Annihilation demo (1997).")
         );
         content.paragraphs.push_back(tr("Choose the folder that holds totala1.hpi."));
-        content.actions = {choose_folder("CHOOSE ANOTHER FOLDER", Role::button_main), back};
+        content.actions = {choose_folder("Choose another folder", Role::button_main), back};
         break;
     case Problem::cannot_play:
         content.title = tr("These files cannot be played");
@@ -272,10 +272,10 @@ ProblemContent problem_content(const Model& model) {
         );
         content.actions = {
             problem_action(
-                "ADD THE MISSING FILES", 0, Command::pick_game_folder, Role::button_main
+                "Add the missing files", 0, Command::pick_game_folder, Role::button_main
             ),
-            choose_folder("CHOOSE ANOTHER FOLDER", Role::button),
-            problem_action("DISCARD", 2, Command::discard, Role::button_danger),
+            choose_folder("Choose another folder", Role::button),
+            problem_action("Discard", 2, Command::discard, Role::button_danger),
         };
         break;
     case Problem::not_demo_installer:
@@ -289,7 +289,7 @@ ProblemContent problem_content(const Model& model) {
         ));
         content.actions = {
             action(
-                "CHOOSE ANOTHER FILE",
+                "Choose another file",
                 {ControlKind::choose_installer},
                 Command::pick_installer,
                 Role::button_main
@@ -309,8 +309,8 @@ ProblemContent problem_content(const Model& model) {
              {"advice", platform_word(model, word_free_space_advice)}}
         ));
         content.actions = {
-            problem_action("CHECK AGAIN", 0, Command::recheck_space, Role::button_main),
-            problem_action("CHANGE WHAT IS COPIED", 1, Command::copy_anyway, Role::button),
+            problem_action("Check again", 0, Command::recheck_space, Role::button_main),
+            problem_action("Change what is copied", 1, Command::copy_anyway, Role::button),
         };
         break;
     case Problem::disk_full:
@@ -322,8 +322,8 @@ ProblemContent problem_content(const Model& model) {
             {{"size", size_text(model.stopped_bytes)}}
         ));
         content.actions = {
-            problem_action("CONTINUE", 0, Command::continue_copy, Role::button_main),
-            problem_action("DISCARD", 1, Command::discard, Role::button_danger),
+            problem_action("Continue", 0, Command::continue_copy, Role::button_main),
+            problem_action("Discard", 1, Command::discard, Role::button_danger),
         };
         break;
     case Problem::source_unreadable:
@@ -343,8 +343,8 @@ ProblemContent problem_content(const Model& model) {
                   )
         );
         content.actions = {
-            problem_action("CONTINUE", 0, Command::continue_copy, Role::button_main),
-            problem_action("DISCARD", 1, Command::discard, Role::button_danger),
+            problem_action("Continue", 0, Command::continue_copy, Role::button_main),
+            problem_action("Discard", 1, Command::discard, Role::button_danger),
         };
         break;
     case Problem::download_failed:
@@ -366,8 +366,8 @@ ProblemContent problem_content(const Model& model) {
                   )
         );
         content.actions = {
-            problem_action("CONTINUE", 0, Command::continue_copy, Role::button_main),
-            problem_action("DISCARD", 1, Command::discard, Role::button_danger),
+            problem_action("Continue", 0, Command::continue_copy, Role::button_main),
+            problem_action("Discard", 1, Command::discard, Role::button_danger),
         };
         break;
     case Problem::access_withdrawn:
@@ -379,8 +379,8 @@ ProblemContent problem_content(const Model& model) {
             {{"location", location_of(model)}}
         ));
         content.actions = {
-            choose_folder("CHOOSE THE FOLDER AGAIN", Role::button_main),
-            problem_action("DISCARD", 1, Command::discard, Role::button_danger),
+            choose_folder("Choose the folder again", Role::button_main),
+            problem_action("Discard", 1, Command::discard, Role::button_danger),
         };
         break;
     case Problem::source_changed:
@@ -392,8 +392,8 @@ ProblemContent problem_content(const Model& model) {
             {{"location", location_of(model)}}
         ));
         content.actions = {
-            problem_action("CONTINUE", 0, Command::continue_copy, Role::button_main),
-            problem_action("START AGAIN", 1, Command::start_again, Role::button),
+            problem_action("Continue", 0, Command::continue_copy, Role::button_main),
+            problem_action("Start again", 1, Command::start_again, Role::button),
         };
         break;
     case Problem::too_large:
@@ -405,8 +405,8 @@ ProblemContent problem_content(const Model& model) {
             {{"size", size_text(model.copy_bytes)}}
         ));
         content.actions = {
-            problem_action("COPY ANYWAY", 0, Command::copy_anyway, Role::button),
-            choose_folder("CHOOSE ANOTHER FOLDER", Role::button_main),
+            problem_action("Copy anyway", 0, Command::copy_anyway, Role::button),
+            choose_folder("Choose another folder", Role::button_main),
         };
         break;
     case Problem::no_game_folder_yet:
@@ -418,7 +418,7 @@ ProblemContent problem_content(const Model& model) {
             {{"device", device}, {"steps", platform_word(model, word_copy_yourself_steps)}}
         ));
         content.actions = {
-            problem_action("CHECK AGAIN", 0, Command::check_copied, Role::button_main),
+            problem_action("Check again", 0, Command::check_copied, Role::button_main),
             back,
         };
         break;
@@ -431,7 +431,7 @@ ProblemContent problem_content(const Model& model) {
             {{"folder", model.file.empty() ? location_of(model) : model.file}}
         ));
         content.actions = {
-            problem_action("USE IT", 0, Command::adopt, Role::button_main),
+            problem_action("Use it", 0, Command::adopt, Role::button_main),
             back,
         };
         break;
@@ -444,7 +444,7 @@ ProblemContent problem_content(const Model& model) {
                "Annihilation?")
         );
         content.actions = {
-            problem_action("GATHER THEM", 0, Command::adopt, Role::button_main),
+            problem_action("Gather them", 0, Command::adopt, Role::button_main),
             back,
         };
         break;
@@ -459,7 +459,7 @@ ProblemContent problem_content(const Model& model) {
                                    )
         );
         content.actions = {
-            problem_action("TRY AGAIN", 0, Command::retry, Role::button_main),
+            problem_action("Try again", 0, Command::retry, Role::button_main),
             back,
         };
         break;
@@ -475,7 +475,7 @@ ProblemContent problem_content(const Model& model) {
                                    )
         );
         content.actions = {
-            problem_action("TRY AGAIN", 0, Command::retry, Role::button_main),
+            problem_action("Try again", 0, Command::retry, Role::button_main),
             back,
         };
         break;
@@ -498,9 +498,9 @@ SheetContent sheet_content(const Model& model) {
              {"total", size_text(model.progress.total_bytes, true)}}
         ));
         content.actions = {
-            sheet_action("KEEP WHAT WAS COPIED", 0, Command::stop_keep, Role::button_main),
-            sheet_action("DISCARD WHAT WAS COPIED", 1, Command::stop_discard, Role::button_danger),
-            sheet_action("KEEP COPYING", 2, Command::none),
+            sheet_action("Keep what was copied", 0, Command::stop_keep, Role::button_main),
+            sheet_action("Discard what was copied", 1, Command::stop_discard, Role::button_danger),
+            sheet_action("Keep copying", 2, Command::none),
         };
         break;
     case Sheet::replace_confirm:
@@ -512,8 +512,8 @@ SheetContent sheet_content(const Model& model) {
             {{"device", device}, {"size", size_text(model.replace_bytes)}}
         ));
         content.actions = {
-            sheet_action("REPLACE GAME FILES", 0, Command::start_copy, Role::button_main),
-            sheet_action("CANCEL", 1, Command::none),
+            sheet_action("Replace game files", 0, Command::start_copy, Role::button_main),
+            sheet_action("Cancel", 1, Command::none),
         };
         break;
     case Sheet::left_out_list:
@@ -556,8 +556,8 @@ SheetContent sheet_content(const Model& model) {
             {{"size", size_text(model.old_folder_bytes)}}
         ));
         content.actions = {
-            sheet_action("REMOVE", 0, Command::remove_old, Role::button_danger, Glyph::trash),
-            sheet_action("KEEP", 1, Command::none),
+            sheet_action("Remove", 0, Command::remove_old, Role::button_danger, Glyph::trash),
+            sheet_action("Keep", 1, Command::none),
         };
         break;
     case Sheet::remove_part_confirm: {
@@ -570,9 +570,9 @@ SheetContent sheet_content(const Model& model) {
             ));
             content.actions = {
                 sheet_action(
-                    "REMOVE", 0, Command::remove_demo_data, Role::button_danger, Glyph::trash
+                    "Remove", 0, Command::remove_demo_data, Role::button_danger, Glyph::trash
                 ),
-                sheet_action("KEEP", 1, Command::none),
+                sheet_action("Keep", 1, Command::none),
             };
         } else {
             const std::string name = row != nullptr ? part_name(*row, false) : tr("this part");
@@ -592,9 +592,9 @@ SheetContent sheet_content(const Model& model) {
             );
             content.actions = {
                 sheet_action(
-                    "REMOVE", 0, Command::manage_remove, Role::button_danger, Glyph::trash
+                    "Remove", 0, Command::manage_remove, Role::button_danger, Glyph::trash
                 ),
-                sheet_action("KEEP", 1, Command::none),
+                sheet_action("Keep", 1, Command::none),
             };
         }
         break;
@@ -608,9 +608,9 @@ SheetContent sheet_content(const Model& model) {
         ));
         content.actions = {
             sheet_action(
-                "REMOVE ALL", 0, Command::manage_remove_all, Role::button_danger, Glyph::trash
+                "Remove all", 0, Command::manage_remove_all, Role::button_danger, Glyph::trash
             ),
-            sheet_action("KEEP", 1, Command::none),
+            sheet_action("Keep", 1, Command::none),
         };
         break;
     case Sheet::add_files: {
@@ -622,7 +622,7 @@ SheetContent sheet_content(const Model& model) {
         uint16_t index = 0;
         if (model.offers_pick_folder)
             content.actions.push_back(sheet_action(
-                "CHOOSE A FOLDER",
+                "Choose a folder",
                 index++,
                 Command::pick_additions_folder,
                 Role::button_main,
@@ -630,7 +630,7 @@ SheetContent sheet_content(const Model& model) {
             ));
         if (model.offers_pick_files)
             content.actions.push_back(sheet_action(
-                "CHOOSE ARCHIVES",
+                "Choose archives",
                 index++,
                 Command::pick_archives,
                 content.actions.empty() ? Role::button_main : Role::button,
@@ -638,13 +638,13 @@ SheetContent sheet_content(const Model& model) {
             ));
         if (model.offers_pick_folder || model.offers_pick_files)
             content.actions.push_back(sheet_action(
-                "CHOOSE THE DEMO'S INSTALLER",
+                "Choose the demo's installer",
                 index++,
                 Command::pick_installer,
                 Role::button,
                 Glyph::disk
             ));
-        content.actions.push_back(sheet_action("CANCEL", index, Command::none));
+        content.actions.push_back(sheet_action("Cancel", index, Command::none));
         break;
     }
     case Sheet::scheduled_note:
@@ -669,7 +669,7 @@ BannerContent banner_content(const Model& model) {
             tr("The new game files are used from the next start of Open Annihilation. Adding or "
                "removing files waits until then.");
         content.actions = {action(
-            "CANCEL THE REPLACEMENT",
+            "Cancel the replacement",
             {ControlKind::manage_cancel_pending},
             Command::manage_cancel_pending
         )};
@@ -697,8 +697,8 @@ BannerContent banner_content(const Model& model) {
                       {{"location", location_of(model)}, {"done", done}}
                   );
         content.actions = {
-            action("CHOOSE FOLDER", {ControlKind::choose_folder, 1}, Command::pick_game_folder),
-            action("DISCARD", {ControlKind::banner_discard}, Command::discard, Role::button_danger),
+            action("Choose folder", {ControlKind::choose_folder, 1}, Command::pick_game_folder),
+            action("Discard", {ControlKind::banner_discard}, Command::discard, Role::button_danger),
         };
         break;
     }
@@ -716,7 +716,7 @@ BannerContent banner_content(const Model& model) {
                       {{"device", device}, {"problem", model.detail}}
                   );
         content.actions = {
-            action("CHECK AGAIN", {ControlKind::banner_action}, Command::check_copied),
+            action("Check again", {ControlKind::banner_action}, Command::check_copied),
         };
         break;
     case Banner::nothing_added:
