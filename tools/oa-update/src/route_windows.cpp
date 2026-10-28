@@ -1244,6 +1244,24 @@ int watch_new_version(
         true
     );
 }
+
+/// Closes the window's font files for this scope, then lets them open again.
+class ReleasedFontFiles {
+  public:
+
+    explicit ReleasedFontFiles(ProgressWindow& window) : window_(window) {
+        window_.release_installed_files();
+    }
+
+    ~ReleasedFontFiles() { window_.allow_installed_files(); }
+
+    ReleasedFontFiles(const ReleasedFontFiles&) = delete;
+    ReleasedFontFiles& operator=(const ReleasedFontFiles&) = delete;
+
+  private:
+
+    ProgressWindow& window_;
+};
 #endif
 
 } // namespace
@@ -1301,19 +1319,6 @@ int finish_windows_route(
             return failed(line_after_failed_change(updates), exit_undone);
         }
 
-        const uint32_t version = current_windows_version();
-        const std::wstring verb = verb_wide(windows_vista_or_later(version) ? "runas" : "open");
-        const std::wstring file = path_from(setup.program).wstring();
-        const std::wstring parameters = wide_from_utf8(join_plain(setup.arguments));
-        const ShellWait ran = file.empty() || (parameters.empty() && !setup.arguments.empty())
-                                  ? ShellWait{}
-                                  : shell_w(verb, file, parameters);
-        if (ran.cancelled) {
-            fs::remove(marker, io);
-            undo_or_log(updates, hooks, log);
-            return failed(update_was_cancelled, exit_refused);
-        }
-
         auto put_back = [&]() {
             std::string restore_error;
             if (!restore_kept_copy(kept, install, &restore_error)) {
@@ -1327,20 +1332,43 @@ int finish_windows_route(
             return true;
         };
 
-        const bool setup_ok = ran.started && ran.exit_code == 0 &&
-                              exe_changed(before, stamp_exe(install / game_name));
-        if (!setup_ok) {
-            if (!ran.error.empty())
-                log.line(ran.error);
-            else if (ran.started && ran.exit_code != 0)
-                log.line("the setup did not finish");
-            else
-                log.line("the setup did not replace the game");
-            static_cast<void>(put_back());
-            return failed(line_after_failed_change(updates), exit_undone);
+        bool cancelled = false;
+        bool setup_ok = false;
+        {
+            // The setup replaces the install, including its font files. An
+            // open font file keeps that folder from being replaced.
+            ReleasedFontFiles releasing(window);
+            const uint32_t version = current_windows_version();
+            const std::wstring verb = verb_wide(windows_vista_or_later(version) ? "runas" : "open");
+            const std::wstring file = path_from(setup.program).wstring();
+            const std::wstring parameters = wide_from_utf8(join_plain(setup.arguments));
+            const ShellWait ran = file.empty() || (parameters.empty() && !setup.arguments.empty())
+                                      ? ShellWait{}
+                                      : shell_w(verb, file, parameters);
+            if (ran.cancelled) {
+                fs::remove(marker, io);
+                undo_or_log(updates, hooks, log);
+                cancelled = true;
+            } else {
+                setup_ok = ran.started && ran.exit_code == 0 &&
+                           exe_changed(before, stamp_exe(install / game_name));
+                if (!setup_ok) {
+                    if (!ran.error.empty())
+                        log.line(ran.error);
+                    else if (ran.started && ran.exit_code != 0)
+                        log.line("the setup did not finish");
+                    else
+                        log.line("the setup did not replace the game");
+                    static_cast<void>(put_back());
+                } else {
+                    fs::remove(marker, io);
+                }
+            }
         }
-
-        fs::remove(marker, io);
+        if (cancelled)
+            return failed(update_was_cancelled, exit_refused);
+        if (!setup_ok)
+            return failed(line_after_failed_change(updates), exit_undone);
         log.step(update::Step::installer, update::StepResult::done);
         if (!elevated_swap) {
             const int watched =
@@ -1375,18 +1403,25 @@ int finish_windows_route(
         return failed(could_not_check, exit_refused);
     }
     if (folder.elevate && !elevated_swap) {
-        const std::wstring file = path_from(folder.program).wstring();
-        const std::wstring parameters = wide_from_utf8(join_quoted(folder.arguments));
-        const ShellWait ran =
-            file.empty() ? ShellWait{} : shell_w(verb_wide(folder.verb), file, parameters);
+        ShellWait ran;
+        {
+            // The elevated copy renames the install. This process must not
+            // keep the font files open while it does.
+            ReleasedFontFiles releasing(window);
+            const std::wstring file = path_from(folder.program).wstring();
+            const std::wstring parameters = wide_from_utf8(join_quoted(folder.arguments));
+            ran = file.empty() ? ShellWait{} : shell_w(verb_wide(folder.verb), file, parameters);
+            if (!ran.cancelled && (!ran.started || ran.exit_code != 0)) {
+                if (!ran.error.empty())
+                    log.line(ran.error);
+                else
+                    log.line("the elevated swap did not finish");
+                undo_or_log(updates, hooks, log);
+            }
+        }
         if (ran.cancelled)
             return failed(update_was_cancelled, exit_refused);
         if (!ran.started || ran.exit_code != 0) {
-            if (!ran.error.empty())
-                log.line(ran.error);
-            else
-                log.line("the elevated swap did not finish");
-            undo_or_log(updates, hooks, log);
             remove_stage(stage);
             return failed(line_after_failed_change(updates), exit_undone);
         }
@@ -1429,8 +1464,13 @@ int finish_windows_route(
     hooks.note = chained_note;
     hooks.move = windows_move;
     std::string error;
-    const JournalResult applied = apply_journal(updates, operations, hooks, &error);
-    hooks = moving.saved;
+    JournalResult applied = JournalResult::failed;
+    {
+        // Renaming a folder fails while this window still has its font files open.
+        ReleasedFontFiles releasing(window);
+        applied = apply_journal(updates, operations, hooks, &error);
+        hooks = moving.saved;
+    }
     if (applied != JournalResult::finished) {
         log.line(error.empty() ? "a step failed" : error);
         remove_stage(stage);

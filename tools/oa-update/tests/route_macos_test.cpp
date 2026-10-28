@@ -267,6 +267,94 @@ void restoring_moves_the_kept_bundle_back() {
     OA_CHECK(body == "old");
 }
 
+void a_callback_that_names_a_process_has_started() {
+    helper::MacosLaunchSeen seen;
+    seen.callback_finished = true;
+    seen.callback_started = true;
+    seen.callback_pid = 42;
+    seen.application_listed = true;
+    seen.listed_pid = 7;
+    seen.version_confirmed = true;
+    const helper::MacosLaunchDecision decision = helper::macos_launch_decision(seen);
+    OA_CHECK(decision.launch == helper::MacosLaunch::started);
+    OA_CHECK(decision.pid == 42);
+}
+
+void a_listed_process_counts_before_the_callback() {
+    helper::MacosLaunchSeen seen;
+    seen.application_listed = true;
+    seen.listed_pid = 77;
+    const helper::MacosLaunchDecision decision = helper::macos_launch_decision(seen);
+    OA_CHECK(decision.launch == helper::MacosLaunch::started);
+    OA_CHECK(decision.pid == 77);
+}
+
+void a_listed_process_wins_over_a_failed_callback() {
+    helper::MacosLaunchSeen seen;
+    seen.callback_finished = true;
+    seen.callback_started = false;
+    seen.application_listed = true;
+    seen.listed_pid = 88;
+    const helper::MacosLaunchDecision decision = helper::macos_launch_decision(seen);
+    OA_CHECK(decision.launch == helper::MacosLaunch::started);
+    OA_CHECK(decision.pid == 88);
+}
+
+void a_confirmed_version_starts_with_no_process_id() {
+    helper::MacosLaunchSeen seen;
+    seen.version_confirmed = true;
+    const helper::MacosLaunchDecision decision = helper::macos_launch_decision(seen);
+    OA_CHECK(decision.launch == helper::MacosLaunch::started);
+    OA_CHECK(decision.pid == 0);
+}
+
+void a_confirmed_version_wins_over_a_failed_callback() {
+    helper::MacosLaunchSeen seen;
+    seen.callback_finished = true;
+    seen.version_confirmed = true;
+    const helper::MacosLaunchDecision decision = helper::macos_launch_decision(seen);
+    OA_CHECK(decision.launch == helper::MacosLaunch::started);
+    OA_CHECK(decision.pid == 0);
+}
+
+void a_failed_callback_is_a_failed_launch() {
+    helper::MacosLaunchSeen seen;
+    seen.callback_finished = true;
+    const helper::MacosLaunchDecision decision = helper::macos_launch_decision(seen);
+    OA_CHECK(decision.launch == helper::MacosLaunch::failed);
+    OA_CHECK(decision.pid == 0);
+}
+
+void a_launch_with_nothing_seen_is_still_waiting() {
+    const helper::MacosLaunchDecision decision = helper::macos_launch_decision({});
+    OA_CHECK(decision.launch == helper::MacosLaunch::waiting);
+    OA_CHECK(decision.pid == 0);
+}
+
+void a_callback_that_names_no_process_falls_through() {
+    helper::MacosLaunchSeen seen;
+    seen.callback_finished = true;
+    seen.callback_started = true;
+    seen.callback_pid = 0;
+    seen.application_listed = true;
+    seen.listed_pid = 15;
+    const helper::MacosLaunchDecision listed = helper::macos_launch_decision(seen);
+    OA_CHECK(listed.launch == helper::MacosLaunch::started);
+    OA_CHECK(listed.pid == 15);
+
+    seen.application_listed = false;
+    seen.listed_pid = 0;
+    seen.version_confirmed = true;
+    const helper::MacosLaunchDecision confirmed = helper::macos_launch_decision(seen);
+    OA_CHECK(confirmed.launch == helper::MacosLaunch::started);
+    OA_CHECK(confirmed.pid == 0);
+
+    seen.version_confirmed = false;
+    const helper::MacosLaunchDecision waiting = helper::macos_launch_decision(seen);
+    OA_CHECK(waiting.launch == helper::MacosLaunch::waiting);
+    OA_CHECK(waiting.pid == 0);
+}
+
 void a_missing_bundle_is_refused() {
     const Scratch scratch("missing");
     LaidOut laid = lay_out(scratch);
@@ -297,4 +385,12 @@ void test_macos_route() {
     two_applications_are_refused();
     a_missing_bundle_is_refused();
     restoring_moves_the_kept_bundle_back();
+    a_callback_that_names_a_process_has_started();
+    a_listed_process_counts_before_the_callback();
+    a_listed_process_wins_over_a_failed_callback();
+    a_confirmed_version_starts_with_no_process_id();
+    a_confirmed_version_wins_over_a_failed_callback();
+    a_failed_callback_is_a_failed_launch();
+    a_launch_with_nothing_seen_is_still_waiting();
+    a_callback_that_names_no_process_falls_through();
 }

@@ -235,6 +235,27 @@ macos_may_swap(const BundleSignature& running, const BundleSignature& staged, bo
     return decision;
 }
 
+MacosLaunchDecision macos_launch_decision(const MacosLaunchSeen& seen) {
+    MacosLaunchDecision decision;
+    if (seen.callback_started && seen.callback_pid > 0) {
+        decision.launch = MacosLaunch::started;
+        decision.pid = seen.callback_pid;
+        return decision;
+    }
+    if (seen.application_listed && seen.listed_pid > 0) {
+        decision.launch = MacosLaunch::started;
+        decision.pid = seen.listed_pid;
+        return decision;
+    }
+    if (seen.version_confirmed) {
+        decision.launch = MacosLaunch::started;
+        return decision;
+    }
+    if (seen.callback_finished && !seen.callback_started)
+        decision.launch = MacosLaunch::failed;
+    return decision;
+}
+
 std::vector<Operation> macos_bundle_operations(
     const oa::app::update::Plan& plan, const fs::path& staged, MacosVolume volume, std::string* why
 ) {
