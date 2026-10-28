@@ -901,7 +901,7 @@ void decal(
                     // shares the colour image's place in the frame, and the
                     // fragment stage reads that from terrain_x and terrain_y.
                     if (scenery) {
-                        corners[corner].terrain_size = soft_edges ? -7 : -6;
+                        corners[corner].terrain_size = soft_edges ? -7.0F : -6.0F;
                         if (grey != nullptr) {
                             corners[corner].terrain_x =
                                 (grey->x + (p.x - left) / footprint_scale) / scene.texture_width;
@@ -2544,7 +2544,7 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
                 result.terrain_size = -5;
                 result.terrain_x = in.sea_level - origin_h;
             } else if (scenery) {
-                result.terrain_size = sprite.soft_effect ? -7 : -6;
+                result.terrain_size = sprite.soft_effect ? -7.0F : -6.0F;
                 if (ground_fog && grey_rect) {
                     result.terrain_x = (grey_rect->x + sample_x) / scene.texture_width;
                     result.terrain_y = (grey_rect->y + sample_y) / scene.texture_height;
