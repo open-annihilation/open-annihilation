@@ -109,6 +109,19 @@ constexpr double kMostMeanShift = 6.0;
 /// Most a pixel at the Smooth fog's edge may lie past the range from its
 /// colour to its fog, per channel.
 constexpr int kMostEdgeSpill = 3;
+/// Most a channel's mean in the turned view may stray from the top-down
+/// Full picture. The turn and the water's ripples move a mean by a few
+/// levels; the underwater tint moved blue by about 60.
+constexpr double kMostTurnedMean = 18.0;
+/// Most a channel's mean over a wholly fogged tile of the turned view may
+/// stray from the top-down Full picture. The soft edge is not compared.
+constexpr double kMostTurnedFog = 12.0;
+/// A wholly unexplored part of a patch in the turned view reads as black.
+constexpr int kMostTurnedBlack = 8;
+/// The turned view, mild enough that a patch centred in the battlefield
+/// stays in view. Pitch is held to the unlocked camera's range.
+constexpr float kTurnedYaw = 32;
+constexpr float kTurnedPitch = 24;
 
 [[noreturn]] void fail(const std::string& what) {
     throw std::runtime_error("underwater features check: " + what);
@@ -784,6 +797,244 @@ int Runtime::check_underwater_features() {
         const auto basic = compare(drawn[1].frame, processor.frame, processor);
         require(basic.most == 0, name + ": Basic does not draw the processor's pixels");
     }
+
+    // The turned view, held to the top-down Full picture: no tint on a
+    // patch in open water or on a shore, and the same fog as the ground
+    // on a wholly seen, wholly grey or wholly unexplored part of the
+    // sight-edge patch. A machine with no graphics card skips this and
+    // leaves the checks above standing.
+    settings.allow_full_3d = true;
+    const uint16_t saved_graphics = world.game.graphics_flags;
+    bool turned_skipped = false;
+    const auto card_turned = [&] {
+        return live_renderer_active() && !live_renderer_unavailable() && !live_renderer_failed();
+    };
+    const auto find_patch = [&](const Patch& patch) -> const SpriteDraw* {
+        for (const auto& sprite : match_models().draws.sprites)
+            if (!sprite.shadow && sprite.on_map && sprite.frame != nullptr &&
+                sprite.world_position && sprite.world_position->x == patch.position.x &&
+                sprite.world_position->z == patch.position.z)
+                return &sprite;
+        return nullptr;
+    };
+    // The mean of one class of a patch's own pixels in the turned picture.
+    // `keep` chooses the pixels; ones the turn carries off the battlefield
+    // are left out.
+    const auto turned_mean = [&](const Drawn& turned, const Patch& patch, auto&& keep) {
+        struct Mean {
+            std::array<double, 3> value{};
+            std::size_t count{};
+        };
+        Mean mean;
+        const SpriteDraw* sprite = find_patch(patch);
+        if (sprite == nullptr || sprite->frame == nullptr || !sprite->world_position)
+            return mean;
+        const auto& image = *sprite->frame;
+        const float anchor_x = static_cast<float>(sprite->world_position->x) / 65536.0F;
+        const float anchor_z = static_cast<float>(sprite->world_position->z) / 65536.0F;
+        const int field_right = turned.field_x + match_layout_.battlefield_width();
+        const int field_bottom = turned.field_y + match_layout_.battlefield_height();
+        const auto inside = [&](int column, int row) {
+            for (int y = row - kMeanInset; y <= row + kMeanInset; ++y)
+                for (int x = column - kMeanInset; x <= column + kMeanInset; ++x)
+                    if (x < 0 || y < 0 || x >= turned.width || y >= turned.height ||
+                        turned.opaque[static_cast<std::size_t>(y) * turned.width + x] == 0)
+                        return false;
+            return true;
+        };
+        for (int row = 0; row < turned.height; ++row)
+            for (int column = 0; column < turned.width; ++column) {
+                if (!inside(column, row) || !keep(column, row))
+                    continue;
+                const float world_x = anchor_x - static_cast<float>(image.origin_x) + column;
+                const float world_z = anchor_z - static_cast<float>(image.origin_y) + row;
+                const int32_t cell_x =
+                    static_cast<int32_t>(std::floor(world_x)) / OA_MAP_CELL_PIXELS;
+                const int32_t cell_z =
+                    static_cast<int32_t>(std::floor(world_z)) / OA_MAP_CELL_PIXELS;
+                const int32_t height = plot_height(cell_x, cell_z);
+                if (height < 0)
+                    continue;
+                const auto screen =
+                    live_project_world(world_x, static_cast<float>(height), world_z);
+                if (screen.x < turned.field_x + kMargin || screen.y < turned.field_y + kMargin ||
+                    screen.x >= field_right - kMargin || screen.y >= field_bottom - kMargin ||
+                    screen.x < 0 || screen.y < 0 ||
+                    screen.x >= static_cast<int32_t>(turned.frame.width) ||
+                    screen.y >= static_cast<int32_t>(turned.frame.height))
+                    continue;
+                const auto rgb = pixel_at(turned.frame, screen.x, screen.y);
+                for (std::size_t channel = 0; channel < 3; ++channel)
+                    mean.value[channel] += rgb[channel];
+                ++mean.count;
+            }
+        if (mean.count != 0)
+            for (auto& channel : mean.value)
+                channel /= static_cast<double>(mean.count);
+        return mean;
+    };
+    // 0 wholly in sight, 1 wholly grey, 2 wholly unexplored, -1 the edge.
+    const auto whole_class = [&](const Drawn& top, int column, int row) {
+        const int x = top.left + column;
+        const int y = top.top + row;
+        const int tile_column = static_cast<int>(std::floor(
+            static_cast<double>(x - top.field_x - top.grid.offset_x) / wr::fog_cell_pixels
+        ));
+        const int tile_row = static_cast<int>(std::floor(
+            static_cast<double>(y - top.field_y - top.grid.offset_z) / wr::fog_cell_pixels
+        ));
+        if (tile_column < 0 || tile_row < 0 || tile_column >= top.grid.width ||
+            tile_row >= top.grid.height)
+            return -1;
+        const auto& tile = top.grid.at(tile_column, tile_row);
+        const bool whole = (tile.unseen == 0 && tile.unmapped == 0) ||
+                           tile.unmapped == wr::fog_mask_full ||
+                           (tile.unseen == wr::fog_mask_full && tile.unmapped == 0);
+        if (!whole)
+            return -1;
+        if (tile.unseen == 0 && tile.unmapped == 0)
+            return 0;
+        if (tile.unmapped == wr::fog_mask_full)
+            return 2;
+        return 1;
+    };
+    const auto channel_gap = [](const std::array<double, 3>& seen,
+                                const std::array<double, 3>& wanted) {
+        double most = 0;
+        for (std::size_t channel = 0; channel < 3; ++channel)
+            most = std::max(most, std::abs(seen[channel] - wanted[channel]));
+        return most;
+    };
+
+    set_level(HardwareAcceleration::full);
+    water_effects(true);
+    settings.fog_of_war = oa::ui::engine_settings::FogOfWar::smooth;
+    set_fog(FogCase::none);
+    world.game.graphics_flags =
+        static_cast<uint16_t>(saved_graphics & ~init::preference_flags::dithered_fog);
+    for (const auto& patch : {cases[0], cases[1]}) {
+        if (turned_skipped)
+            break;
+        reset_live_renderer();
+        const Drawn top = draw(patch);
+        const auto expected = patch_mean(top.frame, top);
+        if (!turn_live_camera(kTurnedYaw, kTurnedPitch))
+            fail("the camera did not turn");
+        const Drawn turned = draw(patch);
+        if (!card_turned()) {
+            std::cout << "underwater features check: turned view skipped: the graphics card did "
+                         "not draw it\n";
+            turned_skipped = true;
+            reset_live_renderer();
+            break;
+        }
+        const auto seen = turned_mean(turned, patch, [](int, int) { return true; });
+        const double most = channel_gap(seen.value, expected);
+        std::cout << "underwater features check: " << patch.name
+                  << " turned, with the water's effects: mean " << seen.value[0] << ","
+                  << seen.value[1] << "," << seen.value[2] << " over " << seen.count
+                  << " pixels, top-down Full " << expected[0] << "," << expected[1] << ","
+                  << expected[2] << "; most " << most << '\n';
+        require(
+            seen.count > 0 && most <= kMostTurnedMean,
+            patch.name + " turned: the patch is tinted, or it left the view"
+        );
+    }
+
+    if (!turned_skipped) {
+        water_effects(false);
+        // Whole tiles of Smooth and Classic grey the same way in the turned
+        // view, so both are held to the top-down Smooth picture. The soft
+        // edge, where the styles differ, is left out. Classic in the turned
+        // view is the game's dithered fog.
+        settings.fog_of_war = oa::ui::engine_settings::FogOfWar::smooth;
+        world.game.graphics_flags =
+            static_cast<uint16_t>(saved_graphics & ~init::preference_flags::dithered_fog);
+        for (const FogCase fog : {FogCase::unseen, FogCase::unmapped}) {
+            if (turned_skipped)
+                break;
+            set_fog(fog);
+            reset_live_renderer();
+            const Drawn top = draw(edge);
+            const char* place =
+                fog == FogCase::unseen ? "the edge of sight" : "never-mapped ground";
+            for (const bool dithered : {false, true}) {
+                if (turned_skipped)
+                    break;
+                settings.fog_of_war = dithered ? oa::ui::engine_settings::FogOfWar::classic
+                                               : oa::ui::engine_settings::FogOfWar::smooth;
+                world.game.graphics_flags = static_cast<uint16_t>(
+                    dithered ? saved_graphics | init::preference_flags::dithered_fog
+                             : saved_graphics & ~init::preference_flags::dithered_fog
+                );
+                if (!turn_live_camera(kTurnedYaw, kTurnedPitch))
+                    fail("the camera did not turn");
+                const Drawn turned = draw(edge);
+                if (!card_turned()) {
+                    std::cout << "underwater features check: turned view skipped: the graphics "
+                                 "card did not draw it\n";
+                    turned_skipped = true;
+                    reset_live_renderer();
+                    break;
+                }
+                const auto name = std::string(dithered ? "classic" : "smooth") + " fog, " + place;
+                for (const int kind : {0, 1, 2}) {
+                    if (fog == FogCase::unseen && kind == 2)
+                        continue;
+                    std::array<double, 3> wanted{};
+                    std::size_t wanted_count = 0;
+                    for (int row = 0; row < top.height; ++row)
+                        for (int column = 0; column < top.width; ++column) {
+                            if (top.opaque[static_cast<std::size_t>(row) * top.width + column] == 0)
+                                continue;
+                            if (whole_class(top, column, row) != kind)
+                                continue;
+                            const auto rgb = pixel_at(top.frame, top.left + column, top.top + row);
+                            for (std::size_t channel = 0; channel < 3; ++channel)
+                                wanted[channel] += rgb[channel];
+                            ++wanted_count;
+                        }
+                    if (wanted_count != 0)
+                        for (auto& channel : wanted)
+                            channel /= static_cast<double>(wanted_count);
+                    const auto seen = turned_mean(turned, edge, [&](int column, int row) {
+                        return whole_class(top, column, row) == kind;
+                    });
+                    const char* kind_name = kind == 0   ? "in sight"
+                                            : kind == 1 ? "grey"
+                                                        : "unexplored";
+                    if (wanted_count == 0) {
+                        require(false, name + ": the patch has no pixels " + kind_name);
+                        continue;
+                    }
+                    const double most = channel_gap(seen.value, wanted);
+                    int darkest = 0;
+                    for (double channel : seen.value)
+                        darkest = std::max(darkest, static_cast<int>(std::lround(channel)));
+                    std::cout << "underwater features check: sight-edge turned, " << name << ", "
+                              << kind_name << ": mean " << seen.value[0] << "," << seen.value[1]
+                              << "," << seen.value[2] << " over " << seen.count
+                              << " pixels, top-down Full " << wanted[0] << "," << wanted[1] << ","
+                              << wanted[2] << "; most " << most << '\n';
+                    if (kind == 2) {
+                        require(
+                            seen.count > 0 && darkest <= kMostTurnedBlack,
+                            name + ": unexplored ground in the turned view is not black"
+                        );
+                    } else {
+                        require(
+                            seen.count > 0 && most <= kMostTurnedFog,
+                            name + ": the turned view does not " +
+                                (kind == 0 ? std::string("keep the patch's colours in sight")
+                                           : std::string("grey the patch with the ground"))
+                        );
+                    }
+                }
+            }
+        }
+    }
+    world.game.graphics_flags = saved_graphics;
+    reset_live_renderer();
     set_fog(FogCase::none);
     if (!failures.empty()) {
         std::string all;

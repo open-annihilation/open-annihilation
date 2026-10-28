@@ -2154,8 +2154,12 @@ void projectile_world_depth() {
     OA_CHECK(fixture.scene.vertices[first].height == 4);
     OA_CHECK(fixture.scene.vertices[first].z == 16);
     OA_CHECK(fixture.scene.unit_ranges.empty());
-    for (std::size_t i = first; i < fixture.scene.vertices.size(); ++i)
+    for (std::size_t i = first; i < fixture.scene.vertices.size(); ++i) {
         OA_CHECK(fixture.scene.vertices[i].height >= 4 && fixture.scene.vertices[i].height <= 5);
+        // A shot keeps the unit tint. It is not marked as map scenery.
+        OA_CHECK(fixture.scene.vertices[i].terrain_size == 0);
+        OA_CHECK(fixture.scene.vertices[i].terrain_grey == 0);
+    }
     fixture.draws.projectiles[0].position.y = 20 * fixed;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.vertices[first].height == 20);
@@ -2202,6 +2206,235 @@ void underwater_effect_altitude() {
     OA_CHECK(fixture.scene.sprite_count == 0);
 }
 
+/// Reads one atlas texel at a normalised coordinate.
+std::array<uint8_t, 3> atlas_texel(const live::Scene& scene, float u, float v) {
+    const auto x = std::min(
+        scene.texture_width - 1, static_cast<uint32_t>(std::max(0.0F, u) * scene.texture_width)
+    );
+    const auto y = std::min(
+        scene.texture_height - 1, static_cast<uint32_t>(std::max(0.0F, v) * scene.texture_height)
+    );
+    const auto offset = (static_cast<std::size_t>(y) * scene.texture_width + x) * 4;
+    return {
+        scene.texture_rgba.at(offset),
+        scene.texture_rgba.at(offset + 1),
+        scene.texture_rgba.at(offset + 2)
+    };
+}
+
+/// Map scenery under water takes no unit tint and greys with the ground.
+/// A unit sprite and the open sea bed still follow the swells.
+void underwater_features() {
+    oa::formats::gaf::RenderedFrame frame{};
+    frame.width = frame.height = 8;
+    frame.pixels.assign(64, ground_index);
+    frame.coverage.assign(64, 1);
+    constexpr std::size_t grey_index = 3;
+    constexpr std::array<uint8_t, 3> grey_color{70, 70, 70};
+
+    // Wholly out of sight, on the sea bed: the grey palette, not a darkened tint.
+    {
+        Fixture fixture;
+        std::fill_n(fixture.palette.begin() + grey_index * oa::palette_entry_bytes, 3, 70);
+        fixture.coverage[0] = 0;
+        fixture.inputs.sea_level = 40;
+        fixture.inputs.water.wind.strength = 1;
+        fixture.inputs.water.detail = 1;
+        fixture.draws.sprites.push_back({&frame, {12, 12}, false, true, true});
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(fixture.scene.sprite_count == 1);
+        bool marked = false;
+        float min_u = 1, max_u = 0, min_v = 1, max_v = 0;
+        float min_grey_u = 1, max_grey_u = 0, min_grey_v = 1, max_grey_v = 0;
+        for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+             ++i) {
+            const auto& vertex = fixture.scene.vertices[i];
+            OA_CHECK(vertex.terrain_size == -6);
+            OA_CHECK(std::abs(vertex.terrain_known - 1) < tolerance);
+            OA_CHECK(std::abs(vertex.terrain_grey - 1) < tolerance);
+            min_u = std::min(min_u, vertex.u);
+            max_u = std::max(max_u, vertex.u);
+            min_v = std::min(min_v, vertex.v);
+            max_v = std::max(max_v, vertex.v);
+            min_grey_u = std::min(min_grey_u, vertex.terrain_x);
+            max_grey_u = std::max(max_grey_u, vertex.terrain_x);
+            min_grey_v = std::min(min_grey_v, vertex.terrain_y);
+            max_grey_v = std::max(max_grey_v, vertex.terrain_y);
+            marked = true;
+        }
+        OA_CHECK(marked);
+        // The frame's far edge is the next atlas texel. Its middle is the image.
+        OA_CHECK(
+            atlas_texel(fixture.scene, (min_u + max_u) / 2, (min_v + max_v) / 2) == ground_color
+        );
+        OA_CHECK(
+            atlas_texel(
+                fixture.scene, (min_grey_u + max_grey_u) / 2, (min_grey_v + max_grey_v) / 2
+            ) == grey_color
+        );
+        const auto still = fixture.scene.vertices;
+        fixture.inputs.water.ripples = 1;
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(fixture.scene.vertices.size() == still.size());
+        bool moved = false;
+        for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+             ++i) {
+            OA_CHECK(fixture.scene.vertices[i].terrain_size == -6);
+            moved = moved || fixture.scene.vertices[i].x != still[i].x;
+        }
+        OA_CHECK(moved);
+    }
+
+    // Permanent allied vision. Ground only an ally explored is grey, as ground
+    // out of sight is. The viewer's own explored ground stays in colour.
+    {
+        constexpr uint16_t ally_bit = 1U << 2;
+        const auto on_ground = [&](uint16_t explored_by, bool greyed) {
+            Fixture fixture;
+            std::fill_n(fixture.palette.begin() + grey_index * oa::palette_entry_bytes, 3, 70);
+            fixture.mapped[0] = explored_by;
+            fixture.coverage[0] = 0;
+            fixture.inputs.sight.line_of_sight = false;
+            fixture.inputs.sight.mapped_bits = static_cast<uint16_t>(viewer_bit | ally_bit);
+            fixture.inputs.sight.shared_bits = ally_bit;
+            fixture.draws.sprites.push_back({&frame, {12, 12}, false, true, true});
+            OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+            OA_CHECK(fixture.scene.sprite_count == 1);
+            bool marked = false;
+            for (std::size_t i = fixture.scene.terrain_vertex_count;
+                 i < fixture.scene.vertices.size();
+                 ++i) {
+                const auto& vertex = fixture.scene.vertices[i];
+                OA_CHECK(vertex.terrain_size == -6);
+                OA_CHECK(std::abs(vertex.terrain_known - 1) < tolerance);
+                if (greyed)
+                    OA_CHECK(std::abs(vertex.terrain_grey - 1) < tolerance);
+                else
+                    OA_CHECK(vertex.terrain_grey == 0);
+                marked = true;
+            }
+            OA_CHECK(marked);
+        };
+        on_ground(ally_bit, true);
+        on_ground(viewer_bit, false);
+    }
+
+    // Shallows, still under the water and fully in sight: the same marker, no grey.
+    {
+        Fixture fixture;
+        for (auto& attribute : fixture.map.attributes)
+            attribute.height = 20;
+        fixture.inputs.sea_level = 24;
+        fixture.draws.sprites.push_back({&frame, {8, 8}, false, true, true});
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        bool marked = false;
+        for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+             ++i) {
+            const auto& vertex = fixture.scene.vertices[i];
+            OA_CHECK(vertex.terrain_size == -6);
+            OA_CHECK(std::abs(vertex.terrain_known - 1) < tolerance);
+            OA_CHECK(vertex.terrain_grey == 0);
+            OA_CHECK(std::abs(vertex.brightness - 1) < tolerance);
+            marked = true;
+        }
+        OA_CHECK(marked);
+    }
+
+    // A patch across seen, grey and unexplored ground matches the ground's fog,
+    // in both fog styles, and hides where the ground is black.
+    {
+        Fixture fixture;
+        std::fill_n(fixture.palette.begin() + grey_index * oa::palette_entry_bytes, 3, 70);
+        fixture.map.attribute_width = 6;
+        fixture.map.tile_width = 3;
+        fixture.map.attributes.assign(12, {});
+        fixture.map.tile_indices = {0, 0, 0};
+        std::array<uint16_t, 3> coverage{1, 0, 0};
+        std::array<uint16_t, 3> mapped{viewer_bit, viewer_bit, 0};
+        fixture.inputs.sight.coverage = coverage;
+        fixture.inputs.sight.player_bits = mapped;
+        fixture.inputs.sight.width = 3;
+        fixture.inputs.right = 96;
+        frame.width = 32;
+        frame.height = 16;
+        frame.pixels.assign(static_cast<std::size_t>(frame.width * frame.height), ground_index);
+        frame.coverage.assign(frame.pixels.size(), 1);
+        fixture.draws.sprites.push_back({&frame, {48, 8}, false, true, true});
+        const auto check_patch = [&](bool dithered) {
+            fixture.inputs.sight.dithered = dithered;
+            OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+            bool grey = false;
+            bool black = false;
+            float boundary_brightness = -1;
+            for (std::size_t i = fixture.scene.terrain_vertex_count;
+                 i < fixture.scene.vertices.size();
+                 ++i) {
+                const auto& vertex = fixture.scene.vertices[i];
+                OA_CHECK(vertex.terrain_size == -6);
+                const float painted_y = vertex.z - (vertex.height - 0.05F) * 0.5F;
+                if (vertex.x >= 66 && painted_y >= 8 && painted_y <= 24) {
+                    OA_CHECK(vertex.terrain_known == 0);
+                    OA_CHECK(vertex.terrain_grey == 0);
+                    black = true;
+                }
+                if (std::abs(vertex.x - 48) < 1.5F && painted_y >= 8 && painted_y <= 20) {
+                    OA_CHECK(vertex.terrain_known > 0.9F);
+                    OA_CHECK(vertex.terrain_grey > 0.9F);
+                    grey = true;
+                }
+                if (std::abs(vertex.x - 56) < 2.5F && painted_y >= 8 && painted_y <= 24)
+                    boundary_brightness = vertex.brightness;
+            }
+            OA_CHECK(grey && black);
+            OA_CHECK(boundary_brightness >= 0);
+            return boundary_brightness;
+        };
+        const float smooth = check_patch(false);
+        const float classic = check_patch(true);
+        OA_CHECK(classic > smooth);
+
+        // An upright feature takes the fog at each corner, not one darkening.
+        frame.origin_y = 0;
+        fixture.draws.sprites[0].terrain_decal = false;
+        fixture.inputs.sight.dithered = false;
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(fixture.scene.vertices.size() > fixture.scene.terrain_vertex_count + 6);
+        bool upright_black = false;
+        bool upright_known = false;
+        for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+             ++i) {
+            const auto& vertex = fixture.scene.vertices[i];
+            OA_CHECK(vertex.terrain_size == -6);
+            if (vertex.terrain_known == 0)
+                upright_black = true;
+            if (vertex.terrain_known > 0.9F && vertex.terrain_grey > 0.9F)
+                upright_known = true;
+        }
+        OA_CHECK(upright_black && upright_known);
+    }
+
+    // A unit's sprite is not scenery: it keeps the ordinary marker.
+    {
+        Fixture fixture;
+        fixture.inputs.sea_level = 30;
+        frame.width = frame.height = 8;
+        frame.origin_y = 0;
+        frame.pixels.assign(64, ground_index);
+        frame.coverage.assign(64, 1);
+        fixture.draws.sprites.push_back({&frame, {16, 16}, false, false, false});
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        bool drawn = false;
+        for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+             ++i) {
+            const auto& vertex = fixture.scene.vertices[i];
+            OA_CHECK(vertex.terrain_size != -6 && vertex.terrain_size != -7);
+            OA_CHECK(vertex.terrain_grey == 0);
+            drawn = true;
+        }
+        OA_CHECK(drawn);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -2212,6 +2445,7 @@ int main() {
     model_shade_parity();
     projectile_world_depth();
     underwater_effect_altitude();
+    underwater_features();
     painted_projection();
     canonical_terrain_grid();
     twisted_terrain_follows_simulation();
