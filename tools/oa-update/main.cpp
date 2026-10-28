@@ -9,10 +9,13 @@
 
 #include <SDL3/SDL_main.h>
 
+#include <charconv>
+#include <cstdint>
 #include <exception>
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #if __has_include("oa_engine_build.hpp")
@@ -25,6 +28,7 @@ namespace {
 void print_help() {
     std::cout << "oa-update --plan FILE\n"
                  "oa-update --plan FILE --elevated-swap\n"
+                 "oa-update --plan FILE --helper-parent PID\n"
                  "oa-update --recover --updates DIR\n"
                  "oa-update --version\n"
                  "oa-update --help\n";
@@ -46,6 +50,8 @@ int main(int argc, char** argv) {
         bool recover = false;
         bool elevated = false;
         bool stage_only = false;
+        bool parent_set = false;
+        int64_t helper_parent = 0;
         std::string plan;
         std::string updates;
         std::vector<oa::update_helper::FeedKey> keys;
@@ -71,6 +77,20 @@ int main(int argc, char** argv) {
                 recover = true;
             } else if (argument == "--elevated-swap") {
                 elevated = true;
+            } else if (argument == "--helper-parent") {
+                std::string text;
+                if (parent_set || !need_value(text))
+                    return oa::update_helper::exit_usage;
+                int64_t parsed = 0;
+                const char* const begin = text.data();
+                const char* const end = begin + text.size();
+                const std::from_chars_result parsed_id = std::from_chars(begin, end, parsed);
+                if (parsed_id.ec != std::errc{} || parsed_id.ptr != end || parsed <= 0) {
+                    std::cerr << "oa-update: --helper-parent needs a process id\n";
+                    return oa::update_helper::exit_usage;
+                }
+                helper_parent = parsed;
+                parent_set = true;
             } else if (argument == "--updates") {
                 if (!updates.empty() || !need_value(updates))
                     return oa::update_helper::exit_usage;
@@ -115,7 +135,7 @@ int main(int argc, char** argv) {
             return oa::update_helper::exit_usage;
         }
         if (recover) {
-            if (updates.empty() || !keys.empty()) {
+            if (updates.empty() || !keys.empty() || parent_set) {
                 std::cerr << "oa-update: --recover needs --updates\n";
                 return oa::update_helper::exit_usage;
             }
@@ -126,7 +146,7 @@ int main(int argc, char** argv) {
             return oa::update_helper::exit_usage;
         }
         return oa::update_helper::run_plan(
-            oa::update_helper::path_from(plan), keys, elevated, stage_only
+            oa::update_helper::path_from(plan), keys, elevated, stage_only, helper_parent
         );
     } catch (const std::exception& raised) {
         std::cerr << "oa-update: " << raised.what() << '\n';

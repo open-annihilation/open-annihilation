@@ -198,6 +198,11 @@ struct FolderPlan {
 
 /// The moves of a folder swap, with no elevation.
 ///
+/// The helper's own file is renamed with the other program files. The
+/// process that applies the moves is a copy outside the install
+/// (helper_aside_path), so the running file is not one of them. An undo
+/// puts the old game, including that helper, back.
+///
 /// @param plan the plan
 /// @param staged the staging folder, holding one top folder
 /// @param[out] why why no operations were produced; may be null; cleared on success
@@ -205,6 +210,83 @@ struct FolderPlan {
 [[nodiscard]] std::vector<Operation> windows_folder_operations(
     const oa::app::update::Plan& plan, const std::filesystem::path& staged, std::string* why
 );
+
+/// True when `program` is this helper's file inside the install folder.
+///
+/// A folder swap renames that file. On Windows XP a running program cannot
+/// be renamed, so the swap copies it out of the install and continues there.
+///
+/// @param program the running program
+/// @param install the install folder
+/// @return true for `oa-update` or `oa-update.exe` directly in `install`
+[[nodiscard]] bool helper_image_blocks_swap(
+    const std::filesystem::path& program, const std::filesystem::path& install
+);
+
+/// True when this process should hand the folder swap to a copy outside the
+/// install.
+///
+/// A process that was already started as that copy (`helper_parent` is not
+/// 0) carries on, so the hand-off happens once.
+///
+/// @param program the running program
+/// @param install the install folder
+/// @param helper_parent the process that copied this helper out; 0 for the first process
+/// @return true when the caller should start the copy and leave
+[[nodiscard]] bool folder_swap_must_step_aside(
+    const std::filesystem::path& program,
+    const std::filesystem::path& install,
+    int64_t helper_parent
+);
+
+/// Where the copy runs.
+///
+/// `<updates>/oa-update-running.exe` is not a name the folder swap renames.
+///
+/// @param updates the data folder's updates directory
+/// @return the copy's path
+[[nodiscard]] std::filesystem::path helper_aside_path(const std::filesystem::path& updates);
+
+/// The copy's arguments: the same plan and flags, plus `--helper-parent`.
+///
+/// @param plan_file the plan file
+/// @param keys feed keys the copy must accept; empty for none
+/// @param elevated_swap true to pass `--elevated-swap`
+/// @param stage_only true to pass `--stage-only`
+/// @param parent_pid the process the copy waits for
+/// @return the arguments, without the program
+[[nodiscard]] std::vector<std::string> helper_aside_arguments(
+    const std::filesystem::path& plan_file,
+    const std::vector<FeedKey>& keys,
+    bool elevated_swap,
+    bool stage_only,
+    int64_t parent_pid
+);
+
+/// Copies the running helper to `to`, and each library beside the helper.
+///
+/// Windows loads a library from the program's own folder first. The copy
+/// needs those libraries beside it, both so it can start and so the install's
+/// libraries stay closed for the folder swap. The running file can be read.
+/// An existing copy is replaced.
+///
+/// @param from the running helper
+/// @param to the copy
+/// @param[out] error why it could not; may be null
+/// @return true when the copy is in place
+[[nodiscard]] bool copy_helper_aside(
+    const std::filesystem::path& from, const std::filesystem::path& to, std::string* error
+);
+
+/// This process's helper program. Empty when it cannot be named.
+///
+/// @return the program path
+[[nodiscard]] std::filesystem::path running_helper_program();
+
+/// This process's id.
+///
+/// @return the id; never 0
+[[nodiscard]] int64_t helper_process_id() noexcept;
 
 /// Moves `<install>/previous` back over the install, leaving preferences.conf.
 ///

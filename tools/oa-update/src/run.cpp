@@ -529,12 +529,54 @@ int restore_kept(
 
 namespace {
 
+/// When this process is the install's own helper, a folder swap cannot rename
+/// that file on Windows XP. Copy it under the updates folder, start the copy,
+/// and leave. The copy waits until this process has left, which frees the
+/// lock and the install's helper file, and only then renames anything.
+///
+/// @return an exit status when this process should stop; nothing when it should carry on
+std::optional<int> step_aside_from_install(
+    const update::Plan& plan,
+    const fs::path& plan_path,
+    const std::vector<FeedKey>& keys,
+    bool elevated_swap,
+    bool stage_only,
+    int64_t helper_parent,
+    Log& log,
+    ProgressWindow& window
+) {
+    if (plan.route != update::Route::windows_folder)
+        return std::nullopt;
+    const fs::path running = running_helper_program();
+    if (!folder_swap_must_step_aside(running, path_from(plan.install), helper_parent))
+        return std::nullopt;
+    const fs::path updates = path_from(plan.updates);
+    const fs::path aside = helper_aside_path(updates);
+    std::string error;
+    if (!copy_helper_aside(running, aside, &error)) {
+        log.line(error.empty() ? "the helper could not be copied" : error);
+        start_old(plan, log, window, !elevated_swap);
+        return exit_refused;
+    }
+    const std::vector<std::string> arguments =
+        helper_aside_arguments(plan_path, keys, elevated_swap, stage_only, helper_process_id());
+    log.line("continuing the update outside the install folder");
+    window.close();
+    if (!start_detached(aside, arguments, false, {}, &error)) {
+        log.line(error.empty() ? "the helper could not be copied" : error);
+        start_old(plan, log, window, !elevated_swap);
+        return exit_refused;
+    }
+    return exit_swapped;
+}
+
 int carry_out(
     const update::Plan& plan,
     const fs::path& plan_path,
     const std::vector<FeedKey>& keys,
     bool elevated_swap,
-    bool stage_only
+    bool stage_only,
+    int64_t helper_parent
 ) {
     const fs::path updates = path_from(plan.updates);
     std::error_code io;
@@ -550,8 +592,24 @@ int carry_out(
         return exit_usage;
     }
 
-    UpdateLock held;
+    // The copy outside the install waits until the process that spawned it
+    // has left. That process holds the lock until it exits, and its helper
+    // file cannot be renamed until then. The wait is before this copy takes
+    // the lock.
     std::string error;
+    if (helper_parent > 0) {
+        const WaitOutcome parent_wait = wait_for_process(helper_parent, nullptr, &error);
+        if (parent_wait != WaitOutcome::finished) {
+            Log early;
+            static_cast<void>(early.open(updates, nullptr));
+            early.line("the helper could not leave the install folder");
+            ProgressWindow early_window;
+            start_old(plan, early, early_window, !elevated_swap);
+            return exit_refused;
+        }
+    }
+
+    UpdateLock held;
     if (!held.try_lock(updates, &error)) {
         // The parent still holds the lock. The elevated copy continues, and
         // any other failure still stops.
@@ -618,6 +676,11 @@ int carry_out(
         start_old(plan, log, window, !elevated_swap);
         return exit_undone;
     }
+
+    if (const std::optional<int> handed = step_aside_from_install(
+            plan, plan_path, keys, elevated_swap, stage_only, helper_parent, log, window
+        ))
+        return *handed;
 
     if (plan.action == update::Action::roll_back) {
         const bool windows_route = plan.route == update::Route::windows_installer ||
@@ -914,7 +977,11 @@ int carry_out(
 } // namespace
 
 int run_plan(
-    const fs::path& plan_path, const std::vector<FeedKey>& keys, bool elevated_swap, bool stage_only
+    const fs::path& plan_path,
+    const std::vector<FeedKey>& keys,
+    bool elevated_swap,
+    bool stage_only,
+    int64_t helper_parent
 ) {
 #if !OA_SELF_CHECKS_BUILT
     if (!keys.empty()) {
@@ -940,9 +1007,9 @@ int run_plan(
         return exit_usage;
     }
 #if OA_SELF_CHECKS_BUILT
-    return carry_out(*plan, plan_path, keys, elevated_swap, stage_only);
+    return carry_out(*plan, plan_path, keys, elevated_swap, stage_only, helper_parent);
 #else
-    return carry_out(*plan, plan_path, {}, elevated_swap, false);
+    return carry_out(*plan, plan_path, {}, elevated_swap, false, helper_parent);
 #endif
 }
 
