@@ -65,7 +65,13 @@ std::optional<uint8_t> Match::building_site(
             corner_height << 16,
             static_cast<uint32_t>((cell_z * 2 + fz) * 0x80000)
         };
-        if (!point_mapped(centre))
+        // The build cursor leaves mapped_player unset and reads the viewpoint.
+        // A brain names its seat, and then the centre must lie on ground that
+        // seat has explored.
+        const uint8_t explored_by = options.mapped_player == no_site_units_player
+                                        ? sight_.viewpoint_player
+                                        : options.mapped_player;
+        if (!player_mapped(explored_by, centre))
             return std::nullopt;
         in_sight = point_visible(placing_player, centre);
     }

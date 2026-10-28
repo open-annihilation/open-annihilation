@@ -10,10 +10,12 @@
 #include "oa/sim/brains/check.hpp"
 #include "oa/sim/brains/classic.hpp"
 #include "oa/sim/brains/seat.hpp"
+#include "oa/sim/match_runtime/construction_orders.hpp"
 
 #include "lua.hpp"
 
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -165,14 +167,17 @@ std::array<uint32_t, 3> centre_point(int32_t cell_x, int32_t cell_z, int32_t acr
 }
 
 /// Mapping and line of sight, as a gated building site. `mapped` fills the
-/// viewpoint bit afterwards, which a reset with mapping on has just cleared.
+/// viewpoint bit and the computer seat's bit afterwards, which a reset with
+/// mapping on has just cleared. The comparisons below treat the two as having
+/// explored the same ground.
 void show_map(Fixture& fixture, bool mapped) {
     fixture.match->state().game.visibility_flags = static_cast<uint8_t>(3);
     fixture.match->reset_sight_buffers(true);
     if (!mapped)
         return;
+    const auto both = static_cast<uint16_t>(1u | (1u << computer));
     for (uint16_t& bits : fixture.match->sight_mutable().player_bits)
-        bits = 1;
+        bits = both;
 }
 
 host::Sandbox* seat_quiet(Fixture& fixture, const std::string& script, SeatRequest request) {
@@ -554,6 +559,99 @@ void place_returns_the_first_clear_cell(const std::string& script) {
     expect_place(*blank, *unmapped.match, false, 16, none);
 }
 
+/// The sight cell under `point`, found by which viewpoint bit `point_mapped`
+/// reads. Leaves every mapped bit clear.
+std::size_t sight_index(runtime::Match& match, const std::array<uint32_t, 3>& point) {
+    auto& grid = match.sight_mutable();
+    const auto mark = static_cast<uint16_t>(1u << grid.viewpoint_player);
+    for (uint16_t& bits : grid.player_bits)
+        bits = 0;
+    for (std::size_t index = 0; index < grid.player_bits.size(); ++index) {
+        grid.player_bits[index] = mark;
+        const bool hit = match.point_mapped(point);
+        grid.player_bits[index] = 0;
+        if (hit)
+            return index;
+    }
+    return grid.player_bits.size();
+}
+
+/// A brain without full awareness, seated on the computer rather than the
+/// viewer, finds a site on ground that seat has explored and orders a
+/// building there. Ground only the viewer has mapped stays closed.
+void another_seat_builds_on_its_own_ground(const std::string& script) {
+    constexpr int32_t own_cell = 8;
+    constexpr int32_t viewer_cell = 40;
+    Fixture fixture;
+    show_map(fixture, false);
+    CHECK(fixture.match->state().game.viewpoint_player != computer);
+    auto& builder = fixture.spawn(computer, vehicle, 16, 16);
+    const uint16_t builder_slot = builder.unit_index;
+    int32_t across = 0;
+    int32_t down = 0;
+    turned_footprint(*fixture.match, collector, 0, &across, &down);
+    const auto own_centre = centre_point(own_cell, own_cell, across, down);
+    const auto viewer_centre = centre_point(viewer_cell, viewer_cell, across, down);
+    const std::size_t own_index = sight_index(*fixture.match, own_centre);
+    const std::size_t viewer_index = sight_index(*fixture.match, viewer_centre);
+    auto& bits = fixture.match->sight_mutable().player_bits;
+    CHECK(own_index < bits.size());
+    CHECK(viewer_index < bits.size());
+    CHECK(own_index != viewer_index);
+    const auto viewpoint = fixture.match->sight_mutable().viewpoint_player;
+    bits[own_index] = static_cast<uint16_t>(1u << computer);
+    bits[viewer_index] = static_cast<uint16_t>(1u << viewpoint);
+    CHECK(fixture.match->player_mapped(computer, own_centre));
+    CHECK(!fixture.match->point_mapped(own_centre));
+    CHECK(fixture.match->point_mapped(viewer_centre));
+    CHECK(!fixture.match->player_mapped(computer, viewer_centre));
+
+    host::Sandbox* sandbox = seat_quiet(fixture, script, {});
+    CHECK(ask_site(*sandbox, "ARMSOLAR", own_cell, own_cell, 0, nullptr));
+    CHECK(!ask_site(*sandbox, "ARMSOLAR", viewer_cell, viewer_cell, 0, nullptr));
+
+    const char* source = R"(found = false
+ordered = false
+site_x = nil
+site_z = nil
+local builder = nil
+me:each_unit(function(unit)
+    if builder == nil and unit.finished == true and unit.type ~= nil and unit.type.builder == true
+        and unit.type.bmcode == 1 then
+        builder = unit
+    end
+end)
+if builder ~= nil and builder.x ~= nil then
+    local cx, cz, x, z = brain.place("ARMSOLAR", { x = builder.x, z = builder.z }, 256, 0)
+    if x ~= nil then
+        found = true
+        site_x = x:raw()
+        site_z = z:raw()
+        ordered = builder:build("ARMSOLAR", { x = x, z = z }, 0) == true
+    end
+end
+)";
+    run_chunk(*sandbox, source);
+    CHECK(!sandbox->failed());
+    CHECK(flag_of(*sandbox, "found"));
+    CHECK(flag_of(*sandbox, "ordered"));
+    const auto site_x = static_cast<int32_t>(number_of(*sandbox, "site_x"));
+    const auto site_z = static_cast<int32_t>(number_of(*sandbox, "site_z"));
+    runtime::Match::OrderRecordView record{};
+    CHECK(fixture.match->queue_records(builder_slot, false, &record, 1) == 1);
+    CHECK(record.kind == runtime::mobile_build_kind);
+    CHECK(record.parameter_1 == collector);
+    CHECK(record.point[0] == site_x);
+    CHECK(record.point[2] == site_z);
+    const std::array<uint32_t, 3> ordered_at{
+        std::bit_cast<uint32_t>(record.point[0]),
+        std::bit_cast<uint32_t>(record.point[1]),
+        std::bit_cast<uint32_t>(record.point[2])
+    };
+    CHECK(fixture.match->player_mapped(computer, ordered_at));
+    CHECK(!fixture.match->point_mapped(ordered_at));
+}
+
 void outside_a_match_the_checks_are_nil() {
     const char* source = R"(local hooks = {}
 function hooks.fits()
@@ -609,6 +707,7 @@ int main() {
         an_enemy_unit_follows_the_seat_sight(script);
         a_mobile_type_raises_without_full_awareness(script);
         place_returns_the_first_clear_cell(script);
+        another_seat_builds_on_its_own_ground(script);
     } catch (const std::exception& ex) {
         std::fprintf(stderr, "sim-brains-sites: %s\n", ex.what());
         return 1;
