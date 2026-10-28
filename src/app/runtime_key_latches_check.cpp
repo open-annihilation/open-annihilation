@@ -6,6 +6,7 @@
 #include "oa/app/runtime.hpp"
 #include "touch_state.hpp"
 #include "oa/sim/ground_orders/orders.hpp"
+#include "oa/sim/simulation_state.hpp"
 #include "oa/ui/hud/status_panel.hpp"
 #include "oa/ui/key_bindings/chord.hpp"
 
@@ -284,24 +285,29 @@ void Runtime::check_key_latches() {
         fail("could not spawn a second unit");
     const uint16_t second = spawned->unit_index;
 
-    step("tap Ctrl then A selects every unit");
+    step("tap Ctrl then A selects every unit that can be selected");
     set_sticky(true);
     tap(SDLK_LCTRL, SDL_SCANCODE_LCTRL);
     key_event(true, SDLK_A, SDL_SCANCODE_A);
     key_event(false, SDLK_A, SDL_SCANCODE_A);
-    int own_units = 0;
+    // Ctrl+A selects the units that can be selected, as 3.1c does, and leaves
+    // the rest of the player's unit list as it is.
+    int selectable_units = 0;
     int selected_units = 0;
+    const oa::World& world = match_->state();
     for (const auto& slot : slots) {
         if (slot.unit == nullptr || slot.owner_index != match_local_player_)
             continue;
-        ++own_units;
+        if (!oa::sim::simulation_state::unit_selectable(world, slot.record))
+            continue;
+        ++selectable_units;
         if ((slot.unit->flags & OA_UNIT_FLAG_SELECTED) != 0)
             ++selected_units;
     }
-    if (own_units < 2 || selected_units != own_units)
+    if (selectable_units < 2 || selected_units != selectable_units)
         fail(
-            std::to_string(selected_units) + " of " + std::to_string(own_units) +
-            " own units are selected"
+            std::to_string(selected_units) + " of " + std::to_string(selectable_units) +
+            " selectable units are selected"
         );
     if ((slots[commander].unit->flags & OA_UNIT_FLAG_SELECTED) == 0 ||
         (slots[second].unit->flags & OA_UNIT_FLAG_SELECTED) == 0)
