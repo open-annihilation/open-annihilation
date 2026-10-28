@@ -576,6 +576,13 @@ std::size_t sight_index(runtime::Match& match, const std::array<uint32_t, 3>& po
     return grid.player_bits.size();
 }
 
+/// The vehicle's build list, filled the way the order tests fill it.
+/// `unit:build` counts a type missing from that list as not buildable.
+void ready_lists(Fixture& fixture) {
+    CHECK(sim::ai::configure_match_computer_players(*fixture.match, profile, build_lists, false));
+    sim::ai::prepare_match_computer_players(*fixture.match);
+}
+
 /// A brain without full awareness, seated on the computer rather than the
 /// viewer, finds a site on ground that seat has explored and orders a
 /// building there. Ground only the viewer has mapped stays closed.
@@ -605,6 +612,9 @@ void another_seat_builds_on_its_own_ground(const std::string& script) {
     CHECK(!fixture.match->point_mapped(own_centre));
     CHECK(fixture.match->point_mapped(viewer_centre));
     CHECK(!fixture.match->player_mapped(computer, viewer_centre));
+    ready_lists(fixture);
+    CHECK(fixture.match->player_mapped(computer, own_centre));
+    CHECK(!fixture.match->point_mapped(own_centre));
 
     host::Sandbox* sandbox = seat_quiet(fixture, script, {});
     CHECK(ask_site(*sandbox, "ARMSOLAR", own_cell, own_cell, 0, nullptr));
