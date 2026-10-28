@@ -473,6 +473,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-underwater-features", &Options::check_underwater_features, {}},
         {"--check-click-snap", &Options::check_click_snap, {}},
         {"--check-build-preview", &Options::check_build_preview, {}},
+        {"--check-dialog-backdrop", &Options::check_dialog_backdrop, {}},
         {"--check-pointer-interfaces", &Options::check_pointer_interfaces, {}},
         {"--check-key-timing", &Options::check_key_timing, {}},
         {"--check-pointer-keys", &Options::check_pointer_keys, {}},
