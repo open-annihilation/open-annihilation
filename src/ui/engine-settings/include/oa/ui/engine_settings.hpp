@@ -152,6 +152,8 @@ inline constexpr std::string_view native_density = "open-annihilation.native-den
 inline constexpr std::string_view explosion_flash = "open-annihilation.explosion-flash";
 /// "classic" or "smooth" (EngineSettings::fog_of_war).
 inline constexpr std::string_view fog_of_war = "open-annihilation.fog-of-war";
+/// 1 or 0 (EngineSettings::new_unit_shadows).
+inline constexpr std::string_view new_unit_shadows = "open-annihilation.new-unit-shadows";
 /// "rendered" or "dots" (EngineSettings::zoomed_out_units).
 inline constexpr std::string_view zoomed_out_units = "open-annihilation.zoomed-out-units";
 /// The share of normal size past which Zoomed out units applies: "1/2",
@@ -1362,6 +1364,12 @@ struct EngineSettings {
     /// How the fog's edges are drawn while the graphics card draws the
     /// battlefield; the processor's drawing is always Classic.
     FogOfWar fog_of_war{FogOfWar::smooth};
+    /// Units' and wrecks' shadows as Open Annihilation draws them where the
+    /// graphics card draws the battlefield (Full): laid on the ground under
+    /// everything, overlaps darkening once, an aircraft's with a soft edge.
+    /// Off draws each as the game does, with its unit, as the processor
+    /// always draws them. It changes only what the frames show.
+    bool new_unit_shadows{true};
     /// How units are drawn farther out than zoomed_out_after: as at any
     /// zoom, or as dots. Never icons, which the dialog shows but does not
     /// offer yet.

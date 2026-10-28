@@ -470,6 +470,15 @@ struct ModelFrameInputs {
     /// FX.GAF "shadow" frame 0, rendered, for the projectiles' shadows; null
     /// casts none.
     const oa::formats::gaf::RenderedFrame* projectile_shadow{};
+    /// The shadows of models and shots as Open Annihilation draws them (New
+    /// unit shadows): every unit's and wreck's silhouette and every shot's
+    /// shadow sprite laid on the ground before the list's draws, overlaps
+    /// darkening once, an aircraft's with a soft edge. False casts each as
+    /// the game does, drawn with its model or shot in the list's order, so
+    /// that it darkens what was drawn before it: a model's the silhouette the
+    /// processor blends (ground_shadow in model_draw.hpp), in game pixels
+    /// sampled as a feature's shadow is.
+    bool new_unit_shadows{true};
 };
 
 /// What the model stage did since it was made, for checks and the frame

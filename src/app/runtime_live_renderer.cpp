@@ -390,6 +390,7 @@ bool Runtime::render_live_match_surface() {
         inputs.nanolathe_intensity = engine_settings().nanolathe_lighting / 100.0F;
         inputs.tick = match_->simulation().tick;
         inputs.translucent_units = match_->state().game.debug_overlay != 0;
+        inputs.new_unit_shadows = engine_settings().new_unit_shadows;
         inputs.view_direction = {live.projection[8], live.projection[9], live.projection[10]};
         inputs.clip_projection = live.projection;
         inputs.clip_width = match_world_cpu_.width;

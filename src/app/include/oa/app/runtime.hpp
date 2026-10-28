@@ -16796,6 +16796,34 @@ class Runtime final : public menu::Host,
         const std::function<void(float)>& at_zoom,
         const fs::path& report_directory
     );
+
+    /// Checks that New unit shadows chooses between the Full tier's shadows
+    /// and the game's own, in every tier (runtime_unit_shadows_check.cpp).
+    ///
+    /// A tank and an aircraft high over the ground are placed beside the
+    /// nearest tree to the local commander that casts a shadow of its own,
+    /// and each tier given draws them at zoom 1 with the setting On, Off,
+    /// and with shadows off, each frame taking the setting at once. The
+    /// standard and Basic tiers draw the same frame On and Off. The Full
+    /// tier's frame changes: Off its shadows change the pixels the standard
+    /// tier's change, wherever the two tiers draw the same picture without
+    /// shadows, but for pixels so dark that the game's alpha table may leave
+    /// them as they are and a handful at most beside them; On they part from
+    /// them by more.
+    /// Pictures of the tree and the units in each tier, On, Off and without
+    /// shadows, go to the report. The units stay in the match; the settings
+    /// and the shadows' option are put back. Ends in the last tier given.
+    /// Throws std::runtime_error on a failure.
+    ///
+    /// @param set_level sets the flag's level and decides the tier again
+    /// @param levels the tiers checked, by the level that draws in each,
+    ///        the standard tier's first
+    /// @param report_directory where the pictures go
+    void check_unit_shadow_switch(
+        const std::function<void(oa::ui::engine_settings::HardwareAcceleration)>& set_level,
+        std::span<const oa::ui::engine_settings::HardwareAcceleration> levels,
+        const fs::path& report_directory
+    );
     // The 8-bit view of the match frame the poster writes: the palette index
     // of an RGB pixel and the display whose palette the image carries.
 

@@ -950,7 +950,8 @@ void unit_shadows(const Inputs& in, Scene& scene) {
             height_at(*in.map, position.x / 65536, position.z / 65536), float(in.sea_level)
         );
         const float altitude = std::max(0.0F, position.y / fixed_scale - receiver);
-        const bool aircraft = (flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 && altitude > 0;
+        const bool aircraft =
+            in.new_unit_shadows && (flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 && altitude > 0;
         if (aircraft && image.width <= 256 && image.height <= 256) {
             const uint32_t radius = renderer_aircraft_shadow::edge_radius(altitude);
             uint64_t key = hash_start;
