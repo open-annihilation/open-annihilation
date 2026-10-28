@@ -1408,7 +1408,8 @@ joined Graphics' rows, which shortened the scroll bar's thumb and put the
 row between Explosion flash and Zoomed out units, and again when the
 camera's switches and the effect sliders joined them, which shortened the
 thumb further and put the water sliders at the end, and again when New
-unit shadows joined them at the end; no other scene changed.
+unit shadows joined them at the end; no other scene changed. The Controls
+scenes were recorded again when Group keys centre the view joined its rows.
 
 `ui-engine-settings-dialog` also holds UI kit gallery's row: its label,
 its hint in two lines at Compact and one at Regular and Large, and SHOW,
