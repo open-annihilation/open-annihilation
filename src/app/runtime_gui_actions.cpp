@@ -105,6 +105,91 @@ bool mask_holds_a_type(const oa::data::defs::CategoryMask& mask) {
     return false;
 }
 
+/// Folds an ASCII letter. Any other byte is unchanged.
+///
+/// @param byte the byte
+/// @return the folded byte
+unsigned char fold_ascii(unsigned char byte) {
+    if (byte >= 'A' && byte <= 'Z')
+        return static_cast<unsigned char>(byte - 'A' + 'a');
+    return byte;
+}
+
+/// Whether two names are the same, ignoring ASCII case.
+///
+/// @param left one name
+/// @param right the other
+/// @return true when they match
+bool same_ascii(std::string_view left, std::string_view right) {
+    if (left.size() != right.size())
+        return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        const auto a = static_cast<unsigned char>(left[index]);
+        const auto b = static_cast<unsigned char>(right[index]);
+        if (fold_ascii(a) != fold_ascii(b))
+            return false;
+    }
+    return true;
+}
+
+/// Whether the text draws any word.
+///
+/// @param text the gadget's text
+/// @return true when a character other than a space is there
+bool draws_words(std::string_view text) {
+    for (const unsigned char byte : text) {
+        if (byte != ' ' && byte != '\t')
+            return true;
+    }
+    return false;
+}
+
+/// The screen's title, as a title gadget draws it.
+///
+/// A label named HEADING or TITLE is the title. A file with one label named
+/// TEXT uses that. Otherwise the panel's own name, when it is not the HEADER
+/// well, and otherwise the file's stem.
+///
+/// @param layout the parsed screen
+/// @param stem the file stem
+/// @return the title, still in the spelling the gadget draws
+std::string screen_title(const oa::ui::gui_layout::Layout& layout, std::string_view stem) {
+    std::string heading;
+    std::string titled;
+    std::string only_text;
+    int text_count = 0;
+    for (const oa::ui::gui_layout::Gadget& gadget : layout.gadgets) {
+        if (gadget.common.active == 0)
+            continue;
+        const auto* label = std::get_if<oa::ui::gui_layout::LabelFields>(&gadget.fields);
+        if (label == nullptr || !draws_words(label->text))
+            continue;
+        if (same_ascii(gadget.common.name, "HEADING") && heading.empty())
+            heading = label->text;
+        else if (same_ascii(gadget.common.name, "TITLE") && titled.empty())
+            titled = label->text;
+        else if (same_ascii(gadget.common.name, "TEXT")) {
+            ++text_count;
+            if (text_count == 1)
+                only_text = label->text;
+        }
+    }
+    if (!heading.empty())
+        return heading;
+    if (!titled.empty())
+        return titled;
+    if (text_count == 1)
+        return only_text;
+    if (!layout.gadgets.empty()) {
+        std::string root = layout.gadgets.front().common.name;
+        if (root.size() >= 4 && same_ascii(root.substr(root.size() - 4), ".gui"))
+            root.resize(root.size() - 4);
+        if (draws_words(root) && !same_ascii(root, "HEADER"))
+            return root;
+    }
+    return std::string(stem);
+}
+
 /// The stem of a `gui.` action id, between the two dots.
 ///
 /// @param id the action id
@@ -153,10 +238,12 @@ void Runtime::gather_gui_quick_keys() {
         const std::optional<std::vector<uint8_t>> bytes = assets_.load_file_contents(path);
         if (!bytes)
             continue;
-        oa::ui::gui_layout::ParseResult parsed = oa::ui::gui_layout::parse(*bytes);
+        oa::ui::gui_layout::ParseResult parsed =
+            oa::ui::gui_layout::parse(*bytes, oa::ui::gui_layout::game_translation_lookup());
         if (!parsed.ok() || !parsed.layout)
             continue;
         const std::string stem = stem_of_resource(path);
+        const std::string menu = screen_title(*parsed.layout, stem);
         // A unit info button the file leaves without a key takes the letter its
         // caption gives it, the same assignment the panel's first draw makes.
         if (stem.starts_with("unitinfo")) {
@@ -178,6 +265,9 @@ void Runtime::gather_gui_quick_keys() {
             key.action = gui_action_id(stem, gadget.common.name);
             key.letter = static_cast<char32_t>(static_cast<uint8_t>(button->quick_key));
             key.help = gadget.common.source_help;
+            if (draws_words(button->text))
+                key.caption = button->text;
+            key.menu = menu;
             gui_quick_keys_.push_back(std::move(key));
         }
     }
@@ -248,6 +338,8 @@ keys::ModData Runtime::gui_mod_data(std::string_view order_stem) const {
         row.action = key.action;
         row.letter = key.letter;
         row.help = key.help;
+        row.caption = key.caption;
+        row.menu = key.menu;
         if (key.file_stem == order_stem)
             row.gadget = key.gadget;
         mod.keys.push_back(std::move(row));

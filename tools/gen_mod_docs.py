@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Generate the facts and tables of the standard hack and script extension pages from the registry.
+"""Generate the facts and tables of the standard hack, limit and script extension pages from the registry.
 
 Reads src/data/mod-profile/registry/hack-registry.yaml and keeps this
 Markdown in step with it:
@@ -21,6 +21,12 @@ Markdown in step with it:
       parameter at its default. A hack that lists `actions` also gets a keys
       block: each action, the chords it has while that hack is on, and what
       it does, from the action registry's words.
+  docs/mods/standard-hacks/<limit id>.md
+      one page per limit (kind limit), headed by LIMIT_TITLES. The facts and
+      schema blocks are the hack page's, for a value written under the
+      profile's limits block: the registry id's limits. prefix is dropped
+      there. A missing page is the same skeleton. A limit left out plays at
+      its 3.1c baseline, so the schema's off row says that.
   docs/mods/script-extensions/<extension id>.md
       one page per script extension, headed by its title. A missing page is
       created as a skeleton: the title, the facts block, the headings
@@ -35,30 +41,37 @@ Markdown in step with it:
       the standard hacks table: one row per hack, grouped by area, with its
       title linking to its page, its id, one sentence on what it does, its
       scope and its status. Areas and the hacks within each follow their
-      titles alphabetically, as Developer Mode lists them. Then the script
+      titles alphabetically, as Developer Mode lists them. Beside it, the
+      limits table: one row per limit, grouped by area, with its title
+      linking to its page, its registry id, the key a profile writes, one
+      sentence on what it holds and its scope. Then the script
       extensions table: one row per extension, in the order of their usual
       indices, with its title linking to its page, its id, its usual index,
       its argument and what it returns. A missing file is created holding a
-      title and both tables.
+      title and the tables.
   docs/mods/oamod-standard.md
       the table of every script extension in section 7.2: its id linking to
       its page, its usual index, its argument and what it returns. A missing
       file is created holding a title and the table.
 
 The titles of the hacks and their areas are the registry's (title and
-area-titles); the titles of the script extensions and what each returns are
-SCRIPT_EXTENSIONS', since the registry gives an extension no title. Besides a
-page's heading, only the text between a '<!-- BEGIN GENERATED: name -->' line
-and its '<!-- END GENERATED: name -->' line is written; everything else on a
-page is prose and stays as it is. A page, README or standard that has lost a
-block's markers or its heading is an error, as is a hack with no sentence in
-SENTENCES (the registry's summaries are notes for the engine's developers; the
-table says in one sentence what each hack does for a player), a script
-extension with no entry in SCRIPT_EXTENSIONS, an entry there that names no
-script extension in the registry, and a set extension, which the pages and
-tables do not describe yet. A page in docs/mods/standard-hacks that
-names no hack, or in docs/mods/script-extensions that names no script
-extension, is reported as stale.
+area-titles). A limit has no title in the registry, so its page heading and
+its row are LIMIT_TITLES', and its area is area-titles' or Limits when the
+area is limits and unnamed there. The titles of the script extensions and
+what each returns are SCRIPT_EXTENSIONS', since the registry gives an
+extension no title. Besides a page's heading, only the text between a
+'<!-- BEGIN GENERATED: name -->' line and its '<!-- END GENERATED: name -->'
+line is written; everything else on a page is prose and stays as it is. A
+page, README or standard that has lost a block's markers or its heading is
+an error, as is a hack or a limit with no sentence in SENTENCES (the
+registry's summaries are notes for the engine's developers; the table says
+in one sentence what each one does for a player), a limit with no title in
+LIMIT_TITLES, a script extension with no entry in SCRIPT_EXTENSIONS, an
+entry there that names no script extension in the registry, and a set
+extension, which the pages and tables do not describe yet. A page in
+docs/mods/standard-hacks that names no hack or limit, or in
+docs/mods/script-extensions that names no script extension, is reported as
+stale.
 
   gen_mod_docs.py              write the pages and the tables
   gen_mod_docs.py --check      write nothing; exit 1 when a block or page differs or is stale
@@ -275,6 +288,37 @@ SENTENCES = {
         "Display changes: a 1024x768 minimum, the menu resolution and screenshots.",
     "ui.external-exports":
         "Exports live unit state and the battle room's state for other programs.",
+    "limits.units-per-player":
+        "Sets how many units each player may own, and the range a player or host may choose.",
+    "limits.unit-types":
+        "Sets how many unit type ids the same-type selection can hold.",
+    "limits.effects":
+        "Sets how many effect emitters a layer holds before it drops the oldest, and how many the shared pool hands out.",
+    "limits.path-search-budget":
+        "Sets how many path nodes a search may visit in one tick, before a local game's pathfinding setting scales it.",
+    "limits.model-composite":
+        "Sets the size of the buffer a unit's model is drawn into, and whether a larger model is cut to it.",
+    "limits.build-list-entries":
+        "Sets how many build-list entries a builder keeps, and what happens to the rest.",
+    "limits.category-mask-types":
+        "Sets how many unit types a category can hold; a type past it belongs to none.",
+    "limits.weapon-types":
+        "Sets how many weapon ids a mod may number. Raised past 256, the profile plays only on Open Annihilation.",
+    "limits.sides":
+        "Sets how many sides the game loads. Raised past five, the profile plays only on Open Annihilation.",
+}
+
+# The heading of a limit's page. The registry gives a limit no title.
+LIMIT_TITLES = {
+    "limits.units-per-player": "Units per Player",
+    "limits.unit-types": "Unit Types",
+    "limits.effects": "Effects",
+    "limits.path-search-budget": "Path Search Budget",
+    "limits.model-composite": "Model Composite",
+    "limits.build-list-entries": "Build List Entries",
+    "limits.category-mask-types": "Category Mask Types",
+    "limits.weapon-types": "Weapon Types",
+    "limits.sides": "Sides",
 }
 
 # What each script extension gives a unit script: the title of its page,
@@ -488,6 +532,34 @@ def hacks(reg):
     return {k: e for k, e in reg["entries"].items() if e.get("kind") == "hack"}
 
 
+def limits(reg):
+    return {k: e for k, e in reg["entries"].items() if e.get("kind") == "limit"}
+
+
+def profile_name(eid, entry):
+    """The key a profile writes: a limit drops its limits. prefix."""
+    if entry.get("kind") == "limit":
+        prefix = "limits."
+        if not eid.startswith(prefix) or "." in eid[len(prefix):]:
+            raise DocsError(f"{eid}: a limit id is limits.<name>")
+        return eid[len(prefix):]
+    return eid
+
+
+def profile_block(entry):
+    return "limits" if entry.get("kind") == "limit" else "hacks"
+
+
+def limit_area_title(reg, area):
+    """A limit area's heading. limits is Limits when area-titles does not name it."""
+    titled_area = reg.get("area-titles", {}).get(area)
+    if titled_area:
+        return titled_area
+    if area == "limits":
+        return "Limits"
+    return area
+
+
 def extensions(reg):
     """The script extensions, in the order of their usual indices; one without an index comes last."""
     found = [(k, e) for k, e in reg["entries"].items() if e.get("kind") == "script-ext"]
@@ -530,41 +602,63 @@ def replace_block(text, name, body, where):
 
 def facts(eid, e, reg):
     area = eid.split(".")[0]
-    rows = [
-        ("Hack id", code(eid)),
-        ("Area", f"{area_title(reg, area)} (`{area}`)"),
-        ("Scope", SCOPES[e["scope"]]),
-        ("Runs on", runs_on(e["ownership"])),
-        ("Parameters", str(len(e["params"]))),
-        ("Status", "implemented" if e["implemented"] else
-         "not yet implemented: a profile that turns it on is refused"),
-    ]
+    if e.get("kind") == "limit":
+        rows = [
+            ("Limit id", code(eid)),
+            ("Written as", f"{code(profile_name(eid, e))} under `limits`"),
+            ("Area", f"{limit_area_title(reg, area)} (`{area}`)"),
+            ("Scope", SCOPES[e["scope"]]),
+            ("Runs on", runs_on(e["ownership"])),
+            ("Parameters", str(len(e["params"]))),
+        ]
+    else:
+        rows = [
+            ("Hack id", code(eid)),
+            ("Area", f"{area_title(reg, area)} (`{area}`)"),
+            ("Scope", SCOPES[e["scope"]]),
+            ("Runs on", runs_on(e["ownership"])),
+            ("Parameters", str(len(e["params"]))),
+            ("Status", "implemented" if e["implemented"] else
+             "not yet implemented: a profile that turns it on is refused"),
+        ]
     return "| Fact | Value |\n| --- | --- |\n" + "".join(f"| {k} | {v} |\n" for k, v in rows)
 
 
 def schema(eid, e, entries):
     params = e["params"]
-    out = [f"Hack id {code(eid)}, written under the profile's `hacks` block.", ""]
-    ways = [(f"{eid}: true", "On, every parameter at its default." if params else "On.")]
+    name = profile_name(eid, e)
+    if e.get("kind") == "limit":
+        out = [
+            f"Limit id {code(eid)}, written as {code(name)} under the profile's `limits` block. "
+            "The `limits.` prefix of the registry id is dropped there.",
+            "",
+        ]
+        absent = ("Off, the same as leaving it out: every parameter at its 3.1c baseline."
+                  if "off" not in e else f"Off, the same as leaving it out. {e['off']}")
+    else:
+        out = [f"Hack id {code(eid)}, written under the profile's `hacks` block.", ""]
+        absent = (f"Off, the same as leaving it out. {e['off']}" if "off" in e else
+                  "Off, the same as leaving it out: 3.1c behaviour.")
+    ways = [(f"{name}: true", "On, every parameter at its default." if params else "On.")]
     if params:
         first = next(iter(params))
-        ways.append((f"{eid}: {{{first}: {yaml_value(params[first]['default'])}}}",
+        ways.append((f"{name}: {{{first}: {yaml_value(params[first]['default'])}}}",
                      "On, the parameters named set and the rest at their defaults."))
     presets = e.get("presets", {})
     if presets:
-        name = next(iter(presets))
-        ways.append((f"{eid}: {{preset: {name}}}",
+        preset = next(iter(presets))
+        ways.append((f"{name}: {{preset: {preset}}}",
                      "On, starting from a preset; parameters named beside `preset` replace its values."))
     sh = e.get("shorthand")
     if sh:
-        ways.append((f"{eid}: {yaml_value(params[sh]['default'])}", f"On, the shorthand: a bare value sets `{sh}`."))
-    off = f"Off, the same as leaving it out. {e['off']}" if "off" in e else "Off, the same as leaving it out: 3.1c behaviour."
-    ways.append((f"{eid}: false", off))
+        ways.append((f"{name}: {yaml_value(params[sh]['default'])}",
+                     f"On, the shorthand: a bare value sets `{sh}`."))
+    ways.append((f"{name}: false", absent))
     out += ["| Write | Means |", "| --- | --- |"] + [f"| {code(w)} | {m} |" for w, m in ways] + [""]
 
     out += ["### Parameters", ""]
     if not params:
-        out += ["This hack has no parameters.", ""]
+        out += [f"This {'limit' if e.get('kind') == 'limit' else 'hack'} has no parameters.", ""]
     else:
         out += ["| Parameter | Type | Unit | Allowed | Length | Baseline (3.1c) | Default | Adjustable | Scope "
                 "| Overridden by |",
@@ -598,24 +692,26 @@ def schema(eid, e, entries):
     out += ["### Presets", ""]
     if presets:
         out += ["| Preset | Values |", "| --- | --- |"]
-        for name, values in presets.items():
+        for preset_name, values in presets.items():
             text = ", ".join(f"{k}: {yaml_value(v)}" for k, v in values.items())
-            out.append(f"| {code(name)} | {code('{' + text + '}')} |")
+            out.append(f"| {code(preset_name)} | {code('{' + text + '}')} |")
         out.append("")
         if "baseline" in presets:
-            out += ["`baseline` sets every parameter to its 3.1c value: the hack is on and plays as 3.1c.", ""]
+            word = "limit" if e.get("kind") == "limit" else "hack"
+            out += [f"`baseline` sets every parameter to its 3.1c value: the {word} is on and plays as 3.1c.", ""]
     else:
-        out += ["This hack has no presets.", ""]
+        out += [f"This {'limit' if e.get('kind') == 'limit' else 'hack'} has no presets.", ""]
 
     out += ["### Shorthand", ""]
-    if sh:
-        out += [f"The hack has one parameter, so a bare value sets `{sh}`: "
-                f"{code(eid + ': ' + yaml_value(params[sh]['default']))} is "
-                f"{code(eid + ': {' + sh + ': ' + yaml_value(params[sh]['default']) + '}')}.", ""]
+    kind = "limit" if e.get("kind") == "limit" else "hack"
+    if sh and len(params) == 1:
+        out += [f"The {kind} has one parameter, so a bare value sets `{sh}`: "
+                f"{code(name + ': ' + yaml_value(params[sh]['default']))} is "
+                f"{code(name + ': {' + sh + ': ' + yaml_value(params[sh]['default']) + '}')}.", ""]
     elif params:
-        out += ["This hack takes no shorthand: write `true`, `false` or a parameter map.", ""]
+        out += [f"This {kind} takes no shorthand: write `true`, `false` or a parameter map.", ""]
     else:
-        out += ["This hack has no parameters to set: write `true` or `false`.", ""]
+        out += [f"This {kind} has no parameters to set: write `true` or `false`.", ""]
 
     if e.get("constraints"):
         out += ["### Constraints", "", "After resolution the values must keep:", ""]
@@ -630,12 +726,12 @@ def schema(eid, e, entries):
             out.append(f"| {code(k)} | {d['file']} | {code(d.get('standard-key', '-'))} | {ov} |")
         out.append("")
 
-    out += ["### Every parameter at its default", "", "```yaml", "hacks:"]
+    out += ["### Every parameter at its default", "", "```yaml", f"{profile_block(e)}:"]
     if params:
-        out.append(f"  {eid}:")
+        out.append(f"  {name}:")
         out += [f"    {p}: {yaml_value(s['default'])}" for p, s in params.items()]
     else:
-        out.append(f"  {eid}: true")
+        out.append(f"  {name}: true")
     out += ["```"]
     return "\n".join(out)
 
@@ -672,6 +768,23 @@ def table(reg, sentences):
             status = "implemented" if e["implemented"] else "not yet implemented"
             out.append(f"| [{e['title']}]({PAGES}/{eid}.md) | {code(eid)} | {sentences[eid]} | {e['scope']} "
                        f"| {status} |")
+        out.append("")
+    return "\n".join(out)
+
+
+def limits_table(reg, sentences, titles):
+    """The limits table: one row per limit, grouped by area, each name linking to its page."""
+    rows = {}
+    for eid, e in limits(reg).items():
+        rows.setdefault(eid.split(".")[0], []).append((eid, e))
+    out = []
+    for area in sorted(rows, key=lambda a: title_order(limit_area_title(reg, a))):
+        out += [f"### {limit_area_title(reg, area)}", "",
+                "| Limit | Id | Written as | What it does | Scope |",
+                "| --- | --- | --- | --- | --- |"]
+        for eid, e in sorted(rows[area], key=lambda item: title_order(titles[item[0]])):
+            out.append(f"| [{titles[eid]}]({PAGES}/{eid}.md) | {code(eid)} | {code(profile_name(eid, e))} "
+                       f"| {sentences[eid]} | {e['scope']} |")
         out.append("")
     return "\n".join(out)
 
@@ -828,8 +941,14 @@ def with_keys(text, hack_id, entry, catalogue, where):
     return text + addition
 
 
-def expected(reg, docs, sentences, texts, actions=None):
+def sentence_problems(found, sentences):
+    """Hacks or limits with no sentence for the tables."""
+    return [f"registry {eid}: no sentence in SENTENCES" for eid in found if eid not in sentences]
+
+
+def expected(reg, docs, sentences, texts, actions=None, titles=None):
     """Every generated file's path and expected text, from its current text; raises DocsError."""
+    titles = LIMIT_TITLES if titles is None else titles
     entries = reg["entries"]
     problems = []
     for eid, e in hacks(reg).items():
@@ -837,8 +956,17 @@ def expected(reg, docs, sentences, texts, actions=None):
             problems.append(f"registry {eid}: area {eid.split('.')[0]} has no name in area-titles")
         if not e.get("title"):
             problems.append(f"registry {eid}: no title")
-        if eid not in sentences:
-            problems.append(f"registry {eid}: no sentence in SENTENCES")
+    problems += sentence_problems(hacks(reg), sentences)
+    for eid, e in limits(reg).items():
+        try:
+            profile_name(eid, e)
+        except DocsError as error:
+            problems.append(str(error))
+        if "params" not in e:
+            problems.append(f"registry {eid}: no parameters")
+        if not isinstance(titles.get(eid), str) or not titles[eid].strip():
+            problems.append(f"registry {eid}: no title in LIMIT_TITLES")
+    problems += sentence_problems(limits(reg), sentences)
     problems += extension_problems(reg, texts)
     if problems:
         raise DocsError("\n".join(problems))
@@ -851,6 +979,13 @@ def expected(reg, docs, sentences, texts, actions=None):
         text = replace_block(text, "schema", schema(eid, e, entries), path)
         text = with_keys(text, eid, e, actions, path)
         files[path] = text
+    for eid, e in limits(reg).items():
+        path = docs / PAGES / f"{eid}.md"
+        text = path.read_text(encoding="utf-8") if path.exists() else skeleton(titles[eid])
+        text = titled(text, titles[eid], path)
+        text = replace_block(text, "facts", facts(eid, e, reg), path)
+        text = replace_block(text, "schema", schema(eid, e, entries), path)
+        files[path] = text
     for eid, e in extensions(reg).items():
         title = texts[eid]["title"]
         path = docs / EXT_PAGES / f"{eid}.md"
@@ -862,8 +997,10 @@ def expected(reg, docs, sentences, texts, actions=None):
     readme = docs / "README.md"
     text = readme.read_text(encoding="utf-8") if readme.exists() else \
         "# Mods\n\n" + block("hacks table", "") + "\n\n" + block("script extensions table", "") + "\n"
+    text = insert_block(text, "limits table", "script extensions table")
     text = replace_block(text, "script extensions table", ext_table(reg, texts), readme)
-    files[readme] = replace_block(text, "hacks table", table(reg, sentences), readme)
+    text = replace_block(text, "hacks table", table(reg, sentences), readme)
+    files[readme] = replace_block(text, "limits table", limits_table(reg, sentences, titles), readme)
     standard = docs / STANDARD
     text = standard.read_text(encoding="utf-8") if standard.exists() else \
         "# The OAMOD standard\n\n" + block("script extensions table", "") + "\n"
@@ -871,18 +1008,30 @@ def expected(reg, docs, sentences, texts, actions=None):
     return files
 
 
+def insert_block(text, name, before_name):
+    """The text with an empty generated block inserted before another, when it has none."""
+    if begin(name) in text:
+        return text
+    addition = block(name, "") + "\n\n"
+    at = text.find(begin(before_name))
+    if at < 0:
+        return text + ("" if text.endswith("\n") else "\n") + addition
+    return text[:at] + addition + text[at:]
+
+
 def stale_pages(reg, docs):
     stale = []
-    for folder, ids in ((docs / PAGES, set(hacks(reg))), (docs / EXT_PAGES, set(extensions(reg)))):
+    known = set(hacks(reg)) | set(limits(reg))
+    for folder, ids in ((docs / PAGES, known), (docs / EXT_PAGES, set(extensions(reg)))):
         if folder.is_dir():
             stale += [p for p in folder.glob("*.md") if p.stem not in ids and p.name != "README.md"]
     return sorted(stale)
 
 
-def sync(reg, docs, sentences, texts, check, root, actions=None):
+def sync(reg, docs, sentences, texts, check, root, actions=None, titles=None):
     """Writes (or with check, compares) every generated file; returns the exit status."""
     try:
-        files = expected(reg, docs, sentences, texts, actions)
+        files = expected(reg, docs, sentences, texts, actions, titles)
     except DocsError as e:
         print(f"gen_mod_docs: {e}", file=sys.stderr)
         return 2
@@ -903,7 +1052,7 @@ def sync(reg, docs, sentences, texts, check, root, actions=None):
                 path.write_text(text, encoding="utf-8")
     stale = stale_pages(reg, docs)
     for p in stale:
-        what = "hack" if p.parent.name == PAGES else "script extension"
+        what = "hack or limit" if p.parent.name == PAGES else "script extension"
         print(f"gen_mod_docs: {rel(p)} names no {what} in the registry", file=sys.stderr)
     if check:
         if differ:
@@ -924,7 +1073,8 @@ def sync(reg, docs, sentences, texts, check, root, actions=None):
 def self_test():
     """Checks the pages, the table, the blocks and the check mode on a small registry."""
     failures = []
-    reg = {"area-titles": {"units": "Units", "ui": "Interface", "setup": "Game Setup"}, "entries": {
+    reg = {"area-titles": {"units": "Units", "ui": "Interface", "setup": "Game Setup", "limits": "Limits"},
+           "entries": {
         "units.example": {
             "kind": "hack", "implemented": True, "area": "units", "title": "Example", "summary": "s", "ownership": "owner-only",
             "scope": "sim", "shorthand": "ticks",
@@ -947,8 +1097,16 @@ def self_test():
                        "scope": "sim", "direction": "get", "default-index": 41},
         "unit.first": {"kind": "script-ext", "area": "script", "summary": "s", "ownership": "all-machines",
                        "scope": "sim", "direction": "get", "default-index": 40},
+        "limits.example": {
+            "kind": "limit", "area": "limits", "summary": "s", "ownership": "host + all-machines",
+            "scope": "sim", "shorthand": "count",
+            "params": {"count": {"type": "int", "min": 5, "max": 32, "unit": "sides", "baseline": 5, "default": 10,
+                                 "adjustable": "fixed", "scope": "sim"}},
+            "presets": {"baseline": {"count": 5}}},
     }}
-    sentences = {"units.example": "Does an example.", "ui.plain": "Draws.", "setup.named": "Names."}
+    sentences = {"units.example": "Does an example.", "ui.plain": "Draws.", "setup.named": "Names.",
+                 "limits.example": "Counts."}
+    titles = {"limits.example": "Example Limit"}
     texts = {
         "unit.owner": {"title": "Owner", "takes-unit-id": True, "returns": "The owner.", "fidelity": "Both.",
                        "same-on-every-machine": "No, on purpose."},
@@ -960,12 +1118,21 @@ def self_test():
                     ("AI:%s", '"AI:%s"'), ("", '""'), (".tad", '".tad"'), ("true", '"true"'), ("1.0", '"1.0"')):
         if yaml_value(v) != text:
             failures.append(f"{v!r} is written {yaml_value(v)!r}, expected {text!r}")
-    for eid, e in hacks(reg).items():
+    for eid, e in list(hacks(reg).items()) + list(limits(reg).items()):
         written = schema(eid, e, reg["entries"]).split("```yaml\n", 1)[1].split("```", 1)[0]
-        read = oamod_yaml.loads(written)["hacks"][eid]
+        block_name = profile_block(e)
+        read = oamod_yaml.loads(written)[block_name][profile_name(eid, e)]
         want = {p: s["default"] for p, s in e["params"].items()} or True
         if read != want:
             failures.append(f"{eid}: the default block reads back as {read!r}, expected {want!r}")
+    limit_page = schema("limits.example", reg["entries"]["limits.example"], reg["entries"])
+    for needle in ("written as `example`", "profile's `limits` block", "The `limits.` prefix",
+                   "`example: 10`", "`example: {preset: baseline}`", "```yaml\nlimits:\n  example:\n",
+                   "every parameter at its 3.1c baseline", "| Written as | `example` under `limits` |"):
+        if needle not in facts("limits.example", reg["entries"]["limits.example"], reg) + "\n" + limit_page:
+            failures.append(f"the limit page lacks {needle!r}")
+    if "hacks:" in limit_page:
+        failures.append("a limit's schema is written under hacks")
     if runs_on("local-view + host") != "Each machine, for its own view, and the host's machine.":
         failures.append(f"ownership is described wrong: {runs_on('local-view + host')}")
     page = schema("units.example", reg["entries"]["units.example"], reg["entries"])
@@ -985,8 +1152,9 @@ def self_test():
         saved = sys.stdout, sys.stderr
         sys.stdout = sys.stderr = quiet
 
-        def run(check, sentences_used=sentences, texts_used=texts, reg_used=reg, actions_used=None):
-            return sync(reg_used, docs, sentences_used, texts_used, check, Path(tmp), actions_used)
+        def run(check, sentences_used=sentences, texts_used=texts, reg_used=reg, actions_used=None,
+                titles_used=titles):
+            return sync(reg_used, docs, sentences_used, texts_used, check, Path(tmp), actions_used, titles_used)
 
         def with_extension(eid, **fields):
             entries = dict(reg["entries"], **{eid: dict(reg["entries"][eid], **fields)})
@@ -1016,6 +1184,22 @@ def self_test():
             headless = run(True)
             page_path.write_text(prose, encoding="utf-8")
             unnamed = run(True, {"units.example": "x", "ui.plain": "y"})
+
+            limit_path = docs / PAGES / "limits.example.md"
+            limit_page = limit_path.read_text(encoding="utf-8")
+            limit_prose = limit_page.replace("<!-- WRITE: brief description -->", "It raises a limit.")
+            limit_path.write_text(limit_prose, encoding="utf-8")
+            limit_kept = run(True)
+            limit_path.write_text(limit_prose.replace("| Parameters | 1 |", "| Parameters | 9 |"), encoding="utf-8")
+            limit_edited = run(True)
+            run(False)
+            limit_restored = limit_path.read_text(encoding="utf-8") == limit_prose
+            (docs / PAGES / "limits.gone.md").write_text("# limits.gone\n", encoding="utf-8")
+            limit_stale = run(True)
+            (docs / PAGES / "limits.gone.md").unlink()
+            limit_unnamed = run(True, {k: v for k, v in sentences.items() if k != "limits.example"})
+            limit_untitled = run(True, titles_used={})
+            run(False)
 
             ext_path = docs / EXT_PAGES / "unit.owner.md"
             ext_page = ext_path.read_text(encoding="utf-8")
@@ -1056,6 +1240,11 @@ def self_test():
                                  ("a check with a stale page", stale, 1),
                                  ("a check with a lost marker", broken, 2),
                                  ("a check with a hack without a sentence", unnamed, 2),
+                                 ("a check after a limit page's prose", limit_kept, 0),
+                                 ("a check after a limit page's facts changed", limit_edited, 1),
+                                 ("a check with a stale limit page", limit_stale, 1),
+                                 ("a check with a limit without a sentence", limit_unnamed, 2),
+                                 ("a check with a limit without a title", limit_untitled, 2),
                                  ("a check after an extension page's prose", ext_kept, 0),
                                  ("a check after an extension page's related link changed", ext_link, 1),
                                  ("a check after an extension page's facts changed", ext_edited, 1),
@@ -1070,6 +1259,12 @@ def self_test():
                 failures.append(f"{label} returned {got}, expected {want}")
         if not restored:
             failures.append("writing did not keep the prose and restore the generated block and heading")
+        if not limit_restored:
+            failures.append("writing did not keep a limit page's prose and restore its blocks")
+        for needle in ("# Example Limit\n", "| Limit id | `limits.example` |",
+                       "| Written as | `example` under `limits` |", "limits:\n  example:"):
+            if needle not in limit_page:
+                failures.append(f"a new limit page lacks {needle!r}")
         if not ext_restored:
             failures.append("writing did not keep an extension page's prose and restore its blocks")
         if not titled_first:
@@ -1085,7 +1280,9 @@ def self_test():
         for needle in ("# Mods", "### Units", "### Game Setup", "### Interface",
                        "| [Plain](standard-hacks/ui.plain.md) | `ui.plain` | Draws. | view | not yet implemented |",
                        "| [Owner](script-extensions/unit.owner.md) | `unit.owner` | 41 | unit id | The owner. |",
-                       "| [First](script-extensions/unit.first.md) | `unit.first` | 40 | — | 1. |"):
+                       "| [First](script-extensions/unit.first.md) | `unit.first` | 40 | — | 1. |",
+                       "| [Example Limit](standard-hacks/limits.example.md) | `limits.example` | `example` | "
+                       "Counts. | sim |"):
             if needle not in readme:
                 failures.append(f"the README lacks {needle!r}")
         if not readme.index("### Game Setup") < readme.index("### Interface") < readme.index("### Units"):

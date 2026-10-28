@@ -356,6 +356,13 @@ always match what the engine accepts. A hack whose status is "not
 implemented" is refused by this build unless `--accept-unimplemented-hacks`
 is given; its page says what works so far.
 
+An engine limit is documented to the same depth, on a page under
+[standard-hacks/](standard-hacks/) named `limits.<name>.md`, with the same
+five parts. A profile writes it under `limits`, and the `limits.` prefix of
+its registry id is dropped there. A limit left out, or written `false`,
+plays at its 3.1c baseline. The [table below](#every-standard-hack) lists
+the limits beside the hacks.
+
 ## Validation and hashing
 
 The engine checks a profile completely before it plays: every key, hack,
@@ -490,12 +497,18 @@ registry and the resolver.
   heading and the facts and related blocks of every script extension page.
   It creates a skeleton page for a new hack or extension. Besides the
   heading, it writes only between a block's `BEGIN GENERATED` and
-  `END GENERATED` comment lines; the prose outside them is kept. The
-  `mod-docs-sync` test fails while a heading or a block differs from what
-  the registry gives, or while a page names no hack or extension.
+  `END GENERATED` comment lines; the prose outside them is kept. It does
+  the same for every limit: the facts and schema of
+  `standard-hacks/limits.<name>.md`, and the limits table beside the hacks.
+  The `mod-docs-sync` test fails while a heading or a block differs from
+  what the registry gives, or while a page names no hack, limit or
+  extension.
 
 To add or change a hack, change the registry, run both tools, then write or
-update the page's Description, Configuration example and Details.
+update the page's Description, Configuration example and Details. A limit
+is the same, and its page heading is the tool's, since the registry gives
+a limit no title.
+
 A screenshot goes in `standard-hacks/images/`, named after the hack, as a
 small PNG cropped to the feature, with alt text and a one-line caption on
 the page.
@@ -687,6 +700,27 @@ and the hacks within each follow their titles alphabetically. Scope is
 | [Timed Shell Detonation](standard-hacks/weapons.timed-shell-detonation.md) | `weapons.timed-shell-detonation` | A ballistic shell whose timer runs out explodes, unless its weapon opts out, instead of fizzling. | sim | implemented |
 | [Vertical Launch Before Turret](standard-hacks/weapons.vlaunch-before-turret.md) | `weapons.vlaunch-before-turret` | A weapon that is both vertical-launch and turreted fires as a vertical-launch weapon. | sim | implemented |
 <!-- END GENERATED: hacks table -->
+
+Engine limits are listed the same way. A profile writes each under
+`limits`, and the `limits.` prefix of its registry id is dropped there.
+Each name links to its page. Scope is `sim` or `view`, as
+[above](#the-standard-hacks).
+
+<!-- BEGIN GENERATED: limits table -->
+### Limits
+
+| Limit | Id | Written as | What it does | Scope |
+| --- | --- | --- | --- | --- |
+| [Build List Entries](standard-hacks/limits.build-list-entries.md) | `limits.build-list-entries` | `build-list-entries` | Sets how many build-list entries a builder keeps, and what happens to the rest. | sim |
+| [Category Mask Types](standard-hacks/limits.category-mask-types.md) | `limits.category-mask-types` | `category-mask-types` | Sets how many unit types a category can hold; a type past it belongs to none. | sim |
+| [Effects](standard-hacks/limits.effects.md) | `limits.effects` | `effects` | Sets how many effect emitters a layer holds before it drops the oldest, and how many the shared pool hands out. | view |
+| [Model Composite](standard-hacks/limits.model-composite.md) | `limits.model-composite` | `model-composite` | Sets the size of the buffer a unit's model is drawn into, and whether a larger model is cut to it. | view |
+| [Path Search Budget](standard-hacks/limits.path-search-budget.md) | `limits.path-search-budget` | `path-search-budget` | Sets how many path nodes a search may visit in one tick, before a local game's pathfinding setting scales it. | sim |
+| [Sides](standard-hacks/limits.sides.md) | `limits.sides` | `sides` | Sets how many sides the game loads. Raised past five, the profile plays only on Open Annihilation. | sim |
+| [Unit Types](standard-hacks/limits.unit-types.md) | `limits.unit-types` | `unit-types` | Sets how many unit type ids the same-type selection can hold. | sim |
+| [Units per Player](standard-hacks/limits.units-per-player.md) | `limits.units-per-player` | `units-per-player` | Sets how many units each player may own, and the range a player or host may choose. | sim |
+| [Weapon Types](standard-hacks/limits.weapon-types.md) | `limits.weapon-types` | `weapon-types` | Sets how many weapon ids a mod may number. Raised past 256, the profile plays only on Open Annihilation. | sim |
+<!-- END GENERATED: limits table -->
 
 ## Every script extension
 

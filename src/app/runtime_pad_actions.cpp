@@ -320,6 +320,9 @@ void PadAccess::act_press(
         runtime.touch_state().hud.sheet_focus = state.sheet_focus;
         return;
     }
+    case pc::Action::keys_overlay:
+        runtime.toggle_keys_overlay_screen();
+        return;
     case pc::Action::unit_info:
         // The unit under the pointer; with R4 held it is pinned.
         sync_pointer(runtime);

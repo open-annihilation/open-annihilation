@@ -5222,7 +5222,7 @@ if(BUILD_TESTING)
     add_test(NAME limits-fixture-selftest COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_limits_fixture.py --self-test)
     set_tests_properties(limits-fixture-selftest PROPERTIES TIMEOUT 60)
-    # The standard hack and script extension pages in docs/mods, their
+    # The standard hack, limit and script extension pages in docs/mods, their
     # tables in the README and table 7.2 of the OAMOD standard hold what the
     # OAMOD registry gives (tools/gen_mod_docs.py), and the tool still keeps
     # prose and finds changed blocks in a small built-in registry.

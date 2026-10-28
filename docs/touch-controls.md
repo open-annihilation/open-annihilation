@@ -243,7 +243,8 @@ Once a gamepad has sent input, the touch layer shows the pad's part too
 - With the touch controls on, each control gains a small **badge** naming
   the pad buttons that give it: QUEUE R4, ADD L4, CLEAR B, SELECT ▾ D-pad
   left, PAUSE View+X, CHAT View+A, CENTRE L3, FOLLOW R3, NEXT D-pad right,
-  INFO View and FORCE R5; a group chip shows its button while L5 is held.
+  INFO View and FORCE R5. Holding View and pressing R1 toggles the keys
+  overlay. A group chip shows its button while L5 is held.
   Badges change how controls look, never where they are, and are drawn in
   the glyph set the **Button prompts** setting chooses (Off hides them). A
   long press's help names the pad input too ("On the pad: hold or tap R4").
