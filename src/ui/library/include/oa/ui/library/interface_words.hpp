@@ -95,6 +95,7 @@ inline constexpr std::string_view interface_words[] = {
     words::tab_languages,
     words::fact_latest,
     words::title_library,
+    words::title_library_header,
     words::active_heading_maps,
     words::active_heading_mod,
     words::more_menu,
