@@ -620,7 +620,10 @@ the game draws its text and how the modern fonts draw it.
     them, and shells that strike the water splash. Torpedoes and their hits
     stay at their depth and make no splash.
   - **Coastal waves** run toward the shore, gentler on small, sheltered
-    water.
+    water. Their foam takes the colour of the map's picture under it,
+    lighter than the ground there, so that it blends with sand, grass,
+    rock, snow or dark water rather than drawing a white line round
+    every shore.
   - **Underwater shimmer** tints and lights only the parts of scenery and
     units that are under the water, more the deeper they lie; what stands
     above the water keeps its colours. At 0% your own units under the
@@ -630,6 +633,15 @@ the game draws its text and how the modern fonts draw it.
     surface ship on the water, mirrored under its hull: each part of the
     ship shows as far below its waterline as it stands above it, fainter
     the higher it stands. They fade as the view turns flat.
+
+  They follow the map's sea. On a lava world (a map whose OTA sets
+  `lavaworld=1`) the lava shows none of the four, as the game draws it:
+  no ripples, waves, rings or splashes, no shimmer on what lies in it and
+  no reflections, and shots that land in it show the game's own lava
+  splash. Where the map's sea swallows shots without a splash
+  (`nosealeveltrigger=1`), shots and naval guns leave no rings or
+  splashes on it; its waves stay. A map whose water does damage
+  (`waterdoesdamage=1`, such as an acid world) keeps all four.
 
   Fine detail fades as the view zooms out, and the reflections of distant
   fleets are kept few. These effects change only what your screen shows,

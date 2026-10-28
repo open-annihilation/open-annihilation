@@ -12,6 +12,7 @@
 #include "oa/ui/key_bindings/layout.hpp"
 #include "oa/ui/kit/keys.hpp"
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -559,9 +560,9 @@ std::optional<Face> best_face(
 
 kit::KeyboardLook
 keyboard_look(const Editor& editor, const KeyboardViewInputs& inputs, const Labels& labels) {
-    const keys::Resolved bound = editor.resolved();
-    const keys::ResolveInput input = editor.resolve_input();
-    const std::vector<keys::Clash> clashes = keys::find_clashes(bound, input);
+    const std::shared_ptr<const Editor::InUse> kept = editor.in_use();
+    const keys::Resolved& bound = kept->resolved;
+    const std::vector<keys::Clash>& clashes = kept->clashes;
     const keys::KeyboardMap& map = editor.keyboard();
     const keys::Platform platform = editor.platform();
     const TextHooks& hooks = editor.text();
@@ -598,7 +599,8 @@ keyboard_look(const Editor& editor, const KeyboardViewInputs& inputs, const Labe
 }
 
 std::vector<CardLine> key_card(const Editor& editor, std::string_view code, uint8_t layer) {
-    const keys::Resolved bound = editor.resolved();
+    const std::shared_ptr<const Editor::InUse> kept = editor.in_use();
+    const keys::Resolved& bound = kept->resolved;
     const keys::KeyboardMap& map = editor.keyboard();
     const keys::Platform platform = editor.platform();
     const TextHooks& hooks = editor.text();
@@ -639,7 +641,8 @@ std::vector<CardLine> key_card(const Editor& editor, std::string_view code, uint
 }
 
 std::vector<std::string> keys_of(const Editor& editor, std::string_view action) {
-    const keys::Resolved bound = editor.resolved();
+    const std::shared_ptr<const Editor::InUse> kept = editor.in_use();
+    const keys::Resolved& bound = kept->resolved;
     const keys::Bound* found = nullptr;
     for (const keys::Bound& row : bound.actions) {
         if (row.id == action)

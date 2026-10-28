@@ -1404,7 +1404,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_patrol_check.cpp
   src/app/runtime_reclaim_cursor_check.cpp src/app/runtime_wreck_pick_check.cpp
   src/app/runtime_click_snap_check.cpp
-  src/app/runtime_build_preview_check.cpp
+  src/app/runtime_build_preview_check.cpp src/app/runtime_dialog_backdrop_check.cpp
   src/app/runtime_pointer_check.cpp src/app/runtime_key_table_check.cpp
   src/app/runtime_key_latches_check.cpp
   src/app/runtime_hold_confirm_check.cpp
@@ -1446,6 +1446,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_map_browser_check.cpp
   src/app/runtime_key_editor_check.cpp
   src/app/runtime_keys_overlay_check.cpp
+  src/app/runtime_selection_keys_check.cpp
   src/app/runtime_key_capture_check.cpp
   src/app/runtime_key_share_check.cpp
   src/app/runtime_key_views_check.cpp
@@ -2472,6 +2473,18 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_keys_overlay_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED keys-overlay-arranged)
+      # 3.1c's Ctrl+letter keys, Ctrl+Shift+R and P, a group key and Primary+/,
+      # each pressed as the system sends it: the selection each makes from
+      # the units' Category words, the radar rings on the minimap and the
+      # keys overlay.
+      set(oa_selection_keys_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/selection-keys")
+      file(MAKE_DIRECTORY "${oa_selection_keys_dir}")
+      add_test(NAME native-selection-keys COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-selection-keys
+        --preferences-file "${oa_selection_keys_dir}/selection-keys.conf")
+      set_tests_properties(native-selection-keys PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_selection_keys_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Capturing a chord, a clash, Escape held for a second, and a draft
       # clash's card, over a paused skirmish. Each run starts from a clean
       # folder. --snapshot writes key-capture-<w>x<h>.ppm and
@@ -3953,6 +3966,25 @@ endforeach()
       set_tests_properties(native-build-preview PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_build_preview_dir}" SKIP_RETURN_CODE 77
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The in-game briefing, the save dialog and the help dialog over a
+      # paused CORE mission at sea, in the standard, Basic and Full tiers at
+      # zoom 1, 1.5, 2 and 0.5: the frame presented with each dialog equals
+      # the frame presented without it in every battlefield pixel outside the
+      # dialog's panel, the units' among them; at a raised display gamma the
+      # Full tier's within half a step of the gamma's levels. Like
+      # native-live-renderer it leaves the video driver to the environment,
+      # so that on a machine with a graphics card it draws on the card, and
+      # on SDL's dummy driver on its software renderer. The battlefield's
+      # effects keep their settings' defaults. Skips under 2 GiB.
+      set(oa_dialog_backdrop_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/dialog-backdrop")
+      file(MAKE_DIRECTORY "${oa_dialog_backdrop_dir}")
+      file(WRITE "${oa_dialog_backdrop_dir}/dialog-backdrop.conf" "open-annihilation-preferences 1\n")
+      add_test(NAME native-dialog-backdrop COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-dialog-backdrop --hardware-acceleration=full --force-capable
+        --preferences-file "${oa_dialog_backdrop_dir}/dialog-backdrop.conf")
+      set_tests_properties(native-dialog-backdrop PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_dialog_backdrop_dir}" SKIP_RETURN_CODE 77
+        ENVIRONMENT "SDL_AUDIO_DRIVER=dummy")
       # The screen's edges scrolling the camera, in full screen and in a
       # window, and both interface types' pointer buttons, through SDL input:
       # left clicks and right presses on open ground, units and the radar,
@@ -4551,6 +4583,20 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-stage-render PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # The water effects on the graphics card's Full tier, in the classic
+        # and the turned view: a lava world's shore, with a kbot walking its
+        # edge and shells landing in the lava, draws the same with them at
+        # 100% as at 0%, and a water map's shore differs in every frame.
+        # SDL's GPU renderer needs the system's own video driver; where it
+        # cannot be made the check skips.
+        add_test(NAME native-lava-water-effects COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_lava_water_effects.py"
+          --native $<TARGET_FILE:oa-game> --oa-tool $<TARGET_FILE:oa-tool>
+          --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-lava-water-effects PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          SKIP_RETURN_CODE 77)
         # A block of fighters and a row of kbots, each moved to one point as
         # a group, keep their shape: the fighters land each on its own site
         # around the point, the row's middle kbots reach their own points and

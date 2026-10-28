@@ -723,6 +723,19 @@ walk runs:
   pages, and Basic at the next sample while memory stays short. Each skips
   under 2 GiB.
 
+`native-dialog-backdrop` (`--check-dialog-backdrop`) opens the in-game
+briefing, the save dialog and the help dialog over a paused CORE mission
+at sea in the standard, Basic and Full tiers, at zoom 1, 1.5, 2 and 0.5,
+and holds the frame presented with each dialog to the frame presented
+without it in every battlefield pixel outside the dialog's panel, the
+units' among them, and at a raised display gamma the Full tier's within
+half a step of the gamma's levels. Unlike the checks above it leaves the video driver to
+the environment: on SDL's dummy driver it runs on the software renderer,
+switched to every tier as `--force-capable` allows, and on a machine with
+a graphics card, run without `SDL_VIDEO_DRIVER=dummy`, on the card (Metal
+on a Mac), in a window. It writes the frames at zoom 1, and any that
+differ, to `local/reports` in its folder, and skips under 2 GiB.
+
 ### Touch controls
 
 The touch controls ([docs/touch-controls.md](../touch-controls.md)) are
@@ -1106,7 +1119,17 @@ off putting every overlay back while keeping the places. With
 `arrange-overlays-match-1280x720.ppm` and `overlays-default-1280x720.ppm`.
 `native-keys-overlay-restart` starts the game again on the preferences the
 first run left, Move overlays on, and finds the keys overlay and the chat
-line where they were put. `native-match-layers` holds the frame a match
+line where they were put. `native-selection-keys`
+(`--check-selection-keys`) presses each of 3.1c's Ctrl+letter keys in a
+skirmish as the system sends them: the modifier's own key down first, the
+key down and up, then the modifier up, each through the event queue with
+the pointer moving between them. It plants radar, sonar and jammer units,
+a fighter, a bomber, a scout plane and armed kbots, and an enemy radar
+tower, and requires Ctrl+A to take only the units that can be selected,
+each other selection the loaded data's Category words name,
+the rings Ctrl+R draws on the minimap, Ctrl+Shift+R and Ctrl+Shift+P
+adding, Ctrl+1 and its group key, and Primary+/ opening and closing the
+keys overlay. `native-match-layers` holds the frame a match
 ends on to the one the game kept with Show keys on buttons Off, since the
 key badges are drawn on the presented frame alone.
 
@@ -1509,6 +1532,17 @@ on the deep water must stand on their build grid at the sea level less
 their waterlines, a solar collector on a hill at the lowest corner under
 its footprint, read from the map with `oa-tool asset-extract`, and a patrol
 boat at a placed one's height, each to the end of the run.
+`native-lava-water-effects` (`tools/check_native_lava_water_effects.py`)
+finds a shore of flat land beside the sea in three maps' terrain, read with
+`oa-tool asset-extract`: Lava & Two Hills (`lavaworld=1`), Higher Ground
+(`lavaworld=1` and `nosealeveltrigger=1`) and Coast To Coast. On each, a
+stage walks a kbot along the shore's edge while two destroyers off it
+shell each other, and a director script renders it on the graphics card's
+Full tier, four seconds in the classic view and four turned, once with
+the four water effects at 100% and once at 0%. On the lava worlds every
+frame of the two renders is the same picture; on Coast To Coast every
+frame differs. It needs the system's video driver and skips under SDL's
+dummy driver; `--pictures DIR` keeps a still of each view of each render.
 
 ## Writing a test
 

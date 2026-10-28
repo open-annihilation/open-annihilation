@@ -2093,12 +2093,20 @@ prompts, Settings › Updates and the headers name one state with one size.
   the tier is dropped for the run and the frame presented as the standard
   tier presents it (`drop_acceleration`); the failing call is struck
   against the driver, but an error of the game's own, which no driver call
-  made (`AccelerationFault::engine`), is not (`take_acceleration_error`). Screenshots, film frames, the
-  load and save backdrop, the briefing's backdrop and the end screen keep
-  the standard tier's picture of the same moment (`ensure_screen_world`),
-  drawn again with the frame's counts of units drawn kept and the HUD's
-  resource readout, which saves keep in `Game.resource_readout`, not eased
-  again. MakePoster draws every view of its poster as the standard tier
+  made (`AccelerationFault::engine`), is not (`take_acceleration_error`). Screenshots, film frames
+  and the end screen keep the standard tier's picture of the same moment
+  (`ensure_screen_world`), drawn again with the frame's counts of units
+  drawn kept and the HUD's resource readout, which saves keep in
+  `Game.resource_readout`, not eased again. The load and save dialogs and
+  the in-game briefing, drawn over a picture of the paused match, keep the
+  battlefield as the frame presented it (`compose_shown_match`), so that
+  the units, the water and the fog behind them look as they did without
+  the dialog: a battlefield the card drew in the Full tier, or magnified in
+  Basic, is drawn again as the last frame drew it, into the window's frame
+  without presenting it, and read back at the layout's size and back
+  through the display gamma (`read_presented_world`); the area pass's
+  picture below zoom 1 is the world layer as presented; and a picture the
+  card cannot give is the standard tier's draw. MakePoster draws every view of its poster as the standard tier
   draws it too (`render_poster`), and the frame again in its own tier
   after.
   `app-scaled-world-software` checks the drawing on SDL's software
@@ -2387,7 +2395,8 @@ prompts, Settings › Updates and the headers name one state with one size.
   dialogs, the cursor and the present follow as in Basic, and the readers
   that keep a picture, the capture and the checks among them, get the
   standard tier's draw (`ensure_screen_world`), since the world layer
-  holds no picture. Between the frame and the overlay, the effects pass
+  holds no picture, but for the dialogs drawn over a picture of the paused
+  match, which keep the card's (`compose_shown_match`). Between the frame and the overlay, the effects pass
   (`full_effects::compose`) works within the lights' bounds. Light alone,
   the weapons', the nanolathes' and the wrecks', is painted over opaque
   black on the processor and added by the card (`full_effects::Pass::light`),

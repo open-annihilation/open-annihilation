@@ -578,9 +578,12 @@ def check_look(native, game_dir, workdir, look, interface_sizes=INTERFACE_SIZES,
         client.request("quit")
         game.wait_end()
     except (AutomationFailure, OSError, ValueError) as failure:
+        ended = game.process.poll()
         game.stop()
         game.take_output()
         print("\n".join(f"game: {line}" for line in game.lines[-80:]))
+        if ended is not None:
+            print(f"hit areas: the game had ended with status {ended}")
         raise AutomationFailure(f"{look}: {type(failure).__name__}: {failure}") from failure
     finally:
         for client in clients:

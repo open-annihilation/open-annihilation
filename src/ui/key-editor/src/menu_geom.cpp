@@ -60,7 +60,8 @@ std::string filter_caption(
     return fill(show(editor.text(), words::filter_count), {{"filter", label}, {"count", count}});
 }
 
-/// The layout menu: OA default, each installed layout, then Duplicate and Rename.
+/// The layout menu: OA default, each installed layout, then Clone… and, on a
+/// layout other than OA default, Rename and Describe….
 ///
 /// @param editor the editor
 /// @return the items
@@ -90,14 +91,15 @@ std::vector<MenuEntry> layout_entries(const Editor& editor) {
     MenuEntry rule;
     rule.kind = MenuKind::divider;
     entries.push_back(std::move(rule));
-    add(MenuKind::duplicate,
-        "duplicate",
-        show(editor.text(), words::duplicate),
-        std::string(name_layout) + ".duplicate");
-    add(MenuKind::rename,
-        "rename",
-        show(editor.text(), words::rename),
-        std::string(name_layout) + ".rename");
+    add(MenuKind::clone,
+        "clone",
+        show(editor.text(), words::clone_item),
+        std::string(name_layout) + ".clone");
+    if (editor.layout_id() != "oa-default")
+        add(MenuKind::describe,
+            "describe",
+            show(editor.text(), words::describe_item),
+            std::string(name_layout) + ".describe");
     return entries;
 }
 
@@ -213,6 +215,16 @@ menu_entries(const Editor& editor, Menu menu, const ScreenState& state, bool com
                 more.name = std::string(control);
                 entries.push_back(std::move(more));
             };
+        // Clone… and Rename and Describe… lead More, as they lead the
+        // layout drop-down that Compact keeps here already.
+        if (!compact) {
+            add_more(MenuKind::clone, "clone", words::clone_item, name_clone);
+            if (editor.layout_id() != "oa-default")
+                add_more(MenuKind::describe, "describe", words::describe_item, name_describe);
+            MenuEntry rule;
+            rule.kind = MenuKind::divider;
+            entries.push_back(std::move(rule));
+        }
         add_more(MenuKind::restore, "restore", words::restore_title, name_restore);
         add_more(MenuKind::import, "import", words::import_button, name_import);
         add_more(MenuKind::share, "share", words::share_button, name_share);

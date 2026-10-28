@@ -6,6 +6,7 @@
 #include "full_terrain.hpp"
 #include "oa/formats/tnt.hpp"
 #include "renderer_water.hpp"
+#include <array>
 #include <functional>
 
 namespace oa::app::renderer_water_classic {
@@ -33,6 +34,11 @@ struct Inputs {
     std::size_t reflected_vertices{};
     /// True only for currently visible projected map pixels.
     std::function<bool(float, float)> visible;
+    /// The part of the map's picture the game shows, map pixels across and
+    /// down from its top left (Runtime::shown_map_size): the foam, rings,
+    /// splashes and reflections end at its edges, as the terrain does.
+    /// Either zero leaves them to the view's edges alone.
+    std::array<float, 2> shown{};
 };
 
 /// Water ripples' motion of the map's own water art over the terrain's

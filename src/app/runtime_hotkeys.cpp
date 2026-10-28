@@ -339,7 +339,19 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
         return true;
     }
     if (id == "select.all") {
-        select_units_matching([](const oa::sim::unit_spawn::Slot&) { return true; });
+        // Ctrl+A selects every unit of the player's that can be selected, as
+        // 3.1c does: a place in the player's unit list that holds no unit stays
+        // as it is. The panel shows the first of them, as before.
+        auto& world = match_->state();
+        world.game.local_player_index = match_local_player_;
+        oa::sim::selection::select_all(world, selection_hooks());
+        selected_match_unit_ = 0;
+        adopt_selected_units();
+        int count = 0;
+        for (const auto& slot : match_->world().slots)
+            count += slot.unit != nullptr && slot.owner_index == match_local_player_ &&
+                     (slot.unit->flags & OA_UNIT_FLAG_SELECTED) != 0;
+        status_ = count == 0 ? "No units" : std::to_string(count) + " selected";
         return true;
     }
     if (id == "select.commander") {
