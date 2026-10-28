@@ -520,11 +520,11 @@ int Runtime::check_underwater_features() {
         switch (fog) {
         case FogCase::none:
             flags = kept;
-            reset_sight_presentation(false);
+            reset_sight_presentation();
             break;
         case FogCase::unseen:
             flags = static_cast<uint8_t>(kept | visibility::line_of_sight);
-            reset_sight_presentation(false);
+            reset_sight_presentation();
             break;
         case FogCase::unmapped:
             // As the console's Mapping turns mapping on: what the player sees

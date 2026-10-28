@@ -2098,8 +2098,8 @@ void write_startup_line(std::string_view text) {
             "--headless-check"
         );
     if (result.force_capable && !result.check_render_tiers && !result.check_build_preview &&
-        !result.check_dialog_backdrop && !result.check_engine_settings && !result.check_kill_board &&
-        !result.check_underwater_features)
+        !result.check_dialog_backdrop && !result.check_engine_settings &&
+        !result.check_kill_board && !result.check_underwater_features)
         throw std::runtime_error(
             "--force-capable is accepted only with --check-render-tiers, "
             "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
@@ -2138,10 +2138,10 @@ void write_startup_line(std::string_view text) {
         result.check_update_offer || result.check_update_download ||
         result.check_update_roll_back || result.check_text_fit || result.check_folder_chooser ||
         result.check_patrol_reclaim || result.check_reclaim_cursor || result.check_wreck_pick ||
-        result.check_underwater_features || result.check_build_preview || result.check_dialog_backdrop ||
-        result.check_pointer_interfaces || result.check_megamap_clicks ||
-        result.check_single_player_offers || result.check_radar_orders ||
-        result.check_touch_controls || result.check_pad_controls ||
+        result.check_underwater_features || result.check_build_preview ||
+        result.check_dialog_backdrop || result.check_pointer_interfaces ||
+        result.check_megamap_clicks || result.check_single_player_offers ||
+        result.check_radar_orders || result.check_touch_controls || result.check_pad_controls ||
         result.check_running_while_inactive || result.check_director_view ||
         result.check_director_render || result.check_interpolation || result.check_unit_playout ||
         result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||
