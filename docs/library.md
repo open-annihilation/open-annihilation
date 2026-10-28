@@ -625,7 +625,8 @@ own changes: Keep copies them to the new layout only when it has none,
 and Start clean writes nothing.
 
 **EDIT KEYS…** opens the key editor on the layout in use
-([the key editor](controls.md#the-key-editor)).
+([the key editor](controls.md#the-key-editor)). How a layout, a share and
+the helpers fit together is [Keys](keys.md).
 
 **UNINSTALL** of the layout in use asks, before the question's last
 paragraph, "You play with {name} now. Uninstall it and go back to OA

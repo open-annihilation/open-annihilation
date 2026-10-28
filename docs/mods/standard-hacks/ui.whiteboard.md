@@ -131,3 +131,5 @@ hacks:
 | `whiteboard.wipe` | `MouseRight` | Wipes the board |
 | `whiteboard.erase` | `MouseRight:double` | Erases a marker |
 <!-- END GENERATED: keys -->
+
+These keys move in the [key editor](../../keys.md#the-key-editor), in **Whiteboard**, while this hack is on.

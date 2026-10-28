@@ -167,6 +167,9 @@ Letting go on the hub or outside the wheel, or Escape, closes it and gives
 nothing. A click shorter than the long press, or a press that moves past the
 drag threshold, does what that button does today, at the point it went down.
 Off, the buttons are unchanged. A mouse player sees the wheel alone.
+The wheel's Stop, and a pad button's Stop, press **Stop** (`order.stop`).
+Moving Stop off S in the [key editor](keys.md#the-key-editor) leaves
+them where they are.
 
 Holding and then dragging, instead of lifting, draws a selection box.
 

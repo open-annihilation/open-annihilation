@@ -203,3 +203,5 @@ hacks:
 | `watch.player-view` | `MouseLeft:double` | Takes the view of the player whose row is clicked |
 | `watch.lock-view` | `MouseLeft:double` | Locks onto that player's camera |
 <!-- END GENERATED: keys -->
+
+These keys move in the [key editor](../../keys.md#the-key-editor), in **Game** and **Watching**, while this hack is on.

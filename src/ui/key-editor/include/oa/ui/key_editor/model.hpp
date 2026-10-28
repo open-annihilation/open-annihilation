@@ -60,6 +60,9 @@ struct EditorInputs {
     std::string mod_name{};                    ///< the played mod's name; empty with no mod
     std::vector<LayoutSummary> installed{};    ///< layouts installed beside OA default
     TextHooks text{};                          ///< how words are looked up
+    /// Every folder name the player's Keys folder holds, a layout that does
+    /// not read among them, so a new layout's id never lands on one.
+    std::vector<std::string> taken_ids{};
 };
 
 /// Which rows a list keeps.

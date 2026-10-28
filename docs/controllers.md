@@ -225,6 +225,13 @@ factory shows. A press on a wedge is a press on that build button.
   scrolling with the left stick meanwhile stretches the box across the
   map. A short haptic marks the start of a box.
 - **Every unit of a type**: Y, two R2 presses, or the ring's Type.
+The pad's buttons press commands, not the letter those commands use by
+default. **Stop** (`order.stop`) is X. Moving Stop off S in the
+[key editor](keys.md#the-key-editor) leaves the pad's Stop where it is.
+The letter in the tables above is the default key, and that key moves on
+its own. Holding the right mouse button, or the middle one, opens the
+same order wheel when [Order wheel](keys.md#accessibility) says so.
+
 - **Orders**: click where the cursor shows the order; arm one with the
   order ring and A, or with the side panel's button and the pointer; give
   one at a point in one move by releasing R1 on it. Take back an armed

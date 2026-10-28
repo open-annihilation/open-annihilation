@@ -1350,18 +1350,49 @@ bool fixed_escape(
            keys::same_key(chord, escape_chord(), &keyboard);
 }
 
-/// A slug that is not already a layout id.
+/// True when a folder name and an id name one folder, ASCII letters compared
+/// without case, as a folder name is on some systems.
+///
+/// @param folder the folder's name
+/// @param id the id
+/// @return true when they match
+bool same_folder(std::string_view folder, std::string_view id) {
+    if (folder.size() != id.size())
+        return false;
+    for (std::size_t index = 0; index < folder.size(); ++index) {
+        char one = folder[index];
+        char two = id[index];
+        if (one >= 'A' && one <= 'Z')
+            one = static_cast<char>(one - 'A' + 'a');
+        if (two >= 'A' && two <= 'Z')
+            two = static_cast<char>(two - 'A' + 'a');
+        if (one != two)
+            return false;
+    }
+    return true;
+}
+
+/// A slug that is not already a layout id, a built-in id or a folder in Keys.
 ///
 /// @param name the name the player typed
 /// @param installed the layouts already installed
+/// @param folders every folder name in the Keys folder
 /// @return the slug
-std::string unique_slug(std::string_view name, const std::vector<LayoutSummary>& installed) {
+std::string unique_slug(
+    std::string_view name,
+    const std::vector<LayoutSummary>& installed,
+    const std::vector<std::string>& folders
+) {
     const std::string base = slug_of(name);
     auto taken = [&](const std::string& id) {
-        if (id == "oa-default")
+        if (id == "oa-default" || id == "classic" || id.starts_with("own-"))
             return true;
         for (const LayoutSummary& layout : installed) {
             if (layout.id == id)
+                return true;
+        }
+        for (const std::string& folder : folders) {
+            if (same_folder(folder, id))
                 return true;
         }
         return false;
@@ -1974,7 +2005,7 @@ bool Editor::clone(std::string_view name, std::string_view description) {
             unknowns.push_back(binding);
     }
     LayoutSummary made;
-    made.id = unique_slug(asked, installed_);
+    made.id = unique_slug(asked, installed_, inputs_.taken_ids);
     made.name = std::string(asked);
     made.description = std::string(trimmed(description));
     made.author = std::string(own_author);
