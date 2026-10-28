@@ -491,6 +491,11 @@ struct BuildSiteOptions {
     /// off: also for such a unit in the skipped slot or out of the placer's
     /// sight; left as it is otherwise.
     bool* over_own_units{};
+    /// Whose explored ground the footprint centre must lie on.
+    /// `no_site_units_player` reads the viewpoint player's mapped ground, which
+    /// is what the build cursor asks. A brain passes its own seat, so that
+    /// seat judges ground it has explored.
+    uint8_t mapped_player{no_site_units_player};
 };
 
 /// How the local view sees a replay that leaves the viewer no slot of its own
@@ -2708,6 +2713,16 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param position Signed 16.16 point as bit patterns.
     /// @return True when the viewpoint player's mapped bit is set there.
     bool point_mapped(const std::array<uint32_t, 3>& position) const;
+    /// Tells whether a player has mapped the terrain under a point.
+    ///
+    /// The build cursor keeps reading the viewpoint (`point_mapped`). A brain
+    /// judging a site reads the seat this names.
+    ///
+    /// @param player Player index 0..9. One outside that has mapped nothing.
+    /// @param position Signed 16.16 point as bit patterns; the sight cell is
+    ///     taken at z raised by half the height, as `point_mapped` takes it.
+    /// @return True when that player's mapped bit is set there.
+    bool player_mapped(uint8_t player, const std::array<uint32_t, 3>& position) const;
 
     /// Returns the live records of the canonical projectile pool.
     std::span<const oa::Projectile> projectiles() const noexcept {

@@ -657,8 +657,10 @@ turn.
 full awareness, `"site"` (the default) is `site_clear_for` and `"yard"` is
 `building_site_clear`. On any other seat the type must be a building,
 `"site"` is that check's map-edge test and then `building_site` with the
-seat as the placing player, and `"yard"` is `building_site` alone. Full
-awareness is the only choice. `seat_is_classic` does not decide it.
+seat as the placing player, and `"yard"` is `building_site` alone. The
+mapped ground is the seat's own, so a seat other than the viewer finds a
+site on ground it has explored. Full awareness is the only choice.
+`seat_is_classic` does not decide it.
 `brain.place(type, near, radius [, facing])` starts at the footprint cell
 whose centre is `near`, then walks rings at Chebyshev distance up to
 `radius` world units divided by 16, each ring from its north-west corner
@@ -670,7 +672,10 @@ charges 16.
 and from C++ on a second match, and compares the queues and the next tick.
 `sim-brains-sites` compares `brain.site` with the check the seat's
 awareness selects, over a grid of cells and every facing, and compares
-`brain.place` with that same walk.
+`brain.place` with that same walk. It also seats a brain without full
+awareness on the computer, with the viewer on the other seat: the brain
+finds a site on ground that seat has explored, orders a building there,
+and finds none on ground only the viewer has mapped.
 
 ## When a brain fails
 
