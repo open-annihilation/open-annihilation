@@ -1321,6 +1321,77 @@ void check_shell(const kit::Frame& frame, const std::string& where) {
     expect_height(mouse_list, editor::name_scheme_right, metrics.filter_chip_height, where);
 }
 
+/// Menu buttons are grouped under the screen's title, and the row says the
+/// button's text.
+void menu_screen_headings() {
+    editor::EditorInputs inputs = editor_fixture();
+    auto add = [&](const char* action, const char* caption, const char* menu, char32_t letter) {
+        keys::GuiKey key;
+        key.action = action;
+        key.caption = caption;
+        key.menu = menu;
+        key.letter = letter;
+        inputs.mod.keys.push_back(std::move(key));
+    };
+    add("gui.mainmenu.single", "SINGLE", "Mainmenu", U'S');
+    add("gui.mainmenu.multi", "MULTI", "Mainmenu", U'M');
+    add("gui.armopt.load", "LoadList", "GAME OPTIONS", U'L');
+
+    const editor::Editor model(std::move(inputs));
+    const kit::Frame frame = frame_for(1280, 720, 100);
+    editor::ScreenState menus;
+    menus.category = "mod.menus";
+    const kit::DisplayList list = laid_out(model, menus, frame);
+
+    std::vector<std::string> headings;
+    bool saw_single = false;
+    for (const kit::Item& item : list.items) {
+        if (const auto* heading = std::get_if<kit::HeadingLook>(&item.look))
+            headings.push_back(heading->text);
+        if (const auto* row = std::get_if<kit::ListRowLook>(&item.look)) {
+            if (row->title == "Single")
+                saw_single = true;
+        }
+    }
+    for (const kit::Control& control : list.controls) {
+        if (starts(control.name, editor::name_row_prefix) &&
+            control.text.find("Single") != std::string::npos)
+            saw_single = true;
+    }
+    const std::vector<std::string> expected = {"Menu buttons", "Mainmenu", "Game Options"};
+    if (headings != expected) {
+        std::string got;
+        for (const std::string& heading : headings) {
+            if (!got.empty())
+                got += ", ";
+            got += heading;
+        }
+        std::fprintf(stderr, "menu headings: %s\n", got.c_str());
+    }
+    OA_CHECK(headings == expected);
+    if (!saw_single)
+        std::fprintf(stderr, "the Menus list does not show Single\n");
+    OA_CHECK(saw_single);
+
+    editor::ScreenState all;
+    all.category = "all";
+    all.search.text = "loadlist";
+    const kit::DisplayList searched = laid_out(model, all, frame);
+    bool game_options = false;
+    bool joined_place = false;
+    for (const kit::Item& item : searched.items) {
+        if (const auto* heading = std::get_if<kit::HeadingLook>(&item.look)) {
+            if (heading->text == "Game Options")
+                game_options = true;
+            if (heading->text.find("·") != std::string::npos)
+                joined_place = true;
+        }
+    }
+    if (!game_options || joined_place)
+        std::fprintf(stderr, "All actions did not head LoadList with Game Options\n");
+    OA_CHECK(game_options && !joined_place);
+}
+
 int main() {
     const kit::Frame compact = frame_for(640, 480, 100);
     const kit::Frame large = frame_for(1280, 720, 100);
@@ -1375,5 +1446,6 @@ int main() {
     check_view(compact, {480, 324}, "mouse compact", editor::View::mouse, kit::KeyboardShape::ansi);
     check_view(large, {960, 600}, "mouse large", editor::View::mouse, kit::KeyboardShape::ansi);
     check_view(regular, {720, 486}, "mouse regular", editor::View::mouse, kit::KeyboardShape::ansi);
+    menu_screen_headings();
     return oa::test::failed_checks() == 0 ? 0 : 1;
 }

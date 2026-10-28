@@ -32,7 +32,9 @@ struct Slot {
 /// While every category is shown, a category that has no row is left out,
 /// except Groups, which keeps its switch. While Groups is the category, the
 /// switch is the first slot. Common commands, and a search in it, are rows
-/// with no headings.
+/// with no headings. Menu buttons that name a screen are grouped under that
+/// screen's title, in Menus and in All actions. A mod whose buttons name no
+/// screen keeps the flat Menus list.
 ///
 /// @param editor the editor
 /// @param state the category, the filter and the search

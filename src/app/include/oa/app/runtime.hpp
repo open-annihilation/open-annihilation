@@ -2824,6 +2824,10 @@ class Runtime final : public menu::Host,
         std::string action{};    ///< the made `gui.` action id
         char32_t letter{};       ///< the quick key
         std::string help{};      ///< the help the file gives, unused by resolution
+        /// The text the button draws. Empty when the button draws no words.
+        std::string caption{};
+        /// The screen's title, or its name when the file draws no title.
+        std::string menu{};
     };
 
     /// One order or tab key read from an order file. [runtime_gui_actions.cpp]
