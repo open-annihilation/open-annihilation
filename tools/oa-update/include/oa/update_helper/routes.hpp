@@ -122,22 +122,67 @@ macos_may_swap(const BundleSignature& running, const BundleSignature& staged, bo
     std::string* why
 );
 
+/// What one look found while waiting for a macOS application to start.
+struct MacosLaunchSeen {
+    bool callback_finished{false};  ///< the launch report has arrived
+    bool callback_started{false};   ///< the report says the application started
+    int callback_pid{0};            ///< the process id in that report; 0 names none
+    bool application_listed{false}; ///< the system lists the application as running
+    int listed_pid{0};              ///< the process id in that list; 0 names none
+    bool version_confirmed{false};  ///< state.json confirms the expected version
+};
+
+/// How far a macOS launch has got.
+enum class MacosLaunch : uint8_t {
+    waiting, ///< nothing has shown a start, and the report has not refused it
+    started, ///< the application is running, or the expected version is confirmed
+    failed,  ///< the report refused the start, and nothing else shows it running
+};
+
+/// Whether a macOS application has started, from one look.
+struct MacosLaunchDecision {
+    MacosLaunch launch{MacosLaunch::waiting}; ///< how far the launch has got
+    int pid{0}; ///< the process to watch; 0 when only state.json showed the start
+};
+
+/// Decides whether a macOS application has started.
+///
+/// A report that names a process id counts. A process the system lists as
+/// running counts when the report does not. A confirmed version counts when
+/// neither names a process. A report that refuses the start counts only when
+/// nothing else shows the application running. A report that claims a start
+/// but names no process id is ignored.
+///
+/// @param seen what this look found
+/// @return the decision
+[[nodiscard]] MacosLaunchDecision macos_launch_decision(const MacosLaunchSeen& seen);
+
 #if defined(__APPLE__)
-/// Starts the bundle through Launch Services and waits until it has started.
+/// Starts the bundle and waits until it has started.
 ///
 /// The arguments are the plan's. `--updated-from` is added when `from_version`
-/// is not empty. A failure is reported and nothing else is moved.
+/// is not empty. The application counts as started when the launch report
+/// names it, when the system lists it running, or when `state_file` changes
+/// from unconfirmed to confirmed for `expect_version`. A version that was
+/// already confirmed when the wait began does not count. An empty `state_file`
+/// or `expect_version` skips that look. The wait does not run out the launch
+/// report once one of those has happened. A failure is reported and nothing
+/// else is moved.
 ///
 /// @param bundle the application, already in its place
 /// @param arguments the arguments, before the update flag
 /// @param from_version the version the flag names; empty adds no `--updated-from`
+/// @param state_file the state file; empty skips the confirmation look
+/// @param expect_version the version a confirmation must name; empty skips it
 /// @param[out] error why it did not start; may be null
-/// @param[out] pid the process id, when not null and the start succeeded
-/// @return true when Launch Services started it
+/// @param[out] pid the process id when the start succeeded; 0 when only the state file showed it
+/// @return true when the application has started
 [[nodiscard]] bool start_macos_bundle(
     const std::filesystem::path& bundle,
     const std::vector<std::string>& arguments,
     std::string_view from_version,
+    const std::filesystem::path& state_file,
+    std::string_view expect_version,
     std::string* error,
     int* pid
 );
