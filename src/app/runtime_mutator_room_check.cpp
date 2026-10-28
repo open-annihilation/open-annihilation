@@ -16,8 +16,13 @@
 // the room's options locked, the button stays disabled and neither a press
 // nor Y opens the picker. Each size's frame is written as
 // mutator-room-host-<w>x<h>.png, mutator-room-host-on-<w>x<h>.png and
-// mutator-room-host-four-<w>x<h>.png. The feed is the mutator picker's.
+// mutator-room-host-four-<w>x<h>.png. Each frame's lamp is read back: red
+// with none on, green with some on, and while Visitor lacks Ridge Tough,
+// blinking, red on one frame and unlit on another, written as
+// mutator-room-blink-red-640x480.png and mutator-room-blink-unlit-640x480.png.
+// The feed is the mutator picker's.
 
+#include "brain_seats_room.hpp"
 #include "oa_layer.hpp"
 #include "oa_layer_check.hpp"
 #include "touch_state.hpp"
@@ -463,6 +468,18 @@ void Runtime::check_mutator_room() {
             "mutator-room-" + std::string(picture_kind) + "-" + size + ".png";
         write_png(fs::path(picture), presented);
         std::cout << "mutator room check: wrote " << picture << std::endl;
+        // Red with none on, green with some on, as 3.1c's on and off
+        // buttons light theirs.
+        const bool none_on = button_text == "Mutators · off";
+        const renderer::RoomLamp lamp =
+            mutators_lamp_seen(*this, oa_layer().view(), button_window, true, presented);
+        require(
+            lamp == (none_on ? renderer::RoomLamp::red : renderer::RoomLamp::green),
+            std::string("the lamp is not ") + (none_on ? "red" : "green") + " (it reads " +
+                std::to_string(static_cast<int32_t>(lamp)) + ")" + on
+        );
+        std::cout << "mutator room check: the lamp is " << (none_on ? "red" : "green") << on
+                  << std::endl;
         guest_absent(on);
     };
     for (const CheckWindow& window : kWindows)
@@ -891,6 +908,49 @@ void Runtime::check_mutator_room() {
         }
         frames(1);
         capture("mutator-room-waiting-" + std::string(tag) + "-640x480.png");
+        if (tag == "en") {
+            // While Visitor lacks one, the lamp blinks: red on one frame and
+            // unlit on another, never green, and the button is not checked.
+            bool seen_red = false;
+            bool seen_unlit = false;
+            const uint64_t started = SDL_GetTicks();
+            while (!(seen_red && seen_unlit) && SDL_GetTicks() - started < 4000) {
+                frames(1);
+                const std::optional<AutomationControl> button = named("oa.mutators");
+                if (!button)
+                    continue;
+                require(!button->checked, "the button is checked while its lamp blinks");
+                oa_layer().read_whole_window(true);
+                renderer::Surface presented;
+                capture_frame_ = &presented;
+                render();
+                capture_frame_ = nullptr;
+                oa_layer().read_whole_window(false);
+                const renderer::RoomLamp lamp = mutators_lamp_seen(
+                    *this, oa_layer().view(), window_rect(*button), true, presented
+                );
+                require(
+                    lamp != renderer::RoomLamp::green, "the lamp is green while Visitor lacks one"
+                );
+                bool* seen = lamp == renderer::RoomLamp::red ? &seen_red : &seen_unlit;
+                if (!*seen) {
+                    *seen = true;
+                    const std::string picture =
+                        std::string("mutator-room-blink-") +
+                        (lamp == renderer::RoomLamp::red ? "red" : "unlit") + "-640x480.png";
+                    write_png(fs::path(picture), presented);
+                    std::cout << "mutator room check: wrote " << picture << std::endl;
+                }
+                SDL_Delay(20);
+            }
+            require(
+                seen_red && seen_unlit,
+                std::string("the lamp does not blink while Visitor lacks one (") +
+                    (seen_red ? "red" : "") + (seen_unlit ? " unlit" : "") + " seen)"
+            );
+            std::cout << "mutator room check: the lamp blinks red while Visitor lacks one"
+                      << std::endl;
+        }
         unseat_visitor();
         frames(1);
         std::cout << "mutator room check: the 3.1c lines and the waiting line read whole" << in

@@ -48,9 +48,10 @@ edge with that column, over the Set Difficulty label and under the side
 bar. In the battle room it is as large as **Select Map** and sits directly
 above it.
 
-The button reads **Mutators**. No lamp is lit while that setup will play
-none, and its green lamp is lit while some are on. In the battle room its
-red lamp lights while a seated player lacks one of them. Resting the
+The button reads **Mutators**. As on the room's own on and off buttons,
+its red lamp is lit while that setup will play none, and its green lamp
+while some are on. In the battle room its red lamp blinks while a seated
+player lacks one of them. Resting the
 pointer on it, or the information key while it has the focus, shows a
 card: "3 mutators on", "1 mutator on" or "No mutators
 on", a row for each in the order they apply ("and 2 more" past six), then
@@ -133,8 +134,8 @@ mutators. Only the host can change them." instead.
 Skirmish and a campaign each remember their own last set, with its order
 and its options. The set is stored when **START** hands it on, before it
 applies, so a set that then stops the start is still remembered. Each
-setup starts with mutators off: the button reads **Mutators**, with no
-lamp lit, until **Use these** makes a set the setup's. **Mutators** opens on the set already
+setup starts with mutators off: the button reads **Mutators**, with its
+red lamp lit, until **Use these** makes a set the setup's. **Mutators** opens on the set already
 chosen. When nothing is chosen it opens on the
 remembered set, already on. **Use these** makes that list the setup's,
 and **START** plays it. **Cancel** changes nothing.
