@@ -207,7 +207,11 @@ int32_t asset_read(void* context, const char* path, char* buffer, uint32_t capac
     try {
         const auto data = static_cast<oa::AssetStore*>(context)->read(path);
         const auto count = std::min<std::size_t>(capacity, data.bytes.size());
-        std::memcpy(buffer, data.bytes.data(), count);
+        // An empty file, such as one laid over a campaign to hide it, has no
+        // bytes. Copying none from a null source is undefined, so copy only
+        // when the file has bytes.
+        if (count != 0)
+            std::memcpy(buffer, data.bytes.data(), count);
         return static_cast<int32_t>(count);
     } catch (const std::exception&) {
         return -1;
