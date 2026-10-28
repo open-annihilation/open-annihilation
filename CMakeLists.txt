@@ -553,7 +553,8 @@ add_library(oa-app-renderer-effects src/app/renderer_effects.cpp src/app/rendere
   src/app/renderer_effect_events.cpp)
 add_library(oa::app::renderer_effects ALIAS oa-app-renderer-effects)
 target_include_directories(oa-app-renderer-effects PUBLIC src/app)
-target_link_libraries(oa-app-renderer-effects PUBLIC oa-sim-match-runtime PRIVATE oa-options)
+target_link_libraries(oa-app-renderer-effects PUBLIC oa-sim-match-runtime oa-platform-job-pool
+  PRIVATE oa-options)
 if(BUILD_TESTING)
   foreach(oa_effect_part effects effect_sources effect_events)
     add_executable(oa-app-renderer-${oa_effect_part}-test src/app/renderer_${oa_effect_part}_test.cpp)

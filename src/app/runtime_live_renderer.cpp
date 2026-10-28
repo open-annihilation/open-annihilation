@@ -764,6 +764,18 @@ void Runtime::live_scene_visibility(
         if (requested_left >= requested_right)
             return;
     }
+
+    // The triangles that can reach the requested pixels, in their order,
+    // each with the pixels its bounds cover.
+    struct Reach {
+        std::size_t index{}; ///< the triangle's first vertex
+        int x0{};
+        int x1{};
+        int y0{};
+        int y1{};
+    };
+
+    std::vector<Reach> reaches;
     const auto vertex_count = std::min(live.projected.size(), live.scene.vertices.size());
     for (std::size_t index = 0; index + 2 < vertex_count; index += 3) {
         const std::array triangle{
@@ -799,61 +811,96 @@ void Runtime::live_scene_visibility(
             if (!intersects)
                 continue;
         }
-        renderer_live_camera::PreparedTriangle prepared;
-        if (!renderer_live_camera::prepare_triangle(triangle, prepared))
-            continue;
-        for (int y = y0; y < y1; ++y) {
-            const int left_limit =
-                bounded ? std::max(x0, static_cast<int>(std::min(row_left[y], width))) : x0;
-            const int right_limit =
-                bounded ? std::min(x1, static_cast<int>(std::min(row_right[y], width))) : x1;
-            for (int x = left_limit; x < right_limit; ++x) {
-                const std::size_t pixel = static_cast<std::size_t>(y) * width + x;
-                if (!requested_pixels.empty() && requested_pixels[pixel] == 0)
-                    continue;
-                std::array<float, 3> weights{};
-                float depth{};
-                constexpr float pixel_centre = 0.5F;
-                if (!renderer_live_camera::triangle_hit_prepared(
-                        prepared, x + pixel_centre, y + pixel_centre, weights, depth
-                    ) ||
-                    depth <= depths[pixel])
-                    continue;
-                float u{}, v{}, opacity{}, brightness{};
-                for (std::size_t corner = 0; corner < weights.size(); ++corner) {
-                    const auto& vertex = live.scene.vertices[index + corner];
-                    u += vertex.u * weights[corner];
-                    v += vertex.v * weights[corner];
-                    opacity += vertex.opacity * weights[corner];
-                    brightness += vertex.brightness * weights[corner];
+        reaches.push_back({index, x0, x1, y0, y1});
+    }
+    // Each band of rows takes the triangles that reach it in their order and
+    // writes its own rows alone, so each pixel takes the triangles in the
+    // same order whatever the bands and threads. One thread takes the rows
+    // as one band, preparing each triangle once.
+    const uint32_t raster_band_rows =
+        draw_pool_ && draw_pool_->threads() > 1 ? rows_per_band : height;
+    const uint32_t raster_bands = platform::job_pool::bands_of_rows(height, raster_band_rows);
+    std::vector<uint32_t> band_firsts(raster_bands + 1, 0);
+    for (const auto& reach : reaches)
+        for (auto band = static_cast<uint32_t>(reach.y0) / raster_band_rows;
+             band <= static_cast<uint32_t>(reach.y1 - 1) / raster_band_rows;
+             ++band)
+            ++band_firsts[band + 1];
+    for (uint32_t band = 0; band < raster_bands; ++band)
+        band_firsts[band + 1] += band_firsts[band];
+    std::vector<uint32_t> band_reaches(band_firsts[raster_bands]);
+    {
+        std::vector<uint32_t> filled(band_firsts.begin(), band_firsts.end() - 1);
+        for (uint32_t reach = 0; reach < reaches.size(); ++reach)
+            for (auto band = static_cast<uint32_t>(reaches[reach].y0) / raster_band_rows;
+                 band <= static_cast<uint32_t>(reaches[reach].y1 - 1) / raster_band_rows;
+                 ++band)
+                band_reaches[filled[band]++] = reach;
+    }
+    platform::job_pool::run_bands(draw_pool_.get(), raster_bands, [&](uint32_t band) {
+        const int band_top = static_cast<int>(band * raster_band_rows);
+        const int band_end = std::min(static_cast<int>(height), band_top + int(raster_band_rows));
+        for (uint32_t slot = band_firsts[band]; slot < band_firsts[band + 1]; ++slot) {
+            const auto& [index, x0, x1, y0, y1] = reaches[band_reaches[slot]];
+            const std::array triangle{
+                live.projected[index], live.projected[index + 1], live.projected[index + 2]
+            };
+            renderer_live_camera::PreparedTriangle prepared;
+            if (!renderer_live_camera::prepare_triangle(triangle, prepared))
+                continue;
+            for (int y = std::max(y0, band_top); y < std::min(y1, band_end); ++y) {
+                const int left_limit =
+                    bounded ? std::max(x0, static_cast<int>(std::min(row_left[y], width))) : x0;
+                const int right_limit =
+                    bounded ? std::min(x1, static_cast<int>(std::min(row_right[y], width))) : x1;
+                for (int x = left_limit; x < right_limit; ++x) {
+                    const std::size_t pixel = static_cast<std::size_t>(y) * width + x;
+                    if (!requested_pixels.empty() && requested_pixels[pixel] == 0)
+                        continue;
+                    std::array<float, 3> weights{};
+                    float depth{};
+                    constexpr float pixel_centre = 0.5F;
+                    if (!renderer_live_camera::triangle_hit_prepared(
+                            prepared, x + pixel_centre, y + pixel_centre, weights, depth
+                        ) ||
+                        depth <= depths[pixel])
+                        continue;
+                    float u{}, v{}, opacity{}, brightness{};
+                    for (std::size_t corner = 0; corner < weights.size(); ++corner) {
+                        const auto& vertex = live.scene.vertices[index + corner];
+                        u += vertex.u * weights[corner];
+                        v += vertex.v * weights[corner];
+                        opacity += vertex.opacity * weights[corner];
+                        brightness += vertex.brightness * weights[corner];
+                    }
+                    constexpr float opaque_alpha = 128;
+                    constexpr float full_alpha = 255;
+                    if (!std::isfinite(u) || !std::isfinite(v) || !std::isfinite(opacity) ||
+                        opacity * full_alpha < opaque_alpha)
+                        continue;
+                    const auto column = static_cast<uint32_t>(std::clamp(
+                        u * live.scene.texture_width, 0.0F, float(live.scene.texture_width - 1)
+                    ));
+                    const auto row = static_cast<uint32_t>(std::clamp(
+                        v * live.scene.texture_height, 0.0F, float(live.scene.texture_height - 1)
+                    ));
+                    const auto alpha =
+                        (static_cast<std::size_t>(row) * live.scene.texture_width + column) * 4 + 3;
+                    if (alpha >= live.scene.texture_rgba.size() ||
+                        live.scene.texture_rgba[alpha] * opacity < opaque_alpha)
+                        continue;
+                    depths[pixel] = depth;
+                    // Unmapped black terrain must not reveal its contours. Known
+                    // terrain carries the same smooth fog attenuation as its draw.
+                    visibility[pixel] =
+                        (!terrain_only || index < live.scene.terrain_vertex_count) &&
+                                std::isfinite(brightness)
+                            ? static_cast<uint8_t>(std::clamp(brightness, 0.0F, 1.0F) * full_alpha)
+                            : 0;
                 }
-                constexpr float opaque_alpha = 128;
-                constexpr float full_alpha = 255;
-                if (!std::isfinite(u) || !std::isfinite(v) || !std::isfinite(opacity) ||
-                    opacity * full_alpha < opaque_alpha)
-                    continue;
-                const auto column = static_cast<uint32_t>(std::clamp(
-                    u * live.scene.texture_width, 0.0F, float(live.scene.texture_width - 1)
-                ));
-                const auto row = static_cast<uint32_t>(std::clamp(
-                    v * live.scene.texture_height, 0.0F, float(live.scene.texture_height - 1)
-                ));
-                const auto alpha =
-                    (static_cast<std::size_t>(row) * live.scene.texture_width + column) * 4 + 3;
-                if (alpha >= live.scene.texture_rgba.size() ||
-                    live.scene.texture_rgba[alpha] * opacity < opaque_alpha)
-                    continue;
-                depths[pixel] = depth;
-                // Unmapped black terrain must not reveal its contours. Known
-                // terrain carries the same smooth fog attenuation as its draw.
-                visibility[pixel] =
-                    (!terrain_only || index < live.scene.terrain_vertex_count) &&
-                            std::isfinite(brightness)
-                        ? static_cast<uint8_t>(std::clamp(brightness, 0.0F, 1.0F) * full_alpha)
-                        : 0;
             }
         }
-    }
+    });
 }
 
 void Runtime::draw_live_selection() {
