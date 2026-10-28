@@ -9,7 +9,8 @@
 // pixels the processor's shadows shade, wherever the two tiers draw the same
 // picture without shadows, to within a handful; with it On they part, the
 // aircraft's shadow softened at its edge and every shadow laid under the
-// units. Pictures of each go to the report.
+// units. Pictures of each go to the report. A game with none of those tanks
+// or none of those aircraft, such as the demo, skips the cases.
 #include "oa/app/runtime.hpp"
 
 #include "oa/formats/png.hpp"
@@ -360,8 +361,13 @@ void Runtime::check_unit_shadow_switch(
     };
     const uint16_t tank_type = type_of(kTanks);
     const uint16_t aircraft_type = type_of(kAircraft);
-    if (tank_type == 0 || aircraft_type == 0)
-        fail("the game has none of the tanks or none of the aircraft placed");
+    // The demo's unit list has neither a tank nor an aircraft to place. The
+    // full game has both, and those cases still run.
+    if (tank_type == 0 || aircraft_type == 0) {
+        std::cout << "render tiers check: unit shadows: the game has none of the tanks "
+                     "or none of the aircraft; the cases are skipped\n";
+        return;
+    }
     const auto place = [&](uint16_t type, int32_t x, int32_t z) -> uint16_t {
         oa::sim::unit_spawn::Request request;
         request.player = match_local_player_;
