@@ -113,8 +113,11 @@ A click on a button, or on a role, opens the change for it.
 
 Every change is an edit: the footer counts them ("2 unsaved edits") beside
 **Undo**, which takes the last one back, as Ctrl+Z does (Cmd+Z on a Mac)
-while the search is not being typed in. **More** holds Restore defaults,
-Import…, Share… and Paste…, and at Compact the layouts. **Save changes**
+while the search is not being typed in. **More** holds two groups under
+their headings: Layouts (Import New Layout…, Clone as New Layout…, Rename
+and Describe… on a layout other than OA default, and Restore Defaults)
+and Sharing (Share My Custom Keys… and Paste Someone's Layout…). At
+Compact the layouts come first. **Save changes**
 keeps the edits. **Cancel**, the close mark or Escape with edits not saved
 asks "Save your edit before closing?" with **Save**, **Discard** and
 **Keep editing**; while a clash holds Save back it offers Discard and Keep

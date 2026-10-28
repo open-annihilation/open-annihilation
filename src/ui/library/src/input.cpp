@@ -148,8 +148,8 @@ list_scroll_of(const Library& library, const ScreenState& state, const kit::Disp
         return std::nullopt;
     PaneScroll scroll;
     scroll.view = pane->rect;
-    scroll.step = *height;
-    const auto content = static_cast<int32_t>(library.visible.size()) * *height;
+    scroll.step = controls::list_row_step(*height);
+    const auto content = static_cast<int32_t>(library.visible.size()) * scroll.step;
     scroll.limit = kit::ScrollArea::limit_for(content, scroll.view.height);
     scroll.offset = std::clamp(state.list_scroll, int32_t{0}, scroll.limit);
     return scroll;

@@ -1,18 +1,22 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The font stack draws each glyph once per size, weight and rendering. Other
-// than on Windows, FreeType reads each font from its file through a stream
-// of the engine's own. On Windows each font is read whole and the file is
-// closed. The C library Windows 95 ships keeps only a small number of files
-// open at once, and the game already holds its archives open: leaving the
-// faces open on top of those, the interface faces among them, meant a later
-// archive could not be opened and a saved game could not be written. A wide
-// path still opens a folder whose path is not in the system's code page, and
-// a program this one starts is not given the file, so Windows can rename the
-// fonts folder once this program has left. The interface faces, Barlow and
-// Barlow Condensed, go first in their families' chains; the base faces draw
-// what they lack.
+// The font stack draws each glyph once per size, weight and rendering.
+// FreeType reads each font from its file through a stream of the engine's
+// own, as glyphs are needed, so a stack keeps only the tables FreeType reads
+// and the glyphs it has drawn, not the fonts' outlines. The Windows 95 build
+// reads each base and interface font whole instead and closes the file. The
+// C library Windows 95 ships keeps only a small number of files open at once,
+// and the game already holds its archives open: leaving the faces open on top
+// of those, the interface faces among them, meant a later archive could not
+// be opened and a saved game could not be written. Every later Windows keeps
+// far more files open at once, and there a stack holding its fonts whole
+// would keep in memory every outline of every face, nearly all of which it
+// never draws. On Windows a wide path opens a folder whose path is not in
+// the system's code page, and a program this one starts is not given the
+// file, so Windows can rename the fonts folder once this program has left.
+// The interface faces, Barlow and Barlow Condensed, go first in their
+// families' chains; the base faces draw what they lack.
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -256,9 +260,11 @@ std::vector<uint8_t> read_whole(std::FILE* file) {
 
 /// Opens a font from bytes read whole, and closes the file first.
 ///
-/// The face reads `kept` until it is done. Windows 95's C library does not
-/// grow the small set of files it can hold open, so a face that kept its
-/// file would take one of the places the game's archives and a save need.
+/// The face reads `kept` until it is done. A language pack's face is read
+/// so on every Windows, and in the Windows 95 build every face is: Windows
+/// 95's C library does not grow the small set of files it can hold open, so
+/// a face that kept its file would take one of the places the game's
+/// archives and a save need.
 ///
 /// @param library the FreeType library
 /// @param[in,out] face the slot; a face already there is finished first
@@ -381,10 +387,10 @@ struct FontStack::Fonts {
     /// On Windows each pack face's font file, read whole, which its face
     /// reads from until it is done; empty elsewhere and for no face.
     std::array<std::vector<uint8_t>, most_pack_faces> pack_bytes{};
-#if defined(_WIN32)
-    /// On Windows each base and interface face's file, read whole. The file
-    /// itself is closed, so it does not stay among the few files Windows 95
-    /// can keep open. Empty for a face that is not open.
+#if defined(_WIN32) && defined(OA_WINDOWS_95)
+    /// In the Windows 95 build each base and interface face's file, read
+    /// whole. The file itself is closed, so it does not stay among the few
+    /// files Windows 95 can keep open. Empty for a face that is not open.
     std::array<std::vector<uint8_t>, slot_count> resident_bytes{};
 #endif
     /// pack faces open, at most most_pack_faces
@@ -412,6 +418,17 @@ struct FontStack::Fonts {
     /// Opens a file as a scalable face in a slot. The file is closed on failure.
     bool open_slot(std::size_t index, std::FILE* file) {
         return open_scalable_face(library, streams[index], faces[index], file);
+    }
+
+    /// Opens a base or interface face's file in its slot: read from the file
+    /// as glyphs are needed, or in the Windows 95 build read whole and
+    /// closed. The file is closed on failure.
+    bool open_stack_slot(std::size_t index, std::FILE* file) {
+#if defined(_WIN32) && defined(OA_WINDOWS_95)
+        return open_memory_face(library, faces[index], file, resident_bytes[index]);
+#else
+        return open_slot(index, file);
+#endif
     }
 
     /// Sets a face to a pixel size, unless it has it.
@@ -694,15 +711,8 @@ std::unique_ptr<FontStack> FontStack::open(const std::filesystem::path& director
         std::FILE* file = open_file(directory / std::filesystem::path(face_files[index]));
         if (file == nullptr)
             return nullptr;
-#if defined(_WIN32)
-        if (!open_memory_face(
-                fonts->library, fonts->faces[index], file, fonts->resident_bytes[index]
-            ))
+        if (!fonts->open_stack_slot(index, file))
             return nullptr;
-#else
-        if (!fonts->open_slot(index, file))
-            return nullptr;
-#endif
     }
     // An interface face that is missing or does not open leaves its family
     // to the sans faces.
@@ -710,13 +720,7 @@ std::unique_ptr<FontStack> FontStack::open(const std::filesystem::path& director
         std::FILE* file = open_file(directory / std::filesystem::path(interface_face_files[index]));
         if (file == nullptr)
             continue;
-        const auto slot = static_cast<std::size_t>(interface_face(index));
-#if defined(_WIN32)
-        std::ignore =
-            open_memory_face(fonts->library, fonts->faces[slot], file, fonts->resident_bytes[slot]);
-#else
-        std::ignore = fonts->open_slot(slot, file);
-#endif
+        std::ignore = fonts->open_stack_slot(static_cast<std::size_t>(interface_face(index)), file);
     }
     return std::unique_ptr<FontStack>(new FontStack(std::move(fonts)));
 }

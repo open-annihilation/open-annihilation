@@ -187,6 +187,67 @@ inline bool has_room(const kit::Rect& rect) {
     return rect.width > 0 && rect.height > 0;
 }
 
+/// Returns the first item a prompt draws: the one after the veil that dims
+/// the editor under it.
+///
+/// @param list the display list
+/// @return its place; the list's size when no prompt is drawn
+inline std::size_t prompt_first(const kit::DisplayList& list) {
+    for (std::size_t index = 0; index < list.items.size(); ++index) {
+        const kit::Item& item = list.items[index];
+        if (item.role == kit::Role::blend && item.colour == kit::colour::backdrop)
+            return index + 1;
+    }
+    return list.items.size();
+}
+
+/// Lists what a prompt draws that meets another of its parts, and the words
+/// it cut short. A text meets no other text, and no button, field, pill or
+/// chord chip; nor do those meet each other. A text that holds "..." was
+/// cut, unless it lies in one of `exempt`'s rectangles: a preview that says
+/// it holds more lines, or a path cut in its middle.
+///
+/// @param list the display list
+/// @param exempt where a text may hold "..."
+/// @return a line for each meeting and each cut; none when there are none
+inline std::vector<std::string>
+prompt_problems(const kit::DisplayList& list, const std::vector<kit::Rect>& exempt) {
+    std::vector<std::string> problems;
+    std::vector<const kit::Item*> parts;
+    const auto said = [](const kit::Item& item) {
+        if (const auto* button = std::get_if<kit::ButtonLook>(&item.look))
+            return button->caption;
+        return item.text;
+    };
+    for (std::size_t index = prompt_first(list); index < list.items.size(); ++index) {
+        const kit::Item& item = list.items[index];
+        const bool part = item.role == kit::Role::text || item.role == kit::Role::button ||
+                          item.role == kit::Role::field || item.role == kit::Role::pill ||
+                          item.role == kit::Role::chord_chip;
+        if (!part || !has_room(drawn_area(item)))
+            continue;
+        parts.push_back(&item);
+        if (said(item).find("...") == std::string::npos)
+            continue;
+        bool allowed = false;
+        for (const kit::Rect& rect : exempt)
+            allowed = allowed || kit::wholly_in(drawn_area(item), rect);
+        if (!allowed)
+            problems.push_back("\"" + said(item) + "\" is cut");
+    }
+    for (std::size_t first = 0; first < parts.size(); ++first) {
+        for (std::size_t second = first + 1; second < parts.size(); ++second) {
+            const kit::Rect met =
+                kit::intersect(drawn_area(*parts[first]), drawn_area(*parts[second]));
+            if (has_room(met))
+                problems.push_back(
+                    "\"" + said(*parts[first]) + "\" meets \"" + said(*parts[second]) + "\""
+                );
+        }
+    }
+    return problems;
+}
+
 /// Lists the parts of a layout that lie outside its window.
 ///
 /// @param list the display list

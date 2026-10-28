@@ -756,7 +756,7 @@ void check_frame(const fixture::NamedFrame& named) {
         }
         // The page, once the maps are in it, holds four compact rows under the heading.
         OA_CHECK(
-            first_map->clip.height >= kit::compact_metrics.field_height +
+            first_map->clip.height >= kit::compact_metrics.control_height +
                                           kit::compact_metrics.hint_gap +
                                           4 * kit::compact_metrics.small_line
         );
@@ -891,8 +891,14 @@ void check_frame(const fixture::NamedFrame& named) {
         const auto tile_height = [&](int32_t lines) {
             return metrics.card_inset + std::max(side, lines) + metrics.card_inset;
         };
-        const int32_t atoll_height = tile_height(metrics.regular_line + metrics.small_line);
-        const int32_t ridge_height = tile_height(metrics.regular_line + 2 * metrics.small_line);
+        // A clear gap under the title's line, and under the players line when
+        // a From line follows it: three quarters of the class's space.
+        const int32_t line_gap = metrics.space * 3 / 4;
+        const int32_t atoll_height =
+            tile_height(metrics.regular_line + line_gap + metrics.small_line);
+        const int32_t ridge_height = tile_height(
+            metrics.regular_line + line_gap + metrics.small_line + line_gap + metrics.small_line
+        );
         if (frame.size_class == kit::SizeClass::large) {
             // Side by side, the row takes the taller tile.
             OA_CHECK(atoll_tile->rect.height == ridge_tile->rect.height);
@@ -3046,14 +3052,21 @@ void base_badge_is_nearest_and_tabs_are_bracketed() {
 /// @return the height, in points
 int32_t package_row_height(kit::SizeClass size_class) {
     const kit::Metrics& metrics = kit::metrics_of(size_class);
-    const int32_t three_lines =
-        metrics.list_row_line_top + 2 * metrics.small_line + metrics.list_row_title_top;
+    // The title's line, the line under it with list_row_line_gap between
+    // them, and the rows above and below the text; Large's row adds the
+    // tags' chips under a gap more.
+    const int32_t two_lines = metrics.list_row_title_top + metrics.regular_line +
+                              metrics.list_row_line_gap + metrics.small_line +
+                              metrics.list_row_title_top;
     switch (size_class) {
     case kit::SizeClass::compact:
-        return std::max(metrics.short_list_row_height, metrics.row_height);
+        return std::max({metrics.short_list_row_height, metrics.row_height, two_lines});
     case kit::SizeClass::regular:
+        return std::max(two_lines, metrics.row_height);
     case kit::SizeClass::large:
-        return std::max(three_lines, metrics.row_height);
+        return std::max(
+            two_lines + metrics.list_row_line_gap + metrics.chip_height, metrics.row_height
+        );
     }
     return metrics.row_height;
 }
@@ -3798,7 +3811,7 @@ void active_maps_fill_scroll_and_filter() {
         if (page) {
             OA_CHECK(named.frame.size_class == kit::SizeClass::compact);
             OA_CHECK(
-                map->clip.height >= kit::compact_metrics.field_height +
+                map->clip.height >= kit::compact_metrics.control_height +
                                         kit::compact_metrics.hint_gap +
                                         4 * kit::compact_metrics.small_line
             );
@@ -3915,7 +3928,12 @@ void active_maps_fill_scroll_and_filter() {
     const kit::Control* top_map = fixture::named(packed, "library.active.map.1");
     OA_CHECK(top_map != nullptr);
     if (top_map != nullptr) {
-        const kit::Point on_map = centre_of(*top_map);
+        // The drag starts in the middle of the maps' view. At Regular's
+        // least window the view is a strip, and the first map's line can
+        // lie under its edge.
+        const kit::Point on_map{
+            top_map->clip.x + top_map->clip.width / 2, top_map->clip.y + top_map->clip.height / 2
+        };
         static_cast<void>(
             lib::library_pointer(many, scrolled, packed, lib::PointerKind::down, 1, on_map, 12)
         );
@@ -6161,7 +6179,7 @@ void shell_takes_kit_2_sizes() {
         const kit::Control* search = fixture::named(list, "library.search");
         const kit::Control* close = fixture::named(list, "library.close");
         OA_CHECK(tab != nullptr && tab->rect.height == metrics.tab_strip_height);
-        OA_CHECK(search != nullptr && search->rect.height == metrics.text_field_height);
+        OA_CHECK(search != nullptr && search->rect.height == metrics.control_height);
         OA_CHECK(close != nullptr && close->rect.height == metrics.control_height);
         if (close != nullptr) {
             OA_CHECK(close->rect.y > footer_rule);
@@ -6186,7 +6204,7 @@ void shell_takes_kit_2_sizes() {
         );
         if (compact) {
             const kit::Control* filter = fixture::named(list, "library.filter");
-            OA_CHECK(filter != nullptr && filter->rect.height == metrics.text_field_height);
+            OA_CHECK(filter != nullptr && filter->rect.height == metrics.control_height);
             continue;
         }
         if (size_class == kit::SizeClass::regular) {
@@ -6200,6 +6218,60 @@ void shell_takes_kit_2_sizes() {
             OA_CHECK(update->rect.height == metrics.control_height && update->group == -1);
             OA_CHECK(homepage->rect.y + homepage->rect.height + metrics.space <= footer_rule);
             OA_CHECK(update->clip.width == 0 && update->clip.height == 0);
+        }
+    }
+}
+
+/// The header reads OPEN ANNIHILATION then LIBRARY in capitals, as
+/// Settings' header does, and LIBRARY alone at Compact, while the main menu's
+/// Library button keeps "Library". Every tab's search and the Active tab's
+/// maps search are Kit 2's control height, as Settings' buttons are, the
+/// search at the window's right as before. At 640x480, 1280x720 and
+/// 1920x1080.
+void header_and_search_match_settings() {
+    OA_CHECK(lib::words::title_library == "Library");
+    const auto frame_at = [](int32_t width, int32_t height, int32_t percent) {
+        kit::Viewport viewport;
+        viewport.width = width;
+        viewport.height = height;
+        viewport.scale_percent = percent;
+        return kit::frame_of(viewport);
+    };
+    const std::array<kit::Frame, 3> frames{
+        frame_at(640, 480, 100), frame_at(1280, 720, 100), frame_at(1920, 1080, 200)
+    };
+    for (const kit::Frame& frame : frames) {
+        const kit::Metrics& metrics = kit::metrics_of(frame.size_class);
+        const bool compact = frame.size_class == kit::SizeClass::compact;
+        const int32_t right = lib::window_size(frame).x - metrics.edge - 2 * metrics.space;
+        lib::Library library = with_ridge();
+        lib::set_tab(library, lib::Tab::active);
+        const kit::DisplayList active = laid_out(library, {}, frame);
+        const kit::Control* maps_search = fixture::named(active, "library.active.search");
+        OA_CHECK(maps_search != nullptr && maps_search->rect.height == metrics.control_height);
+        for (const lib::Tab tab :
+             {lib::Tab::mods,
+              lib::Tab::maps,
+              lib::Tab::mutators,
+              lib::Tab::brains,
+              lib::Tab::keys}) {
+            lib::set_tab(library, tab);
+            const kit::DisplayList list = laid_out(library, {}, frame);
+            const kit::Control* search = fixture::named(list, "library.search");
+            OA_CHECK(search != nullptr && search->rect.height == metrics.control_height);
+            if (search != nullptr && !compact)
+                OA_CHECK(search->rect.x + search->rect.width == right);
+            const kit::HeaderLook* header = nullptr;
+            for (const kit::Item& item : list.items)
+                if (item.role == kit::Role::header)
+                    header = std::get_if<kit::HeaderLook>(&item.look);
+            OA_CHECK(header != nullptr);
+            if (header == nullptr)
+                continue;
+            if (compact)
+                OA_CHECK(header->title == "LIBRARY" && header->second.empty());
+            else
+                OA_CHECK(header->title == "OPEN ANNIHILATION" && header->second == "LIBRARY");
         }
     }
 }
@@ -6627,6 +6699,7 @@ int main() {
     brains_tab_holds_its_invariants();
     keys_tab_names_its_controls();
     shell_takes_kit_2_sizes();
+    header_and_search_match_settings();
     details_say_the_state_once();
     an_own_layouts_row_keeps_its_summary();
     key_rows_stay_inside_their_height();

@@ -434,6 +434,9 @@ struct Metrics {
     int32_t list_row_line_top{};
     /// The columns between a row's title and its byline, and before its aside and its chip.
     int32_t list_row_gap{};
+    /// The rows a list row tall enough for them keeps clear between its
+    /// title's line and the line under it, and between its last line and its tags.
+    int32_t list_row_line_gap{};
     /// A hairline's thickness: a blank badge's dashes.
     int32_t hairline{};
     /// A blank badge's dashes' length.
@@ -688,11 +691,12 @@ inline constexpr Metrics compact_metrics = scaled(
         .list_row_title_top = 1,
         .list_row_line_top = 15,
         .list_row_gap = 6,
+        .list_row_line_gap = 3,
         .hairline = 1,
         .badge_dash = 2,
         .badge_dash_gap = 1,
-        .chip_height = 12,
-        .chip_padding = 4,
+        .chip_height = 14,
+        .chip_padding = 6,
         .chip_gap = 4,
         .state_icon_side = 14,
         .tab_height = 18,

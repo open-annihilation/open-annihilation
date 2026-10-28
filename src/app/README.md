@@ -1034,7 +1034,11 @@ hosts them on the OA layer.
   (SELMAP) shows, or the host's map dialog in the battle room
   (`multiplayer_map_list_rect`), by `keep_more_maps_screen`, which
   `OaLayer::tick` calls once a frame, and taken off when they close. It is
-  one kit button, `oa.more-maps` to automation, directly under the picker's
+  one kit button, the lime accent button at a footer button's 17 points,
+  its caption in the small font with a button's padding, taller (up to the
+  compact control height) only where the rows down to the description
+  box's drawn border are clear, `oa.more-maps` to automation, directly
+  under the picker's
   MAPNAMES list with its right edge on the list's, or above the list when
   that place meets another gadget of the picker, at the layer's scale. It
   hides while a message box shows. A mouse presses the drawn rectangle. A
@@ -1091,7 +1095,10 @@ hosts them on the OA layer.
   (`prepare_map_browser_check`), and at 640x480, 1280x720, 1920x1080 and
   2560x1440 opens SELMAP and presses MORE MAPS…. It requires the layer's
   size class and scale (Compact 1x, Large 1x, Large 1x, Large 2x) and the
-  grid's columns (3, 6, 6, 6); MORE MAPS… over none of SELMAP's gadgets;
+  grid's columns (3, 6, 6, 6); MORE MAPS… over none of SELMAP's gadgets,
+  in the Classic and the Modern look the accent button at a footer
+  button's size under the list's frame, clear of the title and, where it
+  grows, of the description box's border;
   every card and control inside the browser's window; Online empty;
   Installed packs showing the two check maps alone; the clashing map's card
   greyed, "New names" in the footer and Select disabled; the search "isle"
@@ -1105,7 +1112,12 @@ hosts them on the OA layer.
   over SELMAP with the browser closed, then installs with no prompt once
   MORE MAPS… opens the browser, its folder holding the catalogue's origin
   record and the installed packs listing its map; the clashing one is
-  refused there for New names, with no prompt. A FIXTURES_SETUP test
+  refused there for New names, with no prompt. Then it hosts a battle room
+  alone (`--dplay-port 0`), presses Select Map, and at 640x480, 1280x720
+  and 1920x1080 requires MORE MAPS… over none of the map dialog's gadgets
+  with the same look and place, writing
+  `more-maps-<look>-selmap-<w>x<h>.png` and
+  `more-maps-<look>-room-<w>x<h>.png` for each look. A FIXTURES_SETUP test
   (`map-browser-clean`) clears its folders before each run, and the check
   removes the packs an earlier run installed as a catalogue's.
 - **Limitations.** The fit of an installed pack map is checked on the main

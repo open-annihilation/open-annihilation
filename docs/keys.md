@@ -196,8 +196,10 @@ a second looks Escape up.
 **Reset**, at the foot of the details, drops your edit of that one
 command, so it goes back to the layout under it. **Undo** takes the last
 edit back, and so does Ctrl+Z (Cmd+Z on a Mac) while the search is not
-being typed in. **More** holds Restore defaults, Import…, Share… and
-Paste…. Restore defaults clears your known edits and the helpers the
+being typed in. **More** holds Import New Layout…, Clone as New
+Layout…, Rename and Describe… and Restore Defaults under Layouts, and
+Share My Custom Keys… and Paste Someone's Layout… under Sharing. Restore
+Defaults clears your known edits and the helpers the
 draft turned on, and puts Number keys select groups back. A command this
 version of the game does not know is left as it was.
 
@@ -283,20 +285,26 @@ uses your chords, and one you have not named keeps the layout's.
 
 ## Sharing a layout
 
-**Share…** in the editor's More menu shows the name, the id that name
-folds to, the base layout, how many keys and helpers change, and the
-text form.
+**Share My Custom Keys…** in the editor's More menu shows the name and
+the id that name folds to, one line with the layout the keys start from
+and how many keys and helpers change, and two cards. With nothing
+changed, the line says so and both cards' buttons are off.
 
-- **Save file…** writes a `.oakeys` file anyone can open in Open
-  Annihilation. The id is a lower-case name of 1 to 64 bytes. OA default,
-  and an id that starts with `own-`, are refused.
-- **Copy as text** copies the chords alone, for a forum or a chat. The
+- **As a file**: **Save File…** writes a `.oakeys` file anyone can open
+  in Open Annihilation to install your layout, then says where, with
+  **Open Folder**. The id is a lower-case name of 1 to 64 bytes. OA
+  default, and an id that starts with `own-`, are refused.
+- **As text**: **Copy as Text** copies the chords alone, for a forum or a
+  chat, and says Copied. The card shows the text's first lines. The
   [text form](keys/oakeys-standard.md#9-the-text-form) is that copy.
-- **PASTE**, and Ctrl+V (Cmd+V on a Mac) while the search is not focused,
-  reads the clipboard and lists what would change. **Apply** writes it
-  into the draft. A chord that is already in use stays where it is and
-  is listed as a clash, which holds Save changes until it is settled. A
-  command this version does not know is kept for a version that has it.
+- **Paste Someone's Layout…**, and Ctrl+V (Cmd+V on a Mac) while the
+  search is not focused, reads the clipboard and lists each command it
+  would change, with its key and, where needed, By place, Clash or Not in
+  this version. **Apply** writes it into the draft. A chord that is
+  already in use stays where it is and is listed as a clash, which holds
+  Save changes until it is settled. A command this version does not know
+  is kept for a version that has it. A clipboard that holds no key layout
+  is refused, with what to do instead.
 
 Nothing in Share, Paste or Import is in use until you save.
 
@@ -311,7 +319,7 @@ commands are in the game now. The chord a hack ships is on that hack's
 page, and it applies while the hack is on. The base layout's chord, with
 no hack, is in [the default keys](#the-default-keys).
 
-**Import…** reads an older setup and lists the keys that differ.
+**Import New Layout…** reads an older setup and lists the keys that differ.
 IMPORT writes them into the draft, moving a chord off the command that
 had it, and records where they came from. The three sources it offers
 are:

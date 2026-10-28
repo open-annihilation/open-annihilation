@@ -308,7 +308,9 @@ struct Window {
     int32_t footer_height{};
     int32_t button_height{}; ///< a footer's or a bar's button: Kit 2's control height
     int32_t tab_height{};    ///< the tab strip: Kit 2's tab strip height
-    int32_t field_height{};  ///< the search field and a drop-down field: Kit 2's text field
+    /// The search field, and Compact's filter drop-down beside it: Kit 2's
+    /// control height, as Settings' buttons and fields have it.
+    int32_t field_height{};
     int32_t pill_height{};   ///< a filter pill: Kit 2's filter chip height
     int32_t header_height{}; ///< the header's band: Kit 2's window header, Compact's at Compact
 };
@@ -337,7 +339,7 @@ Window window_of(const kit::Frame& frame) {
     window.right = size.x - metrics.edge - window.gutter;
     window.button_height = metrics.control_height;
     window.tab_height = metrics.tab_strip_height;
-    window.field_height = metrics.text_field_height;
+    window.field_height = metrics.control_height;
     window.pill_height = metrics.filter_chip_height;
     window.footer_height =
         compact ? metrics.control_height + 2 * metrics.space : metrics.window_footer_height;
@@ -922,26 +924,27 @@ enum class RowForm : uint8_t {
 };
 
 /// Returns a row's height in a form: Kit 2's row height (Metrics::row_height),
-/// and at least the lines the form holds.
+/// and at least the lines the form holds with the room the kit's row keeps
+/// between them (Metrics::list_row_line_gap).
 ///
 /// @param metrics the class's metrics
 /// @param form the form
 /// @return the height, in points
 int32_t row_height(const kit::Metrics& metrics, RowForm form) {
+    // The title's line and a line under it, the gap between them, and the
+    // rows above and below the text.
+    const int32_t two_lines = metrics.list_row_title_top + metrics.regular_line +
+                              metrics.list_row_line_gap + metrics.small_line +
+                              metrics.list_row_title_top;
     switch (form) {
     case RowForm::compact:
-        return std::max(metrics.short_list_row_height, metrics.row_height);
+        return std::max({metrics.short_list_row_height, metrics.row_height, two_lines});
     case RowForm::regular:
-        // The title's line, a line under it and a chip line, as Kit 2's row holds them.
-        return std::max(
-            metrics.list_row_line_top + 2 * metrics.small_line + metrics.list_row_title_top,
-            metrics.row_height
-        );
+        return std::max(two_lines, metrics.row_height);
     case RowForm::large:
-        // The title's line, two lines under it and the rows above the title.
+        // The title's line, a line under it and the tags' chips under that.
         return std::max(
-            metrics.list_row_line_top + 2 * metrics.small_line + metrics.list_row_title_top,
-            metrics.row_height
+            two_lines + metrics.list_row_line_gap + metrics.chip_height, metrics.row_height
         );
     }
     return metrics.row_height;
@@ -2688,12 +2691,15 @@ void add_list(Building& building, const kit::Rect& pane, RowForm form) {
         area.height -= metrics.small_line + metrics.hint_gap;
     }
     const int32_t height = row_height(metrics, form);
-    const int32_t view_height = std::max(area.height, int32_t{0}) / height * height;
+    // The rows lie a step apart, a gap under each (controls::list_row_step),
+    // and the view holds whole steps.
+    const int32_t step = controls::list_row_step(height);
+    const int32_t view_height = std::max(area.height, int32_t{0}) / step * step;
     const kit::Rect view{area.x, area.y, area.width, view_height};
     const int32_t well_width = metrics.scroll_thumb_width + 2;
     const kit::Rect well{view.x + view.width - well_width, view.y, well_width, view.height};
     const int32_t rows_width = view.width - well_width - metrics.button_gap;
-    const auto content = static_cast<int32_t>(library.visible.size()) * height;
+    const auto content = static_cast<int32_t>(library.visible.size()) * step;
     const int32_t limit = kit::ScrollArea::limit_for(content, view.height);
     // A From link names the row to put at the top of the list. The write is
     // through the state's mutable scroll: the layout is handed a const state,
@@ -2701,7 +2707,7 @@ void add_list(Building& building, const kit::Rect& pane, RowForm form) {
     if (building.state->reveal_row >= 0 && !library.visible.empty()) {
         const int32_t last = static_cast<int32_t>(library.visible.size()) - 1;
         const int32_t place = std::clamp(building.state->reveal_row, int32_t{0}, last);
-        const int64_t raw = static_cast<int64_t>(place) * static_cast<int64_t>(height);
+        const int64_t raw = static_cast<int64_t>(place) * static_cast<int64_t>(step);
         const int64_t furthest = static_cast<int64_t>(std::max(limit, int32_t{0}));
         building.state->list_scroll = static_cast<int32_t>(std::clamp(raw, int64_t{0}, furthest));
         building.state->reveal_row = -1;
@@ -2719,7 +2725,7 @@ void add_list(Building& building, const kit::Rect& pane, RowForm form) {
             {}
         );
     for (std::size_t place = 0; place < library.visible.size(); ++place) {
-        const int32_t top = view.y + static_cast<int32_t>(place) * height - offset;
+        const int32_t top = view.y + static_cast<int32_t>(place) * step - offset;
         if (top + height <= view.y || top >= view.y + view.height)
             continue;
         const Entry& entry = library.entries[library.visible[place]];
@@ -3635,45 +3641,104 @@ int32_t add_details_content(
     return extent ? extent->bottom - first : 0;
 }
 
-/// Returns the rows the details' actions take at the pane's foot: three to a
-/// line at Kit 2's control height.
+/// Where the details' actions lie in their bar: as many to a line as hold
+/// every caption whole, at most three, each line's spare width shared out
+/// among its buttons.
+struct ActionPlan {
+    std::vector<kit::Rect> buttons{}; ///< each action's button, from the bar's top left
+    int32_t height{};                 ///< the bar's rows; 0 with no action
+};
+
+/// Returns where the details' actions lie in a bar of a width, at Kit 2's
+/// control height. Each button starts as wide as its caption needs
+/// (button_width) and the line's spare width is shared among them. A line
+/// holds three while every line of three fits that way, then two, then one,
+/// so no caption is cut while one to a line holds it.
+///
+/// @param building the layout
+/// @param actions the actions, in the order they are shown
+/// @param width the bar's width, in points
+/// @return the plan
+ActionPlan
+plan_actions(const Building& building, const std::vector<ActionButton>& actions, int32_t width) {
+    const kit::Metrics& metrics = *building.metrics;
+    ActionPlan plan;
+    if (actions.empty())
+        return plan;
+    const int32_t gap = metrics.button_gap;
+    const int32_t button_height = metrics.control_height;
+    const auto count = static_cast<int32_t>(actions.size());
+    std::vector<int32_t> wanted;
+    wanted.reserve(actions.size());
+    for (const ActionButton& action : actions)
+        wanted.push_back(button_width(building, action.text));
+    int32_t per_line = 1;
+    for (int32_t trial = std::min(actions_per_line, count); trial > 1; --trial) {
+        bool fits = true;
+        for (int32_t first = 0; first < count && fits; first += trial) {
+            const int32_t last = std::min(first + trial, count);
+            int32_t used = (last - first - 1) * gap;
+            for (int32_t index = first; index < last; ++index)
+                used += wanted[static_cast<std::size_t>(index)];
+            fits = used <= width;
+        }
+        if (fits) {
+            per_line = trial;
+            break;
+        }
+    }
+    const int32_t lines = (count + per_line - 1) / per_line;
+    plan.height = lines * button_height + (lines - 1) * gap;
+    for (int32_t first = 0; first < count; first += per_line) {
+        const int32_t last = std::min(first + per_line, count);
+        const int32_t shown = last - first;
+        int32_t used = (shown - 1) * gap;
+        for (int32_t index = first; index < last; ++index)
+            used += wanted[static_cast<std::size_t>(index)];
+        // A line's spare width is shared out evenly, the last button taking
+        // what the division leaves, so the line spans the bar. One action
+        // wider than the bar takes the bar.
+        const int32_t spare = width - used;
+        const int32_t line_top = (first / per_line) * (button_height + gap);
+        int32_t left = 0;
+        for (int32_t index = first; index < last; ++index) {
+            int32_t across = wanted[static_cast<std::size_t>(index)] + spare / shown;
+            if (index == last - 1)
+                across = width - left;
+            across = std::max(across, int32_t{0});
+            plan.buttons.push_back({left, line_top, across, button_height});
+            left += across + gap;
+        }
+    }
+    return plan;
+}
+
+/// Returns the rows the details' actions take at the pane's foot.
 ///
 /// @param building the layout
 /// @param entry the entry
+/// @param width the pane's width, in points
 /// @return the rows; 0 when it has no action
-int32_t detail_actions_height(const Building& building, const Entry& entry) {
-    const kit::Metrics& metrics = *building.metrics;
-    const auto count = static_cast<int32_t>(entry_actions(*building.library, entry).size());
-    if (count == 0)
-        return 0;
-    const int32_t lines = (count + actions_per_line - 1) / actions_per_line;
-    return lines * metrics.control_height + (lines - 1) * metrics.button_gap;
+int32_t detail_actions_height(const Building& building, const Entry& entry, int32_t width) {
+    return plan_actions(building, entry_actions(*building.library, entry), width).height;
 }
 
-/// Appends the details' actions, three to a line at Kit 2's control height,
-/// in a bar at the pane's foot that does not scroll.
+/// Appends the details' actions, as plan_actions places them, in a bar at
+/// the pane's foot that does not scroll.
 ///
 /// @param[in,out] building the layout
 /// @param entry the entry
 /// @param bar the bar
 void add_detail_actions(Building& building, const Entry& entry, const kit::Rect& bar) {
-    const kit::Metrics& metrics = *building.metrics;
     const std::vector<ActionButton> actions = entry_actions(*building.library, entry);
-    const int32_t button_gap = metrics.button_gap;
-    const int32_t button_height = metrics.control_height;
-    const int32_t each =
-        std::max((bar.width - (actions_per_line - 1) * button_gap) / actions_per_line, int32_t{0});
-    for (std::size_t index = 0; index < actions.size(); ++index) {
-        const auto column = static_cast<int32_t>(index) % actions_per_line;
-        const auto line = static_cast<int32_t>(index) / actions_per_line;
+    const ActionPlan plan = plan_actions(building, actions, bar.width);
+    for (std::size_t index = 0; index < actions.size() && index < plan.buttons.size(); ++index) {
         const ActionButton& action = actions[index];
+        const kit::Rect& place = plan.buttons[index];
         add_button(
             building,
             building.detail,
-            {bar.x + column * (each + button_gap),
-             bar.y + line * (button_height + button_gap),
-             each,
-             button_height},
+            {bar.x + place.x, bar.y + place.y, place.width, place.height},
             action.text,
             // UNINSTALL is never drawn as the main button.
             index == 0 && action.action != Action::uninstall,
@@ -3698,7 +3763,7 @@ void add_details_pane(Building& building, const kit::Rect& whole) {
     if (entry == nullptr)
         return;
     const kit::Metrics& metrics = *building.metrics;
-    const int32_t actions_height = detail_actions_height(building, *entry);
+    const int32_t actions_height = detail_actions_height(building, *entry, whole.width);
     kit::Rect pane = whole;
     if (actions_height > 0)
         pane.height = std::max(whole.height - actions_height - metrics.row_gap, int32_t{0});
@@ -3981,6 +4046,16 @@ void add_identity_tile(
     );
 }
 
+/// Returns the rows a map tile keeps clear under its title's line and under
+/// its players-and-size line: 3 points at Compact, more with the class's
+/// spacing, so the lines do not meet.
+///
+/// @param metrics the class's metrics
+/// @return the rows, in points
+int32_t map_line_gap(const kit::Metrics& metrics) {
+    return metrics.space * 3 / 4;
+}
+
 /// Returns one map tile's height: the minimap or the lines beside it,
 /// whichever is taller, with the card's padding above and below. A pack
 /// of several maps keeps a From line; a pack of one does not.
@@ -3991,7 +4066,10 @@ void add_identity_tile(
 /// @param from_line the tile draws "From <pack>"
 /// @return the height, in points
 int32_t map_tile_height(const kit::Metrics& metrics, int32_t side, bool described, bool from_line) {
-    int32_t lines = metrics.regular_line + metrics.small_line;
+    const int32_t line_gap = map_line_gap(metrics);
+    int32_t lines = metrics.regular_line + line_gap + metrics.small_line;
+    if (described || from_line)
+        lines += line_gap;
     if (described)
         lines += metrics.small_line;
     if (from_line)
@@ -4264,10 +4342,11 @@ void add_map_tile(
             tab_stop(building, control);
         }
     }
+    const int32_t line_gap = map_line_gap(metrics);
     if (number <= controls::most_active_maps) {
         // The composed line stays a label. When the title is the link, the
         // label sits on the players-and-size line so the two do not meet.
-        const int32_t label_top = title_is_link ? row + metrics.regular_line : row;
+        const int32_t label_top = title_is_link ? row + metrics.regular_line + line_gap : row;
         const int32_t label_height = title_is_link ? metrics.small_line : metrics.regular_line;
         add_label(
             building.detail,
@@ -4279,7 +4358,7 @@ void add_map_tile(
             controls::maps_group
         );
     }
-    row += metrics.regular_line;
+    row += metrics.regular_line + line_gap;
     const std::string meta = filled(
         building.library->text,
         words::map_players_size,
@@ -4296,7 +4375,7 @@ void add_map_tile(
             kit::colour::hint,
             clip
         );
-    row += metrics.small_line;
+    row += metrics.small_line + line_gap;
     if (!map.description.empty()) {
         const std::string described =
             cut(building, kit::FontRole::small, map.description, text_width);
@@ -4637,8 +4716,9 @@ void add_maps_search(Building& building, const kit::Rect& rect, const kit::Rect&
     tab_stop(building, added);
 }
 
-/// Appends the MAPS heading and, at its right, the maps search. While the
-/// search holds text, the count of tiles shown sits after the heading.
+/// Appends the MAPS heading and, at its right, the maps search, a control
+/// high as the other tabs' search is. While the search holds text, the count
+/// of tiles shown sits after the heading.
 ///
 /// @param[in,out] building the layout
 /// @param left the row's left column
@@ -4679,7 +4759,7 @@ void add_maps_heading_row(
     const int32_t field_width =
         std::max(std::min(maps_search_width, std::max(width - beside, int32_t{0})), int32_t{0});
     const int32_t field_x = left + std::max(width - field_width, int32_t{0});
-    const int32_t text_top = top + std::max((metrics.field_height - metrics.small_line) / 2, 0);
+    const int32_t text_top = top + std::max((metrics.control_height - metrics.small_line) / 2, 0);
     const int32_t heading_room =
         std::max(std::min(heading_width, std::max(field_x - gap - left, int32_t{0})), int32_t{0});
     if (heading_room > 0) {
@@ -4708,7 +4788,7 @@ void add_maps_heading_row(
             );
     }
     if (field_width > 0)
-        add_maps_search(building, {field_x, top, field_width, metrics.field_height}, clip);
+        add_maps_search(building, {field_x, top, field_width, metrics.control_height}, clip);
 }
 
 /// Appends the line the maps pane shows when it has no tile.
@@ -5060,6 +5140,17 @@ struct ExpansionWrap {
     bool hint{};
 };
 
+/// Returns the rows between two lines of expansion pills: the room the
+/// kit's row keeps between its lines. The pills grew taller to give their
+/// words room, and the lines keep their step, so the tile and the page
+/// under it keep their height.
+///
+/// @param metrics the class's metrics
+/// @return the rows, in points
+int32_t expansion_line_gap(const kit::Metrics& metrics) {
+    return metrics.list_row_line_gap;
+}
+
 /// Wraps the expansion pills into a width.
 ///
 /// @param building the layout
@@ -5102,7 +5193,7 @@ wrap_expansions(const Building& building, const ActiveContent& content, int32_t 
         wrap.rows.push_back(std::move(row));
     for (std::size_t row_index = 0; row_index < wrap.rows.size(); ++row_index) {
         if (row_index != 0)
-            wrap.rows_height += gap;
+            wrap.rows_height += expansion_line_gap(metrics);
         wrap.rows_height += wrap.rows[row_index].band;
     }
     wrap.hint = !content.hint.empty();
@@ -5249,13 +5340,13 @@ void place_expansions(
             tab_stop(building, control);
             column += width + metrics.button_gap;
         }
-        row_y += band + metrics.button_gap;
+        row_y += band + expansion_line_gap(metrics);
     }
-    // After the last row of pills, row_y is a button gap below it. The lock
+    // After the last row of pills, row_y is a line gap below it. The lock
     // and the hint each stand a hint gap below what is above them.
     bool placed = !wrap.rows.empty();
     if (placed)
-        row_y -= metrics.button_gap;
+        row_y -= expansion_line_gap(metrics);
     const std::vector<std::string> lock_lines =
         expansion_lock_lines(building, content.lock, inner_width);
     if (!lock_lines.empty()) {
@@ -5457,7 +5548,7 @@ void add_active(Building& building, const kit::Rect& area) {
         if (map_matches_query(setup.maps[index], query))
             matching.push_back(index);
 
-    const int32_t heading_span = metrics.field_height + metrics.hint_gap;
+    const int32_t heading_span = metrics.control_height + metrics.hint_gap;
     const int32_t full_bottom = measured_identity_bottom(building, setup, area);
     const int32_t pane_height = area.y + area.height - (full_bottom + heading_span);
     const bool page = building.size_class == kit::SizeClass::compact &&
@@ -7697,7 +7788,7 @@ kit::DisplayList library_layout(
         add_library_header(
             building,
             window,
-            shown(library.text, words::title_library),
+            shown(library.text, words::title_library_header),
             {},
             library.inputs.version_text
         );
@@ -7706,7 +7797,7 @@ kit::DisplayList library_layout(
             building,
             window,
             shown(library.text, words::title_open_annihilation),
-            shown(library.text, words::title_library),
+            shown(library.text, words::title_library_header),
             library.inputs.version_text
         );
     }
@@ -7823,7 +7914,9 @@ kit::DisplayList details_page_layout(
     const kit::Metrics& metrics = *building.metrics;
     const Entry* entry = selected_entry(library);
     if (entry == nullptr) {
-        add_library_header(building, window, shown(library.text, words::title_library), {}, {});
+        add_library_header(
+            building, window, shown(library.text, words::title_library_header), {}, {}
+        );
         return finish(building, window);
     }
     // A mutator's name sits beside its 40-point badge in the body, so the
@@ -7834,7 +7927,7 @@ kit::DisplayList details_page_layout(
         add_library_header(
             building,
             window,
-            shown(library.text, words::title_library),
+            shown(library.text, words::title_library_header),
             shown(library.text, words::tab_mutators),
             library.inputs.version_text
         );
