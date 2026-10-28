@@ -289,6 +289,18 @@ struct Placement {
 /// @return the folder; empty when the executable's own path is unknown
 [[nodiscard]] std::filesystem::path bundled_font_directory();
 
+/// Tells whether a font file opened for drawing would stay open in a program
+/// this one starts.
+///
+/// Windows will not rename the fonts folder while a file in it is open in
+/// any program. A font file is opened so that does not happen. A file that
+/// cannot be opened reports false, as does every system but Windows, and a
+/// Windows that cannot say.
+///
+/// @param path the font file
+/// @return true when a program this one starts would still hold the file
+[[nodiscard]] bool font_file_reaches_a_started_program(const std::filesystem::path& path);
+
 /// The fonts of the stack, opened from one folder, with the glyphs drawn so
 /// far kept for the lines that draw them again.
 ///

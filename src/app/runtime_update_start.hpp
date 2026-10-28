@@ -12,6 +12,8 @@
 #include "oa/app/app.hpp"
 
 #include <filesystem>
+#include <string>
+#include <vector>
 
 namespace oa::app {
 
@@ -33,5 +35,22 @@ namespace oa::app {
 ///
 /// @param options the run's options, which name the data folder
 void release_quit_start(const Options& options);
+
+#if defined(_WIN32)
+/// Starts the helper and does not wait for it.
+///
+/// The helper is not given this process's open files
+/// (`update::helper_inherits_open_files`). On Windows an open file keeps its
+/// folder from being renamed, and the fonts stay open until this process
+/// leaves.
+///
+/// @param helper the helper program
+/// @param arguments the helper's arguments, without the program
+/// @param[out] why why it did not start; unchanged when it did
+/// @return true when the helper was started
+[[nodiscard]] bool start_helper_process(
+    const std::filesystem::path& helper, const std::vector<std::string>& arguments, std::string& why
+);
+#endif
 
 } // namespace oa::app

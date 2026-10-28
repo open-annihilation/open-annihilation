@@ -846,6 +846,11 @@ bool spawn_helper(
     (void)helper;
     (void)arguments;
     return false;
+#elif defined(_WIN32)
+    // SDL's process start gives the new program every inheritable open file.
+    // The fonts are open until this process leaves, and Windows will not
+    // rename their folder while one of them is open in the helper.
+    return start_helper_process(helper, arguments, why);
 #else
     std::vector<std::string> stored;
     stored.reserve(arguments.size() + 1);

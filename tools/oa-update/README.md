@@ -76,7 +76,9 @@ and the journal are removed after the new version has started.
   wait out the launch report.
 - The progress window lets go of the font files before a Windows folder is
   renamed and before a setup runs, then opens them again afterwards. An
-  open font file keeps its folder from moving.
+  open font file keeps its folder from moving. The game starts the helper
+  without handing over the files it still has open, and a font file is
+  opened so it is not handed over.
 
 ## Tests
 

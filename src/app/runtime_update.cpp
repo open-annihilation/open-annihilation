@@ -29,6 +29,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <ostream>
 #include <string>
@@ -54,6 +55,95 @@ extern char** environ;
 #endif
 
 namespace oa::app {
+namespace {
+
+#if defined(_WIN32)
+/// The command line as UTF-16. False when it cannot be converted.
+bool wide_command(const std::string& utf8, std::wstring& wide) {
+    wide.clear();
+    if (utf8.empty() || utf8.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+        return false;
+    const int bytes = static_cast<int>(utf8.size());
+    const int needed = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), bytes, nullptr, 0);
+    if (needed <= 0)
+        return false;
+    wide.assign(static_cast<std::size_t>(needed), L'\0');
+    const int written = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), bytes, wide.data(), needed);
+    return written == needed;
+}
+
+/// Starts a program from a command line and does not wait. The wide form is
+/// tried first; a system whose wide entry points are stubs uses the other.
+bool start_command(const std::string& command, std::string& why) {
+    std::wstring wide;
+    const bool have_wide = wide_command(command, wide);
+    STARTUPINFOW wide_info{};
+    wide_info.cb = sizeof wide_info;
+    PROCESS_INFORMATION process{};
+    // The helper must not be given this process's open files. An open font
+    // file would keep the fonts folder from being renamed after this process
+    // leaves.
+    static_assert(!oa::app::update::helper_inherits_open_files());
+    const BOOL inherit = FALSE;
+    if (have_wide && CreateProcessW(
+                         nullptr,
+                         wide.data(),
+                         nullptr,
+                         nullptr,
+                         inherit,
+                         DETACHED_PROCESS,
+                         nullptr,
+                         nullptr,
+                         &wide_info,
+                         &process
+                     )) {
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        return true;
+    }
+    // A wide entry point that is a stub answers this, and the other form is
+    // used. Any other failure of a wide start is the result.
+    if (have_wide && GetLastError() != ERROR_CALL_NOT_IMPLEMENTED) {
+        why = "cannot start the helper";
+        return false;
+    }
+    process = PROCESS_INFORMATION{};
+    std::string narrow = command;
+    STARTUPINFOA narrow_info{};
+    narrow_info.cb = sizeof narrow_info;
+    if (!CreateProcessA(
+            nullptr,
+            narrow.data(),
+            nullptr,
+            nullptr,
+            inherit,
+            DETACHED_PROCESS,
+            nullptr,
+            nullptr,
+            &narrow_info,
+            &process
+        )) {
+        why = "cannot start the helper";
+        return false;
+    }
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return true;
+}
+#endif
+
+} // namespace
+
+#if defined(_WIN32)
+bool start_helper_process(
+    const std::filesystem::path& helper, const std::vector<std::string>& arguments, std::string& why
+) {
+    const std::string command =
+        oa::app::update::windows_helper_command(path_to_utf8(helper), arguments);
+    return start_command(command, why);
+}
+#endif
+
 namespace {
 
 namespace fs = std::filesystem;
@@ -388,51 +478,8 @@ void guard_restart_arguments(update::Plan& plan, const Options& options) {
 /// Starts the helper and does not wait for it.
 bool guard_spawn(const fs::path& helper, const fs::path& plan_file, std::string& why) {
 #if defined(_WIN32)
-    const std::wstring helper_text = helper.wstring();
-    const std::wstring plan_text = plan_file.wstring();
-    std::wstring command = L"\"" + helper_text + L"\" --plan \"" + plan_text + L"\"";
-    STARTUPINFOW wide_info{};
-    wide_info.cb = sizeof wide_info;
-    PROCESS_INFORMATION process{};
-    if (CreateProcessW(
-            nullptr,
-            command.data(),
-            nullptr,
-            nullptr,
-            FALSE,
-            DETACHED_PROCESS,
-            nullptr,
-            nullptr,
-            &wide_info,
-            &process
-        )) {
-        CloseHandle(process.hThread);
-        CloseHandle(process.hProcess);
-        return true;
-    }
-    const std::string helper_narrow = path_to_utf8(helper);
-    const std::string plan_narrow = path_to_utf8(plan_file);
-    std::string narrow = "\"" + helper_narrow + "\" --plan \"" + plan_narrow + "\"";
-    STARTUPINFOA narrow_info{};
-    narrow_info.cb = sizeof narrow_info;
-    if (!CreateProcessA(
-            helper_narrow.c_str(),
-            narrow.data(),
-            nullptr,
-            nullptr,
-            FALSE,
-            DETACHED_PROCESS,
-            nullptr,
-            nullptr,
-            &narrow_info,
-            &process
-        )) {
-        why = "cannot start the helper";
-        return false;
-    }
-    CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
-    return true;
+    const std::vector<std::string> arguments{"--plan", path_to_utf8(plan_file)};
+    return start_helper_process(helper, arguments, why);
 #elif defined(__APPLE__)
     std::string helper_text = path_to_utf8(helper);
     std::string plan_flag = "--plan";

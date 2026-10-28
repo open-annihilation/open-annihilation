@@ -157,6 +157,41 @@ enum class StartEnd : uint8_t {
 /// @return the JSON text, with a trailing line end
 [[nodiscard]] std::string plan_text(const Plan& plan);
 
+/// Whether the helper that replaces this copy is given this process's open
+/// files.
+///
+/// It is not. On Windows an open file keeps its folder from being renamed,
+/// and the fonts stay open until this process leaves, so a helper that was
+/// given them could not move the fonts folder after this process had gone.
+///
+/// @return false
+[[nodiscard]] constexpr bool helper_inherits_open_files() noexcept {
+    return false;
+}
+
+/// One argument of a Windows command line, quoted the way that command line
+/// is read.
+///
+/// An argument with no space, tab, line end or quote, and that does not end
+/// in a backslash, is left as it is. Any other, including an empty one, is
+/// wrapped in quotes. A quote inside is escaped, and a run of backslashes
+/// that ends the argument or sits before a quote is escaped too, so a path
+/// that ends in a backslash is not cut short.
+///
+/// @param argument the argument
+/// @return the argument as one token of a command line
+[[nodiscard]] std::string windows_command_argument(std::string_view argument);
+
+/// The command line that starts the helper: the program, then its arguments.
+///
+/// Each token is quoted by windows_command_argument.
+///
+/// @param program the helper's path
+/// @param arguments the helper's arguments, without the program
+/// @return the command line
+[[nodiscard]] std::string
+windows_helper_command(std::string_view program, std::span<const std::string> arguments);
+
 /// Reads a state file.
 ///
 /// The same rules as a plan: one JSON object, unknown members ignored, a

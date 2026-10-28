@@ -4,8 +4,19 @@
 // The font stack: FreeType reads the fonts from their files through a stream
 // of the engine's own, so that a folder whose path is not in the system's
 // code page opens on Windows too, and draws each glyph once per size, weight
-// and rendering. The interface faces, Barlow and Barlow Condensed, go first
-// in their families' chains; the base faces draw what they lack.
+// and rendering. On Windows a font file is opened so a program this one
+// starts is not given it: Windows will not rename the fonts folder while a
+// file in it is open. The interface faces, Barlow and Barlow Condensed, go
+// first in their families' chains; the base faces draw what they lack.
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#endif
 
 #include "oa/platform/text_font.hpp"
 
@@ -17,8 +28,11 @@
 #include <algorithm>
 #include <cstdio>
 #if defined(_WIN32)
+#include <io.h>
 #include <share.h>
+#include <windows.h>
 #endif
+#include <cstdint>
 #include <cstdlib>
 #include <list>
 #include <tuple>
@@ -143,11 +157,70 @@ void close_file(FT_Stream stream) {
     stream->descriptor.pointer = nullptr;
 }
 
+#if defined(_WIN32)
+/// A function exported by kernel32, or null when this Windows does not have
+/// it. Windows 95 lacks the handle calls, and naming one here would stop the
+/// game from starting there.
+FARPROC kernel32(const char* name) {
+    const HMODULE kernel = GetModuleHandleA("kernel32.dll");
+    if (kernel == nullptr)
+        return nullptr;
+    return GetProcAddress(kernel, name);
+}
+
+/// The system handle of an open file, or -1 when it has none.
+intptr_t open_handle(std::FILE* file) {
+    const int descriptor = _fileno(file);
+    if (descriptor < 0)
+        return static_cast<intptr_t>(-1);
+    return _get_osfhandle(descriptor);
+}
+
+/// Stops a program this one starts from being given an open font file.
+///
+/// The system file library makes the handle inheritable. That program would
+/// keep the file open after this one leaves, and Windows will not rename the
+/// fonts folder while the file is open. Drawing still proceeds when the call
+/// is missing or fails.
+void drop_inherit(std::FILE* file) {
+    const intptr_t handle = open_handle(file);
+    if (handle == static_cast<intptr_t>(-1))
+        return;
+    using SetInformation = BOOL(WINAPI*)(HANDLE, DWORD, DWORD);
+    const auto set_information =
+        reinterpret_cast<SetInformation>(reinterpret_cast<void*>(kernel32("SetHandleInformation")));
+    if (set_information == nullptr)
+        return;
+    std::ignore = set_information(reinterpret_cast<HANDLE>(handle), HANDLE_FLAG_INHERIT, 0);
+}
+
+/// Tells whether a program this one starts would still hold this open file.
+bool handle_reaches_a_child(std::FILE* file) {
+    const intptr_t handle = open_handle(file);
+    if (handle == static_cast<intptr_t>(-1))
+        return false;
+    using GetInformation = BOOL(WINAPI*)(HANDLE, DWORD*);
+    const auto get_information =
+        reinterpret_cast<GetInformation>(reinterpret_cast<void*>(kernel32("GetHandleInformation")));
+    if (get_information == nullptr)
+        return false;
+    DWORD flags = 0;
+    if (get_information(reinterpret_cast<HANDLE>(handle), &flags) == FALSE)
+        return false;
+    return (flags & HANDLE_FLAG_INHERIT) != 0;
+}
+#endif
+
 /// Opens a file for reading, by its wide path on Windows, letting others read
-/// and write it too; null when it cannot be opened.
+/// and write it too; null when it cannot be opened. On Windows the file is
+/// not given to a program this one starts.
 std::FILE* open_file(const std::filesystem::path& path) {
 #if defined(_WIN32)
-    return _wfsopen(path.c_str(), L"rb", _SH_DENYNO);
+    std::FILE* file = _wfsopen(path.c_str(), L"rb", _SH_DENYNO);
+    if (file == nullptr)
+        return nullptr;
+    drop_inherit(file);
+    return file;
 #else
     return std::fopen(path.c_str(), "rb");
 #endif
@@ -535,6 +608,20 @@ std::optional<std::vector<char32_t>> decode_utf8(std::string_view text) {
         at += length;
     }
     return characters;
+}
+
+bool font_file_reaches_a_started_program(const std::filesystem::path& path) {
+#if defined(_WIN32)
+    std::FILE* file = open_file(path);
+    if (file == nullptr)
+        return false;
+    const bool reaches = handle_reaches_a_child(file);
+    std::fclose(file);
+    return reaches;
+#else
+    (void)path;
+    return false;
+#endif
 }
 
 bool is_invisible(char32_t character) noexcept {

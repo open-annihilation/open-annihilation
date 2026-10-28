@@ -3,7 +3,8 @@
 
 // The font stack: the fonts found beside the program, the sizes that match
 // the game's fonts, the fallback chain, the interface faces, text that is
-// not UTF-8, the limits, and, with --pixels, a short mixed line drawn pixel for pixel as the pinned
+// not UTF-8, the limits, a font file that a started program is not given,
+// and, with --pixels, a short mixed line drawn pixel for pixel as the pinned
 // FreeType draws it. --show TEXT prints a line as it is drawn.
 
 #include "oa/platform/text_font.hpp"
@@ -748,6 +749,26 @@ void face_file_opens() {
     OA_CHECK(!text_font::FontStack::face_file_opens(fonts.directory / "missing.otf"));
 }
 
+/// A font file opened for drawing is not given to a program this one starts,
+/// and a file that cannot be opened is not reported as one that is.
+void a_font_file_does_not_stay_open_for_a_child() {
+    const std::filesystem::path directory =
+        std::filesystem::temp_directory_path() /
+        ("oa-text-font-inherit-V19-" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const std::filesystem::path file = directory / "face.ttf";
+    {
+        std::ofstream out(file, std::ios::binary);
+        out << "font";
+        OA_CHECK(static_cast<bool>(out));
+    }
+    OA_CHECK(!text_font::font_file_reaches_a_started_program(file));
+    OA_CHECK(!text_font::font_file_reaches_a_started_program(directory / "missing.ttf"));
+    std::error_code error;
+    std::filesystem::remove_all(directory, error);
+}
+
 /// "Ab", a Chinese character and the rocket emoji, bold at 14 px, mono:
 /// the line as FreeType 2.14.3 draws it with the pinned fonts.
 constexpr std::string_view mixed_line = "Ab\xE4\xB8\xAD\xF0\x9F\x9A\x80";
@@ -818,5 +839,6 @@ int main(int argc, char** argv) {
     removed_faces_leave_no_glyphs();
     interface_faces_go_first();
     face_file_opens();
+    a_font_file_does_not_stay_open_for_a_child();
     return oa::test::check_exit_status();
 }
