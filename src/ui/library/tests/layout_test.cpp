@@ -6444,8 +6444,10 @@ void filter_pane_scrolls_and_tab_leaves_it() {
     OA_CHECK(all != nullptr);
     if (all == nullptr)
         return;
+    // The walks below replace `list`, so a pointer into this one would dangle.
+    const auto all_id = all->id;
     state.interaction.focus_shown = true;
-    state.interaction.focused = all->id;
+    state.interaction.focused = all_id;
     for (std::size_t step = 1; step < entries.size(); ++step) {
         OA_CHECK(lib::library_key(library, state, list, kit::Key::down).redraw);
         list = laid_out(library, state, large);
@@ -6460,7 +6462,7 @@ void filter_pane_scrolls_and_tab_leaves_it() {
     }
     // Home goes back to All, End to the last world.
     static_cast<void>(lib::library_key(library, state, list, kit::Key::home));
-    OA_CHECK(state.interaction.focused == all->id);
+    OA_CHECK(state.interaction.focused == all_id);
     list = laid_out(library, state, large);
     static_cast<void>(lib::library_key(library, state, list, kit::Key::end));
     list = laid_out(library, state, large);
