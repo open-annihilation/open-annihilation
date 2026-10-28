@@ -17,8 +17,17 @@
 // leaves the selection as it was. Ctrl+R draws the radar and sonar rings on
 // the minimap, Ctrl+Shift+R and Ctrl+Shift+P add to the selection, Ctrl+1
 // stores a group and its select key recalls it, and Primary+/ (Command+/ on
-// a Mac) opens the keys overlay and closes it again. The check reads its
-// expectations from the loaded data, so it runs under a mod's profile too.
+// a Mac) opens the keys overlay and closes it again. Group keys centre the
+// view is played each way. The view is put at the clamped place furthest
+// from the group, and following a unit is stopped so a frame does not pull
+// it back: On a double press, one press selects and leaves the view, two
+// quick presses centre the group and two slow ones do not; Never leaves it
+// after two quick presses; On every press leaves the view on the first
+// press and centres it on a later press, past the double-press time. Each
+// scenario waits out the double-press time first, so the press before it
+// is not its first. The check reads
+// its expectations from the loaded data, so it runs under a mod's profile
+// too, and it puts the setting back as it found it.
 
 #include "oa/app/runtime.hpp"
 #include "oa/app/frame_coordinates.hpp"
@@ -34,11 +43,13 @@
 #include "oa/sim/simulation_state.hpp"
 #include "oa/sim/unit_spawn/spawn.hpp"
 #include "oa/sim/unit_spawn/spawn_runtime.hpp"
+#include "oa/ui/engine_settings.hpp"
 #include "oa/ui/key_editor/overlay.hpp"
 
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
@@ -48,6 +59,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace oa::app {
@@ -120,6 +132,14 @@ constexpr uint64_t kClockStartNs = 1'000'000'000ULL;
 
 /// One frame's step of the frame clock, in nanoseconds.
 constexpr uint64_t kFrameNs = 33'333'333ULL;
+
+/// The double-press time the key bindings take while Settings leaves it to
+/// the system, in milliseconds.
+constexpr uint32_t kGroupDoublePressMs = 500;
+
+/// How far past the double-press time the second of two slow presses comes,
+/// in milliseconds.
+constexpr uint32_t kGroupSlowMarginMs = 250;
 
 /// Pixels of the sensor colour the rings must add to the minimap.
 constexpr std::size_t kRingPixels = 16;
@@ -508,14 +528,136 @@ void Runtime::check_selection_keys() {
 
     say_step("Ctrl+1 stores a group, and its select key brings it back");
     if (const uint16_t fighter = first_of("ARMFIG"); fighter != 0) {
+        // The group's key: 1 alone with Select groups without Alt, else Alt+1.
+        const auto group_key = [&] {
+            if (EngineSettingsState::live_switch_alt(*this))
+                press({}, SDL_SCANCODE_1);
+            else
+                press({kAlt}, SDL_SCANCODE_1);
+        };
         select_only({fighter});
         press({kControl}, SDL_SCANCODE_1);
         select_only({});
-        if (EngineSettingsState::live_switch_alt(*this))
-            press({}, SDL_SCANCODE_1);
-        else
-            press({kAlt}, SDL_SCANCODE_1);
+        group_key();
         expect("the group 1 key", {fighter});
+
+        // Group keys centre the view, each way. The view starts as far from
+        // the group as the camera's limits allow, and a press either leaves
+        // it there or moves it to the group.
+        namespace settings = oa::ui::engine_settings;
+        const settings::GroupKeysCentre kept = engine_settings().group_keys_centre;
+        const auto choose = [&](settings::GroupKeysCentre way) {
+            settings::EngineSettings chosen = engine_settings();
+            chosen.group_keys_centre = way;
+            apply_engine_settings(chosen);
+        };
+        const auto& flier = match_->world().slots[fighter].record;
+        const int32_t group_x = static_cast<int16_t>(static_cast<uint32_t>(flier.position.x) >> 16);
+        const int32_t group_z = static_cast<int16_t>(static_cast<uint32_t>(flier.position.z) >> 16);
+        // A frame follows the commander while the game says so, which pulls a
+        // camera put at the map's edge back beside the group. Following is
+        // stopped so a parked view stays where it was put.
+        stop_match_tracking();
+        set_camera_position(
+            group_x - visible_map_width() / 2, group_z - visible_map_height() / 2, 0
+        );
+        const std::pair<int32_t, int32_t> centred{match_camera_x_, match_camera_z_};
+        // The map's pixel size is not the camera's range: set_camera_position
+        // clamps, and the corner on the group's side of the map lands beside
+        // the group. Keep the request whose clamped place is furthest away.
+        const auto shown = shown_map_size();
+        const std::array<std::pair<int32_t, int32_t>, 8> requests{{
+            {-100000, -100000},
+            {-100000, 100000},
+            {100000, -100000},
+            {100000, 100000},
+            {0, 0},
+            {shown[0], shown[1]},
+            {0, shown[1]},
+            {shown[0], 0},
+        }};
+        std::pair<int32_t, int32_t> far_request = requests[0];
+        int64_t furthest = -1;
+        for (const auto& request : requests) {
+            set_camera_position(request.first, request.second, 0);
+            const int64_t across = static_cast<int64_t>(match_camera_x_) - centred.first;
+            const int64_t down = static_cast<int64_t>(match_camera_z_) - centred.second;
+            const int64_t span = across * across + down * down;
+            if (span > furthest) {
+                furthest = span;
+                far_request = request;
+            }
+        }
+        const auto where = [](std::pair<int32_t, int32_t> place) {
+            return std::to_string(place.first) + "," + std::to_string(place.second);
+        };
+        // Requires the view at a place, saying where it is otherwise.
+        const auto require_view = [&](std::pair<int32_t, int32_t> wanted, std::string_view what) {
+            const std::pair<int32_t, int32_t> now{match_camera_x_, match_camera_z_};
+            require(
+                now == wanted,
+                std::string(what) + ": the view is at " + where(now) + ", wanted " + where(wanted) +
+                    " (the group's view " + where(centred) + ")"
+            );
+        };
+        // The same window the key bindings keep: 500 ms while Double press is
+        // left to the system, otherwise the milliseconds the setting stores.
+        const uint32_t stored_ms = engine_settings().double_press_ms;
+        const uint32_t double_press_ms = stored_ms == 0 ? kGroupDoublePressMs : stored_ms;
+        // Puts the view at the far place, clears the selection, and waits out
+        // the double-press time so the group's key pressed just before is not
+        // this scenario's first press. Returns where the view then is.
+        const auto park = [&] {
+            stop_match_tracking();
+            set_camera_position(far_request.first, far_request.second, 0);
+            select_only({});
+            SDL_Delay(double_press_ms + kGroupSlowMarginMs);
+            const std::pair<int32_t, int32_t> parked{match_camera_x_, match_camera_z_};
+            require(
+                parked != centred,
+                "the view far from the group is where the group is (" + where(parked) + ")"
+            );
+            return parked;
+        };
+
+        choose(settings::GroupKeysCentre::double_press);
+        const auto first_park = park();
+        group_key();
+        expect("one press of the group key", {fighter});
+        require_view(first_park, "one press of the group key");
+        say_step("On a double press: one press selects the group and leaves the view");
+        group_key();
+        require_view(centred, "two quick presses of the group key");
+        say_step("On a double press: two quick presses centre the view on the group");
+        const auto slow_park = park();
+        group_key();
+        SDL_Delay(double_press_ms + kGroupSlowMarginMs);
+        group_key();
+        expect("two slow presses of the group key", {fighter});
+        require_view(slow_park, "two slow presses of the group key");
+        say_step("On a double press: two slow presses leave the view");
+
+        choose(settings::GroupKeysCentre::never);
+        const auto never_park = park();
+        group_key();
+        group_key();
+        expect("the group key under Never", {fighter});
+        require_view(never_park, "Never, two quick presses");
+        say_step("Never: two quick presses leave the view");
+
+        choose(settings::GroupKeysCentre::every_press);
+        const auto every_park = park();
+        group_key();
+        expect("the group key under On every press", {fighter});
+        require_view(every_park, "On every press, the first press");
+        say_step("On every press: one press selects the group and leaves the view");
+        // Past the double-press time, so this is not On a double press's
+        // second press: the group is already the selection, and the view moves.
+        SDL_Delay(double_press_ms + kGroupSlowMarginMs);
+        group_key();
+        require_view(centred, "On every press, a later press");
+        say_step("On every press: a later press centres the view, past the double-press time");
+        choose(kept);
     }
 
     say_step("Primary+/ opens the keys overlay, and again closes it");

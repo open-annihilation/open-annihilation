@@ -265,6 +265,15 @@ Each of these takes effect at once.
   level, so 5.0 holds five times as firmly. At 0.0 the edge never holds.
   Only Sticky uses it: with Capture or Free it is greyed, says Needs
   Sticky, and keeps its value.
+- **Group keys centre the view**, On a double press, Never or On every
+  press, On a double press by default. A group's key always selects the
+  group. On a double press, a second press of the same group's key within
+  the double-press time (Accessibility's Double press), with no other key
+  between, also moves the view to the group's centre, and one press leaves
+  the view where it is. Never leaves the view. On every press moves it when
+  the group is already exactly the selection, however long after the last
+  press, which is what 0.8.6 did. 3.1c leaves the view where it is on a
+  first press and on a second. It applies at once.
 
 ![The end of the Controls section: View past the map's edge at 50%, Middle-click pans On, Window edge at Capture, and Edge stickiness greyed at 1.0, Needs Sticky.](images/settings/controls-2.png)
 

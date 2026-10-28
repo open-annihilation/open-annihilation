@@ -385,6 +385,9 @@ enum class Setting : uint8_t {
     /// player moved back in its place (Dialog::window_reset_asked). It keeps
     /// no setting.
     reset_window_positions,
+    /// Group keys centre the view: a drop-down of On a double press, Never
+    /// and On every press, Controls' last row
+    group_keys_centre,
     /// Look: a strip of Modern and Classic, User Interface's last row
     look,
 };

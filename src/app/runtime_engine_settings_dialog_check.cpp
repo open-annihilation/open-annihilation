@@ -360,6 +360,8 @@ std::string_view label_of(settings::Setting setting) {
         return "Middle-click pans";
     case settings::Setting::escape_opens_menu:
         return "Escape opens the game menu";
+    case settings::Setting::group_keys_centre:
+        return "Group keys centre the view";
     case settings::Setting::switch_alt:
         return "Select groups without Alt";
     case settings::Setting::window_edge:

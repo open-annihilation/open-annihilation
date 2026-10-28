@@ -134,6 +134,32 @@ const keys::ActionEvent* find_console_press(std::span<const keys::ActionEvent> e
     return nullptr;
 }
 
+/// Whether a group's select or add key went down in this event.
+///
+/// @param events the current event's action events
+/// @return true when one of them is a group's key
+bool group_key_pressed(std::span<const keys::ActionEvent> events) {
+    for (const keys::ActionEvent& fed : events) {
+        if (fed.phase != keys::Phase::pressed)
+            continue;
+        if (action_number(fed.action, "group.select-") != 0 ||
+            action_number(fed.action, "group.add-") != 0)
+            return true;
+    }
+    return false;
+}
+
+/// Whether a key is a modifier's own: Shift, Ctrl, Alt or the system key.
+///
+/// @param scancode the key's place
+/// @return true for either of each
+bool modifier_key(SDL_Scancode scancode) {
+    return scancode == SDL_SCANCODE_LSHIFT || scancode == SDL_SCANCODE_RSHIFT ||
+           scancode == SDL_SCANCODE_LCTRL || scancode == SDL_SCANCODE_RCTRL ||
+           scancode == SDL_SCANCODE_LALT || scancode == SDL_SCANCODE_RALT ||
+           scancode == SDL_SCANCODE_LGUI || scancode == SDL_SCANCODE_RGUI;
+}
+
 /// Whether this repeat is an action that still answers while held.
 ///
 /// @param events the current event's action events
@@ -295,11 +321,11 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
         return true;
     }
     if (const int selected = action_number(id, "group.select-"); selected != 0) {
-        select_squad(selected, false);
+        select_squad(selected, false, group_key_view_move(selected));
         return true;
     }
     if (const int added = action_number(id, "group.add-"); added != 0) {
-        select_squad(added, true);
+        select_squad(added, true, group_key_view_move(added));
         return true;
     }
     if (const int page = action_number(id, "build.page-"); page != 0) {
@@ -573,6 +599,10 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     const bool deletes_typed_text =
         !question && key.key == SDLK_BACKSPACE && (chat_composing_ || whiteboard_input_.editing);
     const auto events = match_action_events();
+    // Another key's press ends a run of presses of one group's key. A
+    // modifier's own key does not: Alt may go down again between the two.
+    if (!key.repeat && !modifier_key(key.scancode) && !group_key_pressed(events))
+        group_key_last_ = 0;
     if (key.repeat && !deletes_typed_text && !repeats_speed_or_page(events))
         return false;
     if ((!question && take_whiteboard_chord(key)) || take_megamap_toggle(key))

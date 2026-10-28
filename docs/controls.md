@@ -237,16 +237,21 @@ the digit selects the group. **Number keys select groups**, in the key
 editor, is 3.1c's SwitchAlt (`+switchalt`): with it on, the digit alone
 selects the group and Alt and the digit picks a build button.
 
-The first press selects the group, or adds it when Shift is held. A later
-press, at once or after a pause, centres the view on the group when that
-group is already exactly the selection. The view goes to the average of
-the units' positions, and the camera does not
-start following a unit. T follows the selection. Home centres on the
-selected unit and does not follow it.
+A press selects the group, or adds it when Shift is held, and leaves the
+view where it is. Two presses of the same group's key back to back, within
+the double-press time (Settings › Accessibility › Double press) and with no
+other key between, also centre the view on the group. **Group keys centre
+the view**, in Settings › Controls, changes that: On a double press is the
+default, Never leaves the view, and On every press centres it when the
+group is already exactly the selection, however long after the last press,
+which is what 0.8.6 did. 3.1c leaves the view where it is on a first press
+and on a second. The view goes to the average of the units' positions, and
+the camera does not start following a unit. T follows the selection. Home
+centres on the selected unit and does not follow it.
 
-A gamepad's group buttons do the same. With the groups grip held, a tap
-selects the group and a second tap centres on it. See
-[controllers.md](controllers.md).
+A gamepad's group buttons centre on the group when it is already exactly
+the selection. With the groups grip held, a tap selects the group and a
+second tap centres on it. See [controllers.md](controllers.md).
 
 ## Queueing with Shift
 
