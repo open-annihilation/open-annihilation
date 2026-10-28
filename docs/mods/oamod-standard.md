@@ -826,25 +826,27 @@ file it replaces.
 
 Limits are written without the `limits.` prefix of their registry ids, and
 take the same forms as hacks ([5.2](#52-ways-to-write-a-limit-or-hack)).
+The name in each row links to that limit's page. The pages state what the
+limit holds; this section states the format.
 
 | Limit | Parameter | 3.1c | Default when on | Range | Adjustable | Setting |
 | --- | --- | --- | --- | --- | --- | --- |
-| `units-per-player` | `default` | 250 | 1,500 | 1 to 6,553 | match | registry `UnitLimit` |
+| [`units-per-player`](standard-hacks/limits.units-per-player.md) | `default` | 250 | 1,500 | 1 to 6,553 | match | registry `UnitLimit` |
 | | `min` | 20 | 20 | 1 to 6,553 | fixed | |
 | | `max` | 500 | 1,500 | 1 to 6,553 | fixed | |
 | | `limits-screen-fallback` (view) | 101 | 1,500 | 1 to 6,553 | install | INI `Preferences/UnitLimit` |
-| `unit-types` | `bitset-bits` | 512 | 16,384 | 512 to 65,536, a multiple of 512 | install | INI `Preferences/UnitType` |
+| [`unit-types`](standard-hacks/limits.unit-types.md) | `bitset-bits` | 512 | 16,384 | 512 to 65,536, a multiple of 512 | install | INI `Preferences/UnitType` |
 | | `partial-widening` | `false` | `false` | boolean | fixed | |
-| `category-mask-types` | `types` (shorthand) | 512 | 512 | 512 to 65,536, a multiple of 512 | fixed | |
-| `effects` (view) | `queue` | 400 | 20,480 | 1 to 1,000,000 | install | INI `Preferences/SfxLimit` |
+| [`category-mask-types`](standard-hacks/limits.category-mask-types.md) | `types` (shorthand) | 512 | 512 | 512 to 65,536, a multiple of 512 | fixed | |
+| [`effects`](standard-hacks/limits.effects.md) (view) | `queue` | 400 | 20,480 | 1 to 1,000,000 | install | INI `Preferences/SfxLimit` |
 | | `reserve` | 1,000 | 10 × `queue` | 1 to 10,000,000 | fixed | |
-| `path-search-budget` | `nodes` (shorthand) | 1,333 | 66,650 | 1 to 10,000,000 | install | INI `Preferences/AISearchMapEntries` |
-| `build-list-entries` | `copy` | 30 | 36 | 1 to 1,024 | fixed | |
+| [`path-search-budget`](standard-hacks/limits.path-search-budget.md) | `nodes` (shorthand) | 1,333 | 66,650 | 1 to 10,000,000 | install | INI `Preferences/AISearchMapEntries` |
+| [`build-list-entries`](standard-hacks/limits.build-list-entries.md) | `copy` | 30 | 36 | 1 to 1,024 | fixed | |
 | | `overflow` | `truncate` | `truncate` | `truncate`, `dynamic` | fixed | |
-| `model-composite` (view) | `width`, `height` | 600 | 1,280 | 64 to 8,192 | fixed | |
+| [`model-composite`](standard-hacks/limits.model-composite.md) (view) | `width`, `height` | 600 | 1,280 | 64 to 8,192 | fixed | |
 | | `clamp-oversize` | `false` | `true` | boolean | fixed | |
-| `weapon-types` | `types` (shorthand) | 256 | 4,096 | 256 to 65,536 | fixed | |
-| `sides` | `count` (shorthand) | 5 | 10 | 5 to 32 | fixed | |
+| [`weapon-types`](standard-hacks/limits.weapon-types.md) | `types` (shorthand) | 256 | 4,096 | 256 to 65,536 | fixed | |
+| [`sides`](standard-hacks/limits.sides.md) | `count` (shorthand) | 5 | 10 | 5 to 32 | fixed | |
 
 What each limit holds:
 
