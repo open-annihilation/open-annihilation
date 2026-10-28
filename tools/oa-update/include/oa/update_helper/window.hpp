@@ -69,12 +69,21 @@ class ProgressWindow {
     /// Closes the window. The update is not affected.
     void close();
 
+    /// Closes font files opened from the installed game and keeps them closed
+    /// until `allow_installed_files`. A window that has not opened any is
+    /// unchanged. The window itself stays up.
+    void release_installed_files();
+
+    /// Lets a later show open the installed font files again.
+    void allow_installed_files();
+
   private:
 
     struct Shown;
     Shown* shown_{};
     bool unavailable_{};
     bool display_open_{};
+    bool hold_files_{false};
     Log* log_{};
     int64_t started_ms_{};
 };
