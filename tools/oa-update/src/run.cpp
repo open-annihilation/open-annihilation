@@ -240,6 +240,7 @@ Started start_version(
     const std::vector<std::string>& arguments,
     bool add_updated_from,
     std::string_view from_version,
+    std::string_view expect_version,
     std::string& error
 ) {
     Started started;
@@ -251,14 +252,18 @@ Started start_version(
             path_from(plan.install),
             arguments,
             add_updated_from ? from_version : std::string_view{},
+            path_from(plan.updates) / "state.json",
+            expect_version,
             &error,
             &started.pid
         );
 #else
+        (void)expect_version;
         error = "this route is not carried out";
 #endif
         return started;
     }
+    (void)expect_version;
     const fs::path program =
         linux ? path_from(plan.install) / "open-annihilation" : path_from(plan.program);
     started.process =
@@ -414,7 +419,7 @@ int restore_kept(
         arguments.emplace_back(bad_version);
         arguments.emplace_back("--roll-back-reason");
         arguments.emplace_back(reason_name == nullptr ? "" : reason_name);
-        Started started = start_version(plan, arguments, false, {}, error);
+        Started started = start_version(plan, arguments, false, {}, {}, error);
         forget_started(started);
         if (!started.ok) {
             log.line(error.empty() ? "the kept version could not be started" : error);
@@ -508,7 +513,7 @@ int restore_kept(
     arguments.emplace_back(bad_version);
     arguments.emplace_back("--roll-back-reason");
     arguments.emplace_back(reason_name == nullptr ? "" : reason_name);
-    Started started = start_version(plan, arguments, false, {}, error);
+    Started started = start_version(plan, arguments, false, {}, {}, error);
     forget_started(started);
     if (!started.ok) {
         log.line(error.empty() ? "the kept version could not be started" : error);
@@ -806,7 +811,8 @@ int carry_out(
     // The new version is in place. The receipt says so before it starts,
     // so the game finds the outcome on its first menu.
     log.finish(update::Outcome::installed);
-    Started started = start_version(plan, plan.arguments, true, plan.from_version, error);
+    Started started =
+        start_version(plan, plan.arguments, true, plan.from_version, verified.version, error);
     if (!started.ok) {
         if (linux)
             remove_update_starts(path_from(plan.install));
@@ -851,13 +857,19 @@ int carry_out(
     struct Again {
         const update::Plan* plan{};
         std::string* error{};
+        std::string expect_version;
     };
 
-    Again again{&plan, &error};
+    Again again{&plan, &error, std::string(verified.version)};
     const auto restart = [](void* context, SDL_Process** process, int* pid, std::string* failure) {
         auto* held = static_cast<Again*>(context);
         Started next = start_version(
-            *held->plan, held->plan->arguments, true, held->plan->from_version, *failure
+            *held->plan,
+            held->plan->arguments,
+            true,
+            held->plan->from_version,
+            held->expect_version,
+            *failure
         );
         if (!next.ok)
             return false;

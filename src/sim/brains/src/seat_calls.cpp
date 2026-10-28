@@ -130,6 +130,8 @@ bool match_site_fogged(
     try {
         match_runtime::BuildSiteOptions options;
         options.facing = static_cast<uint8_t>(facing);
+        // The seat's own explored ground. The build cursor keeps the viewpoint.
+        options.mapped_player = player;
         return match.building_site(type, cell_x, cell_z, 0, player, options).has_value();
     } catch (const std::exception&) {
         return false;

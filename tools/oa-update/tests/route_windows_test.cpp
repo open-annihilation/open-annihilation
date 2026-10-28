@@ -13,12 +13,17 @@
 #include "oa/test/check.hpp"
 
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#if defined(_WIN32)
+#include <share.h>
+#endif
 
 namespace {
 
@@ -572,6 +577,43 @@ void postponed_rename_undoes_as_nothing() {
     OA_CHECK(!fs::exists(updates / "journal.json"));
 }
 
+void a_closed_window_can_let_go_of_font_files() {
+    helper::ProgressWindow window;
+    window.release_installed_files();
+    window.show("Open Annihilation", "Installing", 0, false);
+    window.allow_installed_files();
+    window.release_installed_files();
+    const helper::PlacedUpdateWindow placed =
+        helper::place_update_window("Open Annihilation", "Installing", 0);
+    OA_CHECK(placed.width > 0);
+    OA_CHECK(placed.height > 0);
+    OA_CHECK(!placed.line_text.empty());
+}
+
+void an_open_file_keeps_its_folder() {
+    Scratch scratch("held-folder");
+    const fs::path folder = scratch.path / "fonts";
+    const fs::path font_file = folder / "face.ttf";
+    const fs::path moved = scratch.path / "fonts-moved";
+    write_file(font_file, "font");
+    OA_CHECK(fs::exists(font_file));
+#if defined(_WIN32)
+    std::FILE* held = _wfsopen(font_file.c_str(), L"rb", _SH_DENYNO);
+    OA_CHECK(held != nullptr);
+    if (held != nullptr) {
+        std::error_code io;
+        fs::rename(folder, moved, io);
+        OA_CHECK(io);
+        OA_CHECK(fs::exists(font_file));
+        std::fclose(held);
+        io.clear();
+        fs::rename(folder, moved, io);
+        OA_CHECK(!io);
+        OA_CHECK(fs::exists(moved / "face.ttf"));
+    }
+#endif
+}
+
 } // namespace
 
 void test_windows_routes() {
@@ -586,4 +628,6 @@ void test_windows_routes() {
     restore_and_markers();
     journal_restores_the_folder_and_the_installer();
     postponed_rename_undoes_as_nothing();
+    a_closed_window_can_let_go_of_font_files();
+    an_open_file_keeps_its_folder();
 }

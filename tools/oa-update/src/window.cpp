@@ -84,6 +84,17 @@ void ProgressWindow::close() {
     shown_->texture = nullptr;
     shown_->renderer = nullptr;
     shown_->window = nullptr;
+    shown_->fonts.reset();
+}
+
+void ProgressWindow::release_installed_files() {
+    hold_files_ = true;
+    if (shown_ != nullptr)
+        shown_->fonts.reset();
+}
+
+void ProgressWindow::allow_installed_files() {
+    hold_files_ = false;
 }
 
 void ProgressWindow::show(
@@ -112,8 +123,9 @@ void ProgressWindow::show(
             return;
         }
         display_open_ = true;
-        shown_->fonts = text_font::FontStack::open(text_font::bundled_font_directory());
     }
+    if (shown_->fonts == nullptr && !hold_files_)
+        shown_->fonts = text_font::FontStack::open(text_font::bundled_font_directory());
     if (shown_->window == nullptr) {
         const std::string caption =
             title.empty() ? std::string("Open Annihilation") : std::string(title);
