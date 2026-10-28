@@ -884,6 +884,13 @@ PlacedRows place_rows(std::span<const RowView> views, const RowPlacement& placem
             }
             lock_width = std::min(dropped, std::max(width, int32_t{1}));
         }
+        // A switch and a level strip grow with the class. A button stays on
+        // the regular line, as does a lock that has dropped under the label.
+        const bool grows = view.kind == RowKind::toggle || view.kind == RowKind::levels;
+        const int32_t grown =
+            placement.control_height > 0 ? placement.control_height : line_height;
+        const int32_t control_line = grows ? grown : line_height;
+        const int32_t label_line = on_label && grows ? grown : line_height;
         int32_t control_top = label_top;
         if (drop_line) {
             control_top = label_top + line_height + kMetrics.hint_gap;
@@ -892,11 +899,11 @@ PlacedRows place_rows(std::span<const RowView> views, const RowPlacement& placem
         }
         if (drop_line) {
             row.control_area = {
-                placement.right - control_width, control_top, control_width, line_height
+                placement.right - control_width, control_top, control_width, control_line
             };
         } else if (on_label) {
             row.control_area = {
-                placement.right - control_width, label_top, control_width, line_height
+                placement.right - control_width, label_top, control_width, control_line
             };
         }
         if (locked && lock_below) {
@@ -906,12 +913,13 @@ PlacedRows place_rows(std::span<const RowView> views, const RowPlacement& placem
             if (on_label)
                 label_right = row.control_area.x - kMetrics.label_gap;
         } else if (locked) {
+            const int32_t lock_height = on_label && grows ? grown : line_height;
             if (on_label) {
                 row.lock_area = {
                     row.control_area.x - kMetrics.label_gap - lock_width,
                     label_top,
                     lock_width,
-                    line_height
+                    lock_height
                 };
             } else {
                 row.lock_area = {placement.right - lock_width, label_top, lock_width, line_height};
@@ -927,15 +935,18 @@ PlacedRows place_rows(std::span<const RowView> views, const RowPlacement& placem
                 view.control_width > 0 ? std::min(view.control_width, room) : room;
             row.control_area = {placement.left, label_top, link_columns, line_height};
         } else {
-            row.label = {placement.left, label_top, label_right - placement.left, line_height};
+            row.label = {placement.left, label_top, label_right - placement.left, label_line};
         }
-        // Hints follow the lowest of the label line, a lock that dropped
-        // under it, and a control that dropped under that.
-        const int32_t followed = lock_below && drop_line ? row.control_area.y
-                                 : lock_below            ? row.lock_area.y
-                                 : drop_line             ? control_top
-                                                         : label_top;
-        int32_t bottom = followed + line_height + kMetrics.hint_gap;
+        // Hints follow whichever of the label, a lock and a control on these
+        // lines extends lowest. With every part regular_line high this is the
+        // old followed + line_height.
+        int32_t occupied = label_top;
+        occupied += view.kind == RowKind::link ? line_height : row.label.height;
+        if (has_area(row.lock_area))
+            occupied = std::max(occupied, row.lock_area.y + row.lock_area.height);
+        if (has_area(row.control_area) && view.kind != RowKind::link)
+            occupied = std::max(occupied, row.control_area.y + row.control_area.height);
+        int32_t bottom = occupied + kMetrics.hint_gap;
         for (std::size_t line = 0; line < view.hints.size(); ++line) {
             if (line > 0 && placement.tall)
                 bottom += kMetrics.tall_hint_line_gap;
@@ -966,7 +977,9 @@ PlacedRows place_rows(std::span<const RowView> views, const RowPlacement& placem
             // as a slider's track does.
             bottom += kMetrics.slider_gap;
             const int32_t field_height =
-                view.kind == RowKind::choice ? line_height : kMetrics.field_height;
+                view.kind == RowKind::choice
+                    ? grown
+                    : (placement.field_height > 0 ? placement.field_height : kMetrics.field_height);
             row.control_area = {
                 placement.left,
                 bottom,

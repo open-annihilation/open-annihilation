@@ -500,7 +500,7 @@ void check_release_source(void*, const char*) {
 /// Copies one file through the engine's copy, held to --game-files-copy-rate when it is given:
 /// a file starts only once the bytes copied before it fit the rate since the first began.
 /// Once --game-files-stop-after bytes are copied, the next file waits until the copy is
-/// stopped, so the route's STOP always finds the copy running, however busy the machine is.
+/// stopped, so the route's Stop always finds the copy running, however busy the machine is.
 CopyOutcome check_copy_file(void*, const FileCopy& file, std::string* error) {
     auto& run = check_run();
     if (run.options.game_files_stop_after) {
@@ -736,7 +736,7 @@ void notice(GameFilesScreen& screen) {
     run.most_skipped = std::max(run.most_skipped, screen.run().files_skipped);
 }
 
-/// The folder route's steps, from S1 to PLAY, for the folder and phone variants.
+/// The folder route's steps, from S1 to Play, for the folder and phone variants.
 ///
 /// @return the steps
 [[nodiscard]] std::vector<RouteStep> folder_route() {
@@ -771,7 +771,7 @@ void notice(GameFilesScreen& screen) {
         {"S1 again after the dialog",
          [](GameFilesScreen& s) { return showing(s, view::Step::first_run); },
          [](GameFilesScreen& s) {
-             tap(s, control(view::ControlKind::choose_folder), "CHOOSE FOLDER");
+             tap(s, control(view::ControlKind::choose_folder), "Choose folder");
          }}
     );
     steps.push_back(
@@ -802,7 +802,7 @@ void notice(GameFilesScreen& screen) {
          [](GameFilesScreen& s) {
              if (s.model().scroll_points > 0)
                  snap(s, "dragged");
-             tap(s, control(view::ControlKind::show_left_out), "SHOW");
+             tap(s, control(view::ControlKind::show_left_out), "Show");
          },
          [](GameFilesScreen&) -> std::optional<view::Control> {
              return control(view::ControlKind::show_left_out);
@@ -872,8 +872,8 @@ void notice(GameFilesScreen& screen) {
          },
          [](GameFilesScreen& s) {
              if (!control_enabled(s, control(view::ControlKind::copy)))
-                 fail("COPY cannot be pressed on Ready to copy");
-             tap(s, control(view::ControlKind::copy), "COPY");
+                 fail("Copy cannot be pressed on Ready to copy");
+             tap(s, control(view::ControlKind::copy), "Copy");
          }}
     );
     steps.push_back(
@@ -884,7 +884,7 @@ void notice(GameFilesScreen& screen) {
          },
          [](GameFilesScreen& s) {
              snap(s);
-             tap(s, control(view::ControlKind::play), "PLAY");
+             tap(s, control(view::ControlKind::play), "Play");
          }}
     );
     return steps;
@@ -900,7 +900,7 @@ void notice(GameFilesScreen& screen) {
          [](GameFilesScreen& s) { return showing(s, view::Step::first_run); },
          [](GameFilesScreen& s) {
              snap(s);
-             tap(s, control(view::ControlKind::choose_installer), "CHOOSE INSTALLER");
+             tap(s, control(view::ControlKind::choose_installer), "Choose installer");
          }}
     );
     steps.push_back(
@@ -913,7 +913,7 @@ void notice(GameFilesScreen& screen) {
              snap(s);
              if (!s.model().demo)
                  fail("Ready to copy does not show the demo's installer");
-             tap(s, control(view::ControlKind::copy), "COPY");
+             tap(s, control(view::ControlKind::copy), "Copy");
          }}
     );
     steps.push_back(
@@ -924,14 +924,14 @@ void notice(GameFilesScreen& screen) {
          },
          [](GameFilesScreen& s) {
              snap(s);
-             tap(s, control(view::ControlKind::play), "PLAY");
+             tap(s, control(view::ControlKind::play), "Play");
          }}
     );
     return steps;
 }
 
-/// The copy-yourself route's steps: I HAVE COPIED IT with nothing there, the files copied
-/// under another name, CHECK AGAIN, USE IT.
+/// The copy-yourself route's steps: I have copied it with nothing there, the files copied
+/// under another name, Check again, Use it.
 ///
 /// @return the steps
 [[nodiscard]] std::vector<RouteStep> copy_yourself_route() {
@@ -941,7 +941,7 @@ void notice(GameFilesScreen& screen) {
          [](GameFilesScreen& s) { return showing(s, view::Step::first_run); },
          [](GameFilesScreen& s) {
              snap(s);
-             tap(s, control(view::ControlKind::i_have_copied), "I HAVE COPIED IT");
+             tap(s, control(view::ControlKind::i_have_copied), "I have copied it");
          }}
     );
     steps.push_back(
@@ -954,7 +954,7 @@ void notice(GameFilesScreen& screen) {
              snap(s);
              auto& run = check_run();
              if (place_files(run.source, run.documents / std::string(misnamed_folder)))
-                 tap(s, control(view::ControlKind::problem_action, 0), "CHECK AGAIN");
+                 tap(s, control(view::ControlKind::problem_action, 0), "Check again");
          }}
     );
     steps.push_back(
@@ -967,7 +967,7 @@ void notice(GameFilesScreen& screen) {
              snap(s);
              if (s.model().file != misnamed_folder)
                  fail("Found your files names " + s.model().file + ", not the folder copied");
-             tap(s, control(view::ControlKind::problem_action, 0), "USE IT");
+             tap(s, control(view::ControlKind::problem_action, 0), "Use it");
          }}
     );
     return steps;
@@ -982,7 +982,7 @@ void notice(GameFilesScreen& screen) {
         {"the Game files screen (S1)",
          [](GameFilesScreen& s) { return showing(s, view::Step::first_run); },
          [](GameFilesScreen& s) {
-             tap(s, control(view::ControlKind::choose_folder), "CHOOSE FOLDER");
+             tap(s, control(view::ControlKind::choose_folder), "Choose folder");
          }}
     );
     steps.push_back(
@@ -991,7 +991,7 @@ void notice(GameFilesScreen& screen) {
              watch_problems(s, std::nullopt);
              return showing(s, view::Step::ready_to_copy);
          },
-         [](GameFilesScreen& s) { tap(s, control(view::ControlKind::copy), "COPY"); }}
+         [](GameFilesScreen& s) { tap(s, control(view::ControlKind::copy), "Copy"); }}
     );
     steps.push_back(
         {"the copy past --game-files-stop-after",
@@ -1044,7 +1044,7 @@ void notice(GameFilesScreen& screen) {
          },
          [](GameFilesScreen& s) {
              snap(s, "resumed");
-             tap(s, control(view::ControlKind::stop), "STOP");
+             tap(s, control(view::ControlKind::stop), "Stop");
          }}
     );
     steps.push_back(
@@ -1052,7 +1052,7 @@ void notice(GameFilesScreen& screen) {
          [](GameFilesScreen& s) { return s.model().sheet == view::Sheet::stop; },
          [](GameFilesScreen& s) {
              snap(s);
-             tap(s, control(view::ControlKind::sheet_option, 0), "KEEP WHAT WAS COPIED");
+             tap(s, control(view::ControlKind::sheet_option, 0), "Keep what was copied");
          }}
     );
     steps.push_back(
@@ -1082,7 +1082,7 @@ void notice(GameFilesScreen& screen) {
          },
          [](GameFilesScreen& s) {
              snap(s);
-             tap(s, control(view::ControlKind::choose_folder), "CHOOSE FOLDER");
+             tap(s, control(view::ControlKind::choose_folder), "Choose folder");
          }}
     );
     steps.push_back(
@@ -1095,7 +1095,7 @@ void notice(GameFilesScreen& screen) {
              snap(s);
              if (check_run().most_skipped == 0)
                  fail("the copy skipped no file already copied");
-             tap(s, control(view::ControlKind::play), "PLAY");
+             tap(s, control(view::ControlKind::play), "Play");
          }}
     );
     return steps;
@@ -1111,7 +1111,7 @@ void notice(GameFilesScreen& screen) {
          [](GameFilesScreen& s) { return showing(s, view::Step::first_run); },
          [](GameFilesScreen& s) {
              // A mouse's click, not a finger's tap.
-             click(s, control(view::ControlKind::choose_folder), "CHOOSE FOLDER");
+             click(s, control(view::ControlKind::choose_folder), "Choose folder");
          }}
     );
     steps.push_back(
@@ -1123,8 +1123,8 @@ void notice(GameFilesScreen& screen) {
          [](GameFilesScreen& s) {
              snap(s);
              if (!has_control(s, control(view::ControlKind::back)))
-                 fail("the problem shows no BACK");
-             // Escape goes back, as BACK does.
+                 fail("the problem shows no Back");
+             // Escape goes back, as Back does.
              s.press_key(SDLK_ESCAPE);
          }}
     );
@@ -1157,7 +1157,7 @@ void notice(GameFilesScreen& screen) {
         {"the Game files screen (S1)",
          [](GameFilesScreen& s) { return showing(s, view::Step::first_run); },
          [](GameFilesScreen& s) {
-             tap(s, control(view::ControlKind::choose_folder), "CHOOSE FOLDER");
+             tap(s, control(view::ControlKind::choose_folder), "Choose folder");
          }}
     );
     steps.push_back(
@@ -1170,15 +1170,15 @@ void notice(GameFilesScreen& screen) {
              snap(s);
              if (s.model().step == view::Step::ready_to_copy) {
                  if (control_enabled(s, control(view::ControlKind::copy)))
-                     fail("COPY can be pressed although the space is short");
-                 tap(s, control(view::ControlKind::check_space), "CHECK AGAIN");
+                     fail("Copy can be pressed although the space is short");
+                 tap(s, control(view::ControlKind::check_space), "Check again");
              } else {
-                 tap(s, control(view::ControlKind::problem_action, 0), "CHECK AGAIN");
+                 tap(s, control(view::ControlKind::problem_action, 0), "Check again");
              }
          }}
     );
     steps.push_back(
-        {"the shortage still shown after CHECK AGAIN",
+        {"the shortage still shown after Check again",
          [](GameFilesScreen& s) {
              return check_run().passes_since_act >= settle_passes && showing_short_space(s);
          },
@@ -1203,7 +1203,7 @@ void notice(GameFilesScreen& screen) {
     return std::nullopt;
 }
 
-/// The management route's steps: ADD FILES… with a mod, CHECK AGAIN, REMOVE Music, DONE.
+/// The management route's steps: Add files… with a mod, Check again, Remove Music, Done.
 ///
 /// @return the steps
 [[nodiscard]] std::vector<RouteStep> manage_route() {
@@ -1213,7 +1213,7 @@ void notice(GameFilesScreen& screen) {
          [](GameFilesScreen& s) { return showing(s, view::Step::manage); },
          [](GameFilesScreen& s) {
              snap(s);
-             tap(s, control(view::ControlKind::manage_add), "ADD FILES…");
+             tap(s, control(view::ControlKind::manage_add), "Add files…");
          }}
     );
     steps.push_back(
@@ -1239,7 +1239,7 @@ void notice(GameFilesScreen& screen) {
                  });
              if (mod == parts.end())
                  fail("Ready to copy does not show the mod");
-             tap(s, control(view::ControlKind::copy), "COPY");
+             tap(s, control(view::ControlKind::copy), "Copy");
          }}
     );
     steps.push_back(
@@ -1250,7 +1250,7 @@ void notice(GameFilesScreen& screen) {
          },
          [](GameFilesScreen& s) {
              snap(s);
-             tap(s, control(view::ControlKind::manage_check), "CHECK AGAIN");
+             tap(s, control(view::ControlKind::manage_check), "Check again");
          }}
     );
     steps.push_back(
@@ -1262,9 +1262,9 @@ void notice(GameFilesScreen& screen) {
          [](GameFilesScreen& s) {
              snap(s);
              if (has_control(s, control(view::ControlKind::back)))
-                 tap(s, control(view::ControlKind::back), "BACK");
+                 tap(s, control(view::ControlKind::back), "Back");
              else
-                 tap(s, control(view::ControlKind::play), "PLAY");
+                 tap(s, control(view::ControlKind::play), "Play");
          }}
     );
     steps.push_back(
@@ -1276,7 +1276,7 @@ void notice(GameFilesScreen& screen) {
                  fail("the management state shows no Music row");
                  return;
              }
-             tap(s, control(view::ControlKind::manage_remove, *music), "REMOVE (Music)");
+             tap(s, control(view::ControlKind::manage_remove, *music), "Remove (Music)");
          },
          [](GameFilesScreen& s) -> std::optional<view::Control> {
              const auto music = row_of(s, view::PartKind::music);
@@ -1290,7 +1290,7 @@ void notice(GameFilesScreen& screen) {
          [](GameFilesScreen& s) { return s.model().sheet == view::Sheet::remove_part_confirm; },
          [](GameFilesScreen& s) {
              snap(s);
-             tap(s, control(view::ControlKind::sheet_option, 0), "REMOVE");
+             tap(s, control(view::ControlKind::sheet_option, 0), "Remove");
          }}
     );
     steps.push_back(
@@ -1301,7 +1301,7 @@ void notice(GameFilesScreen& screen) {
          },
          [](GameFilesScreen& s) {
              snap(s);
-             tap(s, control(view::ControlKind::manage_done), "DONE");
+             tap(s, control(view::ControlKind::manage_done), "Done");
          }}
     );
     steps.push_back(
@@ -1315,7 +1315,7 @@ void notice(GameFilesScreen& screen) {
     return steps;
 }
 
-/// The second start's management steps: what waited applied, then DONE.
+/// The second start's management steps: what waited applied, then Done.
 ///
 /// @return the steps
 [[nodiscard]] std::vector<RouteStep> next_start_route() {
@@ -1329,7 +1329,7 @@ void notice(GameFilesScreen& screen) {
                  fail("Music is still shown after the next start");
              if (!row_of(s, view::PartKind::mod))
                  fail("the mod added is not shown at the next start");
-             tap(s, control(view::ControlKind::manage_done), "DONE");
+             tap(s, control(view::ControlKind::manage_done), "Done");
          }}
     );
     return steps;
@@ -1598,7 +1598,7 @@ bool run_game_files_manage_check(
     request.check = game_files_check_hooks(options);
     const GameFilesEnd end = run_game_files_screen(request);
     if (end != GameFilesEnd::done && run.failure.empty())
-        fail("the management state ended without DONE");
+        fail("the management state ended without Done");
     if (!run.route_done && run.failure.empty())
         fail(
             "the management route stopped at " +
@@ -1643,7 +1643,7 @@ int finish_game_files_check(const Options& options, int status) {
                 std::string why;
                 const auto state = game_files::read_import_state(paths.state_file, &why);
                 if (!state || state->phase != game_files::ImportPhase::copying)
-                    fail("no copy waits to be continued after KEEP WHAT WAS COPIED");
+                    fail("no copy waits to be continued after Keep what was copied");
                 if (game_files::staged_bytes(paths.staging) == 0)
                     fail("nothing was kept of the copy");
                 if (fs::exists(run.game_folder, error))
@@ -1662,9 +1662,9 @@ int finish_game_files_check(const Options& options, int status) {
             break;
         case GameFilesRoute::copy_yourself:
             if (!holds_file(run.game_folder, "totala1.hpi"))
-                fail("the game folder lacks totala1.hpi after USE IT");
+                fail("the game folder lacks totala1.hpi after Use it");
             if (fs::exists(run.documents / std::string(misnamed_folder), error))
-                fail("the folder copied under another name is still there after USE IT");
+                fail("the folder copied under another name is still there after Use it");
             break;
         case GameFilesRoute::manage:
             break;

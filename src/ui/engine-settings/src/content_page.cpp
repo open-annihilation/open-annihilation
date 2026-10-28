@@ -119,6 +119,7 @@ geometry::Rows place(
     placement.row_padding = geometry::row_padding;
     placement.tall = false;
     placement.first_control = first_row_control;
+    geometry::modern_control_heights(placement, dialog, sized.size_class);
     kit::PlacedRows kit_rows = kit::place_rows(views, placement);
 
     geometry::Rows rows;

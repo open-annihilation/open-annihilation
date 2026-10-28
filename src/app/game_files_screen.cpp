@@ -1294,7 +1294,7 @@ void GameFilesScreen::State::update_space() {
 }
 
 game_files::ImportMode GameFilesScreen::State::run_mode() const noexcept {
-    // The demo's installer chosen with ADD FILES… joins the game folder as an addition.
+    // The demo's installer chosen with Add files… joins the game folder as an addition.
     if (scan_kind_ == SourceKind::demo_installer && model.management && !manage_replace_)
         return game_files::ImportMode::add;
     if (plan_)
@@ -1623,7 +1623,7 @@ void GameFilesScreen::State::fill_manage() {
         row.bytes_known = summary.bytes_known;
         row.count = part == game_files::Part::music ? summary.music_tracks : summary.files;
         row.mark = view::Mark::found;
-        // The game archives go only with everything (REMOVE ALL GAME FILES).
+        // The game archives go only with everything (Remove all GAME FILES).
         row.removable = part != game_files::Part::game_archives;
         model.parts.push_back(row);
         rows_.push_back(RowSource{RowSource::Kind::part, part, 0, {}});

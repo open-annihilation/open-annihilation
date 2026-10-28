@@ -1298,22 +1298,6 @@
 	it=AGGIUNGI;
 	}
 
-[ADD FILES…]
-	{
-	de=DATEIEN HINZUFÜGEN…;
-	fr=AJOUTER DES FICHIERS…;
-	es=AÑADIR ARCHIVOS…;
-	it=AGGIUNGI FILE…;
-	}
-
-[ADD THE MISSING FILES]
-	{
-	de=DIE FEHLENDEN DATEIEN HINZUFÜGEN;
-	fr=AJOUTER LES FICHIERS MANQUANTS;
-	es=AÑADIR LOS ARCHIVOS QUE FALTAN;
-	it=AGGIUNGI I FILE MANCANTI;
-	}
-
 [ADD: Shift for selecting, so taps, boxes and groups add to the selection. Tap to latch, hold for one.]
 	{
 	de=HINZUFÜGEN: Umschalt zum Auswählen, damit Tippen, Rahmen und Gruppen zur Auswahl hinzukommen. Tippen rastet es ein, Halten gilt einmal.;
@@ -2306,14 +2290,6 @@
 	it=ANNULLA;
 	}
 
-[CANCEL THE REPLACEMENT]
-	{
-	de=DAS ERSETZEN ABBRECHEN;
-	fr=ANNULER LE REMPLACEMENT;
-	es=CANCELAR EL REEMPLAZO;
-	it=ANNULLA LA SOSTITUZIONE;
-	}
-
 [CANCEL: stops placing the building.]
 	{
 	de=ABBRECHEN: beendet das Platzieren des Gebäudes.;
@@ -2362,14 +2338,6 @@
 	it=CENTRA: centra la vista sull'unità selezionata.;
 	}
 
-[CHANGE WHAT IS COPIED]
-	{
-	de=ÄNDERN, WAS KOPIERT WIRD;
-	fr=CHANGER CE QUI EST COPIÉ;
-	es=CAMBIAR LO QUE SE COPIA;
-	it=CAMBIA CIÒ CHE VIENE COPIATO;
-	}
-
 [CHAT]
 	{
 	de=CHAT;
@@ -2384,86 +2352,6 @@
 	fr=DISCUSSION : écrit un message aux autres joueurs.;
 	es=CHAT: escribe un mensaje a los otros jugadores.;
 	it=CHAT: scrive un messaggio agli altri giocatori.;
-	}
-
-[CHECK AGAIN]
-	{
-	de=ERNEUT PRÜFEN;
-	fr=VÉRIFIER À NOUVEAU;
-	es=COMPROBAR DE NUEVO;
-	it=CONTROLLA DI NUOVO;
-	}
-
-[CHECK IT]
-	{
-	de=PRÜFEN;
-	fr=LE VÉRIFIER;
-	es=COMPROBARLO;
-	it=CONTROLLALO;
-	}
-
-[CHOOSE A FOLDER]
-	{
-	de=EINEN ORDNER WÄHLEN;
-	fr=CHOISIR UN DOSSIER;
-	es=ELEGIR UNA CARPETA;
-	it=SCEGLI UNA CARTELLA;
-	}
-
-[CHOOSE ANOTHER FILE]
-	{
-	de=EINE ANDERE DATEI WÄHLEN;
-	fr=CHOISIR UN AUTRE FICHIER;
-	es=ELEGIR OTRO ARCHIVO;
-	it=SCEGLI UN ALTRO FILE;
-	}
-
-[CHOOSE ANOTHER FOLDER]
-	{
-	de=EINEN ANDEREN ORDNER WÄHLEN;
-	fr=CHOISIR UN AUTRE DOSSIER;
-	es=ELEGIR OTRA CARPETA;
-	it=SCEGLI UN'ALTRA CARTELLA;
-	}
-
-[CHOOSE ARCHIVES]
-	{
-	de=ARCHIVE WÄHLEN;
-	fr=CHOISIR LES ARCHIVES;
-	es=ELEGIR ARCHIVOS;
-	it=SCEGLI GLI ARCHIVI;
-	}
-
-[CHOOSE FOLDER]
-	{
-	de=ORDNER WÄHLEN;
-	fr=CHOISIR LE DOSSIER;
-	es=ELEGIR CARPETA;
-	it=SCEGLI CARTELLA;
-	}
-
-[CHOOSE INSTALLER]
-	{
-	de=INSTALLATIONSPROGRAMM WÄHLEN;
-	fr=CHOISIR L'INSTALLATEUR;
-	es=ELEGIR EL INSTALADOR;
-	it=SCEGLI L'INSTALLER;
-	}
-
-[CHOOSE THE DEMO'S INSTALLER]
-	{
-	de=DAS INSTALLATIONSPROGRAMM DER DEMO WÄHLEN;
-	fr=CHOISIR L'INSTALLATEUR DE LA DÉMO;
-	es=ELEGIR EL INSTALADOR DE LA DEMO;
-	it=SCEGLI L'INSTALLER DELLA DEMO;
-	}
-
-[CHOOSE THE FOLDER AGAIN]
-	{
-	de=DEN ORDNER ERNEUT WÄHLEN;
-	fr=CHOISIR LE DOSSIER À NOUVEAU;
-	es=ELEGIR LA CARPETA DE NUEVO;
-	it=SCEGLI DI NUOVO LA CARTELLA;
 	}
 
 [CLEAR]
@@ -2506,14 +2394,6 @@
 	it=COMANDANTE;
 	}
 
-[CONTINUE]
-	{
-	de=WEITER;
-	fr=CONTINUER;
-	es=CONTINUAR;
-	it=CONTINUA;
-	}
-
 [CONTROLLER]
 	{
 	de=CONTROLLER;
@@ -2536,14 +2416,6 @@
 	fr=COPIER;
 	es=COPIAR;
 	it=COPIA;
-	}
-
-[COPY ANYWAY]
-	{
-	de=TROTZDEM KOPIEREN;
-	fr=COPIER QUAND MÊME;
-	es=COPIAR DE TODOS MODOS;
-	it=COPIA COMUNQUE;
 	}
 
 [Camera Sharing]
@@ -3416,22 +3288,6 @@
 	fr=DÉVELOPPEUR;
 	es=DESARROLLADOR;
 	it=SVILUPPATORE;
-	}
-
-[DISCARD]
-	{
-	de=VERWERFEN;
-	fr=ABANDONNER;
-	es=DESCARTAR;
-	it=SCARTA;
-	}
-
-[DISCARD WHAT WAS COPIED]
-	{
-	de=DAS KOPIERTE VERWERFEN;
-	fr=ABANDONNER CE QUI A ÉTÉ COPIÉ;
-	es=DESCARTAR LO COPIADO;
-	it=SCARTA CIÒ CHE È STATO COPIATO;
 	}
 
 [DONE]
@@ -4530,14 +4386,6 @@
 	it=GIOCHI SU QUESTO DECK;
 	}
 
-[GATHER THEM]
-	{
-	de=ZUSAMMENFÜHREN;
-	fr=LES RASSEMBLER;
-	es=REUNIRLOS;
-	it=RIUNISCILI;
-	}
-
 [GET MAP]
 	{
 	de=KARTE HOLEN;
@@ -5128,14 +4976,6 @@
 	fr=Combien de temps un doigt ou un bouton est maintenu pour un maintien.;
 	es=Cuánto se mantiene un dedo o un botón para un mantener.;
 	it=Per quanto si tiene un dito o un pulsante per un mantenimento.;
-	}
-
-[I HAVE COPIED IT]
-	{
-	de=ICH HABE ES KOPIERT;
-	fr=JE L'AI COPIÉ;
-	es=YA LO HE COPIADO;
-	it=L'HO COPIATO;
 	}
 
 [INFO]
@@ -6264,30 +6104,6 @@
 	fr=JIS;
 	es=JIS;
 	it=JIS;
-	}
-
-[KEEP]
-	{
-	de=BEHALTEN;
-	fr=GARDER;
-	es=CONSERVAR;
-	it=TIENI;
-	}
-
-[KEEP COPYING]
-	{
-	de=WEITER KOPIEREN;
-	fr=CONTINUER LA COPIE;
-	es=SEGUIR COPIANDO;
-	it=CONTINUA A COPIARE;
-	}
-
-[KEEP WHAT WAS COPIED]
-	{
-	de=DAS KOPIERTE BEHALTEN;
-	fr=GARDER CE QUI A ÉTÉ COPIÉ;
-	es=CONSERVAR LO COPIADO;
-	it=TIENI CIÒ CHE È STATO COPIATO;
 	}
 
 [Keep Allied Victory]
@@ -9242,30 +9058,6 @@
 	it=RIMUOVI;
 	}
 
-[REMOVE ALL]
-	{
-	de=ALLE ENTFERNEN;
-	fr=TOUT RETIRER;
-	es=QUITAR TODO;
-	it=RIMUOVI TUTTO;
-	}
-
-[REMOVE ALL GAME FILES…]
-	{
-	de=ALLE SPIELDATEIEN ENTFERNEN…;
-	fr=RETIRER TOUS LES FICHIERS DU JEU…;
-	es=QUITAR TODOS LOS ARCHIVOS DEL JUEGO…;
-	it=RIMUOVI TUTTI I FILE DI GIOCO…;
-	}
-
-[REMOVE OLD FOLDER]
-	{
-	de=ALTEN ORDNER ENTFERNEN;
-	fr=RETIRER L'ANCIEN DOSSIER;
-	es=QUITAR LA CARPETA ANTIGUA;
-	it=RIMUOVI LA CARTELLA VECCHIA;
-	}
-
 [REPAIR]
 	{
 	de=REPARIEREN;
@@ -9306,14 +9098,6 @@
 	it=SOSTITUISCI CERVELLO;
 	}
 
-[REPLACE GAME FILES]
-	{
-	de=SPIELDATEIEN ERSETZEN;
-	fr=REMPLACER LES FICHIERS DU JEU;
-	es=REEMPLAZAR LOS ARCHIVOS DEL JUEGO;
-	it=SOSTITUISCI I FILE DI GIOCO;
-	}
-
 [REPLACE KEY LAYOUT]
 	{
 	de=TASTENBELEGUNG ERSETZEN;
@@ -9352,14 +9136,6 @@
 	fr=REMPLACER LE MUTATEUR;
 	es=REEMPLAZAR MUTADOR;
 	it=SOSTITUISCI MUTATORE;
-	}
-
-[REPLACE THE GAME FILES…]
-	{
-	de=DIE SPIELDATEIEN ERSETZEN…;
-	fr=REMPLACER LES FICHIERS DU JEU…;
-	es=REEMPLAZAR LOS ARCHIVOS DEL JUEGO…;
-	it=SOSTITUISCI I FILE DI GIOCO…;
 	}
 
 [RESTART NOW]
@@ -9920,14 +9696,6 @@
 	fr=VITESSE : rend le jeu plus lent ou plus rapide.;
 	es=VELOCIDAD: hace el juego más lento o más rápido.;
 	it=VELOCITÀ: rende il gioco più lento o più veloce.;
-	}
-
-[START AGAIN]
-	{
-	de=NEU STARTEN;
-	fr=RECOMMENCER;
-	es=EMPEZAR DE NUEVO;
-	it=RICOMINCIA;
 	}
 
 [STOP]
@@ -12538,22 +12306,6 @@
 	it=AGGIORNAMENTI;
 	}
 
-[USE IT]
-	{
-	de=NUTZEN;
-	fr=L'UTILISER;
-	es=USARLO;
-	it=USALO;
-	}
-
-[USE THAT FOLDER]
-	{
-	de=DIESEN ORDNER NUTZEN;
-	fr=UTILISER CE DOSSIER;
-	es=USAR ESA CARPETA;
-	it=USA QUELLA CARTELLA;
-	}
-
 [USER INTERFACE]
 	{
 	de=BENUTZEROBERFLÄCHE;
@@ -13072,14 +12824,6 @@
 	fr=BIENVENUE;
 	es=BIENVENIDO;
 	it=BENVENUTO;
-	}
-
-[WHY]
-	{
-	de=WARUM;
-	fr=POURQUOI;
-	es=POR QUÉ;
-	it=PERCHÉ;
 	}
 
 [WORLD]
@@ -25284,4 +25028,244 @@
 	fr=relâcher;
 	es=soltar;
 	it=rilascia;
+	}
+
+[Add files…]
+	{
+	de=Dateien hinzufügen…;
+	fr=Ajouter des fichiers…;
+	es=Añadir archivos…;
+	it=Aggiungi file…;
+	}
+
+[Add the missing files]
+	{
+	de=Die fehlenden Dateien hinzufügen;
+	fr=Ajouter les fichiers manquants;
+	es=Añadir los archivos que faltan;
+	it=Aggiungi i file mancanti;
+	}
+
+[Cancel the replacement]
+	{
+	de=Das Ersetzen abbrechen;
+	fr=Annuler le remplacement;
+	es=Cancelar el reemplazo;
+	it=Annulla la sostituzione;
+	}
+
+[Change what is copied]
+	{
+	de=Ändern, was kopiert wird;
+	fr=Changer ce qui est copié;
+	es=Cambiar lo que se copia;
+	it=Cambia ciò che viene copiato;
+	}
+
+[Check it]
+	{
+	de=Prüfen;
+	fr=Le vérifier;
+	es=Comprobarlo;
+	it=Controllalo;
+	}
+
+[Choose a folder]
+	{
+	de=Einen Ordner wählen;
+	fr=Choisir un dossier;
+	es=Elegir una carpeta;
+	it=Scegli una cartella;
+	}
+
+[Choose another file]
+	{
+	de=Eine andere Datei wählen;
+	fr=Choisir un autre fichier;
+	es=Elegir otro archivo;
+	it=Scegli un altro file;
+	}
+
+[Choose another folder]
+	{
+	de=Einen anderen Ordner wählen;
+	fr=Choisir un autre dossier;
+	es=Elegir otra carpeta;
+	it=Scegli un'altra cartella;
+	}
+
+[Choose archives]
+	{
+	de=Archive wählen;
+	fr=Choisir les archives;
+	es=Elegir archivos;
+	it=Scegli gli archivi;
+	}
+
+[Choose folder]
+	{
+	de=Ordner wählen;
+	fr=Choisir le dossier;
+	es=Elegir carpeta;
+	it=Scegli cartella;
+	}
+
+[Choose installer]
+	{
+	de=Installationsprogramm wählen;
+	fr=Choisir l'installateur;
+	es=Elegir el instalador;
+	it=Scegli l'installer;
+	}
+
+[Choose the demo's installer]
+	{
+	de=Das Installationsprogramm der Demo wählen;
+	fr=Choisir l'installateur de la démo;
+	es=Elegir el instalador de la demo;
+	it=Scegli l'installer della demo;
+	}
+
+[Choose the folder again]
+	{
+	de=Den Ordner erneut wählen;
+	fr=Choisir le dossier à nouveau;
+	es=Elegir la carpeta de nuevo;
+	it=Scegli di nuovo la cartella;
+	}
+
+[Copy anyway]
+	{
+	de=Trotzdem kopieren;
+	fr=Copier quand même;
+	es=Copiar de todos modos;
+	it=Copia comunque;
+	}
+
+[Discard what was copied]
+	{
+	de=Das Kopierte verwerfen;
+	fr=Abandonner ce qui a été copié;
+	es=Descartar lo copiado;
+	it=Scarta ciò che è stato copiato;
+	}
+
+[Gather them]
+	{
+	de=Zusammenführen;
+	fr=Les rassembler;
+	es=Reunirlos;
+	it=Riuniscili;
+	}
+
+[I have copied it]
+	{
+	de=Ich habe es kopiert;
+	fr=Je l'ai copié;
+	es=Ya lo he copiado;
+	it=L'ho copiato;
+	}
+
+[Keep]
+	{
+	de=Behalten;
+	fr=Garder;
+	es=Conservar;
+	it=Tieni;
+	}
+
+[Keep copying]
+	{
+	de=Weiter kopieren;
+	fr=Continuer la copie;
+	es=Seguir copiando;
+	it=Continua a copiare;
+	}
+
+[Keep what was copied]
+	{
+	de=Das Kopierte behalten;
+	fr=Garder ce qui a été copié;
+	es=Conservar lo copiado;
+	it=Tieni ciò che è stato copiato;
+	}
+
+[Play]
+	{
+	de=Spielen;
+	fr=Jouer;
+	es=Jugar;
+	it=Gioca;
+	}
+
+[Remove all]
+	{
+	de=Alle entfernen;
+	fr=Tout retirer;
+	es=Quitar todo;
+	it=Rimuovi tutto;
+	}
+
+[Remove all game files…]
+	{
+	de=Alle Spieldateien entfernen…;
+	fr=Retirer tous les fichiers du jeu…;
+	es=Quitar todos los archivos del juego…;
+	it=Rimuovi tutti i file di gioco…;
+	}
+
+[Remove old folder]
+	{
+	de=Alten Ordner entfernen;
+	fr=Retirer l'ancien dossier;
+	es=Quitar la carpeta antigua;
+	it=Rimuovi la cartella vecchia;
+	}
+
+[Replace game files]
+	{
+	de=Spieldateien ersetzen;
+	fr=Remplacer les fichiers du jeu;
+	es=Reemplazar los archivos del juego;
+	it=Sostituisci i file di gioco;
+	}
+
+[Replace the game files…]
+	{
+	de=Die Spieldateien ersetzen…;
+	fr=Remplacer les fichiers du jeu…;
+	es=Reemplazar los archivos del juego…;
+	it=Sostituisci i file di gioco…;
+	}
+
+[Start again]
+	{
+	de=Neu starten;
+	fr=Recommencer;
+	es=Empezar de nuevo;
+	it=Ricomincia;
+	}
+
+[Use it]
+	{
+	de=Nutzen;
+	fr=L'utiliser;
+	es=Usarlo;
+	it=Usalo;
+	}
+
+[Use that folder]
+	{
+	de=Diesen Ordner nutzen;
+	fr=Utiliser ce dossier;
+	es=Usar esa carpeta;
+	it=Usa quella cartella;
+	}
+
+[Why]
+	{
+	de=Warum;
+	fr=Pourquoi;
+	es=Por qué;
+	it=Perché;
 	}

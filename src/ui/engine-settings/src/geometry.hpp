@@ -596,6 +596,23 @@ inline constexpr std::array<Sizes, 3> class_sizes{
     return sizes_of(dialog.size_class);
 }
 
+/// Gives a settings column the size class's control and field heights in the
+/// modern look at Regular and Large. Classic, and Compact in either look,
+/// keep the heights place_rows uses when these are 0.
+///
+/// @param[in,out] placement the column
+/// @param dialog the dialog, whose look decides
+/// @param size_class the class the dialog is laid out at
+inline void modern_control_heights(
+    oa::ui::kit::RowPlacement& placement, const Dialog& dialog, oa::ui::kit::SizeClass size_class
+) noexcept {
+    if (dialog.chosen.look != Look::modern || size_class == oa::ui::kit::SizeClass::compact)
+        return;
+    const oa::ui::kit::Metrics& metrics = oa::ui::kit::metrics_of(size_class);
+    placement.control_height = metrics.control_height;
+    placement.field_height = metrics.text_field_height;
+}
+
 /// The dialog's sizes at Compact: 0.7.3's. The names below are its parts at
 /// Compact, as 0.7.3's code and the tests know them.
 inline constexpr const Sizes& compact_sizes = class_sizes[0];

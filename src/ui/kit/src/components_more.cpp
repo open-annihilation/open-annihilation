@@ -1149,6 +1149,166 @@ std::string parts_text(const std::vector<QuestionPart>& parts) {
     return text;
 }
 
+/// The wider of the estimate and a measure. An empty measure, or one that
+/// draws narrower than the estimate, leaves the estimate, so a box never
+/// shrinks below the place the estimate gives it.
+///
+/// @param text the text
+/// @param measure its width in a font; empty to estimate
+/// @return the width, in points
+int32_t wider_width(std::string_view text, const Measure& measure) {
+    if (text.empty())
+        return 0;
+    const int32_t estimated = estimated_width(text);
+    const int32_t drawn = measure ? measure(text) : 0;
+    return std::max(estimated, drawn);
+}
+
+/// The widest line of a text, each stretch between line breaks measured whole.
+///
+/// @param text the text
+/// @param measure a line's width in a font
+/// @return the width, in points
+int32_t widest_line(std::string_view text, const Measure& measure) {
+    int32_t widest = 0;
+    std::size_t start = 0;
+    for (std::size_t at = 0; at <= text.size(); ++at) {
+        if (at == text.size() || text[at] == '\n') {
+            widest = std::max(widest, wider_width(text.substr(start, at - start), measure));
+            start = at + 1;
+        }
+    }
+    return widest;
+}
+
+/// The footer under a question: the control height and a space above and
+/// below at Compact, and the window footer at Regular and Large.
+///
+/// @param size_class the question's class
+/// @return the footer's height, in points
+int32_t question_footer_height(SizeClass size_class) noexcept {
+    const Metrics& sized = metrics_of(size_class);
+    if (size_class == SizeClass::compact)
+        return sized.control_height + 2 * sized.space;
+    return sized.window_footer_height;
+}
+
+/// A question's height from the row under its text: the text, the gap under
+/// it and the footer, at most the class's greatest height. There is no least
+/// height; a short question is only as tall as its words.
+///
+/// @param text_bottom the row under the text
+/// @param size_class the question's class
+/// @return the height
+int32_t question_height_for(int32_t text_bottom, SizeClass size_class) noexcept {
+    const int32_t grown = text_bottom + metrics.text_bottom_gap + 1 +
+                          question_footer_height(size_class) + metrics.edge;
+    return std::min(std::max(grown, int32_t{1}), metrics_of(size_class).greatest_notice_height);
+}
+
+/// The row of the line over a question's footer.
+///
+/// @param height the question's height
+/// @param size_class the question's class
+/// @return the row
+int32_t question_footer_rule(int32_t height, SizeClass size_class) noexcept {
+    return height - metrics.edge - question_footer_height(size_class) - 1;
+}
+
+/// The top row of a question's buttons, centred in its footer.
+///
+/// @param height the question's height
+/// @param size_class the question's class
+/// @return the row
+int32_t question_button_top(int32_t height, SizeClass size_class) noexcept {
+    const int32_t footer = question_footer_height(size_class);
+    const int32_t button = metrics_of(size_class).control_height;
+    return question_footer_rule(height, size_class) + 1 + (footer - button) / 2;
+}
+
+/// How wide a question is: the wider of its words on one line and its buttons
+/// in a row, with the class's window padding either side, at least half the
+/// class's notice width and at most that width.
+///
+/// @param question the question
+/// @param regular a path's width in the regular font
+/// @param small other text, and a caption, in the small font
+/// @return the width, in points
+int32_t question_box_width(const Question& question, const Measure& regular, const Measure& small) {
+    int32_t text = 0;
+    for (const Paragraph& paragraph : question.paragraphs)
+        text = std::max(text, widest_line(paragraph.text, paragraph.path ? regular : small));
+    text = std::max(text, widest_line(question.failure, small));
+    for (const QuestionItem& item : question.items) {
+        const std::string line = item.text + item.aside;
+        text = std::max(text, widest_line(line, small));
+    }
+    for (const QuestionPart& part : question.parts) {
+        text = std::max(text, widest_line(part.text, small));
+        for (const QuestionBox& box : part.boxes) {
+            text = std::max(text, widest_line(box.heading, small));
+            for (const BoxLine& line : box.lines)
+                text = std::max(text, widest_line(line.text, small));
+        }
+    }
+    const std::size_t count = std::min(question.buttons.size(), most_question_buttons);
+    int32_t buttons = 0;
+    for (std::size_t index = 0; index < count; ++index) {
+        const int32_t words = wider_width(question.buttons[index].caption, small);
+        buttons += std::max(metrics.button_width, words + metrics.prompt_button_padding);
+    }
+    if (count > 1)
+        buttons += metrics.button_gap * static_cast<int32_t>(count - 1);
+    const Metrics& sized = metrics_of(question.size_class);
+    const int32_t wanted = std::max(text, buttons) + sized.window_padding * 2;
+    return std::clamp(wanted, sized.notice_width / 2, sized.notice_width);
+}
+
+/// A question's buttons, right-aligned in a box of a width and a height.
+///
+/// @param question the question
+/// @param height the question's height
+/// @param width the question's width
+/// @param small a caption's width in the small font
+/// @return the buttons' rectangles, left to right
+std::vector<Rect> place_question_buttons(
+    const Question& question, int32_t height, int32_t width, const Measure& small
+) {
+    const int32_t top = question_button_top(height, question.size_class);
+    const int32_t button_height = metrics_of(question.size_class).control_height;
+    const std::size_t count = std::min(question.buttons.size(), most_question_buttons);
+    std::vector<int32_t> widths(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        const int32_t words = wider_width(question.buttons[index].caption, small);
+        widths[index] = std::max(metrics.button_width, words + metrics.prompt_button_padding);
+    }
+    // A first button marked quiet stands alone at the footer's left, and the
+    // others share what is left.
+    const bool quiet_first = count > 1 && question.buttons.front().quiet;
+    const std::size_t first_right = quiet_first ? 1 : 0;
+    int32_t room = width - 2 * metrics.padding;
+    if (quiet_first)
+        room -= widths.front() + metrics.button_gap;
+    std::vector<int32_t> right_widths(
+        widths.begin() + static_cast<std::ptrdiff_t>(first_right), widths.end()
+    );
+    narrow_row(right_widths, room);
+    std::copy(
+        right_widths.begin(),
+        right_widths.end(),
+        widths.begin() + static_cast<std::ptrdiff_t>(first_right)
+    );
+    std::vector<Rect> rects(count);
+    int32_t right = width - metrics.padding;
+    for (std::size_t index = count; index-- > first_right;) {
+        rects[index] = {right - widths[index], top, widths[index], button_height};
+        right -= widths[index] + metrics.button_gap;
+    }
+    if (quiet_first)
+        rects.front() = {metrics.padding, top, widths.front(), button_height};
+    return rects;
+}
+
 } // namespace
 
 PlacedNotice place_notice(const Notice& notice, const Measure& regular, const Measure& small) {
@@ -1175,45 +1335,19 @@ PlacedNotice place_notice(const Notice& notice, const Fonts* fonts) {
 
 std::vector<Rect>
 question_button_rects(const Question& question, int32_t height, const Measure& small) {
-    const int32_t top = button_top_of(height);
-    const std::size_t count = std::min(question.buttons.size(), most_question_buttons);
-    std::vector<int32_t> widths(count);
-    for (std::size_t index = 0; index < count; ++index) {
-        const std::string& caption = question.buttons[index].caption;
-        const int32_t words = std::max(estimated_width(caption), small ? small(caption) : 0);
-        widths[index] = std::max(metrics.button_width, words + metrics.prompt_button_padding);
-    }
-    const int32_t width = box_width(question.size_class);
-    // A first button marked quiet stands alone at the footer's left, and the
-    // others share what is left.
-    const bool quiet_first = count > 1 && question.buttons.front().quiet;
-    const std::size_t first_right = quiet_first ? 1 : 0;
-    int32_t room = width - 2 * metrics.padding;
-    if (quiet_first)
-        room -= widths.front() + metrics.button_gap;
-    std::vector<int32_t> right_widths(
-        widths.begin() + static_cast<std::ptrdiff_t>(first_right), widths.end()
+    const Measure estimated{estimated_width};
+    return place_question_buttons(
+        question, height, question_box_width(question, estimated, small), small
     );
-    narrow_row(right_widths, room);
-    std::copy(
-        right_widths.begin(),
-        right_widths.end(),
-        widths.begin() + static_cast<std::ptrdiff_t>(first_right)
-    );
-    std::vector<Rect> rects(count);
-    int32_t right = width - metrics.padding;
-    for (std::size_t index = count; index-- > first_right;) {
-        rects[index] = {right - widths[index], top, widths[index], metrics.button_height};
-        right -= widths[index] + metrics.button_gap;
-    }
-    if (quiet_first)
-        rects.front() = {metrics.padding, top, widths.front(), metrics.button_height};
-    return rects;
 }
 
 std::vector<Rect>
 question_button_rects(const Question& question, int32_t height, const Fonts* fonts) {
-    return question_button_rects(question, height, measure_in(fonts, FontRole::small));
+    const Measure regular = measure_in(fonts, FontRole::regular);
+    const Measure small = measure_in(fonts, FontRole::small);
+    return place_question_buttons(
+        question, height, question_box_width(question, regular, small), small
+    );
 }
 
 /// Places one question item on the row it starts at.
@@ -1246,8 +1380,9 @@ place_question_item(const QuestionItem& item, int32_t row, int32_t room, const M
 
 PlacedQuestion
 place_question(const Question& question, const Measure& regular, const Measure& small) {
-    const int32_t width = box_width(question.size_class);
+    const int32_t width = question_box_width(question, regular, small);
     PlacedQuestion placed{};
+    placed.width = width;
     placed.title = title_rect(width);
     if (question.items.empty() && question.parts.empty()) {
         PlacedText text = place_text(question.paragraphs, question.failure, regular, small, width);
@@ -1257,8 +1392,8 @@ place_question(const Question& question, const Measure& regular, const Measure& 
             placed.bar = {text_left, bottom, line_width_in(width), metrics.progress_bar_height};
             bottom += metrics.progress_bar_height;
         }
-        placed.height = height_for(bottom, question.size_class);
-        placed.footer_rule = footer_rule_of(placed.height);
+        placed.height = question_height_for(bottom, question.size_class);
+        placed.footer_rule = question_footer_rule(placed.height, question.size_class);
         const std::size_t all_lines = text.lines.size();
         placed.lines = lines_that_fit(std::move(text.lines), placed.footer_rule);
         const bool bar_cut = question.progress >= 0 && !fits_over(placed.bar, placed.footer_rule);
@@ -1266,7 +1401,7 @@ place_question(const Question& question, const Measure& regular, const Measure& 
         // A bar the height cuts is left out.
         if (bar_cut)
             placed.bar = {};
-        placed.buttons = question_button_rects(question, placed.height, small);
+        placed.buttons = place_question_buttons(question, placed.height, width, small);
         return placed;
     }
 
@@ -1307,8 +1442,8 @@ place_question(const Question& question, const Measure& regular, const Measure& 
         placed.bar = {text_left, bottom, line_width, metrics.progress_bar_height};
         bottom += metrics.progress_bar_height;
     }
-    placed.height = height_for(bottom, question.size_class);
-    placed.footer_rule = footer_rule_of(placed.height);
+    placed.height = question_height_for(bottom, question.size_class);
+    placed.footer_rule = question_footer_rule(placed.height, question.size_class);
     const std::size_t all_lines = text.lines.size();
     const std::size_t all_items = placed.items.size();
     placed.lines = lines_that_fit(std::move(text.lines), placed.footer_rule);
@@ -1331,7 +1466,7 @@ place_question(const Question& question, const Measure& regular, const Measure& 
                  placed.parts.size() != all_parts || bar_cut;
     if (bar_cut)
         placed.bar = {};
-    placed.buttons = question_button_rects(question, placed.height, small);
+    placed.buttons = place_question_buttons(question, placed.height, width, small);
     return placed;
 }
 
@@ -1460,7 +1595,7 @@ std::string question_body(
 
 DisplayList question_list(const Question& question, const Fonts* fonts) {
     const PlacedQuestion placed = place_question(question, fonts);
-    const int32_t width = box_width(question.size_class);
+    const int32_t width = placed.width;
     const std::string title = title_for_header(question.title, width, fonts);
     DisplayList list = question_controls(question, placed.height, fonts);
     std::vector<std::string> paragraphs;
@@ -1761,7 +1896,7 @@ void draw_question_item(const Canvas& canvas, const PlacedQuestionItem& item) {
 
 void draw_question(const Canvas& canvas, const Question& question) {
     const PlacedQuestion placed = place_question(question, canvas.fonts);
-    const int32_t width = box_width(question.size_class);
+    const int32_t width = placed.width;
     const Rect whole{0, 0, width, placed.height};
     draw_window_face(canvas, whole);
     draw_header(canvas, header_of(title_for_header(question.title, width, canvas.fonts), width));

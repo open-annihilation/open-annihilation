@@ -84,8 +84,8 @@ enum class Sheet : uint8_t {
     none,                ///< no sheet
     stop,                ///< S4: keep or discard what was copied
     replace_confirm,     ///< S3: replace the game files
-    left_out_list,       ///< S3: the files left out (SHOW)
-    mod_errors,          ///< S3: why a mod cannot be used (WHY)
+    left_out_list,       ///< S3: the files left out (Show)
+    mod_errors,          ///< S3: why a mod cannot be used (Why)
     remove_old_confirm,  ///< S5: remove the folder set aside
     remove_part_confirm, ///< S8: remove a part
     remove_all_confirm,  ///< S8: remove every game file
@@ -96,8 +96,8 @@ enum class Sheet : uint8_t {
 /// S1's and S8's banners (one at a time).
 enum class Banner : uint8_t {
     none,          ///< no banner
-    continue_copy, ///< S7: "Copying from … stopped at … of …": CHOOSE FOLDER · DISCARD
-    folder_refused, ///< "The Total Annihilation folder on this {device} cannot be played: …": CHECK AGAIN
+    continue_copy, ///< S7: "Copying from … stopped at … of …": Choose folder · Discard
+    folder_refused, ///< "The Total Annihilation folder on this {device} cannot be played: …": Check again
     nothing_added, ///< "Copying stopped. Nothing was added."
     copy_went_on,  ///< S4: "Copying went on while Open Annihilation was away"
     copy_resumed,  ///< S4: "Copying paused while Open Annihilation was away and has started again"
@@ -163,11 +163,11 @@ struct PartRow {
     Mark mark{Mark::found};            ///< its mark
     bool has_switch{};                 ///< S3: an optional part
     bool on = true;                    ///< its switch
-    bool removable{};                  ///< S8: REMOVE
-    std::vector<std::string> errors{}; ///< a mod's profile errors (WHY)
+    bool removable{};                  ///< S8: Remove
+    std::vector<std::string> errors{}; ///< a mod's profile errors (Why)
 };
 
-/// One left-out file (SHOW).
+/// One left-out file (Show).
 struct LeftOutRow {
     std::string path{}; ///< relative to the source
     uint64_t bytes{};   ///< its size
@@ -203,7 +203,7 @@ struct Model {
     uint64_t stopped_total{};             ///< S7 banner and S6: of how much
     std::vector<std::string> nested{};    ///< S2 nested candidates
     std::vector<PartRow> parts{};         ///< S3, S4, S8 rows
-    std::vector<LeftOutRow> left_out{};   ///< SHOW
+    std::vector<LeftOutRow> left_out{};   ///< Show
     uint64_t left_out_bytes{};            ///< the left-out files' size
     std::vector<std::string> warnings{};  ///< case clashes and the like
     uint64_t copy_bytes{};                ///< S3 "Copies 1.12 GB"
@@ -244,32 +244,32 @@ struct Model {
 enum class ControlKind : uint8_t {
     none,          ///< nothing
     language,      ///< header OA · Aa
-    choose_folder, ///< S1 card 1, S7 banner, S6 "CHOOSE ANOTHER FOLDER", "CHOOSE THE FOLDER AGAIN"
+    choose_folder, ///< S1 card 1, S7 banner, S6 "Choose another folder", "Choose the folder again"
     i_have_copied, ///< S1 card 2
-    choose_installer,      ///< S1 card 3, S6 "CHOOSE ANOTHER FILE"
-    banner_action,         ///< the banner's button (CHECK AGAIN)
-    banner_discard,        ///< S7 DISCARD
-    cancel,                ///< S2 CANCEL
+    choose_installer,      ///< S1 card 3, S6 "Choose another file"
+    banner_action,         ///< the banner's button (Check again)
+    banner_discard,        ///< S7 Discard
+    cancel,                ///< S2 Cancel
     nested_choice,         ///< S2: index = candidate
-    check_it,              ///< S2 already there: CHECK IT
+    check_it,              ///< S2 already there: Check it
     part_switch,           ///< S3: index = row
     part_why,              ///< S3: index = row
-    show_left_out,         ///< S3 SHOW
-    copy,                  ///< S3 COPY / REPLACE GAME FILES
-    check_space,           ///< S3 short space: CHECK AGAIN
-    stop,                  ///< S4 STOP
-    play,                  ///< S5 PLAY
-    remove_old,            ///< S5 REMOVE OLD FOLDER
+    show_left_out,         ///< S3 Show
+    copy,                  ///< S3 Copy / REPLACE GAME FILES
+    check_space,           ///< S3 short space: Check again
+    stop,                  ///< S4 Stop
+    play,                  ///< S5 Play
+    remove_old,            ///< S5 Remove old folder
     problem_action,        ///< S6: index = button 0, 1 or 2, left to right
-    back,                  ///< S6 BACK and every step's Esc
+    back,                  ///< S6 Back and every step's Esc
     sheet_option,          ///< a sheet's buttons: index = 0, 1, … top to bottom
-    manage_check,          ///< S8 CHECK AGAIN
-    manage_add,            ///< S8 ADD FILES…
+    manage_check,          ///< S8 Check again
+    manage_add,            ///< S8 Add files…
     manage_remove,         ///< S8: index = row
-    manage_replace,        ///< S8 REPLACE THE GAME FILES…
-    manage_remove_all,     ///< S8 REMOVE ALL GAME FILES…
-    manage_cancel_pending, ///< S8 CANCEL THE REPLACEMENT
-    manage_done,           ///< S8 DONE
+    manage_replace,        ///< S8 Replace the game files…
+    manage_remove_all,     ///< S8 Remove all game files…
+    manage_cancel_pending, ///< S8 Cancel THE REPLACEMENT
+    manage_done,           ///< S8 Done
 };
 
 /// A control: its kind and, for repeated ones, its index. Each part that draws a control
@@ -302,31 +302,31 @@ enum class Command : uint8_t {
     pick_installer,        ///< show the picker for the demo's installer
     pick_additions_folder, ///< show the picker for an additions folder
     pick_archives,         ///< show the picker for archives
-    check_copied,          ///< I HAVE COPIED IT, CHECK AGAIN (S1 banner, S6 no game folder yet)
+    check_copied,          ///< I have copied it, Check again (S1 banner, S6 no game folder yet)
     cancel_scan,           ///< stop the scan
     use_nested,            ///< index = candidate
-    check_in_place,        ///< CHECK IT
-    recheck_space,         ///< CHECK AGAIN on short space
-    start_copy,            ///< COPY (after the replace confirm when model.replace)
-    copy_anyway,           ///< far too large: COPY ANYWAY → S3
+    check_in_place,        ///< Check it
+    recheck_space,         ///< Check again on short space
+    start_copy,            ///< Copy (after the replace confirm when model.replace)
+    copy_anyway,           ///< far too large: Copy anyway → S3
     stop_keep,             ///< stop, keeping what was copied
     stop_discard,          ///< stop, discarding what was copied
     continue_copy,         ///< S6 CONTINUE: start the run again (resume)
     start_again,           ///< S6 source changed: discard staging, copy again
-    discard,               ///< S7 / S6 DISCARD
-    adopt,                 ///< S6 USE IT / GATHER THEM
-    play,                  ///< PLAY
+    discard,               ///< S7 / S6 Discard
+    adopt,                 ///< S6 Use it / Gather them
+    play,                  ///< Play
     remove_old,            ///< after its confirm
     back,                  ///< to S1, or S8 in management
     open_language,         ///< OA · Aa
-    manage_check,          ///< S8 CHECK AGAIN
+    manage_check,          ///< S8 Check again
     manage_remove,         ///< S8 remove a part, after its confirm; index = row
     manage_remove_all,     ///< S8 remove every game file, after its confirm
     manage_replace,        ///< S8 replace the game files
     manage_cancel_pending, ///< S8 cancel the waiting replacement
     remove_demo_data,      ///< S8 remove the demo's unused data, after its confirm
     retry,                 ///< S6 TRY AGAIN (picker or staging)
-    done,                  ///< S8 DONE: close the screen
+    done,                  ///< S8 Done: close the screen
 };
 
 /// A command and its index.

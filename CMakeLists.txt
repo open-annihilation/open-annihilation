@@ -2679,9 +2679,10 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_saved_brains_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED saved-brains-clean)
-      # MUTATORS… on the skirmish setup and on NEWGAME, at 640x480 and
-      # 1280x720: the button and its line by the anchor rule, Tab and Down,
-      # the remembered set, USE THESE, Y, SELMAP keeping the set, and START
+      # Mutators on the skirmish setup and on NEWGAME, at 640x480 and
+      # 1280x720: the button, as large as Previous Menu (on NEWGAME at the
+      # head of Difficulty's column), and its line, Tab and Down,
+      # the remembered set, Use these, Y, SELMAP keeping the set, and START
       # handing it on. A scratch preferences file holds Gatehouse with
       # Gatehouse Keep for skirmish and Fast Builders for the campaign. The
       # feed is the mutator picker's. It leaves each size's frames in its
@@ -2701,9 +2702,10 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_mutator_button_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED mutator-button-clean)
-      # MUTATORS… for the host of a battle room hosted alone, at 640x480 and
-      # 1280x720: the button and Mutators: off above Select Map, Y opening
-      # the remembered multiplayer set, USE THESE posting the turned-on
+      # Mutators for the host of a battle room hosted alone, at 640x480 and
+      # 1280x720: the button reads "Mutators", as large as Select Map and over
+      # it with its edges, its text "Mutators · off", Y opening
+      # the remembered multiplayer set, Use these posting the turned-on
       # lines, turning them off posting the off line, and the button staying
       # disabled while the room's options are locked. A scratch preferences
       # file holds Gatehouse with Gatehouse Keep. The feed is the mutator

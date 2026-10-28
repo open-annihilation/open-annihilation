@@ -747,18 +747,30 @@ kit::SizeClass front_class(const LayerView& view) noexcept {
     return view.match ? kit::SizeClass::compact : view.frame.size_class;
 }
 
-/// Returns where a notice or a question of a height shows: centred in the
-/// view's room at its scale, its class's notice width wide, its corners
-/// rounded with the class's dialog radius.
+/// Returns where a notice or a question shows: centred in the view's room at
+/// its scale, its corners rounded with the class's dialog radius.
+///
+/// @param view what it is placed on
+/// @param box_width its width, in points
+/// @param box_height its height, in points
+/// @return its place
+LayerPlacement
+centred_box(const LayerView& view, int32_t box_width, int32_t box_height) noexcept {
+    const kit::Metrics& sized = kit::metrics_of(front_class(view));
+    LayerPlacement placed = centred_placement(view, box_width, box_height);
+    placed.corner_radius = sized.dialog_radius;
+    return placed;
+}
+
+/// Returns where a notice of a height shows: centred, its class's notice
+/// width wide.
 ///
 /// @param view what it is placed on
 /// @param box_height its height, in points
 /// @return its place
 LayerPlacement centred_box(const LayerView& view, int32_t box_height) noexcept {
     const kit::Metrics& sized = kit::metrics_of(front_class(view));
-    LayerPlacement placed = centred_placement(view, sized.notice_width, box_height);
-    placed.corner_radius = sized.dialog_radius;
-    return placed;
+    return centred_box(view, sized.notice_width, box_height);
 }
 
 /// Returns one of the Library's words in the language shown.
@@ -1393,10 +1405,11 @@ LayerPlacement QuestionScreen::placement(const LayerView& view) const {
         return {};
     if (!any_menu_ && view.game_screen != over_)
         return {};
-    // As tall as its text makes it at the view's class.
+    // As wide as its words and as tall as its text, at the view's class.
     kit::Question sized = question_;
     sized.size_class = front_class(view);
-    return centred_box(view, settings::prompt_height(sized, layer_.screen_fonts()));
+    const kit::PlacedQuestion placed = kit::place_question(sized, layer_.screen_fonts());
+    return centred_box(view, placed.width, placed.height);
 }
 
 void QuestionScreen::lay_out(const LayerView& view) {

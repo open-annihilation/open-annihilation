@@ -1655,12 +1655,12 @@ int32_t question_section(Builder& b, Point at, int32_t /*width*/, std::string_vi
     question.marked = 1;
     GalleryPanel panel;
     panel.origin = at;
-    const int32_t height = place_question(question, b.fonts).height;
-    panel.place = {at.x, at.y, notice_width, height};
+    const PlacedQuestion placed = place_question(question, b.fonts);
+    panel.place = {at.x, at.y, placed.width, placed.height};
     panel.list = question_list(question, b.fonts);
     without_input(panel.list);
     b.panels.push_back(std::move(panel));
-    return height;
+    return placed.height;
 }
 
 /// OA mark: a working OA button, the OA mark alone, the icon as a picture
@@ -2574,12 +2574,12 @@ int32_t badges_section(Builder& b, Point at, int32_t width, std::string_view /*w
     question.items = {std::move(gatehouse), std::move(keep)};
     GalleryPanel panel;
     panel.origin = {at.x, y};
-    const int32_t height = place_question(question, b.fonts).height;
-    panel.place = {at.x, y, notice_width, height};
+    const PlacedQuestion placed = place_question(question, b.fonts);
+    panel.place = {at.x, y, placed.width, placed.height};
     panel.list = question_list(question, b.fonts);
     without_input(panel.list);
     b.panels.push_back(std::move(panel));
-    return y + height - at.y;
+    return y + placed.height - at.y;
 }
 
 /// Keys: a working keycap, every state and tint, a modifier, two small

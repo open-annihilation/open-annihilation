@@ -183,6 +183,11 @@ constexpr int32_t kDesignNameGap = 10;
 constexpr int32_t kDesignNamePoints = 27;
 /// Letters in the badge, in points, on the design's 88-point badge.
 constexpr int32_t kDesignLetterPoints = 32;
+/// A small line on the design card, and the gap under the own name and
+/// between those lines. The box is at least the small font; the gap is what
+/// keeps a side card's lines apart after the carousel shrinks the card.
+constexpr int32_t kDesignSmallLine = 18;
+constexpr int32_t kDesignLineGap = 8;
 
 /// Scales a design measure to a rectangle's side.
 ///
@@ -205,6 +210,8 @@ struct CardMeasures {
     int32_t name_gap{};      ///< points between the badge and the own name
     int32_t name_points{};   ///< the own name's size, in points, before it shrinks
     int32_t letter_points{}; ///< the badge letters' size, in points, before they shrink
+    int32_t small_line{};    ///< a small line's box, at least the small font
+    int32_t line_gap{};      ///< points between the own name and the small lines
 };
 
 /// Returns a card's measures scaled from the design card.
@@ -222,6 +229,11 @@ CardMeasures card_measures(const Rect& rect) noexcept {
         std::max(scale_measure(kDesignNamePoints, rect.height, kDesignCardHeight), int32_t{1});
     measures.letter_points =
         std::max(scale_measure(kDesignLetterPoints, measures.badge, kDesignBadge), int32_t{1});
+    measures.small_line = std::max(
+        scale_measure(kDesignSmallLine, rect.height, kDesignCardHeight), compact_metrics.small_line
+    );
+    measures.line_gap =
+        std::max(scale_measure(kDesignLineGap, rect.height, kDesignCardHeight), int32_t{2});
     const int32_t room_w = std::max(rect.width - 2 * measures.pad_side, int32_t{0});
     const int32_t room_h =
         std::max(rect.height - measures.pad_top - measures.pad_bottom, int32_t{0});
@@ -1112,7 +1124,8 @@ void draw_language_card(const Canvas& canvas, const Rect& rect, const LanguageCa
     const Colour hint = look.disabled ? colour::switch_idle : colour::hint;
     const Colour quiet = look.disabled ? colour::switch_idle : colour::quiet;
     int32_t text_y = measures.pad_top + badge + measures.name_gap;
-    const int32_t small = rect.height < 64 ? 8 : compact_metrics.small_line;
+    const int32_t small = rect.height < 64 ? 8 : measures.small_line;
+    const int32_t line_gap = rect.height < 64 ? 2 : measures.line_gap;
     if (text_y + name_h <= pill_top && content_w > 0) {
         draw_fitted(
             local,
@@ -1122,7 +1135,7 @@ void draw_language_card(const Canvas& canvas, const Rect& rect, const LanguageCa
             ink,
             measures.name_points
         );
-        text_y += name_h;
+        text_y += name_h + line_gap;
     }
     if (text_y + small <= pill_top && content_w > 0) {
         line_in(
@@ -1133,7 +1146,7 @@ void draw_language_card(const Canvas& canvas, const Rect& rect, const LanguageCa
             hint,
             Align::centre
         );
-        text_y += small;
+        text_y += small + line_gap;
     }
     // Facts stay one line when they fit. A line wider than the card wraps
     // onto the next small line, above the pill, so a narrow card still shows
@@ -1168,7 +1181,7 @@ void draw_language_card(const Canvas& canvas, const Rect& rect, const LanguageCa
                     quiet,
                     Align::centre
                 );
-                y += small;
+                y += small + line_gap;
             }
         }
     }
