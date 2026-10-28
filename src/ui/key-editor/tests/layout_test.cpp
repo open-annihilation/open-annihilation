@@ -49,6 +49,7 @@ using key_editor_fixture::frame_for;
 using key_editor_fixture::has_room;
 using key_editor_fixture::outside_window;
 using key_editor_fixture::press_area;
+using key_editor_fixture::prompt_problems;
 using key_editor_fixture::texts_not_fitting;
 
 /// Prints each problem and fails the check when there are any.
@@ -1037,8 +1038,9 @@ bool line_holds(const kit::DisplayList& list, std::string_view kept, std::string
 }
 
 /// The share, paste and import blocks keep each source line on its own line,
-/// a count of one uses the singular word, and a share text taller than the
-/// Compact room scrolls under the wheel.
+/// a count of one uses the singular word, paste's rows name their actions,
+/// keys and chips, and a share text longer than the preview shows its first
+/// lines and "...".
 ///
 /// @param frame the frame
 /// @param where the size
@@ -1071,9 +1073,9 @@ void check_exchange_lines(const kit::Frame& frame, const std::string& where) {
     if (!line_holds(shared, "order.attack:", "select.all:"))
         std::fprintf(stderr, "%s: order.attack shares a line with select.all\n", where.c_str());
     OA_CHECK(line_holds(shared, "order.attack:", "select.all:"));
-    if (!shows(shared, "2 keys, 0 helpers"))
+    if (!shows(shared, "From Ridge grid · 2 keys and 0 helpers changed"))
         std::fprintf(stderr, "%s: the share count is not plural\n", where.c_str());
-    OA_CHECK(shows(shared, "2 keys, 0 helpers"));
+    OA_CHECK(shows(shared, "From Ridge grid · 2 keys and 0 helpers changed"));
 
     editor::EditorInputs one = editor_fixture();
     one.chosen.layout.bindings.clear();
@@ -1085,9 +1087,9 @@ void check_exchange_lines(const kit::Frame& frame, const std::string& where) {
     one_share.prompt = editor::Prompt::share;
     const kit::DisplayList one_laid = laid_out(single, one_share, frame);
     check_list(one_laid, where + " one key");
-    if (!shows(one_laid, "1 key, 1 helper"))
+    if (!shows(one_laid, "1 key and 1 helper changed"))
         std::fprintf(stderr, "%s: one key and one helper are not singular\n", where.c_str());
-    OA_CHECK(shows(one_laid, "1 key, 1 helper"));
+    OA_CHECK(shows(one_laid, "1 key and 1 helper changed"));
 
     editor::ScreenState pasted;
     pasted.prompt = editor::Prompt::paste;
@@ -1114,15 +1116,26 @@ void check_exchange_lines(const kit::Frame& frame, const std::string& where) {
     OA_CHECK(line_holds(paste_list, move_name, all_name));
     OA_CHECK(rows != nullptr && rows->text.find("order.move") == std::string::npos);
     OA_CHECK(rows != nullptr && rows->text.find("select.all") == std::string::npos);
-    OA_CHECK(rows != nullptr && rows->text.find("Ctrl+B does two things") != std::string::npos);
-    OA_CHECK(
-        rows != nullptr &&
-        rows->text.find("camera.orbit-left · Q · Not in this version") != std::string::npos
-    );
+    // A key by its place, a clash with the line under it, and an action this
+    // version does not know with the line under it.
+    const std::string listed = rows != nullptr ? rows->text : std::string{};
+    const bool rows_read =
+        listed.find(move_name + " · Q · By place") != std::string::npos &&
+        listed.find(all_name + " · Ctrl+B · Clash\nCtrl+B already belongs to ") !=
+            std::string::npos &&
+        listed.find(". Apply keeps yours and lists the clash.") != std::string::npos &&
+        listed.find(
+            "camera.orbit-left · Q · Not in this version\nKept in your layout for a version "
+            "that has it."
+        ) != std::string::npos;
+    if (!rows_read)
+        std::fprintf(stderr, "%s: the paste rows are:\n%s\n", where.c_str(), listed.c_str());
+    OA_CHECK(rows_read);
+    OA_CHECK(shows(paste_list, "Nothing changes until you apply it."));
     const std::string apply = caption_of(paste_list, editor::name_paste_apply);
-    if (apply.find("Apply 3 changes") == std::string::npos)
+    if (apply.find("Apply 3 Changes") == std::string::npos)
         std::fprintf(stderr, "%s: APPLY is \"%s\"\n", where.c_str(), apply.c_str());
-    OA_CHECK(apply.find("Apply 3 changes") != std::string::npos);
+    OA_CHECK(apply.find("Apply 3 Changes") != std::string::npos);
 
     editor::ScreenState one_paste;
     one_paste.prompt = editor::Prompt::paste;
@@ -1138,9 +1151,9 @@ void check_exchange_lines(const kit::Frame& frame, const std::string& where) {
         one_summary.find("1 key of") != std::string::npos &&
         one_summary.find("1 keys") == std::string::npos
     );
-    if (one_apply != "Apply 1 change")
+    if (one_apply != "Apply 1 Change")
         std::fprintf(stderr, "%s: APPLY one is \"%s\"\n", where.c_str(), one_apply.c_str());
-    OA_CHECK(one_apply == "Apply 1 change");
+    OA_CHECK(one_apply == "Apply 1 Change");
 
     editor::ScreenState importing;
     importing.prompt = editor::Prompt::import;
@@ -1209,45 +1222,39 @@ void check_exchange_lines(const kit::Frame& frame, const std::string& where) {
         std::fprintf(stderr, "%s: IMPORT one is \"%s\"\n", where.c_str(), import_apply.c_str());
     OA_CHECK(import_apply == "Import 1 key");
 
-    if (frame.size_class != kit::SizeClass::compact)
-        return;
+    // A share text longer than the preview shows its first lines and "...".
     editor::EditorInputs many = editor_fixture();
     for (int32_t index = 0; index < 40; ++index) {
         many.own.bindings.push_back(
             key_editor_fixture::binding_of("shared.line." + std::to_string(index), "Q")
         );
     }
-    editor::Editor tall(std::move(many));
-    editor::ScreenState scrolling = share;
-    const kit::DisplayList tall_list = laid_out(tall, scrolling, frame);
-    check_list(tall_list, where + " share scroll");
+    const editor::Editor tall(std::move(many));
+    const kit::DisplayList tall_list = laid_out(tall, share, frame);
+    check_list(tall_list, where + " share preview");
     const kit::Control* block = find_named(tall_list, editor::name_share_text);
-    const kit::Control* bar = find_named(tall_list, editor::name_exchange_bar);
-    if (block == nullptr || bar == nullptr || bar->group <= block->rect.height) {
+    int32_t preview_lines = 0;
+    bool more_said = false;
+    for (std::size_t index = key_editor_fixture::prompt_first(tall_list);
+         index < tall_list.items.size();
+         ++index) {
+        const kit::Item& item = tall_list.items[index];
+        if (block == nullptr || item.role != kit::Role::text ||
+            !kit::wholly_in(item.rect, block->rect))
+            continue;
+        ++preview_lines;
+        more_said = more_said || item.text == "...";
+    }
+    if (block == nullptr || preview_lines < 2 || preview_lines > 6 || !more_said)
         std::fprintf(
             stderr,
-            "%s: the share bar is missing (text %d, bar %d)\n",
+            "%s: the preview shows %d lines, more %d\n",
             where.c_str(),
-            block == nullptr ? 0 : block->rect.height,
-            bar == nullptr ? 0 : bar->group
+            static_cast<int>(preview_lines),
+            more_said ? 1 : 0
         );
-    }
-    OA_CHECK(block != nullptr && bar != nullptr && bar->group > block->rect.height);
-    if (block == nullptr || bar == nullptr)
-        return;
-    const kit::Point at{
-        block->rect.x + block->rect.width / 2, block->rect.y + block->rect.height / 2
-    };
-    const editor::EditorResult turned = editor::editor_wheel(tall, scrolling, tall_list, at, -1.F);
-    if (!turned.redraw || scrolling.exchange_scroll <= 0) {
-        std::fprintf(
-            stderr,
-            "%s: the wheel left the share text at %d\n",
-            where.c_str(),
-            scrolling.exchange_scroll
-        );
-    }
-    OA_CHECK(turned.redraw && scrolling.exchange_scroll > 0);
+    OA_CHECK(block != nullptr && preview_lines >= 2 && preview_lines <= 6 && more_said);
+    OA_CHECK(find_named(tall_list, editor::name_exchange_bar) == nullptr);
 }
 
 /// Checks that a control is a height, and says which when it is not.
@@ -1392,6 +1399,246 @@ void menu_screen_headings() {
     OA_CHECK(game_options && !joined_place);
 }
 
+/// One row of an open menu: a heading's words, or an item's name and words.
+struct MenuRow {
+    bool heading{false};   ///< a heading, not a choice
+    std::string name{};    ///< the item's control; empty for a heading
+    std::string caption{}; ///< the words shown
+};
+
+/// Every row of the open menu, top to bottom, each scrolled into view.
+///
+/// @param model the editor
+/// @param state the open menu
+/// @param frame the frame
+/// @return the rows
+std::vector<MenuRow>
+menu_rows(const editor::Editor& model, editor::ScreenState state, const kit::Frame& frame) {
+    std::vector<MenuRow> rows;
+    for (int32_t index = 0; index < 64; ++index) {
+        state.menu_first = index;
+        const kit::DisplayList list = laid_out(model, state, frame);
+        const kit::ChoiceMenuLook* look = nullptr;
+        for (const kit::Item& item : list.items) {
+            if (const auto* menu = std::get_if<kit::ChoiceMenuLook>(&item.look))
+                look = menu;
+        }
+        if (look == nullptr || index >= look->total ||
+            static_cast<std::size_t>(index) >= look->items.size())
+            break;
+        const int32_t place = index - look->first;
+        if (place < 0 || place >= static_cast<int32_t>(look->shown.size()))
+            break;
+        MenuRow row;
+        row.heading = look->items[static_cast<std::size_t>(index)].divider;
+        row.name = row.heading ? std::string{} : look->items[static_cast<std::size_t>(index)].id;
+        row.caption = look->shown[static_cast<std::size_t>(place)];
+        rows.push_back(std::move(row));
+    }
+    return rows;
+}
+
+/// More holds two groups under their headings, Layouts and Sharing, in
+/// order, with Rename and Describe… only on a layout other than OA default.
+/// Compact's More leads with the layouts, and keeps the layout menu's names
+/// for Clone and Rename and Describe. No item appears twice.
+///
+/// @param frame the frame
+/// @param where the case
+void check_more_groups(const kit::Frame& frame, const std::string& where) {
+    const bool compact = frame.size_class == kit::SizeClass::compact;
+    for (const bool on_default : {false, true}) {
+        editor::EditorInputs inputs = editor_fixture();
+        if (on_default) {
+            inputs.has_chosen = false;
+            inputs.chosen = {};
+        }
+        const editor::Editor model(std::move(inputs));
+        editor::ScreenState state;
+        state.menu = editor::Menu::more;
+        const std::vector<MenuRow> rows = menu_rows(model, state, frame);
+        std::vector<MenuRow> expected;
+        const auto item = [&](std::string_view name, std::string_view caption) {
+            expected.push_back({false, std::string(name), std::string(caption)});
+        };
+        const auto heading = [&](std::string_view caption) {
+            expected.push_back({true, {}, std::string(caption)});
+        };
+        if (compact) {
+            item("key-editor.layout.oa-default", "OA default");
+            item("key-editor.layout.ridge-grid", "Ridge grid");
+        }
+        heading("Layouts");
+        item(editor::name_import, "Import New Layout…");
+        item(compact ? "key-editor.layout.clone" : editor::name_clone, "Clone as New Layout…");
+        if (!on_default)
+            item(
+                compact ? "key-editor.layout.describe" : editor::name_describe,
+                "Rename and Describe…"
+            );
+        item(editor::name_restore, "Restore Defaults");
+        heading("Sharing");
+        item(editor::name_share, "Share My Custom Keys…");
+        item(editor::name_paste, "Paste Someone's Layout…");
+        bool same = rows.size() == expected.size();
+        for (std::size_t index = 0; same && index < rows.size(); ++index)
+            same = rows[index].heading == expected[index].heading &&
+                   rows[index].name == expected[index].name &&
+                   rows[index].caption == expected[index].caption;
+        if (!same) {
+            std::fprintf(
+                stderr, "%s%s: More is\n", where.c_str(), on_default ? " on OA default" : ""
+            );
+            for (const MenuRow& row : rows)
+                std::fprintf(
+                    stderr,
+                    "  %s %s \"%s\"\n",
+                    row.heading ? "heading" : "item",
+                    row.name.c_str(),
+                    row.caption.c_str()
+                );
+        }
+        OA_CHECK(same);
+        for (std::size_t first = 0; first < rows.size(); ++first) {
+            for (std::size_t second = first + 1; second < rows.size(); ++second) {
+                const bool twice = rows[first].caption == rows[second].caption ||
+                                   (!rows[first].heading && rows[first].name == rows[second].name);
+                if (twice)
+                    std::fprintf(
+                        stderr,
+                        "%s: More shows %s twice\n",
+                        where.c_str(),
+                        rows[first].caption.c_str()
+                    );
+                OA_CHECK(!twice);
+            }
+        }
+        // The layout drop-down's Clone… takes the same words.
+        if (!compact) {
+            editor::ScreenState chooser;
+            chooser.menu = editor::Menu::layout;
+            bool clone_named = false;
+            for (const MenuRow& row : menu_rows(model, chooser, frame))
+                clone_named = clone_named || (row.name == "key-editor.layout.clone" &&
+                                              row.caption == "Clone as New Layout…");
+            if (!clone_named)
+                std::fprintf(stderr, "%s: the layout menu's Clone is not renamed\n", where.c_str());
+            OA_CHECK(clone_named);
+        }
+    }
+}
+
+/// Words longer than the English, as German and French run: each word with
+/// half its length again in short words after it, its places kept.
+///
+/// @param context unused
+/// @param english the English word
+/// @return the longer words
+std::string longer_shown(void* /*context*/, std::string_view english) {
+    std::string longer(english);
+    for (std::size_t added = 0; added < english.size() / 2; added += 5)
+        longer += " lang";
+    return longer;
+}
+
+/// Checks a Share or Paste prompt: inside the window, its controls apart,
+/// its texts fitting, and nothing it draws meeting anything else, nor any
+/// word cut short but the preview's "..." and a saved path cut in its middle.
+///
+/// @param list the display list
+/// @param window the window's size
+/// @param where the case
+void check_prompt_fit(const kit::DisplayList& list, kit::Point window, const std::string& where) {
+    expect_none(outside_window(list, window), where + " drawn");
+    expect_none(rects_outside(list, window), where + " control");
+    expect_none(meeting_controls(list), where + " meets");
+    expect_none(texts_not_fitting(list, fonts()), where + " text");
+    std::vector<kit::Rect> exempt;
+    if (const kit::Control* preview = find_named(list, editor::name_share_text))
+        exempt.push_back(preview->rect);
+    if (const kit::Control* folder = find_named(list, editor::name_share_open))
+        exempt.push_back({0, folder->rect.y, folder->rect.x, folder->rect.height});
+    expect_none(prompt_problems(list, exempt), where + " part");
+}
+
+/// Share with changes and with none, before and after Save File… and Copy as
+/// Text, and Paste with a key by its place, a clash and an unknown action,
+/// and with a text that is no key layout, in English and in longer words:
+/// nothing meets and no word is cut. With nothing changed, Share's two
+/// buttons are off; Open Folder shows once a file is saved; Copied shows
+/// after a copy; Paste's refusal says what to do and offers Close.
+///
+/// @param frame the frame
+/// @param where the case
+void check_dialog_fit(const kit::Frame& frame, const std::string& where) {
+    const kit::Point window = editor::window_size(frame);
+    for (const bool longer : {false, true}) {
+        editor::EditorInputs inputs = editor_fixture();
+        if (longer)
+            inputs.text.shown = longer_shown;
+        editor::Editor model(std::move(inputs));
+        const std::string in = where + (longer ? " longer" : "");
+        model.set_share_name("Grid, left hand");
+        editor::ScreenState share;
+        share.prompt = editor::Prompt::share;
+        share.share_field.text = "Grid, left hand";
+        share.share_field.caret = static_cast<int32_t>(share.share_field.text.size());
+        check_prompt_fit(laid_out(model, share, frame), window, in + " share");
+        OA_CHECK(find_named(laid_out(model, share, frame), editor::name_share_open) == nullptr);
+        editor::ScreenState done = share;
+        done.share_copied = true;
+        done.share_place = "/Users/ridge/Library/Application Support/Open Annihilation/Keys/Shared/"
+                           "grid-left-hand.oakeys";
+        const kit::DisplayList done_list = laid_out(model, done, frame);
+        check_prompt_fit(done_list, window, in + " share saved and copied");
+        OA_CHECK(find_named(done_list, editor::name_share_open) != nullptr);
+        OA_CHECK(shows(done_list, longer ? longer_shown(nullptr, "Copied") : "Copied"));
+        OA_CHECK(shows(done_list, "grid-left-hand.oakeys"));
+
+        editor::Editor bare(std::move(model));
+        static_cast<void>(bare.choose_layout("oa-default", editor::KeepChanges::aside));
+        bare.set_share_name("Grid, left hand");
+        const kit::DisplayList none_list = laid_out(bare, share, frame);
+        check_prompt_fit(none_list, window, in + " share with nothing changed");
+        const bool off = !control_enabled(none_list, editor::name_share_save) &&
+                         !control_enabled(none_list, editor::name_share_copy);
+        if (!off)
+            std::fprintf(stderr, "%s: Share's buttons are on with nothing changed\n", in.c_str());
+        OA_CHECK(off);
+        if (!longer)
+            OA_CHECK(shows(none_list, "No changes from OA default yet: there is nothing to share"));
+
+        editor::EditorInputs paste_inputs = editor_fixture();
+        if (longer)
+            paste_inputs.text.shown = longer_shown;
+        const editor::Editor paste_model(std::move(paste_inputs));
+        constexpr std::string_view sample = "# oakeys bindings, base oa-default\n"
+                                            "order.move: [\"@KeyQ\"]\n"
+                                            "select.all: [Ctrl+B]\n"
+                                            "camera.orbit-left: [Q]\n";
+        editor::ScreenState pasted;
+        pasted.prompt = editor::Prompt::paste;
+        pasted.paste = editor::paste_preview(
+            paste_model, {reinterpret_cast<const uint8_t*>(sample.data()), sample.size()}
+        );
+        check_prompt_fit(laid_out(paste_model, pasted, frame), window, in + " paste");
+        constexpr std::string_view hello = "Hello, these are my keys\n";
+        editor::ScreenState refused;
+        refused.prompt = editor::Prompt::paste;
+        refused.paste = editor::paste_preview(
+            paste_model, {reinterpret_cast<const uint8_t*>(hello.data()), hello.size()}
+        );
+        const kit::DisplayList refused_list = laid_out(paste_model, refused, frame);
+        check_prompt_fit(refused_list, window, in + " paste refused");
+        OA_CHECK(refused.paste.not_layout);
+        OA_CHECK(find_named(refused_list, editor::name_paste_apply) == nullptr);
+        if (!longer) {
+            OA_CHECK(caption_of(refused_list, editor::name_paste_cancel) == "Close");
+            OA_CHECK(shows(refused_list, "it starts with # oakeys"));
+        }
+    }
+}
+
 int main() {
     const kit::Frame compact = frame_for(640, 480, 100);
     const kit::Frame large = frame_for(1280, 720, 100);
@@ -1431,6 +1678,12 @@ int main() {
     check_exchange_lines(compact, "compact");
     check_exchange_lines(large, "large");
     check_exchange_lines(regular, "regular");
+    check_more_groups(compact, "compact");
+    check_more_groups(large, "large");
+    check_more_groups(regular, "regular");
+    check_dialog_fit(compact, "compact");
+    check_dialog_fit(large, "large");
+    check_dialog_fit(regular, "regular");
 
     check_view(
         compact, {480, 324}, "keyboard compact", editor::View::keyboard, kit::KeyboardShape::ansi

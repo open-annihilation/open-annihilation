@@ -1578,13 +1578,15 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         );
     }
 
-    /// Puts the share text on the clipboard.
+    /// Puts the share text on the clipboard, and has Share say Copied.
     void copy_share_text() {
         const editor::ShareSummary summary = editor::share_summary(editor_);
         if (!SDL_SetClipboardText(summary.text.c_str())) {
             const char* reason = SDL_GetError();
             tell_write_failed(reason == nullptr ? "The clipboard was not set." : reason);
+            return;
         }
+        state_.share_copied = true;
     }
 
     /// Writes the shared package. A check names the path; otherwise the
@@ -1610,7 +1612,7 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
             } else {
 #if OA_NATIVE_FOLDER_DIALOG
                 const std::string title =
-                    std::string(oa::data::languages::interface_text("Save file…"));
+                    std::string(oa::data::languages::interface_text(editor::words::save_file));
                 const PickedPath picked =
                     pick_key_file(runtime_.sdl_.window, true, shared.parent_path(), title);
                 if (picked.cancelled)

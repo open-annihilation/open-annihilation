@@ -1,21 +1,29 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// --check-key-share: sharing a layout, pasting text, refusing a text that is
-// no key layout, importing one key from an older settings file, and
+// --check-key-share: More's two groups, Share and Paste as a player meets
+// them, at 640x480, 1280x720 and 1920x1080, in German and French at
+// 640x480, and in the modern look at 640x480 and 1280x720: Share with
+// nothing changed (its buttons off), Paste with a key by its place, a clash
+// and an action this version does not know, Share with those changes after
+// Copy as Text and after Save File…, and Paste of a text that is no key
+// layout. At each, nothing the prompt draws meets anything else it draws,
+// and no word is cut short. Then the steps: refusing a text that is no key
+// layout, pasting and settling the clash, sharing (the id, the copied text
+// and the package), importing one key from an older settings file, and
 // installing a dropped .oakeys; then cloning OA default, renaming and
-// describing the clone, changing one of its keys, saving it, exporting it as
-// an .oakeys and installing that file back. With --snapshot it writes
-// key-share-<w>x<h>.ppm, key-paste-<w>x<h>.ppm, the refusal's
-// key-paste-refused-<w>x<h>.ppm, Import's sources'
-// key-import-sources-<w>x<h>.ppm, key-import-<w>x<h>.ppm, and the install
-// question's key-install-<w>x<h>.ppm and its refusal's
-// key-install-refused-<w>x<h>.ppm, and Clone's flow: More with Clone…
-// (key-clone-more), the question (key-clone), a taken name (key-clone-taken),
-// the clone chosen (key-clone-made) and Rename and Describe (key-describe),
-// at 640x480, 1280x720 and 1920x1080. The
-// check shows the install question, which a run nobody watches otherwise
-// skips.
+// describing the clone, changing one of its keys, saving it, exporting it
+// as an .oakeys and installing that file back. With --snapshot it writes
+// key-more-<w>x<h>.ppm (and key-more-end at Compact), key-share-none,
+// key-paste, key-share, key-share-copied, key-share-saved and
+// key-paste-refused, with -de, -fr or -modern after the size for the
+// language or the look; Import's sources' key-import-sources-<w>x<h>.ppm,
+// key-import-<w>x<h>.ppm, and the install question's key-install-<w>x<h>.ppm
+// and its refusal's key-install-refused-<w>x<h>.ppm, and Clone's flow: More
+// with Clone… (key-clone-more), the question (key-clone), a taken name
+// (key-clone-taken), the clone chosen (key-clone-made) and Rename and
+// Describe (key-describe), at 640x480, 1280x720 and 1920x1080. The check
+// shows the install question, which a run nobody watches otherwise skips.
 
 #include "mod_install_state.hpp"
 #include "oa_layer.hpp"
@@ -25,11 +33,16 @@
 #include "oa/app/game_directory.hpp"
 #include "oa/app/package_install/prompts.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/data/key_library/library.hpp"
 #include "oa/formats/oakeys/manifest.hpp"
 #include "oa/formats/zip.hpp"
+#include "oa/ui/engine_settings.hpp"
 #include "oa/ui/first_run/first_run.hpp"
 #include "oa/ui/key_editor/screen.hpp"
+#include "oa/ui/kit/layout.hpp"
+#include "oa/ui/kit/looks.hpp"
+#include "oa/ui/kit/theme.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -38,7 +51,9 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
+#include <variant>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -56,6 +71,8 @@ namespace zip = oa::formats::zip;
 namespace first_run = oa::ui::first_run;
 namespace layout = oa::ui::display_layout;
 namespace install = oa::app::package_install;
+namespace settings = oa::ui::engine_settings;
+namespace kit = oa::ui::kit;
 
 /// The modifier a paste chord takes on this platform.
 #ifdef SDL_PLATFORM_MACOS
@@ -345,21 +362,26 @@ void Runtime::check_key_share() {
         }
         require(named(name).has_value(), std::string(name) + " is not shown");
     };
-    const auto snapshot = [&](std::string_view stem, const CheckWindow& window) {
-        if (options_.snapshot.empty())
-            return;
-        oa_layer().read_whole_window(true);
-        renderer::Surface presented;
-        capture_frame_ = &presented;
-        render();
-        capture_frame_ = nullptr;
-        oa_layer().read_whole_window(false);
-        const fs::path path = options_.snapshot.parent_path() /
-                              (std::string(stem) + '-' + std::to_string(window.width) + 'x' +
-                               std::to_string(window.height) + ".ppm");
-        write_ppm(path, presented);
-        require(fs::exists(path), "a snapshot was not written");
-    };
+    // A picture is <stem>-<w>x<h>.ppm, or <stem>-<w>x<h>-<tag>.ppm for a
+    // language or a look other than the English classic one.
+    const auto snapshot =
+        [&](std::string_view stem, const CheckWindow& window, std::string_view tag = {}) {
+            if (options_.snapshot.empty())
+                return;
+            oa_layer().read_whole_window(true);
+            renderer::Surface presented;
+            capture_frame_ = &presented;
+            render();
+            capture_frame_ = nullptr;
+            oa_layer().read_whole_window(false);
+            std::string file = std::string(stem) + '-' + std::to_string(window.width) + 'x' +
+                               std::to_string(window.height);
+            if (!tag.empty())
+                file += '-' + std::string(tag);
+            const fs::path path = options_.snapshot.parent_path() / (file + ".ppm");
+            write_ppm(path, presented);
+            require(fs::exists(path), "a snapshot was not written");
+        };
     const auto resize = [&](const CheckWindow& window) {
         require(
             SDL_SetWindowSize(sdl_.window, window.width, window.height) &&
@@ -390,24 +412,96 @@ void Runtime::check_key_share() {
         frames(2);
         require(oa_layer().find(editor::screen_name) != nullptr, "the editor is not shown");
     };
-    const auto open_share = [&](const CheckWindow& window, bool keep) {
-        const std::string size = std::to_string(window.width) + 'x' + std::to_string(window.height);
-        note(std::string("SHARE picture ") + size);
+    // The editor's display list, as the layer draws it.
+    const auto editor_list = [&]() {
+        const LayerScreen* open = oa_layer().find(editor::screen_name);
+        require(open != nullptr, "the editor is not shown");
+        return open->display_list();
+    };
+    // True when the editor draws a text that is these words.
+    const auto shows_words = [&](std::string_view words) {
+        const kit::DisplayList list = editor_list();
+        for (const kit::Item& item : list.items) {
+            if (item.role == kit::Role::text && item.text == words)
+                return true;
+        }
+        return false;
+    };
+    // What a prompt draws meets nothing else it draws, an open menu shows
+    // each item whole, and no word is cut short but Share's preview's "..."
+    // and a saved path cut in its middle.
+    const auto check_fit = [&](const std::string& what) {
+        const kit::DisplayList list = editor_list();
+        std::vector<kit::Rect> exempt;
+        for (const kit::Control& control : list.controls) {
+            if (control.name == editor::name_share_text)
+                exempt.push_back(control.rect);
+            if (control.name == editor::name_share_open)
+                exempt.push_back({0, control.rect.y, control.rect.x, control.rect.height});
+        }
+        const auto area_of = [](const kit::Item& item) {
+            if (item.clip.width > 0 && item.clip.height > 0)
+                return kit::intersect(item.rect, item.clip);
+            return item.rect;
+        };
+        const auto said = [](const kit::Item& item) {
+            if (const auto* button = std::get_if<kit::ButtonLook>(&item.look))
+                return button->caption;
+            return item.text;
+        };
+        std::size_t first = list.items.size();
+        for (std::size_t index = 0; index < list.items.size(); ++index) {
+            const kit::Item& item = list.items[index];
+            if (const auto* menu = std::get_if<kit::ChoiceMenuLook>(&item.look)) {
+                for (const std::string& shown : menu->shown)
+                    require(
+                        shown.find("...") == std::string::npos, what + ": \"" + shown + "\" is cut"
+                    );
+            }
+            if (item.role == kit::Role::blend && item.colour == kit::colour::backdrop)
+                first = index + 1;
+        }
+        std::vector<const kit::Item*> parts;
+        for (std::size_t index = first; index < list.items.size(); ++index) {
+            const kit::Item& item = list.items[index];
+            const bool part = item.role == kit::Role::text || item.role == kit::Role::button ||
+                              item.role == kit::Role::field || item.role == kit::Role::pill ||
+                              item.role == kit::Role::chord_chip;
+            const kit::Rect drawn = area_of(item);
+            if (!part || drawn.width <= 0 || drawn.height <= 0)
+                continue;
+            parts.push_back(&item);
+            bool allowed = said(item).find("...") == std::string::npos;
+            for (const kit::Rect& rect : exempt)
+                allowed = allowed || kit::wholly_in(drawn, rect);
+            require(allowed, what + ": \"" + said(item) + "\" is cut");
+        }
+        for (std::size_t one = 0; one < parts.size(); ++one) {
+            for (std::size_t other = one + 1; other < parts.size(); ++other) {
+                const kit::Rect met = kit::intersect(area_of(*parts[one]), area_of(*parts[other]));
+                require(
+                    met.width <= 0 || met.height <= 0,
+                    what + ": \"" + said(*parts[one]) + "\" meets \"" + said(*parts[other]) + "\""
+                );
+            }
+        }
+    };
+    // Share with the pasted changes: the id the name folds to, Copy as Text
+    // and the text form, then Save File… and the package it writes.
+    const auto share_steps = [&] {
         press_named("oa.key-editor.share");
         require(named("oa.key-editor.share.close").has_value(), "SHARE did not open");
         if (named("oa.key-editor.share.name").has_value())
             type_chars("Grid, left hand");
-        snapshot("key-share", window);
-        if (!keep) {
-            click_named("oa.key-editor.share.close");
-            require(!named("oa.key-editor.share.close").has_value(), "SHARE stayed open");
-            return;
-        }
         note("SHARE shows grid-left-hand");
         const AutomationControl id =
             require_named("oa.key-editor.share.id", "the share id is not shown");
         require(id.text == "grid-left-hand", "SHARE did not show grid-left-hand");
-        note("COPY AS TEXT matches the text form");
+        require(
+            !named("oa.key-editor.share.open-folder").has_value(),
+            "Open Folder shows before a file is saved"
+        );
+        note("COPY AS TEXT matches the text form and says Copied");
         const std::string form =
             require_named("oa.key-editor.share.text", "the share text is not shown").text;
         click_named("oa.key-editor.share.copy");
@@ -415,12 +509,20 @@ void Runtime::check_key_share() {
         const std::string copied = clipboard != nullptr ? clipboard : "";
         SDL_free(clipboard);
         require(copied == form, "COPY AS TEXT did not put the text form on the clipboard");
+        require(
+            shows_words(oa::data::languages::interface_text(editor::words::copied)),
+            "Copied is not shown after COPY AS TEXT"
+        );
         note("SAVE FILE writes a package");
         require(
             require_named("oa.key-editor.share.save-file", "SAVE FILE is not shown").enabled,
             "SAVE FILE is disabled"
         );
         click_named("oa.key-editor.share.save-file");
+        require(
+            named("oa.key-editor.share.open-folder").has_value(),
+            "Open Folder is not shown once a file is saved"
+        );
         const std::vector<uint8_t> packed = read_all(key_share_save_path_);
         require(!packed.empty(), "SAVE FILE wrote no file");
         zip::CentralDirectory directory;
@@ -441,49 +543,43 @@ void Runtime::check_key_share() {
         require(read.id == "grid-left-hand", "the shared layout's id is not grid-left-hand");
         click_named("oa.key-editor.share.close");
     };
-    // Paste refuses a text that is no key layout in the player's words, and
-    // the sample goes back on the clipboard.
-    const auto open_refused_paste = [&](const CheckWindow& window) {
-        const std::string size = std::to_string(window.width) + 'x' + std::to_string(window.height);
-        note(std::string("PASTE refuses a text that is no key layout ") + size);
+    // Paste refuses a text that is no key layout in the player's words, says
+    // what to do and offers Close alone, and the sample goes back on the
+    // clipboard.
+    const auto refused_paste_steps = [&] {
+        note("PASTE refuses a text that is no key layout and says what to do");
         require(stage_clipboard_text(kNotLayoutText), "the clipboard was not set");
         press_named("oa.key-editor.paste");
         require(named("oa.key-editor.paste.cancel").has_value(), "PASTE did not open");
         const AutomationControl rows =
             require_named("oa.key-editor.paste.list", "the refusal is not listed");
         require(
-            rows.text.find(editor::words::text_not_layout) != std::string::npos,
+            rows.text.find(editor::words::text_not_layout) != std::string::npos &&
+                rows.text.find("# oakeys") != std::string::npos,
             "the refusal is not in the player's words: " + rows.text
         );
-        snapshot("key-paste-refused", window);
+        require(
+            !named("oa.key-editor.paste.apply").has_value(),
+            "PASTE offers Apply for a text that is no key layout"
+        );
         click_named("oa.key-editor.paste.cancel");
         require(!named("oa.key-editor.paste.cancel").has_value(), "PASTE stayed open");
         require(stage_clipboard_text(kPasteText), "the clipboard was not set");
     };
-    const auto open_paste = [&](const CheckWindow& window, bool keep) {
-        const std::string size = std::to_string(window.width) + 'x' + std::to_string(window.height);
-        note(std::string("PASTE picture ") + size);
-        if (keep) {
-            if (named("oa.key-editor.search").has_value())
-                click_named("oa.key-editor.list");
-            // COPY AS TEXT replaced the sample. Put it back for Primary+V.
-            require(stage_clipboard_text(kPasteText), "the clipboard was not set");
-            note("PASTE previews three rows, one clash and one unknown");
-            key_event(SDL_EVENT_KEY_DOWN, kPasteKey, kPasteModifier);
-            key_event(SDL_EVENT_KEY_DOWN, SDLK_V, kPasteModifier);
-            key_event(SDL_EVENT_KEY_UP, SDLK_V, kPasteModifier);
-            key_event(SDL_EVENT_KEY_UP, kPasteKey, SDL_KMOD_NONE);
-            frames(1);
-        } else {
-            press_named("oa.key-editor.paste");
-        }
+    // Paste, by Primary+V: a key by its place, a clash and an action this
+    // version does not know, each named as the list names it, then Apply and
+    // the card that settles the clash.
+    const auto paste_steps = [&](const CheckWindow& window) {
+        if (named("oa.key-editor.search").has_value())
+            click_named("oa.key-editor.list");
+        require(stage_clipboard_text(kPasteText), "the clipboard was not set");
+        note("PASTE previews three rows, one clash and one unknown");
+        key_event(SDL_EVENT_KEY_DOWN, kPasteKey, kPasteModifier);
+        key_event(SDL_EVENT_KEY_DOWN, SDLK_V, kPasteModifier);
+        key_event(SDL_EVENT_KEY_UP, SDLK_V, kPasteModifier);
+        key_event(SDL_EVENT_KEY_UP, kPasteKey, SDL_KMOD_NONE);
+        frames(1);
         require(named("oa.key-editor.paste.cancel").has_value(), "PASTE did not open");
-        snapshot("key-paste", window);
-        if (!keep) {
-            click_named("oa.key-editor.paste.cancel");
-            require(!named("oa.key-editor.paste.cancel").has_value(), "PASTE stayed open");
-            return;
-        }
         const AutomationControl summary =
             require_named("oa.key-editor.paste.summary", "the paste summary is not shown");
         const AutomationControl rows =
@@ -496,13 +592,18 @@ void Runtime::check_key_share() {
                 rows.text.find("select.all") == std::string::npos,
             "the paste names an action by its id: " + rows.text
         );
-        require(rows.text.find("Move") != std::string::npos, "Move is not listed");
         require(
-            rows.text.find("+B does two things") != std::string::npos,
+            rows.text.find("Move · Q · By place") != std::string::npos,
+            "Move is not listed by its place: " + rows.text
+        );
+        require(
+            rows.text.find("+B · Clash\n") != std::string::npos &&
+                rows.text.find("already belongs to") != std::string::npos,
             "the clash is not listed: " + rows.text
         );
         require(
-            rows.text.find("camera.orbit-left · Q · Not in this version") != std::string::npos,
+            rows.text.find("camera.orbit-left · Q · Not in this version\nKept in your layout") !=
+                std::string::npos,
             "the unknown action is not listed: " + rows.text
         );
         note("APPLY holds SAVE back until the card settles the clash");
@@ -591,14 +692,104 @@ void Runtime::check_key_share() {
         );
     };
 
+    // More, Share and Paste as a player meets them: More's two groups;
+    // Share with nothing changed; Paste with a key by its place, a clash
+    // and an action this version does not know; Share with those changes,
+    // after Copy as Text and after Save File…; and Paste with a clipboard
+    // that holds no key layout. The editor closes without saving.
+    const auto picture_dialogs = [&](const CheckWindow& window, std::string_view tag) {
+        const std::string where = std::to_string(window.width) + 'x' +
+                                  std::to_string(window.height) +
+                                  (tag.empty() ? std::string{} : ' ' + std::string(tag));
+        note("More, Share and Paste pictures " + where);
+        resize(window);
+        open_editor();
+        click_named("oa.key-editor.more");
+        require(
+            named("oa.key-editor.share").has_value() || named("oa.key-editor.import").has_value(),
+            "More did not open " + where
+        );
+        snapshot("key-more", window, tag);
+        check_fit("More " + where);
+        if (!named("oa.key-editor.paste")) {
+            // Compact's More leads with the layouts: End shows its last group.
+            key_event(SDL_EVENT_KEY_DOWN, SDLK_END, SDL_KMOD_NONE);
+            key_event(SDL_EVENT_KEY_UP, SDLK_END, SDL_KMOD_NONE);
+            frames(1);
+            snapshot("key-more-end", window, tag);
+            check_fit("More's end " + where);
+        }
+        PadAccess::send_key(*this, SDLK_ESCAPE);
+        frames(1);
+        press_named("oa.key-editor.share");
+        require(named("oa.key-editor.share.close").has_value(), "SHARE did not open " + where);
+        snapshot("key-share-none", window, tag);
+        check_fit("SHARE with nothing changed " + where);
+        require(
+            !require_named("oa.key-editor.share.save-file", "SAVE FILE is not shown").enabled &&
+                !require_named("oa.key-editor.share.copy", "COPY AS TEXT is not shown").enabled,
+            "SHARE offers its buttons with nothing changed " + where
+        );
+        click_named("oa.key-editor.share.close");
+        require(stage_clipboard_text(kPasteText), "the clipboard was not set");
+        press_named("oa.key-editor.paste");
+        require(named("oa.key-editor.paste.apply").has_value(), "PASTE did not open " + where);
+        snapshot("key-paste", window, tag);
+        check_fit("PASTE " + where);
+        click_named("oa.key-editor.paste.apply");
+        require(!named("oa.key-editor.paste.apply").has_value(), "APPLY left the paste open");
+        press_named("oa.key-editor.share");
+        require(named("oa.key-editor.share.close").has_value(), "SHARE did not open " + where);
+        type_chars("Grid, left hand");
+        snapshot("key-share", window, tag);
+        check_fit("SHARE " + where);
+        click_named("oa.key-editor.share.copy");
+        snapshot("key-share-copied", window, tag);
+        check_fit("SHARE after COPY AS TEXT " + where);
+        require(
+            shows_words(oa::data::languages::interface_text(editor::words::copied)),
+            "Copied is not shown after COPY AS TEXT " + where
+        );
+        click_named("oa.key-editor.share.save-file");
+        require(named("oa.key-editor.share.open-folder").has_value(), "SAVE FILE wrote nothing");
+        snapshot("key-share-saved", window, tag);
+        check_fit("SHARE after SAVE FILE " + where);
+        click_named("oa.key-editor.share.close");
+        require(stage_clipboard_text(kNotLayoutText), "the clipboard was not set");
+        press_named("oa.key-editor.paste");
+        require(named("oa.key-editor.paste.cancel").has_value(), "PASTE did not open " + where);
+        snapshot("key-paste-refused", window, tag);
+        check_fit("PASTE of a text that is no key layout " + where);
+        require(
+            !named("oa.key-editor.paste.apply").has_value(),
+            "PASTE offers Apply for a text that is no key layout " + where
+        );
+        click_named("oa.key-editor.paste.cancel");
+        require(stage_clipboard_text(kPasteText), "the clipboard was not set");
+        close_editor();
+    };
+
+    set_language_choice("en");
+    for (const CheckWindow& window : kWindows)
+        picture_dialogs(window, {});
+    for (const std::string_view language : {std::string_view("de"), std::string_view("fr")}) {
+        set_language_choice(language);
+        picture_dialogs(kWindows[0], language);
+    }
+    set_language_choice("en");
+    const settings::EngineSettings kept_settings = engine_settings();
+    settings::EngineSettings modern_look = kept_settings;
+    modern_look.look = settings::Look::modern;
+    apply_engine_settings(modern_look);
+    picture_dialogs(kWindows[0], "modern");
+    picture_dialogs(kLarge, "modern");
+    apply_engine_settings(kept_settings);
+
     for (const CheckWindow& window : kWindows) {
         if (window.width == kLarge.width)
             continue;
         resize(window);
         open_editor();
-        open_share(window, false);
-        open_paste(window, false);
-        open_refused_paste(window);
         open_import(window, false);
         close_editor();
     }
@@ -606,9 +797,9 @@ void Runtime::check_key_share() {
     note("the steps at 1280x720");
     resize(kLarge);
     open_editor();
-    open_share(kLarge, true);
-    open_refused_paste(kLarge);
-    open_paste(kLarge, true);
+    refused_paste_steps();
+    paste_steps(kLarge);
+    share_steps();
     open_import(kLarge, true);
 
     note("a bad layout lists both problems and refuses INSTALL");

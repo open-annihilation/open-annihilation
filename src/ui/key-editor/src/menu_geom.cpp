@@ -60,46 +60,111 @@ std::string filter_caption(
     return fill(show(editor.text(), words::filter_count), {{"filter", label}, {"count", count}});
 }
 
-/// The layout menu: OA default, each installed layout, then Clone… and, on a
-/// layout other than OA default, Rename and Describe….
+/// Appends one item to a menu.
+///
+/// @param[in,out] entries the menu
+/// @param kind what choosing it does
+/// @param id the layout, or the action's word
+/// @param caption the words, already looked up
+/// @param name the control's name
+void add_entry(
+    std::vector<MenuEntry>& entries,
+    MenuKind kind,
+    std::string id,
+    std::string caption,
+    std::string name
+) {
+    MenuEntry entry;
+    entry.kind = kind;
+    entry.id = std::move(id);
+    entry.caption = std::move(caption);
+    entry.name = std::move(name);
+    entries.push_back(std::move(entry));
+}
+
+/// Appends a heading: a divider with a caption, as the category menu's are.
+///
+/// @param[in,out] entries the menu
+/// @param editor the words
+/// @param word the heading, in English
+void add_heading(std::vector<MenuEntry>& entries, const Editor& editor, std::string_view word) {
+    MenuEntry entry;
+    entry.kind = MenuKind::divider;
+    entry.caption = show(editor.text(), word);
+    entries.push_back(std::move(entry));
+}
+
+/// The layouts to choose from: OA default, then each installed layout.
+///
+/// @param editor the editor
+/// @return the items
+std::vector<MenuEntry> layout_choices(const Editor& editor) {
+    std::vector<MenuEntry> entries;
+    add_entry(
+        entries,
+        MenuKind::layout_id,
+        "oa-default",
+        show(editor.text(), words::oa_default),
+        std::string(name_layout) + ".oa-default"
+    );
+    std::size_t place = 0;
+    for (const LayoutSummary& layout : editor.installed()) {
+        const std::string fallback = std::string(name_layout) + ".n" + std::to_string(place);
+        add_entry(
+            entries,
+            MenuKind::layout_id,
+            layout.id,
+            layout.name,
+            sound_name(std::string(name_layout) + "." + layout.id, fallback)
+        );
+        ++place;
+    }
+    return entries;
+}
+
+/// Appends Clone as New Layout… and, on a layout other than OA default,
+/// Rename and Describe….
+///
+/// @param[in,out] entries the menu
+/// @param editor the editor
+/// @param clone_control the name Clone's control takes
+/// @param describe_control the name Rename and Describe's control takes
+void add_clone_items(
+    std::vector<MenuEntry>& entries,
+    const Editor& editor,
+    std::string clone_control,
+    std::string describe_control
+) {
+    add_entry(
+        entries,
+        MenuKind::clone,
+        "clone",
+        show(editor.text(), words::clone_item),
+        std::move(clone_control)
+    );
+    if (editor.layout_id() != "oa-default")
+        add_entry(
+            entries,
+            MenuKind::describe,
+            "describe",
+            show(editor.text(), words::describe_item),
+            std::move(describe_control)
+        );
+}
+
+/// The layout menu: the layouts, a rule, then Clone as New Layout… and, on
+/// a layout other than OA default, Rename and Describe….
 ///
 /// @param editor the editor
 /// @return the items
 std::vector<MenuEntry> layout_entries(const Editor& editor) {
-    std::vector<MenuEntry> entries;
-    auto add = [&](MenuKind kind, std::string id, std::string caption, std::string name) {
-        MenuEntry entry;
-        entry.kind = kind;
-        entry.id = std::move(id);
-        entry.caption = std::move(caption);
-        entry.name = std::move(name);
-        entries.push_back(std::move(entry));
-    };
-    add(MenuKind::layout_id,
-        "oa-default",
-        show(editor.text(), words::oa_default),
-        std::string(name_layout) + ".oa-default");
-    std::size_t place = 0;
-    for (const LayoutSummary& layout : editor.installed()) {
-        const std::string fallback = std::string(name_layout) + ".n" + std::to_string(place);
-        add(MenuKind::layout_id,
-            layout.id,
-            layout.name,
-            sound_name(std::string(name_layout) + "." + layout.id, fallback));
-        ++place;
-    }
+    std::vector<MenuEntry> entries = layout_choices(editor);
     MenuEntry rule;
     rule.kind = MenuKind::divider;
     entries.push_back(std::move(rule));
-    add(MenuKind::clone,
-        "clone",
-        show(editor.text(), words::clone_item),
-        std::string(name_layout) + ".clone");
-    if (editor.layout_id() != "oa-default")
-        add(MenuKind::describe,
-            "describe",
-            show(editor.text(), words::describe_item),
-            std::string(name_layout) + ".describe");
+    add_clone_items(
+        entries, editor, std::string(name_layout) + ".clone", std::string(name_layout) + ".describe"
+    );
     return entries;
 }
 
@@ -197,36 +262,32 @@ menu_entries(const Editor& editor, Menu menu, const ScreenState& state, bool com
         return entries;
     }
     if (menu == Menu::more) {
-        // More holds the rarer layout actions. Compact has no LAYOUT
-        // drop-down, so its layouts lead More there.
+        // More holds the rarer actions in two groups, each under its heading:
+        // Layouts, then Sharing. Compact has no LAYOUT drop-down, so the
+        // layouts lead More there, and Clone and Rename and Describe keep
+        // the names the layout menu gives them.
         std::vector<MenuEntry> entries;
-        if (compact) {
-            entries = layout_entries(editor);
-            MenuEntry rule;
-            rule.kind = MenuKind::divider;
-            entries.push_back(std::move(rule));
-        }
-        auto add_more =
+        if (compact)
+            entries = layout_choices(editor);
+        const auto add_more =
             [&](MenuKind kind, std::string id, std::string_view word, std::string_view control) {
-                MenuEntry more;
-                more.kind = kind;
-                more.id = std::move(id);
-                more.caption = show(editor.text(), word);
-                more.name = std::string(control);
-                entries.push_back(std::move(more));
+                add_entry(
+                    entries, kind, std::move(id), show(editor.text(), word), std::string(control)
+                );
             };
-        // Clone… and Rename and Describe… lead More, as they lead the
-        // layout drop-down that Compact keeps here already.
-        if (!compact) {
-            add_more(MenuKind::clone, "clone", words::clone_item, name_clone);
-            if (editor.layout_id() != "oa-default")
-                add_more(MenuKind::describe, "describe", words::describe_item, name_describe);
-            MenuEntry rule;
-            rule.kind = MenuKind::divider;
-            entries.push_back(std::move(rule));
-        }
-        add_more(MenuKind::restore, "restore", words::restore_title, name_restore);
+        add_heading(entries, editor, words::layouts_heading);
         add_more(MenuKind::import, "import", words::import_button, name_import);
+        if (compact)
+            add_clone_items(
+                entries,
+                editor,
+                std::string(name_layout) + ".clone",
+                std::string(name_layout) + ".describe"
+            );
+        else
+            add_clone_items(entries, editor, std::string(name_clone), std::string(name_describe));
+        add_more(MenuKind::restore, "restore", words::restore_title, name_restore);
+        add_heading(entries, editor, words::sharing_heading);
         add_more(MenuKind::share, "share", words::share_button, name_share);
         add_more(MenuKind::paste, "paste", words::paste_button, name_paste);
         return entries;
