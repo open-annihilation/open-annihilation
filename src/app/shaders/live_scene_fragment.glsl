@@ -139,6 +139,27 @@ void main() {
             }
             colour = mix(colour, grey, in_terrain_fog.y);
         }
+    } else if (in_terrain.z == -6.0 || in_terrain.z == -7.0) {
+        // Map scenery. Nearest for a feature's own pixels, filtered when the
+        // frame asks for it. Where the ground is grey the same grey image is
+        // mixed in; the frame is not tinted as a unit under the water.
+        if (in_terrain.z == -7.0) {
+            colour = texture(atlas_linear, in_uv);
+            if (colour.a > 0.0)
+                colour.rgb /= colour.a;
+            if (in_terrain_fog.y > 0.0) {
+                vec4 grey = texture(atlas_linear, in_terrain.xy);
+                if (grey.a > 0.0)
+                    grey.rgb /= grey.a;
+                colour = mix(colour, grey, in_terrain_fog.y);
+            }
+        } else {
+            colour = texture(atlas_nearest, in_uv);
+            if (in_terrain_fog.y > 0.0) {
+                vec4 grey = texture(atlas_nearest, in_terrain.xy);
+                colour = mix(colour, grey, in_terrain_fog.y);
+            }
+        }
     } else if (in_terrain.z < 0.0) {
         colour = texture(atlas_linear, in_uv);
         // Atlas coverage is binary; filtering it gives premultiplied RGB. The
@@ -150,15 +171,19 @@ void main() {
         colour = texture(atlas_nearest, in_uv);
     }
     const float brightness =
-        in_terrain.z == -2.0 ? 1.0 : (in_terrain.z > 0.0 ? in_terrain_fog.x : in_attenuation.x);
+        in_terrain.z == -2.0
+            ? 1.0
+            : (in_terrain.z > 0.0 || in_terrain.z == -6.0 || in_terrain.z == -7.0
+                   ? in_terrain_fog.x
+                   : in_attenuation.x);
     colour.rgb = colour.rgb * in_modulation * brightness + in_emission;
     // Optical underwater billboards share their event depth across the
     // complete sprite. Physical models retain their actual per-fragment
     // water intersection.
     const float depth =
         in_terrain.z == -5.0 ? in_terrain.x : camera.water_scene.x - in_world.y;
-    if (depth > 0.5 && in_terrain.z != -2.0 && in_terrain.z != -3.0 && camera.water.z > 0.0 &&
-        detail > 0.0) {
+    if (depth > 0.5 && in_terrain.z != -2.0 && in_terrain.z != -3.0 && in_terrain.z != -6.0 &&
+        in_terrain.z != -7.0 && camera.water.z > 0.0 && detail > 0.0) {
         const float shallow = 1.0 - smoothstep(
                                         camera.appearance3.z,
                                         camera.appearance3.z + camera.appearance3.w,
