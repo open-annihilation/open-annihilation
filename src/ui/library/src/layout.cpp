@@ -5140,6 +5140,17 @@ struct ExpansionWrap {
     bool hint{};
 };
 
+/// Returns the rows between two lines of expansion pills: the room the
+/// kit's row keeps between its lines. The pills grew taller to give their
+/// words room, and the lines keep their step, so the tile and the page
+/// under it keep their height.
+///
+/// @param metrics the class's metrics
+/// @return the rows, in points
+int32_t expansion_line_gap(const kit::Metrics& metrics) {
+    return metrics.list_row_line_gap;
+}
+
 /// Wraps the expansion pills into a width.
 ///
 /// @param building the layout
@@ -5182,7 +5193,7 @@ wrap_expansions(const Building& building, const ActiveContent& content, int32_t 
         wrap.rows.push_back(std::move(row));
     for (std::size_t row_index = 0; row_index < wrap.rows.size(); ++row_index) {
         if (row_index != 0)
-            wrap.rows_height += gap;
+            wrap.rows_height += expansion_line_gap(metrics);
         wrap.rows_height += wrap.rows[row_index].band;
     }
     wrap.hint = !content.hint.empty();
@@ -5329,13 +5340,13 @@ void place_expansions(
             tab_stop(building, control);
             column += width + metrics.button_gap;
         }
-        row_y += band + metrics.button_gap;
+        row_y += band + expansion_line_gap(metrics);
     }
-    // After the last row of pills, row_y is a button gap below it. The lock
+    // After the last row of pills, row_y is a line gap below it. The lock
     // and the hint each stand a hint gap below what is above them.
     bool placed = !wrap.rows.empty();
     if (placed)
-        row_y -= metrics.button_gap;
+        row_y -= expansion_line_gap(metrics);
     const std::vector<std::string> lock_lines =
         expansion_lock_lines(building, content.lock, inner_width);
     if (!lock_lines.empty()) {

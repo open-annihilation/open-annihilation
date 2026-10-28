@@ -1255,6 +1255,15 @@ void Runtime::check_library() {
             ++fixture.generation;
             run_frame(running);
             require(running, "a frame ended the run");
+            // The page was paged down to the maps; the expansions can lie
+            // above the view by now, so it pages back up to them.
+            for (int step = 0; step < 8 && !(named("oa.library.active.expansion.cavedog-units") &&
+                                             named("oa.library.active.expansion.battle-tactics"));
+                 ++step) {
+                tap(SDLK_PAGEUP);
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
             const std::optional<AutomationControl> offered =
                 named("oa.library.active.expansion.cavedog-units");
             const std::optional<AutomationControl> tactics =
