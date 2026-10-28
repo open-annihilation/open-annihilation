@@ -271,7 +271,9 @@ LayerPlacement place_in_dialog(const MatchDialogPlace& dialog, int32_t width, in
     return {shown, width, height, dialog.scale_percent};
 }
 
-/// Returns the match dialog's place, or an empty one off a match.
+/// Returns the match dialog's place at the Window size, or an empty one off
+/// a match. Settings is placed the same way, so a notice or a question over
+/// the match takes Settings' class.
 ///
 /// @param placed_on what the screen is placed on
 /// @return the dialog's place
@@ -279,7 +281,10 @@ MatchDialogPlace match_place(const LayerView& placed_on) {
     if (!placed_on.match || placed_on.match_layout == nullptr)
         return {};
     return OaLayer::match_dialog(
-        *placed_on.match_layout, placed_on.interface_percent, placed_on.fit_safe_area
+        *placed_on.match_layout,
+        placed_on.interface_percent,
+        placed_on.fit_safe_area,
+        placed_on.window_size
     );
 }
 
@@ -434,9 +439,13 @@ class MatchPrompt final : public LayerScreen {
     /// @param placed_on what the screen is placed on
     /// @return its place
     [[nodiscard]] LayerPlacement placement(const LayerView& placed_on) const override {
-        const kit::Fonts* fonts = layer_.screen_fonts();
         const MatchDialogPlace dialog = match_place(placed_on);
-        if (fonts == nullptr || !placed_on.match || placed_on.match_layout == nullptr)
+        if (!placed_on.match || placed_on.match_layout == nullptr)
+            return {};
+        // The match dialog's class, not the question's, so the first place is
+        // right before lay_out has stored the class.
+        const kit::Fonts* fonts = layer_.screen_fonts(dialog.size_class);
+        if (fonts == nullptr)
             return {};
         kit::Question sized = question_;
         sized.size_class = dialog.size_class;
@@ -465,6 +474,13 @@ class MatchPrompt final : public LayerScreen {
         ++revision_;
     }
 
+    /// Returns the fonts of the question's class, the ones it is drawn in.
+    ///
+    /// @return the fonts
+    [[nodiscard]] const kit::Fonts* drawing_fonts() const override {
+        return layer_.screen_fonts(question_.size_class);
+    }
+
     /// Draws the question.
     ///
     /// @param canvas where it draws
@@ -484,8 +500,8 @@ class MatchPrompt final : public LayerScreen {
     LayerAnswer
     pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int32_t finger_reach) override {
         const auto before = question_look(question_);
-        const int32_t tall = settings::prompt_height(question_, layer_.screen_fonts());
-        const kit::Fonts* fonts = layer_.screen_fonts();
+        const kit::Fonts* fonts = layer_.screen_fonts(question_.size_class);
+        const int32_t tall = settings::prompt_height(question_, fonts);
         kit::QuestionAnswer outcome{};
         switch (kind) {
         case ScreenInputKind::pointer_move:
@@ -532,7 +548,7 @@ class MatchPrompt final : public LayerScreen {
     ///
     /// @return the display list
     [[nodiscard]] kit::DisplayList display_list() const override {
-        return kit::question_list(question_, layer_.screen_fonts());
+        return kit::question_list(question_, layer_.screen_fonts(question_.size_class));
     }
 
     /// Returns the question's hover, press and mark.
@@ -614,9 +630,11 @@ class MatchNotice final : public LayerScreen {
     /// @param placed_on what the screen is placed on
     /// @return its place
     [[nodiscard]] LayerPlacement placement(const LayerView& placed_on) const override {
-        const kit::Fonts* fonts = layer_.screen_fonts();
         const MatchDialogPlace dialog = match_place(placed_on);
-        if (fonts == nullptr || !placed_on.match || placed_on.match_layout == nullptr)
+        if (!placed_on.match || placed_on.match_layout == nullptr)
+            return {};
+        const kit::Fonts* fonts = layer_.screen_fonts(dialog.size_class);
+        if (fonts == nullptr)
             return {};
         kit::Notice sized = notice_;
         sized.size_class = dialog.size_class;
@@ -646,6 +664,13 @@ class MatchNotice final : public LayerScreen {
         ++revision_;
     }
 
+    /// Returns the fonts of the notice's class, the ones it is drawn in.
+    ///
+    /// @return the fonts
+    [[nodiscard]] const kit::Fonts* drawing_fonts() const override {
+        return layer_.screen_fonts(notice_.size_class);
+    }
+
     /// Draws the notice.
     ///
     /// @param canvas where it draws
@@ -665,7 +690,8 @@ class MatchNotice final : public LayerScreen {
     LayerAnswer
     pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int32_t finger_reach) override {
         const auto before = notice_look(notice_);
-        const int32_t tall = settings::notice_height(notice_, layer_.screen_fonts());
+        const int32_t tall =
+            settings::notice_height(notice_, layer_.screen_fonts(notice_.size_class));
         kit::NoticeAction action = kit::NoticeAction::none;
         switch (kind) {
         case ScreenInputKind::pointer_move:
@@ -711,7 +737,7 @@ class MatchNotice final : public LayerScreen {
     /// @return the display list
     [[nodiscard]] kit::DisplayList display_list() const override {
         return kit::notice_list(
-            notice_, layer_.screen_fonts(), oa::data::languages::interface_text
+            notice_, layer_.screen_fonts(notice_.size_class), oa::data::languages::interface_text
         );
     }
 
