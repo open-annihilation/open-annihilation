@@ -71,6 +71,12 @@ and the journal are removed after the new version has started.
   the watch and nothing is started again. A start that crashed is started
   once more, and a second crash puts the kept version back. A start the
   watch cannot see (no process and no pid) is never counted as failed.
+  On macOS the helper treats the new application as started when it is
+  already running or when `state.json` confirms that version, and does not
+  wait out the launch report.
+- The progress window lets go of the font files before a Windows folder is
+  renamed and before a setup runs, then opens them again afterwards. An
+  open font file keeps its folder from moving.
 
 ## Tests
 
@@ -83,10 +89,13 @@ end (reached the menu, quit, failed, not seen), the Windows route
 decisions, the move retries, the `WININIT.INI` text and a postponed rename,
 the Linux versions folder, a second Linux update while the first kept copy
 is still there, a failed Windows setup whose undo leaves the helper's own
-file alone, and the macOS decision and operation list. No test signs a
-bundle or starts a program. `tools-oa-update-run` runs the program on a
-plain folder, in a self-check build. `app-update-plan` covers the plan from
-the game's side. `app-update-route` covers which route a machine is given.
+file alone, the macOS decision and operation list, and when a macOS launch
+counts as started. It also checks that a closed window can let go of font
+files, and, on Windows, that an open file keeps its folder from being
+renamed. No test signs a bundle or starts a program. `tools-oa-update-run`
+runs the program on a plain folder, in a self-check build. `app-update-plan`
+covers the plan from the game's side. `app-update-route` covers which route
+a machine is given.
 
 ## Limitations
 

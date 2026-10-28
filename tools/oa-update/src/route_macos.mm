@@ -12,10 +12,14 @@
 #import <AppKit/AppKit.h>
 #include <Security/Security.h>
 
+#include <algorithm>
 #include <cerrno>
+#include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <spawn.h>
 #include <string>
 #include <sys/stat.h>
@@ -196,6 +200,83 @@ struct StartResult {
     std::string failure;
 };
 
+bool same_bundle(NSRunningApplication* application, NSString* resolved_bundle) {
+    if (application == nil || resolved_bundle == nil)
+        return false;
+    NSURL* const bundle_url = application.bundleURL;
+    if (bundle_url != nil) {
+        NSString* const resolved = [bundle_url.path stringByResolvingSymlinksInPath];
+        if (resolved != nil && [resolved isEqualToString:resolved_bundle])
+            return true;
+    }
+    NSURL* const executable = application.executableURL;
+    if (executable == nil)
+        return false;
+    NSString* const resolved_executable = [executable.path stringByResolvingSymlinksInPath];
+    if (resolved_executable == nil)
+        return false;
+    NSString* const prefix = [resolved_bundle stringByAppendingString:@"/"];
+    return [resolved_executable hasPrefix:prefix];
+}
+
+bool pid_already(const std::vector<int>& pids, int pid) {
+    return std::find(pids.begin(), pids.end(), pid) != pids.end();
+}
+
+std::vector<int> pids_already_running(NSString* resolved_bundle) {
+    std::vector<int> pids;
+    NSArray<NSRunningApplication*>* const running =
+        [[NSWorkspace sharedWorkspace] runningApplications];
+    for (NSRunningApplication* application in running) {
+        if (!same_bundle(application, resolved_bundle))
+            continue;
+        const pid_t raw = application.processIdentifier;
+        if (raw > 0)
+            pids.push_back(static_cast<int>(raw));
+    }
+    return pids;
+}
+
+int listed_pid(NSString* resolved_bundle, const std::vector<int>& already, int own_pid) {
+    NSArray<NSRunningApplication*>* const running =
+        [[NSWorkspace sharedWorkspace] runningApplications];
+    for (NSRunningApplication* application in running) {
+        if (!same_bundle(application, resolved_bundle))
+            continue;
+        const pid_t raw = application.processIdentifier;
+        if (raw <= 0)
+            continue;
+        const int candidate = static_cast<int>(raw);
+        if (candidate == own_pid || pid_already(already, candidate))
+            continue;
+        return candidate;
+    }
+    return 0;
+}
+
+/// True when the state file confirms `version`. An empty path or version,
+/// or a file that cannot be read, is not confirmed.
+bool state_confirms(const fs::path& state_file, std::string_view version) {
+    if (state_file.empty() || version.empty())
+        return false;
+    std::ifstream in(state_file, std::ios::binary);
+    if (!in)
+        return false;
+    in.seekg(0, std::ios::end);
+    const std::streamoff end = in.tellg();
+    if (end < 0 || end > static_cast<std::streamoff>(oa::app::update::max_plan_bytes))
+        return false;
+    in.seekg(0, std::ios::beg);
+    std::vector<uint8_t> bytes(static_cast<std::size_t>(end));
+    if (!bytes.empty()) {
+        in.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(end));
+        if (!in)
+            return false;
+    }
+    const std::optional<oa::app::update::State> state = oa::app::update::read_state(bytes, nullptr);
+    return state.has_value() && state->confirmed && state->installed_version == version;
+}
+
 } // namespace
 
 std::vector<Operation> macos_checked_operations(
@@ -239,6 +320,8 @@ bool start_macos_bundle(
     const fs::path& bundle,
     const std::vector<std::string>& arguments,
     std::string_view from_version,
+    const fs::path& state_file,
+    std::string_view expect_version,
     std::string* error,
     int* pid
 ) {
@@ -273,6 +356,21 @@ bool start_macos_bundle(
             [words addObject:version];
         }
 
+        // Stay out of the Dock. The wait below also accepts a game the system
+        // already lists, and a state file that becomes confirmed, when the
+        // launch report does not arrive in time.
+        NSApplication* const helper_app = [NSApplication sharedApplication];
+        [helper_app setActivationPolicy:NSApplicationActivationPolicyAccessory];
+
+        NSString* const resolved = [path stringByResolvingSymlinksInPath];
+        if (resolved == nullptr) {
+            set_why(error, "the new version could not be started");
+            return false;
+        }
+        const std::vector<int> already = pids_already_running(resolved);
+        const int own_pid = static_cast<int>(::getpid());
+        const bool already_confirmed = state_confirms(state_file, expect_version);
+
         NSWorkspaceOpenConfiguration* const configuration =
             [NSWorkspaceOpenConfiguration configuration];
         configuration.createsNewApplicationInstance = YES;
@@ -296,32 +394,43 @@ bool start_macos_bundle(
                }];
 
         NSDate* const deadline = [NSDate dateWithTimeIntervalSinceNow:30.0];
-        bool finished = false;
-        while (!finished && [deadline timeIntervalSinceNow] > 0.0) {
+        while (true) {
+            MacosLaunchSeen seen;
             {
                 std::lock_guard<std::mutex> guard(result->mutex);
-                finished = result->finished;
+                seen.callback_finished = result->finished;
+                seen.callback_started = result->started;
+                seen.callback_pid = result->pid == own_pid ? 0 : result->pid;
             }
-            if (finished)
+            const int fresh = listed_pid(resolved, already, own_pid);
+            if (fresh > 0) {
+                seen.application_listed = true;
+                seen.listed_pid = fresh;
+            }
+            seen.version_confirmed =
+                !already_confirmed && state_confirms(state_file, expect_version);
+            const MacosLaunchDecision decision = macos_launch_decision(seen);
+            if (decision.launch == MacosLaunch::started) {
+                if (pid != nullptr)
+                    *pid = decision.pid;
+                return true;
+            }
+            if (decision.launch == MacosLaunch::failed) {
+                std::string failure;
+                {
+                    std::lock_guard<std::mutex> guard(result->mutex);
+                    failure = result->failure;
+                }
+                set_why(error, failure.empty() ? "the new version could not be started" : failure);
+                return false;
+            }
+            if ([deadline timeIntervalSinceNow] <= 0.0)
                 break;
             [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
                                      beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
         }
-        std::lock_guard<std::mutex> guard(result->mutex);
-        if (!result->finished) {
-            set_why(error, "the new version did not start");
-            return false;
-        }
-        if (!result->started) {
-            set_why(
-                error,
-                result->failure.empty() ? "the new version could not be started" : result->failure
-            );
-            return false;
-        }
-        if (pid != nullptr)
-            *pid = result->pid;
-        return true;
+        set_why(error, "the new version did not start");
+        return false;
     }
 }
 
