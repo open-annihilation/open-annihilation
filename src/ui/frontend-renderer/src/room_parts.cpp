@@ -1025,30 +1025,73 @@ void draw_room_notch(
         }
 }
 
-void draw_room_stamp(RoomCanvas& canvas, const RoomArt& art, SourceRect rect) {
+namespace {
+
+/// One pixel remembered under a stamp, so a clear part of the icon does not
+/// cover what it did not change.
+struct StampPixel {
+    int32_t x{};
+    int32_t y{};
+    Rgb colour{};
+};
+
+/// Draws the icon into the largest square of a stamp, centred. Each canvas
+/// pixel is the mean of the icon pixels that land on it. A pixel the icon
+/// leaves unchanged stays uncovered when it was.
+void draw_stamp_icon(RoomCanvas& canvas, SourceRect rect, const RgbaPicture& icon) {
+    const int32_t side = std::min(rect.width, rect.height);
+    if (side <= 0)
+        return;
+    const SourceRect square{
+        rect.x + (rect.width - side) / 2, rect.y + (rect.height - side) / 2, side, side
+    };
+    std::vector<StampPixel> under;
+    under.reserve(static_cast<std::size_t>(side) * static_cast<std::size_t>(side));
+    for (int32_t y = square.y; y < square.y + side; ++y)
+        for (int32_t x = square.x; x < square.x + side; ++x)
+            if (holds(canvas, x, y))
+                under.push_back({x, y, get(canvas, x, y)});
+    draw_picture(canvas.surface, Placement{-canvas.area.x, -canvas.area.y, 1}, square, icon);
+    for (const StampPixel& pixel : under) {
+        if (get(canvas, pixel.x, pixel.y) == pixel.colour)
+            continue;
+        canvas.covered[pixel_at(canvas, pixel.x, pixel.y)] = 1;
+    }
+}
+
+} // namespace
+
+void draw_room_stamp(
+    RoomCanvas& canvas, const RoomArt& art, SourceRect rect, const RgbaPicture& icon
+) {
     if (rect.width < 6 || rect.height < 6)
         return;
+    if (picture_drawable(icon)) {
+        draw_stamp_icon(canvas, rect, icon);
+        return;
+    }
     fill(canvas, rect, palette_colour(art, stamp_plate));
     frame_line(canvas, rect, gui_rgb(art, gui_black), gui_rgb(art, gui_light));
-    const Mark& mark = rect.height >= 14 ? oa_mark_bold : oa_mark_thin;
-    const int32_t x = rect.x + (rect.width - mark.width) / 2;
-    const int32_t y = rect.y + (rect.height - mark.height) / 2;
+    const Mark& letters = rect.height >= 14 ? oa_mark_bold : oa_mark_thin;
+    const int32_t x = rect.x + (rect.width - letters.width) / 2;
+    const int32_t y = rect.y + (rect.height - letters.height) / 2;
     const Rgb cut = palette_colour(art, stamp_cut);
     const Rgb gold = palette_colour(art, stamp_gold);
-    for (int32_t row = 0; row < mark.height; ++row)
-        for (int32_t column = 0; column < mark.width; ++column)
-            if (mark.bits[static_cast<std::size_t>(row) * mark.width + column] != 0)
+    for (int32_t row = 0; row < letters.height; ++row)
+        for (int32_t column = 0; column < letters.width; ++column)
+            if (letters.bits[static_cast<std::size_t>(row) * letters.width + column] != 0)
                 put(canvas, x + column + 1, y + row + 1, cut);
-    for (int32_t row = 0; row < mark.height; ++row)
-        for (int32_t column = 0; column < mark.width; ++column)
-            if (mark.bits[static_cast<std::size_t>(row) * mark.width + column] != 0)
+    for (int32_t row = 0; row < letters.height; ++row)
+        for (int32_t column = 0; column < letters.width; ++column)
+            if (letters.bits[static_cast<std::size_t>(row) * letters.width + column] != 0)
                 put(canvas, x + column, y + row, gold);
 }
 
 SourceRect room_stamp_rect(SourceRect button) noexcept {
-    const int32_t height = std::clamp(button.height - 8, 9, 12);
-    const Mark& mark = height >= 14 ? oa_mark_bold : oa_mark_thin;
-    const int32_t width = mark.width + 6;
+    // The width stays the thin letters' width. Captions start after it, and
+    // a taller mark must not push them along.
+    const int32_t height = std::clamp(button.height - 8, 9, 14);
+    const int32_t width = oa_mark_thin.width + 6;
     return {button.x + 5, button.y + (button.height - height) / 2, width, height};
 }
 

@@ -25,6 +25,7 @@
 #include "oa_layer.hpp"
 #include "oa/app/mutators_memory.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/app/window_icon.hpp"
 
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/data/mutator_library/library.hpp"
@@ -747,6 +748,18 @@ room::RoomButtonLook switch_look(const room::SourceRect& frame) {
 
 } // namespace
 
+const room::RgbaPicture& room_stamp_icon() {
+    static const WindowIcon kept = [] {
+        WindowIcon decoded;
+        std::string error;
+        if (!decode_window_icon(window_icon_png(), decoded, error))
+            return WindowIcon{};
+        return visible_part(decoded);
+    }();
+    static const room::RgbaPicture picture{kept.width, kept.height, kept.pixels};
+    return picture;
+}
+
 void draw_mutators_switch(
     room::RoomCanvas& parts,
     const room::RoomArt& art,
@@ -760,7 +773,7 @@ void draw_mutators_switch(
     look.caption = bytes;
     look.condition = condition;
     room::draw_room_switch(parts, art, look, lamp);
-    room::draw_room_stamp(parts, art, room::room_stamp_rect(frame));
+    room::draw_room_stamp(parts, art, room::room_stamp_rect(frame), room_stamp_icon());
     if (focused)
         room::draw_room_focus(parts, art, frame);
 }
