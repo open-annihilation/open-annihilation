@@ -2646,7 +2646,13 @@ void Runtime::tag_layout_ids(
 }
 
 bool Runtime::action_key_held(std::string_view action) {
+    // No key is down in a headless run that draws no picture, and resolving
+    // the bindings to answer that keeps the table beside the loaded units.
+    if (options_.headless_check && options_.snapshot.empty())
+        return false;
     ensure_key_bindings(false);
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
+        return false;
     keys::HeldKeys keys_held;
     keys_held.down = key_is_down;
     return key_bindings_state_->dispatcher.chord_key_held(action, keys_held);
@@ -3747,6 +3753,10 @@ void Runtime::fill_keys_overlay(oa::ui::key_editor::OverlayInputs& inputs) {
 }
 
 std::string Runtime::active_key_chord(std::string_view id) {
+    // A headless run that saves no picture never shows the chord. Resolving
+    // every action here would keep that table for the rest of the match.
+    if (options_.headless_check && options_.snapshot.empty())
+        return {};
     ensure_key_bindings(false);
     if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
         return {};
@@ -3767,6 +3777,8 @@ std::string Runtime::active_key_chord(std::string_view id) {
 }
 
 std::optional<char> Runtime::order_quick_letter(std::string_view action, std::string_view caption) {
+    if (options_.headless_check && options_.snapshot.empty())
+        return std::nullopt;
     ensure_key_bindings(false);
     if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
         return std::nullopt;
@@ -3802,6 +3814,8 @@ std::string Runtime::build_cell_chord(int32_t cell) {
 }
 
 std::string Runtime::rotate_wheel_text() {
+    if (options_.headless_check && options_.snapshot.empty())
+        return {};
     ensure_key_bindings(false);
     if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
         return {};
