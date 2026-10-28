@@ -1597,7 +1597,12 @@ DisplayList question_list(const Question& question, const Fonts* fonts) {
     const PlacedQuestion placed = place_question(question, fonts);
     const int32_t width = placed.width;
     const std::string title = title_for_header(question.title, width, fonts);
+    // The controls are the buttons place_question drew, so a press lands on
+    // the rectangle the list paints.
     DisplayList list = question_controls(question, placed.height, fonts);
+    for (std::size_t index = 0; index < placed.buttons.size() && index < list.controls.size();
+         ++index)
+        list.controls[index].rect = placed.buttons[index];
     std::vector<std::string> paragraphs;
     for (const Paragraph& paragraph : question.paragraphs)
         paragraphs.push_back(paragraph.text);

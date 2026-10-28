@@ -482,13 +482,7 @@ void questions_place_as_before() {
     );
     check_question(
         kit::place_question(question_of({"CANCEL", "REPLACE"}), estimated, estimated),
-        {136,
-         {38, 1, 350, 26},
-         false,
-         {},
-         98,
-         {{260, 103, 58, 28}, {323, 103, 65, 28}},
-         example}
+        {136, {38, 1, 350, 26}, false, {}, 98, {{260, 103, 58, 28}, {323, 103, 65, 28}}, example}
     );
     // The narrow measure keeps the path on one line. The box stays as wide as
     // the estimate of that path, and the buttons keep the estimate's widths.
@@ -558,11 +552,12 @@ void question_buttons_fit_their_captions() {
         OA_CHECK(same_rect(estimated[0], {238, 167, 52, 28}));
         OA_CHECK(same_rect(estimated[1], {295, 167, 93, 28}));
     }
-    // place_question places them with its small measure.
+    // place_question places them with its small measure. Nine points a
+    // character wraps the first line, so the footer sits under that extra row.
     const kit::PlacedQuestion placed = kit::place_question(load, kit::estimated_width, wide_small);
     OA_CHECK(placed.buttons.size() == 2);
     if (placed.buttons.size() == 2)
-        OA_CHECK(same_rect(placed.buttons[1], {273, 103, 115, 28}));
+        OA_CHECK(same_rect(placed.buttons[1], {273, 115, 115, 28}));
 
     // A row wider than the room between the paddings, 376 points at Compact,
     // is narrowed from its widest buttons: 268 and 205 come to 148 each, and
@@ -912,12 +907,17 @@ void a_finger_lands_as_before() {
     // Two buttons, tried left to right: from the gap two columns from
     // CANCEL and three from REPLACE, CANCEL; a row further from REPLACE than
     // its reach, nothing.
+    // The word-sized box is 136 high and its buttons are the class's control
+    // height, so a press is tried where those buttons are drawn: CANCEL at
+    // 260, 103 and REPLACE at 323, 103, each 28 high. The finger press uses
+    // that same height.
     const kit::Question two = question_of({"CANCEL", "REPLACE"});
     const auto press_question = [](const kit::Question& question) {
-        return [question](const Landing& landing) {
+        const int32_t height = kit::place_question(question, nullptr).height;
+        return [question, height](const Landing& landing) {
             kit::Question pressed = question;
             static_cast<void>(
-                kit::question_finger_down(pressed, landing.finger, 150, landing.reach)
+                kit::question_finger_down(pressed, landing.finger, height, landing.reach)
             );
             return Press{pressed.pressed, {pressed.finger_shift_x, pressed.finger_shift_y}};
         };
@@ -925,25 +925,26 @@ void a_finger_lands_as_before() {
     check_landings(
         kit::question_list(two, nullptr),
         {
-            {{333, 132}, 6, 1, {333, 132}},
-            {{320, 132}, 6, 0, {317, 132}},
-            {{321, 132}, 6, 1, {323, 132}},
-            {{333, 146}, 6, 1, {333, 140}},
-            {{333, 147}, 6, kit::no_control, {333, 147}},
-            {{333, 148}, 6, kit::no_control, {333, 148}},
-            {{256, 120}, 6, 0, {260, 124}},
+            {{333, 120}, 6, 1, {333, 120}},
+            {{320, 120}, 6, 0, {317, 120}},
+            {{321, 120}, 6, 1, {323, 120}},
+            {{333, 136}, 6, 1, {333, 130}},
+            {{333, 137}, 6, kit::no_control, {333, 137}},
+            {{333, 138}, 6, kit::no_control, {333, 138}},
+            {{256, 99}, 6, 0, {260, 103}},
         },
         press_question(two)
     );
 
-    // Three buttons: from the gaps three columns from each side, the left one.
+    // Three buttons, on the same box: from the gaps three columns from each
+    // side, the left one.
     const kit::Question three = question_of({"CANCEL", "INSTALL ALONGSIDE", "REPLACE"});
     check_landings(
         kit::question_list(three, nullptr),
         {
-            {{203, 145}, 22, 1, {203, 140}},
-            {{320, 132}, 6, 1, {317, 132}},
-            {{180, 121}, 6, 0, {177, 124}},
+            {{203, 135}, 22, 1, {203, 130}},
+            {{320, 120}, 6, 1, {317, 120}},
+            {{180, 100}, 6, 0, {177, 103}},
             {{5, 5}, 22, kit::no_control, {5, 5}},
         },
         press_question(three)
