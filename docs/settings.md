@@ -176,7 +176,7 @@ Each of these takes effect at once.
   installed, those made for that mod first and marked made for it (for
   Ridge, "Ridge keys · made for Ridge"). The choice is kept at once under
   that mod, and Cancel puts the previous choice back.
-- **Show keys on buttons**, On by default. Order buttons and build cells
+- **Show keys on buttons**, Off by default. Order buttons and build cells
   show their key in a corner.
 - **Mouse wheel zoom**, On by default. The mouse wheel, or a trackpad's
   scroll, zooms the battlefield in and out smoothly about the pointer: the

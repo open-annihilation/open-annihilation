@@ -20,12 +20,13 @@ use goes to the match. With **Move overlays** on,
 [Arrange overlays](#arrange-overlays) puts the panel elsewhere on the
 battlefield.
 
-With **Show keys on buttons** on (Settings › Controls; it is on by
-default), each order button wears its key in its top right corner and each
-build cell its key in its bottom left. An order button's underlined
-letter, where its caption has one, is the letter that presses it, so a key
-you move leaves no line under the old letter. Turn **Show keys on buttons**
-off to take the badges away. The panel's own key is **Keys overlay**
+With **Show keys on buttons** on (Settings › Controls; it is off by
+default, so the game's own panel looks as it always has), each order button
+wears its key in its top right corner and each build cell its key in its
+bottom left. An order button's underlined letter, where its caption has
+one, is the letter that presses it, so a key you move leaves no line under
+the old letter. Turn **Show keys on buttons** off again to take the badges
+away. The panel's own key is **Keys overlay**
 (`ui.keys-overlay`), Primary+/ by default (Cmd+/ on a Mac), and it moves
 in the editor.
 
