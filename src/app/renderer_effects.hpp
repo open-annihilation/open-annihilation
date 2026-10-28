@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 
+#include "oa/platform/job_pool.hpp"
+
 #include <cstdint>
 #include <array>
 #include <span>
@@ -61,8 +63,14 @@ std::array<float, 2> detail_strength(float radius_pixels, float zoom) noexcept;
 /// @param sources visible projected sources, finite values and effect strengths in [0,2]
 /// @param settings independent light, wreck glow and distortion switches
 /// @param simulation_seconds simulation time, held constant while paused
+/// @param pool threads to compose bands of rows on; null composes them in
+///        order on the calling thread, with the same result
 void compose(
-    Surface surface, std::span<const Source> sources, Settings settings, double simulation_seconds
+    Surface surface,
+    std::span<const Source> sources,
+    Settings settings,
+    double simulation_seconds,
+    platform::job_pool::Pool* pool = nullptr
 );
 
 } // namespace oa::app::renderer_effects

@@ -2300,10 +2300,18 @@ prompts, Settings › Updates and the headers name one state with one size.
   of one half where the planner blends it through the alpha table, so the
   card blends to the true mean where the table snaps to the palette,
   sampled nearest at a whole-number zoom, linear below 1 and pixel-art
-  above, from its greyed cell where the map pixel under its drawn point
+  above; a feature's opaque frame takes the fog's greyed pass pixel by
+  pixel, as the ground under it does and as the processor greys the
+  features with the ground (`full_fog::greyed_cover`): drawn in colour,
+  then from its greyed cell over the pieces of the pass that cover it, at
+  the alphas the pass draws the terrain at there, the Smooth fog's
+  quarter-tile triangles or the Classic fog's FOG.GAF rectangles, or from
+  its greyed cell alone where the pass covers it whole, so that a feature
+  at the fog's edge greys where the ground beside it greys; any other
+  sprite from its greyed cell where the map pixel under its drawn point
   lies in a cell out of sight (`cell_fog`), since the fog lays its tiles
-  by map column and row alone, so a sprite at the fog's edge is wholly
-  grey or wholly colour, and in colour under the dithered option; squares
+  by map column and row alone; every sprite in colour under the dithered
+  option; squares
   as the planner's rectangles; lines as quads `max(1, zoom)` pixels wide
   through the centres of their end pixels, selection lines the same from
   the bridge's map pixels. The sprite pages, and the model stage's two
@@ -2967,16 +2975,20 @@ prompts, Settings › Updates and the headers name one state with one size.
   `convert_rgb24_keyed_overlay_argb` makes the overlay of it by that key,
   opaque exactly where the painters painted, in the same bands. The
   Runtime keeps a [job pool](../platform/job-pool/README.md)
-  (`draw_pool_`) that this conversion, the terrain fill, the fog and the
-  battlefield's draws (`world_draws.hpp`) run their bands on:
+  (`draw_pool_`) that this conversion, the terrain fill, the fog, the
+  battlefield's draws (`world_draws.hpp`), the effects' light and heat
+  (`renderer_effects::compose`) and the 3D view's depth under them
+  (`live_scene_visibility`) run their bands on:
   `--draw-threads N` (1 to 32), else the `OA_DRAW_THREADS`
   environment variable, else the pool's default, one thread on a machine of
   one or two logical processors and otherwise one fewer than the
   processors, at most four. With one thread there is no pool and every
-  band runs on the drawing thread. The conversion's, the terrain's and the
-  fog's bands are fixed by the rows; the battlefield's are one a thread, and
-  any number of them draws the same frames, so every count draws the same
-  frames.
+  band runs on the drawing thread. The conversion's, the terrain's, the
+  fog's and the effects' bands are fixed by the rows, and the 3D view's
+  depth is worked out in bands of 16 rows, or in one band with no pool,
+  each band taking the triangles that reach it in their order; the
+  battlefield's are one a thread, and any number of them draws the same
+  frames, so every count draws the same frames.
   `app-xrgb-conversion` checks each pixel's packing and gamma for rows of
   any width, that pools of 2, 3, 4 and 8 threads convert the same bytes,
   the key colour as the lowest outside a palette and the keyed overlay

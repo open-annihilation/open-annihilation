@@ -68,7 +68,10 @@ void surface(card::CardFrame& frame, const Inputs& in);
 
 /// Move a sprite under the water with the ripples' moved art (Inputs::art),
 /// shade submerged geometry and place a reflected naval silhouette before
-/// its original.
+/// its original. A feature's frame (SpriteDraw::on_map) is the map's own
+/// art, which already shows it under the water: it moves with the art and
+/// keeps its colours, as the terrain does; models and effects under the
+/// water take Underwater shimmer.
 void objects(
     card::CardFrame& frame,
     Inputs& in,
