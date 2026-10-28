@@ -4834,6 +4834,14 @@
 	it=Griglia;
 	}
 
+[Group keys centre the view]
+	{
+	de=Gruppentasten zentrieren die Ansicht;
+	fr=Les touches de groupe centrent la vue;
+	es=Las teclas de grupo centran la vista;
+	it=I tasti di gruppo centrano la vista;
+	}
+
 [Group: select it, again to centre on it, hold to store the selection in it.]
 	{
 	de=Gruppe: wähle sie, noch einmal, um sie zu zentrieren, halte, um die Auswahl darin zu speichern.;
@@ -8448,6 +8456,22 @@
 	fr=Marche;
 	es=Encendido;
 	it=Acceso;
+	}
+
+[On a double press]
+	{
+	de=Bei Doppeldruck;
+	fr=Sur un double appui;
+	es=Con una doble pulsación;
+	it=Con una doppia pressione;
+	}
+
+[On every press]
+	{
+	de=Bei jedem Druck;
+	fr=À chaque appui;
+	es=En cada pulsación;
+	it=A ogni pressione;
 	}
 
 [On/Off: tap to switch the selected units on or off.]
@@ -13240,6 +13264,14 @@
 	fr=Où sont les fichiers;
 	es=Dónde están los archivos;
 	it=Dove sono i file;
+	}
+
+[Whether a group's key also moves the view to the group.]
+	{
+	de=Ob die Taste einer Gruppe die Ansicht auch zur Gruppe bewegt.;
+	fr=Si la touche d'un groupe amène aussi la vue sur le groupe.;
+	es=Si la tecla de un grupo también lleva la vista al grupo.;
+	it=Se il tasto di un gruppo porta anche la vista sul gruppo.;
 	}
 
 [While the right pad is touched]

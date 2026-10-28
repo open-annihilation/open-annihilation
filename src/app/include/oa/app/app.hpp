@@ -821,7 +821,8 @@ struct Options {
     bool check_keys_overlay = false;
     // Presses 3.1c's Ctrl+letter keys in a skirmish as the system sends them,
     // and Primary+/, and requires the selection each one makes, the minimap's
-    // radar rings after Ctrl+R, a stored group and the keys overlay.
+    // radar rings after Ctrl+R, a stored group, when its key centres the view
+    // and the keys overlay.
     bool check_selection_keys = false;
     // Opens the mutator picker over the main menu at four window sizes, on
     // a feed of made-up mutators, and requires the rows, a download, the

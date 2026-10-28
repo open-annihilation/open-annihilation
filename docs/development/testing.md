@@ -1136,7 +1136,11 @@ tower, and requires Ctrl+A to take only the units that can be selected,
 each other selection the loaded data's Category words name,
 the rings Ctrl+R draws on the minimap, Ctrl+Shift+R and Ctrl+Shift+P
 adding, Ctrl+1 and its group key, and Primary+/ opening and closing the
-keys overlay. `native-match-layers` holds the frame a match
+keys overlay. It plays Group keys centre the view each way: On a double
+press, one press of the group's key selects it and leaves the view, two
+quick presses centre the view on it and two slow ones do not; Never leaves
+the view; On every press leaves the view on the first press and centres it
+on a later press, past the double-press time. `native-match-layers` holds the frame a match
 ends on to the one the game kept with Show keys on buttons Off, since the
 key badges are drawn on the presented frame alone.
 

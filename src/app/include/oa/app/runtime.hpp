@@ -7833,7 +7833,11 @@ class Runtime final : public menu::Host,
     /// and Ctrl+Shift+P, Ctrl+1 and its group key, and Primary+/ go in as the
     /// system sends them, modifier keys and all; each selection is the one the
     /// loaded data's Category words name, Ctrl+R draws the rings on the
-    /// minimap, and Primary+/ opens and closes the keys overlay.
+    /// minimap, the group's key centres the view as Group keys centre the
+    /// view says (one press leaves it, two quick presses centre it, two slow
+    /// ones do not, Never leaves it, and On every press centres a later press
+    /// past the double-press time), and Primary+/ opens and closes the keys
+    /// overlay.
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_selection_keys();
@@ -14275,15 +14279,35 @@ class Runtime final : public menu::Host,
     /// @param squad squad number, 1 through 9
     void assign_squad(int squad);
 
+    /// Whether recalling a group also moves the view to it.
+    enum class GroupViewMove {
+        /// only when the group already is exactly the selection, and tracking
+        /// stops: the group buttons of touch and the pad
+        when_selected,
+        never,  ///< the view stays where it is
+        always, ///< the view moves to the group's centre and tracking stops
+    };
+
     /// Selects a squad (digit; shift joins it to the selection), then plays SelectSquad.
     ///
-    /// Its CTRL_F members are left out while it also holds an armed unit. When the
-    /// squad is already exactly the selection, the view moves to the group's centre
-    /// and tracking stops.
+    /// Its CTRL_F members are left out while it also holds an armed unit. `move`
+    /// says whether the view moves to the group's centre, which stops tracking.
     ///
     /// @param squad squad number, 1 through 9
     /// @param add true to add to the selection
-    void select_squad(int squad, bool add);
+    /// @param move whether the view moves to the group
+    void select_squad(int squad, bool add, GroupViewMove move = GroupViewMove::when_selected);
+
+    /// Whether this press of a group's key moves the view to the group, by
+    /// Group keys centre the view: On a double press moves it on the second of
+    /// two presses of the same group's key within the double-press time, with
+    /// no other key between; Never never; On every press when the group is
+    /// already exactly the selection, however long after. Notes the press for
+    /// the next. [runtime_key_bindings.cpp]
+    ///
+    /// @param squad the group, 1 through 9
+    /// @return the move for select_squad
+    GroupViewMove group_key_view_move(int squad);
 
     /// Selects the local units a predicate accepts, replacing the selection.
     ///
@@ -21189,6 +21213,11 @@ class Runtime final : public menu::Host,
     /// @param bound tag actions that hold a chord
     /// @param unknown tag names kept with their chords
     void tag_layout_ids(std::vector<std::string>& bound, std::vector<std::string>& unknown) const;
+    /// The group whose key was pressed last, while a second press of it would
+    /// be a double press; 0 for none. Another key's press clears it.
+    int group_key_last_{};
+    /// When that key was pressed, in the key bindings' milliseconds.
+    uint64_t group_key_last_ms_{};
     /// The word of the last two-press tag selection, as the data spells it.
     std::string tag_reach_word_{};
     /// Selected local unit ids after that press, in id order. The next press

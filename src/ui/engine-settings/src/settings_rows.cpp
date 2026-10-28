@@ -55,9 +55,10 @@ constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::look) + 
 /// zoom's limits right under the switch for the wheel, how far past the
 /// map's edges the view goes under them, middle-click panning, whether a
 /// window keeps the pointer, and how firmly a sticky edge holds right under
-/// that. Select groups without Alt stays declared and is the editor's
-/// Number keys select groups, not a row here.
-constexpr std::array<Setting, 9> kControlsRows{
+/// that, then whether a group's key moves the view. Select groups without
+/// Alt stays declared and is the editor's Number keys select groups, not a
+/// row here.
+constexpr std::array<Setting, 10> kControlsRows{
     Setting::key_layout,
     Setting::show_keys_on_buttons,
     Setting::wheel_zoom,
@@ -67,9 +68,10 @@ constexpr std::array<Setting, 9> kControlsRows{
     Setting::middle_click_pan,
     Setting::window_edge,
     Setting::window_edge_stickiness,
+    Setting::group_keys_centre,
 };
 /// Controls while a mod is played: Key layout with that mod under Key layout.
-constexpr std::array<Setting, 10> kControlsModRows{
+constexpr std::array<Setting, 11> kControlsModRows{
     Setting::key_layout,
     Setting::key_layout_for_mod,
     Setting::show_keys_on_buttons,
@@ -80,6 +82,7 @@ constexpr std::array<Setting, 10> kControlsModRows{
     Setting::middle_click_pan,
     Setting::window_edge,
     Setting::window_edge_stickiness,
+    Setting::group_keys_centre,
 };
 /// Engine Limits' rows: the unit limit, pathfinding, then how many player
 /// rows the skirmish setup shows, then the heading and the two rows for the
@@ -378,6 +381,14 @@ constexpr std::array<std::string_view, 3> kWindowEdgeCaptions{"Capture", "Sticky
 static_assert(
     kWindowEdgeCaptions.size() == window_edge_choices.size(),
     "every way of Window edge has its caption"
+);
+/// Group keys centre the view's captions, in group_keys_centre_choices' order.
+constexpr std::array<std::string_view, 3> kGroupKeysCentreCaptions{
+    "On a double press", "Never", "On every press"
+};
+static_assert(
+    kGroupKeysCentreCaptions.size() == group_keys_centre_choices.size(),
+    "every way of Group keys centre the view has its caption"
 );
 /// Window frame's captions, in window_frame_choices' order.
 constexpr std::array<std::string_view, 2> kWindowFrameCaptions{"Hidden in play", "Always shown"};
@@ -3036,6 +3047,11 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
                   choice_width)},
     {.setting = S::reset_window_positions,
      .spec = reset_windows_row()},
+    {.setting = S::group_keys_centre,
+     .spec = wide(kit::choice("group-keys-centre", "Group keys centre the view",
+                              DropDown<GroupKeysCentre, 3, group_keys_centre_choices, &E::group_keys_centre, kGroupKeysCentreCaptions, &table_word<group_keys_centre_words, GroupKeysCentre>>::stepper(),
+                              {"Whether a group's key also moves the view to the group."}),
+                  wide_choice_width)},
     {.setting = S::look,
      .spec = changing(kit::levels("look", "Look",
                                   LevelStrip<Look, 2, look_choices, &E::look, kLookCaptions, &table_word<look_words, Look>>::stepper(),
@@ -3167,6 +3183,7 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "arrange-overlays",
     "window-size",
     "reset-window-positions",
+    "group-keys-centre",
     "look",
 };
 

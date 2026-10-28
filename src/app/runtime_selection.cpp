@@ -510,7 +510,7 @@ void Runtime::assign_squad(int squad) {
     status_ = "Squad " + std::to_string(squad) + " assigned";
 }
 
-void Runtime::select_squad(int squad, bool add) {
+void Runtime::select_squad(int squad, bool add, GroupViewMove move) {
     if (!match_ || squad < 1 || squad > 9)
         return;
     namespace selection = oa::sim::selection;
@@ -521,18 +521,27 @@ void Runtime::select_squad(int squad, bool add) {
     );
     const selection::TypeMask no_skip{};
     // The shared hooks centre the view and stop tracking when the squad is
-    // already the selection. The command reset stays the one a squad key has
-    // always used: it does not also drop a building waiting to be placed.
+    // already the selection; the move asked for decides otherwise. The
+    // command reset stays the one a squad key has always used: it does not
+    // also drop a building waiting to be placed.
     selection::Hooks hooks = selection_hooks();
     hooks.reset_command = [](void* context) {
         static_cast<Runtime*>(context)->reset_match_command();
     };
+    if (move != GroupViewMove::when_selected) {
+        hooks.center_camera = nullptr;
+        hooks.stop_follow = nullptr;
+    }
     const bool any =
         selection::select_squad(world, squad, add, skip != nullptr ? *skip : no_skip, hooks);
     play_match_interface_sound("SelectSquad");
     selected_match_unit_ = 0;
     uint16_t first = 0;
     int count = 0;
+    // The group's centre: the average of its selected units' whole map
+    // pixels, divided as integers, as the selection module takes it.
+    int32_t sum_x = 0;
+    int32_t sum_z = 0;
     for (auto& slot : match_->world().slots) {
         if (slot.unit == nullptr || slot.owner_index != match_local_player_ ||
             (slot.unit->flags & OA_UNIT_FLAG_SELECTED) == 0)
@@ -543,11 +552,20 @@ void Runtime::select_squad(int squad, bool add) {
         if (first == 0)
             first = slot.unit_index;
         ++count;
+        sum_x += static_cast<int16_t>(static_cast<uint32_t>(slot.record.position.x) >> 16);
+        sum_z += static_cast<int16_t>(static_cast<uint32_t>(slot.record.position.z) >> 16);
     }
     if (!any) {
         status_ = "Squad " + std::to_string(squad) + " empty";
         apply_match_hud_for_selection();
         return;
+    }
+    if (move == GroupViewMove::always && count > 0) {
+        stop_match_tracking();
+        set_camera_position(
+            sum_x / count - visible_map_width() / 2, sum_z / count - visible_map_height() / 2, 0
+        );
+        render_match_surface();
     }
     selected_match_unit_ = first;
     apply_match_hud_for_selection();

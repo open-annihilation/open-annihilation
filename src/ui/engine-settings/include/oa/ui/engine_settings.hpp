@@ -62,6 +62,11 @@ inline constexpr std::string_view edge_stickiness = "open-annihilation.window-ed
 inline constexpr std::string_view middle_click_pan = "open-annihilation.middle-click-pan";
 /// 1 or 0 (EngineSettings::escape_opens_menu).
 inline constexpr std::string_view escape_opens_menu = "open-annihilation.escape-opens-menu";
+/// "double-press", "never" or "every-press" (EngineSettings::group_keys_centre).
+/// Absent means double-press.
+inline constexpr std::string_view group_keys_centre = "open-annihilation.group-keys-centre";
+static_assert(group_keys_centre.find('|') == std::string_view::npos);
+static_assert(group_keys_centre.find('\\') == std::string_view::npos);
 /// Units per player, decimal (EngineSettings::unit_limit).
 inline constexpr std::string_view unit_limit = "open-annihilation.unit-limit";
 /// Frames a second, decimal (EngineSettings::max_frame_rate).
@@ -835,6 +840,25 @@ inline constexpr std::array<WindowEdge, 3> window_edge_choices{
     WindowEdge::free,
 };
 
+/// Group keys centre the view: when a group's key, which always selects the
+/// group, also moves the view to it.
+enum class GroupKeysCentre : uint8_t {
+    /// the second of two presses of the key within the double-press time
+    double_press,
+    never, ///< no press moves the view
+    /// a press moves the view when the group is already exactly the selection,
+    /// however long after the last press: what 0.8.6 did
+    every_press,
+};
+
+/// The ways of Group keys centre the view, in the order the dialog offers
+/// them.
+inline constexpr std::array<GroupKeysCentre, 3> group_keys_centre_choices{
+    GroupKeysCentre::double_press,
+    GroupKeysCentre::never,
+    GroupKeysCentre::every_press,
+};
+
 /// Edge stickiness's lowest value, in tenths: 0.0, a sticky edge that never
 /// holds.
 inline constexpr uint32_t lowest_edge_stickiness = 0;
@@ -1231,6 +1255,9 @@ struct EngineSettings {
     bool middle_click_pan{true};
     bool escape_opens_menu{}; ///< Escape with nothing to cancel opens the game menu
     bool switch_alt{};        ///< 3.1c's SwitchAlt: a number key alone selects its group
+    /// When a group's key moves the view to the group as well as selecting
+    /// it. Applies at once.
+    GroupKeysCentre group_keys_centre{GroupKeysCentre::double_press};
     /// The layout chosen for the mod being played: `same`, or an installed
     /// layout's id. The dialog's host writes it under
     /// open-annihilation.keys.layout.<mod id> as the choice moves. With no
