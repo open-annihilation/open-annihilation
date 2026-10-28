@@ -188,18 +188,18 @@ void compose(
                         continue;
                     const float dx = column_dx[reach.first_column + size_t(x - left)];
                     const float distance_squared = dx * dx + dy * dy;
-                    float reach = 1 - distance_squared;
+                    float falloff = 1 - distance_squared;
                     float depth_delta = 0;
                     if (!surface.depth.empty()) {
                         if (!std::isfinite(surface.depth[index]) || source.depth_radius <= 0)
                             continue;
                         depth_delta = surface.depth[index] - source.depth;
                         const float dz = depth_delta / source.depth_radius;
-                        reach -= dz * dz;
+                        falloff -= dz * dz;
                     }
-                    if (reach <= 0)
+                    if (falloff <= 0)
                         continue;
-                    const float attenuation = reach * reach * visibility;
+                    const float attenuation = falloff * falloff * visibility;
                     const auto offset = size_t(y) * size_t(surface.stride_bytes) +
                                         size_t(x) * size_t(surface.channels);
                     const bool foreground =
