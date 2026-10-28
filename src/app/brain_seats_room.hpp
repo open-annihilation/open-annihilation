@@ -319,6 +319,23 @@ void draw_mutators_switch(
     bool focused
 );
 
+/// Returns the lamp a Mutators button shows in a picture of the window, for
+/// the checks: its lamps found in the room's art, where the button stands.
+///
+/// @param runtime the runtime
+/// @param seen what the layer's screens are placed on
+/// @param button the button, in the window's pixels (its automation place)
+/// @param battle true in the battle room, whose art differs from the setups'
+/// @param picture the window's picture
+/// @return red, green or unlit
+[[nodiscard]] oa::ui::frontend_renderer::RoomLamp mutators_lamp_seen(
+    Runtime& runtime,
+    const LayerView& seen,
+    const oa::ui::kit::Rect& button,
+    bool battle,
+    const oa::ui::frontend_renderer::Surface& picture
+);
+
 /// Reads the runtime fields the seat screen's helpers need, and writes a
 /// choice onto computer seats. The helpers are not members.
 struct BrainSeatsAccess {
