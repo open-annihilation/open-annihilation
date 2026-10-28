@@ -4,8 +4,9 @@
 // Mutators on the skirmish setup, the campaign launch and the battle room's
 // host: one of the room's own on and off buttons, drawn from the room's art
 // (brain_seats_room.hpp), with the OA stamp, the word "Mutators" and its
-// lamp: lit green while mutators are on, red while a player in the battle
-// room lacks one, unlit while none is on. Its card names the mutators on,
+// lamp, as 3.1c's on and off buttons light theirs: green while mutators are
+// on, red while none is on, and blinking red while a player in the battle
+// room lacks one. Its card names the mutators on,
 // and its text for automation counts them. It stands in line with the
 // room's own buttons, as large as they are: on the skirmish setup as large
 // as Previous Menu, in its column, centred between Difficulty and Previous
@@ -764,6 +765,36 @@ void draw_mutators_switch(
         room::draw_room_focus(parts, art, frame);
 }
 
+room::RoomLamp mutators_lamp_seen(
+    Runtime& runtime,
+    const LayerView& seen,
+    const kit::Rect& button,
+    bool battle,
+    const room::Surface& picture
+) {
+    const int32_t percent = std::max(seen.scale_percent, int32_t{100});
+    const kit::Point first = frame_point(seen, kit::to_points({button.x, button.y}, percent));
+    const kit::Point last = frame_point(
+        seen, kit::to_points({button.x + button.width - 1, button.y + button.height - 1}, percent)
+    );
+    const room::SourceRect frame{first.x, first.y, last.x - first.x + 1, last.y - first.y + 1};
+    const std::optional<room::ScreenResources> loaded =
+        battle ? BrainSeatsAccess::load_art(runtime, battle_room_art_names()) : std::nullopt;
+    room::RoomArt art;
+    if (!battle)
+        art = BrainSeatsAccess::screen_art(runtime);
+    else if (loaded)
+        art = {&*loaded, room::room_palette(*loaded)};
+    const room::RoomLampParts parts = room::room_lamp_parts(art, frame);
+    const kit::Rect lamp = kit::to_canvas(frame_rect_points(seen, parts.lamp), percent);
+    // The lamps' edges are rounded outward: a pixel in from each is the lamps'.
+    return room::room_lamp_seen(
+        picture.rgb,
+        static_cast<int32_t>(picture.width),
+        {lamp.x + 1, lamp.y + 1, lamp.width - 2, lamp.height - 2}
+    );
+}
+
 namespace {
 
 /// The button's word as draw_mutators_switch draws it, in UTF-8: whole
@@ -875,7 +906,7 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
             condition = room::ButtonCondition::disabled;
         else if (pressed_ && hovered_)
             condition = room::ButtonCondition::pressed;
-        draw_mutators_switch(parts, art, laid.frame, lamp(laid), condition, focused_);
+        draw_mutators_switch(parts, art, laid.frame, lamp_shown(laid), condition, focused_);
         paint_room_parts(canvas, view_, laid.bounds, parts);
         if (laid.reason) {
             const room::SourceRect line = points_rect_frame(view_, *laid.reason);
@@ -1031,8 +1062,9 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
     /// The button's automation name is mutators, which the endpoint lists as
     /// oa.mutators, and its text counts the set chosen: "Mutators · off", or
     /// "Mutators · 4 on" (mutators_automation_text); it is checked while its
-    /// lamp is lit green. The waiting line is mutators.waiting, a label. The open
-    /// card's lines are battleroom.tip.line.<n>. Tab's order holds the button.
+    /// lamp is lit green, not while it is red or blinks. The waiting line is
+    /// mutators.waiting, a label. The open card's lines are
+    /// battleroom.tip.line.<n>. Tab's order holds the button.
     ///
     /// @return the display list
     [[nodiscard]] kit::DisplayList display_list() const override {
@@ -1100,7 +1132,8 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
             }
         }
         // The words, the lamp and the place are drawn from the room's art,
-        // so a change of any of them is a new picture.
+        // so a change of any of them is a new picture, and so is each turn
+        // of a blinking lamp; a steady lamp asks for none.
         const int32_t card_before = card_.open_slot();
         follow_card(laid_out(view_));
         if (card_.open_slot() != card_before)
@@ -1108,7 +1141,7 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
         const Geometry laid = laid_out(view_);
         std::string now = count_text(chosen_count());
         now += '/';
-        now += std::to_string(static_cast<int32_t>(lamp(laid)));
+        now += std::to_string(static_cast<int32_t>(lamp_shown(laid)));
         now += laid.locked ? "l" : "-";
         now += laid.reason_text;
         now += std::to_string(laid.frame.x) + ',' + std::to_string(laid.frame.y) + ',' +
@@ -1419,21 +1452,30 @@ struct Runtime::MutatorButtonScreen final : LayerScreen {
         return oa::present::decode_game_text(fitted, oa::present::game_text_settings().utf8);
     }
 
-    /// The button's lamp: unlit while no mutator is on; in the battle room,
-    /// red while a seated player lacks one; otherwise green.
+    /// The button's lamp, as 3.1c's on and off buttons light theirs: red
+    /// while no mutator is on; in the battle room, blinking red while a
+    /// seated player lacks one; otherwise green.
     ///
     /// @param laid the geometry
     /// @return the lamp
     [[nodiscard]] room::RoomLamp lamp(const Geometry& laid) const {
         if (chosen_count() == 0)
-            return room::RoomLamp::unlit;
+            return room::RoomLamp::red;
         if (laid.battle) {
             mp::Lobby& lobby = mp::multiplayer_lobby();
             if (lobby.game != nullptr &&
                 mp::lobby_mutators_block(lobby).hold != mp::MutatorsHold::none)
-                return room::RoomLamp::red;
+                return room::RoomLamp::red_blinking;
         }
         return room::RoomLamp::green;
+    }
+
+    /// The lamp drawn now: a blinking lamp is red or unlit by the clock.
+    ///
+    /// @param laid the geometry
+    /// @return the lamp
+    [[nodiscard]] room::RoomLamp lamp_shown(const Geometry& laid) const {
+        return room::room_lamp_shown(lamp(laid), static_cast<uint64_t>(SDL_GetTicks()));
     }
 
     /// The art the button is drawn with: the setup's own, or the battle

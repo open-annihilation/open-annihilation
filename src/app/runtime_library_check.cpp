@@ -15,7 +15,9 @@
 // PLAY NOW asks for a soft restart. The settings shortcut opens Settings over the Library, Settings ›
 // Language's MORE IN THE LIBRARY… the Library over Settings, and never two
 // of either; the shortcut and the in-match OA button open Settings. At
-// 640x480 and 1920x1080. Then, at 640x480, a stand-in controller: Y focuses
+// 640x480 and 1920x1080. The header reads OPEN ANNIHILATION LIBRARY and the
+// searches are a button high at 640x480, 1024x660, 1280x720 and 1920x1080.
+// Then, at 640x480, a stand-in controller: Y focuses
 // the search, RB and LB change the tab and come back, X queues the selected
 // entry's UPDATE, the right stick scrolls the list, and B leaves Compact's
 // details and then closes the Library. The same buttons over Settings do
@@ -64,6 +66,7 @@
 #include <string_view>
 #include <system_error>
 #include <tuple>
+#include <variant>
 #include <vector>
 
 namespace oa::app {
@@ -1850,6 +1853,70 @@ void Runtime::check_library() {
         );
         std::cout << "library check: the OA button, its dot, the Library's actions and Settings"
                   << on << '\n';
+    }
+
+    // 8b. The header reads OPEN ANNIHILATION then LIBRARY in capitals, as
+    // Settings' does, or LIBRARY alone at Compact, and the Mods tab's search
+    // and the Active tab's maps search are a footer button high: the
+    // control height Settings' buttons have. Every window is pictured
+    // first, so a run with --snapshot keeps them all when a size is wrong.
+    {
+        const std::array<std::array<int, 2>, 4> sizes{
+            {{kCanvasWidth, kCanvasHeight}, {1024, 660}, {1280, 720}, {1920, 1080}}
+        };
+        std::string wrong;
+        const auto control_in = [](const kit::DisplayList& list,
+                                   std::string_view name) -> std::optional<kit::Rect> {
+            for (const kit::Control& control : list.controls)
+                if (control.name == name)
+                    return control.rect;
+            return std::nullopt;
+        };
+        for (const auto& [width, height] : sizes) {
+            const std::string size = std::to_string(width) + 'x' + std::to_string(height);
+            const std::string on = " on the " + size + " window";
+            window_of(width, height);
+            settle();
+            open_library(library::Tab::active);
+            run_frame(running);
+            require(running && top_is(library_screen_name), "the Library did not open" + on);
+            snapshot("header-active-" + size);
+            const LayerScreen* screen = oa_layer().find(library_screen_name);
+            require(screen != nullptr, "the Library is not on the layer" + on);
+            const kit::DisplayList active = screen->display_list();
+            click_named("oa.library.tab.mods");
+            run_frame(running);
+            require(running && host.model.tab == library::Tab::mods, "Mods did not open" + on);
+            snapshot("header-mods-" + size);
+            const kit::DisplayList mods_tab = screen->display_list();
+            click_named("oa.library.close");
+            require(oa_layer().top() == nullptr, "CLOSE did not go back to the main menu" + on);
+
+            const kit::HeaderLook* header = nullptr;
+            for (const kit::Item& item : mods_tab.items)
+                if (item.role == kit::Role::header)
+                    header = std::get_if<kit::HeaderLook>(&item.look);
+            const bool whole = header != nullptr && header->title == "OPEN ANNIHILATION" &&
+                               header->second == "LIBRARY";
+            const bool alone =
+                header != nullptr && header->title == "LIBRARY" && header->second.empty();
+            // The smallest windows may take Compact's header, LIBRARY alone.
+            if (!whole && !(width < 1280 && alone))
+                wrong += "the header does not read OPEN ANNIHILATION LIBRARY" + on + "; ";
+            const std::optional<kit::Rect> close = control_in(mods_tab, "library.close");
+            const std::optional<kit::Rect> search = control_in(mods_tab, "library.search");
+            const std::optional<kit::Rect> maps_search =
+                control_in(active, "library.active.search");
+            if (!close || !search || search->height != close->height)
+                wrong += "the Mods tab's search is not a button high" + on + "; ";
+            if (!close || !maps_search || maps_search->height != close->height)
+                wrong += "the Active tab's maps search is not a button high" + on + "; ";
+            if (search && maps_search && search->height != maps_search->height)
+                wrong += "the two searches differ in height" + on + "; ";
+        }
+        require(wrong.empty(), wrong);
+        std::cout << "library check: the header in capitals and the searches a button high at "
+                     "640x480, 1024x660, 1280x720 and 1920x1080\n";
     }
 
     // 9. In a skirmish the in-match OA button opens Settings, the Library

@@ -15,8 +15,10 @@
 // no focus ring.
 //
 // --frames DIR writes key-editor-<scene>.png, including key-editor-capture-*.png,
-// key-editor-clash-*.png, key-editor-card-regular.png, key-editor-share-*.png,
-// key-editor-paste-*.png and key-editor-import-*.png, and
+// key-editor-clash-*.png, key-editor-card-regular.png, key-editor-share-*.png
+// (with changes, with none, and after Save File… and Copy as Text),
+// key-editor-paste-*.png (a key by its place, a clash and an unknown action,
+// and a text that is no key layout) and key-editor-import-*.png, and
 // keys-overlay-<class>.png with no key-editor- prefix. --record merges this
 // group's hashes into the frames table and leaves the other group. --data
 // draws in the installed game's fonts. A scene with no hash fails unless
@@ -75,23 +77,26 @@ constexpr kit::Colour untouched{0x12, 0x34, 0x56};
 
 /// Which screen a picture shows.
 enum class Shown : uint8_t {
-    list,       ///< the list, or Compact's details page
-    waiting,    ///< the capture, before a key
-    complete,   ///< the capture, with a free chord
-    taken,      ///< the capture, with a clash
-    refused,    ///< the capture, with a fixed chord
-    question,   ///< the clash prompt
-    card,       ///< the draft card
-    share,      ///< Share your keys
-    pasted,     ///< Paste keys
-    importing,  ///< Import keys from an older setup
-    found,      ///< Find by key, with Ctrl+B heard
-    settling,   ///< the clash question settling the draft clash
-    draft,      ///< the list with an unsaved edit and Undo
-    more,       ///< the capture with More options open
-    leave,      ///< the close question over the list with unsaved edits
-    cloning,    ///< Clone's question, on the name and description it offers
-    taken_name, ///< Clone's question on a name another layout has
+    list,          ///< the list, or Compact's details page
+    waiting,       ///< the capture, before a key
+    complete,      ///< the capture, with a free chord
+    taken,         ///< the capture, with a clash
+    refused,       ///< the capture, with a fixed chord
+    question,      ///< the clash prompt
+    card,          ///< the draft card
+    share,         ///< Share My Custom Keys, with changes
+    share_none,    ///< Share My Custom Keys, with nothing changed
+    share_done,    ///< Share My Custom Keys, after Save File… and Copy as Text
+    pasted,        ///< Paste Someone's Layout: a key by its place, a clash, an unknown action
+    paste_refused, ///< Paste Someone's Layout, with a text that is no key layout
+    importing,     ///< Import keys from an older setup
+    found,         ///< Find by key, with Ctrl+B heard
+    settling,      ///< the clash question settling the draft clash
+    draft,         ///< the list with an unsaved edit and Undo
+    more,          ///< the capture with More options open
+    leave,         ///< the close question over the list with unsaved edits
+    cloning,       ///< Clone's question, on the name and description it offers
+    taken_name,    ///< Clone's question on a name another layout has
 };
 
 /// One picture.
@@ -245,6 +250,19 @@ std::vector<Scene> all_scenes() {
         picture("paste-compact", 640, 480, 100, compact, false, false, Shown::pasted),
         picture("paste-regular", 1920, 1080, 200, regular, false, false, Shown::pasted),
         picture("paste-large", 1280, 720, 100, large, false, false, Shown::pasted),
+        picture("share-none-compact", 640, 480, 100, compact, false, false, Shown::share_none),
+        picture("share-none-regular", 1920, 1080, 200, regular, false, false, Shown::share_none),
+        picture("share-none-large", 1280, 720, 100, large, false, false, Shown::share_none),
+        picture("share-done-compact", 640, 480, 100, compact, false, false, Shown::share_done),
+        picture("share-done-regular", 1920, 1080, 200, regular, false, false, Shown::share_done),
+        picture("share-done-large", 1280, 720, 100, large, false, false, Shown::share_done),
+        picture(
+            "paste-refused-compact", 640, 480, 100, compact, false, false, Shown::paste_refused
+        ),
+        picture(
+            "paste-refused-regular", 1920, 1080, 200, regular, false, false, Shown::paste_refused
+        ),
+        picture("paste-refused-large", 1280, 720, 100, large, false, false, Shown::paste_refused),
         picture("import-compact", 640, 480, 100, compact, false, false, Shown::importing),
         picture("import-regular", 1920, 1080, 200, regular, false, false, Shown::importing),
         picture("import-large", 1280, 720, 100, large, false, false, Shown::importing),
@@ -437,19 +455,30 @@ void arm_scene(editor::Editor& model, editor::ScreenState& state, const Scene& s
         state.filter = editor::Filter::clashes;
         return;
     }
-    if (scene.shown == Shown::share) {
+    if (scene.shown == Shown::share || scene.shown == Shown::share_none ||
+        scene.shown == Shown::share_done) {
+        // Nothing changed is OA default with the draft set aside.
+        if (scene.shown == Shown::share_none)
+            static_cast<void>(model.choose_layout("oa-default", editor::KeepChanges::aside));
         state.prompt = editor::Prompt::share;
         state.share_field.text = "Grid, left hand";
         state.share_field.caret = static_cast<int32_t>(state.share_field.text.size());
         model.set_share_name(state.share_field.text);
+        if (scene.shown == Shown::share_done) {
+            state.share_place = "/Users/ridge/Library/Application Support/Open Annihilation/Keys/"
+                                "Shared/grid-left-hand.oakeys";
+            state.share_copied = true;
+        }
         return;
     }
-    if (scene.shown == Shown::pasted) {
+    if (scene.shown == Shown::pasted || scene.shown == Shown::paste_refused) {
         state.prompt = editor::Prompt::paste;
-        constexpr std::string_view text = "# oakeys bindings, base oa-default\n"
-                                          "order.move: [\"@KeyQ\"]\n"
-                                          "select.all: [Ctrl+B]\n"
-                                          "camera.orbit-left: [Q]\n";
+        constexpr std::string_view layout_text = "# oakeys bindings, base oa-default\n"
+                                                 "order.move: [\"@KeyQ\"]\n"
+                                                 "select.all: [Ctrl+B]\n"
+                                                 "camera.orbit-left: [Q]\n";
+        constexpr std::string_view other_text = "Hello, these are my keys\n";
+        const std::string_view text = scene.shown == Shown::pasted ? layout_text : other_text;
         const auto* bytes = reinterpret_cast<const uint8_t*>(text.data());
         state.paste = editor::paste_preview(model, {bytes, text.size()});
         return;
@@ -665,6 +694,35 @@ void check_dialog(const Scene& scene, const Drawing& drawing) {
     OA_CHECK(blank == 0);
 }
 
+/// Checks that what Share and Paste draw meets nothing else they draw, and
+/// that no word of theirs is cut short but the preview's "..." and a saved
+/// path cut in its middle.
+///
+/// @param scene the scene
+/// @param measured the fonts
+void check_prompt_parts(const Scene& scene, const kit::Fonts& measured) {
+    const bool exchange = scene.shown == Shown::share || scene.shown == Shown::share_none ||
+                          scene.shown == Shown::share_done || scene.shown == Shown::pasted ||
+                          scene.shown == Shown::paste_refused;
+    if (!exchange)
+        return;
+    editor::Editor model(editor_fixture());
+    editor::ScreenState state;
+    arm_scene(model, state, scene);
+    const kit::Frame frame = frame_for(scene.width, scene.height, scene.scale_percent);
+    const kit::DisplayList list = editor::editor_layout(model, state, frame, measured);
+    std::vector<kit::Rect> exempt;
+    for (const kit::Control& control : list.controls) {
+        if (control.name == editor::name_share_text)
+            exempt.push_back(control.rect);
+        if (control.name == editor::name_share_open)
+            exempt.push_back({0, control.rect.y, control.rect.x, control.rect.height});
+    }
+    for (const std::string& problem : key_editor_fixture::prompt_problems(list, exempt))
+        std::fprintf(stderr, "%s: %s\n", scene.name, problem.c_str());
+    OA_CHECK(key_editor_fixture::prompt_problems(list, exempt).empty());
+}
+
 /// Checks that the overlay's panel was painted and the room around it was not.
 ///
 /// @param scene the scene
@@ -869,6 +927,7 @@ int main(int argc, char** argv) {
             check_overlay(scene, first);
         else
             check_dialog(scene, first);
+        check_prompt_parts(scene, measured);
         digests.emplace_back(scene.name, digest_of(first.surface));
         if (frames) {
             const bool keys_overlay = std::string_view(scene.name).starts_with("keys-overlay");

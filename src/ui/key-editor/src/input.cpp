@@ -1290,6 +1290,7 @@ void open_share(Editor& editor, ScreenState& state) {
     state.exchange_scroll = 0;
     state.share_field = {};
     state.share_place.clear();
+    state.share_copied = false;
     if (editor.layout_is_own()) {
         state.share_field.text = editor.layout_name();
         state.share_field.caret = state.share_field.text.size();

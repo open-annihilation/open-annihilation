@@ -211,7 +211,7 @@ inline constexpr std::string_view settle = "Settle {n} clashes to save";
 /// The footer while one clash is left.
 inline constexpr std::string_view settle_one = "Settle 1 clash to save";
 /// The layout menu and More: a new layout of the player's own from the one in use.
-inline constexpr std::string_view clone_item = "Clone…";
+inline constexpr std::string_view clone_item = "Clone as New Layout…";
 /// The layout menu and More, on a layout other than OA default.
 inline constexpr std::string_view describe_item = "Rename and Describe…";
 /// Clone's question. `{layout}` is the layout in use.
@@ -227,7 +227,7 @@ inline constexpr std::string_view based_on = "Based on {layout}";
 /// What Clone makes, under the fields.
 inline constexpr std::string_view clone_note =
     "A key layout of your own, from {layout} and your changes. It opens here. Save changes "
-    "keeps it, and Share… saves it as a file.";
+    "keeps it, and Share My Custom Keys… saves it as a file.";
 /// A name another layout already has.
 inline constexpr std::string_view name_taken = "Another key layout is called {name}.";
 /// A name longer than a layout takes.
@@ -369,36 +369,55 @@ inline constexpr std::string_view cap_space_down = "Space -";
 /// The wheel and the middle button, above the mouse picture.
 inline constexpr std::string_view cap_wheel_middle = "Wheel and middle";
 
-/// The share prompt's title.
-inline constexpr std::string_view share_title = "Share your keys";
+/// The share prompt's title, as More's item names it.
+inline constexpr std::string_view share_title = "Share My Custom Keys";
 /// The name field's label.
 inline constexpr std::string_view share_name_label = "Name";
-/// The base line's label.
-inline constexpr std::string_view starts_from = "Starts from";
-/// The changes line's label. The catalogue already has this word.
-inline constexpr std::string_view changes_label = "Changes";
-/// How many keys and helpers the share text carries.
-inline constexpr std::string_view keys_and_helpers = "{keys} keys, {helpers} helpers";
-/// The same line when the text carries one key and one helper.
-inline constexpr std::string_view keys_one_helper_one = "1 key, 1 helper";
-/// The same line when the text carries one key.
-inline constexpr std::string_view keys_one_helpers = "1 key, {helpers} helpers";
-/// The same line when the text carries one helper.
-inline constexpr std::string_view keys_helpers_one = "{keys} keys, 1 helper";
-/// Where Save file… wrote the package. `{place}` is the path.
+/// The share prompt's line under the name: the layout the keys start from,
+/// `{n}` keys and `{m}` helpers changed.
+inline constexpr std::string_view share_from = "From {layout} · {n} keys and {m} helpers changed";
+/// The same line when one key and one helper change.
+inline constexpr std::string_view share_from_one_one = "From {layout} · 1 key and 1 helper changed";
+/// The same line when one key changes.
+inline constexpr std::string_view share_from_one_key =
+    "From {layout} · 1 key and {m} helpers changed";
+/// The same line when one helper changes.
+inline constexpr std::string_view share_from_one_helper =
+    "From {layout} · {n} keys and 1 helper changed";
+/// The same line when nothing changes, and the share buttons are off.
+inline constexpr std::string_view nothing_to_share =
+    "No changes from {layout} yet: there is nothing to share";
+/// The share prompt's first card's heading.
+inline constexpr std::string_view as_file = "As a file";
+/// What that card is for.
+inline constexpr std::string_view as_file_line =
+    "An .oakeys file anyone can open in Open Annihilation to install your layout.";
+/// The share prompt's second card's heading.
+inline constexpr std::string_view as_text = "As text";
+/// What that card is for.
+inline constexpr std::string_view as_text_line =
+    "Your changed keys as text, for a forum or a chat.";
+/// Said beside Copy as Text once it has put the text on the clipboard.
+/// The catalogue already has this word.
+inline constexpr std::string_view copied = "Copied";
+/// Where Save File… wrote the package. `{place}` is the path.
 inline constexpr std::string_view saved_to = "Saved to {place}";
 /// Opens the folder a package was written to.
-inline constexpr std::string_view open_folder = "Open folder";
+inline constexpr std::string_view open_folder = "Open Folder";
 /// What the paste text would change. `{n}` is the count and `{layout}` the base.
-inline constexpr std::string_view text_changes = "The text changes {n} keys of {layout}.";
+inline constexpr std::string_view text_changes =
+    "The text you copied changes {n} keys of {layout}.";
 /// The same line when the text changes one key.
-inline constexpr std::string_view text_changes_one = "The text changes 1 key of {layout}.";
-/// A row whose chord is a key's place.
-inline constexpr std::string_view place_word = "place";
+inline constexpr std::string_view text_changes_one =
+    "The text you copied changes 1 key of {layout}.";
+/// The chip of a paste row whose key is bound by its place on the keyboard.
+inline constexpr std::string_view by_place = "By place";
+/// The chip of a paste row whose key already belongs to another action.
+inline constexpr std::string_view clash_chip = "Clash";
 /// Apply on the paste prompt. `{n}` is how many rows it writes.
-inline constexpr std::string_view apply_changes = "Apply {n} changes";
+inline constexpr std::string_view apply_changes = "Apply {n} Changes";
 /// Apply when it writes one row.
-inline constexpr std::string_view apply_change_one = "Apply 1 change";
+inline constexpr std::string_view apply_change_one = "Apply 1 Change";
 /// The line under an imported layout. `{file}` is the file's name.
 inline constexpr std::string_view imported_from_file = "Imported from {file}";
 /// A legacy key Open Annihilation has no action for.
@@ -422,31 +441,31 @@ inline constexpr std::string_view hands_are_one =
     "Left and right {modifier} are one key in Open Annihilation";
 /// The install question, above each problem.
 inline constexpr std::string_view layout_has_problems = "This layout has problems:";
-/// The paste prompt's title.
-inline constexpr std::string_view paste_title = "Paste keys";
+/// The paste prompt's title, as More's item names it.
+inline constexpr std::string_view paste_title = "Paste Someone's Layout";
 /// Paste's refusal of a text in which no line is a key and its keys, with
 /// the line and column where reading it stopped.
 inline constexpr std::string_view text_not_layout = "This text is not a key layout.";
 /// The import prompt's title.
 inline constexpr std::string_view import_title = "Import keys from an older setup";
-/// Under the share text.
-inline constexpr std::string_view share_file_note =
-    "The file is a .oakeys package anyone can open in Open Annihilation. The text carries the keys "
-    "alone, for a forum or a chat.";
-/// Under the paste summary.
+/// What to do when the clipboard holds no key layout.
+inline constexpr std::string_view paste_how =
+    "Copy someone's shared key text first (it starts with # oakeys), then choose Paste "
+    "Someone's Layout again.";
+/// The paste prompt's footer, at its left.
 inline constexpr std::string_view nothing_until_apply = "Nothing changes until you apply it.";
-/// Copy as text.
-inline constexpr std::string_view copy_as_text = "Copy as text";
-/// Save file….
-inline constexpr std::string_view save_file = "Save file…";
+/// The text card's button.
+inline constexpr std::string_view copy_as_text = "Copy as Text";
+/// The file card's button.
+inline constexpr std::string_view save_file = "Save File…";
 /// Close. The catalogue already has this word.
 inline constexpr std::string_view close_word = "Close";
-/// A paste clash. `{chord}` is the key and `{action}` the action that keeps it.
+/// Under a paste row that clashes. `{key}` is the key and `{action}` the
+/// action that keeps it.
 inline constexpr std::string_view paste_clash =
-    "One clash: {chord} already belongs to {action}. Apply keeps yours and lists the clash.";
-/// An unknown action a paste keeps.
-inline constexpr std::string_view kept_for_later =
-    "{action} is kept in your layout for a version that has it.";
+    "{key} already belongs to {action}. Apply keeps yours and lists the clash.";
+/// Under a paste row whose action this version does not know.
+inline constexpr std::string_view kept_for_later = "Kept in your layout for a version that has it.";
 /// The import prompt's first source.
 inline constexpr std::string_view from_eye = "A mod's Ctrl+F2 keys";
 /// The aside under that source.
@@ -577,11 +596,15 @@ inline constexpr std::string_view more_title = "More";
 inline constexpr std::string_view cancel_title = "Cancel";
 /// The footer's primary button.
 inline constexpr std::string_view save_changes = "Save changes";
+/// More's headings: the layout actions, then the sharing ones.
+inline constexpr std::string_view layouts_heading = "Layouts";
+/// The catalogue already has this word.
+inline constexpr std::string_view sharing_heading = "Sharing";
 /// More's items.
-inline constexpr std::string_view restore_title = "Restore defaults";
-inline constexpr std::string_view import_button = "Import…";
-inline constexpr std::string_view share_button = "Share…";
-inline constexpr std::string_view paste_button = "Paste…";
+inline constexpr std::string_view restore_title = "Restore Defaults";
+inline constexpr std::string_view import_button = "Import New Layout…";
+inline constexpr std::string_view share_button = "Share My Custom Keys…";
+inline constexpr std::string_view paste_button = "Paste Someone's Layout…";
 /// The close question. `{n}` is a number.
 inline constexpr std::string_view close_question = "Save your {n} edits before closing?";
 /// The same question for one edit.

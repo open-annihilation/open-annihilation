@@ -6290,6 +6290,14 @@
 	it=FILE DI AVVIO NON APERTO;
 	}
 
+[LIBRARY]
+	{
+	de=BIBLIOTHEK;
+	fr=BIBLIOTHÈQUE;
+	es=BIBLIOTECA;
+	it=BIBLIOTECA;
+	}
+
 [LOAD]
 	{
 	de=VERLADEN;
@@ -17538,12 +17546,12 @@
 	it=px;
 	}
 
-[Share your keys]
+[Share My Custom Keys]
 	{
-	de=Teile deine Tasten;
-	fr=Partage tes touches;
-	es=Comparte tus teclas;
-	it=Condividi i tuoi tasti;
+	de=Meine eigenen Tasten teilen;
+	fr=Partager mes touches personnalisées;
+	es=Compartir mis teclas personalizadas;
+	it=Condividi i miei tasti personalizzati;
 	}
 
 [Name]
@@ -17554,44 +17562,76 @@
 	it=Nome;
 	}
 
-[Starts from]
+[No changes from {layout} yet: there is nothing to share]
 	{
-	de=Geht aus von;
-	fr=Part de;
-	es=Parte de;
-	it=Parte da;
+	de=Noch keine Änderungen an {layout}: Es gibt nichts zu teilen;
+	fr=Pas encore de changement depuis {layout} : rien à partager;
+	es=Aún no hay cambios desde {layout}: no hay nada que compartir;
+	it=Ancora nessuna modifica da {layout}: non c'è nulla da condividere;
 	}
 
-[1 key, 1 helper]
+[As a file]
 	{
-	de=1 Taste, 1 Helfer;
-	fr=1 touche, 1 aide;
-	es=1 tecla, 1 ayuda;
-	it=1 tasto, 1 aiuto;
+	de=Als Datei;
+	fr=Sous forme de fichier;
+	es=Como archivo;
+	it=Come file;
 	}
 
-[1 key, {helpers} helpers]
+[An .oakeys file anyone can open in Open Annihilation to install your layout.]
 	{
-	de=1 Taste, {helpers} Helfer;
-	fr=1 touche, {helpers} aides;
-	es=1 tecla, {helpers} ayudas;
-	it=1 tasto, {helpers} aiuti;
+	de=Eine .oakeys-Datei, die jeder in Open Annihilation öffnen kann, um deine Belegung zu installieren.;
+	fr=Un fichier .oakeys que tout le monde peut ouvrir dans Open Annihilation pour installer ta disposition.;
+	es=Un archivo .oakeys que cualquiera puede abrir en Open Annihilation para instalar tu distribución.;
+	it=Un file .oakeys che chiunque può aprire in Open Annihilation per installare la tua disposizione.;
 	}
 
-[{keys} keys, 1 helper]
+[As text]
 	{
-	de={keys} Tasten, 1 Helfer;
-	fr={keys} touches, 1 aide;
-	es={keys} teclas, 1 ayuda;
-	it={keys} tasti, 1 aiuto;
+	de=Als Text;
+	fr=Sous forme de texte;
+	es=Como texto;
+	it=Come testo;
 	}
 
-[{keys} keys, {helpers} helpers]
+[Your changed keys as text, for a forum or a chat.]
 	{
-	de={keys} Tasten, {helpers} Helfer;
-	fr={keys} touches, {helpers} aides;
-	es={keys} teclas, {helpers} ayudas;
-	it={keys} tasti, {helpers} aiuti;
+	de=Deine geänderten Tasten als Text, für ein Forum oder einen Chat.;
+	fr=Tes touches changées en texte, pour un forum ou une discussion.;
+	es=Tus teclas cambiadas como texto, para un foro o un chat.;
+	it=I tuoi tasti cambiati come testo, per un forum o una chat.;
+	}
+
+[From {layout} · 1 key and 1 helper changed]
+	{
+	de=Von {layout} · 1 Taste und 1 Helfer geändert;
+	fr=Depuis {layout} · 1 touche et 1 aide changées;
+	es=Desde {layout} · 1 tecla y 1 ayuda cambiadas;
+	it=Da {layout} · 1 tasto e 1 aiuto cambiati;
+	}
+
+[From {layout} · 1 key and {m} helpers changed]
+	{
+	de=Von {layout} · 1 Taste und {m} Helfer geändert;
+	fr=Depuis {layout} · 1 touche et {m} aides changées;
+	es=Desde {layout} · 1 tecla y {m} ayudas cambiadas;
+	it=Da {layout} · 1 tasto e {m} aiuti cambiati;
+	}
+
+[From {layout} · {n} keys and 1 helper changed]
+	{
+	de=Von {layout} · {n} Tasten und 1 Helfer geändert;
+	fr=Depuis {layout} · {n} touches et 1 aide changées;
+	es=Desde {layout} · {n} teclas y 1 ayuda cambiadas;
+	it=Da {layout} · {n} tasti e 1 aiuto cambiati;
+	}
+
+[From {layout} · {n} keys and {m} helpers changed]
+	{
+	de=Von {layout} · {n} Tasten und {m} Helfer geändert;
+	fr=Depuis {layout} · {n} touches et {m} aides changées;
+	es=Desde {layout} · {n} teclas y {m} ayudas cambiadas;
+	it=Da {layout} · {n} tasti e {m} aiuti cambiati;
 	}
 
 [Saved to {place}]
@@ -17602,28 +17642,44 @@
 	it=Salvato in {place};
 	}
 
-[The text changes 1 key of {layout}.]
+[Open Folder]
 	{
-	de=Der Text ändert 1 Taste von {layout}.;
-	fr=Le texte change 1 touche de {layout}.;
-	es=El texto cambia 1 tecla de {layout}.;
-	it=Il testo cambia 1 tasto di {layout}.;
+	de=Ordner öffnen;
+	fr=Ouvrir le dossier;
+	es=Abrir carpeta;
+	it=Apri cartella;
 	}
 
-[The text changes {n} keys of {layout}.]
+[The text you copied changes 1 key of {layout}.]
 	{
-	de=Der Text ändert {n} Tasten von {layout}.;
-	fr=Le texte change {n} touches de {layout}.;
-	es=El texto cambia {n} teclas de {layout}.;
-	it=Il testo cambia {n} tasti di {layout}.;
+	de=Der kopierte Text ändert 1 Taste von {layout}.;
+	fr=Le texte que tu as copié change 1 touche de {layout}.;
+	es=El texto que copiaste cambia 1 tecla de {layout}.;
+	it=Il testo che hai copiato cambia 1 tasto di {layout}.;
 	}
 
-[place]
+[The text you copied changes {n} keys of {layout}.]
 	{
-	de=Position;
-	fr=position;
-	es=posición;
-	it=posizione;
+	de=Der kopierte Text ändert {n} Tasten von {layout}.;
+	fr=Le texte que tu as copié change {n} touches de {layout}.;
+	es=El texto que copiaste cambia {n} teclas de {layout}.;
+	it=Il testo che hai copiato cambia {n} tasti di {layout}.;
+	}
+
+[By place]
+	{
+	de=Nach Position;
+	fr=Par position;
+	es=Por posición;
+	it=Per posizione;
+	}
+
+[Clash]
+	{
+	de=Konflikt;
+	fr=Conflit;
+	es=Conflicto;
+	it=Conflitto;
 	}
 
 [Imported from {file}]
@@ -17690,12 +17746,12 @@
 	it=Questa disposizione dei tasti ha dei problemi:;
 	}
 
-[Paste keys]
+[Paste Someone's Layout]
 	{
-	de=Tasten einfügen;
-	fr=Coller des touches;
-	es=Pegar teclas;
-	it=Incolla i tasti;
+	de=Belegung von jemandem einfügen;
+	fr=Coller la disposition de quelqu'un;
+	es=Pegar la distribución de alguien;
+	it=Incolla la disposizione di qualcuno;
 	}
 
 [Import keys from an older setup]
@@ -17706,14 +17762,6 @@
 	it=Importa i tasti da una configurazione vecchia;
 	}
 
-[The file is a .oakeys package anyone can open in Open Annihilation. The text carries the keys alone, for a forum or a chat.]
-	{
-	de=Die Datei ist ein .oakeys-Paket, das jeder in Open Annihilation öffnen kann. Der Text trägt nur die Tasten, für ein Forum oder einen Chat.;
-	fr=Le fichier est un paquet .oakeys que tout le monde peut ouvrir dans Open Annihilation. Le texte porte seulement les touches, pour un forum ou une discussion.;
-	es=El archivo es un paquete .oakeys que cualquiera puede abrir en Open Annihilation. El texto lleva solo las teclas, para un foro o un chat.;
-	it=Il file è un pacchetto .oakeys che chiunque può aprire in Open Annihilation. Il testo porta solo i tasti, per un forum o una chat.;
-	}
-
 [Nothing changes until you apply it.]
 	{
 	de=Es ändert sich nichts, bis du es übernimmst.;
@@ -17722,20 +17770,20 @@
 	it=Non cambia nulla finché non lo applichi.;
 	}
 
-[One clash: {chord} already belongs to {action}. Apply keeps yours and lists the clash.]
+[{key} already belongs to {action}. Apply keeps yours and lists the clash.]
 	{
-	de=Ein Konflikt: {chord} gehört schon zu {action}. Übernehmen behält deine Taste und listet den Konflikt.;
-	fr=Un conflit : {chord} appartient déjà à {action}. Appliquer garde la tienne et liste le conflit.;
-	es=Un conflicto: {chord} ya pertenece a {action}. Aplicar conserva la tuya y lista el conflicto.;
-	it=Un conflitto: {chord} appartiene già a {action}. Applica tiene il tuo ed elenca il conflitto.;
+	de={key} gehört schon zu {action}. Übernehmen behält deine Taste und listet den Konflikt.;
+	fr={key} appartient déjà à {action}. Appliquer garde la tienne et liste le conflit.;
+	es={key} ya pertenece a {action}. Aplicar conserva la tuya y lista el conflicto.;
+	it={key} appartiene già a {action}. Applica tiene il tuo ed elenca il conflitto.;
 	}
 
-[{action} is kept in your layout for a version that has it.]
+[Kept in your layout for a version that has it.]
 	{
-	de={action} bleibt in deiner Tastenbelegung für eine Version, die es kennt.;
-	fr={action} reste dans ta disposition des touches pour une version qui l'aura.;
-	es={action} se queda en tu distribución de teclas para una versión que la tenga.;
-	it={action} resta nella tua disposizione dei tasti per una versione che lo avrà.;
+	de=Bleibt in deiner Belegung für eine Version, die es kennt.;
+	fr=Reste dans ta disposition pour une version qui l'aura.;
+	es=Se queda en tu distribución para una versión que la tenga.;
+	it=Resta nella tua disposizione per una versione che lo avrà.;
 	}
 
 [A mod's Ctrl+F2 keys]
@@ -18378,12 +18426,12 @@
 	it=Come agisce;
 	}
 
-[Import…]
+[Import New Layout…]
 	{
-	de=Importieren…;
-	fr=Importer…;
-	es=Importar…;
-	it=Importa…;
+	de=Neue Belegung importieren…;
+	fr=Importer une nouvelle disposition…;
+	es=Importar una distribución nueva…;
+	it=Importa una nuova disposizione…;
 	}
 
 [Keep editing]
@@ -18490,20 +18538,20 @@
 	it=Apri ›;
 	}
 
-[Paste…]
+[Paste Someone's Layout…]
 	{
-	de=Einfügen…;
-	fr=Coller…;
-	es=Pegar…;
-	it=Incolla…;
+	de=Belegung von jemandem einfügen…;
+	fr=Coller la disposition de quelqu'un…;
+	es=Pegar la distribución de alguien…;
+	it=Incolla la disposizione di qualcuno…;
 	}
 
-[Share…]
+[Share My Custom Keys…]
 	{
-	de=Teilen…;
-	fr=Partager…;
-	es=Compartir…;
-	it=Condividi…;
+	de=Meine eigenen Tasten teilen…;
+	fr=Partager mes touches personnalisées…;
+	es=Compartir mis teclas personalizadas…;
+	it=Condividi i miei tasti personalizzati…;
 	}
 
 [Press a key or a mouse button to see what it does. Nothing is changed.]
@@ -18522,12 +18570,20 @@
 	it=Reimposta;
 	}
 
-[Restore defaults]
+[Restore Defaults]
 	{
 	de=Standard wiederherstellen;
 	fr=Rétablir les valeurs par défaut;
 	es=Restaurar valores predeterminados;
 	it=Ripristina i predefiniti;
+	}
+
+[Layouts]
+	{
+	de=Belegungen;
+	fr=Dispositions;
+	es=Distribuciones;
+	it=Disposizioni;
 	}
 
 [Same place on every keyboard]
@@ -19922,7 +19978,7 @@
 	it=Aggiungi fonte…;
 	}
 
-[Apply 1 change]
+[Apply 1 Change]
 	{
 	de=1 Änderung übernehmen;
 	fr=Appliquer 1 changement;
@@ -19930,7 +19986,7 @@
 	it=Applica 1 modifica;
 	}
 
-[Apply {n} changes]
+[Apply {n} Changes]
 	{
 	de={n} Änderungen übernehmen;
 	fr=Appliquer {n} changements;
@@ -19978,7 +20034,7 @@
 	it=Scegli…;
 	}
 
-[Copy as text]
+[Copy as Text]
 	{
 	de=Als Text kopieren;
 	fr=Copier comme texte;
@@ -20002,12 +20058,12 @@
 	it=Dettagli…;
 	}
 
-[Clone…]
+[Clone as New Layout…]
 	{
-	de=Klonen…;
-	fr=Cloner…;
-	es=Clonar…;
-	it=Clona…;
+	de=Als neue Belegung klonen…;
+	fr=Cloner en nouvelle disposition…;
+	es=Clonar como distribución nueva…;
+	it=Clona come nuova disposizione…;
 	}
 
 [Rename and Describe…]
@@ -20058,12 +20114,12 @@
 	it=Basata su {layout};
 	}
 
-[A key layout of your own, from {layout} and your changes. It opens here. Save changes keeps it, and Share… saves it as a file.]
+[A key layout of your own, from {layout} and your changes. It opens here. Save changes keeps it, and Share My Custom Keys… saves it as a file.]
 	{
-	de=Eine eigene Tastenbelegung aus {layout} und deinen Änderungen. Sie öffnet sich hier. Änderungen speichern behält sie, und Teilen… speichert sie als Datei.;
-	fr=Une disposition des touches à toi, faite de {layout} et de tes changements. Elle s'ouvre ici. Enregistrer la garde, et Partager… l'enregistre dans un fichier.;
-	es=Una distribución de teclas propia, de {layout} y tus cambios. Se abre aquí. Guardar cambios la conserva, y Compartir… la guarda como archivo.;
-	it=Una disposizione dei tasti tutta tua, da {layout} e dalle tue modifiche. Si apre qui. Salva le modifiche la conserva, e Condividi… la salva come file.;
+	de=Eine eigene Tastenbelegung aus {layout} und deinen Änderungen. Sie öffnet sich hier. Änderungen speichern behält sie, und Meine eigenen Tasten teilen… speichert sie als Datei.;
+	fr=Une disposition des touches à toi, faite de {layout} et de tes changements. Elle s'ouvre ici. Enregistrer la garde, et Partager mes touches personnalisées… l'enregistre dans un fichier.;
+	es=Una distribución de teclas propia, de {layout} y tus cambios. Se abre aquí. Guardar cambios la conserva, y Compartir mis teclas personalizadas… la guarda como archivo.;
+	it=Una disposizione dei tasti tutta tua, da {layout} e dalle tue modifiche. Si apre qui. Salva le modifiche la conserva, e Condividi i miei tasti personalizzati… la salva come file.;
 	}
 
 [Another key layout is called {name}.]
@@ -20370,7 +20426,7 @@
 	it=Ripristinare {title} a {to}? {from} resta al suo posto, e Ripristina di nuovo lo riporta.;
 	}
 
-[Save file…]
+[Save File…]
 	{
 	de=Datei speichern…;
 	fr=Enregistrer le fichier…;
@@ -20816,6 +20872,14 @@
 	fr=Ce texte n'est pas une disposition des touches.;
 	es=Este texto no es una distribución de teclas.;
 	it=Questo testo non è una disposizione dei tasti.;
+	}
+
+[Copy someone's shared key text first (it starts with # oakeys), then choose Paste Someone's Layout again.]
+	{
+	de=Kopiere zuerst den geteilten Tastentext von jemandem (er beginnt mit # oakeys) und wähle dann noch einmal Belegung von jemandem einfügen.;
+	fr=Copie d'abord le texte de touches partagé par quelqu'un (il commence par # oakeys), puis choisis à nouveau Coller la disposition de quelqu'un.;
+	es=Copia primero el texto de teclas que alguien compartió (empieza por # oakeys) y luego elige otra vez Pegar la distribución de alguien.;
+	it=Copia prima il testo dei tasti condiviso da qualcuno (inizia con # oakeys), poi scegli di nuovo Incolla la disposizione di qualcuno.;
 	}
 
 // The key bindings: each action's name and description, the select.tag

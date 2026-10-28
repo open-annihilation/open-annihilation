@@ -273,6 +273,7 @@ PastePreview paste_preview(const Editor& editor, std::span<const uint8_t> bytes)
         // its keys, is not a key layout: the player reads that, where the
         // reader stopped, rather than the reader's rule.
         const std::vector<ScannedBinding> scanned = scan_bindings(bytes);
+        preview.not_layout = scanned.empty();
         for (oakeys::Problem problem : problems) {
             if (scanned.empty() && problem.key == kDocumentKey)
                 problem.message = std::string{show(editor.text(), words::text_not_layout)};

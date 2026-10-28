@@ -37,7 +37,11 @@ struct MenuEntry {
 };
 
 /// The items of the menu that is open. Compact's category menu also holds
-/// the filters, and Compact's More the layouts. No menu is open for `Menu::none`, which gives nothing.
+/// the filters. More holds two groups under their headings, Layouts (Import
+/// New Layout…, Clone as New Layout…, Rename and Describe… on a layout other
+/// than OA default, Restore Defaults) and Sharing (Share My Custom Keys…,
+/// Paste Someone's Layout…); Compact's More leads with the layouts. No menu
+/// is open for `Menu::none`, which gives nothing.
 ///
 /// @param editor the editor
 /// @param menu which menu
