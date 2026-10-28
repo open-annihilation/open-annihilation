@@ -1,13 +1,18 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The font stack: FreeType reads the fonts from their files through a stream
-// of the engine's own, so that a folder whose path is not in the system's
-// code page opens on Windows too, and draws each glyph once per size, weight
-// and rendering. On Windows a font file is opened so a program this one
-// starts is not given it: Windows will not rename the fonts folder while a
-// file in it is open. The interface faces, Barlow and Barlow Condensed, go
-// first in their families' chains; the base faces draw what they lack.
+// The font stack draws each glyph once per size, weight and rendering. Other
+// than on Windows, FreeType reads each font from its file through a stream
+// of the engine's own. On Windows each font is read whole and the file is
+// closed. The C library Windows 95 ships keeps only a small number of files
+// open at once, and the game already holds its archives open: leaving the
+// faces open on top of those, the interface faces among them, meant a later
+// archive could not be opened and a saved game could not be written. A wide
+// path still opens a folder whose path is not in the system's code page, and
+// a program this one starts is not given the file, so Windows can rename the
+// fonts folder once this program has left. The interface faces, Barlow and
+// Barlow Condensed, go first in their families' chains; the base faces draw
+// what they lack.
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -248,6 +253,39 @@ std::vector<uint8_t> read_whole(std::FILE* file) {
     std::fclose(file);
     return bytes;
 }
+
+/// Opens a font from bytes read whole, and closes the file first.
+///
+/// The face reads `kept` until it is done. Windows 95's C library does not
+/// grow the small set of files it can hold open, so a face that kept its
+/// file would take one of the places the game's archives and a save need.
+///
+/// @param library the FreeType library
+/// @param[in,out] face the slot; a face already there is finished first
+/// @param file the font file, open for reading; closed on return
+/// @param[out] kept receives the bytes the face reads
+/// @return true when the face is open and scalable
+bool open_memory_face(
+    FT_Library library, FT_Face& face, std::FILE* file, std::vector<uint8_t>& kept
+) {
+    std::vector<uint8_t> bytes = read_whole(file);
+    if (bytes.empty())
+        return false;
+    FT_Face opened = nullptr;
+    if (FT_New_Memory_Face(library, bytes.data(), static_cast<FT_Long>(bytes.size()), 0, &opened) !=
+        0)
+        return false;
+    if (FT_IS_SCALABLE(opened) == 0) {
+        FT_Done_Face(opened);
+        return false;
+    }
+    // The face already in the slot still reads `kept` until it is finished.
+    if (face != nullptr)
+        FT_Done_Face(face);
+    face = opened;
+    kept = std::move(bytes);
+    return true;
+}
 #endif
 
 /// Opens a file already opened as a scalable face. FreeType closes the
@@ -343,6 +381,12 @@ struct FontStack::Fonts {
     /// On Windows each pack face's font file, read whole, which its face
     /// reads from until it is done; empty elsewhere and for no face.
     std::array<std::vector<uint8_t>, most_pack_faces> pack_bytes{};
+#if defined(_WIN32)
+    /// On Windows each base and interface face's file, read whole. The file
+    /// itself is closed, so it does not stay among the few files Windows 95
+    /// can keep open. Empty for a face that is not open.
+    std::array<std::vector<uint8_t>, slot_count> resident_bytes{};
+#endif
     /// pack faces open, at most most_pack_faces
     std::size_t pack_count{};
     /// the weight Noto Emoji's axis was last set to
@@ -650,15 +694,29 @@ std::unique_ptr<FontStack> FontStack::open(const std::filesystem::path& director
         std::FILE* file = open_file(directory / std::filesystem::path(face_files[index]));
         if (file == nullptr)
             return nullptr;
+#if defined(_WIN32)
+        if (!open_memory_face(
+                fonts->library, fonts->faces[index], file, fonts->resident_bytes[index]
+            ))
+            return nullptr;
+#else
         if (!fonts->open_slot(index, file))
             return nullptr;
+#endif
     }
     // An interface face that is missing or does not open leaves its family
     // to the sans faces.
     for (std::size_t index = 0; index < interface_face_count; ++index) {
         std::FILE* file = open_file(directory / std::filesystem::path(interface_face_files[index]));
-        if (file != nullptr)
-            std::ignore = fonts->open_slot(static_cast<std::size_t>(interface_face(index)), file);
+        if (file == nullptr)
+            continue;
+        const auto slot = static_cast<std::size_t>(interface_face(index));
+#if defined(_WIN32)
+        std::ignore =
+            open_memory_face(fonts->library, fonts->faces[slot], file, fonts->resident_bytes[slot]);
+#else
+        std::ignore = fonts->open_slot(slot, file);
+#endif
     }
     return std::unique_ptr<FontStack>(new FontStack(std::move(fonts)));
 }
@@ -673,22 +731,13 @@ bool FontStack::add_face(const std::filesystem::path& file, FaceRole role) {
 #if defined(_WIN32)
     // Windows does not move a folder while a file in it is open, so a pack's
     // font is read whole and its file closed: the pack can then be updated,
-    // rolled back or removed while its font is shown.
-    std::vector<uint8_t> bytes = read_whole(opened);
-    if (bytes.empty())
+    // rolled back or removed while its font is shown. The same close keeps
+    // the file out of the small set Windows 95 can hold open.
+    if (!open_memory_face(
+            fonts_->library, fonts_->faces[index], opened, fonts_->pack_bytes[fonts_->pack_count]
+        ))
         return false;
-    FT_Face face = nullptr;
-    if (FT_New_Memory_Face(
-            fonts_->library, bytes.data(), static_cast<FT_Long>(bytes.size()), 0, &face
-        ) != 0)
-        return false;
-    if (FT_IS_SCALABLE(face) == 0) {
-        FT_Done_Face(face);
-        return false;
-    }
-    fonts_->faces[index] = face;
     fonts_->streams[index] = FT_StreamRec{};
-    fonts_->pack_bytes[fonts_->pack_count] = std::move(bytes);
 #else
     if (!fonts_->open_slot(index, opened))
         return false;
