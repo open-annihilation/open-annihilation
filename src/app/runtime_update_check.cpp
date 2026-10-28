@@ -285,7 +285,12 @@ void Runtime::check_engine_feed() {
     {
         fixture::Reply delayed;
         delayed.status = 200;
-        delayed.head_delay_ms = 3000;
+        // The feed's own idle limit is 15 s, so the status line must start
+        // before that. Twelve seconds still holds the answer out long enough
+        // for a sanitizer build, where one menu frame can take the better
+        // part of a second, to draw 20 frames before the answer arrives. A
+        // fast machine draws them at once and then waits out the rest.
+        delayed.head_delay_ms = 12000;
         delayed.body = offered_feed.bytes;
         server.override_next("/v1/engine/stable.json", std::move(delayed), 1);
         update::write_check_mode(preference_values_, update::CheckMode::automatically);
@@ -295,14 +300,14 @@ void Runtime::check_engine_feed() {
         if (update_ != nullptr)
             update_->ran = false;
         int waiting_frames = 0;
-        const auto deadline = deadline_from(std::chrono::seconds{10});
+        const auto deadline = deadline_from(std::chrono::seconds{25});
         while (std::chrono::steady_clock::now() < deadline && waiting_frames < 20) {
             idle_tick();
             if (update_snapshot().state == update::CheckState::checking)
                 ++waiting_frames;
         }
         require(waiting_frames >= 20, "the menu drew fewer than 20 frames while the check waited");
-        const auto finish = deadline_from(std::chrono::seconds{10});
+        const auto finish = deadline_from(std::chrono::seconds{25});
         while (update_snapshot().state == update::CheckState::checking) {
             require(std::chrono::steady_clock::now() < finish, "the slow check did not finish");
             idle_tick();

@@ -5,8 +5,8 @@
 """Check a network game started from a launch, end to end.
 
 Each game runs as a program of its own on the dummy SDL drivers, over
-127.0.0.1, at a DirectPlay port of the check's own (--dplay-port), so the
-check runs beside anything else on this machine:
+127.0.0.1, at a DirectPlay port the system chooses when the game binds
+(--dplay-port 0), so the check runs beside anything else on this machine:
 
 - --launch with an .oalaunch host file opens the battle room on the file's
   map and rules, seats the player and two computer players as the file says;
@@ -210,13 +210,6 @@ class LaunchFileFailure(Exception):
     """A behaviour that differs from the expected one."""
 
 
-def free_port():
-    """Returns a UDP port of 127.0.0.1 that nothing holds now."""
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
-        probe.bind((ADDRESS, 0))
-        return probe.getsockname()[1]
-
-
 class Game:
     """One running game. Standard output and, when asked, the log are both read."""
 
@@ -337,14 +330,18 @@ def require_quiet_password(game):
 
 def battle_room(native, game_dir, workdir, name, launch_arguments, rules=RULES, seats=None,
                 piped=None, notes=()):
-    """Starts a host from a launch and waits for its map, rules, seats and notes in the log."""
-    port = free_port()
+    """Starts a host from a launch and waits for its map, rules, seats and notes in the log.
+
+    The enumeration port is 0, so the system chooses one when the game binds
+    it. Probing a free port and releasing it first loses the race to another
+    check on a parallel run, and the host never reaches the battle room.
+    """
     user = workdir / f"{name}-user"
     user.mkdir()
     logs = workdir / f"{name}-log"
     logs.mkdir()
     game = Game(native, game_dir, workdir, name, [
-        "--skip-intro", "--dplay-port", str(port), "--player-name", "Commander",
+        "--skip-intro", "--dplay-port", "0", "--player-name", "Commander",
         "--user-folder", str(user), "--log-dir", str(logs), *launch_arguments,
     ], log_dir=logs, piped=piped)
     expected = [ROOM_LINE, MAP_LINE, rules] + ([seats] if seats else []) + list(notes)
@@ -527,7 +524,7 @@ def check_refused_launch(native, game_dir, workdir, name, text, field):
     path = workdir / f"{name}.oalaunch"
     path.write_text(text, encoding="utf-8")
     status, lines, log = run_apart(native, game_dir, workdir, name,
-                                   ["--dplay-port", str(free_port()), "-c", str(path)])
+                                   ["--dplay-port", "0", "-c", str(path)])
     if status != 2:
         raise LaunchFileFailure(f"{name} exited with {status}, expected 2")
     objects = status_objects(name, lines)
@@ -576,14 +573,13 @@ def install_steady(user):
 
 def check_launch_brain(native, game_dir, workdir):
     """A host option names an installed brain, and the battle room logs that it was seated."""
-    port = free_port()
     user = workdir / "brain-host-user"
     user.mkdir()
     install_steady(user)
     logs = workdir / "brain-host-log"
     logs.mkdir()
     game = Game(native, game_dir, workdir, "brain-host", [
-        "--skip-intro", "--dplay-port", str(port), "--player-name", "Commander",
+        "--skip-intro", "--dplay-port", "0", "--player-name", "Commander",
         "--user-folder", str(user), "--log-dir", str(logs), "--host",
         "--game-name", "Example game", "--map", "Acid Foursome",
         "--computer-player", "core:2::hard:steady-commander",
@@ -601,7 +597,7 @@ def check_launch_brain(native, game_dir, workdir):
 def check_missing_brain(native, game_dir, workdir):
     """A brain that is not installed ends with status 2 before a window, and the log names it."""
     status, lines, log = run_apart(native, game_dir, workdir, "missing-brain", [
-        "--dplay-port", str(free_port()), "--status-stdout", "--host", "--map", "Acid Foursome",
+        "--dplay-port", "0", "--status-stdout", "--host", "--map", "Acid Foursome",
         "--computer-player", "core:2::hard:tide-keeper",
     ])
     if status != 2:
