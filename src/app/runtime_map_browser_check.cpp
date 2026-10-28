@@ -7,8 +7,8 @@
 // fetched, and at 640x480, 1280x720, 1920x1080 and 2560x1440 opens SELMAP and
 // presses MORE MAPS…. It requires the size class and scale the window gives
 // and the grid's columns there; MORE MAPS… over none of SELMAP's gadgets,
-// the kit's lime accent button at the regular size with its caption in the
-// regular font;
+// the kit's lime accent button under the list's frame, clear of the title,
+// at least its old height and wider than before;
 // every card and control inside the browser's window; Downloads showing
 // the two check maps alone; the search "isle" leaving one; the clashing
 // map's card greyed with "New names" in the footer's reason and the primary
@@ -19,12 +19,12 @@
 // own, as the download queue hands a catalogue's over, and the fitting one
 // must wait in the inbox with the browser closed and install with no prompt
 // while it is the top screen, the clashing one be refused there. Then it
-// hosts a battle room alone, opens Select Map, and at 640x480 and 1280x720
-// requires MORE MAPS… over none of the map dialog's gadgets and with the
-// same look. Each picker's frame is written as more-maps-selmap-<w>x<h>.png
-// and more-maps-room-<w>x<h>.png. MORE MAPS…'s look is told for every
-// window and both pickers at the end, so one run names each place it is
-// wrong.
+// hosts a battle room alone, opens Select Map, and at 640x480, 1280x720 and
+// 1920x1080 requires MORE MAPS… over none of the map dialog's gadgets and
+// with the same look and place. Each picker's frame is written as
+// more-maps-selmap-<w>x<h>.png and more-maps-room-<w>x<h>.png. MORE MAPS…'s
+// look and place are told for every window and both pickers at the end, so
+// one run names each place they are wrong.
 
 #include "map_pack_check_packs.hpp"
 #include "map_packs.hpp"
@@ -68,6 +68,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <ios>
@@ -400,11 +401,16 @@ void Runtime::check_map_browser() {
             );
             write_png(fs::path(file), presented);
         };
-    // MORE MAPS… is the kit's primary button at the regular size: lime with
-    // dark text, Regular's control height, at least the buttons' least
-    // width, and its caption in the regular font with a button's padding.
+    // MORE MAPS… is the kit's primary button, lime with dark text, under the
+    // list's frame with its right edge on the list's, clear of the title's
+    // band (every row of the picture above the frame), from its old 17
+    // points up to Regular's control height, and wider than it was in the
+    // small font. The list and its frame are in window pixels.
     std::vector<std::string> look_faults;
-    const auto more_maps_look = [&](std::string_view picker, const std::string& on) {
+    const auto more_maps_look = [&](std::string_view picker,
+                                    const kit::Rect& list_window,
+                                    const kit::Rect& frame_window,
+                                    const std::string& on) {
         const std::string where = " over " + std::string(picker) + on;
         LayerScreen* screen = oa_layer().find("more-maps");
         const kit::Fonts* fonts = oa_layer().screen_fonts();
@@ -421,25 +427,42 @@ void Runtime::check_map_browser() {
         const std::size_t faults_before = look_faults.size();
         if (look->style != kit::ButtonStyle::accent)
             look_faults.push_back("MORE MAPS… is not the accent button" + where);
-        if (look->font != kit::FontRole::regular)
-            look_faults.push_back("MORE MAPS…'s caption is not in the regular font" + where);
-        const kit::Metrics& regular = kit::regular_metrics;
-        const int32_t least_width = std::max(
-            regular.button_width,
-            kit::text_width(*fonts, kit::FontRole::regular, look->caption) +
-                regular.prompt_button_padding
+        const kit::Metrics& compact = kit::compact_metrics;
+        const int32_t old_width = std::max(
+            compact.button_width,
+            kit::text_width(*fonts, kit::FontRole::small, look->caption) +
+                compact.prompt_button_padding
         );
         const LayerPlacement placed = oa_layer().placement_of("more-maps");
         const std::string sized =
             std::to_string(placed.points_width) + " by " + std::to_string(placed.points_height);
-        if (placed.points_height != regular.control_height || placed.points_width < least_width)
+        if (placed.points_height < compact.button_height ||
+            placed.points_height > kit::regular_metrics.control_height ||
+            placed.points_width <= old_width)
             look_faults.push_back(
-                "MORE MAPS… is " + sized + " points, not at least " + std::to_string(least_width) +
-                " by " + std::to_string(regular.control_height) + where
+                "MORE MAPS… is " + sized + " points, not wider than " + std::to_string(old_width) +
+                " and " + std::to_string(compact.button_height) + " to " +
+                std::to_string(kit::regular_metrics.control_height) + " tall" + where
             );
+        const kit::Rect shown_at{
+            placed.shown.x, placed.shown.y, placed.shown.width, placed.shown.height
+        };
+        const LayerView seen = oa_layer().view();
+        const int32_t slack = std::max(seen.scale_percent, int32_t{100}) / 100;
+        if (shown_at.y < frame_window.y + frame_window.height ||
+            std::abs((shown_at.x + shown_at.width) - (list_window.x + list_window.width)) > slack)
+            look_faults.push_back(
+                "MORE MAPS… is not under the list's frame with its right edge on the list's" + where
+            );
+        const kit::Rect title_band{
+            seen.picture.x, seen.picture.y, seen.picture.width, frame_window.y - seen.picture.y
+        };
+        const kit::Rect on_title = kit::intersect(shown_at, title_band);
+        if (on_title.width > 0 && on_title.height > 0)
+            look_faults.push_back("MORE MAPS… meets the title's band" + where);
         if (look_faults.size() == faults_before)
             std::cout << "map browser check: MORE MAPS… is the accent button, " << sized
-                      << " points" << where << '\n';
+                      << " points, under the list's frame" << where << '\n';
     };
 
     for (const CheckWindow& window : kWindows) {
@@ -478,6 +501,7 @@ void Runtime::check_map_browser() {
         const auto& gadgets = resources_.layout.gadgets;
         require(!gadgets.empty(), "SELMAP has no gadgets" + on);
         kit::Rect map_list{};
+        kit::Rect map_list_frame{};
         bool have_map_list = false;
         const auto& root = gadgets.front().common;
         const auto origin = panel_origin();
@@ -514,9 +538,11 @@ void Runtime::check_map_browser() {
                 on_frame.width <= 0 || on_frame.height <= 0,
                 "MORE MAPS… overlaps the map list's frame" + on
             );
+            map_list_frame = frame;
         }
+        require(have_map_list, "SELMAP has no map list" + on);
         write_picker_frame("more-maps-selmap-" + size + ".png", window, on);
-        more_maps_look("SELMAP", on);
+        more_maps_look("SELMAP", map_list, map_list_frame, on);
 
         // A finger on MORE MAPS… opens the browser. A finger in the middle
         // of the map list does not. The mouse click below still opens it.
@@ -899,7 +925,7 @@ void Runtime::check_map_browser() {
     frames(2);
 
     // MORE MAPS… over the battle room's map dialog: a room hosted alone, its
-    // Select Map pressed, at 640x480 and 1280x720.
+    // Select Map pressed, at 640x480, 1280x720 and 1920x1080.
     mp::DirectGame room_game;
     room_game.kind = mp::DirectGame::Kind::host;
     room_game.player_name = "Steve";
@@ -945,7 +971,7 @@ void Runtime::check_map_browser() {
     }
     require(dialog_open, "Select Map did not open the battle room's map dialog");
     for (const CheckWindow& window : kWindows) {
-        if (window.width != 640 && window.width != 1280)
+        if (window.width == 2560)
             continue;
         const std::string size = std::to_string(window.width) + 'x' + std::to_string(window.height);
         const std::string on = " on the " + size + " window";
@@ -1010,7 +1036,12 @@ void Runtime::check_map_browser() {
                      "gadgets"
                   << on << '\n';
         write_picker_frame("more-maps-room-" + size + ".png", window, on);
-        more_maps_look("the room's map dialog", on);
+        more_maps_look(
+            "the room's map dialog",
+            frame_to_window(seen, {list_x, list_y, list_width, list_height}),
+            frame,
+            on
+        );
     }
     std::string told;
     for (const std::string& fault : look_faults)
