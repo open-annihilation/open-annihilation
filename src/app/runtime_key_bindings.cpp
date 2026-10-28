@@ -2522,6 +2522,37 @@ void Runtime::advance_input_actions(bool& running) {
     advance_order_wheel();
 }
 
+Runtime::GroupViewMove Runtime::group_key_view_move(int squad) {
+    namespace settings = oa::ui::engine_settings;
+    const uint64_t now_ms = SDL_GetTicks();
+    switch (engine_settings().group_keys_centre) {
+    case settings::GroupKeysCentre::never:
+        group_key_last_ = 0;
+        return GroupViewMove::never;
+    case settings::GroupKeysCentre::every_press:
+        group_key_last_ = 0;
+        // A press centres only when the group is already exactly the
+        // selection, however long after the last press.
+        return GroupViewMove::when_selected;
+    case settings::GroupKeysCentre::double_press:
+        break;
+    }
+    // The double-press time is the one the key bindings use, Settings ›
+    // Accessibility's Double press. Zero there means the system's, which the
+    // bindings keep as 500 ms.
+    uint32_t within_ms = key_bindings_state_ != nullptr
+                             ? key_bindings_state_->dispatcher.timings().double_press_ms
+                             : keys::Timings{}.double_press_ms;
+    if (within_ms == 0)
+        within_ms = 500;
+    const bool second = group_key_last_ == squad && now_ms >= group_key_last_ms_ &&
+                        now_ms - group_key_last_ms_ <= within_ms;
+    // A third press starts again: it selects and leaves the view.
+    group_key_last_ = second ? 0 : squad;
+    group_key_last_ms_ = now_ms;
+    return second ? GroupViewMove::always : GroupViewMove::never;
+}
+
 std::span<const keys::ActionEvent> Runtime::match_action_events() const {
     if (key_bindings_state_ == nullptr)
         return {};
