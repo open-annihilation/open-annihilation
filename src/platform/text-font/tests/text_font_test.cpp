@@ -4,7 +4,8 @@
 // The font stack: the fonts found beside the program, the sizes that match
 // the game's fonts, the fallback chain, the interface faces, text that is
 // not UTF-8, the limits, a font file that a started program is not given,
-// and, with --pixels, a short mixed line drawn pixel for pixel as the pinned
+// an open stack that does not keep its font files open on Windows, and,
+// with --pixels, a short mixed line drawn pixel for pixel as the pinned
 // FreeType draws it. --show TEXT prints a line as it is drawn.
 
 #include "oa/platform/text_font.hpp"
@@ -21,6 +22,17 @@
 #include <string_view>
 #include <system_error>
 #include <vector>
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <share.h>
+#include <stdio.h>
+#endif
 
 namespace {
 
@@ -420,7 +432,9 @@ void holds_ideographs_to_a_least_size() {
 }
 
 /// A copy of the bundled fonts, removed when this dies. The stack that opened
-/// it must die first: it keeps the files open.
+/// it must die first on every system but Windows: there it keeps the files
+/// open. On Windows the files are read and closed, so the folder can go while
+/// the stack still draws.
 struct TemporaryFonts {
     std::filesystem::path directory;
 
@@ -749,6 +763,43 @@ void face_file_opens() {
     OA_CHECK(!text_font::FontStack::face_file_opens(fonts.directory / "missing.otf"));
 }
 
+/// On Windows an open stack does not keep its font files open.
+///
+/// Windows 95's library allows only a small number of open files. The game's
+/// archives and a saved game still have to open after the fonts, so an
+/// exclusive open of each face file must succeed while the stack draws.
+/// Other systems keep the files open and are not the case this holds.
+void an_open_stack_closes_its_font_files() {
+#if defined(_WIN32)
+    TemporaryFonts fonts;
+    const auto bundled = text_font::bundled_font_directory();
+    for (const std::string_view name : text_font::interface_face_files) {
+        std::error_code error;
+        std::filesystem::copy_file(
+            bundled / std::filesystem::path(name),
+            fonts.directory / std::filesystem::path(name),
+            error
+        );
+        OA_CHECK(!error);
+    }
+    const auto stack = text_font::FontStack::open(fonts.directory);
+    OA_CHECK(stack != nullptr);
+    if (!stack)
+        return;
+    const auto exclusively = [](const std::filesystem::path& path) {
+        std::FILE* file = _wfsopen(path.c_str(), L"rb", _SH_DENYRW);
+        const bool opened = file != nullptr;
+        if (file != nullptr)
+            std::fclose(file);
+        return opened;
+    };
+    for (const std::string_view name : text_font::face_files)
+        OA_CHECK(exclusively(fonts.directory / std::filesystem::path(name)));
+    for (const std::string_view name : text_font::interface_face_files)
+        OA_CHECK(exclusively(fonts.directory / std::filesystem::path(name)));
+#endif
+}
+
 /// A font file opened for drawing is not given to a program this one starts,
 /// and a file that cannot be opened is not reported as one that is.
 void a_font_file_does_not_stay_open_for_a_child() {
@@ -839,6 +890,7 @@ int main(int argc, char** argv) {
     removed_faces_leave_no_glyphs();
     interface_faces_go_first();
     face_file_opens();
+    an_open_stack_closes_its_font_files();
     a_font_file_does_not_stay_open_for_a_child();
     return oa::test::check_exit_status();
 }
