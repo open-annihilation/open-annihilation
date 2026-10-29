@@ -20,6 +20,7 @@
 #include "engine_settings_state.hpp"
 
 #include "oa/app/content/updates.hpp"
+#include "oa/app/game_directory.hpp"
 #include "oa/app/mod_summary.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/core/game_state.h"
@@ -357,32 +358,129 @@ struct Published {
     std::optional<mp::ComputerBrain> brain{}; ///< empty for the built-in player
 };
 
+/// Faces already described for one room, kept until what they were read from changes.
+struct RoomFaces {
+    const Runtime* runtime{};              ///< the runtime
+    const brain::Listing* listing{};       ///< the listing those faces were read from
+    uint64_t brains{};                     ///< that listing's generation
+    uint64_t content{};                    ///< the copied bundles' generation
+    std::string base{};                    ///< the chosen base game
+    std::vector<std::string> expansions{}; ///< the expansions that are on
+    std::string played_id{};               ///< the mod being played
+    std::string played_name{};             ///< that mod's name
+    std::string played_version{};          ///< that mod's version
+    uint64_t interface_generation{};       ///< the language the names come from
+
+    struct Entry {
+        std::string brain{};   ///< the stored brain id; empty is built-in
+        std::string level{};   ///< the stored level
+        Published published{}; ///< the face
+    };
+
+    std::vector<Entry> entries{}; ///< one face per stored choice
+
+    /// Tells whether these faces were read from the same facts.
+    ///
+    /// @param runtime_now the runtime
+    /// @param listing_now the brains installed here
+    /// @param probe this room's fit
+    /// @param brains_generation the listing's generation
+    /// @param content_now the content choice
+    /// @return true when a kept face is still the face of this room
+    [[nodiscard]] bool same_world(
+        const Runtime& runtime_now,
+        const brain::Listing& listing_now,
+        const library::Inputs& probe,
+        uint64_t brains_generation,
+        const oa::data::content_bundles::ContentChoice& content_now
+    ) const {
+        return runtime == &runtime_now && listing == &listing_now && brains == brains_generation &&
+               content == content_bundles_generation() && base == content_now.base_game &&
+               expansions == probe.content.enabled && played_id == probe.played.id &&
+               played_name == probe.played.name && played_version == probe.played.version &&
+               interface_generation == oa::data::languages::interface_generation();
+    }
+
+    /// Drops the kept faces and remembers the facts the next ones are read from.
+    ///
+    /// @param runtime_now the runtime
+    /// @param listing_now the brains installed here
+    /// @param probe this room's fit
+    /// @param brains_generation the listing's generation
+    /// @param content_now the content choice
+    void adopt(
+        const Runtime& runtime_now,
+        const brain::Listing& listing_now,
+        const library::Inputs& probe,
+        uint64_t brains_generation,
+        const oa::data::content_bundles::ContentChoice& content_now
+    ) {
+        runtime = &runtime_now;
+        listing = &listing_now;
+        brains = brains_generation;
+        content = content_bundles_generation();
+        base = content_now.base_game;
+        expansions = probe.content.enabled;
+        played_id = probe.played.id;
+        played_name = probe.played.name;
+        played_version = probe.played.version;
+        interface_generation = oa::data::languages::interface_generation();
+        entries.clear();
+    }
+};
+
+/// The faces kept for the room on screen. One runtime shows one room.
+///
+/// @return the faces
+RoomFaces& room_faces() {
+    static RoomFaces faces;
+    return faces;
+}
+
 /// Describes a stored choice from the brains installed here.
 ///
 /// A brain that is missing or unfit is shown as the built-in player at hard,
-/// and is not published. The stored choice itself is left as it is.
+/// and is not published. The stored choice itself is left as it is. The face
+/// is computed once for a choice and kept until the facts it was read from change.
 ///
 /// @param runtime the runtime
 /// @param listing the brains installed here
 /// @param probe this room's fit
 /// @param choice the stored choice
+/// @param brains_generation the listing's generation
+/// @param bundle_choice the base game and expansions this run plays
 /// @return the face, the income and the brain to publish
 Published describe_choice(
     Runtime& runtime,
     const brain::Listing& listing,
     const library::Inputs& probe,
-    const picker::Choice& choice
+    const picker::Choice& choice,
+    uint64_t brains_generation,
+    const oa::data::content_bundles::ContentChoice& bundle_choice
 ) {
+    RoomFaces& faces = room_faces();
+    if (faces.same_world(runtime, listing, probe, brains_generation, bundle_choice)) {
+        for (const RoomFaces::Entry& entry : faces.entries) {
+            if (entry.brain == choice.brain && entry.level == choice.level)
+                return entry.published;
+        }
+    } else {
+        faces.adopt(runtime, listing, probe, brains_generation, bundle_choice);
+    }
+    const auto keep = [&](Published made) {
+        faces.entries.push_back(RoomFaces::Entry{choice.brain, choice.level, made});
+        return made;
+    };
     Published published;
     if (choice.brain.empty()) {
         published.shown.level = built_in_word(runtime, choice.level);
         published.difficulty = static_cast<uint8_t>(built_in_difficulty(choice.level));
-        return published;
+        return keep(std::move(published));
     }
     const brain::InstalledBrain* installed = brain::find(listing, choice.brain);
     if (installed == nullptr || !unfit_reason(probe, *installed).empty()) {
         published.shown.level = built_in_word(runtime, "hard");
-        return published;
+        return keep(std::move(published));
     }
     std::string level_id = choice.level;
     const oabrain::Level* level = oabrain::find_level(installed->manifest, level_id);
@@ -392,7 +490,7 @@ Published describe_choice(
     }
     if (level == nullptr) {
         published.shown.level = built_in_word(runtime, "hard");
-        return published;
+        return keep(std::move(published));
     }
     const NamedBrain names = names_of(installed->manifest, level->id);
     published.shown.name = names.name;
@@ -408,7 +506,7 @@ Published describe_choice(
     brain_row.level = names.level;
     brain_row.full_awareness = installed->manifest.full_awareness;
     published.brain = std::move(brain_row);
-    return published;
+    return keep(std::move(published));
 }
 
 /// The default brain at hard's level, or the built-in player at hard.
@@ -665,15 +763,20 @@ bool own_computer(const oa::Player& player) noexcept {
 /// @param choice the choice
 /// @param listing the brains installed here
 /// @param probe this room's fit
+/// @param brains_generation the listing's generation
+/// @param bundle_choice the base game and expansions this run plays
 void publish_choice(
     Runtime& runtime,
     mp::Lobby& lobby,
     int32_t slot,
     const picker::Choice& choice,
     const brain::Listing& listing,
-    const library::Inputs& probe
+    const library::Inputs& probe,
+    uint64_t brains_generation,
+    const oa::data::content_bundles::ContentChoice& bundle_choice
 ) {
-    const Published published = describe_choice(runtime, listing, probe, choice);
+    const Published published =
+        describe_choice(runtime, listing, probe, choice, brains_generation, bundle_choice);
     mp::lobby_set_computer_brain(lobby, slot, published.brain, published.difficulty);
     mp::presence_refresh(lobby);
     mp::presence_send_due(lobby);
@@ -1318,8 +1421,8 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
             return room::SourceRect{};
         };
         const brain::Listing& listing = runtime_.installed_brains();
-        const library::Inputs probe =
-            fit_inputs(runtime_.engine_settings_state(), runtime_.content_choice());
+        const oa::data::content_bundles::ContentChoice bundle_choice = runtime_.content_choice();
+        const library::Inputs probe = fit_inputs(runtime_.engine_settings_state(), bundle_choice);
         const bool installed = !listing.brains.empty();
         for (int32_t slot = 0; slot < mp::kSlotCount; ++slot) {
             const oa::Player& player = mp::slot_player(lobby, slot);
@@ -1350,7 +1453,15 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
                 row.enabled = !ready;
                 row.player_id = player.player_id;
                 row.choice = *choice;
-                row.shown = describe_choice(runtime_, listing, probe, *choice).shown;
+                row.shown = describe_choice(
+                                runtime_,
+                                listing,
+                                probe,
+                                *choice,
+                                runtime_.installed_brains_generation_,
+                                bundle_choice
+                )
+                                .shown;
                 if (row.shown.name.empty()) {
                     // The built-in player's level steps as 3.1c steps its difficulty.
                     row.steps = true;
@@ -2071,7 +2182,8 @@ void Runtime::note_room_computers(mp::Lobby& lobby) {
         );
     }
     const brain::Listing& listing = installed_brains();
-    const library::Inputs probe = fit_inputs(engine_settings_state(), content_choice());
+    const oa::data::content_bundles::ContentChoice bundle_choice = content_choice();
+    const library::Inputs probe = fit_inputs(engine_settings_state(), bundle_choice);
     const std::string default_id = default_brain();
     for (const LocalComputer& local : locals) {
         bool have = false;
@@ -2099,7 +2211,16 @@ void Runtime::note_room_computers(mp::Lobby& lobby) {
         room_brain_choices_.push_back(std::move(made));
     }
     for (const RoomBrainChoice& held : room_brain_choices_)
-        publish_choice(*this, lobby, static_cast<int32_t>(held.slot), held.choice, listing, probe);
+        publish_choice(
+            *this,
+            lobby,
+            static_cast<int32_t>(held.slot),
+            held.choice,
+            listing,
+            probe,
+            installed_brains_generation_,
+            bundle_choice
+        );
 }
 
 void Runtime::keep_remote_played_brains(const mp::Lobby& lobby) {
@@ -2142,12 +2263,22 @@ void Runtime::apply_room_brain_choice(
     mp::Lobby& lobby, uint32_t player_id, const picker::Choice& choice, bool every
 ) {
     const brain::Listing& listing = installed_brains();
-    const library::Inputs probe = fit_inputs(engine_settings_state(), content_choice());
+    const oa::data::content_bundles::ContentChoice bundle_choice = content_choice();
+    const library::Inputs probe = fit_inputs(engine_settings_state(), bundle_choice);
     for (RoomBrainChoice& held : room_brain_choices_) {
         if (!every && held.player_id != player_id)
             continue;
         held.choice = choice;
-        publish_choice(*this, lobby, static_cast<int32_t>(held.slot), held.choice, listing, probe);
+        publish_choice(
+            *this,
+            lobby,
+            static_cast<int32_t>(held.slot),
+            held.choice,
+            listing,
+            probe,
+            installed_brains_generation_,
+            bundle_choice
+        );
     }
 }
 

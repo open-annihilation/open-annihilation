@@ -27,7 +27,7 @@ Nothing here fetches a descriptor or a catalogue. [descriptor.hpp](include/oa/da
   player's list and change nothing when they refuse. `refusal_text` is the
   sentence for a refusal.
 - `read_builtin_registries` reads the `.yaml` descriptors in a folder.
-  `pinned_keys` is empty until a built-in registry's key is pinned.
+  `pinned_keys` is Core Prime's two catalogue keys.
   `registries_in_effect` lists built-in registries first, then the player's.
 
 ## Registries.yaml
@@ -118,7 +118,8 @@ built-in folder it is given. The file's name inside the player's folder is
   part of that check.
 - A built-in registry whose id has pinned keys is used only when its file
   names those keys. An id with no pinned keys is trusted as its file stands.
-  The pinned table is empty until a built-in registry's key is filled in.
+  Core Prime's pinned table holds two keys. Either one signs a catalogue.
+  The second is kept apart from the first so either can retire.
 - An added registry whose id a built-in registry has taken is listed as
   conflicting and is never used. The built-in registry wins.
 - At most 64 registries are added.

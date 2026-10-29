@@ -31,10 +31,104 @@ bool read_terrain(
     return host.read_map != nullptr && host.read_map(host.context, path, offset, out, size);
 }
 
+/// Centres a picture in a black square of `side` pixels.
+///
+/// The picture already fits the square on its longer side. The bars are
+/// opaque black, so a square card shows the map's shape and nothing else.
+///
+/// @param picture the picture, no larger than the square on either side
+/// @param side the square's side in pixels
+/// @return the square
+Thumbnail in_square(Thumbnail picture, int32_t side) {
+    if (picture.width == side && picture.height == side)
+        return picture;
+    Thumbnail square;
+    square.width = side;
+    square.height = side;
+    const auto count = static_cast<std::size_t>(side) * static_cast<std::size_t>(side);
+    square.rgba.assign(count * 4U, 0);
+    for (std::size_t index = 0; index < count; ++index)
+        square.rgba[index * 4U + 3U] = 255;
+    if (picture.width <= 0 || picture.height <= 0 || picture.width > side || picture.height > side)
+        return square;
+    const int32_t left = (side - picture.width) / 2;
+    const int32_t top = (side - picture.height) / 2;
+    for (int32_t row = 0; row < picture.height; ++row) {
+        std::memcpy(
+            square.rgba.data() +
+                (static_cast<std::size_t>(top + row) * static_cast<std::size_t>(side) +
+                 static_cast<std::size_t>(left)) *
+                    4U,
+            picture.rgba.data() +
+                static_cast<std::size_t>(row) * static_cast<std::size_t>(picture.width) * 4U,
+            static_cast<std::size_t>(picture.width) * 4U
+        );
+    }
+    return square;
+}
+
+/// The longer side of a picture fitted to `side`, and the other side at `across`:`along`.
+///
+/// @param along the map's longer count of squares
+/// @param across the map's shorter count of squares
+/// @param side the square's side in pixels
+/// @return the shorter side in pixels, at least 1
+int32_t fitted_across(int32_t along, int32_t across, int32_t side) {
+    return static_cast<int32_t>(std::max<int64_t>(1, static_cast<int64_t>(side) * across / along));
+}
+
+/// World pixels of margin a minimap leaves out: the right edge, then the bottom.
+constexpr int32_t kMinimapRightMargin = 32;
+constexpr int32_t kMinimapBottomMargin = 128;
+/// World pixels in one map square.
+constexpr int32_t kWorldPixelsPerSquare = 16;
+
+/// The minimap's meaningful part: its top-left, the share that is the map.
+///
+/// A minimap is stored in a buffer larger than the map's picture. The rest
+/// is a void colour. The map's playable part is its size in world pixels
+/// less the right and bottom margins, and the same share of the buffer,
+/// from the top-left, is the picture. A map too small for those margins
+/// keeps the whole buffer.
+///
+/// @param squares_wide the map's width in squares
+/// @param squares_high the map's height in squares
+/// @param buffer_wide the minimap buffer's width
+/// @param buffer_high the minimap buffer's height
+/// @return the meaningful width and height, at least one pixel each
+std::pair<int32_t, int32_t> meaningful_span(
+    int32_t squares_wide, int32_t squares_high, int32_t buffer_wide, int32_t buffer_high
+) {
+    const int32_t limit = std::numeric_limits<int32_t>::max() / kWorldPixelsPerSquare;
+    if (squares_wide <= 0 || squares_high <= 0 || squares_wide > limit || squares_high > limit)
+        return {buffer_wide, buffer_high};
+    const int32_t playable_wide = squares_wide * kWorldPixelsPerSquare - kMinimapRightMargin;
+    const int32_t playable_high = squares_high * kWorldPixelsPerSquare - kMinimapBottomMargin;
+    int32_t used_wide = buffer_wide;
+    int32_t used_high = buffer_high;
+    if (playable_wide > 0 && playable_high > 0) {
+        const auto share = [](int32_t value, int32_t numerator, int32_t denominator) {
+            return static_cast<int32_t>(static_cast<int64_t>(value) * numerator / denominator);
+        };
+        if (playable_wide >= playable_high)
+            used_high = share(buffer_high, playable_high, playable_wide);
+        else
+            used_wide = share(buffer_wide, playable_wide, playable_high);
+    }
+    if (used_wide < 1)
+        used_wide = buffer_wide;
+    if (used_high < 1)
+        used_high = buffer_high;
+    return {std::min(used_wide, buffer_wide), std::min(used_high, buffer_high)};
+}
+
 /// Decodes a base map's minimap into a square thumbnail.
 ///
-/// Reads the terrain file's header and minimap, fits the playable share into
-/// the square and colours it with the game palette.
+/// Reads the terrain file's header and minimap. Only the minimap's
+/// meaningful part is kept: the void colour in the rest of its buffer is
+/// left out. That part is drawn at the map's own shape, its width and
+/// height in map squares, as large as fits the square, centred, and the
+/// rest of the square is black. The pixels are coloured with the game palette.
 ///
 /// @param request the base map
 /// @param host the terrain reader and the game palette
@@ -64,36 +158,41 @@ Outcome decode_base(
     int32_t cells_high = 0;
     if (!oa::formats::tnt::load_radar_picture(file, radar, &cells_wide, &cells_high))
         return Outcome::failed;
-    constexpr int32_t kWorldShift = 4;
-    if (cells_wide < 0 || cells_high < 0 ||
-        cells_wide > (std::numeric_limits<int32_t>::max() >> kWorldShift) ||
-        cells_high > (std::numeric_limits<int32_t>::max() >> kWorldShift))
+    if (cells_wide <= 0 || cells_high <= 0 || radar.width <= 0 || radar.height <= 0)
         return Outcome::failed;
-    const auto fitted = oa::ui::frontend_multiplayer::fit_map_picture(
-        radar.pixels,
-        radar.width,
-        radar.height,
-        side,
-        side,
-        cells_wide << kWorldShift,
-        cells_high << kWorldShift
-    );
-    if (fitted.empty())
-        return Outcome::failed;
+    const auto [used_wide, used_high] =
+        meaningful_span(cells_wide, cells_high, radar.width, radar.height);
+    int32_t dst_w = side;
+    int32_t dst_h = side;
+    if (cells_wide >= cells_high)
+        dst_h = fitted_across(cells_wide, cells_high, side);
+    else
+        dst_w = fitted_across(cells_high, cells_wide, side);
     Thumbnail decoded;
-    decoded.width = side;
-    decoded.height = side;
-    decoded.rgba.resize(fitted.size() * 4U);
+    decoded.width = dst_w;
+    decoded.height = dst_h;
+    decoded.rgba.resize(static_cast<std::size_t>(dst_w) * static_cast<std::size_t>(dst_h) * 4U);
     const auto& palette = *host.palette;
-    for (std::size_t index = 0; index < fitted.size(); ++index) {
-        const auto colour = static_cast<std::size_t>(fitted[index]) * 4U;
-        auto* pixel = decoded.rgba.data() + index * 4U;
-        pixel[0] = palette[colour];
-        pixel[1] = palette[colour + 1U];
-        pixel[2] = palette[colour + 2U];
-        pixel[3] = 255;
+    for (int32_t y = 0; y < dst_h; ++y) {
+        const auto src_y = static_cast<int32_t>(static_cast<int64_t>(y) * used_high / dst_h);
+        for (int32_t x = 0; x < dst_w; ++x) {
+            const auto src_x = static_cast<int32_t>(static_cast<int64_t>(x) * used_wide / dst_w);
+            const auto index = static_cast<std::size_t>(
+                radar.pixels
+                    [static_cast<std::size_t>(src_y) * static_cast<std::size_t>(radar.width) +
+                     static_cast<std::size_t>(src_x)]
+            );
+            auto* pixel = decoded.rgba.data() +
+                          (static_cast<std::size_t>(y) * static_cast<std::size_t>(dst_w) +
+                           static_cast<std::size_t>(x)) *
+                              4U;
+            pixel[0] = palette[index * 4U];
+            pixel[1] = palette[index * 4U + 1U];
+            pixel[2] = palette[index * 4U + 2U];
+            pixel[3] = 255;
+        }
     }
-    *thumbnail = std::move(decoded);
+    *thumbnail = in_square(std::move(decoded), side);
     return Outcome::decoded;
 }
 
@@ -140,7 +239,8 @@ void paint(
     }
 }
 
-/// Scales a picture so its longer side is `side`, by nearest neighbour.
+/// Scales a picture so its longer side is `side`, by nearest neighbour,
+/// then centres it on a black square of that side.
 ///
 /// @param file the picture's bytes
 /// @param side the longer side of the result, in pixels
@@ -196,7 +296,7 @@ bool decode_png(std::span<const uint8_t> file, int32_t side, Thumbnail* thumbnai
             );
         }
     }
-    *thumbnail = std::move(decoded);
+    *thumbnail = in_square(std::move(decoded), side);
     return true;
 }
 

@@ -2803,8 +2803,26 @@ namespace {
 
 } // namespace
 
+const std::vector<std::string>& Runtime::kept_content_bundles() const {
+    const bool first = content_bundles_seen_ == 0;
+    const bool folder_changed = !first && content_bundles_folder_ != options_.game_dir;
+    // A folder chosen after the first read is a new copied set. Moving the
+    // generation here lets a face or a picker that keys on it rebuild.
+    if (folder_changed)
+        note_content_bundles_changed();
+    const uint64_t generation = content_bundles_generation();
+    if (first || folder_changed || content_bundles_seen_ != generation) {
+        content_bundles_kept_ = copied_content_bundles(options_.game_dir);
+        content_bundles_folder_ = options_.game_dir;
+        // The generation from before the read. A record written while it ran
+        // is a different generation, so the next call reads again.
+        content_bundles_seen_ = generation;
+    }
+    return content_bundles_kept_;
+}
+
 oa::data::content_bundles::ContentChoice Runtime::content_choice() const {
-    const std::vector<std::string> copied = copied_content_bundles(options_.game_dir);
+    const std::vector<std::string>& copied = kept_content_bundles();
     const std::vector<std::string_view> copied_ids = id_views(copied);
     return content_choice_from_preferences(preference_values_, copied_ids, options_.content);
 }
@@ -2851,7 +2869,7 @@ oa::data::content_bundles::ContentChangeResult Runtime::turn_content_expansion(
     std::string_view bundle_id, bool on, std::span<const std::string_view> required
 ) {
     namespace bundles = oa::data::content_bundles;
-    const std::vector<std::string> copied = copied_content_bundles(options_.game_dir);
+    const std::vector<std::string>& copied = kept_content_bundles();
     const std::vector<std::string_view> views = id_views(copied);
     const bundles::ContentChoice now =
         content_choice_from_preferences(preference_values_, views, options_.content);
@@ -2873,7 +2891,7 @@ oa::data::content_bundles::ContentChangeResult Runtime::turn_content_expansion(
 oa::data::content_bundles::ContentChangeResult
 Runtime::choose_content_base_game(std::string_view bundle_id) {
     namespace bundles = oa::data::content_bundles;
-    const std::vector<std::string> copied = copied_content_bundles(options_.game_dir);
+    const std::vector<std::string>& copied = kept_content_bundles();
     const std::vector<std::string_view> views = id_views(copied);
     const bundles::ContentChoice now =
         content_choice_from_preferences(preference_values_, views, options_.content);

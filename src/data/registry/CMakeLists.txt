@@ -20,7 +20,8 @@ if(BUILD_TESTING)
   # Which registries a player may add, the built-in folder and the registries
   # in effect.
   add_executable(oa-data-registry-trust-test tests/trust_test.cpp)
-  target_link_libraries(oa-data-registry-trust-test PRIVATE oa-data-registry oa-test-support)
+  target_link_libraries(oa-data-registry-trust-test PRIVATE oa-data-registry oa-data-catalogue
+    oa-test-support)
   add_test(NAME data-registry-trust COMMAND oa-data-registry-trust-test)
   # The registries the game ships with, against the keys compiled into the engine.
   add_executable(oa-data-registry-builtin-test tests/builtin_test.cpp)

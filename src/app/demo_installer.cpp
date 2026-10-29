@@ -371,6 +371,9 @@ void write_bundle_record(const DemoSetup& setup, const DemoRelease& release) {
     const fs::path record_path = setup.folder / fs::path(std::string(content_record_name));
     std::ofstream output(record_path, std::ios::binary | std::ios::trunc);
     output << *text;
+    if (!output)
+        return;
+    note_content_bundles_changed();
 }
 
 /// The archive resource of a recognised installer.

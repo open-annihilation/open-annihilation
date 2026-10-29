@@ -197,8 +197,8 @@ std::vector<uint8_t> encode_png(uint32_t width, uint32_t height, std::span<const
     return file;
 }
 
-/// The size a preview picture keeps after the thumbnail cache fits its
-/// longer side into the Library's square.
+/// The rectangle a preview picture's map takes inside the Library's square
+/// thumbnail, which keeps the map's own shape: its longer side fills the square.
 ///
 /// @param width the picture's width
 /// @param height the picture's height
@@ -347,6 +347,33 @@ bool picture_is(const library::MapPicture* picture, uint32_t width, uint32_t hei
     return false;
 }
 
+/// Tells whether a square thumbnail shows its map at the map's own shape:
+/// every pixel outside the centred rectangle the map takes, a pixel clear of
+/// its edge, is opaque black.
+///
+/// @param picture the thumbnail
+/// @param shape the rectangle the map takes, from fitted_png
+/// @return true when the picture is the square and its bars are black
+bool keeps_shape(const library::MapPicture* picture, std::pair<uint32_t, uint32_t> shape) {
+    const auto side = static_cast<uint32_t>(kThumbnailSide);
+    if (!picture_is(picture, side, side))
+        return false;
+    const uint32_t left = (side - shape.first) / 2;
+    const uint32_t top = (side - shape.second) / 2;
+    for (uint32_t y = 0; y < side; ++y)
+        for (uint32_t x = 0; x < side; ++x) {
+            const bool near_map =
+                x + 1 >= left && x <= left + shape.first && y + 1 >= top && y <= top + shape.second;
+            if (near_map)
+                continue;
+            const std::size_t at = (static_cast<std::size_t>(y) * side + x) * 4U;
+            if (picture->rgba[at] != 0 || picture->rgba[at + 1] != 0 ||
+                picture->rgba[at + 2] != 0 || picture->rgba[at + 3] != 255)
+                return false;
+        }
+    return true;
+}
+
 } // namespace
 
 void Runtime::prepare_library_map_preview_check() {
@@ -468,11 +495,10 @@ void Runtime::check_library_map_previews() {
         "the installed packs are not one with a picture and one without"
     );
 
-    const auto painted_size = fitted_png(2, 1);
-    const auto listed_size = fitted_png(1, 2);
-    const auto plain_size = std::pair<uint32_t, uint32_t>{
-        static_cast<uint32_t>(kThumbnailSide), static_cast<uint32_t>(kThumbnailSide)
-    };
+    // Every thumbnail is the square; a picture keeps its map's shape inside it.
+    const auto painted_shape = fitted_png(2, 1);
+    const auto listed_shape = fitted_png(1, 2);
+    const auto square = static_cast<uint32_t>(kThumbnailSide);
 
     bool running = true;
     require(
@@ -540,24 +566,16 @@ void Runtime::check_library_map_previews() {
     wait(
         [&] {
             const library::Library& model = library_host().model;
-            return picture_is(
-                       installed_picture(model, kPaintedTitle),
-                       painted_size.first,
-                       painted_size.second
-                   ) &&
-                   picture_is(
-                       installed_picture(model, kPlainTitle), plain_size.first, plain_size.second
-                   ) &&
-                   picture_is(
-                       listed_picture(model, kListedTitle), listed_size.first, listed_size.second
-                   );
+            return keeps_shape(installed_picture(model, kPaintedTitle), painted_shape) &&
+                   picture_is(installed_picture(model, kPlainTitle), square, square) &&
+                   keeps_shape(listed_picture(model, kListedTitle), listed_shape);
         },
         "the three map pictures"
     );
     std::cout << "library map preview check: Maps shows " << kPaintedTitle << " "
-              << painted_size.first << "x" << painted_size.second << ", " << kPlainTitle << " "
-              << plain_size.first << "x" << plain_size.second << ", " << kListedTitle << " "
-              << listed_size.first << "x" << listed_size.second << '\n';
+              << painted_shape.first << "x" << painted_shape.second << ", " << kPlainTitle << " "
+              << square << "x" << square << ", " << kListedTitle << " " << listed_shape.first << "x"
+              << listed_shape.second << ", each centred on black in its square\n";
 
     library::set_tab(library_host().model, library::Tab::active);
     ++library_host().model_revision;
@@ -574,9 +592,9 @@ void Runtime::check_library_map_previews() {
             bool plain = false;
             for (const library::ActiveMap& tile : setup.maps) {
                 if (tile.name == kPaintedTitle)
-                    painted = picture_is(tile.preview, painted_size.first, painted_size.second);
+                    painted = keeps_shape(tile.preview, painted_shape);
                 if (tile.name == kPlainTitle)
-                    plain = picture_is(tile.preview, plain_size.first, plain_size.second);
+                    plain = picture_is(tile.preview, square, square);
             }
             return painted && plain;
         },

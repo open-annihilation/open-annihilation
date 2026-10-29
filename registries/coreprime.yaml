@@ -17,6 +17,7 @@ homepage: https://coreprime.net
 catalogue: http://downloads.coreprime.net/v1/catalogue.json
 keys: # Ed25519; any one signs a catalogue
  - {id: steve-2026, public: "ed25519:dHXqUJM9LbifF+boPakeKsZoSD29qhTEAxkyRj+s5yU="}
+ - {id: steve-2026-secondary, public: "ed25519:SjxpBROn5onP1ILIa4tQQ3aL5BnghJ7L60Y97nA6YJY="}
 downloads:
  mode: tokens # direct · tokens
  api: http://downloads.coreprime.net/api/v1 # keys per download, challenges, counts

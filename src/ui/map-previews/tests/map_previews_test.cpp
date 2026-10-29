@@ -105,8 +105,9 @@ request_of(std::string key, PreviewSource source, std::string map, std::filesyst
     return request;
 }
 
-/// A terrain file whose minimap is four pixels and whose body is padding.
-std::vector<uint8_t> stand_in_terrain() {
+/// A terrain file of `cells_wide` by `cells_high` map squares, with a four-pixel
+/// minimap (indices 1, 2, 3 and 4) and a padded body.
+std::vector<uint8_t> stand_in_terrain(uint32_t cells_wide = 16, uint32_t cells_high = 16) {
     std::vector<uint8_t> terrain(4096, 0);
     const auto put = [&](std::size_t offset, uint32_t value) {
         terrain[offset] = static_cast<uint8_t>(value);
@@ -117,8 +118,8 @@ std::vector<uint8_t> stand_in_terrain() {
     using oa::formats::tnt::layout::header_bytes;
     using oa::formats::tnt::layout::minimap_header_bytes;
     put(0, static_cast<uint32_t>(oa::formats::tnt::Version::total_annihilation));
-    put(4, 16);
-    put(8, 16);
+    put(4, cells_wide);
+    put(8, cells_high);
     put(0x28, static_cast<uint32_t>(header_bytes));
     put(0x2c, oa::formats::tnt::layout::minimap_present_flag);
     put(header_bytes, 2);
@@ -149,7 +150,219 @@ std::vector<uint8_t> encode_png(
     return file;
 }
 
+/// True when the pixel is opaque black.
+bool black_pixel(const Thumbnail& thumb, int32_t x, int32_t y) {
+    const uint8_t* pixel =
+        thumb.rgba.data() + (static_cast<std::size_t>(y) * static_cast<std::size_t>(thumb.width) +
+                             static_cast<std::size_t>(x)) *
+                                4U;
+    return pixel[0] == 0 && pixel[1] == 0 && pixel[2] == 0 && pixel[3] == 255;
+}
+
+/// The minimap buffer's meaningful top-left, as a thumbnail keeps it.
+///
+/// @param squares_wide the map's width in squares
+/// @param squares_high the map's height in squares
+/// @param buffer_wide the buffer's width
+/// @param buffer_high the buffer's height
+/// @return the meaningful width and height
+std::pair<int32_t, int32_t>
+meaningful(int32_t squares_wide, int32_t squares_high, int32_t buffer_wide, int32_t buffer_high) {
+    constexpr int32_t kRight = 32;
+    constexpr int32_t kBottom = 128;
+    constexpr int32_t kPixels = 16;
+    const int32_t playable_wide = squares_wide * kPixels - kRight;
+    const int32_t playable_high = squares_high * kPixels - kBottom;
+    int32_t used_wide = buffer_wide;
+    int32_t used_high = buffer_high;
+    if (playable_wide > 0 && playable_high > 0) {
+        if (playable_wide >= playable_high)
+            used_high = static_cast<int32_t>(
+                static_cast<int64_t>(buffer_high) * playable_high / playable_wide
+            );
+        else
+            used_wide = static_cast<int32_t>(
+                static_cast<int64_t>(buffer_wide) * playable_wide / playable_high
+            );
+    }
+    if (used_wide < 1)
+        used_wide = buffer_wide;
+    if (used_high < 1)
+        used_high = buffer_high;
+    return {std::min(used_wide, buffer_wide), std::min(used_high, buffer_high)};
+}
+
+/// A map of `cells_wide` by `cells_high` squares keeps that shape in the
+/// square: centred, with black bars, and the meaningful minimap's four
+/// corners at the picture's four corners.
+void expect_shape(int32_t cells_wide, int32_t cells_high, int32_t side) {
+    StandIn stand;
+    stand.files["maps/ridge.tnt"] =
+        stand_in_terrain(static_cast<uint32_t>(cells_wide), static_cast<uint32_t>(cells_high));
+    oa::PaletteBytes palette{};
+    palette[1 * 4 + 0] = 10;
+    palette[2 * 4 + 0] = 20;
+    palette[3 * 4 + 1] = 30;
+    palette[4 * 4 + 2] = 40;
+    const PreviewHost host = host_of(stand, &palette);
+    PreviewCache cache(4, side);
+    const auto request = request_of("ridge", PreviewSource::base, "ridge", {});
+    cache.ask(request);
+    cache.pump(host, 1);
+    const Thumbnail* thumb = cache.ask(request);
+    expect(
+        thumb != nullptr && thumb->width == side && thumb->height == side, "the picture is square"
+    );
+    if (thumb == nullptr || thumb->width != side || thumb->height != side)
+        return;
+    const int32_t picture_w =
+        cells_wide >= cells_high ? side : std::max(1, side * cells_wide / cells_high);
+    const int32_t picture_h =
+        cells_wide >= cells_high ? std::max(1, side * cells_high / cells_wide) : side;
+    const int32_t left = (side - picture_w) / 2;
+    const int32_t top = (side - picture_h) / 2;
+    const auto [used_wide, used_high] = meaningful(cells_wide, cells_high, 2, 2);
+    const auto source = [&](int32_t x, int32_t y) {
+        const int32_t column = x * used_wide / picture_w;
+        const int32_t row = y * used_high / picture_h;
+        return row * 2 + column;
+    };
+    const auto at = [&](int32_t x, int32_t y) {
+        return thumb->rgba.data() + (static_cast<std::size_t>(y) * static_cast<std::size_t>(side) +
+                                     static_cast<std::size_t>(x)) *
+                                        4U;
+    };
+    const uint8_t corners[] = {10, 20, 30, 40};
+    const int channel[] = {0, 0, 1, 2};
+    const int32_t places[][2] = {
+        {0, 0}, {picture_w - 1, 0}, {0, picture_h - 1}, {picture_w - 1, picture_h - 1}
+    };
+    for (int place = 0; place < 4; ++place) {
+        const int32_t x = places[place][0];
+        const int32_t y = places[place][1];
+        expect(
+            at(left + x, top + y)[channel[source(x, y)]] == corners[source(x, y)],
+            "a meaningful corner is the picture's corner"
+        );
+    }
+    bool bars = true;
+    if (top > 0)
+        bars = black_pixel(*thumb, side / 2, 0);
+    if (left > 0)
+        bars = bars && black_pixel(*thumb, 0, side / 2);
+    expect(bars, "the rest of the square is black");
+    expect(
+        !black_pixel(*thumb, left + picture_w / 2, top + picture_h / 2),
+        "the picture itself is not a bar"
+    );
+}
+
+/// A terrain file whose minimap buffer is larger than the map's picture.
+/// The picture sits in the top-left; the rest of the buffer is one void colour.
+std::vector<uint8_t> padded_minimap() {
+    constexpr uint32_t kCellsWide = 32;
+    constexpr uint32_t kCellsHigh = 16;
+    constexpr uint32_t kBuffer = 16;
+    // The meaningful part is the top 4 rows of the 16-row buffer.
+    constexpr int32_t kPictureRows = 4;
+    constexpr uint8_t kVoid = 9;
+    std::vector<uint8_t> terrain(4096, 0);
+    const auto put = [&](std::size_t offset, uint32_t value) {
+        terrain[offset] = static_cast<uint8_t>(value);
+        terrain[offset + 1] = static_cast<uint8_t>(value >> 8);
+        terrain[offset + 2] = static_cast<uint8_t>(value >> 16);
+        terrain[offset + 3] = static_cast<uint8_t>(value >> 24);
+    };
+    using oa::formats::tnt::layout::header_bytes;
+    using oa::formats::tnt::layout::minimap_header_bytes;
+    put(0, static_cast<uint32_t>(oa::formats::tnt::Version::total_annihilation));
+    put(4, kCellsWide);
+    put(8, kCellsHigh);
+    put(0x28, static_cast<uint32_t>(header_bytes));
+    put(0x2c, oa::formats::tnt::layout::minimap_present_flag);
+    put(header_bytes, kBuffer);
+    put(header_bytes + 4, kBuffer);
+    uint8_t* pixels = terrain.data() + header_bytes + minimap_header_bytes;
+    std::fill_n(pixels, kBuffer * kBuffer, kVoid);
+    for (uint32_t row = 0; row < kPictureRows; ++row)
+        std::fill_n(pixels + row * kBuffer, kBuffer, static_cast<uint8_t>(5));
+    pixels[0] = 1;
+    pixels[kBuffer - 1] = 2;
+    pixels[(kPictureRows - 1) * kBuffer] = 3;
+    pixels[(kPictureRows - 1) * kBuffer + kBuffer - 1] = 4;
+    return terrain;
+}
+
+/// A padded minimap keeps the picture and drops the void colour. The
+/// picture's corners land on the fitted rectangle's corners.
+void expect_no_void() {
+    constexpr int32_t kSide = 32;
+    constexpr int32_t kCellsWide = 32;
+    constexpr int32_t kCellsHigh = 16;
+    constexpr uint8_t kVoidRed = 80;
+    constexpr uint8_t kVoidGreen = 160;
+    constexpr uint8_t kVoidBlue = 255;
+    StandIn stand;
+    stand.files["maps/ridge.tnt"] = padded_minimap();
+    oa::PaletteBytes palette{};
+    palette[1 * 4 + 0] = 10;
+    palette[2 * 4 + 0] = 20;
+    palette[3 * 4 + 1] = 30;
+    palette[4 * 4 + 2] = 40;
+    palette[5 * 4 + 0] = 50;
+    palette[9 * 4 + 0] = kVoidRed;
+    palette[9 * 4 + 1] = kVoidGreen;
+    palette[9 * 4 + 2] = kVoidBlue;
+    const PreviewHost host = host_of(stand, &palette);
+    PreviewCache cache(4, kSide);
+    const auto request = request_of("ridge", PreviewSource::base, "ridge", {});
+    cache.ask(request);
+    cache.pump(host, 1);
+    const Thumbnail* thumb = cache.ask(request);
+    expect(
+        thumb != nullptr && thumb->width == kSide && thumb->height == kSide,
+        "a padded minimap decodes"
+    );
+    if (thumb == nullptr)
+        return;
+    bool void_colour = false;
+    for (std::size_t index = 0; index + 3 < thumb->rgba.size(); index += 4) {
+        if (thumb->rgba[index] == kVoidRed && thumb->rgba[index + 1] == kVoidGreen &&
+            thumb->rgba[index + 2] == kVoidBlue)
+            void_colour = true;
+    }
+    expect(!void_colour, "a thumbnail holds no void colour");
+    const int32_t picture_w = kSide;
+    const int32_t picture_h = kSide * kCellsHigh / kCellsWide;
+    const int32_t left = 0;
+    const int32_t top = (kSide - picture_h) / 2;
+    const auto [used_wide, used_high] = meaningful(kCellsWide, kCellsHigh, 16, 16);
+    const auto at = [&](int32_t x, int32_t y) {
+        return thumb->rgba.data() + (static_cast<std::size_t>(y) * static_cast<std::size_t>(kSide) +
+                                     static_cast<std::size_t>(x)) *
+                                        4U;
+    };
+    const int32_t src_right = (picture_w - 1) * used_wide / picture_w;
+    const int32_t src_bottom = (picture_h - 1) * used_high / picture_h;
+    expect(
+        src_right == used_wide - 1 && src_bottom == used_high - 1,
+        "the fitted corners reach the picture"
+    );
+    expect(at(left, top)[0] == 10, "the picture's top left is the rectangle's");
+    expect(at(left + picture_w - 1, top)[0] == 20, "the picture's top right is the rectangle's");
+    expect(at(left, top + picture_h - 1)[1] == 30, "the picture's bottom left is the rectangle's");
+    expect(
+        at(left + picture_w - 1, top + picture_h - 1)[2] == 40,
+        "the picture's bottom right is the rectangle's"
+    );
+    expect(black_pixel(*thumb, kSide / 2, 0), "the square above the picture is black");
+}
+
 void synthetic_tests() {
+    expect_shape(18, 6, 18);
+    expect_shape(6, 18, 18);
+    expect_shape(16, 16, 16);
+    expect_no_void();
     constexpr int32_t kSide = 4;
     StandIn stand;
     stand.files["maps/ridge.tnt"] = stand_in_terrain();
@@ -193,9 +406,9 @@ void synthetic_tests() {
     cache.pump(host, 4);
     const Thumbnail* pack = cache.ask(picture);
     expect(
-        pack != nullptr && pack->width == kSide && pack->height == kSide / 2 &&
-            pack->rgba[0] == 255 && pack->rgba[2] == 0,
-        "a pack preview keeps its shape"
+        pack != nullptr && pack->width == kSide && pack->height == kSide && pack->rgba[0] == 0 &&
+            pack->rgba[(static_cast<std::size_t>(kSide) + 0) * 4U] == 255,
+        "a pack preview keeps its shape, centred on black"
     );
     expect(stand.map_reads == map_reads, "a pack preview does not read a terrain file");
 
@@ -217,7 +430,8 @@ void synthetic_tests() {
     waiting.pump(host, 1);
     const Thumbnail* fetched = waiting.ask(online);
     expect(
-        fetched != nullptr && fetched->width == kSide && fetched->rgba[1] == 255,
+        fetched != nullptr && fetched->width == kSide && fetched->height == kSide &&
+            fetched->rgba[(static_cast<std::size_t>(kSide) + 0) * 4U + 1U] == 255,
         "an online picture decodes once its bytes are ready"
     );
 
