@@ -256,7 +256,7 @@ Window window_of(const kit::Frame& frame) {
 /// @param state the match, for the paused note
 /// @param fonts the fonts
 /// @param window the window
-/// @param compact Compact's title is Keys
+/// @param compact Compact's title is KEYS
 void add_header(
     Built& built,
     const Editor& editor,
@@ -272,9 +272,10 @@ void add_header(
         compact_metrics.padding + compact_metrics.mark_side + compact_metrics.header_gap;
     const int32_t right_edge =
         window.width - compact_metrics.edge - compact_metrics.padding - right_inset;
-    const std::string title_word =
-        compact ? show(editor.text(), words::keys) : show(editor.text(), words::source_oa);
-    const std::string second_word = compact ? std::string{} : show(editor.text(), words::keys);
+    const std::string title_word = compact ? show(editor.text(), words::keys_header)
+                                           : show(editor.text(), words::open_annihilation_header);
+    const std::string second_word =
+        compact ? std::string{} : show(editor.text(), words::keys_header);
     std::string version;
     if (compact) {
         const std::string_view pattern =
@@ -2053,38 +2054,62 @@ void add_menu(
     const std::vector<MenuEntry> entries = menu_entries(editor, state.menu, state, compact);
     if (entries.empty())
         return;
-    const kit::Rect menu = kit::choice_menu(field, entries.size(), window.footer_rule);
-    const kit::Rect whole{0, 0, window.width, window.height};
-    if (!kit::wholly_in(menu, whole))
-        return;
-    const int32_t shown_count = kit::shown_choices(entries.size());
+    const int32_t below = window.footer_rule - (field.y + field.height);
+    const int32_t above = field.y - window.body_top;
+    const int32_t room = std::max(below, above);
     const int32_t count = static_cast<int32_t>(entries.size());
+    int32_t shown_count = menu_rows_that_fit(metrics, entries, room);
+    if (shown_count < 1)
+        shown_count = 1;
+    if (shown_count > count)
+        shown_count = count;
     int32_t first = state.menu_first;
     if (first < 0)
         first = 0;
-    if (first > std::max(count - shown_count, int32_t{0}))
-        first = std::max(count - shown_count, int32_t{0});
     int32_t marked = state.menu_marked;
     if (marked < 0 || marked >= count)
         marked = -1;
+    if (marked >= 0) {
+        if (marked < first)
+            first = marked;
+        if (marked >= first + shown_count)
+            first = marked - shown_count + 1;
+    }
+    first = std::clamp(first, int32_t{0}, std::max(count - shown_count, int32_t{0}));
+    const int32_t inner = menu_inner_height(metrics, entries, first, shown_count);
+    const int32_t menu_height = inner + 2;
+    int32_t menu_top =
+        below >= menu_height || below >= above ? field.y + field.height : field.y - menu_height;
+    if (menu_top < window.body_top)
+        menu_top = window.body_top;
+    if (menu_top + menu_height > window.footer_rule)
+        menu_top = std::max(window.footer_rule - menu_height, window.body_top);
+    const kit::Rect menu{field.x, menu_top, field.width, menu_height};
+    const kit::Rect whole{0, 0, window.width, window.height};
+    if (!kit::wholly_in(menu, whole))
+        return;
     kit::ChoiceMenuLook look;
     look.first = first;
     look.total = count;
     look.chosen = menu_chosen(editor, state.menu, state, entries);
     look.marked = marked;
     look.focus_shown = state.interaction.focus_shown;
+    look.row_height = metrics.row_height;
+    look.heading_gap = metrics.space;
+    look.rule_height = std::max(metrics.space, int32_t{4});
     look.items.resize(entries.size());
     for (int32_t index = 0; index < count; ++index) {
         const MenuEntry& entry = entries[static_cast<std::size_t>(index)];
         kit::ChoiceMenuRow row;
         row.divider = entry.kind == MenuKind::divider;
+        row.rule = row.divider && entry.caption.empty();
         row.choosable = !row.divider;
         row.id = entry.name;
         look.items[static_cast<std::size_t>(index)] = row;
         const bool visible = index >= first && index < first + shown_count;
         if (row.divider) {
             if (visible) {
-                const kit::Rect box = kit::choice_item(menu, index - first);
+                const kit::Rect box = kit::menu_item_box(menu, look, index - first);
                 look.shown.push_back(
                     kit::cut_to_width(
                         fonts,
@@ -2103,7 +2128,7 @@ void add_menu(
         control.focusable = false;
         control.checked = index == look.chosen || filter_in_use(entry, state.filter);
         if (visible) {
-            const kit::Rect box = kit::choice_item(menu, index - first);
+            const kit::Rect box = kit::menu_item_box(menu, look, index - first);
             const std::string caption = kit::cut_to_width(
                 fonts,
                 kit::FontRole::regular,

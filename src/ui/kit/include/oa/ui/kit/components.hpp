@@ -339,6 +339,17 @@ inline constexpr int32_t compact_footer_line =
 /// @return the item's rectangle, inside the menu's border
 [[nodiscard]] Rect choice_item(const Rect& menu, int32_t place) noexcept;
 
+/// One shown item's rectangle when the menu names a row height. A look with
+/// no row height is choice_item. A heading that is not the menu's first item
+/// keeps heading_gap above its row, and a rule is rule_height.
+///
+/// @param menu the menu
+/// @param look the menu's rows
+/// @param place the item's place among those shown, from 0
+/// @return the item's rectangle, inside the menu's border
+[[nodiscard]] Rect
+menu_item_box(const Rect& menu, const ChoiceMenuLook& look, int32_t place) noexcept;
+
 /// Returns the shown item under a point.
 ///
 /// @param menu the menu

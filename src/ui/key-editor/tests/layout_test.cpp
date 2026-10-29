@@ -1639,6 +1639,137 @@ void check_dialog_fit(const kit::Frame& frame, const std::string& where) {
     }
 }
 
+/// The header reads OPEN ANNIHILATION then KEYS, with the kit's heading
+/// tracking, and each open menu's choices are the class's row height, a
+/// heading keeping a space above its group. The menu stays inside the window.
+///
+/// @param frame the frame
+/// @param where the case
+void check_header_and_menus(const kit::Frame& frame, const std::string& where) {
+    const kit::Metrics& metrics = kit::metrics_of(frame.size_class);
+    const bool compact = frame.size_class == kit::SizeClass::compact;
+    const editor::Editor model(editor_fixture());
+    const kit::DisplayList closed = laid_out(model, {}, frame);
+    const kit::HeaderLook* header = nullptr;
+    for (const kit::Item& item : closed.items) {
+        if (item.role == kit::Role::header)
+            header = std::get_if<kit::HeaderLook>(&item.look);
+    }
+    if (header == nullptr)
+        std::fprintf(stderr, "%s: no header\n", where.c_str());
+    OA_CHECK(header != nullptr);
+    if (header == nullptr)
+        return;
+    if (header->tracking != metrics.heading_tracking)
+        std::fprintf(stderr, "%s: header tracking %d\n", where.c_str(), header->tracking);
+    OA_CHECK(header->tracking == metrics.heading_tracking);
+    const bool words = compact ? header->title == "KEYS" && header->second.empty()
+                               : header->title == "OPEN ANNIHILATION" && header->second == "KEYS";
+    if (!words)
+        std::fprintf(
+            stderr,
+            "%s: header \"%s\" \"%s\"\n",
+            where.c_str(),
+            header->title.c_str(),
+            header->second.c_str()
+        );
+    OA_CHECK(words);
+
+    const kit::Point window = editor::window_size(frame);
+    const editor::Menu menus[] = {editor::Menu::more, editor::Menu::layout, editor::Menu::category};
+    for (const editor::Menu menu : menus) {
+        if (menu == editor::Menu::layout && compact)
+            continue;
+        if (menu == editor::Menu::category && frame.size_class == kit::SizeClass::large)
+            continue;
+        editor::ScreenState state;
+        state.menu = menu;
+        const kit::DisplayList list = laid_out(model, state, frame);
+        const kit::ChoiceMenuLook* look = nullptr;
+        const kit::Item* drawn = nullptr;
+        for (const kit::Item& item : list.items) {
+            if (const auto* menu_look = std::get_if<kit::ChoiceMenuLook>(&item.look)) {
+                look = menu_look;
+                drawn = &item;
+            }
+        }
+        if (look == nullptr || drawn == nullptr) {
+            std::fprintf(stderr, "%s: a menu is missing\n", where.c_str());
+            OA_CHECK(false);
+            continue;
+        }
+        const bool inside = drawn->rect.x >= 0 && drawn->rect.y >= 0 &&
+                            drawn->rect.x + drawn->rect.width <= window.x &&
+                            drawn->rect.y + drawn->rect.height <= window.y;
+        if (!inside)
+            std::fprintf(
+                stderr,
+                "%s: menu %d,%d %dx%d outside %dx%d\n",
+                where.c_str(),
+                drawn->rect.x,
+                drawn->rect.y,
+                drawn->rect.width,
+                drawn->rect.height,
+                window.x,
+                window.y
+            );
+        OA_CHECK(inside);
+        OA_CHECK(look->row_height == metrics.row_height);
+        bool choice = false;
+        for (const kit::ChoiceMenuRow& row : look->items) {
+            if (row.id.empty() || row.divider)
+                continue;
+            const kit::Control* control = find_named(list, row.id);
+            if (control == nullptr || !control->enabled)
+                continue;
+            choice = true;
+            if (control->rect.height != metrics.row_height)
+                std::fprintf(
+                    stderr,
+                    "%s: %s is %d high, not %d\n",
+                    where.c_str(),
+                    control->name.c_str(),
+                    control->rect.height,
+                    metrics.row_height
+                );
+            OA_CHECK(control->rect.height == metrics.row_height);
+        }
+        OA_CHECK(choice);
+        kit::Rect previous{};
+        bool have = false;
+        for (int32_t place = 0; place < static_cast<int32_t>(look->shown.size()); ++place) {
+            const kit::Rect box = kit::menu_item_box(drawn->rect, *look, place);
+            const int32_t index = look->first + place;
+            const bool heading = index >= 0 &&
+                                 static_cast<std::size_t>(index) < look->items.size() &&
+                                 look->items[static_cast<std::size_t>(index)].divider &&
+                                 !look->items[static_cast<std::size_t>(index)].rule;
+            const bool rule = index >= 0 && static_cast<std::size_t>(index) < look->items.size() &&
+                              look->items[static_cast<std::size_t>(index)].rule;
+            const int32_t height = rule ? std::max(metrics.space, int32_t{4}) : metrics.row_height;
+            if (box.height != height)
+                std::fprintf(stderr, "%s: row %d is %d high\n", where.c_str(), place, box.height);
+            OA_CHECK(box.height == height);
+            if (have) {
+                const int32_t gap = box.y - (previous.y + previous.height);
+                const int32_t expect = heading && index > 0 ? metrics.space : 0;
+                if (gap != expect)
+                    std::fprintf(
+                        stderr,
+                        "%s: row %d gap %d, expected %d\n",
+                        where.c_str(),
+                        place,
+                        gap,
+                        expect
+                    );
+                OA_CHECK(gap == expect);
+            }
+            previous = box;
+            have = true;
+        }
+    }
+}
+
 int main() {
     const kit::Frame compact = frame_for(640, 480, 100);
     const kit::Frame large = frame_for(1280, 720, 100);
@@ -1661,6 +1792,9 @@ int main() {
     check_shell(compact, "compact");
     check_shell(large, "large");
     check_shell(regular, "regular");
+    check_header_and_menus(compact, "compact");
+    check_header_and_menus(large, "large");
+    check_header_and_menus(regular, "regular");
 
     check_french(compact, "french compact");
     check_french(large, "french large");

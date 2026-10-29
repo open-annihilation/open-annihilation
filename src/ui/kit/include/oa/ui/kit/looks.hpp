@@ -160,6 +160,7 @@ struct ChoiceMenuRow {
     std::string aside{};  ///< right-aligned text; empty for none
     std::string id{};     ///< the automation word; empty on a divider, which is not named
     bool divider{false};  ///< a heading, not a choice: no focus, no press, no name
+    bool rule{false};     ///< a divider with no words: a line, not a heading
     bool choosable{true}; ///< a press on it chooses it; a greyed row is not
 };
 
@@ -174,6 +175,12 @@ struct ChoiceMenuLook {
     int32_t chosen{};   ///< the chosen choice's index
     int32_t marked{};   ///< the item the pointer or the keys mark
     bool focus_shown{}; ///< the keyboard focus outlines the marked item
+    /// A choice's height. 0 keeps every row choice_item_height, as before.
+    int32_t row_height{};
+    /// Points above a heading that is not the menu's first item. 0 for none.
+    int32_t heading_gap{};
+    /// A rule's height, when row_height is set. 0 draws a rule as a choice row.
+    int32_t rule_height{};
 };
 
 /// A lock's text, already looked up. The padlock is drawn with it.

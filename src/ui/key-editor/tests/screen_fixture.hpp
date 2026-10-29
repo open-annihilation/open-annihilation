@@ -326,7 +326,8 @@ texts_not_fitting(const kit::DisplayList& list, const kit::Fonts& measured) {
         case kit::Role::choice_menu:
             if (const auto* look = std::get_if<kit::ChoiceMenuLook>(&item.look))
                 for (std::size_t place = 0; place < look->shown.size(); ++place) {
-                    const kit::Rect box = kit::choice_item(item.rect, static_cast<int32_t>(place));
+                    const kit::Rect box =
+                        kit::menu_item_box(item.rect, *look, static_cast<int32_t>(place));
                     check(
                         width(kit::FontRole::regular, look->shown[place]) <=
                             box.width - metrics.choice_item_text_inset,

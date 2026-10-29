@@ -2006,10 +2006,24 @@ void draw_choice_menu(const Canvas& canvas, const Rect& menu, const ChoiceMenuLo
         const int32_t item = look.first + place;
         if (look.total >= 0 && item >= look.total)
             break;
-        const Rect box = choice_item(menu, place);
+        const Rect box = menu_item_box(menu, look, place);
         const ChoiceMenuRow* row = menu_row(look, item);
         // A divider is a section heading: no selection, no marker, no focus.
         if (row != nullptr && row->divider) {
+            if (look.row_height > 0 && row->rule) {
+                const int32_t line = box.y + box.height / 2;
+                fill_rect(
+                    canvas,
+                    {box.x + compact_metrics.choice_item_text_inset,
+                     line,
+                     std::max(
+                         box.width - compact_metrics.choice_item_text_inset - kChoiceTextMargin, 0
+                     ),
+                     1},
+                    colour::rule
+                );
+                continue;
+            }
             const Rect heading{
                 box.x + compact_metrics.choice_item_text_inset,
                 box.y,
@@ -2069,7 +2083,9 @@ void draw_choice_menu(const Canvas& canvas, const Rect& menu, const ChoiceMenuLo
         }
     }
     const int32_t window =
-        shown_choices(static_cast<std::size_t>(std::max(look.total, int32_t{0})));
+        look.row_height > 0
+            ? static_cast<int32_t>(look.shown.size())
+            : shown_choices(static_cast<std::size_t>(std::max(look.total, int32_t{0})));
     if (look.total > window) {
         const int32_t travel = menu.height - 2;
         const int32_t height = std::max(travel * window / look.total, 4);
@@ -2100,6 +2116,53 @@ Rect choice_item(const Rect& menu, int32_t place) noexcept {
         menu.width - 2,
         compact_metrics.choice_item_height
     };
+}
+
+namespace {
+
+/// The points above one item, when a heading keeps room above its group.
+///
+/// @param look the menu
+/// @param index the item, from 0
+/// @return the gap; 0 for a choice, a rule, the first item, or a classic menu
+int32_t menu_lead(const ChoiceMenuLook& look, int32_t index) noexcept {
+    if (look.row_height <= 0 || look.heading_gap <= 0 || index <= 0)
+        return 0;
+    if (static_cast<std::size_t>(index) >= look.items.size())
+        return 0;
+    const ChoiceMenuRow& row = look.items[static_cast<std::size_t>(index)];
+    if (!row.divider || row.rule)
+        return 0;
+    return look.heading_gap;
+}
+
+/// How tall one item is.
+///
+/// @param look the menu
+/// @param index the item, from 0
+/// @return the height, in points
+int32_t menu_span(const ChoiceMenuLook& look, int32_t index) noexcept {
+    if (look.row_height <= 0)
+        return compact_metrics.choice_item_height;
+    if (index >= 0 && static_cast<std::size_t>(index) < look.items.size() &&
+        look.items[static_cast<std::size_t>(index)].rule && look.rule_height > 0)
+        return look.rule_height;
+    return look.row_height;
+}
+
+} // namespace
+
+Rect menu_item_box(const Rect& menu, const ChoiceMenuLook& look, int32_t place) noexcept {
+    if (look.row_height <= 0)
+        return choice_item(menu, place);
+    int32_t top = menu.y + 1;
+    for (int32_t step = 0; step < place; ++step) {
+        const int32_t index = look.first + step;
+        top += menu_lead(look, index) + menu_span(look, index);
+    }
+    const int32_t index = look.first + place;
+    top += menu_lead(look, index);
+    return {menu.x + 1, top, menu.width - 2, menu_span(look, index)};
 }
 
 int32_t choice_item_at(const Rect& menu, int32_t x, int32_t y) noexcept {

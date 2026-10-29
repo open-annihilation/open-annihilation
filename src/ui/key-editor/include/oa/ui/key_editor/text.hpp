@@ -44,8 +44,13 @@ struct TextHooks {
 
 namespace words {
 
-/// The screen's name, and Compact's title.
+/// The screen's name.
 inline constexpr std::string_view keys = "Keys";
+/// The header's title at Compact, and its second word at Regular and Large,
+/// in capitals as Settings' and the Library's headers are.
+inline constexpr std::string_view keys_header = "KEYS";
+/// The header's first words at Regular and Large; keys_header follows them.
+inline constexpr std::string_view open_annihilation_header = "OPEN ANNIHILATION";
 /// The word beside the layout drop-down.
 inline constexpr std::string_view layout = "Layout";
 /// The layout's author and version, under its name.

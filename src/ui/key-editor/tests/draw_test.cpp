@@ -37,6 +37,7 @@
 #include "oa/ui/key_editor/model.hpp"
 #include "oa/ui/key_editor/overlay.hpp"
 #include "oa/ui/key_editor/screen.hpp"
+#include "oa/platform/text_font.hpp"
 #include "oa/ui/kit/canvas.hpp"
 #include "oa/ui/kit/layout.hpp"
 #include "oa/ui/kit/theme.hpp"
@@ -929,6 +930,61 @@ int main(int argc, char** argv) {
             check_dialog(scene, first);
         check_prompt_parts(scene, measured);
         digests.emplace_back(scene.name, digest_of(first.surface));
+        if (frames && std::string_view(scene.name) == "large") {
+            // More and the layout menu, in the modern look, beside the pinned scenes.
+            auto stack = oa::platform::text_font::FontStack::open(
+                oa::platform::text_font::bundled_font_directory()
+            );
+            kit::Fonts modern = measured;
+            if (stack)
+                modern.modern = &*stack;
+            const editor::Menu menus[] = {editor::Menu::more, editor::Menu::layout};
+            const char* names[] = {
+                "key-more-1280x720-modern.png", "key-layout-1280x720-modern.png"
+            };
+            const kit::Frame shot = frame_for(1280, 720, 100);
+            modern.size_class = shot.size_class;
+            editor::Editor model(editor_fixture());
+            for (int which = 0; which < 2; ++which) {
+                editor::ScreenState state;
+                state.menu = menus[which];
+                Drawing drawing;
+                drawing.scale = shot.scale_percent / 100;
+                drawing.window = editor::window_size(shot);
+                const kit::DisplayList list = editor::editor_layout(model, state, shot, modern);
+                drawing.surface.width = 1280;
+                drawing.surface.height = 720;
+                drawing.surface.rgb.assign(1280u * 720u * 3u, 0);
+                fill_untouched(drawing.surface);
+                kit::Canvas canvas;
+                canvas.surface = &drawing.surface;
+                canvas.placement = {0, 0, drawing.scale, {}};
+                canvas.fonts = &modern;
+                editor::draw_editor(canvas, list, drawing.window);
+                const std::filesystem::path path = *frames / names[which];
+                if (!write_canvas(drawing, path))
+                    std::fprintf(stderr, "draw: cannot write %s\n", path.string().c_str());
+            }
+            const kit::Frame compact = frame_for(640, 480, 100);
+            modern.size_class = compact.size_class;
+            editor::ScreenState more;
+            more.menu = editor::Menu::more;
+            Drawing drawing;
+            drawing.scale = 1;
+            drawing.window = editor::window_size(compact);
+            const kit::DisplayList list = editor::editor_layout(model, more, compact, modern);
+            drawing.surface.width = 640;
+            drawing.surface.height = 480;
+            drawing.surface.rgb.assign(640u * 480u * 3u, 0);
+            fill_untouched(drawing.surface);
+            kit::Canvas canvas;
+            canvas.surface = &drawing.surface;
+            canvas.placement = {0, 0, 1, {}};
+            canvas.fonts = &modern;
+            editor::draw_editor(canvas, list, drawing.window);
+            if (!write_canvas(drawing, *frames / "key-more-640x480-modern.png"))
+                std::fprintf(stderr, "draw: cannot write the compact More picture\n");
+        }
         if (frames) {
             const bool keys_overlay = std::string_view(scene.name).starts_with("keys-overlay");
             const std::string stem =

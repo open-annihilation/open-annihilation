@@ -16,6 +16,8 @@ namespace oa::ui::key_editor {
 /// the modules' lists together and keeps one of each text.
 inline constexpr std::string_view interface_words[] = {
     words::keys,
+    words::keys_header,
+    words::open_annihilation_header,
     words::layout,
     words::by_author,
     words::own_changes,

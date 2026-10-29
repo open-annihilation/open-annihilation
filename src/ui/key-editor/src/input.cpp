@@ -485,10 +485,17 @@ void close_menu(ScreenState& state) {
 /// Keeps the marked menu item among the items the menu shows.
 ///
 /// @param[in,out] state the menu
-/// @param count how many items the menu has
-void show_marked(ScreenState& state, std::size_t count) {
-    const int32_t shown = std::max(kit::shown_choices(count), int32_t{1});
-    const int32_t last_first = std::max(static_cast<int32_t>(count) - shown, int32_t{0});
+/// @param entries the menu
+/// @param list the display list, for the size class
+void show_marked(
+    ScreenState& state, const std::vector<MenuEntry>& entries, const kit::DisplayList& list
+) {
+    const kit::SizeClass size_class = size_of(list);
+    const kit::Metrics& metrics = kit::metrics_of(size_class);
+    const int32_t shown =
+        std::max(menu_rows_that_fit(metrics, entries, menu_room(metrics, size_class)), int32_t{1});
+    const int32_t count = static_cast<int32_t>(entries.size());
+    const int32_t last_first = std::max(count - shown, int32_t{0});
     if (state.menu_marked < state.menu_first)
         state.menu_first = std::max(state.menu_marked, int32_t{0});
     if (state.menu_marked >= state.menu_first + shown)
@@ -630,7 +637,7 @@ void toggle_menu(
         state.menu_marked = places.empty() ? -1 : places.front();
     }
     state.menu_first = 0;
-    show_marked(state, entries.size());
+    show_marked(state, entries, list);
 }
 
 /// The control a press is on, when it is the field that opened the menu.
@@ -1068,7 +1075,11 @@ menu_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::
     else if (pressed == kit::Key::down)
         next = std::clamp((found ? current : -1) + 1, int32_t{0}, last);
     else if (pressed == kit::Key::page_up || pressed == kit::Key::page_down) {
-        const int32_t page = std::max(kit::shown_choices(entries.size()), int32_t{1});
+        const kit::SizeClass size_class = size_of(list);
+        const kit::Metrics& metrics = kit::metrics_of(size_class);
+        const int32_t page = std::max(
+            menu_rows_that_fit(metrics, entries, menu_room(metrics, size_class)), int32_t{1}
+        );
         const int32_t from = found ? current : (pressed == kit::Key::page_down ? -1 : last + 1);
         const int32_t step = pressed == kit::Key::page_down ? page : -page;
         next = std::clamp(from + step, int32_t{0}, last);
@@ -1076,7 +1087,7 @@ menu_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::
         return {};
     }
     state.menu_marked = places[static_cast<std::size_t>(next)];
-    show_marked(state, entries.size());
+    show_marked(state, entries, list);
     return redrawn();
 }
 
