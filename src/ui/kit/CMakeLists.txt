@@ -108,7 +108,14 @@ if(BUILD_TESTING)
   oa_copy_text_fonts(oa-ui-kit-gallery-test "${oa_ui_kit_font_dir}")
   target_link_libraries(oa-ui-kit-gallery-test PRIVATE oa-platform-text-font)
   add_test(NAME ui-kit-gallery COMMAND oa-ui-kit-gallery-test)
-  set_tests_properties(ui-kit-gallery PROPERTIES TIMEOUT 30)
+  # About 2 to 3 s on a Check build, five to six times what it took at 0.8.6
+  # (four and a half times in a Debug build): the gallery now holds the key
+  # pictures and the radio, 369 controls where it had 43, and every case runs
+  # again in the modern look, whose text the bundled fonts lay out. The
+  # Visual Studio Debug lane multiplies a set TIMEOUT by 8 and took 80 to
+  # 130 s of its 240 s at 0.8.6, so the limit grows six times with the work
+  # to keep that margin.
+  set_tests_properties(ui-kit-gallery PROPERTIES TIMEOUT 180)
 
   # The first-run pieces at Compact, Regular and Large, at 1x and at 150%.
   # The smooth draws read the bundled fonts beside the test.
