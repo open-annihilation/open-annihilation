@@ -298,6 +298,14 @@ inline constexpr std::size_t mutators_card_rows = 6;
 [[nodiscard]] oa::ui::kit::HoverCardLook
 mutators_card(std::span<const MutatorsCardItem> items, bool host);
 
+/// The OA mark the room stamps draw: the app icon's visible part, the same
+/// picture the window header and the OA button draw. Empty when that picture
+/// cannot be read, and a stamp then draws its letters. The pixels last as
+/// long as the program.
+///
+/// @return the icon
+[[nodiscard]] const oa::ui::frontend_renderer::RgbaPicture& room_stamp_icon();
+
 /// Draws a room's Mutators button: the room's on and off button with the OA
 /// stamp at its left, the word "Mutators" in the language shown, the lamp
 /// asked for and, while it holds the focus, the room's focus marker round

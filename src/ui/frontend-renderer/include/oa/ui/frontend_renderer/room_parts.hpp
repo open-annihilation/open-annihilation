@@ -7,8 +7,8 @@
 // battle room, the new-campaign screen), drawn from the room's own art as
 // the room draws its buttons, lamps and lists: a button on the room's button
 // plate in its caption font, a notch at a button's right end, a lamp, a list
-// box, a line of label text and a small engraved OA stamp for a part 3.1c
-// does not have. Everything is drawn in the room frame's pixels on a
+// box, a line of label text and a small OA stamp for a part 3.1c does not
+// have. Everything is drawn in the room frame's pixels on a
 // RoomCanvas, which keeps the room's own pixels where no part is drawn and
 // marks the pixels a part covers. A mod's art and palette carry through.
 
@@ -325,18 +325,26 @@ void draw_room_notch(
     RoomCanvas& canvas, const RoomArt& art, SourceRect notch, bool open, bool held
 );
 
-/// Draws the small engraved OA stamp that marks a part 3.1c does not have:
-/// a dark sunk plate with "OA" cut in the palette's gold, the thin letters
+/// Draws the OA stamp that marks a part 3.1c does not have. With the icon,
+/// the mark is that picture scaled into the largest square of the stamp,
+/// centred, each pixel the mean of the icon's pixels that land on it, in
+/// the icon's own colours; a clear pixel of the icon leaves the canvas as
+/// it was. Without a picture that can be drawn, the stamp is the engraved
+/// plate: dark, sunk, with "OA" cut in the palette's gold, the thin letters
 /// below 14 pixels high and the bold ones from there.
 ///
 /// @param[in,out] canvas the canvas
 /// @param art the art
 /// @param rect the stamp, in frame pixels
-void draw_room_stamp(RoomCanvas& canvas, const RoomArt& art, SourceRect rect);
+/// @param icon the Open Annihilation icon; empty draws the letters
+void draw_room_stamp(
+    RoomCanvas& canvas, const RoomArt& art, SourceRect rect, const RgbaPicture& icon = {}
+);
 
-/// Returns the stamp's place inside a button's left end: square to the
-/// button's height less its edges, at most 12 pixels high, as wide as the
-/// letters need.
+/// Returns the stamp's place inside a button's left end. It is as tall as
+/// the button less its edges, from 9 to 14 pixels, and as wide as the thin
+/// letters need, so a caption that starts after it stays where it is. The
+/// mark is drawn in the square of that place.
 ///
 /// @param button the button, in frame pixels
 /// @return the stamp, in frame pixels

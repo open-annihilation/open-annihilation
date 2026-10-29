@@ -199,6 +199,66 @@ void the_notch_sits_in_the_right_end() {
     CHECK(at(held, 57, 10) == gray(0));
 }
 
+/// A picture twice `shown` on a side. The top half is a dark field and the
+/// bottom half is gold, both opaque, and the last two columns are clear, so
+/// a stamp of `shown` pixels keeps one clear column at its right.
+renderer::RgbaPicture split_mark(std::vector<uint8_t>& pixels, uint32_t shown) {
+    const uint32_t side = shown * 2U;
+    pixels.assign(static_cast<std::size_t>(side) * side * renderer::picture_pixel_bytes, 0);
+    const renderer::Rgb dark{18, 20, 16};
+    const renderer::Rgb gold{214, 167, 71};
+    for (uint32_t row = 0; row < side; ++row) {
+        const renderer::Rgb colour = row < shown ? dark : gold;
+        for (uint32_t column = 0; column < side; ++column) {
+            const std::size_t at =
+                (static_cast<std::size_t>(row) * side + column) * renderer::picture_pixel_bytes;
+            pixels[at] = colour[0];
+            pixels[at + 1] = colour[1];
+            pixels[at + 2] = colour[2];
+            pixels[at + 3] = column + 2U < side ? uint8_t{255} : uint8_t{0};
+        }
+    }
+    return {side, side, pixels};
+}
+
+void the_stamp_draws_the_mark_or_the_letters() {
+    renderer::RoomArt art{nullptr, gray_palette()};
+    const renderer::Rgb dark{18, 20, 16};
+    const renderer::Rgb gold{214, 167, 71};
+    const auto drawn = [&](int32_t side, int32_t origin_x, int32_t origin_y) {
+        std::vector<uint8_t> pixels;
+        const renderer::RgbaPicture icon = split_mark(pixels, static_cast<uint32_t>(side));
+        renderer::RoomCanvas canvas =
+            renderer::room_canvas({origin_x, origin_y, side + 4, side + 4}, nullptr);
+        const renderer::SourceRect stamp{origin_x + 1, origin_y + 1, side, side};
+        renderer::draw_room_stamp(canvas, art, stamp, icon);
+        // The top of the square is the icon's dark field, the bottom its gold.
+        CHECK(at(canvas, stamp.x + side / 2, stamp.y + 1) == dark);
+        CHECK(covered(canvas, stamp.x + side / 2, stamp.y + 1));
+        CHECK(at(canvas, stamp.x + side / 2, stamp.y + side - 2) == gold);
+        CHECK(covered(canvas, stamp.x + side / 2, stamp.y + side - 2));
+        // The icon's clear column leaves the canvas, and so does the room beside the stamp.
+        CHECK(!covered(canvas, stamp.x + side - 1, stamp.y + side / 2));
+        CHECK(at(canvas, stamp.x + side - 1, stamp.y + side / 2) == gray(0));
+        CHECK(!covered(canvas, stamp.x - 1, stamp.y));
+    };
+    drawn(12, 0, 0);
+    drawn(14, 3, 5);
+
+    // Without the icon the stamp is the engraved letters on the dark plate.
+    const renderer::SourceRect letters = renderer::room_stamp_rect({0, 0, 80, 20});
+    renderer::RoomCanvas plain = renderer::room_canvas({0, 0, 80, 20}, nullptr);
+    renderer::draw_room_stamp(plain, art, letters, {});
+    CHECK(at(plain, letters.x + 1, letters.y + 1) == gray(30));
+    CHECK(covered(plain, letters.x + letters.width / 2, letters.y + letters.height / 2));
+    CHECK(at(plain, letters.x + letters.width / 2, letters.y + letters.height / 2) != gold);
+
+    // A button 24 pixels high holds a stamp 14 high, still as wide as the thin letters.
+    const renderer::SourceRect tall = renderer::room_stamp_rect({0, 0, 96, 24});
+    CHECK(tall.height == 14 && tall.width == renderer::oa_mark_thin.width + 6);
+    CHECK(tall.x == 5 && tall.y == 5);
+}
+
 void the_stamp_cuts_the_mark_into_a_dark_plate() {
     const renderer::SourceRect stamp = renderer::room_stamp_rect({0, 0, 80, 20});
     CHECK(stamp.height == 12 && stamp.width == renderer::oa_mark_thin.width + 6);
@@ -476,6 +536,7 @@ int main(int argc, char** argv) {
     a_button_without_art_is_the_plain_face();
     a_plate_keeps_its_ends_and_repeats_its_middle();
     the_notch_sits_in_the_right_end();
+    the_stamp_draws_the_mark_or_the_letters();
     the_stamp_cuts_the_mark_into_a_dark_plate();
     a_lamp_is_lit_from_its_top();
     a_blinking_lamp_is_red_then_dark();

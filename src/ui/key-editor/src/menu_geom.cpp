@@ -5,6 +5,8 @@
 
 #include "oa/ui/key_editor/text.hpp"
 
+#include <algorithm>
+#include <cstddef>
 #include <string_view>
 
 namespace oa::ui::key_editor {
@@ -237,7 +239,79 @@ category_entries(const Editor& editor, const ScreenState& state, bool compact) {
     return entries;
 }
 
+/// True when the item is a rule: a divider with nothing to read.
+bool rule_entry(const MenuEntry& entry) noexcept {
+    return entry.kind == MenuKind::divider && entry.caption.empty();
+}
+
+/// True when the item is a heading.
+bool heading_entry(const MenuEntry& entry) noexcept {
+    return entry.kind == MenuKind::divider && !entry.caption.empty();
+}
+
+/// The points above one item.
+int32_t item_lead(
+    const kit::Metrics& metrics, const std::vector<MenuEntry>& entries, int32_t index
+) noexcept {
+    if (index <= 0 || static_cast<std::size_t>(index) >= entries.size())
+        return 0;
+    if (!heading_entry(entries[static_cast<std::size_t>(index)]))
+        return 0;
+    return metrics.space;
+}
+
+/// How tall one item is.
+int32_t item_span(const kit::Metrics& metrics, const MenuEntry& entry) noexcept {
+    if (rule_entry(entry))
+        return std::max(metrics.space, int32_t{4});
+    return metrics.row_height;
+}
+
 } // namespace
+
+int32_t menu_inner_height(
+    const kit::Metrics& metrics, const std::vector<MenuEntry>& entries, int32_t first, int32_t count
+) noexcept {
+    int32_t height = 0;
+    for (int32_t step = 0; step < count; ++step) {
+        const int32_t index = first + step;
+        if (index < 0 || static_cast<std::size_t>(index) >= entries.size())
+            break;
+        height += item_lead(metrics, entries, index) +
+                  item_span(metrics, entries[static_cast<std::size_t>(index)]);
+    }
+    return height;
+}
+
+int32_t menu_rows_that_fit(
+    const kit::Metrics& metrics, const std::vector<MenuEntry>& entries, int32_t room
+) noexcept {
+    if (entries.empty())
+        return 0;
+    const int32_t most =
+        std::min(static_cast<int32_t>(entries.size()), kit::compact_metrics.most_shown_choices);
+    int32_t shown = 1;
+    for (int32_t count = 1; count <= most; ++count) {
+        int32_t worst = 0;
+        const int32_t last = static_cast<int32_t>(entries.size()) - count;
+        for (int32_t begin = 0; begin <= last; ++begin)
+            worst = std::max(worst, menu_inner_height(metrics, entries, begin, count) + 2);
+        if (worst <= room)
+            shown = count;
+    }
+    return shown;
+}
+
+int32_t menu_room(const kit::Metrics& metrics, kit::SizeClass size_class) noexcept {
+    const int32_t header = size_class == kit::SizeClass::compact ? metrics.header_height
+                                                                 : metrics.window_header_height;
+    const int32_t footer = size_class == kit::SizeClass::compact
+                               ? metrics.control_height + metrics.space * 2
+                               : metrics.window_footer_height;
+    const int32_t body_top = metrics.edge + header + 1;
+    const int32_t footer_rule = metrics.dialog_height - metrics.edge - footer - 1;
+    return std::max(footer_rule - body_top - metrics.control_height, metrics.row_height + 2);
+}
 
 std::vector<MenuEntry>
 menu_entries(const Editor& editor, Menu menu, const ScreenState& state, bool compact) {

@@ -386,7 +386,7 @@ strip_levels(const Control& control, const Rect& area, const LevelsLook& look) {
             else
                 part.word =
                     part_word(control, static_cast<std::size_t>(std::max(index, int32_t{0})));
-            part.rect = choice_item(item.rect, static_cast<int32_t>(place));
+            part.rect = menu_item_box(item.rect, *look, static_cast<int32_t>(place));
             part.inside = false;
             part.enabled = row == nullptr || row->choosable;
             part.checked = index == look->chosen;
