@@ -1852,7 +1852,7 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
             look.condition =
                 held_here ? room::ButtonCondition::pressed : room::ButtonCondition::normal;
             room::draw_room_button(parts, art, look);
-            room::draw_room_stamp(parts, art, stamp);
+            room::draw_room_stamp(parts, art, stamp, room_stamp_icon());
         } else {
             const gui::Gadget& player =
                 runtime_.resources_.layout.gadgets[static_cast<std::size_t>(button.gadget)];
