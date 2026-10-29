@@ -5507,8 +5507,8 @@ class Runtime final : public menu::Host,
     /// The value of open-annihilation.brain.default when a brain of that id
     /// is installed, and empty when the key is absent, empty, or names a
     /// brain that is not installed. Once the Library's worker has searched,
-    /// this reads that listing and does not open the Brains folder. Before
-    /// that search, the folder is read.
+    /// this reads that listing under its lock and does not copy it or open
+    /// the Brains folder. Before that search, the folder is read.
     ///
     /// @return the id, or empty for the built-in computer player
     [[nodiscard]] std::string default_brain() const;
@@ -7662,8 +7662,12 @@ class Runtime final : public menu::Host,
 
     /// Runs --check-brain-seat-buttons: each computer row's brain button on
     /// SKIRMISH at 640x480 and 1280x720, the focus hand-over, the brain menu,
-    /// the hover card and the brains a start seats. Writes
-    /// brain-seats-skirmish-<w>x<h>.png in the working folder.
+    /// the hover card and the brains a start seats. On the 640x480 window it
+    /// also times 120 frames before a computer seat and 120 with two, requires
+    /// that the seated frames do not read the game folder and stay under 5 ms
+    /// of CPU, and checks that copying and removing a bundle is followed by
+    /// the new choice. Writes brain-seats-skirmish-<w>x<h>.png in the working
+    /// folder.
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_brain_seat_buttons();
@@ -7683,7 +7687,9 @@ class Runtime final : public menu::Host,
 
     /// Runs --check-brain-room: a battle room hosted alone, at 640x480 and
     /// 1280x720, the seat button, the brain menu, the card and the presence
-    /// record. Writes brain-room-host-<w>x<h>.png in the working folder.
+    /// record. With a computer seated it times 120 frames and requires that
+    /// they do not read the game folder. Writes brain-room-host-<w>x<h>.png
+    /// in the working folder.
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_brain_room();
@@ -8394,9 +8400,10 @@ class Runtime final : public menu::Host,
     ///
     /// `--content` names them for the run. Otherwise they are the preferences,
     /// or totala with every copied expansion when no base game is stored.
-    /// Copied bundles are the ones wholly present in the game folder. The
-    /// files mounted now are unchanged: the choice takes effect at the next
-    /// mount.
+    /// Copied bundles are the ones wholly present in the game folder. They
+    /// are read once and kept until that folder's content changes, or another
+    /// folder is chosen. The files mounted now are unchanged: the choice
+    /// takes effect at the next mount.
     ///
     /// @return the choice
     [[nodiscard]] oa::data::content_bundles::ContentChoice content_choice() const;
@@ -21355,6 +21362,19 @@ class Runtime final : public menu::Host,
     /// before the listing is first read. The brain picker's own feed reads it.
     /// It starts at 1, so a generation of 0 still means a feed has not spoken.
     mutable uint64_t installed_brains_generation_{1};
+
+    /// The copied bundle ids, read once until their generation moves or the
+    /// game folder changes. The main thread is the only one that reads them.
+    ///
+    /// @return the kept ids
+    [[nodiscard]] const std::vector<std::string>& kept_content_bundles() const;
+
+    /// The generation kept_content_bundles was read for. 0 before the first read.
+    mutable uint64_t content_bundles_seen_{0};
+    /// The game folder that read was for.
+    mutable std::filesystem::path content_bundles_folder_{};
+    /// The copied bundle ids from that read.
+    mutable std::vector<std::string> content_bundles_kept_{};
     /// True while the Library was on the OA layer last frame. Its closing
     /// reloads the installed brains once, not every frame it stays closed.
     bool library_was_open_{};

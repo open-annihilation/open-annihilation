@@ -1419,7 +1419,10 @@ bool write_content_record(const fs::path& file, const ContentRecord& record, std
         return false;
     }
     const auto* bytes = reinterpret_cast<const uint8_t*>(text->data());
-    return oa::platform::replace_file(file, std::span<const uint8_t>(bytes, text->size()), error);
+    if (!oa::platform::replace_file(file, std::span<const uint8_t>(bytes, text->size()), error))
+        return false;
+    note_content_bundles_changed();
+    return true;
 }
 
 fs::path bundle_folder(const fs::path& user_folder, const bundles::Bundle& bundle) {

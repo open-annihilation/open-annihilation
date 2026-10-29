@@ -443,6 +443,24 @@ void remember_mod_directory(oa::platform::preferences::Values& values, const fs:
 /// @return the copied bundle ids, in the built-in order
 [[nodiscard]] std::vector<std::string> copied_content_bundles(const fs::path& folder);
 
+/// How many times the copied bundles have been read, including a read of the
+/// managed records. A frame that already holds the list does not add to this.
+///
+/// @return the count, from 0
+[[nodiscard]] uint64_t copied_content_bundles_walks() noexcept;
+
+/// The generation of the copied bundles.
+///
+/// It starts at 1 and moves when a content record is written, a bundle is
+/// removed, or the files in a walked game folder are replaced. A reader keeps
+/// the list until this moves.
+///
+/// @return the generation
+[[nodiscard]] uint64_t content_bundles_generation() noexcept;
+
+/// Records that the copied bundles can have changed.
+void note_content_bundles_changed() noexcept;
+
 /// Returns the bundles in the player's folder that a registry delivered: each
 /// managed bundle folder whose content record names a registry as its source
 /// ("registry <id>"), not the bundles copied from an installation.

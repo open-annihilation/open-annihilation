@@ -16,7 +16,6 @@
 
 #include <exception>
 #include <iostream>
-#include <optional>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -32,22 +31,17 @@ std::string Runtime::default_brain() const {
         return {};
     const std::string id = found->second;
     if (LibraryHost* host = library_.get()) {
-        // Copy the listing out. A pointer into the worker's list would not
-        // outlive the lock, and the lock is not held across any other read.
-        std::optional<oa::data::brain_library::Listing> copied;
-        {
-            base::threads::LockGuard guard(host->work.mutex);
-            if (host->work.searches > 0)
-                copied = host->work.brain_listing;
-        }
-        // No search yet: the listing is empty, not a refusal of this id.
-        // The folder read below is the same one a closed Library uses.
-        if (copied) {
-            if (oa::data::brain_library::find(*copied, id) == nullptr)
+        // The id is copied out under the lock. find only scans, so the lock
+        // is not held across any other read, and the listing is not copied.
+        base::threads::LockGuard guard(host->work.mutex);
+        if (host->work.searches > 0) {
+            if (oa::data::brain_library::find(host->work.brain_listing, id) == nullptr)
                 return {};
             return id;
         }
     }
+    // No search yet: the worker's listing is empty, not a refusal of this id.
+    // The folder read is the same one a closed Library uses.
     if (oa::data::brain_library::find(installed_brains(), id) == nullptr)
         return {};
     return id;

@@ -10,6 +10,7 @@
 #include "map_packs.hpp"
 #include "package_paths.hpp"
 
+#include "oa/app/game_directory.hpp"
 #include "oa/app/package_install.hpp"
 #include "oa/app/package_install/oamap.hpp"
 #include "oa/app/runtime.hpp"
@@ -155,9 +156,11 @@ void Runtime::package_changed(const package_install::PackageKind& kind, const fs
     if (kind.name == "oalang")
         reload_language_packs();
     // An expansion's files are read with the content copy, not as a package
-    // the Library lists.
-    if (kind.name == "expansion")
+    // the Library lists. The copied set can have changed with this folder.
+    if (kind.name == "expansion") {
+        note_content_bundles_changed();
         return;
+    }
     // The listing is read again. A change before the first read leaves it
     // unmade: nothing has asked for it yet.
     if (kind.name == "oamut")

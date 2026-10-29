@@ -1391,6 +1391,7 @@ void GameFilesScreen::State::take_checked(const game_files::RunSnapshot& snapsho
         show_problem(view::Problem::staging_unwritable, commit.error);
         return;
     }
+    note_content_bundles_changed();
     log_import(
         "committed to " + path_to_utf8(request_.paths.game_folder) +
         (commit.old_folder.empty()
