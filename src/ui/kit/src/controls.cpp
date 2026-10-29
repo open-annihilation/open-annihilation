@@ -1695,7 +1695,23 @@ void draw_card(const Canvas& canvas, const Rect& rect, const CardLook& look) {
 
     const Rect preview = card_preview(rect);
     if (renderer::picture_drawable(look.picture)) {
-        draw_picture(canvas, preview, look.picture);
+        // The map's own shape, as large as the square allows, centred on black.
+        Rect fitted = preview;
+        const int64_t picture_width = look.picture.width;
+        const int64_t picture_height = look.picture.height;
+        if (picture_width * preview.height >= picture_height * preview.width) {
+            fitted.height = static_cast<int32_t>(
+                std::max<int64_t>(1, picture_height * preview.width / picture_width)
+            );
+            fitted.y += (preview.height - fitted.height) / 2;
+        } else {
+            fitted.width = static_cast<int32_t>(
+                std::max<int64_t>(1, picture_width * preview.height / picture_height)
+            );
+            fitted.x += (preview.width - fitted.width) / 2;
+        }
+        fill(canvas, preview, Colour{0, 0, 0});
+        draw_picture(canvas, fitted, look.picture);
     } else if (preview.width > 0) {
         fill(canvas, preview, colour::well);
         cut_line(
