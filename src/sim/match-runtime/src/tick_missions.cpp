@@ -153,7 +153,9 @@ bool Match::move_unit_to_radius_met(sim::scenario::Condition& condition) {
 }
 
 void Match::advance_local_outcome() {
-    if (local_game_ended_)
+    // A match whose outcomes were never configured has no local player to
+    // judge; its tick has already noted that fault.
+    if (local_game_ended_ || !outcome_view_)
         return;
     auto& view = *outcome_view_;
     auto& world = state();
