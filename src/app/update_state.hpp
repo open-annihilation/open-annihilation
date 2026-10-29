@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The background check of one run (Runtime::UpdateState): the worker, the
-// snapshot the main thread last read, and whether this run has already
-// looked. runtime_update.cpp starts it and reads it.
+// snapshot the main thread last read, and when this run's automatic check
+// began. runtime_update.cpp starts it and reads it.
 #pragma once
 
 #include "oa/app/runtime.hpp"
@@ -31,8 +31,15 @@ struct Runtime::UpdateState {
     update::CheckSnapshot held{};
     /// The generation already copied into `held`.
     uint64_t seen_generation = 0;
-    /// An automatic check has been started this run.
+    /// An automatic check has started this run, or --update-and-quit has
+    /// started its one check. The hour is `automatic_began`, not this flag.
     bool ran = false;
+    /// When the last automatic check of this run began, seconds since 1970.
+    /// Empty until one starts. --update-and-quit leaves this empty.
+    std::optional<int64_t> automatic_began;
+    /// The schedule's clock, seconds since 1970. Empty reads the wall clock.
+    /// A check sets it so an hour can pass without waiting.
+    std::optional<int64_t> schedule_now;
     /// Settled main-menu frames in a row.
     uint32_t menu_frames = 0;
     /// The release number of the build the running check asked about.

@@ -26,9 +26,12 @@ snapshots. Nothing here installs a package.
   when the platform is `linux-x86_64` and the program folder holds a
   `steam-deck` directory, and the platform name otherwise.
 - `read_check_mode`, `write_check_mode`, `read_checked` and `write_checked`
-  are the preference values. `check_due` is true only for Automatically,
-  when the last check that reached the server is absent, at least a day
-  old, or in the future.
+  are the preference values. `check_due` is true only for Automatically:
+  at the first check of a run, whatever the age of the last check that
+  reached the server, and again an hour after the last automatic check of
+  this run began, or when that time is in the future. `automatic_check_starts`
+  is that hour at the main menu first and then anywhere, and
+  `update_notice_shows` is the main menu, never a match.
 - `offer_text` writes the question's title, the size of the offered
   package's zip, and the reassurance. The notes are the release's own
   lines and are not looked up. `notes_paragraph` joins those lines under
@@ -94,8 +97,12 @@ updates are preference values. The runtime holds the workers for the run.
   not when the check was cancelled first.
 - A check that reached the server reports `checked_at`. A failure to
   resolve, connect or finish in time does not, and neither does a cancel.
-- One automatic check a run. Never makes no request. A match cancels a
-  check that is still running.
+- The first automatic check of a run is at the settled main menu, whatever
+  the age of the last check that reached the server. Another starts an hour
+  after that one began, including during a match, and a release found there
+  waits for the next main menu. A failed check is tried again at the next
+  hour. Never makes no request. Starting a match still cancels a check that
+  is waiting, because the load can outlast it.
 - Quitting installs only a release scheduled for the quit
   (`installs_at_quit`). Keeping a package ready schedules nothing.
 - A quit before the main menu is not a failed start; only a start that
@@ -105,10 +112,11 @@ updates are preference values. The runtime holds the workers for the run.
 
 `app-update-build` covers the package id, including Windows 95 and the
 Steam Deck folder, and `this_build` against the version compiled into the
-test. `app-update-check` covers when a check is due, the preference values,
-and a `Checker` against a feed served on 127.0.0.1: an offer, a release
-already running, a remembered stored feed, a missing feed, a refused feed,
-a check that runs out of time, and a cancel, with each failure's kind.
+test. `app-update-check` covers when a check is due, including the first
+menu and the hour, the preference values, and a `Checker` against a feed
+served on 127.0.0.1: an offer, a release already running, a remembered
+stored feed, a missing feed, a refused feed, a check that runs out of
+time, and a cancel, with each failure's kind.
 `app-update-plan` covers the plan and state texts and the refusals: an
 unknown format or route, a relative path, an empty program, and a title or
 line that is too long. `app-update-download` covers the download against a

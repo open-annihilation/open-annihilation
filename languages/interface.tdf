@@ -8034,12 +8034,12 @@
 	it=OA predefinito;
 	}
 
-[OA looks for a newer Open Annihilation once a day when it starts. It never installs one until you say so.]
+[OA looks for a newer Open Annihilation at every start and every hour while it runs. It never installs one until you say so.]
 	{
-	de=OA sucht einmal am Tag beim Start nach einem neueren Open Annihilation. Es installiert keins, bis du es sagst.;
-	fr=OA cherche une fois par jour, au démarrage, un Open Annihilation plus récent. Il n'en installe aucun tant que tu ne le dis pas.;
-	es=OA busca un Open Annihilation más nuevo una vez al día al arrancar. No instala ninguno hasta que tú lo digas.;
-	it=OA cerca un Open Annihilation più nuovo una volta al giorno all'avvio. Non ne installa uno finché non lo dici tu.;
+	de=OA sucht bei jedem Start und in jeder Stunde, solange es läuft, nach einem neueren Open Annihilation. Es installiert keins, bis du es sagst.;
+	fr=OA cherche un Open Annihilation plus récent à chaque démarrage et toutes les heures tant qu'il tourne. Il n'en installe aucun tant que tu ne le dis pas.;
+	es=OA busca un Open Annihilation más nuevo en cada arranque y cada hora mientras sigue en marcha. No instala ninguno hasta que tú lo digas.;
+	it=OA cerca un Open Annihilation più nuovo a ogni avvio e ogni ora mentre è aperto. Non ne installa uno finché non lo dici tu.;
 	}
 
 [OA looks for new content and updates in the registries' lists. It never installs anything until you say so.]

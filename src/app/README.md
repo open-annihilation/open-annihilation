@@ -1751,8 +1751,8 @@ prompts, Settings › Updates and the headers name one state with one size.
   `runtime_builtin_screens.cpp`, `screen_registry.*`: the screen registry,
   screen loading and the host of the frontend dispatcher. Lines are only
   ever added to `screens.inc`.
-- `runtime_update.cpp`: looks for a new release at the settled main menu,
-  at most once a day, keeps the signed feed it accepted, and reads it
+- `runtime_update.cpp`: looks for a new release at every start and every
+  hour while the game runs, keeps the signed feed it accepted, and reads it
   again at the first menu of each start; `runtime_update_offer.cpp` and
   `runtime_update_install.cpp` are its screens ([Updates](#updates)).
 - `runtime_menu_audio.cpp`: the main menu's hum, and when it starts and

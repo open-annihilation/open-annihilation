@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The preference values that say when to look for a new release.
+// The preference values that say when to look for a new release, and the
+// hour counted from when this run's automatic check began.
 #include "oa/app/update/check.hpp"
 
 #include "oa/ui/engine_settings.hpp"
@@ -62,14 +63,39 @@ void write_checked(platform::preferences::Values& values, int64_t checked) {
     values[std::string(settings::key::update_checked)] = std::to_string(checked);
 }
 
-bool check_due(CheckMode mode, std::optional<int64_t> checked, int64_t now) noexcept {
+bool check_due(
+    CheckMode mode, std::optional<int64_t> /*checked*/, std::optional<int64_t> began, int64_t now
+) noexcept {
     if (mode != CheckMode::automatically)
         return false;
-    if (!checked)
+    // The first of a run does not wait on the last check that reached the server.
+    if (!began)
         return true;
-    if (*checked > now)
+    if (*began > now)
         return true;
-    return now - *checked >= check_day_seconds;
+    return now - *began >= check_interval_seconds;
+}
+
+bool automatic_check_starts(
+    CheckMode mode,
+    std::optional<int64_t> checked,
+    std::optional<int64_t> began,
+    int64_t now,
+    CheckPlace place,
+    bool running
+) noexcept {
+    if (running)
+        return false;
+    if (!check_due(mode, checked, began, now))
+        return false;
+    // The first of a run waits for the main menu. An hour later, anywhere.
+    if (!began && place != CheckPlace::menu)
+        return false;
+    return true;
+}
+
+bool update_notice_shows(CheckPlace place) noexcept {
+    return place == CheckPlace::menu;
 }
 
 } // namespace oa::app::update

@@ -1066,12 +1066,15 @@ is kept.
   `open-annihilation.update-download`, `0` or `1`. Absent reads as off,
   so a found update is not fetched until you press Download update.
 - **Check for updates**, Automatically, Only when I ask, or Never,
-  Automatically by default. Automatically looks once a day when the game
-  starts, after the main menu has settled. Only when I ask waits for
-  Check now. Never makes no request, and Check now is not offered. It
-  takes effect when you press OK. Cancel puts back the choice the dialog
-  opened with. The hint says OA looks for a newer Open Annihilation once
-  a day when it starts, and never installs one until you say so.
+  Automatically by default. Automatically looks at every start and every
+  hour while the game runs. The first look waits until the main menu has
+  settled. A later one runs at a menu, in a match or in a dialog, and a
+  release found during a match waits for the next main menu. Only when I
+  ask waits for Check now. Never makes no request, and Check now is not
+  offered. It takes effect when you press OK. Cancel puts back the choice
+  the dialog opened with. The hint says OA looks for a newer Open
+  Annihilation at every start and every hour while it runs, and never
+  installs one until you say so.
 - **Install updates**, Ask each time or When I quit, Ask each time by
   default. Ask each time asks with the ready prompt when a download is
   ready. When I quit schedules a ready release for the next time you quit,

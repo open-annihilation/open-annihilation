@@ -143,17 +143,128 @@ bool is_cancelled(const update::CheckSnapshot& shot) {
     return shot.state == update::CheckState::cancelled;
 }
 
-void due_dates() {
+void schedule() {
     constexpr int64_t now = 1'700'000'000;
-    OA_CHECK(update::check_due(update::CheckMode::automatically, std::nullopt, now));
-    OA_CHECK(!update::check_due(update::CheckMode::automatically, now, now));
-    OA_CHECK(!update::check_due(update::CheckMode::automatically, now - 86399, now));
-    OA_CHECK(update::check_due(update::CheckMode::automatically, now - 86400, now));
-    OA_CHECK(update::check_due(update::CheckMode::automatically, now + 1, now));
-    OA_CHECK(!update::check_due(update::CheckMode::when_asked, std::nullopt, now));
-    OA_CHECK(!update::check_due(update::CheckMode::never, std::nullopt, now));
-    OA_CHECK(!update::check_due(update::CheckMode::when_asked, now - 90000, now));
-    OA_CHECK(!update::check_due(update::CheckMode::never, now - 90000, now));
+    constexpr int64_t hour = update::check_interval_seconds;
+    OA_CHECK(hour == 3600);
+    // The server was reached a minute ago. The first of a run still checks,
+    // and only at the main menu.
+    OA_CHECK(update::check_due(update::CheckMode::automatically, now - 60, std::nullopt, now));
+    OA_CHECK(
+        update::automatic_check_starts(
+            update::CheckMode::automatically,
+            now - 60,
+            std::nullopt,
+            now,
+            update::CheckPlace::menu,
+            false
+        )
+    );
+    OA_CHECK(!update::automatic_check_starts(
+        update::CheckMode::automatically,
+        now - 60,
+        std::nullopt,
+        now,
+        update::CheckPlace::match,
+        false
+    ));
+    OA_CHECK(!update::automatic_check_starts(
+        update::CheckMode::automatically,
+        now - 60,
+        std::nullopt,
+        now,
+        update::CheckPlace::elsewhere,
+        false
+    ));
+    // Not again until an hour after this run's check began.
+    OA_CHECK(!update::check_due(update::CheckMode::automatically, now - 60, now, now));
+    OA_CHECK(!update::check_due(update::CheckMode::automatically, now - 60, now - (hour - 1), now));
+    OA_CHECK(update::check_due(update::CheckMode::automatically, now - 60, now - hour, now));
+    // A clock set back does not wait out the hour.
+    OA_CHECK(update::check_due(update::CheckMode::automatically, std::nullopt, now + 1, now));
+    // The next check, an hour later, at a menu and during a match.
+    OA_CHECK(
+        update::automatic_check_starts(
+            update::CheckMode::automatically,
+            now - 60,
+            now - hour,
+            now,
+            update::CheckPlace::menu,
+            false
+        )
+    );
+    OA_CHECK(
+        update::automatic_check_starts(
+            update::CheckMode::automatically,
+            now - 60,
+            now - hour,
+            now,
+            update::CheckPlace::match,
+            false
+        )
+    );
+    OA_CHECK(
+        update::automatic_check_starts(
+            update::CheckMode::automatically,
+            now - 60,
+            now - hour,
+            now,
+            update::CheckPlace::elsewhere,
+            false
+        )
+    );
+    // A release found during a match is shown only at the next main menu.
+    OA_CHECK(update::update_notice_shows(update::CheckPlace::menu));
+    OA_CHECK(!update::update_notice_shows(update::CheckPlace::match));
+    OA_CHECK(!update::update_notice_shows(update::CheckPlace::elsewhere));
+    // A failed check keeps its start time and is tried at the next hour, not
+    // sooner, and not while that check is still running.
+    OA_CHECK(!update::automatic_check_starts(
+        update::CheckMode::automatically,
+        now,
+        now,
+        now + (hour - 1),
+        update::CheckPlace::menu,
+        false
+    ));
+    OA_CHECK(!update::automatic_check_starts(
+        update::CheckMode::automatically, now, now, now + hour, update::CheckPlace::match, true
+    ));
+    OA_CHECK(
+        update::automatic_check_starts(
+            update::CheckMode::automatically, now, now, now + hour, update::CheckPlace::match, false
+        )
+    );
+    OA_CHECK(
+        update::automatic_check_starts(
+            update::CheckMode::automatically, now, now, now + hour, update::CheckPlace::menu, false
+        )
+    );
+    // Only when I ask, and Never, are never automatic.
+    OA_CHECK(!update::check_due(update::CheckMode::when_asked, std::nullopt, std::nullopt, now));
+    OA_CHECK(!update::check_due(update::CheckMode::never, std::nullopt, std::nullopt, now));
+    OA_CHECK(!update::automatic_check_starts(
+        update::CheckMode::when_asked,
+        std::nullopt,
+        std::nullopt,
+        now,
+        update::CheckPlace::menu,
+        false
+    ));
+    OA_CHECK(!update::automatic_check_starts(
+        update::CheckMode::never, now - 90000, std::nullopt, now, update::CheckPlace::menu, false
+    ));
+    OA_CHECK(!update::automatic_check_starts(
+        update::CheckMode::when_asked,
+        now - 90000,
+        now - 90000,
+        now,
+        update::CheckPlace::menu,
+        false
+    ));
+    OA_CHECK(!update::automatic_check_starts(
+        update::CheckMode::never, now - 90000, now - 90000, now, update::CheckPlace::match, false
+    ));
 }
 
 void modes_round_trip() {
@@ -376,7 +487,7 @@ void timeout_check(fixture::Server& server) {
 } // namespace
 
 int main() {
-    due_dates();
+    schedule();
     modes_round_trip();
     fixture::Server server;
     server.set_idle_close_ms(120000);
