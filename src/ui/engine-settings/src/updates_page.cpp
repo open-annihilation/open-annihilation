@@ -47,7 +47,7 @@ namespace kit = oa::ui::kit;
 
 /// The check's hint.
 constexpr std::string_view kModeHint =
-    "OA looks for a newer Open Annihilation once a day when it starts. "
+    "OA looks for a newer Open Annihilation at every start and every hour while it runs. "
     "It never installs one until you say so.";
 /// Said in place of the status while the check is Never.
 constexpr std::string_view kNeverStatus = "OA never checks";

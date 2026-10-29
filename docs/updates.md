@@ -18,15 +18,19 @@ has a package for you.
 
 ## When
 
-The check runs from the main menu, once that menu has settled and nothing
-is open over it. It runs when Check for updates is Automatically, and only
-when the last check that reached the server was at least a day ago, or has
-never happened, or is dated in the future because the clock moved back.
+The first settled main menu of a start looks for a release when Check for
+updates is Automatically, whatever the age of the last check. While the
+game runs, another look starts an hour after the last automatic check of
+this run began, at a menu, in a match or in a dialog. The fetch stays in
+the background and does not hold up a frame. What it finds is shown as the
+main menu shows it, never over a match: a new release found during a match
+waits for the next main menu. A check that fails is tried again at the
+next hour, not sooner. The time of the last check that reached the server
+is still remembered.
 
-One automatic check runs per start. A check does not run during a match. It
-does not run before the welcome at the first main menu is finished. It does
-not run in an unattended start, or a headless check, unless that start was
-given a feed to read.
+It does not run before the welcome at the first main menu is finished. It
+does not run in an unattended start, or a headless check, unless that start
+was given a feed to read.
 
 Check for updates at Only when I ask does not run on its own. Never never
 makes a request.
@@ -65,10 +69,10 @@ Under the card:
 
 The three choices take effect when you press OK, and Cancel leaves them as
 the dialog opened with them. The hint under Check for updates says OA looks
-for a newer Open Annihilation once a day when it starts, and that it never
-installs one until you say so. While a download moves or is paused the
-section list shows its share beside Updates, as "41%", and "ready" while a
-release is ready or scheduled.
+for a newer Open Annihilation at every start and every hour while it runs,
+and that it never installs one until you say so. While a download moves or
+is paused the section list shows its share beside Updates, as "41%", and
+"ready" while a release is ready or scheduled.
 [Settings › Updates](settings.md#updates) lists the rows.
 
 ## The menu's pill and the update centre

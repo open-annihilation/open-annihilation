@@ -386,8 +386,8 @@ inline constexpr std::string_view interface_words[] = {
     "Not now",
     "Nothing",
     "Nothing kept",
-    "OA looks for a newer Open Annihilation once a day when it starts. It never installs one "
-    "until you say so.",
+    "OA looks for a newer Open Annihilation at every start and every hour while it runs. It "
+    "never installs one until you say so.",
     "OA looks for new content and updates in the registries' lists. It never installs anything "
     "until you say so.",
     "OA never checks",

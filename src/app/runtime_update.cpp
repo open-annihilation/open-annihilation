@@ -1,12 +1,13 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// One check for a new release. The main menu starts it when it is due, a
-// match stops it, and a result that reached the server is remembered. The
-// feed an earlier check stored is read again at the first menu, so a
-// release out, or one already downloaded, is known without a request. The
-// guard counts an unconfirmed start before the game loads; a start the
-// player quits takes its count back.
+// One check for a new release. The first settled main menu of a run starts
+// it, and another starts an hour after that one began, wherever the player
+// is. A result is shown on the main menu, never over a match. A result that
+// reached the server is remembered. The feed an earlier check stored is
+// read again at the first menu, so a release out, or one already downloaded,
+// is known without a request. The guard counts an unconfirmed start before
+// the game loads; a start the player quits takes its count back.
 #include "oa/app/runtime.hpp"
 
 #include "oa/app/game_directory.hpp"
@@ -158,6 +159,22 @@ int64_t wall_seconds() {
     return std::chrono::duration_cast<std::chrono::seconds>(now).count();
 }
 
+/// The schedule's clock. A check may name one so an hour can pass without waiting.
+int64_t schedule_seconds(const std::optional<int64_t>& named) {
+    if (named.has_value())
+        return *named;
+    return wall_seconds();
+}
+
+/// Where the player is, for the hour and for where a release may be shown.
+update::CheckPlace player_place(bool during_match, bool at_menu) noexcept {
+    if (during_match)
+        return update::CheckPlace::match;
+    if (at_menu)
+        return update::CheckPlace::menu;
+    return update::CheckPlace::elsewhere;
+}
+
 /// The feed this run checks. A named feed is a test feed.
 update::Source source_for(const Options& options) {
     update::Source source;
@@ -245,7 +262,10 @@ const update::CheckSnapshot& Runtime::update_snapshot() const {
 }
 
 void Runtime::start_update_check(bool asked) {
-    if (match_ != nullptr || screen_ == Screen::match)
+    const bool in_match = match_ != nullptr || screen_ == Screen::match;
+    // An asked check still waits out a match. The first automatic check of a
+    // run does too: it is the settled main menu.
+    if (asked && in_match)
         return;
     const auto found = preference_values_.find(std::string(oa::ui::first_run::preference_key));
     const bool setup_done = found != preference_values_.end() &&
@@ -259,16 +279,28 @@ void Runtime::start_update_check(bool asked) {
         return;
     if (update_ == nullptr)
         update_.reset(new UpdateState());
+    if (!asked && in_match && !update_->automatic_began.has_value())
+        return;
     const update::CheckMode mode = update::read_check_mode(preference_values_);
     if (mode == update::CheckMode::never)
         return;
     if (!asked && mode != update::CheckMode::automatically)
         return;
-    if (!asked && update_->ran)
-        return;
-    if (!asked &&
-        !update::check_due(mode, update::read_checked(preference_values_), wall_seconds()))
-        return;
+    const int64_t now = schedule_seconds(update_->schedule_now);
+    const bool check_running = update_->checker != nullptr &&
+                               update_->checker->snapshot().state == update::CheckState::checking;
+    if (!asked) {
+        // --update-and-quit counts its asked check in `ran` and names no
+        // start time, so the hourly check does not add another.
+        if (!update_->automatic_began.has_value() && update_->ran)
+            return;
+        if (check_running)
+            return;
+        if (!update::check_due(
+                mode, update::read_checked(preference_values_), update_->automatic_began, now
+            ))
+            return;
+    }
     if (update_->checker == nullptr) {
         std::string failure;
         const std::optional<fs::path> folder = updates_folder(options_, failure);
@@ -283,16 +315,19 @@ void Runtime::start_update_check(bool asked) {
     }
     const update::ThisBuild built = program_build();
     update_->release = built.release;
+    const uint64_t before = update_->checker->snapshot().generation;
     update_->checker->start(source_for(options_), built, asked);
-    if (!asked)
+    // A start that did not publish a check leaves the hour where it was, so
+    // a check still running is not pushed back.
+    if (!asked && update_->checker->snapshot().generation != before) {
+        update_->automatic_began = now;
         update_->ran = true;
+    }
 }
 
 void Runtime::tick_update_check() {
     if (update_ == nullptr)
         update_.reset(new UpdateState());
-    if (match_ != nullptr || screen_ == Screen::match)
-        cancel_update_check();
     // The first menu reads the feed an earlier check stored, once, with no
     // request: a release out is offered again (Later asks at the next
     // start), and a package already downloaded is found. Never reads nothing.
@@ -335,23 +370,41 @@ void Runtime::tick_update_check() {
         }
     }
     // Ask while the main menu is up, including while a dialog or Settings
-    // keeps the question waiting. A match took the branch above and cancels
-    // there; the question is not offered over it. A protected place is asked
-    // to move before any update is offered.
+    // keeps the question waiting. A release found during a match waits for
+    // the next main menu. A protected place is asked to move before any
+    // update is offered.
+    const bool in_match = match_ != nullptr || screen_ == Screen::match;
+    const update::CheckPlace place = player_place(in_match, screen_ == Screen::main_menu);
     offer_move_to_applications();
-    offer_update();
+    if (update::update_notice_shows(place))
+        offer_update();
     // The download, the ready prompt and the Updated notice run while Settings
-    // is open. The two-frame wait below is only the automatic check.
+    // is open. The two-frame wait below is only the first automatic check.
     tick_update_install();
     const bool settled = update_menu_settled();
-    if (!settled) {
+    if (!settled)
         update_->menu_frames = 0;
-        return;
-    }
-    if (update_->menu_frames < kUpdateMenuFrames)
+    else if (update_->menu_frames < kUpdateMenuFrames)
         ++update_->menu_frames;
-    if (update_->menu_frames >= kUpdateMenuFrames)
-        start_update_check(false);
+    const bool menu_ready = settled && update_->menu_frames >= kUpdateMenuFrames;
+    const update::CheckMode mode = update::read_check_mode(preference_values_);
+    const bool check_running = update_->checker != nullptr &&
+                               update_->checker->snapshot().state == update::CheckState::checking;
+    const int64_t now = schedule_seconds(update_->schedule_now);
+    if (!update::automatic_check_starts(
+            mode,
+            update::read_checked(preference_values_),
+            update_->automatic_began,
+            now,
+            place,
+            check_running
+        ))
+        return;
+    // The first of a run waits until the main menu has settled. An hour
+    // later, a check starts wherever the player is.
+    if (!update_->automatic_began.has_value() && !menu_ready)
+        return;
+    start_update_check(false);
 }
 
 namespace {

@@ -161,9 +161,22 @@ void Runtime::check_engine_feed() {
     };
     const auto feed_target = std::string_view{"/v1/engine/stable.json"};
     const auto signature_target = std::string_view{"/v1/engine/stable.json.sig"};
+    // Moves the schedule's clock an hour past the last automatic check of
+    // this run, so the next one is due without waiting out the hour.
+    const auto pass_an_hour = [&]() {
+        require(
+            update_ != nullptr && update_->automatic_began.has_value(),
+            "no automatic check has begun"
+        );
+        update_->schedule_now = *update_->automatic_began + update::check_interval_seconds;
+    };
 
-    // 1. Automatically, and no earlier check: one offer from the settled menu.
+    // 1. Automatically, even when the server was reached a minute ago: one
+    // offer from the settled menu.
     {
+        update::write_checked(preference_values_, wall_seconds() - 60);
+        preferences_dirty_ = true;
+        flush_preferences();
         const auto deadline = deadline_from(std::chrono::seconds{30});
         while (update_snapshot().state != update::CheckState::offered) {
             require(
@@ -211,32 +224,38 @@ void Runtime::check_engine_feed() {
         start_update_check(false);
         for (int frame = 0; frame < 5; ++frame)
             idle_tick();
-        require(count_target(server, feed_target) == feeds, "a check ran inside the day");
+        require(count_target(server, feed_target) == feeds, "a check ran inside the hour");
         std::cout << "engine-feed: 2\n";
         std::cout.flush();
     }
 
-    // 3. A check remembered 90,000 seconds ago is due again.
+    // 3. An hour after this run's automatic check began, another runs. A
+    // second short of the hour does not.
     {
         const int feeds = count_target(server, feed_target);
         const int signatures = count_target(server, signature_target);
-        update::write_checked(preference_values_, wall_seconds() - 90000);
-        preferences_dirty_ = true;
-        flush_preferences();
-        if (update_ != nullptr)
-            update_->ran = false;
+        require(
+            update_ != nullptr && update_->automatic_began.has_value(), "the hour has no start"
+        );
+        update_->schedule_now = *update_->automatic_began + update::check_interval_seconds - 1;
+        for (int frame = 0; frame < 8; ++frame)
+            idle_tick();
+        require(count_target(server, feed_target) == feeds, "a check ran inside the hour");
+        pass_an_hour();
         const auto deadline = deadline_from(std::chrono::seconds{30});
         while (count_target(server, feed_target) == feeds) {
-            require(std::chrono::steady_clock::now() < deadline, "an old check was not run again");
+            require(
+                std::chrono::steady_clock::now() < deadline, "the hour did not run another check"
+            );
             idle_tick();
         }
-        require(count_target(server, feed_target) == feeds + 1, "the old check ran more than once");
+        require(count_target(server, feed_target) == feeds + 1, "the hour ran more than one check");
         require(
             count_target(server, signature_target) == signatures + 1,
-            "the old check did not fetch the signature"
+            "the hour did not fetch the signature"
         );
         while (update_snapshot().state == update::CheckState::checking) {
-            require(std::chrono::steady_clock::now() < deadline, "the old check did not finish");
+            require(std::chrono::steady_clock::now() < deadline, "the hour's check did not finish");
             idle_tick();
         }
         std::cout << "engine-feed: 3\n";
@@ -299,6 +318,7 @@ void Runtime::check_engine_feed() {
         flush_preferences();
         if (update_ != nullptr)
             update_->ran = false;
+        pass_an_hour();
         int waiting_frames = 0;
         const auto deadline = deadline_from(std::chrono::seconds{25});
         while (std::chrono::steady_clock::now() < deadline && waiting_frames < 20) {
@@ -328,6 +348,7 @@ void Runtime::check_engine_feed() {
         flush_preferences();
         if (update_ != nullptr)
             update_->ran = false;
+        pass_an_hour();
         const auto deadline = deadline_from(std::chrono::seconds{20});
         while (update_snapshot().state != update::CheckState::checking) {
             require(std::chrono::steady_clock::now() < deadline, "the check did not start");

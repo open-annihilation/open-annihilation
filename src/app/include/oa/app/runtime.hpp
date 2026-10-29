@@ -6822,16 +6822,21 @@ class Runtime final : public menu::Host,
 
     /// Starts one check for a new release.
     ///
-    /// `asked` ignores the day and Only when I ask. Never, a match, a run
-    /// whose welcome is not finished, and an unattended or headless run
-    /// without a named feed do not start one.
+    /// `asked` ignores the hour and Only when I ask. Never, a run whose
+    /// welcome is not finished, and an unattended or headless run without a
+    /// named feed do not start one. An asked check does not start during a
+    /// match. The first automatic check of a run starts at the settled main
+    /// menu, whatever the age of the last check. Another starts an hour
+    /// after the last automatic check of this run began, including during a
+    /// match.
     ///
     /// @param asked true when the player asked
     void start_update_check(bool asked);
 
-    /// Starts the automatic check once the settled main menu has shown it is
-    /// due, stops one when a match starts, and remembers a check that reached
-    /// the server.
+    /// Starts an automatic check when it is due, and remembers a check that
+    /// reached the server. The first of a run waits for the settled main
+    /// menu. An hour later one starts wherever the player is. A release
+    /// found during a match waits for the next main menu.
     void tick_update_check();
 
     /// Queues the update question when a verified check offers a release the
@@ -15940,8 +15945,9 @@ class Runtime final : public menu::Host,
     void check_progress();
 
     /// Serves a signed feed and checks the background check for a new
-    /// release: once a day, never during a match, and not in an unattended
-    /// run that named no feed. Throws std::runtime_error naming what differed.
+    /// release: at the first menu even when the last check was a minute ago,
+    /// again an hour later on a test clock, and not in an unattended run
+    /// that named no feed. Throws std::runtime_error naming what differed.
     void check_engine_feed();
 
     /// Serves a signed feed and checks the update question: its notes, that

@@ -1191,7 +1191,7 @@ enum class ContentCheck : uint8_t {
 /// installs one until the player says so. The stored words are the existing
 /// preference's: automatically, when-asked, never.
 enum class UpdateCheck : uint8_t {
-    automatically, ///< once a day, when the game starts
+    automatically, ///< at every start, and every hour while the game runs
     when_asked,    ///< only when the player asks
     never,         ///< the player asks, and CHECK NOW is not offered
 };
