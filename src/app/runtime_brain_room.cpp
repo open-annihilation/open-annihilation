@@ -1253,11 +1253,11 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         const room::SourceRect& cell = row.res;
         int32_t left = cell.x + 2;
         if (!row.shown.name.empty()) {
-            const int32_t height = std::clamp(cell.height - 4, 7, 12);
+            const int32_t height = std::clamp(cell.height - 4, 7, 14);
             const room::SourceRect stamp{
                 left, cell.y + (cell.height - height) / 2, room::oa_mark_thin.width + 6, height
             };
-            room::draw_room_stamp(parts, art, stamp);
+            room::draw_room_stamp(parts, art, stamp, room_stamp_icon());
             left = stamp.x + stamp.width + 4;
         }
         const std::string words = room::room_text(

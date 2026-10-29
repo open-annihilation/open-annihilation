@@ -14,6 +14,7 @@
 
 #include "oa_layer.hpp"
 
+#include "brain_seats_room.hpp"
 #include "engine_settings_menu_host.hpp"
 #include "engine_settings_state.hpp"
 #include "render_state.hpp"
@@ -4148,7 +4149,7 @@ LayerDrawing OaLayer::match_button_face(
                                                              : artless::ButtonCondition::normal;
     button.narrower_font = true;
     artless::draw_room_button(canvas, art, button);
-    artless::draw_room_stamp(canvas, art, stamp);
+    artless::draw_room_stamp(canvas, art, stamp, room_stamp_icon());
     // Its pixels, and clear where no part of it is drawn.
     std::vector<uint8_t> rgba;
     artless::room_canvas_rgba(canvas, rgba);
