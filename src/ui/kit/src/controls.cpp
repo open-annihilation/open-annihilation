@@ -630,13 +630,30 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
     if (!drawable(canvas))
         return;
     // Rounded as a control is: the hover face, then a selected row's accent
-    // tint over it and the accent's outline.
+    // tint over it and the accent's outline. A selection bar is the nav
+    // entry's fill and lime bar instead (chrome.cpp's marker, 5 by 2 by 8),
+    // and the accent outline stays off. The keyboard focus draws its own ring.
     const int32_t row_radius = kMetrics.control_radius;
-    if (look.hovered)
-        fill_corner_rect(canvas, rect, row_radius, colour::hover);
-    if (look.selected) {
-        blend_corner_rect(canvas, rect, row_radius, colour::accent, selected_tint);
-        outline_corner_rect(canvas, rect, row_radius, colour::accent);
+    if (look.selected && look.selection_bar) {
+        constexpr int32_t marker_offset = 5;
+        constexpr int32_t marker_width = 2;
+        constexpr int32_t marker_height = 8;
+        fill_corner_rect(canvas, rect, row_radius, colour::list_selected);
+        fill_rect(
+            canvas,
+            {rect.x + marker_offset,
+             rect.y + (rect.height - marker_height) / 2,
+             marker_width,
+             marker_height},
+            colour::accent
+        );
+    } else {
+        if (look.hovered)
+            fill_corner_rect(canvas, rect, row_radius, colour::hover);
+        if (look.selected) {
+            blend_corner_rect(canvas, rect, row_radius, colour::accent, selected_tint);
+            outline_corner_rect(canvas, rect, row_radius, colour::accent);
+        }
     }
 
     const int32_t inset = kMetrics.list_row_inset;

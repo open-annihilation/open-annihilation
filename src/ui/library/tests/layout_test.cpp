@@ -660,16 +660,11 @@ void check_frame(const fixture::NamedFrame& named) {
         updates_pane != nullptr && update_all != nullptr &&
         update_all->rect.y + update_all->rect.height <= updates_pane->rect.y
     );
-    if (compact) {
-        OA_CHECK(fixture::named(updates_list, "library.filter") != nullptr);
-    } else {
-        for (const std::string_view word : {"all", "new", "installed", "updates"})
-            OA_CHECK(
-                fixture::named(updates_list, "library.filter." + std::string(word)) != nullptr
-            );
-        const kit::Control* chosen = fixture::named(updates_list, "library.filter.updates");
-        OA_CHECK(chosen != nullptr && chosen->checked && chosen->text == "Updates (3)");
-    }
+    for (const std::string_view word : {"all", "new", "installed", "updates"})
+        OA_CHECK(fixture::named(updates_list, "library.filter." + std::string(word)) != nullptr);
+    OA_CHECK(fixture::named(updates_list, "library.filter") == nullptr);
+    const kit::Control* chosen = fixture::named(updates_list, "library.filter.updates");
+    OA_CHECK(chosen != nullptr && chosen->checked && chosen->text == "Updates (3)");
     OA_CHECK(fixture::named(updates_list, "library.refresh") != nullptr);
     OA_CHECK(fixture::named(updates_list, "library.settings") == nullptr);
     OA_CHECK(fixture::named(updates_list, "library.close") != nullptr);
@@ -698,7 +693,7 @@ void check_frame(const fixture::NamedFrame& named) {
     const kit::Control* active_tab = fixture::named(active_list, "library.tab.active");
     const kit::Control* mods_tab = fixture::named(active_list, "library.tab.mods");
     OA_CHECK(active_tab != nullptr && active_tab->checked && active_tab->text == "Active");
-    OA_CHECK(mods_tab != nullptr && active_tab != nullptr && active_tab->rect.x < mods_tab->rect.x);
+    OA_CHECK(mods_tab != nullptr && active_tab != nullptr && active_tab->rect.y < mods_tab->rect.y);
     for (const std::string_view absent :
          {"library.search",
           "library.filter",
@@ -923,7 +918,7 @@ void every_frame_holds_its_invariants() {
         check_frame(named);
 }
 
-/// Regular shows more rows than Compact, and Large has the filter pane.
+/// Regular shows more rows than Compact. Every class has the section list.
 void larger_classes_show_more() {
     const lib::Library library = with_ridge();
     const lib::ScreenState state;
@@ -938,12 +933,12 @@ void larger_classes_show_more() {
             return item.role == kit::Role::nav;
         });
     };
-    OA_CHECK(has_nav(large));
-    OA_CHECK(!has_nav(regular) && !has_nav(compact));
+    OA_CHECK(has_nav(large) && has_nav(regular) && has_nav(compact));
     const kit::Control* all_entry = fixture::named(large, "library.filter.all");
     OA_CHECK(all_entry != nullptr && all_entry->kind == kit::ControlKind::tab);
     OA_CHECK(fixture::named(regular, "library.filter.all") != nullptr);
-    OA_CHECK(fixture::named(compact, "library.filter") != nullptr);
+    OA_CHECK(fixture::named(compact, "library.filter.all") != nullptr);
+    OA_CHECK(fixture::named(compact, "library.filter") == nullptr);
     // The tabs keep their full names. Active is the first stop; the close
     // mark is last, after the footer.
     const kit::Control* first_stop = kit::control_of(compact, compact.tab_order.front());
@@ -1326,21 +1321,15 @@ void tab_follows_the_declared_order() {
     };
     const kit::Frame compact = fixture::frames()[0].frame;
     const std::vector<std::string> compact_order{
-        "library.tab.active",
-        "library.tab.mods",
-        "library.tab.maps",
-        "library.tab.mutators",
-        "library.tab.brains",
-        "library.tab.keys",
-        "library.tab.languages",
-        "library.tab.updates",
-        "library.tab.registries",
-        "library.search",
-        "library.filter",
-        "library.list",
-        "library.details",
-        "library.close",
-        "library.close-x",
+        "library.tab.active",       "library.tab.mods",       "library.tab.maps",
+        "library.tab.mutators",     "library.tab.brains",     "library.tab.keys",
+        "library.tab.languages",    "library.tab.updates",    "library.tab.registries",
+        "library.search",           "library.filter.all",     "library.filter.new",
+        "library.filter.installed", "library.filter.updates", "library.tag.balance",
+        "library.tag.classic",      "library.tag.conversion", "library.tag.economy",
+        "library.tag.effects",      "library.tag.expansion",  "library.tag.experimental",
+        "library.tag.rules",        "library.tag.units",      "library.list",
+        "library.details",          "library.close",          "library.close-x",
     };
     OA_CHECK(names_of(laid_out(library, {}, compact)) == compact_order);
     lib::open_details(library);
@@ -1816,6 +1805,28 @@ void typing_searches() {
     OA_CHECK(library.query == "f");
 }
 
+/// Returns the nav entry a named control draws, or null.
+///
+/// @param list the display list
+/// @param name the control's name
+/// @return the entry; null when that control draws none
+const kit::NavEntry* nav_named(const kit::DisplayList& list, std::string_view name) {
+    const kit::Control* control = fixture::named(list, name);
+    if (control == nullptr)
+        return nullptr;
+    for (const kit::Item& item : list.items) {
+        const auto* look = std::get_if<kit::NavLook>(&item.look);
+        if (look == nullptr)
+            continue;
+        for (const kit::NavEntry& entry : look->entries)
+            if (entry.rect.x == control->rect.x && entry.rect.y == control->rect.y &&
+                entry.rect.width == control->rect.width &&
+                entry.rect.height == control->rect.height)
+                return &entry;
+    }
+    return nullptr;
+}
+
 /// Returns the pill a named control draws, or null.
 ///
 /// @param list the display list
@@ -1833,72 +1844,65 @@ const kit::PillLook* pill_named(const kit::DisplayList& list, std::string_view n
     return nullptr;
 }
 
-/// Compact's filter drop-down opens, lists the filters and the tab's tags,
-/// and its items show them. Regular's filter and tag pills keep their
-/// counts and turn a tag on and off, and a tag under the description does too.
+/// The section list shows the filters and the tab's tags at every size.
+/// Their text keeps the count in brackets, the open one is the selected
+/// entry, and a press chooses a filter or a tag. A tag under the
+/// description does the same. The list draws its own focus ring.
 void filters_and_tags() {
     const std::vector<fixture::NamedFrame> all = fixture::frames();
     lib::Library library = with_ridge();
     lib::ScreenState state;
     kit::DisplayList list = laid_out(library, state, all[0].frame);
-    static_cast<void>(click(library, state, list, "library.filter"));
-    OA_CHECK(state.menu == lib::MenuKind::filter);
-    list = laid_out(library, state, all[0].frame);
+    OA_CHECK(fixture::named(list, "library.filter") == nullptr);
     OA_CHECK(fixture::named(list, "library.filter.installed") != nullptr);
-    OA_CHECK(fixture::named(list, "library.filter.tag-balance") != nullptr);
-    // The drop-down's filters carry their counts, as the chips and the column do.
+    OA_CHECK(fixture::named(list, "library.tag.balance") != nullptr);
     const kit::Control* all_item = fixture::named(list, "library.filter.all");
     OA_CHECK(all_item != nullptr && all_item->text == "All (11)");
     const kit::Control* new_item = fixture::named(list, "library.filter.new");
     OA_CHECK(new_item != nullptr && new_item->text == "New (3)");
-    OA_EXPECT_NONE(name_problems(list), "filter menu open");
-    OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), "filter menu open");
+    OA_EXPECT_NONE(name_problems(list), "section list");
+    OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), "section list");
     static_cast<void>(click(library, state, list, "library.filter.installed"));
-    OA_CHECK(
-        lib::shown_filter(library) == lib::Filter::installed && state.menu == lib::MenuKind::none
-    );
+    OA_CHECK(lib::shown_filter(library) == lib::Filter::installed);
     // Each tab keeps its own: Updates still opens on Updates, and Mods keeps Installed.
     lib::set_tab(library, lib::Tab::updates);
     OA_CHECK(lib::shown_filter(library) == lib::Filter::updates);
     lib::set_tab(library, lib::Tab::mods);
     OA_CHECK(lib::shown_filter(library) == lib::Filter::installed);
-    list = laid_out(library, state, all[0].frame);
-    static_cast<void>(click(library, state, list, "library.filter"));
-    list = laid_out(library, state, all[0].frame);
-    // A press outside an open drop-down closes it and does nothing else.
-    const lib::ScreenResult outside = click(library, state, list, "library.close");
-    OA_CHECK(!outside.action && state.menu == lib::MenuKind::none);
 
     lib::Library wide = with_ridge();
     lib::ScreenState wide_state;
     kit::DisplayList wide_list = laid_out(wide, wide_state, all[1].frame);
     const kit::Control* all_pill = fixture::named(wide_list, "library.filter.all");
-    const kit::PillLook* all_look = pill_named(wide_list, "library.filter.all");
+    const kit::NavEntry* all_look = nav_named(wide_list, "library.filter.all");
     OA_CHECK(all_pill != nullptr && all_pill->checked && all_pill->text == "All (11)");
-    OA_CHECK(all_look != nullptr && all_look->state == kit::PillState::active);
+    OA_CHECK(all_look != nullptr && all_look->selected && all_look->caption == "All");
+    OA_CHECK(all_look != nullptr && all_look->count == "11");
     const kit::Control* new_pill = fixture::named(wide_list, "library.filter.new");
-    const kit::PillLook* new_look = pill_named(wide_list, "library.filter.new");
+    const kit::NavEntry* new_look = nav_named(wide_list, "library.filter.new");
     OA_CHECK(new_pill != nullptr && !new_pill->checked && new_pill->text == "New (3)");
-    OA_CHECK(new_look != nullptr && new_look->state == kit::PillState::inactive);
+    OA_CHECK(new_look != nullptr && !new_look->selected && new_look->caption == "New");
     const kit::Control* updates_pill = fixture::named(wide_list, "library.filter.updates");
     OA_CHECK(
         updates_pill != nullptr && !updates_pill->checked &&
         updates_pill->text == lib::filter_caption(wide, lib::Filter::updates)
     );
     const kit::Control* balance = fixture::named(wide_list, "library.tag.balance");
-    const kit::PillLook* balance_look = pill_named(wide_list, "library.tag.balance");
-    OA_CHECK(balance != nullptr && !balance->checked && balance->text == "balance");
-    OA_CHECK(balance_look != nullptr && balance_look->state == kit::PillState::inactive);
+    const kit::NavEntry* balance_look = nav_named(wide_list, "library.tag.balance");
+    OA_CHECK(balance != nullptr && !balance->checked && balance->text.starts_with("balance ("));
+    OA_CHECK(
+        balance_look != nullptr && !balance_look->selected && balance_look->caption == "balance"
+    );
     const kit::PillLook* detail_look = pill_named(wide_list, "library.detail.tag.balance");
     OA_CHECK(detail_look != nullptr && detail_look->state == kit::PillState::inactive);
-    OA_CHECK(all_pill != nullptr && all_pill->kind == kit::ControlKind::button);
+    OA_CHECK(all_pill != nullptr && all_pill->kind == kit::ControlKind::tab);
     if (all_pill != nullptr && balance != nullptr) {
         wide_state.interaction.focus_shown = true;
         wide_state.interaction.focused = all_pill->id;
         wide_state.interaction.hovered = balance->id;
         wide_list = laid_out(wide, wide_state, all[1].frame);
-        const kit::PillLook* focused_all = pill_named(wide_list, "library.filter.all");
-        const kit::PillLook* hovered_tag = pill_named(wide_list, "library.tag.balance");
+        const kit::NavEntry* focused_all = nav_named(wide_list, "library.filter.all");
+        const kit::NavEntry* hovered_tag = nav_named(wide_list, "library.tag.balance");
         OA_CHECK(focused_all != nullptr && focused_all->focused);
         OA_CHECK(hovered_tag != nullptr && hovered_tag->hovered);
         bool ring = false;
@@ -1912,9 +1916,9 @@ void filters_and_tags() {
     OA_CHECK(wide.tag == "balance");
     wide_list = laid_out(wide, wide_state, all[1].frame);
     const kit::Control* balance_on = fixture::named(wide_list, "library.tag.balance");
-    const kit::PillLook* balance_on_look = pill_named(wide_list, "library.tag.balance");
+    const kit::NavEntry* balance_on_look = nav_named(wide_list, "library.tag.balance");
     OA_CHECK(balance_on != nullptr && balance_on->checked);
-    OA_CHECK(balance_on_look != nullptr && balance_on_look->state == kit::PillState::active);
+    OA_CHECK(balance_on_look != nullptr && balance_on_look->selected);
     OA_CHECK(pill_named(wide_list, "library.detail.tag.balance") != nullptr);
     static_cast<void>(click(wide, wide_state, wide_list, "library.detail.tag.balance"));
     OA_CHECK(wide.tag.empty());
@@ -1929,12 +1933,12 @@ void filters_and_tags() {
     OA_CHECK(lib::shown_filter(wide) == lib::Filter::updates);
     wide_list = laid_out(wide, wide_state, all[1].frame);
     const kit::Control* updates_on = fixture::named(wide_list, "library.filter.updates");
-    const kit::PillLook* updates_on_look = pill_named(wide_list, "library.filter.updates");
+    const kit::NavEntry* updates_on_look = nav_named(wide_list, "library.filter.updates");
     OA_CHECK(
         updates_on != nullptr && updates_on->checked &&
         updates_on->text == lib::filter_caption(wide, lib::Filter::updates)
     );
-    OA_CHECK(updates_on_look != nullptr && updates_on_look->state == kit::PillState::active);
+    OA_CHECK(updates_on_look != nullptr && updates_on_look->selected);
     static_cast<void>(click(wide, wide_state, wide_list, "library.filter.new"));
     OA_CHECK(lib::shown_filter(wide) == lib::Filter::newest);
     OA_CHECK(
@@ -4172,44 +4176,45 @@ void locked_pill_shows_why() {
     OA_CHECK(campaign != nullptr && campaign->enabled && campaign->focusable);
 }
 
-/// Returns the strip of tabs, or null when the layout has none.
+/// Returns the section list's look, or null when the layout has none.
 ///
 /// @param list the display list
-/// @return the item
-const kit::Item* tab_strip(const kit::DisplayList& list) {
-    for (const kit::Item& item : list.items)
-        if (item.role == kit::Role::tabs)
-            return &item;
+/// @return the look
+const kit::NavLook* section_nav(const kit::DisplayList& list) {
+    for (const kit::Item& item : list.items) {
+        if (item.role != kit::Role::nav)
+            continue;
+        if (const auto* look = std::get_if<kit::NavLook>(&item.look);
+            look != nullptr && !look->entries.empty())
+            return look;
+    }
     return nullptr;
 }
 
-/// Tells whether the open tab lies wholly in the strip's view.
+/// Tells whether the open tab lies wholly in the section list's view.
 ///
 /// @param list the display list
 /// @return true when it does
 bool open_tab_is_shown(const kit::DisplayList& list) {
-    const kit::Item* strip = tab_strip(list);
-    if (strip == nullptr)
+    const kit::Control* open = nullptr;
+    for (const kit::Control& control : list.controls)
+        if (control.checked && control.name.starts_with("library.tab."))
+            open = &control;
+    if (open == nullptr || open->clip.width <= 0 || open->clip.height <= 0)
         return false;
-    const auto* look = std::get_if<kit::TabsLook>(&strip->look);
-    if (look == nullptr)
-        return false;
-    const kit::TabStrip placed = kit::place_tabs(fonts(), strip->rect, *look);
-    return placed.selected < placed.tabs.size() &&
-           kit::wholly_in(placed.tabs[placed.selected], placed.view);
+    return kit::wholly_in(open->rect, open->clip);
 }
 
-/// The tabs keep their full names. At Compact the strip scrolls, the open
-/// tab is in view until the strip is scrolled, and an arrow or the wheel
-/// moves it by one tab and leaves it there. Where the names fit there are no
-/// arrows. A download draws its bar at every size.
+/// The tabs keep their full names and their counts. The open tab lies wholly
+/// in the section list, and the list has no sideways arrows. A download draws
+/// its bar at every size. The next-tab command reaches Registries, and that
+/// tab is in view.
 void tabs_scroll_and_the_queue_shows_its_bar() {
     const std::vector<fixture::NamedFrame> all = fixture::frames();
     lib::Library library = with_ridge();
     for (const fixture::NamedFrame& named : all) {
         lib::ScreenState state;
         const kit::DisplayList list = laid_out(library, state, named.frame);
-        const bool compact = named.frame.size_class == kit::SizeClass::compact;
         const kit::Control* languages = fixture::named(list, "library.tab.languages");
         const kit::Control* updates = fixture::named(list, "library.tab.updates");
         const kit::Control* registries = fixture::named(list, "library.tab.registries");
@@ -4217,20 +4222,9 @@ void tabs_scroll_and_the_queue_shows_its_bar() {
         OA_CHECK(updates != nullptr && updates->text.starts_with("Updates ("));
         OA_CHECK(registries != nullptr && registries->text.starts_with("Registries ("));
         OA_CHECK(open_tab_is_shown(list));
-        const kit::Item* strip = tab_strip(list);
-        const kit::Control* left = fixture::named(list, "library.tab.scroll-left");
-        const kit::Control* right = fixture::named(list, "library.tab.scroll-right");
-        bool overflows = false;
-        if (strip != nullptr) {
-            if (const auto* look = std::get_if<kit::TabsLook>(&strip->look))
-                overflows = kit::place_tabs(fonts(), strip->rect, *look).overflows;
-        }
-        if (overflows && compact) {
-            OA_CHECK(state.tab_scroll == 0);
-            OA_CHECK(left == nullptr && right != nullptr && !right->focusable);
-        } else {
-            OA_CHECK(left == nullptr && right == nullptr);
-        }
+        OA_CHECK(section_nav(list) != nullptr);
+        OA_CHECK(fixture::named(list, "library.tab.scroll-left") == nullptr);
+        OA_CHECK(fixture::named(list, "library.tab.scroll-right") == nullptr);
         const kit::Control* queue = fixture::named(list, "library.queue");
         const kit::Item* bar = nullptr;
         for (const kit::Item& item : list.items)
@@ -4246,17 +4240,8 @@ void tabs_scroll_and_the_queue_shows_its_bar() {
         }
     }
 
-    lib::set_tab(library, lib::Tab::mods);
-    for (const fixture::NamedFrame& named : {all[1], all[2]}) {
-        const kit::DisplayList list = laid_out(library, {}, named.frame);
-        OA_CHECK(fixture::named(list, "library.tab.scroll-left") == nullptr);
-        OA_CHECK(fixture::named(list, "library.tab.scroll-right") == nullptr);
-        OA_CHECK(open_tab_is_shown(list));
-    }
-
-    // Narrower than the fixture's Compact, so the full names overflow the
-    // synthetic font the same way they overflow a Compact window in the
-    // game's font.
+    // Narrower than the fixture's Compact. The section list is still tall
+    // enough for every tab, so none of it scrolls sideways.
     kit::Frame narrow;
     narrow.area = {0, 0, 280, 480};
     narrow.size_class = kit::SizeClass::compact;
@@ -4264,46 +4249,10 @@ void tabs_scroll_and_the_queue_shows_its_bar() {
     lib::set_tab(library, lib::Tab::registries);
     lib::ScreenState at_end;
     const kit::DisplayList end = laid_out(library, at_end, narrow);
-    const kit::Item* end_strip = tab_strip(end);
-    bool end_overflows = false;
-    if (end_strip != nullptr) {
-        if (const auto* look = std::get_if<kit::TabsLook>(&end_strip->look))
-            end_overflows = kit::place_tabs(fonts(), end_strip->rect, *look).overflows;
-    }
-    OA_CHECK(end_overflows);
-    OA_CHECK(at_end.tab_scroll > 0);
-    OA_CHECK(fixture::named(end, "library.tab.scroll-left") != nullptr);
-    OA_CHECK(fixture::named(end, "library.tab.scroll-right") == nullptr);
     OA_CHECK(open_tab_is_shown(end));
-
-    lib::set_tab(library, lib::Tab::updates);
-    lib::ScreenState scrolling;
-    const kit::DisplayList updates = laid_out(library, scrolling, narrow);
-    const kit::Item* strip = tab_strip(updates);
-    OA_CHECK(strip != nullptr && open_tab_is_shown(updates));
-    if (strip != nullptr) {
-        const kit::Point over{
-            strip->rect.x + strip->rect.width / 2, strip->rect.y + strip->rect.height / 2
-        };
-        const int32_t before_scroll = scrolling.tab_scroll;
-        const int32_t stepped = kit::tab_scroll_step(updates, 1);
-        const lib::ScreenResult turned =
-            lib::library_wheel(library, scrolling, updates, over, -1.0F);
-        OA_CHECK(stepped != before_scroll);
-        OA_CHECK(turned.redraw);
-        OA_CHECK(scrolling.tab_scroll == stepped);
-        OA_CHECK(scrolling.list_scroll == 0);
-        static_cast<void>(laid_out(library, scrolling, narrow));
-        OA_CHECK(scrolling.tab_scroll == stepped);
-
-        lib::ScreenState by_arrow;
-        const kit::DisplayList before = laid_out(library, by_arrow, narrow);
-        const int32_t by_step = kit::tab_scroll_step(before, 1);
-        click(library, by_arrow, before, "library.tab.scroll-right");
-        OA_CHECK(by_arrow.tab_scroll == by_step);
-        static_cast<void>(laid_out(library, by_arrow, narrow));
-        OA_CHECK(by_arrow.tab_scroll == by_step);
-    }
+    OA_CHECK(at_end.tab_scroll == 0);
+    OA_CHECK(fixture::named(end, "library.tab.scroll-left") == nullptr);
+    OA_CHECK(fixture::named(end, "library.tab.scroll-right") == nullptr);
 
     library = with_ridge();
     lib::ScreenState commands;
@@ -4313,52 +4262,24 @@ void tabs_scroll_and_the_queue_shows_its_bar() {
     shown = laid_out(library, commands, narrow);
     OA_CHECK(library.tab == lib::Tab::registries);
     OA_CHECK(open_tab_is_shown(shown));
-    OA_CHECK(commands.tab_scroll > 0);
 }
 
-/// Tells whether a tab lies wholly in the strip's view.
+/// Tells whether a tab lies wholly in the section list's view.
 ///
 /// @param list the display list
 /// @param name the tab's automation name
 /// @return true when it is wholly shown
 bool tab_is_shown(const kit::DisplayList& list, std::string_view name) {
-    const kit::Item* strip = tab_strip(list);
     const kit::Control* tab = fixture::named(list, name);
-    if (strip == nullptr || tab == nullptr)
+    if (tab == nullptr || tab->clip.width <= 0 || tab->clip.height <= 0)
         return false;
-    const auto* look = std::get_if<kit::TabsLook>(&strip->look);
-    if (look == nullptr)
-        return false;
-    const kit::Rect view{look->view_x, strip->rect.y, look->view_width, strip->rect.height};
-    return kit::wholly_in(tab->rect, view);
+    return kit::wholly_in(tab->rect, tab->clip);
 }
 
-/// Returns the middle of a tab whose middle lies in the strip's view, where a
-/// press can drag the strip.
-///
-/// @param list the display list
-/// @return the point; none when no tab's middle is in view or the tabs fit
-std::optional<kit::Point> tab_in_view(const kit::DisplayList& list) {
-    const std::optional<kit::Rect> area = kit::tab_drag_area(list);
-    if (!area)
-        return std::nullopt;
-    for (const kit::Control& control : list.controls) {
-        if (control.kind != kit::ControlKind::tab)
-            continue;
-        const kit::Point middle = centre_of(control);
-        if (kit::contains(*area, middle))
-            return middle;
-    }
-    return std::nullopt;
-}
-
-/// Whatever tab is open, the arrows reach the strip's first and last tabs,
-/// and the strip stays where they leave it. A press on the tabs that moves
-/// sideways drags the strip with it and opens nothing, a mouse after three
-/// points and a finger past its reach; a press that does not move opens its
-/// tab. Opening a tab brings it into view again.
+/// A press on a tab opens it, and the open tab stays wholly in the section
+/// list, including on a window narrower than Compact. There is no sideways
+/// strip to drag.
 void tabs_scroll_to_either_end_and_drag() {
-    // As narrow as the scroll test's, so the full names overflow.
     kit::Frame narrow;
     narrow.area = {0, 0, 280, 480};
     narrow.size_class = kit::SizeClass::compact;
@@ -4369,105 +4290,17 @@ void tabs_scroll_to_either_end_and_drag() {
     lib::ScreenState state;
     kit::DisplayList list = laid_out(library, state, narrow);
     OA_CHECK(tab_is_shown(list, "library.tab.mods"));
-    for (int32_t step = 0; step < 12 && fixture::named(list, "library.tab.scroll-right"); ++step) {
-        click(library, state, list, "library.tab.scroll-right");
-        list = laid_out(library, state, narrow);
-    }
+    OA_CHECK(fixture::named(list, "library.tab.scroll-left") == nullptr);
     OA_CHECK(fixture::named(list, "library.tab.scroll-right") == nullptr);
+    click(library, state, list, "library.tab.registries");
+    OA_CHECK(library.tab == lib::Tab::registries);
+    list = laid_out(library, state, narrow);
     OA_CHECK(tab_is_shown(list, "library.tab.registries"));
-    OA_CHECK(!tab_is_shown(list, "library.tab.mods"));
+    click(library, state, list, "library.tab.mods");
     OA_CHECK(library.tab == lib::Tab::mods);
-    for (int32_t step = 0; step < 12 && fixture::named(list, "library.tab.scroll-left"); ++step) {
-        click(library, state, list, "library.tab.scroll-left");
-        list = laid_out(library, state, narrow);
-    }
-    OA_CHECK(state.tab_scroll == 0);
-    OA_CHECK(tab_is_shown(list, "library.tab.active"));
-
-    // A mouse: two points leave the strip, three drag it, and letting go
-    // opens nothing.
-    lib::ScreenState mouse;
-    list = laid_out(library, mouse, narrow);
-    const kit::Control* mods = fixture::named(list, "library.tab.mods");
-    OA_CHECK(mods != nullptr);
-    if (mods != nullptr) {
-        const kit::Point from = centre_of(*mods);
-        static_cast<void>(
-            lib::library_pointer(library, mouse, list, lib::PointerKind::down, 1, from, 0)
-        );
-        static_cast<void>(lib::library_pointer(
-            library, mouse, list, lib::PointerKind::move, 0, {from.x - 2, from.y}, 0
-        ));
-        OA_CHECK(mouse.tab_scroll == 0);
-        OA_CHECK(!mouse.tab_drag.scrolling);
-        const lib::ScreenResult dragged = lib::library_pointer(
-            library, mouse, list, lib::PointerKind::move, 0, {from.x - 60, from.y}, 0
-        );
-        OA_CHECK(dragged.redraw);
-        OA_CHECK(mouse.tab_scroll == kit::tab_scroll_by(list, 0, 60));
-        OA_CHECK(mouse.tab_scroll > 0);
-        static_cast<void>(lib::library_pointer(
-            library, mouse, list, lib::PointerKind::up, 1, {from.x - 60, from.y}, 0
-        ));
-        OA_CHECK(library.tab == lib::Tab::mods);
-        const int32_t left_at = mouse.tab_scroll;
-        list = laid_out(library, mouse, narrow);
-        OA_CHECK(mouse.tab_scroll == left_at);
-
-        // Dragged far past the end, the strip stops at its last tab.
-        const std::optional<kit::Point> again = tab_in_view(list);
-        OA_CHECK(again.has_value());
-        if (again) {
-            const kit::Point at = *again;
-            static_cast<void>(
-                lib::library_pointer(library, mouse, list, lib::PointerKind::down, 1, at, 0)
-            );
-            static_cast<void>(lib::library_pointer(
-                library, mouse, list, lib::PointerKind::move, 0, {at.x - 4000, at.y}, 0
-            ));
-            static_cast<void>(lib::library_pointer(
-                library, mouse, list, lib::PointerKind::up, 1, {at.x - 4000, at.y}, 0
-            ));
-            list = laid_out(library, mouse, narrow);
-            OA_CHECK(fixture::named(list, "library.tab.scroll-right") == nullptr);
-            OA_CHECK(tab_is_shown(list, "library.tab.registries"));
-            OA_CHECK(library.tab == lib::Tab::mods);
-        }
-
-        // A click on a tab in view opens it, and the strip shows it whole.
-        click(library, mouse, list, "library.tab.registries");
-        OA_CHECK(library.tab == lib::Tab::registries);
-        list = laid_out(library, mouse, narrow);
-        OA_CHECK(tab_is_shown(list, "library.tab.registries"));
-    }
-
-    // A finger drags past its reach, not before.
-    lib::set_tab(library, lib::Tab::mods);
-    lib::ScreenState finger;
-    list = laid_out(library, finger, narrow);
-    const kit::Control* maps = fixture::named(list, "library.tab.maps");
-    OA_CHECK(maps != nullptr);
-    if (maps != nullptr) {
-        constexpr int32_t reach = 12;
-        const kit::Point from = centre_of(*maps);
-        static_cast<void>(
-            lib::library_pointer(library, finger, list, lib::PointerKind::down, 1, from, reach)
-        );
-        static_cast<void>(lib::library_pointer(
-            library, finger, list, lib::PointerKind::move, 0, {from.x - reach, from.y}, reach
-        ));
-        OA_CHECK(finger.tab_scroll == 0);
-        static_cast<void>(lib::library_pointer(
-            library, finger, list, lib::PointerKind::move, 0, {from.x - 40, from.y}, reach
-        ));
-        OA_CHECK(finger.tab_scroll == kit::tab_scroll_by(list, 0, 40));
-        static_cast<void>(lib::library_pointer(
-            library, finger, list, lib::PointerKind::up, 1, {from.x - 40, from.y}, reach
-        ));
-        OA_CHECK(library.tab == lib::Tab::mods);
-    }
+    list = laid_out(library, state, narrow);
+    OA_CHECK(tab_is_shown(list, "library.tab.mods"));
 }
-
 } // namespace
 
 /// Answers the tabs' names in a wordier language, as Ukrainian's run longer
@@ -4505,13 +4338,9 @@ kit::Rect pressed_area(const kit::Control& control) {
     return kit::intersect(control.rect, control.clip);
 }
 
-/// Where a catalogue tab's names do not fit beside the search, at Regular
-/// and Large, the tabs take the whole row and the search a row under them:
-/// every tab is shown whole and none lies under the search, so a press on
-/// a tab, Registries among them, opens it. English fits beside the search
-/// at Large. At Regular the captions take the row. Wordy captions can be
-/// wider than that row once Keys is among them; the strip then scrolls, and
-/// each tab is brought wholly into it before it is checked.
+/// Wordy tab names stay in the section list, clear of the search, which
+/// keeps the control's height on the heading's row. A press on Registries
+/// opens it. Captions that do not fit are cut, so every text still fits.
 void wordy_tabs_take_the_row_over_the_search() {
     for (const fixture::NamedFrame& named : fixture::frames()) {
         if (named.frame.size_class == kit::SizeClass::compact)
@@ -4522,30 +4351,15 @@ void wordy_tabs_take_the_row_over_the_search() {
                 library.text.shown = wordy_tabs;
             lib::set_tab(library, lib::Tab::mods);
             lib::ScreenState state;
-            state.tab_laid_out = library.tab;
-            state.tab_scrolled = true;
-            kit::DisplayList list = laid_out(library, state, named.frame);
-            const kit::Item* strip = tab_strip(list);
+            const kit::DisplayList list = laid_out(library, state, named.frame);
             const kit::Control* search = fixture::named(list, "library.search");
-            OA_CHECK(strip != nullptr && search != nullptr);
-            if (strip == nullptr || search == nullptr)
-                continue;
-            const auto* look = std::get_if<kit::TabsLook>(&strip->look);
-            const bool overflows =
-                look != nullptr && kit::place_tabs(fonts(), strip->rect, *look).overflows;
-            OA_CHECK(look != nullptr);
-            // English keeps every caption in the strip, with no scroll.
-            if (!wordy)
-                OA_CHECK(!overflows);
-            const bool beside = search->rect.y < strip->rect.y + strip->rect.height;
-            const int32_t strip_bottom = strip->rect.y + strip->rect.height;
-            const int32_t search_top = search->rect.y;
-            if (!wordy) {
-                if (named.frame.size_class == kit::SizeClass::large)
-                    OA_CHECK(beside);
-                if (named.frame.size_class == kit::SizeClass::regular)
-                    OA_CHECK(!beside);
-            }
+            const kit::Metrics& metrics = kit::metrics_of(named.frame.size_class);
+            OA_CHECK(section_nav(list) != nullptr && search != nullptr);
+            OA_CHECK(search != nullptr && search->rect.height == metrics.control_height);
+            OA_EXPECT_NONE(
+                fixture::texts_not_fitting(list, fonts()),
+                named.name + (wordy ? " wordy tabs" : " tabs")
+            );
             for (const std::string_view word :
                  {"active",
                   "mods",
@@ -4556,38 +4370,15 @@ void wordy_tabs_take_the_row_over_the_search() {
                   "languages",
                   "updates",
                   "registries"}) {
-                for (int guard = 0; guard < 12; ++guard) {
-                    const kit::Control* shown =
-                        fixture::named(list, "library.tab." + std::string(word));
-                    strip = tab_strip(list);
-                    if (shown != nullptr && strip != nullptr &&
-                        kit::wholly_in(shown->rect, strip->rect))
-                        break;
-                    const int32_t next = kit::tab_scroll_step(list, 1);
-                    if (next == state.tab_scroll)
-                        break;
-                    state.tab_scroll = next;
-                    list = laid_out(library, state, named.frame);
-                }
                 const kit::Control* tab = fixture::named(list, "library.tab." + std::string(word));
-                strip = tab_strip(list);
-                search = fixture::named(list, "library.search");
                 OA_CHECK(tab != nullptr);
-                if (tab == nullptr || strip == nullptr || search == nullptr)
+                if (tab == nullptr || search == nullptr)
                     continue;
                 const kit::Rect area = pressed_area(*tab);
-                OA_CHECK(kit::wholly_in(tab->rect, strip->rect));
                 const kit::Rect shared = kit::intersect(area, search->rect);
-                OA_CHECK(area.width > 0 && (shared.width == 0 || shared.height == 0));
+                OA_CHECK(shared.width == 0 || shared.height == 0);
+                OA_CHECK(tab_is_shown(list, "library.tab." + std::string(word)));
             }
-            if (wordy) {
-                // The words were chosen to need the whole row at Regular.
-                if (named.name == "regular")
-                    OA_CHECK(!beside);
-                if (!beside)
-                    OA_CHECK(search_top >= strip_bottom);
-            }
-            // Registries opens with a press at its centre, once it is in view.
             click(library, state, list, "library.tab.registries");
             OA_CHECK(library.tab == lib::Tab::registries);
         }
@@ -4829,7 +4620,7 @@ lib::Library badge_library() {
 /// Mutator rows show a picture, else the first tag's icon, else letters.
 /// Large carries tag chips and the lock-coloured state chips. Compact names
 /// a missing mutator or one that does not fit after the title. Tag pills and
-/// the filter pane carry the eight icons. An incompatible row stays bright
+/// the section list carry the eight icons. An incompatible row stays bright
 /// and its GET stays on.
 void mutator_rows_show_badges_chips_and_icons() {
     const lib::Library library = badge_library();
@@ -5016,14 +4807,20 @@ void mutator_rows_show_badges_chips_and_icons() {
             OA_CHECK(both == nullptr || both->by_colour == kit::colour::lock);
         }
         if (regular) {
-            const kit::PillLook* economy = pill_named(list, "library.tag.economy");
-            OA_CHECK(economy != nullptr && economy->tag == kit::TagIcon::economy);
-            const kit::PillLook* commanders = pill_named(list, "library.tag.commanders");
-            OA_CHECK(commanders != nullptr && commanders->tag == kit::TagIcon::commanders);
-            const kit::PillLook* custom = pill_named(list, "library.tag.custom");
+            const kit::NavEntry* economy = nav_named(list, "library.tag.economy");
+            OA_CHECK(
+                economy != nullptr && economy->icon_side > 0 &&
+                economy->tag == kit::TagIcon::economy
+            );
+            const kit::NavEntry* commanders = nav_named(list, "library.tag.commanders");
+            OA_CHECK(
+                commanders != nullptr && commanders->icon_side > 0 &&
+                commanders->tag == kit::TagIcon::commanders
+            );
+            const kit::NavEntry* custom = nav_named(list, "library.tag.custom");
             if (custom != nullptr)
                 OA_CHECK(!custom->tag.has_value());
-            const kit::PillLook* balance = pill_named(list, "library.tag.balance");
+            const kit::NavEntry* balance = nav_named(list, "library.tag.balance");
             if (balance != nullptr)
                 OA_CHECK(!balance->tag.has_value());
         }
@@ -5039,14 +4836,11 @@ void mutator_rows_show_badges_chips_and_icons() {
     lib::ScreenState mods_state;
     mods_state.reveal_row = mutator_place(mods, "quarry");
     const kit::DisplayList mods_list = laid_out(mods, mods_state, regular);
-    for (const kit::Item& item : mods_list.items) {
-        if (item.role != kit::Role::pill)
+    for (const kit::Control& control : mods_list.controls) {
+        if (!control.name.starts_with("library.tag."))
             continue;
-        const kit::Control* control = kit::control_of(mods_list, item.control);
-        if (control == nullptr || !control->name.starts_with("library.tag."))
-            continue;
-        const auto* look = std::get_if<kit::PillLook>(&item.look);
-        OA_CHECK(look != nullptr && !look->tag.has_value());
+        const kit::NavEntry* entry = nav_named(mods_list, control.name);
+        OA_CHECK(entry != nullptr && !entry->tag.has_value());
     }
     const kit::ListRowLook* quarry = row_look_named(mods_list, "library.row.fixture-core.quarry");
     OA_CHECK(quarry != nullptr && !quarry->badge_tag.has_value());
@@ -5506,8 +5300,8 @@ const kit::ChipLook* chip_named(const kit::ListRowLook& row, std::string_view te
 
 /// The Brains tab lays out at every frame. Its rows carry Default, Full
 /// awareness and the tags at Regular and Large, and the unfit words in the
-/// lock colour. Compact writes those words after the title. Tag pills and
-/// the filter pane label the tags and draw no mutator icon. An unfit row
+/// lock colour. Compact writes those words after the title. The section list
+/// labels the tags and draws no mutator icon. An unfit row
 /// stays bright and its GET stays on.
 void brains_tab_holds_its_invariants() {
     const lib::Library library = brains_library();
@@ -5581,10 +5375,12 @@ void brains_tab_holds_its_invariants() {
         }
 
         if (regular) {
-            const kit::PillLook* economy = pill_named(list, "library.tag.economy");
-            const kit::PillLook* rush = pill_named(list, "library.tag.rush");
-            OA_CHECK(economy != nullptr && economy->text == "Economy" && !economy->tag.has_value());
-            OA_CHECK(rush != nullptr && rush->text == "Rush" && !rush->tag.has_value());
+            const kit::NavEntry* economy = nav_named(list, "library.tag.economy");
+            const kit::NavEntry* rush = nav_named(list, "library.tag.rush");
+            OA_CHECK(
+                economy != nullptr && economy->caption == "Economy" && !economy->tag.has_value()
+            );
+            OA_CHECK(rush != nullptr && rush->caption == "Rush" && !rush->tag.has_value());
         }
         if (large) {
             const kit::NavLook* nav = nullptr;
@@ -6160,10 +5956,9 @@ int text_count(const kit::DisplayList& list, std::string_view text) {
     return count;
 }
 
-/// The shell takes Kit 2's sizes at every class: the tab strip, the search
-/// field, the filter pills and drop-down, the footer's band and buttons, and
-/// the details' actions in a bar at the pane's foot, over the footer, that
-/// does not scroll.
+/// The shell takes Kit 2's sizes at every class: the section list's rows,
+/// the search field, the footer's band and buttons, and the details' actions
+/// in a bar at the card's foot, over the footer, that does not scroll.
 void shell_takes_kit_2_sizes() {
     for (const fixture::NamedFrame& named : fixture::frames()) {
         const kit::SizeClass size_class = named.frame.size_class;
@@ -6178,7 +5973,11 @@ void shell_takes_kit_2_sizes() {
         const kit::Control* tab = fixture::named(list, "library.tab.mods");
         const kit::Control* search = fixture::named(list, "library.search");
         const kit::Control* close = fixture::named(list, "library.close");
-        OA_CHECK(tab != nullptr && tab->rect.height == metrics.tab_strip_height);
+        // Settings' section row: 19, 25 and 32. The Library copies those sizes.
+        const int32_t entry_height = size_class == kit::SizeClass::compact   ? 19
+                                     : size_class == kit::SizeClass::regular ? 25
+                                                                             : 32;
+        OA_CHECK(tab != nullptr && tab->rect.height == entry_height);
         OA_CHECK(search != nullptr && search->rect.height == metrics.control_height);
         OA_CHECK(close != nullptr && close->rect.height == metrics.control_height);
         if (close != nullptr) {
@@ -6202,15 +6001,10 @@ void shell_takes_kit_2_sizes() {
             close_x != nullptr &&
             close_x->rect.y == metrics.edge + (header - close_x->rect.height) / 2
         );
-        if (compact) {
-            const kit::Control* filter = fixture::named(list, "library.filter");
-            OA_CHECK(filter != nullptr && filter->rect.height == metrics.control_height);
+        const kit::Control* all = fixture::named(list, "library.filter.all");
+        OA_CHECK(all != nullptr && all->rect.height == entry_height);
+        if (compact)
             continue;
-        }
-        if (size_class == kit::SizeClass::regular) {
-            const kit::Control* all = fixture::named(list, "library.filter.all");
-            OA_CHECK(all != nullptr && all->rect.height == metrics.filter_chip_height);
-        }
         const kit::Control* update = fixture::named(list, "library.action.update");
         const kit::Control* homepage = fixture::named(list, "library.action.homepage");
         OA_CHECK(update != nullptr && homepage != nullptr);
@@ -6487,13 +6281,13 @@ void filter_pane_scrolls_and_tab_leaves_it() {
         bar = bar || (item.role == kit::Role::scroll_bar && ice != nullptr &&
                       kit::contains(ice->clip, {item.rect.x, item.rect.y}));
     OA_CHECK(bar);
-    // Tab stops once in the pane, on the chosen entry.
+    // Tab stops on every filter and tag, each once.
     int32_t stops = 0;
     for (const kit::Control* entry : entries)
         stops += static_cast<int32_t>(
             std::count(list.tab_order.begin(), list.tab_order.end(), entry->id)
         );
-    OA_CHECK(stops == 1);
+    OA_CHECK(stops == static_cast<int32_t>(entries.size()));
     const kit::Control* all = fixture::named(list, "library.filter.all");
     OA_CHECK(all != nullptr && std::count(list.tab_order.begin(), list.tab_order.end(), all->id));
     OA_EXPECT_NONE(order_problems(list), "large maps, many tags");
@@ -6527,7 +6321,7 @@ void filter_pane_scrolls_and_tab_leaves_it() {
     const kit::Control* last = kit::control_of(list, state.interaction.focused);
     OA_CHECK(last != nullptr && last->name == "library.tag.world-water");
     if (last != nullptr) {
-        // Shown whole in the view, and the pane's one Tab stop.
+        // Shown whole in the view, and Tab stops on it once.
         OA_CHECK(last->rect.y >= last->clip.y);
         OA_CHECK(last->rect.y + last->rect.height <= last->clip.y + last->clip.height);
         OA_CHECK(std::count(list.tab_order.begin(), list.tab_order.end(), last->id) == 1);
@@ -6563,9 +6357,9 @@ void filter_pane_scrolls_and_tab_leaves_it() {
     }
 }
 
-/// A world tag shows its world's name wherever a tag shows, Regular's TAGS
-/// drop-down puts the worlds under WORLD, Compact's filter names them World,
-/// and a search for the name or the whole tag finds the pack.
+/// A world tag shows its world's name wherever a tag shows. The section list
+/// puts the worlds under WORLD, and a search for the name or the whole tag
+/// finds the pack.
 void world_tags_show_their_name() {
     const std::vector<fixture::NamedFrame> all = fixture::frames();
     lib::Library library = with_many_maps();
@@ -6584,56 +6378,28 @@ void world_tags_show_their_name() {
     const kit::Control* detail = fixture::named(list, "library.detail.tag.world-ice");
     OA_CHECK(detail != nullptr && detail->text == "ice");
 
-    // Regular's TAGS drop-down: WORLD is a heading, not a choice.
-    list = laid_out(library, state, all[1].frame);
-    if (fixture::named(list, "library.tags") != nullptr) {
-        static_cast<void>(click(library, state, list, "library.tags"));
-        list = laid_out(library, state, all[1].frame);
-        const kit::ChoiceMenuLook* menu = nullptr;
-        for (const kit::Item& item : list.items)
-            if (const auto* look = std::get_if<kit::ChoiceMenuLook>(&item.look))
-                menu = look;
-        OA_CHECK(menu != nullptr);
-        if (menu != nullptr) {
-            const auto heading = std::find_if(
-                menu->items.begin(), menu->items.end(), [](const kit::ChoiceMenuRow& row) {
-                    return row.divider;
-                }
-            );
-            OA_CHECK(heading != menu->items.end());
-            OA_CHECK(
-                !menu->items.empty() && !menu->items[static_cast<std::size_t>(menu->marked)].divider
-            );
+    // The section list puts WORLD under the other tags. A world's control
+    // reads its name and its count, "water (1)".
+    for (const fixture::NamedFrame& named : all) {
+        const kit::DisplayList laid = laid_out(library, {}, named.frame);
+        OA_CHECK(fixture::named(laid, "library.tags") == nullptr);
+        int32_t tags_heading = -1;
+        int32_t world_heading = -1;
+        for (const kit::Item& item : laid.items) {
+            const auto* heading = std::get_if<kit::HeadingLook>(&item.look);
+            if (item.role != kit::Role::heading || heading == nullptr)
+                continue;
+            if (heading->text == "TAGS")
+                tags_heading = item.rect.y;
+            if (heading->text == "WORLD")
+                world_heading = item.rect.y;
         }
-        // The keys never mark the heading, down to the last world and up again.
-        for (const kit::Key key : {kit::Key::down, kit::Key::up}) {
-            for (int32_t step = 0; step < 30; ++step) {
-                static_cast<void>(lib::library_key(library, state, list, key));
-                list = laid_out(library, state, all[1].frame);
-                const kit::ChoiceMenuLook* open = nullptr;
-                for (const kit::Item& item : list.items)
-                    if (const auto* look = std::get_if<kit::ChoiceMenuLook>(&item.look))
-                        open = look;
-                OA_CHECK(open != nullptr && state.menu_marked >= 0);
-                if (open != nullptr &&
-                    static_cast<std::size_t>(state.menu_marked) < open->items.size())
-                    OA_CHECK(!open->items[static_cast<std::size_t>(state.menu_marked)].divider);
-            }
-        }
-        state.menu = lib::MenuKind::none;
-    } else {
-        OA_CHECK(false);
+        const kit::Control* water = fixture::named(laid, "library.tag.world-water");
+        OA_CHECK(tags_heading >= 0 && world_heading > tags_heading);
+        OA_CHECK(water != nullptr && water->text == "water (1)");
+        if (water != nullptr)
+            OA_CHECK(water->rect.y > world_heading);
     }
-
-    // Compact's filter drop-down names a world "World: water (1)".
-    state = {};
-    list = laid_out(library, state, all[0].frame);
-    static_cast<void>(click(library, state, list, "library.filter"));
-    list = laid_out(library, state, all[0].frame);
-    static_cast<void>(lib::library_key(library, state, list, kit::Key::end));
-    list = laid_out(library, state, all[0].frame);
-    const kit::Control* world_item = fixture::named(list, "library.filter.tag-world-water");
-    OA_CHECK(world_item != nullptr && world_item->text == "World: water (1)");
 
     // The search finds a world by its name and by its whole tag.
     for (const std::string_view query : {"ice", "world-ice"}) {
@@ -6647,8 +6413,8 @@ void world_tags_show_their_name() {
 }
 
 /// Opening a tab gives its search the text focus, or the Active tab's maps
-/// search; the Registries tab has none and leaves the focus. Arrows walking
-/// the tab strip stay on it.
+/// search; the Registries tab has none and leaves the focus. A key on a tab
+/// stays on that tab.
 void opening_a_tab_focuses_its_search() {
     const kit::Frame large = fixture::frames()[2].frame;
     lib::Library library = with_ridge();
@@ -6670,7 +6436,7 @@ void opening_a_tab_focuses_its_search() {
     list = laid_out(library, state, large);
     const kit::Control* maps_search = fixture::named(list, "library.active.search");
     OA_CHECK(maps_search != nullptr && state.interaction.focused == maps_search->id);
-    // The keys on the tab strip stay there.
+    // A key on a tab stays on that tab.
     const kit::Control* mods_tab = fixture::named(list, "library.tab.mods");
     OA_CHECK(mods_tab != nullptr);
     if (mods_tab != nullptr) {

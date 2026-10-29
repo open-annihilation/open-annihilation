@@ -348,7 +348,10 @@ struct ListRowLook {
     std::optional<MakerMark> maker{};
     std::vector<ChipLook> tags{}; ///< chips on the line after the last line
     bool selected{};              ///< the row is the chosen one: the accent tint and outline
-    bool hovered{};               ///< the pointer is over it, or holds it
+    /// The chosen row drawn as a nav entry: the list's selected fill and the
+    /// lime bar, and no accent outline. The keyboard focus keeps its own ring.
+    bool selection_bar{false};
+    bool hovered{}; ///< the pointer is over it, or holds it
     /// False draws no badge. The title then starts `lead` points after the
     /// left inset, so a mark column can sit there and the names still line up.
     bool show_badge{true};

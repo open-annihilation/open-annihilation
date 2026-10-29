@@ -238,13 +238,23 @@ void draw_nav(const Canvas& canvas, const NavLook& look) {
             fill_corner_rect(canvas, entry.rect, radius, colour::hover);
             ink = colour::text;
         }
+        const bool placed = entry.text_column > 0 || entry.icon_side > 0;
+        const int32_t text_at = placed && entry.text_column > 0 ? entry.text_column : kTextOffset;
         Rect caption{
-            entry.rect.x + kTextOffset,
+            entry.rect.x + text_at,
             entry.rect.y,
-            entry.rect.width - kTextOffset - kTextMargin,
+            std::max(entry.rect.width - text_at - kTextMargin, int32_t{0}),
             entry.rect.height,
         };
-        if (entry.tag.has_value()) {
+        if (entry.tag.has_value() && placed && entry.icon_side > 0) {
+            const Rect icon{
+                entry.rect.x + entry.icon_column,
+                entry.rect.y + (entry.rect.height - entry.icon_side) / 2,
+                entry.icon_side,
+                entry.icon_side,
+            };
+            draw_tag_icon(canvas, icon, *entry.tag, ink);
+        } else if (entry.tag.has_value() && !placed) {
             const int32_t side = std::max(compact_metrics.regular_line - 4, int32_t{0});
             const Rect icon{
                 caption.x,
@@ -258,6 +268,23 @@ void draw_nav(const Canvas& canvas, const NavLook& look) {
             caption.width = std::max(caption.width - shift, int32_t{0});
         }
         draw_line(canvas, FontRole::regular, entry.caption, caption, Align::left, ink, 0);
+        if (!entry.count.empty()) {
+            const int32_t word = measure_text(canvas, FontRole::regular, entry.caption);
+            const int32_t gap = std::max(measure_text(canvas, FontRole::small, " "), int32_t{1});
+            const int32_t count_width = measure_text(canvas, FontRole::small, entry.count);
+            const int32_t count_x = caption.x + word + gap;
+            if (count_width > 0 && count_x + count_width <= caption.x + caption.width) {
+                draw_line(
+                    canvas,
+                    FontRole::small,
+                    entry.count,
+                    {count_x, caption.y, count_width, caption.height},
+                    Align::left,
+                    colour::hint,
+                    0
+                );
+            }
+        }
         if (entry.focused)
             draw_focus_ring(canvas, entry.rect, false);
     }

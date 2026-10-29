@@ -19,7 +19,9 @@
 // searches are a button high at 640x480, 1024x660, 1280x720 and 1920x1080.
 // At the same sizes each Active map tile keeps clear rows between its title,
 // its players line and its description, and every action of the Mods, Maps,
-// Mutators and Brains tabs' details shows its words whole. Then, at 640x480, a
+// Mutators and Brains tabs' details shows its words whole. The section list,
+// the heading and its search, the selected row's bar, the details' card and
+// the counts are read at those sizes too. Then, at 640x480, a
 // stand-in controller: Y focuses
 // the search, RB and LB change the tab and come back, X queues the selected
 // entry's UPDATE, the right stick scrolls the list, and B leaves Compact's
@@ -2084,6 +2086,220 @@ void Runtime::check_library() {
         window_of(1920, 1080);
         settle();
         feed_changes(false);
+    }
+
+    // 8d. The section list, the heading row, the selected row, the details'
+    // card and the counts, at 640x480, 1024x660, 1280x720 and 1920x1080.
+    // Keys, Languages, Updates and Registries are pictured at 640x480 and
+    // 1024x660. Failures are gathered and reported after every size.
+    {
+        const std::array<std::array<int, 2>, 4> sizes{
+            {{kCanvasWidth, kCanvasHeight}, {1024, 660}, {1280, 720}, {1920, 1080}}
+        };
+        const std::array<std::string_view, 9> tab_words{
+            "active",
+            "mods",
+            "maps",
+            "mutators",
+            "brains",
+            "keys",
+            "languages",
+            "updates",
+            "registries"
+        };
+        std::string wrong;
+        const auto shown = [&]() -> kit::DisplayList {
+            const LayerScreen* top = oa_layer().top();
+            require(top != nullptr, "no screen shows over the main menu");
+            return top->display_list();
+        };
+        const auto control_named = [](const kit::DisplayList& list, std::string_view name) {
+            const kit::Control* found = nullptr;
+            for (const kit::Control& control : list.controls)
+                if (control.name == name)
+                    found = &control;
+            return found;
+        };
+        const auto entry_named = [&](const kit::DisplayList& list, std::string_view name) {
+            const kit::Control* control = control_named(list, name);
+            const kit::NavEntry* found = nullptr;
+            if (control == nullptr)
+                return found;
+            for (const kit::Item& item : list.items) {
+                const auto* look = std::get_if<kit::NavLook>(&item.look);
+                if (look == nullptr)
+                    continue;
+                for (const kit::NavEntry& entry : look->entries)
+                    if (entry.rect.x == control->rect.x && entry.rect.y == control->rect.y &&
+                        entry.rect.width == control->rect.width &&
+                        entry.rect.height == control->rect.height)
+                        found = &entry;
+            }
+            return found;
+        };
+        const auto inside = [](const kit::Rect& outer, const kit::Rect& inner) {
+            return inner.width > 0 && inner.height > 0 && inner.x >= outer.x &&
+                   inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width &&
+                   inner.y + inner.height <= outer.y + outer.height;
+        };
+        for (const auto& [width, height] : sizes) {
+            const std::string size = std::to_string(width) + 'x' + std::to_string(height);
+            const std::string on = " on the " + size + " window";
+            const bool compact = width < 768;
+            window_of(width, height);
+            settle();
+            open_library(library::Tab::mods);
+            run_frame(running);
+            require(
+                running && top_is(library_screen_name) && host.model.tab == library::Tab::mods,
+                "the Library did not open on Mods" + on
+            );
+            const kit::DisplayList mods = shown();
+            const kit::Control* previous = nullptr;
+            for (const std::string_view word : tab_words) {
+                const std::string name = "library.tab." + std::string(word);
+                const kit::Control* tab = control_named(mods, name);
+                if (tab == nullptr) {
+                    wrong += name + " is missing" + on + "; ";
+                    continue;
+                }
+                if (previous != nullptr && tab->rect.y <= previous->rect.y)
+                    wrong += name + " is not below the tab before it" + on + "; ";
+                previous = tab;
+            }
+            const kit::Control* mods_tab = control_named(mods, "library.tab.mods");
+            const kit::NavEntry* mods_entry = entry_named(mods, "library.tab.mods");
+            if (mods_tab == nullptr || mods_entry == nullptr || !mods_tab->checked ||
+                !mods_entry->selected)
+                wrong += "Mods is not the open entry" + on + "; ";
+            const bool digits =
+                mods_entry != nullptr && !mods_entry->count.empty() &&
+                mods_entry->count.find_first_not_of("0123456789") == std::string::npos;
+            if (mods_entry == nullptr || mods_tab == nullptr || mods_entry->caption != "Mods" ||
+                !digits || mods_tab->text != "Mods (" + mods_entry->count + ")")
+                wrong += "Mods' count is not the digits after the word" + on + "; ";
+            const kit::Control* filters = control_named(mods, "library.filter.all");
+            if (filters == nullptr || mods_tab == nullptr || filters->rect.y <= mods_tab->rect.y)
+                wrong += "All is not under the tabs" + on + "; ";
+            const kit::NavEntry* all_entry = entry_named(mods, "library.filter.all");
+            if (all_entry == nullptr || all_entry->caption != "All" || all_entry->count.empty() ||
+                filters == nullptr || filters->text != "All (" + all_entry->count + ")")
+                wrong += "All's count is not the digits after the word" + on + "; ";
+            const kit::Item* heading = nullptr;
+            for (const kit::Item& item : mods.items) {
+                const auto* look = std::get_if<kit::HeadingLook>(&item.look);
+                if (item.role == kit::Role::heading && look != nullptr && look->text == "MODS" &&
+                    mods_tab != nullptr && item.rect.x > mods_tab->rect.x)
+                    heading = &item;
+            }
+            const kit::Control* search = control_named(mods, "library.search");
+            const kit::Control* close = control_named(mods, "library.close");
+            if (heading == nullptr)
+                wrong += "the heading does not read MODS" + on + "; ";
+            if (search == nullptr || close == nullptr || search->rect.height != close->rect.height)
+                wrong += "the search is not a button high" + on + "; ";
+            if (heading != nullptr && search != nullptr &&
+                (heading->rect.y < search->rect.y ||
+                 heading->rect.y + heading->rect.height > search->rect.y + search->rect.height ||
+                 search->rect.x <= heading->rect.x))
+                wrong += "the search is not on the heading's row" + on + "; ";
+            bool selected = false;
+            kit::Rect row{};
+            for (const kit::Item& item : mods.items) {
+                const auto* look = std::get_if<kit::ListRowLook>(&item.look);
+                if (look == nullptr || !look->selected)
+                    continue;
+                selected = true;
+                row = item.rect;
+                if (!look->selection_bar)
+                    wrong += "the selected row has no bar" + on + "; ";
+            }
+            if (!selected)
+                wrong += "no row is selected" + on + "; ";
+            for (const kit::Item& item : mods.items) {
+                if (item.role != kit::Role::focus_ring || !selected)
+                    continue;
+                const kit::Rect shared = kit::intersect(item.rect, row);
+                if (shared.width > 0 && shared.height > 0)
+                    wrong += "the selected row wears a focus outline" + on + "; ";
+            }
+            const auto card_holds_details = [&](const kit::DisplayList& list,
+                                                std::string_view where) {
+                std::optional<kit::Rect> card;
+                for (const kit::Item& item : list.items) {
+                    const auto* face = std::get_if<kit::ButtonLook>(&item.look);
+                    if (item.role != kit::Role::button || face == nullptr ||
+                        face->style != kit::ButtonStyle::inset)
+                        continue;
+                    if (!card || item.rect.width * item.rect.height > card->width * card->height)
+                        card = item.rect;
+                }
+                const kit::Control* status = control_named(list, "library.status");
+                if (!card || status == nullptr || !inside(*card, status->rect))
+                    wrong += std::string(where) + " are not inside a card" + on + "; ";
+            };
+            if (compact) {
+                std::string row_name;
+                for (const kit::Control& control : mods.controls) {
+                    if (control.kind == kit::ControlKind::list_item &&
+                        control.name.rfind("library.row.", 0) == 0) {
+                        row_name = "oa." + control.name;
+                        break;
+                    }
+                }
+                if (row_name.empty())
+                    wrong += "Mods has no row to open" + on + "; ";
+                else {
+                    click_named(row_name);
+                    run_frame(running);
+                    require(running, "a frame ended the run");
+                    card_holds_details(shown(), "Compact's details");
+                    if (named("oa.library.back"))
+                        click_named("oa.library.back");
+                    run_frame(running);
+                    require(running, "a frame ended the run");
+                }
+            } else {
+                card_holds_details(mods, "the details");
+            }
+            if (width == kCanvasWidth || width == 1024) {
+                for (const std::string_view word : {"keys", "languages", "updates", "registries"}) {
+                    click_named("oa.library.tab." + std::string(word));
+                    run_frame(running);
+                    require(running, "a frame ended the run");
+                    snapshot("shell-" + std::string(word) + "-" + size);
+                }
+            }
+            click_named("oa.library.tab.active");
+            run_frame(running);
+            require(running && host.model.tab == library::Tab::active, "Active did not open" + on);
+            const kit::DisplayList active = shown();
+            if (control_named(active, "library.search") != nullptr ||
+                control_named(active, "library.filter.all") != nullptr ||
+                control_named(active, "library.filter") != nullptr)
+                wrong += "Active shows a search or a filter" + on + "; ";
+            const kit::Control* active_tab = control_named(active, "library.tab.active");
+            const kit::NavEntry* active_entry = entry_named(active, "library.tab.active");
+            if (active_tab == nullptr || active_entry == nullptr || !active_tab->checked ||
+                !active_entry->selected || active_tab->text != "Active" ||
+                !active_entry->count.empty())
+                wrong += "Active is not the open entry" + on + "; ";
+            bool active_heading = false;
+            for (const kit::Item& item : active.items) {
+                const auto* look = std::get_if<kit::HeadingLook>(&item.look);
+                active_heading =
+                    active_heading ||
+                    (item.role == kit::Role::heading && look != nullptr && look->text == "ACTIVE" &&
+                     active_tab != nullptr && item.rect.x > active_tab->rect.x);
+            }
+            if (!active_heading)
+                wrong += "the heading does not read ACTIVE" + on + "; ";
+            click_named("oa.library.close");
+            require(oa_layer().top() == nullptr, "CLOSE did not close the Library" + on);
+        }
+        require(wrong.empty(), wrong);
+        std::cout << "library check: the section list, heading, selection, card and counts at "
+                     "640x480, 1024x660, 1280x720 and 1920x1080\n";
     }
 
     // 9. In a skirmish the in-match OA button opens Settings, the Library
