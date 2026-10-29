@@ -522,6 +522,56 @@ const kit::Item* text_item(const kit::DisplayList& list, std::string_view text) 
     return nullptr;
 }
 
+/// The text items that show a title, in reading order.
+///
+/// One item when the card holds the title on one line. Several when the
+/// card wraps it: each is the next slice of the title, and together, with
+/// the spaces the wrap dropped, they are the title again. Empty when the
+/// title is not all there.
+///
+/// @param list the display list
+/// @param title the title
+/// @return the items; empty when they do not join back to the title
+std::vector<const kit::Item*> title_lines_of(const kit::DisplayList& list, std::string_view title) {
+    if (const kit::Item* exact = text_item(list, title))
+        return {exact};
+    std::vector<const kit::Item*> lines;
+    std::string_view rest = title;
+    std::size_t start = 0;
+    while (!rest.empty()) {
+        const kit::Item* best = nullptr;
+        std::size_t best_at = start;
+        for (std::size_t index = start; index < list.items.size(); ++index) {
+            const kit::Item& item = list.items[index];
+            if (item.role != kit::Role::text || item.text.empty() || item.text.size() > rest.size())
+                continue;
+            if (rest.compare(0, item.text.size(), item.text) != 0)
+                continue;
+            const bool done = item.text.size() == rest.size();
+            const bool word = !done && rest[item.text.size()] == ' ';
+            // A word wider than the line is broken between characters. That
+            // slice has no space of its own, and the title continues inside
+            // the word.
+            const bool broken =
+                !done && rest[item.text.size()] != ' ' && item.text.find(' ') == std::string::npos;
+            if (!done && !word && !broken)
+                continue;
+            if (best == nullptr || item.text.size() > best->text.size()) {
+                best = &item;
+                best_at = index;
+            }
+        }
+        if (best == nullptr)
+            return {};
+        lines.push_back(best);
+        rest.remove_prefix(best->text.size());
+        if (!rest.empty() && rest.front() == ' ')
+            rest.remove_prefix(1);
+        start = best_at + 1;
+    }
+    return lines;
+}
+
 /// Returns the smallest card face that holds a text item.
 ///
 /// @param list the display list
@@ -2491,7 +2541,9 @@ void registries_tab_lists_every_registry() {
         );
         OA_CHECK(shows_pill(list, "Built in"));
         OA_CHECK(!shows_chip(list, "Built in"));
-        OA_CHECK(text_item(list, core_title) != nullptr);
+        // The card may wrap the title. The lines are the title again.
+        const std::vector<const kit::Item*> core_title_lines = title_lines_of(list, core_title);
+        OA_CHECK(!core_title_lines.empty());
         OA_CHECK(text_item(list, core_description) != nullptr);
         OA_CHECK(
             core_key != nullptr && core_key->rect.width == metrics.state_icon_side &&
@@ -2513,7 +2565,8 @@ void registries_tab_lists_every_registry() {
         }
         OA_CHECK(built_in_pills == 1);
         OA_CHECK(key_icon);
-        const kit::Item* core_title_item = text_item(list, core_title);
+        const kit::Item* core_title_item =
+            core_title_lines.empty() ? nullptr : core_title_lines.front();
         OA_CHECK(built_in_pill != nullptr && core_row != nullptr && core_title_item != nullptr);
         if (built_in_pill != nullptr && core_title_item != nullptr && core_key != nullptr) {
             const auto* pill_look = std::get_if<kit::PillLook>(&built_in_pill->look);
@@ -5688,8 +5741,9 @@ struct DrawnPiece {
 
 /// The pieces a list row draws, as the kit places them.
 ///
-/// A chip the chip line does not reach is left out. The kit stops at the
-/// first chip that would pass the column, so that chip is not an item.
+/// A chip that does not fit the line wraps under it, and one wider than the
+/// line is left out, as the kit's chip line does. Every line is counted in
+/// the block the kit centres in the row.
 ///
 /// @param row the row's rectangle
 /// @param look what the row shows
@@ -5702,6 +5756,12 @@ drawn_row_pieces(const kit::Rect& row, const kit::ListRowLook& look, const kit::
     const auto add = [&](kit::Rect rect, std::string text) {
         if (rect.width > 0 && rect.height > 0)
             pieces.push_back(DrawnPiece{rect, std::move(text)});
+    };
+    const auto chip_width_of = [&](const kit::ChipLook& chip) {
+        return kit::chip_width(measured, chip);
+    };
+    const auto chip_height_of = [&](const kit::ChipLook& chip) {
+        return chip.icon.has_value() ? metrics.state_icon_side : metrics.chip_height;
     };
     const int32_t inset = metrics.list_row_inset;
     int32_t text_left = row.x + inset;
@@ -5729,24 +5789,62 @@ drawn_row_pieces(const kit::Rect& row, const kit::ListRowLook& look, const kit::
             right = mark.x - metrics.list_row_gap;
     }
 
-    const auto line_count = static_cast<int32_t>(look.lines.size()) + (look.tags.empty() ? 0 : 1);
-    const int32_t text_height = std::max(
-                                    metrics.list_row_title_top + metrics.regular_line,
-                                    metrics.list_row_line_top + line_count * metrics.small_line
-                                ) +
-                                metrics.list_row_title_top;
+    int32_t aside_width = 0;
+    if (!look.aside.empty()) {
+        for (const std::string& aside_line : look.aside)
+            aside_width =
+                std::max(aside_width, kit::text_width(measured, kit::FontRole::small, aside_line));
+        aside_width = std::min(aside_width, std::max(right - text_left, int32_t{0}));
+    }
+    const int32_t text_right =
+        look.aside.empty() ? right : right - aside_width - metrics.list_row_gap;
+    const int32_t room = std::max(text_right - text_left, int32_t{0});
+
+    int32_t chip_span = 0;
+    {
+        int32_t left = 0;
+        int32_t row_top = 0;
+        int32_t row_height = 0;
+        for (const kit::ChipLook& chip : look.tags) {
+            const int32_t width = chip_width_of(chip);
+            const int32_t height = chip_height_of(chip);
+            if (left > 0 && left + width > room) {
+                row_top += row_height + metrics.chip_gap;
+                row_height = 0;
+                left = 0;
+            }
+            if (left + width > room)
+                break;
+            row_height = std::max(row_height, height);
+            left += width + metrics.chip_gap;
+            chip_span = row_top + row_height;
+        }
+    }
+    const auto line_count = static_cast<int32_t>(look.lines.size()) + (chip_span > 0 ? 1 : 0);
+    const int32_t packed_height = std::max(
+                                      metrics.list_row_title_top + metrics.regular_line,
+                                      metrics.list_row_line_top + line_count * metrics.small_line
+                                  ) +
+                                  metrics.list_row_title_top;
+    const auto lines_height = static_cast<int32_t>(look.lines.size()) * metrics.small_line;
+    const int32_t spaced_height =
+        metrics.list_row_title_top + metrics.regular_line + metrics.list_row_line_gap +
+        lines_height +
+        (chip_span <= 0 ? 0 : (look.lines.empty() ? 0 : metrics.list_row_line_gap) + chip_span) +
+        metrics.list_row_title_top;
+    // The kit leads a packed row's chips by 2 when the row has that room.
+    constexpr int32_t chip_lead_packed = 2;
+    const bool spaced = line_count > 0 && row.height >= spaced_height;
+    const int32_t chip_lead = spaced ? (look.lines.empty() ? 0 : metrics.list_row_line_gap)
+                              : !look.tags.empty() && row.height >= packed_height + chip_lead_packed
+                                  ? chip_lead_packed
+                                  : 0;
+    const int32_t text_height = spaced ? spaced_height : packed_height + chip_lead;
     const int32_t top = row.y + std::max((row.height - text_height) / 2, int32_t{0});
     const int32_t title_row = top + metrics.list_row_title_top;
     const int32_t aside_row = title_row + (metrics.regular_line - metrics.small_line) / 2;
 
-    int32_t text_right = right;
     if (!look.aside.empty()) {
-        int32_t aside_width = 0;
-        for (const std::string& aside_line : look.aside) {
-            aside_width =
-                std::max(aside_width, kit::text_width(measured, kit::FontRole::small, aside_line));
-        }
-        aside_width = std::min(aside_width, std::max(right - text_left, int32_t{0}));
         const int32_t aside_left = right - aside_width;
         for (std::size_t index = 0; index < look.aside.size(); ++index) {
             add({aside_left,
@@ -5755,26 +5853,34 @@ drawn_row_pieces(const kit::Rect& row, const kit::ListRowLook& look, const kit::
                  metrics.small_line},
                 look.aside[index]);
         }
-        text_right = aside_left - metrics.list_row_gap;
     }
 
-    const int32_t room = std::max(text_right - text_left, int32_t{0});
     if (!look.title.empty() || !look.by.empty())
         add({text_left, title_row, room, metrics.regular_line}, look.title);
 
-    int32_t line_row = top + metrics.list_row_line_top;
+    int32_t line_row = top + (spaced ? metrics.list_row_title_top + metrics.regular_line +
+                                           metrics.list_row_line_gap
+                                     : metrics.list_row_line_top);
     for (const std::string& line : look.lines) {
         add({text_left, line_row, room, metrics.small_line}, line);
         line_row += metrics.small_line;
     }
     int32_t chip_left = text_left;
+    int32_t chip_y = line_row + chip_lead;
+    const int32_t bottom = row.y + row.height;
     for (const kit::ChipLook& chip : look.tags) {
-        const int32_t width = kit::chip_width(measured, chip);
-        if (chip_left + width > text_right)
+        const int32_t width = chip_width_of(chip);
+        const int32_t height = chip_height_of(chip);
+        if (chip_left > text_left && chip_left + width > text_right) {
+            const int32_t next = chip_y + height + metrics.chip_gap;
+            if (next + height > bottom)
+                break;
+            chip_y = next;
+            chip_left = text_left;
+        }
+        if (chip_left + width > text_right || chip_y + height > bottom)
             break;
-        const int32_t height =
-            chip.icon.has_value() ? metrics.state_icon_side : metrics.chip_height;
-        add({chip_left, line_row, width, height}, chip.text);
+        add({chip_left, chip_y, width, height}, chip.text);
         chip_left += width + metrics.chip_gap;
     }
     return pieces;

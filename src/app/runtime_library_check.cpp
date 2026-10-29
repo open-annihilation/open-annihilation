@@ -2154,11 +2154,11 @@ void Runtime::check_library() {
                 running && top_is(library_screen_name) && host.model.tab == library::Tab::mods,
                 "the Library did not open on Mods" + on
             );
-            const kit::DisplayList mods = shown();
+            const kit::DisplayList shown_mods = shown();
             const kit::Control* previous = nullptr;
             for (const std::string_view word : tab_words) {
                 const std::string name = "library.tab." + std::string(word);
-                const kit::Control* tab = control_named(mods, name);
+                const kit::Control* tab = control_named(shown_mods, name);
                 if (tab == nullptr) {
                     wrong += name + " is missing" + on + "; ";
                     continue;
@@ -2167,8 +2167,8 @@ void Runtime::check_library() {
                     wrong += name + " is not below the tab before it" + on + "; ";
                 previous = tab;
             }
-            const kit::Control* mods_tab = control_named(mods, "library.tab.mods");
-            const kit::NavEntry* mods_entry = entry_named(mods, "library.tab.mods");
+            const kit::Control* mods_tab = control_named(shown_mods, "library.tab.mods");
+            const kit::NavEntry* mods_entry = entry_named(shown_mods, "library.tab.mods");
             if (mods_tab == nullptr || mods_entry == nullptr || !mods_tab->checked ||
                 !mods_entry->selected)
                 wrong += "Mods is not the open entry" + on + "; ";
@@ -2178,22 +2178,22 @@ void Runtime::check_library() {
             if (mods_entry == nullptr || mods_tab == nullptr || mods_entry->caption != "Mods" ||
                 !digits || mods_tab->text != "Mods (" + mods_entry->count + ")")
                 wrong += "Mods' count is not the digits after the word" + on + "; ";
-            const kit::Control* filters = control_named(mods, "library.filter.all");
+            const kit::Control* filters = control_named(shown_mods, "library.filter.all");
             if (filters == nullptr || mods_tab == nullptr || filters->rect.y <= mods_tab->rect.y)
                 wrong += "All is not under the tabs" + on + "; ";
-            const kit::NavEntry* all_entry = entry_named(mods, "library.filter.all");
+            const kit::NavEntry* all_entry = entry_named(shown_mods, "library.filter.all");
             if (all_entry == nullptr || all_entry->caption != "All" || all_entry->count.empty() ||
                 filters == nullptr || filters->text != "All (" + all_entry->count + ")")
                 wrong += "All's count is not the digits after the word" + on + "; ";
             const kit::Item* heading = nullptr;
-            for (const kit::Item& item : mods.items) {
+            for (const kit::Item& item : shown_mods.items) {
                 const auto* look = std::get_if<kit::HeadingLook>(&item.look);
                 if (item.role == kit::Role::heading && look != nullptr && look->text == "MODS" &&
                     mods_tab != nullptr && item.rect.x > mods_tab->rect.x)
                     heading = &item;
             }
-            const kit::Control* search = control_named(mods, "library.search");
-            const kit::Control* close = control_named(mods, "library.close");
+            const kit::Control* search = control_named(shown_mods, "library.search");
+            const kit::Control* close = control_named(shown_mods, "library.close");
             if (heading == nullptr)
                 wrong += "the heading does not read MODS" + on + "; ";
             if (search == nullptr || close == nullptr || search->rect.height != close->rect.height)
@@ -2205,7 +2205,7 @@ void Runtime::check_library() {
                 wrong += "the search is not on the heading's row" + on + "; ";
             bool selected = false;
             kit::Rect row{};
-            for (const kit::Item& item : mods.items) {
+            for (const kit::Item& item : shown_mods.items) {
                 const auto* look = std::get_if<kit::ListRowLook>(&item.look);
                 if (look == nullptr || !look->selected)
                     continue;
@@ -2216,7 +2216,7 @@ void Runtime::check_library() {
             }
             if (!selected)
                 wrong += "no row is selected" + on + "; ";
-            for (const kit::Item& item : mods.items) {
+            for (const kit::Item& item : shown_mods.items) {
                 if (item.role != kit::Role::focus_ring || !selected)
                     continue;
                 const kit::Rect shared = kit::intersect(item.rect, row);
@@ -2240,7 +2240,7 @@ void Runtime::check_library() {
             };
             if (compact) {
                 std::string row_name;
-                for (const kit::Control& control : mods.controls) {
+                for (const kit::Control& control : shown_mods.controls) {
                     if (control.kind == kit::ControlKind::list_item &&
                         control.name.rfind("library.row.", 0) == 0) {
                         row_name = "oa." + control.name;
@@ -2260,7 +2260,7 @@ void Runtime::check_library() {
                     require(running, "a frame ended the run");
                 }
             } else {
-                card_holds_details(mods, "the details");
+                card_holds_details(shown_mods, "the details");
             }
             if (width == kCanvasWidth || width == 1024) {
                 for (const std::string_view word : {"keys", "languages", "updates", "registries"}) {

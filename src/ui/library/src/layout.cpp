@@ -1001,6 +1001,33 @@ bool chips_fit(const Building& building, const std::vector<kit::ChipLook>& chips
     return true;
 }
 
+/// Returns how many lines a chip row takes when a chip that does not fit wraps.
+///
+/// A chip wider than the line takes a line of its own and is still counted,
+/// so the row can grow for it. No chips take no line.
+///
+/// @param building the layout
+/// @param chips the chips, in the order they are drawn
+/// @param room the columns one line may use
+/// @return the lines
+int32_t
+chip_lines_in(const Building& building, const std::vector<kit::ChipLook>& chips, int32_t room) {
+    if (chips.empty())
+        return 0;
+    const int32_t gap = kit::compact_metrics.chip_gap;
+    int32_t lines = 1;
+    int32_t left = 0;
+    for (const kit::ChipLook& chip : chips) {
+        const int32_t width = kit::chip_width(*building.fonts, chip);
+        if (left > 0 && left + width > room) {
+            ++lines;
+            left = 0;
+        }
+        left += width + gap;
+    }
+    return lines;
+}
+
 /// Returns a mutator's state chip, drawn in the lock colour.
 ///
 /// @param text the chip's words, looked up
@@ -1261,12 +1288,10 @@ kit::ListRowLook row_look(
             look.tags.insert(look.tags.end(), labels.begin(), labels.end());
         }
     } else if (entry.id.kind == Kind::key_layout) {
-        // The summary is the line under the name. The own-changes count, in
-        // the lock colour, and Made for share the chip line under that, at
-        // Regular and Large, Made for as this chip and not as a line as
-        // well. The tags take the room that is left. When the line cannot
-        // hold them, the tags are the ones dropped, and the own-changes count
-        // stays ahead of a Made for that would leave it no room.
+        // The summary is the line under the name. Made for, the own-changes
+        // count and the tags are chips under that, at Regular and Large.
+        // Made for is this chip and not a line as well. A chip that does not
+        // fit the line wraps under it, so the order stays and none is dropped.
         const std::string made = layout_made_for_line(library, entry);
         std::string own;
         if (const KeyLayoutFacts* facts = key_facts(entry);
@@ -1288,9 +1313,6 @@ kit::ListRowLook row_look(
             for (const std::string& tag : *tags)
                 labels.push_back(filter_chip(std::string(tag_caption(library, tag, true))));
         }
-        const int32_t room = chip_line_room(building, look, row_width, row_height);
-        if (kept.size() == 2 && !chips_fit(building, kept, room))
-            std::swap(kept[0], kept[1]);
         kept.insert(kept.end(), labels.begin(), labels.end());
         look.tags = std::move(kept);
     } else if (form == RowForm::large) {
@@ -2016,8 +2038,11 @@ void add_section_nav(Building& building, const kit::Rect& column) {
     const auto slash = choice.find('/');
     const auto old_slash = state.filters_chosen.find('/');
     const bool choice_changed = choice != state.filters_chosen;
-    const bool tab_changed = state.filters_chosen.empty() || slash == std::string::npos ||
-                             old_slash == std::string::npos ||
+    // Empty is the first layout, not a change of tab: a tag already chosen,
+    // including one a fresh state opens on, is brought into the view. A later
+    // change of tab shows the open tab from the top.
+    const bool tab_changed = !state.filters_chosen.empty() && slash != std::string::npos &&
+                             old_slash != std::string::npos &&
                              choice.compare(0, slash, state.filters_chosen, 0, old_slash) != 0;
     if (choice_changed) {
         if (tab_changed) {
@@ -2616,6 +2641,34 @@ constexpr int32_t map_preview_cell = 72;
 /// How many lines of a map's description a grid cell keeps.
 constexpr std::size_t map_preview_lines = 3;
 
+/// Returns the Keys tab's row height: Large's row, grown for each chip line
+/// past the first, plus one chip of slack so a wider drawn face still wraps
+/// inside the row. The slack is a chip and not a whole line, so three rows
+/// still fit the Regular list.
+///
+/// @param building the layout
+/// @param rows_width a row's width, in points
+/// @return the height, in points
+int32_t keys_chip_row_height(const Building& building, int32_t rows_width) {
+    const kit::Metrics& metrics = *building.metrics;
+    const int32_t nominal = row_height(metrics, RowForm::large);
+    int32_t lines = 1;
+    const Library& library = *building.library;
+    for (const std::size_t place : library.visible) {
+        const Entry& entry = library.entries[place];
+        if (entry.id.kind != Kind::key_layout)
+            continue;
+        const kit::ListRowLook look =
+            row_look(building, entry, RowForm::large, rows_width, nominal);
+        const int32_t room = chip_line_room(building, look, rows_width, nominal);
+        lines = std::max(lines, chip_lines_in(building, look.tags, room));
+    }
+    if (lines <= 1)
+        return nominal;
+    const int32_t line = metrics.chip_height + metrics.chip_gap;
+    return nominal + (lines - 1) * line + metrics.chip_height;
+}
+
 /// Appends the list pane: the note on a list the last fetch could not
 /// bring up to date, the rows that show, an empty list's words, the scroll
 /// bar and the list's own control.
@@ -2645,15 +2698,19 @@ void add_list(Building& building, const kit::Rect& pane, RowForm form) {
         area.y += metrics.small_line + metrics.hint_gap;
         area.height -= metrics.small_line + metrics.hint_gap;
     }
-    const int32_t height = row_height(metrics, form);
+    const int32_t well_width = metrics.scroll_thumb_width + 2;
+    const int32_t rows_width = std::max(area.width - well_width - metrics.button_gap, int32_t{0});
+    // Keys keeps every chip, wrapping onto further lines, so its rows grow
+    // together. Every other list keeps the form's one height.
+    const int32_t height = form == RowForm::large && library.tab == Tab::keys
+                               ? keys_chip_row_height(building, rows_width)
+                               : row_height(metrics, form);
     // The rows lie a step apart, a gap under each (controls::list_row_step),
     // and the view holds whole steps.
     const int32_t step = controls::list_row_step(height);
     const int32_t view_height = std::max(area.height, int32_t{0}) / step * step;
     const kit::Rect view{area.x, area.y, area.width, view_height};
-    const int32_t well_width = metrics.scroll_thumb_width + 2;
     const kit::Rect well{view.x + view.width - well_width, view.y, well_width, view.height};
-    const int32_t rows_width = view.width - well_width - metrics.button_gap;
     const auto content = static_cast<int32_t>(library.visible.size()) * step;
     const int32_t limit = kit::ScrollArea::limit_for(content, view.height);
     // A From link names the row to put at the top of the list. The write is
@@ -5739,9 +5796,12 @@ add_registries_content(Building& building, const kit::Rect& view, int32_t width,
         const int32_t title_band = std::max(metrics.regular_line, metrics.button_height);
         // The right cluster, from the switch inward: REFRESH, the refresh
         // mark while this registry is being asked or its check is showing,
-        // and the key icon. The key, REFRESH and the switch share the band's
-        // top, so Tab reads them left to right and then the buttons below.
-        // A wrapped heading grows under that band.
+        // and the key icon. They share the title's band when the title keeps
+        // a letter's width beside them, so Tab reads them left to right and
+        // then the buttons below. A translation of Refresh such as
+        // Auffrischen can leave the title narrower than its first letter;
+        // the controls then take the row under the title, and the title
+        // keeps the card's width. A wrapped heading grows under its band.
         const uint16_t check_ms =
             registry.refreshing ? uint16_t{0} : registry_check_ms(*building.state, registry.id);
         const bool show_mark = registry.refreshing || check_ms > 0;
@@ -5756,35 +5816,35 @@ add_registries_content(Building& building, const kit::Rect& view, int32_t width,
         const int32_t switch_columns =
             std::max(metrics.switch_width, (std::max(off_width, on_width) + switch_pad) * 2 + 2);
         cluster -= switch_columns;
-        const kit::Rect toggle{
-            cluster,
-            band_top,
-            switch_columns,
-            metrics.regular_line,
-        };
+        const int32_t toggle_x = cluster;
         cluster -= metrics.button_gap;
         // REFRESH is a row's small secondary button with its arrow.
         const std::string_view refresh_caption = shown(library.text, words::registry_refresh);
         const int32_t refresh_width =
             button_width(building, refresh_caption) + kit::refresh_icon_room(metrics.button_height);
         cluster -= refresh_width;
-        const kit::Rect refresh_rect{cluster, band_top, refresh_width, metrics.button_height};
+        const int32_t refresh_x = cluster;
         cluster -= metrics.button_gap;
-        kit::Rect turning_rect{};
+        int32_t turning_x = 0;
         if (show_mark) {
             cluster -= metrics.button_height;
-            turning_rect = {cluster, band_top, metrics.button_height, metrics.button_height};
+            turning_x = cluster;
             cluster -= metrics.button_gap;
         }
         cluster -= metrics.state_icon_side;
-        const kit::Rect key_rect{
-            cluster, band_top, metrics.state_icon_side, metrics.state_icon_side
-        };
+        const int32_t key_x = cluster;
         const int32_t text_left = inner_left + side + metrics.list_row_gap;
-        const int32_t title_right = cluster - metrics.label_gap;
-        const int32_t title_width = title_right - text_left;
+        int32_t title_width = key_x - metrics.label_gap - text_left;
         const std::string_view heading = registry.title.empty() ? std::string_view{registry.name}
                                                                 : std::string_view{registry.title};
+        const std::size_t glyph_bytes = std::min(kit::character_bytes(heading), heading.size());
+        const int32_t glyph =
+            glyph_bytes == 0
+                ? 0
+                : width_of(building, kit::FontRole::regular, heading.substr(0, glyph_bytes));
+        const bool stack_controls = glyph > 0 && title_width < glyph;
+        if (stack_controls)
+            title_width = std::max(inner_right - text_left, int32_t{0});
         // A built-in registry's pill sits on the title's line, at its right,
         // as the Active tab's Language tile places Built in. The heading
         // keeps clear of it.
@@ -5812,7 +5872,22 @@ add_registries_content(Building& building, const kit::Rect& view, int32_t width,
         const int32_t heading_height =
             static_cast<int32_t>(std::max(heading_lines.size(), std::size_t{1})) *
             metrics.regular_line;
-        const int32_t header_height = std::max(title_band, std::max(heading_height, side));
+        const int32_t cluster_row = std::max(metrics.button_height, metrics.state_icon_side * 2);
+        int32_t cluster_top = band_top;
+        int32_t header_height = std::max(title_band, std::max(heading_height, side));
+        if (stack_controls) {
+            const int32_t title_block = std::max(title_band, std::max(heading_height, side));
+            cluster_top = band_top + title_block + metrics.hint_gap;
+            header_height = cluster_top - band_top + cluster_row;
+        }
+        const kit::Rect toggle{toggle_x, cluster_top, switch_columns, metrics.regular_line};
+        const kit::Rect refresh_rect{refresh_x, cluster_top, refresh_width, metrics.button_height};
+        kit::Rect turning_rect{};
+        if (show_mark)
+            turning_rect = {turning_x, cluster_top, metrics.button_height, metrics.button_height};
+        const kit::Rect key_rect{
+            key_x, cluster_top, metrics.state_icon_side, metrics.state_icon_side
+        };
         const int32_t lines_width = std::max(inner_right - text_left, int32_t{0});
         std::vector<std::string> description_lines;
         if (!registry.description.empty() && lines_width > 0)
@@ -5849,15 +5924,19 @@ add_registries_content(Building& building, const kit::Rect& view, int32_t width,
         for (std::size_t line = 0; line < heading_lines.size(); ++line) {
             const int32_t box_width =
                 line == 0 && show_built_in ? first_box : std::max(title_width, int32_t{0});
-            add_text(
-                building,
-                kit::FontRole::regular,
-                heading_lines[line],
-                {text_left, heading_top, box_width, metrics.regular_line},
-                kit::Align::left,
-                kit::colour::text,
-                view
-            );
+            // A word wider than the box is not drawn. The wrap keeps a first
+            // letter even when that letter is wider, and that letter would
+            // fail the text-fit check.
+            if (width_of(building, kit::FontRole::regular, heading_lines[line]) <= box_width)
+                add_text(
+                    building,
+                    kit::FontRole::regular,
+                    heading_lines[line],
+                    {text_left, heading_top, box_width, metrics.regular_line},
+                    kit::Align::left,
+                    kit::colour::text,
+                    view
+                );
             heading_top += metrics.regular_line;
         }
         if (show_built_in) {
