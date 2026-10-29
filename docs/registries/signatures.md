@@ -50,6 +50,9 @@ Keep signing with a key the previous catalogue already trusted until players
 have accepted the new set. A catalogue signed only by a key nobody trusts yet
 is refused.
 
+A built-in registry's keys change only in a release. A new key ships before
+the old one retires. The engine feed follows the same keys.
+
 ## `oa-tool catalogue`
 
 `oa-tool catalogue keygen --id ID --out FILE` makes a new Ed25519 key, seals
