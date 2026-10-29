@@ -81,6 +81,13 @@ menu_entries(const Editor& editor, Menu menu, const ScreenState& state, bool com
     const kit::Metrics& metrics, const std::vector<MenuEntry>& entries, int32_t first, int32_t count
 ) noexcept;
 
+/// How many items a menu shows at once: the most, up to the kit's limit, whose
+/// tallest run among the entries (with the menu's border) fits the room.
+///
+/// @param metrics the size class
+/// @param entries the menu
+/// @param room the points the menu may take
+/// @return the items shown at once; at least 1 unless the menu is empty
 [[nodiscard]] int32_t menu_rows_that_fit(
     const kit::Metrics& metrics, const std::vector<MenuEntry>& entries, int32_t room
 ) noexcept;
@@ -93,6 +100,13 @@ menu_entries(const Editor& editor, Menu menu, const ScreenState& state, bool com
 /// @return the room, in points
 [[nodiscard]] int32_t menu_room(const kit::Metrics& metrics, kit::SizeClass size_class) noexcept;
 
+/// The item the menu shows as chosen.
+///
+/// @param editor the layout in use
+/// @param menu which menu
+/// @param state the category
+/// @param entries what menu_entries gave
+/// @return the item's place, from 0; -1 when none is chosen
 [[nodiscard]] int32_t menu_chosen(
     const Editor& editor, Menu menu, const ScreenState& state, const std::vector<MenuEntry>& entries
 );
