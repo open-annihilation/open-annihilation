@@ -77,12 +77,58 @@ int32_t fitted_across(int32_t along, int32_t across, int32_t side) {
     return static_cast<int32_t>(std::max<int64_t>(1, static_cast<int64_t>(side) * across / along));
 }
 
+/// World pixels of margin a minimap leaves out: the right edge, then the bottom.
+constexpr int32_t kMinimapRightMargin = 32;
+constexpr int32_t kMinimapBottomMargin = 128;
+/// World pixels in one map square.
+constexpr int32_t kWorldPixelsPerSquare = 16;
+
+/// The minimap's meaningful part: its top-left, the share that is the map.
+///
+/// A minimap is stored in a buffer larger than the map's picture. The rest
+/// is a void colour. The map's playable part is its size in world pixels
+/// less the right and bottom margins, and the same share of the buffer,
+/// from the top-left, is the picture. A map too small for those margins
+/// keeps the whole buffer.
+///
+/// @param squares_wide the map's width in squares
+/// @param squares_high the map's height in squares
+/// @param buffer_wide the minimap buffer's width
+/// @param buffer_high the minimap buffer's height
+/// @return the meaningful width and height, at least one pixel each
+std::pair<int32_t, int32_t> meaningful_span(
+    int32_t squares_wide, int32_t squares_high, int32_t buffer_wide, int32_t buffer_high
+) {
+    const int32_t limit = std::numeric_limits<int32_t>::max() / kWorldPixelsPerSquare;
+    if (squares_wide <= 0 || squares_high <= 0 || squares_wide > limit || squares_high > limit)
+        return {buffer_wide, buffer_high};
+    const int32_t playable_wide = squares_wide * kWorldPixelsPerSquare - kMinimapRightMargin;
+    const int32_t playable_high = squares_high * kWorldPixelsPerSquare - kMinimapBottomMargin;
+    int32_t used_wide = buffer_wide;
+    int32_t used_high = buffer_high;
+    if (playable_wide > 0 && playable_high > 0) {
+        const auto share = [](int32_t value, int32_t numerator, int32_t denominator) {
+            return static_cast<int32_t>(static_cast<int64_t>(value) * numerator / denominator);
+        };
+        if (playable_wide >= playable_high)
+            used_high = share(buffer_high, playable_high, playable_wide);
+        else
+            used_wide = share(buffer_wide, playable_wide, playable_high);
+    }
+    if (used_wide < 1)
+        used_wide = buffer_wide;
+    if (used_high < 1)
+        used_high = buffer_high;
+    return {std::min(used_wide, buffer_wide), std::min(used_high, buffer_high)};
+}
+
 /// Decodes a base map's minimap into a square thumbnail.
 ///
-/// Reads the terrain file's header and minimap. The picture keeps the map's
-/// own shape, its width and height in map squares, as large as fits the
-/// square, centred, and the rest of the square is black. The minimap's
-/// pixels are coloured with the game palette.
+/// Reads the terrain file's header and minimap. Only the minimap's
+/// meaningful part is kept: the void colour in the rest of its buffer is
+/// left out. That part is drawn at the map's own shape, its width and
+/// height in map squares, as large as fits the square, centred, and the
+/// rest of the square is black. The pixels are coloured with the game palette.
 ///
 /// @param request the base map
 /// @param host the terrain reader and the game palette
@@ -114,6 +160,8 @@ Outcome decode_base(
         return Outcome::failed;
     if (cells_wide <= 0 || cells_high <= 0 || radar.width <= 0 || radar.height <= 0)
         return Outcome::failed;
+    const auto [used_wide, used_high] =
+        meaningful_span(cells_wide, cells_high, radar.width, radar.height);
     int32_t dst_w = side;
     int32_t dst_h = side;
     if (cells_wide >= cells_high)
@@ -126,9 +174,9 @@ Outcome decode_base(
     decoded.rgba.resize(static_cast<std::size_t>(dst_w) * static_cast<std::size_t>(dst_h) * 4U);
     const auto& palette = *host.palette;
     for (int32_t y = 0; y < dst_h; ++y) {
-        const auto src_y = static_cast<int32_t>(static_cast<int64_t>(y) * radar.height / dst_h);
+        const auto src_y = static_cast<int32_t>(static_cast<int64_t>(y) * used_high / dst_h);
         for (int32_t x = 0; x < dst_w; ++x) {
-            const auto src_x = static_cast<int32_t>(static_cast<int64_t>(x) * radar.width / dst_w);
+            const auto src_x = static_cast<int32_t>(static_cast<int64_t>(x) * used_wide / dst_w);
             const auto index = static_cast<std::size_t>(
                 radar.pixels
                     [static_cast<std::size_t>(src_y) * static_cast<std::size_t>(radar.width) +
