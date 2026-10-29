@@ -373,22 +373,78 @@ int32_t whole_width(const Canvas& canvas, FontRole role, std::string_view text) 
     return std::max(measured(canvas, role, text), game);
 }
 
-/// Draws chips left to right from a point, chip_gap apart, as many as end
-/// at or before a column.
+/// How tall a run of chips is when a chip that does not fit the line wraps.
+struct ChipBlock {
+    int32_t height{}; ///< the rows together, including the gaps between them
+};
+
+/// Returns the height of chips that wrap within a width.
+///
+/// A chip wider than the width is left out, as the line stops rather than
+/// drawing it past the column. No chips take no height.
+///
+/// @param canvas where they are measured
+/// @param chips the chips
+/// @param room the columns one line may use
+/// @return the block
+ChipBlock chip_block_of(const Canvas& canvas, const std::vector<ChipLook>& chips, int32_t room) {
+    ChipBlock block;
+    if (chips.empty() || room <= 0)
+        return block;
+    int32_t left = 0;
+    int32_t row_top = 0;
+    int32_t row_height = 0;
+    for (const ChipLook& chip : chips) {
+        const int32_t width = chip_width_on(canvas, chip);
+        const int32_t height = chip_height_of(chip);
+        if (left > 0 && left + width > room) {
+            row_top += row_height + kMetrics.chip_gap;
+            row_height = 0;
+            left = 0;
+        }
+        if (left + width > room)
+            break;
+        row_height = std::max(row_height, height);
+        left += width + kMetrics.chip_gap;
+        block.height = row_top + row_height;
+    }
+    return block;
+}
+
+/// Draws chips left to right from a point, chip_gap apart. A chip that would
+/// pass the column wraps under the line when the row's bottom has room for
+/// it, and is left out when it does not. A negative bottom draws one line.
 ///
 /// @param canvas where they are drawn
 /// @param chips the chips
 /// @param at the first chip's top left
 /// @param right the column no chip may pass
+/// @param bottom the row under which no chip may extend; negative for one line
 void draw_chip_line(
-    const Canvas& canvas, const std::vector<ChipLook>& chips, Point at, int32_t right
+    const Canvas& canvas,
+    const std::vector<ChipLook>& chips,
+    Point at,
+    int32_t right,
+    int32_t bottom = -1
 ) {
     int32_t left = at.x;
+    int32_t y = at.y;
+    const int32_t home = at.x;
     for (const ChipLook& chip : chips) {
         const int32_t width = chip_width_on(canvas, chip);
-        if (left + width > right)
+        const int32_t height = chip_height_of(chip);
+        if (left > home && left + width > right) {
+            if (bottom < 0)
+                break;
+            const int32_t next = y + height + kMetrics.chip_gap;
+            if (next + height > bottom)
+                break;
+            y = next;
+            left = home;
+        }
+        if (left + width > right || (bottom >= 0 && y + height > bottom))
             break;
-        draw_chip(canvas, {left, at.y, width, chip_height_of(chip)}, chip);
+        draw_chip(canvas, {left, y, width, height}, chip);
         left += width + kMetrics.chip_gap;
     }
 }
@@ -630,13 +686,30 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
     if (!drawable(canvas))
         return;
     // Rounded as a control is: the hover face, then a selected row's accent
-    // tint over it and the accent's outline.
+    // tint over it and the accent's outline. A selection bar is the nav
+    // entry's fill and lime bar instead (chrome.cpp's marker, 5 by 2 by 8),
+    // and the accent outline stays off. The keyboard focus draws its own ring.
     const int32_t row_radius = kMetrics.control_radius;
-    if (look.hovered)
-        fill_corner_rect(canvas, rect, row_radius, colour::hover);
-    if (look.selected) {
-        blend_corner_rect(canvas, rect, row_radius, colour::accent, selected_tint);
-        outline_corner_rect(canvas, rect, row_radius, colour::accent);
+    if (look.selected && look.selection_bar) {
+        constexpr int32_t marker_offset = 5;
+        constexpr int32_t marker_width = 2;
+        constexpr int32_t marker_height = 8;
+        fill_corner_rect(canvas, rect, row_radius, colour::list_selected);
+        fill_rect(
+            canvas,
+            {rect.x + marker_offset,
+             rect.y + (rect.height - marker_height) / 2,
+             marker_width,
+             marker_height},
+            colour::accent
+        );
+    } else {
+        if (look.hovered)
+            fill_corner_rect(canvas, rect, row_radius, colour::hover);
+        if (look.selected) {
+            blend_corner_rect(canvas, rect, row_radius, colour::accent, selected_tint);
+            outline_corner_rect(canvas, rect, row_radius, colour::accent);
+        }
     }
 
     const int32_t inset = kMetrics.list_row_inset;
@@ -667,12 +740,24 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
             right = mark.x - kMetrics.list_row_gap;
     }
 
-    // The text: the title's line, then each line, then the tags' line,
-    // centred down the row. A short row's text fills it from its top. A row
-    // with the room keeps list_row_line_gap clear under the title's line and
-    // over the tags, so the lines and the chips stand apart. A row with less
-    // keeps the tags a little below the line over them when it can.
-    const auto line_count = static_cast<int32_t>(look.lines.size()) + (look.tags.empty() ? 0 : 1);
+    // The text: the title's line, then each line, then the tags' lines,
+    // centred down the row. Chips that do not fit one line wrap, and the
+    // block includes every line so the wrap stays inside the row. A short
+    // row's text fills it from its top. A row with the room keeps
+    // list_row_line_gap clear under the title's line and over the tags, so
+    // the lines and the chips stand apart. A row with less keeps the tags a
+    // little below the line over them when it can.
+    int32_t aside_width = 0;
+    if (!look.aside.empty()) {
+        for (const std::string& entry : look.aside)
+            aside_width = std::max(aside_width, whole_width(canvas, FontRole::small, entry));
+        aside_width = std::min(aside_width, std::max(right - text_left, int32_t{0}));
+    }
+    const int32_t text_limit =
+        look.aside.empty() ? right : right - aside_width - kMetrics.list_row_gap;
+    const int32_t chip_room = std::max(text_limit - text_left, int32_t{0});
+    const int32_t chip_span = chip_block_of(canvas, look.tags, chip_room).height;
+    const auto line_count = static_cast<int32_t>(look.lines.size()) + (chip_span > 0 ? 1 : 0);
     const int32_t packed_height = std::max(
                                       kMetrics.list_row_title_top + kMetrics.regular_line,
                                       kMetrics.list_row_line_top + line_count * kMetrics.small_line
@@ -682,9 +767,7 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
     const int32_t spaced_height =
         kMetrics.list_row_title_top + kMetrics.regular_line + kMetrics.list_row_line_gap +
         lines_height +
-        (look.tags.empty()
-             ? 0
-             : (look.lines.empty() ? 0 : kMetrics.list_row_line_gap) + kMetrics.chip_height) +
+        (chip_span <= 0 ? 0 : (look.lines.empty() ? 0 : kMetrics.list_row_line_gap) + chip_span) +
         kMetrics.list_row_title_top;
     const bool spaced = line_count > 0 && rect.height >= spaced_height;
     const int32_t chip_lead = spaced ? (look.lines.empty() ? 0 : kMetrics.list_row_line_gap)
@@ -701,10 +784,6 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
     if (!look.aside.empty()) {
         // As wide as its widest entry in either measure, so that no entry,
         // a version such as "1 · rev 3" among them, is cut on either form.
-        int32_t aside_width = 0;
-        for (const std::string& entry : look.aside)
-            aside_width = std::max(aside_width, whole_width(canvas, FontRole::small, entry));
-        aside_width = std::min(aside_width, std::max(right - text_left, int32_t{0}));
         const int32_t aside_left = right - aside_width;
         for (std::size_t index = 0; index < look.aside.size(); ++index) {
             const Rect box{
@@ -777,7 +856,9 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
         );
         line_row += kMetrics.small_line;
     }
-    draw_chip_line(canvas, look.tags, {text_left, line_row + chip_lead}, text_right);
+    draw_chip_line(
+        canvas, look.tags, {text_left, line_row + chip_lead}, text_right, rect.y + rect.height
+    );
 }
 
 void add_list_row(

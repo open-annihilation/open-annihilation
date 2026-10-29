@@ -103,12 +103,20 @@ gears too, opens the settings, not the Library.
 
 The Library lays itself out for the room the window gives it, at the
 Interface size and Window size in Settings › User Interface
-([settings](settings.md#user-interface)): in the Compact layout, as on a
-640x480 window, the list fills the window and an entry's details are a
-page of their own; in the Regular layout, as on an 800x600 window, and
-the Large layout, as on 1280x720 and larger, the details sit beside the
-list, and Large adds a column of filters. Its rows, tabs, search field,
-filter pills and buttons grow with the layout. Drag the Library by its
+([settings](settings.md#user-interface)). A section list down the left,
+drawn as Settings draws its sections, holds the tabs. The open tab is a
+filled row with the lime bar. Its filters and tags follow under a divider
+in that same list, indented, at every size. The content to the right
+starts with the open tab's name as a heading in capitals, and on a
+catalogue tab the search sits at that row's right, at the control's
+height. In the Compact layout, as on a 640x480 window, the list fills the
+content and an entry's details are a page of their own. In the Regular
+layout, as on an 800x600 window, and the Large layout, as on 1280x720 and
+larger, the details sit beside the list in a bordered card, with the
+actions at the card's foot. A chosen list row is a filled row with the
+lime bar; the lime outline is the keyboard focus. A count beside a tab or
+a filter is drawn in the hint colour. Its rows, search field and buttons
+grow with the layout. Drag the Library by its
 title to move it; it opens there next time
 ([moving windows](settings.md#opening-the-settings)). The pictures on this
 page are drawn by the Library's draw test from made-up packages, in the
@@ -278,23 +286,14 @@ each other. The other tabs are where packages are got, updated and played.
 ## Tabs and states
 
 The tabs are **Active**, **Mods**, **Maps**, **Mutators**, **Brains**,
-**Keys**, **Languages**, **Updates** and **Registries**. **Brains** and
-**Keys** have no short name. Each tab after Active shows how many it
-lists under All, before a search or a tag, in brackets after its title
-and in that title's own font and colour: "Mods (11)", "Maps (2)",
+**Keys**, **Languages**, **Updates** and **Registries**. Each tab after Active shows how many it
+lists under All, before a search or a tag, after its title: "Mods (11)", "Maps (2)",
 "Mutators (4)", "Brains (3)", "Keys (3)", "Languages (2)", "Updates (2)", "Registries (2)". The
-names are always the full ones. OA default is left out of the Keys count.
-At Regular and Large the search sits beside the tabs; when the tabs do
-not all fit beside it, as a wordier language's names may not, the tabs
-take the whole row and the search a row of its own under them. When they
-do not fit the strip even so, the strip scrolls sideways, and the open
-tab is in view when it opens. A small arrow at an end shows when more tabs
-lie that way, and pressing it moves the strip by one tab. The wheel over
-the strip scrolls it the same way, and dragging the tabs sideways with the
-mouse or a finger moves them with the pointer. Either way the strip
-reaches its first tab and its last whichever tab is open, and stays where
-you leave it. Where every tab fits, there are no arrows and the strip does
-not scroll. Active
+count is drawn in the hint colour. The names are always the full ones. OA default is left out of the Keys count.
+The open tab is a filled row with the lime bar. On a catalogue tab the search sits at the right of the heading row, at the control's height.
+When the tabs, filters and tags are taller than the list, the list scrolls, and the open tab is in view when it opens. The wheel over the list scrolls it.
+Where the widest tab's name does not fit beside its icon, the icons are left off and the names start where the icons were.
+Active
 has no count.
 Updates counts the updates you can install, as the OA button's dot does.
 Registries counts the registries listed. Registries is last, and it is
@@ -380,11 +379,11 @@ on that tab in brackets, "Installed (4)", and each tag the packages carry,
 with how many have it. A filter's count is of the whole tab: the tag and
 the search you choose do not change it. **New** holds the ten packages the
 registries published last, newest first, by the day each release came out;
-a package whose registry gives no day is never among them. The filters are
-pills over the list in the Regular layout, an active one in the accent
-ground and an inactive one in the muted ground, with a Tags menu for the
-tags that do not fit, a column of their own in Large, and one drop-down in
-Compact. Choosing the tag already chosen clears it.
+a package whose registry gives no day is never among them. The filters and the tags are entries of the section list, under a divider
+below the tabs, at every size. The open filter and the chosen tag are
+filled rows with the lime bar. A count after a tab or a filter is drawn
+in the hint colour; the words a control reads still put that count in
+brackets, "Installed (4)". Choosing the tag already chosen clears it.
 
 Each tab keeps its own filter: choosing Installed on Mods leaves Maps and
 Updates as they were. The **Updates** tab holds every kind of package and
@@ -875,8 +874,8 @@ With a controller, Y focuses the search (the maps search on the Active tab),
 X presses the chosen entry's Get,
 Update, Cancel or Retry, L1 and R1 change tab, B goes back as Escape does,
 and the right stick scrolls ([gamepad controls](controllers.md#menus)).
-The wheel over the tab strip, or a drag along it, scrolls the tabs when
-they do not fit; elsewhere the wheel scrolls the page under the pointer. Every scroll bar can be
+The wheel over the section list scrolls it when the tabs, filters and tags
+do not fit; elsewhere the wheel scrolls the page under the pointer. Every scroll bar can be
 dragged by its thumb, and a press above or below the thumb moves it
 there.
 A finger or the mouse presses any control. A press, double click or tap on

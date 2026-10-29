@@ -169,7 +169,7 @@ translator finds them together. Every word passes through `Library::text`
   classic, economy, rush, turtle, air, naval, learned, teaching and
   experimental, and any other id after them. On the other tabs the ids stay in
   alphabetical order. A mutator's chips and detail pills, and the Mutators
-  tab's filter pills, pane and menu, show the word of an id matched
+  tab's filter and tag entries, show the word of an id matched
   exactly (`tag_label`). Brains uses `brain_tag_label` in those places
   and gives a brain's tag no mutator icon. Economy is the mutators' word.
   A mod's or a map pack's tag stays as written on
@@ -535,83 +535,82 @@ app removes the folder (`Runtime::library_uninstall`,
   - The shell takes Kit 2's sizes at every class (`Window` in `layout.cpp`):
     two spaces round its parts and between its panes (`Window::gutter`, 8,
     12 and 16 points, a space less than Kit 2's window padding, which the
-    base game chooser and Use's question keep), the tab strip standing on
-    the header's rule and a space between the last part and the footer, a
-    tab strip of `Metrics::tab_strip_height`
-    (32/38/44), the search fields (the Active tab's maps search too) and
-    Compact's filter drop-down of `control_height` (28/34/38), as Settings'
-    buttons are, the filter pills of `filter_chip_height`
-    (24/26/28, each wider by what it gains in height), buttons of
-    `control_height` (28/34/38) in the footer, on the Updates line and over
-    the Registries cards, and the footer itself, a rule and a band of
-    `window_footer_height` (48) at Regular and Large, and at Compact the
-    controls with a space above and below (36), with its stacked parts a
-    space apart, so the list keeps five of its 36-point rows in a 480 by 324
-    window. Regular and Large stack them `row_gap` apart. The header is
-    Kit 2's window header (`window_header_height`, 36, through
-    `HeaderLook::height`) at Regular and Large; Compact keeps the kit's
-    Compact band (26), since ten points more would cost its list a row and
-    leave the Active page's lowest controls over the footer's, where no
-    arrow passes them. When the tabs' names do not all fit, the gaps round
-    them close no further than a space either side, so each tab reads
-    apart, and the strip scrolls to the rest with its arrow.
+    base game chooser and Use's question keep), the section list standing on
+    the header's rule and a space between the last part and the footer. The
+    list is Settings' section list: a row is 19, 25 or 32 points
+    (`SectionNav`, the same numbers as Settings' `NavMetrics`), with an icon
+    of 9, 14 or 16 points, and the open row filled with the lime bar.
+    Filters and tags follow under a divider, indented 12 points. A count
+    after a word is drawn in the hint colour; the control's text still
+    reads the word and the count in brackets ("Mods (11)"). When the widest
+    tab's full name does not fit beside its icon, the icons are left off.
+    When the tabs, filters and tags are taller than the list, it scrolls,
+    and the open tab is brought into view when that tab opens. The heading
+    over the content is the open tab's name in capitals, in the small font
+    with the heading's tracking, and on a catalogue tab the search sits at
+    that row's right at `control_height` (28/34/38), as Settings' buttons
+    are. Active and Registries have no catalogue search, and their heading
+    is one small line. The Active tab's maps search is also
+    `control_height`. Buttons are `control_height` (28/34/38) in the footer,
+    on the Updates line and over the Registries cards, and the footer
+    itself, a rule and a band of `window_footer_height` (48) at Regular and
+    Large, and at Compact the controls with a space above and below (36),
+    with its stacked parts a space apart, so the list keeps five of its
+    36-point rows in a 480 by 324 window. Regular and Large stack them
+    `row_gap` apart. The header is Kit 2's window header
+    (`window_header_height`, 36, through `HeaderLook::height`) at Regular
+    and Large; Compact keeps the kit's Compact band (26), since ten points
+    more would cost its list a row and leave the Active page's lowest
+    controls over the footer's, where no arrow passes them.
   - **Compact** shows a list page: the header (the mods icon, the plates
     over drive bays, "LIBRARY", this build's version, and a refresh icon
     at the top right; "offline" in the lock colour beside it when the last
     refresh could not reach a registry),
-    the tabs with their full names and All counts in brackets ("Active",
-    "Mods (11)", "Maps (2)", "Languages (2)", "Updates (15)", "Registries (2)";
-    the strip scrolls sideways, with an arrow at an end, when the names do not fit; it shows
-    the open tab when that tab opens, and then stays where an arrow, the wheel or a drag
-    leaves it, from the first tab to the last), the search
-    field and the filter
-    drop-down (All, New, Installed and Updates with their counts, "All
-    (11)", then "Tag: balance (3)" for each tag of the tab), on the
+    the section list (the nine tabs with their full names and All counts,
+    "Active", "Mods (11)", "Maps (2)", "Languages (2)", "Updates (15)",
+    "Registries (2)", then the open tab's filters and tags under a divider;
+    the list scrolls when they do not fit, and shows the open tab when that
+    tab opens), the heading and, on a catalogue tab, the search at its
+    right (All, New, Installed and Updates with their counts, "All (11)",
+    and each tag, "balance (3)"), on the
     Updates tab "{n} updates" and Update all on a line over the list, the
     list of Kit 2's 36-point rows (`Metrics::row_height`: the name, then the version, size and an
     added registry's name, and the state's icon: a download arrow for Get,
     a circled up-arrow for Update, a circled check for INSTALLED and
-    PLAYING, dimmed when Get or Update cannot act), and the footer (the queue's short line with an
+    PLAYING, dimmed when Get or Update cannot act). A chosen row is a filled
+    row with the lime bar; the lime outline is the keyboard focus. The footer is the queue's short line with an
     8-point bar under it while downloading, Details and Close, Close drawn as the
-    main button). While
+    main button. While
     `ScreenState::details_page` and the model's `details_open` are both set
     it shows the selected entry's details page instead
-    (`details_page_layout`): its name and version in the header, the status
+    (`details_page_layout`), in a bordered card between the header and the
+    footer, the footer's actions staying outside the card: its name and version in the header, the status
     line, the byline, the summary in at most three lines, the package's tags
     as inactive pills under it, the short facts in label and value columns,
     the playing note, and in the footer the first three actions, More
     holding the rest, and BACK. BACK returns to the list and keeps its tab,
     filter, search, scroll and row. The list page's button stays CLOSE;
   - **Regular** shows "OPEN ANNIHILATION LIBRARY" and "v0.8.0", the same
-    refresh icon, the tabs with their All counts and a 240-point search
-    beside them (on a row of its own under them when the tabs do not all
-    fit beside it, so that none hides beside the search; the same at
-    Large), a row of pills (All, New,
-    Installed and Updates with their counts, and the tags while they fit,
-    the chosen one in the accent ground and the others in the muted ground,
-    Tags holding the rest; on Updates, "{n} updates" and Update all on a
-    line over the list), a 400-point list of
+    refresh icon, the same section list, the heading and a search up to
+    240 points wide at its right, on Updates "{n} updates" and Update all
+    on a line over the list, and a list of
     Kit 2's 40-point rows (the name and byline, the summary, the version over the
-    size, the state's icon), the details (a 40-point badge beside the
+    size, the state's icon) as wide as the content left after a 280-point
+    details floor. The details sit in a bordered card (a 40-point badge beside the
     name, its state's icon and the status line, the summary in at most six lines, the package's tags as inactive pills under it, the long facts,
     the playing note, which scroll, and under them the actions three to a
     line at Kit 2's control height, 34 points, 38 at Large, in a bar at the
-    pane's foot that does not scroll), and the footer (both queue
+    card's foot that does not scroll), and the footer (both queue
     lines, the 8-point bar under the first while a download runs, and CLOSE);
-  - **Large** shows Regular's header, tabs and search, a 180-point filter
-    pane (a nav list of All, New, Installed and Updates with their counts,
-    the heading TAGS and the tab's tags with their counts, then the heading
-    WORLD and the world tags, each by its world's name) in place of the
-    pills, every entry in a view that scrolls with the wheel, its bar, a
-    finger and the arrows, with no drop-down; Tab stops once in it, on the
-    entry the focus last had there or else the chosen one, so the next Tab
-    reaches the list and Shift+Tab comes back, while Up, Down, Home, End
-    and the page keys walk every entry and the view follows; a newly chosen
-    entry is brought into view (`ScreenState::filters_scroll`,
-    `filters_chosen`, `filters_stop`). Then a 400-point list of Kit 2's
-    44-point rows of three lines (the tags
+  - **Large** shows Regular's header, section list and heading. The list
+    is at most 400 points, of Kit 2's 44-point rows of three lines (the tags
     as chips under the summary), on Updates under "{n} updates" and Update
-    ALL, and the details.
+    ALL, and the details take the rest in the same card. Every filter and
+    tag is a stop, so Tab walks them and then the list, while Up, Down,
+    Home, End and the page keys walk the section list and the view follows;
+    a newly chosen entry is brought into view (`ScreenState::filters_scroll`,
+    `filters_chosen`, `filters_stop`). Brains and Keys use the large row
+    at Regular too.
 
   A key layout's row says what it does: its name and author, its summary,
   and one state in words where another kind shows an icon, In use (on the
@@ -666,7 +665,7 @@ app removes the folder (`Runtime::library_uninstall`,
   Those words use the lock colour. At Compact they follow the title as
   "· {words}" in the lock colour. The built-in row reads Built in where a
   package reads its version. An unfit brain is not dimmed, and Get stays on.
-  On the Mutators tab the Regular tag pills, Large's filter pane and the
+  On the Mutators tab the section list's tag entries and the
   details' tag pills show those eight icons beside the label. A tag outside
   the eight draws no icon, and a mod's, map pack's or language's tag never
   does. Compact's mutator details page puts the 40-point badge beside the
@@ -689,7 +688,8 @@ app removes the folder (`Runtime::library_uninstall`,
     tag pills and actions, the footer's buttons (on Active, the tabs and the footer's
     buttons alone; on Registries, the tabs, each registry's key icon,
     REFRESH, switch, REMOVE and ADD MIRROR…, ADD REGISTRY…, and the
-    footer's buttons); on Compact's details page, the tag pills, the
+    footer's buttons); on a catalogue tab the filters and tags come after
+    the search; on Compact's details page, the tag pills, the
     actions, More and Back. The arrows move by where controls sit (`kit::key`). On
     the list, Up and Down move the selection and keep the focus there, and
     past its first or last entry the focus leaves it, as it leaves a kit
@@ -720,35 +720,29 @@ app removes the folder (`Runtime::library_uninstall`,
     row. A finger reaches the nearest control
     within its reach (`kit::finger_down`); a finger that moves farther than
     its reach in the list or the details scrolls that pane and presses
-    nothing. A press on tabs that do not fit that moves sideways, three
-    points for the mouse or past a finger's reach, drags the strip with the
-    pointer (`kit::tab_scroll_by`) and opens nothing. A press outside an
-    open drop-down only closes it. The wheel over the tab strip scrolls the
-    tabs when they do not fit, and otherwise scrolls the pane under the
-    pointer, or an open drop-down's items.
+    nothing. A press outside an
+    open drop-down only closes it. The wheel over the section list scrolls
+    it when the tabs, filters and tags do not fit, and otherwise scrolls
+    the pane under the pointer, or an open drop-down's items.
 - Every control is named for automation (the OA layer lists each as `oa.`
   and its name):
   - `library.tab.active`, `library.tab.mods`, `library.tab.maps`,
     `library.tab.mutators`, `library.tab.brains`, `library.tab.keys`,
     `library.tab.languages`, `library.tab.updates` (every tab after Active
     reads its title and its count in brackets: "Updates (2)"; Active stays
-    "Active"), `library.tab.registries`; `library.tab.scroll-left` and
-    `library.tab.scroll-right` when the strip has more tabs that way;
+    "Active"), `library.tab.registries`;
     `library.search`;
   - on the Registries tab `library.registry.<id>` (its halves `.off` and
     `.on`), `.key` (its text the fingerprints, one a line) and `.refresh`,
     and for a registry the player added `.remove` and `.add-mirror`; the
     labels `.address` and `.refreshed`; `library.add-registry`; the labels
     `library.registries.note` and `library.registries.notice`;
-  - `library.filter` (Compact's drop-down, whose items, while it is open,
-    are `library.filter.all`, `.new`, `.installed`, `.updates` and
-    `.tag-<tag>`, a world tag's text "World: ice (3)"), or the pills or nav entries `library.filter.all`,
+  - the section list's entries `library.filter.all`,
     `library.filter.new`, `library.filter.installed` and
     `library.filter.updates`, their text the filter and its count ("All
-    (11)"); the tags' pills or nav entries `library.tag.<tag>`, and
-    Regular's `library.tags` (Tags, its items `library.tags.<tag>` while it
-    is open, the world tags last under the heading WORLD, which is not named,
-    marked or pressed); a tag under the description is
+    (11)"); the tags' entries `library.tag.<tag>` (a world tag's text its
+    world's name and its count, "water (1)"), the world tags last under the
+    heading WORLD, which is not named, marked or pressed; a tag under the description is
     `library.detail.tag.<tag>`, an inactive pill, and pressing it chooses
     that tag as the filter row does. A world tag (`world_tag`, `world-`
     and a name) shows its world's name wherever a tag shows (`world_name`:
@@ -802,15 +796,16 @@ app removes the folder (`Runtime::library_uninstall`,
   focus, shown: the catalogue search, or the Active tab's maps search; the
   Registries tab has none. A host calls it as it opens the Library; a tab
   opened inside it, by the pointer, a finger, Ctrl+Tab or the controller,
-  does the same, while a key on the tab strip keeps the focus there.
+  does the same, while a key on a tab keeps the focus there.
 
 ## State
 
 None beyond the `Library` value the caller holds: its inputs, entries,
 browsing state and selection. The model keeps nothing else between calls.
-The screens keep their hover, press and focus, the two panes' scroll and the
+The screens keep their hover, press and focus, the panes' scroll and the
 wheel's carry, the search field, the open drop-down and the Compact details
-page in the caller's `ScreenState`. The input reads where the screen's
+page in the caller's `ScreenState`. The section list's scroll is
+`filters_scroll`. The input reads where the screen's
 controls and panes are from the display list it is given, the one the
 screen shows. A display list's badges point into the model's inputs, and
 stay valid until the model's next refresh.
@@ -829,9 +824,10 @@ stay valid until the model's next refresh.
   lookup it is English.
 - The screens are made only of the kit's components and its display list's
   generic parts; every colour is a kit token and every size a kit metric,
-  but for the panes' widths the design gives (Compact's 128 points beside
-  the search for the filter and its count, the 240-point search, the 400-point lists, the
-  180-point filter pane and the details' 40-point badge). `draw.cpp` only
+  but for the panes' widths the design gives (the 240-point search, the
+  400-point list, the 280-point details floor and the details' 40-point
+  badge). The section list's row, icon and text columns are Settings'
+  numbers, copied beside the layout. `draw.cpp` only
   paints the display list.
 - The layout decides no rule of the model: which entries show, in which
   order, their states, what blocks them, their actions, the filters'
@@ -974,7 +970,7 @@ label, an unknown id left as written, and a lookup that translates; a mutator's 
 every class and window, its picture, else its first tag's icon, else its
 letters, Large's "Needs {name}" and "Not compatible with this mod" chips
 in the lock colour with the tag chips kept only while they fit, Compact's
-lock-coloured bylines, the tag icons on the pills and in the filter pane,
+lock-coloured bylines, the tag icons on the pills and on the Mutators tab's entries,
 and an incompatible row left bright with Get on;
 a key layout's facts in their order, what it changes, works with and asks
 for, and the player's own changes by command and key; Use's question
@@ -1090,8 +1086,7 @@ moves and the helpers in that order above its buttons, its choices radio
 rows, the marked one's dot showing, its choices and buttons at Kit 2's
 control height, What moves naming each command's keys
 and the player's own, Use named by the answer to Where, and that it still
-fits every class with two helpers and the interface note. Regular shows more rows than Compact, and Large has the
-filter pane. It then drives the screens: Enter at Compact and at Regular,
+fits every class with two helpers and the interface note. Regular shows more rows than Compact, and every size shows the section list. It then drives the screens: Enter at Compact and at Regular,
 Escape's three cases, the tab commands both ways, the controller's X, Y
 and B, the list's keys, Tab's walk, presses, double presses and taps on
 rows (which never get anything), a row's up-arrow and download arrow at
@@ -1104,8 +1099,8 @@ press, the header's close mark to the right of refresh asking what CLOSE
 asks, the wheel and a finger's drag, the scroll bars of the Compact list,
 the Regular details, the Compact details page and the Registries tab
 dragged by the mouse and by a finger, typing and Backspace, the
-filter drop-down with its counts, each tab keeping its filter, New's
-pill, and a press outside the drop-down, the tag pills, More, and the
+section list's filters with their counts, each tab keeping its filter, New's
+entry, the tag entries, More, and the
 Active tab with forty more maps: the four tiles take no press on their
 labels, and on Compact the page scrolls as one by the wheel, a finger, its
 scroll bar, the page keys, Home, End and the right stick until four map
