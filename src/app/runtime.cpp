@@ -1098,8 +1098,10 @@ int Runtime::run() {
         // A frame-limited run is scripted and must finish without focus. A
         // remote-controlled run is served from the frame hooks every frame,
         // and so is a run an extension has asked to keep running while the
-        // window is inactive (keep_running_while_inactive).
-        const bool live = keeps_running_inactive() || options_.remote_controlled;
+        // window is inactive (keep_running_while_inactive). The setup's GOG
+        // question runs on too, while the player is in the browser.
+        const bool live = keeps_running_inactive() || options_.remote_controlled ||
+                          first_run_run_.gog_open;
         if (!options_.frame_limit && oa::platform::application_waits_for_events(
                                          application_active_, live, keep_running_while_inactive_
                                      )) {

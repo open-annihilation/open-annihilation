@@ -447,22 +447,21 @@ void reset_note(AsyncNote& note) {
 /// @param[out] exchange the status and headers
 /// @return false when the status could not be read
 bool read_headers(void* request, HttpsExchange& exchange) {
+    // No header index: an index picks the nth header of one name, and WinHTTP
+    // finds no header at index 0xFFFFFFFF.
     DWORD status = 0;
     DWORD status_size = sizeof status;
-    DWORD index = static_cast<DWORD>(-1);
     if (g_api.query(
-            request, kQueryStatusCode | kQueryFlagNumber, nullptr, &status, &status_size, &index
+            request, kQueryStatusCode | kQueryFlagNumber, nullptr, &status, &status_size, nullptr
         ) == FALSE)
         return false;
     exchange.status = static_cast<int>(status);
     DWORD bytes = 0;
-    index = static_cast<DWORD>(-1);
-    g_api.query(request, kQueryRawHeaders, nullptr, nullptr, &bytes, &index);
+    g_api.query(request, kQueryRawHeaders, nullptr, nullptr, &bytes, nullptr);
     if (GetLastError() != kInsufficient || bytes < sizeof(wchar_t))
         return true;
     std::vector<wchar_t> wide(bytes / sizeof(wchar_t) + 1, L'\0');
-    index = static_cast<DWORD>(-1);
-    if (g_api.query(request, kQueryRawHeaders, nullptr, wide.data(), &bytes, &index) == FALSE)
+    if (g_api.query(request, kQueryRawHeaders, nullptr, wide.data(), &bytes, nullptr) == FALSE)
         return true;
     const std::size_t chars = bytes / sizeof(wchar_t);
     std::size_t at = 0;

@@ -421,6 +421,9 @@ Controls are listed as `oa.first-run.<step>.<control>`:
 | Copy the game | `oa.first-run.game.next` |
 | Pause, or Continue once the check has finished. A clear check counts down about three seconds on Continue, then goes on; a key, a press, the wheel or a gamepad stops that | `oa.first-run.copying.next` |
 | Locate another… | `oa.first-run.game.locate` |
+| Download from GOG… | `oa.first-run.game.gog` |
+| The GOG question's buttons: Paste address (when the page is in the web browser), Open GOG again, Cancel; Try again, Close | `oa.first-run.game.gog.paste`, `oa.first-run.game.gog.open`, `oa.first-run.game.gog.cancel`, `oa.first-run.game.gog.retry`, `oa.first-run.game.gog.close` |
+| The GOG question's text | `oa.first-run.game.gog.text` |
 | A source row | `oa.first-run.game.source.<index>`, from 0 |
 | A language card | `oa.first-run.language.card.<tag>`, the tag in lower case and anything else a hyphen (`de`, `en-xa`) |
 | The carousel's arrows | `oa.first-run.language.previous`, `oa.first-run.language.next-card` |

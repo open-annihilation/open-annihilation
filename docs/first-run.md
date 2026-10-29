@@ -154,7 +154,45 @@ Home and End, or dragging the bar, scroll it, and choosing a row brings
 the list back to it. **Locate another…** is centred under the rows, at the footer
 buttons' height, as wide as the footer makes a button of the same words,
 with the same room either side of them, in every language. It asks for a
-folder. **Copy the game** is available
+folder. Where this system can make secure connections, **Download from
+GOG…** stands beside it, or under it when the two do not fit side by side.
+
+**Download from GOG…** opens GOG's sign-in page in a panel in the middle
+of the game's window, over the step under a dim, and the setup shows
+nothing else while it is open. The panel is framed as the game's dialogs
+are, in the interface's colours: a band with the game's icon, "Sign in to
+GOG" and a close button, a rule under it and a raised edge. When GOG's
+page goes on to the address that carries the sign-in's code, the panel
+closes by itself before that page loads and the download begins. The close
+button, or Escape, closes the panel, and with it the question. A sign-in
+with Google or another account shows its page in the same frame, in GOG's
+page's place; Escape there, or the end of that sign-in, closes it and
+brings back GOG's page, and the close button closes both. The panel is the system's WebView2 browser on Windows, where
+the game is built with it (see
+[the sign-in panel](../src/platform/web-sign-in/README.md)); it forgets its cookies as it opens
+and as the sign-in ends.
+
+Where there is no such panel, or it cannot start, the page opens in the web
+browser instead and the question asks for the address the page ends on: the
+player signs in there, and GOG then shows an empty white page whose address
+the player copies from the browser's address bar. The game notices that
+address on the clipboard by itself while the question is open, but never
+one that was there before the page opened; **Paste address** takes it
+too. Either way **Open GOG again** opens the page again, and
+**Cancel** or Escape closes the question (and the panel). The code in that address is
+exchanged once for a sign-in that is kept in memory for this download only.
+The game asks GOG for the Total Annihilation: Commander Pack Windows
+installer of that account and downloads it into the player's Downloads
+folder under the name GOG publishes it with, showing how much has arrived
+with a bar and **Cancel**. A download cancelled or broken off leaves its
+`.part` file, and the next one resumes it. When the installer is whole it
+becomes a row, chosen, and the copy begins as **Copy the game** would begin
+it. Nothing in the installer is run. When the account does not hold the
+game, GOG cannot be reached, the disk has no room or GOG sends a build of
+the installer the game does not know, the question says so, with **Try
+again** and **Close**.
+
+**Copy the game** is available
 once a row is chosen. **Back** returns to the language. The left button
 is the walk's **Quit** or **Skip**.
 

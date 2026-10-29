@@ -142,4 +142,49 @@ void setup_stop_join();
 /// Ends access a system picker gave, after a copy no longer reads the place.
 void setup_release_located();
 
+/// Tells whether the game step offers Download from GOG…: this system can
+/// reach GOG.
+///
+/// @return true when the button shows
+[[nodiscard]] bool setup_gog_offered() noexcept;
+
+/// Answers the game step's GOG asks. gog_open opens GOG's sign-in page in
+/// the browser and asks for the address it ends on; gog_paste reads that
+/// address from the clipboard and starts the download; gog_cancel stops a
+/// download, which a later try resumes, and closes the question.
+///
+/// @param ask gog_open, gog_paste or gog_cancel; any other is ignored
+/// @param window the game's window, which GOG's page shows inside
+/// @param user_folder the player's folder
+/// @param[in,out] model the game step
+void setup_gog_ask(
+    oa::ui::first_run::Ask ask,
+    SDL_Window* window,
+    const std::filesystem::path& user_folder,
+    oa::ui::first_run::Model& model
+);
+
+/// What setup_gog_tick did.
+enum class GogTick : uint8_t {
+    none,    ///< nothing the step shows changed
+    changed, ///< the question changed
+    ready,   ///< the installer is listed and chosen, and the copy can begin
+};
+
+/// Follows the GOG download: starts it when the clipboard comes to hold
+/// GOG's address while its page is open, moves its progress into the
+/// question, and when the installer is whole lists it on the game step,
+/// chosen, and closes the question.
+///
+/// @param user_folder the player's folder
+/// @param sources_ready the machine's own places are on the step, so a new row is kept
+/// @param[in,out] model the game step
+/// @return what changed
+[[nodiscard]] GogTick setup_gog_tick(
+    const std::filesystem::path& user_folder, bool sources_ready, oa::ui::first_run::Model& model
+);
+
+/// Stops a GOG download that is still running and waits for its thread.
+void setup_gog_stop();
+
 } // namespace oa::app

@@ -2850,6 +2850,22 @@
 	it=Scarica e seleziona;
 	}
 
+[Download from GOG]
+	{
+	de=Von GOG herunterladen;
+	fr=Télécharger depuis GOG;
+	es=Descargar de GOG;
+	it=Scarica da GOG;
+	}
+
+[Download from GOG…]
+	{
+	de=Von GOG herunterladen…;
+	fr=Télécharger depuis GOG…;
+	es=Descargar de GOG…;
+	it=Scarica da GOG…;
+	}
+
 [Downloaded]
 	{
 	de=Heruntergeladen;
@@ -2872,6 +2888,14 @@
 	fr=Téléchargement;
 	es=Descargando;
 	it=Download in corso;
+	}
+
+[Downloading the Total Annihilation: Commander Pack installer.]
+	{
+	de=Das Installationsprogramm von Total Annihilation: Commander Pack wird heruntergeladen.;
+	fr=Téléchargement du programme d'installation de Total Annihilation: Commander Pack.;
+	es=Descargando el instalador de Total Annihilation: Commander Pack.;
+	it=Download del programma di installazione di Total Annihilation: Commander Pack in corso.;
 	}
 
 [Downloading {file} from {cloud}…]
@@ -3738,6 +3762,22 @@
 	it=DAI;
 	}
 
+[GOG could not be reached. Check the connection and try again.]
+	{
+	de=GOG war nicht erreichbar. Prüfe die Verbindung und versuche es erneut.;
+	fr=GOG est injoignable. Vérifie la connexion et réessaie.;
+	es=No se pudo conectar con GOG. Comprueba la conexión y vuelve a intentarlo.;
+	it=Impossibile raggiungere GOG. Controlla la connessione e riprova.;
+	}
+
+[GOG did not accept the sign-in. Sign in again.]
+	{
+	de=GOG hat die Anmeldung nicht angenommen. Melde dich erneut an.;
+	fr=GOG n'a pas accepté la connexion. Reconnecte-toi.;
+	es=GOG no aceptó el inicio de sesión. Vuelve a iniciar sesión.;
+	it=GOG non ha accettato l'accesso. Accedi di nuovo.;
+	}
+
 [GOG installer (Windows)]
 	{
 	de=GOG-Installer (Windows);
@@ -3784,6 +3824,30 @@
 	fr=Installateur GOG pour anciens Mac;
 	es=Instalador de GOG para Mac antiguos;
 	it=Installer GOG per Mac meno recenti;
+	}
+
+[GOG lists no Windows installer for Total Annihilation: Commander Pack.]
+	{
+	de=GOG bietet kein Windows-Installationsprogramm für Total Annihilation: Commander Pack an.;
+	fr=GOG ne propose aucun programme d'installation Windows pour Total Annihilation: Commander Pack.;
+	es=GOG no ofrece ningún instalador de Windows para Total Annihilation: Commander Pack.;
+	it=GOG non offre alcun programma di installazione Windows per Total Annihilation: Commander Pack.;
+	}
+
+[GOG sent a version of the installer that Open Annihilation does not know yet.]
+	{
+	de=GOG hat eine Version des Installationsprogramms geschickt, die Open Annihilation noch nicht kennt.;
+	fr=GOG a envoyé une version du programme d'installation qu'Open Annihilation ne connaît pas encore.;
+	es=GOG envió una versión del instalador que Open Annihilation aún no conoce.;
+	it=GOG ha inviato una versione del programma di installazione che Open Annihilation non conosce ancora.;
+	}
+
+[GOG's answer could not be read. Try again later.]
+	{
+	de=Die Antwort von GOG konnte nicht gelesen werden. Versuche es später erneut.;
+	fr=La réponse de GOG n'a pas pu être lue. Réessaie plus tard.;
+	es=No se pudo leer la respuesta de GOG. Vuelve a intentarlo más tarde.;
+	it=Non è stato possibile leggere la risposta di GOG. Riprova più tardi.;
 	}
 
 [GRAPHICS]
@@ -7378,6 +7442,14 @@
 	it=Open Annihilation lo ricorda per gli avvii successivi. Avvialo con --choose-game-dir per scegliere un'altra cartella.;
 	}
 
+[Open Annihilation then downloads the Total Annihilation: Commander Pack installer from your account and copies the game out of it. Your sign-in is used for this download only and is not kept.]
+	{
+	de=Open Annihilation lädt dann das Installationsprogramm von Total Annihilation: Commander Pack aus deinem Konto herunter und kopiert das Spiel daraus. Deine Anmeldung wird nur für diesen Download verwendet und nicht gespeichert.;
+	fr=Open Annihilation télécharge ensuite le programme d'installation de Total Annihilation: Commander Pack depuis ton compte et en copie le jeu. Ta connexion ne sert qu'à ce téléchargement et n'est pas conservée.;
+	es=Open Annihilation descarga entonces el instalador de Total Annihilation: Commander Pack de tu cuenta y copia el juego desde él. Tu inicio de sesión solo se usa para esta descarga y no se guarda.;
+	it=Open Annihilation scarica quindi il programma di installazione di Total Annihilation: Commander Pack dal tuo account e ne copia il gioco. L'accesso viene usato solo per questo download e non viene conservato.;
+	}
+
 [Open Annihilation {range}]
 	{
 	de=Open Annihilation {range};
@@ -7400,6 +7472,14 @@
 	fr=Open Annihilation, ou une autre copie, modifie encore son dossier. Réessaie dans un instant.;
 	es=Open Annihilation, u otra copia, todavía está cambiando su carpeta. Inténtalo dentro de un momento.;
 	it=Open Annihilation, o un'altra copia, sta ancora cambiando la sua cartella. Riprova tra un momento.;
+	}
+
+[Open GOG again]
+	{
+	de=GOG erneut öffnen;
+	fr=Rouvrir GOG;
+	es=Abrir GOG de nuevo;
+	it=Riapri GOG;
 	}
 
 [Open these files with the game from your file manager.]
@@ -7632,6 +7712,14 @@
 	fr=Au-delà d'Après le zoom, chaque unité est un point de sa couleur du propriétaire, encadrée tant qu'elle est sélectionnée.;
 	es=Más allá de Tras el zoom, cada unidad es un punto de su color del dueño, enmarcada mientras está seleccionada.;
 	it=Oltre Dopo lo zoom, ogni unità è un punto del suo colore del proprietario, incorniciata mentre è selezionata.;
+	}
+
+[Paste address]
+	{
+	de=Adresse einfügen;
+	fr=Coller l'adresse;
+	es=Pegar dirección;
+	it=Incolla indirizzo;
 	}
 
 [Pathfinding cycles]
@@ -9066,6 +9154,38 @@
 	it=Fazioni;
 	}
 
+[Sign in to GOG]
+	{
+	de=Bei GOG anmelden;
+	fr=Se connecter à GOG;
+	es=Iniciar sesión en GOG;
+	it=Accedi a GOG;
+	}
+
+[Sign in to GOG in the window that opened. The download starts as soon as you have signed in.]
+	{
+	de=Melde dich in dem Fenster, das sich geöffnet hat, bei GOG an. Der Download beginnt, sobald du angemeldet bist.;
+	fr=Connecte-toi à GOG dans la fenêtre qui s'est ouverte. Le téléchargement démarre dès que tu es connecté.;
+	es=Inicia sesión en GOG en la ventana que se abrió. La descarga empieza en cuanto hayas iniciado sesión.;
+	it=Accedi a GOG nella finestra che si è aperta. Il download parte non appena hai effettuato l'accesso.;
+	}
+
+[Sign in to GOG on the page your web browser opened. GOG then shows an empty white page: copy its whole address from the browser's address bar. The download starts by itself; Paste address starts it too.]
+	{
+	de=Melde dich auf der Seite, die dein Webbrowser geöffnet hat, bei GOG an. GOG zeigt danach eine leere weiße Seite: Kopiere ihre ganze Adresse aus der Adressleiste des Browsers. Der Download beginnt von selbst; Adresse einfügen startet ihn ebenfalls.;
+	fr=Connecte-toi à GOG sur la page que ton navigateur a ouverte. GOG affiche ensuite une page blanche vide : copie son adresse entière depuis la barre d'adresse du navigateur. Le téléchargement démarre tout seul ; Coller l'adresse le démarre aussi.;
+	es=Inicia sesión en GOG en la página que abrió tu navegador. Después GOG muestra una página en blanco: copia su dirección completa de la barra de direcciones del navegador. La descarga empieza sola; Pegar dirección también la inicia.;
+	it=Accedi a GOG nella pagina aperta dal browser. GOG mostra poi una pagina bianca vuota: copia il suo indirizzo completo dalla barra degli indirizzi del browser. Il download parte da solo; anche Incolla indirizzo lo avvia.;
+	}
+
+[Signing in to GOG…]
+	{
+	de=Anmeldung bei GOG…;
+	fr=Connexion à GOG…;
+	es=Iniciando sesión en GOG…;
+	it=Accesso a GOG…;
+	}
+
 [Signing key]
 	{
 	de=Signierschlüssel;
@@ -9786,6 +9906,14 @@
 	it=Le modifiche si usano dal prossimo avvio di Open Annihilation.;
 	}
 
+[The clipboard holds no GOG sign-in address. Copy the whole address from the browser's address bar first.]
+	{
+	de=Die Zwischenablage enthält keine GOG-Anmeldeadresse. Kopiere zuerst die ganze Adresse aus der Adressleiste des Browsers.;
+	fr=Le presse-papiers ne contient aucune adresse de connexion GOG. Copie d'abord l'adresse entière depuis la barre d'adresse du navigateur.;
+	es=El portapapeles no contiene ninguna dirección de inicio de sesión de GOG. Copia primero la dirección completa de la barra de direcciones del navegador.;
+	it=Gli appunti non contengono un indirizzo di accesso a GOG. Copia prima l'intero indirizzo dalla barra degli indirizzi del browser.;
+	}
+
 [The command line chose this run's mod, which needs {names}.]
 	{
 	de=Die Befehlszeile hat den Mod dieses Laufs gewählt, der {names} braucht.;
@@ -9858,6 +9986,14 @@
 	it=I dati estratti della demo ({size}) non si usano più.;
 	}
 
+[The disk has no room for the installer.]
+	{
+	de=Auf dem Datenträger ist kein Platz für das Installationsprogramm.;
+	fr=Le disque n'a pas la place pour le programme d'installation.;
+	es=El disco no tiene espacio para el instalador.;
+	it=Il disco non ha spazio per il programma di installazione.;
+	}
+
 [The display's own pixel density (Retina on a Mac). Applies from the next start.]
 	{
 	de=Die eigene Pixeldichte des Bildschirms (Retina auf einem Mac). Gilt ab dem nächsten Start.;
@@ -9880,6 +10016,14 @@
 	fr=Le téléchargement a échoué;
 	es=La descarga falló;
 	it=Il download non è riuscito;
+	}
+
+[The download was cancelled.]
+	{
+	de=Der Download wurde abgebrochen.;
+	fr=Le téléchargement a été annulé.;
+	es=Se canceló la descarga.;
+	it=Il download è stato annullato.;
 	}
 
 [The expansion holds {name}, which it does not have.]
@@ -10098,6 +10242,14 @@
 	it=Non è stato possibile copiare il gioco.;
 	}
 
+[The game could not be downloaded from GOG.]
+	{
+	de=Das Spiel konnte nicht von GOG heruntergeladen werden.;
+	fr=Le jeu n'a pas pu être téléchargé depuis GOG.;
+	es=No se pudo descargar el juego de GOG.;
+	it=Non è stato possibile scaricare il gioco da GOG.;
+	}
+
 [The game did not start]
 	{
 	de=Das Spiel wurde nicht gestartet;
@@ -10186,12 +10338,28 @@
 	it=La versione dell'host di {pack} non è più offerta da {registry}.;
 	}
 
+[The installer could not be saved.]
+	{
+	de=Das Installationsprogramm konnte nicht gespeichert werden.;
+	fr=Le programme d'installation n'a pas pu être enregistré.;
+	es=No se pudo guardar el instalador.;
+	it=Non è stato possibile salvare il programma di installazione.;
+	}
+
 [The installer of the Total Annihilation demo (1997).]
 	{
 	de=Der Installer der Demo von Total Annihilation (1997).;
 	fr=L'installateur de la démo de Total Annihilation (1997).;
 	es=El instalador de la demo de Total Annihilation (1997).;
 	it=L'installer della demo di Total Annihilation (1997).;
+	}
+
+[The installer was saved in {folder}, but it could not be read.]
+	{
+	de=Das Installationsprogramm wurde in {folder} gespeichert, konnte aber nicht gelesen werden.;
+	fr=Le programme d'installation a été enregistré dans {folder}, mais il n'a pas pu être lu.;
+	es=El instalador se guardó en {folder}, pero no se pudo leer.;
+	it=Il programma di installazione è stato salvato in {folder}, ma non è stato possibile leggerlo.;
 	}
 
 [The largest whole-number scale that fits: smaller menus, every pixel square.]
@@ -10610,6 +10778,14 @@
 	it=Restano tutti installati. Riaccendine uno e {name} torna con lui.;
 	}
 
+[This GOG account does not have Total Annihilation: Commander Pack.]
+	{
+	de=Dieses GOG-Konto besitzt Total Annihilation: Commander Pack nicht.;
+	fr=Ce compte GOG ne possède pas Total Annihilation: Commander Pack.;
+	es=Esta cuenta de GOG no tiene Total Annihilation: Commander Pack.;
+	it=Questo account GOG non possiede Total Annihilation: Commander Pack.;
+	}
+
 [This base game is used when the Library closes.]
 	{
 	de=Dieses Grundspiel wird verwendet, wenn die Bibliothek schließt.;
@@ -10776,6 +10952,14 @@
 	fr=Cette sauvegarde a besoin de {name} {version}, qui n'est pas installé.;
 	es=Esta partida guardada necesita {name} {version}, que no está instalado.;
 	it=Questa partita salvata ha bisogno di {name} {version}, che non è installato.;
+	}
+
+[This system cannot make secure connections, which GOG needs.]
+	{
+	de=Dieses System kann keine sicheren Verbindungen herstellen, die GOG aber braucht.;
+	fr=Ce système ne peut pas établir de connexions sécurisées, dont GOG a besoin.;
+	es=Este sistema no puede establecer conexiones seguras, que GOG necesita.;
+	it=Questo sistema non può stabilire connessioni sicure, necessarie per GOG.;
 	}
 
 [This system reads HTTPS registries over HTTP.]

@@ -1291,6 +1291,95 @@ int32_t chip_width(const kit::Fonts* fonts, std::string_view text, int32_t room)
     return std::min(measured, std::max(room, int32_t{48}));
 }
 
+/// Dims the game step under the GOG sign-in panel, which takes the keys and
+/// the pointer; the step's own controls take none.
+///
+/// @param[in,out] scene the laid-out game step
+void lay_gog_dim(Scene& scene) {
+    scene.list.controls.clear();
+    scene.list.tab_order.clear();
+    scene.list_scroll = {};
+    scene.over_from = scene.list.items.size();
+    kit::Item dim;
+    dim.role = kit::Role::blend;
+    dim.rect = {0, 0, scene.width, scene.height};
+    dim.colour = kit::colour::backdrop;
+    dim.opacity = kit::menu_backdrop_opacity;
+    scene.list.items.push_back(dim);
+}
+
+/// Lays the GOG question over the game step.
+///
+/// The step stays drawn under a dim. Only the question's buttons take the
+/// keys and the pointer while it shows.
+///
+/// @param[in,out] scene the laid-out game step
+/// @param session the session
+/// @param frame the room
+/// @param fonts the fonts
+void lay_gog_question(
+    Scene& scene, const Session& session, const kit::Frame& frame, const kit::Fonts* fonts
+) {
+    kit::Question question = gog_question(session.model, frame.size_class);
+    // The scene's focus ring marks the button the keys are on.
+    question.marked = kit::no_control;
+    const kit::PlacedQuestion placed = kit::place_question(question, fonts);
+    const kit::DisplayList box = kit::question_list(question, fonts);
+    const int32_t width = kit::metrics_of(frame.size_class).notice_width;
+    const kit::Point at{
+        std::max((scene.width - width) / 2, int32_t{0}),
+        std::max((scene.height - placed.height) / 2, int32_t{0}),
+    };
+    scene.question = {at.x, at.y, width, placed.height};
+    scene.list.controls.clear();
+    scene.list.tab_order.clear();
+    scene.list_scroll = {};
+    scene.over_from = scene.list.items.size();
+    kit::Item dim;
+    dim.role = kit::Role::blend;
+    dim.rect = {0, 0, scene.width, scene.height};
+    dim.colour = kit::colour::backdrop;
+    dim.opacity = kit::menu_backdrop_opacity;
+    scene.list.items.push_back(dim);
+    const auto buttons = static_cast<kit::ControlId>(question.buttons.size());
+    const auto renumbered = [buttons](kit::ControlId id) {
+        if (id == kit::notice_body)
+            return gog_text_id;
+        if (id >= 0 && id < buttons)
+            return static_cast<kit::ControlId>(gog_button_id + id);
+        return kit::no_control;
+    };
+    const auto moved = [&at](kit::Rect rect) {
+        if (rect.width > 0 && rect.height > 0)
+            rect = {rect.x + at.x, rect.y + at.y, rect.width, rect.height};
+        return rect;
+    };
+    // The question is drawn on a canvas placed at its corner, so its parts
+    // keep its own points. Its controls are moved into the window's.
+    scene.question_list.items = box.items;
+    for (kit::Item& item : scene.question_list.items) {
+        if (item.control != kit::no_control)
+            item.control = renumbered(item.control);
+    }
+    for (kit::Control control : box.controls) {
+        const kit::ControlId was = control.id;
+        control.id = renumbered(control.id);
+        if (control.id == kit::no_control)
+            continue;
+        control.rect = moved(control.rect);
+        control.clip = moved(control.clip);
+        control.name = control_name(
+            Step::game,
+            control.id == gog_text_id
+                ? std::string("gog.text")
+                : "gog." + question.buttons[static_cast<std::size_t>(was)].id
+        );
+        scene.list.controls.push_back(std::move(control));
+    }
+    for (kit::ControlId index = 0; index < buttons; ++index)
+        scene.list.tab_order.push_back(static_cast<kit::ControlId>(gog_button_id + index));
+}
+
 /// Lays the game step out: the sources that were found, and Locate another.
 ///
 /// The column is as wide as Settings' panel. Each row holds its path and the bundles it has,
@@ -1412,13 +1501,21 @@ void lay_game(
     std::vector<CardPlan> plans = plan_cards(text_w);
     int32_t content_height = list_height(plans);
 
-    // Under the rows: Locate another…, the line under it, and with a
-    // controller the band's last line, which its hint takes.
+    // Under the rows: Locate another… and Download from GOG…, side by side
+    // where both fit and else one above the other, the line under them, and
+    // with a controller the band's last line, which its hint takes.
     const std::string locate = show("Locate another…");
+    const std::string gog = show("Download from GOG…");
     const std::string copies = show("Copies go to Documents › Open Annihilation");
     const int32_t button_height = kit::compact_metrics.button_height;
+    constexpr int32_t kButtonGap = 12;
+    const bool offers_gog = session.model.gog_offered;
+    const int32_t gog_w =
+        offers_gog ? std::min(footer_button_width(fonts, gog), std::max(column, int32_t{1})) : 0;
+    const bool gog_below =
+        offers_gog && footer_button_width(fonts, locate) + kButtonGap + gog_w > column;
     const int32_t under_rows =
-        metrics.padding + button_height + 8 +
+        metrics.padding + button_height + 8 + (gog_below ? button_height + 8 : int32_t{0}) +
         paragraph_height(fonts, column, copies, kit::FontRole::small) +
         (session.model.controller ? kit::compact_metrics.small_line : int32_t{0});
     const int32_t room = std::max(band.top + band.height - under_rows - list_top, int32_t{0});
@@ -1529,9 +1626,9 @@ void lay_game(
 
     const int32_t locate_w =
         std::min(footer_button_width(fonts, locate), std::max(column, int32_t{1}));
-    const kit::Rect locate_rect{
-        left + std::max((column - locate_w) / 2, int32_t{0}), row, locate_w, button_height
-    };
+    const int32_t row_w = offers_gog && !gog_below ? locate_w + kButtonGap + gog_w : locate_w;
+    const int32_t row_left = left + std::max((column - row_w) / 2, int32_t{0});
+    const kit::Rect locate_rect{row_left, row, locate_w, button_height};
     add_button(
         scene.list,
         order,
@@ -1542,6 +1639,24 @@ void lay_game(
         true,
         kit::ButtonStyle::plain
     );
+    if (offers_gog) {
+        if (gog_below)
+            row += button_height + 8;
+        const kit::Rect gog_rect =
+            gog_below ? kit::Rect{left + std::max((column - gog_w) / 2, int32_t{0}), row, gog_w,
+                                  button_height}
+                      : kit::Rect{row_left + locate_w + kButtonGap, row, gog_w, button_height};
+        add_button(
+            scene.list,
+            order,
+            gog_rect,
+            gog_id,
+            control_name(Step::game, "gog"),
+            gog,
+            true,
+            kit::ButtonStyle::plain
+        );
+    }
     row += button_height + 8;
     add_paragraph(
         scene.list,
@@ -1568,6 +1683,12 @@ void lay_game(
         );
     }
     scene.list.tab_order = std::move(order);
+    // While the sign-in panel is open over the step, it is all that shows
+    // there: the step is dimmed under it and no question is laid.
+    if (session.model.gog.phase == GogPhase::sign_in && session.model.gog.in_window)
+        lay_gog_dim(scene);
+    else if (session.model.gog.phase != GogPhase::none)
+        lay_gog_question(scene, session, frame, fonts);
 }
 
 /// Lays the question a changed install asks over the copying step.
@@ -2241,6 +2362,18 @@ void follow_focused_place(Session& session, const Scene& scene, kit::ControlId w
         follow_places(session, scene);
 }
 
+/// What a GOG question's button asks for, by its id.
+///
+/// @param id the button's id, as gog_question names it
+/// @return the ask
+Ask gog_ask(std::string_view id) noexcept {
+    if (id == "paste")
+        return Ask::gog_paste;
+    if (id == "open" || id == "retry")
+        return Ask::gog_open;
+    return Ask::gog_cancel;
+}
+
 /// What a control asks for.
 ///
 /// @param[in,out] session the session
@@ -2271,6 +2404,18 @@ Outcome activate(Session& session, const Scene& scene, kit::ControlId id) {
     case locate_id:
         outcome.ask = Ask::locate;
         return outcome;
+    case gog_id:
+        outcome.ask = Ask::gog_open;
+        return outcome;
+    case gog_button_id:
+    case gog_button_id + 1:
+    case gog_button_id + 2: {
+        const kit::Question question = gog_question(session.model, kit::SizeClass::compact);
+        const auto index = static_cast<std::size_t>(id - gog_button_id);
+        if (index < question.buttons.size())
+            outcome.ask = gog_ask(question.buttons[index].id);
+        return outcome;
+    }
     case changed_choose_id:
         outcome.ask = Ask::cancel_copy;
         return outcome;
@@ -2652,6 +2797,12 @@ Outcome key(Session& session, const Scene& scene, kit::Key pressed) {
             return outcome;
         }
     }
+    const bool asking_gog =
+        session.model.step == Step::game && session.model.gog.phase != GogPhase::none;
+    if (asking_gog && pressed == kit::Key::escape) {
+        outcome.ask = Ask::gog_cancel;
+        return outcome;
+    }
     if (pressed == kit::Key::escape) {
         if (session.model.step == Step::copying && !session.model.copy.checked)
             outcome.ask = Ask::cancel_copy;
@@ -2659,7 +2810,7 @@ Outcome key(Session& session, const Scene& scene, kit::Key pressed) {
             outcome.ask = Ask::back;
         return outcome;
     }
-    if (session.model.step == Step::game &&
+    if (session.model.step == Step::game && !asking_gog &&
         (pressed == kit::Key::up || pressed == kit::Key::down || pressed == kit::Key::left ||
          pressed == kit::Key::right)) {
         const int32_t count = static_cast<int32_t>(session.model.sources.size());
@@ -2682,7 +2833,9 @@ Outcome key(Session& session, const Scene& scene, kit::Key pressed) {
     }
     const kit::KeyOutcome taken = kit::key(session.interaction, scene.list, pressed);
     if (taken.result == kit::KeyResult::cancel) {
-        if (session.model.step == Step::copying && !session.model.copy.checked)
+        if (asking_gog)
+            outcome.ask = Ask::gog_cancel;
+        else if (session.model.step == Step::copying && !session.model.copy.checked)
             outcome.ask = Ask::cancel_copy;
         else if (session.model.step != Step::language && session.model.step != Step::copying)
             outcome.ask = Ask::back;
@@ -2781,6 +2934,73 @@ void draw(const kit::Canvas& canvas, const Scene& scene, const Session& session)
     kit::paint(canvas, over);
     if (asking)
         kit::paint(kit::placed_at(canvas, {scene.question.x, scene.question.y}), question);
+}
+
+kit::Question gog_question(const Model& model, kit::SizeClass size_class) {
+    const GogView& gog = model.gog;
+    kit::Question question;
+    question.word = "gog";
+    question.size_class = size_class;
+    question.title = show("Download from GOG");
+    switch (gog.phase) {
+    case GogPhase::none:
+    case GogPhase::sign_in:
+        question.paragraphs.push_back(
+            {gog.in_window
+                 ? show(
+                       "Sign in to GOG in the window that opened. The download starts as soon "
+                       "as you have signed in."
+                   )
+                 : show(
+                       "Sign in to GOG on the page your web browser opened. GOG then shows an "
+                       "empty white page: copy its whole address from the browser's address "
+                       "bar. The download starts by itself; Paste address starts it too."
+                   ),
+             false}
+        );
+        question.paragraphs.push_back(
+            {show(
+                 "Open Annihilation then downloads the Total Annihilation: Commander Pack "
+                 "installer from your account and copies the game out of it. Your sign-in is "
+                 "used for this download only and is not kept."
+             ),
+             false}
+        );
+        question.failure = gog.failure;
+        // The sign-in window hands the address over, so nothing is pasted.
+        if (!gog.in_window)
+            question.buttons.push_back({show("Paste address"), true, "paste"});
+        question.buttons.push_back({show("Open GOG again"), gog.in_window, "open"});
+        question.buttons.push_back({show("Cancel"), false, "cancel"});
+        question.cancel_button = static_cast<int32_t>(question.buttons.size()) - 1;
+        break;
+    case GogPhase::working:
+        question.paragraphs.push_back({show("Signing in to GOG…"), false});
+        question.buttons.push_back({show("Cancel"), false, "cancel"});
+        break;
+    case GogPhase::downloading:
+        question.paragraphs.push_back(
+            {show("Downloading the Total Annihilation: Commander Pack installer."), false}
+        );
+        if (!gog.amount.empty())
+            question.paragraphs.push_back({gog.amount, false});
+        question.progress = static_cast<int32_t>(
+            int64_t{kit::question_progress_whole} * std::clamp(gog.done, int32_t{0}, gog.whole) /
+            std::max(gog.whole, int32_t{1})
+        );
+        question.buttons.push_back({show("Cancel"), false, "cancel"});
+        break;
+    case GogPhase::failed:
+        question.paragraphs.push_back({show("The game could not be downloaded from GOG."), false});
+        question.failure = gog.failure;
+        question.buttons.push_back({show("Try again"), true, "retry"});
+        question.buttons.push_back({show("Close"), false, "close"});
+        question.cancel_button = 1;
+        break;
+    }
+    question.primary_button = 0;
+    question.marked = 0;
+    return question;
 }
 
 kit::Question changed_question(const Model& model, kit::SizeClass size_class) {

@@ -175,6 +175,7 @@ add_subdirectory(src/platform/xp-runtime)
 add_subdirectory(src/platform/win95-runtime)
 add_subdirectory(src/platform/steady-clock)
 add_subdirectory(src/platform/app-menu)
+add_subdirectory(src/platform/web-sign-in)
 add_subdirectory(src/platform/text-font)
 add_subdirectory(src/platform/job-pool)
 add_subdirectory(src/platform/render-probe)
@@ -356,6 +357,12 @@ target_link_libraries(oa-app-game-files PUBLIC oa-app-headers oa-app-game-direct
   oa-base-threads oa-data-content-bundles PRIVATE oa-formats-zip oa-formats-inno-setup oa-formats-udif
   oa-formats-hfsplus oa-formats-xar oa-formats-cpio oa-base-sha256 oa-platform-preferences
   oa-platform-shims oa-platform-game-installs oa-options)
+# The player's own Commander Pack installer, downloaded from their GOG
+# account after they sign in on GOG's page (gog_download.hpp).
+add_library(oa-app-gog-download src/app/gog_download.cpp)
+add_library(oa::app::gog_download ALIAS oa-app-gog-download)
+target_link_libraries(oa-app-gog-download PUBLIC oa-app-headers PRIVATE oa-netgame-http oa-formats-json
+  oa-data-content-bundles oa-platform-shims)
 # The player's own folder: where it is, the folders it holds, a folder for
 # each mod in Saves, Screenshots, Films and Recordings, the one-time moves
 # of saved games from beside the preferences file and loose in Saves, and of
@@ -1424,7 +1431,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-platform-display-modes oa-platform-display-modes-sdl
   oa-app-full-terrain oa-app-full-supersampling oa-app-full-fog oa-app-card-executor
   oa-present-gpu-world oa-app-full-models oa-app-platform-hooks oa-ui-paint oa-ui-kit
-  oa-ui-touch-gestures oa-ui-touch-hud oa-app-game-files oa-ui-game-files oa-app-package-install
+  oa-ui-touch-gestures oa-ui-touch-hud oa-app-game-files oa-app-gog-download oa-platform-web-sign-in oa-ui-game-files oa-app-package-install
   oa-app-map-packs
   oa-data-mutator-library
   oa-data-brain-library

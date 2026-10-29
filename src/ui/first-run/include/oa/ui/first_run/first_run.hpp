@@ -244,6 +244,32 @@ struct CopyView {
     std::vector<ChangedFile> changed{};
 };
 
+/// Where downloading the game from the player's GOG account is. The game
+/// step asks over itself (gog_question) while it is anything but none.
+enum class GogPhase : uint8_t {
+    none,        ///< nothing is asked
+    sign_in,     ///< GOG's sign-in page is open in the browser; the step waits for its address
+    working,     ///< signing in, and asking GOG where the installer is
+    downloading, ///< the installer's bytes are arriving
+    failed,      ///< it stopped; GogView::failure says why
+};
+
+/// Downloading the game from GOG, as the game step shows it. The host keeps
+/// it current.
+struct GogView {
+    GogPhase phase{GogPhase::none}; ///< where it is
+    /// Why it stopped, already looked up; on sign_in, why the address the
+    /// player pasted did not do. Empty for none.
+    std::string failure{};
+    /// On sign_in, GOG's page is in the game's own sign-in window, which
+    /// hands its address over; false when it is in the web browser and the
+    /// player copies the address.
+    bool in_window{};
+    std::string amount{}; ///< how much has arrived, as the player reads it
+    int32_t done{};       ///< the bar's filled part
+    int32_t whole{1};     ///< the bar's whole
+};
+
 /// What the steps show. The host keeps it current.
 struct Model {
     Step step{Step::language}; ///< the step on screen
@@ -256,6 +282,10 @@ struct Model {
     int32_t source{-1};                           ///< the chosen source; -1 is none
     std::vector<GameSource> sources{};            ///< the places the game step lists
     CopyView copy{};                              ///< the copying step
+    /// The game step offers Download from GOG…, which the host leaves out
+    /// where the game cannot reach GOG.
+    bool gog_offered{};
+    GogView gog{}; ///< downloading the game from GOG
     bool controller{};                            ///< a controller is connected, so the hint shows
     bool online_on{true};                         ///< Turn on online features is chosen
     CatalogueNote catalogue{CatalogueNote::none}; ///< why packs stay offline
@@ -370,6 +400,9 @@ enum class Ask : uint8_t {
     pause_copy,      ///< Pause, or continue a paused copy
     cancel_copy,     ///< Cancel the copy and return to the game step
     quit,            ///< Quit, leaving the game uncopied
+    gog_open,        ///< Download from GOG…, Open GOG again or Try again: open GOG's sign-in
+    gog_paste,       ///< Paste address: read GOG's address from the clipboard
+    gog_cancel,      ///< Cancel or Close on the GOG question
 };
 
 /// What a key, a pointer or a tick did.
@@ -439,6 +472,12 @@ inline constexpr kit::ControlId changed_choose_id = 12;
 inline constexpr kit::ControlId changed_leave_id = 13;
 /// That question's text, which takes no press and which automation reads.
 inline constexpr kit::ControlId changed_text_id = 14;
+/// Download from GOG…, on the game step.
+inline constexpr kit::ControlId gog_id = 15;
+/// The GOG question's first button. Button n is gog_button_id + n.
+inline constexpr kit::ControlId gog_button_id = 16;
+/// The GOG question's text, which takes no press and which automation reads.
+inline constexpr kit::ControlId gog_text_id = 19;
 /// The first language card. Card n is card_id + n.
 inline constexpr kit::ControlId card_id = 20;
 /// The first source row. Source n is source_id + n.
@@ -467,6 +506,20 @@ inline constexpr std::size_t changed_files_shown = 6;
 /// @param size_class the class the question is laid out at
 /// @return the question; its buttons are Choose another place, then Quit or Skip
 [[nodiscard]] kit::Question changed_question(const Model& model, kit::SizeClass size_class);
+
+/// The question the game step asks while the game is downloaded from GOG.
+///
+/// While GOG's page is open in the game's sign-in window it tells the
+/// player to sign in there, with Open GOG again and Cancel; while it is open
+/// in the web browser it tells them to sign in there and copy the address
+/// the page ends on, with Paste address, Open GOG again and Cancel; while the game signs in and downloads it shows how far, with
+/// Cancel; after a failure it says why, with Try again and Close. Escape
+/// answers Cancel or Close. Its words are in the language shown.
+///
+/// @param model the game step's GOG view
+/// @param size_class the class the question is laid out at
+/// @return the question; each button's id names the Ask it gives
+[[nodiscard]] kit::Question gog_question(const Model& model, kit::SizeClass size_class);
 
 /// Tells whether a download is running, so Next stays disabled.
 ///

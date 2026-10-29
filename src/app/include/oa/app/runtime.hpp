@@ -17782,6 +17782,10 @@ class Runtime final : public menu::Host,
         uint64_t download_item{};        ///< the queue item of that pack; 0 when none
         std::string pending_failure;     ///< a refusal, already looked up
         std::string pending_failure_tag; ///< the pack that refusal is about
+        /// The GOG question is open; the loop runs on while the window is
+        /// inactive, so the address copied in the browser and the download's
+        /// end are seen there.
+        bool gog_open{};
     };
 
     FirstRunRun first_run_run_{};

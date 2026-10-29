@@ -21,6 +21,8 @@
 #include "oa/app/disk_image_source.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/game_files_hooks.hpp"
+#include "oa/app/gog_download.hpp"
+#include "oa/platform/web_sign_in.hpp"
 #include "language_packs.hpp"
 #include "oa/app/user_folder.hpp"
 #include "oa/app/window_icon.hpp"
@@ -701,6 +703,46 @@ void add_installer_source(
     std::vector<HeldSource> found;
     gather_installer(found, file, user_folder, installs::home_folder());
     std::ignore = append_ranked(model, memory, std::move(found), true);
+}
+
+/// Lists an installer the game downloaded, and selects it. A row already
+/// listing it is selected instead; on a full list it takes the last row's place.
+///
+/// @param[in,out] model the game step
+/// @param[in,out] memory the places already listed, in the rows' order
+/// @param file the installer
+/// @param user_folder the player's folder
+/// @return true when a row lists it and is selected
+bool add_downloaded_installer(
+    first_run::Model& model,
+    std::vector<Remembered>& memory,
+    const fs::path& file,
+    const fs::path& user_folder
+) {
+    const auto listed = [&]() -> int32_t {
+        for (std::size_t at = 0; at < memory.size() && at < model.sources.size(); ++at) {
+            std::error_code failure;
+            if (memory[at].path == file || fs::equivalent(memory[at].path, file, failure))
+                return static_cast<int32_t>(at);
+        }
+        return -1;
+    };
+    int32_t row = listed();
+    if (row < 0) {
+        if (static_cast<int32_t>(model.sources.size()) >= kMostSources &&
+            memory.size() == model.sources.size()) {
+            model.sources.pop_back();
+            memory.pop_back();
+            if (model.source >= static_cast<int32_t>(model.sources.size()))
+                model.source = -1;
+        }
+        add_installer_source(model, memory, file, user_folder);
+        row = listed();
+    }
+    if (row < 0)
+        return false;
+    model.source = row;
+    return true;
 }
 
 /// Lists the places this machine already has, fullest first, and selects that one.
@@ -2258,6 +2300,9 @@ SetupBefore run_setup_before_game(
     resume_state().leave_set = true;
     session.model.step = again ? first_run::Step::game : first_run::Step::language;
     session.model.controller = SDL_HasGamepad();
+    // The checks draw the step as it was before GOG was offered.
+    session.model.gog_offered =
+        setup_gog_offered() && !options.check_setup_window && !options.check_first_run;
     std::string shown_tag(shown.tag);
     LanguageOffers offers = open_language_offers(options, user, shown_tag);
     static_cast<void>(refresh_language_cards(session, offers, shown_tag, options.check_first_run));
@@ -2555,6 +2600,12 @@ SetupBefore run_setup_before_game(
         case first_run::Ask::choose_on:
         case first_run::Ask::choose_off:
             break;
+        case first_run::Ask::gog_open:
+        case first_run::Ask::gog_paste:
+        case first_run::Ask::gog_cancel:
+            setup_gog_ask(outcome.ask, display.window, user, session.model);
+            session.focus_ready = false;
+            break;
         }
         note_setup_step();
         dirty = true;
@@ -2675,6 +2726,21 @@ SetupBefore run_setup_before_game(
             dirty = true;
         if (take_source_scan(sources, session.model))
             dirty = true;
+        if (session.model.step == first_run::Step::game) {
+            const bool listed = !(sources.started && !sources.applied);
+            const first_run::GogPhase was = session.model.gog.phase;
+            const GogTick gog = setup_gog_tick(user, listed, session.model);
+            if (gog != GogTick::none)
+                dirty = true;
+            if (session.model.gog.phase != was)
+                session.focus_ready = false;
+            // The installer is chosen: the copy begins as Next would begin it.
+            if (gog == GogTick::ready) {
+                first_run::Outcome advance;
+                advance.ask = first_run::Ask::advance;
+                handle(advance);
+            }
+        }
         const uint32_t progress_now = oa::platform::tick_ms();
         if (!progress_hold.shown && scan_waiting() &&
             progress_now - step_timing.began_ms >= long_work_show_after_ms) {
@@ -2728,6 +2794,7 @@ SetupBefore run_setup_before_game(
     if (awake)
         SDL_EnableScreenSaver();
     setup_stop_join();
+    setup_gog_stop();
     release_picked_sources();
     if (ended == SetupBefore::not_run)
         ended = SetupBefore::quit;
@@ -3057,6 +3124,289 @@ bool setup_locate_source(SDL_Window* window, const fs::path& user_folder, first_
 
 void setup_release_located() {
     release_picked_sources();
+}
+
+namespace {
+
+/// The GOG download and what the game step last showed of it.
+struct GogState {
+    std::unique_ptr<gog::Download> download{};
+    /// The game's own window with GOG's page, which hands the address over.
+    std::unique_ptr<oa::platform::web_sign_in::Window> window{};
+    /// The clipboard's text when GOG's page was opened, so an address copied
+    /// before then is not taken for the new one.
+    std::string clipboard_before{};
+    uint64_t clipboard_checked_ms{};
+    gog::Phase shown{gog::Phase::idle};
+    uint64_t shown_received{};
+    uint64_t shown_ms{}; ///< when the progress was last shown, in SDL ticks
+};
+
+GogState& gog_state() {
+    static GogState state;
+    return state;
+}
+
+/// How often the clipboard is read while GOG's page is open, in milliseconds.
+constexpr uint64_t gog_clipboard_every_ms = 500;
+/// How often the download's progress is shown, in milliseconds.
+constexpr uint64_t gog_progress_every_ms = 100;
+
+/// The clipboard's text; empty when it holds none.
+std::string clipboard_text() {
+    if (!SDL_HasClipboardText())
+        return {};
+    char* text = SDL_GetClipboardText();
+    if (text == nullptr)
+        return {};
+    std::string copied(text);
+    SDL_free(text);
+    return copied;
+}
+
+/// The folder the installer is downloaded to: the player's Downloads, where
+/// the game step's own search finds it again, else one in the player's folder.
+fs::path gog_folder(const fs::path& user_folder) {
+    const fs::path home = installs::home_folder();
+    if (!home.empty())
+        return home / "Downloads";
+    return user_folder / "Downloads";
+}
+
+/// Opens GOG's sign-in page in the web browser, where the player copies the
+/// address it ends on.
+void open_gog_in_browser(GogState& state, first_run::Model& model) {
+    state.clipboard_before = clipboard_text();
+    state.clipboard_checked_ms = SDL_GetTicks();
+    model.gog.in_window = false;
+    const std::string address = gog::sign_in_address();
+    if (!SDL_OpenURL(address.c_str()))
+        std::cerr << "open-annihilation: gog: the browser did not open: " << SDL_GetError()
+                  << '\n';
+    std::cerr << "open-annihilation: gog: sign-in page opened in the browser\n";
+}
+
+/// A kit colour as the sign-in panel takes one, 0xRRGGBB.
+uint32_t rgb_of(kit::Colour colour) {
+    return (uint32_t{colour.r} << 16) | (uint32_t{colour.g} << 8) | colour.b;
+}
+
+/// The sign-in panel's frame in the colours of the game's dialogs.
+oa::platform::web_sign_in::Look sign_in_look() {
+    oa::platform::web_sign_in::Look look;
+    look.face = rgb_of(kit::colour::panel);
+    look.band = rgb_of(kit::colour::band);
+    look.rule = rgb_of(kit::colour::rule);
+    look.edge_light = rgb_of(kit::colour::edge_light);
+    look.edge_dark = rgb_of(kit::colour::edge_dark);
+    look.text = rgb_of(kit::colour::text);
+    look.quiet = rgb_of(kit::colour::hint);
+    look.hover = rgb_of(kit::colour::hover);
+    look.held = rgb_of(kit::colour::list_selected);
+    return look;
+}
+
+/// Opens GOG's sign-in page in a panel inside the game's window, else in the
+/// web browser.
+void open_gog(GogState& state, SDL_Window* window, first_run::Model& model) {
+    namespace web = oa::platform::web_sign_in;
+    if (!state.window)
+        state.window = std::make_unique<web::Window>();
+    web::Request request;
+    request.address = gog::sign_in_address();
+    request.landing = std::string(gog::landing_address());
+    request.title = std::string(languages::interface_text("Sign in to GOG"));
+    request.look = sign_in_look();
+    if (window != nullptr)
+        request.parent = SDL_GetPointerProperty(
+            SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr
+        );
+    if (state.window->open(request)) {
+        model.gog.in_window = true;
+        std::cerr << "open-annihilation: gog: sign-in window opened\n";
+        return;
+    }
+    open_gog_in_browser(state, model);
+}
+
+/// Starts the download with a code, and shows the question working.
+void start_gog(
+    GogState& state, std::string code, const fs::path& user_folder, first_run::Model& model
+) {
+    if (!state.download)
+        state.download = std::make_unique<gog::Download>();
+    state.download->start(std::move(code), gog_folder(user_folder));
+    state.shown = gog::Phase::signing_in;
+    state.shown_received = 0;
+    model.gog = {};
+    model.gog.phase = first_run::GogPhase::working;
+    std::cerr << "open-annihilation: gog: signing in\n";
+}
+
+/// The amount line: how much of the installer has arrived.
+std::string gog_amount(uint64_t received, uint64_t size) {
+    std::string text{languages::interface_text("{done} of {total} · {percent}%")};
+    const uint64_t percent = size == 0 ? 0 : (received * 100ULL) / size;
+    replace_token(text, "{done}", settings::download_size_text(received));
+    replace_token(text, "{total}", settings::download_size_text(size));
+    replace_token(text, "{percent}", std::to_string(percent));
+    return text;
+}
+
+} // namespace
+
+bool setup_gog_offered() noexcept {
+    return gog::available();
+}
+
+void setup_gog_ask(
+    first_run::Ask ask, SDL_Window* window, const fs::path& user_folder, first_run::Model& model
+) {
+    GogState& state = gog_state();
+    switch (ask) {
+    case first_run::Ask::gog_open:
+        if (state.download)
+            state.download->cancel();
+        model.gog = {};
+        model.gog.phase = first_run::GogPhase::sign_in;
+        open_gog(state, window, model);
+        break;
+    case first_run::Ask::gog_paste: {
+        std::optional<std::string> code = gog::login_code(clipboard_text());
+        if (code) {
+            start_gog(state, std::move(*code), user_folder, model);
+            break;
+        }
+        model.gog.failure = std::string(languages::interface_text(
+            "The clipboard holds no GOG sign-in address. Copy the whole address from the "
+            "browser's address bar first."
+        ));
+        break;
+    }
+    case first_run::Ask::gog_cancel:
+        if (state.window)
+            state.window->close();
+        if (state.download)
+            state.download->cancel();
+        state.shown = gog::Phase::idle;
+        model.gog = {};
+        std::cerr << "open-annihilation: gog: closed\n";
+        break;
+    default:
+        break;
+    }
+}
+
+GogTick setup_gog_tick(const fs::path& user_folder, bool sources_ready, first_run::Model& model) {
+    GogState& state = gog_state();
+    if (model.gog.phase == first_run::GogPhase::none)
+        return GogTick::none;
+    if (model.gog.phase == first_run::GogPhase::sign_in && model.gog.in_window) {
+        namespace web = oa::platform::web_sign_in;
+        const web::State window = state.window ? state.window->state() : web::State::closed;
+        if (window == web::State::landed) {
+            std::optional<std::string> code = gog::login_code(state.window->landed_address());
+            if (code) {
+                start_gog(state, std::move(*code), user_folder, model);
+                return GogTick::changed;
+            }
+            std::cerr << "open-annihilation: gog: the sign-in ended without a code\n";
+            model.gog = {};
+            model.gog.phase = first_run::GogPhase::failed;
+            model.gog.failure =
+                std::string(languages::interface_text(gog::failure_text(gog::Failure::sign_in)));
+            return GogTick::changed;
+        }
+        if (window == web::State::closed) {
+            // The player closed the window: the question closes with it.
+            std::cerr << "open-annihilation: gog: sign-in window closed\n";
+            model.gog = {};
+            return GogTick::changed;
+        }
+        if (window == web::State::failed) {
+            std::cerr << "open-annihilation: gog: the sign-in window could not start\n";
+            open_gog_in_browser(state, model);
+            return GogTick::changed;
+        }
+        return GogTick::none;
+    }
+    if (model.gog.phase == first_run::GogPhase::sign_in) {
+        const uint64_t now = SDL_GetTicks();
+        if (state.clipboard_checked_ms != 0 &&
+            now - state.clipboard_checked_ms < gog_clipboard_every_ms)
+            return GogTick::none;
+        state.clipboard_checked_ms = now;
+        const std::string copied = clipboard_text();
+        if (copied == state.clipboard_before)
+            return GogTick::none;
+        std::optional<std::string> code = gog::login_code(copied);
+        if (!code)
+            return GogTick::none;
+        start_gog(state, std::move(*code), user_folder, model);
+        return GogTick::changed;
+    }
+    if (model.gog.phase == first_run::GogPhase::failed || !state.download)
+        return GogTick::none;
+    const gog::Status status = state.download->status();
+    if (status.phase == gog::Phase::done) {
+        if (!sources_ready)
+            return GogTick::none;
+        std::cerr << "open-annihilation: gog: downloaded " << path_to_utf8(status.installer)
+                  << '\n';
+        state.download.reset();
+        state.shown = gog::Phase::idle;
+        if (!add_downloaded_installer(
+                model, remembered_sources(), status.installer, user_folder
+            )) {
+            model.gog = {};
+            model.gog.phase = first_run::GogPhase::failed;
+            std::string text{languages::interface_text(
+                "The installer was saved in {folder}, but it could not be read."
+            )};
+            replace_token(text, "{folder}", path_to_utf8(status.installer.parent_path()));
+            model.gog.failure = std::move(text);
+            return GogTick::changed;
+        }
+        model.gog = {};
+        return GogTick::ready;
+    }
+    if (status.phase == gog::Phase::failed) {
+        std::cerr << "open-annihilation: gog: failed: " << status.detail << '\n';
+        state.shown = gog::Phase::idle;
+        if (status.failure == gog::Failure::cancelled) {
+            model.gog = {};
+            return GogTick::changed;
+        }
+        model.gog = {};
+        model.gog.phase = first_run::GogPhase::failed;
+        model.gog.failure =
+            std::string(languages::interface_text(gog::failure_text(status.failure)));
+        return GogTick::changed;
+    }
+    if (status.phase == gog::Phase::downloading && status.size > 0) {
+        const uint64_t now = SDL_GetTicks();
+        if (state.shown == gog::Phase::downloading &&
+            (status.received == state.shown_received ||
+             now - state.shown_ms < gog_progress_every_ms))
+            return GogTick::none;
+        state.shown_ms = now;
+        state.shown = gog::Phase::downloading;
+        state.shown_received = status.received;
+        model.gog.phase = first_run::GogPhase::downloading;
+        model.gog.amount = gog_amount(status.received, status.size);
+        // The bar counts kilobytes, so its numbers stay within int32_t.
+        model.gog.whole = static_cast<int32_t>(std::max<uint64_t>(status.size >> 10, 1));
+        model.gog.done = static_cast<int32_t>(status.received >> 10);
+        return GogTick::changed;
+    }
+    return GogTick::none;
+}
+
+void setup_gog_stop() {
+    GogState& state = gog_state();
+    state.window.reset();
+    state.download.reset();
+    state.shown = gog::Phase::idle;
 }
 
 } // namespace oa::app

@@ -22,13 +22,18 @@ inline constexpr std::string_view interface_words[] = {
     "Active",
     "Back",
     "Built in",
+    "Cancel",
     "Cancel download",
     "Check for content updates is set to Never, and Core Prime's install ID is turned off.",
     "Check for content updates stays at Automatically, and Core Prime's install ID stays on.",
     "Checking…",
     "Choose your language.",
+    "Close",
     "Couldn't download",
+    "Download from GOG",
+    "Download from GOG…",
     "Downloading",
+    "Downloading the Total Annihilation: Commander Pack installer.",
     "Downloads are off, so language packs stay offline.",
     "Downloads, updates and a number only you hold",
     "Get",
@@ -44,19 +49,32 @@ inline constexpr std::string_view interface_words[] = {
     "ONLINE FEATURES",
     "Offline",
     "Open Annihilation",
+    "Open Annihilation then downloads the Total Annihilation: Commander Pack installer from your "
+    "account and copies the game out of it. Your sign-in is used for this download only and is not "
+    "kept.",
     "Open Annihilation's own settings: controls, graphics, the interface's size, downloads and "
     "your files.",
+    "Open GOG again",
     "Other languages download from Core Prime. The first download makes a random install ID, which "
     "a later step explains.",
+    "Paste address",
     "Previous",
     "Retry",
     "Settings",
+    "Sign in to GOG in the window that opened. The download starts as soon as you have signed "
+    "in.",
+    "Sign in to GOG on the page your web browser opened. GOG then shows an empty white page: copy "
+    "its whole address from the browser's address bar. The download starts by itself; Paste "
+    "address starts it too.",
+    "Signing in to GOG…",
     "Skip",
     "Start playing",
+    "The game could not be downloaded from GOG.",
     "THE MAIN MENU",
     "The Library is where you get mods, map packs and languages. Settings is where you change how "
     "Open Annihilation looks and plays. Everything else on this menu is the game's own.",
     "The catalogue could not be read, so language packs stay offline.",
+    "Try again",
     "Turn on online features",
     "Two buttons for everything Open Annihilation adds",
     "WELCOME",

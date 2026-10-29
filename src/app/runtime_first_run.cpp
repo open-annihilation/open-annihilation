@@ -498,6 +498,7 @@ class FirstRunScreen final : public LayerScreen {
     /// @param step the step it opens on
     FirstRunScreen(Runtime& runtime, first_run::Step step) : runtime_(runtime) {
         session_.model.step = step;
+        session_.model.gog_offered = setup_gog_offered() && !runtime_.options_.check_first_run;
         // The check walks all five steps on this screen. A staged game or
         // copying step is part of that walk too. Anything else follows the
         // walk this start is on: the welcome, or the setup after a copy.
@@ -794,6 +795,20 @@ class FirstRunScreen final : public LayerScreen {
         const bool moved = runtime_.oa_layer_ != nullptr && refill(runtime_.oa_layer().view());
         const bool pulse = session_.model.step == first_run::Step::buttons && dt_ms > 0;
         bool copy_moved = false;
+        if (session_.model.step == first_run::Step::game) {
+            const first_run::GogPhase was = session_.model.gog.phase;
+            const GogTick gog = setup_gog_tick(runtime_.user_folder(), true, session_.model);
+            if (gog == GogTick::ready) {
+                first_run::Outcome advance;
+                advance.ask = first_run::Ask::advance;
+                return apply(advance);
+            }
+            if (gog == GogTick::changed)
+                copy_moved = true;
+            if (session_.model.gog.phase != was)
+                session_.focus_ready = false;
+        }
+        runtime_.first_run_run_.gog_open = session_.model.gog.phase != first_run::GogPhase::none;
         if (session_.model.step == first_run::Step::copying) {
             first_run::CopyView view;
             if (setup_pull_copy(view)) {
@@ -818,6 +833,8 @@ class FirstRunScreen final : public LayerScreen {
 
     /// Leaving without Finish or Skip writes nothing, so the setup returns.
     void close(bool /*by_key*/) override {
+        setup_gog_stop();
+        runtime_.first_run_run_.gog_open = false;
         runtime_.first_run_run_.opened_logged = false;
         runtime_.first_run_run_.opened_step = -1;
     }
@@ -1145,6 +1162,14 @@ class FirstRunScreen final : public LayerScreen {
             break;
         case first_run::Ask::choose_on:
         case first_run::Ask::choose_off:
+            break;
+        case first_run::Ask::gog_open:
+        case first_run::Ask::gog_paste:
+        case first_run::Ask::gog_cancel:
+            setup_gog_ask(outcome.ask, runtime_.sdl_.window, runtime_.user_folder(), session_.model);
+            runtime_.first_run_run_.gog_open =
+                session_.model.gog.phase != first_run::GogPhase::none;
+            session_.focus_ready = false;
             break;
         case first_run::Ask::locate:
             if (setup_locate_source(runtime_.sdl_.window, runtime_.user_folder(), session_.model))
