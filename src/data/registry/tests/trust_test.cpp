@@ -6,6 +6,7 @@
 // ships with the game.
 
 #include "oa/base/signing/ed25519.hpp"
+#include "oa/data/catalogue/check.hpp"
 #include "oa/data/registry/trust.hpp"
 #include "oa/formats/url.hpp"
 #include "oa/test/check.hpp"
@@ -14,14 +15,16 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
-#include <span>
 #include <fstream>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace {
 
+namespace catalogue = oa::data::catalogue;
 namespace registry = oa::data::registry;
 namespace signing = oa::base::signing;
 namespace url = oa::formats::url;
@@ -580,14 +583,72 @@ void pinned_keys_are_honoured() {
         OA_CHECK(kept[1].id == "beta");
     }
     OA_CHECK(problems.size() == 2);
-    // The compiled table is Core Prime's key. This case passes its own pins.
+    // The compiled table is Core Prime's two keys. This case passes its own pins.
     const std::span<const registry::PinnedKey> compiled = registry::pinned_keys();
-    OA_CHECK(compiled.size() == 1);
-    if (compiled.size() == 1) {
+    OA_CHECK(compiled.size() == 2);
+    if (compiled.size() == 2) {
         OA_CHECK(compiled[0].registry == "coreprime");
         OA_CHECK(compiled[0].key_id == "steve-2026");
         OA_CHECK(compiled[0].public_key == "ed25519:dHXqUJM9LbifF+boPakeKsZoSD29qhTEAxkyRj+s5yU=");
+        OA_CHECK(compiled[1].registry == "coreprime");
+        OA_CHECK(compiled[1].key_id == "steve-2026-secondary");
+        OA_CHECK(compiled[1].public_key == "ed25519:SjxpBROn5onP1ILIa4tQQ3aL5BnghJ7L60Y97nA6YJY=");
     }
+}
+
+/// A test key standing in for either pinned id signs a built-in catalogue.
+/// A third id is refused.
+void either_pinned_id_signs_a_builtin_catalogue() {
+    const std::span<const registry::PinnedKey> compiled = registry::pinned_keys();
+    OA_CHECK(compiled.size() == 2);
+    if (compiled.size() != 2)
+        return;
+    const std::optional<signing::PublicKey> first =
+        signing::parse_public_key("ed25519:25lf4lFp0UHKubu6krqgH58uHs599MsqwFGQ83/MH50=");
+    const std::optional<signing::PublicKey> second =
+        signing::parse_public_key("ed25519:IVL40Zt5HSRFMkLhXy6rbLfP+ntqXtMAl5YOBpiB2xI=");
+    OA_CHECK(first.has_value() && second.has_value());
+    if (!first || !second)
+        return;
+    const registry::RegistryKey trusted[] = {
+        {std::string(compiled[0].key_id), *first},
+        {std::string(compiled[1].key_id), *second},
+    };
+    const std::vector<uint8_t> catalogue = bytes_of(
+        "{\"catalogue\":1,\"registry\":\"coreprime\",\"sequence\":1,"
+        "\"generated\":\"2026-01-01T00:00:00Z\",\"expires\":\"2026-02-01T00:00:00Z\","
+        "\"packages\":[]}"
+    );
+    const std::vector<uint8_t> first_signature = bytes_of(
+        "ed25519 steve-2026 "
+        "yabxP0VDF9dFEJ4vmhzDvlC7DuhtlzpXyNQYETh3y03MaI0j1myqBugHkWC5nCQ/Abs623khia/S8ibgKcDoAQ==\n"
+    );
+    const std::vector<uint8_t> second_signature = bytes_of(
+        "ed25519 steve-2026-secondary "
+        "N/Ju06fQMrjGW1pvc7Fz73laf0tU66LynBKzBWHBcAfWTxX+zsoJdkRas4ezIiumJeaYtkoknRKw8Tkdy1mYBw==\n"
+    );
+    const std::vector<uint8_t> third_signature = bytes_of(
+        "ed25519 third-2026 "
+        "z1Tx7XPWA2/UDh0lcMRWQL2HYO6gaeXfExl53ndq9srmYlbGwYthmC2tESuc0GsvvNwe/t4Xb6lk9CTgd+kRCg==\n"
+    );
+    catalogue::CheckRequest request;
+    request.catalogue = catalogue;
+    request.registry_id = "coreprime";
+    request.trusted_keys = trusted;
+    request.built_in = true;
+    request.signature = first_signature;
+    const catalogue::Checked by_first = catalogue::check_catalogue(request);
+    OA_CHECK(by_first.verdict == catalogue::Verdict::accepted);
+    OA_CHECK(by_first.signed_by == compiled[0].key_id);
+    OA_CHECK(!by_first.new_keys);
+    request.signature = second_signature;
+    const catalogue::Checked by_second = catalogue::check_catalogue(request);
+    OA_CHECK(by_second.verdict == catalogue::Verdict::accepted);
+    OA_CHECK(by_second.signed_by == compiled[1].key_id);
+    OA_CHECK(!by_second.new_keys);
+    request.signature = third_signature;
+    const catalogue::Checked by_third = catalogue::check_catalogue(request);
+    OA_CHECK(by_third.verdict == catalogue::Verdict::unknown_key);
 }
 
 /// Built-in registries come first. A disabled one is off. An added id a built-in has taken conflicts.
@@ -713,6 +774,7 @@ int main() {
     builtin_enabled_flag_is_the_disabled_list();
     builtin_folder_keeps_signed_files();
     pinned_keys_are_honoured();
+    either_pinned_id_signs_a_builtin_catalogue();
     registries_in_effect_order_disabled_and_conflicting();
     fingerprints_match_the_signing_fingerprint();
     added_registry_cannot_claim_the_shipped_logo();
