@@ -8,8 +8,10 @@
 // written, and the remembered multiplayer seats name Steady Commander at
 // firm. A new computer's Resolution cell reads "Steady Commander 1.2 ·
 // Firm", its Mem cell shows Firm over the room's greyed Hard, and the
-// record carries that brain. The cell meets no control of the room but its
-// row's empty screen-size column. The notch on the computer's name opens
+// record carries that brain. 120 frames with that computer seated must not
+// read the game folder; the mean CPU time of those frames is printed. The
+// cell meets no control of the room but its row's empty screen-size column.
+// The notch on the computer's name opens
 // the brain menu, drawn as the room's list box, and Escape closes it. The
 // menu's built-in player gives "Built-in · Hard", its level before gives
 // Medium and drops the brain field, and the Mem cell steps the built-in
@@ -45,9 +47,12 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <optional>
 #include <ostream>
 #include <span>
@@ -556,6 +561,20 @@ void Runtime::check_brain_room() {
     std::cout << "brain room check: the row reads " << steady.text
               << ", its Mem cell Firm over the room's greyed Hard, and the record carries that "
                  "brain\n";
+
+    frames(2);
+    const uint64_t room_walks = copied_content_bundles_walks();
+    const std::clock_t room_started = std::clock();
+    frames(120);
+    const uint64_t room_walked = copied_content_bundles_walks() - room_walks;
+    const double room_ticks = static_cast<double>(std::clock() - room_started);
+    const double room_ms =
+        room_ticks * 1000.0 / (static_cast<double>(CLOCKS_PER_SEC) * static_cast<double>(120));
+    std::ostringstream room_mean;
+    room_mean << std::fixed << std::setprecision(3) << room_ms;
+    std::cout << "brain room check: 120 frames with a computer seat, mean " << room_mean.str()
+              << " ms, folder walks " << room_walked << "\n";
+    require(room_walked == 0, "the game folder was read while a computer seat showed");
 
     const auto check_overlap = [&](const CheckWindow& window) {
         resize(window);

@@ -22,17 +22,25 @@
 // and 2 play lantern-scout. Back on SKIRMISH the seats read as remembered,
 // and the left button on Player2's words keeps 3.1c's own press, which
 // turns the row Open. With the Brains folder removed, no seat remains and
-// the frame matches the one kept before any brain was written. Each size's
-// frame is written as brain-seats-skirmish-<w>x<h>.png, and the frame with
-// the menu open as brain-seats-menu-<w>x<h>.png.
+// the frame matches the one kept before any brain was written. On the
+// 640x480 window, 120 frames before a computer seat and 120 frames with two
+// are timed: the seated frames must not read the game folder and must stay
+// under 5 ms of CPU, and copying then removing a bundle must be followed by
+// the new choice. Each size's frame is written as
+// brain-seats-skirmish-<w>x<h>.png, and the frame with the menu open as
+// brain-seats-menu-<w>x<h>.png.
 
 #include "oa_layer.hpp"
 #include "oa_layer_check.hpp"
 
+#include "oa/app/content_copy.hpp"
 #include "oa/app/game_directory.hpp"
+#include "oa/app/package_install/oaexp.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/data/brain_library/library.hpp"
 #include "oa/data/brain_library/seats.hpp"
+#include "oa/data/content_bundles.hpp"
+#include "oa/data/content_bundles/record.hpp"
 #include "oa/formats/oabrain/manifest.hpp"
 #include "oa/formats/oamut/manifest.hpp"
 #include "oa/formats/png.hpp"
@@ -49,8 +57,10 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <optional>
 #include <ostream>
@@ -78,6 +88,8 @@ namespace layout = oa::ui::display_layout;
 namespace first_run = oa::ui::first_run;
 namespace settings = oa::ui::engine_settings;
 namespace gui = oa::ui::gui_layout;
+namespace bundles = oa::data::content_bundles;
+namespace oaexp = oa::app::package_install::oaexp;
 
 /// The middle dot a seat's label puts between the brain and the level.
 constexpr std::string_view kDot = " · ";
@@ -252,6 +264,72 @@ struct CaughtErrors {
     CaughtErrors& operator=(const CaughtErrors&) = delete;
 };
 
+/// The mean CPU milliseconds of a run of frames.
+///
+/// @param started the clock at the first frame
+/// @param ended the clock after the last frame
+/// @param count how many frames ran
+/// @return the mean, in milliseconds
+[[nodiscard]] double mean_cpu_ms(std::clock_t started, std::clock_t ended, int32_t count) {
+    const double ticks = static_cast<double>(ended - started);
+    return ticks * 1000.0 / (static_cast<double>(CLOCKS_PER_SEC) * static_cast<double>(count));
+}
+
+/// Prints a millisecond count.
+///
+/// @param milliseconds the count
+/// @return the text, with three digits after the point
+[[nodiscard]] std::string ms_text(double milliseconds) {
+    std::ostringstream text;
+    text << std::fixed << std::setprecision(3) << milliseconds;
+    return text.str();
+}
+
+/// Tells whether a choice lists a bundle.
+///
+/// @param ids the bundle ids
+/// @param id the one to find
+/// @return true when it is listed
+[[nodiscard]] bool lists_id(const std::vector<std::string>& ids, std::string_view id) {
+    for (const std::string& known : ids)
+        if (known == id)
+            return true;
+    return false;
+}
+
+/// Runs an action once, and again from the destructor if it has not run.
+///
+/// A failed step still puts the setup back. The action is a lambda of the
+/// check, which can see the runtime's own fields.
+template <typename PutBack>
+struct ContentRestore {
+    PutBack put_back; ///< puts the folder, the keys and the scratch folder back
+    bool armed{true}; ///< put_back still has to run
+
+    /// Keeps the action.
+    ///
+    /// @param action what to run
+    explicit ContentRestore(PutBack action) : put_back(std::move(action)) {}
+
+    /// Runs the action once.
+    void run() {
+        if (!armed)
+            return;
+        put_back();
+        armed = false;
+    }
+
+    ~ContentRestore() {
+        try {
+            run();
+        } catch (...) {
+        }
+    }
+
+    ContentRestore(const ContentRestore&) = delete;
+    ContentRestore& operator=(const ContentRestore&) = delete;
+};
+
 } // namespace
 
 void Runtime::check_brain_seat_buttons() {
@@ -411,6 +489,7 @@ void Runtime::check_brain_seat_buttons() {
     };
 
     for (const CheckWindow& window : kWindows) {
+        double before_seat_ms = 0;
         const std::string size = std::to_string(window.width) + 'x' + std::to_string(window.height);
         const std::string on = " on the " + size + " window";
         require(
@@ -447,6 +526,14 @@ void Runtime::check_brain_seat_buttons() {
             "the first frame is not the window's size" + on
         );
         std::cout << "brain seat check: kept a frame before any brain was written" << on << "\n";
+
+        // No brain is installed, so no computer seat button is on the screen.
+        if (window.width == 640) {
+            frames(2);
+            const std::clock_t started = std::clock();
+            frames(120);
+            before_seat_ms = mean_cpu_ms(started, std::clock(), 120);
+        }
 
         write_brain(
             brains_root / "steady-commander",
@@ -577,6 +664,157 @@ void Runtime::check_brain_seat_buttons() {
             "oa.brain-seat.2 does not read the built-in player and Difficulty (" + second.text +
                 ")" + on
         );
+        if (window.width == 640) {
+            frames(2);
+            const uint64_t walks_at = copied_content_bundles_walks();
+            const std::clock_t started = std::clock();
+            frames(120);
+            const uint64_t walked = copied_content_bundles_walks() - walks_at;
+            const double seated_ms = mean_cpu_ms(started, std::clock(), 120);
+            std::cout << "brain seat check: 120 frames before a computer seat, mean "
+                      << ms_text(before_seat_ms) << " ms; 120 frames with two computer seats, mean "
+                      << ms_text(seated_ms) << " ms, folder walks " << walked << "\n";
+            require(walked == 0, "the game folder was read while two computer seats showed");
+            require(
+                seated_ms < 5.0,
+                "two computer seats took " + ms_text(seated_ms) + " ms of CPU a frame"
+            );
+
+            const bundles::ContentChoice original = content_choice();
+            require(
+                options_.content.empty(),
+                "the run names content for this start, so a copied bundle cannot join the choice"
+            );
+            const std::string base_key{settings::key::base_game};
+            const std::string prefix{settings::key::expansions_prefix};
+            std::vector<std::pair<std::string, std::string>> saved_keys;
+            for (const auto& entry : preference_values_) {
+                if (entry.first == base_key || (entry.first.size() >= prefix.size() &&
+                                                entry.first.compare(0, prefix.size(), prefix) == 0))
+                    saved_keys.emplace_back(entry.first, entry.second);
+            }
+            const fs::path scratch{"G18-content"};
+            const fs::path saved_folder = options_.game_dir;
+            {
+                std::error_code failure;
+                fs::remove_all(scratch, failure);
+                failure.clear();
+                fs::create_directories(
+                    scratch / std::string(bundles::managed_games_folder), failure
+                );
+                require(!failure, "the scratch game folder was not made");
+                failure.clear();
+                fs::create_directories(
+                    scratch / std::string(bundles::managed_expansions_folder), failure
+                );
+                require(!failure, "the scratch expansions folder was not made");
+            }
+            // The lambda is the check's own, so it can put the private fields back.
+            ContentRestore hold([&]() {
+                options_.game_dir = saved_folder;
+                std::vector<std::string> stale;
+                for (const auto& stored : preference_values_) {
+                    if (stored.first == base_key ||
+                        (stored.first.size() >= prefix.size() &&
+                         stored.first.compare(0, prefix.size(), prefix) == 0))
+                        stale.push_back(stored.first);
+                }
+                for (const std::string& stale_key : stale)
+                    preference_values_.erase(stale_key);
+                for (const auto& stored : saved_keys)
+                    preference_values_[stored.first] = stored.second;
+                std::error_code removed;
+                fs::remove_all(scratch, removed);
+            });
+            std::vector<std::string> drop_keys;
+            for (const auto& entry : preference_values_) {
+                if (entry.first == base_key || (entry.first.size() >= prefix.size() &&
+                                                entry.first.compare(0, prefix.size(), prefix) == 0))
+                    drop_keys.push_back(entry.first);
+            }
+            for (const std::string& key : drop_keys)
+                preference_values_.erase(key);
+            options_.game_dir = scratch / std::string(bundles::managed_games_folder) / "totala";
+
+            const bundles::ContentChoice empty_choice = content_choice();
+            require(
+                !lists_id(empty_choice.expansions, "music"), "music is chosen before it is copied"
+            );
+            const uint64_t generation = content_bundles_generation();
+            const uint64_t walks_held = copied_content_bundles_walks();
+            const bundles::ContentChoice held_again = content_choice();
+            require(
+                copied_content_bundles_walks() == walks_held, "the kept bundles were read again"
+            );
+            require(
+                !lists_id(held_again.expansions, "music"), "music appeared without being copied"
+            );
+
+            const bundles::Bundle* music = bundles::find_bundle("music");
+            require(
+                music != nullptr && !music->extends.empty() && !music->files.empty(),
+                "music has no files to copy"
+            );
+            bundles::ContentRecord record;
+            record.bundle_id = std::string(music->id);
+            record.source = "G18";
+            record.files.reserve(music->files.size());
+            for (const bundles::ContentFile& file : music->files) {
+                bundles::ContentRecordFile item;
+                item.copy_name = std::string(file.copy_name);
+                item.size = file.size;
+                item.modified = 1;
+                record.files.push_back(std::move(item));
+            }
+            const fs::path music_dir = scratch / std::string(bundles::managed_expansions_folder) /
+                                       std::string(music->extends[0]) / std::string(music->id);
+            std::error_code made;
+            fs::create_directories(music_dir, made);
+            require(!made, "the music folder was not made");
+            std::string record_error;
+            require(
+                write_content_record(
+                    music_dir / std::string(bundles::content_record_name), record, &record_error
+                ),
+                record_error.empty() ? std::string("the music record was not written")
+                                     : record_error
+            );
+            require(
+                content_bundles_generation() > generation,
+                "copying music did not raise the generation"
+            );
+            const bundles::ContentChoice with_music = content_choice();
+            require(
+                lists_id(with_music.expansions, "music"),
+                "music was copied and is not in the choice"
+            );
+
+            const uint64_t after_copy = content_bundles_generation();
+            oa::app::package_install::Problem problem;
+            require(
+                oaexp::uninstall_expansion(scratch, "music", problem),
+                problem.detail.empty() ? std::string("music was not removed") : problem.detail
+            );
+            require(
+                content_bundles_generation() > after_copy,
+                "removing music did not raise the generation"
+            );
+            const bundles::ContentChoice gone = content_choice();
+            require(
+                !lists_id(gone.expansions, "music"),
+                "music stayed in the choice after it was removed"
+            );
+
+            hold.run();
+            const bundles::ContentChoice back = content_choice();
+            require(
+                back.base_game == original.base_game && back.expansions == original.expansions &&
+                    back.error == original.error,
+                "the content choice did not return to the one the setup had"
+            );
+            std::cout << "brain seat check: copying music raised the generation and the choice "
+                         "followed; removing it did the same\n";
+        }
         exercise_click(skirmish::resource_name(skirmish::Button::difficulty));
         frames(2);
         const std::string changed = "Built-in" + std::string(kDot) + difficulty_word();

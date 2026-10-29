@@ -25,6 +25,7 @@
 #include "oa_layer.hpp"
 
 #include "oa/app/content/updates.hpp"
+#include "oa/app/game_directory.hpp"
 #include "oa/app/mod_summary.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/core/game_state.h"
@@ -1477,11 +1478,88 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
         return {};
     }
 
+    /// What one seat's face was read from. A change of any of it rebuilds the faces.
+    struct FaceStamp {
+        brain::Setup setup{brain::Setup::skirmish}; ///< which setup
+        std::string seats{};                        ///< the seats, as their stored text
+        std::string default_id{};                   ///< the default brain
+        uint64_t brains_generation{};               ///< the installed-brain listing
+        uint64_t content_generation{};              ///< the copied bundles
+        std::string base_game{};                    ///< the chosen base game
+        std::vector<std::string> expansions{};      ///< the expansions that are on
+        std::string game_folder{};                  ///< the game folder the choice was read for
+        std::string played_id{};                    ///< the mod being played
+        std::string played_name{};                  ///< that mod's name
+        std::string played_version{};               ///< that mod's version
+        uint64_t interface_generation{};            ///< the language the names come from
+        brain::Difficulty difficulty{brain::Difficulty::medium}; ///< the setup's difficulty
+        uint32_t stage{};                                        ///< the Difficulty button's stage
+        std::string word{};                                      ///< the Difficulty button's word
+        bool filled{};                                           ///< a stamp has been stored
+    };
+
+    /// One seat's face, kept until FaceStamp changes.
+    struct SlotFace {
+        int32_t slot{-1};          ///< the seat
+        picker::SeatShown shown{}; ///< the button's face
+        picker::Choice choice{};   ///< the choice behind it
+    };
+
+    /// Tells whether two stamps were read from the same facts.
+    ///
+    /// @param left one stamp
+    /// @param right the other
+    /// @return true when a face kept for one is still the face of the other
+    [[nodiscard]] static bool same_face_stamp(const FaceStamp& left, const FaceStamp& right) {
+        return left.filled && right.filled && left.setup == right.setup &&
+               left.seats == right.seats && left.default_id == right.default_id &&
+               left.brains_generation == right.brains_generation &&
+               left.content_generation == right.content_generation &&
+               left.base_game == right.base_game && left.expansions == right.expansions &&
+               left.game_folder == right.game_folder && left.played_id == right.played_id &&
+               left.played_name == right.played_name &&
+               left.played_version == right.played_version &&
+               left.interface_generation == right.interface_generation &&
+               left.difficulty == right.difficulty && left.stage == right.stage &&
+               left.word == right.word;
+    }
+
+    /// The facts a seat's face is read from.
+    ///
+    /// @param setup the setup the seat belongs to
+    /// @param difficulty the setup's difficulty
+    /// @param word the Difficulty button's word
+    /// @return the stamp
+    [[nodiscard]] FaceStamp
+    stamp_of(brain::Setup setup, brain::Difficulty difficulty, const std::string& word) const {
+        FaceStamp stamp;
+        stamp.setup = setup;
+        stamp.seats = brain::seats_text(runtime_.setup_brain_seats(setup));
+        stamp.default_id = runtime_.default_brain();
+        stamp.brains_generation = runtime_.installed_brains_generation_;
+        stamp.content_generation = content_bundles_generation();
+        const oa::data::content_bundles::ContentChoice content = runtime_.content_choice();
+        stamp.base_game = content.base_game;
+        stamp.expansions = content.expansions;
+        stamp.game_folder = runtime_.options_.game_dir.generic_string();
+        const library::PlayedMod played = played_mod(runtime_.engine_settings_state());
+        stamp.played_id = played.id;
+        stamp.played_name = played.name;
+        stamp.played_version = played.version;
+        stamp.interface_generation = oa::data::languages::interface_generation();
+        stamp.difficulty = difficulty;
+        stamp.stage = difficulty_stage();
+        stamp.word = word;
+        stamp.filled = true;
+        return stamp;
+    }
+
     /// What a computer seat's button shows, and its choice.
     ///
     /// The same rules as the seats a start plays: an empty brain is the
     /// built-in player on purpose, and a brain that is missing or unfit is
-    /// the built-in player too. Strings are copied out of the listing.
+    /// the built-in player too. Strings are copied out of the listing. The
+    /// face is computed once for a set of facts and kept until those facts change.
     ///
     /// @param setup the setup the seat belongs to
     /// @param slot the slot
@@ -1489,6 +1567,31 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
     /// @param word the Difficulty button's word
     /// @return the face and the choice
     [[nodiscard]] std::pair<picker::SeatShown, picker::Choice> face_of(
+        brain::Setup setup, int32_t slot, brain::Difficulty difficulty, const std::string& word
+    ) const {
+        const FaceStamp stamp = stamp_of(setup, difficulty, word);
+        if (!same_face_stamp(face_stamp_, stamp)) {
+            face_stamp_ = stamp;
+            face_slots_.clear();
+        }
+        for (const SlotFace& cached : face_slots_) {
+            if (cached.slot == slot)
+                return {cached.shown, cached.choice};
+        }
+        const std::pair<picker::SeatShown, picker::Choice> made =
+            fresh_face(setup, slot, difficulty, word);
+        face_slots_.push_back(SlotFace{slot, made.first, made.second});
+        return made;
+    }
+
+    /// Computes a seat's face. face_of keeps the result.
+    ///
+    /// @param setup the setup the seat belongs to
+    /// @param slot the slot
+    /// @param difficulty the setup's difficulty
+    /// @param word the Difficulty button's word
+    /// @return the face and the choice
+    [[nodiscard]] std::pair<picker::SeatShown, picker::Choice> fresh_face(
         brain::Setup setup, int32_t slot, brain::Difficulty difficulty, const std::string& word
     ) const {
         const brain::Seats& seats = runtime_.setup_brain_seats(setup);
@@ -2359,6 +2462,10 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
     bool card_pressed_{};            ///< a press started on the open card
     std::string seal_{};             ///< the buttons, the menu and the card last drawn
     uint64_t revision_{};            ///< counts the changes to how it looks
+    /// The facts the kept faces were read from. Empty until the first face.
+    mutable FaceStamp face_stamp_{};
+    /// One face per seat, for face_stamp_.
+    mutable std::vector<SlotFace> face_slots_{};
 };
 
 void Runtime::keep_brain_seats_screen() {
