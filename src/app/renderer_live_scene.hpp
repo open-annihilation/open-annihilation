@@ -122,6 +122,11 @@ struct Scene {
     bool out_of_room{};
     std::unordered_map<uint64_t, AtlasRect>
         aircraft_shadow_materials{}; ///< bounded blurred silhouettes
+    /// The palette of the frame being built and the digest of its bytes,
+    /// taken once a frame for every material drawn in it; null outside a
+    /// build.
+    const PaletteBytes* frame_palette{};
+    uint64_t frame_palette_digest{};
     PaletteBytes terrain_palette{};
     PaletteBytes terrain_grey_palette{};
     std::size_t terrain_vertex_count{};

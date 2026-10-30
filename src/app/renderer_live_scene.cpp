@@ -36,7 +36,12 @@ constexpr float height_lift = 0.5F;
 /// Ceiling of the greatest TNT height projected into painted map rows.
 constexpr int32_t maximum_terrain_row_shift = 128;
 constexpr uint64_t hash_start = 14695981039346656037ULL;
-constexpr uint64_t hash_multiplier = 1099511628211ULL;
+/// The multipliers and addend of the digest's rounds, odd numbers with
+/// their bits well spread (those of XXH64).
+constexpr uint64_t digest_prime_1 = 0x9E3779B185EBCA87ULL;
+constexpr uint64_t digest_prime_2 = 0xC2B2AE3D27D4EB4FULL;
+constexpr uint64_t digest_prime_4 = 0x85EBCA77C2B2AE63ULL;
+constexpr uint64_t digest_prime_5 = 0x27D4EB2F165667C5ULL;
 constexpr std::size_t maximum_vertices = renderer_live_gpu::largest_vertex_count;
 constexpr uint32_t maximum_atlas_edge = 4096;
 /// A terrain material's square in the atlas at full detail: the tile's 32
@@ -326,7 +331,46 @@ void polygon(Scene& scene, std::span<const Vertex> vertices) {
         );
 }
 
+/// Mixes eight bytes into a digest at once: every bit of the word reaches
+/// every bit of the digest.
+///
+/// @param digest the digest so far
+/// @param word the next eight bytes, or a value
+/// @return the digest with the word mixed in
+constexpr uint64_t mix_word(uint64_t digest, uint64_t word) {
+    digest ^= std::rotl(word * digest_prime_2, 31) * digest_prime_1;
+    return std::rotl(digest, 27) * digest_prime_1 + digest_prime_4;
+}
+
+/// Mixes bytes into a digest eight at a time, then the last few one by one.
+///
+/// @param digest the digest so far
+/// @param bytes the bytes
+/// @return the digest with the bytes mixed in
+uint64_t mix_bytes(uint64_t digest, std::span<const uint8_t> bytes) {
+    std::size_t at = 0;
+    for (; at + sizeof(uint64_t) <= bytes.size(); at += sizeof(uint64_t)) {
+        uint64_t word{};
+        std::memcpy(&word, bytes.data() + at, sizeof(word));
+        digest = mix_word(digest, word);
+    }
+    for (; at < bytes.size(); ++at)
+        digest = std::rotl(digest ^ (bytes[at] * digest_prime_5), 11) * digest_prime_1;
+    return digest;
+}
+
+/// @return the digest of a palette's bytes: the frame's own palette's
+///     digest once taken this frame (Scene::frame_palette)
+uint64_t palette_digest(const Scene& scene, const PaletteBytes& palette) {
+    if (&palette == scene.frame_palette)
+        return scene.frame_palette_digest;
+    return mix_bytes(hash_start, palette);
+}
+
 /// Packs palette pixels with coverage and fog, sharing identical materials.
+/// A black material (Fog::black, no light mask) is black whatever the
+/// palette: it is shared by every material of its size whose texels are
+/// covered alike, keyed on its coverage alone where it has one.
 AtlasRect material(
     Scene& scene,
     const PaletteBytes& palette,
@@ -344,23 +388,25 @@ AtlasRect material(
     if (width == 0 || height == 0 || pixels.size() < count ||
         (!coverage.empty() && coverage.size() < count))
         throw std::runtime_error("experimental scene received an invalid material");
+    const bool black = fog == Fog::black && !light_mask;
+    if (!coverage.empty())
+        coverage = coverage.first(count);
     uint64_t digest = hash_start;
-    const auto hash = [&](uint64_t value) { digest = (digest ^ value) * hash_multiplier; };
-    hash(width);
-    hash(height);
-    hash(static_cast<uint64_t>(transparent + 1));
-    hash(static_cast<uint64_t>(fog));
-    hash(light_mask);
-    hash(alpha_coverage);
+    digest = mix_word(digest, width);
+    digest = mix_word(digest, height);
+    digest = mix_word(digest, static_cast<uint64_t>(fog));
+    digest = mix_word(digest, light_mask);
+    digest = mix_word(digest, alpha_coverage);
     if (light_mask)
-        hash(static_cast<uint64_t>(flash_strength));
-    for (const auto value : pixels.first(count))
-        hash(value);
-    for (const auto value : coverage)
-        hash(value);
+        digest = mix_word(digest, static_cast<uint64_t>(flash_strength));
+    if (!black || coverage.empty()) {
+        digest = mix_word(digest, static_cast<uint64_t>(transparent + 1));
+        digest = mix_bytes(digest, pixels.first(count));
+    }
+    digest = mix_bytes(digest, coverage);
     // A palette change must invalidate the cached material colours too.
-    for (const auto value : palette)
-        hash(value);
+    if (!black)
+        digest = mix_word(digest, palette_digest(scene, palette));
     if (const auto found = scene.materials.find(digest); found != scene.materials.end())
         return found->second;
     if (width > scene.texture_width || height > scene.texture_height)
@@ -373,7 +419,22 @@ AtlasRect material(
     if (scene.next_y + height > scene.texture_height)
         throw AtlasFull();
     const AtlasRect rect{scene.next_x, scene.next_y, width, height};
-    for (uint32_t y = 0; y < height; ++y) {
+    for (uint32_t y = 0; y < height && black; ++y) {
+        // Black texels, each covered or clear: only their alpha differs.
+        auto* row =
+            scene.texture_rgba.data() +
+            (static_cast<std::size_t>(rect.y + y) * scene.texture_width + rect.x) * channels;
+        for (uint32_t x = 0; x < width; ++x) {
+            const auto source = static_cast<std::size_t>(y) * width + x;
+            const bool covered =
+                coverage.empty() ? pixels[source] != transparent : coverage[source] != 0;
+            row[x * channels] = row[x * channels + 1] = row[x * channels + 2] = 0;
+            row[x * channels + 3] = static_cast<uint8_t>(
+                alpha_coverage && !coverage.empty() ? coverage[source] : (covered ? 255 : 0)
+            );
+        }
+    }
+    for (uint32_t y = 0; y < height && !black; ++y) {
         for (uint32_t x = 0; x < width; ++x) {
             const auto source = static_cast<std::size_t>(y) * width + x;
             const auto target =
@@ -1671,12 +1732,10 @@ void unit_shadows(const Inputs& in, Scene& scene) {
         if (aircraft && image.width <= 256 && image.height <= 256) {
             const uint32_t radius = renderer_aircraft_shadow::edge_radius(altitude);
             uint64_t key = hash_start;
-            const auto hash = [&](uint64_t value) { key = (key ^ value) * hash_multiplier; };
-            hash(image.width);
-            hash(image.height);
-            hash(radius);
-            for (const auto value : coverage)
-                hash(value);
+            key = mix_word(key, image.width);
+            key = mix_word(key, image.height);
+            key = mix_word(key, radius);
+            key = mix_bytes(key, coverage);
             auto cached = scene.aircraft_shadow_materials.find(key);
             if (cached == scene.aircraft_shadow_materials.end()) {
                 auto alpha =
@@ -3759,10 +3818,13 @@ void water_surface(const Inputs& in, Scene& scene) {
 bool build(const Inputs& inputs, Scene& scene, std::string& error) {
     scene.atlas_update = {scene.texture_revision, scene.texture_height, 0};
     scene.out_of_room = false;
+    scene.frame_palette = nullptr;
     try {
         if (inputs.map == nullptr || inputs.palette == nullptr || inputs.draws == nullptr ||
             inputs.map->attribute_width == 0 || inputs.map->attribute_height == 0)
             throw std::runtime_error("experimental renderer has no prepared match scene");
+        scene.frame_palette_digest = mix_bytes(hash_start, *inputs.palette);
+        scene.frame_palette = inputs.palette;
         const auto& map = *inputs.map;
         if (map.attribute_width > formats::tnt::limit::attribute_dimension ||
             map.attribute_height > formats::tnt::limit::attribute_dimension ||
@@ -3891,9 +3953,11 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             scene.atlas_update.first_row = 0;
             scene.atlas_update.end_row = 0;
         }
+        scene.frame_palette = nullptr;
         error.clear();
         return true;
     } catch (const std::exception& exception) {
+        scene.frame_palette = nullptr;
         scene.out_of_room = dynamic_cast<const OutOfRoom*>(&exception) != nullptr;
         scene.vertices.clear();
         scene.unit_ranges.clear();
