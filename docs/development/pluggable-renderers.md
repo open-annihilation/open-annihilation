@@ -313,6 +313,15 @@ its effect visibility raster only visits rows and columns reached by effects.
 Zooming out reduces fog subdivision, merges planar terrain cells, and fades
 subpixel decals and particles. Small light footprints fade out; heat distortion
 fades sooner as its pixel displacement becomes imperceptible.
+A frame whose terrain needs more tiles than the atlas holds at full detail,
+as a low or zoomed-out view of a large map does, packs the tiles nearest the
+camera at full detail and the rest at half, a quarter or an eighth of their
+pixels; a frame whose tiles fit keeps them all at full detail. Far out over a
+large map, the ground is drawn from every second, fourth or eighth height
+sample when its triangles would pass the frame's limit. A frame that still
+needs more room than the renderer has goes back to the last camera drawn, so a
+turn or a zoom stops there; only a failure of the card puts the classic view
+back.
 Terrain minification blends averaged texture levels, with each tile clamped to
 its own texels. Level selection uses output pixels independently of the
 anti-aliasing factor; sprites retain nearest sampling.
@@ -333,8 +342,8 @@ selection, menu keyboard navigation, release of camera drags across menus,
 terrain picking, orders, pointer-anchored zoom, queue overlays,
 contours, projected health bars, interpolated movement, factory build subjects,
 construction particles, coloured light on terrain, advancing simulation,
-unlock, exact classic reset, both zoom limits, recovery after GPU rejection
-and target resize:
+unlock, exact classic reset, both zoom limits, a low unlocked view at the
+furthest zoom, recovery after GPU rejection and target resize:
 
 ```sh
 OA_BUILD_TYPE=Check ./run.sh --game-dir "$OA_GAME_DIR" --check-live-renderer

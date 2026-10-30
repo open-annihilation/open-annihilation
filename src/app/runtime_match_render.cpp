@@ -998,7 +998,9 @@ void Runtime::render_match_surface() {
     // numbers, go.
     oa::present::forget_undrawn_text_layers();
     // A failed rotated frame puts the view back classic, so the second draw
-    // draws the battlefield as the classic tiers do.
+    // draws the battlefield as the classic tiers do; one that needs more
+    // room than the 3D renderer has puts it back where a frame last drew,
+    // and the second draw draws from there.
     if (!draw_match_surface())
         std::ignore = draw_match_surface();
 }

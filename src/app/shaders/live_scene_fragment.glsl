@@ -41,11 +41,12 @@ camera;
 
 layout(location = 0) out vec4 out_colour;
 
-// Mip levels occupy vertically stacked squares in a 32 by 64 chain.
-vec4 terrain_level(vec2 origin, vec2 local, uint mip) {
-    const float base_size = 32.0;
+// Mip levels occupy vertically stacked squares in a chain as wide as its
+// most detailed level and twice as tall: 32 pixels wide for a tile in full,
+// 16, 8 or 4 for one the frame packed smaller.
+vec4 terrain_level(vec2 origin, vec2 local, uint mip, float base_size) {
     const float size = base_size / float(1u << mip);
-    const float offset = mip == 0u ? 0.0 : 64.0 - 2.0 * size;
+    const float offset = mip == 0u ? 0.0 : 2.0 * base_size - 2.0 * size;
     const vec2 position =
         origin + vec2(0.0, offset) + clamp(local / float(1u << mip), vec2(0.5), vec2(size - 0.5));
     return texture(atlas_linear, position / vec2(textureSize(atlas_linear, 0)));
@@ -106,34 +107,38 @@ void main() {
         // colour of the ground beneath it.
         colour = vec4(vec3(1.0), foam * visibility * detail);
     } else if (in_terrain.z > 0.0) {
+        // The tile's pixels in its most detailed level: 32, or fewer where
+        // the frame packed it smaller, its levels counted from there.
+        const float base_size = in_terrain.z;
+        const uint top_level = uint(findMSB(uint(base_size)));
         const vec2 local = in_uv * atlas_size - in_terrain.xy;
         const float footprint =
             max(length(dFdx(local)), length(dFdy(local))) * camera.viewport.z;
-        const float lod = clamp(log2(max(footprint, 1.0)), 0.0, 5.0);
+        const float lod = clamp(log2(max(footprint, 1.0)), 0.0, float(top_level));
         const uint lower = uint(floor(lod));
-        const uint upper = min(lower + 1u, 5u);
+        const uint upper = min(lower + 1u, top_level);
         // The art the fine ripples move here, within its own tile.
-        const vec2 art = local - water_fine_offset(in_world);
+        const vec2 art = local - water_fine_offset(in_world) * (base_size / 32.0);
         if (footprint <= 1.0) {
-            const vec2 position = in_terrain.xy + clamp(art, vec2(0.5), vec2(31.5));
+            const vec2 position = in_terrain.xy + clamp(art, vec2(0.5), vec2(base_size - 0.5));
             colour = texture(atlas_nearest, position / atlas_size);
         } else {
             colour = mix(
-                terrain_level(in_terrain.xy, art, lower),
-                terrain_level(in_terrain.xy, art, upper),
+                terrain_level(in_terrain.xy, art, lower, base_size),
+                terrain_level(in_terrain.xy, art, upper, base_size),
                 fract(lod)
             );
         }
         if (in_terrain_fog.y > 0.0) {
-            const vec2 grey_origin = in_terrain.xy + vec2(32.0, 0.0);
+            const vec2 grey_origin = in_terrain.xy + vec2(base_size, 0.0);
             vec4 grey;
             if (footprint <= 1.0) {
-                const vec2 position = grey_origin + clamp(art, vec2(0.5), vec2(31.5));
+                const vec2 position = grey_origin + clamp(art, vec2(0.5), vec2(base_size - 0.5));
                 grey = texture(atlas_nearest, position / atlas_size);
             } else {
                 grey = mix(
-                    terrain_level(grey_origin, art, lower),
-                    terrain_level(grey_origin, art, upper),
+                    terrain_level(grey_origin, art, lower, base_size),
+                    terrain_level(grey_origin, art, upper, base_size),
                     fract(lod)
                 );
             }

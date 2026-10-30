@@ -6,6 +6,7 @@
 #include "renderer_water.hpp"
 
 #include <array>
+#include <cstddef>
 #include <memory>
 
 namespace oa::app::renderer_live_gpu {
@@ -25,7 +26,7 @@ struct Vertex {
     float terrain_x{};   ///< terrain atlas origin, or water depth for water/reflections
     float terrain_y{};   ///< terrain mip-chain origin in atlas pixels
     float
-        terrain_size{}; ///< -7 filtered map feature, -6 nearest map feature, -5 submerged effect, -4 splash, -3 reflection, -2 water, -1 filtered, 0 nearest, 32 terrain
+        terrain_size{}; ///< -7 filtered map feature, -6 nearest map feature, -5 submerged effect, -4 splash, -3 reflection, -2 water, -1 filtered, 0 nearest, 32, 16, 8 or 4 terrain at that many pixels a tile
     float terrain_known{1};          ///< terrain visibility in [0,1]
     float terrain_grey{};            ///< blend toward the adjacent grey mip chain in [0,1]
     float red{1}, green{1}, blue{1}; ///< material RGB modulation in [0,1]
@@ -36,6 +37,9 @@ using Result = renderer_proof_gpu::Result;
 /// The widest and tallest picture render() draws, and atlas it takes, in
 /// pixels.
 inline constexpr uint32_t largest_edge = 4096;
+
+/// The most vertices render() draws in a frame.
+inline constexpr std::size_t largest_vertex_count = 3 * 1024 * 1024;
 
 /// Shared water animation controls; zero intensities leave source artwork unchanged.
 struct WaterEffects {

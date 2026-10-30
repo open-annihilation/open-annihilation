@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -446,6 +447,189 @@ void terrain_mip_colours() {
         const auto expected = (uint32_t(ground_color[channel]) + alternate_color[channel] + 1) / 2;
         OA_CHECK(fixture.scene.texture_rgba[offset + channel] == expected);
     }
+}
+
+/// A wide, low view of a map with more distinct tiles than the atlas holds
+/// in full squares: the frame builds, the tiles nearest the camera in full
+/// squares and the rest smaller, each sampled as its own colour; a view
+/// whose tiles fit keeps them all in full squares.
+void terrain_wider_than_atlas() {
+    constexpr uint8_t first_colour = 1;
+    constexpr uint32_t colours = 250;
+    const auto check_view =
+        [&](uint32_t across, uint32_t down, float expected_largest, float expected_smallest) {
+            Fixture fixture;
+            auto& map = fixture.map;
+            map.tile_width = across;
+            map.tile_height = down;
+            map.attribute_width = across * 2;
+            map.attribute_height = down * 2;
+            map.tile_count = across * down;
+            map.tile_indices.resize(static_cast<std::size_t>(across) * down);
+            map.tile_palette_indices.resize(map.tile_indices.size() * tile_edge * tile_edge);
+            for (std::size_t tile = 0; tile < map.tile_indices.size(); ++tile) {
+                map.tile_indices[tile] = static_cast<uint16_t>(tile);
+                std::fill_n(
+                    map.tile_palette_indices.begin() +
+                        static_cast<std::ptrdiff_t>(tile * tile_edge * tile_edge),
+                    tile_edge * tile_edge,
+                    static_cast<uint8_t>(first_colour + tile % colours)
+                );
+            }
+            map.attributes.assign(
+                static_cast<std::size_t>(map.attribute_width) * map.attribute_height, {}
+            );
+            for (uint32_t index = 0; index < colours; ++index) {
+                const auto entry = (first_colour + index) * oa::palette_entry_bytes;
+                fixture.palette[entry] = static_cast<uint8_t>(index);
+                fixture.palette[entry + 1] = static_cast<uint8_t>(255 - index);
+                fixture.palette[entry + 2] = static_cast<uint8_t>(index / 2 + 10);
+            }
+            fixture.inputs.sight.mapping = false;
+            fixture.inputs.sight.line_of_sight = false;
+            fixture.inputs.right = static_cast<int32_t>(across) * tile_edge;
+            fixture.inputs.bottom = static_cast<int32_t>(down) * tile_edge;
+            // Depth grows down the map, so the bottom rows are nearest.
+            fixture.inputs.clip_projection = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0};
+            OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+            OA_CHECK(fixture.error.empty());
+            OA_CHECK(!fixture.scene.out_of_room);
+            OA_CHECK(fixture.scene.terrain_vertex_count != 0);
+            float largest = 0;
+            float smallest = 64;
+            float nearest_small = -1;
+            float furthest_large = std::numeric_limits<float>::infinity();
+            for (std::size_t first = 0; first + 2 < fixture.scene.terrain_vertex_count;
+                 first += 3) {
+                const auto& vertex = fixture.scene.vertices[first];
+                const float size = vertex.terrain_size;
+                OA_CHECK(size == 32 || size == 16 || size == 8 || size == 4);
+                OA_CHECK(
+                    vertex.terrain_x + 2 * size <= fixture.scene.texture_width &&
+                    vertex.terrain_y + 2 * size <= fixture.scene.texture_height
+                );
+                largest = std::max(largest, size);
+                smallest = std::min(smallest, size);
+                const float z = (vertex.z + fixture.scene.vertices[first + 1].z +
+                                 fixture.scene.vertices[first + 2].z) /
+                                3;
+                if (size == expected_largest)
+                    furthest_large = std::min(furthest_large, z);
+                else
+                    nearest_small = std::max(nearest_small, z);
+                // Every tile is one colour, whatever square it was packed into.
+                const auto column = static_cast<uint32_t>(
+                                        vertex.x + fixture.scene.vertices[first + 1].x +
+                                        fixture.scene.vertices[first + 2].x
+                                    ) /
+                                    3 / tile_edge;
+                const auto row = static_cast<uint32_t>(z) / tile_edge;
+                const auto tile = static_cast<std::size_t>(row) * across + column;
+                const auto entry = (first_colour + tile % colours) * oa::palette_entry_bytes;
+                const auto sampled = triangle_color(fixture.scene, first);
+                for (std::size_t channel = 0; channel < 3; ++channel)
+                    OA_CHECK(sampled[channel] == fixture.palette[entry + channel]);
+            }
+            OA_CHECK(largest == expected_largest && smallest == expected_smallest);
+            // The larger squares go to the nearest tiles.
+            if (expected_largest != expected_smallest)
+                OA_CHECK(nearest_small <= furthest_large + tile_edge);
+            // The next frame over the same ground finds every tile packed.
+            const auto revision = fixture.scene.texture_revision;
+            OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+            OA_CHECK(fixture.scene.texture_revision == revision);
+        };
+    // 6400 tiles: the nearest in full squares and the rest in half ones.
+    check_view(80, 80, 32, 16);
+    // 16384 tiles, more than half squares hold: half and quarter squares.
+    check_view(128, 128, 16, 8);
+    // 1600 tiles fit in full squares, and every one is packed so.
+    check_view(40, 40, 32, 32);
+}
+
+/// Ground too wide for the geometry budget is drawn from fewer height
+/// samples: fewer triangles, each tile still sampling its own art, and the
+/// samples kept at the simulation's heights.
+void coarse_ground_far_out() {
+    constexpr uint32_t across = 15;
+    constexpr uint8_t first_colour = 1;
+    const auto make = [&](live::Scene& scene,
+                          std::string& error,
+                          oa::formats::tnt::Map& map,
+                          oa::PaletteBytes& palette,
+                          live::Inputs& inputs) {
+        map.tile_width = map.tile_height = across;
+        map.attribute_width = map.attribute_height = across * 2;
+        map.tile_count = across * across;
+        map.tile_indices.resize(static_cast<std::size_t>(across) * across);
+        map.tile_palette_indices.resize(map.tile_indices.size() * tile_edge * tile_edge);
+        for (std::size_t tile = 0; tile < map.tile_indices.size(); ++tile) {
+            map.tile_indices[tile] = static_cast<uint16_t>(tile);
+            std::fill_n(
+                map.tile_palette_indices.begin() +
+                    static_cast<std::ptrdiff_t>(tile * tile_edge * tile_edge),
+                tile_edge * tile_edge,
+                static_cast<uint8_t>(first_colour + tile)
+            );
+            const auto entry = (first_colour + tile) * oa::palette_entry_bytes;
+            palette[entry] = static_cast<uint8_t>(tile);
+            palette[entry + 1] = static_cast<uint8_t>(255 - tile);
+            palette[entry + 2] = 40;
+        }
+        map.attributes.assign(
+            static_cast<std::size_t>(map.attribute_width) * map.attribute_height, {}
+        );
+        for (uint32_t row = 0; row < map.attribute_height; ++row)
+            for (uint32_t column = 0; column < map.attribute_width; ++column)
+                map.attributes[static_cast<std::size_t>(row) * map.attribute_width + column]
+                    .height = static_cast<uint8_t>((column * 3 + row * 5) % 40);
+        inputs.sight.mapping = false;
+        inputs.sight.line_of_sight = false;
+        inputs.right = static_cast<int32_t>(across) * tile_edge;
+        inputs.bottom = static_cast<int32_t>(across) * tile_edge;
+        return live::build(inputs, scene, error);
+    };
+    Fixture fine;
+    OA_CHECK(make(fine.scene, fine.error, fine.map, fine.palette, fine.inputs));
+    Fixture coarse;
+    coarse.scene.terrain_square_limit = 64;
+    OA_CHECK(make(coarse.scene, coarse.error, coarse.map, coarse.palette, coarse.inputs));
+    OA_CHECK(!coarse.scene.out_of_room);
+    OA_CHECK(coarse.scene.terrain_vertex_count != 0);
+    OA_CHECK(coarse.scene.terrain_vertex_count < fine.scene.terrain_vertex_count);
+    bool sample_found = false;
+    for (std::size_t first = 0; first + 2 < coarse.scene.terrain_vertex_count; first += 3) {
+        const auto* vertex = &coarse.scene.vertices[first];
+        OA_CHECK(vertex->terrain_size == 32);
+        // A corner of a drawn square stands at the simulation's height.
+        for (std::size_t corner = 0; corner < 3; ++corner) {
+            const auto& point = vertex[corner];
+            if (std::fmod(point.x, 64.0F) == 0 && std::fmod(point.z, 64.0F) == 0 &&
+                point.x < across * tile_edge && point.z < across * tile_edge) {
+                const auto column = static_cast<uint32_t>(point.x) / cell_edge;
+                const auto row = static_cast<uint32_t>(point.z) / cell_edge;
+                OA_CHECK(
+                    point.height ==
+                    coarse.map
+                        .attributes
+                            [static_cast<std::size_t>(row) * coarse.map.attribute_width + column]
+                        .height
+                );
+                sample_found = true;
+            }
+        }
+        const float x = (vertex[0].x + vertex[1].x + vertex[2].x) / 3;
+        const float painted = (vertex[0].z - vertex[0].height * 0.5F + vertex[1].z -
+                               vertex[1].height * 0.5F + vertex[2].z - vertex[2].height * 0.5F) /
+                              3;
+        const auto tile = static_cast<std::size_t>(painted / tile_edge) * across +
+                          static_cast<std::size_t>(x / tile_edge);
+        const auto entry = (first_colour + tile) * oa::palette_entry_bytes;
+        const auto sampled = triangle_color(coarse.scene, first);
+        for (std::size_t channel = 0; channel < 3; ++channel)
+            OA_CHECK(sampled[channel] == coarse.palette[entry + channel]);
+    }
+    OA_CHECK(sample_found);
 }
 
 /// Known sight boundaries interpolate, while every unknown terrain sample remains black.
@@ -2607,6 +2791,8 @@ int main() {
     clipped_texture_bounds();
     fog_materials();
     terrain_mip_colours();
+    terrain_wider_than_atlas();
+    coarse_ground_far_out();
     smooth_fog_boundary();
     terrain_zoom_detail();
     particle_zoom_detail();
