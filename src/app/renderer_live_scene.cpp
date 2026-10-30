@@ -486,38 +486,57 @@ AtlasRect terrain_material(
         return scene.texture_rgba.data() +
                (static_cast<std::size_t>(rect.y + y) * scene.texture_width + rect.x + x) * channels;
     };
-    std::array<uint8_t, static_cast<std::size_t>(tile_edge) * tile_edge * channels> whole{};
-    const auto whole_at = [&](uint32_t x, uint32_t y) {
-        return whole.data() + (static_cast<std::size_t>(y) * tile_edge + x) * channels;
-    };
+    // The sums of each block of the tile's pixels, a channel at a time: a
+    // level's blocks are made of four of the level above's, so each level
+    // is summed from the last at a quarter of the work of summing the
+    // pixels again. The sums are whole, so every level rounds exactly as
+    // the mean of its pixels.
+    constexpr std::size_t tile_pixels = static_cast<std::size_t>(tile_edge) * tile_edge;
+    std::array<uint32_t, tile_pixels * channels> sums{};
     for (uint32_t variant = 0; variant < 2; ++variant) {
         const auto& colours = variant == 0 ? palette : grey;
         const uint32_t origin = variant * detail;
-        for (uint32_t y = 0; y < tile_edge; ++y)
-            for (uint32_t x = 0; x < tile_edge; ++x) {
-                auto* out = whole_at(x, y);
-                const auto index =
-                    static_cast<std::size_t>(pixels[y * tile_edge + x]) * palette_entry_bytes;
-                for (uint32_t channel = 0; channel < 3; ++channel) {
-                    const auto value = fog == Fog::black ? uint8_t{0} : colours[index + channel];
-                    out[channel] = value;
-                }
-                out[3] = 255;
-            }
+        for (std::size_t pixel = 0; pixel < tile_pixels; ++pixel) {
+            const auto index = static_cast<std::size_t>(pixels[pixel]) * palette_entry_bytes;
+            for (uint32_t channel = 0; channel < 3; ++channel)
+                sums[pixel * channels + channel] =
+                    fog == Fog::black ? uint32_t{0} : colours[index + channel];
+            sums[pixel * channels + 3] = 255;
+        }
+        // The sums hold blocks of factor pixels a side, blocks of them across.
+        auto blocks = static_cast<uint32_t>(tile_edge);
+        uint32_t factor = 1;
         uint32_t row = 0;
         for (uint32_t level = detail; level != 0; level /= 2) {
-            const uint32_t factor = tile_edge / level;
+            while (blocks > level) {
+                const uint32_t half = blocks / 2;
+                for (uint32_t y = 0; y < half; ++y)
+                    for (uint32_t x = 0; x < half; ++x)
+                        for (uint32_t channel = 0; channel < channels; ++channel) {
+                            const auto at = [&](uint32_t column, uint32_t line) {
+                                return sums
+                                    [(static_cast<std::size_t>(line) * blocks + column) * channels +
+                                     channel];
+                            };
+                            // Written in place: block (x, y) lies at or before
+                            // the four it is summed from.
+                            sums[(static_cast<std::size_t>(y) * half + x) * channels + channel] =
+                                at(2 * x, 2 * y) + at(2 * x + 1, 2 * y) + at(2 * x, 2 * y + 1) +
+                                at(2 * x + 1, 2 * y + 1);
+                        }
+                blocks = half;
+                factor *= 2;
+            }
             const uint32_t count = factor * factor;
             for (uint32_t y = 0; y < level; ++y)
                 for (uint32_t x = 0; x < level; ++x) {
                     auto* out = pixel_at(origin + x, row + y);
-                    for (uint32_t channel = 0; channel < channels; ++channel) {
-                        uint32_t sum = 0;
-                        for (uint32_t dy = 0; dy < factor; ++dy)
-                            for (uint32_t dx = 0; dx < factor; ++dx)
-                                sum += whole_at(x * factor + dx, y * factor + dy)[channel];
-                        out[channel] = static_cast<uint8_t>((sum + count / 2) / count);
-                    }
+                    for (uint32_t channel = 0; channel < channels; ++channel)
+                        out[channel] = static_cast<uint8_t>(
+                            (sums[(static_cast<std::size_t>(y) * level + x) * channels + channel] +
+                             count / 2) /
+                            count
+                        );
                 }
             row += level;
         }
