@@ -466,6 +466,9 @@ bool Runtime::render_live_match_surface() {
         // Picking reads only the frame's triangles, so a frame that draws
         // rebuilds it while the card draws them.
         const auto rebuild_picking = [this] { rebuild_live_picking(); };
+        const renderer_live_gpu::KeptGround ground{
+            live.scene.terrain_vertex_count, live.scene.ground_revision
+        };
         const auto result = built ? renderer_live_gpu::render(
                                         live.gpu,
                                         live.scene.vertices,
@@ -481,6 +484,7 @@ bool Runtime::render_live_match_surface() {
                                         static_cast<uint32_t>(engine_settings().anti_aliasing),
                                         &live.scene.atlas_update,
                                         &inputs.water,
+                                        &ground,
                                         rebuild_picking
                                     )
                                   : renderer_live_gpu::Result::failed;

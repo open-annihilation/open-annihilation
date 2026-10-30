@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <bit>
 #include <array>
+#include <atomic>
 #include <exception>
 #include <cstring>
 #include <limits>
@@ -885,6 +886,12 @@ bool note_ground_source(
     return same;
 }
 
+/// A ground revision no scene has had before.
+uint64_t new_ground_revision() {
+    static std::atomic<uint64_t> last{};
+    return ++last;
+}
+
 /// Tells whether every tile the kept ground draws would come out of the
 /// atlas where it did: still packed in its square, at least as large as
 /// the plan gives it, from the map's art as it is now.
@@ -1337,9 +1344,11 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
     if (same_source && scene.ground_kept && ground_tiles_hold(in, scene, plan)) {
         scene.vertices.assign(scene.ground_vertices.begin(), scene.ground_vertices.end());
         scene.terrain_vertex_count = scene.vertices.size();
+        scene.ground_revision = scene.kept_ground_revision;
         return;
     }
     scene.ground_kept = false;
+    scene.ground_revision = new_ground_revision();
     // The fog of each sight cell, as note_ground_source has just read it.
     const auto& source = scene.ground_source;
     const FogCells cells{
@@ -1351,6 +1360,7 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
         scene.ground_vertices.assign(scene.vertices.begin(), scene.vertices.end());
         scene.ground_tiles.assign(tiles.begin(), tiles.end());
         scene.ground_kept = true;
+        scene.kept_ground_revision = scene.ground_revision;
     }
 }
 
@@ -2039,6 +2049,9 @@ void foundations(const Inputs& in, Scene& scene) {
         }
         if (!affected)
             continue;
+        // A plot cut into the ground makes it new.
+        if (first < terrain_end)
+            scene.ground_revision = new_ground_revision();
         copy_pending(first);
         const auto output_begin = scene.vertices.size();
         if (pieces.empty())

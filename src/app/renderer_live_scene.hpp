@@ -137,6 +137,12 @@ struct Scene {
     /// The tile keys that ground draws, each with its square.
     std::vector<std::pair<uint64_t, AtlasRect>> ground_tiles{};
     bool ground_kept{};
+    /// The revision of the kept ground, which a frame that takes it takes too.
+    uint64_t kept_ground_revision{};
+    /// The revision of the frame's ground, its first terrain_vertex_count
+    /// vertices: a new one, never had by any scene before, whenever they may
+    /// differ from the last frame's (renderer_live_gpu::KeptGround).
+    uint64_t ground_revision{};
     uint32_t model_count{};
     uint32_t sprite_count{};
     uint32_t shadow_count{};

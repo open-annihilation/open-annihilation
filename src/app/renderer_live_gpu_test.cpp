@@ -11,7 +11,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <limits>
+#include <span>
 
 namespace {
 using namespace oa::app::renderer_live_gpu;
@@ -347,6 +349,108 @@ void terrain_filtering() {
     }
 }
 
+/// Draw a kept ground from its own buffer as the frame would draw it whole,
+/// uploading it only when its revision changes, and run the caller's work
+/// once a frame while the card draws.
+void kept_ground_frames() {
+    Context kept_context;
+    Context plain_context;
+    constexpr uint32_t atlas_width = 2;
+    // Texel 0 red, texel 1 green.
+    const std::vector<uint8_t> atlas{
+        full_channel, 0, 0, full_channel, 0, full_channel, 0, full_channel
+    };
+    std::vector<Vertex> vertices{
+        {0, 0, 0, 0, 0},
+        {8, 0, 0, 0, 0},
+        {0, 0, 8, 0, 0},
+        {8, 0, 0, 0, 0},
+        {8, 0, 8, 0, 0},
+        {0, 0, 8, 0, 0},
+        {0, 0, 0, 1, 0},
+        {4, 0, 0, 1, 0},
+        {0, 0, 4, 1, 0}
+    };
+    std::vector<uint8_t> kept_pixels;
+    std::vector<uint8_t> plain_pixels;
+    std::string error;
+    int calls{};
+    const std::function<void()> count_call = [&calls] { ++calls; };
+    const auto kept = [&](const KeptGround& ground) {
+        return render(
+            kept_context,
+            vertices,
+            atlas,
+            atlas_width,
+            1,
+            1,
+            small_target,
+            small_target,
+            classic_projection,
+            kept_pixels,
+            error,
+            1,
+            nullptr,
+            nullptr,
+            &ground,
+            count_call
+        );
+    };
+    const auto plain = [&] {
+        OA_CHECK(
+            render(
+                plain_context,
+                vertices,
+                atlas,
+                atlas_width,
+                1,
+                1,
+                small_target,
+                small_target,
+                classic_projection,
+                plain_pixels,
+                error
+            ) == Result::success
+        );
+    };
+    const KeptGround ground{6, 7};
+    OA_CHECK(kept(ground) == Result::success);
+    OA_CHECK(calls == 1);
+    plain();
+    OA_CHECK(kept_pixels == plain_pixels);
+    // The rest of the frame moves; the ground is held on the card.
+    for (auto& vertex : std::span(vertices).subspan(6))
+        vertex.x += horizontal_translation;
+    OA_CHECK(kept(ground) == Result::success);
+    OA_CHECK(calls == 2);
+    plain();
+    OA_CHECK(kept_pixels == plain_pixels);
+    // Ground changed under the same revision is not uploaded: the card
+    // draws the ground it holds.
+    const auto held = kept_pixels;
+    for (auto& vertex : std::span(vertices).first(6))
+        vertex.u = 1;
+    OA_CHECK(kept(ground) == Result::success);
+    OA_CHECK(kept_pixels == held);
+    // A new revision uploads it.
+    OA_CHECK(kept(KeptGround{6, 8}) == Result::success);
+    plain();
+    OA_CHECK(kept_pixels == plain_pixels);
+    OA_CHECK(kept_pixels != held);
+    // Ground that is not kept is drawn with the frame; ground that is the
+    // whole frame is drawn alone.
+    OA_CHECK(kept(KeptGround{6, 0}) == Result::success);
+    OA_CHECK(kept_pixels == plain_pixels);
+    OA_CHECK(kept(KeptGround{9, 9}) == Result::success);
+    OA_CHECK(kept_pixels == plain_pixels);
+    OA_CHECK(calls == 6);
+    // The ground must be whole triangles within the frame.
+    OA_CHECK(kept(KeptGround{4, 10}) == Result::failed);
+    OA_CHECK(kept(KeptGround{12, 10}) == Result::failed);
+    OA_CHECK(kept_pixels.empty());
+    OA_CHECK(calls == 6);
+}
+
 /// Reuse a real device across frames and release it before the SDL video subsystem.
 int persistent_frames() {
     Scene scene;
@@ -370,6 +474,7 @@ int persistent_frames() {
     }
     OA_CHECK(scene.frame() == Result::success);
     atlas_row_updates();
+    kept_ground_frames();
     terrain_filtering();
     OA_CHECK(scene.pixels.size() == small_target * small_target * channels);
     OA_CHECK(scene.pixel(0, 0, small_target, full_channel, 0));
