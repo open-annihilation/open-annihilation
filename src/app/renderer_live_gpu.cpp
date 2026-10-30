@@ -210,7 +210,9 @@ Result render(
         return Result::failed;
     }
     if (atlas_update && (atlas_update->first_row > atlas_update->end_row ||
-                         atlas_update->end_row > texture_height)) {
+                         atlas_update->end_row > texture_height ||
+                         atlas_update->frame_first_row > atlas_update->frame_end_row ||
+                         atlas_update->frame_end_row > texture_height)) {
         error = "Invalid live GPU atlas update rows";
         return Result::failed;
     }
@@ -469,10 +471,29 @@ Result render(
     const bool atlas_changed = !state.atlas_uploaded || state.atlas_revision != atlas_revision;
     const bool partial_atlas = atlas_update && state.atlas_uploaded &&
                                state.atlas_revision == atlas_update->previous_revision;
-    const uint32_t first_row = partial_atlas ? atlas_update->first_row : 0;
-    const uint32_t end_row = partial_atlas ? atlas_update->end_row : texture_height;
+    uint32_t first_row = partial_atlas ? atlas_update->first_row : 0;
+    uint32_t end_row = partial_atlas ? atlas_update->end_row : texture_height;
+    // The frame's own rows, uploaded as a second region unless they touch
+    // the first or it is empty, when the two are taken as one.
+    uint32_t frame_first_row = 0;
+    uint32_t frame_end_row = 0;
+    if (partial_atlas && atlas_update->frame_first_row != atlas_update->frame_end_row) {
+        frame_first_row = atlas_update->frame_first_row;
+        frame_end_row = atlas_update->frame_end_row;
+        if (first_row == end_row || (frame_first_row <= end_row && first_row <= frame_end_row)) {
+            if (first_row != end_row) {
+                frame_first_row = std::min(frame_first_row, first_row);
+                frame_end_row = std::max(frame_end_row, end_row);
+            }
+            first_row = frame_first_row;
+            end_row = frame_end_row;
+            frame_first_row = frame_end_row = 0;
+        }
+    }
     const uint32_t upload_rows = atlas_changed ? end_row - first_row : 0;
-    const uint32_t atlas_upload_bytes = texture_width * upload_rows * channels;
+    const uint32_t frame_upload_rows = atlas_changed ? frame_end_row - frame_first_row : 0;
+    const uint32_t frame_upload_bytes = texture_width * frame_upload_rows * channels;
+    const uint32_t atlas_upload_bytes = texture_width * upload_rows * channels + frame_upload_bytes;
     const uint32_t upload_bytes = vertex_bytes + ground_bytes + atlas_upload_bytes;
     if (upload_bytes > state.upload_capacity) {
         if (resources.upload)
@@ -488,7 +509,7 @@ Result render(
         !resources.colour || !resources.depth || !resources.resolved)
         return fail("Create live GPU frame resources");
     // The upload holds the frame's vertices, then the kept ground when it
-    // has changed, then the atlas rows that have.
+    // has changed, then the atlas rows that have, then the frame's own rows.
     if (upload_bytes != 0) {
         auto* upload = static_cast<uint8_t*>(
             SDL_MapGPUTransferBuffer(resources.device, resources.upload, false)
@@ -499,11 +520,17 @@ Result render(
             std::memcpy(upload, frame_vertices.data(), vertex_bytes);
         if (ground_bytes != 0)
             std::memcpy(upload + vertex_bytes, vertices.data(), ground_bytes);
-        if (atlas_upload_bytes != 0)
+        if (atlas_upload_bytes != frame_upload_bytes)
             std::memcpy(
                 upload + vertex_bytes + ground_bytes,
                 texture_rgba.data() + size_t(first_row) * texture_width * channels,
-                atlas_upload_bytes
+                atlas_upload_bytes - frame_upload_bytes
+            );
+        if (frame_upload_bytes != 0)
+            std::memcpy(
+                upload + vertex_bytes + ground_bytes + atlas_upload_bytes - frame_upload_bytes,
+                texture_rgba.data() + size_t(frame_first_row) * texture_width * channels,
+                frame_upload_bytes
             );
         SDL_UnmapGPUTransferBuffer(resources.device, resources.upload);
     }
@@ -536,8 +563,19 @@ Result render(
     const SDL_GPUTextureRegion atlas_region{
         resources.atlas, 0, 0, 0, first_row, 0, texture_width, upload_rows, 1
     };
-    if (atlas_upload_bytes != 0)
+    if (atlas_upload_bytes != frame_upload_bytes)
         SDL_UploadToGPUTexture(copy, &texture_source, &atlas_region, false);
+    const SDL_GPUTextureTransferInfo frame_source{
+        resources.upload,
+        vertex_bytes + ground_bytes + atlas_upload_bytes - frame_upload_bytes,
+        texture_width,
+        frame_upload_rows
+    };
+    const SDL_GPUTextureRegion frame_region{
+        resources.atlas, 0, 0, 0, frame_first_row, 0, texture_width, frame_upload_rows, 1
+    };
+    if (frame_upload_bytes != 0)
+        SDL_UploadToGPUTexture(copy, &frame_source, &frame_region, false);
     SDL_EndGPUCopyPass(copy);
     SDL_GPUColorTargetInfo colour_target{};
     colour_target.texture = resources.colour;

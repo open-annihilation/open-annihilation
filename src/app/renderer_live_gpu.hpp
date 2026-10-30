@@ -76,6 +76,11 @@ struct AtlasUpdate {
     uint64_t previous_revision{};
     uint32_t first_row{};
     uint32_t end_row{};
+    /// A second range of changed rows, uploaded apart from the first so that
+    /// the rows between them are not: the rows the frame's own materials
+    /// take, at the atlas's foot. Empty when the two are equal.
+    uint32_t frame_first_row{};
+    uint32_t frame_end_row{};
 };
 
 /// The ground at the start of a frame's vertices that a scene keeps from
