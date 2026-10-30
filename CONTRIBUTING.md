@@ -338,5 +338,5 @@ your GitHub account, so that your commits are credited to you.
 ## Questions
 
 Ask in a GitHub issue on this repository, or on the Open Annihilation
-Discord server, <https://discord.gg/GWgWTQKuv>. Credits are in
+Discord server, <https://discord.gg/KyUExvCnQ>. Credits are in
 [CONTRIBUTORS.md](CONTRIBUTORS.md).

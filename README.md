@@ -6,7 +6,7 @@
   <a href="https://github.com/open-annihilation/open-annihilation/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/open-annihilation/open-annihilation?style=flat-square&label=release&color=c0392b"></a>
   <a href="https://github.com/open-annihilation/open-annihilation/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/open-annihilation/open-annihilation/total?style=flat-square&color=2c3e50"></a>
   <a href="LICENSE"><img alt="Licence: GPL v3" src="https://img.shields.io/badge/licence-GPL%20v3-2c3e50?style=flat-square"></a>
-  <a href="https://discord.gg/GWgWTQKuv"><img alt="Discord" src="https://img.shields.io/badge/Discord-join%20us-5865F2?style=flat-square&logo=discord&logoColor=white"></a>
+  <a href="https://discord.gg/KyUExvCnQ"><img alt="Discord" src="https://img.shields.io/badge/Discord-join%20us-5865F2?style=flat-square&logo=discord&logoColor=white"></a>
 </p>
 
 <p align="center">
@@ -36,6 +36,11 @@
 **Total Annihilation** on modern macOS, Windows and Linux, using the game
 data from your own copy of the original game. Support for
 **Total Annihilation: Kingdoms** is on the [roadmap](#roadmap).
+
+Website: [play.coreprime.net](https://play.coreprime.net/) ·
+Mods and maps: [mods.coreprime.net](https://mods.coreprime.net/) ·
+Make your own: [creators.coreprime.net](https://creators.coreprime.net/) ·
+Press kit: [press.coreprime.net](https://press.coreprime.net/)
 
 The main menu shows **Open Annihilation** and this build's version under
 the logo. A mod that names its own version text shows that instead, and
@@ -75,6 +80,9 @@ from your copy of Total Annihilation and starting the game:
   </tbody>
 </table>
 
+The same guides, with pictures and in six languages, are at
+[play.coreprime.net/install](https://play.coreprime.net/en/install/).
+
 ## How the project works
 
 These documents set out how the project is run and how changes are made:
@@ -105,6 +113,9 @@ Total Annihilation: Kingdoms:
   full support for both Total Annihilation and TA: Kingdoms game assets: a
   command-line tool for the games' file formats, and a browser-based studio
   with an asset explorer, map editor, unit viewer and live sandbox.
+- **[Core Prime Creators](https://creators.coreprime.net/)** is the file
+  format reference for Total Annihilation and TA: Kingdoms, rendered from
+  KBot's documentation, with the way into modding Open Annihilation.
 
 ## Roadmap
 
@@ -137,6 +148,10 @@ hacks it names, with no code for any particular mod. See
 profile format and every standard hack. Mods published to a registry are
 installed and updated from [the Library](docs/library.md), and map packs
 add maps the same way ([docs/maps/README.md](docs/maps/README.md)).
+Browse every package in the library at
+[mods.coreprime.net](https://mods.coreprime.net/en/), and read the
+packaging guide at
+[mods.coreprime.net/en/packaging](https://mods.coreprime.net/en/packaging/).
 
 ## Network games from the command line
 
@@ -423,7 +438,7 @@ engine and plays the demo from that folder.
 
 Join the Open Annihilation Discord server to follow development, report
 problems and talk about the game:
-**[discord.gg/GWgWTQKuv](https://discord.gg/GWgWTQKuv)**
+**[discord.gg/KyUExvCnQ](https://discord.gg/KyUExvCnQ)**
 
 Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 Credits are in [CONTRIBUTORS.md](CONTRIBUTORS.md).
