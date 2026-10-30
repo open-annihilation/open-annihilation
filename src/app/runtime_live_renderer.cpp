@@ -926,18 +926,22 @@ void Runtime::live_scene_visibility(
             renderer_live_camera::PreparedTriangle prepared;
             if (!renderer_live_camera::prepare_triangle(triangle, prepared))
                 continue;
+            constexpr float pixel_centre = 0.5F;
             for (int y = std::max(y0, band_top); y < std::min(y1, band_end); ++y) {
-                const int left_limit =
+                int left_limit =
                     bounded ? std::max(x0, static_cast<int>(std::min(row_left[y], width))) : x0;
-                const int right_limit =
+                int right_limit =
                     bounded ? std::min(x1, static_cast<int>(std::min(row_right[y], width))) : x1;
+                // Only the columns the triangle can cover on this row are tested.
+                renderer_live_camera::narrow_row(
+                    prepared, y + pixel_centre, pixel_centre, left_limit, right_limit
+                );
                 for (int x = left_limit; x < right_limit; ++x) {
                     const std::size_t pixel = static_cast<std::size_t>(y) * width + x;
                     if (!requested_pixels.empty() && requested_pixels[pixel] == 0)
                         continue;
                     std::array<float, 3> weights{};
                     float depth{};
-                    constexpr float pixel_centre = 0.5F;
                     if (!renderer_live_camera::triangle_hit_prepared(
                             prepared, x + pixel_centre, y + pixel_centre, weights, depth
                         ) ||

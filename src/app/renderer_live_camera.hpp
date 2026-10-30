@@ -63,6 +63,19 @@ struct PreparedTriangle {
     float& depth
 ) noexcept;
 
+/// Narrow a row's pixel columns to those whose centres a prepared triangle can hit.
+/// Every column in [first, last) whose centre triangle_hit_prepared accepts stays
+/// in the range, with at most a column more on either side; the range may come
+/// back empty. Columns keep their order, so a caller's results do not change.
+/// @param triangle coefficients returned by prepare_triangle
+/// @param screen_y the row's centre in pixels
+/// @param centre where a column's centre lies past its left edge, in pixels
+/// @param[in,out] first the row's first column, raised to the triangle's
+/// @param[in,out] last one past the row's last column, lowered to the triangle's
+void narrow_row(
+    const PreparedTriangle& triangle, float screen_y, float centre, int& first, int& last
+) noexcept;
+
 /// Intersect a screen point with a projected triangle and interpolate its depth.
 /// @param triangle three screen x, screen y, depth vertices
 /// @param screen_x pointer column in pixels

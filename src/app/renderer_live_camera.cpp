@@ -101,6 +101,60 @@ bool triangle_hit_prepared(
     return true;
 }
 
+void narrow_row(
+    const PreparedTriangle& triangle, float screen_y, float centre, int& first, int& last
+) noexcept {
+    if (!triangle.valid || !std::isfinite(screen_y) || !std::isfinite(centre) || first >= last)
+        return;
+    // Each weight's numerator along the row is slope * (x - origin_x) + offset,
+    // here with the determinant's sign taken out, and the weight is at least
+    // its tolerance where the numerator is at least -limit. The third weight
+    // is one less the other two. The limit is twice the hit's tolerance and
+    // each bound has half a column to spare: far more than the rounding of
+    // either test, so no column the hit accepts is left out.
+    const double sign = triangle.determinant < 0 ? -1.0 : 1.0;
+    const double size = std::abs(triangle.determinant);
+    const double row = double(screen_y) - triangle.origin_y;
+    const std::array<double, 3> slopes{
+        triangle.first_x * sign,
+        triangle.second_x * sign,
+        -(triangle.first_x + triangle.second_x) * sign
+    };
+    const std::array<double, 3> offsets{
+        triangle.first_y * row * sign,
+        triangle.second_y * row * sign,
+        size - (triangle.first_y + triangle.second_y) * row * sign
+    };
+    constexpr double limit_tolerance = 2e-6;
+    // A weight that changes by less than this share of the determinant a
+    // column leaves the row whole: its bound would rest on rounding.
+    constexpr double minimum_slope = 1e-9;
+    constexpr double spare = 0.5;
+    const double limit = size * limit_tolerance;
+    double low = -std::numeric_limits<double>::infinity();
+    double high = std::numeric_limits<double>::infinity();
+    for (std::size_t edge = 0; edge < slopes.size(); ++edge) {
+        if (std::abs(slopes[edge]) <= size * minimum_slope)
+            continue;
+        const double bound = (-limit - offsets[edge]) / slopes[edge];
+        if (!std::isfinite(bound))
+            continue;
+        if (slopes[edge] > 0)
+            low = std::max(low, bound - spare);
+        else
+            high = std::min(high, bound + spare);
+    }
+    // Back to columns: those whose centres lie within [low, high].
+    const double left = std::max(double(first), std::ceil(low + triangle.origin_x - centre));
+    const double right = std::min(double(last), std::floor(high + triangle.origin_x - centre) + 1);
+    if (!(left < right)) {
+        last = first;
+        return;
+    }
+    first = static_cast<int>(left);
+    last = static_cast<int>(right);
+}
+
 bool triangle_hit(
     const std::array<std::array<float, 3>, 3>& triangle,
     float screen_x,
