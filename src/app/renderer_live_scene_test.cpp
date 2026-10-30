@@ -2172,6 +2172,61 @@ void cached_unit_shadows() {
     OA_CHECK(fixture.scene.shadow_count == 0);
 }
 
+/// A unit's shadow is packed into the rows kept for the frame's own
+/// materials, at the atlas's foot, and only those rows are sent; a frame
+/// that casts the same shadow again finds it there and changes nothing,
+/// and a changed shadow leaves the rest of the atlas alone.
+void frame_rows_hold_unit_shadows() {
+    Fixture fixture;
+    oa::present::model::ModelState state{};
+    state.image = oa::present::create_sprite(8, 8);
+    state.image.sprite.key = 1;
+    std::fill(state.image.pixels.begin(), state.image.pixels.end(), 1);
+    state.image.pixels[0] = 0;
+    oa::Unit unit{};
+    constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+    unit.position = {3 * fixed, 0, 8 * fixed};
+    oa::UnitDef definition{};
+    fixture.draws.models.resize(1);
+    auto& draw = fixture.draws.models[0];
+    draw.model.unit = &unit;
+    draw.model.state = &state;
+    draw.model.def = &definition;
+    draw.plan.linked.drawn = true;
+    draw.plan.model.from_image = true;
+    fixture.inputs.graphics_flags =
+        oa::present::model::graphics_shadows | oa::present::model::graphics_vehicle_shadows;
+    auto& scene = fixture.scene;
+    scene.texture_width = scene.texture_height = 4096;
+    scene.frame_rows = 64;
+    const uint32_t first_frame_row = scene.texture_height - scene.frame_rows;
+    OA_CHECK(live::build(fixture.inputs, scene, fixture.error));
+    OA_CHECK(scene.shadow_count == 1);
+    OA_CHECK(scene.frame_materials.size() == 1);
+    OA_CHECK(scene.frame_materials.begin()->second.y == first_frame_row);
+    OA_CHECK(scene.atlas_update.frame_first_row == first_frame_row);
+    OA_CHECK(scene.atlas_update.frame_end_row == first_frame_row + 8);
+    OA_CHECK(scene.atlas_update.end_row <= first_frame_row);
+    const auto& corner = scene.vertices.at(scene.terrain_vertex_count);
+    OA_CHECK(std::lround(corner.v * scene.texture_height) >= first_frame_row);
+    const auto revision = scene.texture_revision;
+    const auto materials = scene.materials.size();
+    OA_CHECK(live::build(fixture.inputs, scene, fixture.error));
+    OA_CHECK(scene.texture_revision == revision);
+    OA_CHECK(scene.atlas_update.frame_first_row == scene.atlas_update.frame_end_row);
+    state.image.pixels[1] = 0;
+    OA_CHECK(live::build(fixture.inputs, scene, fixture.error));
+    OA_CHECK(scene.texture_revision > revision);
+    OA_CHECK(scene.materials.size() == materials);
+    OA_CHECK(scene.atlas_update.frame_first_row == first_frame_row);
+    OA_CHECK(scene.atlas_update.first_row == scene.atlas_update.end_row);
+    // The shadow's first row: its first two pixels covered now, the third clear.
+    const auto offset = static_cast<std::size_t>(first_frame_row) * scene.texture_width * 4;
+    OA_CHECK(scene.texture_rgba.at(offset + 3) == 255);
+    OA_CHECK(scene.texture_rgba.at(offset + 7) == 255);
+    OA_CHECK(scene.texture_rgba.at(offset + 11) == 0);
+}
+
 /// Aircraft shadows keep their silhouette at full alpha at every altitude,
 /// soften only their edge, a pixel more high up, and receive on water at
 /// the vehicles' own shadow opacity.
@@ -2978,6 +3033,7 @@ int main() {
     foundation_candidates();
     structure_base_above_ground();
     cached_unit_shadows();
+    frame_rows_hold_unit_shadows();
     aircraft_shadow_altitude();
     aircraft_shadow_as_the_game_casts_it();
     flash_masks_and_effect_altitude();

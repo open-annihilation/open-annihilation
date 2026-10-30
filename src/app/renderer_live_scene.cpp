@@ -367,10 +367,85 @@ uint64_t palette_digest(const Scene& scene, const PaletteBytes& palette) {
     return mix_bytes(hash_start, palette);
 }
 
-/// Packs palette pixels with coverage and fog, sharing identical materials.
-/// A black material (Fog::black, no light mask) is black whatever the
-/// palette: it is shared by every material of its size whose texels are
-/// covered alike, keyed on its coverage alone where it has one.
+/// @return the rows of the atlas the materials kept from frame to frame
+///     may take: all but the frame's own (Scene::frame_rows)
+uint32_t kept_rows(const Scene& scene) {
+    return scene.texture_height - std::min(scene.frame_rows, scene.texture_height);
+}
+
+/// Writes a black material's texels: black, and opaque where covered or
+/// as much as the coverage says.
+///
+/// @param[in,out] scene the atlas
+/// @param rect where the material goes
+/// @param pixels its palette indices, read where it has no coverage
+/// @param coverage each texel's coverage, zero where clear, or none
+/// @param transparent the index of a clear pixel where it has no coverage
+/// @param alpha_coverage the coverage is each texel's alpha
+void write_black(
+    Scene& scene,
+    const AtlasRect& rect,
+    std::span<const uint8_t> pixels,
+    std::span<const uint8_t> coverage,
+    int32_t transparent,
+    bool alpha_coverage
+) {
+    for (uint32_t y = 0; y < rect.height; ++y) {
+        auto* row =
+            scene.texture_rgba.data() +
+            (static_cast<std::size_t>(rect.y + y) * scene.texture_width + rect.x) * channels;
+        for (uint32_t x = 0; x < rect.width; ++x) {
+            const auto source = static_cast<std::size_t>(y) * rect.width + x;
+            const bool covered =
+                coverage.empty() ? pixels[source] != transparent : coverage[source] != 0;
+            row[x * channels] = row[x * channels + 1] = row[x * channels + 2] = 0;
+            row[x * channels + 3] = static_cast<uint8_t>(
+                alpha_coverage && !coverage.empty() ? coverage[source] : (covered ? 255 : 0)
+            );
+        }
+    }
+}
+
+/// The digest material() looks a material up by. A black material
+/// (Fog::black, no light mask) is black whatever the palette: it is shared
+/// by every material of its size whose texels are covered alike, keyed on
+/// its coverage alone where it has one.
+uint64_t material_digest(
+    const Scene& scene,
+    const PaletteBytes& palette,
+    uint32_t width,
+    uint32_t height,
+    std::span<const uint8_t> pixels,
+    std::span<const uint8_t> coverage,
+    int32_t transparent,
+    Fog fog,
+    bool light_mask,
+    FlashStrength flash_strength,
+    bool alpha_coverage
+) {
+    const std::size_t count = static_cast<std::size_t>(width) * height;
+    const bool black = fog == Fog::black && !light_mask;
+    uint64_t digest = hash_start;
+    digest = mix_word(digest, width);
+    digest = mix_word(digest, height);
+    digest = mix_word(digest, static_cast<uint64_t>(fog));
+    digest = mix_word(digest, light_mask);
+    digest = mix_word(digest, alpha_coverage);
+    if (light_mask)
+        digest = mix_word(digest, static_cast<uint64_t>(flash_strength));
+    if (!black || coverage.empty()) {
+        digest = mix_word(digest, static_cast<uint64_t>(transparent + 1));
+        digest = mix_bytes(digest, pixels.first(count));
+    }
+    digest = mix_bytes(digest, coverage);
+    // A palette change must invalidate the cached material colours too.
+    if (!black)
+        digest = mix_word(digest, palette_digest(scene, palette));
+    return digest;
+}
+
+/// Packs palette pixels with coverage and fog, sharing identical materials
+/// (material_digest).
 AtlasRect material(
     Scene& scene,
     const PaletteBytes& palette,
@@ -391,22 +466,19 @@ AtlasRect material(
     const bool black = fog == Fog::black && !light_mask;
     if (!coverage.empty())
         coverage = coverage.first(count);
-    uint64_t digest = hash_start;
-    digest = mix_word(digest, width);
-    digest = mix_word(digest, height);
-    digest = mix_word(digest, static_cast<uint64_t>(fog));
-    digest = mix_word(digest, light_mask);
-    digest = mix_word(digest, alpha_coverage);
-    if (light_mask)
-        digest = mix_word(digest, static_cast<uint64_t>(flash_strength));
-    if (!black || coverage.empty()) {
-        digest = mix_word(digest, static_cast<uint64_t>(transparent + 1));
-        digest = mix_bytes(digest, pixels.first(count));
-    }
-    digest = mix_bytes(digest, coverage);
-    // A palette change must invalidate the cached material colours too.
-    if (!black)
-        digest = mix_word(digest, palette_digest(scene, palette));
+    const uint64_t digest = material_digest(
+        scene,
+        palette,
+        width,
+        height,
+        pixels,
+        coverage,
+        transparent,
+        fog,
+        light_mask,
+        flash_strength,
+        alpha_coverage
+    );
     if (const auto found = scene.materials.find(digest); found != scene.materials.end())
         return found->second;
     if (width > scene.texture_width || height > scene.texture_height)
@@ -416,24 +488,11 @@ AtlasRect material(
         scene.next_y += scene.row_height;
         scene.row_height = 0;
     }
-    if (scene.next_y + height > scene.texture_height)
+    if (scene.next_y + height > kept_rows(scene))
         throw AtlasFull();
     const AtlasRect rect{scene.next_x, scene.next_y, width, height};
-    for (uint32_t y = 0; y < height && black; ++y) {
-        // Black texels, each covered or clear: only their alpha differs.
-        auto* row =
-            scene.texture_rgba.data() +
-            (static_cast<std::size_t>(rect.y + y) * scene.texture_width + rect.x) * channels;
-        for (uint32_t x = 0; x < width; ++x) {
-            const auto source = static_cast<std::size_t>(y) * width + x;
-            const bool covered =
-                coverage.empty() ? pixels[source] != transparent : coverage[source] != 0;
-            row[x * channels] = row[x * channels + 1] = row[x * channels + 2] = 0;
-            row[x * channels + 3] = static_cast<uint8_t>(
-                alpha_coverage && !coverage.empty() ? coverage[source] : (covered ? 255 : 0)
-            );
-        }
-    }
+    if (black)
+        write_black(scene, rect, pixels, coverage, transparent, alpha_coverage);
     for (uint32_t y = 0; y < height && !black; ++y) {
         for (uint32_t x = 0; x < width; ++x) {
             const auto source = static_cast<std::size_t>(y) * width + x;
@@ -481,6 +540,95 @@ AtlasRect material(
     ++scene.texture_revision;
     scene.atlas_update.first_row = std::min(scene.atlas_update.first_row, rect.y);
     scene.atlas_update.end_row = std::max(scene.atlas_update.end_row, rect.y + height);
+    return rect;
+}
+
+/// Packs a black material that changes from frame to frame, the shadow a
+/// unit casts from its picture, into the rows kept for the frame's own
+/// materials (Scene::frame_rows); with the other materials when those rows
+/// are full or there are none.
+///
+/// @param[in,out] scene the atlas
+/// @param palette the frame's palette, for a material packed with the others
+/// @param width the material's width
+/// @param height its height
+/// @param coverage each texel's coverage, zero where clear
+/// @param alpha_coverage the coverage is each texel's alpha; otherwise a
+///     covered texel is opaque
+/// @return the material's rectangle, good for this frame
+AtlasRect frame_material(
+    Scene& scene,
+    const PaletteBytes& palette,
+    uint32_t width,
+    uint32_t height,
+    std::span<const uint8_t> coverage,
+    bool alpha_coverage
+) {
+    const std::size_t count = static_cast<std::size_t>(width) * height;
+    if (width == 0 || height == 0 || coverage.size() < count)
+        throw std::runtime_error("experimental scene received an invalid material");
+    coverage = coverage.first(count);
+    const uint64_t digest = material_digest(
+        scene,
+        palette,
+        width,
+        height,
+        coverage,
+        coverage,
+        -1,
+        Fog::black,
+        false,
+        FlashStrength::full,
+        alpha_coverage
+    );
+    if (const auto found = scene.frame_materials.find(digest); found != scene.frame_materials.end())
+        return found->second;
+    scene.frame_material_area += uint64_t{width} * height;
+    uint32_t x = scene.frame_next_x;
+    uint32_t y = scene.frame_next_y;
+    uint32_t row_height = scene.frame_row_height;
+    if (x + width > scene.texture_width) {
+        x = 0;
+        y += row_height;
+        row_height = 0;
+    }
+    if (width > scene.texture_width || y + height > scene.frame_rows ||
+        scene.frame_rows >= scene.texture_height) {
+        // Measured with the frame's own materials, not twice.
+        const uint64_t packed = scene.packed_material_area;
+        const auto rect = material(
+            scene,
+            palette,
+            width,
+            height,
+            coverage,
+            coverage,
+            -1,
+            Fog::black,
+            false,
+            FlashStrength::full,
+            alpha_coverage
+        );
+        scene.packed_material_area = packed;
+        return rect;
+    }
+    scene.frame_next_x = x + width;
+    scene.frame_next_y = y;
+    scene.frame_row_height = std::max(row_height, height);
+    const AtlasRect rect{x, kept_rows(scene) + y, width, height};
+    scene.frame_materials.emplace(digest, rect);
+    // Each material's place follows from the sizes of those packed before
+    // it this frame, all of them in its digest: one packed in the same
+    // place by an earlier frame, after the same ones, is still there.
+    const std::size_t index = scene.frame_packed++;
+    if (index < scene.frame_order.size() && scene.frame_order[index] == digest)
+        return rect;
+    scene.frame_order.resize(index);
+    scene.frame_order.push_back(digest);
+    write_black(scene, rect, coverage, coverage, -1, alpha_coverage);
+    ++scene.texture_revision;
+    scene.atlas_update.frame_first_row = std::min(scene.atlas_update.frame_first_row, rect.y);
+    scene.atlas_update.frame_end_row = std::max(scene.atlas_update.frame_end_row, rect.y + height);
     return rect;
 }
 
@@ -547,7 +695,7 @@ AtlasRect terrain_square(Scene& scene, uint32_t edge) {
             scene.next_y += scene.row_height;
             scene.row_height = 0;
         }
-        if (scene.next_y + full_terrain_square > scene.texture_height)
+        if (scene.next_y + full_terrain_square > kept_rows(scene))
             throw AtlasFull();
         const AtlasRect rect{scene.next_x, scene.next_y, full_terrain_square, full_terrain_square};
         scene.next_x += full_terrain_square;
@@ -1742,22 +1890,8 @@ void unit_shadows(const Inputs& in, Scene& scene) {
                     renderer_aircraft_shadow::soften(coverage, image.width, image.height, radius);
                 const uint32_t width = image.width + radius * 4;
                 const uint32_t height = image.height + radius * 4;
-                std::vector<uint8_t> black(alpha.size());
-                const auto rectangle = material(
-                    scene,
-                    *in.palette,
-                    width,
-                    height,
-                    black,
-                    alpha,
-                    -1,
-                    Fog::black,
-                    false,
-                    FlashStrength::full,
-                    true
-                );
-                if (scene.aircraft_shadow_materials.size() >= 256)
-                    scene.aircraft_shadow_materials.clear();
+                const auto rectangle =
+                    frame_material(scene, *in.palette, width, height, alpha, true);
                 cached = scene.aircraft_shadow_materials.emplace(key, rectangle).first;
             }
             const float padding = static_cast<float>(radius) * 2.0F;
@@ -1767,9 +1901,8 @@ void unit_shadows(const Inputs& in, Scene& scene) {
                 position.z / fixed_scale - receiver * height_lift - (image.origin_y + padding);
             decal(in, scene, cached->second, left, top, opacity, true, nullptr, 1, true, true);
         } else {
-            const auto rect = material(
-                scene, *in.palette, image.width, image.height, pixels, coverage, -1, Fog::black
-            );
+            const auto rect =
+                frame_material(scene, *in.palette, image.width, image.height, coverage, false);
             decal(in, scene, rect, shadow_x, shadow_y, opacity, true);
         }
         ++scene.shadow_count;
@@ -3816,7 +3949,7 @@ void water_surface(const Inputs& in, Scene& scene) {
 } // namespace
 
 bool build(const Inputs& inputs, Scene& scene, std::string& error) {
-    scene.atlas_update = {scene.texture_revision, scene.texture_height, 0};
+    scene.atlas_update = {scene.texture_revision, scene.texture_height, 0, scene.texture_height, 0};
     scene.out_of_room = false;
     scene.frame_palette = nullptr;
     try {
@@ -3878,6 +4011,13 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             scene.particle_count = 0;
             scene.nano_particle_count = 0;
             scene.packed_material_area = 0;
+            scene.frame_next_x = 0;
+            scene.frame_next_y = 0;
+            scene.frame_row_height = 0;
+            scene.frame_materials.clear();
+            scene.frame_packed = 0;
+            scene.frame_material_area = 0;
+            scene.aircraft_shadow_materials.clear();
             scene.texture_rgba.resize(
                 static_cast<std::size_t>(scene.texture_width) * scene.texture_height * channels
             );
@@ -3910,7 +4050,8 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 // Every other material this frame draws was packed into the
                 // emptied atlas, so their area is what they need.
                 if (emptied)
-                    scene.material_area = scene.packed_material_area;
+                    scene.material_area = scene.packed_material_area + scene.frame_material_area;
+                scene.last_frame_material_area = scene.frame_material_area;
                 break;
             } catch (const GeometryFull&) {
                 // Fewer height samples help only where the ground takes
@@ -3924,6 +4065,21 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             } catch (const AtlasFull&) {
                 if (++attempt == attempts)
                     throw;
+                // The rows kept for the frame's own materials hold half as
+                // much again as a frame packs, as the terrain leaves the
+                // other materials room.
+                const uint64_t frame_need =
+                    std::max(scene.last_frame_material_area, scene.frame_material_area);
+                constexpr uint32_t frame_row_step = 16;
+                const auto frame_rows = std::min(
+                    maximum_atlas_edge / 2,
+                    static_cast<uint32_t>(
+                        (frame_need / 2 * 3 + uint64_t{maximum_atlas_edge} * frame_row_step - 1) /
+                        (uint64_t{maximum_atlas_edge} * frame_row_step)
+                    ) * frame_row_step
+                );
+                scene.frame_rows = frame_rows;
+                scene.frame_order.clear();
                 // An emptied atlas at its largest could not hold the plan.
                 if (emptied && scene.texture_width == maximum_atlas_edge &&
                     scene.texture_height == maximum_atlas_edge) {
@@ -3952,6 +4108,10 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         if (scene.atlas_update.first_row > scene.atlas_update.end_row) {
             scene.atlas_update.first_row = 0;
             scene.atlas_update.end_row = 0;
+        }
+        if (scene.atlas_update.frame_first_row > scene.atlas_update.frame_end_row) {
+            scene.atlas_update.frame_first_row = 0;
+            scene.atlas_update.frame_end_row = 0;
         }
         scene.frame_palette = nullptr;
         error.clear();

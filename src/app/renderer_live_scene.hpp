@@ -101,17 +101,37 @@ struct Scene {
     uint32_t next_x{};
     uint32_t next_y{};
     uint32_t row_height{};
+    /// Rows at the atlas's foot kept for the materials that change from
+    /// frame to frame, the shadows units cast from their pictures: packed
+    /// afresh each frame, they never fill the rows the ground and the other
+    /// materials keep. None until the atlas is first emptied at its
+    /// largest, which sizes them for the frame's own materials.
+    uint32_t frame_rows{};
+    uint32_t frame_next_x{};
+    uint32_t frame_next_y{}; ///< counted from the first of frame_rows
+    uint32_t frame_row_height{};
+    /// The frame's own materials packed into frame_rows this frame.
+    std::unordered_map<uint64_t, AtlasRect> frame_materials{};
+    /// The digests of the materials frame_rows hold, in the order they were
+    /// packed: a frame that packs the same ones in the same order finds
+    /// each where it is and writes none of them again.
+    std::vector<uint64_t> frame_order{};
+    std::size_t frame_packed{}; ///< frame_rows' materials packed this frame
+    /// The area of the frame's own materials: this frame's so far, and the
+    /// last whole frame's, which frame_rows are sized for.
+    uint64_t frame_material_area{};
+    uint64_t last_frame_material_area{};
     std::unordered_map<uint64_t, AtlasRect> materials{};
     std::unordered_map<uint64_t, TerrainMaterial> terrain_materials{};
     /// Unused quarters of the atlas squares split for smaller terrain
     /// materials: the 32, 16 and 8 texel squares, in that order.
     std::array<std::vector<AtlasRect>, 3> spare_terrain_squares{};
-    /// The atlas area of the materials other than terrain, all packed into an
-    /// emptied atlas by the last frame that started from one; the terrain
-    /// leaves them this much room and more.
+    /// The atlas area of the materials other than terrain, the frame's own
+    /// among them, all packed by the last frame that started from an
+    /// emptied atlas; the terrain leaves them this much room and more.
     uint64_t material_area{};
     /// The area the frame being built has packed for materials other than
-    /// terrain.
+    /// terrain and its own (frame_material_area).
     uint64_t packed_material_area{};
     /// The most squares of ground a frame draws before it draws them from
     /// fewer height samples: lowered when a frame's triangles do not fit.
@@ -121,7 +141,7 @@ struct Scene {
     /// budget. Any other failure leaves it false.
     bool out_of_room{};
     std::unordered_map<uint64_t, AtlasRect>
-        aircraft_shadow_materials{}; ///< bounded blurred silhouettes
+        aircraft_shadow_materials{}; ///< the frame's blurred silhouettes
     /// The palette of the frame being built and the digest of its bytes,
     /// taken once a frame for every material drawn in it; null outside a
     /// build.
