@@ -430,38 +430,6 @@ struct GroundPoint {
     float brightness{1};
 };
 
-/// Clips a terrain triangle against a sprite edge without changing its plane.
-std::vector<GroundPoint>
-clip_ground(std::span<const GroundPoint> source, bool horizontal, float edge, bool greater) {
-    std::vector<GroundPoint> result;
-    if (source.empty())
-        return result;
-    const auto coordinate = [horizontal](const GroundPoint& p) { return horizontal ? p.x : p.y; };
-    auto previous = source.back();
-    bool previous_inside = greater ? coordinate(previous) >= edge : coordinate(previous) <= edge;
-    for (const auto& current : source) {
-        const bool inside = greater ? coordinate(current) >= edge : coordinate(current) <= edge;
-        if (inside != previous_inside) {
-            const float fraction =
-                (edge - coordinate(previous)) / (coordinate(current) - coordinate(previous));
-            result.push_back(
-                {std::lerp(previous.x, current.x, fraction),
-                 std::lerp(previous.y, current.y, fraction),
-                 std::lerp(previous.height, current.height, fraction),
-                 std::lerp(previous.brightness, current.brightness, fraction)}
-            );
-            // Interpolation can round just outside the clipping plane. Keep
-            // its known coordinate exact so atlas UVs remain inside the tile.
-            (horizontal ? result.back().x : result.back().y) = edge;
-        }
-        if (inside)
-            result.push_back(current);
-        previous = current;
-        previous_inside = inside;
-    }
-    return result;
-}
-
 /// Keep triangle/rectangle intersections on the stack; at most seven corners survive.
 struct GroundPolygon {
     std::array<GroundPoint, 8> points{};
@@ -3327,30 +3295,34 @@ float surface_effect_lift(
         return 0;
     float lift{};
     const auto test = [&](std::size_t first) {
-        std::array<GroundPoint, 3> local{};
-        for (std::size_t corner = 0; corner < local.size(); ++corner) {
+        GroundPolygon local{};
+        local.count = 3;
+        for (std::size_t corner = 0; corner < local.count; ++corner) {
             const auto& vertex = scene.vertices[first + corner];
             const float dx = vertex.x - x;
             const float dz = vertex.z - z;
-            local[corner] = {
+            local.points[corner] = {
                 (dx * up[2] - dz * up[0]) / determinant,
                 (right[0] * dz - right[2] * dx) / determinant,
                 vertex.height
             };
         }
-        if (std::max({local[0].x, local[1].x, local[2].x}) < min_across ||
-            std::min({local[0].x, local[1].x, local[2].x}) > max_across ||
-            std::max({local[0].y, local[1].y, local[2].y}) < min_above ||
-            std::min({local[0].y, local[1].y, local[2].y}) > max_above)
+        const auto& points = local.points;
+        if (std::max({points[0].x, points[1].x, points[2].x}) < min_across ||
+            std::min({points[0].x, points[1].x, points[2].x}) > max_across ||
+            std::max({points[0].y, points[1].y, points[2].y}) < min_above ||
+            std::min({points[0].y, points[1].y, points[2].y}) > max_above)
             return;
-        auto clipped = clip_ground(local, true, min_across, true);
-        clipped = clip_ground(clipped, true, max_across, false);
-        clipped = clip_ground(clipped, false, min_above, true);
-        clipped = clip_ground(clipped, false, max_above, false);
+        auto clipped = clip_ground_fixed(local, true, min_across, true);
+        clipped = clip_ground_fixed(clipped, true, max_across, false);
+        clipped = clip_ground_fixed(clipped, false, min_above, true);
+        clipped = clip_ground_fixed(clipped, false, max_above, false);
         // Both surfaces are planar over each clipped polygon, so its corners
         // include the greatest clearance needed, even for an interior crest.
-        for (const auto& point : clipped)
+        for (std::size_t corner = 0; corner < clipped.count; ++corner) {
+            const auto& point = clipped.points[corner];
             lift = std::max(lift, point.height + clearance - (height + up[1] * point.y));
+        }
     };
     if (!indices.card) {
         for (std::size_t first = 0; first + 2 < scene.terrain_vertex_count; first += 3)
