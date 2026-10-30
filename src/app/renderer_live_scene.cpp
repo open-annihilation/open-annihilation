@@ -1910,11 +1910,23 @@ void unit_shadows(const Inputs& in, Scene& scene) {
 }
 
 /// Splits ground geometry at a world map coordinate, retaining its material and fog.
-std::vector<Vertex>
-clip_foundation(std::span<const Vertex> source, bool horizontal, float edge, bool greater) {
-    std::vector<Vertex> result;
+///
+/// @param source a convex piece of ground
+/// @param horizontal split at a map column, rather than a world row
+/// @param edge the column or row
+/// @param greater keep the side at or past the edge, rather than before it
+/// @param[out] result the piece's side of the edge, emptied first, and left
+///     empty when it has no area; its storage is reused
+void clip_foundation(
+    std::span<const Vertex> source,
+    bool horizontal,
+    float edge,
+    bool greater,
+    std::vector<Vertex>& result
+) {
+    result.clear();
     if (source.empty())
-        return result;
+        return;
     const auto coordinate = [horizontal](const Vertex& vertex) {
         return horizontal ? vertex.x : vertex.z;
     };
@@ -1956,7 +1968,6 @@ clip_foundation(std::span<const Vertex> source, bool horizontal, float edge, boo
     }
     if (std::abs(area) < 0.000001)
         result.clear();
-    return result;
 }
 
 /// How far below a structure's height, in map pixels, the ground under it
@@ -2180,6 +2191,18 @@ void foundations(const Inputs& in, Scene& scene) {
     }
     const auto& previous = scene.foundation_vertices;
     bool ground_cut{};
+    // The pieces of the triangle being cut, and those of its next split:
+    // each piece's storage is kept from split to split and from triangle to
+    // triangle, so that cutting allocates almost nothing.
+    std::vector<std::vector<Vertex>> pieces;
+    std::vector<std::vector<Vertex>> split;
+    std::size_t piece_count{};
+    std::size_t split_count{};
+    const auto next_split = [&split, &split_count]() -> std::vector<Vertex>& {
+        if (split_count == split.size())
+            split.emplace_back();
+        return split[split_count++];
+    };
     std::size_t pending_begin{};
     // Most geometry lies outside foundations. Copy each untouched run once,
     // retaining the precise terrain/decal boundary even when the run crosses it.
@@ -2209,7 +2232,7 @@ void foundations(const Inputs& in, Scene& scene) {
             min_y >= plot_bottom) {
             continue;
         }
-        std::vector<std::vector<Vertex>> pieces;
+        piece_count = 0;
         bool affected{};
         for (const auto plot_index : nearby(min_x, max_x, min_y, max_y)) {
             const auto& [left, right, top, bottom, height] = plots[plot_index];
@@ -2217,14 +2240,19 @@ void foundations(const Inputs& in, Scene& scene) {
                 max_y <= top - blend_width || min_y >= bottom + blend_width)
                 continue;
             affected = true;
-            if (pieces.empty())
-                pieces.emplace_back(triangle.begin(), triangle.end());
+            if (piece_count == 0) {
+                if (pieces.empty())
+                    pieces.emplace_back();
+                pieces.front().assign(triangle.begin(), triangle.end());
+                piece_count = 1;
+            }
             for (const bool horizontal : {true, false}) {
                 const float low = horizontal ? left : top;
                 const float high = horizontal ? right : bottom;
                 for (const float edge : {low - blend_width, low, high, high + blend_width}) {
-                    std::vector<std::vector<Vertex>> split;
-                    for (auto& piece : pieces) {
+                    split_count = 0;
+                    for (std::size_t index = 0; index < piece_count; ++index) {
+                        auto& piece = pieces[index];
                         float minimum = std::numeric_limits<float>::infinity();
                         float maximum = -minimum;
                         double area{};
@@ -2240,17 +2268,18 @@ void foundations(const Inputs& in, Scene& scene) {
                             // Neither half needs new vertices. Keep the same area
                             // rejection as clipping, including degenerate borders.
                             if (std::abs(area) >= 0.000001)
-                                split.push_back(std::move(piece));
+                                std::swap(next_split(), piece);
                             continue;
                         }
-                        auto before = clip_foundation(piece, horizontal, edge, false);
-                        auto after = clip_foundation(piece, horizontal, edge, true);
-                        if (before.size() >= 3)
-                            split.push_back(std::move(before));
-                        if (after.size() >= 3)
-                            split.push_back(std::move(after));
+                        for (const bool greater : {false, true}) {
+                            auto& side = next_split();
+                            clip_foundation(piece, horizontal, edge, greater, side);
+                            if (side.size() < 3)
+                                --split_count;
+                        }
                     }
-                    pieces = std::move(split);
+                    std::swap(pieces, split);
+                    piece_count = split_count;
                 }
             }
         }
@@ -2259,11 +2288,11 @@ void foundations(const Inputs& in, Scene& scene) {
         ground_cut |= first < terrain_end;
         copy_pending(first);
         const auto output_begin = scene.vertices.size();
-        if (pieces.empty())
+        if (piece_count == 0)
             polygon(scene, triangle);
         else
-            for (const auto& piece : pieces)
-                polygon(scene, piece);
+            for (std::size_t index = 0; index < piece_count; ++index)
+                polygon(scene, pieces[index]);
         if (affected) {
             if (!affected_ranges.empty() && affected_ranges.back()[1] == output_begin)
                 affected_ranges.back()[1] = scene.vertices.size();
