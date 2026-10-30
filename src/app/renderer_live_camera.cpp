@@ -72,35 +72,6 @@ bool prepare_triangle(
     return true;
 }
 
-bool triangle_hit_prepared(
-    const PreparedTriangle& triangle,
-    float screen_x,
-    float screen_y,
-    std::array<float, 3>& weights,
-    float& depth
-) noexcept {
-    if (!triangle.valid || !std::isfinite(screen_x) || !std::isfinite(screen_y))
-        return false;
-    const double first = (triangle.first_x * (double(screen_x) - triangle.origin_x) +
-                          triangle.first_y * (double(screen_y) - triangle.origin_y)) /
-                         triangle.determinant;
-    const double second = (triangle.second_x * (double(screen_x) - triangle.origin_x) +
-                           triangle.second_y * (double(screen_y) - triangle.origin_y)) /
-                          triangle.determinant;
-    const double third = 1 - first - second;
-    constexpr double edge_tolerance = 1e-6;
-    if (first < -edge_tolerance || second < -edge_tolerance || third < -edge_tolerance)
-        return false;
-    const float hit_depth = static_cast<float>(
-        first * triangle.depths[0] + second * triangle.depths[1] + third * triangle.depths[2]
-    );
-    if (!std::isfinite(hit_depth))
-        return false;
-    weights = {static_cast<float>(first), static_cast<float>(second), static_cast<float>(third)};
-    depth = hit_depth;
-    return true;
-}
-
 bool triangle_hit(
     const std::array<std::array<float, 3>, 3>& triangle,
     float screen_x,

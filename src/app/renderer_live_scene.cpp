@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "renderer_live_scene.hpp"
+#include "renderer_live_camera.hpp"
 #include "renderer_effect_sources.hpp"
 #include "renderer_aircraft_shadow.hpp"
 #include "renderer_water_appearance.hpp"
@@ -15,6 +16,7 @@
 #include <algorithm>
 #include <bit>
 #include <array>
+#include <atomic>
 #include <exception>
 #include <cstring>
 #include <limits>
@@ -35,7 +37,12 @@ constexpr float height_lift = 0.5F;
 /// Ceiling of the greatest TNT height projected into painted map rows.
 constexpr int32_t maximum_terrain_row_shift = 128;
 constexpr uint64_t hash_start = 14695981039346656037ULL;
-constexpr uint64_t hash_multiplier = 1099511628211ULL;
+/// The multipliers and addend of the digest's rounds, odd numbers with
+/// their bits well spread (those of XXH64).
+constexpr uint64_t digest_prime_1 = 0x9E3779B185EBCA87ULL;
+constexpr uint64_t digest_prime_2 = 0xC2B2AE3D27D4EB4FULL;
+constexpr uint64_t digest_prime_4 = 0x85EBCA77C2B2AE63ULL;
+constexpr uint64_t digest_prime_5 = 0x27D4EB2F165667C5ULL;
 constexpr std::size_t maximum_vertices = renderer_live_gpu::largest_vertex_count;
 constexpr uint32_t maximum_atlas_edge = 4096;
 /// A terrain material's square in the atlas at full detail: the tile's 32
@@ -45,13 +52,23 @@ constexpr uint32_t full_terrain_square = 2 * tile_edge;
 /// The smallest square a frame packs a terrain tile into when its terrain
 /// needs more room than the atlas has: the tile at 4 by 4 pixels.
 constexpr uint32_t smallest_terrain_square = 8;
+/// The bits of all four quarters of a split terrain square
+/// (Scene::split_terrain_squares): the quarter at its corner's is the
+/// lowest, then the one beside it, then the two under them.
+constexpr uint8_t all_quarters = 0b1111;
 /// The room the terrain leaves the other materials at least, and in
 /// proportion to what they took when last measured: they are packed after
 /// it, and a battle brings more into view.
 constexpr uint64_t least_material_room = uint64_t{maximum_atlas_edge} * maximum_atlas_edge / 16;
+/// The rows kept for the frame's own materials (Scene::frame_rows) are a
+/// whole number of these.
+constexpr uint32_t frame_row_step = 16;
 /// The most height cells a side of a square of ground drawn as one, far
 /// out over a large map.
 constexpr int32_t coarsest_terrain_step = 8;
+/// The frames a camera that has moved stands still for before it counts as
+/// settled (Inputs::tiles_hold_while_moving): a pause in a drag is no stop.
+constexpr uint32_t camera_settle_frames = 10;
 
 /// A frame that needs more room than the renderer has: a camera that drew
 /// can still draw.
@@ -101,28 +118,67 @@ Fog fog_at(const full::SightView& sight, int32_t x, int32_t z) {
     return present::world_renderer::view_greys(options) && !visible ? Fog::grey : Fog::seen;
 }
 
-/// Interpolates fog inside known ground and fades to black before unknown cells.
-float brightness_at(const full::SightView& sight, float x, float y, float unseen = -1) {
+/// What the fog shows of each sight cell, as fog_at reads it, held for a
+/// frame's ground: every point of it reads a dozen cells.
+struct FogCells {
+    std::span<const uint8_t> cells{}; ///< a Fog for each sight cell, row by row
+    int32_t width{};                  ///< cells across
+    int32_t height{};                 ///< cells down
+    bool mapping{};                   ///< ground beyond the cells is never mapped
+    bool dithered{};
+
+    /// @param x a painted map column
+    /// @param z a painted map row
+    /// @return the fog there, as fog_at gives it
+    [[nodiscard]] Fog at(int32_t x, int32_t z) const {
+        constexpr int32_t fog_edge = present::world_renderer::fog_cell_pixels;
+        const int32_t column = x / fog_edge;
+        const int32_t row = z / fog_edge;
+        if (x < 0 || z < 0 || column >= width || row >= height)
+            return mapping ? Fog::black : Fog::seen;
+        return static_cast<Fog>(cells[static_cast<std::size_t>(row) * width + column]);
+    }
+};
+
+/// Interpolates fog inside known ground and fades to black before unknown
+/// cells.
+///
+/// @param fog_at_point the fog at a painted map point, as fog_at gives it
+/// @param width the sight's cells across
+/// @param height its cells down
+/// @param dithered the fog dithers ground out of sight
+/// @param x a painted map column
+/// @param y a painted map row
+/// @param unseen the brightness of ground out of sight; below 0, the fog's
+/// @return the brightness, 0 for unknown ground to 1 in sight
+template <typename FogAt>
+float fog_brightness(
+    const FogAt& fog_at_point,
+    int32_t width,
+    int32_t height,
+    bool dithered,
+    float x,
+    float y,
+    float unseen
+) {
     constexpr int32_t fog_edge = present::world_renderer::fog_cell_pixels;
     constexpr float edge = fog_edge;
-    const float unseen_brightness = unseen >= 0 ? unseen : sight.dithered ? 0.5F : 0.35F;
+    const float unseen_brightness = unseen >= 0 ? unseen : dithered ? 0.5F : 0.35F;
     constexpr float last_cell_inset = 0.001F;
-    if (sight.width > 0 && sight.height > 0) {
-        x = std::clamp(x, 0.0F, sight.width * edge - last_cell_inset);
-        y = std::clamp(y, 0.0F, sight.height * edge - last_cell_inset);
+    if (width > 0 && height > 0) {
+        x = std::clamp(x, 0.0F, width * edge - last_cell_inset);
+        y = std::clamp(y, 0.0F, height * edge - last_cell_inset);
     }
-    if (fog_at(sight, static_cast<int32_t>(std::floor(x)), static_cast<int32_t>(std::floor(y))) ==
+    if (fog_at_point(static_cast<int32_t>(std::floor(x)), static_cast<int32_t>(std::floor(y))) ==
         Fog::black)
         return 0;
     const auto sample = [&](int32_t column, int32_t row) {
-        if (sight.width <= 0 || sight.height <= 0)
+        if (width <= 0 || height <= 0)
             return 1.0F;
-        column = std::clamp(column, 0, sight.width - 1);
-        row = std::clamp(row, 0, sight.height - 1);
-        const auto fog = fog_at(
-            sight,
-            static_cast<int32_t>((column + 0.5F) * edge),
-            static_cast<int32_t>((row + 0.5F) * edge)
+        column = std::clamp(column, 0, width - 1);
+        row = std::clamp(row, 0, height - 1);
+        const auto fog = fog_at_point(
+            static_cast<int32_t>((column + 0.5F) * edge), static_cast<int32_t>((row + 0.5F) * edge)
         );
         return fog == Fog::black ? 0.0F : fog == Fog::grey ? unseen_brightness : 1.0F;
     };
@@ -145,8 +201,8 @@ float brightness_at(const full::SightView& sight, float x, float y, float unseen
     float edge_fade = 1;
     for (int32_t z = home_y - 1; z <= home_y + 1; ++z)
         for (int32_t c = home_x - 1; c <= home_x + 1; ++c) {
-            if (c < 0 || z < 0 || c >= sight.width || z >= sight.height ||
-                fog_at(sight, c * fog_edge, z * fog_edge) != Fog::black)
+            if (c < 0 || z < 0 || c >= width || z >= height ||
+                fog_at_point(c * fog_edge, z * fog_edge) != Fog::black)
                 continue;
             const float distance_x = std::max({c * edge - x, x - (c + 1) * edge, 0.0F});
             const float distance_y = std::max({z * edge - y, y - (z + 1) * edge, 0.0F});
@@ -158,6 +214,32 @@ float brightness_at(const full::SightView& sight, float x, float y, float unseen
     return value * edge_fade;
 }
 
+/// Interpolates fog inside known ground and fades to black before unknown cells.
+float brightness_at(const full::SightView& sight, float x, float y, float unseen = -1) {
+    return fog_brightness(
+        [&sight](int32_t column, int32_t row) { return fog_at(sight, column, row); },
+        sight.width,
+        sight.height,
+        sight.dithered,
+        x,
+        y,
+        unseen
+    );
+}
+
+/// brightness_at from the fog's cells held for the frame.
+float brightness_at(const FogCells& fog, float x, float y, float unseen = -1) {
+    return fog_brightness(
+        [&fog](int32_t column, int32_t row) { return fog.at(column, row); },
+        fog.width,
+        fog.height,
+        fog.dithered,
+        x,
+        y,
+        unseen
+    );
+}
+
 /// The ground's fog at a painted map point: how much of it is known, and how
 /// far the known part blends toward the grey palette. The same figures the
 /// terrain stores on each vertex, so a feature can grey with the ground.
@@ -166,12 +248,21 @@ struct GroundFog {
     float grey{};
 };
 
-GroundFog fog_of_ground(const Inputs& in, float painted_x, float painted_y, float brightness) {
+/// @param sight the frame's sight, or its fog's cells (FogCells)
+/// @param dithered the fog dithers ground out of sight
+/// @param painted_x a painted map column
+/// @param painted_y a painted map row
+/// @param brightness the point's brightness (brightness_at)
+/// @return the ground's fog there
+template <typename Sight>
+GroundFog fog_of_ground(
+    const Sight& sight, bool dithered, float painted_x, float painted_y, float brightness
+) {
     GroundFog ground;
     ground.known = brightness >= 1   ? 1
                    : brightness <= 0 ? 0
-                                     : brightness_at(in.sight, painted_x, painted_y, 1);
-    const float grey_brightness = in.sight.dithered ? 0.5F : 0.35F;
+                                     : brightness_at(sight, painted_x, painted_y, 1);
+    const float grey_brightness = dithered ? 0.5F : 0.35F;
     ground.grey =
         ground.known > 0
             ? std::clamp(
@@ -179,6 +270,10 @@ GroundFog fog_of_ground(const Inputs& in, float painted_x, float painted_y, floa
               )
             : 0;
     return ground;
+}
+
+GroundFog fog_of_ground(const Inputs& in, float painted_x, float painted_y, float brightness) {
+    return fog_of_ground(in.sight, in.sight.dithered, painted_x, painted_y, brightness);
 }
 
 /// How many times a fog boundary splits a cell. Distant views keep fewer.
@@ -247,7 +342,136 @@ void polygon(Scene& scene, std::span<const Vertex> vertices) {
         );
 }
 
-/// Packs palette pixels with coverage and fog, sharing identical materials.
+/// Mixes eight bytes into a digest at once: every bit of the word reaches
+/// every bit of the digest.
+///
+/// @param digest the digest so far
+/// @param word the next eight bytes, or a value
+/// @return the digest with the word mixed in
+constexpr uint64_t mix_word(uint64_t digest, uint64_t word) {
+    digest ^= std::rotl(word * digest_prime_2, 31) * digest_prime_1;
+    return std::rotl(digest, 27) * digest_prime_1 + digest_prime_4;
+}
+
+/// Mixes bytes into a digest eight at a time, then the last few one by one.
+///
+/// @param digest the digest so far
+/// @param bytes the bytes
+/// @return the digest with the bytes mixed in
+uint64_t mix_bytes(uint64_t digest, std::span<const uint8_t> bytes) {
+    std::size_t at = 0;
+    for (; at + sizeof(uint64_t) <= bytes.size(); at += sizeof(uint64_t)) {
+        uint64_t word{};
+        std::memcpy(&word, bytes.data() + at, sizeof(word));
+        digest = mix_word(digest, word);
+    }
+    for (; at < bytes.size(); ++at)
+        digest = std::rotl(digest ^ (bytes[at] * digest_prime_5), 11) * digest_prime_1;
+    return digest;
+}
+
+/// @return the digest of a palette's bytes: the frame's own palette's
+///     digest once taken this frame (Scene::frame_palette)
+uint64_t palette_digest(const Scene& scene, const PaletteBytes& palette) {
+    if (&palette == scene.frame_palette)
+        return scene.frame_palette_digest;
+    return mix_bytes(hash_start, palette);
+}
+
+/// @return the rows of the atlas the materials kept from frame to frame
+///     may take: all but the frame's own (Scene::frame_rows)
+uint32_t kept_rows(const Scene& scene) {
+    return scene.texture_height - std::min(scene.frame_rows, scene.texture_height);
+}
+
+/// Notes a rectangle's rows among those the frame uploads
+/// (Scene::atlas_update), and the row on either side: a filtered material
+/// samples the texels one beyond its edge, which must be on the card as
+/// they are here, though an emptied atlas leaves the rows it was not packed
+/// in again unsent.
+///
+/// @param scene the atlas
+/// @param[in,out] first_row the first row the frame uploads
+/// @param[in,out] end_row the row after the last
+/// @param rect the rectangle written
+void note_rows(const Scene& scene, uint32_t& first_row, uint32_t& end_row, const AtlasRect& rect) {
+    first_row = std::min(first_row, rect.y - std::min(rect.y, 1U));
+    end_row = std::max(end_row, std::min(rect.y + rect.height + 1, scene.texture_height));
+}
+
+/// Writes a black material's texels: black, and opaque where covered or
+/// as much as the coverage says.
+///
+/// @param[in,out] scene the atlas
+/// @param rect where the material goes
+/// @param pixels its palette indices, read where it has no coverage
+/// @param coverage each texel's coverage, zero where clear, or none
+/// @param transparent the index of a clear pixel where it has no coverage
+/// @param alpha_coverage the coverage is each texel's alpha
+void write_black(
+    Scene& scene,
+    const AtlasRect& rect,
+    std::span<const uint8_t> pixels,
+    std::span<const uint8_t> coverage,
+    int32_t transparent,
+    bool alpha_coverage
+) {
+    for (uint32_t y = 0; y < rect.height; ++y) {
+        auto* row =
+            scene.texture_rgba.data() +
+            (static_cast<std::size_t>(rect.y + y) * scene.texture_width + rect.x) * channels;
+        for (uint32_t x = 0; x < rect.width; ++x) {
+            const auto source = static_cast<std::size_t>(y) * rect.width + x;
+            const bool covered =
+                coverage.empty() ? pixels[source] != transparent : coverage[source] != 0;
+            row[x * channels] = row[x * channels + 1] = row[x * channels + 2] = 0;
+            row[x * channels + 3] = static_cast<uint8_t>(
+                alpha_coverage && !coverage.empty() ? coverage[source] : (covered ? 255 : 0)
+            );
+        }
+    }
+}
+
+/// The digest material() looks a material up by. A black material
+/// (Fog::black, no light mask) is black whatever the palette: it is shared
+/// by every material of its size whose texels are covered alike, keyed on
+/// its coverage alone where it has one.
+uint64_t material_digest(
+    const Scene& scene,
+    const PaletteBytes& palette,
+    uint32_t width,
+    uint32_t height,
+    std::span<const uint8_t> pixels,
+    std::span<const uint8_t> coverage,
+    int32_t transparent,
+    Fog fog,
+    bool light_mask,
+    FlashStrength flash_strength,
+    bool alpha_coverage
+) {
+    const std::size_t count = static_cast<std::size_t>(width) * height;
+    const bool black = fog == Fog::black && !light_mask;
+    uint64_t digest = hash_start;
+    digest = mix_word(digest, width);
+    digest = mix_word(digest, height);
+    digest = mix_word(digest, static_cast<uint64_t>(fog));
+    digest = mix_word(digest, light_mask);
+    digest = mix_word(digest, alpha_coverage);
+    if (light_mask)
+        digest = mix_word(digest, static_cast<uint64_t>(flash_strength));
+    if (!black || coverage.empty()) {
+        digest = mix_word(digest, static_cast<uint64_t>(transparent + 1));
+        digest = mix_bytes(digest, pixels.first(count));
+    }
+    digest = mix_bytes(digest, coverage);
+    // A palette change must invalidate the cached material colours too.
+    if (!black)
+        digest = mix_word(digest, palette_digest(scene, palette));
+    return digest;
+}
+
+/// Packs palette pixels with coverage and fog, sharing identical materials
+/// (material_digest).
 AtlasRect material(
     Scene& scene,
     const PaletteBytes& palette,
@@ -265,23 +489,22 @@ AtlasRect material(
     if (width == 0 || height == 0 || pixels.size() < count ||
         (!coverage.empty() && coverage.size() < count))
         throw std::runtime_error("experimental scene received an invalid material");
-    uint64_t digest = hash_start;
-    const auto hash = [&](uint64_t value) { digest = (digest ^ value) * hash_multiplier; };
-    hash(width);
-    hash(height);
-    hash(static_cast<uint64_t>(transparent + 1));
-    hash(static_cast<uint64_t>(fog));
-    hash(light_mask);
-    hash(alpha_coverage);
-    if (light_mask)
-        hash(static_cast<uint64_t>(flash_strength));
-    for (const auto value : pixels.first(count))
-        hash(value);
-    for (const auto value : coverage)
-        hash(value);
-    // A palette change must invalidate the cached material colours too.
-    for (const auto value : palette)
-        hash(value);
+    const bool black = fog == Fog::black && !light_mask;
+    if (!coverage.empty())
+        coverage = coverage.first(count);
+    const uint64_t digest = material_digest(
+        scene,
+        palette,
+        width,
+        height,
+        pixels,
+        coverage,
+        transparent,
+        fog,
+        light_mask,
+        flash_strength,
+        alpha_coverage
+    );
     if (const auto found = scene.materials.find(digest); found != scene.materials.end())
         return found->second;
     if (width > scene.texture_width || height > scene.texture_height)
@@ -291,10 +514,12 @@ AtlasRect material(
         scene.next_y += scene.row_height;
         scene.row_height = 0;
     }
-    if (scene.next_y + height > scene.texture_height)
+    if (scene.next_y + height > kept_rows(scene))
         throw AtlasFull();
     const AtlasRect rect{scene.next_x, scene.next_y, width, height};
-    for (uint32_t y = 0; y < height; ++y) {
+    if (black)
+        write_black(scene, rect, pixels, coverage, transparent, alpha_coverage);
+    for (uint32_t y = 0; y < height && !black; ++y) {
         for (uint32_t x = 0; x < width; ++x) {
             const auto source = static_cast<std::size_t>(y) * width + x;
             const auto target =
@@ -339,8 +564,96 @@ AtlasRect material(
     scene.materials.emplace(digest, rect);
     scene.packed_material_area += uint64_t{width} * height;
     ++scene.texture_revision;
-    scene.atlas_update.first_row = std::min(scene.atlas_update.first_row, rect.y);
-    scene.atlas_update.end_row = std::max(scene.atlas_update.end_row, rect.y + height);
+    note_rows(scene, scene.atlas_update.first_row, scene.atlas_update.end_row, rect);
+    return rect;
+}
+
+/// Packs a black material that changes from frame to frame, the shadow a
+/// unit casts from its picture, into the rows kept for the frame's own
+/// materials (Scene::frame_rows); with the other materials when those rows
+/// are full or there are none.
+///
+/// @param[in,out] scene the atlas
+/// @param palette the frame's palette, for a material packed with the others
+/// @param width the material's width
+/// @param height its height
+/// @param coverage each texel's coverage, zero where clear
+/// @param alpha_coverage the coverage is each texel's alpha; otherwise a
+///     covered texel is opaque
+/// @return the material's rectangle, good for this frame
+AtlasRect frame_material(
+    Scene& scene,
+    const PaletteBytes& palette,
+    uint32_t width,
+    uint32_t height,
+    std::span<const uint8_t> coverage,
+    bool alpha_coverage
+) {
+    const std::size_t count = static_cast<std::size_t>(width) * height;
+    if (width == 0 || height == 0 || coverage.size() < count)
+        throw std::runtime_error("experimental scene received an invalid material");
+    coverage = coverage.first(count);
+    const uint64_t digest = material_digest(
+        scene,
+        palette,
+        width,
+        height,
+        coverage,
+        coverage,
+        -1,
+        Fog::black,
+        false,
+        FlashStrength::full,
+        alpha_coverage
+    );
+    if (const auto found = scene.frame_materials.find(digest); found != scene.frame_materials.end())
+        return found->second;
+    scene.frame_material_area += uint64_t{width} * height;
+    uint32_t x = scene.frame_next_x;
+    uint32_t y = scene.frame_next_y;
+    uint32_t row_height = scene.frame_row_height;
+    if (x + width > scene.texture_width) {
+        x = 0;
+        y += row_height;
+        row_height = 0;
+    }
+    if (width > scene.texture_width || y + height > scene.frame_rows ||
+        scene.frame_rows >= scene.texture_height) {
+        scene.frame_spilled_area += uint64_t{width} * height;
+        // Measured with the frame's own materials, not twice.
+        const uint64_t packed = scene.packed_material_area;
+        const auto rect = material(
+            scene,
+            palette,
+            width,
+            height,
+            coverage,
+            coverage,
+            -1,
+            Fog::black,
+            false,
+            FlashStrength::full,
+            alpha_coverage
+        );
+        scene.packed_material_area = packed;
+        return rect;
+    }
+    scene.frame_next_x = x + width;
+    scene.frame_next_y = y;
+    scene.frame_row_height = std::max(row_height, height);
+    const AtlasRect rect{x, kept_rows(scene) + y, width, height};
+    scene.frame_materials.emplace(digest, rect);
+    // Each material's place follows from the sizes of those packed before
+    // it this frame, all of them in its digest: one packed in the same
+    // place by an earlier frame, after the same ones, is still there.
+    const std::size_t index = scene.frame_packed++;
+    if (index < scene.frame_order.size() && scene.frame_order[index] == digest)
+        return rect;
+    scene.frame_order.resize(index);
+    scene.frame_order.push_back(digest);
+    write_black(scene, rect, coverage, coverage, -1, alpha_coverage);
+    ++scene.texture_revision;
+    note_rows(scene, scene.atlas_update.frame_first_row, scene.atlas_update.frame_end_row, rect);
     return rect;
 }
 
@@ -351,38 +664,6 @@ struct GroundPoint {
     float height{};
     float brightness{1};
 };
-
-/// Clips a terrain triangle against a sprite edge without changing its plane.
-std::vector<GroundPoint>
-clip_ground(std::span<const GroundPoint> source, bool horizontal, float edge, bool greater) {
-    std::vector<GroundPoint> result;
-    if (source.empty())
-        return result;
-    const auto coordinate = [horizontal](const GroundPoint& p) { return horizontal ? p.x : p.y; };
-    auto previous = source.back();
-    bool previous_inside = greater ? coordinate(previous) >= edge : coordinate(previous) <= edge;
-    for (const auto& current : source) {
-        const bool inside = greater ? coordinate(current) >= edge : coordinate(current) <= edge;
-        if (inside != previous_inside) {
-            const float fraction =
-                (edge - coordinate(previous)) / (coordinate(current) - coordinate(previous));
-            result.push_back(
-                {std::lerp(previous.x, current.x, fraction),
-                 std::lerp(previous.y, current.y, fraction),
-                 std::lerp(previous.height, current.height, fraction),
-                 std::lerp(previous.brightness, current.brightness, fraction)}
-            );
-            // Interpolation can round just outside the clipping plane. Keep
-            // its known coordinate exact so atlas UVs remain inside the tile.
-            (horizontal ? result.back().x : result.back().y) = edge;
-        }
-        if (inside)
-            result.push_back(current);
-        previous = current;
-        previous_inside = inside;
-    }
-    return result;
-}
 
 /// Keep triangle/rectangle intersections on the stack; at most seven corners survive.
 struct GroundPolygon {
@@ -422,42 +703,186 @@ clip_ground_fixed(const GroundPolygon& source, bool horizontal, float edge, bool
     return result;
 }
 
-/// Takes a square of the atlas for a terrain material: a full square from
-/// the rows as every other material is packed, and a smaller one from a
-/// quarter left of a square split for its size, splitting one when none is
-/// left, so that small squares waste no rows.
+/// @return the spare squares of a terrain square's edge
+///     (Scene::spare_terrain_squares)
+std::vector<AtlasRect>& spare_terrain_squares(Scene& scene, uint32_t edge) {
+    return scene.spare_terrain_squares.at(
+        static_cast<std::size_t>(std::countr_zero(full_terrain_square / edge))
+    );
+}
+
+/// @return a square's key in Scene::split_terrain_squares
+uint64_t split_square_key(uint32_t x, uint32_t y, uint32_t edge) {
+    return (uint64_t{x} << 32) | (uint64_t{y} << 8) | edge;
+}
+
+/// Finds the split square a terrain square smaller than full is a quarter
+/// of: the one split square of twice its edge among the four that would
+/// hold it.
 ///
-/// @param[in,out] scene the atlas and its spare quarters
+/// @param scene the split squares
+/// @param square the quarter
+/// @return the split square's entry, or the end of the split squares; and
+///     the quarter's bit in it
+std::pair<std::unordered_map<uint64_t, uint8_t>::iterator, uint8_t>
+split_parent(Scene& scene, const AtlasRect& square) {
+    const uint32_t edge = square.width;
+    for (uint32_t row = 0; row < 2; ++row)
+        for (uint32_t column = 0; column < 2; ++column) {
+            if (square.x < column * edge || square.y < row * edge)
+                continue;
+            const auto found = scene.split_terrain_squares.find(
+                split_square_key(square.x - column * edge, square.y - row * edge, edge * 2)
+            );
+            if (found != scene.split_terrain_squares.end())
+                return {found, static_cast<uint8_t>(1U << (row * 2 + column))};
+        }
+    return {scene.split_terrain_squares.end(), 0};
+}
+
+/// Takes a square of the atlas for a terrain material: a spare one of its
+/// size when there is one; otherwise a full square from the rows as every
+/// other material is packed, and a smaller one as a quarter of a square
+/// split for its size, so that small squares waste no rows.
+///
+/// @param[in,out] scene the atlas and its spare squares
 /// @param edge the square's edge: full_terrain_square or a power of two
 ///     down to smallest_terrain_square
+/// @param rows whether a full square may be taken from the rows; otherwise
+///     only spare squares are
+/// @return the square, or none when there is no room left for it
+std::optional<AtlasRect> take_terrain_square(Scene& scene, uint32_t edge, bool rows) {
+    auto& spare = spare_terrain_squares(scene, edge);
+    if (!spare.empty()) {
+        const auto square = spare.back();
+        spare.pop_back();
+        if (edge < full_terrain_square) {
+            const auto [parent, quarter] = split_parent(scene, square);
+            if (parent != scene.split_terrain_squares.end())
+                parent->second &= static_cast<uint8_t>(~quarter);
+        }
+        return square;
+    }
+    if (edge >= full_terrain_square) {
+        if (!rows)
+            return std::nullopt;
+        uint32_t x = scene.next_x;
+        uint32_t y = scene.next_y;
+        uint32_t row_height = scene.row_height;
+        if (x + full_terrain_square > scene.texture_width) {
+            x = 0;
+            y += row_height;
+            row_height = 0;
+        }
+        if (y + full_terrain_square > kept_rows(scene))
+            return std::nullopt;
+        scene.next_x = x + full_terrain_square;
+        scene.next_y = y;
+        scene.row_height = std::max(row_height, full_terrain_square);
+        return AtlasRect{x, y, full_terrain_square, full_terrain_square};
+    }
+    const auto parent = take_terrain_square(scene, edge * 2, rows);
+    if (!parent)
+        return std::nullopt;
+    // Every quarter but the first is spare.
+    constexpr uint8_t first_quarter = 1;
+    scene.split_terrain_squares[split_square_key(parent->x, parent->y, parent->width)] =
+        all_quarters & ~first_quarter;
+    spare.push_back({parent->x + edge, parent->y + edge, edge, edge});
+    spare.push_back({parent->x, parent->y + edge, edge, edge});
+    spare.push_back({parent->x + edge, parent->y, edge, edge});
+    return AtlasRect{parent->x, parent->y, edge, edge};
+}
+
+/// Gives a terrain material's square back, to be packed again: to the
+/// spare squares of its size, or, when the other three quarters of the
+/// square it was split from are spare too, that square whole, as far up as
+/// that goes. No triangle the frame draws or the kept ground holds may
+/// still sample it.
+///
+/// @param[in,out] scene the spare and split squares
+/// @param square the square
+void give_back_terrain_square(Scene& scene, AtlasRect square) {
+    while (square.width < full_terrain_square) {
+        auto& spare = spare_terrain_squares(scene, square.width);
+        const auto [parent, quarter] = split_parent(scene, square);
+        if (parent == scene.split_terrain_squares.end() ||
+            (parent->second | quarter) != all_quarters) {
+            if (parent != scene.split_terrain_squares.end())
+                parent->second |= quarter;
+            spare.push_back(square);
+            return;
+        }
+        // The other three quarters, the spare squares of this edge inside
+        // the split square, make it whole with this one.
+        const uint32_t edge = square.width * 2;
+        const AtlasRect whole{
+            static_cast<uint32_t>(parent->first >> 32),
+            static_cast<uint32_t>(parent->first >> 8) & 0xFFFFFFU,
+            edge,
+            edge
+        };
+        std::erase_if(spare, [&](const AtlasRect& quarter_square) {
+            return quarter_square.x >= whole.x && quarter_square.x < whole.x + edge &&
+                   quarter_square.y >= whole.y && quarter_square.y < whole.y + edge;
+        });
+        scene.split_terrain_squares.erase(parent);
+        square = whole;
+    }
+    spare_terrain_squares(scene, full_terrain_square).push_back(square);
+}
+
+/// Drops the terrain materials that no terrain pass since the given one
+/// has drawn, giving their squares back (give_back_terrain_square).
+///
+/// @param[in,out] scene the terrain materials and spare squares
+/// @param since the pass (Scene::terrain_passes); a material last drawn by
+///     an earlier one is dropped
+/// @return true when any was dropped
+bool drop_terrain_materials(Scene& scene, uint64_t since) {
+    bool dropped = false;
+    for (auto entry = scene.terrain_materials.begin(); entry != scene.terrain_materials.end();) {
+        if (entry->second.drawn >= since) {
+            ++entry;
+            continue;
+        }
+        give_back_terrain_square(scene, entry->second.rectangle);
+        entry = scene.terrain_materials.erase(entry);
+        dropped = true;
+    }
+    return dropped;
+}
+
+/// Takes a square of the atlas for a terrain material (take_terrain_square),
+/// keeping the rows for the other materials while the terrain can make room
+/// of its own: a spare square; else one given back by the tiles neither this
+/// terrain pass nor the last has drawn; else one from the rows; else one
+/// given back by the tiles this pass has not drawn yet. The frame draws none
+/// of the tiles that give their squares back, nor does the kept ground,
+/// which this pass draws again; none gives its square back while a kept
+/// ground may still be taken (Scene::ground_kept).
+///
+/// @param[in,out] scene the atlas, its spare squares and the terrain
+///     materials
+/// @param edge the square's edge
 /// @return the square
 /// @throws AtlasFull when the atlas has no room left for it
 AtlasRect terrain_square(Scene& scene, uint32_t edge) {
-    if (edge >= full_terrain_square) {
-        if (scene.next_x + full_terrain_square > scene.texture_width) {
-            scene.next_x = 0;
-            scene.next_y += scene.row_height;
-            scene.row_height = 0;
-        }
-        if (scene.next_y + full_terrain_square > scene.texture_height)
-            throw AtlasFull();
-        const AtlasRect rect{scene.next_x, scene.next_y, full_terrain_square, full_terrain_square};
-        scene.next_x += full_terrain_square;
-        scene.row_height = std::max(scene.row_height, full_terrain_square);
-        return rect;
+    const uint64_t pass = scene.terrain_passes;
+    auto square = take_terrain_square(scene, edge, false);
+    // Tiles drawn by neither pass cannot be drawn by this one until it ends.
+    if (!square && !scene.ground_kept && scene.stale_terrain_dropped != pass) {
+        scene.stale_terrain_dropped = pass;
+        if (drop_terrain_materials(scene, pass - 1))
+            square = take_terrain_square(scene, edge, false);
     }
-    const auto size = static_cast<std::size_t>(std::countr_zero(full_terrain_square / edge)) - 1;
-    auto& spare = scene.spare_terrain_squares.at(size);
-    if (spare.empty()) {
-        const auto parent = terrain_square(scene, edge * 2);
-        spare.push_back({parent.x + edge, parent.y + edge, edge, edge});
-        spare.push_back({parent.x, parent.y + edge, edge, edge});
-        spare.push_back({parent.x + edge, parent.y, edge, edge});
-        return {parent.x, parent.y, edge, edge};
-    }
-    const auto rect = spare.back();
-    spare.pop_back();
-    return rect;
+    if (!square)
+        square = take_terrain_square(scene, edge, true);
+    if (!square && !scene.ground_kept && drop_terrain_materials(scene, pass))
+        square = take_terrain_square(scene, edge, true);
+    if (!square)
+        throw AtlasFull();
+    return *square;
 }
 
 /// Packs colour and classic grey palettes with independently clamped mip
@@ -480,51 +905,76 @@ AtlasRect terrain_material(
     Fog fog,
     uint32_t edge = full_terrain_square
 ) {
+    const std::array cursor{scene.next_x, scene.next_y};
     const AtlasRect rect = terrain_square(scene, edge);
     const uint32_t detail = rect.width / 2;
     const auto pixel_at = [&](uint32_t x, uint32_t y) {
         return scene.texture_rgba.data() +
                (static_cast<std::size_t>(rect.y + y) * scene.texture_width + rect.x + x) * channels;
     };
-    std::array<uint8_t, static_cast<std::size_t>(tile_edge) * tile_edge * channels> whole{};
-    const auto whole_at = [&](uint32_t x, uint32_t y) {
-        return whole.data() + (static_cast<std::size_t>(y) * tile_edge + x) * channels;
-    };
+    // The sums of each block of the tile's pixels, a channel at a time: a
+    // level's blocks are made of four of the level above's, so each level
+    // is summed from the last at a quarter of the work of summing the
+    // pixels again. The sums are whole, so every level rounds exactly as
+    // the mean of its pixels.
+    constexpr std::size_t tile_pixels = static_cast<std::size_t>(tile_edge) * tile_edge;
+    std::array<uint32_t, tile_pixels * channels> sums{};
     for (uint32_t variant = 0; variant < 2; ++variant) {
         const auto& colours = variant == 0 ? palette : grey;
         const uint32_t origin = variant * detail;
-        for (uint32_t y = 0; y < tile_edge; ++y)
-            for (uint32_t x = 0; x < tile_edge; ++x) {
-                auto* out = whole_at(x, y);
-                const auto index =
-                    static_cast<std::size_t>(pixels[y * tile_edge + x]) * palette_entry_bytes;
-                for (uint32_t channel = 0; channel < 3; ++channel) {
-                    const auto value = fog == Fog::black ? uint8_t{0} : colours[index + channel];
-                    out[channel] = value;
-                }
-                out[3] = 255;
-            }
+        for (std::size_t pixel = 0; pixel < tile_pixels; ++pixel) {
+            const auto index = static_cast<std::size_t>(pixels[pixel]) * palette_entry_bytes;
+            for (uint32_t channel = 0; channel < 3; ++channel)
+                sums[pixel * channels + channel] =
+                    fog == Fog::black ? uint32_t{0} : colours[index + channel];
+            sums[pixel * channels + 3] = 255;
+        }
+        // The sums hold blocks of factor pixels a side, blocks of them across.
+        auto blocks = static_cast<uint32_t>(tile_edge);
+        uint32_t factor = 1;
         uint32_t row = 0;
         for (uint32_t level = detail; level != 0; level /= 2) {
-            const uint32_t factor = tile_edge / level;
+            while (blocks > level) {
+                const uint32_t half = blocks / 2;
+                for (uint32_t y = 0; y < half; ++y)
+                    for (uint32_t x = 0; x < half; ++x)
+                        for (uint32_t channel = 0; channel < channels; ++channel) {
+                            const auto at = [&](uint32_t column, uint32_t line) {
+                                return sums
+                                    [(static_cast<std::size_t>(line) * blocks + column) * channels +
+                                     channel];
+                            };
+                            // Written in place: block (x, y) lies at or before
+                            // the four it is summed from.
+                            sums[(static_cast<std::size_t>(y) * half + x) * channels + channel] =
+                                at(2 * x, 2 * y) + at(2 * x + 1, 2 * y) + at(2 * x, 2 * y + 1) +
+                                at(2 * x + 1, 2 * y + 1);
+                        }
+                blocks = half;
+                factor *= 2;
+            }
             const uint32_t count = factor * factor;
             for (uint32_t y = 0; y < level; ++y)
                 for (uint32_t x = 0; x < level; ++x) {
                     auto* out = pixel_at(origin + x, row + y);
-                    for (uint32_t channel = 0; channel < channels; ++channel) {
-                        uint32_t sum = 0;
-                        for (uint32_t dy = 0; dy < factor; ++dy)
-                            for (uint32_t dx = 0; dx < factor; ++dx)
-                                sum += whole_at(x * factor + dx, y * factor + dy)[channel];
-                        out[channel] = static_cast<uint8_t>((sum + count / 2) / count);
-                    }
+                    for (uint32_t channel = 0; channel < channels; ++channel)
+                        out[channel] = static_cast<uint8_t>(
+                            (sums[(static_cast<std::size_t>(y) * level + x) * channels + channel] +
+                             count / 2) /
+                            count
+                        );
                 }
             row += level;
         }
     }
     ++scene.texture_revision;
-    scene.atlas_update.first_row = std::min(scene.atlas_update.first_row, rect.y);
-    scene.atlas_update.end_row = std::max(scene.atlas_update.end_row, rect.y + rect.height);
+    // A spare square, anywhere in the atlas, is uploaded alone; one cut from
+    // the rows with the rows packed this frame.
+    if (cursor == std::array{scene.next_x, scene.next_y}) {
+        scene.atlas_update.regions.push_back({rect.x, rect.y, rect.width, rect.height});
+        return rect;
+    }
+    note_rows(scene, scene.atlas_update.first_row, scene.atlas_update.end_row, rect);
     return rect;
 }
 
@@ -535,12 +985,33 @@ struct TerrainPlan {
     std::unordered_map<uint64_t, uint32_t> squares{};
     /// The square of a tile the survey did not foresee.
     uint32_t fallback{full_terrain_square};
+    /// The larger of the two sizes, the nearest tiles' square: full where
+    /// every tile fits.
+    uint32_t larger{full_terrain_square};
+    /// The camera is moving, or has not yet settled
+    /// (Inputs::tiles_hold_while_moving): each tile keeps any square no
+    /// more than one size smaller than its own, and a tile packed takes the
+    /// size below the larger, which it keeps however near it comes.
+    bool holding{};
 
     /// @param key a tile key, as the terrain pass makes it
-    /// @return the edge of the square to pack it into
+    /// @return the edge of the square the plan gives it
     [[nodiscard]] uint32_t square(uint64_t key) const {
         const auto found = squares.find(key);
         return found == squares.end() ? fallback : found->second;
+    }
+
+    /// @param key a tile key, as the terrain pass makes it
+    /// @return the edge of the least square it may keep
+    [[nodiscard]] uint32_t least(uint64_t key) const {
+        const uint32_t edge = square(key);
+        return holding ? std::max(edge / 2, smallest_terrain_square) : edge;
+    }
+
+    /// @param key a tile key, as the terrain pass makes it
+    /// @return the edge of the square to pack it into
+    [[nodiscard]] uint32_t packed(uint64_t key) const {
+        return holding ? std::max(larger / 2, smallest_terrain_square) : square(key);
     }
 };
 
@@ -570,15 +1041,123 @@ struct TerrainCrop {
     int32_t bottom{};
 };
 
-TerrainCrop terrain_crop(const Inputs& in) {
-    const auto& map = *in.map;
+/// @param map the map
+/// @param left the painted rectangle's least map x
+/// @param top its least painted row
+/// @param right its greatest map x
+/// @param bottom its greatest painted row
+/// @return the terrain pass's crop of the painted rectangle
+TerrainCrop terrain_crop(
+    const formats::tnt::Map& map, int32_t left, int32_t top, int32_t right, int32_t bottom
+) {
     const int32_t width = static_cast<int32_t>(map.attribute_width) * cell_edge;
     const int32_t height = static_cast<int32_t>(map.attribute_height) * cell_edge;
     return {
-        std::clamp(in.left, 0, width) / cell_edge * cell_edge,
-        std::clamp(in.top, 0, height) / cell_edge * cell_edge,
-        std::clamp(in.right, 0, width),
-        std::clamp(in.bottom + maximum_terrain_row_shift, 0, height)
+        std::clamp(left, 0, width) / cell_edge * cell_edge,
+        std::clamp(top, 0, height) / cell_edge * cell_edge,
+        std::clamp(right, 0, width),
+        std::clamp(bottom + maximum_terrain_row_shift, 0, height)
+    };
+}
+
+TerrainCrop terrain_crop(const Inputs& in) {
+    return terrain_crop(*in.map, in.left, in.top, in.right, in.bottom);
+}
+
+/// How far beyond the picture's edges, in its pixels, the terrain pass still
+/// draws ground: what lies near the picture, such as the ground under an
+/// explosion's card that reaches into it, keeps its ground.
+constexpr float screen_ground_margin = 128;
+
+/// How much further beyond the picture's edges a moving camera's ground is
+/// drawn, as a share of the picture's larger side: the frames after it take
+/// that ground while their pictures move no further (Scene::ground_vertices).
+constexpr float moving_ground_margin_share = 0.1F;
+
+/// Tells whether a box of ground lies wholly beyond the picture, more than
+/// margin pixels past one of its edges. Every triangle the terrain pass
+/// draws in the box lies inside it, so none of them would show. Without the
+/// picture's size (clip_width or clip_height zero) no ground is left out.
+///
+/// @param in the frame
+/// @param left the box's least map x
+/// @param top its least map z (row)
+/// @param right its greatest map x
+/// @param bottom its greatest map z
+/// @param low the least height in the box
+/// @param high the greatest
+/// @param margin the pixels beyond the picture's edges still drawn
+/// @return true when the box lies wholly beyond the picture
+bool ground_off_screen(
+    const Inputs& in,
+    float left,
+    float top,
+    float right,
+    float bottom,
+    float low,
+    float high,
+    float margin = screen_ground_margin
+) {
+    if (in.clip_width == 0 || in.clip_height == 0)
+        return false;
+    const auto& m = in.clip_projection;
+    // An affine row's least and greatest value over the box.
+    const auto span = [&](std::size_t row) {
+        const float x0 = m[row] * left, x1 = m[row] * right;
+        const float h0 = m[row + 1] * low, h1 = m[row + 1] * high;
+        const float z0 = m[row + 2] * top, z1 = m[row + 2] * bottom;
+        return std::array{
+            std::min(x0, x1) + std::min(h0, h1) + std::min(z0, z1) + m[row + 3],
+            std::max(x0, x1) + std::max(h0, h1) + std::max(z0, z1) + m[row + 3]
+        };
+    };
+    const auto across = span(0);
+    const auto down = span(4);
+    // A bound that is not a number fails every test, and its box is kept.
+    return across[1] < -margin || across[0] > static_cast<float>(in.clip_width) + margin ||
+           down[1] < -margin || down[0] > static_cast<float>(in.clip_height) + margin;
+}
+
+/// The crop of a picture widened by margin pixels beyond its edges, past
+/// screen_ground_margin: the painted rectangle in which any ground drawn
+/// within that margin lies, as the runtime crops the picture itself, and
+/// at least the frame's own crop.
+///
+/// @param in the frame and its picture
+/// @param margin the pixels the picture is widened by
+/// @return the widened crop, or none when the picture cannot be bounded
+std::optional<TerrainCrop> widened_crop(const Inputs& in, float margin) {
+    const float widening = screen_ground_margin + margin;
+    // The picture widened: its origin moved up and left by the widening.
+    auto widened = in.clip_projection;
+    widened[3] += widening;
+    widened[7] += widening;
+    renderer_live_camera::TerrainBounds bounds{};
+    constexpr float crop_margin = 2 * cell_edge;
+    if (!renderer_live_camera::visible_terrain_bounds(
+            widened,
+            static_cast<float>(in.clip_width) + 2 * widening,
+            static_cast<float>(in.clip_height) + 2 * widening,
+            crop_margin,
+            bounds
+        ))
+        return std::nullopt;
+    const auto& map = *in.map;
+    const auto width = static_cast<float>(map.attribute_width * cell_edge);
+    const auto height = static_cast<float>(map.attribute_height * cell_edge);
+    const auto wide = terrain_crop(
+        map,
+        static_cast<int32_t>(std::clamp(std::floor(bounds.min_x), 0.0F, width)),
+        static_cast<int32_t>(std::clamp(std::floor(bounds.min_y), 0.0F, height)),
+        static_cast<int32_t>(std::clamp(std::ceil(bounds.max_x), 0.0F, width)),
+        static_cast<int32_t>(std::clamp(std::ceil(bounds.max_y), 0.0F, height))
+    );
+    const auto crop = terrain_crop(in);
+    return TerrainCrop{
+        std::min(crop.left, wide.left),
+        std::min(crop.top, wide.top),
+        std::max(crop.right, wide.right),
+        std::max(crop.bottom, wide.bottom)
     };
 }
 
@@ -659,9 +1238,11 @@ std::vector<TileDemand> terrain_demand(const Inputs& in, uint64_t room) {
 ///
 /// @param demand the surveyed tiles, nearest first
 /// @param room the atlas area the terrain may take
+/// @param holding the camera is moving (TerrainPlan::holding)
 /// @return the plan
-TerrainPlan plan_terrain(std::span<const TileDemand> demand, uint64_t room) {
+TerrainPlan plan_terrain(std::span<const TileDemand> demand, uint64_t room, bool holding) {
     TerrainPlan plan;
+    plan.holding = holding;
     const uint64_t count = demand.size();
     if (count * full_terrain_square * full_terrain_square <= room)
         return plan;
@@ -679,6 +1260,7 @@ TerrainPlan plan_terrain(std::span<const TileDemand> demand, uint64_t room) {
         for (std::size_t index = 0; index < demand.size(); ++index)
             plan.squares.emplace(demand[index].key, index < larger_count ? larger : smaller);
         plan.fallback = smaller;
+        plan.larger = larger;
         break;
     }
     return plan;
@@ -694,8 +1276,162 @@ uint64_t planned_area(std::span<const TileDemand> demand, const TerrainPlan& pla
     return area;
 }
 
+/// Makes source what the frame's ground is drawn from (GroundSource), but
+/// for the crop and the picture, which the terrain pass notes when it draws
+/// the ground (ground_covers).
+///
+/// @param[in,out] source what the last frame's ground was drawn from
+/// @param in the frame
+/// @param scene the atlas
+/// @param step the height cells a side of each drawn square of ground
+/// @return true when it was already so
+bool note_ground_source(GroundSource& source, const Inputs& in, const Scene& scene, int32_t step) {
+    const auto& map = *in.map;
+    bool same = true;
+    const auto note = [&same](auto& kept, const auto& now) {
+        if (!(kept == now)) {
+            kept = now;
+            same = false;
+        }
+    };
+    const auto note_values = [&same](auto& kept, const auto& now) {
+        if (!std::equal(kept.begin(), kept.end(), now.begin(), now.end())) {
+            kept.assign(now.begin(), now.end());
+            same = false;
+        }
+    };
+    note(source.map, in.map);
+    note(source.map_width, map.attribute_width);
+    note(source.map_height, map.attribute_height);
+    note(source.tile_width, map.tile_width);
+    const auto cells = static_cast<std::size_t>(map.attribute_width) * map.attribute_height;
+    bool heights_same = source.heights.size() == cells;
+    for (std::size_t cell = 0; cell < cells && heights_same; ++cell)
+        heights_same = source.heights[cell] == map.attributes[cell].height;
+    if (!heights_same) {
+        source.heights.resize(cells);
+        for (std::size_t cell = 0; cell < cells; ++cell)
+            source.heights[cell] = map.attributes[cell].height;
+        const auto [lowest, highest] =
+            std::minmax_element(source.heights.begin(), source.heights.end());
+        source.lowest = cells == 0 ? 0 : *lowest;
+        source.highest = cells == 0 ? 0 : *highest;
+        same = false;
+    }
+    note_values(source.tile_indices, map.tile_indices);
+    note(source.step, step);
+    note(
+        source.distant, std::isfinite(in.detail_scale) && in.detail_scale > 0 && in.detail_scale < 1
+    );
+    note(source.fog_divisions, fog_divisions(in));
+    note(source.texture_width, scene.texture_width);
+    note(source.texture_height, scene.texture_height);
+    // The ground reads the sight only as fog_at reads each sight cell, so
+    // that a count of sight stamps changing in a cell still in sight
+    // changes nothing drawn.
+    note(source.sight_width, in.sight.width);
+    note(source.sight_height, in.sight.height);
+    note(source.mapping, in.sight.mapping);
+    note(source.dithered, in.sight.dithered);
+    constexpr int32_t fog_edge = present::world_renderer::fog_cell_pixels;
+    const auto sight_cells = static_cast<std::size_t>(std::max(in.sight.width, 0)) *
+                             static_cast<std::size_t>(std::max(in.sight.height, 0));
+    if (source.fog.size() != sight_cells) {
+        source.fog.assign(sight_cells, std::numeric_limits<uint8_t>::max());
+        same = false;
+    }
+    for (int32_t row = 0; row < in.sight.height; ++row)
+        for (int32_t column = 0; column < in.sight.width; ++column) {
+            const auto fog =
+                static_cast<uint8_t>(fog_at(in.sight, column * fog_edge, row * fog_edge));
+            auto& kept = source.fog[static_cast<std::size_t>(row) * in.sight.width + column];
+            if (kept != fog) {
+                kept = fog;
+                same = false;
+            }
+        }
+    return same;
+}
+
+/// Tells whether the ground drawn from source holds every cell the frame's
+/// picture shows: it was drawn for the same picture, or for one of the
+/// same size whose margin (GroundSource::picture_margin) is wider than any
+/// ground the frame's picture shows has moved in the picture since.
+///
+/// @param source what the kept ground was drawn from
+/// @param in the frame
+/// @param crop the frame's crop
+/// @return true when the frame may take the kept ground
+bool ground_covers(const GroundSource& source, const Inputs& in, const TerrainCrop& crop) {
+    if (source.clip_width != in.clip_width || source.clip_height != in.clip_height)
+        return false;
+    if (source.picture_margin == 0)
+        return source.clip_projection == in.clip_projection &&
+               source.crop == std::array{crop.left, crop.top, crop.right, crop.bottom};
+    // A box of ground the frame's picture shows within screen_ground_margin
+    // holds a point that lies, at its height, under the picture so widened.
+    // The projection is affine, so such ground has moved furthest since the
+    // kept ground's picture at one of the widened picture's corners at the
+    // map's lowest or highest ground. Moved no further than the margin, the
+    // box was shown within the margin more by the kept ground's picture,
+    // lies in its crop (widened_crop), and was drawn.
+    const float right = static_cast<float>(in.clip_width) + screen_ground_margin;
+    const float bottom = static_cast<float>(in.clip_height) + screen_ground_margin;
+    for (const float height : {float(source.lowest), float(source.highest)})
+        for (const float screen_y : {-screen_ground_margin, bottom})
+            for (const float screen_x : {-screen_ground_margin, right}) {
+                float x{}, z{};
+                if (!renderer_live_camera::world_at_height(
+                        in.clip_projection, screen_x, screen_y, height, x, z
+                    ))
+                    return false;
+                const std::array point{x, height, z, 1.0F};
+                for (const std::size_t row : {std::size_t{0}, std::size_t{4}}) {
+                    float shift = 0;
+                    for (std::size_t column = 0; column < point.size(); ++column)
+                        shift += (in.clip_projection[row + column] -
+                                  source.clip_projection[row + column]) *
+                                 point[column];
+                    // A shift that is not a number fails the test.
+                    if (!(std::abs(shift) <= source.picture_margin))
+                        return false;
+                }
+            }
+    return true;
+}
+
+/// A ground revision no scene has had before.
+uint64_t new_ground_revision() {
+    static std::atomic<uint64_t> last{};
+    return ++last;
+}
+
+/// Tells whether every tile the kept ground draws would come out of the
+/// atlas where it did: still packed in its square, no smaller than the plan
+/// lets it keep, from the map's art as it is now.
+///
+/// @param in the frame
+/// @param scene the kept ground and the atlas
+/// @param plan the square of each tile
+/// @return true when none of its tiles would be packed again
+bool ground_tiles_hold(const Inputs& in, const Scene& scene, const TerrainPlan& plan) {
+    constexpr std::size_t tile_bytes = formats::tnt::layout::tile_bytes;
+    const auto& art = in.map->tile_palette_indices;
+    for (const auto& [key, rectangle] : scene.ground_tiles) {
+        // A key is its tile's number by three, and its fog.
+        const auto start = static_cast<std::size_t>(key / 3) * tile_bytes;
+        const auto cached = scene.terrain_materials.find(key);
+        if (cached == scene.terrain_materials.end() || !(cached->second.rectangle == rectangle) ||
+            rectangle.width < plan.least(key) || start + tile_bytes > art.size() ||
+            std::memcmp(cached->second.pixels.data(), art.data() + start, tile_bytes) != 0)
+            return false;
+    }
+    return true;
+}
+
 /// Emits terrain cells with tile UVs and a separate fog material per cell,
-/// each tile packed into the square the plan gives it.
+/// each tile packed into the square the plan packs it into
+/// (TerrainPlan::packed).
 ///
 /// @param in the frame
 /// @param[in,out] scene the geometry and atlas
@@ -703,44 +1439,36 @@ uint64_t planned_area(std::span<const TileDemand> demand, const TerrainPlan& pla
 /// @param step the height cells a side of each drawn square of ground: 1
 ///     for every cell, or 2, 4 or 8 for a frame whose ground would
 ///     otherwise take more triangles than the frame may hold
-void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t step) {
+/// @param[out] tiles each tile key drawn, with its square
+/// @param crop the painted rectangle drawn: the frame's crop, or a moving
+///     camera's widened one (widened_crop)
+/// @param margin the pixels beyond the picture's edges drawn
+void draw_terrain(
+    const Inputs& in,
+    Scene& scene,
+    const TerrainPlan& plan,
+    int32_t step,
+    const FogCells& cells,
+    std::unordered_map<uint64_t, AtlasRect>& tiles,
+    const TerrainCrop& crop,
+    float margin
+) {
     const auto& map = *in.map;
-    const auto crop = terrain_crop(in);
     const int32_t left = crop.left;
     const int32_t top = crop.top;
     const int32_t right = crop.right;
     const int32_t bottom = crop.bottom;
-    // Compare palette bytes once per pass and tile bytes once per visible key.
-    // The retained copies detect edits even when the same map object is reused.
-    if (scene.terrain_palette != *in.palette) {
-        scene.terrain_materials.clear();
-        scene.terrain_palette = *in.palette;
-        const auto entries = present::palette_from_bytes(*in.palette);
-        std::array<uint8_t, OA_PALETTE_COLORS> gray_levels{};
-        present::world_renderer::build_gray_levels(entries, gray_levels);
-        auto& grey_palette = scene.terrain_grey_palette;
-        grey_palette = *in.palette;
-        for (std::size_t index = 0; index < OA_PALETTE_COLORS; ++index) {
-            const auto& colour = entries.entries[index];
-            const auto level = (uint32_t(colour.r) + colour.g + colour.b) / 3;
-            const auto from = std::size_t(gray_levels[level]) * palette_entry_bytes;
-            std::copy_n(
-                in.palette->begin() + from,
-                palette_entry_bytes,
-                grey_palette.begin() + index * palette_entry_bytes
-            );
-        }
-    }
+    ++scene.terrain_passes;
     // Room for every tile of the largest map at least once in full and once
     // black, so that a wide view of one does not empty the cache each frame.
     constexpr std::size_t maximum_cached_tiles = 32768;
-    // A tile's texels are reused by all four height cells and every repeated tile.
-    std::unordered_map<uint64_t, AtlasRect> tiles;
+    // A tile's texels are reused by all four height cells and every repeated
+    // tile: tiles holds each key's square once it is found.
     const auto tile_material = [&](int32_t tile_x, int32_t tile_y) {
         const auto tile = map.tile_indices.at(
             static_cast<std::size_t>(tile_y / tile_edge) * map.tile_width + tile_x / tile_edge
         );
-        const auto fog = fog_at(in.sight, tile_x, tile_y) == Fog::black ? Fog::black : Fog::seen;
+        const auto fog = cells.at(tile_x, tile_y) == Fog::black ? Fog::black : Fog::seen;
         const uint64_t key = static_cast<uint64_t>(tile) * 3 + static_cast<uint64_t>(fog);
         auto found = tiles.find(key);
         if (found == tiles.end()) {
@@ -750,22 +1478,28 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
             const auto pixels = std::span(map.tile_palette_indices)
                                     .subspan(start, formats::tnt::layout::tile_bytes);
             // A tile packed larger in an earlier frame keeps its detail.
-            const uint32_t square = plan.square(key);
             auto cached = scene.terrain_materials.find(key);
             if (cached == scene.terrain_materials.end() ||
-                cached->second.rectangle.width < square ||
+                cached->second.rectangle.width < plan.least(key) ||
                 std::memcmp(cached->second.pixels.data(), pixels.data(), pixels.size()) != 0) {
+                // The square it leaves is given back: nothing this pass has
+                // drawn samples it, and the kept ground is drawn again.
+                if (cached != scene.terrain_materials.end() && !scene.ground_kept) {
+                    give_back_terrain_square(scene, cached->second.rectangle);
+                    scene.terrain_materials.erase(cached);
+                }
                 const auto rectangle = terrain_material(
-                    scene, *in.palette, scene.terrain_grey_palette, pixels, fog, square
+                    scene, *in.palette, scene.terrain_grey_palette, pixels, fog, plan.packed(key)
                 );
-                if (scene.terrain_materials.size() >= maximum_cached_tiles)
-                    scene.terrain_materials.clear();
+                if (scene.terrain_materials.size() >= maximum_cached_tiles && !scene.ground_kept)
+                    drop_terrain_materials(scene, scene.terrain_passes);
                 scene.aircraft_shadow_materials.clear();
                 auto& entry = scene.terrain_materials[key];
                 std::copy(pixels.begin(), pixels.end(), entry.pixels.begin());
                 entry.rectangle = rectangle;
                 cached = scene.terrain_materials.find(key);
             }
+            cached->second.drawn = scene.terrain_passes;
             found = tiles.emplace(key, cached->second.rectangle).first;
         }
         return found->second;
@@ -826,7 +1560,8 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
                     vertex.terrain_x = static_cast<float>(rect.x);
                     vertex.terrain_y = static_cast<float>(rect.y);
                     vertex.terrain_size = static_cast<float>(rect.width / 2);
-                    const auto ground = fog_of_ground(in, point.x, point.y, point.brightness);
+                    const auto ground =
+                        fog_of_ground(cells, cells.dithered, point.x, point.y, point.brightness);
                     vertex.terrain_known = ground.known;
                     vertex.terrain_grey = ground.grey;
                 }
@@ -870,13 +1605,25 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
                 static_cast<float>(y),
                 0,
                 0,
-                brightness_at(in.sight, float(x), y - h * height_lift)
+                brightness_at(cells, float(x), y - h * height_lift)
             };
         };
         for (int32_t y = top / edge * edge; y < bottom; y += edge)
             for (int32_t x = left / edge * edge; x < right; x += edge) {
                 const int32_t far_x = std::min(x + edge, map_width);
                 const int32_t far_y = std::min(y + edge, map_height);
+                const std::array heights{
+                    height_at(map, x, y),
+                    height_at(map, far_x, y),
+                    height_at(map, far_x, far_y),
+                    height_at(map, x, far_y),
+                    height_at(map, (x + far_x) / 2, (y + far_y) / 2)
+                };
+                const auto [low, high] = std::minmax_element(heights.begin(), heights.end());
+                if (ground_off_screen(
+                        in, float(x), float(y), float(far_x), float(far_y), *low, *high, margin
+                    ))
+                    continue;
                 const std::array corners{
                     ground(x, y), ground(far_x, y), ground(far_x, far_y), ground(x, far_y)
                 };
@@ -912,15 +1659,28 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
         if (!corner_samples.empty() && corner_samples[index][1] >= 0)
             return corner_samples[index];
         const float height = height_at(map, x, y);
-        const std::array result{
-            height, brightness_at(in.sight, float(x), y - height * height_lift)
-        };
+        const std::array result{height, brightness_at(cells, float(x), y - height * height_lift)};
         if (!corner_samples.empty())
             corner_samples[index] = result;
         return result;
     };
     const bool distant =
         std::isfinite(in.detail_scale) && in.detail_scale > 0 && in.detail_scale < 1;
+    // Whether the square of ground at x, y, edge pixels a side, lies wholly
+    // beyond the picture, by the heights at every height sample in it.
+    const auto square_off_screen = [&](int32_t x, int32_t y, int32_t edge) {
+        float low = std::numeric_limits<float>::infinity();
+        float high = -low;
+        for (int32_t dy = 0; dy <= edge; dy += cell_edge)
+            for (int32_t dx = 0; dx <= edge; dx += cell_edge) {
+                const float height = height_at(map, x + dx, y + dy);
+                low = std::min(low, height);
+                high = std::max(high, height);
+            }
+        return ground_off_screen(
+            in, float(x), float(y), float(x + edge), float(y + edge), low, high, margin
+        );
+    };
     std::vector<bool> merged_columns(static_cast<std::size_t>(columns));
     for (int32_t y = top; y < bottom; y += cell_edge) {
         if (y % tile_edge == 0)
@@ -939,6 +1699,10 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
             // Keep every original cell wherever relief or fog changes within it.
             if (distant && x % tile_edge == 0 && y % tile_edge == 0 && x + tile_edge <= right &&
                 y + tile_edge <= bottom) {
+                // A tile wholly beyond the picture is left out, merged or
+                // not: each of its cells is then left out in turn.
+                if (square_off_screen(x, y, tile_edge))
+                    continue;
                 const auto a = sample(x, y), b = sample(x + tile_edge, y);
                 const auto c = sample(x + tile_edge, y + tile_edge), d = sample(x, y + tile_edge);
                 bool planar = !twisted_cell(a[0], b[0], c[0], d[0]);
@@ -965,6 +1729,8 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
                     continue;
                 }
             }
+            if (square_off_screen(x, y, cell_edge))
+                continue;
             const std::array corners{
                 vertex(0, 0),
                 vertex(cell_edge, 0),
@@ -987,7 +1753,7 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
                     middle_y,
                     0,
                     0,
-                    brightness_at(in.sight, middle_x, middle_y - h * height_lift)
+                    brightness_at(cells, middle_x, middle_y - h * height_lift)
                 };
             }
             const auto [minimum, maximum] = std::minmax_element(
@@ -1029,7 +1795,7 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
                         blend(a.v, b.v, c.v)
                     };
                     result.brightness =
-                        brightness_at(in.sight, result.x, result.z - result.height * height_lift);
+                        brightness_at(cells, result.x, result.z - result.height * height_lift);
                     return result;
                 };
                 constexpr int32_t row_stride = maximum_divisions + 1;
@@ -1066,6 +1832,100 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
         }
     }
     scene.terrain_vertex_count = scene.vertices.size();
+}
+
+/// Emits the frame's ground (draw_terrain), or the kept ground again when
+/// it was drawn from the same, covers the frame's picture and its tiles
+/// keep their squares. While the camera moves (TerrainPlan::holding) the
+/// ground is drawn beyond the picture by a margin and kept, so that the
+/// frames after it take it until their pictures move past the margin;
+/// otherwise it is kept once two frames running are drawn from the same,
+/// so that a recording's moving camera does not copy its ground every
+/// frame.
+///
+/// @param in the frame
+/// @param[in,out] scene the geometry, the atlas and the kept ground
+/// @param plan the square of each tile
+/// @param step the height cells a side of each drawn square of ground
+/// @param camera_still the frame has a picture, which the camera drew the
+///     last frame from too
+/// @param widen the ground may be drawn beyond the picture's margin
+void terrain(
+    const Inputs& in,
+    Scene& scene,
+    const TerrainPlan& plan,
+    int32_t step,
+    bool camera_still,
+    bool widen
+) {
+    // Compare palette bytes once per pass and tile bytes once per visible key.
+    // The retained copies detect edits even when the same map object is reused.
+    if (scene.terrain_palette != *in.palette) {
+        // No tile keeps its square, so the kept ground is drawn again.
+        scene.ground_kept = false;
+        drop_terrain_materials(scene, std::numeric_limits<uint64_t>::max());
+        scene.terrain_palette = *in.palette;
+        const auto entries = present::palette_from_bytes(*in.palette);
+        std::array<uint8_t, OA_PALETTE_COLORS> gray_levels{};
+        present::world_renderer::build_gray_levels(entries, gray_levels);
+        auto& grey_palette = scene.terrain_grey_palette;
+        grey_palette = *in.palette;
+        for (std::size_t index = 0; index < OA_PALETTE_COLORS; ++index) {
+            const auto& colour = entries.entries[index];
+            const auto level = (uint32_t(colour.r) + colour.g + colour.b) / 3;
+            const auto from = std::size_t(gray_levels[level]) * palette_entry_bytes;
+            std::copy_n(
+                in.palette->begin() + from,
+                palette_entry_bytes,
+                grey_palette.begin() + index * palette_entry_bytes
+            );
+        }
+    }
+    auto& source = scene.ground_source;
+    const auto crop = terrain_crop(in);
+    const bool same_source = note_ground_source(source, in, scene, step);
+    const bool same_picture = ground_covers(source, in, crop);
+    // A settled camera's ground reaches no further than its picture's.
+    if (same_source && same_picture && scene.ground_kept && ground_tiles_hold(in, scene, plan) &&
+        (source.picture_margin == 0 || (plan.holding && widen))) {
+        scene.vertices.assign(scene.ground_vertices.begin(), scene.ground_vertices.end());
+        scene.terrain_vertex_count = scene.vertices.size();
+        scene.ground_revision = scene.kept_ground_revision;
+        return;
+    }
+    scene.ground_kept = false;
+    scene.ground_revision = new_ground_revision();
+    // A moving camera's ground reaches beyond the picture for the frames
+    // after it.
+    float margin = 0;
+    std::optional<TerrainCrop> widened;
+    if (plan.holding && widen && in.clip_width != 0 && in.clip_height != 0) {
+        margin = static_cast<float>(std::max(in.clip_width, in.clip_height)) *
+                 moving_ground_margin_share;
+        widened = widened_crop(in, margin);
+    }
+    if (!widened)
+        margin = 0;
+    const auto drawn = widened.value_or(crop);
+    // Was the ground last drawn for this very picture?
+    const bool drawn_before = margin == 0 && source.picture_margin == 0 && same_picture;
+    source.crop = {drawn.left, drawn.top, drawn.right, drawn.bottom};
+    source.clip_projection = in.clip_projection;
+    source.clip_width = in.clip_width;
+    source.clip_height = in.clip_height;
+    source.picture_margin = margin;
+    // The fog of each sight cell, as note_ground_source has just read it.
+    const FogCells cells{
+        source.fog, source.sight_width, source.sight_height, source.mapping, source.dithered
+    };
+    std::unordered_map<uint64_t, AtlasRect> tiles;
+    draw_terrain(in, scene, plan, step, cells, tiles, drawn, screen_ground_margin + margin);
+    if (margin != 0 || (same_source && (drawn_before || camera_still))) {
+        scene.ground_vertices.assign(scene.vertices.begin(), scene.vertices.end());
+        scene.ground_tiles.assign(tiles.begin(), tiles.end());
+        scene.ground_kept = true;
+        scene.kept_ground_revision = scene.ground_revision;
+    }
 }
 
 /// Drapes a cutout over the exact terrain triangles, preserving its painted footprint.
@@ -1375,34 +2235,18 @@ void unit_shadows(const Inputs& in, Scene& scene) {
         if (aircraft && image.width <= 256 && image.height <= 256) {
             const uint32_t radius = renderer_aircraft_shadow::edge_radius(altitude);
             uint64_t key = hash_start;
-            const auto hash = [&](uint64_t value) { key = (key ^ value) * hash_multiplier; };
-            hash(image.width);
-            hash(image.height);
-            hash(radius);
-            for (const auto value : coverage)
-                hash(value);
+            key = mix_word(key, image.width);
+            key = mix_word(key, image.height);
+            key = mix_word(key, radius);
+            key = mix_bytes(key, coverage);
             auto cached = scene.aircraft_shadow_materials.find(key);
             if (cached == scene.aircraft_shadow_materials.end()) {
                 auto alpha =
                     renderer_aircraft_shadow::soften(coverage, image.width, image.height, radius);
                 const uint32_t width = image.width + radius * 4;
                 const uint32_t height = image.height + radius * 4;
-                std::vector<uint8_t> black(alpha.size());
-                const auto rectangle = material(
-                    scene,
-                    *in.palette,
-                    width,
-                    height,
-                    black,
-                    alpha,
-                    -1,
-                    Fog::black,
-                    false,
-                    FlashStrength::full,
-                    true
-                );
-                if (scene.aircraft_shadow_materials.size() >= 256)
-                    scene.aircraft_shadow_materials.clear();
+                const auto rectangle =
+                    frame_material(scene, *in.palette, width, height, alpha, true);
                 cached = scene.aircraft_shadow_materials.emplace(key, rectangle).first;
             }
             const float padding = static_cast<float>(radius) * 2.0F;
@@ -1412,9 +2256,8 @@ void unit_shadows(const Inputs& in, Scene& scene) {
                 position.z / fixed_scale - receiver * height_lift - (image.origin_y + padding);
             decal(in, scene, cached->second, left, top, opacity, true, nullptr, 1, true, true);
         } else {
-            const auto rect = material(
-                scene, *in.palette, image.width, image.height, pixels, coverage, -1, Fog::black
-            );
+            const auto rect =
+                frame_material(scene, *in.palette, image.width, image.height, coverage, false);
             decal(in, scene, rect, shadow_x, shadow_y, opacity, true);
         }
         ++scene.shadow_count;
@@ -1422,11 +2265,23 @@ void unit_shadows(const Inputs& in, Scene& scene) {
 }
 
 /// Splits ground geometry at a world map coordinate, retaining its material and fog.
-std::vector<Vertex>
-clip_foundation(std::span<const Vertex> source, bool horizontal, float edge, bool greater) {
-    std::vector<Vertex> result;
+///
+/// @param source a convex piece of ground
+/// @param horizontal split at a map column, rather than a world row
+/// @param edge the column or row
+/// @param greater keep the side at or past the edge, rather than before it
+/// @param[out] result the piece's side of the edge, emptied first, and left
+///     empty when it has no area; its storage is reused
+void clip_foundation(
+    std::span<const Vertex> source,
+    bool horizontal,
+    float edge,
+    bool greater,
+    std::vector<Vertex>& result
+) {
+    result.clear();
     if (source.empty())
-        return result;
+        return;
     const auto coordinate = [horizontal](const Vertex& vertex) {
         return horizontal ? vertex.x : vertex.z;
     };
@@ -1468,7 +2323,6 @@ clip_foundation(std::span<const Vertex> source, bool horizontal, float edge, boo
     }
     if (std::abs(area) < 0.000001)
         result.clear();
-    return result;
 }
 
 /// How far below a structure's height, in map pixels, the ground under it
@@ -1555,14 +2409,14 @@ BasePiece base_piece(const ModelDraw& draw, float x, float z) {
 /// that no part of the base is hidden at any angle; it rises back to the
 /// terrain over one cell around. Ground decals share the split geometry and
 /// keep their small lift above the levelled ground.
+///
+/// The kept ground is cut once for each set of plots: a frame that takes
+/// it, with the plots the frame before cut into it, takes that cut ground
+/// and its revision, and cuts only its decals.
 void foundations(const Inputs& in, Scene& scene) {
     constexpr float blend_width = cell_edge;
     constexpr float ground_separation = 0.1F;
     constexpr float decal_lift = 0.05F;
-
-    struct Foundation {
-        float left{}, right{}, top{}, bottom{}, height{};
-    };
 
     std::vector<Foundation> plots;
     for (const auto& draw : in.draws->models) {
@@ -1672,11 +2526,38 @@ void foundations(const Inputs& in, Scene& scene) {
         plot_bottom = std::max(plot_bottom, plot.bottom + blend_width);
     }
     std::vector<std::array<std::size_t, 2>> affected_ranges;
-    scene.foundation_vertices.swap(scene.vertices);
+    const auto source = scene.ground_revision;
+    const bool kept = scene.ground_kept && source == scene.kept_ground_revision;
+    const bool cut_before = kept && scene.cut_source == source && scene.cut_plots == plots;
+    auto terrain_end = scene.terrain_vertex_count;
+    if (cut_before) {
+        // Only the decals after the ground are cut.
+        scene.foundation_vertices.assign(
+            scene.vertices.begin() + static_cast<std::ptrdiff_t>(terrain_end), scene.vertices.end()
+        );
+        scene.vertices.assign(scene.cut_ground.begin(), scene.cut_ground.end());
+        scene.terrain_vertex_count = scene.vertices.size();
+        scene.ground_revision = scene.cut_revision;
+        terrain_end = 0;
+    } else {
+        scene.foundation_vertices.swap(scene.vertices);
+        scene.vertices.clear();
+        scene.vertices.reserve(scene.foundation_vertices.size());
+    }
     const auto& previous = scene.foundation_vertices;
-    scene.vertices.clear();
-    scene.vertices.reserve(previous.size());
-    const auto terrain_end = scene.terrain_vertex_count;
+    bool ground_cut{};
+    // The pieces of the triangle being cut, and those of its next split:
+    // each piece's storage is kept from split to split and from triangle to
+    // triangle, so that cutting allocates almost nothing.
+    std::vector<std::vector<Vertex>> pieces;
+    std::vector<std::vector<Vertex>> split;
+    std::size_t piece_count{};
+    std::size_t split_count{};
+    const auto next_split = [&split, &split_count]() -> std::vector<Vertex>& {
+        if (split_count == split.size())
+            split.emplace_back();
+        return split[split_count++];
+    };
     std::size_t pending_begin{};
     // Most geometry lies outside foundations. Copy each untouched run once,
     // retaining the precise terrain/decal boundary even when the run crosses it.
@@ -1706,7 +2587,7 @@ void foundations(const Inputs& in, Scene& scene) {
             min_y >= plot_bottom) {
             continue;
         }
-        std::vector<std::vector<Vertex>> pieces;
+        piece_count = 0;
         bool affected{};
         for (const auto plot_index : nearby(min_x, max_x, min_y, max_y)) {
             const auto& [left, right, top, bottom, height] = plots[plot_index];
@@ -1714,14 +2595,19 @@ void foundations(const Inputs& in, Scene& scene) {
                 max_y <= top - blend_width || min_y >= bottom + blend_width)
                 continue;
             affected = true;
-            if (pieces.empty())
-                pieces.emplace_back(triangle.begin(), triangle.end());
+            if (piece_count == 0) {
+                if (pieces.empty())
+                    pieces.emplace_back();
+                pieces.front().assign(triangle.begin(), triangle.end());
+                piece_count = 1;
+            }
             for (const bool horizontal : {true, false}) {
                 const float low = horizontal ? left : top;
                 const float high = horizontal ? right : bottom;
                 for (const float edge : {low - blend_width, low, high, high + blend_width}) {
-                    std::vector<std::vector<Vertex>> split;
-                    for (auto& piece : pieces) {
+                    split_count = 0;
+                    for (std::size_t index = 0; index < piece_count; ++index) {
+                        auto& piece = pieces[index];
                         float minimum = std::numeric_limits<float>::infinity();
                         float maximum = -minimum;
                         double area{};
@@ -1737,29 +2623,31 @@ void foundations(const Inputs& in, Scene& scene) {
                             // Neither half needs new vertices. Keep the same area
                             // rejection as clipping, including degenerate borders.
                             if (std::abs(area) >= 0.000001)
-                                split.push_back(std::move(piece));
+                                std::swap(next_split(), piece);
                             continue;
                         }
-                        auto before = clip_foundation(piece, horizontal, edge, false);
-                        auto after = clip_foundation(piece, horizontal, edge, true);
-                        if (before.size() >= 3)
-                            split.push_back(std::move(before));
-                        if (after.size() >= 3)
-                            split.push_back(std::move(after));
+                        for (const bool greater : {false, true}) {
+                            auto& side = next_split();
+                            clip_foundation(piece, horizontal, edge, greater, side);
+                            if (side.size() < 3)
+                                --split_count;
+                        }
                     }
-                    pieces = std::move(split);
+                    std::swap(pieces, split);
+                    piece_count = split_count;
                 }
             }
         }
         if (!affected)
             continue;
+        ground_cut |= first < terrain_end;
         copy_pending(first);
         const auto output_begin = scene.vertices.size();
-        if (pieces.empty())
+        if (piece_count == 0)
             polygon(scene, triangle);
         else
-            for (const auto& piece : pieces)
-                polygon(scene, piece);
+            for (std::size_t index = 0; index < piece_count; ++index)
+                polygon(scene, pieces[index]);
         if (affected) {
             if (!affected_ranges.empty() && affected_ranges.back()[1] == output_begin)
                 affected_ranges.back()[1] = scene.vertices.size();
@@ -1771,6 +2659,9 @@ void foundations(const Inputs& in, Scene& scene) {
             scene.terrain_vertex_count = scene.vertices.size();
     }
     copy_pending(previous.size());
+    // A plot cut into the ground makes it new.
+    if (ground_cut)
+        scene.ground_revision = new_ground_revision();
     // Blend once from the original terrain. An interior always wins over a
     // neighbouring skirt; tied skirts choose a stable height, not draw order.
     std::span<const std::size_t> candidates;
@@ -1829,6 +2720,15 @@ void foundations(const Inputs& in, Scene& scene) {
                 target += decal_lift;
             vertex.height = std::lerp(vertex.height, target, strongest);
         }
+    if (kept && !cut_before) {
+        scene.cut_ground.assign(
+            scene.vertices.begin(),
+            scene.vertices.begin() + static_cast<std::ptrdiff_t>(scene.terrain_vertex_count)
+        );
+        scene.cut_plots = std::move(plots);
+        scene.cut_source = source;
+        scene.cut_revision = scene.ground_revision;
+    }
 }
 
 /// Rejects the back of a model face, including opposite faces sharing one plane.
@@ -2645,27 +3545,342 @@ void particles(const Inputs& in, Scene& scene) {
     }
 }
 
+/// The frame's ground triangles listed by place along two axes of the
+/// ground plane, so that a query of a point or of an area tests only the
+/// triangles that may reach it rather than every triangle of the ground.
+/// Each triangle is listed once, in the square bucket holding its least
+/// place along both axes, and a query looks as many buckets before its area
+/// as a listed triangle reaches past its own. The few triangles that reach
+/// further are tested by every query instead, so that one stray triangle
+/// cannot widen them all. Listed once foundations has cut the ground, it
+/// stays true while the frame adds its other geometry after the ground.
+class GroundIndex {
+  public:
+
+    /// Two axes of the ground plane: a world point x, z lies at
+    /// axes[0] * x + axes[1] * z along the first and axes[2] * x + axes[3] * z
+    /// along the second.
+    using Axes = std::array<double, 4>;
+
+    /// Lists the ground's triangles by their bounds.
+    ///
+    /// @param axes the axes the bounds lie along
+    /// @param[in,out] memory the index's memory, holding each triangle's
+    ///        bounds along the axes in drawing order
+    /// @param reach the greatest distance of a ground vertex from the world's
+    ///        origin along x or z, in map pixels
+    GroundIndex(const Axes& axes, GroundIndexMemory& memory, double reach)
+        : axes_(axes), memory_(&memory), reach_(reach) {
+        const auto& bounds = memory.bounds;
+        for (const auto& bound : bounds) {
+            low_[0] = std::min(low_[0], double{bound[0]});
+            high_[0] = std::max(high_[0], double{bound[1]});
+            low_[1] = std::min(low_[1], double{bound[2]});
+            high_[1] = std::max(high_[1], double{bound[3]});
+        }
+        auto& oversized = memory.oversized;
+        oversized.clear();
+        if (bounds.empty())
+            return;
+        const auto count = [&](std::size_t axis) {
+            return std::floor((high_[axis] - low_[axis]) / edge_) + 1;
+        };
+        while (count(0) * count(1) > static_cast<double>(maximum_buckets))
+            edge_ *= 2;
+        inverse_edge_ = 1 / edge_;
+        columns_ = static_cast<std::size_t>(count(0));
+        rows_ = static_cast<std::size_t>(count(1));
+        auto& listed = memory.buckets;
+        auto& starts = memory.starts;
+        auto& triangles = memory.triangles;
+        listed.resize(bounds.size());
+        // The triangles by the most buckets they reach past their own along
+        // either axis; the last count holds those reaching further still.
+        std::array<std::size_t, listed_reach_limit + 2> reaches{};
+        const auto further = [](uint16_t last, uint16_t first) {
+            return static_cast<uint8_t>(std::min(last - first, 255));
+        };
+        for (std::size_t triangle = 0; triangle < bounds.size(); ++triangle) {
+            const auto& bound = bounds[triangle];
+            const uint16_t column = bucket(bound[0], 0, columns_);
+            const uint16_t row = bucket(bound[2], 1, rows_);
+            const auto& entry = listed[triangle] = {
+                static_cast<uint16_t>(row * columns_ + column),
+                further(bucket(bound[1], 0, columns_), column),
+                further(bucket(bound[3], 1, rows_), row)
+            };
+            ++reaches[std::min<std::size_t>(
+                std::max(entry.columns, entry.rows), listed_reach_limit + 1
+            )];
+        }
+        // The least reach a listed triangle may have that leaves few enough
+        // for every query to test.
+        std::size_t reach_limit{};
+        std::size_t reaching_further = bounds.size() - reaches[0];
+        while (reach_limit < listed_reach_limit && reaching_further > oversized_limit)
+            reaching_further -= reaches[++reach_limit];
+        starts.assign(columns_ * rows_ + 1, 0);
+        for (std::size_t triangle = 0; triangle < bounds.size(); ++triangle) {
+            const auto& entry = listed[triangle];
+            if (std::max(entry.columns, entry.rows) > reach_limit) {
+                oversized.push_back(static_cast<uint32_t>(triangle));
+                continue;
+            }
+            listed_reach_[0] = std::max<std::size_t>(listed_reach_[0], entry.columns);
+            listed_reach_[1] = std::max<std::size_t>(listed_reach_[1], entry.rows);
+            ++starts[entry.bucket + 1];
+        }
+        for (std::size_t index = 1; index < starts.size(); ++index)
+            starts[index] += starts[index - 1];
+        triangles.resize(starts.back());
+        // Each bucket's start moves on as it is filled, to the next one's.
+        for (std::size_t triangle = 0; triangle < bounds.size(); ++triangle) {
+            const auto& entry = listed[triangle];
+            if (std::max(entry.columns, entry.rows) <= reach_limit)
+                triangles[starts[entry.bucket]++] = static_cast<uint32_t>(triangle);
+        }
+        for (std::size_t index = starts.size() - 1; index > 0; --index)
+            starts[index] = starts[index - 1];
+        starts[0] = 0;
+    }
+
+    /// @return the axes the triangles are listed along
+    [[nodiscard]] const Axes& axes() const { return axes_; }
+
+    /// @return the greatest distance of a ground vertex from the world's
+    ///         origin along x or z, in map pixels
+    [[nodiscard]] double reach() const { return reach_; }
+
+    /// Places a world point on the axes.
+    ///
+    /// @param x the point's world x, in map pixels
+    /// @param z its world z, in map pixels
+    /// @return its place along the first axis and along the second
+    [[nodiscard]] std::array<double, 2> along(double x, double z) const {
+        return {axes_[0] * x + axes_[1] * z, axes_[2] * x + axes_[3] * z};
+    }
+
+    /// Calls visit with the first vertex of each triangle whose bounds along
+    /// the axes overlap an area, once each and in no set order.
+    ///
+    /// @param first_low the area's least place along the first axis
+    /// @param first_high its greatest place along the first axis
+    /// @param second_low its least place along the second axis
+    /// @param second_high its greatest place along the second axis
+    /// @param visit called with the index of a triangle's first vertex
+    template <typename Visit>
+    void visit(
+        double first_low, double first_high, double second_low, double second_high, Visit&& visit
+    ) const {
+        if (columns_ == 0 || !(first_high >= low_[0] && first_low <= high_[0] &&
+                               second_high >= low_[1] && second_low <= high_[1]))
+            return;
+        // A triangle whose bounds overlap the area ends in a bucket at or
+        // after the area's first, as a larger place is never in an earlier
+        // bucket, and is listed at most its reach before that, at or before
+        // the area's last.
+        const std::size_t low_column = bucket(first_low, 0, columns_);
+        const std::size_t low_row = bucket(second_low, 1, rows_);
+        const std::size_t first_column = low_column - std::min(low_column, listed_reach_[0]);
+        const std::size_t first_row = low_row - std::min(low_row, listed_reach_[1]);
+        const std::size_t last_column = bucket(first_high, 0, columns_);
+        const std::size_t last_row = bucket(second_high, 1, rows_);
+        const auto& bounds = memory_->bounds;
+        const auto overlapping = [&](uint32_t triangle) {
+            const auto& bound = bounds[triangle];
+            if (bound[1] >= first_low && bound[0] <= first_high && bound[3] >= second_low &&
+                bound[2] <= second_high)
+                visit(std::size_t{triangle} * 3);
+        };
+        const auto& starts = memory_->starts;
+        const auto& triangles = memory_->triangles;
+        for (std::size_t row = first_row; row <= last_row; ++row) {
+            const std::size_t row_start = row * columns_;
+            for (std::size_t entry = starts[row_start + first_column];
+                 entry < starts[row_start + last_column + 1];
+                 ++entry)
+                overlapping(triangles[entry]);
+        }
+        for (const uint32_t triangle : memory_->oversized)
+            overlapping(triangle);
+    }
+
+  private:
+
+    /// The buckets' edge to begin with, along either axis.
+    static constexpr double first_edge = 32;
+    /// The most buckets an index holds; a wider ground takes larger ones.
+    static constexpr std::size_t maximum_buckets = std::size_t{1} << 16;
+    /// The most buckets past its own a listed triangle may reach.
+    static constexpr std::size_t listed_reach_limit = 15;
+    /// The most triangles every query tests rather than listing them, unless
+    /// more reach past listed_reach_limit.
+    static constexpr std::size_t oversized_limit = 32;
+
+    /// Finds the bucket that holds a place, never one before a smaller place's.
+    ///
+    /// @param place a place along an axis
+    /// @param axis 0 for the first axis, 1 for the second
+    /// @param count the buckets along that axis
+    /// @return the bucket holding the place, or the nearest end one
+    [[nodiscard]] uint16_t bucket(double place, std::size_t axis, std::size_t count) const {
+        const double offset = (place - low_[axis]) * inverse_edge_;
+        if (!(offset > 0))
+            return 0;
+        const double last = static_cast<double>(count - 1);
+        return static_cast<uint16_t>(offset < last ? offset : last);
+    }
+
+    Axes axes_{};
+    GroundIndexMemory* memory_{};
+    double reach_{};
+    std::array<double, 2> low_{
+        std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()
+    };
+    std::array<double, 2> high_{
+        -std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()
+    };
+    double edge_{first_edge};
+    double inverse_edge_{1 / first_edge};
+    std::size_t columns_{};
+    std::size_t rows_{};
+    /// The most buckets past its own a listed triangle reaches along the
+    /// first axis and along the second. Buckets are counted row by row, and
+    /// each bucket's triangles are listed in drawing order, a triangle
+    /// numbering its first vertex divided by three.
+    std::array<std::size_t, 2> listed_reach_{};
+};
+
+/// The ground indices of a sprite pass, listed together when first needed.
+struct GroundIndices {
+    bool listed{}; ///< list_ground has run for the pass
+    /// The axes card lists along: the camera-facing cards' across and above.
+    GroundIndex::Axes card_axes{};
+    /// The triangles along world x and z; none when a ground vertex lies
+    /// nowhere finite, and a query then tests every triangle itself.
+    std::optional<GroundIndex> world{};
+    /// The triangles along the cards' axes; none as for world, or when the
+    /// cards have no axes.
+    std::optional<GroundIndex> card{};
+};
+
+/// Lists the frame's ground triangles along world x and z and along the
+/// cards' axes, reading each ground vertex once.
+///
+/// @param[in,out] scene the frame, its ground cut by foundations; the lists
+///        are kept in its ground_index_memory
+/// @param card_axes the cards' across and above, or none when they have none
+/// @param[out] indices the pass's ground indices, listed afresh
+void list_ground(Scene& scene, const GroundIndex::Axes* card_axes, GroundIndices& indices) {
+    indices.listed = true;
+    indices.world.reset();
+    indices.card.reset();
+    if (card_axes != nullptr)
+        indices.card_axes = *card_axes;
+    const std::size_t triangles = scene.terrain_vertex_count / 3;
+    auto& world_bounds = scene.ground_index_memory[0].bounds;
+    auto& card_bounds = scene.ground_index_memory[1].bounds;
+    world_bounds.resize(triangles);
+    card_bounds.resize(card_axes != nullptr ? triangles : 0);
+    constexpr float none = std::numeric_limits<float>::infinity();
+    double reach{};
+    for (std::size_t triangle = 0; triangle < triangles; ++triangle) {
+        std::array<float, 4> world{none, -none, none, -none};
+        std::array<double, 4> card{none, -none, none, -none};
+        for (std::size_t corner = 0; corner < 3; ++corner) {
+            const auto& vertex = scene.vertices[triangle * 3 + corner];
+            if (!std::isfinite(vertex.x) || !std::isfinite(vertex.z) ||
+                !std::isfinite(vertex.height))
+                return;
+            world = {
+                std::min(world[0], vertex.x),
+                std::max(world[1], vertex.x),
+                std::min(world[2], vertex.z),
+                std::max(world[3], vertex.z)
+            };
+            if (card_axes != nullptr) {
+                const auto& axes = *card_axes;
+                const double across = axes[0] * vertex.x + axes[1] * vertex.z;
+                const double above = axes[2] * vertex.x + axes[3] * vertex.z;
+                card = {
+                    std::min(card[0], across),
+                    std::max(card[1], across),
+                    std::min(card[2], above),
+                    std::max(card[3], above)
+                };
+            }
+        }
+        reach = std::max(
+            {reach,
+             std::abs(double{world[0]}),
+             std::abs(double{world[1]}),
+             std::abs(double{world[2]}),
+             std::abs(double{world[3]})}
+        );
+        world_bounds[triangle] = world;
+        if (card_axes != nullptr)
+            card_bounds[triangle] = {
+                static_cast<float>(card[0]),
+                static_cast<float>(card[1]),
+                static_cast<float>(card[2]),
+                static_cast<float>(card[3])
+            };
+    }
+    indices.world.emplace(GroundIndex::Axes{1, 0, 0, 1}, scene.ground_index_memory[0], reach);
+    if (card_axes != nullptr)
+        indices.card.emplace(*card_axes, scene.ground_index_memory[1], reach);
+}
+
+/// Finds the rendered ground's height on one triangle below a world point.
+///
+/// @param scene the frame
+/// @param first the index of the triangle's first vertex
+/// @param x the point's world x, in map pixels
+/// @param z its world z, in map pixels
+/// @return the height there, or nothing when the triangle does not hold the point
+std::optional<float> ground_on_triangle(const Scene& scene, std::size_t first, float x, float z) {
+    const auto& a = scene.vertices[first];
+    const auto& b = scene.vertices[first + 1];
+    const auto& c = scene.vertices[first + 2];
+    if (x < std::min({a.x, b.x, c.x}) || x > std::max({a.x, b.x, c.x}) ||
+        z < std::min({a.z, b.z, c.z}) || z > std::max({a.z, b.z, c.z}))
+        return std::nullopt;
+    const float determinant = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+    if (std::abs(determinant) < 0.000001F)
+        return std::nullopt;
+    const float u = ((b.z - c.z) * (x - c.x) + (c.x - b.x) * (z - c.z)) / determinant;
+    const float v = ((c.z - a.z) * (x - c.x) + (a.x - c.x) * (z - c.z)) / determinant;
+    constexpr float edge_tolerance = 0.00001F;
+    if (u < -edge_tolerance || v < -edge_tolerance || u + v > 1 + edge_tolerance)
+        return std::nullopt;
+    return u * a.height + v * b.height + (1 - u - v) * c.height;
+}
+
 /// Finds the rendered ground, including leveled foundations, below a world point.
-std::optional<float> rendered_ground(const Scene& scene, float x, float z) {
+///
+/// The highest triangle holding the point gives it, whatever order they are
+/// tested in.
+///
+/// @param scene the frame
+/// @param indices the pass's ground indices, listed
+/// @param x the point's world x, in map pixels
+/// @param z its world z, in map pixels
+/// @return the ground's height there, or nothing off the ground
+std::optional<float> rendered_ground(const Scene& scene, GroundIndices& indices, float x, float z) {
     std::optional<float> result;
-    for (std::size_t i = 0; i + 2 < scene.terrain_vertex_count; i += 3) {
-        const auto& a = scene.vertices[i];
-        const auto& b = scene.vertices[i + 1];
-        const auto& c = scene.vertices[i + 2];
-        if (x < std::min({a.x, b.x, c.x}) || x > std::max({a.x, b.x, c.x}) ||
-            z < std::min({a.z, b.z, c.z}) || z > std::max({a.z, b.z, c.z}))
-            continue;
-        const float determinant = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
-        if (std::abs(determinant) < 0.000001F)
-            continue;
-        const float u = ((b.z - c.z) * (x - c.x) + (c.x - b.x) * (z - c.z)) / determinant;
-        const float v = ((c.z - a.z) * (x - c.x) + (a.x - c.x) * (z - c.z)) / determinant;
-        constexpr float edge_tolerance = 0.00001F;
-        if (u < -edge_tolerance || v < -edge_tolerance || u + v > 1 + edge_tolerance)
-            continue;
-        const float height = u * a.height + v * b.height + (1 - u - v) * c.height;
-        if (!result || height > *result)
+    const auto test = [&](std::size_t first) {
+        const auto height = ground_on_triangle(scene, first, x, z);
+        if (height && (!result || *height > *result))
             result = height;
+    };
+    if (indices.world && std::isfinite(x) && std::isfinite(z)) {
+        // A triangle holds the point only when its bounds, its corners'
+        // least and greatest x and z, hold it.
+        const auto place = indices.world->along(x, z);
+        indices.world->visit(place[0], place[0], place[1], place[1], test);
+    } else {
+        for (std::size_t first = 0; first + 2 < scene.terrain_vertex_count; first += 3)
+            test(first);
     }
     return result;
 }
@@ -2673,7 +3888,8 @@ std::optional<float> rendered_ground(const Scene& scene, float x, float z) {
 /// Keeps a near-ground explosion's covered card above every intersected terrain plane.
 /// The translation leaves its UVs and shape intact; airborne effects retain their altitude.
 float surface_effect_lift(
-    const Scene& scene,
+    Scene& scene,
+    GroundIndices& indices,
     const formats::gaf::RenderedFrame& frame,
     float x,
     float height,
@@ -2683,7 +3899,17 @@ float surface_effect_lift(
 ) {
     constexpr float ground_near_distance = 4;
     constexpr float clearance = 0.1F;
-    const auto ground = rendered_ground(scene, x, z);
+    const float determinant = right[0] * up[2] - right[2] * up[0];
+    const bool facing = std::abs(determinant) >= 0.000001F;
+    // The card's own axes: a ground vertex lies at its place along them less
+    // the card origin's, as the test below works it out.
+    const double inverse = 1.0 / static_cast<double>(determinant);
+    const GroundIndex::Axes axes{
+        up[2] * inverse, -up[0] * inverse, -right[2] * inverse, right[0] * inverse
+    };
+    if (!indices.listed || (facing && indices.card_axes != axes))
+        list_ground(scene, facing ? &axes : nullptr, indices);
+    const auto ground = rendered_ground(scene, indices, x, z);
     if (!ground || height > *ground + ground_near_distance)
         return 0;
     int32_t left = frame.width, top = frame.height, right_pixel{}, bottom{};
@@ -2707,36 +3933,64 @@ float surface_effect_lift(
     const float max_across = static_cast<float>(right_pixel - frame.origin_x);
     const float min_above = static_cast<float>(frame.origin_y - bottom);
     const float max_above = static_cast<float>(frame.origin_y - top);
-    const float determinant = right[0] * up[2] - right[2] * up[0];
-    if (std::abs(determinant) < 0.000001F)
+    if (!facing)
         return 0;
     float lift{};
-    for (std::size_t i = 0; i + 2 < scene.terrain_vertex_count; i += 3) {
-        std::array<GroundPoint, 3> local{};
-        for (std::size_t corner = 0; corner < local.size(); ++corner) {
-            const auto& vertex = scene.vertices[i + corner];
+    const auto test = [&](std::size_t first) {
+        GroundPolygon local{};
+        local.count = 3;
+        for (std::size_t corner = 0; corner < local.count; ++corner) {
+            const auto& vertex = scene.vertices[first + corner];
             const float dx = vertex.x - x;
             const float dz = vertex.z - z;
-            local[corner] = {
+            local.points[corner] = {
                 (dx * up[2] - dz * up[0]) / determinant,
                 (right[0] * dz - right[2] * dx) / determinant,
                 vertex.height
             };
         }
-        if (std::max({local[0].x, local[1].x, local[2].x}) < min_across ||
-            std::min({local[0].x, local[1].x, local[2].x}) > max_across ||
-            std::max({local[0].y, local[1].y, local[2].y}) < min_above ||
-            std::min({local[0].y, local[1].y, local[2].y}) > max_above)
-            continue;
-        auto clipped = clip_ground(local, true, min_across, true);
-        clipped = clip_ground(clipped, true, max_across, false);
-        clipped = clip_ground(clipped, false, min_above, true);
-        clipped = clip_ground(clipped, false, max_above, false);
+        const auto& points = local.points;
+        if (std::max({points[0].x, points[1].x, points[2].x}) < min_across ||
+            std::min({points[0].x, points[1].x, points[2].x}) > max_across ||
+            std::max({points[0].y, points[1].y, points[2].y}) < min_above ||
+            std::min({points[0].y, points[1].y, points[2].y}) > max_above)
+            return;
+        auto clipped = clip_ground_fixed(local, true, min_across, true);
+        clipped = clip_ground_fixed(clipped, true, max_across, false);
+        clipped = clip_ground_fixed(clipped, false, min_above, true);
+        clipped = clip_ground_fixed(clipped, false, max_above, false);
         // Both surfaces are planar over each clipped polygon, so its corners
         // include the greatest clearance needed, even for an interior crest.
-        for (const auto& point : clipped)
+        for (std::size_t corner = 0; corner < clipped.count; ++corner) {
+            const auto& point = clipped.points[corner];
             lift = std::max(lift, point.height + clearance - (height + up[1] * point.y));
+        }
+    };
+    if (!indices.card) {
+        for (std::size_t first = 0; first + 2 < scene.terrain_vertex_count; first += 3)
+            test(first);
+        return lift;
     }
+    // The test above rounds each place by less than a 2^-21 part of the
+    // reach times the axis's scale, and the index's bounds by less than a
+    // 2^-23 part; the area is widened by a 2^-16 part, so that every
+    // triangle the test would keep is visited.
+    const double reach =
+        std::max({indices.card->reach(), std::abs(double{x}), std::abs(double{z})});
+    constexpr double rounding_share = 0x1p-16;
+    constexpr double least_margin = 0x1p-8;
+    const double across_margin =
+        (std::abs(axes[0]) + std::abs(axes[1])) * reach * rounding_share + least_margin;
+    const double above_margin =
+        (std::abs(axes[2]) + std::abs(axes[3])) * reach * rounding_share + least_margin;
+    const auto origin = indices.card->along(x, z);
+    indices.card->visit(
+        origin[0] + min_across - across_margin,
+        origin[0] + max_across + across_margin,
+        origin[1] + min_above - above_margin,
+        origin[1] + max_above + above_margin,
+        test
+    );
     return lift;
 }
 
@@ -2747,6 +4001,8 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
     std::unordered_map<const formats::gaf::RenderedFrame*, std::array<std::optional<AtlasRect>, 4>>
         prepared;
     std::unordered_map<const formats::gaf::RenderedFrame*, std::optional<AtlasRect>> grey_frames;
+    // The ground is cut and stays as it is for the whole pass.
+    GroundIndices ground_indices;
     std::vector<bool> light_masks(in.draws->sprites.size());
     std::vector<bool> blended_sprites(in.draws->sprites.size());
     for (const auto& draw : in.draws->draws) {
@@ -2900,7 +4156,9 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
         };
         const float surface_lift =
             sprite.surface_effect && sprite.world_position && !submerged_effect
-                ? surface_effect_lift(scene, frame, origin_x, origin_h, origin_z, right, up)
+                ? surface_effect_lift(
+                      scene, ground_indices, frame, origin_x, origin_h, origin_z, right, up
+                  )
                 : 0;
         const auto vertex = [&](float dx, float dy) {
             const float across = (dx - frame.origin_x) * sprite.effect_scale;
@@ -3100,6 +4358,19 @@ void water_surface(const Inputs& in, Scene& scene) {
                 return vertex.brightness == 0;
             }))
             continue;
+        // Ground drawn beyond the picture for a moving camera's next frames
+        // (Scene::ground_vertices) has no foam, so that it never takes the
+        // budget from the picture's.
+        if (scene.ground_source.picture_margin != 0) {
+            const auto [least_x, greatest_x] =
+                std::minmax({triangle[0].x, triangle[1].x, triangle[2].x});
+            const auto [least_z, greatest_z] =
+                std::minmax({triangle[0].z, triangle[1].z, triangle[2].z});
+            const auto [low, high] =
+                std::minmax({triangle[0].height, triangle[1].height, triangle[2].height});
+            if (ground_off_screen(in, least_x, least_z, greatest_x, greatest_z, low, high))
+                continue;
+        }
         for (auto& vertex : triangle) {
             // The foam takes the colour of the picture the ground under it
             // shows (SurfaceCache::foam_colour); the fragment stage draws it
@@ -3125,15 +4396,47 @@ void water_surface(const Inputs& in, Scene& scene) {
         wet_polygon(scene, triangle);
     }
 }
+
+/// Gives the frame's own materials more rows (Scene::frame_rows) when some
+/// of this frame's found no room in theirs and were packed with the other
+/// materials, where they stay until the atlas is emptied: as many more as
+/// would hold twice their area, from the foot of the other materials' rows,
+/// as far as those have not been packed. The frames after it pack their
+/// own materials afresh in the rows as moved.
+///
+/// @param[in,out] scene the atlas
+void grow_frame_rows(Scene& scene) {
+    if (scene.frame_spilled_area == 0 || scene.frame_rows == 0)
+        return;
+    const uint64_t step_area = uint64_t{scene.texture_width} * frame_row_step;
+    const uint64_t wanted = (scene.frame_spilled_area * 2 + step_area - 1) / step_area;
+    const uint32_t packed = std::min(scene.next_y + scene.row_height, kept_rows(scene));
+    const uint32_t free_steps = (kept_rows(scene) - packed) / frame_row_step;
+    const uint32_t most =
+        maximum_atlas_edge / 2 - std::min(scene.frame_rows, maximum_atlas_edge / 2);
+    const auto rows =
+        std::min<uint64_t>({wanted * frame_row_step, uint64_t{free_steps} * frame_row_step, most});
+    if (rows == 0)
+        return;
+    scene.frame_rows += static_cast<uint32_t>(rows);
+    scene.frame_order.clear();
+}
 } // namespace
 
 bool build(const Inputs& inputs, Scene& scene, std::string& error) {
-    scene.atlas_update = {scene.texture_revision, scene.texture_height, 0};
+    auto& update = scene.atlas_update;
+    update.previous_revision = scene.texture_revision;
+    update.first_row = update.frame_first_row = scene.texture_height;
+    update.end_row = update.frame_end_row = 0;
+    update.regions.clear();
     scene.out_of_room = false;
+    scene.frame_palette = nullptr;
     try {
         if (inputs.map == nullptr || inputs.palette == nullptr || inputs.draws == nullptr ||
             inputs.map->attribute_width == 0 || inputs.map->attribute_height == 0)
             throw std::runtime_error("experimental renderer has no prepared match scene");
+        scene.frame_palette_digest = mix_bytes(hash_start, *inputs.palette);
+        scene.frame_palette = inputs.palette;
         const auto& map = *inputs.map;
         if (map.attribute_width > formats::tnt::limit::attribute_dimension ||
             map.attribute_height > formats::tnt::limit::attribute_dimension ||
@@ -3148,15 +4451,38 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         if (scene.texture_width == 0 || scene.texture_height == 0 ||
             scene.texture_width > maximum_atlas_edge || scene.texture_height > maximum_atlas_edge)
             throw std::runtime_error("experimental renderer received an invalid atlas size");
+        // A camera that has moved since the last frame holds the tiles in
+        // their squares until it has stood still for camera_settle_frames
+        // frames. A move is from one picture to another.
+        const bool camera_known = scene.camera_width != 0 && scene.camera_height != 0 &&
+                                  inputs.clip_width != 0 && inputs.clip_height != 0;
+        const bool camera_moved =
+            camera_known &&
+            (scene.camera_projection != inputs.clip_projection ||
+             scene.camera_width != inputs.clip_width || scene.camera_height != inputs.clip_height);
+        if (camera_moved)
+            scene.camera_settling_frames = camera_settle_frames;
+        else if (scene.camera_settling_frames != 0)
+            --scene.camera_settling_frames;
+        scene.camera_projection = inputs.clip_projection;
+        scene.camera_width = inputs.clip_width;
+        scene.camera_height = inputs.clip_height;
+        const bool holding = inputs.tiles_hold_while_moving && scene.camera_settling_frames != 0;
         // The terrain takes the atlas at its largest, less room for the other
         // materials: in full squares while every tile it draws fits so, and
         // otherwise the tiles nearest the camera in the larger squares that fit.
         constexpr uint64_t atlas_area = uint64_t{maximum_atlas_edge} * maximum_atlas_edge;
-        uint64_t room =
+        const uint64_t starting_room =
             atlas_area -
             std::min(atlas_area, std::max(least_material_room, scene.material_area / 2 * 3));
-        const auto demand = terrain_demand(inputs, room);
-        auto plan = plan_terrain(demand, room);
+        const auto demand = terrain_demand(inputs, starting_room);
+        // A view whose terrain last had to halve its room, surveying as many
+        // tiles, starts in the room it fitted (Scene::terrain_room) rather
+        // than emptying the atlas twice more to find it again.
+        uint64_t room = starting_room;
+        if (!demand.empty() && demand.size() == scene.terrain_room_tiles)
+            room = std::min(room, scene.terrain_room);
+        auto plan = plan_terrain(demand, room, holding);
         // Far out over a large map, the ground is drawn from fewer height
         // samples, as few as keep its triangles within the frame's
         // geometry budget: fewer than the last frame that ran out found
@@ -3176,6 +4502,9 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         constexpr uint32_t attempts = 4;
         bool emptied = scene.next_x == 0 && scene.next_y == 0 && scene.materials.empty() &&
                        scene.terrain_materials.empty();
+        // A moving camera's ground may reach beyond the picture's margin
+        // until its triangles do not fit.
+        bool widen = true;
         for (uint32_t attempt = 0; attempt < attempts;) {
             scene.vertices.clear();
             scene.unit_ranges.clear();
@@ -3187,13 +4516,21 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             scene.particle_count = 0;
             scene.nano_particle_count = 0;
             scene.packed_material_area = 0;
+            scene.frame_next_x = 0;
+            scene.frame_next_y = 0;
+            scene.frame_row_height = 0;
+            scene.frame_materials.clear();
+            scene.frame_packed = 0;
+            scene.frame_material_area = 0;
+            scene.frame_spilled_area = 0;
+            scene.aircraft_shadow_materials.clear();
             scene.texture_rgba.resize(
                 static_cast<std::size_t>(scene.texture_width) * scene.texture_height * channels
             );
             // How much of the geometry budget the ground took, once drawn.
             std::size_t ground_vertices = maximum_vertices;
             try {
-                terrain(inputs, scene, plan, step);
+                terrain(inputs, scene, plan, step, camera_known && !camera_moved, widen);
                 ground_vertices = scene.terrain_vertex_count;
                 sprites(inputs, scene, true);
                 unit_shadows(inputs, scene);
@@ -3219,9 +4556,22 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 // Every other material this frame draws was packed into the
                 // emptied atlas, so their area is what they need.
                 if (emptied)
-                    scene.material_area = scene.packed_material_area;
+                    scene.material_area = scene.packed_material_area + scene.frame_material_area;
+                scene.last_frame_material_area = scene.frame_material_area;
+                if (room < starting_room) {
+                    scene.terrain_room = room;
+                    scene.terrain_room_tiles = demand.size();
+                } else {
+                    scene.terrain_room_tiles = 0;
+                }
                 break;
             } catch (const GeometryFull&) {
+                // The ground beyond a moving camera's picture goes first.
+                if (widen && scene.ground_source.picture_margin != 0) {
+                    widen = false;
+                    scene.ground_kept = false;
+                    continue;
+                }
                 // Fewer height samples help only where the ground takes
                 // most of the budget.
                 if (step >= coarsest_terrain_step || ground_vertices < maximum_vertices / 2)
@@ -3233,38 +4583,70 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             } catch (const AtlasFull&) {
                 if (++attempt == attempts)
                     throw;
+                // The rows kept for the frame's own materials hold half as
+                // much again as a frame packs, as the terrain leaves the
+                // other materials room.
+                const uint64_t frame_need =
+                    std::max(scene.last_frame_material_area, scene.frame_material_area);
+                const auto frame_rows = std::min(
+                    maximum_atlas_edge / 2,
+                    static_cast<uint32_t>(
+                        (frame_need / 2 * 3 + uint64_t{maximum_atlas_edge} * frame_row_step - 1) /
+                        (uint64_t{maximum_atlas_edge} * frame_row_step)
+                    ) * frame_row_step
+                );
+                scene.frame_rows = frame_rows;
+                scene.frame_order.clear();
                 // An emptied atlas at its largest could not hold the plan.
+                // Otherwise the atlas is emptied for it, and the frame plans
+                // from the room it would start with had none been
+                // remembered, as the frames before it did.
                 if (emptied && scene.texture_width == maximum_atlas_edge &&
                     scene.texture_height == maximum_atlas_edge) {
                     room = std::min(room, planned_area(demand, plan)) / 2;
-                    plan = plan_terrain(demand, room);
+                    plan = plan_terrain(demand, room, holding);
+                } else if (room != starting_room) {
+                    room = starting_room;
+                    plan = plan_terrain(demand, room, holding);
                 }
                 emptied = true;
                 scene.texture_width = maximum_atlas_edge;
                 scene.texture_height = maximum_atlas_edge;
                 // Old atlas coordinates are discarded, including when already
-                // at maximum size. Preserve the original base revision while
-                // replacing every row of the texture on the next submission.
-                scene.atlas_update.first_row = 0;
-                scene.atlas_update.end_row = scene.texture_height;
+                // at maximum size. The frame packs everything it draws afresh
+                // from the first row, and only what it writes is uploaded,
+                // against the original base revision: no triangle samples
+                // the rest, which may hold texels written here by the
+                // attempts before and never sent (note_rows).
+                update.first_row = update.frame_first_row = scene.texture_height;
+                update.end_row = update.frame_end_row = 0;
+                update.regions.clear();
                 scene.materials.clear();
                 scene.terrain_materials.clear();
                 scene.aircraft_shadow_materials.clear();
                 for (auto& spare : scene.spare_terrain_squares)
                     spare.clear();
+                scene.split_terrain_squares.clear();
                 scene.next_x = 0;
                 scene.next_y = 0;
                 scene.row_height = 0;
                 ++scene.texture_revision;
             }
         }
+        grow_frame_rows(scene);
         if (scene.atlas_update.first_row > scene.atlas_update.end_row) {
             scene.atlas_update.first_row = 0;
             scene.atlas_update.end_row = 0;
         }
+        if (scene.atlas_update.frame_first_row > scene.atlas_update.frame_end_row) {
+            scene.atlas_update.frame_first_row = 0;
+            scene.atlas_update.frame_end_row = 0;
+        }
+        scene.frame_palette = nullptr;
         error.clear();
         return true;
     } catch (const std::exception& exception) {
+        scene.frame_palette = nullptr;
         scene.out_of_room = dynamic_cast<const OutOfRoom*>(&exception) != nullptr;
         scene.vertices.clear();
         scene.unit_ranges.clear();

@@ -9,9 +9,7 @@
 
 namespace oa::app::renderer_effects {
 namespace {
-constexpr size_t max_sources = 128;
 constexpr int max_dimension = 16384;
-constexpr float max_radius = 256;
 constexpr float light_energy = 110;
 constexpr float glow_energy = 150;
 constexpr float max_displacement = 2;

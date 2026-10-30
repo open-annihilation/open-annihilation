@@ -15,10 +15,12 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace {
 namespace live = oa::app::renderer_live_scene;
@@ -449,48 +451,57 @@ void terrain_mip_colours() {
     }
 }
 
+/// The first palette index of the tiles of wide_terrain, and how many
+/// colours they cycle through.
+constexpr uint8_t wide_first_colour = 1;
+constexpr uint32_t wide_colours = 250;
+
+/// Lays a flat map of across by down distinct tiles, each one colour, under
+/// a view of all of it whose depth grows down the map, so that the bottom
+/// rows are nearest.
+void wide_terrain(Fixture& fixture, uint32_t across, uint32_t down) {
+    auto& map = fixture.map;
+    map.tile_width = across;
+    map.tile_height = down;
+    map.attribute_width = across * 2;
+    map.attribute_height = down * 2;
+    map.tile_count = across * down;
+    map.tile_indices.resize(static_cast<std::size_t>(across) * down);
+    map.tile_palette_indices.resize(map.tile_indices.size() * tile_edge * tile_edge);
+    for (std::size_t tile = 0; tile < map.tile_indices.size(); ++tile) {
+        map.tile_indices[tile] = static_cast<uint16_t>(tile);
+        std::fill_n(
+            map.tile_palette_indices.begin() +
+                static_cast<std::ptrdiff_t>(tile * tile_edge * tile_edge),
+            tile_edge * tile_edge,
+            static_cast<uint8_t>(wide_first_colour + tile % wide_colours)
+        );
+    }
+    map.attributes.assign(static_cast<std::size_t>(map.attribute_width) * map.attribute_height, {});
+    for (uint32_t index = 0; index < wide_colours; ++index) {
+        const auto entry = (wide_first_colour + index) * oa::palette_entry_bytes;
+        fixture.palette[entry] = static_cast<uint8_t>(index);
+        fixture.palette[entry + 1] = static_cast<uint8_t>(255 - index);
+        fixture.palette[entry + 2] = static_cast<uint8_t>(index / 2 + 10);
+    }
+    fixture.inputs.sight.mapping = false;
+    fixture.inputs.sight.line_of_sight = false;
+    fixture.inputs.right = static_cast<int32_t>(across) * tile_edge;
+    fixture.inputs.bottom = static_cast<int32_t>(down) * tile_edge;
+    fixture.inputs.clip_projection = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0};
+}
+
 /// A wide, low view of a map with more distinct tiles than the atlas holds
 /// in full squares: the frame builds, the tiles nearest the camera in full
 /// squares and the rest smaller, each sampled as its own colour; a view
 /// whose tiles fit keeps them all in full squares.
 void terrain_wider_than_atlas() {
-    constexpr uint8_t first_colour = 1;
-    constexpr uint32_t colours = 250;
+    constexpr uint8_t first_colour = wide_first_colour;
+    constexpr uint32_t colours = wide_colours;
     const auto check_view =
         [&](uint32_t across, uint32_t down, float expected_largest, float expected_smallest) {
             Fixture fixture;
-            auto& map = fixture.map;
-            map.tile_width = across;
-            map.tile_height = down;
-            map.attribute_width = across * 2;
-            map.attribute_height = down * 2;
-            map.tile_count = across * down;
-            map.tile_indices.resize(static_cast<std::size_t>(across) * down);
-            map.tile_palette_indices.resize(map.tile_indices.size() * tile_edge * tile_edge);
-            for (std::size_t tile = 0; tile < map.tile_indices.size(); ++tile) {
-                map.tile_indices[tile] = static_cast<uint16_t>(tile);
-                std::fill_n(
-                    map.tile_palette_indices.begin() +
-                        static_cast<std::ptrdiff_t>(tile * tile_edge * tile_edge),
-                    tile_edge * tile_edge,
-                    static_cast<uint8_t>(first_colour + tile % colours)
-                );
-            }
-            map.attributes.assign(
-                static_cast<std::size_t>(map.attribute_width) * map.attribute_height, {}
-            );
-            for (uint32_t index = 0; index < colours; ++index) {
-                const auto entry = (first_colour + index) * oa::palette_entry_bytes;
-                fixture.palette[entry] = static_cast<uint8_t>(index);
-                fixture.palette[entry + 1] = static_cast<uint8_t>(255 - index);
-                fixture.palette[entry + 2] = static_cast<uint8_t>(index / 2 + 10);
-            }
-            fixture.inputs.sight.mapping = false;
-            fixture.inputs.sight.line_of_sight = false;
-            fixture.inputs.right = static_cast<int32_t>(across) * tile_edge;
-            fixture.inputs.bottom = static_cast<int32_t>(down) * tile_edge;
-            // Depth grows down the map, so the bottom rows are nearest.
-            fixture.inputs.clip_projection = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0};
+            wide_terrain(fixture, across, down);
             OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
             OA_CHECK(fixture.error.empty());
             OA_CHECK(!fixture.scene.out_of_room);
@@ -545,6 +556,268 @@ void terrain_wider_than_atlas() {
     check_view(128, 128, 16, 8);
     // 1600 tiles fit in full squares, and every one is packed so.
     check_view(40, 40, 32, 32);
+}
+
+/// A wide view whose terrain and other materials do not fit even an emptied
+/// atlas at its largest gives its terrain half the room. The next frame over
+/// as many tiles starts in that room, and so finds every tile and material
+/// where the last frame packed them: nothing is packed, the atlas is not
+/// emptied, and the ground is the one the last frame drew. A frame over a
+/// different number of tiles, as after a zoom, plans from the whole room
+/// again and draws the ground a new scene draws for its view.
+void terrain_room_remembered() {
+    // A material as tall as a quarter of the atlas: the rows the terrain's
+    // whole room leaves the other materials cannot hold it.
+    oa::formats::gaf::RenderedFrame frame{};
+    frame.width = 8;
+    frame.height = 1024;
+    frame.pixels.assign(static_cast<std::size_t>(frame.width) * frame.height, alternate_index);
+    frame.coverage.assign(frame.pixels.size(), 1);
+    const auto view = [&](Fixture& fixture, uint32_t across, uint32_t down) {
+        wide_terrain(fixture, 80, 80);
+        fixture.inputs.right = static_cast<int32_t>(across) * tile_edge;
+        fixture.inputs.bottom = static_cast<int32_t>(down) * tile_edge;
+        fixture.draws.sprites.clear();
+        fixture.draws.sprites.push_back({&frame, {8, 8}});
+    };
+    const auto ground = [](const live::Scene& scene) {
+        return std::vector<oa::app::renderer_live_gpu::Vertex>(
+            scene.vertices.begin(),
+            scene.vertices.begin() + static_cast<std::ptrdiff_t>(scene.terrain_vertex_count)
+        );
+    };
+    const auto same = [](const auto& a, const auto& b) {
+        return a.size() == b.size() &&
+               std::memcmp(a.data(), b.data(), a.size() * sizeof(a.front())) == 0;
+    };
+    Fixture fixture;
+    view(fixture, 80, 80);
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(!fixture.scene.out_of_room);
+    OA_CHECK(fixture.scene.texture_width == 4096);
+    const auto first = ground(fixture.scene);
+    OA_CHECK(!first.empty());
+    // Only the nearest tiles keep full squares: the room was halved.
+    const auto full = std::count_if(first.begin(), first.end(), [](const auto& vertex) {
+        return vertex.terrain_size == 32;
+    });
+    OA_CHECK(full != 0 && full < static_cast<std::ptrdiff_t>(first.size()) / 4);
+    for (int frames = 0; frames < 2; ++frames) {
+        const auto revision = fixture.scene.texture_revision;
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(fixture.scene.texture_revision == revision);
+        OA_CHECK(fixture.scene.atlas_update.first_row == 0);
+        OA_CHECK(fixture.scene.atlas_update.end_row == 0);
+        OA_CHECK(same(ground(fixture.scene), first));
+    }
+    // Zoomed in: fewer tiles. The frame plans afresh, empties the atlas and
+    // draws what a new scene does; the frame after it keeps all of it.
+    view(fixture, 60, 60);
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    Fixture fresh;
+    view(fresh, 60, 60);
+    OA_CHECK(live::build(fresh.inputs, fresh.scene, fresh.error));
+    OA_CHECK(same(ground(fixture.scene), ground(fresh.scene)));
+    // Emptied for the frame: it writes and uploads the rows a new scene does.
+    OA_CHECK(fixture.scene.atlas_update.first_row == 0);
+    OA_CHECK(fixture.scene.atlas_update.end_row == fresh.scene.atlas_update.end_row);
+    const auto zoomed = fixture.scene.texture_revision;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.texture_revision == zoomed);
+    OA_CHECK(same(ground(fixture.scene), ground(fresh.scene)));
+}
+
+/// While the player's camera moves, a tile keeps its square while that is
+/// at most one size smaller than the plan gives it, and a tile new to the
+/// view is packed one size smaller than the plan's larger squares, which it
+/// keeps however near it comes; once the camera has stood still long
+/// enough, every tile takes the plan's square again. A recording's camera
+/// packs every tile into the plan's square.
+void terrain_held_while_moving() {
+    // Each terrain triangle's tile detail.
+    const auto sizes = [](const live::Scene& scene) {
+        std::vector<float> result;
+        for (std::size_t first = 0; first + 2 < scene.terrain_vertex_count; first += 3)
+            result.push_back(scene.vertices[first].terrain_size);
+        return result;
+    };
+    // A picture as large as the view, nearest at the map's foot, or at its
+    // head; the depth's offset moves the camera without changing the plan.
+    const auto view = [](Fixture& fixture, uint32_t columns, bool head, float offset, bool hold) {
+        fixture.inputs.right = static_cast<int32_t>(columns) * tile_edge;
+        fixture.inputs.clip_width = fixture.inputs.clip_height = 64;
+        fixture.inputs.clip_projection[10] = head ? -1.0F : 1.0F;
+        fixture.inputs.clip_projection[11] = offset;
+        fixture.inputs.tiles_hold_while_moving = hold;
+    };
+    // The tile detail a new scene draws the view in.
+    const auto planned = [&](uint32_t columns, bool head, float offset) {
+        Fixture fresh;
+        wide_terrain(fresh, 80, 80);
+        view(fresh, columns, head, offset, true);
+        OA_CHECK(live::build(fresh.inputs, fresh.scene, fresh.error));
+        return sizes(fresh.scene);
+    };
+    // The first view's tiles all fit full squares; the wider view's nearest
+    // take full squares and the rest half ones, and its tiles new to the
+    // view are packed in half ones while the camera moves.
+    constexpr uint32_t first_columns = 40;
+    const auto wider = planned(80, false, 1);
+    for (const bool hold : {true, false}) {
+        Fixture moving;
+        wide_terrain(moving, 80, 80);
+        view(moving, first_columns, false, 0, hold);
+        OA_CHECK(live::build(moving.inputs, moving.scene, moving.error));
+        for (const float size : sizes(moving.scene))
+            OA_CHECK(size == 32);
+        view(moving, 80, false, 1, hold);
+        OA_CHECK(live::build(moving.inputs, moving.scene, moving.error));
+        const auto moved = sizes(moving.scene);
+        OA_CHECK(moved.size() == wider.size() && !moved.empty());
+        bool larger_planned = false;
+        for (std::size_t triangle = 0; triangle < moved.size() && moved.size() == wider.size();
+             ++triangle) {
+            const auto* vertex = &moving.scene.vertices[triangle * 3];
+            const bool new_tile =
+                (vertex[0].x + vertex[1].x + vertex[2].x) / 3 > first_columns * tile_edge;
+            if (new_tile && hold)
+                OA_CHECK(moved[triangle] == 16);
+            else
+                OA_CHECK(moved[triangle] >= wider[triangle]);
+            larger_planned |= new_tile && wider[triangle] == 32;
+        }
+        OA_CHECK(larger_planned);
+    }
+    // Nearest at the head now: the plan gives the head's tiles the full
+    // squares the foot's had. A moving camera keeps every tile where it is
+    // until it has stood still for ten frames.
+    const auto head = planned(80, true, 2);
+    for (const bool hold : {true, false}) {
+        Fixture moving;
+        wide_terrain(moving, 80, 80);
+        view(moving, 80, false, 1, hold);
+        OA_CHECK(live::build(moving.inputs, moving.scene, moving.error));
+        OA_CHECK(sizes(moving.scene) == wider);
+        view(moving, 80, true, 2, hold);
+        auto revision = moving.scene.texture_revision;
+        OA_CHECK(live::build(moving.inputs, moving.scene, moving.error));
+        if (!hold) {
+            OA_CHECK(moving.scene.texture_revision != revision);
+            continue;
+        }
+        OA_CHECK(moving.scene.texture_revision == revision);
+        OA_CHECK(sizes(moving.scene) == wider);
+        for (int frame = 1; frame < 10; ++frame) {
+            OA_CHECK(live::build(moving.inputs, moving.scene, moving.error));
+            OA_CHECK(moving.scene.texture_revision == revision);
+        }
+        OA_CHECK(live::build(moving.inputs, moving.scene, moving.error));
+        OA_CHECK(moving.scene.texture_revision != revision);
+        const auto settled = sizes(moving.scene);
+        OA_CHECK(settled.size() == head.size());
+        for (std::size_t triangle = 0; triangle < settled.size() && settled.size() == head.size();
+             ++triangle)
+            OA_CHECK(settled[triangle] >= head[triangle]);
+        revision = moving.scene.texture_revision;
+        OA_CHECK(live::build(moving.inputs, moving.scene, moving.error));
+        OA_CHECK(moving.scene.texture_revision == revision);
+    }
+}
+
+/// Tells whether the squares of a scene's terrain materials and its spare
+/// terrain squares lie in its atlas apart from one another, each on the
+/// smallest square's grid, and whether every split square whose quarters
+/// are all spare has been made whole again.
+bool terrain_squares_apart(const live::Scene& scene) {
+    constexpr uint32_t smallest = 8;
+    const uint32_t across = scene.texture_width / smallest;
+    std::vector<uint8_t> taken(static_cast<std::size_t>(across) * scene.texture_height / smallest);
+    bool apart = true;
+    const auto take = [&](const live::AtlasRect& square) {
+        if (square.x % smallest != 0 || square.y % smallest != 0 ||
+            square.x + square.width > scene.texture_width ||
+            square.y + square.height > scene.texture_height) {
+            apart = false;
+            return;
+        }
+        for (uint32_t y = square.y / smallest; y < (square.y + square.height) / smallest; ++y)
+            for (uint32_t x = square.x / smallest; x < (square.x + square.width) / smallest; ++x)
+                apart = taken[static_cast<std::size_t>(y) * across + x]++ == 0 && apart;
+    };
+    for (const auto& [key, material] : scene.terrain_materials)
+        take(material.rectangle);
+    for (const auto& spare : scene.spare_terrain_squares)
+        for (const auto& square : spare)
+            take(square);
+    for (const auto& [key, quarters] : scene.split_terrain_squares)
+        apart = apart && quarters != 0b1111;
+    return apart;
+}
+
+/// A tile whose art changes is packed again into the square it leaves: the
+/// atlas fills no further however often it changes.
+void terrain_square_given_back() {
+    Fixture fixture;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.terrain_materials.size() == 1);
+    const auto square = fixture.scene.terrain_materials.begin()->second.rectangle;
+    const auto next_x = fixture.scene.next_x;
+    const auto next_y = fixture.scene.next_y;
+    for (const uint8_t index : {alternate_index, ground_index, alternate_index}) {
+        std::fill(
+            fixture.map.tile_palette_indices.begin(), fixture.map.tile_palette_indices.end(), index
+        );
+        const auto revision = fixture.scene.texture_revision;
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(fixture.scene.texture_revision > revision);
+        OA_CHECK(fixture.scene.terrain_materials.size() == 1);
+        OA_CHECK(fixture.scene.terrain_materials.begin()->second.rectangle == square);
+        OA_CHECK(fixture.scene.next_x == next_x && fixture.scene.next_y == next_y);
+        const auto red = index == ground_index ? ground_color[0] : alternate_color[0];
+        OA_CHECK(triangle_color(fixture.scene, 0)[0] == red);
+    }
+}
+
+/// Zoomed in from a view of more tiles than full squares hold to one whose
+/// tiles all fit in full squares, the atlas is not emptied: the tiles the
+/// frame has not drawn give their squares back, the small squares are made
+/// whole again, and the frame's tiles are packed in full squares in that
+/// room. No two squares overlap, every tile samples its own colour, and the
+/// frame after packs nothing.
+void terrain_squares_given_back_whole() {
+    constexpr uint32_t across = 128;
+    Fixture fixture;
+    wide_terrain(fixture, across, across);
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.texture_width == 4096);
+    OA_CHECK(terrain_squares_apart(fixture.scene));
+    // An emptied atlas would be packed again from its first row.
+    const auto rows = fixture.scene.next_y;
+    fixture.inputs.right = fixture.inputs.bottom = 40 * tile_edge;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(!fixture.scene.out_of_room);
+    OA_CHECK(fixture.scene.next_y >= rows);
+    OA_CHECK(terrain_squares_apart(fixture.scene));
+    OA_CHECK(!fixture.scene.spare_terrain_squares[0].empty());
+    for (const auto& [key, material] : fixture.scene.terrain_materials)
+        OA_CHECK(material.drawn == fixture.scene.terrain_passes);
+    OA_CHECK(fixture.scene.terrain_vertex_count != 0);
+    for (std::size_t first = 0; first + 2 < fixture.scene.terrain_vertex_count; first += 3) {
+        const auto& a = fixture.scene.vertices[first];
+        const auto& b = fixture.scene.vertices[first + 1];
+        const auto& c = fixture.scene.vertices[first + 2];
+        OA_CHECK(a.terrain_size == 32);
+        const auto column = static_cast<uint32_t>(a.x + b.x + c.x) / 3 / tile_edge;
+        const auto row = static_cast<uint32_t>(a.z + b.z + c.z) / 3 / tile_edge;
+        const auto tile = static_cast<std::size_t>(row) * across + column;
+        const auto entry = (wide_first_colour + tile % wide_colours) * oa::palette_entry_bytes;
+        const auto sampled = triangle_color(fixture.scene, first);
+        for (std::size_t channel = 0; channel < 3; ++channel)
+            OA_CHECK(sampled[channel] == fixture.palette[entry + channel]);
+    }
+    const auto revision = fixture.scene.texture_revision;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.texture_revision == revision);
 }
 
 /// Ground too wide for the geometry budget is drawn from fewer height
@@ -630,6 +903,202 @@ void coarse_ground_far_out() {
             OA_CHECK(sampled[channel] == coarse.palette[entry + channel]);
     }
     OA_CHECK(sample_found);
+}
+
+/// A turned view leaves out the ground wholly beyond its picture, and keeps
+/// every triangle that reaches the picture as the whole crop draws it, at
+/// full detail and with distant tiles merged.
+void terrain_beyond_picture() {
+    constexpr uint32_t across = 15;
+    constexpr uint32_t picture_width = 200;
+    constexpr uint32_t picture_height = 150;
+    // Screen x, screen y and depth over map x, height and z: turned an
+    // eighth, so that the crop's corners lie far beyond the picture.
+    constexpr std::array<float, 12> projection{2, 0, -2, 0, 1, -1, 1, 0, 0, 1, 0, 0};
+    const auto make = [&](Fixture& fixture, uint32_t width, uint32_t height, float detail) {
+        auto& map = fixture.map;
+        map.tile_width = map.tile_height = across;
+        map.attribute_width = map.attribute_height = across * 2;
+        map.tile_count = 1;
+        map.tile_indices.assign(static_cast<std::size_t>(across) * across, 0);
+        map.attributes.assign(
+            static_cast<std::size_t>(map.attribute_width) * map.attribute_height, {}
+        );
+        // Level ground on the left, which merges far out, and relief on the
+        // right, which does not.
+        for (uint32_t row = 0; row < map.attribute_height; ++row)
+            for (uint32_t column = 0; column < map.attribute_width; ++column)
+                map.attributes[static_cast<std::size_t>(row) * map.attribute_width + column]
+                    .height =
+                    static_cast<uint8_t>(column < across ? 10 : (column * 3 + row * 5) % 40);
+        fixture.inputs.sight.mapping = false;
+        fixture.inputs.sight.line_of_sight = false;
+        fixture.inputs.right = static_cast<int32_t>(across) * tile_edge;
+        fixture.inputs.bottom = static_cast<int32_t>(across) * tile_edge;
+        fixture.inputs.detail_scale = detail;
+        fixture.inputs.clip_projection = projection;
+        fixture.inputs.clip_width = width;
+        fixture.inputs.clip_height = height;
+        return live::build(fixture.inputs, fixture.scene, fixture.error);
+    };
+    using Corners = std::array<float, 9>;
+    const auto triangles = [](const live::Scene& scene) {
+        std::vector<Corners> result;
+        for (std::size_t first = 0; first + 2 < scene.terrain_vertex_count; first += 3) {
+            Corners corners{};
+            for (std::size_t corner = 0; corner < 3; ++corner) {
+                const auto& vertex = scene.vertices[first + corner];
+                corners[corner * 3] = vertex.x;
+                corners[corner * 3 + 1] = vertex.height;
+                corners[corner * 3 + 2] = vertex.z;
+            }
+            result.push_back(corners);
+        }
+        std::sort(result.begin(), result.end());
+        return result;
+    };
+    const auto reaches_picture = [&](const Corners& corners) {
+        float left = std::numeric_limits<float>::infinity(), right = -left;
+        float top = left, bottom = -left;
+        for (std::size_t corner = 0; corner < 3; ++corner) {
+            const float x = corners[corner * 3], height = corners[corner * 3 + 1],
+                        z = corners[corner * 3 + 2];
+            const float screen_x =
+                projection[0] * x + projection[1] * height + projection[2] * z + projection[3];
+            const float screen_y =
+                projection[4] * x + projection[5] * height + projection[6] * z + projection[7];
+            left = std::min(left, screen_x);
+            right = std::max(right, screen_x);
+            top = std::min(top, screen_y);
+            bottom = std::max(bottom, screen_y);
+        }
+        return right > 0 && left < picture_width && bottom > 0 && top < picture_height;
+    };
+    for (const float detail : {1.0F, 0.5F}) {
+        Fixture whole;
+        OA_CHECK(make(whole, 0, 0, detail));
+        Fixture pictured;
+        OA_CHECK(make(pictured, picture_width, picture_height, detail));
+        const auto all = triangles(whole.scene);
+        const auto kept = triangles(pictured.scene);
+        OA_CHECK(!kept.empty());
+        OA_CHECK(kept.size() * 2 < all.size());
+        // Only the crop's own triangles, and each that reaches the picture.
+        OA_CHECK(std::includes(all.begin(), all.end(), kept.begin(), kept.end()));
+        std::size_t reaching = 0;
+        for (const auto& corners : all)
+            if (reaches_picture(corners)) {
+                ++reaching;
+                OA_CHECK(std::binary_search(kept.begin(), kept.end(), corners));
+            }
+        OA_CHECK(reaching != 0);
+    }
+}
+
+/// While the player's camera moves, its ground is drawn beyond the picture
+/// by a tenth of the picture's larger side and kept: the frames after it
+/// whose pictures move no further take that ground, the same revision,
+/// which holds every triangle their own pictures show, and a picture that
+/// moves further draws it again. Once the camera has settled, the ground
+/// is the picture's own again.
+void ground_kept_while_moving() {
+    constexpr uint32_t across = 15;
+    constexpr uint32_t picture_width = 200;
+    constexpr uint32_t picture_height = 150;
+    // Turned an eighth, as terrain_beyond_picture's view; the first row's
+    // offset pans the picture across.
+    constexpr std::array<float, 12> projection{2, 0, -2, 0, 1, -1, 1, 0, 0, 1, 0, 0};
+    const auto make = [&](Fixture& fixture, float pan) {
+        auto& map = fixture.map;
+        map.tile_width = map.tile_height = across;
+        map.attribute_width = map.attribute_height = across * 2;
+        map.tile_count = 1;
+        map.tile_indices.assign(static_cast<std::size_t>(across) * across, 0);
+        map.attributes.assign(
+            static_cast<std::size_t>(map.attribute_width) * map.attribute_height, {}
+        );
+        for (uint32_t row = 0; row < map.attribute_height; ++row)
+            for (uint32_t column = 0; column < map.attribute_width; ++column)
+                map.attributes[static_cast<std::size_t>(row) * map.attribute_width + column]
+                    .height = static_cast<uint8_t>((column * 3 + row * 5) % 40);
+        fixture.inputs.sight.mapping = false;
+        fixture.inputs.sight.line_of_sight = false;
+        fixture.inputs.right = static_cast<int32_t>(across) * tile_edge;
+        fixture.inputs.bottom = static_cast<int32_t>(across) * tile_edge;
+        fixture.inputs.clip_projection = projection;
+        fixture.inputs.clip_projection[3] = pan;
+        fixture.inputs.clip_width = picture_width;
+        fixture.inputs.clip_height = picture_height;
+        fixture.inputs.tiles_hold_while_moving = true;
+    };
+    using Corners = std::array<float, 9>;
+    const auto triangles = [](const live::Scene& scene) {
+        std::vector<Corners> result;
+        for (std::size_t first = 0; first + 2 < scene.terrain_vertex_count; first += 3) {
+            Corners corners{};
+            for (std::size_t corner = 0; corner < 3; ++corner) {
+                const auto& vertex = scene.vertices[first + corner];
+                corners[corner * 3] = vertex.x;
+                corners[corner * 3 + 1] = vertex.height;
+                corners[corner * 3 + 2] = vertex.z;
+            }
+            result.push_back(corners);
+        }
+        std::sort(result.begin(), result.end());
+        return result;
+    };
+    // The triangles a new scene draws for the picture panned so far.
+    const auto pictured = [&](float pan) {
+        Fixture fresh;
+        make(fresh, pan);
+        OA_CHECK(live::build(fresh.inputs, fresh.scene, fresh.error));
+        return triangles(fresh.scene);
+    };
+    Fixture moving;
+    make(moving, 0);
+    const auto build = [&] {
+        OA_CHECK(live::build(moving.inputs, moving.scene, moving.error));
+        return moving.scene.ground_revision;
+    };
+    build();
+    const auto still = build();
+    OA_CHECK(moving.scene.ground_kept);
+    OA_CHECK(triangles(moving.scene) == pictured(0));
+    // Panned 5 pixels: the ground is drawn beyond the picture, 20 pixels
+    // further, and kept at once.
+    moving.inputs.clip_projection[3] = 5;
+    const auto moved = build();
+    OA_CHECK(moved != still && moving.scene.ground_kept);
+    const auto wide = triangles(moving.scene);
+    const auto first_picture = pictured(5);
+    OA_CHECK(wide.size() > first_picture.size());
+    OA_CHECK(std::includes(wide.begin(), wide.end(), first_picture.begin(), first_picture.end()));
+    // Panned 15 pixels, 10 from the kept ground's picture: the same ground.
+    moving.inputs.clip_projection[3] = 15;
+    OA_CHECK(build() == moved);
+    const auto second_picture = pictured(15);
+    OA_CHECK(triangles(moving.scene) == wide);
+    OA_CHECK(std::includes(wide.begin(), wide.end(), second_picture.begin(), second_picture.end()));
+    // Panned 30 pixels, 25 from it: drawn again.
+    moving.inputs.clip_projection[3] = 30;
+    const auto further = build();
+    OA_CHECK(further != moved);
+    const auto third = triangles(moving.scene);
+    const auto third_picture = pictured(30);
+    OA_CHECK(std::includes(third.begin(), third.end(), third_picture.begin(), third_picture.end()));
+    // Standing still, the camera settles after ten frames, and the ground
+    // is the picture's own, kept at once.
+    for (int frame = 1; frame < 10; ++frame)
+        OA_CHECK(build() == further);
+    const auto settled = build();
+    OA_CHECK(settled != further && moving.scene.ground_kept);
+    OA_CHECK(triangles(moving.scene) == third_picture);
+    OA_CHECK(build() == settled);
+    // A recording's camera draws each picture's own ground.
+    moving.inputs.tiles_hold_while_moving = false;
+    moving.inputs.clip_projection[3] = 35;
+    OA_CHECK(build() != settled);
+    OA_CHECK(triangles(moving.scene) == pictured(35));
 }
 
 /// Known sight boundaries interpolate, while every unknown terrain sample remains black.
@@ -764,7 +1233,8 @@ void particle_zoom_detail() {
     OA_CHECK(fixture.scene.particle_count == 0);
 }
 
-/// Stable frames avoid atlas uploads; a palette change creates new material pixels.
+/// Stable frames avoid atlas uploads; a palette change creates new material
+/// pixels, the tile's in the square it gives back.
 void atlas_reuse() {
     Fixture fixture;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
@@ -773,7 +1243,9 @@ void atlas_reuse() {
     OA_CHECK(revision != 0);
     OA_CHECK(fixture.scene.atlas_update.previous_revision == 0);
     OA_CHECK(fixture.scene.atlas_update.first_row == 0);
-    OA_CHECK(fixture.scene.atlas_update.end_row == tile_edge * 2);
+    // The tile's rows and the row under them, which a filtered material
+    // packed beside it would sample.
+    OA_CHECK(fixture.scene.atlas_update.end_row == tile_edge * 2 + 1);
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.texture_revision == revision);
     OA_CHECK(fixture.scene.materials.size() == materials);
@@ -785,8 +1257,13 @@ void atlas_reuse() {
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.texture_revision > revision);
     OA_CHECK(fixture.scene.atlas_update.previous_revision == revision);
-    OA_CHECK(fixture.scene.atlas_update.first_row == 0);
-    OA_CHECK(fixture.scene.atlas_update.end_row == tile_edge * 2);
+    OA_CHECK(fixture.scene.atlas_update.first_row == fixture.scene.atlas_update.end_row);
+    const auto& regions = fixture.scene.atlas_update.regions;
+    OA_CHECK(regions.size() == 1);
+    OA_CHECK(
+        !regions.empty() && regions[0].x == 0 && regions[0].y == 0 &&
+        regions[0].width == tile_edge * 2 && regions[0].height == tile_edge * 2
+    );
     OA_CHECK(triangle_color(fixture.scene, 0)[0] == replacement_red);
 }
 
@@ -821,20 +1298,100 @@ void terrain_material_mutation() {
     OA_CHECK(triangle_color(fixture.scene, 0)[0] == alternate_color[0]);
 }
 
-/// Atlas repacking replaces all rows while retaining the prior GPU revision.
+/// The ground of a frame drawn from the same as the two before it is the
+/// one they drew; a change to the heights, the art, the fog or the picture
+/// in place draws it again.
+void ground_kept_while_unchanged() {
+    Fixture fixture;
+    fixture.inputs.clip_projection = {1, 0, 0, 0, 0, -0.5F, 1, 0, 0, 1, 0, 0};
+    fixture.inputs.clip_width = fixture.inputs.clip_height = 64;
+    const auto ground = [&] {
+        return std::vector<oa::app::renderer_live_gpu::Vertex>(
+            fixture.scene.vertices.begin(),
+            fixture.scene.vertices.begin() +
+                static_cast<std::ptrdiff_t>(fixture.scene.terrain_vertex_count)
+        );
+    };
+    const auto same = [](const auto& a, const auto& b) {
+        return a.size() == b.size() &&
+               std::memcmp(a.data(), b.data(), a.size() * sizeof(a.front())) == 0;
+    };
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(!fixture.scene.ground_kept);
+    const auto first = ground();
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.ground_kept);
+    OA_CHECK(same(ground(), first));
+    const auto revision = fixture.scene.texture_revision;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.ground_kept);
+    OA_CHECK(same(ground(), first));
+    OA_CHECK(fixture.scene.texture_revision == revision);
+    // A height changed in place.
+    fixture.map.attributes[3].height = 12;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(!fixture.scene.ground_kept);
+    OA_CHECK(
+        std::any_of(
+            fixture.scene.vertices.begin(),
+            fixture.scene.vertices.begin() +
+                static_cast<std::ptrdiff_t>(fixture.scene.terrain_vertex_count),
+            [](const auto& vertex) { return vertex.height == 12; }
+        )
+    );
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.ground_kept);
+    // The art changed in place: the tile is packed again, and the kept
+    // ground is not taken.
+    std::fill(
+        fixture.map.tile_palette_indices.begin(),
+        fixture.map.tile_palette_indices.end(),
+        alternate_index
+    );
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.texture_revision > revision);
+    OA_CHECK(triangle_color(fixture.scene, 0)[0] == alternate_color[0]);
+    // The cell never mapped.
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    fixture.mapped[0] = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(!fixture.scene.ground_kept);
+    OA_CHECK(triangle_color(fixture.scene, 0)[0] == 0);
+    // A count of sight stamps that leaves the fog as it is keeps the ground.
+    fixture.mapped[0] = viewer_bit;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.ground_kept);
+    fixture.coverage[0] = 2;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.ground_kept);
+    // Another picture.
+    fixture.inputs.clip_projection[3] = 1;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(!fixture.scene.ground_kept);
+}
+
+/// Atlas repacking uploads the rows packed afresh, and the row under them,
+/// while retaining the prior GPU revision: no triangle samples the others.
 void atlas_repack_rows() {
     Fixture fixture;
     fixture.scene.texture_width = fixture.scene.texture_height = tile_edge * 2;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     const auto revision = fixture.scene.texture_revision;
+    // A sprite the full atlas has no room for.
+    oa::formats::gaf::RenderedFrame frame{};
+    frame.width = frame.height = 8;
+    frame.pixels.assign(64, alternate_index);
+    frame.coverage.assign(64, 1);
+    fixture.draws.sprites.push_back({&frame, {8, 8}});
     fixture.palette[ground_index * oa::palette_entry_bytes] = 77;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
-    OA_CHECK(fixture.scene.texture_width > tile_edge);
+    OA_CHECK(fixture.scene.texture_width > tile_edge * 2);
     OA_CHECK(fixture.scene.atlas_update.previous_revision == revision);
     OA_CHECK(fixture.scene.atlas_update.first_row == 0);
-    OA_CHECK(fixture.scene.atlas_update.end_row == fixture.scene.texture_height);
+    OA_CHECK(fixture.scene.atlas_update.end_row == tile_edge * 2 + 1);
     OA_CHECK(triangle_color(fixture.scene, 0)[0] == 77);
-    // Filling an already enlarged atlas must also invalidate all old rows.
+    // An already enlarged atlas emptied uploads only its packed rows too.
     fixture.scene.next_x = fixture.scene.texture_width;
     fixture.scene.next_y = fixture.scene.texture_height;
     const auto enlarged_revision = fixture.scene.texture_revision;
@@ -842,8 +1399,42 @@ void atlas_repack_rows() {
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.atlas_update.previous_revision == enlarged_revision);
     OA_CHECK(fixture.scene.atlas_update.first_row == 0);
-    OA_CHECK(fixture.scene.atlas_update.end_row == fixture.scene.texture_height);
+    OA_CHECK(fixture.scene.atlas_update.end_row == tile_edge * 2 + 1);
     OA_CHECK(triangle_color(fixture.scene, 0)[0] == 88);
+}
+
+/// An atlas emptied at its largest uploads the rows it packs afresh and
+/// none past them: every texel a triangle of the frame samples, and those
+/// beside them, lie in the rows uploaded, though the rows past them hold
+/// what was packed before.
+void emptied_atlas_uploads_packed_rows() {
+    Fixture fixture;
+    wide_terrain(fixture, 40, 40);
+    oa::formats::gaf::RenderedFrame frame{};
+    frame.width = frame.height = 8;
+    frame.pixels.assign(64, wide_first_colour);
+    frame.coverage.assign(64, 1);
+    fixture.draws.sprites.push_back({&frame, {8, 8}});
+    auto& scene = fixture.scene;
+    scene.texture_width = scene.texture_height = 4096;
+    OA_CHECK(live::build(fixture.inputs, scene, fixture.error));
+    // The atlas full, and a palette change for the sprite to be packed again.
+    scene.next_x = scene.texture_width;
+    scene.next_y = scene.texture_height;
+    const auto revision = scene.texture_revision;
+    fixture.palette[(wide_first_colour + 1) * oa::palette_entry_bytes] = 77;
+    OA_CHECK(live::build(fixture.inputs, scene, fixture.error));
+    const auto& update = scene.atlas_update;
+    OA_CHECK(update.previous_revision == revision);
+    OA_CHECK(update.first_row == 0);
+    OA_CHECK(update.end_row == scene.next_y + scene.row_height + 1);
+    OA_CHECK(update.end_row < scene.texture_height / 2);
+    OA_CHECK(update.regions.empty());
+    for (const auto& vertex : scene.vertices) {
+        const float row = vertex.terrain_size > 0 ? vertex.terrain_y + 2 * vertex.terrain_size
+                                                  : vertex.v * scene.texture_height + 1;
+        OA_CHECK(row <= static_cast<float>(update.end_row));
+    }
 }
 
 /// Repacking due to a sprite also invalidates unchanged cached terrain rectangles.
@@ -1581,6 +2172,76 @@ void building_foundations() {
         OA_CHECK(fixture.scene.vertices[i].height == 16);
 }
 
+/// The kept ground is cut once for a set of plots: a frame with the plots
+/// of the frame before takes the cut ground and its revision and cuts only
+/// its decals, and other plots cut it again. Every frame is the one a scene
+/// cutting the ground each frame builds.
+void foundations_cut_once() {
+    Fixture fixture;
+    fixture.map.attribute_width = fixture.map.attribute_height = 8;
+    fixture.map.tile_width = fixture.map.tile_height = 4;
+    fixture.map.tile_indices.assign(16, 0);
+    fixture.map.attributes.resize(64);
+    fixture.inputs.right = fixture.inputs.bottom = 128;
+    fixture.inputs.sight.mapping = fixture.inputs.sight.line_of_sight = false;
+    for (std::size_t i = 0; i < fixture.map.attributes.size(); ++i)
+        fixture.map.attributes[i].height = static_cast<uint8_t>((i % 8) * 4);
+    constexpr int32_t fixed = 65536;
+    oa::Unit unit{};
+    unit.flags = OA_UNIT_FLAG_BUILDING;
+    unit.footprint_x = unit.footprint_z = 2;
+    unit.position = {48 * fixed, 16 * fixed, 48 * fixed};
+    fixture.draws.models.resize(1);
+    fixture.draws.models[0].model.unit = &unit;
+    fixture.draws.models[0].plan.linked.drawn = true;
+    oa::formats::gaf::RenderedFrame decal{};
+    decal.width = decal.height = 8;
+    decal.pixels.assign(64, ground_index);
+    decal.coverage.assign(64, 1);
+    fixture.draws.sprites.push_back({&decal, {44, 44}, false, true, true});
+    live::Scene cutting{};
+    const auto build = [&] {
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        cutting.cut_source = 0;
+        OA_CHECK(live::build(fixture.inputs, cutting, fixture.error));
+        const auto& vertices = fixture.scene.vertices;
+        OA_CHECK(fixture.scene.terrain_vertex_count == cutting.terrain_vertex_count);
+        OA_CHECK(
+            vertices.size() == cutting.vertices.size() &&
+            std::memcmp(
+                vertices.data(), cutting.vertices.data(), vertices.size() * sizeof(vertices.front())
+            ) == 0
+        );
+        return fixture.scene.ground_revision;
+    };
+    build();
+    const auto first = build();
+    OA_CHECK(fixture.scene.ground_kept && fixture.scene.cut_source != 0);
+    OA_CHECK(first != fixture.scene.kept_ground_revision);
+    OA_CHECK(build() == first);
+    // A decal moves over the plot; the plots stay.
+    fixture.draws.sprites[0].place = {52, 40};
+    OA_CHECK(build() == first);
+    // The structure moves: its new plot is cut once.
+    unit.position.x = 64 * fixed;
+    const auto moved = build();
+    OA_CHECK(moved != first);
+    OA_CHECK(build() == moved);
+    // No plot leaves the kept ground as it is; the same plot again takes
+    // the ground cut for it.
+    unit.flags = 0;
+    OA_CHECK(build() == fixture.scene.kept_ground_revision);
+    unit.flags = OA_UNIT_FLAG_BUILDING;
+    OA_CHECK(build() == moved);
+    // Ground drawn again is cut again.
+    fixture.map.attributes[0].height = 2;
+    const auto drawn = build();
+    OA_CHECK(drawn != moved);
+    OA_CHECK(build() != drawn);
+    const auto kept = fixture.scene.ground_revision;
+    OA_CHECK(build() == kept);
+}
+
 /// Candidate bins retain structures across bin edges and bound oversized plot indexing.
 void foundation_candidates() {
     Fixture fixture;
@@ -2005,6 +2666,101 @@ void cached_unit_shadows() {
     fixture.draws.shadow_level = 0;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.shadow_count == 0);
+}
+
+/// A unit's shadow is packed into the rows kept for the frame's own
+/// materials, at the atlas's foot, and only those rows are sent; a frame
+/// that casts the same shadow again finds it there and changes nothing,
+/// and a changed shadow leaves the rest of the atlas alone.
+void frame_rows_hold_unit_shadows() {
+    Fixture fixture;
+    oa::present::model::ModelState state{};
+    state.image = oa::present::create_sprite(8, 8);
+    state.image.sprite.key = 1;
+    std::fill(state.image.pixels.begin(), state.image.pixels.end(), 1);
+    state.image.pixels[0] = 0;
+    oa::Unit unit{};
+    constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+    unit.position = {3 * fixed, 0, 8 * fixed};
+    oa::UnitDef definition{};
+    fixture.draws.models.resize(1);
+    auto& draw = fixture.draws.models[0];
+    draw.model.unit = &unit;
+    draw.model.state = &state;
+    draw.model.def = &definition;
+    draw.plan.linked.drawn = true;
+    draw.plan.model.from_image = true;
+    fixture.inputs.graphics_flags =
+        oa::present::model::graphics_shadows | oa::present::model::graphics_vehicle_shadows;
+    auto& scene = fixture.scene;
+    scene.texture_width = scene.texture_height = 4096;
+    scene.frame_rows = 64;
+    const uint32_t first_frame_row = scene.texture_height - scene.frame_rows;
+    OA_CHECK(live::build(fixture.inputs, scene, fixture.error));
+    OA_CHECK(scene.shadow_count == 1);
+    OA_CHECK(scene.frame_materials.size() == 1);
+    OA_CHECK(scene.frame_materials.begin()->second.y == first_frame_row);
+    // The shadow's rows, with the row on either side.
+    OA_CHECK(scene.atlas_update.frame_first_row == first_frame_row - 1);
+    OA_CHECK(scene.atlas_update.frame_end_row == first_frame_row + 9);
+    OA_CHECK(scene.atlas_update.end_row < first_frame_row);
+    const auto& corner = scene.vertices.at(scene.terrain_vertex_count);
+    OA_CHECK(std::lround(corner.v * scene.texture_height) >= first_frame_row);
+    const auto revision = scene.texture_revision;
+    const auto materials = scene.materials.size();
+    OA_CHECK(live::build(fixture.inputs, scene, fixture.error));
+    OA_CHECK(scene.texture_revision == revision);
+    OA_CHECK(scene.atlas_update.frame_first_row == scene.atlas_update.frame_end_row);
+    state.image.pixels[1] = 0;
+    OA_CHECK(live::build(fixture.inputs, scene, fixture.error));
+    OA_CHECK(scene.texture_revision > revision);
+    OA_CHECK(scene.materials.size() == materials);
+    OA_CHECK(scene.atlas_update.frame_first_row == first_frame_row - 1);
+    OA_CHECK(scene.atlas_update.first_row == scene.atlas_update.end_row);
+    // The shadow's first row: its first two pixels covered now, the third clear.
+    const auto offset = static_cast<std::size_t>(first_frame_row) * scene.texture_width * 4;
+    OA_CHECK(scene.texture_rgba.at(offset + 3) == 255);
+    OA_CHECK(scene.texture_rgba.at(offset + 7) == 255);
+    OA_CHECK(scene.texture_rgba.at(offset + 11) == 0);
+}
+
+/// A unit's shadow taller than the rows kept for the frame's own materials
+/// is packed with the other materials, and those rows grow from the foot of
+/// the others' to hold it: the next frame packs it there.
+void frame_rows_grow_for_spilled_shadows() {
+    Fixture fixture;
+    oa::present::model::ModelState state{};
+    state.image = oa::present::create_sprite(8, 24);
+    state.image.sprite.key = 1;
+    std::fill(state.image.pixels.begin(), state.image.pixels.end(), 1);
+    oa::Unit unit{};
+    constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+    unit.position = {3 * fixed, 0, 8 * fixed};
+    oa::UnitDef definition{};
+    fixture.draws.models.resize(1);
+    auto& draw = fixture.draws.models[0];
+    draw.model.unit = &unit;
+    draw.model.state = &state;
+    draw.model.def = &definition;
+    draw.plan.linked.drawn = true;
+    draw.plan.model.from_image = true;
+    fixture.inputs.graphics_flags =
+        oa::present::model::graphics_shadows | oa::present::model::graphics_vehicle_shadows;
+    auto& scene = fixture.scene;
+    scene.texture_width = scene.texture_height = 4096;
+    scene.frame_rows = 16;
+    OA_CHECK(live::build(fixture.inputs, scene, fixture.error));
+    OA_CHECK(scene.shadow_count == 1);
+    OA_CHECK(scene.frame_materials.empty());
+    OA_CHECK(scene.frame_rows == 32);
+    const auto materials = scene.materials.size();
+    // The shadow changed: packed afresh, in the rows grown.
+    state.image.pixels[0] = 0;
+    OA_CHECK(live::build(fixture.inputs, scene, fixture.error));
+    OA_CHECK(scene.frame_materials.size() == 1);
+    OA_CHECK(scene.frame_materials.begin()->second.y == scene.texture_height - 32);
+    OA_CHECK(scene.materials.size() == materials);
+    OA_CHECK(scene.frame_rows == 32);
 }
 
 /// Aircraft shadows keep their silhouette at full alpha at every altitude,
@@ -2792,13 +3548,21 @@ int main() {
     fog_materials();
     terrain_mip_colours();
     terrain_wider_than_atlas();
+    terrain_room_remembered();
+    terrain_held_while_moving();
+    terrain_square_given_back();
+    terrain_squares_given_back_whole();
     coarse_ground_far_out();
+    terrain_beyond_picture();
+    ground_kept_while_moving();
     smooth_fog_boundary();
     terrain_zoom_detail();
     particle_zoom_detail();
     atlas_reuse();
     terrain_material_mutation();
+    ground_kept_while_unchanged();
     atlas_repack_rows();
+    emptied_atlas_uploads_packed_rows();
     terrain_material_repack();
     planned_model_visibility();
     model_key_walls_and_cloak();
@@ -2808,9 +3572,12 @@ int main() {
     sprite_material_lifetime();
     cropped_ground_sprites();
     building_foundations();
+    foundations_cut_once();
     foundation_candidates();
     structure_base_above_ground();
     cached_unit_shadows();
+    frame_rows_hold_unit_shadows();
+    frame_rows_grow_for_spilled_shadows();
     aircraft_shadow_altitude();
     aircraft_shadow_as_the_game_casts_it();
     flash_masks_and_effect_altitude();

@@ -5,7 +5,9 @@
 #include "renderer_live_camera.hpp"
 #include "oa/test/check.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 
@@ -289,6 +291,79 @@ void prepared_triangle_picking() {
     OA_CHECK(depth == 44);
 }
 
+/// Narrowed rows keep every column whose centre the prepared query accepts.
+void narrowed_rows() {
+    using Triangle = std::array<std::array<float, 3>, 3>;
+    uint32_t state = 54321;
+    const auto random = [&] {
+        state = state * 1664525U + 1013904223U;
+        return float(state >> 8) / 16777216.0F;
+    };
+    constexpr float centre = 0.5F;
+    std::size_t kept = 0;
+    std::size_t left_out = 0;
+    for (int sample = 0; sample < 4000; ++sample) {
+        // Triangles from slivers a pixel across to ones wider than the rows.
+        const float scale = std::pow(10.0F, random() * 3 - 0.5F);
+        const float middle_x = random() * 64;
+        const float middle_y = random() * 64;
+        Triangle triangle{};
+        for (auto& vertex : triangle)
+            vertex = {
+                middle_x + (random() * 2 - 1) * scale,
+                middle_y + (random() * 2 - 1) * scale,
+                random() * 100
+            };
+        if (sample % 5 == 0)
+            triangle[2] = {
+                std::lerp(triangle[0][0], triangle[1][0], 0.375F),
+                std::lerp(triangle[0][1], triangle[1][1], 0.375F) + 1e-3F,
+                10
+            };
+        if (sample % 7 == 0)
+            triangle[1][1] = triangle[0][1];
+        PreparedTriangle prepared;
+        if (!prepare_triangle(triangle, prepared))
+            continue;
+        for (int y = -8; y < 72; ++y) {
+            constexpr int row_first = -8;
+            constexpr int row_last = 72;
+            int first = row_first;
+            int last = row_last;
+            narrow_row(prepared, y + centre, centre, first, last);
+            OA_CHECK(first >= row_first && last <= row_last);
+            for (int x = row_first; x < row_last; ++x) {
+                std::array<float, 3> weights{};
+                float depth{};
+                if (!triangle_hit_prepared(prepared, x + centre, y + centre, weights, depth))
+                    continue;
+                OA_CHECK(x >= first && x < last);
+                ++kept;
+            }
+            left_out += static_cast<std::size_t>(row_last - row_first) -
+                        static_cast<std::size_t>(std::max(0, last - first));
+        }
+    }
+    // The narrowing leaves out most of the columns no triangle covers.
+    OA_CHECK(kept > 0);
+    OA_CHECK(left_out > kept);
+    // An invalid triangle and an empty row change nothing.
+    int first = 3;
+    int last = 40;
+    narrow_row(PreparedTriangle{}, 10.5F, centre, first, last);
+    OA_CHECK(first == 3 && last == 40);
+    first = last = 7;
+    PreparedTriangle prepared;
+    OA_CHECK(prepare_triangle(Triangle{{{0, 0, 0}, {64, 0, 0}, {0, 64, 0}}}, prepared));
+    narrow_row(prepared, 10.5F, centre, first, last);
+    OA_CHECK(first == 7 && last == 7);
+    // A row wholly outside the triangle comes back empty.
+    first = 0;
+    last = 64;
+    narrow_row(prepared, 80.5F, centre, first, last);
+    OA_CHECK(first == last);
+}
+
 /// Include every visible terrain height while keeping the classic crop tight.
 void terrain_bounds() {
     constexpr float width = 960;
@@ -366,6 +441,7 @@ int main() {
     triangle_picking();
     prepared_triangle_picking();
     bounded_triangle_picking();
+    narrowed_rows();
     terrain_bounds();
     return oa::test::check_exit_status();
 }

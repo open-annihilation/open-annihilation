@@ -24,9 +24,10 @@
 // turns the row Open. With the Brains folder removed, no seat remains and
 // the frame matches the one kept before any brain was written. On the
 // 640x480 window, 120 frames before a computer seat and 120 frames with two
-// are timed: the seated frames must not read the game folder and must stay
-// under 5 ms of CPU, and copying then removing a bundle must be followed by
-// the new choice. Each size's frame is written as
+// are timed: the seated frames must not read the game folder and must take
+// under twice the CPU of the frames before the seat plus 1 ms, and copying
+// then removing a bundle must be followed by the new choice. Each size's
+// frame is written as
 // brain-seats-skirmish-<w>x<h>.png, and the frame with the menu open as
 // brain-seats-menu-<w>x<h>.png.
 
@@ -675,9 +676,16 @@ void Runtime::check_brain_seat_buttons() {
                       << ms_text(before_seat_ms) << " ms; 120 frames with two computer seats, mean "
                       << ms_text(seated_ms) << " ms, folder walks " << walked << "\n";
             require(walked == 0, "the game folder was read while two computer seats showed");
+            // Measured against the frames before the seat, so that a slower
+            // build (with sanitizers, or a debug one) is held to its own pace.
+            // Work redone for each seat on every frame costs several frames'
+            // worth and still fails it.
+            const double seated_limit_ms = before_seat_ms * 2.0 + 1.0;
             require(
-                seated_ms < 5.0,
-                "two computer seats took " + ms_text(seated_ms) + " ms of CPU a frame"
+                seated_ms < seated_limit_ms,
+                "two computer seats took " + ms_text(seated_ms) + " ms of CPU a frame, against " +
+                    ms_text(before_seat_ms) + " ms before the seat (limit " +
+                    ms_text(seated_limit_ms) + " ms)"
             );
 
             const bundles::ContentChoice original = content_choice();
