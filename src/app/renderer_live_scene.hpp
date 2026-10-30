@@ -72,6 +72,23 @@ struct UnitRange {
     std::size_t vertex_count{};
 };
 
+/// The memory a frame lists its ground's triangles in by place, for the
+/// effect cards' ground queries; the scene keeps it so that each frame
+/// reuses it.
+struct GroundIndexMemory {
+    /// Each triangle's least and greatest place along the index's first
+    /// axis, then along its second.
+    std::vector<std::array<float, 4>> bounds{};
+    /// Each triangle's first and last bucket along the first axis, then
+    /// along the second.
+    std::vector<std::array<uint16_t, 4>> buckets{};
+    /// Where each bucket's triangles begin in triangles, and after the last
+    /// bucket the end of triangles.
+    std::vector<uint32_t> starts{};
+    std::vector<uint32_t> triangles{}; ///< the triangles of every bucket
+    std::vector<uint32_t> visited{};   ///< each triangle's last visit
+};
+
 /// Presentation geometry and cached pixels; no simulation state is retained.
 struct Scene {
     std::vector<renderer_live_gpu::Vertex> vertices{};
@@ -108,6 +125,9 @@ struct Scene {
     PaletteBytes terrain_palette{};
     PaletteBytes terrain_grey_palette{};
     std::size_t terrain_vertex_count{};
+    /// The ground's triangles listed along world x and z, and along the
+    /// effect cards' axes.
+    std::array<GroundIndexMemory, 2> ground_index_memory{};
     /// What the last frame's ground was drawn from.
     GroundSource ground_source{};
     /// The ground of the last frame drawn from the same as the frame before

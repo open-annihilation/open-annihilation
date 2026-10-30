@@ -2963,27 +2963,314 @@ void particles(const Inputs& in, Scene& scene) {
     }
 }
 
+/// The frame's ground triangles listed by the square buckets their bounds
+/// touch, along two axes of the ground plane, so that a query of a point or
+/// of an area tests only the triangles that may reach it rather than every
+/// triangle of the ground. Listed once foundations has cut the ground, it
+/// stays true while the frame adds its other geometry after the ground.
+class GroundIndex {
+  public:
+
+    /// Two axes of the ground plane: a world point x, z lies at
+    /// axes[0] * x + axes[1] * z along the first and axes[2] * x + axes[3] * z
+    /// along the second.
+    using Axes = std::array<double, 4>;
+
+    /// Lists the ground's triangles by their bounds.
+    ///
+    /// @param axes the axes the bounds lie along
+    /// @param[in,out] memory the index's memory, holding each triangle's
+    ///        bounds along the axes in drawing order
+    /// @param reach the greatest distance of a ground vertex from the world's
+    ///        origin along x or z, in map pixels
+    GroundIndex(const Axes& axes, GroundIndexMemory& memory, double reach)
+        : axes_(axes), memory_(&memory), reach_(reach), triangle_count_(memory.bounds.size()) {
+        const auto& bounds = memory.bounds;
+        for (const auto& bound : bounds) {
+            low_[0] = std::min(low_[0], double{bound[0]});
+            high_[0] = std::max(high_[0], double{bound[1]});
+            low_[1] = std::min(low_[1], double{bound[2]});
+            high_[1] = std::max(high_[1], double{bound[3]});
+        }
+        if (bounds.empty())
+            return;
+        const auto count = [&](std::size_t axis) {
+            return std::floor((high_[axis] - low_[axis]) / edge_) + 1;
+        };
+        while (count(0) * count(1) > static_cast<double>(maximum_buckets))
+            edge_ *= 2;
+        inverse_edge_ = 1 / edge_;
+        columns_ = static_cast<std::size_t>(count(0));
+        rows_ = static_cast<std::size_t>(count(1));
+        auto& ranges = memory.buckets;
+        auto& starts = memory.starts;
+        auto& triangles = memory.triangles;
+        ranges.resize(bounds.size());
+        starts.assign(columns_ * rows_ + 1, 0);
+        for (std::size_t triangle = 0; triangle < bounds.size(); ++triangle) {
+            const auto& bound = bounds[triangle];
+            const auto& range = ranges[triangle] = {
+                bucket(bound[0], 0, columns_),
+                bucket(bound[1], 0, columns_),
+                bucket(bound[2], 1, rows_),
+                bucket(bound[3], 1, rows_)
+            };
+            for (std::size_t row = range[2]; row <= range[3]; ++row)
+                for (std::size_t column = range[0]; column <= range[1]; ++column)
+                    ++starts[row * columns_ + column + 1];
+        }
+        for (std::size_t index = 1; index < starts.size(); ++index)
+            starts[index] += starts[index - 1];
+        triangles.resize(starts.back());
+        // Each bucket's start moves on as it is filled, to the next one's.
+        for (std::size_t triangle = 0; triangle < bounds.size(); ++triangle) {
+            const auto& range = ranges[triangle];
+            for (std::size_t row = range[2]; row <= range[3]; ++row)
+                for (std::size_t column = range[0]; column <= range[1]; ++column)
+                    triangles[starts[row * columns_ + column]++] = static_cast<uint32_t>(triangle);
+        }
+        for (std::size_t index = starts.size() - 1; index > 0; --index)
+            starts[index] = starts[index - 1];
+        starts[0] = 0;
+    }
+
+    /// @return the axes the triangles are listed along
+    [[nodiscard]] const Axes& axes() const { return axes_; }
+
+    /// @return the greatest distance of a ground vertex from the world's
+    ///         origin along x or z, in map pixels
+    [[nodiscard]] double reach() const { return reach_; }
+
+    /// Places a world point on the axes.
+    ///
+    /// @param x the point's world x, in map pixels
+    /// @param z its world z, in map pixels
+    /// @return its place along the first axis and along the second
+    [[nodiscard]] std::array<double, 2> along(double x, double z) const {
+        return {axes_[0] * x + axes_[1] * z, axes_[2] * x + axes_[3] * z};
+    }
+
+    /// Calls visit with the first vertex of each triangle whose bounds along
+    /// the axes may overlap an area, once each and in no set order: every
+    /// triangle whose bounds overlap it is among them.
+    ///
+    /// @param first_low the area's least place along the first axis
+    /// @param first_high its greatest place along the first axis
+    /// @param second_low its least place along the second axis
+    /// @param second_high its greatest place along the second axis
+    /// @param visit called with the index of a triangle's first vertex
+    template <typename Visit>
+    void visit(
+        double first_low, double first_high, double second_low, double second_high, Visit&& visit
+    ) {
+        if (columns_ == 0 || !(first_high >= low_[0] && first_low <= high_[0] &&
+                               second_high >= low_[1] && second_low <= high_[1]))
+            return;
+        const std::size_t first_column = bucket(first_low, 0, columns_);
+        const std::size_t last_column = bucket(first_high, 0, columns_);
+        const std::size_t first_row = bucket(second_low, 1, rows_);
+        const std::size_t last_row = bucket(second_high, 1, rows_);
+        // A triangle listed in more than one bucket of the area is visited once.
+        const bool several = first_column != last_column || first_row != last_row;
+        auto& visited = memory_->visited;
+        if (several) {
+            if (visit_mark_ == 0)
+                visited.assign(triangle_count_, 0);
+            if (++visit_mark_ == 0) {
+                std::fill(visited.begin(), visited.end(), 0);
+                visit_mark_ = 1;
+            }
+        }
+        const auto& starts = memory_->starts;
+        const auto& triangles = memory_->triangles;
+        for (std::size_t row = first_row; row <= last_row; ++row)
+            for (std::size_t column = first_column; column <= last_column; ++column) {
+                const std::size_t bucket_index = row * columns_ + column;
+                for (std::size_t entry = starts[bucket_index]; entry < starts[bucket_index + 1];
+                     ++entry) {
+                    const uint32_t triangle = triangles[entry];
+                    if (several) {
+                        if (visited[triangle] == visit_mark_)
+                            continue;
+                        visited[triangle] = visit_mark_;
+                    }
+                    visit(std::size_t{triangle} * 3);
+                }
+            }
+    }
+
+  private:
+
+    /// The buckets' edge to begin with, along either axis.
+    static constexpr double first_edge = 32;
+    /// The most buckets an index holds; a wider ground takes larger ones.
+    static constexpr std::size_t maximum_buckets = std::size_t{1} << 16;
+
+    /// Finds the bucket that holds a place, never one before a larger place's.
+    ///
+    /// @param place a place along an axis
+    /// @param axis 0 for the first axis, 1 for the second
+    /// @param count the buckets along that axis
+    /// @return the bucket holding the place, or the nearest end one
+    [[nodiscard]] uint16_t bucket(double place, std::size_t axis, std::size_t count) const {
+        const double offset = (place - low_[axis]) * inverse_edge_;
+        if (!(offset > 0))
+            return 0;
+        const double last = static_cast<double>(count - 1);
+        return static_cast<uint16_t>(offset < last ? offset : last);
+    }
+
+    Axes axes_{};
+    GroundIndexMemory* memory_{};
+    double reach_{};
+    std::size_t triangle_count_{};
+    std::array<double, 2> low_{
+        std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()
+    };
+    std::array<double, 2> high_{
+        -std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()
+    };
+    double edge_{first_edge};
+    double inverse_edge_{1 / first_edge};
+    std::size_t columns_{};
+    std::size_t rows_{};
+    /// The mark of the last visit of several buckets; 0 before the first,
+    /// which clears the triangles' marks. Buckets are counted row by row,
+    /// and each bucket's triangles are listed in drawing order, a triangle
+    /// numbering its first vertex divided by three.
+    uint32_t visit_mark_{};
+};
+
+/// The ground indices of a sprite pass, listed together when first needed.
+struct GroundIndices {
+    bool listed{}; ///< list_ground has run for the pass
+    /// The axes card lists along: the camera-facing cards' across and above.
+    GroundIndex::Axes card_axes{};
+    /// The triangles along world x and z; none when a ground vertex lies
+    /// nowhere finite, and a query then tests every triangle itself.
+    std::optional<GroundIndex> world{};
+    /// The triangles along the cards' axes; none as for world, or when the
+    /// cards have no axes.
+    std::optional<GroundIndex> card{};
+};
+
+/// Lists the frame's ground triangles along world x and z and along the
+/// cards' axes, reading each ground vertex once.
+///
+/// @param[in,out] scene the frame, its ground cut by foundations; the lists
+///        are kept in its ground_index_memory
+/// @param card_axes the cards' across and above, or none when they have none
+/// @param[out] indices the pass's ground indices, listed afresh
+void list_ground(Scene& scene, const GroundIndex::Axes* card_axes, GroundIndices& indices) {
+    indices.listed = true;
+    indices.world.reset();
+    indices.card.reset();
+    if (card_axes != nullptr)
+        indices.card_axes = *card_axes;
+    const std::size_t triangles = scene.terrain_vertex_count / 3;
+    auto& world_bounds = scene.ground_index_memory[0].bounds;
+    auto& card_bounds = scene.ground_index_memory[1].bounds;
+    world_bounds.resize(triangles);
+    card_bounds.resize(card_axes != nullptr ? triangles : 0);
+    constexpr float none = std::numeric_limits<float>::infinity();
+    double reach{};
+    for (std::size_t triangle = 0; triangle < triangles; ++triangle) {
+        std::array<float, 4> world{none, -none, none, -none};
+        std::array<double, 4> card{none, -none, none, -none};
+        for (std::size_t corner = 0; corner < 3; ++corner) {
+            const auto& vertex = scene.vertices[triangle * 3 + corner];
+            if (!std::isfinite(vertex.x) || !std::isfinite(vertex.z) ||
+                !std::isfinite(vertex.height))
+                return;
+            world = {
+                std::min(world[0], vertex.x),
+                std::max(world[1], vertex.x),
+                std::min(world[2], vertex.z),
+                std::max(world[3], vertex.z)
+            };
+            if (card_axes != nullptr) {
+                const auto& axes = *card_axes;
+                const double across = axes[0] * vertex.x + axes[1] * vertex.z;
+                const double above = axes[2] * vertex.x + axes[3] * vertex.z;
+                card = {
+                    std::min(card[0], across),
+                    std::max(card[1], across),
+                    std::min(card[2], above),
+                    std::max(card[3], above)
+                };
+            }
+        }
+        reach = std::max(
+            {reach,
+             std::abs(double{world[0]}),
+             std::abs(double{world[1]}),
+             std::abs(double{world[2]}),
+             std::abs(double{world[3]})}
+        );
+        world_bounds[triangle] = world;
+        if (card_axes != nullptr)
+            card_bounds[triangle] = {
+                static_cast<float>(card[0]),
+                static_cast<float>(card[1]),
+                static_cast<float>(card[2]),
+                static_cast<float>(card[3])
+            };
+    }
+    indices.world.emplace(GroundIndex::Axes{1, 0, 0, 1}, scene.ground_index_memory[0], reach);
+    if (card_axes != nullptr)
+        indices.card.emplace(*card_axes, scene.ground_index_memory[1], reach);
+}
+
+/// Finds the rendered ground's height on one triangle below a world point.
+///
+/// @param scene the frame
+/// @param first the index of the triangle's first vertex
+/// @param x the point's world x, in map pixels
+/// @param z its world z, in map pixels
+/// @return the height there, or nothing when the triangle does not hold the point
+std::optional<float> ground_on_triangle(const Scene& scene, std::size_t first, float x, float z) {
+    const auto& a = scene.vertices[first];
+    const auto& b = scene.vertices[first + 1];
+    const auto& c = scene.vertices[first + 2];
+    if (x < std::min({a.x, b.x, c.x}) || x > std::max({a.x, b.x, c.x}) ||
+        z < std::min({a.z, b.z, c.z}) || z > std::max({a.z, b.z, c.z}))
+        return std::nullopt;
+    const float determinant = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+    if (std::abs(determinant) < 0.000001F)
+        return std::nullopt;
+    const float u = ((b.z - c.z) * (x - c.x) + (c.x - b.x) * (z - c.z)) / determinant;
+    const float v = ((c.z - a.z) * (x - c.x) + (a.x - c.x) * (z - c.z)) / determinant;
+    constexpr float edge_tolerance = 0.00001F;
+    if (u < -edge_tolerance || v < -edge_tolerance || u + v > 1 + edge_tolerance)
+        return std::nullopt;
+    return u * a.height + v * b.height + (1 - u - v) * c.height;
+}
+
 /// Finds the rendered ground, including leveled foundations, below a world point.
-std::optional<float> rendered_ground(const Scene& scene, float x, float z) {
+///
+/// The highest triangle holding the point gives it, whatever order they are
+/// tested in.
+///
+/// @param scene the frame
+/// @param indices the pass's ground indices, listed
+/// @param x the point's world x, in map pixels
+/// @param z its world z, in map pixels
+/// @return the ground's height there, or nothing off the ground
+std::optional<float> rendered_ground(const Scene& scene, GroundIndices& indices, float x, float z) {
     std::optional<float> result;
-    for (std::size_t i = 0; i + 2 < scene.terrain_vertex_count; i += 3) {
-        const auto& a = scene.vertices[i];
-        const auto& b = scene.vertices[i + 1];
-        const auto& c = scene.vertices[i + 2];
-        if (x < std::min({a.x, b.x, c.x}) || x > std::max({a.x, b.x, c.x}) ||
-            z < std::min({a.z, b.z, c.z}) || z > std::max({a.z, b.z, c.z}))
-            continue;
-        const float determinant = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
-        if (std::abs(determinant) < 0.000001F)
-            continue;
-        const float u = ((b.z - c.z) * (x - c.x) + (c.x - b.x) * (z - c.z)) / determinant;
-        const float v = ((c.z - a.z) * (x - c.x) + (a.x - c.x) * (z - c.z)) / determinant;
-        constexpr float edge_tolerance = 0.00001F;
-        if (u < -edge_tolerance || v < -edge_tolerance || u + v > 1 + edge_tolerance)
-            continue;
-        const float height = u * a.height + v * b.height + (1 - u - v) * c.height;
-        if (!result || height > *result)
+    const auto test = [&](std::size_t first) {
+        const auto height = ground_on_triangle(scene, first, x, z);
+        if (height && (!result || *height > *result))
             result = height;
+    };
+    if (indices.world && std::isfinite(x) && std::isfinite(z)) {
+        // A triangle's bounds hold the point only when its buckets hold the
+        // point's bucket.
+        const auto place = indices.world->along(x, z);
+        indices.world->visit(place[0], place[0], place[1], place[1], test);
+    } else {
+        for (std::size_t first = 0; first + 2 < scene.terrain_vertex_count; first += 3)
+            test(first);
     }
     return result;
 }
@@ -2991,7 +3278,8 @@ std::optional<float> rendered_ground(const Scene& scene, float x, float z) {
 /// Keeps a near-ground explosion's covered card above every intersected terrain plane.
 /// The translation leaves its UVs and shape intact; airborne effects retain their altitude.
 float surface_effect_lift(
-    const Scene& scene,
+    Scene& scene,
+    GroundIndices& indices,
     const formats::gaf::RenderedFrame& frame,
     float x,
     float height,
@@ -3001,7 +3289,17 @@ float surface_effect_lift(
 ) {
     constexpr float ground_near_distance = 4;
     constexpr float clearance = 0.1F;
-    const auto ground = rendered_ground(scene, x, z);
+    const float determinant = right[0] * up[2] - right[2] * up[0];
+    const bool facing = std::abs(determinant) >= 0.000001F;
+    // The card's own axes: a ground vertex lies at its place along them less
+    // the card origin's, as the test below works it out.
+    const double inverse = 1.0 / static_cast<double>(determinant);
+    const GroundIndex::Axes axes{
+        up[2] * inverse, -up[0] * inverse, -right[2] * inverse, right[0] * inverse
+    };
+    if (!indices.listed || (facing && indices.card_axes != axes))
+        list_ground(scene, facing ? &axes : nullptr, indices);
+    const auto ground = rendered_ground(scene, indices, x, z);
     if (!ground || height > *ground + ground_near_distance)
         return 0;
     int32_t left = frame.width, top = frame.height, right_pixel{}, bottom{};
@@ -3025,14 +3323,13 @@ float surface_effect_lift(
     const float max_across = static_cast<float>(right_pixel - frame.origin_x);
     const float min_above = static_cast<float>(frame.origin_y - bottom);
     const float max_above = static_cast<float>(frame.origin_y - top);
-    const float determinant = right[0] * up[2] - right[2] * up[0];
-    if (std::abs(determinant) < 0.000001F)
+    if (!facing)
         return 0;
     float lift{};
-    for (std::size_t i = 0; i + 2 < scene.terrain_vertex_count; i += 3) {
+    const auto test = [&](std::size_t first) {
         std::array<GroundPoint, 3> local{};
         for (std::size_t corner = 0; corner < local.size(); ++corner) {
-            const auto& vertex = scene.vertices[i + corner];
+            const auto& vertex = scene.vertices[first + corner];
             const float dx = vertex.x - x;
             const float dz = vertex.z - z;
             local[corner] = {
@@ -3045,7 +3342,7 @@ float surface_effect_lift(
             std::min({local[0].x, local[1].x, local[2].x}) > max_across ||
             std::max({local[0].y, local[1].y, local[2].y}) < min_above ||
             std::min({local[0].y, local[1].y, local[2].y}) > max_above)
-            continue;
+            return;
         auto clipped = clip_ground(local, true, min_across, true);
         clipped = clip_ground(clipped, true, max_across, false);
         clipped = clip_ground(clipped, false, min_above, true);
@@ -3054,7 +3351,32 @@ float surface_effect_lift(
         // include the greatest clearance needed, even for an interior crest.
         for (const auto& point : clipped)
             lift = std::max(lift, point.height + clearance - (height + up[1] * point.y));
+    };
+    if (!indices.card) {
+        for (std::size_t first = 0; first + 2 < scene.terrain_vertex_count; first += 3)
+            test(first);
+        return lift;
     }
+    // The test above rounds each place by less than a 2^-21 part of the
+    // reach times the axis's scale, and the index's bounds by less than a
+    // 2^-23 part; the area is widened by a 2^-16 part, so that every
+    // triangle the test would keep is visited.
+    const double reach =
+        std::max({indices.card->reach(), std::abs(double{x}), std::abs(double{z})});
+    constexpr double rounding_share = 0x1p-16;
+    constexpr double least_margin = 0x1p-8;
+    const double across_margin =
+        (std::abs(axes[0]) + std::abs(axes[1])) * reach * rounding_share + least_margin;
+    const double above_margin =
+        (std::abs(axes[2]) + std::abs(axes[3])) * reach * rounding_share + least_margin;
+    const auto origin = indices.card->along(x, z);
+    indices.card->visit(
+        origin[0] + min_across - across_margin,
+        origin[0] + max_across + across_margin,
+        origin[1] + min_above - above_margin,
+        origin[1] + max_above + above_margin,
+        test
+    );
     return lift;
 }
 
@@ -3065,6 +3387,8 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
     std::unordered_map<const formats::gaf::RenderedFrame*, std::array<std::optional<AtlasRect>, 4>>
         prepared;
     std::unordered_map<const formats::gaf::RenderedFrame*, std::optional<AtlasRect>> grey_frames;
+    // The ground is cut and stays as it is for the whole pass.
+    GroundIndices ground_indices;
     std::vector<bool> light_masks(in.draws->sprites.size());
     std::vector<bool> blended_sprites(in.draws->sprites.size());
     for (const auto& draw : in.draws->draws) {
@@ -3218,7 +3542,9 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
         };
         const float surface_lift =
             sprite.surface_effect && sprite.world_position && !submerged_effect
-                ? surface_effect_lift(scene, frame, origin_x, origin_h, origin_z, right, up)
+                ? surface_effect_lift(
+                      scene, ground_indices, frame, origin_x, origin_h, origin_z, right, up
+                  )
                 : 0;
         const auto vertex = [&](float dx, float dy) {
             const float across = (dx - frame.origin_x) * sprite.effect_scale;
