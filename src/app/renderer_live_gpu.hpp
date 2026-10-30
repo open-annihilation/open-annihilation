@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstddef>
+#include <functional>
 #include <memory>
 
 namespace oa::app::renderer_live_gpu {
@@ -101,6 +102,8 @@ struct AtlasUpdate {
 ///        enlarged target fits 4096 pixels per axis, then GPU box-filtered before readback
 /// @param atlas_update optional changed rows; ignored after creation, resizing or a revision gap
 /// @param water optional water animation, sea level and distance attenuation
+/// @param while_drawing optional work for the caller while the card draws: called once,
+///        when the frame has been submitted and before render() waits for it
 /// @return success; unavailable where SDL makes no device on Metal or Vulkan; or failed for
 ///         invalid input or GPU errors
 Result render(
@@ -117,7 +120,8 @@ Result render(
     std::string& error,
     uint32_t requested_supersample = 1,
     const AtlasUpdate* atlas_update = nullptr,
-    const WaterEffects* water = nullptr
+    const WaterEffects* water = nullptr,
+    const std::function<void()>& while_drawing = {}
 );
 
 } // namespace oa::app::renderer_live_gpu

@@ -463,6 +463,9 @@ bool Runtime::render_live_match_surface() {
         }
         std::string error;
         const bool built = renderer_live_scene::build(inputs, live.scene, error);
+        // Picking reads only the frame's triangles, so a frame that draws
+        // rebuilds it while the card draws them.
+        const auto rebuild_picking = [this] { rebuild_live_picking(); };
         const auto result = built ? renderer_live_gpu::render(
                                         live.gpu,
                                         live.scene.vertices,
@@ -477,7 +480,8 @@ bool Runtime::render_live_match_surface() {
                                         error,
                                         static_cast<uint32_t>(engine_settings().anti_aliasing),
                                         &live.scene.atlas_update,
-                                        &inputs.water
+                                        &inputs.water,
+                                        rebuild_picking
                                     )
                                   : renderer_live_gpu::Result::failed;
         const auto& last = live.drawn;
@@ -489,7 +493,6 @@ bool Runtime::render_live_match_surface() {
         if (result == renderer_live_gpu::Result::success) {
             live.drawn = {true, live.camera, live.view, place, zoom, view_hold_};
             live.out_of_room = false;
-            rebuild_live_picking();
             for (std::size_t pixel = 0; pixel < match_world_cpu_.rgb.size() / 3; ++pixel)
                 std::copy_n(
                     live.rgba.data() + pixel * 4, 3, match_world_cpu_.rgb.data() + pixel * 3

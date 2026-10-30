@@ -184,7 +184,8 @@ Result render(
     std::string& error,
     uint32_t requested_supersample,
     const AtlasUpdate* atlas_update,
-    const WaterEffects* water
+    const WaterEffects* water,
+    const std::function<void()>& while_drawing
 ) {
     output_rgba.clear();
     error.clear();
@@ -463,6 +464,13 @@ Result render(
             atlas_upload_bytes
         );
     SDL_UnmapGPUTransferBuffer(resources.device, resources.upload);
+    // A frame whose caller's work threw while the card drew it is still
+    // waiting: it is let go first.
+    if (resources.fence) {
+        SDL_WaitForGPUFences(resources.device, true, &resources.fence, 1);
+        SDL_ReleaseGPUFence(resources.device, resources.fence);
+        resources.fence = nullptr;
+    }
     resources.command = SDL_AcquireGPUCommandBuffer(resources.device);
     if (!resources.command)
         return fail("Acquire live GPU command buffer");
@@ -595,7 +603,13 @@ Result render(
     SDL_EndGPUCopyPass(copy);
     resources.fence = SDL_SubmitGPUCommandBufferAndAcquireFence(resources.command);
     resources.command = nullptr;
-    if (!resources.fence || !SDL_WaitForGPUFences(resources.device, true, &resources.fence, 1))
+    if (!resources.fence)
+        return fail("Submit live GPU render");
+    // The caller's work runs while the card draws, rather than after the
+    // picture comes back.
+    if (while_drawing)
+        while_drawing();
+    if (!SDL_WaitForGPUFences(resources.device, true, &resources.fence, 1))
         return fail("Complete live GPU render");
     const auto* download = static_cast<const uint8_t*>(
         SDL_MapGPUTransferBuffer(resources.device, resources.download, false)
