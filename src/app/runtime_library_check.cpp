@@ -17,9 +17,11 @@
 // of either; the shortcut and the in-match OA button open Settings. At
 // 640x480 and 1920x1080. The header reads OPEN ANNIHILATION LIBRARY and the
 // searches are a button high at 640x480, 1024x660, 1280x720 and 1920x1080.
-// At the same sizes each Active map tile keeps clear rows between its title,
-// its players line and its description, and every action of the Mods, Maps,
-// Mutators and Brains tabs' details shows its words whole. The section list,
+// At the same sizes, at 1000x630 and on a 2048x1320 window at 200%, each
+// Active map tile keeps clear rows between its title, its players line and
+// its description, and every action of the Mods, Maps, Mutators and Brains
+// tabs' details shows its words whole; with --snapshot, Settings' Controls
+// and Language & Text are pictured at each of those sizes beside them. The section list,
 // the heading and its search, the selected row's bar, the details' card and
 // the counts are read at those sizes too. Then, at 640x480, a
 // stand-in controller: Y focuses
@@ -1940,11 +1942,13 @@ void Runtime::check_library() {
                      "640x480, 1024x660, 1280x720 and 1920x1080\n";
     }
 
-    // 8c. The Library's spacing at 640x480, 1024x660, 1280x720 and 1920x1080.
-    // Each Active map tile keeps a clear row between its title and its
-    // players line, and between that line and its description. On the Mods,
-    // Maps, Mutators and Brains tabs every action of the first row's details
-    // shows its words whole. With --snapshot, each of those tabs.
+    // 8c. The Library's spacing at 640x480, 1000x630, 1024x660, 1280x720 and
+    // 1920x1080, and on a 2048x1320 window at 200%. Each Active map tile
+    // keeps a clear row between its title and its players line, and between
+    // that line and its description. On the Mods, Maps, Mutators and Brains
+    // tabs every action of the first row's details shows its words whole.
+    // With --snapshot, each of those tabs, and Settings' Controls and
+    // Language & Text at the same size.
     {
         library::Inputs described = fixture_inputs_of(mods, false);
         constexpr std::string_view map_about = "A made-up map of the Library check.";
@@ -1992,12 +1996,32 @@ void Runtime::check_library() {
             }
             return checked;
         };
-        const std::array<std::array<int, 2>, 4> spaced{
-            {{kCanvasWidth, kCanvasHeight}, {1024, 660}, {1280, 720}, {1920, 1080}}
+
+        // Compact, Regular (1000x630, the largest window Regular takes) and
+        // Large at Auto, then 2048x1320 at an Interface size of 200%: Large
+        // at 2x, the 1024x660 window's points drawn as a Retina display
+        // draws them.
+        struct SpacedWindow {
+            int width{};
+            int height{};
+            settings::InterfaceSize interface_size{};
         };
-        for (const auto& [width, height] : spaced) {
+
+        const std::array<SpacedWindow, 6> spaced{{
+            {kCanvasWidth, kCanvasHeight, settings::InterfaceSize::automatic},
+            {1000, 630, settings::InterfaceSize::automatic},
+            {1024, 660, settings::InterfaceSize::automatic},
+            {1280, 720, settings::InterfaceSize::automatic},
+            {1920, 1080, settings::InterfaceSize::automatic},
+            {2048, 1320, settings::InterfaceSize::size_200},
+        }};
+        const settings::EngineSettings kept_size = engine_settings_state().current;
+        for (const auto& [width, height, interface_size] : spaced) {
             const std::string size = std::to_string(width) + 'x' + std::to_string(height);
             const std::string on = " on the " + size + " window";
+            settings::EngineSettings sized = kept_size;
+            sized.interface_size = interface_size;
+            apply_engine_settings(sized);
             window_of(width, height);
             settle();
             fixture.inputs = described;
@@ -2081,8 +2105,23 @@ void Runtime::check_library() {
             require(actions_checked > 0, "no tab's details show an action" + on);
             click_named("oa.library.close");
             require(oa_layer().top() == nullptr, "CLOSE did not close the Library" + on);
+            // Settings at the same size, whose rows, chips and buttons the
+            // Library's follow: Controls, with Change layout… and Edit keys…,
+            // and Language & Text. With --snapshot, both.
+            tap(SDLK_COMMA, kShortcutModifier);
+            require(
+                engine_settings_dialog() != nullptr && top_is("settings"),
+                "the shortcut did not open Settings" + on
+            );
+            click_named("oa.settings.nav.controls");
+            snapshot("spacing-settings-controls-" + size);
+            click_named("oa.settings.nav.language");
+            snapshot("spacing-settings-language-" + size);
+            tap(SDLK_ESCAPE);
+            require(oa_layer().top() == nullptr, "Escape did not close Settings" + on);
             std::cout << "library check: map tiles and actions keep their room" << on << '\n';
         }
+        apply_engine_settings(kept_size);
         window_of(1920, 1080);
         settle();
         feed_changes(false);

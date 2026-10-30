@@ -351,6 +351,10 @@ Side side_of(const Row& row) {
 
 /// True when the two chords are a clash, and not a shadow.
 ///
+/// Primary is compared as written: Primary+5 and Ctrl+5 are two chords here,
+/// so resolution keeps both and a key press finds what it always found. The
+/// clash list reads them as the platform presses them and reports the pair.
+///
 /// @param row the action taking the chord
 /// @param chord the chord
 /// @param other the action that already has one
@@ -364,7 +368,8 @@ bool is_clash(
     const Held& held,
     const ResolveInput& input
 ) {
-    const Relation relation = relate(side_of(row), chord, side_of(other), held.chord, input);
+    const Relation relation =
+        relate(side_of(row), chord, side_of(other), held.chord, input, ChordReading::as_written);
     return relation.overlap == Overlap::clash;
 }
 

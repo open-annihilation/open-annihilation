@@ -181,6 +181,31 @@ struct Resolved {
 /// @return true when a player would call them the same key
 [[nodiscard]] bool same_key(const Chord& first, const Chord& second, const KeyboardMap* keyboard);
 
+/// Returns a chord as a platform presses it.
+///
+/// Primary becomes Ctrl, or Meta where Primary is the command key, as
+/// matching reads it. A chord that names no Primary is returned unchanged.
+///
+/// @param chord the chord
+/// @param platform which key Primary means
+/// @return the chord, naming no Primary
+[[nodiscard]] Chord pressed_chord(const Chord& chord, Platform platform);
+
+/// Reports whether two chords are one key as a platform presses them.
+///
+/// As `same_key`, with each chord read as `pressed_chord` reads it: Primary+5
+/// and Ctrl+5 are one key where Primary is Ctrl, and Primary+5 and Meta+5
+/// where it is the command key.
+///
+/// @param first one chord
+/// @param second the other chord
+/// @param keyboard the map, or null
+/// @param platform which key Primary means
+/// @return true when a player on that platform presses them as one key
+[[nodiscard]] bool same_key_on(
+    const Chord& first, const Chord& second, const KeyboardMap* keyboard, Platform platform
+);
+
 /// Two actions whose chords clash.
 struct Clash {
     std::string a{}; ///< one action
@@ -210,17 +235,22 @@ struct Shadow {
 /// Lists the clashes in a resolved layout.
 ///
 /// A hack's precedence and an overlay's shadow are not clashes, and neither
-/// is a binding whose conditions include another's.
+/// is a binding whose conditions include another's. Chords are compared as
+/// the input's platform presses them (`same_key_on`), so Primary+5 clashes
+/// with Ctrl+5 where Primary is Ctrl. Resolution keeps both chords.
 ///
 /// @param resolved the bindings
-/// @param input the scheme, the hacks and the keyboard the resolution used
+/// @param input the scheme, the hacks, the keyboard and the platform the
+///        resolution used
 /// @return each clashing pair, in action order
 [[nodiscard]] std::vector<Clash> find_clashes(const Resolved& resolved, const ResolveInput& input);
 
 /// Lists what binding one more chord on an action would clash with.
 ///
+/// The chords are compared as the input's platform presses them.
+///
 /// @param resolved the bindings
-/// @param input the scheme, the hacks and the keyboard
+/// @param input the scheme, the hacks, the keyboard and the platform
 /// @param action the action the chord would be bound to
 /// @param chord the chord
 /// @return the clashes, and not the shadows
@@ -230,8 +260,11 @@ struct Shadow {
 
 /// Lists each shadowed pair, for the editor.
 ///
+/// The chords are compared as the input's platform presses them.
+///
 /// @param resolved the bindings
-/// @param input the scheme, the hacks and the keyboard the resolution used
+/// @param input the scheme, the hacks, the keyboard and the platform the
+///        resolution used
 /// @return each pair a hack, an overlay or a stricter condition takes
 [[nodiscard]] std::vector<Shadow> shadows(const Resolved& resolved, const ResolveInput& input);
 

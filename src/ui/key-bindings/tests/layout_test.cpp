@@ -3,7 +3,8 @@
 
 // Resolution: oa-default clashes with nothing, a layout and a mod and a
 // player's own changes combine in order, and the pairs that share a key
-// without clashing stay listed as shadows.
+// without clashing stay listed as shadows. Primary clashes with Ctrl or Cmd
+// on the platforms that press them as one key.
 #include "oa/test/check.hpp"
 #include "oa/ui/key_bindings/dispatcher.hpp"
 #include "oa/ui/key_bindings/layout.hpp"
@@ -282,8 +283,10 @@ void layers_conditions_and_same_key() {
     OA_CHECK(!keys::same_key(letter, must_parse("B"), &us));
 }
 
-/// oa-default clashes with nothing, for every hack combination the registry names.
-void oa_default_has_no_clash() {
+/// oa-default clashes with nothing on one platform, for every hack combination.
+///
+/// @param platform which key Primary means
+void oa_default_has_no_clash_on(keys::Platform platform) {
     const keys::KeyboardMap us = keys::KeyboardMap::us();
     const keys::PointerScheme schemes[] = {
         keys::PointerScheme::right_click, keys::PointerScheme::left_click
@@ -291,6 +294,7 @@ void oa_default_has_no_clash() {
     const bool swaps[] = {false, true};
 
     keys::ResolveInput input = fresh(us);
+    input.platform = platform;
     for (const keys::PointerScheme scheme : schemes) {
         input.scheme = scheme;
         for (const bool swap : swaps) {
@@ -321,6 +325,16 @@ void oa_default_has_no_clash() {
             input.number_keys_select_groups = swap;
             expect_no_clash(input);
         }
+    }
+}
+
+/// oa-default clashes with nothing, for every hack combination the registry
+/// names, where Primary is Ctrl and where it is the command key.
+void oa_default_has_no_clash() {
+    for (const bool primary_is_meta : {false, true}) {
+        keys::Platform platform;
+        platform.primary_is_meta = primary_is_meta;
+        oa_default_has_no_clash_on(platform);
     }
 }
 
@@ -966,6 +980,97 @@ void resource_rows_keep_both_chords() {
     );
 }
 
+/// A platform a layout is played on, and whether Primary is its command key.
+struct NamedPlatform {
+    const char* name{};     ///< the platform, for a failing line
+    bool primary_is_meta{}; ///< Primary is the command key there
+};
+
+/// Windows, Linux and the Steam Deck read Primary as Ctrl, and a Mac as Cmd.
+constexpr NamedPlatform kPlatforms[] = {
+    {"Windows", false},
+    {"Linux", false},
+    {"Steam Deck", false},
+    {"macOS", true},
+};
+
+/// Primary+5 against Ctrl+5 or Cmd+5, as the Left hand layout writes its keys
+/// overlay and Settings beside its group keys: a clash wherever the platform
+/// presses them as one key, and resolution keeping every chord everywhere.
+void primary_clashes_as_pressed() {
+    const keys::KeyboardMap us = keys::KeyboardMap::us();
+    keys::Layout left;
+    left.bindings.push_back(binding("group.assign-5", {"Ctrl+@Digit5"}, 1, 1));
+    left.bindings.push_back(binding("group.assign-6", {"Ctrl+@Digit6"}, 2, 1));
+    left.bindings.push_back(binding("ui.keys-overlay", {"Primary+@Digit5"}, 3, 1));
+    left.bindings.push_back(binding("ui.settings", {"Primary+@Digit6"}, 4, 1));
+    keys::Layout command;
+    command.bindings.push_back(binding("group.assign-5", {"Meta+@Digit5"}, 1, 1));
+    command.bindings.push_back(binding("ui.keys-overlay", {"Primary+@Digit5"}, 2, 1));
+    keys::Layout overlay;
+    overlay.bindings.push_back(binding("chat.open", {"Ctrl+@KeyJ"}, 1, 1));
+    overlay.bindings.push_back(binding("chat.send", {"Primary+@KeyJ"}, 2, 1));
+
+    for (const NamedPlatform& named : kPlatforms) {
+        const bool ctrl = !named.primary_is_meta;
+        keys::ResolveInput input = fresh(us);
+        input.platform.primary_is_meta = named.primary_is_meta;
+        input.chosen = &left;
+        const Resolved resolved = keys::resolve(input);
+        OA_CHECK(chords_are(find_bound(resolved, "group.assign-5"), {"Ctrl+@Digit5"}));
+        OA_CHECK(chords_are(find_bound(resolved, "group.assign-6"), {"Ctrl+@Digit6"}));
+        OA_CHECK(chords_are(find_bound(resolved, "ui.keys-overlay"), {"Primary+@Digit5"}));
+        OA_CHECK(chords_are(find_bound(resolved, "ui.settings"), {"Primary+@Digit6"}));
+        OA_CHECK(resolved.lost.empty());
+        const std::vector<Clash> clashes = keys::find_clashes(resolved, input);
+        const bool five = clash_of(clashes, "group.assign-5", "ui.keys-overlay");
+        const bool six = clash_of(clashes, "group.assign-6", "ui.settings");
+        if (five != ctrl || six != ctrl || clashes.size() != (ctrl ? 2u : 0u)) {
+            std::fprintf(stderr, "Primary against Ctrl on %s\n", named.name);
+            print_clashes(input, clashes);
+        }
+        OA_CHECK(five == ctrl);
+        OA_CHECK(six == ctrl);
+        OA_CHECK(clashes.size() == (ctrl ? 2u : 0u));
+        const std::vector<Clash> asked =
+            keys::clashes_with(resolved, input, "ui.keys-overlay", must_parse("Primary+@Digit5"));
+        OA_CHECK(clash_of(asked, "ui.keys-overlay", "group.assign-5") == ctrl);
+        const std::vector<Clash> held =
+            keys::clashes_with(resolved, input, "group.assign-6", must_parse("Ctrl+@Digit6"));
+        OA_CHECK(clash_of(held, "group.assign-6", "ui.settings") == ctrl);
+
+        keys::ResolveInput command_input = fresh(us);
+        command_input.platform.primary_is_meta = named.primary_is_meta;
+        command_input.chosen = &command;
+        const Resolved command_resolved = keys::resolve(command_input);
+        OA_CHECK(chords_are(find_bound(command_resolved, "group.assign-5"), {"Meta+@Digit5"}));
+        OA_CHECK(chords_are(find_bound(command_resolved, "ui.keys-overlay"), {"Primary+@Digit5"}));
+        const std::vector<Clash> command_clashes =
+            keys::find_clashes(command_resolved, command_input);
+        const bool cmd = clash_of(command_clashes, "group.assign-5", "ui.keys-overlay");
+        if (cmd != named.primary_is_meta) {
+            std::fprintf(stderr, "Primary against Cmd on %s\n", named.name);
+            print_clashes(command_input, command_clashes);
+        }
+        OA_CHECK(cmd == named.primary_is_meta);
+        OA_CHECK(command_clashes.size() == (named.primary_is_meta ? 1u : 0u));
+
+        // The chat line over a match takes the key it shares while it is open.
+        keys::ResolveInput overlay_input = fresh(us);
+        overlay_input.platform.primary_is_meta = named.primary_is_meta;
+        overlay_input.chosen = &overlay;
+        const Resolved overlay_resolved = keys::resolve(overlay_input);
+        OA_CHECK(
+            !clash_of(keys::find_clashes(overlay_resolved, overlay_input), "chat.open", "chat.send")
+        );
+        const std::vector<Shadow> overlay_shadows = keys::shadows(overlay_resolved, overlay_input);
+        const Shadow* chat = shadow_of(overlay_shadows, "chat.send", "chat.open");
+        OA_CHECK((chat != nullptr) == ctrl);
+        if (chat != nullptr)
+            OA_CHECK(chat->kind == ShadowKind::while_overlay);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -989,5 +1094,6 @@ int main() {
     gui_files_clash_only_when_shown_together();
     tag_words_resolve();
     resource_rows_keep_both_chords();
+    primary_clashes_as_pressed();
     return oa::test::check_exit_status();
 }

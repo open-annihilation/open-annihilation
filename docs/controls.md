@@ -275,6 +275,26 @@ shows each other latched hold, and, with Sticky modifiers on, a tapped
 Shift, Ctrl or Alt. Losing the window clears every latch and sticky
 modifier, including a QUEUE latched from the touch controls.
 
+## Helping a factory
+
+**Guard** (`order.guard`) is G by default, and it moves in the editor. To
+keep a builder helping a factory, select the builder, press G (or DEFEND
+on the order panel) and click the factory. A guarding builder, whether a
+construction vehicle, a construction aircraft or a commander, helps build
+each unit the factory starts, one after another, repairs the factory when
+it is damaged, and stays with it until you give it another order.
+
+A click on the unit the factory is building helps build that one unit, as
+in 3.1c: when it is finished the builder stops, and it does not go on to
+the next unit in the factory's queue. Over the middle of a working
+factory the pointer is on the unit being built, since in the classic view
+the smaller of two units under the pointer is the one it picks: the
+left-click interface shows the repair cursor there. In the right-click
+interface a right click there also helps build that unit only, and a right
+click on the factory itself, away from the unit, gives Guard while the
+factory is undamaged; a damaged factory is repaired instead, and the
+builder stops once it is whole.
+
 ## The window's edge
 
 **Edge scrolling**, in [Settings › Accessibility](settings.md#accessibility),

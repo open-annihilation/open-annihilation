@@ -428,11 +428,16 @@ app removes the folder (`Runtime::library_uninstall`,
     one for Total Annihilation and the demo. The letters "TA" stay only
     when that picture cannot be drawn. The tile also has the name,
     the version and, when the inputs name them, the source and the file
-    check, and Change… (`library.active.change`) at the bottom right.
+    check, and Change… (`library.active.change`), one of Settings' buttons:
+    beside the words at the right, centred on the badge, while the words
+    keep 120 points beside it, as on Settings' key layout card; else at the
+    tile's bottom right, under the title's line when the lines under it fit
+    left of it, and under every line when they do not.
     The expansions tile has one pill `library.active.expansion.<id>` for
     each expansion of that game. One that is not copied and that a registry
     offers keeps the name and carries the download arrow at the right,
-    inside the pill. The whole pill is the press: the same control asks
+    inside the pill. A pill that is on is filled with the accent, and one
+    that is off is outlined as a tag. The whole pill is the press: the same control asks
     for the download, cancels it, or tries again. While the command line
     chose the mod played, a pill that is on and whose press would unload
     that mod (it needs the expansion, or one that goes off with it) is
@@ -466,21 +471,26 @@ app removes the folder (`Runtime::library_uninstall`,
     accent and lighter while hovered. A minimap is
     fitted in its square, centred, and the letterbox is the list's well
     colour. Badge, title and lines start
-    at the top of the tile, with the same padding above them and below the
-    last line or the button. The four tiles stand two by two at every size.
+    at the top of the tile, a space in from its edges, with the same space
+    below the last line or the button. A tile's lines are spaced as
+    Settings spaces a row's label and its hints: a line in the small font
+    `hint_gap` under the title, and each next one a hint's step under it
+    (`hint_gap` at least on a map tile), and a pill on the title's line
+    makes that line as tall as the pill. The four tiles stand two by two at every size.
     Compact lists the maps on one line each; Regular and Large put the
     titles on one line and the tiles the same height; Large puts the maps
     in two columns of equal height when more than one is installed. The mod label stops above Unload mod, the
     language label covers its tile, and each map's label covers its title
     line, or the players-and-size line when the title is the link, and on
     a small window the part of the line after the title when that title is
-    the link, so it does not meet the link. On Regular and Large the maps
-    pane scrolls on its own when the maps are taller than the room under
-    the heading, and the wheel over a tile above the maps does not scroll
-    them. On Compact, when the tiles leave the maps fewer than four rows,
-    the page scrolls as one, the tiles then the maps, by the wheel, a
+    the link, so it does not meet the link. At any size, when the tiles
+    leave the maps fewer than four rows, the page scrolls as one, the
+    tiles then the maps, by the wheel, a
     finger, the scroll bar, the page keys, Home, End and the right stick.
-    Once the maps are in view, four rows fit. Focusing a map link, or the
+    Once the maps are in view, four rows fit. Otherwise the maps pane
+    scrolls on its own when the maps are taller than the room under the
+    heading, and the wheel over a tile above the maps does not scroll
+    them. Focusing a map link, or the
     maps search, scrolls that control into view. The expansions hint wraps
     onto as many lines as it needs. The labels take
     no press. Unload mod does, while it is enabled, and so does a map's
@@ -562,6 +572,25 @@ app removes the folder (`Runtime::library_uninstall`,
     and Large; Compact keeps the kit's Compact band (26), since ten points
     more would cost its list a row and leave the Active page's lowest
     controls over the footer's, where no arrow passes them.
+  - The type, the rhythm, the chips and the buttons are Settings'. A
+    button is one of Settings' buttons: its caption in the regular font,
+    as wide as its words with two spaces either side and at least twice
+    the control height (`button_width`), two spaces from the next; Close is
+    the accent one, as OK is. A list row is spaced as Settings spaces a
+    row's label and its hints (`row_spacing`, `kit::RowSpacing`): the
+    summary `hint_gap` under the title, lines a hint's step apart
+    (`small_line`, and `tall_hint_line_gap` more in the modern fonts), the
+    tags `slider_gap` under the lines, and Settings' `row_padding` above
+    and below the words (a space at Compact). A hairline in the rule
+    colour stands between two rows. A Large list none of whose rows shows a
+    chip keeps Regular's height. A chip, the tags under a row, the state
+    on a row and in the details, the expansion pills and the pill on a
+    tile's title line, is the small font's line and a space high, with
+    Settings' `label_gap` either side of its words; a package's tag is
+    quiet, outlined, its words in the hint colour (`ChipState::tag`,
+    `PillState::tag`). The details' parts stand two spaces apart, as
+    Settings' cards keep theirs, and a fact's lines a hint's step apart,
+    the facts a space further.
   - **Compact** shows a list page: the header (the mods icon, the plates
     over drive bays, "LIBRARY", this build's version, and a refresh icon
     at the top right; "offline" in the lock colour beside it when the last
@@ -586,7 +615,7 @@ app removes the folder (`Runtime::library_uninstall`,
     (`details_page_layout`), in a bordered card between the header and the
     footer, the footer's actions staying outside the card: its name and version in the header, the status
     line, the byline, the summary in at most three lines, the package's tags
-    as inactive pills under it, the short facts in label and value columns,
+    as tag pills under it, the short facts in label and value columns,
     the playing note, and in the footer the first three actions, More
     holding the rest, and BACK. BACK returns to the list and keeps its tab,
     filter, search, scroll and row. The list page's button stays CLOSE;
@@ -594,12 +623,13 @@ app removes the folder (`Runtime::library_uninstall`,
     refresh icon, the same section list, the heading and a search up to
     240 points wide at its right, on Updates "{n} updates" and Update all
     on a line over the list, and a list of
-    Kit 2's 40-point rows (the name and byline, the summary, the version over the
+    rows at least Kit 2's 40 points (the name and byline, the summary, the version over the
     size, the state's icon) as wide as the content left after a 280-point
     details floor. The details sit in a bordered card (a 40-point badge beside the
-    name, its state's icon and the status line, the summary in at most six lines, the package's tags as inactive pills under it, the long facts,
-    the playing note, which scroll, and under them the actions three to a
-    line at Kit 2's control height, 34 points, 38 at Large, in a bar at the
+    name, its state's icon and the status line, the summary in at most six lines, the package's tags as tag pills under it, the long facts,
+    the playing note, which scroll, and under them the actions as Settings
+    lays out its Updates card's buttons, left to right and as wide as
+    their words, at Kit 2's control height, 34 points, 38 at Large, in a bar at the
     card's foot that does not scroll), and the footer (both queue
     lines, the 8-point bar under the first while a download runs, and CLOSE);
   - **Large** shows Regular's header, section list and heading. The list
@@ -743,7 +773,7 @@ app removes the folder (`Runtime::library_uninstall`,
     (11)"); the tags' entries `library.tag.<tag>` (a world tag's text its
     world's name and its count, "water (1)"), the world tags last under the
     heading WORLD, which is not named, marked or pressed; a tag under the description is
-    `library.detail.tag.<tag>`, an inactive pill, and pressing it chooses
+    `library.detail.tag.<tag>`, a tag pill, and pressing it chooses
     that tag as the filter row does. A world tag (`world_tag`, `world-`
     and a name) shows its world's name wherever a tag shows (`world_name`:
     `world-ice` is "ice"), comes after the other tags (`tags_in_tab`), and

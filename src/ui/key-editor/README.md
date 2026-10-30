@@ -126,7 +126,7 @@ Clone as New Layout… (in LAYOUT ▾ and More) asks a new layout's name and des
 
 ## Tests
 
-`ui-key-editor-model` checks the categories, Common commands and a search in it, Undo step by step and a capture undone in one step, the filters, the search, removing and resetting a chord, Latch and Hold to confirm, the number-keys switch, choosing a layout, cloning one (a taken name, a description, the result, and Undo step by step) and renaming and describing it, that the rows and counts follow a change and its Undo, a clash in the mod's data that stays listed while saving stays allowed, a draft chord that blocks saving, an unknown action written back, the Tags group's order, a bound tag, a tag the loaded units lack, Developer Mode, and Escape's fixed chord.
+`ui-key-editor-model` checks the categories, Common commands and a search in it, Undo step by step and a capture undone in one step, the filters, the search, removing and resetting a chord, Latch and Hold to confirm, the number-keys switch, choosing a layout, cloning one (a taken name, a description, the result, and Undo step by step) and renaming and describing it, that the rows and counts follow a change and its Undo, Primary+5 against Ctrl+5 as one clashing pair in the list and the counts where Primary is Ctrl and none on a Mac, and against Cmd+5 on a Mac only, a clash in the mod's data that stays listed while saving stays allowed, a draft chord that blocks saving, an unknown action written back, the Tags group's order, a bound tag, a tag the loaded units lack, Developer Mode, and Escape's fixed chord.
 
 `ui-key-editor-layout` lays the screen out at Compact, Regular and Large, including the keyboard and the mouse, and the ISO and JIS keyboards at Large. It checks that every part lies in the window, that names are sound, that Tab's order is the one above, and that every text fits. It checks More's two headings and their items in order, at Compact and above, with and without Rename and Describe…, and the layout menu's Clone as New Layout…. Share with changes and with none, before and after Save File… and Copy as Text, and Paste with a key by its place, a clash and an unknown action, and with a text that is no key layout, are laid out in English and in longer words: nothing they draw meets anything else, and no word is cut short but the preview's "..." and a saved path cut in its middle. Clone's question has its fields, its line and its buttons at control height in Tab's order, keeps Clone off on a taken name, and Rename and Describe's keeps Save off until the name or the description changes. A key scrolled past the well is clipped.
 
@@ -134,7 +134,7 @@ Clone as New Layout… (in LAYOUT ▾ and More) asks a new layout's name and des
 
 `ui-key-editor-input` drives the keys, the pad's commands, a finger's scroll and tap, and Cancel, the ×, Escape and Back asking before unsaved edits are closed in the editor's own question (Keep editing, Discard, Save and Menu, and Save left out while a clash holds it back), with Undo and Primary+Z taking them back, and More › Clone as New Layout… and Rename and Describe… typed into and answered with Enter and Save.
 
-`ui-key-editor-capture` captures a chord and checks what the capture says and its button; that the clash question lists each outcome on both actions, changes nothing until its confirm button, and that Cancel and Choose another key change nothing; Settle… on a draft clash; and Find by key, which changes nothing, apart from the search.
+`ui-key-editor-capture` captures a chord and checks what the capture says and its button; that the clash question lists each outcome on both actions, changes nothing until its confirm button, and that Cancel and Choose another key change nothing; Settle… on a draft clash; and Find by key, which changes nothing, apart from the search. A chord that names Primary and Ctrl together is Ctrl+7 where Primary is Ctrl: Find by key lists it for Ctrl+7, and keeping Ctrl+7 for the group key takes it off; on a Mac it is another key.
 
 `ui-key-editor-views` checks the labels, the layers, Escape, Settings, an AZERTY map, a key's click that only inspects, the inspector's buttons, the mouse in both schemes, and Find on keyboard.
 
@@ -151,7 +151,7 @@ Clone as New Layout… (in LAYOUT ▾ and More) asks a new layout's name and des
 ## Invariants
 
 - A row shows the chords resolution gives for that action, from the base, the chosen layout, the mod's data and the draft.
-- Changed means the draft names the action. Unbound means it has no chord. Clashes means `find_clashes` reports a pair. Latchable means the registry's flag.
+- Changed means the draft names the action. Unbound means it has no chord. Clashes means `find_clashes` reports a pair, comparing chords as the player's platform presses them (Primary+5 is Ctrl+5 where Primary is Ctrl). Latchable means the registry's flag.
 - `can_save` stays false while a clash names an action the draft binds. A clash in the mod's data alone stays in the Clashes filter and leaves Save changes allowed. The module writes no file; the host writes `result()` when the player saves.
 - Escape's fixed chord on `chat.cancel` and `ui.screen-cancel` stays. An action this version does not know is listed, refuses every change, and is written back.
 - Developer rows are listed while Developer Mode is on.

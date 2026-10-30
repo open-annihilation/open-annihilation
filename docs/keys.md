@@ -69,9 +69,13 @@ capture's More options) chooses a place; leaving it off chooses the
 letter.
 
 Modifiers are written in this order: Primary, Ctrl, Alt, Shift, then the
-key. Primary is Command on a Mac and Ctrl on the other systems. A double
-press is `:double` (`MouseLeft:double` is the double click that selects
-every unit of one type). Letters in a stored chord are capitals.
+key. Primary is Command on a Mac and Ctrl on the other systems, so
+Primary+5 and Ctrl+5 are the same keys on Windows, Linux and the Steam
+Deck, and Primary+5 and Cmd+5 are on a Mac. The editor lists such a pair
+as a clash on the system where it is one, and `oa-tool keys check` names
+the systems where a layout's pair clashes. A double press is `:double`
+(`MouseLeft:double` is the double click that selects every unit of one
+type). Letters in a stored chord are capitals.
 
 The mouse is the same list. `MouseLeft`, `MouseRight` and `MouseMiddle`
 are the buttons, and `WheelUp` and `WheelDown` the wheel. Which button
