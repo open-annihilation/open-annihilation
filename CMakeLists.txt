@@ -7,7 +7,7 @@ project(open_annihilation VERSION 0.8.7 LANGUAGES C CXX)
 # development build. The label is empty for a release, and for a build the
 # maintainer reviews as one; the commit after a release sets it back to "dev"
 # and raises the version.
-set(OA_VERSION_LABEL "dev")
+set(OA_VERSION_LABEL "")
 # A target that links one static library both directly and through
 # another library gets it once on its link line, in dependency order, rather
 # than once for each path that reaches it. The linker then has nothing to
