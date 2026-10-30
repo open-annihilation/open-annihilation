@@ -1422,6 +1422,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_megamap_check.cpp src/app/runtime_radar_orders_check.cpp
   src/app/runtime_single_player_offers_check.cpp
   src/app/runtime_inactive_loop_check.cpp src/app/runtime_factory_check.cpp
+  src/app/runtime_factory_departure_check.cpp
   src/app/runtime_unit_speech_check.cpp src/app/runtime_mutator_layer_check.cpp
   src/app/runtime_mutator_verdicts_check.cpp
   src/app/runtime_mutator_dry_run.cpp
@@ -3505,6 +3506,17 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-factory-orders PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_factory_check_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Each factory with a platform builds a unit, which must be drawn over
+      # the platform at every camera row of a small scroll until it leaves.
+      set(oa_factory_departure_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/factory-departure")
+      file(MAKE_DIRECTORY "${oa_factory_departure_dir}")
+      add_test(NAME native-factory-departure COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-factory-departure
+        --preferences-file "${oa_factory_departure_dir}/factory-departure.conf")
+      set_tests_properties(native-factory-departure PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_factory_departure_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "factory departure check: passed")
       # Through SDL input on dummy devices the commander says its select line
       # when clicked and its order line when then clicked onto open ground,
       # each with a sound its SOUND.TDF section offers; and so in a second

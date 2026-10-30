@@ -335,6 +335,7 @@ void check_game_files_options(Options& options) {
         {options.check_skirmish_sides, "--check-skirmish-sides"},
         {options.check_mod_limits, "--check-mod-limits"},
         {options.check_factory_orders, "--check-factory-orders"},
+        {options.check_factory_departure, "--check-factory-departure"},
         {options.check_unit_speech, "--check-unit-speech"},
         {options.check_mutator_layer, "--check-mutator-layer"},
         {options.check_mutator_verdicts, "--check-mutator-verdicts"},
@@ -642,6 +643,7 @@ void check_director_options(Options& options) {
         {options.check_skirmish_sides, "--check-skirmish-sides"},
         {options.check_mod_limits, "--check-mod-limits"},
         {options.check_factory_orders, "--check-factory-orders"},
+        {options.check_factory_departure, "--check-factory-departure"},
         {options.check_unit_speech, "--check-unit-speech"},
         {options.check_mutator_layer, "--check-mutator-layer"},
         {options.check_mutator_verdicts, "--check-mutator-verdicts"},
@@ -765,6 +767,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_skirmish_sides, "--check-skirmish-sides"},
             {options.check_mod_limits, "--check-mod-limits"},
             {options.check_factory_orders, "--check-factory-orders"},
+            {options.check_factory_departure, "--check-factory-departure"},
             {options.check_unit_speech, "--check-unit-speech"},
             {options.check_mutator_layer, "--check-mutator-layer"},
             {options.check_mutator_verdicts, "--check-mutator-verdicts"},
@@ -1047,6 +1050,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-skirmish-sides", &Options::check_skirmish_sides},
     {"--check-mod-limits", &Options::check_mod_limits},
     {"--check-factory-orders", &Options::check_factory_orders},
+    {"--check-factory-departure", &Options::check_factory_departure},
     {"--check-unit-speech", &Options::check_unit_speech},
     {"--check-mutator-layer", &Options::check_mutator_layer},
     {"--check-mutator-verdicts", &Options::check_mutator_verdicts},
@@ -1773,7 +1777,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-render-tiers [--force-capable]] "
                      "[--check-match-orders] [--check-side-orders] [--check-skirmish-sides] "
                      "[--check-mod-limits] "
-                     "[--check-factory-orders] "
+                     "[--check-factory-orders] [--check-factory-departure] "
                      "[--check-unit-speech] [--check-mutator-layer] [--check-mutator-verdicts] "
                      "[--check-replay-loadout] "
                      "[--check-side-data-per-match] "
@@ -2153,7 +2157,7 @@ void write_startup_line(std::string_view text) {
         result.check_brain_campaign || result.check_mutator_prompts ||
         result.check_map_pack_lists || result.check_mod_map_settings || result.check_side_orders ||
         result.check_skirmish_sides || result.check_mod_limits || result.check_click_snap ||
-        result.check_selection_keys;
+        result.check_selection_keys || result.check_factory_departure;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||

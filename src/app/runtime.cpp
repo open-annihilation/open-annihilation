@@ -945,6 +945,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_factory_departure) {
+            check_factory_departure();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_unit_speech) {
             check_unit_speech();
             flush_preferences();

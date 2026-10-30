@@ -495,6 +495,10 @@ struct Options {
     // Gives a Kbot Lab a move through the SDL presenter and checks the unit it
     // builds carries it out.
     bool check_factory_orders = false;
+    // Has a Vehicle Plant build a Construction Vehicle and checks that every
+    // frame of a small scroll draws the vehicle over the plant's platform
+    // while it drives off it.
+    bool check_factory_departure = false;
     // Selects the commander and sends it to open ground through the SDL
     // presenter, in two skirmishes one after the other, and checks the
     // select and order lines it says.

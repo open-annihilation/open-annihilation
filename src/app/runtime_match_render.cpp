@@ -2081,7 +2081,13 @@ bool Runtime::draw_match_surface() {
         if (model.instance == nullptr)
             continue;
         units_to_draw.push_back(slot.unit_index);
-        unit_sites.push_back({pose ? pose->position.z : model.unit->position.z, model.unit->flags});
+        unit_sites.push_back(
+            {pose ? pose->position.z : model.unit->position.z,
+             model.unit->flags,
+             pose ? pose->position.x : model.unit->position.x,
+             model.unit->footprint_x,
+             model.unit->footprint_z}
+        );
     }
     oa::present::world_renderer::BattlefieldDrawPlan draw_plan;
     oa::present::world_renderer::plan_battlefield_draws(

@@ -15600,6 +15600,16 @@ class Runtime final : public menu::Host,
     /// Throws std::runtime_error on a failure.
     void check_factory_orders();
 
+    /// Checks that a unit driving off its factory's platform is drawn over it.
+    ///
+    /// Places a finished Vehicle Plant, has it build a Construction Vehicle and,
+    /// on every tick from the vehicle's release until its footprint has left the
+    /// plant's, draws the frame at each camera row of one plot's scroll: every
+    /// frame must draw the vehicle after the plant. With --snapshot, writes the
+    /// frames of the first ticks beside that path. Prints "factory departure
+    /// check: passed". Throws std::runtime_error on a failure.
+    void check_factory_departure();
+
     /// Starts a skirmish, plays it on for a while, selects the commander with a
     /// left click and sends it to open ground with another: the commander must
     /// say a select line and then an order line, each with a sound its sound
