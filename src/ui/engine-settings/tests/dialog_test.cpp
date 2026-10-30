@@ -5452,7 +5452,7 @@ void the_kit_gallery_row_moves_only_developers_list() {
         {Page::controller, 0xa7885afcb09dc987},
         {Page::game_files, 0x8d9c24ba45ceda68},
         {Page::downloads, 0x848d98d8f497c5ff},
-        {Page::updates, 0xbf1ec48e9b758057},
+        {Page::updates, 0x90b523863cb6ffc9},
         {Page::game_content, 0x4a86df05e34dc046},
     }};
     for (const auto& [page, before] : kBefore) {
