@@ -538,7 +538,7 @@ texts_not_fitting(const kit::DisplayList& list, const kit::Fonts& fonts) {
         case kit::Role::button:
             if (const auto* look = std::get_if<kit::ButtonLook>(&item.look))
                 check(
-                    width(kit::FontRole::small, look->caption) <= item.rect.width,
+                    width(look->font, look->caption) <= item.rect.width,
                     "button \"" + look->caption + "\""
                 );
             break;
@@ -549,10 +549,19 @@ texts_not_fitting(const kit::DisplayList& list, const kit::Fonts& fonts) {
                 );
             break;
         case kit::Role::pill:
-            if (const auto* look = std::get_if<kit::PillLook>(&item.look))
-                check(
-                    kit::pill_width(fonts, *look) <= item.rect.width, "pill \"" + look->text + "\""
-                );
+            if (const auto* look = std::get_if<kit::PillLook>(&item.look)) {
+                // The Library keeps Settings' label gap either side of a
+                // pill's words, and each icon as far in from the pill's
+                // round end as from its top.
+                kit::PillLook plain;
+                plain.text = look->text;
+                const int32_t icons = (look->tag ? 1 : 0) + (look->icon ? 1 : 0);
+                const int32_t icon_inset = (item.rect.height - (kit::pill_height() - 2)) / 2;
+                const int32_t wanted = width(kit::FontRole::small, look->text) +
+                                       2 * metrics.label_gap + kit::pill_width(fonts, *look) -
+                                       kit::pill_width(fonts, plain) + icons * icon_inset;
+                check(wanted <= item.rect.width, "pill \"" + look->text + "\"");
+            }
             break;
         case kit::Role::link:
             if (const auto* look = std::get_if<kit::LinkLook>(&item.look))

@@ -852,7 +852,7 @@ void check_frame(const fixture::NamedFrame& named) {
     const kit::Item* language_title = text_item(active_list, "Polski");
     const kit::Item* base_name = text_item(active_list, "Total Annihilation");
     if (mod_title != nullptr && mod_line != nullptr)
-        OA_CHECK(mod_title->rect.y == mod_line->rect.y + kit::compact_metrics.card_inset);
+        OA_CHECK(mod_title->rect.y == mod_line->rect.y + kit::metrics_of(frame.size_class).space);
     // Row one is the base game beside the language. Row two is the mod.
     if (base_name != nullptr && language_title != nullptr)
         OA_CHECK(base_name->rect.y == language_title->rect.y);
@@ -934,16 +934,19 @@ void check_frame(const fixture::NamedFrame& named) {
     if (atoll_tile != nullptr && ridge_tile != nullptr) {
         const int32_t side = metrics.list_row_badge + 2 * metrics.card_inset;
         const auto tile_height = [&](int32_t lines) {
-            return metrics.card_inset + std::max(side, lines) + metrics.card_inset;
+            return metrics.space + std::max(side, lines) + metrics.space;
         };
-        // A clear gap under the title's line, and under the players line when
-        // a From line follows it: three quarters of the class's space.
-        const int32_t line_gap = metrics.space * 3 / 4;
-        const int32_t atoll_height =
-            tile_height(metrics.regular_line + line_gap + metrics.small_line);
-        const int32_t ridge_height = tile_height(
-            metrics.regular_line + line_gap + metrics.small_line + line_gap + metrics.small_line
+        // The players line hint_gap under the title's line, and a From line
+        // a hint's step under the players line, as Settings spaces a row's
+        // label and its hints, with at least hint_gap clear between them.
+        const int32_t step = std::max(
+            metrics.small_line + (kit::modern_look(fonts()) ? metrics.tall_hint_line_gap : 0),
+            metrics.small_line + metrics.hint_gap
         );
+        const int32_t atoll_height =
+            tile_height(metrics.regular_line + metrics.hint_gap + metrics.small_line);
+        const int32_t ridge_height =
+            tile_height(metrics.regular_line + metrics.hint_gap + step + metrics.small_line);
         if (frame.size_class == kit::SizeClass::large) {
             // Side by side, the row takes the taller tile.
             OA_CHECK(atoll_tile->rect.height == ridge_tile->rect.height);
@@ -1944,7 +1947,7 @@ void filters_and_tags() {
         balance_look != nullptr && !balance_look->selected && balance_look->caption == "balance"
     );
     const kit::PillLook* detail_look = pill_named(wide_list, "library.detail.tag.balance");
-    OA_CHECK(detail_look != nullptr && detail_look->state == kit::PillState::inactive);
+    OA_CHECK(detail_look != nullptr && detail_look->state == kit::PillState::tag);
     OA_CHECK(all_pill != nullptr && all_pill->kind == kit::ControlKind::tab);
     if (all_pill != nullptr && balance != nullptr) {
         wide_state.interaction.focus_shown = true;
@@ -2072,7 +2075,9 @@ void active_base_game_is_a_tile() {
         const kit::Control* base = fixture::named(list, "library.active.base");
         OA_CHECK(base != nullptr && base->text == "Total Annihilation · 3.1c");
         if (base != nullptr && game_title != nullptr)
-            OA_CHECK(game_title->rect.y == base->rect.y + kit::compact_metrics.card_inset);
+            OA_CHECK(
+                game_title->rect.y == base->rect.y + kit::metrics_of(named.frame.size_class).space
+            );
         OA_CHECK(text_item(list, "No map packs are installed.") != nullptr);
         OA_CHECK(fixture::named(list, "library.active.map.1") == nullptr);
     }
@@ -3109,12 +3114,15 @@ void base_badge_is_nearest_and_tabs_are_bracketed() {
 /// @return the height, in points
 int32_t package_row_height(kit::SizeClass size_class) {
     const kit::Metrics& metrics = kit::metrics_of(size_class);
-    // The title's line, the line under it with list_row_line_gap between
-    // them, and the rows above and below the text; Large's row adds the
-    // tags' chips under a gap more.
-    const int32_t two_lines = metrics.list_row_title_top + metrics.regular_line +
-                              metrics.list_row_line_gap + metrics.small_line +
-                              metrics.list_row_title_top;
+    // The title's line and the line under it hint_gap below, as Settings
+    // spaces a row's label and its hint, and the row's padding above and
+    // below: a space at Compact, Settings' row padding otherwise. Large's
+    // row adds the tags slider_gap under the line, each the small font's
+    // line and a space high.
+    const int32_t padding =
+        size_class == kit::SizeClass::compact ? metrics.space : metrics.row_padding;
+    const int32_t two_lines =
+        metrics.regular_line + metrics.hint_gap + metrics.small_line + 2 * padding;
     switch (size_class) {
     case kit::SizeClass::compact:
         return std::max({metrics.short_list_row_height, metrics.row_height, two_lines});
@@ -3122,7 +3130,7 @@ int32_t package_row_height(kit::SizeClass size_class) {
         return std::max(two_lines, metrics.row_height);
     case kit::SizeClass::large:
         return std::max(
-            two_lines + metrics.list_row_line_gap + metrics.chip_height, metrics.row_height
+            two_lines + metrics.slider_gap + metrics.small_line + metrics.space, metrics.row_height
         );
     }
     return metrics.row_height;
@@ -4759,7 +4767,7 @@ void mutator_rows_show_badges_chips_and_icons() {
             OA_CHECK(keep != nullptr && keep->tags.size() >= 2);
             if (keep != nullptr && keep->tags.size() >= 2) {
                 OA_CHECK(keep->tags[0].text == "Economy");
-                OA_CHECK(keep->tags[0].state == kit::ChipState::filter);
+                OA_CHECK(keep->tags[0].state == kit::ChipState::tag);
                 OA_CHECK(keep->tags[1].text == "Needs Gatehouse");
                 OA_CHECK(keep->tags[1].state == kit::ChipState::update);
             }
@@ -4798,7 +4806,7 @@ void mutator_rows_show_badges_chips_and_icons() {
                 OA_CHECK(wide->tags[1].text == "Not compatible with this mod");
                 OA_CHECK(wide->tags[1].state == kit::ChipState::update);
                 for (const kit::ChipLook& chip : wide->tags) {
-                    if (chip.state == kit::ChipState::filter)
+                    if (chip.state == kit::ChipState::tag)
                         OA_CHECK(chip.text != wide->tags[0].text);
                 }
             }
@@ -5404,7 +5412,7 @@ void brains_tab_holds_its_invariants() {
             const kit::ChipLook* awareness = chip_named(*wide, "Full awareness");
             const kit::ChipLook* economy = chip_named(*wide, "Economy");
             OA_CHECK(awareness != nullptr && awareness->state == kit::ChipState::update);
-            OA_CHECK(economy != nullptr && economy->state == kit::ChipState::filter);
+            OA_CHECK(economy != nullptr && economy->state == kit::ChipState::tag);
             OA_CHECK(chip_named(*wide, "Default") == nullptr);
         }
 
@@ -5424,7 +5432,7 @@ void brains_tab_holds_its_invariants() {
             const kit::ChipLook* unfit = chip_named(*raider, "Made for Ridge");
             const kit::ChipLook* rush = chip_named(*raider, "Rush");
             OA_CHECK(unfit != nullptr && unfit->state == kit::ChipState::update);
-            OA_CHECK(rush != nullptr && rush->state == kit::ChipState::filter);
+            OA_CHECK(rush != nullptr && rush->state == kit::ChipState::tag);
         }
 
         if (regular) {
@@ -5739,7 +5747,8 @@ struct DrawnPiece {
     std::string text{}; ///< its words; empty for a badge or a mark
 };
 
-/// The pieces a list row draws, as the kit places them.
+/// The pieces a list row draws, as the kit places them, with the row's
+/// spacing when it has one.
 ///
 /// A chip that does not fit the line wraps under it, and one wider than the
 /// line is left out, as the kit's chip line does. Every line is counted in
@@ -5799,6 +5808,77 @@ drawn_row_pieces(const kit::Rect& row, const kit::ListRowLook& look, const kit::
     const int32_t text_right =
         look.aside.empty() ? right : right - aside_width - metrics.list_row_gap;
     const int32_t room = std::max(text_right - text_left, int32_t{0});
+
+    if (look.spacing.has_value()) {
+        // A row with a spacing: the title's line, the lines title_gap under it
+        // and line_step apart, and the tags tags_gap under the last line,
+        // centred down the row as one block. Each tag is its words in the
+        // layout's fonts and the spacing's padding, tag_height high.
+        const kit::RowSpacing& spacing = *look.spacing;
+        const auto tag_width = [&](const kit::ChipLook& chip) {
+            return chip.icon.has_value()
+                       ? metrics.state_icon_side
+                       : kit::text_width(measured, kit::FontRole::small, chip.text) +
+                             2 * spacing.tag_padding;
+        };
+        const auto tag_height = [&](const kit::ChipLook& chip) {
+            return chip.icon.has_value() ? metrics.state_icon_side : spacing.tag_height;
+        };
+        // Walks the tags from a top left, as the kit wraps them.
+        const auto walk = [&](int32_t top, bool place) {
+            int32_t left = text_left;
+            int32_t y = top;
+            int32_t bottom = top;
+            for (const kit::ChipLook& chip : look.tags) {
+                const int32_t width = tag_width(chip);
+                if (left > text_left && left + width > text_right) {
+                    left = text_left;
+                    y = bottom + spacing.tag_gap;
+                }
+                if (left + width > text_right)
+                    break;
+                const int32_t height = tag_height(chip);
+                if (place && y + height <= row.y + row.height)
+                    add({left, y, width, height}, chip.text);
+                bottom = std::max(bottom, y + height);
+                left += width + spacing.tag_gap;
+            }
+            return bottom - top;
+        };
+        const auto lines = static_cast<int32_t>(look.lines.size());
+        const int32_t lines_height =
+            lines > 0 ? (lines - 1) * spacing.line_step + metrics.small_line : 0;
+        const int32_t tags_height = walk(0, false);
+        int32_t block = metrics.regular_line;
+        if (lines > 0)
+            block += spacing.title_gap + lines_height;
+        if (tags_height > 0)
+            block += (lines > 0 ? spacing.tags_gap : spacing.title_gap) + tags_height;
+        const int32_t title_row = row.y + std::max((row.height - block) / 2, int32_t{0});
+        if (!look.aside.empty()) {
+            const int32_t aside_left = right - aside_width;
+            const int32_t aside_row = title_row + (metrics.regular_line - metrics.small_line) / 2;
+            for (std::size_t index = 0; index < look.aside.size(); ++index)
+                add({aside_left,
+                     aside_row + static_cast<int32_t>(index) * spacing.line_step,
+                     aside_width,
+                     metrics.small_line},
+                    look.aside[index]);
+        }
+        if (!look.title.empty() || !look.by.empty())
+            add({text_left, title_row, room, metrics.regular_line}, look.title);
+        int32_t line_row = title_row + metrics.regular_line + spacing.title_gap;
+        for (const std::string& line : look.lines) {
+            add({text_left, line_row, room, metrics.small_line}, line);
+            line_row += spacing.line_step;
+        }
+        static_cast<void>(walk(
+            lines > 0 ? line_row - spacing.line_step + metrics.small_line + spacing.tags_gap
+                      : line_row,
+            true
+        ));
+        return pieces;
+    }
 
     int32_t chip_span = 0;
     {
@@ -6000,6 +6080,24 @@ void key_rows_stay_inside_their_height() {
         }
 
         const kit::Control* following = next_list_row(list, *marked);
+        // Regular's narrow list holds two rows as tall as Marked's three
+        // lines of chips: scrolled to Marked, Plain follows it in view.
+        kit::DisplayList scrolled_list;
+        if (following == nullptr) {
+            const kit::Control* pane = fixture::named(list, "library.list");
+            OA_CHECK(pane != nullptr);
+            if (pane != nullptr) {
+                lib::ScreenState scrolled;
+                scrolled.list_scroll = marked->rect.y - pane->rect.y;
+                scrolled_list = laid_out(library, scrolled, named.frame);
+                marked = fixture::named(scrolled_list, "library.row.fixture-core.marked");
+                look = row_look_named(scrolled_list, "library.row.fixture-core.marked");
+                OA_CHECK(marked != nullptr && look != nullptr);
+                if (marked == nullptr || look == nullptr)
+                    continue;
+                following = next_list_row(scrolled_list, *marked);
+            }
+        }
         OA_CHECK(following != nullptr);
         const std::vector<DrawnPiece> pieces = drawn_row_pieces(marked->rect, *look, fonts());
         OA_CHECK(!pieces.empty());
