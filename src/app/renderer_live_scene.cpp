@@ -101,28 +101,67 @@ Fog fog_at(const full::SightView& sight, int32_t x, int32_t z) {
     return present::world_renderer::view_greys(options) && !visible ? Fog::grey : Fog::seen;
 }
 
-/// Interpolates fog inside known ground and fades to black before unknown cells.
-float brightness_at(const full::SightView& sight, float x, float y, float unseen = -1) {
+/// What the fog shows of each sight cell, as fog_at reads it, held for a
+/// frame's ground: every point of it reads a dozen cells.
+struct FogCells {
+    std::span<const uint8_t> cells{}; ///< a Fog for each sight cell, row by row
+    int32_t width{};                  ///< cells across
+    int32_t height{};                 ///< cells down
+    bool mapping{};                   ///< ground beyond the cells is never mapped
+    bool dithered{};
+
+    /// @param x a painted map column
+    /// @param z a painted map row
+    /// @return the fog there, as fog_at gives it
+    [[nodiscard]] Fog at(int32_t x, int32_t z) const {
+        constexpr int32_t fog_edge = present::world_renderer::fog_cell_pixels;
+        const int32_t column = x / fog_edge;
+        const int32_t row = z / fog_edge;
+        if (x < 0 || z < 0 || column >= width || row >= height)
+            return mapping ? Fog::black : Fog::seen;
+        return static_cast<Fog>(cells[static_cast<std::size_t>(row) * width + column]);
+    }
+};
+
+/// Interpolates fog inside known ground and fades to black before unknown
+/// cells.
+///
+/// @param fog_at_point the fog at a painted map point, as fog_at gives it
+/// @param width the sight's cells across
+/// @param height its cells down
+/// @param dithered the fog dithers ground out of sight
+/// @param x a painted map column
+/// @param y a painted map row
+/// @param unseen the brightness of ground out of sight; below 0, the fog's
+/// @return the brightness, 0 for unknown ground to 1 in sight
+template <typename FogAt>
+float fog_brightness(
+    const FogAt& fog_at_point,
+    int32_t width,
+    int32_t height,
+    bool dithered,
+    float x,
+    float y,
+    float unseen
+) {
     constexpr int32_t fog_edge = present::world_renderer::fog_cell_pixels;
     constexpr float edge = fog_edge;
-    const float unseen_brightness = unseen >= 0 ? unseen : sight.dithered ? 0.5F : 0.35F;
+    const float unseen_brightness = unseen >= 0 ? unseen : dithered ? 0.5F : 0.35F;
     constexpr float last_cell_inset = 0.001F;
-    if (sight.width > 0 && sight.height > 0) {
-        x = std::clamp(x, 0.0F, sight.width * edge - last_cell_inset);
-        y = std::clamp(y, 0.0F, sight.height * edge - last_cell_inset);
+    if (width > 0 && height > 0) {
+        x = std::clamp(x, 0.0F, width * edge - last_cell_inset);
+        y = std::clamp(y, 0.0F, height * edge - last_cell_inset);
     }
-    if (fog_at(sight, static_cast<int32_t>(std::floor(x)), static_cast<int32_t>(std::floor(y))) ==
+    if (fog_at_point(static_cast<int32_t>(std::floor(x)), static_cast<int32_t>(std::floor(y))) ==
         Fog::black)
         return 0;
     const auto sample = [&](int32_t column, int32_t row) {
-        if (sight.width <= 0 || sight.height <= 0)
+        if (width <= 0 || height <= 0)
             return 1.0F;
-        column = std::clamp(column, 0, sight.width - 1);
-        row = std::clamp(row, 0, sight.height - 1);
-        const auto fog = fog_at(
-            sight,
-            static_cast<int32_t>((column + 0.5F) * edge),
-            static_cast<int32_t>((row + 0.5F) * edge)
+        column = std::clamp(column, 0, width - 1);
+        row = std::clamp(row, 0, height - 1);
+        const auto fog = fog_at_point(
+            static_cast<int32_t>((column + 0.5F) * edge), static_cast<int32_t>((row + 0.5F) * edge)
         );
         return fog == Fog::black ? 0.0F : fog == Fog::grey ? unseen_brightness : 1.0F;
     };
@@ -145,8 +184,8 @@ float brightness_at(const full::SightView& sight, float x, float y, float unseen
     float edge_fade = 1;
     for (int32_t z = home_y - 1; z <= home_y + 1; ++z)
         for (int32_t c = home_x - 1; c <= home_x + 1; ++c) {
-            if (c < 0 || z < 0 || c >= sight.width || z >= sight.height ||
-                fog_at(sight, c * fog_edge, z * fog_edge) != Fog::black)
+            if (c < 0 || z < 0 || c >= width || z >= height ||
+                fog_at_point(c * fog_edge, z * fog_edge) != Fog::black)
                 continue;
             const float distance_x = std::max({c * edge - x, x - (c + 1) * edge, 0.0F});
             const float distance_y = std::max({z * edge - y, y - (z + 1) * edge, 0.0F});
@@ -158,6 +197,32 @@ float brightness_at(const full::SightView& sight, float x, float y, float unseen
     return value * edge_fade;
 }
 
+/// Interpolates fog inside known ground and fades to black before unknown cells.
+float brightness_at(const full::SightView& sight, float x, float y, float unseen = -1) {
+    return fog_brightness(
+        [&sight](int32_t column, int32_t row) { return fog_at(sight, column, row); },
+        sight.width,
+        sight.height,
+        sight.dithered,
+        x,
+        y,
+        unseen
+    );
+}
+
+/// brightness_at from the fog's cells held for the frame.
+float brightness_at(const FogCells& fog, float x, float y, float unseen = -1) {
+    return fog_brightness(
+        [&fog](int32_t column, int32_t row) { return fog.at(column, row); },
+        fog.width,
+        fog.height,
+        fog.dithered,
+        x,
+        y,
+        unseen
+    );
+}
+
 /// The ground's fog at a painted map point: how much of it is known, and how
 /// far the known part blends toward the grey palette. The same figures the
 /// terrain stores on each vertex, so a feature can grey with the ground.
@@ -166,12 +231,21 @@ struct GroundFog {
     float grey{};
 };
 
-GroundFog fog_of_ground(const Inputs& in, float painted_x, float painted_y, float brightness) {
+/// @param sight the frame's sight, or its fog's cells (FogCells)
+/// @param dithered the fog dithers ground out of sight
+/// @param painted_x a painted map column
+/// @param painted_y a painted map row
+/// @param brightness the point's brightness (brightness_at)
+/// @return the ground's fog there
+template <typename Sight>
+GroundFog fog_of_ground(
+    const Sight& sight, bool dithered, float painted_x, float painted_y, float brightness
+) {
     GroundFog ground;
     ground.known = brightness >= 1   ? 1
                    : brightness <= 0 ? 0
-                                     : brightness_at(in.sight, painted_x, painted_y, 1);
-    const float grey_brightness = in.sight.dithered ? 0.5F : 0.35F;
+                                     : brightness_at(sight, painted_x, painted_y, 1);
+    const float grey_brightness = dithered ? 0.5F : 0.35F;
     ground.grey =
         ground.known > 0
             ? std::clamp(
@@ -179,6 +253,10 @@ GroundFog fog_of_ground(const Inputs& in, float painted_x, float painted_y, floa
               )
             : 0;
     return ground;
+}
+
+GroundFog fog_of_ground(const Inputs& in, float painted_x, float painted_y, float brightness) {
+    return fog_of_ground(in.sight, in.sight.dithered, painted_x, painted_y, brightness);
 }
 
 /// How many times a fog boundary splits a cell. Distant views keep fewer.
@@ -877,6 +955,7 @@ void draw_terrain(
     Scene& scene,
     const TerrainPlan& plan,
     int32_t step,
+    const FogCells& cells,
     std::unordered_map<uint64_t, AtlasRect>& tiles
 ) {
     const auto& map = *in.map;
@@ -894,7 +973,7 @@ void draw_terrain(
         const auto tile = map.tile_indices.at(
             static_cast<std::size_t>(tile_y / tile_edge) * map.tile_width + tile_x / tile_edge
         );
-        const auto fog = fog_at(in.sight, tile_x, tile_y) == Fog::black ? Fog::black : Fog::seen;
+        const auto fog = cells.at(tile_x, tile_y) == Fog::black ? Fog::black : Fog::seen;
         const uint64_t key = static_cast<uint64_t>(tile) * 3 + static_cast<uint64_t>(fog);
         auto found = tiles.find(key);
         if (found == tiles.end()) {
@@ -980,7 +1059,8 @@ void draw_terrain(
                     vertex.terrain_x = static_cast<float>(rect.x);
                     vertex.terrain_y = static_cast<float>(rect.y);
                     vertex.terrain_size = static_cast<float>(rect.width / 2);
-                    const auto ground = fog_of_ground(in, point.x, point.y, point.brightness);
+                    const auto ground =
+                        fog_of_ground(cells, cells.dithered, point.x, point.y, point.brightness);
                     vertex.terrain_known = ground.known;
                     vertex.terrain_grey = ground.grey;
                 }
@@ -1024,7 +1104,7 @@ void draw_terrain(
                 static_cast<float>(y),
                 0,
                 0,
-                brightness_at(in.sight, float(x), y - h * height_lift)
+                brightness_at(cells, float(x), y - h * height_lift)
             };
         };
         for (int32_t y = top / edge * edge; y < bottom; y += edge)
@@ -1078,9 +1158,7 @@ void draw_terrain(
         if (!corner_samples.empty() && corner_samples[index][1] >= 0)
             return corner_samples[index];
         const float height = height_at(map, x, y);
-        const std::array result{
-            height, brightness_at(in.sight, float(x), y - height * height_lift)
-        };
+        const std::array result{height, brightness_at(cells, float(x), y - height * height_lift)};
         if (!corner_samples.empty())
             corner_samples[index] = result;
         return result;
@@ -1174,7 +1252,7 @@ void draw_terrain(
                     middle_y,
                     0,
                     0,
-                    brightness_at(in.sight, middle_x, middle_y - h * height_lift)
+                    brightness_at(cells, middle_x, middle_y - h * height_lift)
                 };
             }
             const auto [minimum, maximum] = std::minmax_element(
@@ -1216,7 +1294,7 @@ void draw_terrain(
                         blend(a.v, b.v, c.v)
                     };
                     result.brightness =
-                        brightness_at(in.sight, result.x, result.z - result.height * height_lift);
+                        brightness_at(cells, result.x, result.z - result.height * height_lift);
                     return result;
                 };
                 constexpr int32_t row_stride = maximum_divisions + 1;
@@ -1294,8 +1372,13 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
         return;
     }
     scene.ground_kept = false;
+    // The fog of each sight cell, as note_ground_source has just read it.
+    const auto& source = scene.ground_source;
+    const FogCells cells{
+        source.fog, source.sight_width, source.sight_height, source.mapping, source.dithered
+    };
     std::unordered_map<uint64_t, AtlasRect> tiles;
-    draw_terrain(in, scene, plan, step, tiles);
+    draw_terrain(in, scene, plan, step, cells, tiles);
     if (same_source) {
         scene.ground_vertices.assign(scene.vertices.begin(), scene.vertices.end());
         scene.ground_tiles.assign(tiles.begin(), tiles.end());
