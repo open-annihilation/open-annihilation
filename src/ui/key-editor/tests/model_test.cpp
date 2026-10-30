@@ -4,7 +4,8 @@
 // The key editor's model over the Ridge fixture: category order, filters,
 // search, removing and restoring chords, latch and hold, number keys,
 // choosing and duplicating a layout, a Home clash the chosen layout did not
-// steal, and a binding this version does not know.
+// steal, Primary+5 clashing with Ctrl+5 or Cmd+5 where the platform presses
+// them as one key, and a binding this version does not know.
 //
 // oa-ui-key-editor-model-test
 
@@ -625,6 +626,92 @@ void chosen_home_clash() {
     expect(model.can_save(), "a chosen layout's clash blocks SAVE");
 }
 
+/// A chosen layout that writes the keys overlay on Primary+5 beside a group key.
+///
+/// @param group_chord the group key's chord, Ctrl+5 or Meta+5
+/// @param primary_is_meta Primary is the command key
+/// @return the inputs
+editor::EditorInputs primary_pair(std::string_view group_chord, bool primary_is_meta) {
+    editor::EditorInputs inputs;
+    inputs.base = keys::Base::oa_default;
+    inputs.has_chosen = true;
+    inputs.chosen.id = "left-pair";
+    inputs.chosen.name = "Left pair";
+    inputs.chosen.author = "Ridge";
+    inputs.chosen.version = "1.0";
+    inputs.chosen.layout.id = "left-pair";
+    inputs.chosen.layout.base = keys::Base::oa_default;
+    inputs.chosen.layout.bindings.push_back(binding_of("group.assign-5", group_chord));
+    inputs.chosen.layout.bindings.push_back(binding_of("ui.keys-overlay", "Primary+@Digit5"));
+    inputs.keyboard = keys::KeyboardMap::us();
+    inputs.platform = {};
+    inputs.platform.primary_is_meta = primary_is_meta;
+    inputs.scheme = keys::PointerScheme::right_click;
+    inputs.hold_to_confirm_setting = true;
+    return inputs;
+}
+
+/// Primary+5 on the keys overlay against Ctrl+5 on a group key is one
+/// clashing pair in the list and the counts where Primary is Ctrl, and none on
+/// a Mac; against Cmd+5 it is one on a Mac only.
+void primary_clash_follows_the_platform() {
+    struct Case {
+        std::string_view group_chord; ///< the group key's chord
+        bool primary_is_meta{};       ///< Primary is the command key
+        bool clash{};                 ///< the pair is a clash there
+    };
+
+    const Case cases[] = {
+        {"Ctrl+@Digit5", false, true},
+        {"Ctrl+@Digit5", true, false},
+        {"Meta+@Digit5", false, false},
+        {"Meta+@Digit5", true, true},
+    };
+    for (const Case& one : cases) {
+        const editor::Editor model(primary_pair(one.group_chord, one.primary_is_meta));
+        const std::string where =
+            std::string(one.group_chord) +
+            (one.primary_is_meta ? " where Primary is Cmd" : " where Primary is Ctrl");
+        expect(
+            has_chord(model.details("ui.keys-overlay").chords, "Primary+@Digit5"),
+            "the keys overlay lost Primary+5 against " + where
+        );
+        expect(
+            has_chord(model.details("group.assign-5").chords, one.group_chord),
+            "the group key lost its chord against " + where
+        );
+        const std::vector<editor::Row> clashing = model.rows("all", editor::Filter::clashes, "");
+        const std::size_t pairs = one.clash ? 1 : 0;
+        const std::size_t rows = one.clash ? 2 : 0;
+        if (model.clashes() != pairs || model.counts().clashes != rows) {
+            std::fprintf(
+                stderr,
+                "Primary+5 against %s: pairs %zu, actions %zu\n",
+                where.c_str(),
+                model.clashes(),
+                model.counts().clashes
+            );
+            for (const editor::Row& row : clashing)
+                std::fprintf(stderr, "  clash row %s\n", row.id.c_str());
+        }
+        expect(model.clashes() == pairs, "the clashing pairs differ against " + where);
+        expect(model.counts().clashes == rows, "the Clashes count differs against " + where);
+        expect(clashing.size() == rows, "the Clashes filter differs against " + where);
+        expect(
+            has_row(clashing, "ui.keys-overlay") == one.clash &&
+                has_row(clashing, "group.assign-5") == one.clash,
+            "the clash rows differ against " + where
+        );
+        const std::vector<editor::Row> listed = every_row(model);
+        const editor::Row* overlay = row_named(listed, "ui.keys-overlay");
+        expect(
+            overlay != nullptr && (overlay->mark == kit::KeyMark::clash) == one.clash,
+            "the keys overlay's mark differs against " + where
+        );
+        expect(model.can_save(), "a chosen layout's clash blocks SAVE against " + where);
+    }
+}
+
 /// Two buttons of one GUI file share a letter. The draft names neither of
 /// them, so the clash stays in the filter and SAVE stays allowed.
 void mod_data_clash_can_save() {
@@ -995,6 +1082,7 @@ int main() {
     clone_and_describe();
     kept_rows_follow_changes();
     chosen_home_clash();
+    primary_clash_follows_the_platform();
     mod_data_clash_can_save();
     draft_chord_blocks_save();
     unknown_binding();

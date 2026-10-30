@@ -22,7 +22,7 @@ struct KeysChecked {
     uint32_t changes{};                  ///< actions the layout binds
     std::vector<std::string> triggers{}; ///< each trigger once, in the order of first use
     uint32_t unknown_actions{};          ///< warnings for an action this build does not know
-    uint32_t clashes{};                  ///< warnings for one chord bound twice
+    uint32_t clashes{};                  ///< warnings for one key bound twice
     std::vector<std::string> warnings{}; ///< layout warnings, in diagnostic form
 };
 
@@ -55,7 +55,11 @@ struct KeyFolder {
 /// actions the manifest binds. `triggers` are the layout's own triggers, each
 /// once, in the order of first use. `unknown_actions` counts warnings whose
 /// message is `Not in this version of Open Annihilation`. `clashes` counts
-/// warnings whose message says `both bind`.
+/// warnings whose message says `both bind`. Two actions whose chords are
+/// written apart but pressed as one key on some platforms, such as
+/// `Primary+5` and `Ctrl+5`, are such a warning too, naming those platforms:
+/// Windows, Linux and the Steam Deck where Primary is Ctrl, macOS where it is
+/// the command key.
 ///
 /// @param entries the package's files
 /// @param manifest the manifest `oakeys.yaml` already read

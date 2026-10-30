@@ -6,6 +6,8 @@
 #include "oa/ui/key_editor/model.hpp"
 
 #include "oa/ui/key_bindings/chord.hpp"
+#include "oa/ui/key_bindings/input.hpp"
+#include "oa/ui/key_bindings/layout.hpp"
 
 #include <optional>
 #include <string>
@@ -31,14 +33,24 @@ keys::Chord comparable(keys::Chord chord) {
     return chord;
 }
 
-/// True when two chords are the key the player pressed, including Primary's pair.
+/// True when two chords are the key the player pressed.
+///
+/// Primary is read as the key it means on the editor's platform, as the clash
+/// list reads it: Primary+5 is Ctrl+5 where Primary is Ctrl, and a chord that
+/// names Primary and Ctrl together is Ctrl+5 there too.
 ///
 /// @param editor the keyboard and the platform
 /// @param bound a chord in use
 /// @param wanted the chord being asked
 /// @return true when they are one key
 bool matches(const Editor& editor, const keys::Chord& bound, const keys::Chord& wanted) {
-    return chords_match(bound, wanted, editor.keyboard(), editor.platform());
+    const keys::Platform platform = editor.platform();
+    return chords_match(
+        keys::pressed_chord(bound, platform),
+        keys::pressed_chord(wanted, platform),
+        editor.keyboard(),
+        platform
+    );
 }
 
 /// The chords an action would keep after one chord is dropped.
