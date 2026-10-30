@@ -1436,6 +1436,161 @@ void foundation_candidates() {
         OA_CHECK(std::abs(vertex.height - 15.9F) < tolerance);
 }
 
+/// A structure on ground that rises under its footprint keeps the whole of
+/// its base piece above the ground drawn under it, as the aircraft plant's
+/// does: a floor plate a little below the structure's height, reaching past
+/// the footprint on the high side and the low side, lies on the ground with
+/// no gap at every point. A piece sunk below the ground stays under it, a
+/// canopy of the base high above the ground past the footprint leaves the
+/// ground under it as it is, and a base piece reaching deeper than a map
+/// pixel keeps the ground a map pixel below the structure. The map and the
+/// structure's place do not change.
+void structure_base_above_ground() {
+    Fixture fixture;
+    constexpr int32_t cells = 16;
+    fixture.map.attribute_width = fixture.map.attribute_height = cells;
+    fixture.map.tile_width = fixture.map.tile_height = cells / 2;
+    fixture.map.tile_indices.assign(cells * cells / 4, 0);
+    fixture.map.attributes.resize(cells * cells);
+    fixture.inputs.right = fixture.inputs.bottom = cells * cell_edge;
+    fixture.inputs.sight.mapping = fixture.inputs.sight.line_of_sight = false;
+    // The ground rises four steps a cell eastward, from 0 to 60.
+    constexpr int32_t rise = 4;
+    for (std::size_t i = 0; i < fixture.map.attributes.size(); ++i)
+        fixture.map.attributes[i].height = static_cast<uint8_t>((i % cells) * rise);
+    const auto original = fixture.map.attributes;
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    // A footprint of four by four cells from cell 4, 4, map pixels 64 to 128:
+    // the structure stands at its lowest corner's height, 16, as the game
+    // places it, and the ground under it rises to 32.
+    constexpr float centre = 96;
+    constexpr float height = 16;
+    oa::Unit unit{};
+    unit.id = 1;
+    unit.flags = OA_UNIT_FLAG_BUILDING;
+    unit.footprint_x = unit.footprint_z = 4;
+    unit.position = {96 * fixed, 16 * fixed, 96 * fixed};
+    // The base piece is a floor plate 0.18 below the structure's height,
+    // 72 map pixels wide, 4 past the footprint on each side, and 60 deep,
+    // and a canopy 12 above it that reaches 28 past the footprint on one
+    // side. A hatch hangs from it, sunk 3 below.
+    const auto plate = static_cast<int32_t>(-0.18F * fixed);
+    constexpr int32_t half_width = 36;
+    constexpr int32_t half_depth = 30;
+    constexpr int32_t canopy_height = 12;
+    constexpr int32_t canopy_reach = 60;
+    constexpr int32_t hatch_edge = 8;
+    constexpr float hatch_depth = 3;
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(2);
+    auto& root = source->objects[0];
+    root.vertices = {
+        {-half_width * fixed, plate, -half_depth * fixed},
+        {half_width * fixed, plate, -half_depth * fixed},
+        {half_width * fixed, plate, half_depth * fixed},
+        {-half_width * fixed, plate, half_depth * fixed},
+        {0, canopy_height * fixed, 0},
+        {canopy_reach * fixed, canopy_height * fixed, 0},
+        {canopy_reach * fixed, canopy_height * fixed, half_depth * fixed}
+    };
+    root.primitives.resize(2);
+    root.primitives[0].vertex_indices = {0, 1, 2, 3};
+    root.primitives[1].vertex_indices = {4, 5, 6};
+    root.first_child = 1;
+    auto& hatch = source->objects[1];
+    hatch.parent = 0;
+    hatch.offset_from_parent = {0, static_cast<int32_t>(-hatch_depth * fixed), 0};
+    hatch.vertices = {
+        {-hatch_edge * fixed, 0, -hatch_edge * fixed},
+        {hatch_edge * fixed, 0, -hatch_edge * fixed},
+        {hatch_edge * fixed, 0, hatch_edge * fixed},
+        {-hatch_edge * fixed, 0, hatch_edge * fixed}
+    };
+    hatch.primitives.resize(1);
+    hatch.primitives[0].vertex_indices = {0, 1, 2, 3};
+    auto instance = oa::sim::model_runtime::make_instance(source);
+    OA_CHECK(instance.pieces().size() == 2);
+    instance.rebuild_transforms();
+    drawing::PreparedModel prepared{};
+    prepared.objects.resize(2);
+    for (std::size_t object = 0; object < prepared.objects.size(); ++object) {
+        auto& primitives = prepared.objects[object].primitives;
+        primitives.resize(source->objects[object].primitives.size());
+        for (std::size_t face = 0; face < primitives.size(); ++face) {
+            primitives[face].source_index = static_cast<uint32_t>(face);
+            primitives[face].flags = drawing::primitive_colored;
+            primitives[face].color = ground_index;
+        }
+    }
+    fixture.draws.models.resize(1);
+    auto& draw = fixture.draws.models[0];
+    draw.model.instance = &instance;
+    draw.model.prepared = &prepared;
+    draw.model.unit = &unit;
+    draw.plan.linked.drawn = true;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.unit_ranges.size() == 1);
+    const float plate_height = height + static_cast<float>(plate) / fixed;
+    std::size_t plate_corners{}, canopy_corners{}, hatch_corners{};
+    const auto& range = fixture.scene.unit_ranges.at(0);
+    for (std::size_t i = range.first_vertex; i < range.first_vertex + range.vertex_count; ++i) {
+        const auto& vertex = fixture.scene.vertices.at(i);
+        const auto ground = drawn_ground(fixture.scene, vertex.x, vertex.z);
+        OA_CHECK(ground.has_value());
+        if (!ground)
+            continue;
+        if (std::abs(vertex.height - plate_height) < tolerance) {
+            ++plate_corners;
+            OA_CHECK(*ground < vertex.height);
+        } else if (std::abs(vertex.height - (height + canopy_height)) < tolerance) {
+            ++canopy_corners;
+        } else {
+            ++hatch_corners;
+            OA_CHECK(std::abs(vertex.height - (height - hatch_depth)) < tolerance);
+            OA_CHECK(*ground > vertex.height);
+        }
+    }
+    OA_CHECK(plate_corners == 6 && canopy_corners == 3 && hatch_corners == 6);
+    // Every point of the plate, inside the footprint and past it on the
+    // rising east and the falling west, is above the ground, and the ground
+    // lies under it with no gap the eye could see.
+    constexpr float step = 2;
+    constexpr float no_gap = 0.5F;
+    std::size_t sampled{};
+    for (float x = centre - half_width; x <= centre + half_width; x += step)
+        for (float z = centre - half_depth; z <= centre + half_depth; z += step) {
+            const auto ground = drawn_ground(fixture.scene, x, z);
+            OA_CHECK(ground.has_value());
+            if (!ground)
+                continue;
+            OA_CHECK(*ground < plate_height);
+            OA_CHECK(*ground > plate_height - no_gap);
+            ++sampled;
+        }
+    OA_CHECK(sampled > 1000);
+    // A cell past the plate's sides, the ground is the map's again, under
+    // the canopy too.
+    const float east = centre + half_width + cell_edge;
+    const auto east_ground = drawn_ground(fixture.scene, east, centre);
+    OA_CHECK(east_ground && std::abs(*east_ground - east / cell_edge * rise) < tolerance);
+    const float west = centre - half_width - cell_edge;
+    constexpr float under_canopy = centre + 8;
+    const auto west_ground = drawn_ground(fixture.scene, west, under_canopy);
+    OA_CHECK(west_ground && std::abs(*west_ground - west / cell_edge * rise) < tolerance);
+    for (std::size_t i = 0; i < original.size(); ++i)
+        OA_CHECK(original[i].height == fixture.map.attributes[i].height);
+    OA_CHECK(unit.position.y == 16 * fixed);
+    // A base piece reaching 3 below keeps the ground a map pixel below the
+    // structure, over it still.
+    for (auto& corner : instance.pieces()[instance.root_piece()].transformed_vertices)
+        corner.y = static_cast<int32_t>(-hatch_depth * fixed);
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    const auto deep_ground = drawn_ground(fixture.scene, centre, centre - half_depth / 2.0F);
+    OA_CHECK(deep_ground && std::abs(*deep_ground - (height - 1 - 0.1F)) < tolerance);
+}
+
 /// Flash shade rows become translucent ground lighting; ordinary art keeps its colours.
 void flash_masks_and_effect_altitude() {
     Fixture fixture;
@@ -2468,6 +2623,7 @@ int main() {
     cropped_ground_sprites();
     building_foundations();
     foundation_candidates();
+    structure_base_above_ground();
     cached_unit_shadows();
     aircraft_shadow_altitude();
     aircraft_shadow_as_the_game_casts_it();
