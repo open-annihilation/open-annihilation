@@ -116,7 +116,10 @@ larger, the details sit beside the list in a bordered card, with the
 actions at the card's foot. A chosen list row is a filled row with the
 lime bar; the lime outline is the keyboard focus. A count beside a tab or
 a filter is drawn in the hint colour. Its rows, search field and buttons
-grow with the layout. Drag the Library by its
+grow with the layout. Its type, rows, chips and buttons are the settings'
+own: a row's title, then its lines a few points under it in the hint
+size, rows parted by a hairline, chips with room round their words, and
+the settings' buttons, **Close** as their **OK**. Drag the Library by its
 title to move it; it opens there next time
 ([moving windows](settings.md#opening-the-settings)). The pictures on this
 page are drawn by the Library's draw test from made-up packages, in the
@@ -139,12 +142,14 @@ under them, so the maps pane keeps a row.
   stay only when that picture cannot be drawn. A source the
   host knows is named on the version line ("3.1c · from GOG for macOS").
   A file check the host knows is the next line: "All files match", or
-  "1 file differs", or "2 files differ". **Change…** sits at the bottom
-  right. It opens the base game chooser over the Library. **Change…** is
+  "1 file differs", or "2 files differ". **Change…** sits at the right,
+  beside the words, as the settings' **Change layout…** does, or at the
+  bottom right where the tile is narrow. It opens the base game chooser
+  over the Library. **Change…** is
   greyed during a game, while the command line named the choice for this
   run, and while the command line chose the run's mod.
 - **EXPANSIONS**: one pill for each expansion of that base game. A pill
-  that is on is filled. One that is copied and off is plain, in the
+  that is on is filled. One that is copied and off is outlined, in the
   expansion's name. One that is not copied, and that a registry offers,
   keeps the expansion's name and carries the download arrow at the right,
   inside the chip. The whole chip is the press. It downloads and installs
@@ -243,7 +248,8 @@ under them, so the maps pane keeps a row.
 
 The badge, the title and the lines start at the top of each tile, with the
 same small padding above them and below the last line or, on a tile with a
-button, below **Change…** or **Unload mod**. In a row, the two tiles share
+button, below **Change…** or **Unload mod**. A tile's lines stand a few
+points apart, as a setting's hint stands under its name. In a row, the two tiles share
 a title line and the same height, and so do maps in one row. Extra room
 stays under the shorter tile's lines. A minimap keeps its shape: it is
 centred in its square, and the rest of the square is the list's well colour.
@@ -260,15 +266,15 @@ the press), **Unload mod**, each map's link to its pack while that link
 shows, and the maps search do take a press. Tab and the arrows reach
 them. The expansions hint wraps onto as many lines as it needs.
 
-On a regular or large window the four tiles stay where they are. The maps
-pane runs from under the **MAPS** heading to the bottom of the window,
+While the tiles leave the maps four rows, the four tiles stay where they
+are. The maps pane runs from under the **MAPS** heading to the bottom of the window,
 and when the maps are taller than that pane they scroll inside it with
 the mouse wheel, a finger, the scroll bar, Page Up and Page Down, Home
 and End, and a controller's right stick. The wheel over a tile above the
 maps does not scroll them.
 
-On a small window, when those tiles leave the maps fewer than four rows,
-the page scrolls as one: the tiles, then **MAPS**. The same wheel, finger,
+When those tiles leave the maps fewer than four rows, as on a small
+window, the page scrolls as one: the tiles, then **MAPS**. The same wheel, finger,
 scroll bar, page keys, Home, End and right stick move it, and the scroll
 bar is the one the other pages use. Once the maps are scrolled into view,
 at least four rows fit. Moving the focus onto a map link, or onto the
