@@ -154,11 +154,28 @@ OA_GAME_DATA_TEST(exit_menu_and_confirmation) {
     OA_CHECK(ingame_on_exit_confirm_click(confirm, context) == IngameAction::return_to_main_menu);
     select(confirm, "CHOICE2");
     OA_CHECK(ingame_on_exit_confirm_click(confirm, context) == IngameAction::closed);
-    // Enter and Escape answer No, as CHOICE2 does.
+    // Asked from the menu, Enter and Escape answer No, as CHOICE2 does.
     OA_CHECK(kExitConfirmDefault == "CHOICE2");
+    OA_CHECK(ingame_exit_confirm_accept(false) == kExitConfirmDefault);
     OA_CHECK(text_of(confirm, kExitConfirmDefault) == "No");
     select(confirm, kExitConfirmDefault);
     OA_CHECK(ingame_on_exit_confirm_click(confirm, context) == IngameAction::closed);
+
+    // Asked by a close request, Enter answers Yes and leaves the game;
+    // Escape still answers No.
+    context.quit_flags = 0;
+    ingame_open_leave_confirm(confirm, context);
+    OA_CHECK(context.exit_kind == ExitKind::leave_game);
+    OA_CHECK(kCloseConfirmAccept == "CHOICE1");
+    OA_CHECK(ingame_exit_confirm_accept(true) == kCloseConfirmAccept);
+    OA_CHECK(text_of(confirm, ingame_exit_confirm_accept(true)) == "Yes");
+    select(confirm, ingame_exit_confirm_accept(true));
+    OA_CHECK(ingame_on_exit_confirm_click(confirm, context) == IngameAction::leave_game);
+    OA_CHECK((context.quit_flags & quit_flag::leave_application) != 0);
+    context.quit_flags = 0;
+    select(confirm, kExitConfirmDefault);
+    OA_CHECK(ingame_on_exit_confirm_click(confirm, context) == IngameAction::closed);
+    OA_CHECK((context.quit_flags & quit_flag::leave_application) == 0);
 }
 
 OA_GAME_DATA_TEST(exit_menu_return_label_replaces_button) {

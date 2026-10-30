@@ -95,8 +95,8 @@ struct MatchMenuSession {
     IngamePanel ingame_panel = IngamePanel::options;
     const void* options_bound = nullptr; // frontend layout the panel mirrors
     bool options_open = false;           // entry snapshot captured
-    // The exit confirmation answers a request to close the window; CHOICE2
-    // goes back to what was on screen before it.
+    // The exit confirmation answers a request to close the window: Enter
+    // answers Yes, and CHOICE2 goes back to what was on screen before it.
     bool close_confirm = false;
     bool close_confirm_from_menu = false; // the in-game menu was open then
     // The lightbar steps once a frame: on the first draw after the options
@@ -3276,6 +3276,8 @@ void Runtime::activate_pause_gadget(std::string_view name) {
         return;
     case ui::IngameAction::open_exit_confirm:
         if (show(oa::data::defs::gui_path("YESORNO.GUI"), IngamePanel::exit_confirm, false)) {
+            // Asked from the menu, Enter answers No, as in 3.1c.
+            session.close_confirm = false;
             ui::ingame_enter_exit_confirm(session.panel, context);
             panel_to_widgets(
                 session.panel, match_hud_->layout, widget_gaf_frames_, widget_text_stages_
@@ -3357,9 +3359,19 @@ bool Runtime::match_question_open() const {
 }
 
 bool Runtime::enter_match_menu() {
-    if (match_menu_session().ingame_panel != IngamePanel::exit_confirm || team_panel_open())
+    const auto& session = match_menu_session();
+    if (session.ingame_panel != IngamePanel::exit_confirm || team_panel_open())
         return false;
-    activate_pause_gadget(ui::kExitConfirmDefault);
+    // A close request's confirmation answers Enter as Yes, which holds while
+    // Hold to confirm is on, as Yes's own key does. Asked from the menu, it
+    // answers No.
+    const auto accept = ui::ingame_exit_confirm_accept(session.close_confirm);
+    if (accept == ui::kCloseConfirmAccept) {
+        const auto yes = ui::panel_find(session.panel, accept);
+        if (yes > 0 && start_yes_hold(hold_key_scancode_, false, 0, static_cast<std::size_t>(yes)))
+            return true;
+    }
+    activate_pause_gadget(accept);
     return true;
 }
 
@@ -3399,7 +3411,7 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
     const bool modified = (key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) != 0;
     if (modified && !menu_key && !gui_pressed)
         return false;
-    // The surrender question answers Enter and Escape as No, outside this panel.
+    // The surrender question answers Enter and Escape outside this panel.
     if (confirming && (accept || cancel))
         return false;
     // Without the keyboard, Space presses nothing.
@@ -3421,7 +3433,13 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
                                    : gui_input::key_code::space;
         const auto left = gui_input::dispatch_key(panel, code);
         if (panel.activated != oa::ui::gui_layout::kNoGadget) {
-            activate_match_hud(static_cast<std::size_t>(panel.activated));
+            const auto activated = static_cast<std::size_t>(panel.activated);
+            // Space on the surrender question's focused Yes holds, as its
+            // own key does.
+            if (confirming && gadgets[activated].common.name == "CHOICE1" &&
+                start_yes_hold(static_cast<uint16_t>(key.scancode), false, 0, activated))
+                return true;
+            activate_match_hud(activated);
             return true;
         }
         if (left == 0)
@@ -3446,8 +3464,8 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
                     continue;
                 if (key.key > 0 && key.key < 0x7F)
                     answered_key_ = static_cast<int32_t>(std::tolower(static_cast<int>(key.key)));
-                // Yes on the surrender question holds. Enter and No are answered
-                // before this loop, and stay immediate.
+                // Yes on the surrender question holds; No stays immediate.
+                // Enter and Escape are answered before this loop.
                 if (confirming && gadget.common.name == "CHOICE1" &&
                     start_yes_hold(static_cast<uint16_t>(key.scancode), false, 0, gadget_index))
                     return true;
@@ -3534,7 +3552,9 @@ void Runtime::request_match_close() {
     panel_from_widgets(session.panel, match_hud_->layout, widget_text_stages_);
     ui::ingame_open_leave_confirm(session.panel, context);
     panel_to_widgets(session.panel, match_hud_->layout, widget_gaf_frames_, widget_text_stages_);
-    match_hud_focus_ = ui::panel_find(session.panel, ui::kExitConfirmDefault);
+    // Yes takes the focus, as it answers Enter here.
+    match_hud_focus_ =
+        ui::panel_find(session.panel, ui::ingame_exit_confirm_accept(session.close_confirm));
     status_ = "Exit";
     render_match_surface();
 }

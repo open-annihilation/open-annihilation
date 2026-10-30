@@ -1006,6 +1006,13 @@ void Runtime::check_match_dialogs() {
         return match_paused_ && match_hud_ && match_hud_panel_ == confirm &&
                hud_label("TITLE") == game_text("Surrender this battle and exit to the system?");
     };
+    // The name of the control that holds the panel's focus; empty for none.
+    const auto focused = [this]() -> std::string {
+        if (!match_hud_ || match_hud_focus_ <= 0 ||
+            static_cast<std::size_t>(match_hud_focus_) >= match_hud_->layout.gadgets.size())
+            return {};
+        return match_hud_->layout.gadgets[static_cast<std::size_t>(match_hud_focus_)].common.name;
+    };
     // A held Escape's repeats open no menu.
     require(send(escape(true)) && !match_paused_, "a held Escape opened the pause menu");
     // Each repeat of a held Backspace deletes a character from the chat
@@ -1073,6 +1080,8 @@ void Runtime::check_match_dialogs() {
         "closing the window ended a running match"
     );
     require(confirming(), "closing the window did not ask to surrender (YESORNO.GUI)");
+    // Yes takes the focus, as it answers Enter there.
+    require(focused() == "CHOICE1", "the close request's confirmation focused " + focused());
     require(
         send(close_request(SDL_EVENT_WINDOW_CLOSE_REQUESTED)) && confirming(),
         "a second close request did not leave the confirmation as it was"
@@ -1100,7 +1109,15 @@ void Runtime::check_match_dialogs() {
             match_hud_panel_ == oa::data::defs::gui_path("ARMOPT.GUI"),
         "Escape did not return to the in-game menu the confirmation was asked over"
     );
-    // Enter answers No as well: CHOICE2 is the confirmation's Enter default.
+    // Over the menu, which keeps the keyboard, Yes takes the focus too.
+    require(send(close_request(SDL_EVENT_WINDOW_CLOSE_REQUESTED)) && confirming(), "no menu ask");
+    require(
+        match_panels_keyboard_ && focused() == "CHOICE1",
+        "the close request's confirmation over the menu focused " + focused()
+    );
+    require(send(escape(false)) && match_paused_, "Escape did not answer the confirmation");
+    // The confirmation EXITGAME asks focuses No, and answers Enter and Escape
+    // as No, going back to the in-game menu, as in 3.1c.
     const auto enter = [] {
         SDL_Event event{};
         event.type = SDL_EVENT_KEY_DOWN;
@@ -1109,20 +1126,13 @@ void Runtime::check_match_dialogs() {
         event.key.down = true;
         return event;
     };
-    require(send(close_request(SDL_EVENT_WINDOW_CLOSE_REQUESTED)) && confirming(), "no menu ask");
-    require(
-        send(enter()) && !exit_requested_ && match_paused_ &&
-            match_hud_panel_ == oa::data::defs::gui_path("ARMOPT.GUI"),
-        "Enter did not return to the in-game menu the confirmation was asked over"
-    );
-    // The confirmation EXITGAME asks answers Enter and Escape as No too,
-    // going back to the in-game menu.
     const auto ask_from_menu = [&] {
         activate_pause_gadget("EXIT");
         activate_pause_gadget("EXITGAME");
         return confirming();
     };
     require(ask_from_menu(), "EXITGAME did not ask to surrender");
+    require(focused() == "CHOICE2", "EXITGAME's confirmation focused " + focused());
     require(
         send(enter()) && !exit_requested_ && match_paused_ &&
             match_hud_panel_ == oa::data::defs::gui_path("ARMOPT.GUI"),
@@ -1665,6 +1675,21 @@ void Runtime::check_match_dialogs() {
     require(send(close_request(SDL_EVENT_QUIT)) && confirming(), "the system's quit did not ask");
     activate_pause_gadget("CHOICE1");
     require(exit_requested_ && !match_, "CHOICE1 did not leave the match and end the run");
+    // Enter answers a close request as Yes: it surrenders and ends the run.
+    exit_requested_ = false;
+    load(Screen::main_menu);
+    start_benchmark_skirmish();
+    if (match_paused_)
+        resume_match_pause();
+    require(
+        send(close_request(SDL_EVENT_WINDOW_CLOSE_REQUESTED)) && confirming(),
+        "closing the window did not ask again"
+    );
+    send(enter());
+    require(
+        exit_requested_ && !match_,
+        "Enter did not answer the close request as Yes, leaving the match and ending the run"
+    );
     // Outside a match a close request ends the run at once.
     exit_requested_ = false;
     load(Screen::main_menu);

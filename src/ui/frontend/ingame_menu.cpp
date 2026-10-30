@@ -240,9 +240,14 @@ void ingame_enter_exit_confirm(Panel& panel, const IngameContext& context) noexc
     }
     if (has_title)
         panel_set_text(panel, "TITLE", title);
-    // kExitConfirmDefault answers Enter and Escape and takes the focus.
+    // kExitConfirmDefault answers Escape; ingame_exit_confirm_accept()'s
+    // choice answers Enter and takes the focus.
     panel.selected = kNoSelection;
     panel.dirty = true;
+}
+
+std::string_view ingame_exit_confirm_accept(bool close_request) noexcept {
+    return close_request ? kCloseConfirmAccept : kExitConfirmDefault;
 }
 
 void ingame_open_leave_confirm(Panel& panel, IngameContext& context) noexcept {

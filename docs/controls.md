@@ -189,6 +189,15 @@ press opens the game menu when there is nothing left to cancel. Escape
 closes the open game menu as Resume does. Canceling a surrender dialog or
 closing a team panel does not clear an explicit simulation pause.
 
+Closing the window during a match, with its close button, Alt+F4 or the
+system's quit (Cmd+Q on a Mac), asks whether to surrender and exit. Enter
+(**Accept**, `ui.menu-accept`), or a controller's A, answers Yes there, and
+Escape answers No; asked over the game menu, Yes shows the focus. The same
+question asked from the game menu's Exit focuses No, and Enter and Escape
+both answer No, as in 3.1c. With **Hold to confirm** on, in
+[Settings › Accessibility](settings.md#accessibility), Yes waits for the
+long press, from Enter as from Y.
+
 ## Unit information
 
 **Unit info** (`game.unit-info`) is F1 and Ctrl+F1, and **Pin unit**

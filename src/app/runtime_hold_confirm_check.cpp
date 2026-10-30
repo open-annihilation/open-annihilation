@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Hold to confirm on a skirmish. Self-destruct, the order button and the
-// surrender question's Yes wait for the long-press time. The ring at 30%
-// with reduced motion is one quarter.
+// surrender question's Yes wait for the long-press time, and so does Enter
+// where it answers Yes, on the question a close request asks. The ring at
+// 30% with reduced motion is one quarter.
 #include "oa/app/runtime.hpp"
 
 #include "oa/data/defs/layout.hpp"
@@ -406,6 +407,16 @@ void Runtime::check_hold_confirm() {
     if (match_ == nullptr || screen_ != Screen::match || exit_requested_)
         fail("a tapped Y left the match");
 
+    step("Enter tapped on a close request's question leaves the match running");
+    request_match_close();
+    if (match_hud_panel_ != question)
+        fail("the close request did not ask to surrender");
+    key_event(true, SDLK_RETURN, SDL_SCANCODE_RETURN, SDL_KMOD_NONE);
+    key_event(false, SDLK_RETURN, SDL_SCANCODE_RETURN, SDL_KMOD_NONE);
+    tick_hold_confirm();
+    if (match_ == nullptr || exit_requested_ || match_hud_panel_ != question)
+        fail("a tapped Enter answered the close request");
+
     step("Y held 600 ms returns to the main menu");
     open_question();
     key_event(true, SDLK_Y, SDL_SCANCODE_Y, SDL_KMOD_NONE);
@@ -414,6 +425,21 @@ void Runtime::check_hold_confirm() {
     if (match_ != nullptr || screen_ != Screen::main_menu)
         fail("holding Y did not return to the main menu");
     key_event(false, SDLK_Y, SDL_SCANCODE_Y, SDL_KMOD_NONE);
+
+    step("Enter held 600 ms on a close request's question ends the run");
+    start_benchmark_skirmish();
+    if (match_ == nullptr)
+        fail("the second match did not start");
+    if (match_paused_)
+        resume_match_pause();
+    request_match_close();
+    if (match_hud_panel_ != question)
+        fail("the close request did not ask to surrender in the second match");
+    key_event(true, SDLK_RETURN, SDL_SCANCODE_RETURN, SDL_KMOD_NONE);
+    wait_ms(600);
+    tick_hold_confirm();
+    if (match_ != nullptr || !exit_requested_)
+        fail("holding Enter did not answer the close request as Yes");
 }
 
 } // namespace oa::app

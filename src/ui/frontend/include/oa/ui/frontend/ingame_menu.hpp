@@ -135,8 +135,23 @@ void ingame_enter_exit_menu(Panel& panel, IngameContext& context) noexcept;
 IngameAction ingame_on_exit_menu_click(Panel& panel, IngameContext& context) noexcept;
 
 /// The exit confirmation's answer to Enter and to Escape: its Enter and Escape
-/// default, which also takes the focus as it opens.
+/// default, which also takes the focus as it opens. The confirmation a close
+/// request opens answers Enter with kCloseConfirmAccept instead.
 inline constexpr std::string_view kExitConfirmDefault = "CHOICE2";
+
+/// The answer to Enter on the exit confirmation a request to close the window
+/// or quit the program opens: Yes, which also takes the focus as it opens.
+/// Escape still answers kExitConfirmDefault.
+inline constexpr std::string_view kCloseConfirmAccept = "CHOICE1";
+
+/// Returns the exit confirmation's answer to Enter, which also takes the focus
+/// as it opens.
+///
+/// @param close_request whether a request to close the window or quit the
+///     program opened the confirmation
+/// @return kCloseConfirmAccept for a close request; otherwise
+///     kExitConfirmDefault, as in 3.1c
+[[nodiscard]] std::string_view ingame_exit_confirm_accept(bool close_request) noexcept;
 
 /// The exit confirmation's title when the player leaves the game. 3.1c's
 /// wording names Windows as the place the player exits to; the engine runs
@@ -148,7 +163,8 @@ inline constexpr std::string_view kLeaveGameTitle = "Surrender this battle and e
 /// Main menu asks "Surrender this battle and return to main menu?" (the
 /// return label instead of "main menu" when it fits); leaving asks the
 /// context's leave_question, else kLeaveGameTitle, or "Exit the Battle" for a
-/// spectator. Enter and Escape both answer kExitConfirmDefault.
+/// spectator. Escape answers kExitConfirmDefault, and Enter answers
+/// ingame_exit_confirm_accept()'s choice.
 /// CHOICE1 and CHOICE2 read "Yes" and "No" in the language shown, and each
 /// takes as its quick key the first letter of its caption that the other's
 /// key does not hold: Y and N in English, J and N in German, as in 3.1c.

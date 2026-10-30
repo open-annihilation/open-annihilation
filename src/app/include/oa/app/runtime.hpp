@@ -4346,7 +4346,8 @@ class Runtime final : public menu::Host,
     void resume_match_pause();
 
     /// Answers a request to close the window during a running match: opens the surrender
-    /// confirmation (YESORNO) unless it is already up.
+    /// confirmation (YESORNO) unless it is already up. Its Yes takes the focus and answers
+    /// Enter (enter_match_menu()).
     void request_match_close();
 
     /// Brings a page opened over a running match (the load and save pages, the in-game
@@ -4368,8 +4369,9 @@ class Runtime final : public menu::Host,
     /// @return true while the confirmation is up
     [[nodiscard]] bool match_question_open() const;
 
-    /// Answers Enter over a paused match: the surrender confirmation takes it as its Enter
-    /// default (No).
+    /// Answers Enter over a paused match: the surrender confirmation takes it as Yes when a
+    /// close request asked it, holding while Hold to confirm is on, and as its Enter default
+    /// (No) when the in-game menu asked it.
     ///
     /// @return true when the confirmation took the key; false over any other menu
     bool enter_match_menu();

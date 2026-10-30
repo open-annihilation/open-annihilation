@@ -140,14 +140,13 @@ void Runtime::check_match_panel_keys() {
 
     // The surrender confirmation a close request opens over the running
     // match gives its panel no keyboard focus, yet takes its quick keys in
-    // either case: 'n' answers No, as Escape and Enter do. A key with Ctrl
-    // down answers nothing, nor does Space. 'Y' answers Yes, which leaves the
-    // match and ends the run; this game ends here.
+    // either case: 'n' answers No, as Escape does. A key with Ctrl down
+    // answers nothing, nor does Space. 'Y' answers Yes, as Enter does, which
+    // leaves the match and ends the run; this game ends here.
     const auto confirm = oa::data::defs::gui_path("YESORNO.GUI");
     for (const auto& [code, scancode, name] :
          {std::tuple{SDLK_N, SDL_SCANCODE_N, "'n'"},
-          std::tuple{SDLK_ESCAPE, SDL_SCANCODE_ESCAPE, "Escape"},
-          std::tuple{SDLK_RETURN, SDL_SCANCODE_RETURN, "Enter"}}) {
+          std::tuple{SDLK_ESCAPE, SDL_SCANCODE_ESCAPE, "Escape"}}) {
         request_match_close();
         require(
             showing(confirm) && !match_panels_keyboard_,
@@ -162,15 +161,14 @@ void Runtime::check_match_panel_keys() {
 
     // Over an open chat line the confirmation takes the keys first, and the
     // line keeps what was typed for after it: text typed while it is up
-    // reaches no line, nor does the 'n' that answers it, and Escape and
-    // Enter answer it No and leave the line open.
+    // reaches no line, nor does the 'n' that answers it, and Escape answers
+    // it No and leaves the line open.
     open_chat_line();
     require(chat_composing_, "the chat line did not open");
     type("a");
     for (const auto& [code, scancode, name] :
          {std::tuple{SDLK_N, SDL_SCANCODE_N, "'n'"},
-          std::tuple{SDLK_ESCAPE, SDL_SCANCODE_ESCAPE, "Escape"},
-          std::tuple{SDLK_RETURN, SDL_SCANCODE_RETURN, "Enter"}}) {
+          std::tuple{SDLK_ESCAPE, SDL_SCANCODE_ESCAPE, "Escape"}}) {
         request_match_close();
         require(showing(confirm), "the close request over the chat line did not ask to surrender");
         type("q");

@@ -638,8 +638,9 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
         }
         return true;
     }
-    // The surrender confirmation answers its accept action as No, its Enter
-    // default; escape_match_menu answers its cancel action.
+    // The surrender confirmation answers its accept action: Yes when a close
+    // request asked it, else No, its Enter default. escape_match_menu answers
+    // its cancel action.
     const auto* menu_accept = fired_action("ui.menu-accept");
     const bool menu_accept_down =
         menu_accept != nullptr && menu_accept->phase == keys::Phase::pressed;
