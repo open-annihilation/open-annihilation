@@ -14,6 +14,7 @@
 #include "oa/sim/unit_movement/terrain.hpp"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <iostream>
@@ -47,6 +48,26 @@ struct Runtime::LiveRenderer {
     bool failed{};
     bool unavailable{};
     const void* match{};
+
+    /// The camera of the last frame drawn, turned or classic: a frame that
+    /// needs more room than the renderer has goes back to it, rather than to
+    /// the classic view, so that a turn or a zoom stops where the frames
+    /// could still be drawn.
+    struct Drawn {
+        bool held{};
+        renderer_live_camera::State camera{};
+        renderer_live_camera::View view{};
+        std::array<double, 2> place{};
+        float zoom{};
+        Runtime::ViewHold view_hold{};
+    };
+
+    Drawn drawn{};
+    /// The view has gone back for lack of room since a frame last drew
+    /// where it was asked to: reported once until then.
+    bool out_of_room{};
+    /// The frame being drawn again is drawn from the camera last drawn.
+    bool went_back{};
 };
 
 void Runtime::destroy_live_renderer(LiveRenderer* renderer) noexcept {
@@ -319,6 +340,7 @@ bool Runtime::render_live_match_surface() {
     auto& live = *live_renderer_;
     if (live.match != match_.get()) {
         live.scene = {};
+        live.drawn = {};
         live.pivot_held = false;
         live.match = match_.get();
         live.failed = false;
@@ -356,6 +378,9 @@ bool Runtime::render_live_match_surface() {
     };
     if (!renderer_live_camera::projection(live.camera, live.view, live.projection))
         return true;
+    // A classic frame is the last camera drawn until a turned one draws.
+    if (!live_renderer_active())
+        live.drawn = {true, live.camera, live.view, place, zoom, view_hold_};
     if (live_renderer_active() && !live.failed) {
         auto& models = match_models();
         renderer_live_scene::Inputs inputs{};
@@ -455,13 +480,55 @@ bool Runtime::render_live_match_surface() {
                                         &inputs.water
                                     )
                                   : renderer_live_gpu::Result::failed;
+        const auto& last = live.drawn;
+        const bool at_last =
+            live.went_back || (last.held && last.camera.yaw_degrees == live.camera.yaw_degrees &&
+                               last.camera.pitch_degrees == live.camera.pitch_degrees &&
+                               last.place == place && last.zoom == zoom);
+        live.went_back = false;
         if (result == renderer_live_gpu::Result::success) {
+            live.drawn = {true, live.camera, live.view, place, zoom, view_hold_};
+            live.out_of_room = false;
             rebuild_live_picking();
             for (std::size_t pixel = 0; pixel < match_world_cpu_.rgb.size() / 3; ++pixel)
                 std::copy_n(
                     live.rgba.data() + pixel * 4, 3, match_world_cpu_.rgb.data() + pixel * 3
                 );
             compose_match_effects(match_world_cpu_, true);
+        } else if (
+            !built && live.scene.out_of_room && last.held && director_ == nullptr &&
+            (!at_last || live.rgba.size() == match_world_cpu_.rgb.size() / 3 * 4)
+        ) {
+            // A frame that needs more room than the renderer has is no
+            // failure of the card: the view goes back to the last camera
+            // drawn, its angle, height, place and zoom, and the frame is
+            // drawn again from there, so that a turn or a zoom stops at
+            // that limit instead of the view going back to classic.
+            if (!live.out_of_room)
+                std::cerr << "3D view: " << error << "; the view stays where it was last drawn\n";
+            live.out_of_room = true;
+            if (at_last) {
+                // The camera last drawn no longer fits either, as when more
+                // comes into view: its last picture stays, with nothing to
+                // pick in it.
+                rebuild_live_picking();
+                for (std::size_t pixel = 0; pixel < match_world_cpu_.rgb.size() / 3; ++pixel)
+                    std::copy_n(
+                        live.rgba.data() + pixel * 4, 3, match_world_cpu_.rgb.data() + pixel * 3
+                    );
+                compose_match_effects(match_world_cpu_, true);
+            } else {
+                const auto back = last;
+                live.camera = back.camera;
+                live.view = back.view;
+                live.pivot_held = true;
+                match_zoom_ = match_zoom_target_ = back.zoom;
+                place_match_view(back.place[0], back.place[1]);
+                view_hold_ = back.view_hold;
+                live.went_back = true;
+                // render_match_surface draws the frame again, from there.
+                return false;
+            }
         } else {
             live.failed = true;
             live.unavailable = result == renderer_live_gpu::Result::unavailable;

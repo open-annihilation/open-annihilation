@@ -913,6 +913,48 @@ int Runtime::check_live_renderer() {
             snapshot();
             require(!live_renderer_failed(), "a valid zoom limit rejected live scene geometry");
         }
+    // The camera unlocked and as low as it goes, zoomed out as far as the
+    // wheel goes over the middle of the map: the frame is drawn from that
+    // camera, its angle, place and zoom, and the view never goes back, to
+    // classic or anywhere else.
+    {
+        constexpr float low_yaw = 30.0F;
+        constexpr float low_pitch = -53.0F;
+        match_layout_ = lay_out_match(wide_width, wide_height);
+        reset_live_renderer();
+        require(turn_live_camera(low_yaw, low_pitch), "the low unlocked camera did not turn");
+        SDL_Event out{};
+        out.type = SDL_EVENT_MOUSE_WHEEL;
+        out.wheel.y = -100.0F;
+        out.wheel.mouse_x =
+            static_cast<float>(match_layout_.left + match_layout_.battlefield_width() / 2);
+        out.wheel.mouse_y =
+            static_cast<float>(match_layout_.top + match_layout_.battlefield_height() / 2);
+        require(
+            live_renderer_take_event(out),
+            "the low unlocked camera did not take the zoom-out gesture"
+        );
+        const float low_zoom = match_zoom_;
+        place_match_view(
+            selected_tnt_->attribute_width * map_cell / 2 -
+                match_layout_.battlefield_width() / (2 * low_zoom),
+            selected_tnt_->attribute_height * map_cell / 2 -
+                match_layout_.battlefield_height() / (2 * low_zoom)
+        );
+        const auto low_view = match_view_place();
+        snapshot();
+        require(
+            live_renderer_active() && !live_renderer_failed(),
+            "the low view of the whole map went back to the classic view"
+        );
+        require(
+            std::abs(match_zoom_ - least_match_zoom()) < 0.001F && match_zoom_ == low_zoom &&
+                match_view_place() == low_view,
+            "the low view of the whole map did not draw where it was zoomed out to"
+        );
+        require(live_renderer_vertex_count() != 0, "the low view of the whole map drew nothing");
+        match_layout_ = recovery_layout;
+    }
     reset_live_renderer();
     match_zoom_ = recovery_zoom;
     match_zoom_target_ = recovery_target;
