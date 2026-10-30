@@ -149,6 +149,13 @@ struct Scene {
     /// The most squares of ground a frame draws before it draws them from
     /// fewer height samples: lowered when a frame's triangles do not fit.
     uint64_t terrain_square_limit{400'000};
+    /// The atlas area the terrain of the last frame that halved its room
+    /// fitted in, and the number of tiles that frame surveyed: a frame that
+    /// surveys as many plans its terrain in that room from the start, so
+    /// that it finds every tile and material where the last frame packed
+    /// them. None (no tiles) once a frame fits in the room it starts with.
+    uint64_t terrain_room{};
+    std::size_t terrain_room_tiles{};
     /// The last frame could not be built for lack of room: its materials
     /// would not fit the atlas at its largest, or its triangles the geometry
     /// budget. Any other failure leaves it false.

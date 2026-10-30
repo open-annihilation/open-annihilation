@@ -4030,10 +4030,16 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         // materials: in full squares while every tile it draws fits so, and
         // otherwise the tiles nearest the camera in the larger squares that fit.
         constexpr uint64_t atlas_area = uint64_t{maximum_atlas_edge} * maximum_atlas_edge;
-        uint64_t room =
+        const uint64_t starting_room =
             atlas_area -
             std::min(atlas_area, std::max(least_material_room, scene.material_area / 2 * 3));
-        const auto demand = terrain_demand(inputs, room);
+        const auto demand = terrain_demand(inputs, starting_room);
+        // A view whose terrain last had to halve its room, surveying as many
+        // tiles, starts in the room it fitted (Scene::terrain_room) rather
+        // than emptying the atlas twice more to find it again.
+        uint64_t room = starting_room;
+        if (!demand.empty() && demand.size() == scene.terrain_room_tiles)
+            room = std::min(room, scene.terrain_room);
         auto plan = plan_terrain(demand, room);
         // Far out over a large map, the ground is drawn from fewer height
         // samples, as few as keep its triangles within the frame's
@@ -4106,6 +4112,12 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 if (emptied)
                     scene.material_area = scene.packed_material_area + scene.frame_material_area;
                 scene.last_frame_material_area = scene.frame_material_area;
+                if (room < starting_room) {
+                    scene.terrain_room = room;
+                    scene.terrain_room_tiles = demand.size();
+                } else {
+                    scene.terrain_room_tiles = 0;
+                }
                 break;
             } catch (const GeometryFull&) {
                 // Fewer height samples help only where the ground takes
@@ -4135,9 +4147,15 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 scene.frame_rows = frame_rows;
                 scene.frame_order.clear();
                 // An emptied atlas at its largest could not hold the plan.
+                // Otherwise the atlas is emptied for it, and the frame plans
+                // from the room it would start with had none been
+                // remembered, as the frames before it did.
                 if (emptied && scene.texture_width == maximum_atlas_edge &&
                     scene.texture_height == maximum_atlas_edge) {
                     room = std::min(room, planned_area(demand, plan)) / 2;
+                    plan = plan_terrain(demand, room);
+                } else if (room != starting_room) {
+                    room = starting_room;
                     plan = plan_terrain(demand, room);
                 }
                 emptied = true;

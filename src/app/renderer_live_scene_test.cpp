@@ -451,48 +451,57 @@ void terrain_mip_colours() {
     }
 }
 
+/// The first palette index of the tiles of wide_terrain, and how many
+/// colours they cycle through.
+constexpr uint8_t wide_first_colour = 1;
+constexpr uint32_t wide_colours = 250;
+
+/// Lays a flat map of across by down distinct tiles, each one colour, under
+/// a view of all of it whose depth grows down the map, so that the bottom
+/// rows are nearest.
+void wide_terrain(Fixture& fixture, uint32_t across, uint32_t down) {
+    auto& map = fixture.map;
+    map.tile_width = across;
+    map.tile_height = down;
+    map.attribute_width = across * 2;
+    map.attribute_height = down * 2;
+    map.tile_count = across * down;
+    map.tile_indices.resize(static_cast<std::size_t>(across) * down);
+    map.tile_palette_indices.resize(map.tile_indices.size() * tile_edge * tile_edge);
+    for (std::size_t tile = 0; tile < map.tile_indices.size(); ++tile) {
+        map.tile_indices[tile] = static_cast<uint16_t>(tile);
+        std::fill_n(
+            map.tile_palette_indices.begin() +
+                static_cast<std::ptrdiff_t>(tile * tile_edge * tile_edge),
+            tile_edge * tile_edge,
+            static_cast<uint8_t>(wide_first_colour + tile % wide_colours)
+        );
+    }
+    map.attributes.assign(static_cast<std::size_t>(map.attribute_width) * map.attribute_height, {});
+    for (uint32_t index = 0; index < wide_colours; ++index) {
+        const auto entry = (wide_first_colour + index) * oa::palette_entry_bytes;
+        fixture.palette[entry] = static_cast<uint8_t>(index);
+        fixture.palette[entry + 1] = static_cast<uint8_t>(255 - index);
+        fixture.palette[entry + 2] = static_cast<uint8_t>(index / 2 + 10);
+    }
+    fixture.inputs.sight.mapping = false;
+    fixture.inputs.sight.line_of_sight = false;
+    fixture.inputs.right = static_cast<int32_t>(across) * tile_edge;
+    fixture.inputs.bottom = static_cast<int32_t>(down) * tile_edge;
+    fixture.inputs.clip_projection = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0};
+}
+
 /// A wide, low view of a map with more distinct tiles than the atlas holds
 /// in full squares: the frame builds, the tiles nearest the camera in full
 /// squares and the rest smaller, each sampled as its own colour; a view
 /// whose tiles fit keeps them all in full squares.
 void terrain_wider_than_atlas() {
-    constexpr uint8_t first_colour = 1;
-    constexpr uint32_t colours = 250;
+    constexpr uint8_t first_colour = wide_first_colour;
+    constexpr uint32_t colours = wide_colours;
     const auto check_view =
         [&](uint32_t across, uint32_t down, float expected_largest, float expected_smallest) {
             Fixture fixture;
-            auto& map = fixture.map;
-            map.tile_width = across;
-            map.tile_height = down;
-            map.attribute_width = across * 2;
-            map.attribute_height = down * 2;
-            map.tile_count = across * down;
-            map.tile_indices.resize(static_cast<std::size_t>(across) * down);
-            map.tile_palette_indices.resize(map.tile_indices.size() * tile_edge * tile_edge);
-            for (std::size_t tile = 0; tile < map.tile_indices.size(); ++tile) {
-                map.tile_indices[tile] = static_cast<uint16_t>(tile);
-                std::fill_n(
-                    map.tile_palette_indices.begin() +
-                        static_cast<std::ptrdiff_t>(tile * tile_edge * tile_edge),
-                    tile_edge * tile_edge,
-                    static_cast<uint8_t>(first_colour + tile % colours)
-                );
-            }
-            map.attributes.assign(
-                static_cast<std::size_t>(map.attribute_width) * map.attribute_height, {}
-            );
-            for (uint32_t index = 0; index < colours; ++index) {
-                const auto entry = (first_colour + index) * oa::palette_entry_bytes;
-                fixture.palette[entry] = static_cast<uint8_t>(index);
-                fixture.palette[entry + 1] = static_cast<uint8_t>(255 - index);
-                fixture.palette[entry + 2] = static_cast<uint8_t>(index / 2 + 10);
-            }
-            fixture.inputs.sight.mapping = false;
-            fixture.inputs.sight.line_of_sight = false;
-            fixture.inputs.right = static_cast<int32_t>(across) * tile_edge;
-            fixture.inputs.bottom = static_cast<int32_t>(down) * tile_edge;
-            // Depth grows down the map, so the bottom rows are nearest.
-            fixture.inputs.clip_projection = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0};
+            wide_terrain(fixture, across, down);
             OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
             OA_CHECK(fixture.error.empty());
             OA_CHECK(!fixture.scene.out_of_room);
@@ -547,6 +556,78 @@ void terrain_wider_than_atlas() {
     check_view(128, 128, 16, 8);
     // 1600 tiles fit in full squares, and every one is packed so.
     check_view(40, 40, 32, 32);
+}
+
+/// A wide view whose terrain and other materials do not fit even an emptied
+/// atlas at its largest gives its terrain half the room. The next frame over
+/// as many tiles starts in that room, and so finds every tile and material
+/// where the last frame packed them: nothing is packed, the atlas is not
+/// emptied, and the ground is the one the last frame drew. A frame over a
+/// different number of tiles, as after a zoom, plans from the whole room
+/// again and draws the ground a new scene draws for its view.
+void terrain_room_remembered() {
+    // A material as tall as a quarter of the atlas: the rows the terrain's
+    // whole room leaves the other materials cannot hold it.
+    oa::formats::gaf::RenderedFrame frame{};
+    frame.width = 8;
+    frame.height = 1024;
+    frame.pixels.assign(static_cast<std::size_t>(frame.width) * frame.height, alternate_index);
+    frame.coverage.assign(frame.pixels.size(), 1);
+    const auto view = [&](Fixture& fixture, uint32_t across, uint32_t down) {
+        wide_terrain(fixture, 80, 80);
+        fixture.inputs.right = static_cast<int32_t>(across) * tile_edge;
+        fixture.inputs.bottom = static_cast<int32_t>(down) * tile_edge;
+        fixture.draws.sprites.clear();
+        fixture.draws.sprites.push_back({&frame, {8, 8}});
+    };
+    const auto ground = [](const live::Scene& scene) {
+        return std::vector<oa::app::renderer_live_gpu::Vertex>(
+            scene.vertices.begin(),
+            scene.vertices.begin() + static_cast<std::ptrdiff_t>(scene.terrain_vertex_count)
+        );
+    };
+    const auto same = [](const auto& a, const auto& b) {
+        return a.size() == b.size() &&
+               std::memcmp(a.data(), b.data(), a.size() * sizeof(a.front())) == 0;
+    };
+    // Every row of the atlas written: it was emptied for the frame.
+    const auto emptied = [](const live::Scene& scene) {
+        return scene.atlas_update.first_row == 0 &&
+               scene.atlas_update.end_row == scene.texture_height;
+    };
+    Fixture fixture;
+    view(fixture, 80, 80);
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(!fixture.scene.out_of_room);
+    OA_CHECK(fixture.scene.texture_width == 4096);
+    const auto first = ground(fixture.scene);
+    OA_CHECK(!first.empty());
+    // Only the nearest tiles keep full squares: the room was halved.
+    const auto full = std::count_if(first.begin(), first.end(), [](const auto& vertex) {
+        return vertex.terrain_size == 32;
+    });
+    OA_CHECK(full != 0 && full < static_cast<std::ptrdiff_t>(first.size()) / 4);
+    for (int frames = 0; frames < 2; ++frames) {
+        const auto revision = fixture.scene.texture_revision;
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(fixture.scene.texture_revision == revision);
+        OA_CHECK(fixture.scene.atlas_update.first_row == 0);
+        OA_CHECK(fixture.scene.atlas_update.end_row == 0);
+        OA_CHECK(same(ground(fixture.scene), first));
+    }
+    // Zoomed in: fewer tiles. The frame plans afresh, empties the atlas and
+    // draws what a new scene does; the frame after it keeps all of it.
+    view(fixture, 60, 60);
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(emptied(fixture.scene));
+    Fixture fresh;
+    view(fresh, 60, 60);
+    OA_CHECK(live::build(fresh.inputs, fresh.scene, fresh.error));
+    OA_CHECK(same(ground(fixture.scene), ground(fresh.scene)));
+    const auto zoomed = fixture.scene.texture_revision;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.texture_revision == zoomed);
+    OA_CHECK(same(ground(fixture.scene), ground(fresh.scene)));
 }
 
 /// Ground too wide for the geometry budget is drawn from fewer height
@@ -3082,6 +3163,7 @@ int main() {
     fog_materials();
     terrain_mip_colours();
     terrain_wider_than_atlas();
+    terrain_room_remembered();
     coarse_ground_far_out();
     terrain_beyond_picture();
     smooth_fog_boundary();
