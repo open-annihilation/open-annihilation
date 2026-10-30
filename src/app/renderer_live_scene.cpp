@@ -582,6 +582,50 @@ TerrainCrop terrain_crop(const Inputs& in) {
     };
 }
 
+/// How far beyond the picture's edges, in its pixels, the terrain pass still
+/// draws ground: what lies near the picture, such as the ground under an
+/// explosion's card that reaches into it, keeps its ground.
+constexpr float screen_ground_margin = 128;
+
+/// Tells whether a box of ground lies wholly beyond the picture, more than
+/// screen_ground_margin pixels past one of its edges. Every triangle the
+/// terrain pass draws in the box lies inside it, so none of them would
+/// show. Without the picture's size (clip_width or clip_height zero) no
+/// ground is left out.
+///
+/// @param in the frame
+/// @param left the box's least map x
+/// @param top its least map z (row)
+/// @param right its greatest map x
+/// @param bottom its greatest map z
+/// @param low the least height in the box
+/// @param high the greatest
+/// @return true when the box lies wholly beyond the picture
+bool ground_off_screen(
+    const Inputs& in, float left, float top, float right, float bottom, float low, float high
+) {
+    if (in.clip_width == 0 || in.clip_height == 0)
+        return false;
+    const auto& m = in.clip_projection;
+    // An affine row's least and greatest value over the box.
+    const auto span = [&](std::size_t row) {
+        const float x0 = m[row] * left, x1 = m[row] * right;
+        const float h0 = m[row + 1] * low, h1 = m[row + 1] * high;
+        const float z0 = m[row + 2] * top, z1 = m[row + 2] * bottom;
+        return std::array{
+            std::min(x0, x1) + std::min(h0, h1) + std::min(z0, z1) + m[row + 3],
+            std::max(x0, x1) + std::max(h0, h1) + std::max(z0, z1) + m[row + 3]
+        };
+    };
+    const auto across = span(0);
+    const auto down = span(4);
+    // A bound that is not a number fails every test, and its box is kept.
+    return across[1] < -screen_ground_margin ||
+           across[0] > static_cast<float>(in.clip_width) + screen_ground_margin ||
+           down[1] < -screen_ground_margin ||
+           down[0] > static_cast<float>(in.clip_height) + screen_ground_margin;
+}
+
 /// Surveys the tiles the terrain pass will draw: for each height cell of
 /// the crop, every tile its painted rows reach, as the pass clips its
 /// triangles to tiles. Returns nothing when even every painted tile
@@ -877,6 +921,18 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
             for (int32_t x = left / edge * edge; x < right; x += edge) {
                 const int32_t far_x = std::min(x + edge, map_width);
                 const int32_t far_y = std::min(y + edge, map_height);
+                const std::array heights{
+                    height_at(map, x, y),
+                    height_at(map, far_x, y),
+                    height_at(map, far_x, far_y),
+                    height_at(map, x, far_y),
+                    height_at(map, (x + far_x) / 2, (y + far_y) / 2)
+                };
+                const auto [low, high] = std::minmax_element(heights.begin(), heights.end());
+                if (ground_off_screen(
+                        in, float(x), float(y), float(far_x), float(far_y), *low, *high
+                    ))
+                    continue;
                 const std::array corners{
                     ground(x, y), ground(far_x, y), ground(far_x, far_y), ground(x, far_y)
                 };
@@ -921,6 +977,21 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
     };
     const bool distant =
         std::isfinite(in.detail_scale) && in.detail_scale > 0 && in.detail_scale < 1;
+    // Whether the square of ground at x, y, edge pixels a side, lies wholly
+    // beyond the picture, by the heights at every height sample in it.
+    const auto square_off_screen = [&](int32_t x, int32_t y, int32_t edge) {
+        float low = std::numeric_limits<float>::infinity();
+        float high = -low;
+        for (int32_t dy = 0; dy <= edge; dy += cell_edge)
+            for (int32_t dx = 0; dx <= edge; dx += cell_edge) {
+                const float height = height_at(map, x + dx, y + dy);
+                low = std::min(low, height);
+                high = std::max(high, height);
+            }
+        return ground_off_screen(
+            in, float(x), float(y), float(x + edge), float(y + edge), low, high
+        );
+    };
     std::vector<bool> merged_columns(static_cast<std::size_t>(columns));
     for (int32_t y = top; y < bottom; y += cell_edge) {
         if (y % tile_edge == 0)
@@ -939,6 +1010,10 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
             // Keep every original cell wherever relief or fog changes within it.
             if (distant && x % tile_edge == 0 && y % tile_edge == 0 && x + tile_edge <= right &&
                 y + tile_edge <= bottom) {
+                // A tile wholly beyond the picture is left out, merged or
+                // not: each of its cells is then left out in turn.
+                if (square_off_screen(x, y, tile_edge))
+                    continue;
                 const auto a = sample(x, y), b = sample(x + tile_edge, y);
                 const auto c = sample(x + tile_edge, y + tile_edge), d = sample(x, y + tile_edge);
                 bool planar = !twisted_cell(a[0], b[0], c[0], d[0]);
@@ -965,6 +1040,8 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
                     continue;
                 }
             }
+            if (square_off_screen(x, y, cell_edge))
+                continue;
             const std::array corners{
                 vertex(0, 0),
                 vertex(cell_edge, 0),

@@ -632,6 +632,96 @@ void coarse_ground_far_out() {
     OA_CHECK(sample_found);
 }
 
+/// A turned view leaves out the ground wholly beyond its picture, and keeps
+/// every triangle that reaches the picture as the whole crop draws it, at
+/// full detail and with distant tiles merged.
+void terrain_beyond_picture() {
+    constexpr uint32_t across = 15;
+    constexpr uint32_t picture_width = 200;
+    constexpr uint32_t picture_height = 150;
+    // Screen x, screen y and depth over map x, height and z: turned an
+    // eighth, so that the crop's corners lie far beyond the picture.
+    constexpr std::array<float, 12> projection{2, 0, -2, 0, 1, -1, 1, 0, 0, 1, 0, 0};
+    const auto make = [&](Fixture& fixture, uint32_t width, uint32_t height, float detail) {
+        auto& map = fixture.map;
+        map.tile_width = map.tile_height = across;
+        map.attribute_width = map.attribute_height = across * 2;
+        map.tile_count = 1;
+        map.tile_indices.assign(static_cast<std::size_t>(across) * across, 0);
+        map.attributes.assign(
+            static_cast<std::size_t>(map.attribute_width) * map.attribute_height, {}
+        );
+        // Level ground on the left, which merges far out, and relief on the
+        // right, which does not.
+        for (uint32_t row = 0; row < map.attribute_height; ++row)
+            for (uint32_t column = 0; column < map.attribute_width; ++column)
+                map.attributes[static_cast<std::size_t>(row) * map.attribute_width + column]
+                    .height =
+                    static_cast<uint8_t>(column < across ? 10 : (column * 3 + row * 5) % 40);
+        fixture.inputs.sight.mapping = false;
+        fixture.inputs.sight.line_of_sight = false;
+        fixture.inputs.right = static_cast<int32_t>(across) * tile_edge;
+        fixture.inputs.bottom = static_cast<int32_t>(across) * tile_edge;
+        fixture.inputs.detail_scale = detail;
+        fixture.inputs.clip_projection = projection;
+        fixture.inputs.clip_width = width;
+        fixture.inputs.clip_height = height;
+        return live::build(fixture.inputs, fixture.scene, fixture.error);
+    };
+    using Corners = std::array<float, 9>;
+    const auto triangles = [](const live::Scene& scene) {
+        std::vector<Corners> result;
+        for (std::size_t first = 0; first + 2 < scene.terrain_vertex_count; first += 3) {
+            Corners corners{};
+            for (std::size_t corner = 0; corner < 3; ++corner) {
+                const auto& vertex = scene.vertices[first + corner];
+                corners[corner * 3] = vertex.x;
+                corners[corner * 3 + 1] = vertex.height;
+                corners[corner * 3 + 2] = vertex.z;
+            }
+            result.push_back(corners);
+        }
+        std::sort(result.begin(), result.end());
+        return result;
+    };
+    const auto reaches_picture = [&](const Corners& corners) {
+        float left = std::numeric_limits<float>::infinity(), right = -left;
+        float top = left, bottom = -left;
+        for (std::size_t corner = 0; corner < 3; ++corner) {
+            const float x = corners[corner * 3], height = corners[corner * 3 + 1],
+                        z = corners[corner * 3 + 2];
+            const float screen_x =
+                projection[0] * x + projection[1] * height + projection[2] * z + projection[3];
+            const float screen_y =
+                projection[4] * x + projection[5] * height + projection[6] * z + projection[7];
+            left = std::min(left, screen_x);
+            right = std::max(right, screen_x);
+            top = std::min(top, screen_y);
+            bottom = std::max(bottom, screen_y);
+        }
+        return right > 0 && left < picture_width && bottom > 0 && top < picture_height;
+    };
+    for (const float detail : {1.0F, 0.5F}) {
+        Fixture whole;
+        OA_CHECK(make(whole, 0, 0, detail));
+        Fixture pictured;
+        OA_CHECK(make(pictured, picture_width, picture_height, detail));
+        const auto all = triangles(whole.scene);
+        const auto kept = triangles(pictured.scene);
+        OA_CHECK(!kept.empty());
+        OA_CHECK(kept.size() * 2 < all.size());
+        // Only the crop's own triangles, and each that reaches the picture.
+        OA_CHECK(std::includes(all.begin(), all.end(), kept.begin(), kept.end()));
+        std::size_t reaching = 0;
+        for (const auto& corners : all)
+            if (reaches_picture(corners)) {
+                ++reaching;
+                OA_CHECK(std::binary_search(kept.begin(), kept.end(), corners));
+            }
+        OA_CHECK(reaching != 0);
+    }
+}
+
 /// Known sight boundaries interpolate, while every unknown terrain sample remains black.
 void smooth_fog_boundary() {
     Fixture fixture;
@@ -2793,6 +2883,7 @@ int main() {
     terrain_mip_colours();
     terrain_wider_than_atlas();
     coarse_ground_far_out();
+    terrain_beyond_picture();
     smooth_fog_boundary();
     terrain_zoom_detail();
     particle_zoom_detail();
