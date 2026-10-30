@@ -853,44 +853,64 @@ void Runtime::live_scene_visibility(
         int y1{};
     };
 
-    std::vector<Reach> reaches;
+    // Runs of triangles are bounded on the pool, each run into its own list,
+    // and the lists joined in the runs' order.
     const auto vertex_count = std::min(live.projected.size(), live.scene.vertices.size());
-    for (std::size_t index = 0; index + 2 < vertex_count; index += 3) {
-        const std::array triangle{
-            live.projected[index], live.projected[index + 1], live.projected[index + 2]
-        };
-        const float left = std::min({triangle[0][0], triangle[1][0], triangle[2][0]});
-        const float right = std::max({triangle[0][0], triangle[1][0], triangle[2][0]});
-        const float top = std::min({triangle[0][1], triangle[1][1], triangle[2][1]});
-        const float bottom = std::max({triangle[0][1], triangle[1][1], triangle[2][1]});
-        if (!std::isfinite(left) || !std::isfinite(right) || !std::isfinite(top) ||
-            !std::isfinite(bottom))
-            continue;
-        if (bounded && (right <= requested_left || left >= requested_right ||
-                        bottom <= requested_top || top >= requested_bottom))
-            continue;
-        const int x0 = static_cast<int>(std::clamp(std::floor(left), 0.0F, float(width)));
-        const int x1 = static_cast<int>(std::clamp(std::ceil(right), 0.0F, float(width)));
-        const int y0 = static_cast<int>(std::clamp(std::floor(top), 0.0F, float(height)));
-        const int y1 = static_cast<int>(std::clamp(std::ceil(bottom), 0.0F, float(height)));
-        if (x0 >= x1 || y0 >= y1)
-            continue;
-        if (bounded) {
-            bool intersects = false;
-            for (auto band = static_cast<uint32_t>(y0) / rows_per_band;
-                 band <= static_cast<uint32_t>(y1 - 1) / rows_per_band;
-                 ++band) {
-                if (x1 > static_cast<int>(band_left[band]) &&
-                    x0 < static_cast<int>(band_right[band])) {
-                    intersects = true;
-                    break;
-                }
-            }
-            if (!intersects)
+    constexpr std::size_t triangles_per_run = 4096;
+    const std::size_t triangle_count = vertex_count / 3;
+    const auto runs =
+        static_cast<uint32_t>((triangle_count + triangles_per_run - 1) / triangles_per_run);
+    std::vector<std::vector<Reach>> run_reaches(runs);
+    platform::job_pool::run_bands(draw_pool_.get(), runs, [&](uint32_t run) {
+        auto& found = run_reaches[run];
+        const std::size_t run_end =
+            std::min(triangle_count, (static_cast<std::size_t>(run) + 1) * triangles_per_run) * 3;
+        for (std::size_t index = static_cast<std::size_t>(run) * triangles_per_run * 3;
+             index < run_end;
+             index += 3) {
+            const std::array triangle{
+                live.projected[index], live.projected[index + 1], live.projected[index + 2]
+            };
+            const float left = std::min({triangle[0][0], triangle[1][0], triangle[2][0]});
+            const float right = std::max({triangle[0][0], triangle[1][0], triangle[2][0]});
+            const float top = std::min({triangle[0][1], triangle[1][1], triangle[2][1]});
+            const float bottom = std::max({triangle[0][1], triangle[1][1], triangle[2][1]});
+            if (!std::isfinite(left) || !std::isfinite(right) || !std::isfinite(top) ||
+                !std::isfinite(bottom))
                 continue;
+            if (bounded && (right <= requested_left || left >= requested_right ||
+                            bottom <= requested_top || top >= requested_bottom))
+                continue;
+            const int x0 = static_cast<int>(std::clamp(std::floor(left), 0.0F, float(width)));
+            const int x1 = static_cast<int>(std::clamp(std::ceil(right), 0.0F, float(width)));
+            const int y0 = static_cast<int>(std::clamp(std::floor(top), 0.0F, float(height)));
+            const int y1 = static_cast<int>(std::clamp(std::ceil(bottom), 0.0F, float(height)));
+            if (x0 >= x1 || y0 >= y1)
+                continue;
+            if (bounded) {
+                bool intersects = false;
+                for (auto band = static_cast<uint32_t>(y0) / rows_per_band;
+                     band <= static_cast<uint32_t>(y1 - 1) / rows_per_band;
+                     ++band) {
+                    if (x1 > static_cast<int>(band_left[band]) &&
+                        x0 < static_cast<int>(band_right[band])) {
+                        intersects = true;
+                        break;
+                    }
+                }
+                if (!intersects)
+                    continue;
+            }
+            found.push_back({index, x0, x1, y0, y1});
         }
-        reaches.push_back({index, x0, x1, y0, y1});
-    }
+    });
+    std::size_t reach_count = 0;
+    for (const auto& found : run_reaches)
+        reach_count += found.size();
+    std::vector<Reach> reaches;
+    reaches.reserve(reach_count);
+    for (const auto& found : run_reaches)
+        reaches.insert(reaches.end(), found.begin(), found.end());
     // Each band of rows takes the triangles that reach it in their order and
     // writes its own rows alone, so each pixel takes the triangles in the
     // same order whatever the bands and threads. One thread takes the rows
