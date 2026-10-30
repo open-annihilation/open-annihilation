@@ -784,10 +784,10 @@ void outcomes_wait_for_confirm() {
 /// The clash question works out what each outcome leaves once, as it opens.
 /// Laying it out again, as a host does each time the pointer moves over it,
 /// resolves no draft. Opening it resolves each outcome's copy of the draft at
-/// most four times: what the other action keeps once the change starts, each
-/// action the change writes, and what both are left with.
+/// most three times: for each action the change writes, and for what both
+/// are left with. Nothing it reads before its first write is resolved again.
 void question_works_out_once() {
-    constexpr uint64_t kEachOutcome = 4;
+    constexpr uint64_t kEachOutcome = 3;
     const kit::Frame frame = frame_for(1280, 720, 100);
     const auto hover_each = [&](editor::Editor& model,
                                 editor::ScreenState& state,

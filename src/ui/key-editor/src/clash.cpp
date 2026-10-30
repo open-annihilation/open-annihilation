@@ -85,19 +85,18 @@ std::vector<keys::Chord> without_chord(
     return remain;
 }
 
-/// Drops a chord from an action by writing what remains, even when nothing remains.
+/// The chords REPLACE writes on an action it drops a chord from: what
+/// remains, even when nothing remains.
 ///
-/// @param[in,out] editor the draft
+/// @param editor the draft
 /// @param id the action
 /// @param drop the chord
-/// @return true when the draft changed
-bool drop_for_replace(Editor& editor, std::string_view id, const keys::Chord& drop) {
+/// @return the chords that remain
+std::vector<keys::Chord>
+remain_for_replace(const Editor& editor, std::string_view id, const keys::Chord& drop) {
     bool had_own = false;
     bool own_remains = false;
-    const std::vector<keys::Chord> remain = without_chord(editor, id, drop, had_own, own_remains);
-    static_cast<void>(had_own);
-    static_cast<void>(own_remains);
-    return editor.set_chords(id, remain);
+    return without_chord(editor, id, drop, had_own, own_remains);
 }
 
 /// The other action of a clash whose `a` is the action being bound.
@@ -180,12 +179,23 @@ ApplyResult apply_capture(Editor& editor, const Capture& capture, ClashChoice ch
         result.select = capture.action;
         return result;
     }
-    const EditStep step(editor);
+    std::vector<std::string> losers;
     for (const keys::Clash& partner : partners) {
-        const std::string other = other_of(partner, capture.action);
-        if (other == capture.action)
-            continue;
-        drop_for_replace(editor, other, chord);
+        std::string other = other_of(partner, capture.action);
+        if (other != capture.action)
+            losers.push_back(std::move(other));
+    }
+    // Nothing is written before the first action loses the chord, so what it
+    // keeps is read before the step opens. Each later one is read after the
+    // one before it lost the chord.
+    std::vector<keys::Chord> first_remain;
+    if (!losers.empty())
+        first_remain = remain_for_replace(editor, losers.front(), chord);
+    const EditStep step(editor);
+    for (std::size_t index = 0; index < losers.size(); ++index) {
+        std::vector<keys::Chord> remain =
+            index == 0 ? std::move(first_remain) : remain_for_replace(editor, losers[index], chord);
+        editor.set_chords(losers[index], std::move(remain));
     }
     if (!editor.set_chords(capture.action, std::move(next)))
         return result;

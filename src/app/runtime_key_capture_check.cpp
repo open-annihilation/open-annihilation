@@ -3,7 +3,7 @@
 
 // --check-key-capture: capturing a chord over a paused skirmish, a clash and
 // its swap after its confirm button, the clash question opening and
-// following the pointer in under 250 ms, Escape held for a second, a refused
+// following the pointer in under 100 ms, Escape held for a second, a refused
 // Escape, Settings' chord, Find by key hearing Primary+, and a draft clash
 // settled from Settle…. With --snapshot it writes key-capture-<w>x<h>.ppm and
 // key-clash-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080, and
@@ -458,9 +458,9 @@ void Runtime::check_key_capture() {
     }
     std::cout << "key capture check: Choose what happens… took " << open_ms
               << " ms, the slowest move over the question " << slowest_ms << " ms\n";
-    require(open_ms < 250, "Choose what happens… took " + std::to_string(open_ms) + " ms");
+    require(open_ms < 100, "Choose what happens… took " + std::to_string(open_ms) + " ms");
     require(
-        slowest_ms < 250, "a move over the question took " + std::to_string(slowest_ms) + " ms"
+        slowest_ms < 100, "a move over the question took " + std::to_string(slowest_ms) + " ms"
     );
     cancel_prompt();
 

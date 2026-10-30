@@ -1173,7 +1173,7 @@ unsaved edits are closed, with Save, Discard and Keep editing; with
 (`--check-key-capture`) captures a chord, swaps a clash only once the
 question's confirm button is pressed, times Choose what happens… for P on
 Load, which Patrol uses, and each move of the pointer over the question
-(each under 250 ms), hears Primary+ through Find by key, and settles a
+(each under 100 ms), hears Primary+ through Find by key, and settles a
 draft clash from Settle…. `native-library`
 (`--check-library`) writes real layouts and the player's own changes into
 the check's Keys folder, presses USE and checks where it asks, What moves,

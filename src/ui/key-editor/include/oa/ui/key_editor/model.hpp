@@ -697,8 +697,9 @@ class Editor {
 
     /// The bindings in use and their clashing pairs, as resolution puts them.
     struct InUse {
-        oa::ui::key_bindings::Resolved resolved{};          ///< the bindings in use
-        std::vector<oa::ui::key_bindings::Clash> clashes{}; ///< their clashing pairs
+        oa::ui::key_bindings::Resolved resolved{}; ///< the bindings in use
+        /// Their clashing pairs, searched the first time they are asked for.
+        mutable std::optional<std::vector<oa::ui::key_bindings::Clash>> clashes{};
     };
 
     /// The list's rows and the nav's categories, as the draft lists them.
@@ -717,6 +718,15 @@ class Editor {
     ///
     /// @return the bindings and clashes
     [[nodiscard]] std::shared_ptr<const InUse> in_use() const;
+
+    /// The clashing pairs of bindings in use, searched once for each
+    /// resolution: a change that asks only what an action is bound to does
+    /// not search them.
+    ///
+    /// @param bound bindings in_use gave for the draft as it stands
+    /// @return their clashing pairs
+    [[nodiscard]] const std::vector<oa::ui::key_bindings::Clash>&
+    clashes_of(const InUse& bound) const;
 
     /// The rows and categories, kept as `in_use` keeps the bindings.
     ///

@@ -232,7 +232,8 @@ kit::MouseLook mouse_look(const Editor& editor, keys::PointerScheme scheme) {
         kept = std::move(made);
     }
     const keys::Resolved& bound = kept->resolved;
-    const std::vector<keys::Clash>& clashes = kept->clashes;
+    // The other scheme's clashes were searched as it was resolved.
+    const std::vector<keys::Clash>& clashes = editor.clashes_of(*kept);
     const TextHooks& hooks = editor.text();
 
     std::array<std::vector<Role>, 10> roles;

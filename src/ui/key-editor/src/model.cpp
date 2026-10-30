@@ -1726,7 +1726,6 @@ std::shared_ptr<const Editor::InUse> Editor::in_use() const {
     const keys::ResolveInput input = resolve_input();
     resolutions.fetch_add(1, std::memory_order_relaxed);
     made->resolved = keys::resolve(input);
-    made->clashes = keys::find_clashes(made->resolved, input);
     std::shared_ptr<const InUse> found = std::move(made);
     // During a change the draft may move between two questions.
     if (step_depth_ == 0)
@@ -1740,13 +1739,19 @@ std::shared_ptr<const Editor::Listing> Editor::listing() const {
     const std::shared_ptr<const InUse> bound = in_use();
     auto made = std::make_shared<Listing>();
     made->listed = list_resolved(
-        inputs_, own_, has_chosen_, chosen_, helpers_, bound->resolved, bound->clashes
+        inputs_, own_, has_chosen_, chosen_, helpers_, bound->resolved, clashes_of(*bound)
     );
     made->categories = categories_of(made->listed, inputs_);
     std::shared_ptr<const Listing> found = std::move(made);
     if (step_depth_ == 0)
         listing_ = found;
     return found;
+}
+
+const std::vector<keys::Clash>& Editor::clashes_of(const InUse& bound) const {
+    if (!bound.clashes)
+        bound.clashes = keys::find_clashes(bound.resolved, resolve_input());
+    return *bound.clashes;
 }
 
 void Editor::forget_kept() noexcept {
@@ -2242,13 +2247,14 @@ std::size_t Editor::unsaved() const {
 }
 
 std::size_t Editor::clashes() const {
-    return in_use()->clashes.size();
+    const std::shared_ptr<const InUse> bound = in_use();
+    return clashes_of(*bound).size();
 }
 
 std::size_t Editor::draft_clashes() const {
     const std::shared_ptr<const InUse> bound = in_use();
     std::size_t count = 0;
-    for (const keys::Clash& clash : bound->clashes) {
+    for (const keys::Clash& clash : clashes_of(*bound)) {
         if (draft_names(own_, clash.a) || draft_names(own_, clash.b))
             ++count;
     }
@@ -2454,7 +2460,7 @@ std::optional<keys::Clash> Editor::draft_clash(std::string_view id) const {
     }
     const std::shared_ptr<const InUse> kept_now = in_use();
     const keys::Resolved& bound = kept_now->resolved;
-    for (const keys::Clash& clash : kept_now->clashes) {
+    for (const keys::Clash& clash : clashes_of(*kept_now)) {
         if (!draft_names(own_, clash.a) && !draft_names(own_, clash.b))
             continue;
         if (clash.a != id && clash.b != id)

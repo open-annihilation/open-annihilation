@@ -570,7 +570,7 @@ kit::KeyboardLook
 keyboard_look(const Editor& editor, const KeyboardViewInputs& inputs, const Labels& labels) {
     const std::shared_ptr<const Editor::InUse> kept = editor.in_use();
     const keys::Resolved& bound = kept->resolved;
-    const std::vector<keys::Clash>& clashes = kept->clashes;
+    const std::vector<keys::Clash>& clashes = editor.clashes_of(*kept);
     const keys::KeyboardMap& map = editor.keyboard();
     const keys::Platform platform = editor.platform();
     const TextHooks& hooks = editor.text();
