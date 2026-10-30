@@ -313,6 +313,8 @@ enum class Action : uint8_t {
     /// menus: the selected Library entry's first action (X), when that action
     /// can be pressed. On any other screen it does nothing.
     library_action,
+    /// Toggles the keys overlay. On the default map, hold View and press R1.
+    keys_overlay,
 };
 
 /// One button's meaning in a layer.

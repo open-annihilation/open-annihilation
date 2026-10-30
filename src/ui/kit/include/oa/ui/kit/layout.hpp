@@ -120,11 +120,12 @@ struct Insets {
 /// The window height, in canvas pixels, that the Auto scale counts as one step.
 inline constexpr int32_t auto_scale_height = 720;
 
-/// Returns the Auto scale of a window, as a percentage.
+/// Returns the Auto scale of a window from its height, as a percentage.
 ///
 /// The canvas height over 720, and never below the display's density, so a
 /// point is never smaller than a window point. The height is the canvas, in
-/// pixels, not the window's points.
+/// pixels, not the window's points. layer_viewport may then take one step
+/// down from it, where that gives the room a larger size class.
 ///
 /// While offer_fractional is false the scale is the nearest whole step, a
 /// half away from zero, and at least 1: 1x below 1080 lines, 2x from 1080,
@@ -140,36 +141,25 @@ inline constexpr int32_t auto_scale_height = 720;
 [[nodiscard]] int32_t
 auto_scale(int32_t canvas_height, float density, bool offer_fractional = false) noexcept;
 
-/// How much room a layout has, from the points left after the scale.
-enum class SizeClass : uint8_t {
-    compact, ///< below 960 by 540 points
-    regular, ///< from 960 by 540 points
-    large,   ///< from 1280 by 720 points
+/// The points kept free round a size class's settings dialog, on each side,
+/// for a room to take that class.
+inline constexpr int32_t class_margin = 24;
+
+/// The points at which a layout becomes Regular, 768 by 534: Regular's
+/// dialog with class_margin round it. Both sides must reach them.
+inline constexpr Point regular_from{
+    regular_metrics.dialog_width + 2 * class_margin,
+    regular_metrics.dialog_height + 2 * class_margin,
+};
+/// The points at which a layout becomes Large, 1008 by 648: Large's dialog
+/// with class_margin round it. Both sides must reach them.
+inline constexpr Point large_from{
+    large_metrics.dialog_width + 2 * class_margin,
+    large_metrics.dialog_height + 2 * class_margin,
 };
 
-/// The points at which a layout becomes Regular. Both sides must reach them.
-inline constexpr Point regular_from{960, 540};
-/// The points at which a layout becomes Large. Both sides must reach them.
-inline constexpr Point large_from{1280, 720};
-
-/// Returns a size class's metrics: compact_metrics, regular_metrics or
-/// large_metrics. A screen takes its window's sizes from them.
-///
-/// @param size_class the size class
-/// @return its metrics
-[[nodiscard]] constexpr const Metrics& metrics_of(SizeClass size_class) noexcept {
-    switch (size_class) {
-    case SizeClass::regular:
-        return regular_metrics;
-    case SizeClass::large:
-        return large_metrics;
-    case SizeClass::compact:
-        break;
-    }
-    return compact_metrics;
-}
-
-/// Returns the size class of a layout's room.
+/// Returns the size class of a layout's room: the largest class whose
+/// dialog fits it with class_margin points round it.
 ///
 /// Large from large_from, Regular from regular_from, and Compact below that.
 /// One side reaching a class does not: both the width and the height must.
@@ -178,6 +168,20 @@ inline constexpr Point large_from{1280, 720};
 /// @param height_points the room's height, in points
 /// @return the size class
 [[nodiscard]] SizeClass size_class_of(int32_t width_points, int32_t height_points) noexcept;
+
+/// Returns a chosen size class held to a room: the chosen class where its
+/// dialog fits the room, the margin not counted, else the largest smaller
+/// class whose dialog does, and Compact where none does.
+///
+/// A player who picks a class gets it wherever its dialog can show whole,
+/// even where size_class_of would pick a smaller one.
+///
+/// @param chosen the class chosen
+/// @param width_points the room's width, in points
+/// @param height_points the room's height, in points
+/// @return the class the room is laid out at
+[[nodiscard]] SizeClass
+size_class_within(SizeClass chosen, int32_t width_points, int32_t height_points) noexcept;
 
 /// The canvas a screen is laid out on.
 struct Viewport {
@@ -227,13 +231,24 @@ inline constexpr int32_t auto_with_fraction_percent = -1;
 /// less, other than auto_with_fraction_percent) the canvas's Auto scale on
 /// whole steps. auto_with_fraction_percent is Auto with 150% among the steps.
 /// A chosen step replaces Auto's rule, the density floor included, on a
-/// touch canvas as on a desktop one. The scale is the largest whole step, no
-/// larger than the chosen one, at which Compact's dialog (compact_metrics'
-/// dialog_width by dialog_height points) fits the room, the canvas less its
-/// safe insets, and at least 1. 150%, whether chosen or what Auto picked, is
-/// held the same way: it is used where Compact's dialog fits the room at one
-/// and a half, and otherwise 1. frame_of of the result gives the size class
-/// of the room's points at that scale.
+/// touch canvas as on a desktop one.
+///
+/// The scale serves the class: where Auto's scale leaves the room's points
+/// (size_class_of) below the wanted class and one step down gives the room
+/// that class, Auto takes the step down. The steps are the whole ones, and
+/// 150% between 1x and 2x while Auto offers it; the step down is never below
+/// the display's density floor, nor below 1x. So 1920 by 1080 is Large at 1x
+/// rather than Regular at 2x, and Large at 150% where 150% is offered;
+/// 1440 by 900 with 150% offered is Large at 1x rather than Regular at 150%.
+/// A chosen percent is never stepped down.
+///
+/// The scale is then the largest whole step, no larger than that one, at
+/// which Compact's dialog (compact_metrics' dialog_width by dialog_height
+/// points) fits the room, the canvas less its safe insets, and at least 1.
+/// 150%, whether chosen or what Auto picked, is held the same way: it is
+/// used where Compact's dialog fits the room at one and a half, and
+/// otherwise 1. frame_of of the result gives the size class of the room's
+/// points at that scale.
 ///
 /// @param canvas the canvas: its pixels, density and safe insets; its
 ///     scale_percent is not read
@@ -241,9 +256,13 @@ inline constexpr int32_t auto_with_fraction_percent = -1;
 ///     150, 200, 300 or 400; 0 for Auto on whole steps;
 ///     auto_with_fraction_percent for Auto with 150% among the steps. Any
 ///     other percent between two steps takes the step below it.
+/// @param wanted the class Auto's step down serves: Large, unless the player
+///     chose a window size, whose class it is then
 /// @return the canvas with scale_percent set to that scale: 150, or a
 ///     whole step times 100
-[[nodiscard]] Viewport layer_viewport(const Viewport& canvas, int32_t chosen_percent) noexcept;
+[[nodiscard]] Viewport layer_viewport(
+    const Viewport& canvas, int32_t chosen_percent, SizeClass wanted = SizeClass::large
+) noexcept;
 
 /// Returns a rectangle of points as canvas pixels.
 ///
@@ -478,6 +497,12 @@ enum class Role : uint8_t {
     call_to_action, ///< an accent button that pulses; the item's CallToActionLook
     package_badge,  ///< a package badge; the item's BadgeLook
     grip,           ///< a drag handle; the item's GripLook
+    keycap,         ///< a keycap; the item's KeycapLook
+    chord_chip,     ///< a chord chip; the item's ChordChipLook
+    keyboard,       ///< a keyboard picture; the item's KeyboardLook
+    mouse_picture,  ///< a mouse picture; the item's MouseLook
+    hold_ring,      ///< a hold ring; the item's HoldRingLook
+    radio,          ///< a radio, or a radio row; the item's RadioLook
 };
 
 /// Every role, in the order Role declares them. A role appended to Role is
@@ -518,6 +543,9 @@ inline constexpr std::array all_roles{
     Role::coach_mark,    Role::spotlight,
     Role::picture_well,  Role::call_to_action,
     Role::package_badge, Role::grip,
+    Role::keycap,        Role::chord_chip,
+    Role::keyboard,      Role::mouse_picture,
+    Role::hold_ring,     Role::radio,
 };
 
 /// Tells whether the kit's canvas draws a role (paint, in either form): it
@@ -575,6 +603,12 @@ inline constexpr std::array all_roles{
     case Role::call_to_action:
     case Role::package_badge:
     case Role::grip:
+    case Role::keycap:
+    case Role::chord_chip:
+    case Role::keyboard:
+    case Role::mouse_picture:
+    case Role::hold_ring:
+    case Role::radio:
         return true;
     case Role::header_bar:
     case Role::badge:
@@ -610,9 +644,9 @@ inline constexpr std::array all_roles{
 }
 
 // The last role is named here: a role appended to Role is appended to
-// all_roles and named here in grip's place.
+// all_roles and named here in radio's place.
 static_assert(
-    all_roles_in_order() && all_roles.size() == static_cast<std::size_t>(Role::grip) + 1,
+    all_roles_in_order() && all_roles.size() == static_cast<std::size_t>(Role::radio) + 1,
     "all_roles names every role of Role once, in its order"
 );
 

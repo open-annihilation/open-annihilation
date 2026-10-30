@@ -240,14 +240,11 @@ void Runtime::check_mod_warning() {
     const std::string sideart = kept_path(mods / std::string(kSideArtFolder));
     // The first side and its commander, which every profile here takes from
     // the game's own SIDEDATA.
+    const oa::Side* first = oa::data::defs::side_at(side_table_, 0);
     const std::string commander(
-        side_table_.sides[0].commander,
-        ::strnlen(side_table_.sides[0].commander, sizeof side_table_.sides[0].commander)
+        first->commander, ::strnlen(first->commander, sizeof first->commander)
     );
-    const std::string side(
-        side_table_.sides[0].name,
-        ::strnlen(side_table_.sides[0].name, sizeof side_table_.sides[0].name)
-    );
+    const std::string side(first->name, ::strnlen(first->name, sizeof first->name));
     const auto commander_line = [&side, &commander] {
         return "The " + side + " commander (" + commander + ") isn't in this mod's units.";
     };
@@ -370,9 +367,9 @@ void Runtime::check_mod_warning() {
 
     // The second side's name and the files the side art folders' second side
     // names.
+    const oa::Side* second_side = oa::data::defs::side_at(side_table_, 1);
     const std::string second(
-        side_table_.sides[1].name,
-        ::strnlen(side_table_.sides[1].name, sizeof side_table_.sides[1].name)
+        second_side->name, ::strnlen(second_side->name, sizeof second_side->name)
     );
     const std::string panels = "anims/" + std::string(kMissingPanels) + ".GAF";
     const std::string font = "fonts/" + std::string(kMissingFont) + ".FNT";
@@ -410,7 +407,7 @@ void Runtime::check_mod_warning() {
         );
         const auto& notice = shown_warning().notice();
         require(
-            notice.title == "MOD FILES MISSING" && notice.open_caption == "OPEN MOD FOLDER" &&
+            notice.title == "MOD FILES MISSING" && notice.open_caption == "Open mod folder" &&
                 notice.paragraphs.size() == 5 &&
                 notice.paragraphs[0].text == std::string(name) + " is missing files." &&
                 notice.paragraphs[1].text == side_file_line(panels) &&
@@ -622,13 +619,13 @@ void Runtime::check_mod_warning() {
         );
         const auto& notice = shown_warning().notice();
         require(
-            notice.title == "MOD FILES MISSING" && notice.open_caption == "OPEN MOD FOLDER" &&
+            notice.title == "MOD FILES MISSING" && notice.open_caption == "Open mod folder" &&
                 notice.paragraphs.front().text == "Warning Check Hollow is missing files." &&
                 notice.paragraphs[2].text == commander_line() && notice.paragraphs.back().path &&
                 notice.paragraphs.back().text == hollow,
             "the warning does not name the mod, its first side's commander and its folder"
         );
-        // At 1280x720 and 1920x1080 the warning is laid out at the window's
+        // At 800x600 and 2560x1440 the warning is laid out at the window's
         // class and drawn at its scale, centred over the main menu darkened
         // over the whole window.
         oa_layer().read_whole_window(true);

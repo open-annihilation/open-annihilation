@@ -188,7 +188,7 @@ ModStartGaps Runtime::mod_start_gaps() {
         return {};
     std::vector<SideCommander> sides;
     for (uint32_t side = 0; side < side_table_.count; ++side) {
-        const auto& record = side_table_.sides[side];
+        const auto& record = *oa::data::defs::side_at(side_table_, side);
         sides.push_back(
             {field_text(record.name, sizeof record.name),
              field_text(record.commander, sizeof record.commander)}

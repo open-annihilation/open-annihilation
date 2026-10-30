@@ -201,6 +201,7 @@ bool cell_clear(
         } else {
             match_runtime::BuildSiteOptions options;
             options.facing = facing;
+            options.mapped_player = seat.player;
             clear = match.building_site(type, cell_x, cell_z, 0, seat.player, options).has_value();
         }
     } catch (...) {

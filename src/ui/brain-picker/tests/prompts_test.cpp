@@ -69,16 +69,16 @@ void load_with_the_built_in_player() {
         std::vector<std::string>(
             {"This game was saved with Steady Commander 1.2 playing seat 2, which is not "
              "installed here.",
-             "The built-in player takes those seats from the units as they stand. GET the brain "
+             "The built-in player takes those seats from the units as they stand. Get the brain "
              "in the Library to load the game as it was saved."}
         )
     );
     OA_CHECK(one.buttons.size() == 2);
     OA_CHECK(
-        one.buttons[0].caption == "BACK" && one.buttons[0].id == "back" && !one.buttons[0].accent
+        one.buttons[0].caption == "Back" && one.buttons[0].id == "back" && !one.buttons[0].accent
     );
     OA_CHECK(
-        one.buttons[1].caption == "LOAD WITH THE BUILT-IN PLAYER" &&
+        one.buttons[1].caption == "Load with the built-in player" &&
         one.buttons[1].id == "load-built-in" && one.buttons[1].accent
     );
     OA_CHECK(one.cancel_button == 0 && one.primary_button == 1 && one.marked == 1);
@@ -100,7 +100,7 @@ void load_with_the_built_in_player() {
     );
     OA_CHECK(paragraphs[1].find("Steady Commander 1.2") != std::string::npos);
     OA_CHECK(paragraphs[1].find("seat 2") != std::string::npos);
-    OA_CHECK(paragraphs[2].find("GET the brain in the Library") != std::string::npos);
+    OA_CHECK(paragraphs[2].find("Get the brain in the Library") != std::string::npos);
     OA_CHECK(two.buttons[0].id == picker::back_id && two.cancel_button == 0);
     OA_CHECK(two.buttons[1].id == picker::load_built_in_id && two.primary_button == 1);
     OA_CHECK(two.marked == 1);
@@ -119,7 +119,7 @@ void translated() {
     const kit::Question question =
         picker::load_built_in_question(std::span<const picker::MissingBrain>(&one_brain, 1), hooks);
     OA_CHECK(question.title == "Mit dem eingebauten Spieler laden?");
-    OA_CHECK(question.buttons[0].caption == "BACK");
+    OA_CHECK(question.buttons[0].caption == "Back");
     OA_CHECK(paragraphs_of(question)[0].find("Steady Commander") != std::string::npos);
     OA_CHECK(paragraphs_of(question)[0].find("seat 2") != std::string::npos);
 }

@@ -156,8 +156,8 @@ the Full tier: the presenter the game itself uses when Hardware
 acceleration is Full, so a video shows what a player on Full sees from the
 same camera. That brings in what only Full draws: the water's ripples,
 coastal waves, underwater shimmer and naval reflections, softer aircraft
-shadows, the card's terrain sampling, and Enhanced anti-aliasing as the
-card applies it. The water's sliders and Enhanced anti-aliasing, like
+shadows (with New unit shadows On), the card's terrain sampling, and
+Enhanced anti-aliasing as the card applies it. The water's sliders and Enhanced anti-aliasing, like
 every effect, follow the [Graphics settings](settings.md#graphics) of the
 run's preferences, the player's own or those of `--preferences-file`, so
 a preferences file can set each one, or turn it off at 0%, for a render.

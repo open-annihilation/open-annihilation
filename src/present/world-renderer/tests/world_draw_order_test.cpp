@@ -3,7 +3,8 @@
 
 // The order the battlefield draws features and units in: lying features
 // first, then row by row the ground units and the standing features of the
-// row, and the units off the ground last.
+// row, a unit on a building's footprint straight after that building, and
+// the units off the ground last.
 #include "oa/present/world_renderer/world_draw_order.hpp"
 
 #include "oa/core/unit.h"
@@ -37,6 +38,35 @@ constexpr int8_t rubble_height = 5;
 
 [[nodiscard]] wr::UnitDrawSite unit_at(int32_t z, uint32_t occupancy = on_ground) {
     return {fixed(z), occupancy | OA_UNIT_FLAG_LIVE};
+}
+
+// A unit at a map pixel, across and down.
+[[nodiscard]] wr::UnitDrawSite unit_at(int32_t x, int32_t z, uint32_t occupancy) {
+    return {fixed(z), occupancy | OA_UNIT_FLAG_LIVE, fixed(x)};
+}
+
+// A Vehicle Plant's footprint, eight cells across and six down, centred on a
+// map pixel.
+constexpr int16_t plant_cells_x = 8;
+constexpr int16_t plant_cells_z = 6;
+
+[[nodiscard]] wr::UnitDrawSite plant_at(int32_t x, int32_t z) {
+    return {
+        fixed(z),
+        on_ground | OA_UNIT_FLAG_LIVE | OA_UNIT_FLAG_BUILDING,
+        fixed(x),
+        plant_cells_x,
+        plant_cells_z
+    };
+}
+
+// Where each unit is in the ground pass, by its place in the list.
+[[nodiscard]] std::vector<uint32_t> ground_units(const wr::BattlefieldDrawPlan& order) {
+    std::vector<uint32_t> units;
+    for (const auto& draw : order.ground)
+        if (draw.kind == wr::DrawnThing::unit)
+            units.push_back(draw.index);
+    return units;
 }
 
 [[nodiscard]] wr::BattlefieldDrawPlan plan(
@@ -147,6 +177,84 @@ void units_off_the_ground_draw_last() {
     CHECK(is(order.ground[1], wr::DrawnThing::feature, 0));
 }
 
+// The plant at 240,1664 covers the cells from 176 to 303 across and 1616 to
+// 1711 down; the pixel past each far edge is off it.
+void footprint_holds_its_cells() {
+    const auto plant = plant_at(240, 1664);
+    CHECK(wr::stands_on_footprint(unit_at(176, 1616, on_ground), plant));
+    CHECK(wr::stands_on_footprint(unit_at(303, 1711, on_ground), plant));
+    CHECK(!wr::stands_on_footprint(unit_at(175, 1653, on_ground), plant));
+    CHECK(!wr::stands_on_footprint(unit_at(304, 1653, on_ground), plant));
+    CHECK(!wr::stands_on_footprint(unit_at(240, 1615, on_ground), plant));
+    CHECK(!wr::stands_on_footprint(unit_at(240, 1712, on_ground), plant));
+}
+
+// A vehicle released on the plant's platform 11 pixels north of its centre
+// draws over the plant at every camera row of a plot, whether its row is the
+// plant's or the one before; a tree in the plant's row still follows both.
+void unit_on_a_footprint_draws_after_the_building() {
+    for (int32_t camera = 1188; camera < 1188 + wr::draw_row_depth; ++camera) {
+        const auto order = plan(
+            {{20, 104, tree_height}}, {plant_at(240, 1664), unit_at(240, 1653, on_ground)}, camera
+        );
+        CHECK(order.ground.size() == 3);
+        CHECK(is(order.ground[0], wr::DrawnThing::unit, 0));
+        CHECK(is(order.ground[1], wr::DrawnThing::unit, 1));
+        CHECK(is(order.ground[2], wr::DrawnThing::feature, 0));
+    }
+}
+
+// In the plant's own row a unit given before it, as one in an earlier slot
+// is, still draws after it while on its footprint.
+void unit_before_the_building_in_its_row_follows_it() {
+    const auto order = plan({}, {unit_at(240, 1670, on_ground), plant_at(240, 1664)}, 1664);
+    CHECK(ground_units(order) == (std::vector<uint32_t>{1, 0}));
+}
+
+// A unit behind the plant, off its footprint, is covered by it as before; a
+// unit beside it, off its footprint, keeps the place its row gives it; and a
+// unit already drawn after the plant keeps its place.
+void units_off_the_footprint_keep_their_order() {
+    const auto behind = plan({}, {plant_at(240, 1664), unit_at(240, 1600, on_ground)}, 1600);
+    CHECK(ground_units(behind) == (std::vector<uint32_t>{1, 0}));
+    const auto beside = plan({}, {unit_at(320, 1660, on_ground), plant_at(240, 1664)}, 1664);
+    CHECK(ground_units(beside) == (std::vector<uint32_t>{0, 1}));
+    const auto in_front = plan({}, {plant_at(240, 1664), unit_at(240, 1700, on_ground)}, 1664);
+    CHECK(ground_units(in_front) == (std::vector<uint32_t>{0, 1}));
+}
+
+// Units following the plant keep the order given among themselves, before
+// the next unit of the plant's row; a unit of an earlier row off the
+// footprint still draws first, and one on it already a row on keeps its row.
+void units_following_a_building_keep_their_order() {
+    const auto order = plan(
+        {},
+        {unit_at(240, 1650, on_ground),
+         plant_at(240, 1664),
+         unit_at(260, 1680, on_ground),
+         unit_at(220, 1640, on_ground),
+         unit_at(400, 1630, on_ground),
+         unit_at(400, 1670, on_ground)},
+        1664
+    );
+    CHECK(ground_units(order) == (std::vector<uint32_t>{4, 1, 0, 3, 5, 2}));
+}
+
+// A building on another's footprint, an aircraft over the plant and a
+// carried unit take no part: each keeps its own row and pass.
+void only_ground_units_follow_a_building() {
+    const auto order = plan(
+        {},
+        {plant_at(240, 1650),
+         plant_at(240, 1664),
+         unit_at(240, 1650, in_air),
+         unit_at(240, 1650, carried)},
+        1664
+    );
+    CHECK(ground_units(order) == (std::vector<uint32_t>{0, 1}));
+    CHECK(order.raised_units == (std::vector<uint32_t>{2, 3}));
+}
+
 } // namespace
 
 int main() {
@@ -159,6 +267,12 @@ int main() {
     low_features_lie_under_every_unit();
     a_row_draws_units_then_features();
     units_off_the_ground_draw_last();
+    footprint_holds_its_cells();
+    unit_on_a_footprint_draws_after_the_building();
+    unit_before_the_building_in_its_row_follows_it();
+    units_off_the_footprint_keep_their_order();
+    units_following_a_building_keep_their_order();
+    only_ground_units_follow_a_building();
     if (failures != 0) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;

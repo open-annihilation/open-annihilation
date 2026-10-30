@@ -271,7 +271,7 @@ Hack id `ui.megamap`, written under the profile's `hacks` block.
 | `dither` | `bool` | - | `true`, `false` | - | `false` | `false` | `fixed` | `view` | - |
 | `feature-blobs` | `bool` | - | `true`, `false` | - | `false` | `true` | `fixed` | `view` | - |
 | `ring-minimums` | `list<int>` | pixels | `0` to `65535` | 5 | `[0, 0, 0, 0, 512]` | `[128, 128, 64, 64, 512]` | `fixed` | `view` | - |
-| `icon-categories` | `int` | categories | `0` to `64` | - | `0` | `9` | `fixed` | `view` | - |
+| `icon-categories` | `int` | categories | `0` to `128` | - | `0` | `9` | `fixed` | `view` | - |
 
 Adjustable: `fixed`: only the profile sets it.
 
@@ -295,3 +295,16 @@ hacks:
     icon-categories: 9
 ```
 <!-- END GENERATED: schema -->
+
+## Keys
+
+<!-- BEGIN GENERATED: keys -->
+| Action | Default chords | What it does |
+| --- | --- | --- |
+| `megamap.toggle` | `Tab` | The megamap on or off |
+| `megamap.open-wheel` | `WheelDown` | Opens the megamap |
+| `megamap.close-wheel` | `WheelUp` | Closes the megamap and centres on the pointer |
+| `megamap.jump` | `—` | Jumps the view to a point of the megamap |
+<!-- END GENERATED: keys -->
+
+These keys move in the [key editor](../../keys.md#the-key-editor), in **Megamap**, while this hack is on.

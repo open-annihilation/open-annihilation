@@ -92,7 +92,7 @@ Open Annihilation's own settings open with **Cmd+,**, or from
 bottom right of the main menu opens. See [Settings](../settings.md), and
 [the Library](../library.md) for mods, maps and languages to download.
 
-The app declares `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain`, `.oareg` and
+The app declares `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain`, `.oakeys`, `.oareg` and
 `.oalaunch` files.
 Double-click a `.oamod` file to install the mod it holds in Open
 Annihilation ([mods](../mods/README.md#installing-a-oamod-file)) while
@@ -102,7 +102,7 @@ Open Annihilation is the program Finder uses for that type, and a
 [Settings › System](../settings.md#system) lists a switch for each type
 under **File Type Registration**. On makes this copy the program Finder
 opens that type with. Off hands it back to the program that opens a zip
-archive (the five packages, usually Archive Utility) or plain text (a
+archive (the six packages, usually Archive Utility) or plain text (a
 registry file or a launch file). The type and its icon stay declared by the app; only the
 program that opens the file changes. The switch shows the choice Finder
 has now. It changes when you move it and press **OK**, and not before. A
@@ -174,10 +174,20 @@ beside that file instead, and saved games and recordings beside that file
 are not moved either: the game lists the saved games where they are. An Image Output Directory set in the game, with the console's `Film`
 command, still takes the screenshots and films.
 
+## App Translocation
+
+If you start Open Annihilation from a download or a disk image, macOS runs
+that copy from a protected place. It cannot update itself from there. Drag
+**Open Annihilation** to Applications and start it from there. The game can
+show you the app in Finder.
+
 ## Updating and removing
 
-- **To update:** download the newer `.pkg` and install it over the old one,
-  or replace the app with the newer one. Your settings are kept.
+- **To update:** start the app from a folder you can write, such as
+  Applications. When a newer release is ready, the new app takes its place
+  and the one you had is kept. A folder you cannot write opens the
+  signed installer, which puts the app in Applications. Start it from there
+  when Installer finishes. Your settings are kept.
 - **To remove:** drag **Open Annihilation.app** to the Trash. To remove your
   settings and logs too, delete the Application Support folder above; your
   saved games, screenshots, films, recordings and mods are in the Open

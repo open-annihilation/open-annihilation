@@ -168,14 +168,14 @@ void test_prompts() {
     auto made =
         install::oamod::question_prompt(plan, incoming, "example-mod-1.0.oamod", mods, true);
     OA_CHECK(made.prompt.title == "UPDATE MOD");
-    OA_CHECK((captions_of(made) == std::vector<std::string>{"CANCEL", "REPLACE"}));
+    OA_CHECK((captions_of(made) == std::vector<std::string>{"Cancel", "Replace"}));
     OA_CHECK(made.answers[made.prompt.cancel_button] == install::Answer::cancel);
     OA_CHECK(made.answers[made.prompt.primary_button] == install::Answer::replace);
     // A kept version would be removed: CANCEL is marked first.
     OA_CHECK(made.answers[made.prompt.marked] == install::Answer::cancel);
     OA_CHECK(says(made, "revision 2, is installed. Replace it with revision 3"));
     OA_CHECK(says(made, "Revision 3 is older than the one installed."));
-    OA_CHECK(says(made, "The folder kept for ROLL BACK (1.0 revision 1) is removed."));
+    OA_CHECK(says(made, "The folder kept for Roll back (1.0 revision 1) is removed."));
     OA_CHECK(says(made, "The game reloads its data"));
     OA_CHECK(oa::ui::engine_settings::prompt_fits(made.prompt));
     plan.backup.reset();
@@ -193,7 +193,7 @@ void test_prompts() {
     made = install::oamod::question_prompt(plan, incoming, "example-mod-1.0.oamod", mods, true);
     OA_CHECK(made.prompt.title == "ANOTHER VERSION");
     OA_CHECK(
-        (captions_of(made) == std::vector<std::string>{"CANCEL", "INSTALL ALONGSIDE", "REPLACE"})
+        (captions_of(made) == std::vector<std::string>{"Cancel", "Install alongside", "Replace"})
     );
     OA_CHECK(made.answers[made.prompt.marked] == install::Answer::cancel);
     OA_CHECK(made.prompt.paragraphs.back().path);
@@ -205,7 +205,7 @@ void test_prompts() {
     plan.backup = mod("example-mod", "1.0", 2);
     made = install::oamod::question_prompt(plan, incoming, "example-mod-1.0.oamod", mods, true);
     OA_CHECK(made.prompt.title == "ALREADY INSTALLED");
-    OA_CHECK((captions_of(made) == std::vector<std::string>{"CANCEL", "REINSTALL"}));
+    OA_CHECK((captions_of(made) == std::vector<std::string>{"Cancel", "Reinstall"}));
     // A reinstall replaces files that cannot be brought back: CANCEL first.
     OA_CHECK(made.answers[made.prompt.marked] == install::Answer::cancel);
     OA_CHECK(says(made, "The version kept, 1.0 revision 2, stays."));
@@ -215,7 +215,7 @@ void test_prompts() {
     plan.target.clear();
     made = install::oamod::question_prompt(plan, incoming, "example-mod-1.0.oamod", mods, false);
     OA_CHECK(made.prompt.title == "FOLDER IN USE");
-    OA_CHECK((captions_of(made) == std::vector<std::string>{"CANCEL", "INSTALL ALONGSIDE"}));
+    OA_CHECK((captions_of(made) == std::vector<std::string>{"Cancel", "Install alongside"}));
     OA_CHECK(made.answers[made.prompt.marked] == install::Answer::alongside);
     OA_CHECK(oa::ui::engine_settings::prompt_fits(made.prompt));
 
@@ -224,7 +224,7 @@ void test_prompts() {
     );
     OA_CHECK(made.prompt.title == "INSTALLING MOD" && made.prompt.progress == 500);
     OA_CHECK(says(made, "Unpacking Example Mod 1.0...") && says(made, "500 bytes of"));
-    OA_CHECK((captions_of(made) == std::vector<std::string>{"CANCEL"}));
+    OA_CHECK((captions_of(made) == std::vector<std::string>{"Cancel"}));
 
     made = install::oamod::installing_prompt(
         incoming, 500, 1000, install::InstallingPhase::checking, "example-mod-1.0.oamod"
@@ -237,13 +237,13 @@ void test_prompts() {
 
     made = install::oamod::installed_prompt(incoming, mods / "example-mod", true);
     OA_CHECK(made.prompt.title == "MOD INSTALLED");
-    OA_CHECK((captions_of(made) == std::vector<std::string>{"OPEN FOLDER", "PLAY NOW", "OK"}));
+    OA_CHECK((captions_of(made) == std::vector<std::string>{"Open folder", "Play now", "OK"}));
     OA_CHECK(made.answers[made.prompt.marked] == install::Answer::ok);
     OA_CHECK(made.answers[made.prompt.cancel_button] == install::Answer::ok);
     OA_CHECK(oa::ui::engine_settings::prompt_fits(made.prompt));
     made = install::oamod::installed_prompt(incoming, mods / "example-mod", false);
-    OA_CHECK((captions_of(made) == std::vector<std::string>{"OPEN FOLDER", "OK"}));
-    OA_CHECK(says(made, "Choose it with PLAY NOW in the Library"));
+    OA_CHECK((captions_of(made) == std::vector<std::string>{"Open folder", "OK"}));
+    OA_CHECK(says(made, "Choose it with Play now in the Library"));
 
     install::ChangeResult result{};
     result.changed = true;
@@ -270,7 +270,7 @@ void test_prompts() {
         true
     );
     OA_CHECK(says(made, "Example Mod is back to 1.0."));
-    OA_CHECK((captions_of(made) == std::vector<std::string>{"OPEN FOLDER", "PLAY NOW", "OK"}));
+    OA_CHECK((captions_of(made) == std::vector<std::string>{"Open folder", "Play now", "OK"}));
 
     // A refusal shows three diagnostics at most, and says how many more.
     install::Problem problem{};
@@ -306,7 +306,7 @@ void test_prompts() {
         long_title, "1.0 revision 2", "Its oamod.yaml cannot be played; the log says why."
     );
     OA_CHECK(made.prompt.title == "MOD NOT ROLLED BACK");
-    OA_CHECK(says(made, ", the version kept for ROLL BACK, cannot be played."));
+    OA_CHECK(says(made, ", the version kept for Roll back, cannot be played."));
     OA_CHECK(says(made, "the log says why.") && says(made, "Nothing was changed."));
     OA_CHECK((captions_of(made) == std::vector<std::string>{"OK"}));
     OA_CHECK(made.answers[made.prompt.marked] == install::Answer::ok);

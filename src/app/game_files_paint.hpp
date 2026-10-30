@@ -23,12 +23,17 @@ namespace oa::app {
 namespace paint = oa::ui::paint;
 #endif
 
-/// The bundled fonts as the screen's text measure (TextMeasureHooks over a FontStack).
+/// The bundled fonts as the screen's text measure (TextMeasureHooks over a FontStack), in
+/// the family the screen's text is painted in (paint_game_files).
 ///
 /// @param fonts the bundled fonts; null measures with the hooks' fallbacks
+/// @param family the sans family, DejaVu Sans, or in the modern look the interface family,
+///     Barlow, a bold line in its SemiBold
 /// @return the measure, which keeps `fonts` as its context
-[[nodiscard]] oa::ui::game_files::TextMeasureHooks
-game_files_measure(oa::platform::text_font::FontStack* fonts) noexcept;
+[[nodiscard]] oa::ui::game_files::TextMeasureHooks game_files_measure(
+    oa::platform::text_font::FontStack* fonts,
+    oa::platform::text_font::Family family = oa::platform::text_font::Family::sans
+) noexcept;
 
 /// Returns the Open Annihilation icon the screen shows as its OA mark: the game's window icon
 /// without its clear margin, the picture the settings dialog is handed, decoded once.
@@ -72,12 +77,14 @@ void paint_game_files(
 /// @param fonts the bundled fonts; null paints no text
 /// @param px_per_point canvas pixels per point (Viewport::px_per_point)
 /// @param icon the Open Annihilation icon; empty draws the OA mark
+/// @param family the family the text is painted in, as the overload for parts below says
 void paint_game_files(
     paint::Canvas& canvas,
     const oa::ui::game_files::Layout& layout,
     oa::platform::text_font::FontStack* fonts,
     float px_per_point,
-    const oa::ui::frontend_renderer::RgbaPicture& icon
+    const oa::ui::frontend_renderer::RgbaPicture& icon,
+    oa::platform::text_font::Family family = oa::platform::text_font::Family::sans
 );
 
 /// Paints the kit's parts of a screen drawn in the modern fonts, by role, at a known density
@@ -92,12 +99,16 @@ void paint_game_files(
 /// @param fonts the bundled fonts; null paints no text
 /// @param px_per_point canvas pixels per point (Viewport::px_per_point)
 /// @param icon the Open Annihilation icon; empty draws the OA mark
+/// @param family the family the text is painted in: the sans family, DejaVu Sans, or in the
+///     modern look the interface family, Barlow, a bold line in its SemiBold
+///     (game_files_measure measures the same)
 void paint_game_files(
     paint::Canvas& canvas,
     const oa::ui::kit::DisplayList& parts,
     oa::platform::text_font::FontStack* fonts,
     float px_per_point,
-    const oa::ui::frontend_renderer::RgbaPicture& icon
+    const oa::ui::frontend_renderer::RgbaPicture& icon,
+    oa::platform::text_font::Family family = oa::platform::text_font::Family::sans
 );
 
 /// Draws the screen's OA mark in a square centred in an area, as large as its shorter side,

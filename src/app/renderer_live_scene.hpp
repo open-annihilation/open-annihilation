@@ -51,6 +51,23 @@ struct Scene {
     uint32_t row_height{};
     std::unordered_map<uint64_t, AtlasRect> materials{};
     std::unordered_map<uint64_t, TerrainMaterial> terrain_materials{};
+    /// Unused quarters of the atlas squares split for smaller terrain
+    /// materials: the 32, 16 and 8 texel squares, in that order.
+    std::array<std::vector<AtlasRect>, 3> spare_terrain_squares{};
+    /// The atlas area of the materials other than terrain, all packed into an
+    /// emptied atlas by the last frame that started from one; the terrain
+    /// leaves them this much room and more.
+    uint64_t material_area{};
+    /// The area the frame being built has packed for materials other than
+    /// terrain.
+    uint64_t packed_material_area{};
+    /// The most squares of ground a frame draws before it draws them from
+    /// fewer height samples: lowered when a frame's triangles do not fit.
+    uint64_t terrain_square_limit{400'000};
+    /// The last frame could not be built for lack of room: its materials
+    /// would not fit the atlas at its largest, or its triangles the geometry
+    /// budget. Any other failure leaves it false.
+    bool out_of_room{};
     std::unordered_map<uint64_t, AtlasRect>
         aircraft_shadow_materials{}; ///< bounded blurred silhouettes
     PaletteBytes terrain_palette{};
@@ -115,6 +132,10 @@ struct Inputs {
     /// Every unit drawn half transparent, as the debug overlay draws them;
     /// a cloaked unit is drawn so whatever this says.
     bool translucent_units{};
+    /// An aircraft's shadow has a soft edge and lies on the water under it
+    /// (New unit shadows); false lays the game's silhouette where the game
+    /// does, on the ground or the sea bed, as every other unit's.
+    bool new_unit_shadows{true};
 };
 
 /// Rebuilds live terrain, visible models and GAF cutouts from a frame's plan.

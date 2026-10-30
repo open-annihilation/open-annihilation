@@ -1,0 +1,228 @@
+row	setup	input	effect
+panel.orders-tab	select=builder	key O	build-page=0
+panel.orders-tab:commander	select=commander	key O	build-page=0
+panel.build-tab	select=builder	key B	none
+panel.build-tab:commander	select=commander	key B	none
+order.move	select=builder	key M	armed=move
+order.move:commander	select=commander	key M	armed=move
+order.stop	select=builder	key S	order=stop:builder
+order.stop:commander	select=commander	key S	order=stop:commander
+order.patrol	select=builder	key P	armed=patrol
+order.patrol:commander	select=commander	key P	armed=patrol
+order.attack	select=builder	key A	none
+order.attack:commander	select=commander	key A	armed=attack
+order.guard	select=builder	key G	armed=guard
+order.guard:commander	select=commander	key G	armed=guard
+order.reclaim	select=builder	key E	none
+order.reclaim:commander	select=commander	key E	none
+order.repair	select=builder	key R	none
+order.repair:commander	select=commander	key R	none
+order.capture	select=builder	key C	none
+order.capture:commander	select=commander	key C	none
+order.load	select=builder	key L	none
+order.load:commander	select=commander	key L	none
+order.unload	select=builder	key U	none
+order.unload:commander	select=commander	key U	none
+order.dgun	select=builder	key D	none
+order.dgun:commander	select=commander	key D	armed=dgun
+order.fire-state	select=builder	key F	none
+order.fire-state:commander	select=commander	key F	none
+order.move-state	select=builder	key V	none
+order.move-state:commander	select=commander	key V	none
+order.on-off	select=builder	key X	none
+order.on-off:commander	select=commander	key X	none
+order.cloak	select=builder	key K	none
+order.cloak:commander	select=commander	key K	none
+order.attack:shift	select=builder	key A shift	none
+order.attack:alt	select=builder	key A alt	none
+order.attack:ctrl	select=builder	key A ctrl	build-page=0;primary=commander;selected=6
+order.move:shift	select=builder	key M shift	armed=move
+order.move:alt	select=builder	key M alt	armed=move
+order.move:ctrl	select=builder	key M ctrl	none
+order.self-destruct	select=builder	key D ctrl	self-destruct=1
+pointer.select:battlefield:right-click	interface=right-click	button left battlefield	none
+pointer.command:battlefield:right-click	interface=right-click	button right battlefield	none
+pointer.select:unit:right-click	interface=right-click;select=combat	button left unit	none
+pointer.command:unit:right-click	interface=right-click;select=combat	button right unit	none
+pointer.minimap-scroll:minimap:right-click	interface=right-click	button left minimap	camera=centred
+pointer.minimap-jump:minimap:right-click	interface=right-click	button right minimap	camera=centred
+build.add:right-click	interface=right-click;select=factory	button left build-button	build-queue=1;order=mobile-build:factory
+build.remove:right-click	interface=right-click;select=factory	button right build-button	none
+pointer.command:shift:right-click	interface=right-click;select=combat	button right battlefield shift	order=move:combat
+build.queue-modifier:right-click	interface=right-click;select=factory	button left build-button shift	build-queue=5;order=mobile-build:factory
+pointer.select-type:right-click	interface=right-click;select=combat	button left unit clicks=2	selected=2
+pointer.pan:right-click	interface=right-click	button middle battlefield	none
+pointer.mouse-look:right-click	interface=right-click	button right battlefield ctrl	none
+camera.zoom-in:right-click	interface=right-click	wheel up battlefield	none
+camera.zoom-out:right-click	interface=right-click	wheel down battlefield	none
+camera.edge-scroll:left:right-click	interface=right-click	button left edge-left	camera=left
+camera.edge-scroll:right:right-click	interface=right-click	button left edge-right	camera=right
+camera.edge-scroll:top:right-click	interface=right-click	button left edge-top	camera=up
+camera.edge-scroll:bottom:right-click	interface=right-click	button left edge-bottom	camera=down
+pointer.command:battlefield:left-click	interface=left-click	button left battlefield	none
+pointer.select:battlefield:left-click	interface=left-click	button right battlefield	none
+pointer.command:unit:left-click	interface=left-click;select=combat	button left unit	none
+pointer.select:unit:left-click	interface=left-click;select=combat	button right unit	primary=none;selected=0
+pointer.minimap-jump:minimap:left-click	interface=left-click	button left minimap	none
+pointer.minimap-scroll:minimap:left-click	interface=left-click	button right minimap	camera=centred
+build.add:left-click	interface=left-click;select=factory	button left build-button	build-queue=1;order=mobile-build:factory
+build.remove:left-click	interface=left-click;select=factory	button right build-button	none
+pointer.command:shift:left-click	interface=left-click;select=combat	button left battlefield shift	order=move:combat
+build.queue-modifier:left-click	interface=left-click;select=factory	button left build-button shift	build-queue=5;order=mobile-build:factory
+pointer.select-type:left-click	interface=left-click;select=combat	button left unit clicks=2	selected=2
+pointer.pan:left-click	interface=left-click	button middle battlefield	none
+pointer.mouse-look:left-click	interface=left-click	button right battlefield ctrl	camera=centred
+camera.zoom-in:left-click	interface=left-click	wheel up battlefield	none
+camera.zoom-out:left-click	interface=left-click	wheel down battlefield	none
+camera.edge-scroll:left:left-click	interface=left-click	button left edge-left	camera=left
+camera.edge-scroll:right:left-click	interface=left-click	button left edge-right	camera=right
+camera.edge-scroll:top:left-click	interface=left-click	button left edge-top	camera=up
+camera.edge-scroll:bottom:left-click	interface=left-click	button left edge-bottom	camera=down
+select.all	select=none	key A ctrl	primary=commander;selected=6
+select.commander	select=none	key C ctrl	build-page=1;primary=commander;selected=1
+select.commander-add	select=combat	key C ctrl shift	primary=commander;selected=2
+select.builders	select=none	key B ctrl	build-page=1;primary=builder;selected=1
+select.factories	select=none	key F ctrl	build-page=1;primary=factory;selected=1
+select.aircraft	select=none	key V ctrl	primary=aircraft;selected=1
+select.on-screen	select=none	key S ctrl	primary=commander;selected=6
+select.same-type	select=combat	key Z ctrl	selected=2
+select.builders:shift	select=combat	key B ctrl shift	selected=2
+select.factories:shift	select=combat	key F ctrl shift	selected=2
+select.category-w	select=none	key W ctrl	primary=combat;selected=2
+select.category-w:shift	select=aircraft	key W ctrl shift	selected=3
+select.next-primary	select=all	key Tab	primary=builder
+select.next-primary:none	select=none	key Tab	none
+select.previous-primary	select=all	key Tab shift	primary=factory
+select.previous-primary:none	select=none	key Tab shift	none
+game.team-menu	shared;select=all	key Tab	panel=tabmenu;paused=on
+game.team-menu:shift	shared;select=all	key Tab shift	panel=tabmenu;paused=on
+game.team-menu:none	shared;select=none	key Tab	panel=tabmenu;paused=on
+game.team-menu:shift-none	shared;select=none	key Tab shift	panel=tabmenu;paused=on
+group.assign-1	select=combat	key 1 ctrl	group-1=1
+group.assign-1:switch-alt	select=combat;switch-alt=on	key 1 ctrl	group-1=1
+build.page-1	select=commander	key 1	build-page=0
+group.select-1:switch-alt	select=none;switch-alt=on	key 1	primary=commander;selected=1
+group.select-1	select=none	key 1 alt	primary=commander;selected=1
+build.page-1:alt	select=commander;switch-alt=on	key 1 alt	build-page=0
+group.add-1	select=none	key 1 alt shift	primary=commander;selected=1
+build.page-1:alt-shift	select=commander;switch-alt=on	key 1 alt shift	build-page=0
+build.page-1:numpad	select=commander	key KP_1	build-page=0
+group.select-1:numpad	select=none;switch-alt=on	key KP_1	primary=commander;selected=1
+group.select-1:alt-numpad	select=none	key KP_1 alt	primary=commander;selected=1
+build.page-1:alt-numpad	select=commander;switch-alt=on	key KP_1 alt	build-page=0
+group.select-2	select=combat	key 2 alt	primary=none;selected=0
+group.select-2:switch-alt	select=combat;switch-alt=on	key 2	primary=none;selected=0
+camera.pan-left		hold Left 300	camera=left
+camera.pan-right		hold Right 300	camera=right
+camera.pan-up		hold Up 300	camera=up
+camera.pan-down		hold Down 300	camera=down
+camera.centre	select=combat	key Home	camera=centred
+camera.centre:none	select=none	key Home	build-page=1;primary=commander;selected=1
+camera.follow	select=combat	key T	camera=centred
+camera.follow-previous	select=all	key T shift	camera=centred
+camera.next-unit	select=none	key N	none
+camera.next-report		key F3	none
+camera.bookmark-set-1		key F5 ctrl	none
+camera.bookmark-go-1		key F5	camera=left
+camera.bookmark-set-2		key F6 ctrl	none
+camera.bookmark-go-2		key F6	camera=left
+camera.bookmark-set-3		key F7 ctrl	none
+camera.bookmark-go-3		key F7	camera=left
+camera.bookmark-set-4		key F8 ctrl	none
+camera.bookmark-go-4		key F8	camera=left
+build.page-next	select=commander	key Period	build-page=2
+build.page-previous	select=commander	key Comma	build-page=0
+build.page-next:repeat	select=commander	key Period repeat	build-page=2
+build.page-previous:repeat	select=commander	key Comma repeat	build-page=0
+game.back:armed	select=combat;armed=attack	key Escape	armed=none
+game.back:selection	select=combat	key Escape	primary=none;selected=0
+game.back	select=none	key Escape	none
+game.back:menu	select=none;escape-menu	key Escape	panel=armopt;paused=on
+game.unit-info:close	select=combat;unit-info=open	key Escape	unit-info=closed
+game.menu		key F2	panel=armopt;paused=on
+game.pause		key Pause	paused=on
+game.speed-up		key Equals	messages=1;speed=+1
+game.speed-down		key Minus	messages=1;speed=-1
+game.speed-up:numpad		key KP_PLUS	messages=1;speed=+1
+game.speed-down:numpad		key KP_MINUS	messages=1;speed=-1
+game.speed-up:repeat		key Equals repeat	messages=1;speed=+1
+game.speed-up:watcher	watcher	key Equals	none
+game.speed-down:watcher	watcher	key Minus	none
+game.unit-info	select=combat	key F1	unit-info=open
+game.pin-unit	select=combat	key F1 shift	none
+game.kill-board		key F4	kill-board=on
+game.status-strip		hold Space 300	none
+game.health-bars		key Grave	health-bars=on
+game.health-bars-mode-1	select=commander	key 1 shift	health-bars=on
+game.health-bars-mode-2	select=commander	key 3 shift	health-bars=on
+game.health-bars-mode-3	select=commander	key 8 shift	health-bars=on
+game.health-bars-mode-4	select=commander	key Grave shift	health-bars=on
+game.clear-messages		key F12	none
+game.screenshot		key F9 ctrl	screenshot=written
+game.share-panel	shared	key H	panel=share;paused=on
+game.share-panel:single		key H	none
+game.repeat-command		key Backslash	none
+chat.open		key Return	chat=open
+chat.send	chat=open	key Return	chat=sent;messages=1
+chat.cancel	chat=open	key Escape	chat=closed
+chat.open:up	chat=open	key Up	none
+chat.open:down	chat=open	key Down	none
+debug.keys	developer	key F11	debug-keys=on
+debug.movie-capture		key F10 ctrl	none
+debug.refill	debug-keys	key Equals	none
+debug.kill-under-pointer	debug-keys;select=combat	key RightBracket	none
+debug.i	debug-keys	key I	none
+debug.overlay	debug-keys	key M	none
+ui.full-screen		key Return alt	full-screen=on
+ui.settings		key Comma primary	panel=armopt;paused=on;settings=open
+gui.armopt.exit	menu=open	key E	panel=exitmenu
+gui.armopt.prefs	menu=open	key O	panel=prefs
+gui.armopt.ok	menu=open	key R	panel=closed;paused=off
+gui.armopt.ok:enter	menu=open	key Return	panel=closed;paused=off
+gui.armopt.ok:escape	menu=open	key Escape	panel=closed;paused=off
+game.pause:command	platform=macos	key P primary	paused=on
+group.assign-2	select=combat	key 2 ctrl	group-2=1
+group.assign-3	select=combat	key 3 ctrl	group-3=1
+group.assign-4	select=combat	key 4 ctrl	group-4=1
+group.assign-5	select=combat	key 5 ctrl	group-5=1
+group.assign-6	select=combat	key 6 ctrl	group-6=1
+group.assign-7	select=combat	key 7 ctrl	group-7=1
+group.assign-8	select=combat	key 8 ctrl	group-8=1
+group.assign-9	select=combat	key 9 ctrl	group-9=1
+group.select-3	select=none	key 3 alt	primary=commander;selected=1
+group.select-4	select=none	key 4 alt	primary=commander;selected=1
+group.select-5	select=none	key 5 alt	primary=commander;selected=1
+group.select-6	select=none	key 6 alt	primary=commander;selected=1
+group.select-7	select=none	key 7 alt	primary=commander;selected=1
+group.select-8	select=none	key 8 alt	primary=commander;selected=1
+group.select-9	select=none	key 9 alt	primary=commander;selected=1
+group.add-2	select=none	key 2 alt shift	primary=commander;selected=1
+group.add-3	select=none	key 3 alt shift	primary=commander;selected=1
+group.add-4	select=none	key 4 alt shift	primary=commander;selected=1
+group.add-5	select=none	key 5 alt shift	primary=commander;selected=1
+group.add-6	select=none	key 6 alt shift	primary=commander;selected=1
+group.add-7	select=none	key 7 alt shift	primary=commander;selected=1
+group.add-8	select=none	key 8 alt shift	primary=commander;selected=1
+group.add-9	select=none	key 9 alt shift	primary=commander;selected=1
+build.page-2	select=commander	key 2	none
+build.page-3	select=commander	key 3	build-page=2
+build.page-4	select=commander	key 4	build-page=3
+build.page-5	select=commander	key 5	build-page=4
+build.page-6	select=commander	key 6	none
+build.page-7	select=commander	key 7	none
+build.page-8	select=commander	key 8	none
+build.page-9	select=commander	key 9	none
+camera.classic-view		key R alt	none
+camera.unlocked		key U alt	none
+pointer.camera-orbit:right-click	interface=right-click	drag left battlefield alt	none
+pointer.camera-orbit:left-click	interface=left-click	drag left battlefield alt	none
+pointer.camera-pan:right-click	interface=right-click	drag left battlefield alt shift	none
+pointer.camera-pan:left-click	interface=left-click	drag left battlefield alt shift	none
+build.move-queued-site	select=commander;armed=build	drag left queued-site shift	none
+ui.keys-overlay	select=commander;armed=build	key Slash primary	none
+ui.keys-overlay:ctrl	select=commander;armed=build	key Slash ctrl	none
+select.tag-kbot	select=none	key J	primary=builder;selected=3
+select.tag-kbot:twice	select=none;far=builder	key J twice	primary=builder;selected=4
+select.tag-kbot:shift	select=aircraft	key J shift	selected=4
+select.tag-notair	select=none	key Q	primary=commander;selected=5
+select.tag-ridge-scout	select=none	key Y	none

@@ -14,7 +14,8 @@
 // game's own fonts. The smooth form draws with the painter of
 // oa/ui/paint/painter.hpp at any scale, a fractional one among them, in the
 // modern fonts: every edge of a rectangle falls on a whole pixel, each
-// rounded on its own, and text is drawn at its own size in pixels.
+// rounded on its own, and text is drawn at its own size in pixels. In the
+// modern look (Fonts::modern) both forms draw text in Barlow.
 #pragma once
 
 #include "oa/platform/text_font.hpp"
@@ -28,6 +29,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <vector>
 
 namespace oa::ui::kit {
 
@@ -50,7 +52,8 @@ struct SmoothCanvas {
 
 /// Where a control is drawn: the crisp form, an artless surface at a whole
 /// scale in the game's fonts, or, while its smooth form has a painter, the
-/// smooth form. Either way the game's fonts lay the screens out.
+/// smooth form. Either way the fonts' own measure lays the screens out: the
+/// game's fonts' in the classic look, Barlow's in points in the modern look.
 struct Canvas {
     /// The crisp form's picture; null draws nothing there.
     oa::ui::frontend_renderer::Surface* surface{};
@@ -164,6 +167,20 @@ void outline_round_rect(const Canvas& canvas, const Rect& rect, int32_t radius, 
 /// @param ink the colour
 void fill_corner_rect(const Canvas& canvas, const Rect& rect, int32_t radius, Colour ink);
 
+/// Blends a colour over a rectangle with rounded corners, as
+/// fill_corner_rect fills one: each pixel takes the colour by its share of
+/// the shape times the opacity. A rectangle too large to sample is blended
+/// square.
+///
+/// @param canvas where it is drawn
+/// @param rect the rectangle, in points
+/// @param radius the corners' radius, in points; 0 blends the rectangle square
+/// @param ink the colour
+/// @param opacity its share of each covered pixel, in 256ths
+void blend_corner_rect(
+    const Canvas& canvas, const Rect& rect, int32_t radius, Colour ink, uint32_t opacity
+);
+
 /// Draws a one-point outline of that rectangle with rounded corners, as
 /// outline_round_rect draws a capsule's. The inside is left as it is.
 ///
@@ -172,6 +189,21 @@ void fill_corner_rect(const Canvas& canvas, const Rect& rect, int32_t radius, Co
 /// @param radius the corners' radius, in points; 0 outlines the rectangle square
 /// @param ink the outline's colour
 void outline_corner_rect(const Canvas& canvas, const Rect& rect, int32_t radius, Colour ink);
+
+/// Draws a ring of a whole number of points round the inside of a
+/// rectangle with rounded corners: the focus ring and a field's soft ring.
+/// It is that rectangle's shape less the same shape thickness points in,
+/// worked out at the canvas's own pixels as fill_corner_rect is. On the
+/// smooth form it is max(1, lround(thickness * scale)) whole pixels thick.
+///
+/// @param canvas where it is drawn
+/// @param rect the ring's outside, in points; the inside is left as it is
+/// @param radius the outside corners' radius, in points; 0 draws a square ring
+/// @param thickness the ring's thickness, in points
+/// @param ink the ring's colour
+void ring_corner_rect(
+    const Canvas& canvas, const Rect& rect, int32_t radius, int32_t thickness, Colour ink
+);
 
 /// Draws a one-point raised edge round the inside of a rectangle: light along
 /// the top and left, dark along the bottom and right, the dark edges running
@@ -201,6 +233,8 @@ void rule_rect(const Canvas& canvas, const Rect& rect, Colour ink);
 /// lround(smooth_text_points * scale) pixels per em, bold as
 /// smooth_text_bold says, its tracking lround(tracking * scale) pixels.
 /// Text wider than the box at that size keeps its size and is recorded.
+/// In the modern look both forms draw it in the role's type
+/// (modern_type), each character at its pen in points times the scale.
 ///
 /// @param canvas where it is drawn
 /// @param role which font
@@ -225,7 +259,8 @@ void box_text(
 /// @param role which font
 /// @param text the text, in UTF-8
 /// @return the width, in points, on the smooth form its pixels at its
-///     size over the scale, rounded up; 0 without fonts
+///     size over the scale, rounded up, and in the modern look its measure
+///     in points (text_width); 0 without fonts
 [[nodiscard]] int32_t measure_text(const Canvas& canvas, FontRole role, std::string_view text);
 
 /// Draws a picture scaled to fill a rectangle, such as the Open Annihilation
@@ -272,6 +307,21 @@ void draw_mark(
 void blend_coverage(
     const Canvas& canvas, const Rect& rect, std::span<const uint8_t> coverage, Colour ink
 );
+
+/// Returns how much of each pixel of a rounded rectangle's top left corner
+/// the shape covers, or its ring of a thickness round the inside, worked out
+/// as fill_corner_rect and ring_corner_rect work out every corner: 16
+/// samples a pixel, and at a stepped scale a pixel more than half covered is
+/// covered and the rest are not. The other three corners are the same
+/// mirrored. The OA layer rounds a window's corners with it.
+///
+/// @param radius_px the corner's radius, in pixels
+/// @param hole_px the ring's thickness, in pixels; 0 for the filled shape
+/// @param stepped true rounds each pixel to covered (255) or not (0)
+/// @return radius_px times radius_px bytes, rows top to bottom, 0 to 255;
+///     empty for a radius of 0 or less
+[[nodiscard]] std::vector<uint8_t>
+corner_coverage(int32_t radius_px, int32_t hole_px, bool stepped);
 
 /// How a rectangle is drawn on after it has been laid out flat: turned about
 /// its vertical axis, and covered by an opacity.

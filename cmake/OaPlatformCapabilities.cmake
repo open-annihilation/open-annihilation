@@ -27,10 +27,45 @@ option(OA_NATIVE_DENSITY_WINDOWS "Open the game's window at the display's own pi
 # --touch-controls (docs/touch-controls.md). Off, they switch on with the
 # first finger on a touch screen or with --touch-controls.
 option(OA_TOUCH_FIRST "Touch controls are on from the start" OFF)
+# The game may replace itself with a newer release through oa-update. Off, the
+# helper is not built. The build still checks for a release when the player
+# lets it, and says who updates the copy.
+option(OA_SELF_UPDATE "The game may replace itself with a newer release through oa-update" ON)
+# Who updates this copy when it cannot replace itself, and a command a player
+# can type. Empty names nobody, and an empty command says to open the
+# software centre. Shown as written: a line break, or more than 64 bytes, is
+# a mistake in the configuration.
+set(OA_PACKAGER_NAME "" CACHE STRING
+  "Who updates this copy when OA_SELF_UPDATE is OFF: Flathub, Nix, Homebrew or a distribution")
+set(OA_PACKAGER_UPDATE_COMMAND "" CACHE STRING
+  "A command a player can type to update this copy, or empty")
+
+# A build that starts no other program cannot start the helper either.
+if(OA_SELF_UPDATE AND NOT OA_PROCESS_SPAWNING)
+  message(FATAL_ERROR
+    "OA_SELF_UPDATE is ON and OA_PROCESS_SPAWNING is OFF: a build that starts no other program cannot replace itself")
+endif()
+
+# One packager text: no line break, and at most 64 bytes.
+function(oa_require_packager_text oa_label oa_text)
+  string(FIND "${oa_text}" "\n" oa_line_break)
+  string(FIND "${oa_text}" "\r" oa_carriage_return)
+  if(NOT oa_line_break EQUAL -1 OR NOT oa_carriage_return EQUAL -1)
+    message(FATAL_ERROR "${oa_label} holds a line break")
+  endif()
+  string(HEX "${oa_text}" oa_text_hex)
+  string(LENGTH "${oa_text_hex}" oa_text_hex_length)
+  math(EXPR oa_text_bytes "${oa_text_hex_length} / 2")
+  if(oa_text_bytes GREATER 64)
+    message(FATAL_ERROR "${oa_label} is longer than 64 bytes")
+  endif()
+endfunction()
+oa_require_packager_text("OA_PACKAGER_NAME" "${OA_PACKAGER_NAME}")
+oa_require_packager_text("OA_PACKAGER_UPDATE_COMMAND" "${OA_PACKAGER_UPDATE_COMMAND}")
 
 # Each capability as the 0 or 1 its sources test.
 foreach(oa_capability IN ITEMS OA_PROCESS_SPAWNING OA_NATIVE_FOLDER_DIALOG OA_NATIVE_DENSITY_WINDOWS
-    OA_TOUCH_FIRST)
+    OA_TOUCH_FIRST OA_SELF_UPDATE)
   if(${oa_capability})
     set(oa_${oa_capability}_value 1)
   else()
@@ -43,7 +78,8 @@ endforeach()
 get_filename_component(oa_capability_app_dir "${CMAKE_CURRENT_LIST_DIR}/../src/app" ABSOLUTE)
 set_property(SOURCE "${oa_capability_app_dir}/video_capture.cpp"
   "${oa_capability_app_dir}/director_output.cpp" "${oa_capability_app_dir}/startup.cpp"
-  "${oa_capability_app_dir}/user_folder_open.cpp" APPEND
+  "${oa_capability_app_dir}/user_folder_open.cpp"
+  "${oa_capability_app_dir}/runtime_update_install.cpp" APPEND
   PROPERTY COMPILE_DEFINITIONS "OA_PROCESS_SPAWNING=${oa_OA_PROCESS_SPAWNING_value}")
 set_property(SOURCE "${oa_capability_app_dir}/game_directory_dialog.cpp"
   "${oa_capability_app_dir}/runtime_library.cpp" APPEND

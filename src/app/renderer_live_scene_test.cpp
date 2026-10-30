@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -69,7 +70,7 @@ struct Fixture {
         inputs.sight.player_bits = mapped;
         inputs.sight.width = 1;
         inputs.sight.height = 1;
-        inputs.sight.viewer_bit = viewer_bit;
+        inputs.sight.mapped_bits = viewer_bit;
         inputs.sight.line_of_sight = true;
         inputs.sight.mapping = true;
         inputs.right = tile_edge;
@@ -446,6 +447,189 @@ void terrain_mip_colours() {
         const auto expected = (uint32_t(ground_color[channel]) + alternate_color[channel] + 1) / 2;
         OA_CHECK(fixture.scene.texture_rgba[offset + channel] == expected);
     }
+}
+
+/// A wide, low view of a map with more distinct tiles than the atlas holds
+/// in full squares: the frame builds, the tiles nearest the camera in full
+/// squares and the rest smaller, each sampled as its own colour; a view
+/// whose tiles fit keeps them all in full squares.
+void terrain_wider_than_atlas() {
+    constexpr uint8_t first_colour = 1;
+    constexpr uint32_t colours = 250;
+    const auto check_view =
+        [&](uint32_t across, uint32_t down, float expected_largest, float expected_smallest) {
+            Fixture fixture;
+            auto& map = fixture.map;
+            map.tile_width = across;
+            map.tile_height = down;
+            map.attribute_width = across * 2;
+            map.attribute_height = down * 2;
+            map.tile_count = across * down;
+            map.tile_indices.resize(static_cast<std::size_t>(across) * down);
+            map.tile_palette_indices.resize(map.tile_indices.size() * tile_edge * tile_edge);
+            for (std::size_t tile = 0; tile < map.tile_indices.size(); ++tile) {
+                map.tile_indices[tile] = static_cast<uint16_t>(tile);
+                std::fill_n(
+                    map.tile_palette_indices.begin() +
+                        static_cast<std::ptrdiff_t>(tile * tile_edge * tile_edge),
+                    tile_edge * tile_edge,
+                    static_cast<uint8_t>(first_colour + tile % colours)
+                );
+            }
+            map.attributes.assign(
+                static_cast<std::size_t>(map.attribute_width) * map.attribute_height, {}
+            );
+            for (uint32_t index = 0; index < colours; ++index) {
+                const auto entry = (first_colour + index) * oa::palette_entry_bytes;
+                fixture.palette[entry] = static_cast<uint8_t>(index);
+                fixture.palette[entry + 1] = static_cast<uint8_t>(255 - index);
+                fixture.palette[entry + 2] = static_cast<uint8_t>(index / 2 + 10);
+            }
+            fixture.inputs.sight.mapping = false;
+            fixture.inputs.sight.line_of_sight = false;
+            fixture.inputs.right = static_cast<int32_t>(across) * tile_edge;
+            fixture.inputs.bottom = static_cast<int32_t>(down) * tile_edge;
+            // Depth grows down the map, so the bottom rows are nearest.
+            fixture.inputs.clip_projection = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0};
+            OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+            OA_CHECK(fixture.error.empty());
+            OA_CHECK(!fixture.scene.out_of_room);
+            OA_CHECK(fixture.scene.terrain_vertex_count != 0);
+            float largest = 0;
+            float smallest = 64;
+            float nearest_small = -1;
+            float furthest_large = std::numeric_limits<float>::infinity();
+            for (std::size_t first = 0; first + 2 < fixture.scene.terrain_vertex_count;
+                 first += 3) {
+                const auto& vertex = fixture.scene.vertices[first];
+                const float size = vertex.terrain_size;
+                OA_CHECK(size == 32 || size == 16 || size == 8 || size == 4);
+                OA_CHECK(
+                    vertex.terrain_x + 2 * size <= fixture.scene.texture_width &&
+                    vertex.terrain_y + 2 * size <= fixture.scene.texture_height
+                );
+                largest = std::max(largest, size);
+                smallest = std::min(smallest, size);
+                const float z = (vertex.z + fixture.scene.vertices[first + 1].z +
+                                 fixture.scene.vertices[first + 2].z) /
+                                3;
+                if (size == expected_largest)
+                    furthest_large = std::min(furthest_large, z);
+                else
+                    nearest_small = std::max(nearest_small, z);
+                // Every tile is one colour, whatever square it was packed into.
+                const auto column = static_cast<uint32_t>(
+                                        vertex.x + fixture.scene.vertices[first + 1].x +
+                                        fixture.scene.vertices[first + 2].x
+                                    ) /
+                                    3 / tile_edge;
+                const auto row = static_cast<uint32_t>(z) / tile_edge;
+                const auto tile = static_cast<std::size_t>(row) * across + column;
+                const auto entry = (first_colour + tile % colours) * oa::palette_entry_bytes;
+                const auto sampled = triangle_color(fixture.scene, first);
+                for (std::size_t channel = 0; channel < 3; ++channel)
+                    OA_CHECK(sampled[channel] == fixture.palette[entry + channel]);
+            }
+            OA_CHECK(largest == expected_largest && smallest == expected_smallest);
+            // The larger squares go to the nearest tiles.
+            if (expected_largest != expected_smallest)
+                OA_CHECK(nearest_small <= furthest_large + tile_edge);
+            // The next frame over the same ground finds every tile packed.
+            const auto revision = fixture.scene.texture_revision;
+            OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+            OA_CHECK(fixture.scene.texture_revision == revision);
+        };
+    // 6400 tiles: the nearest in full squares and the rest in half ones.
+    check_view(80, 80, 32, 16);
+    // 16384 tiles, more than half squares hold: half and quarter squares.
+    check_view(128, 128, 16, 8);
+    // 1600 tiles fit in full squares, and every one is packed so.
+    check_view(40, 40, 32, 32);
+}
+
+/// Ground too wide for the geometry budget is drawn from fewer height
+/// samples: fewer triangles, each tile still sampling its own art, and the
+/// samples kept at the simulation's heights.
+void coarse_ground_far_out() {
+    constexpr uint32_t across = 15;
+    constexpr uint8_t first_colour = 1;
+    const auto make = [&](live::Scene& scene,
+                          std::string& error,
+                          oa::formats::tnt::Map& map,
+                          oa::PaletteBytes& palette,
+                          live::Inputs& inputs) {
+        map.tile_width = map.tile_height = across;
+        map.attribute_width = map.attribute_height = across * 2;
+        map.tile_count = across * across;
+        map.tile_indices.resize(static_cast<std::size_t>(across) * across);
+        map.tile_palette_indices.resize(map.tile_indices.size() * tile_edge * tile_edge);
+        for (std::size_t tile = 0; tile < map.tile_indices.size(); ++tile) {
+            map.tile_indices[tile] = static_cast<uint16_t>(tile);
+            std::fill_n(
+                map.tile_palette_indices.begin() +
+                    static_cast<std::ptrdiff_t>(tile * tile_edge * tile_edge),
+                tile_edge * tile_edge,
+                static_cast<uint8_t>(first_colour + tile)
+            );
+            const auto entry = (first_colour + tile) * oa::palette_entry_bytes;
+            palette[entry] = static_cast<uint8_t>(tile);
+            palette[entry + 1] = static_cast<uint8_t>(255 - tile);
+            palette[entry + 2] = 40;
+        }
+        map.attributes.assign(
+            static_cast<std::size_t>(map.attribute_width) * map.attribute_height, {}
+        );
+        for (uint32_t row = 0; row < map.attribute_height; ++row)
+            for (uint32_t column = 0; column < map.attribute_width; ++column)
+                map.attributes[static_cast<std::size_t>(row) * map.attribute_width + column]
+                    .height = static_cast<uint8_t>((column * 3 + row * 5) % 40);
+        inputs.sight.mapping = false;
+        inputs.sight.line_of_sight = false;
+        inputs.right = static_cast<int32_t>(across) * tile_edge;
+        inputs.bottom = static_cast<int32_t>(across) * tile_edge;
+        return live::build(inputs, scene, error);
+    };
+    Fixture fine;
+    OA_CHECK(make(fine.scene, fine.error, fine.map, fine.palette, fine.inputs));
+    Fixture coarse;
+    coarse.scene.terrain_square_limit = 64;
+    OA_CHECK(make(coarse.scene, coarse.error, coarse.map, coarse.palette, coarse.inputs));
+    OA_CHECK(!coarse.scene.out_of_room);
+    OA_CHECK(coarse.scene.terrain_vertex_count != 0);
+    OA_CHECK(coarse.scene.terrain_vertex_count < fine.scene.terrain_vertex_count);
+    bool sample_found = false;
+    for (std::size_t first = 0; first + 2 < coarse.scene.terrain_vertex_count; first += 3) {
+        const auto* vertex = &coarse.scene.vertices[first];
+        OA_CHECK(vertex->terrain_size == 32);
+        // A corner of a drawn square stands at the simulation's height.
+        for (std::size_t corner = 0; corner < 3; ++corner) {
+            const auto& point = vertex[corner];
+            if (std::fmod(point.x, 64.0F) == 0 && std::fmod(point.z, 64.0F) == 0 &&
+                point.x < across * tile_edge && point.z < across * tile_edge) {
+                const auto column = static_cast<uint32_t>(point.x) / cell_edge;
+                const auto row = static_cast<uint32_t>(point.z) / cell_edge;
+                OA_CHECK(
+                    point.height ==
+                    coarse.map
+                        .attributes
+                            [static_cast<std::size_t>(row) * coarse.map.attribute_width + column]
+                        .height
+                );
+                sample_found = true;
+            }
+        }
+        const float x = (vertex[0].x + vertex[1].x + vertex[2].x) / 3;
+        const float painted = (vertex[0].z - vertex[0].height * 0.5F + vertex[1].z -
+                               vertex[1].height * 0.5F + vertex[2].z - vertex[2].height * 0.5F) /
+                              3;
+        const auto tile = static_cast<std::size_t>(painted / tile_edge) * across +
+                          static_cast<std::size_t>(x / tile_edge);
+        const auto entry = (first_colour + tile) * oa::palette_entry_bytes;
+        const auto sampled = triangle_color(coarse.scene, first);
+        for (std::size_t channel = 0; channel < 3; ++channel)
+            OA_CHECK(sampled[channel] == coarse.palette[entry + channel]);
+    }
+    OA_CHECK(sample_found);
 }
 
 /// Known sight boundaries interpolate, while every unknown terrain sample remains black.
@@ -1436,6 +1620,161 @@ void foundation_candidates() {
         OA_CHECK(std::abs(vertex.height - 15.9F) < tolerance);
 }
 
+/// A structure on ground that rises under its footprint keeps the whole of
+/// its base piece above the ground drawn under it, as the aircraft plant's
+/// does: a floor plate a little below the structure's height, reaching past
+/// the footprint on the high side and the low side, lies on the ground with
+/// no gap at every point. A piece sunk below the ground stays under it, a
+/// canopy of the base high above the ground past the footprint leaves the
+/// ground under it as it is, and a base piece reaching deeper than a map
+/// pixel keeps the ground a map pixel below the structure. The map and the
+/// structure's place do not change.
+void structure_base_above_ground() {
+    Fixture fixture;
+    constexpr int32_t cells = 16;
+    fixture.map.attribute_width = fixture.map.attribute_height = cells;
+    fixture.map.tile_width = fixture.map.tile_height = cells / 2;
+    fixture.map.tile_indices.assign(cells * cells / 4, 0);
+    fixture.map.attributes.resize(cells * cells);
+    fixture.inputs.right = fixture.inputs.bottom = cells * cell_edge;
+    fixture.inputs.sight.mapping = fixture.inputs.sight.line_of_sight = false;
+    // The ground rises four steps a cell eastward, from 0 to 60.
+    constexpr int32_t rise = 4;
+    for (std::size_t i = 0; i < fixture.map.attributes.size(); ++i)
+        fixture.map.attributes[i].height = static_cast<uint8_t>((i % cells) * rise);
+    const auto original = fixture.map.attributes;
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    // A footprint of four by four cells from cell 4, 4, map pixels 64 to 128:
+    // the structure stands at its lowest corner's height, 16, as the game
+    // places it, and the ground under it rises to 32.
+    constexpr float centre = 96;
+    constexpr float height = 16;
+    oa::Unit unit{};
+    unit.id = 1;
+    unit.flags = OA_UNIT_FLAG_BUILDING;
+    unit.footprint_x = unit.footprint_z = 4;
+    unit.position = {96 * fixed, 16 * fixed, 96 * fixed};
+    // The base piece is a floor plate 0.18 below the structure's height,
+    // 72 map pixels wide, 4 past the footprint on each side, and 60 deep,
+    // and a canopy 12 above it that reaches 28 past the footprint on one
+    // side. A hatch hangs from it, sunk 3 below.
+    const auto plate = static_cast<int32_t>(-0.18F * fixed);
+    constexpr int32_t half_width = 36;
+    constexpr int32_t half_depth = 30;
+    constexpr int32_t canopy_height = 12;
+    constexpr int32_t canopy_reach = 60;
+    constexpr int32_t hatch_edge = 8;
+    constexpr float hatch_depth = 3;
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(2);
+    auto& root = source->objects[0];
+    root.vertices = {
+        {-half_width * fixed, plate, -half_depth * fixed},
+        {half_width * fixed, plate, -half_depth * fixed},
+        {half_width * fixed, plate, half_depth * fixed},
+        {-half_width * fixed, plate, half_depth * fixed},
+        {0, canopy_height * fixed, 0},
+        {canopy_reach * fixed, canopy_height * fixed, 0},
+        {canopy_reach * fixed, canopy_height * fixed, half_depth * fixed}
+    };
+    root.primitives.resize(2);
+    root.primitives[0].vertex_indices = {0, 1, 2, 3};
+    root.primitives[1].vertex_indices = {4, 5, 6};
+    root.first_child = 1;
+    auto& hatch = source->objects[1];
+    hatch.parent = 0;
+    hatch.offset_from_parent = {0, static_cast<int32_t>(-hatch_depth * fixed), 0};
+    hatch.vertices = {
+        {-hatch_edge * fixed, 0, -hatch_edge * fixed},
+        {hatch_edge * fixed, 0, -hatch_edge * fixed},
+        {hatch_edge * fixed, 0, hatch_edge * fixed},
+        {-hatch_edge * fixed, 0, hatch_edge * fixed}
+    };
+    hatch.primitives.resize(1);
+    hatch.primitives[0].vertex_indices = {0, 1, 2, 3};
+    auto instance = oa::sim::model_runtime::make_instance(source);
+    OA_CHECK(instance.pieces().size() == 2);
+    instance.rebuild_transforms();
+    drawing::PreparedModel prepared{};
+    prepared.objects.resize(2);
+    for (std::size_t object = 0; object < prepared.objects.size(); ++object) {
+        auto& primitives = prepared.objects[object].primitives;
+        primitives.resize(source->objects[object].primitives.size());
+        for (std::size_t face = 0; face < primitives.size(); ++face) {
+            primitives[face].source_index = static_cast<uint32_t>(face);
+            primitives[face].flags = drawing::primitive_colored;
+            primitives[face].color = ground_index;
+        }
+    }
+    fixture.draws.models.resize(1);
+    auto& draw = fixture.draws.models[0];
+    draw.model.instance = &instance;
+    draw.model.prepared = &prepared;
+    draw.model.unit = &unit;
+    draw.plan.linked.drawn = true;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.unit_ranges.size() == 1);
+    const float plate_height = height + static_cast<float>(plate) / fixed;
+    std::size_t plate_corners{}, canopy_corners{}, hatch_corners{};
+    const auto& range = fixture.scene.unit_ranges.at(0);
+    for (std::size_t i = range.first_vertex; i < range.first_vertex + range.vertex_count; ++i) {
+        const auto& vertex = fixture.scene.vertices.at(i);
+        const auto ground = drawn_ground(fixture.scene, vertex.x, vertex.z);
+        OA_CHECK(ground.has_value());
+        if (!ground)
+            continue;
+        if (std::abs(vertex.height - plate_height) < tolerance) {
+            ++plate_corners;
+            OA_CHECK(*ground < vertex.height);
+        } else if (std::abs(vertex.height - (height + canopy_height)) < tolerance) {
+            ++canopy_corners;
+        } else {
+            ++hatch_corners;
+            OA_CHECK(std::abs(vertex.height - (height - hatch_depth)) < tolerance);
+            OA_CHECK(*ground > vertex.height);
+        }
+    }
+    OA_CHECK(plate_corners == 6 && canopy_corners == 3 && hatch_corners == 6);
+    // Every point of the plate, inside the footprint and past it on the
+    // rising east and the falling west, is above the ground, and the ground
+    // lies under it with no gap the eye could see.
+    constexpr float step = 2;
+    constexpr float no_gap = 0.5F;
+    std::size_t sampled{};
+    for (float x = centre - half_width; x <= centre + half_width; x += step)
+        for (float z = centre - half_depth; z <= centre + half_depth; z += step) {
+            const auto ground = drawn_ground(fixture.scene, x, z);
+            OA_CHECK(ground.has_value());
+            if (!ground)
+                continue;
+            OA_CHECK(*ground < plate_height);
+            OA_CHECK(*ground > plate_height - no_gap);
+            ++sampled;
+        }
+    OA_CHECK(sampled > 1000);
+    // A cell past the plate's sides, the ground is the map's again, under
+    // the canopy too.
+    const float east = centre + half_width + cell_edge;
+    const auto east_ground = drawn_ground(fixture.scene, east, centre);
+    OA_CHECK(east_ground && std::abs(*east_ground - east / cell_edge * rise) < tolerance);
+    const float west = centre - half_width - cell_edge;
+    constexpr float under_canopy = centre + 8;
+    const auto west_ground = drawn_ground(fixture.scene, west, under_canopy);
+    OA_CHECK(west_ground && std::abs(*west_ground - west / cell_edge * rise) < tolerance);
+    for (std::size_t i = 0; i < original.size(); ++i)
+        OA_CHECK(original[i].height == fixture.map.attributes[i].height);
+    OA_CHECK(unit.position.y == 16 * fixed);
+    // A base piece reaching 3 below keeps the ground a map pixel below the
+    // structure, over it still.
+    for (auto& corner : instance.pieces()[instance.root_piece()].transformed_vertices)
+        corner.y = static_cast<int32_t>(-hatch_depth * fixed);
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    const auto deep_ground = drawn_ground(fixture.scene, centre, centre - half_depth / 2.0F);
+    OA_CHECK(deep_ground && std::abs(*deep_ground - (height - 1 - 0.1F)) < tolerance);
+}
+
 /// Flash shade rows become translucent ground lighting; ordinary art keeps its colours.
 void flash_masks_and_effect_altitude() {
     Fixture fixture;
@@ -1726,6 +2065,44 @@ void aircraft_shadow_altitude() {
     const auto revision = fixture.scene.texture_revision;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.texture_revision == revision);
+}
+
+/// With New unit shadows off an aircraft casts the game's shadow: its plain
+/// silhouette, laid on the ground under it rather than on the water, at the
+/// vehicles' opacity and with no soft edge, as every other unit's.
+void aircraft_shadow_as_the_game_casts_it() {
+    Fixture fixture;
+    oa::present::model::ModelState state{};
+    state.image = oa::present::create_sprite(8, 8);
+    state.image.sprite.key = 1;
+    std::fill(state.image.pixels.begin(), state.image.pixels.end(), 0);
+    constexpr int32_t fixed = 65536;
+    oa::Unit unit{};
+    unit.position = {16 * fixed, 104 * fixed, 16 * fixed};
+    oa::UnitDef definition{};
+    definition.flags = OA_UNIT_DEF_FLAG_CAN_FLY;
+    fixture.draws.models.resize(1);
+    auto& draw = fixture.draws.models[0];
+    draw.model.unit = &unit;
+    draw.model.def = &definition;
+    draw.model.state = &state;
+    draw.plan.linked.drawn = true;
+    draw.plan.model.from_image = true;
+    fixture.inputs.sea_level = 8;
+    fixture.inputs.graphics_flags =
+        oa::present::model::graphics_shadows | oa::present::model::graphics_vehicle_shadows;
+    fixture.inputs.new_unit_shadows = false;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.shadow_count == 1);
+    OA_CHECK(fixture.scene.aircraft_shadow_materials.empty());
+    OA_CHECK(fixture.scene.vertices.size() > fixture.scene.terrain_vertex_count);
+    for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+         ++i) {
+        const auto& vertex = fixture.scene.vertices[i];
+        OA_CHECK(vertex.height < 8.0F);
+        OA_CHECK(std::abs(vertex.opacity - 0.5F) < tolerance);
+        OA_CHECK(vertex.terrain_size != -1);
+    }
 }
 
 /// Crops cover their intersecting cells but never leave the map, and invalid inputs fail cleanly.
@@ -2116,8 +2493,12 @@ void projectile_world_depth() {
     OA_CHECK(fixture.scene.vertices[first].height == 4);
     OA_CHECK(fixture.scene.vertices[first].z == 16);
     OA_CHECK(fixture.scene.unit_ranges.empty());
-    for (std::size_t i = first; i < fixture.scene.vertices.size(); ++i)
+    for (std::size_t i = first; i < fixture.scene.vertices.size(); ++i) {
         OA_CHECK(fixture.scene.vertices[i].height >= 4 && fixture.scene.vertices[i].height <= 5);
+        // A shot keeps the unit tint. It is not marked as map scenery.
+        OA_CHECK(fixture.scene.vertices[i].terrain_size == 0);
+        OA_CHECK(fixture.scene.vertices[i].terrain_grey == 0);
+    }
     fixture.draws.projectiles[0].position.y = 20 * fixed;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.vertices[first].height == 20);
@@ -2164,6 +2545,235 @@ void underwater_effect_altitude() {
     OA_CHECK(fixture.scene.sprite_count == 0);
 }
 
+/// Reads one atlas texel at a normalised coordinate.
+std::array<uint8_t, 3> atlas_texel(const live::Scene& scene, float u, float v) {
+    const auto x = std::min(
+        scene.texture_width - 1, static_cast<uint32_t>(std::max(0.0F, u) * scene.texture_width)
+    );
+    const auto y = std::min(
+        scene.texture_height - 1, static_cast<uint32_t>(std::max(0.0F, v) * scene.texture_height)
+    );
+    const auto offset = (static_cast<std::size_t>(y) * scene.texture_width + x) * 4;
+    return {
+        scene.texture_rgba.at(offset),
+        scene.texture_rgba.at(offset + 1),
+        scene.texture_rgba.at(offset + 2)
+    };
+}
+
+/// Map scenery under water takes no unit tint and greys with the ground.
+/// A unit sprite and the open sea bed still follow the swells.
+void underwater_features() {
+    oa::formats::gaf::RenderedFrame frame{};
+    frame.width = frame.height = 8;
+    frame.pixels.assign(64, ground_index);
+    frame.coverage.assign(64, 1);
+    constexpr std::size_t grey_index = 3;
+    constexpr std::array<uint8_t, 3> grey_color{70, 70, 70};
+
+    // Wholly out of sight, on the sea bed: the grey palette, not a darkened tint.
+    {
+        Fixture fixture;
+        std::fill_n(fixture.palette.begin() + grey_index * oa::palette_entry_bytes, 3, 70);
+        fixture.coverage[0] = 0;
+        fixture.inputs.sea_level = 40;
+        fixture.inputs.water.wind.strength = 1;
+        fixture.inputs.water.detail = 1;
+        fixture.draws.sprites.push_back({&frame, {12, 12}, false, true, true});
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(fixture.scene.sprite_count == 1);
+        bool marked = false;
+        float min_u = 1, max_u = 0, min_v = 1, max_v = 0;
+        float min_grey_u = 1, max_grey_u = 0, min_grey_v = 1, max_grey_v = 0;
+        for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+             ++i) {
+            const auto& vertex = fixture.scene.vertices[i];
+            OA_CHECK(vertex.terrain_size == -6);
+            OA_CHECK(std::abs(vertex.terrain_known - 1) < tolerance);
+            OA_CHECK(std::abs(vertex.terrain_grey - 1) < tolerance);
+            min_u = std::min(min_u, vertex.u);
+            max_u = std::max(max_u, vertex.u);
+            min_v = std::min(min_v, vertex.v);
+            max_v = std::max(max_v, vertex.v);
+            min_grey_u = std::min(min_grey_u, vertex.terrain_x);
+            max_grey_u = std::max(max_grey_u, vertex.terrain_x);
+            min_grey_v = std::min(min_grey_v, vertex.terrain_y);
+            max_grey_v = std::max(max_grey_v, vertex.terrain_y);
+            marked = true;
+        }
+        OA_CHECK(marked);
+        // The frame's far edge is the next atlas texel. Its middle is the image.
+        OA_CHECK(
+            atlas_texel(fixture.scene, (min_u + max_u) / 2, (min_v + max_v) / 2) == ground_color
+        );
+        OA_CHECK(
+            atlas_texel(
+                fixture.scene, (min_grey_u + max_grey_u) / 2, (min_grey_v + max_grey_v) / 2
+            ) == grey_color
+        );
+        const auto still = fixture.scene.vertices;
+        fixture.inputs.water.ripples = 1;
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(fixture.scene.vertices.size() == still.size());
+        bool moved = false;
+        for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+             ++i) {
+            OA_CHECK(fixture.scene.vertices[i].terrain_size == -6);
+            moved = moved || fixture.scene.vertices[i].x != still[i].x;
+        }
+        OA_CHECK(moved);
+    }
+
+    // Permanent allied vision. Ground only an ally explored is grey, as ground
+    // out of sight is. The viewer's own explored ground stays in colour.
+    {
+        constexpr uint16_t ally_bit = 1U << 2;
+        const auto on_ground = [&](uint16_t explored_by, bool greyed) {
+            Fixture fixture;
+            std::fill_n(fixture.palette.begin() + grey_index * oa::palette_entry_bytes, 3, 70);
+            fixture.mapped[0] = explored_by;
+            fixture.coverage[0] = 0;
+            fixture.inputs.sight.line_of_sight = false;
+            fixture.inputs.sight.mapped_bits = static_cast<uint16_t>(viewer_bit | ally_bit);
+            fixture.inputs.sight.shared_bits = ally_bit;
+            fixture.draws.sprites.push_back({&frame, {12, 12}, false, true, true});
+            OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+            OA_CHECK(fixture.scene.sprite_count == 1);
+            bool marked = false;
+            for (std::size_t i = fixture.scene.terrain_vertex_count;
+                 i < fixture.scene.vertices.size();
+                 ++i) {
+                const auto& vertex = fixture.scene.vertices[i];
+                OA_CHECK(vertex.terrain_size == -6);
+                OA_CHECK(std::abs(vertex.terrain_known - 1) < tolerance);
+                if (greyed)
+                    OA_CHECK(std::abs(vertex.terrain_grey - 1) < tolerance);
+                else
+                    OA_CHECK(vertex.terrain_grey == 0);
+                marked = true;
+            }
+            OA_CHECK(marked);
+        };
+        on_ground(ally_bit, true);
+        on_ground(viewer_bit, false);
+    }
+
+    // Shallows, still under the water and fully in sight: the same marker, no grey.
+    {
+        Fixture fixture;
+        for (auto& attribute : fixture.map.attributes)
+            attribute.height = 20;
+        fixture.inputs.sea_level = 24;
+        fixture.draws.sprites.push_back({&frame, {8, 8}, false, true, true});
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        bool marked = false;
+        for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+             ++i) {
+            const auto& vertex = fixture.scene.vertices[i];
+            OA_CHECK(vertex.terrain_size == -6);
+            OA_CHECK(std::abs(vertex.terrain_known - 1) < tolerance);
+            OA_CHECK(vertex.terrain_grey == 0);
+            OA_CHECK(std::abs(vertex.brightness - 1) < tolerance);
+            marked = true;
+        }
+        OA_CHECK(marked);
+    }
+
+    // A patch across seen, grey and unexplored ground matches the ground's fog,
+    // in both fog styles, and hides where the ground is black.
+    {
+        Fixture fixture;
+        std::fill_n(fixture.palette.begin() + grey_index * oa::palette_entry_bytes, 3, 70);
+        fixture.map.attribute_width = 6;
+        fixture.map.tile_width = 3;
+        fixture.map.attributes.assign(12, {});
+        fixture.map.tile_indices = {0, 0, 0};
+        std::array<uint16_t, 3> coverage{1, 0, 0};
+        std::array<uint16_t, 3> mapped{viewer_bit, viewer_bit, 0};
+        fixture.inputs.sight.coverage = coverage;
+        fixture.inputs.sight.player_bits = mapped;
+        fixture.inputs.sight.width = 3;
+        fixture.inputs.right = 96;
+        frame.width = 32;
+        frame.height = 16;
+        frame.pixels.assign(static_cast<std::size_t>(frame.width * frame.height), ground_index);
+        frame.coverage.assign(frame.pixels.size(), 1);
+        fixture.draws.sprites.push_back({&frame, {48, 8}, false, true, true});
+        const auto check_patch = [&](bool dithered) {
+            fixture.inputs.sight.dithered = dithered;
+            OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+            bool grey = false;
+            bool black = false;
+            float boundary_brightness = -1;
+            for (std::size_t i = fixture.scene.terrain_vertex_count;
+                 i < fixture.scene.vertices.size();
+                 ++i) {
+                const auto& vertex = fixture.scene.vertices[i];
+                OA_CHECK(vertex.terrain_size == -6);
+                const float painted_y = vertex.z - (vertex.height - 0.05F) * 0.5F;
+                if (vertex.x >= 66 && painted_y >= 8 && painted_y <= 24) {
+                    OA_CHECK(vertex.terrain_known == 0);
+                    OA_CHECK(vertex.terrain_grey == 0);
+                    black = true;
+                }
+                if (std::abs(vertex.x - 48) < 1.5F && painted_y >= 8 && painted_y <= 20) {
+                    OA_CHECK(vertex.terrain_known > 0.9F);
+                    OA_CHECK(vertex.terrain_grey > 0.9F);
+                    grey = true;
+                }
+                if (std::abs(vertex.x - 56) < 2.5F && painted_y >= 8 && painted_y <= 24)
+                    boundary_brightness = vertex.brightness;
+            }
+            OA_CHECK(grey && black);
+            OA_CHECK(boundary_brightness >= 0);
+            return boundary_brightness;
+        };
+        const float smooth = check_patch(false);
+        const float classic = check_patch(true);
+        OA_CHECK(classic > smooth);
+
+        // An upright feature takes the fog at each corner, not one darkening.
+        frame.origin_y = 0;
+        fixture.draws.sprites[0].terrain_decal = false;
+        fixture.inputs.sight.dithered = false;
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(fixture.scene.vertices.size() > fixture.scene.terrain_vertex_count + 6);
+        bool upright_black = false;
+        bool upright_known = false;
+        for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+             ++i) {
+            const auto& vertex = fixture.scene.vertices[i];
+            OA_CHECK(vertex.terrain_size == -6);
+            if (vertex.terrain_known == 0)
+                upright_black = true;
+            if (vertex.terrain_known > 0.9F && vertex.terrain_grey > 0.9F)
+                upright_known = true;
+        }
+        OA_CHECK(upright_black && upright_known);
+    }
+
+    // A unit's sprite is not scenery: it keeps the ordinary marker.
+    {
+        Fixture fixture;
+        fixture.inputs.sea_level = 30;
+        frame.width = frame.height = 8;
+        frame.origin_y = 0;
+        frame.pixels.assign(64, ground_index);
+        frame.coverage.assign(64, 1);
+        fixture.draws.sprites.push_back({&frame, {16, 16}, false, false, false});
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        bool drawn = false;
+        for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+             ++i) {
+            const auto& vertex = fixture.scene.vertices[i];
+            OA_CHECK(vertex.terrain_size != -6 && vertex.terrain_size != -7);
+            OA_CHECK(vertex.terrain_grey == 0);
+            drawn = true;
+        }
+        OA_CHECK(drawn);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -2174,12 +2784,15 @@ int main() {
     model_shade_parity();
     projectile_world_depth();
     underwater_effect_altitude();
+    underwater_features();
     painted_projection();
     canonical_terrain_grid();
     twisted_terrain_follows_simulation();
     clipped_texture_bounds();
     fog_materials();
     terrain_mip_colours();
+    terrain_wider_than_atlas();
+    coarse_ground_far_out();
     smooth_fog_boundary();
     terrain_zoom_detail();
     particle_zoom_detail();
@@ -2196,8 +2809,10 @@ int main() {
     cropped_ground_sprites();
     building_foundations();
     foundation_candidates();
+    structure_base_above_ground();
     cached_unit_shadows();
     aircraft_shadow_altitude();
+    aircraft_shadow_as_the_game_casts_it();
     flash_masks_and_effect_altitude();
     spatial_particles();
     particle_screen_bounds();

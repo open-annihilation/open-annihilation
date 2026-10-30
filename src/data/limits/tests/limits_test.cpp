@@ -29,6 +29,8 @@ Limits highest_limits() {
     limits.path_search.nodes = highest_path_search_nodes;
     limits.build_lists = {highest_build_list_copy, BuildListOverflow::dynamic};
     limits.model_composite = {highest_composite_side, highest_composite_side, true};
+    limits.weapon_types.types = highest_weapon_types;
+    limits.sides.count = highest_sides;
     return limits;
 }
 
@@ -46,6 +48,8 @@ void test_defaults_are_the_base_game() {
     OA_CHECK(limits.build_lists.overflow == BuildListOverflow::truncate);
     OA_CHECK(limits.model_composite.width == 600 && limits.model_composite.height == 600);
     OA_CHECK(!limits.model_composite.clamp_oversize);
+    OA_CHECK(limits.weapon_types.types == 256);
+    OA_CHECK(limits.sides.count == 5);
     OA_CHECK(check_limits(limits) == LimitsError::none);
 }
 
@@ -98,6 +102,25 @@ void test_each_value_just_outside_fails() {
     limits = {};
     limits.model_composite.height = lowest_composite_side - 1;
     OA_CHECK(check_limits(limits) == LimitsError::model_composite_sides);
+
+    limits = {};
+    limits.weapon_types.types = 255;
+    OA_CHECK(check_limits(limits) == LimitsError::weapon_types);
+    limits = {};
+    limits.weapon_types.types = 65537;
+    OA_CHECK(check_limits(limits) == LimitsError::weapon_types);
+
+    limits = {};
+    limits.sides.count = 4;
+    OA_CHECK(check_limits(limits) == LimitsError::sides);
+    limits = {};
+    limits.sides.count = 33;
+    OA_CHECK(check_limits(limits) == LimitsError::sides);
+
+    limits = {};
+    limits.weapon_types.types = 255;
+    limits.sides.count = 4;
+    OA_CHECK(check_limits(limits) == LimitsError::weapon_types);
 }
 
 } // namespace

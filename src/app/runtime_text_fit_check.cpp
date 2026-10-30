@@ -3,7 +3,10 @@
 
 // --check-text-fit: opens every Open Annihilation screen in English, German,
 // French, Spanish, Italian and Simplified Chinese, or in the languages
-// --check-language names, such as an installed pack's, at 640x480 and 1280x720.
+// --check-language names, such as an installed pack's, at 640x480, 960x540
+// and 1280x720: Compact, Regular and Large at 1x, in the look its
+// preferences file holds (Classic, a named file's own, unless the file names
+// Modern).
 // The kit records a text drawn wider than its box or across another text.
 // The check fails naming the screen, the language and the text. The kit
 // records only while a text is drawn, so the layer draws every screen again
@@ -12,36 +15,53 @@
 // files screen and the folder chooser paint through their own painter, which
 // records the same way. A startup notice drawn by the game's own windows is
 // opened too; that painter keeps no record. SKIRMISH is painted with
-// Mutators reading "Mutators" and "Mutators (5)", with three computer rows'
-// brain buttons, one of them a long name, and NEWGAME with Mutators and with
-// the campaign brain button showing that long name, in every language and
-// both sizes; Mutators' words must read whole.
+// Mutators reading "Mutators", its text "Mutators · off" and then
+// "Mutators · 5 on", with three computer rows' brain buttons, one of them
+// a long name, and NEWGAME with Mutators and with the campaign brain button
+// showing that long name, in every language and every size. The button's
+// word must read whole: the check looks for "…" in oa.mutators' text, whose
+// first word is the word as drawn.
 // The battle room is painted with one computer row whose brain has a long
-// name, in every language and both sizes.
+// name, in every language and every size.
 // The Brains tab's details are painted too: one brain not installed and one
-// installed, at both sizes and at 960x540, Compact on its details page.
+// installed, at every size and at 960x540, Compact on its details page.
 // "Load with the built-in player?" is painted with two 64-byte names.
 // The brain picker is painted on its fixture feed: the list, the inline
 // details at Regular and Large, and Compact's details page.
+// The key editor's list is painted at every size, and Compact's details page,
+// then the capture, the clash prompt, the keyboard, the mouse and the draft card.
+// The keys overlay is painted in a benchmark skirmish, in every language, at
+// 640x480 and 1280x720. The install question a key layout opened from a file
+// asks is painted for a new layout and for an update, in every language and
+// every size. The check's last lines name the key screens it painted.
+// Controls is painted with an own layout of OA default that holds twelve
+// changes, in every language and every size, so Key layout's value is the
+// layout's name and its count. The own layout is removed before the check ends.
 
 #include "folder_chooser_screen.hpp"
 #include "game_files_screen.hpp"
 #include "library_host.hpp"
 #include "oa_layer.hpp"
 #include "oa_layer_check.hpp"
+#include "pad_state.hpp"
 
 #include "oa/app/game_directory.hpp"
 #include "oa/app/game_files_import.hpp"
 #include "oa/app/mutators_memory.hpp"
+#include "oa/app/package_install.hpp"
+#include "oa/app/package_install/oakeys.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/data/brain_library/library.hpp"
 #include "oa/data/brain_library/seats.hpp"
 #include "oa/formats/oabrain/manifest.hpp"
 #include "oa/formats/oamut/manifest.hpp"
+#include "oa/data/key_library/library.hpp"
 #include "oa/data/languages/interface_text.hpp"
+#include "oa/formats/oakeys/manifest.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/first_run/first_run.hpp"
+#include "oa/ui/key_editor/screen.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/frontend_multiplayer/get_map.hpp"
 #include "oa/ui/frontend_multiplayer/lobby.hpp"
@@ -51,6 +71,7 @@
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/library/library.hpp"
+#include "oa/ui/library/use_question.hpp"
 #include "oa/ui/library/prerequisites.hpp"
 #include "oa/ui/brain_picker/screen.hpp"
 #include "oa/ui/brain_picker/prompts.hpp"
@@ -62,10 +83,12 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <iostream>
 #include <memory>
 #include <optional>
 #include <ostream>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -89,6 +112,8 @@ namespace brain = oa::data::brain_library;
 namespace layout = oa::ui::display_layout;
 namespace menu = oa::ui::frontend_state::main_menu;
 namespace mp = oa::ui::frontend_multiplayer;
+namespace oakeys = oa::formats::oakeys;
+namespace key_library = oa::data::key_library;
 
 /// Languages the check opens every screen in, in order, unless --check-language
 /// names others.
@@ -108,9 +133,13 @@ std::string joined_languages(const std::vector<std::string>& tags) {
     return joined;
 }
 
-/// Window sizes. 640x480 is the compact settings dialog; 1280x720 is larger.
-constexpr int32_t kWidths[] = {640, 1280};
-constexpr int32_t kHeights[] = {480, 720};
+/// Window sizes: 640x480 lays the screens out at Compact, 960x540 at
+/// Regular and 1280x720 at Large, each at 1x, the room each class starts
+/// from; the modern look draws each class's type. 1920x1080 is Large at 1x
+/// too, with more room.
+constexpr int32_t kWidths[] = {640, 960, 1280};
+constexpr int32_t kHeights[] = {480, 540, 720};
+static_assert(std::size(kWidths) == std::size(kHeights));
 
 /// How far a settings page is scrolled, in source pixels. The dialog clamps
 /// each one, so the last one draws the foot of a long page.
@@ -187,6 +216,8 @@ std::string_view tab_word(library::Tab tab) noexcept {
         return "mutators";
     case library::Tab::brains:
         return "brains";
+    case library::Tab::keys:
+        return "keys";
     case library::Tab::languages:
         return "languages";
     case library::Tab::updates:
@@ -210,6 +241,7 @@ bool choice_setting(settings::Setting setting) noexcept {
     case settings::Setting::pad_prompts:
     case settings::Setting::zoomed_out_after:
     case settings::Setting::interface_size:
+    case settings::Setting::window_size:
         return true;
     default:
         return false;
@@ -305,6 +337,53 @@ struct FitFailure {
     std::string line{}; ///< screen, language, size and text
 };
 
+/// Writes an own layout of OA default that names twelve actions, so Controls
+/// shows a change count. The check removes the file after the key editor.
+///
+/// @param user_folder the player's folder
+void write_own_layout_changes(const fs::path& user_folder) {
+    oakeys::Manifest manifest;
+    manifest.format = oakeys::format_version;
+    manifest.id = "own-oa-default";
+    manifest.name = "Your changes";
+    manifest.version.major = 1;
+    manifest.version.minor = 0;
+    manifest.version.parts = 2;
+    manifest.author.name = "You";
+    manifest.tags = {"own"};
+    manifest.base = oakeys::Base::oa_default;
+    constexpr std::string_view actions[] = {
+        "order.attack",
+        "order.move",
+        "order.stop",
+        "order.patrol",
+        "order.guard",
+        "order.reclaim",
+        "order.repair",
+        "order.dgun",
+        "camera.zoom.in",
+        "camera.zoom.out",
+        "select.idle",
+        "select.all",
+    };
+    for (const std::string_view action : actions) {
+        oakeys::BindingEntry binding;
+        binding.action = std::string(action);
+        binding.chords.push_back(oakeys::ChordText{"A", 0, 0});
+        manifest.bindings.push_back(std::move(binding));
+    }
+    const fs::path own_dir = user_folder / std::string(key_library::keys_folder_name) /
+                             key_library::own_folder_name("oa-default");
+    std::error_code made;
+    fs::create_directories(own_dir, made);
+    require(!made, "the own layout folder was not made");
+    const fs::path own_file = own_dir / std::string(oakeys::manifest_file);
+    std::ofstream out(own_file, std::ios::binary);
+    require(static_cast<bool>(out), "the own layout was not opened");
+    out << oakeys::write_manifest(manifest);
+    require(static_cast<bool>(out), "the own layout was not written");
+}
+
 } // namespace
 
 void Runtime::check_text_fit() {
@@ -391,7 +470,10 @@ void Runtime::check_text_fit() {
         require(going, std::string(screen) + ": a frame ended the run");
     };
 
+    /// Every screen painted, by name, for the check's last lines.
+    std::set<std::string> painted;
     const auto paint = [&](std::string_view screen) {
+        painted.insert(std::string(screen));
         paint_frames(screen);
         keep();
     };
@@ -690,6 +772,68 @@ void Runtime::check_text_fit() {
         }
     };
 
+    /// One short installed layout on the Keys tab, and USE's question open
+    /// over it. The question is drawn on the Library, not as its own screen.
+    /// A feed that rebuilt the Library gets the layout again.
+    const auto show_key_question = [&] {
+        LibraryHost& host = library_host();
+        const library::EntryId id{"fit-core", library::Kind::key_layout, "grid"};
+        if (library::find_entry(host.model, id) == nullptr) {
+            library::Inputs inputs = host.model.inputs;
+            bool listed = false;
+            for (const library::Registry& registry : inputs.registries)
+                if (registry.id == "fit-core")
+                    listed = true;
+            if (!listed) {
+                library::Registry registry;
+                registry.id = "fit-core";
+                registry.name = "Fit Core";
+                registry.built_in = true;
+                inputs.registries.push_back(std::move(registry));
+            }
+            library::KeyLayoutFacts facts;
+            facts.helpers = {"sticky-modifiers"};
+            facts.changes = 2;
+            facts.tags = {"grid"};
+            library::Listing listing;
+            listing.registry = "fit-core";
+            listing.kind = library::Kind::key_layout;
+            listing.key = "grid";
+            listing.name = "Grid";
+            listing.version = "1.0";
+            listing.release = 1;
+            listing.author = "Ada";
+            listing.summary = "A grid.";
+            listing.size = 1024;
+            listing.keys = facts;
+            library::Installed held;
+            held.kind = library::Kind::key_layout;
+            held.key = "grid";
+            held.registry = "fit-core";
+            held.release = 1;
+            held.folder = "grid";
+            held.name = "Grid";
+            held.version = "1.0";
+            held.keys = facts;
+            inputs.listings.push_back(std::move(listing));
+            inputs.installed.push_back(std::move(held));
+            inputs.keys_own_changes = 2;
+            library::refresh(host.model, std::move(inputs));
+        }
+        library::set_tab(host.model, library::Tab::keys);
+        library::select(host.model, id);
+        const library::Entry* entry = library::find_entry(host.model, id);
+        require(entry != nullptr, "library/keys/question has no grid");
+        library::open_key_use(host.model, *entry);
+        host.state.menu = library::MenuKind::none;
+        host.state.details_page = width <= 640;
+        ++host.model_revision;
+        hold_library();
+        paint_held("library/keys/question");
+        library::close_key_use(host.model);
+        ++host.model_revision;
+    };
+
     const auto close_covering = [&] {
         dialogs::reset_dialogs();
         if (LayerScreen* notice = oa_layer().find(NoticeScreen::screen_name))
@@ -702,6 +846,16 @@ void Runtime::check_text_fit() {
             oa_layer().close(brain_open);
         if (LayerScreen* welcome = oa_layer().find("first-run"))
             oa_layer().close(welcome);
+        if (LayerScreen* keys_open = oa_layer().find("key-editor"))
+            oa_layer().close(keys_open);
+        if (LayerScreen* keys_name = oa_layer().find("key-editor-name"))
+            oa_layer().close(keys_name);
+        if (LayerScreen* keys_prompt = oa_layer().find("key-editor-prompt"))
+            oa_layer().close(keys_prompt);
+        if (LayerScreen* keys_notice = oa_layer().find("key-editor-notice"))
+            oa_layer().close(keys_notice);
+        if (LayerScreen* keys_overlay = oa_layer().find("keys-overlay"))
+            oa_layer().close(keys_overlay);
         close_library();
         restore_mutator_picker_feed();
         restore_brain_picker_feed();
@@ -794,7 +948,7 @@ void Runtime::check_text_fit() {
     }
 #endif
 
-    for (std::size_t size_at = 0; size_at < 2; ++size_at) {
+    for (std::size_t size_at = 0; size_at < std::size(kWidths); ++size_at) {
         width = kWidths[size_at];
         height = kHeights[size_at];
         require(
@@ -1071,6 +1225,8 @@ void Runtime::check_text_fit() {
             }
             reload_installed_brains();
 
+            require(!user_folder_.empty(), "the run has no folder of the player's own");
+            write_own_layout_changes(fs::path(user_folder_));
             open_engine_settings_from_menu();
             settings::Dialog* dialog = engine_settings_dialog();
             require(dialog != nullptr, "Settings did not open");
@@ -1099,6 +1255,7 @@ void Runtime::check_text_fit() {
                 library::Tab::maps,
                 library::Tab::mutators,
                 library::Tab::brains,
+                library::Tab::keys,
                 library::Tab::languages,
                 library::Tab::updates,
                 library::Tab::registries
@@ -1147,6 +1304,7 @@ void Runtime::check_text_fit() {
             inject_brains();
             show_brain("ridge-raider");
             show_brain("steady-commander");
+            show_key_question();
             if (size_at == 0) {
                 const int32_t saved_width = width;
                 const int32_t saved_height = height;
@@ -1161,6 +1319,7 @@ void Runtime::check_text_fit() {
                 show_mutator("steady");
                 show_brain("ridge-raider");
                 show_brain("steady-commander");
+                show_key_question();
                 width = saved_width;
                 height = saved_height;
                 require(
@@ -1193,7 +1352,11 @@ void Runtime::check_text_fit() {
             if (oa_layer().find(library_screen_name) != nullptr) {
                 kit::Question asked;
                 asked.title = "Remove";
-                asked.paragraphs.push_back(kit::Paragraph{std::string(kLongText), false});
+                asked.paragraphs.push_back(
+                    kit::Paragraph{
+                        std::string(oa::data::languages::interface_text(kLongText)), false
+                    }
+                );
                 asked.buttons.push_back(kit::QuestionButton{"CANCEL", false, "cancel"});
                 asked.buttons.push_back(kit::QuestionButton{"OK", true, "ok"});
                 asked.cancel_button = 0;
@@ -1305,6 +1468,218 @@ void Runtime::check_text_fit() {
                 if (LayerScreen* picker_open = oa_layer().find(picker::screen_name))
                     oa_layer().close(picker_open);
                 restore_mutator_picker_feed();
+            }
+
+            // The key editor's list, and Compact's details page.
+            {
+                close_covering();
+                require(open_key_editor({}), "the key editor did not open");
+                paint("key-editor");
+                if (width <= 640) {
+                    std::optional<AutomationControl> row;
+                    std::vector<AutomationControl> controls;
+                    oa_layer().automation_controls(controls);
+                    for (const AutomationControl& control : controls) {
+                        if (control.name.starts_with("oa.key-editor.row.") && control.visible &&
+                            control.window_width > 0 && control.window_height > 0) {
+                            row = control;
+                            break;
+                        }
+                    }
+                    require(row.has_value(), "the key editor shows no row");
+                    const layout::Point pixel{
+                        row->window_x + row->window_width / 2,
+                        row->window_y + row->window_height / 2
+                    };
+                    bool going = true;
+                    for (const SDL_EventType type :
+                         {SDL_EVENT_MOUSE_MOTION,
+                          SDL_EVENT_MOUSE_BUTTON_DOWN,
+                          SDL_EVENT_MOUSE_BUTTON_UP}) {
+                        SDL_Event event = window_pointer_event(
+                            sdl_.window,
+                            sdl_.renderer,
+                            type,
+                            pixel,
+                            type == SDL_EVENT_MOUSE_MOTION ? 0 : SDL_BUTTON_LEFT
+                        );
+                        dispatch_event(event, going);
+                        require(going, "the key editor's row ended the run");
+                    }
+                    going = true;
+                    run_frame(going);
+                    require(going, "the key editor's row ended the run");
+                    PadAccess::send_key(*this, SDLK_RETURN);
+                    paint("key-editor/details");
+                }
+                const auto named =
+                    [this](std::string_view name) -> std::optional<AutomationControl> {
+                    std::vector<AutomationControl> controls;
+                    oa_layer().automation_controls(controls);
+                    for (const AutomationControl& control : controls) {
+                        if (control.name == name && control.visible && control.window_width > 0 &&
+                            control.window_height > 0)
+                            return control;
+                    }
+                    return std::nullopt;
+                };
+                const auto click_named = [&](std::string_view name) {
+                    const std::optional<AutomationControl> control = named(name);
+                    require(control.has_value(), std::string(name) + " is not shown");
+                    const layout::Point pixel{
+                        control->window_x + control->window_width / 2,
+                        control->window_y + control->window_height / 2
+                    };
+                    bool going = true;
+                    for (const SDL_EventType type :
+                         {SDL_EVENT_MOUSE_MOTION,
+                          SDL_EVENT_MOUSE_BUTTON_DOWN,
+                          SDL_EVENT_MOUSE_BUTTON_UP}) {
+                        SDL_Event event = window_pointer_event(
+                            sdl_.window,
+                            sdl_.renderer,
+                            type,
+                            pixel,
+                            type == SDL_EVENT_MOUSE_MOTION ? 0 : SDL_BUTTON_LEFT
+                        );
+                        dispatch_event(event, going);
+                        require(going, std::string(name) + " ended the run");
+                    }
+                    going = true;
+                    run_frame(going);
+                    require(going, std::string(name) + " ended the run");
+                };
+                const auto key_event = [&](SDL_EventType type, SDL_Keycode key, SDL_Keymod mods) {
+                    SDL_Event event{};
+                    event.type = type;
+                    event.key.windowID = sdl_.window != nullptr ? SDL_GetWindowID(sdl_.window) : 0;
+                    event.key.scancode = SDL_GetScancodeFromKey(key, nullptr);
+                    event.key.key = key;
+                    event.key.mod = mods;
+                    event.key.down = type == SDL_EVENT_KEY_DOWN;
+                    event.key.repeat = false;
+                    bool going = true;
+                    dispatch_event(event, going);
+                    require(going, "a key in the key editor ended the run");
+                };
+                if (named("oa.key-editor.back").has_value())
+                    click_named("oa.key-editor.back");
+                click_named("oa.key-editor.row.order.attack");
+                if (!named("oa.key-editor.detail.add").has_value()) {
+                    PadAccess::send_key(*this, SDLK_RETURN);
+                    bool going = true;
+                    run_frame(going);
+                    require(going, "opening the key editor's details ended the run");
+                }
+                click_named("oa.key-editor.detail.add");
+                paint("key-editor/capture");
+                key_event(SDL_EVENT_KEY_DOWN, SDLK_LCTRL, SDL_KMOD_CTRL);
+                key_event(SDL_EVENT_KEY_DOWN, SDLK_B, SDL_KMOD_CTRL);
+                key_event(SDL_EVENT_KEY_UP, SDLK_B, SDL_KMOD_CTRL);
+                key_event(SDL_EVENT_KEY_UP, SDLK_LCTRL, SDL_KMOD_NONE);
+                paint("key-editor/capture");
+                click_named("oa.key-editor.capture.ok");
+                paint("key-editor/clash");
+                click_named("oa.key-editor.clash.cancel");
+                if (named("oa.key-editor.back").has_value())
+                    click_named("oa.key-editor.back");
+                click_named("oa.key-editor.view.keyboard");
+                paint("key-editor/keyboard");
+                click_named("oa.key-editor.view.mouse");
+                paint("key-editor/mouse");
+                click_named("oa.key-editor.view.list");
+                const auto press_editor = [&](std::string_view name) {
+                    if (!named(name).has_value() && named("oa.key-editor.more").has_value()) {
+                        click_named("oa.key-editor.more");
+                        // MORE shows eight rows. End brings PASTE into view.
+                        if (!named(name).has_value()) {
+                            key_event(SDL_EVENT_KEY_DOWN, SDLK_END, SDL_KMOD_NONE);
+                            key_event(SDL_EVENT_KEY_UP, SDLK_END, SDL_KMOD_NONE);
+                            bool going = true;
+                            run_frame(going);
+                            require(going, "the key editor's menu did not move");
+                        }
+                    }
+                    click_named(name);
+                };
+                press_editor("oa.key-editor.share");
+                paint("key-editor/share");
+                if (named("oa.key-editor.share.close").has_value())
+                    click_named("oa.key-editor.share.close");
+                press_editor("oa.key-editor.paste");
+                paint("key-editor/paste");
+                if (named("oa.key-editor.paste.cancel").has_value())
+                    click_named("oa.key-editor.paste.cancel");
+                press_editor("oa.key-editor.import");
+                paint("key-editor/import");
+                if (named("oa.key-editor.import.cancel").has_value())
+                    click_named("oa.key-editor.import.cancel");
+
+                if (LayerScreen* keys_open = oa_layer().find("key-editor"))
+                    oa_layer().close(keys_open);
+
+                require(!user_folder_.empty(), "the run has no folder of the player's own");
+                oakeys::Manifest manifest;
+                manifest.format = oakeys::format_version;
+                manifest.id = "own-oa-default";
+                manifest.name = "Your changes";
+                manifest.version.major = 1;
+                manifest.version.minor = 0;
+                manifest.version.parts = 2;
+                manifest.author.name = "You";
+                manifest.tags = {"own"};
+                manifest.base = oakeys::Base::oa_default;
+                // Attack takes Select builders' Ctrl+B, the clash a player makes
+                // before SAVE. A second binding of the same chord in this file
+                // is dropped as the layout loads, so the card would not show.
+                oakeys::BindingEntry attack_binding;
+                attack_binding.action = "order.attack";
+                attack_binding.chords.push_back(oakeys::ChordText{"Ctrl+B", 0, 0});
+                manifest.bindings.push_back(std::move(attack_binding));
+                const std::filesystem::path own_dir = std::filesystem::path(user_folder_) /
+                                                      std::string(key_library::keys_folder_name) /
+                                                      key_library::own_folder_name("oa-default");
+                std::error_code made;
+                std::filesystem::create_directories(own_dir, made);
+                require(!made, "the own layout folder was not made");
+                const std::filesystem::path own_file = own_dir / std::string(oakeys::manifest_file);
+                {
+                    std::ofstream out(own_file, std::ios::binary);
+                    require(static_cast<bool>(out), "the own layout was not opened");
+                    out << oakeys::write_manifest(manifest);
+                    require(static_cast<bool>(out), "the own layout was not written");
+                }
+                require(open_key_editor({}), "the key editor did not open on the clash");
+                if (!named("oa.key-editor.card.settle").has_value() && width <= 640) {
+                    std::optional<AutomationControl> clash_row;
+                    std::vector<AutomationControl> clash_controls;
+                    oa_layer().automation_controls(clash_controls);
+                    for (const AutomationControl& control : clash_controls) {
+                        if (control.name.starts_with("oa.key-editor.row.") && control.visible &&
+                            control.window_width > 0 && control.window_height > 0) {
+                            clash_row = control;
+                            break;
+                        }
+                    }
+                    require(clash_row.has_value(), "the clashes list shows no row");
+                    click_named(clash_row->name);
+                    PadAccess::send_key(*this, SDLK_RETURN);
+                    bool going = true;
+                    run_frame(going);
+                    require(going, "opening the clash card ended the run");
+                }
+                require(
+                    named("oa.key-editor.card.settle").has_value(), "the clash card is not shown"
+                );
+                paint("key-editor/card");
+                // Settle… opens the one clash question: its outcomes and their words.
+                click_named("oa.key-editor.card.settle");
+                paint("key-editor/settle");
+                if (LayerScreen* keys_card = oa_layer().find("key-editor"))
+                    oa_layer().close(keys_card);
+                std::error_code removed;
+                std::filesystem::remove(own_file, removed);
+                require(!removed, "the own layout was not removed");
             }
 
             // The brain picker, on the check's feed: the list, and the
@@ -1472,9 +1847,13 @@ void Runtime::check_text_fit() {
                 );
             }
 
+            // The paragraph in the language shown, as the game's notices are
+            // built: the kit wraps the text it is given.
             kit::Notice told;
             told.title = "NOTICE";
-            told.paragraphs.push_back(kit::Paragraph{std::string(kLongText), false});
+            told.paragraphs.push_back(
+                kit::Paragraph{std::string(oa::data::languages::interface_text(kLongText)), false}
+            );
             told.open_caption = "OK";
             told.ok_caption = "OK";
             oa_layer().push(
@@ -1485,6 +1864,40 @@ void Runtime::check_text_fit() {
             paint("notice");
             if (LayerScreen* notice = oa_layer().find(NoticeScreen::screen_name))
                 oa_layer().close(notice);
+
+            // The install question a key layout opened from a file asks: a
+            // new layout, then an update of one installed.
+            {
+                namespace install = oa::app::package_install;
+                install::Incoming incoming;
+                incoming.id = "ridge-left-hand-grid";
+                incoming.name = "Ridge left-hand grid for the long evenings";
+                incoming.version = "1.2";
+                const auto paint_install = [&](const install::InstallPlan& plan,
+                                               std::string_view screen) {
+                    install::PackagePrompt made = install::oakeys::question_prompt(
+                        plan, incoming, "ridge-left-hand-grid.oakeys", {}, false
+                    );
+                    oa_layer().push(
+                        std::make_unique<QuestionScreen>(
+                            oa_layer(),
+                            Screen::main_menu,
+                            std::move(made.prompt),
+                            QuestionScreen::Host{}
+                        )
+                    );
+                    paint(screen);
+                    if (LayerScreen* asked = oa_layer().find(QuestionScreen::screen_name))
+                        oa_layer().close(asked);
+                };
+                install::InstallPlan fresh;
+                fresh.kind = install::PlanKind::ask_install;
+                paint_install(fresh, "install-question/keys");
+                install::InstallPlan update;
+                update.kind = install::PlanKind::ask_update;
+                update.installed.version = "1.1";
+                paint_install(update, "install-question/keys-update");
+            }
 
             const std::string_view steps[] = {"language", "online", "buttons"};
             for (const std::string_view step : steps) {
@@ -1569,19 +1982,60 @@ void Runtime::check_text_fit() {
             keep();
             apply_output_mode();
             require(!chosen_folder, "the folder chooser kept a folder");
+
+            // The keys overlay, beside the side column of one skirmish, at
+            // 640x480 and 1280x720.
+            if (size_at == 0 || size_at + 1 == std::size(kWidths)) {
+                close_covering();
+                load(Screen::main_menu);
+                bool overlay_going = true;
+                run_frame(overlay_going);
+                require(overlay_going, "the main menu ended the run before the keys overlay");
+                start_benchmark_skirmish();
+                require(
+                    screen_ == Screen::match && match_ != nullptr,
+                    "the keys overlay's skirmish did not start"
+                );
+                toggle_keys_overlay_screen();
+                require(
+                    oa_layer().find("keys-overlay") != nullptr, "the keys overlay did not open"
+                );
+                paint("keys-overlay");
+                if (LayerScreen* overlay = oa_layer().find("keys-overlay"))
+                    oa_layer().close(overlay);
+                leave_match();
+                load(Screen::main_menu);
+                overlay_going = true;
+                run_frame(overlay_going);
+                require(overlay_going, "the main menu ended the run after the keys overlay");
+            }
         }
     }
 
     close_covering();
     if (failures.empty()) {
         std::cout << "text-fit check: every screen fits in " << joined_languages(languages)
-                  << " at 640x480 and 1280x720\n";
+                  << " at 640x480, 960x540 and 1280x720\n";
         std::cout << "text-fit check: mutator details fit in " << joined_languages(languages)
                   << " at 640x480, 960x540 and 1280x720\n";
         std::cout << "text-fit check: mutator-picker fits in " << joined_languages(languages)
                   << " at 640x480, 960x540 and 1280x720\n";
         std::cout << "text-fit check: brain-picker fits in " << joined_languages(languages)
                   << " at 640x480, 960x540 and 1280x720\n";
+        std::string key_screens;
+        for (const std::string& name : painted) {
+            const bool key_screen =
+                name.starts_with("key-editor") || name == "keys-overlay" ||
+                name == "settings/controls" || name == "settings/accessibility" ||
+                name.starts_with("library/keys") || name.starts_with("install-question/");
+            if (!key_screen)
+                continue;
+            if (!key_screens.empty())
+                key_screens += ", ";
+            key_screens += name;
+        }
+        std::cout << "text-fit check: the key screens fit in " << joined_languages(languages)
+                  << ": " << key_screens << '\n';
         return;
     }
     std::string report = "text-fit check: text does not fit:\n";

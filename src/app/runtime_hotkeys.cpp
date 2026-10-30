@@ -3,7 +3,10 @@
 
 // Match hotkeys, selection commands and overlays.
 #include "oa/app/runtime.hpp"
+#include "console_actions.hpp"
+#include "gui_actions.hpp"
 #include "panel_first_draw.hpp"
+#include "oa/data/input_actions/actions.hpp"
 #include "oa/app/view_rules.hpp"
 #include "oa/data/languages/translation.hpp"
 #include "oa/present/game_text.hpp"
@@ -13,8 +16,10 @@
 #include "oa/ui/decoded.hpp"
 #include "engine_settings_state.hpp"
 #include "match_models.hpp"
+#include "oa_layer.hpp"
 #include "oa/sim/speed.hpp"
 #include "oa/ui/console/game_fields.hpp"
+#include "oa/ui/console/hotkeys.hpp"
 #include "oa/ui/hud/chat_panel.hpp"
 #include "oa/ui/hud/order_panel.hpp"
 #include "oa/ui/hud/unit_info.hpp"
@@ -22,15 +27,16 @@
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <initializer_list>
 #include <iostream>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -40,30 +46,130 @@
 #include <vector>
 
 namespace oa::app {
+
+namespace keys = oa::ui::key_bindings;
+
 namespace {
 
-// The game speed step a speed key asks for: 1 for '+', '=' and the keypad's
-// '+', -1 for '-' and the keypad's '-', 0 for any other key.
-int game_speed_key_step(const SDL_KeyboardEvent& key) {
-    if (key.key == SDLK_MINUS || key.key == SDLK_KP_MINUS || key.scancode == SDL_SCANCODE_MINUS ||
-        key.scancode == SDL_SCANCODE_KP_MINUS)
-        return -1;
-    if (key.key == SDLK_EQUALS || key.key == SDLK_PLUS || key.key == SDLK_KP_PLUS ||
-        key.scancode == SDL_SCANCODE_EQUALS || key.scancode == SDL_SCANCODE_KP_PLUS)
-        return 1;
-    return 0;
+/// The squad or page number at the end of an action id, or 0.
+///
+/// `build.page-next` is not a numbered page: the id must be the prefix and
+/// one digit.
+///
+/// @param id the action id
+/// @param prefix the part before the digit
+/// @return 1 through 9, or 0
+int action_number(std::string_view id, std::string_view prefix) {
+    if (!id.starts_with(prefix) || id.size() != prefix.size() + 1)
+        return 0;
+    const char digit = id.back();
+    if (digit < '1' || digit > '9')
+        return 0;
+    return digit - '0';
 }
 
-/// Returns the way a build-page key turns the order panel's page.
+/// Whether a repeat of this action still changes the speed, the page or the zoom.
 ///
-/// @param key the key pressed
-/// @return 1 for '.', -1 for ',', 0 for any other key
-int page_key_step(const SDL_KeyboardEvent& key) {
-    if (key.key == SDLK_PERIOD)
-        return 1;
-    if (key.key == SDLK_COMMA)
-        return -1;
-    return 0;
+/// @param id the action id
+/// @return true for the speed, page and zoom-key actions
+bool answers_repeat(std::string_view id) {
+    return id == "game.speed-up" || id == "game.speed-down" || id == "build.page-next" ||
+           id == "build.page-previous" || id == "camera.zoom-in-key" || id == "camera.zoom-out-key";
+}
+
+/// The build cell at the end of `build.cell-N`, or 0.
+///
+/// One or two digits, 1 through 12. `build.cell-next` is not a cell.
+///
+/// @param id the action id
+/// @return 1 through 12, or 0
+int build_cell_number(std::string_view id) {
+    constexpr std::string_view prefix = "build.cell-";
+    if (!id.starts_with(prefix))
+        return 0;
+    const std::string_view tail = id.substr(prefix.size());
+    if (tail.empty() || tail.size() > 2)
+        return 0;
+    int cell = 0;
+    for (const char digit : tail) {
+        if (digit < '0' || digit > '9')
+            return 0;
+        cell = cell * 10 + (digit - '0');
+    }
+    if (cell < 1 || cell > 12)
+        return 0;
+    return cell;
+}
+
+/// The pressed event whose id is one of `ids`.
+///
+/// @param events the current event's action events
+/// @param ids the ids to answer now
+/// @return that event, or null
+const keys::ActionEvent* find_pressed(
+    std::span<const keys::ActionEvent> events, std::initializer_list<std::string_view> ids
+) {
+    for (const keys::ActionEvent& fed : events) {
+        if (fed.phase != keys::Phase::pressed)
+            continue;
+        for (const std::string_view id : ids) {
+            if (fed.action == id)
+                return &fed;
+        }
+    }
+    return nullptr;
+}
+
+/// The pressed console action in this event, when one has a key code.
+///
+/// @param events the current event's action events
+/// @return that event, or null
+const keys::ActionEvent* find_console_press(std::span<const keys::ActionEvent> events) {
+    for (const keys::ActionEvent& fed : events) {
+        if (fed.phase != keys::Phase::pressed)
+            continue;
+        if (console_code(fed.action))
+            return &fed;
+    }
+    return nullptr;
+}
+
+/// Whether a group's select or add key went down in this event.
+///
+/// @param events the current event's action events
+/// @return true when one of them is a group's key
+bool group_key_pressed(std::span<const keys::ActionEvent> events) {
+    for (const keys::ActionEvent& fed : events) {
+        if (fed.phase != keys::Phase::pressed)
+            continue;
+        if (action_number(fed.action, "group.select-") != 0 ||
+            action_number(fed.action, "group.add-") != 0)
+            return true;
+    }
+    return false;
+}
+
+/// Whether a key is a modifier's own: Shift, Ctrl, Alt or the system key.
+///
+/// @param scancode the key's place
+/// @return true for either of each
+bool modifier_key(SDL_Scancode scancode) {
+    return scancode == SDL_SCANCODE_LSHIFT || scancode == SDL_SCANCODE_RSHIFT ||
+           scancode == SDL_SCANCODE_LCTRL || scancode == SDL_SCANCODE_RCTRL ||
+           scancode == SDL_SCANCODE_LALT || scancode == SDL_SCANCODE_RALT ||
+           scancode == SDL_SCANCODE_LGUI || scancode == SDL_SCANCODE_RGUI;
+}
+
+/// Whether this repeat is an action that still answers while held.
+///
+/// @param events the current event's action events
+/// @return true when one of those actions repeated
+bool repeats_speed_or_page(std::span<const keys::ActionEvent> events) {
+    for (const keys::ActionEvent& fed : events) {
+        if (fed.phase == keys::Phase::repeated && answers_repeat(fed.action))
+            return true;
+    }
+    return false;
 }
 
 // The unit info panel's control that shows the unit's picture, and the one
@@ -76,151 +182,118 @@ constexpr const char* kUnitInfoArt = "anims/commongui.gaf";
 // font.
 constexpr int16_t kUnitInfoLabelHeight = 12;
 
-// Quick keys are ASCII characters below this one.
-constexpr SDL_Keycode kQuickKeyEnd = 0x7F;
-
-/// Returns whether a key types the quick key of a panel's named button.
-///
-/// Keys with Ctrl, Alt or the system key down type no character; a letter
-/// matches in either case.
-///
-/// @param gadgets the panel's records
-/// @param name the button's name
-/// @param key the key pressed
-/// @return true when the button holds a quick key and the key types it
-bool types_quick_key(
-    const std::vector<oa::ui::gui_layout::Gadget>& gadgets,
-    std::string_view name,
-    const SDL_KeyboardEvent& key
-) {
-    if ((key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) != 0 || key.key == 0 ||
-        key.key >= kQuickKeyEnd)
-        return false;
-    const auto typed = std::tolower(static_cast<int>(key.key));
-    return std::any_of(
-        gadgets.begin(), gadgets.end(), [&](const oa::ui::gui_layout::Gadget& gadget) {
-            const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
-            return button != nullptr && gadget.common.name == name && button->quick_key != 0 &&
-                   std::tolower(static_cast<unsigned char>(button->quick_key)) == typed;
-        }
-    );
-}
-
 } // namespace
 
-bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
-    if (screen_ != Screen::match || !match_)
+bool Runtime::press_shown_panel_action(std::string_view id, keys::Phase phase) {
+    // While the unit info panel is open the side column's buttons take no
+    // key, as they take no press.
+    if (phase != keys::Phase::pressed || !match_hud_ || unit_info_panel_)
         return false;
-    // The surrender confirmation takes the keys ahead of the chat line and
-    // a marker's text, which keep what was typed for after it.
-    const bool question = match_question_open();
-    // A held key's repeats press no hotkey but the speed keys and the page
-    // keys: held '+' or '-' goes on changing the game speed, a step with each
-    // repeat, as in 3.1c, and stops at the fastest or the slowest; held ','
-    // or '.' goes on turning the order panel's page, a page and a
-    // nextbuildmenu with each repeat, as in 3.1c, taking the order page into
-    // its turn as a press does. Held Backspace goes on deleting from the chat
-    // line or a marker's text being typed, as held keys go on typing in 3.1c;
-    // held letters arrive as repeated text.
-    const bool deletes_typed_text =
-        !question && key.key == SDLK_BACKSPACE && (chat_composing_ || whiteboard_input_.editing);
-    if (key.repeat && !deletes_typed_text && game_speed_key_step(key) == 0 &&
-        page_key_step(key) == 0)
-        return false;
-    if ((!question && whiteboard_key(key)) || megamap_key(key))
-        return true;
-    // F4 pins the kills board out (Game.graphics_flags 0x80).
-    if (key.key == SDLK_F4 || key.scancode == SDL_SCANCODE_F4)
-        return resource_panel_f4_key() || handle_console_hotkey(key);
-    // F1 opens the unit info panel; Shift+F1 pins the unit under the cursor
-    // instead (Game.pinned_unit_a), or unpins without one.
-    if (key.key == SDLK_F1 || key.scancode == SDL_SCANCODE_F1) {
-        auto& game = match_->state().game;
-        if ((input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0) {
-            game.pinned_unit_a_valid = game.cursor_unit_id != 0 ? 1U : 0U;
-            if (game.cursor_unit_id != 0)
-                game.pinned_unit_a = game.cursor_unit_id;
+    const auto& gadgets = match_hud_->layout.gadgets;
+    const bool registry = id.starts_with("order.") || id.starts_with("panel.");
+    if (registry) {
+        const oa::data::input_actions::Action* entry = oa::data::input_actions::find(id);
+        if (entry == nullptr || entry->gadget.empty())
+            return false;
+        for (std::size_t gadget_index = 0; gadget_index < gadgets.size(); ++gadget_index) {
+            if (!std::holds_alternative<oa::ui::gui_layout::ButtonFields>(
+                    gadgets[gadget_index].fields
+                ))
+                continue;
+            if (order_action_id(gadgets[gadget_index].common.name) != id)
+                continue;
+            activate_match_hud(gadget_index);
             return true;
         }
+        return false;
+    }
+    if (!id.starts_with("gui."))
+        return false;
+    const std::string shown = shown_hud_stem();
+    if (shown.empty())
+        return false;
+    for (std::size_t gadget_index = 0; gadget_index < gadgets.size(); ++gadget_index) {
+        if (!std::holds_alternative<oa::ui::gui_layout::ButtonFields>(gadgets[gadget_index].fields))
+            continue;
+        const std::string_view name = gadgets[gadget_index].common.name;
+        if (!order_action_id(name).empty())
+            continue;
+        if (gui_action_id(shown, name) != id)
+            continue;
+        activate_match_hud(gadget_index);
+        return true;
+    }
+    return false;
+}
+
+bool Runtime::handle_match_action(const keys::ActionEvent& action) {
+    // Action ids are strings, so this is a chain of comparisons.
+    const std::string_view id = action.action;
+    if (id == "game.kill-board" || id == "game.resource-panel") {
+        if (resource_panel_f4_key())
+            return true;
+        if (match_console() == nullptr)
+            return false;
+        run_console_hotkey(oa::ui::console::hotkey::f1 + 3);
+        return true;
+    }
+    if (id == "game.pin-unit") {
+        auto& game = match_->state().game;
+        game.pinned_unit_a_valid = game.cursor_unit_id != 0 ? 1U : 0U;
+        if (game.cursor_unit_id != 0)
+            game.pinned_unit_a = game.cursor_unit_id;
+        return true;
+    }
+    if (id == "game.unit-info") {
         // Without a unit to show, F1 does nothing.
         std::ignore = open_unit_info();
         return true;
     }
-    if (key.key == SDLK_F2 || key.scancode == SDL_SCANCODE_F2) {
+    if (id == "game.menu") {
         if (match_paused_)
             resume_match_pause();
         else
             show_match_pause_menu();
         return true;
     }
-    // F3 goes to the next unit the message log reported.
-    if (key.key == SDLK_F3 || key.scancode == SDL_SCANCODE_F3) {
+    if (id == "camera.next-report") {
         oa::sim::messages::cycle_reported_units(match_->state(), message_hooks());
         return true;
     }
-    if (key.key == SDLK_F12 || key.scancode == SDL_SCANCODE_F12) {
+    if (id == "game.clear-messages") {
         oa::sim::messages::clear_messages(match_->state().game);
         return true;
     }
     // Pause flips the pause bit and opens no menu; a finished match keeps it
-    // as it is.
-    if (key.key == SDLK_PAUSE || key.scancode == SDL_SCANCODE_PAUSE) {
-        // Pause is a console hotkey and a match is running, so it is always
-        // taken.
+    // as it is. Pause is a console hotkey and a match is running, so it is
+    // always taken.
+    if (id == "game.pause") {
         if (!match_finished_)
-            std::ignore = handle_console_hotkey(key);
+            run_console_hotkey(oa::ui::console::hotkey::pause);
         return true;
     }
-    if ((input_modifiers(ModifierUse::keyboard) & SDL_KMOD_CTRL) != 0 &&
-        (key.key == SDLK_F9 || key.scancode == SDL_SCANCODE_F9)) {
+    if (id == "game.screenshot") {
         capture_screenshot();
         return true;
     }
-    if (chat_composing_ && !question) {
-        if (key.key == SDLK_ESCAPE) {
-            close_chat_line();
-            return true;
-        }
-        if (key.key == SDLK_RETURN) {
-            submit_chat_line();
-            return true;
-        }
-        if (key.key == SDLK_BACKSPACE && !chat_buffer_.empty()) {
-            // The line is typed text: the key takes the whole last character.
-            chat_buffer_.erase(oa::present::last_character_start(chat_buffer_));
-            return true;
-        }
+    if (id == "chat.cancel") {
+        close_chat_line();
         return true;
     }
-    // The surrender confirmation answers Enter as No, its Enter default;
-    // escape_match_menu answers its Escape.
-    if (match_paused_ && key.key == SDLK_RETURN && enter_match_menu())
-        return true;
-    // The unit info panel's Enter and Escape defaults are both DONE, and so
-    // is its quick key, OK's O.
-    if (unit_info_panel_ &&
-        (key.key == SDLK_RETURN || key.key == SDLK_ESCAPE ||
-         (unit_info_panel_->screen &&
-          types_quick_key(unit_info_panel_->screen->layout.gadgets, kUnitInfoDone, key)))) {
-        press_unit_info_done();
+    if (id == "chat.send") {
+        submit_chat_line();
         return true;
     }
-    // The in-game menu's and the tab menu's panels, and the preferences a
-    // match opens, take the keys they answer while they hold the keyboard.
-    if (press_match_panel_key(key))
-        return true;
-    if (handle_console_hotkey(key))
-        return true;
     // Escape takes back an armed command and keeps the selection; with none
     // armed it drops the selection. With the Escape opens the game menu
     // setting on and nothing selected, it opens the in-game menu as F2 does,
     // which does not stop a shared game; with the menu open, the event
     // handler closes it.
-    if (key.key == SDLK_ESCAPE) {
+    if (id == "game.back") {
         if (match_paused_)
             return false;
         if (match_command_ != MatchCommand::none || pending_build_type_ != 0) {
-            clear_or_cancel_match_command();
+            cancel_match_order();
             return true;
         }
         if (!match_finished_ && !has_local_selection() &&
@@ -228,118 +301,191 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
             show_match_pause_menu();
             return true;
         }
-        clear_or_cancel_match_command();
+        clear_match_selection();
         return true;
     }
-    if (match_paused_)
-        return false;
-    const auto mods = input_modifiers(ModifierUse::keyboard);
-    if ((mods & SDL_KMOD_CTRL) != 0 && (key.key == SDLK_D || key.scancode == SDL_SCANCODE_D) &&
-        selected_match_unit_ != 0) {
-        match_->toggle_self_destruct(selected_local_ids());
+    if (id == "order.self-destruct") {
+        if (selected_match_unit_ == 0)
+            return false;
+        // A countdown already running stops at once. Starting one holds when
+        // Hold to confirm is on.
+        if (start_self_destruct_hold(hold_key_scancode_, false, 0, 0))
+            return true;
+        const std::vector<uint16_t> ids = selected_local_ids();
+        match_->toggle_self_destruct(ids);
         status_ = "Self-destruct";
         return true;
     }
-    const bool ctrl = (mods & SDL_KMOD_CTRL) != 0;
-    const bool alt = (mods & SDL_KMOD_ALT) != 0;
-    const bool shift = (mods & SDL_KMOD_SHIFT) != 0;
-    const auto sym = key.key;
-    if (const int n = squad_from_key(key); n != 0) {
-        if (ctrl) {
-            assign_squad(n);
-            return true;
-        }
-        // A digit picks its squad with Alt down, or with Alt up
-        // once SwitchAlt is on; otherwise it picks build page digit - 1.
-        const bool switch_alt =
-            (match_->state().game.graphics_flags & oa::ui::console::graphics_flag::switch_alt) != 0;
-        if (alt != switch_alt)
-            select_squad(n, shift);
-        else
-            show_match_page_by_key(n - 1);
+    if (const int assigned = action_number(id, "group.assign-"); assigned != 0) {
+        assign_squad(assigned);
         return true;
     }
-    if (ctrl) {
-        if (selection_shortcut_key(sym, shift))
+    if (const int selected = action_number(id, "group.select-"); selected != 0) {
+        select_squad(selected, false, group_key_view_move(selected));
+        return true;
+    }
+    if (const int added = action_number(id, "group.add-"); added != 0) {
+        select_squad(added, true, group_key_view_move(added));
+        return true;
+    }
+    if (const int page = action_number(id, "build.page-"); page != 0) {
+        show_match_page_by_key(page - 1);
+        return true;
+    }
+    // The five damage-bar keys all toggle the bars. With Select groups
+    // without Alt, Shift+1, Shift+3 and Shift+8 are group adds by the key
+    // resolution, so this handler never sees those chords then.
+    if (id == "game.health-bars") {
+        run_console_hotkey(static_cast<uint32_t>('`'));
+        return true;
+    }
+    if (id == "game.health-bars-mode-1") {
+        run_console_hotkey(static_cast<uint32_t>('!'));
+        return true;
+    }
+    if (id == "game.health-bars-mode-2") {
+        run_console_hotkey(static_cast<uint32_t>('#'));
+        return true;
+    }
+    if (id == "game.health-bars-mode-3") {
+        run_console_hotkey(static_cast<uint32_t>('*'));
+        return true;
+    }
+    if (id == "game.health-bars-mode-4") {
+        run_console_hotkey(static_cast<uint32_t>('~'));
+        return true;
+    }
+    if (const int stored = action_number(id, "camera.bookmark-set-"); stored >= 1 && stored <= 4) {
+        run_console_hotkey(oa::ui::console::hotkey::control_f5 + static_cast<uint32_t>(stored - 1));
+        return true;
+    }
+    if (const int recalled = action_number(id, "camera.bookmark-go-");
+        recalled >= 1 && recalled <= 4) {
+        run_console_hotkey(oa::ui::console::hotkey::f5 + static_cast<uint32_t>(recalled - 1));
+        return true;
+    }
+    if (id == "select.all") {
+        // Ctrl+A selects every unit of the player's that can be selected, as
+        // 3.1c does: a place in the player's unit list that holds no unit stays
+        // as it is. The panel shows the first of them, as before.
+        auto& world = match_->state();
+        world.game.local_player_index = match_local_player_;
+        oa::sim::selection::select_all(world, selection_hooks());
+        selected_match_unit_ = 0;
+        adopt_selected_units();
+        int count = 0;
+        for (const auto& slot : match_->world().slots)
+            count += slot.unit != nullptr && slot.owner_index == match_local_player_ &&
+                     (slot.unit->flags & OA_UNIT_FLAG_SELECTED) != 0;
+        status_ = count == 0 ? "No units" : std::to_string(count) + " selected";
+        return true;
+    }
+    if (id == "select.commander") {
+        select_and_follow_commander(false);
+        return true;
+    }
+    if (id == "select.commander-add") {
+        select_and_follow_commander(true);
+        return true;
+    }
+    if (id == "select.idle-builders") {
+        const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
+        if (selection_shortcut_key(SelectionShortcut::idle_builders, shift))
             return true;
-        if (sym == SDLK_A) {
-            select_units_matching([](const oa::sim::unit_spawn::Slot&) { return true; });
+        select_builders_by_movement(true);
+        return true;
+    }
+    if (id == "select.idle-factories") {
+        const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
+        if (selection_shortcut_key(SelectionShortcut::idle_factories, shift))
+            return true;
+        select_builders_by_movement(false);
+        return true;
+    }
+    if (id == "select.builders" || id == "select.factories" || id == "select.aircraft") {
+        const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
+        const char* tag = "CTRL_V";
+        if (id == "select.builders")
+            tag = "CTRL_B";
+        else if (id == "select.factories")
+            tag = "CTRL_F";
+        select_by_tag(tag, shift, TagReach::map);
+        return true;
+    }
+    constexpr std::string_view category = "select.category-";
+    if (id.starts_with(category) && id.size() == category.size() + 1) {
+        const char letter = id.back();
+        if (letter >= 'a' && letter <= 'z') {
+            const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
+            std::string word = "CTRL_";
+            word.push_back(static_cast<char>(letter - 'a' + 'A'));
+            select_by_tag(word, shift, TagReach::map);
             return true;
         }
-        if (sym == SDLK_C) {
-            select_and_follow_commander(shift);
+    }
+    constexpr std::string_view tag_action = "select.tag-";
+    if (id.starts_with(tag_action)) {
+        const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
+        for (const GatheredTag& tag : gathered_tags_) {
+            if (tag.action != id)
+                continue;
+            select_by_tag(tag.word, shift, TagReach::two_press);
             return true;
         }
-        if (sym == SDLK_B) {
-            select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
-                const auto* def = definition_for(slot.unit_index);
-                return def && def->builder && def->bm_code != 0;
-            });
+        return true;
+    }
+    if (id == "select.on-screen" || id == "select.armed-on-screen") {
+        const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
+        if (selection_shortcut_key(SelectionShortcut::on_screen, shift))
             return true;
-        }
-        if (sym == SDLK_F) {
-            select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
-                const auto* def = definition_for(slot.unit_index);
-                return def && def->builder && def->bm_code == 0;
-            });
-            return true;
-        }
-        if (sym == SDLK_V) {
-            select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
-                const auto* def = definition_for(slot.unit_index);
-                return def && def->can_fly;
-            });
-            return true;
-        }
         // Ctrl+S selects the local units of the on-screen list: those whose
         // box overlaps the view.
-        if (sym == SDLK_S) {
-            auto& world = match_->state();
-            world.game.local_player_index = match_local_player_;
-            oa::sim::selection::select_visible_units(world, on_screen_lists(), selection_hooks());
-            adopt_selected_units();
-            return true;
-        }
+        auto& world = match_->state();
+        world.game.local_player_index = match_local_player_;
+        oa::sim::selection::select_visible_units(world, on_screen_lists(), selection_hooks());
+        adopt_selected_units();
+        return true;
+    }
+    if (id == "select.same-type") {
         // Ctrl+Z adds to the selection every selectable local unit, anywhere
         // on the map, whose type is the type of any selected unit, as 3.1c
         // does. The type set holds the profile's type ids, or every type id
         // with ui.selection-shortcuts' same-type-bitset-fix.
-        if (sym == SDLK_Z) {
-            auto& world = match_->state();
-            world.game.local_player_index = match_local_player_;
-            const bool every_type =
-                selection_shortcuts_on() && ui_rules().selection_shortcuts.same_type_bitset_fix;
-            oa::sim::selection::select_matching_types(
-                world,
-                selection_hooks(),
-                every_type ? oa::data::limits::highest_type_bits : limits_.unit_types.bitset_bits
-            );
-            adopt_selected_units();
-            int count = 0;
-            for (const auto& slot : match_->world().slots)
-                count += slot.unit != nullptr && slot.owner_index == match_local_player_ &&
-                         (slot.unit->flags & OA_UNIT_FLAG_SELECTED) != 0;
-            status_ = count == 0 ? "No units" : std::to_string(count) + " selected";
-            return true;
-        }
-        return false;
-    }
-    if (sym == SDLK_TAB && selected_match_unit_ != 0) {
-        cycle_selected_primary(shift);
+        auto& world = match_->state();
+        world.game.local_player_index = match_local_player_;
+        const bool every_type =
+            selection_shortcuts_on() && ui_rules().selection_shortcuts.same_type_bitset_fix;
+        oa::sim::selection::select_matching_types(
+            world,
+            selection_hooks(),
+            every_type ? oa::data::limits::highest_type_bits : limits_.unit_types.bitset_bits
+        );
+        adopt_selected_units();
+        int count = 0;
+        for (const auto& slot : match_->world().slots)
+            count += slot.unit != nullptr && slot.owner_index == match_local_player_ &&
+                     (slot.unit->flags & OA_UNIT_FLAG_SELECTED) != 0;
+        status_ = count == 0 ? "No units" : std::to_string(count) + " selected";
         return true;
     }
-    if (sym == SDLK_T || key.scancode == SDL_SCANCODE_T) {
-        cycle_match_tracking(shift);
+    if (id == "select.next-primary" || id == "select.previous-primary") {
+        if (selected_match_unit_ == 0)
+            return false;
+        cycle_selected_primary(id == "select.previous-primary");
+        return true;
+    }
+    if (id == "camera.follow" || id == "camera.follow-previous") {
+        cycle_match_tracking(id == "camera.follow-previous");
         return true;
     }
     // Space shows the status strip and the kills board only while it is
     // held (draw_status_panel, draw_match_kill_board), as 3.1c does: its
     // press selects nothing and moves no camera.
-    if (sym == SDLK_SPACE || key.scancode == SDL_SCANCODE_SPACE)
+    if (id == "game.status-strip")
         return true;
     // Home centres the view on the selected unit, or with none selects the
     // local commander and centres on it.
-    if (sym == SDLK_HOME || key.scancode == SDL_SCANCODE_HOME) {
+    if (id == "camera.centre") {
         if (selected_match_unit_ != 0)
             center_camera_on_unit(selected_match_unit_);
         else {
@@ -351,13 +497,14 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
         status_ = "Center";
         return true;
     }
-    // A multiplayer game's 'h' reached the console's hotkeys above; outside one
-    // it does nothing.
-    if (sym == SDLK_H)
+    // H opens SHARE in a shared game and is taken in every game.
+    if (id == "game.share-panel") {
+        run_console_hotkey(static_cast<uint32_t>('h'));
         return true;
+    }
     // 'n' centres the view on the next local unit not yet visited and marks
     // the local units then on screen visited; it selects nothing.
-    if (sym == SDLK_N) {
+    if (id == "camera.next-unit") {
         auto& world = match_->state();
         world.game.local_player_index = match_local_player_;
         oa::sim::selection::cycle_next_unit(world, on_screen_lists(), selection_hooks());
@@ -366,66 +513,228 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
         return true;
     }
     // A multiplayer game's watcher changes no speed.
-    if (const int step = game_speed_key_step(key); step != 0) {
+    if (id == "game.speed-up" || id == "game.speed-down") {
+        if (action.phase != keys::Phase::pressed && action.phase != keys::Phase::repeated)
+            return false;
         if ((current_extension_state() & extension_state::local_watcher) == 0)
-            adjust_game_speed(step);
+            adjust_game_speed(id == "game.speed-up" ? 1 : -1);
         return true;
     }
     // The page keys take the order page into their turn, and sound whether
     // or not a page turns; each repeat of a held one turns again.
-    if (const int step = page_key_step(key); step != 0) {
+    if (id == "build.page-next" || id == "build.page-previous") {
+        if (action.phase != keys::Phase::pressed && action.phase != keys::Phase::repeated)
+            return false;
         play_match_interface_sound("nextbuildmenu");
         press_match_panel_page(
-            step > 0 ? oa::ui::hud::BuildPanelClick::page_forward
-                     : oa::ui::hud::BuildPanelClick::page_back,
+            id == "build.page-next" ? oa::ui::hud::BuildPanelClick::page_forward
+                                    : oa::ui::hud::BuildPanelClick::page_back,
             true
         );
         return true;
     }
-    if (sym == SDLK_RETURN || key.scancode == SDL_SCANCODE_RETURN) {
+    if (id == "chat.open") {
         open_chat_line();
         return true;
     }
-    // A button whose quick key is the typed letter in either case
-    // is clicked (ATTACK 'a', BLAST 'd', STOP 's', ...); while the unit info
-    // panel is open the side column's buttons take no key, as they take no
-    // press.
-    if (match_hud_ && sym < 0x80 && !unit_info_panel_) {
-        const auto typed = std::tolower(static_cast<int>(sym));
-        for (std::size_t i = 0; i < match_hud_->layout.gadgets.size(); ++i) {
-            const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(
-                &match_hud_->layout.gadgets[i].fields
-            );
-            if (button == nullptr || button->quick_key == 0)
-                continue;
-            if (std::tolower(static_cast<unsigned char>(button->quick_key)) == typed) {
-                activate_match_hud(i);
+    if (id == "camera.classic-view" || id == "camera.unlocked")
+        return answer_live_view_key(id);
+    if (id == "camera.zoom-in-key" || id == "camera.zoom-out-key" || id == "camera.zoom-reset")
+        return zoom_match_from_key(id);
+    if (id == "chat.open-allies") {
+        open_allies_chat_line();
+        return true;
+    }
+    // Cancel takes back only an armed order or a placement. Clear drops only
+    // the selection, and leaves an armed order armed.
+    if (id == "order.cancel") {
+        cancel_match_order();
+        return true;
+    }
+    if (id == "select.clear") {
+        clear_match_selection();
+        return true;
+    }
+    if (const int cell = build_cell_number(id); cell != 0) {
+        // Past the last shown build button, and on the orders page, the key
+        // is taken and nothing is pressed: no page turns and no order arms.
+        std::ignore = press_build_cell(cell);
+        return true;
+    }
+    return press_shown_panel_action(id, action.phase);
+}
+
+bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
+    if (screen_ != Screen::match || !match_)
+        return false;
+    hold_key_scancode_ = static_cast<uint16_t>(key.scancode);
+    // Escape ends a hold and still does what it was going to do.
+    if (key.key == SDLK_ESCAPE && !key.repeat)
+        cancel_hold_confirm();
+    // dispatch_event feeds a key before the screen sees it. A check, and any
+    // other caller, hands the key here directly. The down flag is the key's
+    // own state, including a held key's repeat, so it does not say whether
+    // the dispatcher has seen this press. Feeding a press that was already
+    // given is a second down with no up, which lets a latch go and drops a
+    // sticky modifier before this handler reads the action.
+    if (!match_key_already_fed_) {
+        SDL_Event fed_event{};
+        fed_event.key = key;
+        fed_event.type = SDL_EVENT_KEY_DOWN;
+        fed_event.key.down = true;
+        feed_input_actions(fed_event);
+    }
+    // The surrender confirmation takes the keys ahead of the chat line and
+    // a marker's text, which keep what was typed for after it.
+    const bool question = match_question_open();
+    // A held key's repeats press no hotkey but the speed keys, the page
+    // keys and the zoom keys: held '+' or '-' goes on changing the game speed,
+    // a step with each repeat, as in 3.1c, and stops at the fastest or the
+    // slowest; held ',' or '.' goes on turning the order panel's page, a page
+    // and a nextbuildmenu with each repeat, as in 3.1c, taking the order page
+    // into its turn as a press does; held zoom-in or zoom-out takes another
+    // wheel step about the battlefield's centre. Held Backspace goes on
+    // deleting from the chat line or a marker's text being typed, as held
+    // keys go on typing in 3.1c; held letters arrive as repeated text.
+    const bool deletes_typed_text =
+        !question && key.key == SDLK_BACKSPACE && (chat_composing_ || whiteboard_input_.editing);
+    const auto events = match_action_events();
+    // Another key's press ends a run of presses of one group's key. A
+    // modifier's own key does not: Alt may go down again between the two.
+    if (!key.repeat && !modifier_key(key.scancode) && !group_key_pressed(events))
+        group_key_last_ = 0;
+    if (key.repeat && !deletes_typed_text && !repeats_speed_or_page(events))
+        return false;
+    if ((!question && take_whiteboard_chord(key)) || take_megamap_toggle(key))
+        return true;
+    if (const keys::ActionEvent* pressed = find_pressed(
+            events,
+            {"game.kill-board",
+             "game.resource-panel",
+             "game.unit-info",
+             "game.pin-unit",
+             "game.menu",
+             "camera.next-report",
+             "game.clear-messages",
+             "game.pause",
+             "game.screenshot"}
+        ))
+        return handle_match_action(*pressed);
+    if (chat_composing_ && !question) {
+        if (const keys::ActionEvent* cancel = find_pressed(events, {"chat.cancel"}))
+            return handle_match_action(*cancel);
+        if (const keys::ActionEvent* send = find_pressed(events, {"chat.send"}))
+            return handle_match_action(*send);
+        // chat.cancel is fixed to Escape, so Ctrl+Escape emits nothing while
+        // the line is open. The key still closes it.
+        if (key.key == SDLK_ESCAPE) {
+            close_chat_line();
+            return true;
+        }
+        if (key.key == SDLK_BACKSPACE && !chat_buffer_.empty()) {
+            // The line is typed text: the key takes the whole last character.
+            chat_buffer_.erase(oa::present::last_character_start(chat_buffer_));
+            return true;
+        }
+        return true;
+    }
+    // The surrender confirmation answers its accept action as No, its Enter
+    // default; escape_match_menu answers its cancel action.
+    const auto* menu_accept = fired_action("ui.menu-accept");
+    const bool menu_accept_down =
+        menu_accept != nullptr && menu_accept->phase == keys::Phase::pressed;
+    if (match_paused_ && menu_accept_down && enter_match_menu())
+        return true;
+    // The unit info panel's accept and cancel actions are both DONE, and so
+    // is that button's gui action. Space is the panel's.
+    if (unit_info_panel_) {
+        const std::string done_action = gui_action_id("UNITINFOx", kUnitInfoDone);
+        bool done_pressed = false;
+        for (const keys::ActionEvent& fed : events) {
+            if (fed.phase == keys::Phase::pressed && fed.action == done_action)
+                done_pressed = true;
+        }
+        const auto* menu_cancel = fired_action("ui.menu-cancel");
+        const bool menu_cancel_down =
+            menu_cancel != nullptr && menu_cancel->phase == keys::Phase::pressed;
+        if (menu_accept_down || menu_cancel_down || done_pressed) {
+            press_unit_info_done();
+            return true;
+        }
+    }
+    // The in-game menu's and the tab menu's panels, and the preferences a
+    // match opens, take the keys they answer while they hold the keyboard.
+    if (press_match_panel_key(key))
+        return true;
+    // The console's actions come before Escape and the play keys, so a shared
+    // game's Tab opens the allies menu and, with the debug keys on, '=', ']',
+    // I and M do not change the speed, press a quick key or arm Move.
+    if (const keys::ActionEvent* console_press = find_console_press(events)) {
+        if (match_console() != nullptr) {
+            const std::optional<uint32_t> hotkey = console_code(console_press->action);
+            if (hotkey) {
+                run_console_hotkey(*hotkey);
                 return true;
             }
         }
     }
+    if (const keys::ActionEvent* back = find_pressed(events, {"game.back"}))
+        return handle_match_action(*back);
+    if (match_paused_)
+        return false;
+    for (const keys::ActionEvent& fed : events) {
+        const bool answers = fed.phase == keys::Phase::pressed ||
+                             (fed.phase == keys::Phase::repeated && answers_repeat(fed.action));
+        if (!answers)
+            continue;
+        if (handle_match_action(fed))
+            return true;
+    }
     return false;
 }
 
-void Runtime::clear_or_cancel_match_command() {
+void Runtime::cancel_match_order() {
     if (!match_)
         return;
-    if (match_command_ != MatchCommand::none || pending_build_type_ != 0) {
-        reset_match_command();
-        pending_build_type_ = 0;
-        oa::sim::gameplay_input::set_pointer_command(
-            match_->state().game, oa::sim::gameplay_input::OrderCommand::default_order
-        );
-        apply_match_hud_for_selection();
-        status_ = "Command cancelled";
+    if (match_command_ == MatchCommand::none && pending_build_type_ == 0)
         return;
-    }
+    reset_match_command();
+    pending_build_type_ = 0;
+    oa::sim::gameplay_input::set_pointer_command(
+        match_->state().game, oa::sim::gameplay_input::OrderCommand::default_order
+    );
+    apply_match_hud_for_selection();
+    status_ = "Command cancelled";
+}
+
+void Runtime::clear_match_selection() {
+    if (!match_)
+        return;
     // The unit info panel over the order panel closes with the selection,
-    // as a click that drops it closes it.
+    // as a click that drops it closes it. An armed order stays armed.
     clear_local_selection();
     close_unit_info();
     apply_match_hud_for_selection();
     status_ = "Selection cleared";
+}
+
+void Runtime::cancel_or_clear_match_command() {
+    if (!match_)
+        return;
+    if (match_command_ != MatchCommand::none || pending_build_type_ != 0)
+        cancel_match_order();
+    else
+        clear_match_selection();
+}
+
+bool Runtime::press_build_cell(int cell) {
+    if (cell < 1 || cell > 12 || !match_hud_ || unit_info_panel_)
+        return false;
+    const std::vector<std::size_t> cells = build_cell_gadgets();
+    if (static_cast<std::size_t>(cell) > cells.size())
+        return false;
+    activate_match_hud(cells[static_cast<std::size_t>(cell - 1)], true);
+    return true;
 }
 
 void Runtime::select_match_unit(float x, float y, int32_t clicks) {
@@ -884,21 +1193,10 @@ bool Runtime::open_unit_info() {
         return false;
     }
     // The panel is drawn once, its picture copied at HOTR at its own size.
-    // Each button shows the quick key its caption gives it on the panel's
-    // first draw, underlined: OK's O.
+    // Each button shows the letter its caption gives it on the panel's
+    // first draw, underlined.
     auto& panel = *unit_info_panel_;
-    std::vector<renderer::ButtonPresentation> buttons;
-    auto& gadgets = panel.screen->layout.gadgets;
-    for (std::size_t index = 0; index < gadgets.size(); ++index) {
-        assign_button_quick_key(gadgets, index);
-        if (const auto* button =
-                std::get_if<oa::ui::gui_layout::ButtonFields>(&gadgets[index].fields)) {
-            renderer::ButtonPresentation shown;
-            shown.name = gadgets[index].common.name;
-            shown.quick_key = static_cast<char>(button->quick_key);
-            buttons.push_back(std::move(shown));
-        }
-    }
+    auto buttons = unit_info_button_presentations(panel.screen->layout.gadgets);
     try {
         panel.frame = renderer::render_screen(*panel.screen, buttons);
     } catch (const std::exception& error) {
@@ -1100,13 +1398,6 @@ void Runtime::draw_unit_info_panel() {
         root.width,
         root.height
     );
-}
-
-void Runtime::draw_chat_overlay() {
-    draw_console_clock();
-    draw_match_message_log();
-    draw_debug_status_line();
-    draw_frame_stats();
 }
 
 void Runtime::ensure_talk_panel() {
@@ -1323,9 +1614,17 @@ void Runtime::draw_risen_chat_line() {
     if (right <= left)
         return;
     const int bottom = area.y + area.height;
+    // Standing on the area's bottom edge, or where the player put the line
+    // (Arrange overlays).
+    const auto placed_at = [&](int top) {
+        const layout::Rect shown = oa_layer().overlay_shown(
+            overlay_placement::chat_line, {left, top, right - left, bottom - top}
+        );
+        return canvas_paint(shown.x, shown.y);
+    };
     if (layers) {
         const int top = std::max(bottom - layers->height - 2 * inset, area.y);
-        const auto at = canvas_paint(left, top);
+        const auto at = placed_at(top);
         fill_hud_rect(at.x, at.y, right - left, bottom - top, view_rules::chat_backdrop_color);
         const int baseline = at.y + inset + layers->baseline;
         std::ignore =
@@ -1358,7 +1657,7 @@ void Runtime::draw_risen_chat_line() {
     }
     const int text_height = static_cast<int>(oa::formats::fnt::line_height(*font)) * scale;
     const int top = std::max(bottom - text_height - 2 * inset, area.y);
-    const auto at = canvas_paint(left, top);
+    const auto at = placed_at(top);
     fill_hud_rect(at.x, at.y, right - left, bottom - top, view_rules::chat_backdrop_color);
     draw_match_text(font, at.x + pen - left, at.y + inset, line, kChatTextColor, scale);
     // The input method's composition, as much of it as the line shows, is
@@ -1377,10 +1676,6 @@ void Runtime::draw_risen_chat_line() {
 
 namespace {
 
-// A release this many game ticks or fewer after the
-// press, over a box under this many map pixels across in x and z, counts as a click.
-constexpr uint32_t kDragClickTicks = 0x19;
-constexpr int32_t kDragClickPixels = 0x20;
 // UI colours of the drag box's outer and inset outlines.
 constexpr uint8_t kDragBoxOuterColor = 15;
 constexpr uint8_t kDragBoxInnerColor = 0;
@@ -1409,17 +1704,19 @@ std::optional<std::array<int32_t, 3>> Runtime::match_pointer_ground(float x, flo
             match_layout_.top + match_layout_.battlefield_height() - 1
         )
     };
-    // The map pixel drawn under the pointer.
+    // The map pixel drawn under the pointer. Where the view may show past
+    // the map's edges, the box reaches as far as it shows.
     const auto map = map_pixel_drawn_at(viewport, pointer);
     if (!map)
         return std::nullopt;
     const oa::sim::unit_movement::Terrain terrain(*selected_tnt_);
-    const auto ground = oa::sim::gameplay_input::terrain_intersection(
+    const auto ground = oa::sim::gameplay_input::drag_box_corner(
         terrain,
         static_cast<int32_t>(map->x),
         static_cast<int32_t>(map->y),
         static_cast<int32_t>(selected_tnt_->attribute_width * 16U),
-        static_cast<int32_t>(selected_tnt_->attribute_height * 16U)
+        static_cast<int32_t>(selected_tnt_->attribute_height * 16U),
+        past_map_edge_share() > 0.0
     );
     const auto whole = [](int32_t fixed) {
         return static_cast<int32_t>(static_cast<int16_t>(fixed >> 16));
@@ -1468,18 +1765,30 @@ std::array<oa::present::world_renderer::ScreenPoint, 2> Runtime::match_drag_corn
     return {project(match_drag_->start), project(match_drag_->end)};
 }
 
+int32_t Runtime::drag_click_pixels() const {
+    const uint32_t threshold = engine_settings_ != nullptr
+                                   ? engine_settings_->current.drag_threshold
+                                   : oa::ui::key_bindings::drag_threshold_least;
+    return static_cast<int32_t>(threshold);
+}
+
+uint32_t Runtime::drag_click_ticks() const {
+    return oa::ui::key_bindings::drag_click_ticks(static_cast<uint32_t>(drag_click_pixels()));
+}
+
 bool Runtime::match_drag_is_click() const {
     if (!match_drag_)
         return true;
+    const int32_t pixels = drag_click_pixels();
     if (live_renderer_active()) {
         const auto corners = match_drag_corners(live_viewport(match_camera_x_, match_camera_z_));
-        return std::abs(corners[0].x - corners[1].x) < kDragClickPixels &&
-               std::abs(corners[0].y - corners[1].y) < kDragClickPixels;
+        return std::abs(corners[0].x - corners[1].x) < pixels &&
+               std::abs(corners[0].y - corners[1].y) < pixels;
     }
     const auto released = static_cast<int32_t>(frontend_tick());
-    return released < static_cast<int32_t>(match_drag_->pressed_tick + kDragClickTicks) &&
-           std::abs(match_drag_->start[0] - match_drag_->end[0]) < kDragClickPixels &&
-           std::abs(match_drag_->start[2] - match_drag_->end[2]) < kDragClickPixels;
+    return released < static_cast<int32_t>(match_drag_->pressed_tick + drag_click_ticks()) &&
+           std::abs(match_drag_->start[0] - match_drag_->end[0]) < pixels &&
+           std::abs(match_drag_->start[2] - match_drag_->end[2]) < pixels;
 }
 
 void Runtime::draw_selection_band(

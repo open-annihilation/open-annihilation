@@ -516,7 +516,7 @@ void plans_for_gatehouse_keep() {
             button_of(library, *keep, lib::Action::get_with);
         OA_CHECK(with.has_value() && with->enabled);
         if (with.has_value())
-            check_text(with->text, "GET WITH Gatehouse");
+            check_text(with->text, "Get with Gatehouse");
         OA_CHECK(!button_of(library, *keep, lib::Action::get).has_value());
     }
     {
@@ -616,7 +616,7 @@ void a_chain_downloads_in_order() {
     const std::optional<lib::ActionButton> with = button_of(library, *keep, lib::Action::get_with);
     OA_CHECK(with.has_value() && with->enabled);
     if (with.has_value())
-        check_text(with->text, "GET WITH 3 MORE");
+        check_text(with->text, "Get with 3 more");
 }
 
 /// A prerequisite the played mod cannot use is still downloaded, and does not block.
@@ -709,10 +709,10 @@ void the_question_lists_every_package() {
     }
     OA_CHECK(asked.buttons.size() == 2);
     if (asked.buttons.size() == 2) {
-        check_text(asked.buttons[0].caption, "CANCEL");
+        check_text(asked.buttons[0].caption, "Cancel");
         check_text(asked.buttons[0].id, "cancel");
         OA_CHECK(!asked.buttons[0].accent);
-        check_text(asked.buttons[1].caption, "GET BOTH");
+        check_text(asked.buttons[1].caption, "Get both");
         check_text(asked.buttons[1].id, "get-both");
         OA_CHECK(asked.buttons[1].accent);
     }
@@ -758,7 +758,7 @@ void the_question_lists_every_package() {
         );
     }
     if (all.buttons.size() == 2) {
-        check_text(all.buttons[1].caption, "GET ALL");
+        check_text(all.buttons[1].caption, "Get all");
         check_text(all.buttons[1].id, "get-all");
     }
     for (const kit::SizeClass size_class :
@@ -856,7 +856,7 @@ void uninstall_names_dependants() {
                 "Gatehouse Keep needs it: it stays installed, and cannot be switched on until "
                 "this is back."
             );
-            check_text(asked.paragraphs[2].text, "GET installs it again.");
+            check_text(asked.paragraphs[2].text, "Get installs it again.");
         }
         OA_CHECK(asked.buttons.size() == 2 && asked.marked == 0);
     }

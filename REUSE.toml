@@ -53,6 +53,7 @@ path = [
     "cmake/**.json",
     "src/**.json",
     "src/app/Info.plist.in",
+    "src/app/key-table/**.tsv",
     "src/app/open-annihilation.manifest",
     "src/ui/engine-settings/tests/pixels.txt",
     "src/ui/folder-chooser/tests/layout-digests.txt",
@@ -60,6 +61,7 @@ path = [
     "tests/**.json",
     "tools/**.json",
     "tools/**.txt",
+    "tools/oa-update/oa-update.manifest",
 ]
 SPDX-FileCopyrightText = "The Open Annihilation Authors; see COPYRIGHT"
 SPDX-License-Identifier = "GPL-3.0-only"

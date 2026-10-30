@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 cmake_minimum_required(VERSION 3.24)
-project(open_annihilation VERSION 0.8.6 LANGUAGES C CXX)
+project(open_annihilation VERSION 0.8.7 LANGUAGES C CXX)
 # The version's label. A build of a tree whose label is not empty is a
 # development build. The label is empty for a release, and for a build the
 # maintainer reviews as one; the commit after a release sets it back to "dev"
 # and raises the version.
-set(OA_VERSION_LABEL "1")
+set(OA_VERSION_LABEL "")
 # A target that links one static library both directly and through
 # another library gets it once on its link line, in dependency order, rather
 # than once for each path that reaches it. The linker then has nothing to
@@ -77,8 +77,8 @@ target_link_libraries(oa-test-match INTERFACE oa-test-support oa-sim-match-runti
 # links (cmake/OaOptions.cmake).
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaOptions.cmake")
 # What the platform the game is built for can do: OA_PROCESS_SPAWNING,
-# OA_NATIVE_FOLDER_DIALOG, OA_NATIVE_DENSITY_WINDOWS and OA_TOUCH_FIRST
-# (cmake/OaPlatformCapabilities.cmake).
+# OA_NATIVE_FOLDER_DIALOG, OA_NATIVE_DENSITY_WINDOWS, OA_TOUCH_FIRST and
+# OA_SELF_UPDATE (cmake/OaPlatformCapabilities.cmake).
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaPlatformCapabilities.cmake")
 # The sanitizers instrument every target in this tree, not only those that
 # link oa-options, and stop at the first report so the test that made it
@@ -159,6 +159,7 @@ add_subdirectory(src/data/content-bundles)
 add_subdirectory(src/data/saves)
 add_subdirectory(src/data/registry)
 add_subdirectory(src/data/catalogue)
+add_subdirectory(src/data/engine-feed)
 add_subdirectory(src/data/script-host)
 add_subdirectory(src/data/match-rules)
 add_subdirectory(src/sim/unit-activation)
@@ -205,6 +206,7 @@ add_subdirectory(src/formats/oascript)
 add_subdirectory(src/formats/oamod)
 add_subdirectory(src/formats/oamut)
 add_subdirectory(src/formats/oabrain)
+add_subdirectory(src/formats/oakeys)
 add_subdirectory(src/formats/oann)
 add_subdirectory(src/data/neural)
 add_subdirectory(src/formats/json)
@@ -212,6 +214,8 @@ add_subdirectory(src/formats/url)
 add_subdirectory(src/data/mod-profile)
 add_subdirectory(src/data/map-pack)
 add_subdirectory(src/data/mutator-library)
+add_subdirectory(src/data/key-library)
+add_subdirectory(src/data/input-actions)
 add_subdirectory(src/data/brain-facts)
 add_subdirectory(src/data/brain-library)
 add_subdirectory(src/data/map-fit)
@@ -271,6 +275,10 @@ add_subdirectory(src/ui/paint)
 # The touch controls' gesture recogniser and model (docs/touch-controls.md).
 add_subdirectory(src/ui/touch-gestures)
 add_subdirectory(src/ui/touch-hud)
+# Chords: letters, key positions, names and how an event matches.
+add_subdirectory(src/ui/key-bindings)
+# The key editor: the list of every rebindable action.
+add_subdirectory(src/ui/key-editor)
 add_subdirectory(src/ui/game-files)
 # The in-engine game folder chooser's model.
 add_subdirectory(src/ui/folder-chooser)
@@ -321,7 +329,7 @@ target_link_libraries(oa-app-game-options PUBLIC oa-app-headers)
 target_link_libraries(oa-app-game-options PUBLIC oa-ui-frontend-renderer oa-ui-frontend-state oa-sim-scenario
   oa-ui-screen-registry oa-app-command-line oa-platform-preferences oa-app-mod-profile
   PRIVATE oa-app-package-install oa-platform-job-pool oa-platform-display-modes oa-options
-  oa-data-content-bundles oa-data-mutators)
+  oa-data-content-bundles oa-data-mutators oa-base-signing)
 # oa-game's game folder: --game-dir, the remembered folder, a folder found
 # where Steam, Heroic or Lutris put it, or the folder dialog's choice, the
 # installation checks, and the installer of the Total Annihilation demo
@@ -419,11 +427,18 @@ add_library(oa-app-view-rules src/app/view_rules.cpp)
 add_library(oa::app::view_rules ALIAS oa-app-view-rules)
 target_link_libraries(oa-app-view-rules PUBLIC oa-app-headers oa-data-mod-profile oa-sim-match-runtime
   oa-ui-frontend-state oa-present-world-renderer oa-ui-engine-settings
-  PRIVATE oa-ui-frontend-multiplayer oa-options)
+  PRIVATE oa-ui-frontend-multiplayer oa-ui-key-bindings oa-options)
 if(BUILD_TESTING)
   add_executable(oa-app-view-rules-test src/app/view_rules_test.cpp)
   target_link_libraries(oa-app-view-rules-test PRIVATE oa-app-view-rules oa-test-support oa-options)
   add_test(NAME app-view-rules COMMAND oa-app-view-rules-test)
+  add_executable(oa-app-gui-actions-test src/app/gui_actions_test.cpp src/app/gui_actions.cpp)
+  target_link_libraries(oa-app-gui-actions-test PRIVATE oa-data-input-actions oa-test-support oa-options)
+  add_test(NAME app-gui-actions COMMAND oa-app-gui-actions-test)
+  add_executable(oa-app-tag-actions-test src/app/tag_actions_test.cpp src/app/tag_actions.cpp)
+  target_link_libraries(oa-app-tag-actions-test PRIVATE oa-data-defs oa-ui-key-bindings
+    oa-test-support oa-options)
+  add_test(NAME app-tag-actions COMMAND oa-app-tag-actions-test)
 endif()
 # The game's three icons (branding/, made by tools/make_icons.py), each
 # embedded as a PNG file. The 256-pixel pictures: the app icon is the
@@ -538,7 +553,8 @@ add_library(oa-app-renderer-effects src/app/renderer_effects.cpp src/app/rendere
   src/app/renderer_effect_events.cpp)
 add_library(oa::app::renderer_effects ALIAS oa-app-renderer-effects)
 target_include_directories(oa-app-renderer-effects PUBLIC src/app)
-target_link_libraries(oa-app-renderer-effects PUBLIC oa-sim-match-runtime PRIVATE oa-options)
+target_link_libraries(oa-app-renderer-effects PUBLIC oa-sim-match-runtime oa-platform-job-pool
+  PRIVATE oa-options)
 if(BUILD_TESTING)
   foreach(oa_effect_part effects effect_sources effect_events)
     add_executable(oa-app-renderer-${oa_effect_part}-test src/app/renderer_${oa_effect_part}_test.cpp)
@@ -716,7 +732,8 @@ if(OA_BUILD_PLATFORM)
     # lie each over the next, drawn with holes, a lit building and its bright
     # page, a cloaked unit, a unit under construction, units under water
     # of both sides, carried units, shadows into the target and straight
-    # into the frame, shadows lighter at zoom 0.5 and none at a quarter on
+    # into the frame, the game's own shadows each drawn with its model (New
+    # unit shadows off), shadows lighter at zoom 0.5 and none at a quarter on
     # both sides, a projectile, a debris piece and a fragment, a
     # back-facing polygon left out, the pages placed once and uploaded, and
     # a frame at zoom 2; with --data, every unit model of the installed
@@ -808,7 +825,7 @@ if(OA_BUILD_PLATFORM)
     # through its palette and alpha table.
     add_executable(oa-app-full-sprites-test src/app/full_sprites_test.cpp
       src/app/runtime_full_sprites.cpp src/app/world_draws.cpp)
-    target_link_libraries(oa-app-full-sprites-test PRIVATE oa-app-card-executor
+    target_link_libraries(oa-app-full-sprites-test PRIVATE oa-app-card-executor oa-app-full-fog
       oa-present-gpu-world oa-present oa-present-model oa-present-world-renderer
       oa-formats-gaf oa-formats-hpi oa-sim-effect-particles oa-sim-model-runtime
       oa-platform-job-pool SDL3::SDL3 oa-test-game-data oa-test-support oa-options)
@@ -890,6 +907,11 @@ if(BUILD_TESTING)
   target_link_libraries(oa-game-directory-test PRIVATE oa-app-game-directory oa-app-headers oa-formats-hpi
     oa-platform-preferences oa-platform-shims oa-test-game-data oa-options)
   add_test(NAME game-directory COMMAND oa-game-directory-test)
+  # Each console action's key code, and an id the console does not run.
+  add_executable(oa-app-console-actions-test src/app/console_actions_test.cpp
+    src/app/console_actions.cpp)
+  target_link_libraries(oa-app-console-actions-test PRIVATE oa-ui-console oa-test-support oa-options)
+  add_test(NAME app-console-actions COMMAND oa-app-console-actions-test)
   # The composed mount of the chosen bundles, in the game's own order, matches
   # a scan of one folder that holds the same files. Battle Tactics off keeps
   # totala4.hpi inside the first ten plain archives. Music and movies are
@@ -1175,6 +1197,26 @@ if(BUILD_TESTING)
     add_test(NAME app-retina-layout COMMAND oa-app-retina-layout-test)
     set_tests_properties(app-retina-layout PROPERTIES TIMEOUT 120
       ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+    # The Window size choice, the places of the windows that move (their
+    # preference keys, kept on screen, snapped, dragged, held by a finger and
+    # moved by a key) and the in-match Settings measured on the whole window,
+    # against the resolution table.
+    add_executable(oa-app-window-placement-test src/app/window_placement_test.cpp
+      src/app/window_placement.cpp)
+    target_link_libraries(oa-app-window-placement-test PRIVATE oa-ui-kit oa-ui-display-layout
+      oa-test-support oa-options)
+    add_test(NAME app-window-placement COMMAND oa-app-window-placement-test)
+    set_tests_properties(app-window-placement PROPERTIES TIMEOUT 30)
+    # The places of the overlays Arrange overlays moves: their keys and values
+    # for each size class, the 8-point grid from the nearest edge or the
+    # centre, a drag, an arrow, the handles, Reset, and none off the
+    # overlays' area nor over the side column.
+    add_executable(oa-app-overlay-placement-test src/app/oa_layer_overlays_test.cpp
+      src/app/oa_layer_overlays.cpp src/app/window_placement.cpp)
+    target_link_libraries(oa-app-overlay-placement-test PRIVATE oa-ui-kit oa-ui-display-layout
+      oa-test-support oa-options)
+    add_test(NAME app-overlay-placement COMMAND oa-app-overlay-placement-test)
+    set_tests_properties(app-overlay-placement PROPERTIES TIMEOUT 30)
     # The texture limit the render policy corrects from the probe's report,
     # the line the game logs once its renderer is made, naming the driver,
     # the adapter, the texture limit and the tier with what it does or why
@@ -1224,7 +1266,8 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_live_unit_overlays.cpp
   src/app/runtime_effects.cpp
   src/app/runtime_effect_composition.cpp
-  src/app/runtime_console.cpp src/app/runtime_console_options.cpp src/app/runtime_console_debug.cpp
+  src/app/runtime_console.cpp src/app/console_actions.cpp src/app/runtime_console_options.cpp
+  src/app/runtime_console_debug.cpp
   src/app/runtime_console_sound.cpp src/app/runtime_console_display.cpp
   src/app/runtime_console_units.cpp
   src/app/runtime_console_cheats.cpp src/app/runtime_poster.cpp
@@ -1242,6 +1285,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_full.cpp src/app/runtime_full_sprites.cpp src/app/runtime_full_overlays.cpp
   src/app/runtime_terrain_filter.cpp src/app/runtime_fog.cpp
   src/app/runtime_pointer_press.cpp
+  src/app/runtime_pointer_roles.cpp
   src/app/runtime_selection.cpp src/app/runtime_selection_shortcuts.cpp
   src/app/runtime_view_panels.cpp src/app/runtime_whiteboard.cpp src/app/runtime_commander_placement.cpp
   src/app/runtime_megamap.cpp
@@ -1262,7 +1306,10 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_user_folder.cpp
   src/app/runtime_mod_warning.cpp
   src/app/runtime_presence_card.cpp
-  src/app/runtime_mod_install.cpp src/app/runtime_content.cpp src/app/runtime_challenge.cpp
+  src/app/runtime_mod_install.cpp src/app/runtime_content.cpp src/app/runtime_update.cpp
+  src/app/runtime_update_offer.cpp
+  src/app/runtime_update_install.cpp
+  src/app/runtime_challenge.cpp
   src/app/runtime_registries.cpp
   src/app/runtime_package_kinds.cpp
   src/app/runtime_mutator_library.cpp
@@ -1298,8 +1345,13 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_engine_settings_menu.cpp
   src/app/runtime_engine_settings_match.cpp
   src/app/oa_layer.cpp
+  src/app/oa_layer_arrange.cpp
+  src/app/oa_layer_overlays.cpp
+  src/app/window_placement.cpp
   src/app/runtime_library.cpp src/app/runtime_library_actions.cpp
   src/app/runtime_map_browser.cpp
+  src/app/runtime_key_editor.cpp
+  src/app/runtime_keys_overlay.cpp
   src/app/runtime_mutator_picker.cpp
   src/app/runtime_brain_picker.cpp
   src/app/oa_button_focus.cpp
@@ -1318,7 +1370,10 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_picture_captions.cpp
   src/app/runtime_renderer.cpp
   src/app/runtime_touch.cpp src/app/runtime_touch_actions.cpp src/app/runtime_touch_camera.cpp
-  src/app/runtime_input_modifiers.cpp src/app/runtime_touch_hud.cpp
+  src/app/runtime_input_modifiers.cpp src/app/runtime_key_bindings.cpp
+  src/app/runtime_pointer_keys.cpp
+  src/app/gui_actions.cpp src/app/tag_actions.cpp src/app/runtime_gui_actions.cpp
+  src/app/runtime_touch_hud.cpp
   src/app/runtime_phone_hud.cpp src/app/runtime_lifecycle.cpp
   src/app/game_files_screen.cpp src/app/game_files_paint.cpp src/app/game_files_dialog.cpp
   src/app/runtime_game_files.cpp
@@ -1332,8 +1387,11 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
 # is still the size the player sees; other systems take the size SDL reports.
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
   enable_language(OBJCXX)
-  list(APPEND oa_game_sources src/app/window_live_size.mm)
-  set_source_files_properties(src/app/window_live_size.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+  list(APPEND oa_game_sources src/app/window_live_size.mm src/app/keyboard_shape.mm)
+  set_source_files_properties(src/app/window_live_size.mm src/app/keyboard_shape.mm
+    PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+else()
+  list(APPEND oa_game_sources src/app/keyboard_shape.cpp)
 endif()
 # The self-checks: the --check-* options with which the game drives itself
 # through its screens and orders and reports a verdict, for the native
@@ -1341,17 +1399,30 @@ endif()
 set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_check.cpp
   src/app/runtime_live_renderer_check.cpp
   src/app/runtime_side_orders_check.cpp
+  src/app/runtime_skirmish_sides_check.cpp
+  src/app/runtime_mod_limits_check.cpp
   src/app/runtime_render_tiers_check.cpp src/app/runtime_smooth_pan_check.cpp
-  src/app/runtime_reclaim_check.cpp src/app/runtime_patrol_check.cpp
+  src/app/runtime_unit_shadows_check.cpp
+  src/app/runtime_reclaim_check.cpp src/app/runtime_weapon_fire_check.cpp
+  src/app/runtime_patrol_check.cpp
   src/app/runtime_reclaim_cursor_check.cpp src/app/runtime_wreck_pick_check.cpp
+  src/app/runtime_underwater_features_check.cpp
   src/app/runtime_click_snap_check.cpp
-  src/app/runtime_build_preview_check.cpp
-  src/app/runtime_pointer_check.cpp src/app/runtime_dgun_check.cpp
+  src/app/runtime_build_preview_check.cpp src/app/runtime_dialog_backdrop_check.cpp
+  src/app/runtime_pointer_check.cpp src/app/runtime_key_table_check.cpp
+  src/app/runtime_key_latches_check.cpp
+  src/app/runtime_hold_confirm_check.cpp
+  src/app/runtime_order_wheel_check.cpp
+  src/app/runtime_key_timing_check.cpp
+  src/app/runtime_pointer_keys_check.cpp
+  src/app/runtime_dgun_check.cpp
   src/app/runtime_attack_command_check.cpp src/app/runtime_tracking_zoom_check.cpp
   src/app/runtime_zoom_memory_check.cpp
   src/app/runtime_match_panel_keys_check.cpp src/app/runtime_turret_draw_check.cpp
   src/app/runtime_megamap_check.cpp src/app/runtime_radar_orders_check.cpp
+  src/app/runtime_single_player_offers_check.cpp
   src/app/runtime_inactive_loop_check.cpp src/app/runtime_factory_check.cpp
+  src/app/runtime_factory_departure_check.cpp
   src/app/runtime_unit_speech_check.cpp src/app/runtime_mutator_layer_check.cpp
   src/app/runtime_mutator_verdicts_check.cpp
   src/app/runtime_mutator_dry_run.cpp
@@ -1364,6 +1435,10 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_language_notice_check.cpp
   src/app/runtime_first_run_check.cpp
   src/app/runtime_progress_check.cpp
+  src/app/runtime_update_check.cpp
+  src/app/runtime_update_offer_check.cpp
+  src/app/runtime_update_install_check.cpp
+  src/app/runtime_update_roll_back_check.cpp
   src/app/runtime_text_fit_check.cpp
   src/app/runtime_side_column_check.cpp src/app/runtime_match_bars_check.cpp
   src/app/runtime_unit_pages_check.cpp src/app/runtime_frontend_controls_check.cpp
@@ -1374,6 +1449,12 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_map_pack_lists_check.cpp
   src/app/runtime_mod_map_settings_check.cpp
   src/app/runtime_map_browser_check.cpp
+  src/app/runtime_key_editor_check.cpp
+  src/app/runtime_keys_overlay_check.cpp
+  src/app/runtime_selection_keys_check.cpp
+  src/app/runtime_key_capture_check.cpp
+  src/app/runtime_key_share_check.cpp
+  src/app/runtime_key_views_check.cpp
   src/app/runtime_mutator_picker_check.cpp
   src/app/runtime_brain_picker_check.cpp
   src/app/runtime_brain_seats_check.cpp
@@ -1427,13 +1508,14 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-ui-touch-gestures oa-ui-touch-hud oa-app-game-files oa-ui-game-files oa-app-package-install
   oa-app-map-packs
   oa-data-mutator-library
+  oa-data-key-library
   oa-data-brain-library
   oa-data-mutators
   oa-app-mutators-memory
   oa-app-brain-match
   oa-app-brain-seats
   oa-app-seat-chat
-  oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
+  oa-ui-key-bindings oa-ui-key-editor oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
   oa-data-content-bundles
   oa-ui-frontend-multiplayer oa-ui-library oa-ui-map-browser oa-ui-mutator-picker
   oa-ui-brain-picker
@@ -1558,7 +1640,7 @@ if(OA_BUILD_PLATFORM)
   if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     # window_live_size.mm reads the window the player sees.
     set_target_properties(oa-game PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON)
-    target_link_libraries(oa-game PRIVATE "-framework AppKit")
+    target_link_libraries(oa-game PRIVATE "-framework AppKit" "-framework Carbon")
   endif()
   if(BUILD_TESTING)
     # --version prints one line and exits before the game looks for anything.
@@ -1679,6 +1761,9 @@ if(OA_BUILD_PLATFORM)
       # standard tier's. Shadows are drawn at their zoom's level: the game's
       # own at zoom 1, half as dark at 0.5 in the standard tier and on the
       # card, lighter at a third and none at a quarter and the Full floor.
+      # A tank and an aircraft beside a tree draw the same frame with New
+      # unit shadows On and Off in the standard and Basic tiers, and Off the
+      # Full tier's shadows shade the standard tier's pixels.
       # Health bars keep the game's 35 by 5 pixels at zoom 1 and in, and
       # shrink zoomed out to 13 by 3 at the Full floor, alike in every tier.
       # Zoomed out to the whole map, past the zoom units are drawn whole at,
@@ -1687,8 +1772,10 @@ if(OA_BUILD_PLATFORM)
       # lens's centre lies off the battlefield draws no lens, and a laser's
       # shot after it lists the lines it lists alone. The Arm commander's
       # laser lights in its beam's colour.
-      # Pictures of one moment at zoom 0.5, 1 and 2.5 in both tiers, and of
-      # the shadows at each of those zooms, go to local/reports. Skips under
+      # Pictures of one moment at zoom 0.5, 1 and 2.5 in both tiers, of the
+      # shadows at each of those zooms and of the tree, the tank and the
+      # aircraft in each tier with New unit shadows On, Off and without
+      # shadows, go to local/reports. Skips under
       # 2 GiB of memory.
       set(oa_render_tiers_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/render-tiers")
       file(MAKE_DIRECTORY "${oa_render_tiers_check_dir}")
@@ -2120,6 +2207,48 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-gadget-art-per-match PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_gadget_art_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # SINGLE.GUI when a side has a campaign, and when a folder hides every
+      # campaign file with an empty file of the same name. New Campaign stays
+      # shown and is greyed only when neither side has a campaign; Any Mission
+      # is hidden then.
+      set(oa_single_player_offers_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/single-player-offers")
+      file(MAKE_DIRECTORY "${oa_single_player_offers_dir}")
+      add_test(NAME native-single-player-offers COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-single-player-offers
+        --preferences-file "${oa_single_player_offers_dir}/offers.conf")
+      set_tests_properties(native-single-player-offers PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_single_player_offers_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "campaigns yes, new campaign offered")
+      set(oa_hidden_campaigns_mod
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/single-player-offers/hidden/mod")
+      file(MAKE_DIRECTORY "${oa_hidden_campaigns_mod}/camps")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Arm Campaign.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Core Campaign.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Arm Campaign - Core Contingency .tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Core Campaign - Core Contingency .tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Krogoth Encounter.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Example.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Arm Very Short.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Arm Short.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Arm Medium.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Arm Long.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Core Very Short.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Core Short.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Core Medium.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Core Long.tdf" "")
+      set(oa_hidden_campaigns_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/single-player-offers/hidden")
+      add_test(NAME native-single-player-offers-hidden COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-single-player-offers
+        --mod-dir "${oa_hidden_campaigns_mod}"
+        --preferences-file "${oa_hidden_campaigns_dir}/offers.conf")
+      set_tests_properties(native-single-player-offers-hidden PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_hidden_campaigns_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "campaigns no, new campaign greyed, any mission hidden")
       # The progress dialog: a short job shows nothing, a long spinner and a
       # long bar animate and close with no input, the four languages have
       # the lines, and pictures of both states are written at three sizes.
@@ -2132,6 +2261,62 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-progress PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_progress_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The background check for a new release: a feed served here, once a
+      # day, not during a match, and not with nobody watching unless a feed
+      # was named.
+      set(oa_engine_feed_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/engine-feed")
+      file(MAKE_DIRECTORY "${oa_engine_feed_dir}")
+      add_test(NAME native-engine-feed COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-engine-feed
+        --user-folder "${oa_engine_feed_dir}/Open Annihilation"
+        --data-dir "${oa_engine_feed_dir}/data"
+        --preferences-file "${oa_engine_feed_dir}/engine-feed.conf")
+      set_tests_properties(native-engine-feed PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_engine_feed_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The question a verified release asks: notes in the language shown,
+      # waiting out a match, a message and Settings, and the three buttons.
+      set(oa_update_offer_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/update-offer")
+      file(MAKE_DIRECTORY "${oa_update_offer_dir}")
+      file(WRITE "${oa_update_offer_dir}/update-offer.conf"
+        "open-annihilation-preferences 1\n\"open-annihilation.language\" \"de\"\n")
+      add_test(NAME native-update-offer COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-update-offer
+        --user-folder "${oa_update_offer_dir}/Open Annihilation"
+        --data-dir "${oa_update_offer_dir}/data"
+        --preferences-file "${oa_update_offer_dir}/update-offer.conf")
+      set_tests_properties(native-update-offer PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_update_offer_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The download, the ready prompt and the hand-off. One process for each
+      # part, so a resumed file, a bad file, the Updated notice and a quit
+      # with no offer do not share a folder.
+      set(oa_update_download_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/update-download")
+      file(MAKE_DIRECTORY "${oa_update_download_dir}")
+      find_package(Python3 COMPONENTS Interpreter QUIET)
+      if(Python3_Interpreter_FOUND)
+        add_test(NAME native-update-download COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_update_download.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --work-dir "${oa_update_download_dir}")
+        set_tests_properties(native-update-download PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          WORKING_DIRECTORY "${oa_update_download_dir}"
+          ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      endif()
+      # Confirming a version, the roll-back prompt, ROLL BACK and the guard
+      # leaving a check's start uncounted. Each part has its own state file.
+      set(oa_update_roll_back_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/update-roll-back")
+      file(MAKE_DIRECTORY "${oa_update_roll_back_dir}")
+      find_package(Python3 COMPONENTS Interpreter QUIET)
+      if(Python3_Interpreter_FOUND)
+        add_test(NAME native-update-roll-back COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_update_roll_back.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --work-dir "${oa_update_roll_back_dir}")
+        set_tests_properties(native-update-roll-back PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          WORKING_DIRECTORY "${oa_update_roll_back_dir}"
+          ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      endif()
       # One evicted archive's read is held. The window keeps drawing the iCloud
       # line in the stored language, and the folder step then continues. Off
       # macOS no file is evicted, and the line never names iCloud.
@@ -2185,8 +2370,10 @@ if(OA_BUILD_PLATFORM)
       # reason, and Select moving SELMAP's selection. Then, as the run is one
       # nobody watches, a map pack posted as the download queue hands one
       # over waits in the inbox while the browser is closed and installs with
-      # no prompt while it shows. It leaves each size's frame in its folder
-      # for review. Each run starts from a clean folder.
+      # no prompt while it shows. Last it hosts a battle room alone on any
+      # free DirectPlay port and checks MORE MAPS… over the room's map
+      # dialog. It leaves each size's frame in its folder for review. Each
+      # run starts from a clean folder.
       set(oa_map_browser_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/map-browser")
       file(MAKE_DIRECTORY "${oa_map_browser_dir}")
       add_test(NAME map-browser-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
@@ -2194,7 +2381,7 @@ if(OA_BUILD_PLATFORM)
         "${oa_map_browser_dir}/data" "${oa_map_browser_dir}/map-browser.conf")
       set_tests_properties(map-browser-clean PROPERTIES FIXTURES_SETUP map-browser-clean)
       add_test(NAME native-map-browser COMMAND oa-game --game-dir "${OA_GAME_DIR}"
-        --skip-intro --mute --check-map-browser
+        --skip-intro --mute --check-map-browser --dplay-port 0
         --preferences-file "${oa_map_browser_dir}/map-browser.conf"
         --user-folder "${oa_map_browser_dir}/Open Annihilation"
         --data-dir "${oa_map_browser_dir}/data")
@@ -2202,6 +2389,184 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_map_browser_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED map-browser-clean)
+      # The key editor over Settings at 640x480, 1280x720 and 1920x1080, then
+      # the list's edits, the save, a paused skirmish and Developer Mode.
+      # Each run starts from a clean folder, so the player's own layout is
+      # the one this run saves.
+      set(oa_key_editor_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-editor")
+      file(MAKE_DIRECTORY "${oa_key_editor_dir}")
+      add_test(NAME key-editor-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_key_editor_dir}/Open Annihilation" "${oa_key_editor_dir}/key-editor.conf")
+      set_tests_properties(key-editor-clean PROPERTIES FIXTURES_SETUP key-editor-clean)
+      add_test(NAME native-key-editor COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-key-editor
+        --preferences-file "${oa_key_editor_dir}/key-editor.conf"
+        --user-folder "${oa_key_editor_dir}/Open Annihilation")
+      set_tests_properties(native-key-editor PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_editor_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED key-editor-clean)
+      # The keys overlay beside the side column, the order and build cell
+      # badges, the help lines, the rotate hint and the latch chips, on a
+      # skirmish whose mod turns buildings: the check gives the mod's folder
+      # a light laser tower with four facings. Then the overlays' places:
+      # Settings' Move overlays turned on, Arrange… placing the keys overlay,
+      # the latch chips and the chat line on a picture of the match, kept for
+      # the size class, Cancel and Reset, the overlays at their places in a
+      # second skirmish and back at their own with Move overlays off, and the
+      # in-game menu's OA Settings button. --snapshot writes
+      # keys-overlay-<w>x<h>.ppm, key-badges-<w>x<h>.ppm,
+      # arrange-overlays-<w>x<h>.ppm, overlays-placed-<w>x<h>.ppm,
+      # ingame-menu-<w>x<h>.ppm, rounded-settings-<w>x<h>.ppm and the rest
+      # the clean fixture names. Each run starts from a clean folder.
+      # The mod's profile stays.
+      set(oa_keys_overlay_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/keys-overlay")
+      file(MAKE_DIRECTORY "${oa_keys_overlay_dir}/mod")
+      file(WRITE "${oa_keys_overlay_dir}/mod/oamod.yaml"
+        "oamod: 1\n"
+        "id: ridge\n"
+        "name: Ridge\n"
+        "version: \"28.0\"\n"
+        "requires: {base: ta-3.1c, catalogue: 1}\n"
+        "author: {name: unknown}\n"
+        "packaging: {revision: 1, date: 2026-10-27, packager: Open Annihilation}\n"
+        "data-keys:\n"
+        "  unit:\n"
+        "    Rotations: units.build-facings\n"
+        "hacks:\n"
+        "  ui.build-preview: true\n"
+        "  units.build-rotation: true\n")
+      add_test(NAME keys-overlay-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_keys_overlay_dir}/Open Annihilation" "${oa_keys_overlay_dir}/keys-overlay.conf"
+        "${oa_keys_overlay_dir}/keys-overlay.ppm"
+        "${oa_keys_overlay_dir}/keys-overlay-640x480.ppm"
+        "${oa_keys_overlay_dir}/keys-overlay-1280x720.ppm"
+        "${oa_keys_overlay_dir}/keys-overlay-1920x1080.ppm"
+        "${oa_keys_overlay_dir}/key-badges-640x480.ppm"
+        "${oa_keys_overlay_dir}/key-badges-1280x720.ppm"
+        "${oa_keys_overlay_dir}/key-badges-1920x1080.ppm"
+        "${oa_keys_overlay_dir}/arrange-overlays-640x480.ppm"
+        "${oa_keys_overlay_dir}/arrange-overlays-800x600.ppm"
+        "${oa_keys_overlay_dir}/arrange-overlays-1280x720.ppm"
+        "${oa_keys_overlay_dir}/arrange-overlays-modern-640x480.ppm"
+        "${oa_keys_overlay_dir}/arrange-overlays-modern-800x600.ppm"
+        "${oa_keys_overlay_dir}/arrange-overlays-modern-1280x720.ppm"
+        "${oa_keys_overlay_dir}/arrange-overlays-match-1280x720.ppm"
+        "${oa_keys_overlay_dir}/overlays-placed-640x480.ppm"
+        "${oa_keys_overlay_dir}/overlays-placed-1280x720.ppm"
+        "${oa_keys_overlay_dir}/chips-placed-640x480.ppm"
+        "${oa_keys_overlay_dir}/chips-placed-1280x720.ppm"
+        "${oa_keys_overlay_dir}/overlays-default-1280x720.ppm"
+        "${oa_keys_overlay_dir}/ingame-menu-640x480.ppm"
+        "${oa_keys_overlay_dir}/ingame-menu-1280x720.ppm"
+        "${oa_keys_overlay_dir}/rounded-settings-640x480.ppm"
+        "${oa_keys_overlay_dir}/rounded-settings-1280x720.ppm"
+        "${oa_keys_overlay_dir}/mod/units")
+      set_tests_properties(keys-overlay-clean PROPERTIES FIXTURES_SETUP keys-overlay-clean)
+      add_test(NAME native-keys-overlay COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-keys-overlay
+        --snapshot "${oa_keys_overlay_dir}/keys-overlay.ppm"
+        --mod-dir "${oa_keys_overlay_dir}/mod"
+        --preferences-file "${oa_keys_overlay_dir}/keys-overlay.conf"
+        --user-folder "${oa_keys_overlay_dir}/Open Annihilation")
+      set_tests_properties(native-keys-overlay PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_keys_overlay_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED keys-overlay-clean FIXTURES_SETUP keys-overlay-arranged)
+      # The game started again on the places native-keys-overlay arranged,
+      # Move overlays on: the keys overlay and the chat line show where they
+      # were left.
+      add_test(NAME native-keys-overlay-restart COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-keys-overlay
+        --mod-dir "${oa_keys_overlay_dir}/mod"
+        --preferences-file "${oa_keys_overlay_dir}/keys-overlay.conf"
+        --user-folder "${oa_keys_overlay_dir}/Open Annihilation")
+      set_tests_properties(native-keys-overlay-restart PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_keys_overlay_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED keys-overlay-arranged)
+      # 3.1c's Ctrl+letter keys, Ctrl+Shift+R and P, a group key and Primary+/,
+      # each pressed as the system sends it: the selection each makes from
+      # the units' Category words, the radar rings on the minimap and the
+      # keys overlay.
+      set(oa_selection_keys_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/selection-keys")
+      file(MAKE_DIRECTORY "${oa_selection_keys_dir}")
+      add_test(NAME native-selection-keys COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-selection-keys
+        --preferences-file "${oa_selection_keys_dir}/selection-keys.conf")
+      set_tests_properties(native-selection-keys PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_selection_keys_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Capturing a chord, a clash, Escape held for a second, and a draft
+      # clash's card, over a paused skirmish. Each run starts from a clean
+      # folder. --snapshot writes key-capture-<w>x<h>.ppm and
+      # key-clash-<w>x<h>.ppm beside the named file.
+      set(oa_key_capture_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-capture")
+      file(MAKE_DIRECTORY "${oa_key_capture_dir}")
+      add_test(NAME key-capture-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_key_capture_dir}/Open Annihilation" "${oa_key_capture_dir}/key-capture.conf"
+        "${oa_key_capture_dir}/key-capture.ppm"
+        "${oa_key_capture_dir}/key-capture-640x480.ppm" "${oa_key_capture_dir}/key-capture-1280x720.ppm"
+        "${oa_key_capture_dir}/key-capture-1920x1080.ppm"
+        "${oa_key_capture_dir}/key-clash-640x480.ppm" "${oa_key_capture_dir}/key-clash-1280x720.ppm"
+        "${oa_key_capture_dir}/key-clash-1920x1080.ppm")
+      set_tests_properties(key-capture-clean PROPERTIES FIXTURES_SETUP key-capture-clean)
+      add_test(NAME native-key-capture COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-key-capture
+        --snapshot "${oa_key_capture_dir}/key-capture.ppm"
+        --preferences-file "${oa_key_capture_dir}/key-capture.conf"
+        --user-folder "${oa_key_capture_dir}/Open Annihilation")
+      set_tests_properties(native-key-capture PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_capture_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED key-capture-clean)
+      # Sharing, pasting and importing a layout, then a dropped file that is
+      # refused and one that is installed. Each run starts from a clean
+      # folder. --snapshot writes key-share-<w>x<h>.ppm, key-paste-<w>x<h>.ppm
+      # and key-import-<w>x<h>.ppm beside the named file.
+      set(oa_key_share_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-share")
+      file(MAKE_DIRECTORY "${oa_key_share_dir}")
+      add_test(NAME key-share-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_key_share_dir}/Open Annihilation" "${oa_key_share_dir}/key-share.conf"
+        "${oa_key_share_dir}/key-share.ppm"
+        "${oa_key_share_dir}/key-share-640x480.ppm" "${oa_key_share_dir}/key-share-1280x720.ppm"
+        "${oa_key_share_dir}/key-share-1920x1080.ppm"
+        "${oa_key_share_dir}/key-paste-640x480.ppm" "${oa_key_share_dir}/key-paste-1280x720.ppm"
+        "${oa_key_share_dir}/key-paste-1920x1080.ppm"
+        "${oa_key_share_dir}/key-import-640x480.ppm" "${oa_key_share_dir}/key-import-1280x720.ppm"
+        "${oa_key_share_dir}/key-import-1920x1080.ppm")
+      set_tests_properties(key-share-clean PROPERTIES FIXTURES_SETUP key-share-clean)
+      add_test(NAME native-key-share COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-key-share
+        --snapshot "${oa_key_share_dir}/key-share.ppm"
+        --preferences-file "${oa_key_share_dir}/key-share.conf"
+        --user-folder "${oa_key_share_dir}/Open Annihilation")
+      set_tests_properties(native-key-share PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_share_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED key-share-clean)
+      # The key editor's keyboard and mouse at 640x480, 1280x720 and 1920x1080.
+      # --snapshot writes key-keyboard-<w>x<h>.ppm and key-mouse-<w>x<h>.ppm
+      # beside the named file. Each run starts from a clean folder.
+      set(oa_key_views_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-views")
+      file(MAKE_DIRECTORY "${oa_key_views_dir}")
+      add_test(NAME key-views-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_key_views_dir}/Open Annihilation" "${oa_key_views_dir}/key-views.conf"
+        "${oa_key_views_dir}/key-views.ppm"
+        "${oa_key_views_dir}/key-keyboard-640x480.ppm" "${oa_key_views_dir}/key-keyboard-1280x720.ppm"
+        "${oa_key_views_dir}/key-keyboard-1920x1080.ppm"
+        "${oa_key_views_dir}/key-mouse-640x480.ppm" "${oa_key_views_dir}/key-mouse-1280x720.ppm"
+        "${oa_key_views_dir}/key-mouse-1920x1080.ppm")
+      set_tests_properties(key-views-clean PROPERTIES FIXTURES_SETUP key-views-clean)
+      add_test(NAME native-key-views COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-key-views
+        --snapshot "${oa_key_views_dir}/key-views.ppm"
+        --preferences-file "${oa_key_views_dir}/key-views.conf"
+        --user-folder "${oa_key_views_dir}/Open Annihilation")
+      set_tests_properties(native-key-views PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_views_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED key-views-clean)
       # The mutator picker over the main menu, on a feed of made-up mutators,
       # at 640x480, 1280x720, 1920x1080 and 2560x1440: the mended On order,
       # every row's grip and switch, one download and the waiting words, the
@@ -2324,9 +2689,10 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_saved_brains_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED saved-brains-clean)
-      # MUTATORS… on the skirmish setup and on NEWGAME, at 640x480 and
-      # 1280x720: the button and its line by the anchor rule, Tab and Down,
-      # the remembered set, USE THESE, Y, SELMAP keeping the set, and START
+      # Mutators on the skirmish setup and on NEWGAME, at 640x480 and
+      # 1280x720: the button, as large as Previous Menu (on NEWGAME at the
+      # head of Difficulty's column), and its line, Tab and Down,
+      # the remembered set, Use these, Y, SELMAP keeping the set, and START
       # handing it on. A scratch preferences file holds Gatehouse with
       # Gatehouse Keep for skirmish and Fast Builders for the campaign. The
       # feed is the mutator picker's. It leaves each size's frames in its
@@ -2346,9 +2712,10 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_mutator_button_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED mutator-button-clean)
-      # MUTATORS… for the host of a battle room hosted alone, at 640x480 and
-      # 1280x720: the button and Mutators: off above Select Map, Y opening
-      # the remembered multiplayer set, USE THESE posting the turned-on
+      # Mutators for the host of a battle room hosted alone, at 640x480 and
+      # 1280x720: the button reads "Mutators", as large as Select Map and over
+      # it with its edges, its text "Mutators · off", Y opening
+      # the remembered multiplayer set, Use these posting the turned-on
       # lines, turning them off posting the off line, and the button staying
       # disabled while the room's options are locked. A scratch preferences
       # file holds Gatehouse with Gatehouse Keep. The feed is the mutator
@@ -2360,11 +2727,11 @@ if(OA_BUILD_PLATFORM)
         "${oa_mutator_room_dir}/Open Annihilation" "${oa_mutator_room_dir}/files"
         "${oa_mutator_room_dir}/data" "${oa_mutator_room_dir}/mutator-room.conf")
       set_tests_properties(mutator-room-clean PROPERTIES FIXTURES_SETUP mutator-room-clean)
-      # The checks that host a game on the default DirectPlay port
-      # (mutator room, brain room, both text fits) share the lock
-      # dplay-enumeration-port, so a parallel ctest runs them one at a time.
+      # The checks that host a game alone (mutator room, brain room, both
+      # text fits) host on any free DirectPlay port (--dplay-port 0), so they
+      # run beside each other and beside any other game on the machine.
       add_test(NAME native-mutator-room COMMAND oa-game --game-dir "${OA_GAME_DIR}"
-        --skip-intro --mute --check-mutator-room
+        --skip-intro --mute --check-mutator-room --dplay-port 0
         --host --player-name Steve --game-name Ridge
         --preferences-file "${oa_mutator_room_dir}/mutator-room.conf"
         --user-folder "${oa_mutator_room_dir}/Open Annihilation"
@@ -2372,7 +2739,7 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-mutator-room PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_mutator_room_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
-        FIXTURES_REQUIRED mutator-room-clean RESOURCE_LOCK dplay-enumeration-port)
+        FIXTURES_REQUIRED mutator-room-clean)
       # A battle room hosted alone, at 640x480 and 1280x720: no seat button
       # with no brain installed, Steady Commander remembered at firm, the
       # built-in player at Medium, and Lantern Scout on every computer this
@@ -2386,7 +2753,7 @@ if(OA_BUILD_PLATFORM)
         "${oa_brain_room_dir}/data" "${oa_brain_room_dir}/brain-room.conf")
       set_tests_properties(brain-room-clean PROPERTIES FIXTURES_SETUP brain-room-clean)
       add_test(NAME native-brain-room COMMAND oa-game --game-dir "${OA_GAME_DIR}"
-        --skip-intro --mute --check-brain-room
+        --skip-intro --mute --check-brain-room --dplay-port 0
         --host --player-name Steve --game-name Ridge
         --preferences-file "${oa_brain_room_dir}/brain-room.conf"
         --user-folder "${oa_brain_room_dir}/Open Annihilation"
@@ -2394,7 +2761,7 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-brain-room PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_brain_room_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
-        FIXTURES_REQUIRED brain-room-clean RESOURCE_LOCK dplay-enumeration-port)
+        FIXTURES_REQUIRED brain-room-clean)
       # A two-map pack installed from the check's own registry after the
       # skirmish list has been shown and the battle room's list has been
       # read. One stem has a space, an apostrophe and parentheses and the
@@ -3048,6 +3415,87 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-side-orders PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_side_orders_check_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The same order pages over ridge-wide, whose later sides are Ridge5 and Ridge6.
+      set(oa_side_orders_wide_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/side-orders-wide")
+      file(MAKE_DIRECTORY "${oa_side_orders_wide_dir}")
+      add_test(NAME native-side-orders-wide COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-side-orders
+        --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-wide"
+        --preferences-file "${oa_side_orders_wide_dir}/side-orders-wide.conf")
+      set_tests_properties(native-side-orders-wide PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_side_orders_wide_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED limits-fixture
+        PASS_REGULAR_EXPRESSION "Ridge5 \\(RD5\\):.*Ridge6 \\(RD6\\):")
+      # The skirmish Side button, clicked through every offered side. With
+      # more than five sides a right click steps back.
+      set(oa_skirmish_sides_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/skirmish-sides")
+      file(MAKE_DIRECTORY "${oa_skirmish_sides_dir}")
+      add_test(NAME native-skirmish-sides COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-skirmish-sides
+        --preferences-file "${oa_skirmish_sides_dir}/skirmish-sides.conf")
+      set_tests_properties(native-skirmish-sides PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_skirmish_sides_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      set(oa_skirmish_sides_wide_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/skirmish-sides-wide")
+      file(MAKE_DIRECTORY "${oa_skirmish_sides_wide_dir}")
+      add_test(NAME native-skirmish-sides-wide COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-skirmish-sides
+        --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-sides"
+        --preferences-file "${oa_skirmish_sides_wide_dir}/skirmish-sides-wide.conf")
+      set_tests_properties(native-skirmish-sides-wide PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT} WORKING_DIRECTORY "${oa_skirmish_sides_wide_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED limits-fixture
+        PASS_REGULAR_EXPRESSION "7 sides.*back yes")
+      # The same Side button when computer players may take only side 1.
+      set(oa_skirmish_sides_computer_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/skirmish-sides-computer")
+      file(MAKE_DIRECTORY "${oa_skirmish_sides_computer_dir}")
+      file(WRITE "${oa_skirmish_sides_computer_dir}/computer-sides.oamod.yaml"
+        "oamod: 1\n"
+        "id: computer-sides\n"
+        "name: Computer sides\n"
+        "version: \"1.0\"\n"
+        "requires: {base: ta-3.1c, catalogue: 1}\n"
+        "author: {name: unknown}\n"
+        "packaging: {revision: 1, date: 2026-10-06, packager: Open Annihilation}\n"
+        "identity:\n"
+        "  computer-player-sides: [1]\n")
+      add_test(NAME native-skirmish-sides-computer COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-skirmish-sides
+        --mod "${oa_skirmish_sides_computer_dir}/computer-sides.oamod.yaml"
+        --preferences-file "${oa_skirmish_sides_computer_dir}/skirmish-sides-computer.conf")
+      set_tests_properties(native-skirmish-sides-computer PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_skirmish_sides_computer_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "computer 1 of")
+      # Engine Limits' weapon-type and side rows: 256 and 5 with no profile,
+      # at the menu and in a two-slot skirmish.
+      set(oa_mod_limits_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mod-limits")
+      file(MAKE_DIRECTORY "${oa_mod_limits_check_dir}")
+      add_test(NAME native-mod-limits COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-mod-limits
+        --preferences-file "${oa_mod_limits_check_dir}/mod-limits.conf")
+      set_tests_properties(native-mod-limits PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_mod_limits_check_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "menu 256, 5; match 256, 5")
+      # The same rows with ridge-wide: the profile's limits at the menu, and
+      # how many of each the match loaded. The fixture has seven sides.
+      set(oa_mod_limits_wide_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mod-limits-wide")
+      file(MAKE_DIRECTORY "${oa_mod_limits_wide_dir}")
+      add_test(NAME native-mod-limits-wide COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-mod-limits
+        --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-wide"
+        --preferences-file "${oa_mod_limits_wide_dir}/mod-limits-wide.conf")
+      set_tests_properties(native-mod-limits-wide PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_mod_limits_wide_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED limits-fixture
+        PASS_REGULAR_EXPRESSION "menu 1024, 10; match [0-9]+ of 1024, 7 of 10")
       # A Kbot Lab sent to a point with MOVE and PATROL through SDL input on
       # dummy devices: each Peewee it then builds heads there.
       set(oa_factory_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/factory-orders")
@@ -3058,6 +3506,17 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-factory-orders PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_factory_check_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Each factory with a platform builds a unit, which must be drawn over
+      # the platform at every camera row of a small scroll until it leaves.
+      set(oa_factory_departure_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/factory-departure")
+      file(MAKE_DIRECTORY "${oa_factory_departure_dir}")
+      add_test(NAME native-factory-departure COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-factory-departure
+        --preferences-file "${oa_factory_departure_dir}/factory-departure.conf")
+      set_tests_properties(native-factory-departure PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_factory_departure_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "factory departure check: passed")
       # Through SDL input on dummy devices the commander says its select line
       # when clicked and its order line when then clicked onto open ground,
       # each with a sound its SOUND.TDF section offers; and so in a second
@@ -3164,22 +3623,22 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_language_switch_check_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Every Open Annihilation screen in English, German, French, Spanish,
-      # Italian and Simplified Chinese, at 640x480 and 1280x720. A text wider
-      # than its box, or drawn across another text, fails the check and names
-      # the screen, the language and the text. The Chinese fixture installs
-      # first. --check-language TAG names another language, an installed
-      # pack's, to check in place of these.
+      # Italian and Simplified Chinese, at 640x480, 960x540 and 1280x720
+      # (Compact, Regular and Large at 1x), in the classic look (the named
+      # file's own). A text wider than its box, or drawn across another
+      # text, fails the check and names the screen, the language and the
+      # text. The Chinese fixture installs first. --check-language TAG names
+      # another language, an installed pack's, to check in place of these.
       set(oa_text_fit_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/text-fit")
       file(MAKE_DIRECTORY "${oa_text_fit_check_dir}")
       file(WRITE "${oa_text_fit_check_dir}/text-fit.conf"
         "open-annihilation-preferences 1\n\"open-annihilation.language\" \"en\"\n\"open-annihilation.first-run\" \"done\"\n")
       add_test(NAME native-text-fit COMMAND oa-game --game-dir "${OA_GAME_DIR}"
-        --skip-intro --mute --check-text-fit
+        --skip-intro --mute --check-text-fit --dplay-port 0
         --preferences-file "${oa_text_fit_check_dir}/text-fit.conf")
       set_tests_properties(native-text-fit PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_text_fit_check_dir}"
-        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
-        RESOURCE_LOCK dplay-enumeration-port)
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The same in only the language --check-language names, which an
       # installed pack shows: the Chinese fixture here, a translator's own
       # pack (uk) on their machine.
@@ -3188,12 +3647,35 @@ if(OA_BUILD_PLATFORM)
       file(WRITE "${oa_text_fit_language_check_dir}/text-fit.conf"
         "open-annihilation-preferences 1\n\"open-annihilation.language\" \"en\"\n\"open-annihilation.first-run\" \"done\"\n")
       add_test(NAME native-text-fit-language COMMAND oa-game --game-dir "${OA_GAME_DIR}"
-        --skip-intro --mute --check-text-fit --check-language zh-Hans
+        --skip-intro --mute --check-text-fit --check-language zh-Hans --dplay-port 0
         --preferences-file "${oa_text_fit_language_check_dir}/text-fit.conf")
       set_tests_properties(native-text-fit-language PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_text_fit_language_check_dir}"
-        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
-        RESOURCE_LOCK dplay-enumeration-port)
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The same two in the modern look: OA's screens in Barlow, each size
+      # class's text at its steps on the type scale.
+      set(oa_text_fit_modern_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/text-fit-modern")
+      file(MAKE_DIRECTORY "${oa_text_fit_modern_check_dir}")
+      file(WRITE "${oa_text_fit_modern_check_dir}/text-fit.conf"
+        "open-annihilation-preferences 1\n\"open-annihilation.language\" \"en\"\n\"open-annihilation.first-run\" \"done\"\n\"open-annihilation.ui.look\" \"modern\"\n")
+      add_test(NAME native-text-fit-modern COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-text-fit --dplay-port 0
+        --preferences-file "${oa_text_fit_modern_check_dir}/text-fit.conf")
+      set_tests_properties(native-text-fit-modern PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_text_fit_modern_check_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      set(oa_text_fit_language_modern_check_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/text-fit-language-modern")
+      file(MAKE_DIRECTORY "${oa_text_fit_language_modern_check_dir}")
+      file(WRITE "${oa_text_fit_language_modern_check_dir}/text-fit.conf"
+        "open-annihilation-preferences 1\n\"open-annihilation.language\" \"en\"\n\"open-annihilation.first-run\" \"done\"\n\"open-annihilation.ui.look\" \"modern\"\n")
+      add_test(NAME native-text-fit-language-modern COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-text-fit --check-language zh-Hans --dplay-port 0
+        --preferences-file "${oa_text_fit_language_modern_check_dir}/text-fit.conf")
+      set_tests_properties(native-text-fit-language-modern PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_text_fit_language_modern_check_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The match dialog check in the Chinese fixture's language, which the
       # modern fonts draw: the briefing's rows and its MORE caption keep to
       # their boxes, and the dialogs' texts and quick keys are the ones the
@@ -3448,6 +3930,28 @@ endforeach()
       set_tests_properties(native-wreck-pick PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_wreck_pick_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # On Steel Jungle, metal patches on the sea bed, one in open water, one
+      # on the shallows of a shore and one at the west edge of a Skeeter's
+      # sight, drawn at zoom 1 in the Off, Basic and Full tiers on SDL's
+      # software renderer taken as capable: with the water's effects off and
+      # the fog Classic, Basic and Full draw the processor's pixels over each
+      # patch, in sight, at the edge of sight and at the edge of never-mapped
+      # ground; with the water's effects at their defaults, Full draws the
+      # patches in the processor's colours, not darkened and tinted blue;
+      # with the fog Smooth, the edge's patch takes the fog pixel by pixel as
+      # the ground under it does. Pictures of each case in each tier go to
+      # local/reports. Skips under 2 GiB of memory.
+      set(oa_underwater_features_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/underwater-features")
+      file(MAKE_DIRECTORY "${oa_underwater_features_dir}")
+      file(WRITE "${oa_underwater_features_dir}/underwater-features.conf"
+        "open-annihilation-preferences 1\n")
+      add_test(NAME native-underwater-features COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-underwater-features --hardware-acceleration --force-capable
+        --preferences-file "${oa_underwater_features_dir}/underwater-features.conf")
+      set_tests_properties(native-underwater-features PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_underwater_features_dir}" SKIP_RETURN_CODE 77
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Under a profile with ui.click-snap (wreck radius 1, mex radius 3), the
       # selected commander's RECLAIM, through SDL input, shows the Reclaim
       # cursor on open ground one cell beside a wreck, and a click there gives
@@ -3509,6 +4013,25 @@ endforeach()
       set_tests_properties(native-build-preview PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_build_preview_dir}" SKIP_RETURN_CODE 77
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The in-game briefing, the save dialog and the help dialog over a
+      # paused CORE mission at sea, in the standard, Basic and Full tiers at
+      # zoom 1, 1.5, 2 and 0.5: the frame presented with each dialog equals
+      # the frame presented without it in every battlefield pixel outside the
+      # dialog's panel, the units' among them; at a raised display gamma the
+      # Full tier's within half a step of the gamma's levels. Like
+      # native-live-renderer it leaves the video driver to the environment,
+      # so that on a machine with a graphics card it draws on the card, and
+      # on SDL's dummy driver on its software renderer. The battlefield's
+      # effects keep their settings' defaults. Skips under 2 GiB.
+      set(oa_dialog_backdrop_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/dialog-backdrop")
+      file(MAKE_DIRECTORY "${oa_dialog_backdrop_dir}")
+      file(WRITE "${oa_dialog_backdrop_dir}/dialog-backdrop.conf" "open-annihilation-preferences 1\n")
+      add_test(NAME native-dialog-backdrop COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-dialog-backdrop --hardware-acceleration=full --force-capable
+        --preferences-file "${oa_dialog_backdrop_dir}/dialog-backdrop.conf")
+      set_tests_properties(native-dialog-backdrop PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_dialog_backdrop_dir}" SKIP_RETURN_CODE 77
+        ENVIRONMENT "SDL_AUDIO_DRIVER=dummy")
       # The screen's edges scrolling the camera, in full screen and in a
       # window, and both interface types' pointer buttons, through SDL input:
       # left clicks and right presses on open ground, units and the radar,
@@ -3531,6 +4054,190 @@ endforeach()
         --preferences-file "${oa_pointer_check_dir}/pointer-interfaces.conf")
       set_tests_properties(native-pointer-interfaces PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_pointer_check_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Every key, click and wheel the match answers, compared with the table.
+      set(oa_key_table_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table")
+      file(MAKE_DIRECTORY "${oa_key_table_dir}")
+      add_test(NAME native-key-table COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/base.tsv"
+        --preferences-file "${oa_key_table_dir}/key-table.conf")
+      set_tests_properties(native-key-table PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Escape still closes the chat line and Settings when every other key
+      # the layout names has moved.
+      set(oa_key_table_escape_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-escape-kept")
+      file(MAKE_DIRECTORY "${oa_key_table_escape_dir}")
+      add_test(NAME native-key-table-escape-kept COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/escape-kept.tsv"
+        --keys "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/escape-kept"
+        --preferences-file "${oa_key_table_escape_dir}/key-table.conf")
+      set_tests_properties(native-key-table-escape-kept PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_escape_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The same rows with Attack on Q and Stop on J.
+      set(oa_key_table_moved_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-moved-orders")
+      file(MAKE_DIRECTORY "${oa_key_table_moved_dir}")
+      add_test(NAME native-key-table-moved-orders COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/moved-orders.tsv"
+        --keys "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/moved-orders"
+        --preferences-file "${oa_key_table_moved_dir}/key-table.conf")
+      set_tests_properties(native-key-table-moved-orders PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_moved_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Slow keys, bounce keys, the player's repeat and the drag threshold.
+      set(oa_key_timing_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-timing")
+      file(MAKE_DIRECTORY "${oa_key_timing_dir}")
+      add_test(NAME native-key-timing COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-key-timing --trace-input --resolution 640x480
+        --preferences-file "${oa_key_timing_dir}/key-timing.conf")
+      set_tests_properties(native-key-timing PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_timing_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The numpad moves the pointer, clicks and holds a button.
+      set(oa_pointer_keys_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/pointer-keys")
+      file(MAKE_DIRECTORY "${oa_pointer_keys_dir}")
+      add_test(NAME native-pointer-keys COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-pointer-keys --trace-input --resolution 640x480
+        --preferences-file "${oa_pointer_keys_dir}/pointer-keys.conf")
+      set_tests_properties(native-pointer-keys PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_pointer_keys_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The same rows with the left and right mouse buttons exchanged, under
+      # a layout that exchanges those roles.
+      set(oa_key_table_swapped_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-swapped-buttons")
+      file(MAKE_DIRECTORY "${oa_key_table_swapped_dir}")
+      add_test(NAME native-key-table-swapped-buttons COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table
+          "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/swapped-buttons/swapped-buttons.tsv"
+        --keys "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/swapped-buttons"
+        --preferences-file "${oa_key_table_swapped_dir}/key-table.conf")
+      set_tests_properties(native-key-table-swapped-buttons PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_swapped_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The same rows again, plus the ones that exist only with the twelve
+      # catalogue hacks turned on.
+      set(oa_key_table_hacks_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-hacks")
+      file(MAKE_DIRECTORY "${oa_key_table_hacks_dir}")
+      file(WRITE "${oa_key_table_hacks_dir}/key-table-hacks.oamod.yaml"
+        "oamod: 1\n"
+        "id: key-table-hacks\n"
+        "name: Key table hacks\n"
+        "version: \"1.0\"\n"
+        "requires: {base: ta-3.1c, catalogue: 1}\n"
+        "author: {name: unknown}\n"
+        "packaging: {revision: 1, date: 2026-10-25, packager: Open Annihilation}\n"
+        "hacks:\n"
+        "  ui.megamap: true\n"
+        "  ui.whiteboard: true\n"
+        "  ui.resource-panel: true\n"
+        "  ui.selection-shortcuts: true\n"
+        "  ui.build-tools: true\n"
+        "  ui.click-snap: {mex-default: 3, mex-max: 3, wreck-default: 1, wreck-max: 1}\n"
+        "  ui.build-preview: true\n"
+        "  ui.options-dialog: true\n"
+        "  ui.display-modes: true\n"
+        "  console.key-remaps: true\n"
+        "  teams.alliance-menu-all-game-types: true\n"
+        "  units.build-rotation: true\n")
+      add_test(NAME native-key-table-hacks COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/hacks.tsv"
+        --mod "${oa_key_table_hacks_dir}/key-table-hacks.oamod.yaml"
+        --preferences-file "${oa_key_table_hacks_dir}/key-table.conf")
+      set_tests_properties(native-key-table-hacks PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_hacks_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The new actions, bound by a layout. The megamap hack is on so a
+      # double-click can close the megamap; Mouse wheel zoom stays on until
+      # a row turns it off.
+      set(oa_key_table_new_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-new-actions")
+      file(MAKE_DIRECTORY "${oa_key_table_new_dir}")
+      file(WRITE "${oa_key_table_new_dir}/key-table-new-actions.oamod.yaml"
+        "oamod: 1\n"
+        "id: key-table-new-actions\n"
+        "name: Key table new actions\n"
+        "version: \"1.0\"\n"
+        "requires: {base: ta-3.1c, catalogue: 1}\n"
+        "author: {name: unknown}\n"
+        "packaging: {revision: 1, date: 2026-10-26, packager: Open Annihilation}\n"
+        "hacks:\n"
+        "  ui.megamap: true\n")
+      add_test(NAME native-key-table-new-actions COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table
+          "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/new-actions/new-actions.tsv"
+        --keys "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/new-actions"
+        --mod "${oa_key_table_new_dir}/key-table-new-actions.oamod.yaml"
+        --preferences-file "${oa_key_table_new_dir}/key-table.conf")
+      set_tests_properties(native-key-table-new-actions PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_new_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Category words, bound by a layout. A second press of J reaches one
+      # construction kbot spawned off screen.
+      set(oa_key_table_tags_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-tags")
+      file(MAKE_DIRECTORY "${oa_key_table_tags_dir}")
+      add_test(NAME native-key-table-tags COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/tags.tsv"
+        --keys "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/tags"
+        --preferences-file "${oa_key_table_tags_dir}/key-table.conf")
+      set_tests_properties(native-key-table-tags PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_tags_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Latched Shift and Space, then sticky Ctrl and Alt, on a skirmish,
+      # with a layout that lists those two holds.
+      set(oa_key_latches_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-latches")
+      file(MAKE_DIRECTORY "${oa_key_latches_dir}")
+      file(WRITE "${oa_key_latches_dir}/oakeys.yaml"
+        "oakeys: 1\n"
+        "id: key-latches\n"
+        "name: \"Key latches\"\n"
+        "version: \"1.0\"\n"
+        "author: {name: \"Open Annihilation\"}\n"
+        "tags: [grid]\n"
+        "base: oa-default\n"
+        "helpers:\n"
+        "  toggle: [\"order.queue-modifier\", \"game.status-strip\"]\n")
+      add_test(NAME native-key-latches COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-key-latches
+        --keys "${oa_key_latches_dir}/oakeys.yaml"
+        --snapshot "${oa_key_latches_dir}/key-latches.ppm"
+        --preferences-file "${oa_key_latches_dir}/key-latches.conf")
+      set_tests_properties(native-key-latches PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_latches_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Hold to confirm: self-destruct, the order button and the surrender
+      # question, on a skirmish. The setting starts off.
+      set(oa_hold_confirm_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/hold-confirm")
+      file(MAKE_DIRECTORY "${oa_hold_confirm_dir}")
+      add_test(NAME native-hold-confirm COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-hold-confirm
+        --snapshot "${oa_hold_confirm_dir}/hold-confirm.ppm"
+        --preferences-file "${oa_hold_confirm_dir}/hold-confirm.conf")
+      set_tests_properties(native-hold-confirm PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_hold_confirm_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The order wheel a held mouse button opens, on a skirmish. Touch controls
+      # and the pad HUD stay off. The setting starts off.
+      set(oa_order_wheel_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/order-wheel")
+      file(MAKE_DIRECTORY "${oa_order_wheel_dir}")
+      add_test(NAME native-order-wheel COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-order-wheel
+        --snapshot "${oa_order_wheel_dir}/order-wheel.ppm"
+        --preferences-file "${oa_order_wheel_dir}/order-wheel.conf")
+      set_tests_properties(native-order-wheel PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_order_wheel_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # With the request held, the frame hook keeps being called while the
       # window is inactive; released, the loop waits for an event.
@@ -3617,13 +4324,13 @@ endforeach()
       add_test(NAME language-fixture-pack COMMAND ${CMAKE_COMMAND}
         -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/src/data/languages/tests/fixture-packs/zh-Hans
         -DFONT=${OA_TEXT_FONT_TESTS_DIR}/NotoSansCJKsc-Bold-Fixture.otf
-        "-DDESTINATIONS=${oa_language_switch_check_dir}/Open Annihilation;${oa_pointer_check_dir}/Open Annihilation;${oa_touch_check_dir}/Open Annihilation;${oa_touch_phone_check_dir}/Open Annihilation;${oa_text_fit_check_dir}/Open Annihilation;${oa_text_fit_language_check_dir}/Open Annihilation;${oa_match_dialogs_language_check_dir}/Open Annihilation"
+        "-DDESTINATIONS=${oa_language_switch_check_dir}/Open Annihilation;${oa_pointer_check_dir}/Open Annihilation;${oa_touch_check_dir}/Open Annihilation;${oa_touch_phone_check_dir}/Open Annihilation;${oa_text_fit_check_dir}/Open Annihilation;${oa_text_fit_language_check_dir}/Open Annihilation;${oa_text_fit_modern_check_dir}/Open Annihilation;${oa_text_fit_language_modern_check_dir}/Open Annihilation;${oa_match_dialogs_language_check_dir}/Open Annihilation"
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/install_fixture_pack.cmake)
       set_tests_properties(language-fixture-pack PROPERTIES
         FIXTURES_SETUP language-fixture-pack TIMEOUT 30)
       set_tests_properties(native-language-switch native-pointer-interfaces
         native-touch-controls native-touch-controls-phone native-text-fit native-text-fit-language
-        native-match-dialogs-language
+        native-text-fit-modern native-text-fit-language-modern native-match-dialogs-language
         PROPERTIES FIXTURES_REQUIRED language-fixture-pack)
       # --check-pad-controls: the gamepad controls, driven through the event
       # path by SDL virtual pads imitating a Steam Deck and an Xbox pad, on a
@@ -3672,6 +4379,18 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-saveload PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # A skirmish under a mod that raises weapon types or sides saves and
+        # loads under that mod, and is refused without it
+        # (tools/check_native_saveload_limits.py).
+        add_test(NAME native-saveload-limits COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_saveload_limits.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-wide"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-saveload-limits PROPERTIES
+          FIXTURES_REQUIRED limits-fixture
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          SKIP_RETURN_CODE ${OA_GAME_DATA_SKIP_CODE})
         # A headless skirmish seats a remembered brain, the default brain, or
         # the built-in player, and writes no seats key when none was named
         # (tools/check_native_brain_seats.py).
@@ -3783,6 +4502,15 @@ endforeach()
           set_tests_properties(native-navigation-${oa_navigation_group} PROPERTIES
             TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         endforeach()
+        # The four effects at 100% through the standard tier's composition,
+        # which a named preferences file otherwise reads as 0%.
+        add_test(NAME native-navigation-zoom-effects COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_navigation.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks"
+          --group zoom --effects 100)
+        set_tests_properties(native-navigation-zoom-effects PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # A large battlefield eased out and back three times with the model
         # picture limited to 8 MiB, then back at the main menu. The budget is
         # the test's own; a replaced environment has to name the dummy drivers too.
@@ -3805,6 +4533,27 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-trace PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # A mod whose profile raises weapon-types keeps ids up to that limit
+        # and logs, once, each section the limit leaves out.
+        add_test(NAME native-limits-weapon-table COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_weapon_table.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --fixture-dir "${CMAKE_BINARY_DIR}/limits-fixture"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-limits-weapon-table PROPERTIES
+          FIXTURES_REQUIRED limits-fixture
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # A unit armed past 255 fires that weapon at a unit and a feature.
+        # Two seeded runs print the same lines and the same trace.
+        add_test(NAME native-limits-weapon-fire COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_weapon_fire.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-wide"
+          --type RIDGEW300 --weapon 300
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-limits-weapon-fire PROPERTIES
+          FIXTURES_REQUIRED limits-fixture
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # --brain-shadow seats a brain beside every computer seat. The inert
         # leg plays the trace skirmish with and without a shadow.
         add_test(NAME native-brain-shadow COMMAND ${Python3_EXECUTABLE}
@@ -3890,6 +4639,20 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-stage-render PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # The water effects on the graphics card's Full tier, in the classic
+        # and the turned view: a lava world's shore, with a kbot walking its
+        # edge and shells landing in the lava, draws the same with them at
+        # 100% as at 0%, and a water map's shore differs in every frame.
+        # SDL's GPU renderer needs the system's own video driver; where it
+        # cannot be made the check skips.
+        add_test(NAME native-lava-water-effects COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_lava_water_effects.py"
+          --native $<TARGET_FILE:oa-game> --oa-tool $<TARGET_FILE:oa-tool>
+          --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-lava-water-effects PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          SKIP_RETURN_CODE 77)
         # A block of fighters and a row of kbots, each moved to one point as
         # a group, keep their shape: the fighters land each on its own site
         # around the point, the row's middle kbots reach their own points and
@@ -3908,6 +4671,17 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-air-pads PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # Gunships past the map's edge: at View past the map's edge 50% a
+        # click where one is drawn selects it, and a box dragged from past
+        # the edge selects them with the aircraft near it on the map; at Off
+        # the view stays on the map and the box selects those on it alone.
+        # The simulation is the same in every run.
+        add_test(NAME native-off-map-selection COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_off_map_selection.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-off-map-selection PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # A commander far faster than any stock unit (42 pixels a tick, as
         # seven stacked commander mutators leave it) arrives where it is
         # sent, east, in five other directions and round a wall, without
@@ -4035,6 +4809,15 @@ endforeach()
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-mutators-command-line PROPERTIES
           TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # --keys on the key table, an unknown id, --keys-reset over a layout
+        # that is not installed, and one import of a stored build key that a
+        # second run does not write again.
+        add_test(NAME native-keys COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_keys.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --key-table "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/base.tsv"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-keys PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # A mod folder whose sides name commanders of their own, without the
         # commander flag, and bar colours of their own, with a third side that
         # draws CORE's panels: each side's HUD draws the panels its intgaf
@@ -4083,6 +4866,49 @@ endforeach()
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-side-panels PROPERTIES
           TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # Weapon ids past 255 and seven sides, made from the installed game
+        # into the build tree so a later check can read real game data.
+        # Nothing of the folders is committed. A second run writes the same
+        # bytes, and --print-profile resolves each folder's limits.
+        add_test(NAME limits-fixture COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/make_limits_fixture.py"
+          --game-dir "${OA_GAME_DIR}" --oa-tool $<TARGET_FILE:oa-tool>
+          --out "${CMAKE_BINARY_DIR}/limits-fixture")
+        set_tests_properties(limits-fixture PROPERTIES
+          FIXTURES_SETUP limits-fixture
+          TIMEOUT 300)
+        add_test(NAME app-brain-check-sides
+          COMMAND oa-app-brain-check-test --data --sides-fixture
+            "${CMAKE_BINARY_DIR}/limits-fixture/ridge-sides")
+        oa_game_data_tests(app-brain-check-sides)
+        set_tests_properties(app-brain-check-sides PROPERTIES
+          FIXTURES_REQUIRED limits-fixture
+          TIMEOUT 120)
+        add_test(NAME limits-fixture-repeatable COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/make_limits_fixture.py"
+          --game-dir "${OA_GAME_DIR}" --oa-tool $<TARGET_FILE:oa-tool>
+          --verify "${CMAKE_BINARY_DIR}/limits-fixture")
+        set_tests_properties(limits-fixture-repeatable PROPERTIES
+          FIXTURES_REQUIRED limits-fixture
+          TIMEOUT 300)
+        foreach(oa_limits_profile wide sides)
+          if(oa_limits_profile STREQUAL "wide")
+            set(oa_limits_side_count 10)
+            set(oa_limits_weapon_types 1024)
+          else()
+            set(oa_limits_side_count 7)
+            set(oa_limits_weapon_types 256)
+          endif()
+          add_test(NAME native-limits-fixture-profile-${oa_limits_profile}
+            COMMAND oa-game --print-profile
+            --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-${oa_limits_profile}")
+          set_tests_properties(native-limits-fixture-profile-${oa_limits_profile} PROPERTIES
+            FIXTURES_REQUIRED limits-fixture
+            TIMEOUT 60
+            FAIL_REGULAR_EXPRESSION "(error|warning): "
+            PASS_REGULAR_EXPRESSION
+              "\"sides\": \\{[^}]*\"count\": ${oa_limits_side_count}[^}]*\\}.*\"weapon-types\": \\{[^}]*\"types\": ${oa_limits_weapon_types}[^}]*\\}")
+        endforeach()
         # The game folder, the preferences file beside the saved games and a
         # mod folder more than 256 characters deep, and as deep as the system
         # opens, with a user name of 200 characters: the main menu opens and
@@ -4212,6 +5038,8 @@ endif()
 add_subdirectory(tools/oa-tool)
 add_executable(oa-tool tools/oa-tool/main.cpp)
 target_link_libraries(oa-tool PRIVATE oa-tool-commands oa-options)
+# keys picture draws with the text fonts that sit beside the program.
+oa_copy_text_fonts(oa-tool "$<TARGET_FILE_DIR:oa-tool>")
 # The same version line as the game, so `oa-tool --version` matches
 # `open-annihilation --version`. A build without the platform has no
 # engine-build header, and the line names no commit.
@@ -4236,6 +5064,62 @@ if(BUILD_TESTING)
     PASS_REGULAR_EXPRESSION
       "^Open Annihilation [0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.]+)? \\([a-z0-9._-]+ [A-Za-z0-9_]+, ([0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]|unknown)\\)\n?$"
     TIMEOUT 60)
+  # A command's own --version (engine-feed write, mutator import) reaches the
+  # command: only a first --version prints the version line.
+  add_test(NAME tools-oa-tool-command-version COMMAND oa-tool engine-feed write --version 0.8.7)
+  set_tests_properties(tools-oa-tool-command-version PROPERTIES
+    PASS_REGULAR_EXPRESSION "engine-feed write: option '--date' needs a value"
+    FAIL_REGULAR_EXPRESSION "Open Annihilation [0-9]"
+    TIMEOUT 60)
+endif()
+# The update helper. Its library and tests are built with the platform.
+# The program itself is built only where this build may start another program
+# and may replace itself.
+if(OA_BUILD_PLATFORM)
+  add_subdirectory(tools/oa-update)
+endif()
+if(OA_BUILD_PLATFORM AND OA_PROCESS_SPAWNING AND OA_SELF_UPDATE)
+  add_executable(oa-update tools/oa-update/main.cpp)
+  target_link_libraries(oa-update PRIVATE oa-update-core oa-options SDL3::SDL3)
+  # The same version line as the game. A build without the engine-build
+  # header names no commit.
+  target_include_directories(oa-update PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/app/include")
+  target_compile_definitions(oa-update PRIVATE "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\""
+    "OA_ENGINE_VERSION_LABEL=\"${OA_VERSION_LABEL}\"")
+  if(TARGET oa-app-engine-build)
+    add_dependencies(oa-update oa-app-engine-build)
+    target_include_directories(oa-update PRIVATE "${oa_engine_build_dir}")
+  endif()
+  if(WIN32)
+    # A Windows program, so starting it opens no console. Its manifest asks
+    # to run as the player who started it: a name containing "update" would
+    # otherwise be treated as an installer.
+    set_target_properties(oa-update PROPERTIES WIN32_EXECUTABLE ON)
+    set(oa_update_manifest "${CMAKE_CURRENT_SOURCE_DIR}/tools/oa-update/oa-update.manifest")
+    if(MSVC)
+      set(OA_UPDATE_MANIFEST_RESOURCE "")
+      target_sources(oa-update PRIVATE "${oa_update_manifest}")
+    else()
+      set(OA_UPDATE_MANIFEST_RESOURCE "1 24 \"${oa_update_manifest}\"")
+    endif()
+    set(OA_WINDOWS_ICON "${CMAKE_CURRENT_SOURCE_DIR}/branding/open-annihilation.ico")
+    configure_file(tools/oa-update/oa-update.rc.in
+      "${CMAKE_CURRENT_BINARY_DIR}/generated/oa-update.rc" @ONLY)
+    target_sources(oa-update PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/oa-update.rc")
+    set_property(SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/oa-update.rc" APPEND PROPERTY
+      OBJECT_DEPENDS "${oa_update_manifest}")
+  endif()
+  # The helper is copied after both targets exist. oa_game_bundle runs earlier,
+  # while this target does not. The bundle is signed after the notices, fonts
+  # and catalogue are copied in, further down this file.
+  if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND TARGET oa-game)
+    add_dependencies(oa-game oa-update)
+    set_property(TARGET oa-game APPEND PROPERTY LINK_DEPENDS "$<TARGET_FILE:oa-update>")
+    add_custom_command(TARGET oa-game POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:oa-update>"
+        "$<TARGET_BUNDLE_CONTENT_DIR:oa-game>/MacOS/oa-update"
+      VERBATIM)
+  endif()
 endif()
 # The Steam Deck's artwork and files for the Steam Deck package.
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaSteamDeck.cmake")
@@ -4271,6 +5155,26 @@ if(BUILD_TESTING)
   endif()
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)
+    if(TARGET oa-update AND OA_SELF_CHECKS)
+      add_test(NAME tools-oa-update-run COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_update_helper.py
+        $<TARGET_FILE:oa-update> $<TARGET_FILE:oa-tool>)
+      set_tests_properties(tools-oa-update-run PROPERTIES TIMEOUT 300)
+    endif()
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      add_test(NAME tools-oa-update-launcher COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_update_launcher.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/open-annihilation-launcher.sh)
+      set_tests_properties(tools-oa-update-launcher PROPERTIES TIMEOUT 60)
+    endif()
+    # A configure with self-update off builds oa-game and not oa-update, and
+    # self-update on with process spawning off is refused. Configure only.
+    # A Windows host skips, and so does a configure that cannot find the
+    # running build's FreeType. Exit 77 is that skip.
+    add_test(NAME cmake-self-update-off COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_self_update_off.py
+      ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR})
+    set_tests_properties(cmake-self-update-off PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
     if(UNIX)
       find_program(OA_BASH_EXECUTABLE bash)
       if(OA_BASH_EXECUTABLE)
@@ -4290,9 +5194,9 @@ if(BUILD_TESTING)
     # have the sizes the builds and the platforms want.
     add_test(NAME branding-icons COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_icons.py --check)
     set_tests_properties(branding-icons PROPERTIES TIMEOUT 60)
-    # The macOS and iOS bundles declare the game's seven file types as its own and open each as
-    # its owner, with the icon each system takes; the Windows uninstaller withdraws all seven and
-    # iOS brings in the six the game installs or adds (tools/check_bundle_file_types.py).
+    # The macOS and iOS bundles declare the game's eight file types as its own and open each as
+    # its owner, with the icon each system takes; the Windows uninstaller withdraws all eight and
+    # iOS brings in the seven the game installs or adds (tools/check_bundle_file_types.py).
     add_test(NAME app-bundle-file-types COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_bundle_file_types.py
       ${CMAKE_CURRENT_SOURCE_DIR}/src/app/Info.plist.in ${CMAKE_CURRENT_SOURCE_DIR}/platforms/ios/Info.plist.in)
@@ -4314,12 +5218,25 @@ if(BUILD_TESTING)
     add_test(NAME mod-registry-sync-selftest COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_mod_registry.py --self-test)
     set_tests_properties(mod-registry-sync mod-registry-sync-selftest PROPERTIES TIMEOUT 60)
+    # The action table generated from the action registry
+    # (tools/gen_input_actions.py) is what the registry gives, and the
+    # registry is consistent.
+    add_test(NAME input-actions-sync COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_input_actions.py --check)
+    add_test(NAME input-actions-sync-selftest COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_input_actions.py --self-test)
+    set_tests_properties(input-actions-sync input-actions-sync-selftest PROPERTIES TIMEOUT 60)
     # The homepage, tag and engine-requirement rules (tools/oamod_yaml.py)
     # agree with the table the C++ reader checks.
     add_test(NAME oamod-yaml-selftest COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/oamod_yaml.py --self-test)
     set_tests_properties(oamod-yaml-selftest PROPERTIES TIMEOUT 60)
-    # The standard hack and script extension pages in docs/mods, their
+    # The limits fixture's text edits, on text built into the tool, with no
+    # game data (tools/make_limits_fixture.py).
+    add_test(NAME limits-fixture-selftest COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_limits_fixture.py --self-test)
+    set_tests_properties(limits-fixture-selftest PROPERTIES TIMEOUT 60)
+    # The standard hack, limit and script extension pages in docs/mods, their
     # tables in the README and table 7.2 of the OAMOD standard hold what the
     # OAMOD registry gives (tools/gen_mod_docs.py), and the tool still keeps
     # prose and finds changed blocks in a small built-in registry.
@@ -4336,6 +5253,11 @@ if(BUILD_TESTING)
     add_test(NAME doc-links-selftest COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_links.py --self-test)
     set_tests_properties(doc-links doc-links-selftest PROPERTIES TIMEOUT 60)
+    # Narrowing and sign warnings on lines changed since a merge base
+    # (tools/check_conversions.py). The self-test needs no compiler.
+    add_test(NAME conversion-check-selftest COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_conversions.py --self-test)
+    set_tests_properties(conversion-check-selftest PROPERTIES TIMEOUT 60)
     # The MCP server that drives the game through the automation endpoint
     # (tools/mcp/oa_mcp_server.py) answers MCP's requests and every kind of
     # tool against a stand-in endpoint.
@@ -4402,6 +5324,9 @@ endif()
 
 if(WIN32)
   set(oa_executables oa-tool)
+  if(TARGET oa-update AND OA_SELF_UPDATE)
+    list(APPEND oa_executables oa-update)
+  endif()
   if(OA_BUILD_PLATFORM)
     list(APPEND oa_executables oa-platform)
   endif()
@@ -4451,6 +5376,11 @@ if(TARGET oa-game)
   target_link_libraries(oa-game PRIVATE oa-app-content)
 endif()
 list(APPEND oa_game_libraries oa-app-content)
+add_subdirectory(src/app/update)
+if(TARGET oa-game)
+  target_link_libraries(oa-game PRIVATE oa-app-update)
+endif()
+list(APPEND oa_game_libraries oa-app-update)
 add_subdirectory(src/session/demo)
 add_subdirectory(src/app/netgame)
 # The command line reads a launch file. The options library does not link
@@ -4600,7 +5530,11 @@ endif()
 file(GLOB oa_notice_licenses CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/licenses/*")
 set(oa_notice_files "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" "${CMAKE_CURRENT_SOURCE_DIR}/ATTRIBUTIONS.md"
   ${oa_notice_licenses} "${CMAKE_CURRENT_SOURCE_DIR}/tools/copy_notices.cmake")
-foreach(target IN ITEMS oa-game oa-intro oa-tool)
+set(oa_shipped_programs oa-game oa-intro oa-tool)
+if(OA_SELF_UPDATE)
+  list(APPEND oa_shipped_programs oa-update)
+endif()
+foreach(target IN LISTS oa_shipped_programs)
   if(NOT TARGET ${target})
     continue()
   endif()
@@ -4621,6 +5555,14 @@ foreach(target IN ITEMS oa-game oa-intro oa-tool)
       -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/copy_notices.cmake"
     VERBATIM)
 endforeach()
+# Ad hoc, after every file the build copies into the bundle. The helper is
+# signed first, then the application, so codesign --verify --strict accepts it.
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND TARGET oa-game AND TARGET oa-update)
+  add_custom_command(TARGET oa-game POST_BUILD
+    COMMAND codesign --force --sign - "$<TARGET_BUNDLE_CONTENT_DIR:oa-game>/MacOS/oa-update"
+    COMMAND codesign --force --sign - "$<TARGET_BUNDLE_DIR:oa-game>"
+    VERBATIM)
+endif()
 # oa-doc-check compiles the public headers with Clang's documentation
 # warnings as errors, and the test doc-check builds it
 # (cmake/OaDocumentationCheck.cmake).

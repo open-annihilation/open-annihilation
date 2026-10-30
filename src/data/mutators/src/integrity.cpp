@@ -8,8 +8,6 @@
 #include "oa/data/mutators/integrity.hpp"
 
 #include "oa/core/move_class.h"
-#include "oa/core/side.h"
-#include "oa/core/weapon_def.h"
 #include "oa/data/defs/layout.hpp"
 #include "oa/data/defs/unit_catalog.hpp"
 #include "oa/formats/tdf.hpp"
@@ -229,7 +227,7 @@ bool feature_named(const std::vector<std::string>& features, std::string_view na
     return false;
 }
 
-bool weapon_named(const std::array<WeaponSlot, OA_WEAPON_DEF_COUNT>& slots, std::string_view name) {
+bool weapon_named(const std::vector<WeaponSlot>& slots, std::string_view name) {
     if (name.empty())
         return false;
     for (const WeaponSlot& slot : slots) {
@@ -277,7 +275,7 @@ void collect_weapons(
     const rules::DocumentSet& documents,
     const defs::DataLayout& layout,
     const IntegrityLimits& limits,
-    std::array<WeaponSlot, OA_WEAPON_DEF_COUNT>& slots,
+    std::vector<WeaponSlot>& slots,
     std::vector<IntegrityIssue>& issues
 ) {
     const std::vector<std::size_t> listed =
@@ -307,13 +305,13 @@ void collect_weapons(
                 continue;
             }
             const int32_t id = tdf::get_int(section, "ID", -1);
-            if (id < 0 || id >= static_cast<int32_t>(OA_WEAPON_DEF_COUNT)) {
+            if (id < 0 || static_cast<uint32_t>(id) >= limits.weapon_types) {
                 const std::string id_text = std::to_string(id);
                 std::string sentence = section->name;
                 sentence += "'s ID is ";
                 sentence += id_text;
                 sentence += ", which is outside 0 to ";
-                sentence += std::to_string(OA_WEAPON_DEF_COUNT - 1);
+                sentence += std::to_string(limits.weapon_types - 1);
                 add_issue(
                     issues,
                     Problem::weapon_id_out_of_range,
@@ -413,7 +411,7 @@ bool class_named(
 
 void check_units(
     const std::vector<UnitRow>& units,
-    const std::array<WeaponSlot, OA_WEAPON_DEF_COUNT>& weapons,
+    const std::vector<WeaponSlot>& weapons,
     const std::vector<std::string>& features,
     const std::array<std::string, OA_MOVE_CLASS_COUNT>& classes,
     const std::array<uint8_t, OA_MOVE_CLASS_COUNT>& class_seen,
@@ -584,11 +582,11 @@ void check_sides(
             if (section == nullptr || section->name == nullptr)
                 continue;
             const std::optional<uint32_t> slot = numbered(section->name, "SIDE");
-            if (!slot.has_value() || *slot < OA_SIDE_COUNT)
+            if (!slot.has_value() || *slot < limits.sides)
                 continue;
             std::string sentence = section->name;
             sentence += " is past the ";
-            sentence += std::to_string(OA_SIDE_COUNT);
+            sentence += std::to_string(limits.sides);
             sentence += " sides the game reads";
             add_issue(
                 issues,
@@ -601,7 +599,7 @@ void check_sides(
                 std::move(sentence)
             );
         }
-        for (uint32_t slot = 0; slot < OA_SIDE_COUNT; ++slot) {
+        for (uint32_t slot = 0; slot < limits.sides; ++slot) {
             const std::string section_name = "SIDE" + std::to_string(slot);
             const tdf::Block* section = first_named(root, section_name.c_str());
             if (section == nullptr)
@@ -912,7 +910,7 @@ std::vector<IntegrityIssue> integrity_issues(
     std::vector<IntegrityIssue> issues;
     std::vector<UnitRow> units;
     collect_units(documents, layout, units);
-    std::array<WeaponSlot, OA_WEAPON_DEF_COUNT> weapons{};
+    std::vector<WeaponSlot> weapons(static_cast<std::size_t>(limits.weapon_types));
     collect_weapons(documents, layout, limits, weapons, issues);
     std::vector<std::string> features;
     collect_features(documents, features);

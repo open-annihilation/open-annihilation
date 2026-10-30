@@ -232,7 +232,7 @@ void the_question_reads_as_the_design_shows_it() {
     OA_CHECK_TEXT(
         asked->body,
         "Revision 4 changes the game's rules. Saved games from revision 3 won't load under "
-        "revision 4. Revision 3 is kept, and ROLL BACK brings it back."
+        "revision 4. Revision 3 is kept, and Roll back brings it back."
     );
     OA_CHECK(asked->facts.size() == 2);
     if (asked->facts.size() == 2) {
@@ -252,17 +252,17 @@ void the_question_reads_as_the_design_shows_it() {
         std::vector<std::string>(
             {"Ridge 4.8 · revision 3 → 4",
              "Revision 4 changes the game's rules. Saved games from revision 3 won't load under "
-             "revision 4. Revision 3 is kept, and ROLL BACK brings it back.",
+             "revision 4. Revision 3 is kept, and Roll back brings it back.",
              "Rules: 9c1f 4e0b → 51d2 07aa",
              "Download: 3.2 MB"}
         )
     );
     OA_CHECK(question.buttons.size() == 2);
     if (question.buttons.size() == 2) {
-        OA_CHECK_TEXT(question.buttons[0].caption, "NOT NOW");
+        OA_CHECK_TEXT(question.buttons[0].caption, "Not now");
         OA_CHECK_TEXT(question.buttons[0].id, "not-now");
         OA_CHECK(!question.buttons[0].accent);
-        OA_CHECK_TEXT(question.buttons[1].caption, "UPDATE");
+        OA_CHECK_TEXT(question.buttons[1].caption, "Update");
         OA_CHECK_TEXT(question.buttons[1].id, "update");
         OA_CHECK(question.buttons[1].accent);
     }
@@ -292,7 +292,7 @@ void the_question_reads_as_the_design_shows_it() {
         OA_CHECK_TEXT(
             playing->body,
             "Revision 4 changes the game's rules. Saved games from revision 3 won't load under "
-            "revision 4. Revision 3 is kept, and ROLL BACK brings it back. It finishes when you "
+            "revision 4. Revision 3 is kept, and Roll back brings it back. It finishes when you "
             "leave Ridge."
         );
 }
@@ -312,7 +312,7 @@ void a_new_version_and_an_unknown_rules_hash_say_so() {
             OA_CHECK_TEXT(
                 asked->body,
                 "4.9 changes the game's rules. Saved games from 4.8 won't load under 4.9. 4.8 is "
-                "kept, and ROLL BACK brings it back."
+                "kept, and Roll back brings it back."
             );
         }
     }
@@ -324,7 +324,7 @@ void a_new_version_and_an_unknown_rules_hash_say_so() {
             OA_CHECK_TEXT(
                 asked->body,
                 "OA can't tell whether revision 4 changes the game's rules. If it does, saved "
-                "games from revision 3 won't load under it. Revision 3 is kept, and ROLL BACK "
+                "games from revision 3 won't load under it. Revision 3 is kept, and Roll back "
                 "brings it back."
             );
             OA_CHECK(asked->facts.size() == 2);
@@ -346,7 +346,7 @@ void a_new_version_and_an_unknown_rules_hash_say_so() {
             OA_CHECK_TEXT(
                 asked->body,
                 "OA can't tell whether 2.0 changes the game's rules. If it does, saved games from "
-                "1.2 won't load under it. 1.2 is kept, and ROLL BACK brings it back."
+                "1.2 won't load under it. 1.2 is kept, and Roll back brings it back."
             );
             const kit::Question question = lib::update_prompt(*asked);
             OA_CHECK(paragraphs_of(question).size() == 4);
@@ -378,7 +378,7 @@ void update_all_asks_once_about_the_added_registries_updates() {
         OA_CHECK_TEXT(
             asked->body,
             "1 update changes the game's rules: Ridge. Saved games from its current version won't "
-            "load under the new one. It is kept, and ROLL BACK brings it back."
+            "load under the new one. It is kept, and Roll back brings it back."
         );
         const kit::Question question = lib::update_prompt(*asked);
         OA_CHECK(paragraphs_of(question) == std::vector<std::string>({asked->body}));
@@ -416,8 +416,8 @@ void update_all_asks_once_about_the_added_registries_updates() {
         OA_CHECK_TEXT(
             five->body,
             "5 updates change the game's rules: Alder, Cedar, Dogwood and 2 more. Saved games "
-            "from their current versions won't load under the new ones. Each is kept, and ROLL "
-            "BACK brings it back."
+            "from their current versions won't load under the new ones. Each is kept, and Roll "
+            "back brings it back."
         );
     listed.resize(3);
     const auto two = lib::update_all_question(listed);
@@ -454,7 +454,7 @@ void an_update_without_a_revision_never_says_revision_0() {
             OA_CHECK_TEXT(
                 asked->body,
                 "OA can't tell whether the new copy changes the game's rules. If it does, saved "
-                "games from revision 3 won't load under it. Revision 3 is kept, and ROLL BACK "
+                "games from revision 3 won't load under it. Revision 3 is kept, and Roll back "
                 "brings it back."
             );
         }
@@ -474,9 +474,9 @@ void the_questions_about_the_mod_played_keep_the_mods_pages_words() {
         );
     OA_CHECK(off.buttons.size() == 2);
     if (off.buttons.size() == 2) {
-        OA_CHECK(off.buttons[0].caption == "CANCEL" && off.buttons[0].id == "cancel");
+        OA_CHECK(off.buttons[0].caption == "Cancel" && off.buttons[0].id == "cancel");
         OA_CHECK(!off.buttons[0].accent);
-        OA_CHECK(off.buttons[1].caption == "SWITCH" && off.buttons[1].id == "switch");
+        OA_CHECK(off.buttons[1].caption == "Switch" && off.buttons[1].id == "switch");
         OA_CHECK(off.buttons[1].accent);
     }
     OA_CHECK(off.cancel_button == 0 && off.primary_button == 1 && off.marked == 0);
@@ -507,13 +507,13 @@ void the_questions_about_the_mod_played_keep_the_mods_pages_words() {
     if (back.paragraphs.size() == 1)
         OA_CHECK_TEXT(
             back.paragraphs[0].text,
-            "Roll back Ridge to 4.8 revision 2? 4.8 revision 3 is kept in its place, and ROLL "
-            "BACK again brings it back."
+            "Roll back Ridge to 4.8 revision 2? 4.8 revision 3 is kept in its place, and Roll "
+            "back again brings it back."
         );
     OA_CHECK(back.buttons.size() == 2);
     if (back.buttons.size() == 2) {
-        OA_CHECK(back.buttons[0].caption == "CANCEL" && back.buttons[0].id == "cancel");
-        OA_CHECK(back.buttons[1].caption == "ROLL BACK" && back.buttons[1].id == "roll-back");
+        OA_CHECK(back.buttons[0].caption == "Cancel" && back.buttons[0].id == "cancel");
+        OA_CHECK(back.buttons[1].caption == "Roll back" && back.buttons[1].id == "roll-back");
         OA_CHECK(back.buttons[1].accent);
     }
     OA_CHECK(back.cancel_button == 0 && back.primary_button == 1 && back.marked == 0);
@@ -522,7 +522,7 @@ void the_questions_about_the_mod_played_keep_the_mods_pages_words() {
     if (played.paragraphs.size() == 1)
         OA_CHECK_TEXT(
             played.paragraphs[0].text,
-            "Roll back Ridge to 1.0? 1.1 is kept in its place, and ROLL BACK again brings it "
+            "Roll back Ridge to 1.0? 1.1 is kept in its place, and Roll back again brings it "
             "back. The game reloads its data for the mod and returns to the main menu."
         );
 }

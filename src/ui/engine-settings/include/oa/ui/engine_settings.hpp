@@ -32,6 +32,18 @@ namespace key {
 inline constexpr std::string_view path_search_nodes = "open-annihilation.path-search-nodes";
 /// 1 or 0 (EngineSettings::wheel_zoom).
 inline constexpr std::string_view wheel_zoom = "open-annihilation.wheel-zoom";
+/// 1 or 0 (EngineSettings::sticky_modifiers). Absent means off.
+inline constexpr std::string_view sticky_modifiers = "open-annihilation.access.sticky-modifiers";
+/// 1 or 0 (EngineSettings::pointer_keys). Absent means off.
+inline constexpr std::string_view pointer_keys = "open-annihilation.access.pointer-keys";
+/// 1 or 0 (EngineSettings::hold_to_confirm). Absent means off.
+inline constexpr std::string_view hold_to_confirm = "open-annihilation.access.hold-to-confirm";
+/// 1 or 0 (EngineSettings::edge_scroll). Absent means on.
+inline constexpr std::string_view edge_scroll = "open-annihilation.access.edge-scroll";
+/// 1 or 0 (EngineSettings::move_overlays). Absent means off.
+inline constexpr std::string_view move_overlays = "open-annihilation.access.move-overlays";
+/// "off", "hold-right" or "hold-middle" (EngineSettings::order_wheel). Absent means off.
+inline constexpr std::string_view order_wheel = "open-annihilation.access.order-wheel";
 /// "automatic", "whole-map", or the share of normal size: "1/32", "1/16",
 /// "1/8", "1/4" or "1/2" (EngineSettings::max_zoom_out).
 inline constexpr std::string_view max_zoom_out = "open-annihilation.max-zoom-out";
@@ -50,6 +62,11 @@ inline constexpr std::string_view edge_stickiness = "open-annihilation.window-ed
 inline constexpr std::string_view middle_click_pan = "open-annihilation.middle-click-pan";
 /// 1 or 0 (EngineSettings::escape_opens_menu).
 inline constexpr std::string_view escape_opens_menu = "open-annihilation.escape-opens-menu";
+/// "double-press", "never" or "every-press" (EngineSettings::group_keys_centre).
+/// Absent means double-press.
+inline constexpr std::string_view group_keys_centre = "open-annihilation.group-keys-centre";
+static_assert(group_keys_centre.find('|') == std::string_view::npos);
+static_assert(group_keys_centre.find('\\') == std::string_view::npos);
 /// Units per player, decimal (EngineSettings::unit_limit).
 inline constexpr std::string_view unit_limit = "open-annihilation.unit-limit";
 /// Frames a second, decimal (EngineSettings::max_frame_rate).
@@ -135,6 +152,8 @@ inline constexpr std::string_view native_density = "open-annihilation.native-den
 inline constexpr std::string_view explosion_flash = "open-annihilation.explosion-flash";
 /// "classic" or "smooth" (EngineSettings::fog_of_war).
 inline constexpr std::string_view fog_of_war = "open-annihilation.fog-of-war";
+/// 1 or 0 (EngineSettings::new_unit_shadows).
+inline constexpr std::string_view new_unit_shadows = "open-annihilation.new-unit-shadows";
 /// "rendered" or "dots" (EngineSettings::zoomed_out_units).
 inline constexpr std::string_view zoomed_out_units = "open-annihilation.zoomed-out-units";
 /// The share of normal size past which Zoomed out units applies: "1/2",
@@ -148,6 +167,13 @@ inline constexpr std::string_view hud_scaling = "open-annihilation.hud-scaling";
 /// "automatic", or the percent "100", "200", "300" or "400"
 /// (EngineSettings::interface_size).
 inline constexpr std::string_view interface_size = "open-annihilation.interface-size";
+/// "auto", "compact", "regular" or "large" (EngineSettings::window_size);
+/// absent, or any other word, is Auto.
+inline constexpr std::string_view window_size = "open-annihilation.ui.window-size";
+/// "modern" or "classic" (EngineSettings::look); absent, or any other word,
+/// is the default: Modern with the player's own file, Classic with a named
+/// one (default_settings).
+inline constexpr std::string_view look = "open-annihilation.ui.look";
 /// 1 or 0 (EngineSettings::modern_fonts).
 inline constexpr std::string_view modern_fonts = "open-annihilation.modern-fonts";
 /// 1 or 0 (EngineSettings::text_outline).
@@ -218,6 +244,24 @@ inline constexpr std::string_view hack_overrides = "open-annihilation.hack-overr
 /// "automatically", "library" or "never" (EngineSettings::content_check).
 /// When Open Annihilation looks for new content and updates.
 inline constexpr std::string_view content_check = "open-annihilation.content-updates";
+/// "automatically", "when-asked" or "never". When Open Annihilation looks
+/// for a new release of itself. Absent, or any other text, reads as
+/// "automatically".
+inline constexpr std::string_view update_check = "open-annihilation.update-check";
+/// Seconds since 1970 of the last check for a new release that reached the
+/// server. Absent, or any text that is not a whole number, means a check
+/// has never reached the server.
+inline constexpr std::string_view update_checked = "open-annihilation.update-checked";
+/// The highest release number the player skipped. Absent, or any text that
+/// is not a whole number, means none. That release and every older one stay
+/// quiet; a newer one asks again.
+inline constexpr std::string_view update_skipped = "open-annihilation.update-skipped";
+/// 1 or 0 (EngineSettings::update_download). Absent reads as 0: a found
+/// release is not downloaded until the player asks.
+inline constexpr std::string_view update_download = "open-annihilation.update-download";
+/// "ask" or "when-i-quit" (EngineSettings::update_install): how a downloaded
+/// release is installed. Absent, or any other text, reads as "ask".
+inline constexpr std::string_view update_install = "open-annihilation.update-install";
 /// "on" or "off" (EngineSettings::file_type_oamod). Absent, or any text
 /// other than off, the game opens mod packages.
 inline constexpr std::string_view file_type_oamod = "open-annihilation.file-types.oamod";
@@ -236,6 +280,9 @@ inline constexpr std::string_view file_type_oamut = "open-annihilation.file-type
 /// "on" or "off" (EngineSettings::file_type_oabrain). Absent, or any text
 /// other than off, the game opens brain packages.
 inline constexpr std::string_view file_type_oabrain = "open-annihilation.file-types.oabrain";
+/// "on" or "off" (EngineSettings::file_type_oakeys). Absent, or any text
+/// other than off, the game opens key layout packages.
+inline constexpr std::string_view file_type_oakeys = "open-annihilation.file-types.oakeys";
 /// "on" or "off" (EngineSettings::file_type_oalaunch). Absent, or any text
 /// other than off, the game opens launch files.
 inline constexpr std::string_view file_type_oalaunch = "open-annihilation.file-types.oalaunch";
@@ -278,6 +325,14 @@ static_assert(base_game.find('\\') == std::string_view::npos);
 static_assert(expansions_prefix.find('|') == std::string_view::npos);
 static_assert(expansions_prefix.back() == '.');
 static_assert(content_note.find('|') == std::string_view::npos);
+static_assert(update_check.find('|') == std::string_view::npos);
+static_assert(update_check.find('\\') == std::string_view::npos);
+static_assert(update_checked.find('|') == std::string_view::npos);
+static_assert(update_checked.find('\\') == std::string_view::npos);
+static_assert(update_download.find('|') == std::string_view::npos);
+static_assert(update_download.find('\\') == std::string_view::npos);
+static_assert(update_install.find('|') == std::string_view::npos);
+static_assert(update_install.find('\\') == std::string_view::npos);
 static_assert(mutators_skirmish.find('|') == std::string_view::npos);
 static_assert(mutators_multiplayer.find('|') == std::string_view::npos);
 static_assert(mutators_campaign.find('|') == std::string_view::npos);
@@ -285,6 +340,49 @@ static_assert(brain_default.find('|') == std::string_view::npos);
 static_assert(brains_skirmish.find('|') == std::string_view::npos);
 static_assert(brains_multiplayer.find('|') == std::string_view::npos);
 static_assert(brains_campaign.find('|') == std::string_view::npos);
+/// How long a key is held before it counts, in milliseconds. 0 waits nothing.
+inline constexpr std::string_view access_slow_keys = "open-annihilation.access.slow-keys-ms";
+/// How soon a second press of the same key is ignored, in milliseconds. 0 ignores nothing.
+inline constexpr std::string_view access_bounce_keys = "open-annihilation.access.bounce-keys-ms";
+/// How far apart two presses may be and still be a double press, in milliseconds.
+/// 0 uses the system's double-click time.
+inline constexpr std::string_view access_double_press = "open-annihilation.access.double-press-ms";
+/// How long a hold waits, in milliseconds.
+inline constexpr std::string_view access_long_press = "open-annihilation.access.long-press-ms";
+/// How long a repeating key waits before its first repeat, in milliseconds.
+/// 0 uses the system's repeat.
+inline constexpr std::string_view access_repeat_delay = "open-annihilation.access.repeat-delay-ms";
+/// How many times a second a repeating key repeats after that delay.
+/// 0 uses the system's repeat.
+inline constexpr std::string_view access_repeat_rate = "open-annihilation.access.repeat-rate";
+/// How far a drag may travel and still be a click, in pixels of the 640×480 game.
+inline constexpr std::string_view access_drag_threshold = "open-annihilation.access.drag-threshold";
+static_assert(hold_to_confirm.find('|') == std::string_view::npos);
+static_assert(hold_to_confirm.find('\\') == std::string_view::npos);
+static_assert(edge_scroll.find('|') == std::string_view::npos);
+static_assert(edge_scroll.find('\\') == std::string_view::npos);
+static_assert(move_overlays.find('|') == std::string_view::npos);
+static_assert(move_overlays.find('\\') == std::string_view::npos);
+static_assert(order_wheel.find('|') == std::string_view::npos);
+static_assert(order_wheel.find('\\') == std::string_view::npos);
+static_assert(access_slow_keys.find('|') == std::string_view::npos);
+static_assert(access_bounce_keys.find('|') == std::string_view::npos);
+static_assert(access_double_press.find('|') == std::string_view::npos);
+static_assert(access_long_press.find('|') == std::string_view::npos);
+static_assert(access_repeat_delay.find('|') == std::string_view::npos);
+static_assert(access_repeat_rate.find('|') == std::string_view::npos);
+static_assert(access_drag_threshold.find('|') == std::string_view::npos);
+static_assert(access_slow_keys.find('\\') == std::string_view::npos);
+static_assert(access_drag_threshold.find('\\') == std::string_view::npos);
+/// The layout in use. Empty, `oa-default` and `same` are the built-in layout.
+/// A mod's own choice is this key, a dot, and the mod's id.
+inline constexpr std::string_view keys_layout = "open-annihilation.keys.layout";
+/// Whether order buttons and build cells show their key. 1 or 0; absent is on.
+inline constexpr std::string_view keys_show_on_buttons = "open-annihilation.keys.show-on-buttons";
+static_assert(keys_layout.find('|') == std::string_view::npos);
+static_assert(keys_layout.find('\\') == std::string_view::npos);
+static_assert(keys_show_on_buttons.find('|') == std::string_view::npos);
+static_assert(keys_show_on_buttons.find('\\') == std::string_view::npos);
 } // namespace key
 
 /// Tells whether two tags are the same, ignoring ASCII case and reading '_' as '-'.
@@ -538,6 +636,28 @@ struct ModOptions {
     friend bool operator==(const ModOptions&, const ModOptions&) = default;
 };
 
+/// Writes the three key sliders: snap override, then line build, then rotate.
+///
+/// @param[in,out] options the dialog's settings
+/// @param snap_code the snap override slider's key code
+/// @param line_code the line build slider's key code
+/// @param rotate_code the rotate slider's key code
+inline void set_mod_option_keys(
+    ModOptions& options, uint32_t snap_code, uint32_t line_code, uint32_t rotate_code
+) noexcept {
+    options.snap_override_key = snap_code;
+    options.autoclick_key = line_code;
+    options.rotate_build_key = rotate_code;
+}
+
+/// Returns the three key sliders, in the order set_mod_option_keys writes them.
+///
+/// @param options the dialog's settings
+/// @return snap override, line build and rotate
+[[nodiscard]] inline std::array<uint32_t, 3> mod_option_keys(const ModOptions& options) noexcept {
+    return {options.snap_override_key, options.autoclick_key, options.rotate_build_key};
+}
+
 /// Hardware acceleration: how much of each frame the graphics card takes
 /// on. The processor still draws every pixel the game decides at Off and
 /// Basic.
@@ -722,6 +842,25 @@ inline constexpr std::array<WindowEdge, 3> window_edge_choices{
     WindowEdge::free,
 };
 
+/// Group keys centre the view: when a group's key, which always selects the
+/// group, also moves the view to it.
+enum class GroupKeysCentre : uint8_t {
+    /// the second of two presses of the key within the double-press time
+    double_press,
+    never, ///< no press moves the view
+    /// a press moves the view when the group is already exactly the selection,
+    /// however long after the last press: what 0.8.6 did
+    every_press,
+};
+
+/// The ways of Group keys centre the view, in the order the dialog offers
+/// them.
+inline constexpr std::array<GroupKeysCentre, 3> group_keys_centre_choices{
+    GroupKeysCentre::double_press,
+    GroupKeysCentre::never,
+    GroupKeysCentre::every_press,
+};
+
 /// Edge stickiness's lowest value, in tenths: 0.0, a sticky edge that never
 /// holds.
 inline constexpr uint32_t lowest_edge_stickiness = 0;
@@ -769,6 +908,40 @@ enum class WindowFrame : uint8_t {
 inline constexpr std::array<WindowFrame, 2> window_frame_choices{
     WindowFrame::hidden_in_play,
     WindowFrame::always_shown,
+};
+
+/// Window size: the size class Open Annihilation's own windows (Settings,
+/// the Library, the key editor, the pickers) are laid out at.
+enum class WindowSize : uint8_t {
+    /// the largest class whose Settings dialog fits the window with room
+    /// round it
+    automatic,
+    compact, ///< Compact, wherever its dialog fits
+    regular, ///< Regular where its dialog fits whole, else the largest that does
+    large,   ///< Large where its dialog fits whole, else the largest that does
+};
+
+/// The Window sizes, in the order the dialog offers them.
+inline constexpr std::array<WindowSize, 4> window_size_choices{
+    WindowSize::automatic,
+    WindowSize::compact,
+    WindowSize::regular,
+    WindowSize::large,
+};
+
+/// Look: the letters Open Annihilation's own screens and overlays are drawn
+/// in. The 3.1c game's own screens keep the game's fonts either way.
+enum class Look : uint8_t {
+    /// Barlow and Barlow Condensed at the kit's type scale, the bundled
+    /// sans faces drawing what Barlow lacks
+    modern,
+    classic, ///< the game's own two bitmap fonts
+};
+
+/// The Looks, in the order the dialog offers them.
+inline constexpr std::array<Look, 2> look_choices{
+    Look::modern,
+    Look::classic,
 };
 
 /// After zoom: the zoom farther out than which Zoomed out units applies,
@@ -1014,6 +1187,22 @@ enum class ContentCheck : uint8_t {
     never,              ///< only when the player asks
 };
 
+/// When Open Annihilation looks for a new release of itself. It never
+/// installs one until the player says so. The stored words are the existing
+/// preference's: automatically, when-asked, never.
+enum class UpdateCheck : uint8_t {
+    automatically, ///< at every start, and every hour while the game runs
+    when_asked,    ///< only when the player asks
+    never,         ///< the player asks, and CHECK NOW is not offered
+};
+
+/// How a downloaded release is installed. The stored words are the update
+/// centre's own: ask, when-i-quit.
+enum class UpdateInstall : uint8_t {
+    ask,         ///< the ready prompt asks each time
+    when_i_quit, ///< a ready release installs the next time the game quits
+};
+
 /// Coloured weapon lighting's percent with Hardware acceleration Full where
 /// the preferences store none (default_effect_intensity).
 inline constexpr uint32_t default_weapon_lighting = 20;
@@ -1036,12 +1225,27 @@ inline constexpr uint32_t default_underwater_shimmer = 100;
 /// Naval reflections' percent where the preferences store none.
 inline constexpr uint32_t default_naval_reflections = 100;
 
+/// Which mouse button, held, opens the order wheel. Off leaves the buttons as they are.
+enum class OrderWheel : uint8_t {
+    off,         ///< a click and a drag do what they do today
+    hold_right,  ///< holding the right button opens the wheel
+    hold_middle, ///< holding the middle button opens the wheel
+};
+
 /// The settings, as the dialog shows them and the game puts them in effect.
 struct EngineSettings {
     /// Path nodes the path search may visit in a game tick, all players
     /// together: base_path_search_nodes times the Pathfinding cycles.
     int32_t path_search_nodes{base_path_search_nodes};
     bool wheel_zoom{true}; ///< the mouse wheel zooms the battlefield
+    /// A tapped Shift, Ctrl or Alt applies to the next key or click.
+    bool sticky_modifiers{false};
+    /// The numpad moves the pointer, clicks, and holds a button.
+    bool pointer_keys{false};
+    /// Self-destruct, surrender and quitting need the long-press time.
+    bool hold_to_confirm{false};
+    /// Holding the right or middle button opens the order wheel at the pointer.
+    OrderWheel order_wheel{OrderWheel::off};
     /// How far out the battlefield's view zooms, by the wheel, a pinch, the
     /// touch controls or a controller.
     ZoomOutLimit max_zoom_out{ZoomOutLimit::automatic};
@@ -1053,6 +1257,18 @@ struct EngineSettings {
     bool middle_click_pan{true};
     bool escape_opens_menu{}; ///< Escape with nothing to cancel opens the game menu
     bool switch_alt{};        ///< 3.1c's SwitchAlt: a number key alone selects its group
+    /// When a group's key moves the view to the group as well as selecting
+    /// it. Applies at once.
+    GroupKeysCentre group_keys_centre{GroupKeysCentre::double_press};
+    /// The layout chosen for the mod being played: `same`, or an installed
+    /// layout's id. The dialog's host writes it under
+    /// open-annihilation.keys.layout.<mod id> as the choice moves. With no
+    /// mod it stays `same` and nothing is written.
+    std::string key_layout_for_mod{"same"};
+    /// Order buttons and build cells show their key. Off until the player
+    /// turns it on: the badges are drawn on the 3.1c game's own panel.
+    /// Absent in the preferences is off.
+    bool show_keys_on_buttons{false};
     /// Whether a window keeps the pointer while a match's battlefield
     /// shows. Full screen holds the pointer either way.
     WindowEdge window_edge{WindowEdge::capture};
@@ -1148,6 +1364,12 @@ struct EngineSettings {
     /// How the fog's edges are drawn while the graphics card draws the
     /// battlefield; the processor's drawing is always Classic.
     FogOfWar fog_of_war{FogOfWar::smooth};
+    /// Units' and wrecks' shadows as Open Annihilation draws them where the
+    /// graphics card draws the battlefield (Full): laid on the ground under
+    /// everything, overlaps darkening once, an aircraft's with a soft edge.
+    /// Off draws each as the game does, with its unit, as the processor
+    /// always draws them. It changes only what the frames show.
+    bool new_unit_shadows{true};
     /// How units are drawn farther out than zoomed_out_after: as at any
     /// zoom, or as dots. Never icons, which the dialog shows but does not
     /// offer yet.
@@ -1156,6 +1378,13 @@ struct EngineSettings {
     ZoomedOutAfter zoomed_out_after{ZoomedOutAfter::one_sixth};
     /// When the game's window shows its title bar and borders.
     WindowFrame window_frame{WindowFrame::hidden_in_play};
+    /// The size class Open Annihilation's own windows are laid out at. It
+    /// takes effect when the dialog's OK is pressed, as Interface size does.
+    WindowSize window_size{WindowSize::automatic};
+    /// The letters Open Annihilation's own screens and overlays are drawn
+    /// in. It applies as it is chosen, the open dialog among them. Modern
+    /// with the player's own preferences file (default_settings).
+    Look look{Look::classic};
     /// The side column and the top and bottom bars of a game grow with the
     /// window, up to twice the original game's size; off, they keep the
     /// original game's size on every window. The touch controls' layouts
@@ -1217,6 +1446,17 @@ struct EngineSettings {
     /// When Open Annihilation looks for new content and updates. It takes
     /// effect when OK is pressed; Cancel and Restore defaults apply.
     ContentCheck content_check{ContentCheck::automatically};
+    /// When Open Annihilation looks for a new release of itself. It takes
+    /// effect when OK is pressed, as the check for content does. CHECK NOW
+    /// looks at once and does not store this.
+    UpdateCheck update_check{UpdateCheck::automatically};
+    /// Downloads a found release while the player is in the menus, and
+    /// stops during a match. Off unless the preference is 1. It takes
+    /// effect when OK is pressed.
+    bool update_download{};
+    /// How a downloaded release is installed: the ready prompt asks, or it
+    /// installs when the game quits. It takes effect when OK is pressed.
+    UpdateInstall update_install{UpdateInstall::ask};
     /// The game opens mod packages (.oamod). On unless the preference is the
     /// word off. Windows and Linux register it when OK is pressed. On macOS
     /// the switch shows whether this copy is the default opener, and OK
@@ -1227,6 +1467,7 @@ struct EngineSettings {
     bool file_type_oareg{true};   ///< the game opens registry files (.oareg)
     bool file_type_oamut{true};   ///< the game opens mutator packages (.oamut)
     bool file_type_oabrain{true}; ///< the game opens brain packages (.oabrain)
+    bool file_type_oakeys{true};  ///< the game opens key layout packages (.oakeys)
     /// The game opens launch files (.oalaunch), which start it in their
     /// battle room, as -c does.
     bool file_type_oalaunch{true};
@@ -1234,6 +1475,33 @@ struct EngineSettings {
     /// copy of NumSkirmishPlayers: read_settings and write_settings leave it
     /// out, and OK stores it as that one count.
     int32_t skirmish_players{default_skirmish_players};
+    /// How long a key is held before it counts, in milliseconds. 0 waits nothing.
+    /// A key is never delayed while text is being typed, and a mouse button never is.
+    uint32_t slow_keys_ms{0};
+    /// How soon a second press of the same key is ignored, in milliseconds. 0 ignores nothing.
+    uint32_t bounce_keys_ms{0};
+    /// How far apart two presses may be and still be a double press, in milliseconds.
+    /// 0 uses the system's double-click time, which is 500 ms for a `:double` chord.
+    uint32_t double_press_ms{0};
+    /// How long a hold waits, in milliseconds.
+    uint32_t long_press_ms{500};
+    /// How long a repeating key waits before its first repeat, in milliseconds.
+    /// 0, or a repeat rate of 0, leaves the system's repeat in place.
+    uint32_t repeat_delay_ms{0};
+    /// How many times a second a repeating key repeats. 0 uses the system's repeat.
+    uint32_t repeat_rate{0};
+    /// How far a drag may travel and still be a click, in pixels of the 640×480 game.
+    /// The tick limit widens in proportion with it.
+    uint32_t drag_threshold{32};
+    /// The view scrolls while the pointer rests at the window's edge. Off stops
+    /// that scroll only. Arrow keys, and the touch edge band while a drag is
+    /// held, keep scrolling. Absent in the preferences is on.
+    bool edge_scroll{true};
+    /// The keys overlay, the chat line and the latch chips show where the
+    /// player put them (Accessibility's Arrange…). Off, they show where they
+    /// lay themselves out, and the places the player gave them are kept for
+    /// when it is on again. Absent in the preferences is off.
+    bool move_overlays{false};
 
     friend bool operator==(const EngineSettings&, const EngineSettings&) = default;
 };
@@ -1298,7 +1566,9 @@ highest_offered_unit_limit(const oa::data::limits::UnitsPerPlayer& units) noexce
 /// small_desktop_screen_size on a known desktop narrower or shorter than it.
 /// Hardware acceleration is Full with the player's own file, on every
 /// machine, and Off with a named one; whether the graphics card is used is
-/// decided apart from the setting. Vertical sync is Off everywhere. Menu
+/// decided apart from the setting. Look is Modern with the player's own
+/// file, a file written before the setting existed among them, and
+/// Classic, the game's own fonts, with a named one. Vertical sync is Off everywhere. Menu
 /// scaling is Sharp everywhere. Mouse wheel zoom is On, Maximum zoom out
 /// Automatic, Maximum zoom in 4x and View past the map's edge 50%
 /// everywhere. Native pixel density is
@@ -1322,7 +1592,10 @@ highest_offered_unit_limit(const oa::data::limits::UnitsPerPlayer& units) noexce
 /// relative, Pointer speed default_pointer_speed, Pointer acceleration Low,
 /// Trackpad glide Off, Right stick Zoom and build pages, Magnetism On, Gyro
 /// pointer Off, Gyro speed default_gyro_speed, Haptics Light, Button prompts
-/// Automatic and Left-handed Off (oa/ui/pad_controls.hpp).
+/// Automatic and Left-handed Off (oa/ui/pad_controls.hpp). Slow keys and
+/// bounce keys are off, a double press and key repeat use the system's, a
+/// long press waits 500 ms and a drag of 32 pixels of the 640×480 game is
+/// still a click. The order wheel is off.
 ///
 /// @param inputs the platform, the preferences file and the installation
 /// @return the defaults
@@ -1429,7 +1702,14 @@ void follow_acceleration_with_unset_effects(
 /// read from the key that Inputs::profile_id ends, as
 /// oa::data::mod_profile::read_overrides reads them: none without the key,
 /// from a text the profile grammar does not read as a mapping (one that
-/// names a hack twice among them), or with an empty profile id. In the
+/// names a hack twice among them), or with an empty profile id. Slow keys
+/// and bounce keys are 0 to 1,000 ms, a double press is 0 for the system's
+/// or else 200 to 1,000, a long press is 200 to 1,000, a repeat delay is 0
+/// for the system's or else 150 to 1,000, a repeat rate is 0 for the
+/// system's or else 2 to 30 a second, and the drag threshold is 32 to 96
+/// pixels of the 640×480 game. A value below a range that does not keep
+/// zero is raised to the range's start, and one above it is lowered to its
+/// end. In the
 /// Touch section, One-finger drag and QUEUE and ADD read the words
 /// touch_drag_text and touch_latches_text write, and any other value gives
 /// the default; the hold delay reads as a number, put on its nearest stop
@@ -1475,7 +1755,8 @@ void follow_acceleration_with_unset_effects(
 /// that count as NumSkirmishPlayers): after Restore defaults (`restored`), a
 /// setting at its default has its key erased; otherwise a setting that
 /// differs from `opened` has its key written, in decimal, a switch as 1 or
-/// 0, the screen size as "desktop" or "WIDTHxHEIGHT", hardware
+/// 0, Show keys on buttons among them, the screen size as "desktop" or
+/// "WIDTHxHEIGHT", hardware
 /// acceleration as "off", "basic" or "full", Menu scaling, One-finger drag
 /// and QUEUE and ADD as their words (menu_scaling_text, touch_drag_text,
 /// touch_latches_text), Explosion flash as "off", "reduced" or "full", the
@@ -1492,6 +1773,9 @@ void follow_acceleration_with_unset_effects(
 /// from `opened`, are written under the key `profile_id` ends, as
 /// oa::data::mod_profile::overrides_text writes them, or that key is
 /// erased when none are left; Restore defaults leaves them as they are.
+/// While `profile_id` names a mod, not the base game, Key layout with that
+/// mod is written under open-annihilation.keys.layout.<id> (`same` or a
+/// layout id), or erased when Restore defaults puts it back to `same`.
 /// Every other key is left as it is. switch_alt is never written here:
 /// 3.1c's SwitchAlt key goes with the frontend's own preferences.
 ///

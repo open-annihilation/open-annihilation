@@ -10,7 +10,10 @@
 #include "oa/present/world_renderer/world_camera.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <span>
+#include <vector>
 
 namespace oa::present::world_renderer {
 
@@ -243,6 +246,51 @@ void radar_free_surfaces(RadarSurfaces& surfaces, const RadarSurfaceHost& host) 
     surfaces.picture = nullptr;
     surfaces.mapped = nullptr;
     surfaces.final_image = nullptr;
+}
+
+void radar_read_sight(
+    const sim::visibility_state::PlayerSightGrid& sight,
+    uint8_t viewer,
+    std::span<const uint16_t> coverage,
+    FogOptions options,
+    uint16_t explored_bit,
+    int32_t grid_width,
+    int32_t grid_height,
+    std::vector<uint16_t>& sight_bits,
+    std::vector<uint8_t>& covered
+) {
+    const auto cells = static_cast<std::size_t>(std::max(grid_width, 0)) *
+                       static_cast<std::size_t>(std::max(grid_height, 0));
+    sight_bits.assign(cells, options.mapping ? uint16_t{0} : explored_bit);
+    const bool greys = view_greys(options);
+    covered.assign(cells, greys ? uint8_t{0} : uint8_t{1});
+    if ((!options.mapping && !options.line_of_sight) || sight.width <= 0 || sight.height <= 0)
+        return;
+    // The viewer's mapped bit, and those of the players whose ground it is shown.
+    const auto own_bit = static_cast<uint16_t>(1U << (viewer & 0x1fU));
+    const auto viewer_bit = static_cast<uint16_t>(own_bit | options.shared_mapped);
+    for (int32_t row = 0; row < grid_height; ++row) {
+        const auto sight_row =
+            static_cast<std::size_t>(static_cast<int64_t>(row) * sight.height / grid_height);
+        for (int32_t column = 0; column < grid_width; ++column) {
+            const auto sight_column =
+                static_cast<std::size_t>(static_cast<int64_t>(column) * sight.width / grid_width);
+            const auto index = sight_row * static_cast<std::size_t>(sight.width) + sight_column;
+            const auto cell = static_cast<std::size_t>(row) * static_cast<std::size_t>(grid_width) +
+                              static_cast<std::size_t>(column);
+            if (options.mapping && index < sight.player_bits.size() &&
+                (sight.player_bits[index] & viewer_bit) != 0)
+                sight_bits[cell] = explored_bit;
+            if (greys &&
+                cell_shown_in_sight(
+                    index < coverage.size() ? coverage[index] : uint16_t{0},
+                    index < sight.player_bits.size() ? sight.player_bits[index] : uint16_t{0},
+                    own_bit,
+                    options
+                ))
+                covered[cell] = 1;
+        }
+    }
 }
 
 void radar_fill_mapped(

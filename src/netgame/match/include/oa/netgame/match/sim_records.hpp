@@ -6,8 +6,8 @@
 // Records built from the simulation's shared events: the unit state-flags
 // record (0x11) for a unit_flags_changed event, the unit-killed record (0x0c)
 // for a unit_killed event, the unit-transfer record (0x14) for a
-// unit_transferred event, and the feature record (0x0f) for the feature
-// code's hit and change hooks.
+// unit_transferred event, and the feature record (0x0f, or 0xe2 when the
+// profile raises weapon-types) for the feature code's hit and change hooks.
 
 #include "oa/core/world.h"
 #include "oa/netgame/records.hpp"
@@ -77,6 +77,25 @@ unit_transfer_record(const Unit& unit, uint32_t new_owner_id) noexcept;
 [[nodiscard]] std::array<uint8_t, feature_record_bytes>
 encode_feature_record(uint8_t action, int32_t cell_x, int32_t cell_z) noexcept;
 
+/// Bytes of a wide feature record, the type byte included.
+inline constexpr std::size_t wide_feature_record_bytes =
+    record_table_length(static_cast<uint8_t>(WideRecordType::feature_event));
+static_assert(wide_feature_record_bytes == 8);
+
+/// Encodes a 0xe2 feature record.
+///
+/// The weapon id is sent only for a weapon hit. Every other action goes out
+/// with id 0.
+///
+/// @param action What the receiver does.
+/// @param weapon Weapon id of a hit; ignored for every other action.
+/// @param cell_x Plot column, truncated to 16 bits.
+/// @param cell_z Plot row, truncated to 16 bits.
+/// @return The 8-byte record.
+[[nodiscard]] std::array<uint8_t, wide_feature_record_bytes> encode_wide_feature_record(
+    WideFeatureAction action, uint16_t weapon, int32_t cell_x, int32_t cell_z
+) noexcept;
+
 // Where the feature hooks below send their records. match_binding_install
 // installs them through MultiplayerHooks' feature entries, which
 // Match::feature_host passes to the feature code.
@@ -87,10 +106,12 @@ struct FeatureRecordLink {
     // every player; it goes out from the player in slot sender, or from the
     // first player on this machine when sender is no_player_slot.
     void (*send)(
-        void* context, const uint8_t record[feature_record_bytes], bool to_host, uint8_t sender
+        void* context, const uint8_t* record, std::size_t size, bool to_host, uint8_t sender
     ){};
     // Whether the session is a network game (object state 3).
     bool (*networked)(void* context){};
+    /// Feature records go out as 0xe2. False keeps the 6-byte 0x0f.
+    bool wide{};
 };
 
 /// Implements FeatureHost::feature_hit_elsewhere over a FeatureRecordLink.
@@ -103,7 +124,7 @@ struct FeatureRecordLink {
 /// @param cell_x Plot column.
 /// @param cell_z Plot row.
 /// @return True when the hit was handed to the authority and must not be applied here.
-bool feature_hit_elsewhere(void* link, uint8_t weapon_id, int32_t cell_x, int32_t cell_z);
+bool feature_hit_elsewhere(void* link, uint16_t weapon_id, int32_t cell_x, int32_t cell_z);
 
 /// Implements FeatureHost::feature_changed over a FeatureRecordLink.
 ///

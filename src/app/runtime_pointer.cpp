@@ -561,7 +561,8 @@ std::string_view Runtime::match_hud_action(std::string_view name) const {
                });
     };
     for (std::size_t side = 0; side < side_table_.count; ++side) {
-        const auto& field = side_table_.sides[side].name_prefix;
+        const auto& field =
+            oa::data::defs::side_at(side_table_, static_cast<uint32_t>(side))->name_prefix;
         const std::string_view prefix(field, strnlen(field, sizeof field));
         if (starts_with(prefix))
             return name.substr(prefix.size());
@@ -767,6 +768,19 @@ oa::ui::engine_settings::WindowEdge Runtime::window_edge_mode() const {
     if (engine_settings_ == nullptr)
         return oa::ui::engine_settings::WindowEdge::capture;
     return engine_settings_->current.window_edge;
+}
+
+bool Runtime::take_release_pointer_action() {
+    const auto* action = fired_action("ui.release-pointer");
+    if (action == nullptr || action->phase != oa::ui::key_bindings::Phase::pressed)
+        return false;
+    // Escape in a match lets a captured pointer go until the next click on
+    // the battlefield. Sticky and Free leave the pointer as it is. The key
+    // is taken either way.
+    if (window_edge_mode() == oa::ui::engine_settings::WindowEdge::capture &&
+        screen_ == Screen::match && match_)
+        capture_waits_for_click_ = true;
+    return true;
 }
 
 bool Runtime::battlefield_in_play() {
@@ -1093,11 +1107,11 @@ bool Runtime::middle_pan_take(const SDL_Event& event) {
         button = event.button.button;
         x = event.button.x;
         y = event.button.y;
-        gesture = button == SDL_BUTTON_MIDDLE ? middle_pan::Gesture::middle_down
-                                              : middle_pan::Gesture::other;
+        gesture = button == pointer_role_button("pointer.pan") ? middle_pan::Gesture::middle_down
+                                                               : middle_pan::Gesture::other;
         break;
     case SDL_EVENT_MOUSE_BUTTON_UP:
-        if (event.button.button != SDL_BUTTON_MIDDLE)
+        if (event.button.button != pointer_role_button("pointer.pan"))
             return false;
         gesture = middle_pan::Gesture::middle_up;
         x = event.button.x;
@@ -1120,8 +1134,8 @@ bool Runtime::middle_pan_take(const SDL_Event& event) {
     const auto result = middle_pan::apply(middle_pan_, gesture, x, y, enabled, can_start);
     middle_pan_ = result.state;
     if (button_down && result.swallow) {
-        const bool starting =
-            button == SDL_BUTTON_MIDDLE && result.state.phase != middle_pan::Phase::idle;
+        const bool starting = button == pointer_role_button("pointer.pan") &&
+                              result.state.phase != middle_pan::Phase::idle;
         if (!starting)
             middle_pan_swallow_button_ = button;
     }

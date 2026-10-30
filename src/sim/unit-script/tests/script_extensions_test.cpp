@@ -314,7 +314,8 @@ void a_script_walks_every_unit_id() {
     cob.header.script_count = 1;
     cob.piece_names = {"base", "turret"};
     ValueHost host(ranges.world, &ranges.world->units[1], services);
-    oa::sim::script_vm::Vm vm(us::test::vm_program(cob), host);
+    const auto shared = us::test::vm_program(cob);
+    oa::sim::script_vm::Vm vm(shared, host);
     OA_CHECK(vm.start(0, {}).ok());
     const auto run = vm.tick(0);
     OA_CHECK(run.ok());
@@ -326,7 +327,8 @@ void a_script_walks_every_unit_id() {
 
     // Without the extensions the loop never starts: MAX_ID reads 0.
     ValueHost bare(ranges.world, &ranges.world->units[1], us::UnitValueServices{});
-    oa::sim::script_vm::Vm plain(us::test::vm_program(cob), bare);
+    oa::sim::script_vm::Vm plain(shared, bare);
+    OA_CHECK(plain.program().code.data() == vm.program().code.data());
     OA_CHECK(plain.start(0, {}).ok());
     OA_CHECK(plain.tick(0).ok());
     OA_CHECK(*plain.static_value(0) == 0);

@@ -248,8 +248,9 @@ struct NetMatch {
     uint32_t timeout_player{no_player_id}; // player named by the timeout dialog
     uint32_t keepalive_time{};             // next paused probe
     uint32_t records_applied{};
-    uint32_t records_refused{}; // gated, unknown sender or not handled
-    uint32_t record_errors{};   // malformed or rejected by the replication layer
+    uint32_t wide_records_applied{}; // 0xe0..0xe2 the replication layer handled
+    uint32_t records_refused{};      // gated, unknown sender or not handled
+    uint32_t record_errors{};        // malformed or rejected by the replication layer
     /// The mod profile's rules the match keeps (net_match_bind_rules); null keeps 3.1c's.
     const data::match_rules::MatchRules* match_rules{};
     /// Whether the map places units for the neutral player, which the

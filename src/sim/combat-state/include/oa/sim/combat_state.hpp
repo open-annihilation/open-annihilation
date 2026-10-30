@@ -62,7 +62,7 @@ inline constexpr uint32_t weapon_noautorange_flag = OA_WEAPON_FLAG_NO_AUTO_RANGE
 struct WeaponDefinition {
     uint16_t reload_time_ticks{};
     uint16_t default_damage{}; // WeaponDef.damage_default, TDF [DAMAGE] default
-    uint8_t registry_index{};
+    uint16_t registry_index{};
     int32_t projectile_velocity{};        // WeaponDef.weapon_velocity, 16.16 world units per tick
     float minimum_barrel_angle_radians{}; // WeaponDef.min_barrel_angle
     int32_t range_world_units{0x7fff};    // WeaponDef.range
@@ -224,18 +224,24 @@ turn_toward_angle(uint16_t current, uint16_t desired, uint16_t rate) noexcept {
 
 inline constexpr size_t weapon_registry_capacity = 256;
 
-/// The 256 weapon definitions of a game, indexed by their TDF ID.
+/// One weapon definition per slot, from 0 to the table's last.
 ///
-/// The definitions, names and records are kept in one allocation of their
-/// own, so a registry is a few bytes wherever it is placed, on a thread's
-/// stack too. A definition keeps its address for as long as its registry
-/// lives: copying or assigning a registry, from a temporary too, copies the
-/// slots into the target's own storage.
+/// A new registry holds weapon_registry_capacity slots. The definitions,
+/// names and records are kept in allocations of their own, so a registry is
+/// a few bytes wherever it is placed, on a thread's stack too. Growing moves
+/// every definition, so grow before any is bound. Copying or assigning a
+/// registry, from a temporary too, copies the slots into the target's own
+/// storage.
 class WeaponRegistry {
   public:
 
-    /// Creates 256 empty definitions, each carrying its own registry index.
-    WeaponRegistry();
+    /// The name stored for one slot.
+    using SlotName = std::string;
+
+    /// Creates empty definitions, each carrying its own registry index.
+    ///
+    /// @param capacity slots to hold; a new registry holds weapon_registry_capacity
+    explicit WeaponRegistry(std::size_t capacity = weapon_registry_capacity);
 
     /// Creates a registry holding a copy of every slot of another.
     ///
@@ -248,14 +254,36 @@ class WeaponRegistry {
     /// @return this registry
     WeaponRegistry& operator=(const WeaponRegistry& other);
 
+    /// Moves the slots. The moved-from registry holds nothing.
+    ///
+    /// @param other registry whose slots are taken
+    WeaponRegistry(WeaponRegistry&& other) noexcept;
+
+    /// Moves the slots. The moved-from registry holds nothing.
+    ///
+    /// @param other registry whose slots are taken
+    /// @return this registry
+    WeaponRegistry& operator=(WeaponRegistry&& other) noexcept;
+
+    /// Returns how many slots the registry holds.
+    [[nodiscard]] std::size_t capacity() const noexcept { return capacity_; }
+
+    /// Grows the registry, keeping every slot and numbering the new ones.
+    ///
+    /// Growing moves every definition, so grow before any definition is bound.
+    ///
+    /// @param capacity new slot count; ignored when the registry is already that large
+    void grow(std::size_t capacity);
+
     /// Installs one loaded weapon slot under its section name.
     ///
     /// The definition takes the record's values as they are: velocities in
     /// 16.16 world units per tick, times in ticks, minbarrelangle in radians.
-    /// The record itself is kept for Game.weapon_defs (see records()).
+    /// The record itself is kept for the World's weapon tables (see records()).
+    /// An id past the registry's capacity grows it first.
     ///
-    /// @param weapon slot of a data::defs::WeaponTable; WeaponDef.weapon_id is
-    ///     the registry index and WeaponDef.key the name
+    /// @param weapon slot of a data::defs::WeaponTable; its id is the registry
+    ///     index and WeaponDef.key the name
     /// @param assets explosion and sound names the slot's section gave
     void install(const WeaponDef& weapon, const data::defs::WeaponAssetNames& assets);
 
@@ -264,9 +292,11 @@ class WeaponRegistry {
     /// @param index registry index of the weapon
     /// @param unit_name target UNITNAME; stored lower-case
     /// @param amount damage against that unit
-    void install_damage_override(uint8_t index, std::string_view unit_name, int32_t amount);
+    void install_damage_override(uint16_t index, std::string_view unit_name, int32_t amount);
 
     /// Finds an installed weapon by its internal name.
+    ///
+    /// The lowest slot wins when several share a name.
     ///
     /// @param name weapon name, compared case-insensitively (ASCII)
     /// @return the definition, or null for an empty or unknown name
@@ -274,36 +304,35 @@ class WeaponRegistry {
 
     /// Returns record zero, the fallback for unresolved weapon names.
     [[nodiscard]] const WeaponDefinition& default_definition() const noexcept {
-        return slots_->definitions[0];
+        return definitions_[0];
     }
 
     /// Returns the definition at a registry index.
-    [[nodiscard]] const WeaponDefinition& definition(uint8_t index) const noexcept {
-        return slots_->definitions[index];
+    [[nodiscard]] const WeaponDefinition& definition(uint16_t index) const noexcept {
+        return definitions_[index];
     }
 
     /// Returns the internal name at a registry index, empty when none is installed.
-    [[nodiscard]] std::string_view name(uint8_t index) const noexcept {
-        return slots_->names[index];
-    }
+    [[nodiscard]] std::string_view name(uint16_t index) const noexcept { return names_[index]; }
 
-    /// Returns the weapon records, one per registry index, as Game.weapon_defs holds them.
+    /// Returns the weapon records, one per slot.
     ///
-    /// A slot nothing was installed in is zeroed apart from its weapon_id.
-    [[nodiscard]] const std::array<WeaponDef, weapon_registry_capacity>& records() const noexcept {
-        return slots_->records;
+    /// A slot nothing was installed in is zeroed apart from its id bytes.
+    [[nodiscard]] std::span<const WeaponDef> records() const noexcept {
+        return {records_.get(), capacity_};
     }
 
   private:
 
-    /// Each registry index's definition, internal name and record.
-    struct Slots {
-        std::array<WeaponDefinition, weapon_registry_capacity> definitions{};
-        std::array<std::string, weapon_registry_capacity> names{};
-        std::array<WeaponDef, weapon_registry_capacity> records{};
-    };
+    /// Allocates `capacity` zeroed slots and numbers each one.
+    ///
+    /// @param capacity slots to hold
+    void allocate(std::size_t capacity);
 
-    std::unique_ptr<Slots> slots_;
+    std::unique_ptr<WeaponDefinition[]> definitions_;
+    std::unique_ptr<SlotName[]> names_;
+    std::unique_ptr<WeaponDef[]> records_;
+    std::size_t capacity_{};
 };
 
 /// Installs every loaded slot of a weapon table, with its [DAMAGE] entries.
@@ -323,9 +352,13 @@ size_t install_weapon_table(WeaponRegistry& registry, const data::defs::WeaponTa
 /// @param[in,out] registry registry the slots are installed into
 /// @param files file boundary over the game data
 /// @param lava_world whether lavaexplosion* keys stand in for waterexplosion*
+/// @param weapon_types IDs from 0 to weapon_types - 1 take a slot
 /// @return the number of slots installed
 size_t install_weapon_files(
-    WeaponRegistry& registry, const data::defs::Files& files, bool lava_world = false
+    WeaponRegistry& registry,
+    const data::defs::Files& files,
+    bool lava_world = false,
+    uint32_t weapon_types = OA_WEAPON_DEF_COUNT
 );
 
 /// Loads weapon TDF text and installs the slots it names.
@@ -336,9 +369,14 @@ size_t install_weapon_files(
 /// @param[in,out] registry registry the slots are installed into
 /// @param text weapon TDF text
 /// @param lava_world whether lavaexplosion* keys stand in for waterexplosion*
+/// @param weapon_types IDs from 0 to weapon_types - 1 take a slot
 /// @return the number of slots installed; 0 when the text does not parse
-size_t
-install_weapon_text(WeaponRegistry& registry, std::string_view text, bool lava_world = false);
+size_t install_weapon_text(
+    WeaponRegistry& registry,
+    std::string_view text,
+    bool lava_world = false,
+    uint32_t weapon_types = OA_WEAPON_DEF_COUNT
+);
 
 struct WeaponBinding {
     UnitWeapons weapons;
@@ -566,7 +604,7 @@ struct StrategicType {
     float tidal_generator{};
 
     struct Weapon {
-        uint8_t registry_index{};
+        uint16_t registry_index{};
         uint16_t damage_default{};
         int32_t range_world_units{};
     };
@@ -697,7 +735,7 @@ struct WeaponScoreInput {
 ///
 /// @param can_attack whether the type can attack (OA_UNIT_DEF_ABILITY_CAN_ATTACK in
 ///        UnitDef.abilities)
-/// @param weapons the type's three slots; each present one (WeaponDef.weapon_id not zero) adds
+/// @param weapons the type's three slots; each present one (a non-zero id) adds
 ///        range/100 + 5 + damage/40
 /// @return 11 if the type can attack, else 1, plus the weapon terms, clamped to [-100, 100]
 [[nodiscard]] int threat_score(bool can_attack, const WeaponScoreInput weapons[3]) noexcept;

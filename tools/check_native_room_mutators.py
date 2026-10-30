@@ -347,9 +347,10 @@ def wait_mutators(game, count, name, mutator_id):
     """Waits until the game's Mutators button counts the room's set and the
     room's chat names it.
 
-    The button reads "Mutators (N)" for N mutators on. The line the room posts
-    when its list is turned on names each by its name, never by its id.
-    Returns the button's text and that line.
+    The button reads "Mutators"; its automation text counts the set, "Mutators
+    · N on" for N mutators on. The line the room posts when its list is turned
+    on names each by its name, never by its id. Returns the button's text and
+    that line.
     """
     client = open_client(game)
     text = None
@@ -362,13 +363,13 @@ def wait_mutators(game, count, name, mutator_id):
             chat = client.request("room").get("chat") or []
             turned_on = [line for line in chat if "turned on mutators" in line]
             named = [line for line in turned_on if name in line and mutator_id not in line]
-            if text == f"Mutators ({count})" and named:
+            if text == f"Mutators · {count} on" and named:
                 return text, named[-1]
             time.sleep(0.1)
     finally:
         client.close()
     raise RoomMutatorsFailure(
-        f"{game.name}'s Mutators button reads {text!r}, not 'Mutators ({count})', or its "
+        f"{game.name}'s Mutators button reads {text!r}, not 'Mutators · {count} on', or its "
         f"turned-on lines {turned_on!r} do not name {name} by its name")
 
 
@@ -832,7 +833,7 @@ def check(native, game_dir, workdir, source):
         evidence.append(host_built.group(0))
         evidence.append(guest_built.group(0))
         evidence.append(
-            f"mutator room check: the host's Mutators button after --mutator reads "
+            f"mutator room check: the host's Mutators button after --mutator counts "
             f"{button_text!r}, and its chat {turned_on!r}")
 
         commander = source / "tests" / "data" / "mutators" / "packages" / "ridge-commander-copy"

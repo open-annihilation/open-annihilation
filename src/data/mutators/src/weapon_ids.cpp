@@ -11,7 +11,6 @@
 #include "oa/formats/tdf/edit.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -24,9 +23,6 @@ namespace {
 namespace rules = oa::data::mutation_rules;
 namespace tdf = oa::formats::tdf;
 namespace defs = oa::data::defs;
-
-/// Ids a weapon section may hold. Slot 0 is the default weapon.
-constexpr int k_weapon_slots = 256;
 
 /// Folds one ASCII letter. Other bytes are copied.
 char fold_ascii(unsigned char byte) {
@@ -56,17 +52,17 @@ bool same_text(std::string_view left, std::string_view right) {
     return true;
 }
 
-/// The id a section asks for, when it is from 1 to 255.
+/// The id a section asks for, when it is from 1 to `weapon_types` - 1.
 ///
-/// A missing field, 0, a value past 255 and a value that does not start with
-/// a number are not requests. A value such as "5abc" asks for 5, which is
-/// how the weapon loader reads it.
-bool requested_id(const tdf::Block* section, int& request) {
+/// A missing field, 0, a value past `weapon_types` - 1 and a value that does
+/// not start with a number are not requests. A value such as "5abc" asks for
+/// 5, which is how the weapon loader reads it.
+bool requested_id(const tdf::Block* section, uint32_t weapon_types, int& request) {
     const char* text = section != nullptr ? tdf::find_value(section, "ID") : nullptr;
     if (text == nullptr)
         return false;
     const int32_t parsed = tdf::parse_int(text);
-    if (parsed < 1 || parsed >= k_weapon_slots)
+    if (parsed < 1 || static_cast<uint32_t>(parsed) >= weapon_types)
         return false;
     request = static_cast<int>(parsed);
     return true;
@@ -80,7 +76,7 @@ struct Placed {
     rules::LoadedDocument* loaded{};
     /// The section, or null when the weapon is gone.
     tdf::Block* section{};
-    /// True when the section's ID= is a request from 1 to 255.
+    /// True when the section's ID= is a request from 1 to weapon_types - 1.
     bool has_request{};
     /// The requested id, when has_request is set.
     int request{};
@@ -91,7 +87,8 @@ Placed place_weapon(
     rules::DocumentSet& documents,
     const defs::DataLayout& layout,
     std::size_t index,
-    const BroughtWeapon& weapon
+    const BroughtWeapon& weapon,
+    uint32_t weapon_types
 ) {
     Placed placed;
     placed.index = index;
@@ -110,7 +107,7 @@ Placed place_weapon(
             return;
         placed.loaded = &loaded;
         placed.section = section;
-        placed.has_request = requested_id(section, placed.request);
+        placed.has_request = requested_id(section, weapon_types, placed.request);
     };
     for (const std::size_t doc_index : docs) {
         if (same_text(documents.at(doc_index).path, weapon.path))
@@ -132,12 +129,13 @@ bool is_brought(const std::vector<Placed>& placed, const tdf::Block* section) {
     return false;
 }
 
-/// Marks ids 1 to 255 that a base or mod weapon already holds.
+/// Marks ids 1 to `weapon_types` - 1 that a base or mod weapon already holds.
 void occupy_base(
     const rules::DocumentSet& documents,
     const defs::DataLayout& layout,
     const std::vector<Placed>& placed,
-    std::array<bool, k_weapon_slots>& used
+    uint32_t weapon_types,
+    std::vector<uint8_t>& used
 ) {
     const std::size_t weapons = static_cast<std::size_t>(defs::DataDirectory::weapons);
     const std::vector<std::size_t> docs =
@@ -153,9 +151,9 @@ void occupy_base(
             if (is_brought(placed, section))
                 continue;
             int request = 0;
-            if (!requested_id(section, request))
+            if (!requested_id(section, weapon_types, request))
                 continue;
-            used[static_cast<std::size_t>(request)] = true;
+            used[static_cast<std::size_t>(request)] = 1;
         }
     }
 }
@@ -179,7 +177,8 @@ bool assign_weapon_ids(
     rules::DocumentSet& documents,
     const defs::DataLayout& layout,
     std::span<BroughtWeapon> brought,
-    WeaponIdResult& result
+    WeaponIdResult& result,
+    uint32_t weapon_types
 ) {
     result = WeaponIdResult{};
     for (BroughtWeapon& weapon : brought)
@@ -190,10 +189,10 @@ bool assign_weapon_ids(
     std::vector<Placed> placed;
     placed.reserve(brought.size());
     for (std::size_t index = 0; index < brought.size(); ++index)
-        placed.push_back(place_weapon(documents, layout, index, brought[index]));
+        placed.push_back(place_weapon(documents, layout, index, brought[index], weapon_types));
 
-    std::array<bool, k_weapon_slots> used{};
-    occupy_base(documents, layout, placed, used);
+    std::vector<uint8_t> used(static_cast<std::size_t>(weapon_types), 0);
+    occupy_base(documents, layout, placed, weapon_types, used);
 
     std::vector<std::size_t> order(placed.size());
     for (std::size_t index = 0; index < order.size(); ++index)
@@ -230,19 +229,19 @@ bool assign_weapon_ids(
             if (chosen[index] != 0 || !placed[index].has_request)
                 continue;
             const int request = placed[index].request;
-            if (used[static_cast<std::size_t>(request)])
+            if (used[static_cast<std::size_t>(request)] != 0)
                 continue;
             chosen[index] = request;
-            used[static_cast<std::size_t>(request)] = true;
+            used[static_cast<std::size_t>(request)] = 1;
         }
         for (std::size_t place = group; place < group_end; ++place) {
             const std::size_t index = order[place];
             if (chosen[index] != 0)
                 continue;
             int free_id = 0;
-            for (int candidate = 1; candidate < k_weapon_slots; ++candidate) {
-                if (!used[static_cast<std::size_t>(candidate)]) {
-                    free_id = candidate;
+            for (uint32_t candidate = 1; candidate < weapon_types; ++candidate) {
+                if (used[static_cast<std::size_t>(candidate)] == 0) {
+                    free_id = static_cast<int>(candidate);
                     break;
                 }
             }
@@ -254,7 +253,7 @@ bool assign_weapon_ids(
                 return false;
             }
             chosen[index] = free_id;
-            used[static_cast<std::size_t>(free_id)] = true;
+            used[static_cast<std::size_t>(free_id)] = 1;
         }
         group = group_end;
     }

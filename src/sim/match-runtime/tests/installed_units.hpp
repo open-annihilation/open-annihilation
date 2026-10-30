@@ -192,14 +192,14 @@ struct InstalledUnits {
         const data::defs::UnitDefSources unit_sources{
             "",
             movement.get(),
-            weapons.records().data(),
+            weapons.records(),
             &tables.sounds,
             &tables.units.categories,
             &tables.units.blocks,
             &corpse_host
         };
         const data::unit_definitions::UnitDefinitionSources definition_sources{
-            movement.get(), weapons.records().data(), &tables.sounds, &tables.units.categories
+            movement.get(), weapons.records(), &tables.sounds, &tables.units.categories
         };
         uint16_t index = 0;
         for (const auto name : names) {

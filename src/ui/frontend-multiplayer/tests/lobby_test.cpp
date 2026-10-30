@@ -196,7 +196,9 @@ struct Fixture {
         const oa::ui::gui_layout::Layout& lounge,
         const mp::LaunchLink* online = nullptr,
         bool host = true,
-        uint8_t lobby_buttons = 0
+        uint8_t lobby_buttons = 0,
+        uint32_t sides = 2,
+        std::vector<std::string> names = {}
     )
         : layout(lounge) {
         mp::loopback_reset(loopback);
@@ -212,7 +214,8 @@ struct Fixture {
         game->session_flags |= 1;
         mp::lobby_max_units(*game) = 250;
         mp::lobby_max_units_default(*game) = 250;
-        game->side_count = 2;
+        game->side_count = sides;
+        lobby.side_names = std::move(names);
         loopback.opened = true;
         if (fixture_next_player_id != 0)
             loopback.next_player_id = fixture_next_player_id;
@@ -402,6 +405,70 @@ void test_three_sides(const oa::ui::gui_layout::Layout& lounge) {
     expect(
         (info.options & mp::option::watcher) == 0 && info.side == 0,
         "leaving watch returns to the first side"
+    );
+}
+
+// Past 3.1c's five sides a right click walks the SIDE cycle backwards.
+// Within five it still steps forward.
+void test_side_steps_back(const oa::ui::gui_layout::Layout& lounge) {
+    Fixture forward(lounge);
+    forward.game->side_count = 7;
+    auto& watched = mp::local_info(forward.lobby);
+    watched.options |= mp::option::watching_allowed;
+    expect(watched.side == 0, "seven sides start at the first");
+    expect(forward.press("SIDE0", 2), "right click from the first side");
+    expect(
+        (watched.options & mp::option::watcher) != 0, "a right click from the first side watches"
+    );
+    expect(forward.press("SIDE0", 2), "right click from the watcher");
+    expect(
+        (watched.options & mp::option::watcher) == 0 && watched.side == 6,
+        "a right click from the watcher lands on the last side"
+    );
+    expect(forward.press("SIDE0", 2), "right click steps back");
+    expect(watched.side == 5, "a right click steps back one side");
+
+    Fixture plain(lounge);
+    plain.game->side_count = 7;
+    auto& unwatched = mp::local_info(plain.lobby);
+    unwatched.options &= static_cast<uint16_t>(~mp::option::watching_allowed);
+    expect(plain.press("SIDE0", 2), "right click where watching is off");
+    expect(
+        (unwatched.options & mp::option::watcher) == 0 && unwatched.side == 6,
+        "without watching a right click wraps to the last side"
+    );
+    expect(plain.press("SIDE0", 2), "right click back again");
+    expect(unwatched.side == 5, "without watching a right click steps back");
+
+    const oa::data::defs::DataLayout base = oa::data::defs::data_layout();
+    oa::data::defs::DataLayout hidden = base;
+    hidden.battle_room_hidden_sides = 1U << 5;
+    oa::data::defs::use_data_layout(hidden);
+    {
+        Fixture skipped(lounge);
+        skipped.game->side_count = 7;
+        auto& info = mp::local_info(skipped.lobby);
+        info.options &= static_cast<uint16_t>(~mp::option::watching_allowed);
+        info.side = 4;
+        expect(skipped.press("SIDE0"), "left click toward the hidden side");
+        expect(info.side == 6, "a left click skips the hidden side");
+        expect(skipped.press("SIDE0", 2), "right click toward the hidden side");
+        expect(info.side == 4, "a right click skips the hidden side");
+        expect(
+            mp::lobby_offered_side_before(*skipped.game, 6) == 4,
+            "the side before a hidden one is the one it skipped"
+        );
+    }
+    oa::data::defs::use_data_layout(base);
+
+    Fixture few(lounge);
+    few.game->side_count = 4;
+    auto& within = mp::local_info(few.lobby);
+    within.options &= static_cast<uint16_t>(~mp::option::watching_allowed);
+    expect(few.press("SIDE0", 2), "right click within five sides");
+    expect(
+        within.side == 1 && (within.options & mp::option::watcher) == 0,
+        "within five sides a right click steps forward"
     );
 }
 
@@ -6454,6 +6521,139 @@ void test_launch_battleroom(const oa::ui::gui_layout::Layout& lounge) {
     reset_launch();
 }
 
+/// Counts chat lines that hold a phrase.
+///
+/// @param game the lobby's game
+/// @param phrase the phrase
+/// @return how many of the room's lines hold it
+int lines_holding(oa::Game& game, const char* phrase) {
+    int count = 0;
+    for (std::size_t index = 0; index < mp::kChatLines; ++index)
+        if (std::strstr(mp::lobby_chat_line(game, index), phrase) != nullptr)
+            ++count;
+    return count;
+}
+
+/// Writes a SIDEDATA name into a launch field.
+///
+/// @param field the name field
+/// @param name the name
+void write_side_name(char* field, const char* name) {
+    std::snprintf(field, oa::ui::frontend_multiplayer::launch::kLaunchSideNameBytes, "%s", name);
+}
+
+/// A launch seats a numbered side, a SIDEDATA name and the sides arm and core,
+/// and a side the room lacks stays the room's own side and is named once.
+void test_launch_side_names(const oa::ui::gui_layout::Layout& lounge) {
+    namespace nl = oa::ui::frontend_multiplayer::launch;
+    const std::vector<std::string> names{
+        "Arm", "Core", "Ridge2", "Ridge3", "Ridge4", "Ridge5", "Ridge6"
+    };
+    reset_launch();
+    active_launch = true;
+    const auto link = launch_link();
+    uint8_t room_side = 0;
+    uint16_t room_options = 0;
+    {
+        Fixture plain(lounge, &link, true, 0, 7, names);
+        room_side = mp::local_info(plain.lobby).side;
+        room_options = mp::local_info(plain.lobby).options;
+        expect(
+            lines_holding(*plain.game, "The launch names side") == 0,
+            "an empty launch names no side"
+        );
+    }
+    launch_block.faction = 7;
+    {
+        Fixture seated(lounge, &link, true, 0, 7, names);
+        expect(mp::local_info(seated.lobby).side == 6, "faction 7 seats side 6 of seven");
+        expect(
+            lines_holding(*seated.game, "The launch names side") == 0,
+            "a side the room has is not named in the chat"
+        );
+    }
+    launch_block.faction = nl::faction::none;
+    write_side_name(launch_block.faction_name, "ridge6");
+    {
+        Fixture named(lounge, &link, true, 0, 7, names);
+        expect(mp::local_info(named.lobby).side == 6, "the name ridge6 seats side 6");
+        expect(
+            lines_holding(*named.game, "The launch names side") == 0, "a known name is not posted"
+        );
+    }
+    launch_block.faction = nl::faction::arm;
+    launch_block.faction_name[0] = '\0';
+    {
+        Fixture arm(lounge, &link, true, 0, 7, names);
+        expect(mp::local_info(arm.lobby).side == 0, "arm seats side 0");
+    }
+    launch_block.faction = nl::faction::core;
+    {
+        Fixture core(lounge, &link, true, 0, 7, names);
+        expect(mp::local_info(core.lobby).side == 1, "core seats side 1");
+    }
+    launch_block.faction = 9;
+    {
+        Fixture missing(lounge, &link, true, 0, 7, names);
+        const auto& info = mp::local_info(missing.lobby);
+        expect(info.side == room_side, "faction 9 of seven leaves the room's side");
+        expect(
+            (info.options & mp::option::watcher) == (room_options & mp::option::watcher),
+            "a missing number leaves the room's watcher"
+        );
+        expect(
+            lines_holding(*missing.game, "The launch names side 8,") == 1,
+            "faction 9 of seven posts side 8 once"
+        );
+    }
+    launch_block.faction = nl::faction::none;
+    write_side_name(launch_block.faction_name, "NoSuch");
+    {
+        Fixture unknown(lounge, &link, true, 0, 7, names);
+        expect(
+            mp::local_info(unknown.lobby).side == room_side,
+            "an unknown name leaves the room's side"
+        );
+        expect(
+            lines_holding(*unknown.game, "The launch names side NoSuch,") == 1,
+            "an unknown name is posted once"
+        );
+    }
+    launch_block.faction_name[0] = '\0';
+    launch_block.computer_count = 1;
+    launch_block.computers[0].faction = 7;
+    fixture_next_player_id = 0x101;
+    {
+        Fixture host(lounge, &link, true, 0, 7, names);
+        const auto* info = mp::slot_info(host.lobby, 1);
+        expect(
+            mp::slot_player(host.lobby, 1).status == mp::kSlotComputer && info != nullptr &&
+                info->side == 6,
+            "a computer's faction 7 seats side 6"
+        );
+        expect(
+            lines_holding(*host.game, "The launch names side") == 0,
+            "a computer side the room has is not posted"
+        );
+    }
+    launch_block.computers[0].faction = nl::faction::none;
+    write_side_name(launch_block.computers[0].faction_name, "Missing");
+    {
+        Fixture host(lounge, &link, true, 0, 7, names);
+        const auto* info = mp::slot_info(host.lobby, 1);
+        expect(
+            info != nullptr && info->side == 0,
+            "an unknown computer name leaves the computer's side"
+        );
+        expect(
+            lines_holding(*host.game, "The launch names side Missing,") == 1,
+            "an unknown computer name is posted once"
+        );
+    }
+    fixture_next_player_id = 0;
+    reset_launch();
+}
+
 /// A launch seats the player and this machine's computer players: the
 /// player's colour and watching, and each computer player's side, team,
 /// colour and difficulty, for a host and for a player who joins. A
@@ -6600,6 +6800,137 @@ void test_launch_seats(const oa::ui::gui_layout::Layout& lounge) {
             mp::slot_player(joined.lobby, 1).status == mp::kSlotComputer,
             "a joiner seats its own computer player"
         );
+    }
+    fixture_next_player_id = 0;
+    reset_launch();
+}
+
+/// Computer players take only the sides identity.computer-player-sides allows.
+///
+/// A new computer seat, its SIDE button and a launch computer on arm move to
+/// side 1 when that is the only side they may take. A human still cycles
+/// every side and the watcher. With the key absent, each of those stays as it
+/// is today.
+void test_computer_player_sides(const oa::ui::gui_layout::Layout& lounge) {
+    namespace nl = oa::ui::frontend_multiplayer::launch;
+
+    struct Restore {
+        oa::data::defs::DataLayout base;
+
+        ~Restore() {
+            oa::data::defs::use_data_layout(base);
+            fixture_next_player_id = 0;
+            reset_launch();
+        }
+    } restore{oa::data::defs::data_layout()};
+
+    oa::data::defs::DataLayout limited = restore.base;
+    limited.computer_player_sides = 1U << 1;
+    oa::data::defs::use_data_layout(limited);
+    fixture_next_player_id = 0x101;
+    {
+        Fixture room(lounge, nullptr, true, 0, 7);
+        expect(room.press("PLAYER1") && room.press("PLAYER1"), "an open slot seats a computer");
+        const auto arrived = arrive_computer(room);
+        const auto* computer = mp::slot_info(room.lobby, 1);
+        expect(
+            arrived != 0 && computer != nullptr && computer->side == 1,
+            "a new computer seat takes the side computer players may take"
+        );
+        expect(room.press("SIDE1"), "the computer's SIDE button clicks");
+        expect(mp::slot_info(room.lobby, 1)->side == 1, "a forward click stays on that side");
+        expect(room.press("SIDE1", 2), "the computer's SIDE button takes a right click");
+        expect(
+            mp::slot_info(room.lobby, 1)->side == 1 &&
+                (mp::slot_info(room.lobby, 1)->options & mp::option::watcher) == 0,
+            "a back click stays on that side and off the watcher"
+        );
+        auto& human = mp::local_info(room.lobby);
+        human.options |= mp::option::watching_allowed;
+        const uint8_t stepped[] = {1, 2, 3, 4, 5, 6};
+        for (const uint8_t side : stepped) {
+            expect(room.press("SIDE0"), "the human's SIDE button clicks");
+            expect(human.side == side, "a human still steps through every side");
+        }
+        expect(room.press("SIDE0"), "the human's SIDE button reaches the watcher");
+        expect((human.options & mp::option::watcher) != 0, "a human can still watch");
+        expect(room.press("SIDE0"), "the human's SIDE button leaves the watcher");
+        expect(
+            (human.options & mp::option::watcher) == 0 && human.side == 0,
+            "leaving watch returns a human to side 0"
+        );
+    }
+    {
+        // Sides 0 and 5 are allowed, and 5 is kept out of the room, so 0 is
+        // the only side offered. A right click stays there.
+        oa::data::defs::DataLayout one_left = limited;
+        one_left.computer_player_sides = (1U << 0) | (1U << 5);
+        one_left.battle_room_hidden_sides = 1U << 5;
+        oa::data::defs::use_data_layout(one_left);
+        Fixture room(lounge, nullptr, true, 0, 7);
+        expect(room.press("PLAYER1") && room.press("PLAYER1"), "an open slot seats a computer");
+        const auto arrived = arrive_computer(room);
+        const auto* computer = mp::slot_info(room.lobby, 1);
+        expect(
+            arrived != 0 && computer != nullptr && computer->side == 0,
+            "a computer opens on the one side the room offers"
+        );
+        expect(room.press("SIDE1"), "that computer's SIDE button clicks");
+        expect(mp::slot_info(room.lobby, 1)->side == 0, "a forward click stays on that one side");
+        expect(room.press("SIDE1", 2), "that computer's SIDE button takes a right click");
+        expect(
+            mp::slot_info(room.lobby, 1)->side == 0 &&
+                (mp::slot_info(room.lobby, 1)->options & mp::option::watcher) == 0,
+            "a back click stays on the one side the room offers"
+        );
+        oa::data::defs::use_data_layout(limited);
+    }
+    reset_launch();
+    active_launch = true;
+    launch_block.computer_count = 1;
+    launch_block.computers[0].faction = nl::faction::arm;
+    const auto link = launch_link();
+    {
+        Fixture host(lounge, &link, true, 0, 5);
+        const auto* info = mp::slot_info(host.lobby, 1);
+        expect(
+            mp::slot_player(host.lobby, 1).status == mp::kSlotComputer && info != nullptr &&
+                info->side == 1,
+            "a launch computer on arm moves to the side computer players may take"
+        );
+        // The room keeps 71 characters of a chat line, so this matches the
+        // start of the word, which is what the room shows.
+        expect(
+            lines_holding(*host.game, "gives a computer player side") == 1,
+            "the launch posts that line once"
+        );
+        expect(lines_holding(*host.game, "side 0,") == 1, "the line names the side as written");
+    }
+    oa::data::defs::use_data_layout(restore.base);
+    {
+        Fixture host(lounge, &link, true, 0, 5);
+        const auto* info = mp::slot_info(host.lobby, 1);
+        expect(
+            info != nullptr && info->side == 0,
+            "with no key a launch computer on arm stays on side 0"
+        );
+        expect(
+            lines_holding(*host.game, "gives a computer player side") == 0,
+            "with no key the launch posts no such line"
+        );
+    }
+    active_launch = false;
+    {
+        Fixture room(lounge, nullptr, true, 0, 7);
+        expect(room.press("PLAYER1") && room.press("PLAYER1"), "an open slot seats a computer");
+        const auto arrived = arrive_computer(room);
+        const auto* computer = mp::slot_info(room.lobby, 1);
+        expect(
+            arrived != 0 && computer != nullptr && computer->side == 0,
+            "with no key a new computer stays on side 0"
+        );
+        expect(room.press("SIDE1"), "its SIDE button clicks");
+        expect(mp::slot_info(room.lobby, 1)->side == 1, "with no key its SIDE button steps");
     }
     fixture_next_player_id = 0;
     reset_launch();
@@ -7057,7 +7388,9 @@ int main(int argc, char** argv) {
             test_rows_and_colors(*lounge.layout);
             test_side_and_watch(*lounge.layout);
             test_three_sides(*lounge.layout);
+            test_side_steps_back(*lounge.layout);
             test_hidden_side(*lounge.layout);
+            test_computer_player_sides(*lounge.layout);
             test_teams_and_alliances(*lounge.layout);
             test_options_and_sliders(*lounge.layout);
             test_lounge_sliders(*lounge.layout);
@@ -7076,6 +7409,7 @@ int main(int argc, char** argv) {
             test_closing_slots_republishes(*lounge.layout);
             test_launch_battleroom(*lounge.layout);
             test_launch_seats(*lounge.layout);
+            test_launch_side_names(*lounge.layout);
         }
         test_game_list(assets);
         test_launch_screens(assets);

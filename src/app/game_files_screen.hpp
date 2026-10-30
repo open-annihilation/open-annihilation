@@ -119,6 +119,17 @@ void install_game_files_language(
     const std::optional<fs::path>& user_folder_option
 );
 
+/// Returns the family the Game files screen, the folder chooser and the Language dialog
+/// over them draw their text in: the interface family, Barlow, while the Look the
+/// preferences file holds is Modern (Settings › User Interface › Look; Modern by default in
+/// the player's own file), and the sans family, DejaVu Sans, while it is Classic, whose
+/// game fonts these screens never have.
+///
+/// @param preferences_file --preferences-file; empty: the player's own file
+/// @return the family
+[[nodiscard]] oa::platform::text_font::Family
+game_files_text_family(const std::optional<fs::path>& preferences_file);
+
 /// Reads the interface catalogue and the engine's and the player's language
 /// packs once, without registering them. The management screen reads them
 /// so its fonts can follow the language the runtime already shows.

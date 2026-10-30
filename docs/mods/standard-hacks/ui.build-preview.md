@@ -260,3 +260,13 @@ hacks:
     fill: false
 ```
 <!-- END GENERATED: schema -->
+
+## Keys
+
+<!-- BEGIN GENERATED: keys -->
+| Action | Default chords | What it does |
+| --- | --- | --- |
+| `build.rotate` | `@Slash, Shift+@Slash` | Next facing |
+<!-- END GENERATED: keys -->
+
+These keys move in the [key editor](../../keys.md#the-key-editor), in **Building**, while this hack is on.

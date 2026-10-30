@@ -392,6 +392,12 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-mod-switch", &Options::check_mod_switch, {}},
         {"--check-map-packs", &Options::check_map_packs, {}},
         {"--check-map-browser", &Options::check_map_browser, {}},
+        {"--check-key-editor", &Options::check_key_editor, {}},
+        {"--check-key-capture", &Options::check_key_capture, {}},
+        {"--check-key-share", &Options::check_key_share, {}},
+        {"--check-key-views", &Options::check_key_views, {}},
+        {"--check-keys-overlay", &Options::check_keys_overlay, {}},
+        {"--check-selection-keys", &Options::check_selection_keys, {}},
         {"--check-mutator-button", &Options::check_mutator_button, {}},
         {"--check-mutator-room", &Options::check_mutator_room, {}},
         {"--check-brain-room", &Options::check_brain_room, {}},
@@ -421,7 +427,10 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-render-tiers", &Options::check_render_tiers, {}},
         {"--check-match-orders", &Options::check_match_orders, {}},
         {"--check-side-orders", &Options::check_side_orders, {}},
+        {"--check-skirmish-sides", &Options::check_skirmish_sides, {}},
+        {"--check-mod-limits", &Options::check_mod_limits, {}},
         {"--check-factory-orders", &Options::check_factory_orders, {}},
+        {"--check-factory-departure", &Options::check_factory_departure, {}},
         {"--check-unit-speech", &Options::check_unit_speech, {}},
         {"--check-mutator-layer", &Options::check_mutator_layer, {}},
         {"--check-mutator-verdicts", &Options::check_mutator_verdicts, {}},
@@ -434,6 +443,9 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-unit-page-memory", &Options::check_unit_page_memory, {}},
         {"--check-side-column", &Options::check_side_column, {}},
         {"--check-match-bars", &Options::check_match_bars, {}},
+        {"--check-key-latches", &Options::check_key_latches, {}},
+        {"--check-hold-confirm", &Options::check_hold_confirm, {}},
+        {"--check-order-wheel", &Options::check_order_wheel, {}},
         {"--check-kill-board", &Options::check_kill_board, {}},
         {"--check-paused-save", &Options::check_paused_save, {}},
         {"--check-saved-brains", &Options::check_saved_brains, {}},
@@ -446,16 +458,28 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-setup-window", &Options::check_setup_window, {}},
         {"--check-window-place", &Options::check_window_place, {}},
         {"--check-progress", &Options::check_progress, {}},
+        {"--check-engine-feed", &Options::check_engine_feed, {}},
+        {"--check-update-offer", &Options::check_update_offer, {}},
+        {"--check-update-download", &Options::check_update_download, {}},
+        {"--check-update-roll-back", &Options::check_update_roll_back, {}},
+        {"--update-and-quit",
+         &Options::update_and_quit,
+         {"--update-feed", "http://127.0.0.1:9/v1/engine/stable.json"}},
         {"--check-icloud-wait", &Options::check_icloud_wait, {}},
         {"--check-text-fit", &Options::check_text_fit, {}},
         {"--check-folder-chooser", &Options::check_folder_chooser, {}},
         {"--check-patrol-reclaim", &Options::check_patrol_reclaim, {}},
         {"--check-reclaim-cursor", &Options::check_reclaim_cursor, {}},
         {"--check-wreck-pick", &Options::check_wreck_pick, {}},
+        {"--check-underwater-features", &Options::check_underwater_features, {}},
         {"--check-click-snap", &Options::check_click_snap, {}},
         {"--check-build-preview", &Options::check_build_preview, {}},
+        {"--check-dialog-backdrop", &Options::check_dialog_backdrop, {}},
         {"--check-pointer-interfaces", &Options::check_pointer_interfaces, {}},
+        {"--check-key-timing", &Options::check_key_timing, {}},
+        {"--check-pointer-keys", &Options::check_pointer_keys, {}},
         {"--check-megamap-clicks", &Options::check_megamap_clicks, {}},
+        {"--check-single-player-offers", &Options::check_single_player_offers, {}},
         {"--check-radar-orders", &Options::check_radar_orders, {}},
         {"--check-touch-controls", &Options::check_touch_controls, {}},
         {"--check-pad-controls", &Options::check_pad_controls, {}},
@@ -469,6 +493,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-interpolation", &Options::check_interpolation, {}},
         {"--check-unit-playout", &Options::check_unit_playout, {}},
         {"--trace-input", &Options::trace_input, {}},
+        {"--keys-reset", &Options::keys_reset, {}},
         {"--debug-order-lines", &Options::debug_order_lines, {}},
     };
     return cases;
@@ -490,6 +515,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--archive", "totala1.hpi", {}},
         {"--mod", "mods/x/oamod.yaml", {}},
         {"--mutator", "ridge-swift:factor=4", {}},
+        {"--keys", "ridge-grid", {}},
         {"--mod-dir", "mods/x", {}},
         {"--snapshot", "frame.ppm", {}},
         {"--preferences-file", "p.conf", {}},
@@ -513,6 +539,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--restart-at", "30", {"--campaign", "Arm Campaign", "--mission", "0"}},
         {"--combat", "4", {}},
         {"--stage", "s.stage", {"--headless-check", "--match-ticks", "60"}},
+        {"--weapon-fire-check", "WIDE", {"--headless-check", "--match-ticks", "60"}},
         {"--save-after", "30", {}},
         {"--save-file", "a.sav", {}},
         {"--load", "a.sav", {}},
@@ -541,6 +568,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--brain-trace", "log.txt", {"--headless-check", "--match-ticks", "60"}},
         {"--render-fault", "present", {"--check-renderer-ladder"}},
         {"--check-unit-pages", "whole:ARMCOM", {}},
+        {"--check-key-table", "table.tsv", {}},
         {"--check-unit-language", "fr", {}},
         {"--check-language", "uk", {"--check-text-fit"}},
         {"--game-files-route", "demo", {"--check-game-files"}},
@@ -561,6 +589,18 @@ const std::vector<ValueCase>& value_cases() {
         {"--trace-units", "run.units", {"--trace-digest", "run.trace"}},
         {"--capture-video", "game.mp4", {}},
         {"--showcase", "arm-first-mission", {}},
+        {"--update-feed", "http://127.0.0.1:9/v1/engine/stable.json", {}},
+        {"--update-key",
+         "test-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+         {"--update-feed", "http://127.0.0.1:9/v1/engine/stable.json"}},
+        {"--updated-from", "0.8.7", {}},
+        {"--rolled-back-from", "0.8.4", {"--roll-back-reason", "player"}},
+        {"--roll-back-reason", "failed-starts", {"--rolled-back-from", "0.8.4"}},
+        {"--roll-back-case", "guard", {"--check-update-roll-back"}},
+        {"--update-install-folder",
+         "install",
+         {"--update-feed", "http://127.0.0.1:9/v1/engine/stable.json"}},
+        {"--update-download-case", "resume", {"--check-update-download"}},
     };
     return cases;
 }
@@ -717,6 +757,11 @@ void value_options() {
         unit_checks.check_unit_pages == "whole:ARMCOM,CORCOM" &&
             unit_checks.check_unit_language == "fr" && unit_checks.fixed_clock,
         "--check-unit-pages and --check-unit-language take their pages and language"
+    );
+    const auto key_table = parse({"--check-key-table", "table.tsv"});
+    expect(
+        key_table.check_key_table == "table.tsv" && key_table.fixed_clock,
+        "--check-key-table takes its file"
     );
     // The text-fit and language switch checks take the languages they check,
     // such as an installed pack's, in place of their own.
@@ -878,7 +923,7 @@ void version_line_stands_alone() {
 
 } // namespace
 
-// --open, --install-mod, bare files of the six types the game installs or
+// --open, --install-mod, bare files of the seven types the game installs or
 // adds, macOS's process serial number and --check-mod-install.
 void mod_install_options() {
     namespace fs = std::filesystem;
@@ -894,12 +939,13 @@ void mod_install_options() {
          "--open",
          "g.oamut",
          "h.OABRAIN",
+         "i.OAKEYS",
          "-psn_0_123",
          "german"}
     );
-    expect(opened.open_files.size() == 8, "--open, --install-mod and bare files are all opened");
+    expect(opened.open_files.size() == 9, "--open, --install-mod and bare files are all opened");
     expect(
-        opened.open_files.size() == 8 && opened.open_files[0].is_absolute() &&
+        opened.open_files.size() == 9 && opened.open_files[0].is_absolute() &&
             opened.open_files[0].filename() == "a.oalang" &&
             opened.open_files[1].filename() == "B.OAMAP" &&
             opened.open_files[2].filename() == "c.oareg" &&
@@ -907,7 +953,8 @@ void mod_install_options() {
             opened.open_files[4].filename() == "d.oamod" &&
             opened.open_files[5].filename() == "e.oamod" &&
             opened.open_files[6].filename() == "g.oamut" &&
-            opened.open_files[7].filename() == "h.OABRAIN",
+            opened.open_files[7].filename() == "h.OABRAIN" &&
+            opened.open_files[8].filename() == "i.OAKEYS",
         "the files are absolute, in the order given, and --install-mod still opens one"
     );
     expect(opened.skip_intro, "a file opened with the game skips the movies");
@@ -929,7 +976,8 @@ void mod_install_options() {
     expect(
         rejection({"x.oamod", "--headless-check"})
                 .find(
-                    "a file to open (.oamod, .oalang, .oamap, .oamut, .oabrain or .oareg), after "
+                    "a file to open (.oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys or "
+                    ".oareg), after "
                     "--open or "
                     "on "
                     "its own,"
@@ -1044,14 +1092,225 @@ void mutator_options() {
     expect(refused.starts_with("--mutator: "), "a malformed --mutator names the option");
 }
 
+// --keys takes an id or a path, --keys-reset is a flag, and the two together
+// are refused.
+void key_layout_options() {
+    const auto chosen = parse({"--keys", "ridge-grid"});
+    expect(chosen.keys == "ridge-grid" && !chosen.keys_reset, "--keys takes the layout");
+    const auto path = parse({"--keys", "layouts/ridge/oakeys.yaml"});
+    expect(path.keys == "layouts/ridge/oakeys.yaml", "--keys takes a path");
+    const auto reset = parse({"--keys-reset"});
+    expect(reset.keys.empty() && reset.keys_reset, "--keys-reset is a flag");
+    expect(
+        rejection({"--keys", "ridge-grid", "--keys-reset"}) ==
+            "--keys and --keys-reset cannot be used together",
+        "--keys and --keys-reset are refused together"
+    );
+}
+
+// --update-feed and --update-key are self-checks. A key needs a feed, and
+// the key's text has to be an ed25519 public key. --check-engine-feed draws
+// in a window on the fixed clock.
+void update_feed_options() {
+    constexpr const char* kUrl = "http://127.0.0.1:9/v1/engine/stable.json";
+    constexpr const char* kKey = "test-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=";
+    constexpr const char* kOther = "other-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=";
+    if constexpr (oa::app::self_checks_built) {
+        expect(
+            rejection({"--update-key", kKey}) == "--update-key needs --update-feed",
+            "--update-key needs --update-feed"
+        );
+        expect(
+            rejection({"--update-key", "test-key=ed25519:not-a-key"}) ==
+                "--update-key must be ID=ed25519:KEY",
+            "a malformed --update-key is refused"
+        );
+        expect(
+            rejection({"--update-key", "not a key"}) == "--update-key must be ID=ed25519:KEY",
+            "--update-key must be ID=ed25519:KEY"
+        );
+        const auto ordered = parse({"--update-key", kKey, "--update-feed", kUrl});
+        expect(
+            ordered.update_feed && *ordered.update_feed == kUrl &&
+                ordered.update_keys.size() == 1 && ordered.update_keys[0] == kKey,
+            "--update-key before --update-feed is taken"
+        );
+        const auto two =
+            parse({"--update-feed", kUrl, "--update-key", kKey, "--update-key", kOther});
+        expect(
+            two.update_keys.size() == 2 && two.update_keys[0] == kKey &&
+                two.update_keys[1] == kOther,
+            "two --update-key values stay in order"
+        );
+        const auto check = parse({"--check-engine-feed"});
+        expect(
+            check.check_engine_feed && check.fixed_clock && check.unattended &&
+                !check.headless_check,
+            "--check-engine-feed is a windowed, fixed-clock and unattended run"
+        );
+        expect(
+            rejection({"--check-engine-feed", "--headless-check"}) ==
+                "--check-engine-feed draws in a window and cannot be used with --headless-check",
+            "--check-engine-feed is not headless"
+        );
+        const auto offer = parse({"--check-update-offer"});
+        expect(
+            offer.check_update_offer && offer.fixed_clock && offer.unattended &&
+                !offer.headless_check,
+            "--check-update-offer is a windowed, fixed-clock and unattended run"
+        );
+        expect(
+            rejection({"--check-update-offer", "--headless-check"}) ==
+                "--check-update-offer draws in a window and cannot be used with --headless-check",
+            "--check-update-offer is not headless"
+        );
+        expect(
+            rejection({"--update-install-folder", "install"}) ==
+                "--update-install-folder needs --update-feed",
+            "--update-install-folder needs --update-feed"
+        );
+        expect(
+            rejection({"--update-and-quit"}) == "--update-and-quit needs --update-feed",
+            "--update-and-quit needs --update-feed"
+        );
+        expect(
+            rejection({"--update-download-case", "resume"}) ==
+                "--update-download-case needs --check-update-download",
+            "--update-download-case needs --check-update-download"
+        );
+        const auto download = parse({"--check-update-download"});
+        expect(
+            download.check_update_download && download.fixed_clock && download.unattended &&
+                !download.headless_check,
+            "--check-update-download is a windowed, fixed-clock and unattended run"
+        );
+        expect(
+            rejection({"--check-update-download", "--headless-check"}) ==
+                "--check-update-download draws in a window and cannot be used with "
+                "--headless-check",
+            "--check-update-download is not headless"
+        );
+        const auto roll_back = parse({"--check-update-roll-back", "--roll-back-case", "confirm"});
+        expect(
+            roll_back.check_update_roll_back && roll_back.roll_back_case == "confirm" &&
+                roll_back.fixed_clock && roll_back.unattended && !roll_back.headless_check,
+            "--check-update-roll-back is a windowed, fixed-clock and unattended run"
+        );
+        expect(
+            rejection({"--check-update-roll-back", "--headless-check"}) ==
+                "--check-update-roll-back draws in a window and cannot be used with "
+                "--headless-check",
+            "--check-update-roll-back is not headless"
+        );
+        expect(
+            rejection({"--roll-back-case", "guard"}) ==
+                "--roll-back-case needs --check-update-roll-back",
+            "--roll-back-case needs --check-update-roll-back"
+        );
+        const auto folder = parse(
+            {"--update-feed", kUrl, "--update-install-folder", "install", "--update-and-quit"}
+        );
+        expect(
+            folder.update_install_folder &&
+                *folder.update_install_folder == oa::app::path_from_utf8("install") &&
+                folder.update_and_quit,
+            "--update-install-folder and --update-and-quit are taken with a feed"
+        );
+    } else {
+        const std::string feed = rejection({"--update-feed", kUrl});
+        expect(feed.find("self-check") != std::string::npos, "--update-feed needs the self-checks");
+        const std::string keyed = rejection({"--update-feed", kUrl, "--update-key", kKey});
+        expect(keyed.find("self-check") != std::string::npos, "--update-key needs the self-checks");
+        const std::string flag = rejection({"--check-engine-feed"});
+        expect(
+            flag.find("self-check") != std::string::npos,
+            "--check-engine-feed needs the self-checks"
+        );
+        const std::string offer = rejection({"--check-update-offer"});
+        expect(
+            offer.find("self-check") != std::string::npos,
+            "--check-update-offer needs the self-checks"
+        );
+        const std::string download = rejection({"--check-update-download"});
+        expect(
+            download.find("self-check") != std::string::npos,
+            "--check-update-download needs the self-checks"
+        );
+        const std::string folder =
+            rejection({"--update-feed", kUrl, "--update-install-folder", "install"});
+        expect(
+            folder.find("self-check") != std::string::npos,
+            "--update-install-folder needs the self-checks"
+        );
+        const std::string quit = rejection({"--update-feed", kUrl, "--update-and-quit"});
+        expect(
+            quit.find("self-check") != std::string::npos, "--update-and-quit needs the self-checks"
+        );
+        const std::string named =
+            rejection({"--check-update-download", "--update-download-case", "resume"});
+        expect(
+            named.find("self-check") != std::string::npos,
+            "--update-download-case needs the self-checks"
+        );
+        const std::string roll = rejection({"--check-update-roll-back"});
+        expect(
+            roll.find("self-check") != std::string::npos,
+            "--check-update-roll-back needs the self-checks"
+        );
+        const std::string roll_case =
+            rejection({"--check-update-roll-back", "--roll-back-case", "guard"});
+        expect(
+            roll_case.find("self-check") != std::string::npos,
+            "--roll-back-case needs the self-checks"
+        );
+    }
+    for (const char* bad : {"nope", "1.2"}) {
+        const std::string refused = rejection({"--updated-from", bad});
+        expect(
+            refused == "--updated-from must be a version such as 0.8.7",
+            "--updated-from refuses a version that is not whole"
+        );
+    }
+    const auto from = parse({"--updated-from", "0.8.7"});
+    expect(from.updated_from && *from.updated_from == "0.8.7", "--updated-from takes a version");
+    expect(
+        rejection({"--rolled-back-from", "0.8.4"}) ==
+            "--rolled-back-from and --roll-back-reason are used together",
+        "--rolled-back-from needs --roll-back-reason"
+    );
+    expect(
+        rejection({"--roll-back-reason", "player"}) ==
+            "--rolled-back-from and --roll-back-reason are used together",
+        "--roll-back-reason needs --rolled-back-from"
+    );
+    expect(
+        rejection({"--rolled-back-from", "nope", "--roll-back-reason", "player"}) ==
+            "--rolled-back-from must be a version such as 0.8.7",
+        "--rolled-back-from refuses a version that is not whole"
+    );
+    expect(
+        rejection({"--rolled-back-from", "0.8.4", "--roll-back-reason", "later"}) ==
+            "--roll-back-reason must be failed-starts or player",
+        "--roll-back-reason refuses an unknown reason"
+    );
+    const auto back = parse({"--rolled-back-from", "0.8.4", "--roll-back-reason", "failed-starts"});
+    expect(
+        back.rolled_back_from && *back.rolled_back_from == "0.8.4" &&
+            back.roll_back_reason == "failed-starts",
+        "--rolled-back-from and --roll-back-reason are taken together"
+    );
+}
+
 int main() {
     renderer_ladder_options();
     game_files_options();
     mod_install_options();
     switch_words_keep_their_spaces();
     options_by_name();
+    update_feed_options();
     value_options();
     mutator_options();
+    key_layout_options();
     const auto plain = parse({"--headless-check"});
     expect(plain.trace_digest.empty() && plain.trace_units.empty(), "no trace without the flag");
     expect(!plain.seed, "no fixed seed without the flag");
@@ -1176,12 +1435,24 @@ int main() {
         "--force-capable goes with --check-build-preview"
     );
     expect(
+        parse({"--check-dialog-backdrop", "--force-capable"}).force_capable,
+        "--force-capable goes with --check-dialog-backdrop"
+    );
+    expect(
+        parse({"--check-underwater-features", "--force-capable"}).force_capable,
+        "--force-capable goes with --check-underwater-features"
+    );
+    expect(
         rejection({"--force-capable"}) ==
                 "--force-capable is accepted only with --check-render-tiers, "
-                "--check-build-preview, --check-engine-settings and --check-kill-board" &&
+                "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
+                "--check-kill-board and "
+                "--check-underwater-features" &&
             rejection({"--force-capable", "--check-navigation"}) ==
                 "--force-capable is accepted only with --check-render-tiers, "
-                "--check-build-preview, --check-engine-settings and --check-kill-board",
+                "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
+                "--check-kill-board and "
+                "--check-underwater-features",
         "--force-capable is refused without a check that takes it"
     );
     // A made-up monitor for checks: kept as named, for unattended runs only.
@@ -1299,6 +1570,33 @@ int main() {
             {"--headless-check", "--match-ticks", "60", "--load", "a.sav", "--stage", "s.stage"}
         ) == "--stage stages a headless skirmish of --match-ticks ticks",
         "--stage does not stage a loaded game"
+    );
+    expect(
+        parse({"--headless-check", "--match-ticks", "60", "--weapon-fire-check", "WIDE"})
+                .weapon_fire_check == "WIDE",
+        "--weapon-fire-check names the type"
+    );
+    expect(
+        rejection({"--headless-check", "--weapon-fire-check", "WIDE"}) ==
+            "--weapon-fire-check fires in a headless skirmish of --match-ticks ticks",
+        "--weapon-fire-check needs --match-ticks"
+    );
+    expect(
+        rejection({"--match-ticks", "60", "--weapon-fire-check", "WIDE"}) ==
+            "--weapon-fire-check fires in a headless skirmish of --match-ticks ticks",
+        "--weapon-fire-check needs --headless-check"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--load",
+             "a.sav",
+             "--weapon-fire-check",
+             "WIDE"}
+        ) == "--weapon-fire-check fires in a headless skirmish of --match-ticks ticks",
+        "--weapon-fire-check does not fire a loaded game"
     );
     expect(
         rejection({"--headless-check", "--match-ticks", "60", "--march"}) ==
@@ -1909,13 +2207,17 @@ int main() {
     expect(
         rejection({"--force-capable"}) ==
             "--force-capable is accepted only with --check-render-tiers, "
-            "--check-build-preview, --check-engine-settings and --check-kill-board",
+            "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
+            "--check-kill-board and "
+            "--check-underwater-features",
         "--force-capable alone is refused"
     );
     expect(
         rejection({"--check-match-layers", "--force-capable"}) ==
             "--force-capable is accepted only with --check-render-tiers, "
-            "--check-build-preview, --check-engine-settings and --check-kill-board",
+            "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
+            "--check-kill-board and "
+            "--check-underwater-features",
         "--force-capable with another check is refused"
     );
     // --native-density opens the window at the display's own density for

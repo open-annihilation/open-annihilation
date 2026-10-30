@@ -40,10 +40,12 @@ void Runtime::record_pointer_event(const SDL_Event& event) {
         return;
     auto& game = match_->state().game;
     uint32_t keys = game.pointer_state[2] & (input::pointer_key_left | input::pointer_key_right);
-    const auto button_key = [](uint8_t button) -> uint32_t {
-        if (button == SDL_BUTTON_LEFT)
+    // The select button is the pointer word's left bit, and the command
+    // button its right bit, so a stock layout still sets the same bits.
+    const auto button_key = [this](uint8_t button) -> uint32_t {
+        if (button == match_select_button())
             return input::pointer_key_left;
-        if (button == SDL_BUTTON_RIGHT)
+        if (button == match_command_button())
             return input::pointer_key_right;
         return 0;
     };
@@ -182,9 +184,11 @@ bool Runtime::follow_pointer_modes(const SDL_Event& event) {
     }
     if ((input::pointer_flags(game) & input::pointer_radar_scroll) == 0)
         return false;
+    // The scroll ends on the button that started it. The flag is the one this
+    // interface accepts: the left-click interface ends on its command button.
     if (event.type == SDL_EVENT_MOUSE_BUTTON_UP &&
-        (event.button.button == SDL_BUTTON_LEFT || event.button.button == SDL_BUTTON_RIGHT) &&
-        input::end_radar_scroll(game, event.button.button == SDL_BUTTON_RIGHT))
+        event.button.button == pointer_radar_scroll_button() &&
+        input::end_radar_scroll(game, pointer_interface_is_left_click()))
         return true;
     center_camera_on_radar_point(pointer_x_, pointer_y_);
     return true;
@@ -193,6 +197,8 @@ bool Runtime::follow_pointer_modes(const SDL_Event& event) {
 void Runtime::handle_match_right_press(float x, float y) {
     if (!match_)
         return;
+    consume_sticky_modifiers();
+    note_shared_latch_used(1);
     auto& world = match_->state();
     // The frame's pointer pass: the unit under the pointer, the armed
     // command, the pointer area and the ground under it.

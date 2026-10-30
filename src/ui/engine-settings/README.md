@@ -18,17 +18,24 @@ the locks a running game puts on them (`settings_locks`).
 | | A mod folder chosen outside the folders the game finds, kept while it is the Mod | any folder | none | `open-annihilation.picked-mod-directory` (the folder's path; absent for none, erased once another mod or No Mod is stored) |
 | (the Library) | Base game | Total Annihilation, or the demo | Total Annihilation, with every copied expansion of it that can be on, when the key is absent | `open-annihilation.base-game` (`totala` or `totala-demo`) |
 | | Expansions of that base game | on or off for each expansion that is copied | every copied expansion that can be on, when the key is absent | `open-annihilation.expansions.<game>` (comma-separated ids; empty means none on) |
-| Controls | Mouse wheel zoom | Off, On | On | `open-annihilation.wheel-zoom` |
+| Controls | Key layout, a card at the section's top ([The key layout card](#the-key-layout-card)): the layout in use, how many of its keys you changed, where it applies, with Change layout… (the Library on Keys, on the main menu) and Edit keys…, which opens the key editor over Settings | the layout's name, whole; a badge "N changes of your own" ("1 change of your own"); "Applies to every game." or "Applies with {mod} only." | OA default, the layout in use | the layout in use is `open-annihilation.keys.layout`, or `open-annihilation.keys.layout.<mod id>` while that mod chooses one |
+| | Key layout with <mod>, a drop-down, only while a mod is played. Same as the game uses Key layout. Installed layouts follow, those made for the mod first and marked made for it | Same as the game, or a layout id | Same as the game | `open-annihilation.keys.layout.<mod id>` (`same`, or a layout id). A choice is written at once, and Cancel writes the choice the dialog opened with |
+| | Show keys on buttons: order buttons and build cells show their key in a corner | Off, On | Off | `open-annihilation.keys.show-on-buttons` (`0` or `1`; absent reads as off) |
+| | Mouse wheel zoom | Off, On | On | `open-annihilation.wheel-zoom` |
 | | Maximum zoom out, a drop-down: how far out the wheel, a pinch, the touch zoom buttons and a controller zoom | Automatic (half the game's scale, a sixth while Full draws the battlefield), Whole map, 1/32, 1/16, 1/8, 1/4, 1/2; no choice but Automatic goes past the whole map | Automatic | `open-annihilation.max-zoom-out` (`automatic`, `whole-map`, `1/32`, `1/16`, `1/8`, `1/4` or `1/2`) |
 | | Maximum zoom in, a drop-down: how close the same zooms go | None (the game's own scale), 2x, 3x, 4x | 4x | `open-annihilation.max-zoom-in` (`1`, `2`, `3` or `4`) |
 | | View past the map's edge, a strip: how much of the battlefield the view may show past the map's edges; at 25% and Off a zoom keeps to it too | Off (the view stays on the map, as 3.1c's does), 25%, 50% (the map's edge reaches the battlefield's middle) | 50% | `open-annihilation.view-past-map-edge` (`off`, `25` or `50`) |
 | | Middle-click pans: a middle click on the battlefield scrolls the view towards the pointer until another press or a key | Off, On | On | `open-annihilation.middle-click-pan` |
-| | Select groups without Alt | Off, On | Off | 3.1c's SwitchAlt |
+| | Number keys select groups is the key editor's switch, not a row of this section | Off, On | Off | 3.1c's SwitchAlt |
 | | Window edge, a strip: what a window does with the pointer while a match's battlefield shows. Capture keeps it in the window until the game menu, the pause screen, Settings, Escape or a lost focus, and a click on the battlefield captures it again. Sticky holds it on the edges so the view edge-scrolls, until a firm push or a flick lets it leave. Free leaves it free. Full screen holds the pointer either way | Capture, Sticky, Free | Capture | `open-annihilation.window-edge` (`capture`, `sticky` or `free`) |
 | | Edge stickiness, a slider: how firmly Sticky holds, the push and the flick growing with it; 0.0 never holds. Locked Needs Sticky (`Lock::needs_sticky`, which the dialog sets itself in `shown_locks`) while Window edge shows Capture or Free, when it keeps its value | 0.0 to 5.0 in steps of 0.1 | 1.0 | `open-annihilation.window-edge-stickiness` (a decimal, `1.0`) |
+| | Group keys centre the view, a drop-down: whether a group's key, which selects the group, also moves the view to the group's centre. On a double press moves it on the second of two presses of the same group's key within the double-press time with no other key between; Never never moves it; On every press moves it when the group is already exactly the selection, however long after. It applies at once | On a double press, Never, On every press | On a double press | `open-annihilation.group-keys-centre` (`double-press`, `never` or `every-press`) |
 | Engine Limits | Unit limit | 50 to 1500 per player, steps of 50, or on to a mod's higher maximum | the installation's `totala.ini` UnitLimit, else 250 or a mod's default | `open-annihilation.unit-limit` |
 | | Pathfinding cycles | 1× to 8× of 1333 path nodes a tick, or of a mod's budget | 1× | `open-annihilation.path-search-nodes` |
 | | Skirmish players: how many player rows the skirmish setup shows. The dialog's working copy of the setup's own count; OK stores it only when the slider moved, and the setup's key codes write the same count | 2 to 10; a stored count outside that shows as it is until the slider moves | 10 when none is stored | `NumSkirmishPlayers` |
+| | Set by the mod: the heading over Weapon types and Sides. It keeps no setting | | | |
+| | Weapon types: how many weapon types the mod allows. In a match it shows how many of that limit the match loaded, as "312 of 4096". The same for every player. It takes no input | the mod's limit; the base game allows 256 | the mod's limit | |
+| | Sides: how many sides the mod allows. In a match it shows how many of that limit the match loaded, as "7 of 10". The same for every player. It takes no input | the mod's limit; the base game has 5 | the mod's limit | |
 | Language & Text | Language | System default, English, Deutsch, Español, Français, Italiano, and any installed pack | System default with the player's own preferences file; English with `--preferences-file` | `open-annihilation.language` (`system` or a language's tag, as `de`) |
 | | Use modern fonts for game text; On, locked, while a language drawn only in them is chosen | Off, On | On with the player's own preferences file; Off with `--preferences-file` | `open-annihilation.modern-fonts` |
 | | Text size, of the modern fonts | 50% to 300% of the game fonts' sizes, steps of 10% | 80% | `open-annihilation.text-size` |
@@ -47,8 +54,8 @@ the locks a running game puts on them (`settings_locks`).
 | | Fog of War: how the graphics card draws the fog's edges (Hardware acceleration Full); the processor always draws them Classic | Classic, Smooth | Smooth | `open-annihilation.fog-of-war` (`classic` or `smooth`; any other word reads as Smooth) |
 | | Zoomed out units: how units are drawn farther out than After zoom | Rendered, Dots; Icons shown faded, not offered | Rendered | `open-annihilation.zoomed-out-units` (`rendered` or `dots`; any other word, `icons` among them, reads as Rendered) |
 | | After zoom, a drop-down, locked "Needs Dots" while Zoomed out units is Rendered | 1/2, 1/3, 1/4, 1/6, 1/8, 1/12, 1/16 of normal size | 1/6 | `open-annihilation.zoomed-out-after` (`1/2`, `1/3`, `1/4`, `1/6`, `1/8`, `1/12` or `1/16`) |
-| | Allow Full 3D Mode: whether the camera may turn away from the classic view, with Full hardware acceleration | Off, On | On | `open-annihilation.allow-full-3d` |
-| | Unlocked Camera, locked "Needs Allow Full 3D Mode" while Allow Full 3D Mode is Off | Off, On | Off | `open-annihilation.unlocked-camera` |
+| | Allow full 3D mode: whether the camera may turn away from the classic view, with Full hardware acceleration | Off, On | On | `open-annihilation.allow-full-3d` |
+| | Unlocked camera, locked "Needs Allow full 3D mode" while Allow full 3D mode is Off | Off, On | Off | `open-annihilation.unlocked-camera` |
 | | Coloured weapon lighting, in the classic and the rotated view | 0–200%, steps of 10% | 20% with Hardware acceleration Full, else 0%; leaving Full sets 0%, reaching it 20% | `open-annihilation.weapon-lighting.intensity`; without it, an earlier `open-annihilation.weapon-lighting` switch reads as 0% or 100% |
 | | Nanolathe glow, in the classic and the rotated view | 0–200%, steps of 10% | 20% with Hardware acceleration Full, else 0%; leaving Full sets 0%, reaching it 20% | `open-annihilation.nanolathe-lighting.intensity`; without it, an earlier `open-annihilation.nanolathe-lighting` switch reads as 0% or 100% |
 | | Wreck glow, in the classic and the rotated view | 0–200%, steps of 10% | 30% with Hardware acceleration Full, else 0%; leaving Full sets 0%, reaching it 30% | `open-annihilation.wreck-glow.intensity`; without it, an earlier `open-annihilation.wreck-glow` switch reads as 0% or 100% |
@@ -57,11 +64,30 @@ the locks a running game puts on them (`settings_locks`).
 | | Coastal waves, locked as Water ripples is | 0–200%, steps of 10% | 30% | `open-annihilation.coastal-waves.intensity` |
 | | Underwater shimmer, locked as Water ripples is | 0–200%, steps of 10% | 100% | `open-annihilation.underwater-shimmer.intensity` |
 | | Naval reflections, locked as Water ripples is | 0–200%, steps of 10% | 100% | `open-annihilation.naval-reflections.intensity` |
+| | New unit shadows, Graphics' last row: the shadows of units and wrecks Open Annihilation draws where the graphics card draws the battlefield (Hardware acceleration Full), or the game's own; the processor always draws the game's own | Off, On | On | `open-annihilation.new-unit-shadows` (`0` or `1`) |
 | User Interface | Menu scaling | Sharp, Whole steps, Unfiltered | Sharp | `open-annihilation.menu-scaling` (`sharp`, `whole-steps` or `unfiltered`) |
 | | Window frame: whether a window shows its title bar and borders while a game is played; the game menu, a panel it opens and every other screen show them | Hidden in play, Always shown | Hidden in play | `open-annihilation.window-frame` (`hidden-in-play` or `always-shown`) |
 | | HUD scaling: whether a game's side column and bars grow with the window, up to twice the original game's size, or keep its size | Off, On | On | `open-annihilation.hud-scaling` |
 | | Interface size, a drop-down, when OK is pressed: how large Open Annihilation's own screens (Settings, its notices and its prompts) are drawn, held to the largest step at which Compact's dialog fits the window, and in a match Settings no larger than the side column's scale ([Sizes](#sizes)) | Auto (the window's own scale), 100%, 150% (offered only while the dialog shows Use modern fonts for game text On), 200%, 300%, 400% | Auto | `open-annihilation.interface-size` (`automatic`, `100`, `150`, `200`, `300` or `400`; `150` read with the modern fonts Off reads as 100%; any other text, `0` among them, reads as Auto) |
+| | Window size, a drop-down, when OK is pressed: the size class Settings, the Library, the key editor and the pickers take. Auto takes the largest class whose dialog fits the window with 24 points round it; a chosen class shows wherever its dialog fits whole, and is held to the largest that does elsewhere. The OA layer reads the same key (`src/app/window_placement.hpp`) | Auto, Compact, Regular, Large | Auto | `open-annihilation.ui.window-size` (`auto`, `compact`, `regular` or `large`; absent or any other text is Auto) |
+| | Reset window positions: Reset puts every window the player moved back in the middle, at once (`Dialog::window_reset_asked`); the row then says so (`Dialog::window_places_reset`). Cancel does not move them again | | | none. The host forgets every `open-annihilation.window.*` key |
 | | Escape opens the game menu | Off, On | On on macOS, Off elsewhere and with `--preferences-file` | `open-annihilation.escape-opens-menu` |
+| | Look, the section's last row, as it is chosen, the open dialog among them: the letters of Open Annihilation's own screens and overlays (Settings, the Library, the key editor, the pickers, the notices and prompts, the overlays in a match). Modern draws them in Barlow, tracked titles and headings in Barlow Condensed, at the kit's type scale, with DejaVu Sans, the endonym face and Noto Emoji drawing what Barlow lacks; Classic in the game's own two fonts. The 3.1c game's own screens keep the game's fonts either way. Cancel puts back the look the dialog opened with | Modern, Classic | Modern with the player's own file, one written before the setting existed among them; Classic with `--preferences-file` | `open-annihilation.ui.look` (`modern` or `classic`; absent or any other text is the default) |
+| Accessibility, listed in every dialog of the engine's settings, after Controls and before Touch, with its practice pad ([The practice pad](#the-practice-pad)) | Hold keys that latch: how many latchable actions the layout in use has turned on, of how many the game offers, and Choose…, which opens the key editor on Latchable. Edit keys… on the key layout card still opens on All | the count, as "2 of 7", and Choose… | | none. The count is the host's (`Dialog::latched_count`) |
+| | Sticky modifiers: a tapped Shift, Ctrl or Alt holds for the next key or click; a second tap locks it | Off, On | Off | `open-annihilation.access.sticky-modifiers` |
+| | Hold to confirm: self-destruct, surrender and quitting need a long press, and a ring fills while it is held | Off, On | Off | `open-annihilation.access.hold-to-confirm` |
+| | Long press: how long a hold is, for Hold to confirm and for keys bound to a hold | 200 to 1000 ms, steps of 50 | 500 ms | `open-annihilation.access.long-press-ms` |
+| | Slow keys: a key counts only after it is held this long | Off, then 50 to 1000 ms, steps of 50 | Off | `open-annihilation.access.slow-keys-ms` |
+| | Bounce keys: a second press of the same key this soon is ignored | Off, then 50 to 1000 ms, steps of 50 | Off | `open-annihilation.access.bounce-keys-ms` |
+| | Order wheel: holding that mouse button opens the order wheel at the pointer | Off, Hold right, Hold middle | Off | `open-annihilation.access.order-wheel` (`off`, `hold-right` or `hold-middle`) |
+| | Pointer keys: the numpad moves the pointer; 5 clicks, 0 right-clicks | Off, On | Off | `open-annihilation.access.pointer-keys` |
+| | Double press: how close two presses, or two clicks, are and still count as one double | System (the system's double-click time), then 200 to 1000 ms, steps of 50 | System | `open-annihilation.access.double-press-ms` |
+| | Key repeat delay: how soon a held camera, speed or page key repeats | System (the system's repeat), then 150 to 1000 ms, steps of 50 | System | `open-annihilation.access.repeat-delay-ms` |
+| | Key repeat rate: how fast that key then repeats | System (the system's repeat), then 2 to 30 a second | System | `open-annihilation.access.repeat-rate` |
+| | Drag threshold: how far a press may move and still be a click | 32 to 96 px, steps of 8 | 32 px | `open-annihilation.access.drag-threshold` |
+| | Edge scrolling: Off stops the view scrolling while the pointer rests at the window's edge. Arrow keys, and the touch edge band while a drag is held, keep moving the view | Off, On | On | `open-annihilation.access.edge-scroll` |
+| | Move overlays: On, the keys overlay, the chat line and the latch chips show where the player put them; Off, where they lay themselves out, and the places stay kept | Off, On | Off | `open-annihilation.access.move-overlays` |
+| | Overlay places: "Your places" or "The game's places", and ARRANGE… (`DialogAction::arrange_overlays`), pressable while Move overlays is on: the host opens a picture of the match over the dialog where the overlays are placed | | | none. The places are the host's `open-annihilation.overlay.*` keys |
 | Touch, listed only while the game has touch controls | One-finger drag | Automatic (a selection box on a tablet, scrolling on a phone), Box, Scroll | Automatic | `open-annihilation.touch-drag` (`automatic`, `box` or `scroll`) |
 | | Hold delay | 250 to 700 ms, steps of 50; a stored delay is held to the range and put on its nearest step | 350 ms | `open-annihilation.touch-hold-delay` |
 | | QUEUE and ADD | Stay on, One action | Stay on | `open-annihilation.touch-latches` (`stay-on` or `one-action`) |
@@ -82,9 +108,14 @@ the locks a running game puts on them (`settings_locks`).
 | | Left-handed | Off, On | Off | `open-annihilation.pad-left-handed` |
 | | Control size, Hold delay, QUEUE and ADD | Touch's own rows, shared | | as in Touch |
 | Game files, listed only in the main menu's dialog where the platform brings game files in | Include in device backups | Off, On | Off | `open-annihilation.game-files-backed-up` |
-| Downloads, listed in every dialog of the engine's settings, before System | Check for content updates | Automatically, Only when I open the Library, Never | Automatically | `open-annihilation.content-updates` (`automatically`, `library` or `never`); takes effect at OK, and Cancel and Restore defaults apply |
-| System, listed in every dialog of the engine's settings, after Downloads and before Developer | Your files: the player's own folder and buttons that open its Saves, Screenshots and Mods folders | changes no setting | | `open-annihilation.user-folder`, read at start (`src/app/include/oa/app/user_folder.hpp`) |
-| | File Type Registration, then one switch for each of the seven types, the launch file's last, on Windows, Linux and macOS | Off, On | On | `open-annihilation.file-types.oamod`, `.oamap`, `.oalang`, `.oareg`, `.oamut`, `.oabrain`, `.oalaunch` (`on` or `off`; only `off` turns one off). On Windows and Linux OK registers a type turned on and withdraws one turned off, at once; on macOS it changes the default opener of a switch that moved. Each switch acts on its own type alone (`engine_settings/file_types.hpp`) |
+| Downloads, listed in every dialog of the engine's settings, before Updates | Check for content updates | Automatically, Only when I open the Library, Never | Automatically | `open-annihilation.content-updates` (`automatically`, `library` or `never`); takes effect at OK, and Cancel and Restore defaults apply |
+| Updates, listed in every dialog of the engine's settings, after Downloads and before Game Content | The update card, the update centre's state as the host fills it (`UpdatesOffer::card_status` and the rest): "Installed {version}", the state, its detail, a bar while a download moves (amber while paused), up to three of the state's actions as buttons (`UpdateCardAction`, `DialogAction::update_action` with `Dialog::update_act`) and a note. With no card the row is the older status line with Check now, Update…, Restart to update or Retry | the buttons act at once and the dialog stays open | | none. The lines come from the host's offer (`Dialog::updates`) |
+| | Download automatically: a release that can be installed here starts downloading at the settled main menu | Off ("Off: OA asks before downloading."), On | Off | `open-annihilation.update-download` (`0` or `1`); takes effect at OK |
+| | Check for updates | Automatically, Only when I ask, Never | Automatically | `open-annihilation.update-check` (`automatically`, `when-asked` or `never`); takes effect at OK, and Cancel and Restore defaults apply. Check now makes no request while the choice is Never |
+| | Install updates: how a ready release is installed | Ask each time, When I quit | Ask each time | `open-annihilation.update-install` (`ask` or `when-i-quit`; any other text reads as `ask`); takes effect at OK, and Cancel and Restore defaults apply |
+| | Previous version · {version}, while a version is kept: Roll back… asks the roll back's question (`updates::roll_back_question`) | | | none. Locked during a game |
+| System, listed in every dialog of the engine's settings, after Game Content and before Developer | Your files: the player's own folder and buttons that open its Saves, Screenshots and Mods folders | changes no setting | | `open-annihilation.user-folder`, read at start (`src/app/include/oa/app/user_folder.hpp`) |
+| | File Type Registration, then one switch for each of the eight types, the launch file's last, on Windows, Linux and macOS | Off, On | On | `open-annihilation.file-types.oamod`, `.oamap`, `.oalang`, `.oareg`, `.oamut`, `.oabrain`, `.oakeys`, `.oalaunch` (`on` or `off`; only `off` turns one off). On Windows and Linux OK registers a type turned on and withdraws one turned off, at once; on macOS it changes the default opener of a switch that moved. Each switch acts on its own type alone (`engine_settings/file_types.hpp`) |
 | | File types, the text row on iOS in place of the switches | changes no setting | | none |
 | Developer | Enable Developer Mode | Off, On | Off | `open-annihilation.developer-mode` |
 | | Show performance statistics | Off, On | Off | `open-annihilation.frame-stats` |
@@ -225,6 +256,18 @@ picture (`Runtime::smooth_motion`, `Runtime::present_frame_between_ticks`).
 The frame rate, the camera and the interface are the same either way, and
 it changes nothing a match shares, saves or records.
 
+New unit shadows is never locked, and takes effect at once, in a game too.
+It changes only what the graphics card draws (`ModelFrameInputs::new_unit_shadows`
+in `src/app/runtime_full.hpp`, `renderer_live_scene::Inputs::new_unit_shadows`):
+On, every unit's, wreck's and shot's shadow is laid on the ground before
+anything stands on it, so that overlapping shadows darken once and a
+unit's shadow lies under the trees and units beside it, and an aircraft's
+shadow has a soft edge; Off, each casts the game's own shadow with its
+unit or shot, a unit's the silhouette the processor blends
+(`ground_shadow` in `src/present/model`), over whatever was drawn before
+it, as the trees' and rocks' own shadows are drawn. The processor draws the game's own either
+way, and nothing a match shares, saves or records changes.
+
 Language says which language the game shows its text in. System default
 is the language the operating system's preferred locales choose, which the
 drop-down names in itself: "System default (Deutsch)". The other choices
@@ -352,7 +395,7 @@ page.
 
 The Mod, the mod folder the game plays, layered over the game folder as
 `--mod-dir` would play it, has no section of the dialog: the application's
-Library chooses it, with PLAY NOW, and SWITCH OFF for No Mod, stores it
+Library chooses it, with Play now, and Switch off for No Mod, stores it
 with `write_settings`, and reloads the game for it. The dialog keeps it as
 it is, through Restore defaults too. A stored mod folder the game folder
 does not offer reads as the stored one (`EngineSettings::picked_mod_folder`);
@@ -375,7 +418,7 @@ locked during a shared game or a replay, its value set before the game kept
 in effect; Hardware acceleration never is, so that it can always be set to
 Off, and set to Basic or Full there it takes effect from the next game.
 
-`engine_settings/file_types.hpp` turns System's seven file-type switches
+`engine_settings/file_types.hpp` turns System's eight file-type switches
 into the file types they choose, each switch its own type alone:
 `file_type_set` is the set a registration acts on (its complement is the
 set a withdrawal acts on), `set_file_type_switches` shows a set the system
@@ -436,7 +479,7 @@ icon, so its badge is the plates, not the gears.
 
 Where a game font has no ellipsis, as neither of the dialog's has, the
 dialog draws and measures each ellipsis in a text as three full stops in
-the game font, so that a caption such as MANAGE… keeps the game font's
+the game font, so that a caption such as Manage… keeps the game font's
 look and fits its button like every other caption; the mark between a
 location's folders (›) is drawn as a greater-than sign the same way, and
 a no-break space as the font's space. The texts themselves, and their
@@ -446,17 +489,23 @@ font lacks, as a Ukrainian line's Cyrillic, is drawn whole in the modern
 fonts, its digits, Latin words, marks and spaces with it, so that no word
 of it changes typeface part way.
 
-It is 480 by 324 source pixels, a dark gunmetal panel with a one-pixel raised
-edge and hairline rules, and one green accent for what is selected:
+At Compact it is 480 by 324 source pixels, a dark gunmetal panel with a
+one-pixel raised edge and hairline rules, and one green accent for what is
+selected, laid out on Kit 2 ([Sizes](#sizes)):
 
-- the header: the icon it was given, 20 by 20 source pixels, "OPEN
-  ANNIHILATION SETTINGS" and the version, with "Shared game - still
+- the header, 26 pixels high at Compact and 36 at Regular and Large: the
+  icon it was given, 20 by 20 source pixels, "OPEN ANNIHILATION SETTINGS" and the version, with "Shared game - still
   running" in amber while a shared game keeps running;
-- the sections down the left (Controls, Engine Limits, Language & Text,
-  Graphics, User Interface, Touch while the game has touch controls,
-  Controller once a gamepad has sent input, and Game files where the host
-  lists it, then Downloads, then System),
-  Developer at the foot after a line, the open one marked;
+- the sections down the left in four groups, a hairline between two: what
+  the player plays with (Controls, Accessibility, Touch while the game has
+  touch controls, Controller once a gamepad has sent input), how the game
+  looks (Graphics, User Interface, Language & Text), what it holds and
+  fetches (Game files where the host lists it, Downloads, Updates, Game
+  Content), and the machine and the engine (Engine Limits, System,
+  Developer); each entry a line icon (`src/section_icons.cpp`) and its
+  name, the open one on the selected ground with the lime marker, Updates
+  with the update's progress at its right while the host gives one
+  (`Dialog::updates_badge`);
 - the open section's heading and rows: a label, a hint of one or two lines,
   and an Off/On switch, a level strip (Off, 2x, 4x, 8x, 16x for Enhanced
   anti-aliasing; Off, Basic, Full for Hardware acceleration; Automatic,
@@ -468,25 +517,24 @@ edge and hairline rules, and one green accent for what is selected:
   choice, and Button prompts): a field showing the choice, with an arrow at
   its right; a text row shows only text under its label (Where the files
   are, and Controller's Steam Input notice of up to four lines);
-- Restore defaults, Cancel and OK along the bottom.
+- the footer, Kit 2's band: RESTORE DEFAULTS at its left, in the small
+  font's tracked capitals as a window's own action keeps them, then how
+  many settings the dialog shows changed ("1 setting changed", "{count}
+  settings changed", `changed_settings_count`; nothing while none did),
+  right against Cancel and OK.
 
 A section holds any number of rows. They lie in a view under the section's
 heading, from the first row's line at pixel row 54 down to the pixel row
-above the footer's line, 236 pixels high; the header, the list, the heading
+above the footer's line, 220 pixels high at Compact; the header, the list, the heading
 and the footer never move. A section whose rows, with 8 clear pixels under
 the last row's line, are taller than the view scrolls by whole source
 pixels, and shows a scroll bar in the margin right of its rows: a well like
 a switch's, its thumb as tall as the view's share of the section and never
-under 16 pixels. Graphics, with twenty-one rows, is taller than its view by
-972 pixels, Language & Text, with the Language drop-down, four switches and
-the Text size slider, by 129, User Interface, with its three switches, Menu
-scaling's strip and Interface size's drop-down, by 88, Touch, with its
-three strips, the Hold delay slider and two switches, by 121, and Controls,
-with Mouse wheel zoom, the two zoom drop-downs, View past the map's edge,
-Middle-click pans, Select groups without Alt, Window edge and Edge
-stickiness, by 255; Engine Limits fits, its three sliders
-in 216 pixels, and draws as if there were no scrolling,
-with no bar. While the dialog's words are drawn in the modern fonts, as in
+under 16 pixels. At Compact, Graphics is taller than its view by 988
+pixels, Controls, with the key layout card, by 383, User Interface, with
+Window size and Reset window positions, by 230, Language & Text by 204,
+Engine Limits by 149 and Touch by 137; a section that fits draws as if
+there were no scrolling, with no bar. While the dialog's words are drawn in the modern fonts, as in
 Simplified Chinese, whose ideographs stand as tall as a hint line, the
 lines of a hint or a notice lie three pixels further apart
 (`tall_hint_line_gap`), clear of each other: each row with such lines is
@@ -510,19 +558,31 @@ focus, and a press on it leaves the focus where it is. While a press is held
 the wheel and the scroll keys do nothing, so only a drag of the scroll bar
 scrolls then. No scroll changes a setting or moves the focus.
 
-Controls are numbered: the sections' entries 0 to 10, each its place among
-the sections with Touch, Controller, Game files, Downloads and System
-whether or not the first three are listed (Touch 5, Controller 6,
-Developer 7, Game files 8, Downloads 9, System 10, so a dialog without
-Touch has no control 5, one without Controller no control 6, and one
-without Game files no control 8).
-Touch, Controller and Developer keep their numbers in every dialog (a
-mod's options' 0 to 4). Restore defaults is 11, Cancel 12, OK 13, the
-scroll bar 14, and the open section's rows from 15, with no upper end. The
-list draws its entries by their place in the list it shows, and the focus
-walks that list, so the dialog without Touch, Controller or Game files
-draws and answers exactly as it did before they were added. Downloads and
-System are always in that list.
+Controls are numbered: the sections' entries 0 to 13, each its place among
+the sections with Touch, Controller, Game files, Downloads, System, Game
+Content, Updates and Accessibility whether or not the first three are
+listed (Touch 5, Controller 6, Developer 7, Game files 8, Downloads 9,
+System 10, Game Content 11, Updates 12, Accessibility 13, so a dialog
+without Touch has no control 5, one without Controller no control 6, and
+one without Game files no control 8). Touch, Controller and Developer keep
+their numbers in every dialog (a mod's options' 0 to 4). Restore defaults
+is 14, Cancel 15, OK 16, the scroll bar 17, and the open section's rows
+from 18, with no upper end. The list draws its entries by their place in
+the list it shows, and the focus walks that list. Downloads, Updates, Game
+Content, System and Accessibility are always in that list. The list
+stands in four groups, a hairline between each: Controls, Accessibility,
+Touch and Controller; Graphics, User Interface and Language & Text; Game
+files, Downloads, Updates and Game Content; Engine Limits, System and
+Developer (`geometry::nav_group`, `nav_layout`). Each entry draws its icon
+(`section_icons.cpp`) left of its name, lit while the entry is open or
+under the pointer; where a section's name in the language needs the
+icons' room, the list draws its names without icons, from the icons'
+column, and grows only for what is still missing (`fitted_sizes`). Updates shows `Dialog::updates_badge`, the host's short
+word for an update under way, at its right where the name still fits
+whole. At Compact a list of twelve entries or more is taller than the rail
+and scrolls by the wheel, the open entry (or the focused one) kept in view;
+a thin bar between the entries and the list's rule shows that it scrolls,
+its thumb where the list is scrolled to (`nav_bar`).
 
 The Touch section is listed only while the game has touch controls:
 `Dialog::touch`, which the host gives `open_dialog` and keeps with
@@ -552,8 +612,8 @@ first section, Controls. Its three rows:
 
 - Installed: what is installed and, under it, the sizes line, both the
   host's texts (`Dialog::game_files_summary`, `game_files_sizes`), with
-  MANAGE… at the label line's right, a green button like OK with its
-  caption, drawn "MANAGE...", centred inside it. MANAGE… is a button: a click on it, or
+  Manage… at the label line's right, a green button like OK with its
+  caption, drawn "Manage...", centred inside it. Manage… is a button: a click on it, or
   Space while it has the focus, returns `DialogAction::manage_game_files`,
   and the host opens the Game files screen with the dialog left open under
   it. It takes no steps: Left moves the focus to the section's entry at its
@@ -594,7 +654,7 @@ host's offer (`set_downloads_offer`), not from a fixed list of settings:
   kept. EMPTY acts at once. It is disabled when nothing is kept, and while
   a download is queued, running or paused the value names that the files
   are in use and EMPTY stays disabled.
-- REGISTRIES IN THE LIBRARY… (`settings.registries-in-library`), on the
+- Registries in the Library… (`settings.registries-in-library`), on the
   main menu only (`Dialog::library_link`): a link whose hint reads
   "Registries are in the Library." It asks the host to open the Library
   on the Registries tab (`DialogAction::open_library`,
@@ -610,6 +670,25 @@ lock and the button do not fit on that line, the lock moves to the start
 of the line under the label and the button stays. Downloaded files
 shows no size line while locked: its label, the lock and the faded EMPTY.
 The check and the install-ID switch stay editable. The link is not listed.
+
+The Updates section is listed in every dialog of the engine's settings,
+after Downloads and before Game Content. Its two rows come from the host's
+offer (`Dialog::updates`), not from a fixed list of settings:
+
+- The version line (`settings.update-status`): the label is "Open
+  Annihilation" and the version, and the hint is the status (up to date,
+  checking, a release out, could not check, not checked yet, or "OA never
+  checks"). Check now (`settings.update-status.check-now`) asks the host
+  at once (`DialogAction::check_updates`). While a release is offered the
+  same button is Update… (`settings.update-status.update`,
+  `DialogAction::open_release`). The button is hidden while Check for
+  updates is Never and greyed while a check is running.
+- Check for updates (`settings.update-check`): a drop-down of
+  Automatically, Only when I ask, and Never. It is a setting
+  (`update_check`, stored as `open-annihilation.update-check`). A change
+  takes effect at OK. Cancel puts the opened choice back, and Restore
+  defaults sets Automatically. Check now makes no request while the
+  choice showing is Never.
 
 `open_language_text_dialog` opens a dialog of the third kind,
 `DialogKind::language_text`: Language alone, its entry at the top
@@ -700,7 +779,7 @@ notices and its prompts.
 | Up, Down | the focus to the control above or below |
 | Left, Right | a switch Off or On, a slider, a level strip or a drop-down one step, Your files' mark along its buttons, a row of Developer's list, Show Active Only; from any other control, the focus to the control on that side |
 | Space | flips a switch, presses a button, opens a section or a drop-down's list |
-| Page Down, Page Up | scroll the section 200 pixels down or up |
+| Page Down, Page Up | scroll the section a view less three hint lines down or up: 184 pixels at Compact |
 | End, Home | scroll the section to its end or its top |
 
 While a drop-down's list is open, the keys work the list: Up and Down mark
@@ -730,6 +809,52 @@ never show or move it. A key that moves the focus onto a row, or acts on a
 focused row, first scrolls the least that shows the row whole; a key that
 moves it to a button or a section's entry does not scroll.
 
+### The key layout card
+
+Controls' first row is a card (`cards::key_card`, `src/cards.cpp`), across
+the section under the row's line. It shows the keyboard tile, the eyebrow
+"Key layout", the layout's name (`Dialog::key_layout_name`, wrapped, never
+cut), a badge counting the player's own changes to it
+(`Dialog::key_layout_changes`: "1 change of your own", "{count} changes of
+your own"; none while there are none), where it applies ("Applies to every
+game.", or "Applies with {mod} only." while the mod played chooses its own,
+`Dialog::key_layout_mod_only`) and how a match shows the keys ("Ctrl+/ in a
+match shows the keys.", Cmd on a Mac). Its buttons, Change layout… and Edit
+keys…, stand right of the words while the words keep at least 120 points,
+and under them where they do not. Change layout… shows only where the
+Library opens over the dialog (`Dialog::library_link`) and opens it on Keys
+(`change_layout_control`); Edit keys… is the row's own control and returns
+`DialogAction::edit_keys`. The host fills the name, the count and where it
+applies each time the dialog opens and after the key editor or the Library
+closes.
+
+### The practice pad
+
+Accessibility shows a pad (`cards::practice_pad`) where the player tries
+the helpers the section shows: in a column right of the rows at Regular and
+Large (200 and 260 points), and under the last row at Compact. It has the
+eyebrow "Try it here", what to try with the helpers that are on (Sticky
+modifiers: "Tap Shift, then press A."), a well with the keys held, latched
+or locked as keycaps, what the last key did (latched, locked, let go,
+counted, too short for Slow keys, bounced, held long enough or let go too
+soon for Hold to confirm), Hold to confirm's bar while that helper is on,
+and Turn every helper off (`helpers_off_control`), which turns Sticky
+modifiers, Hold to confirm, Slow keys, Bounce keys, the Order wheel and
+Pointer keys off and lets go of the pad's keys; it is greyed while all of
+them are off. The host hands the pad keys with `dialog_practice_key` and
+time with `dialog_practice_tick`; both do nothing outside Accessibility.
+Keys pressed on the pad never reach the game.
+
+### The footer's count
+
+The footer counts the settings the dialog shows changed from what it
+opened with (`changed_settings_count`): each setting it would store
+differently, the install IDs' switches, Welcome setup's Show again and the
+registered pages' own writes; on a mod's options page, each option whose
+value reads differently. It shows "1 setting changed" or "{count} settings
+changed" right against Cancel, wrapping to two lines in the small font
+where one does not fit, and nothing while none changed.
+
 ## Sizes
 
 The dialog, its notices and its prompts are laid out in points, one point a
@@ -743,17 +868,28 @@ the UI kit's metrics (`kit::compact_metrics`, `kit::regular_metrics`,
 
 | | Compact | Regular | Large |
 |---|---|---|---|
-| Used for room of | below 960 by 540 points | from 960 by 540 | from 1280 by 720 |
+| Used for room of | below 768 by 534 points | from 768 by 534 | from 1008 by 648 |
 | Settings dialog | 480 by 324 | 720 by 486 | 960 by 600 |
-| Padding | 12 | 16 | 20 |
+| Padding | 12 | 18 | 24 |
 | Section list's width | 144 | 176 | 208 |
+| Section entry's height | 19 | 25 | 32 |
+| Header's height | 26 | 36 | 36 |
+| Footer's buttons' height | 28 | 34 | 38 |
+| Footer's height | 48 | 48 | 48 |
 | Characters a line of a host's text under a row | 50 | 82 | 114 |
 | Notice's and prompt's width | 400 | 520 | 600 |
 | Notice's and prompt's greatest height | 440 | 500 | 640 |
 | Notice's and prompt's least height | 150 | 150 | 150 |
 
-Compact is 0.7.3's dialog exactly: `src/geometry.hpp`'s constants are its
-values, and the pixel pins (`ui-engine-settings-pixels`) hold it. Every other
+The sizes are Kit 2's metrics (`kit::Metrics::window_padding`,
+`nav_width`, `control_height`, `window_footer_height`, `space`); the
+section list's own entry heights and icon places are
+`geometry::nav_metrics`. The pixel pins (`ui-engine-settings-pixels`) hold
+Compact. The window's header is the kit's 26-point band at Compact, where
+nothing larger fits and the section list needs its room, and Kit 2's 36
+points at Regular and Large (`Sizes::header_height`, given to the kit as
+`HeaderLook::height`); the heading and the first row follow it
+(`Sizes::body_top`, `Sizes::first_row_top`). Every other
 size is the same in all three classes: rows keep their height, and text,
 switches, strips, drop-down fields, buttons and the slider's line keep
 theirs, so a larger dialog shows more rows and scrolls less
@@ -762,8 +898,8 @@ ends the padding short of the right edge; a section's rows and Developer's
 list take its width, a slider's track running across it, and
 the body between the header's and the footer's rules. The header's mark,
 title and version keep their Compact distances from the dialog's edges,
-the footer's buttons keep their sizes and order, Restore defaults at the
-padding from the left. A hint keeps its lines; the host's own texts
+the footer's buttons keep their order, Restore defaults at the
+padding from the left, each at least as wide as its caption needs. A hint keeps its lines; the host's own texts
 under a row (Controller's Steam Input notice, where the game files are)
 break at the class's characters. A drop-down's open list opens over its
 field when it would pass the class's footer line. A notice's or a prompt's
@@ -778,34 +914,47 @@ steps and a tie takes the larger (1× below 900 lines, 150% from 900, 2×
 from 1260); otherwise Auto keeps whole steps (1× below 1080, 2× from 1080).
 The step is capped at the largest at which Compact's 480 by 324 dialog fits
 the window, less its safe insets on a touch screen, and is at least 1×, so a
-size never draws a dialog cut off by the window's edge; the class then
-comes from the window's points at that step. 150%, chosen or what Auto
-picked, is held the same way:
+size never draws a dialog cut off by the window's edge. The class then
+comes from the window's points at that step: the largest whose dialog fits
+them with 24 points round it (`kit::size_class_of`), so Regular from 768 by
+534 points and Large from 1008 by 648. Where Auto's step leaves the window
+below Large, or below the class Window size chose, and one step down gives
+it that class, Auto takes the step; a chosen Interface size never steps
+down. A class Window size chose is used wherever its dialog fits the
+points whole, and the largest that fits elsewhere
+(`kit::size_class_within`). 150%, chosen or what Auto picked, is held the
+same way:
 it is 1.5× where Compact's 720 by 486 pixels at one and a half fit the
-window, and 1× where they do not. On a 1920 by 1080 window
-100% is Large at 1×, 150% is Large at 1.5× (1280 by 720 points, the dialog
-1440 by 900 pixels) and 400% is Compact at 3×, as 4× does not fit Compact
-in 1080 rows; on 1280 by 720 150% is Compact at 1.5× (853 by 480 points),
-and on 640 by 480 it is 1×.
+window, and 1× where they do not. On a 1920 by 1080 window Auto with the
+game's fonts is Large at 1×, a step down from 2×, which would leave 960 by
+540 points, Regular; 100% is Large at 1×, 150% is Large at 1.5× (1280 by
+720 points, the dialog 1440 by 900 pixels), 200% is Regular at 2× and 400%
+is Compact at 3×, as 4× does not fit Compact in 1080 rows; on 1280 by 720
+150% is Compact at 1.5× (853 by 480 points), and on 640 by 480 it is 1×.
+800 by 600 is Regular at 1×, and 1280 by 720 and 2560 by 1440, at 1× and
+2×, are Large.
 
-In a match the dialog is laid out and drawn beside the in-game menu's side
-column at a class and scale of its own (`OaLayer::match_dialog`,
+In a match the dialog is laid out and drawn at a class and scale of its own
+(`OaLayer::match_dialog`, `window_placement::match_window`,
 [src/app](../../app/README.md#the-oa-layer)), never drawn at 1× and
-enlarged. Its scale starts as the layer's on the match's canvas, the
-Interface size's or Auto's, and is capped by HUD scaling, as the dialog
-always was: above the side column's scale it is the largest whole step at
-or below that scale, and at least 1. Where Compact's 480 by 324 points do
-not fit the area right of the column at that scale, it is the largest
-whole step at which they do. The class comes from that area's points, and
-the dialog, its class's size at the scale, is centred in it:
+enlarged. Its scale is the layer's on the match's canvas, the Interface
+size's or Auto's with Auto's step down, capped by HUD scaling, as the
+dialog always was: above the side column's scale it is the largest whole
+step at or below that scale, and at least 1. The class comes from the
+window's whole safe area at that scale, and the dialog, its class's size
+at the scale, is centred in the window, or centred across the area right
+of the side column where the middle would cover the column and that area
+holds it. With HUD scaling On:
 
-| Window | HUD scaling | Scale | Points right of the column | Class |
-|---|---|---|---|---|
-| 640 by 480 | On | 1× | 512 by 480 | Compact |
-| 1280 by 720 | On | 1× | 1088 by 720 | Regular |
-| 1920 by 1080 | On | 2× | 832 by 540 | Compact |
-| 2560 by 1080 | On | 2× | 1152 by 540 | Regular |
-| 1920 by 1080 | Off | 1× | 1792 by 1080 | Large |
+| Window | Scale | Class | The dialog's place, in pixels |
+|---|---|---|---|
+| 640 by 480 | 1× | Compact | (144, 78), right of the column |
+| 800 by 600 | 1× | Regular | (40, 57), over the column, which leaves too little room |
+| 1280 by 720 | 1× | Large | (256, 60), right of the column |
+| 1920 by 1080 | 1× | Large | (480, 240), in the middle |
+| 1920 by 1080, modern fonts on | 1.5× | Large | (368, 90) |
+| 2560 by 1440 | 2× | Large | (320, 120), in the middle |
+| 3840 by 2160 | 2×, the column's scale capping 3× | Large | in the middle |
 
 A 640 by 480 window shows the dialog at (144, 78), pixel for pixel as
 before. On a phone with touch controls the dialog is still Compact, drawn
@@ -829,7 +978,7 @@ Input notice and a Steam Deck's rate, and the host's texts.
 
 Everything the dialog decides about one setting is read from its row: its
 kind (`geometry::kind_of`: a switch is `toggle`, a strip `levels`, a slider
-`slider`, a drop-down `choice`, MANAGE… a `value_and_button` with no value,
+`slider`, a drop-down `choice`, Manage… a `value_and_button` with no value,
 Your files `buttons`, and Where the files are and the Steam Input notice
 `text`), its label and hints, its stops, levels or items and their
 captions and value texts, its lock and whether its hints are its status.
@@ -867,8 +1016,15 @@ and the kit's components. Tab follows the declared order
 the list holds (`DisplayList::tab_order`), which `dialog_list` builds as it
 adds the controls.
 
-The dialog's input reads this list through the kit: the control under a
-point is `kit::hit`'s, a finger's `kit::reach`'s, Tab's next control
+The dialog's input reads this list through the kit, built in the fonts the
+dialog is drawn in (`Dialog::drawn_fonts`, which the host sets to the fonts
+it draws with): the sizes they widen and the lines they wrap the rows'
+texts into come from one place (`geometry::shown_section`), so a control
+answers where it is drawn whatever its Interface size, size class, type
+step or language. Without fonts every character is measured at
+`estimated_character_width`, for drawing and input alike. `dialog_layout`
+lists the parts in the same fonts unless it is given others. The control
+under a point is `kit::hit`'s, a finger's `kit::reach`'s, Tab's next control
 `kit::next_in_tab_order`'s, an arrow's `kit::focus_toward`'s, and the wheel
 carries its fraction with `kit::wheel_offset`. A row's control lies across
 the section at its control's line, and its clip, the view narrowed to the
@@ -888,14 +1044,14 @@ engine's section entries are `settings.nav.<page>` (`controls`,
 `developer`, `game-files`, `mod-keys`, `mod-patrol`, `mod-guard`,
 `mod-tools`, `mod-chat`); `settings.restore-defaults`, `settings.cancel`,
 `settings.ok` and `settings.scroll-bar`; each row `settings.<row>`, its
-setting's name (`settings.vertical-sync`), MANAGE…
+setting's name (`settings.vertical-sync`), Manage…
 `settings.game-files-summary.manage`, and Your files `settings.user-folder`;
 an open drop-down's items `settings.<row>.<value>` while it is open;
 Developer's `settings.active-only`,
 `settings.restore-profile-values`, `settings.hack-area.<area>`,
 `settings.hack.<hack id>` and `settings.hack.<hack id>.<parameter>`, with
 `.<value>` for a set's value, `.<n>` for a list's item and `.length` for
-its length; Downloads' REGISTRIES IN THE LIBRARY…
+its length; Downloads' Registries in the Library…
 `settings.registries-in-library`, on the main menu, which opens the
 Library on its Registries tab.
 
@@ -929,12 +1085,12 @@ dialog's own fonts, colours, switches and sliders:
   with its hint, under it **Show performance statistics**, which
   Developer Mode leaves alone, and under that **UI kit gallery**, its hint
   "Every part of OA's own screens, in each of its states, at this size."
-  and a **SHOW** button (`settings.kit-gallery.show` to automation) that
+  and a **Show** button (`settings.kit-gallery.show` to automation) that
   asks the host to show the UI kit gallery over the dialog
   (`DialogAction::show_gallery`; [src/ui/kit](../kit/README.md#gallery)),
   the dialog staying open under it and no setting changing: three rows
-  that never scroll, with half the clear pixels of a section's rows round
-  them, so that the list has room. Each takes a label line and one hint
+  with half the clear pixels of a section's rows round them, so that the
+  list has room; at Regular and Large they never scroll. Each takes a label line and one hint
   line, but the gallery's hint takes two at Compact, where its line holds
   fewer characters: the list starts 51 points lower than with two rows at
   Compact, and 39 at Regular and Large (`developer_rule_for`). Where the
@@ -942,8 +1098,9 @@ dialog's own fonts, colours, switches and sliders:
   while hints lie further apart in the modern fonts, the list starts under
   them (`developer_list_scroll`);
 - under them, the list of every standard hack of the registry
-  (`oa::data::mod_profile::standard_hacks`), in a view of its own that
-  scrolls as a long section does, with its scroll bar in the margin, and
+  (`oa::data::mod_profile::standard_hacks`), at Regular and Large in a
+  view of its own that scrolls as a long section does, with its scroll bar
+  in the margin, and
   two levels of parts that open and close, every one closed at first: an
   area of the registry (`developer_areas`; its title, such as "Interface",
   and how many of its hacks are on), and under it each hack: its title,
@@ -954,10 +1111,19 @@ dialog's own fonts, colours, switches and sliders:
   follow their titles alphabetically as the language shown writes them;
   the titles are the registry's, in English, and pass through the
   interface catalogue like the dialog's other words;
-- at its foot, which never scrolls, **Show Active Only (X/Y)**, a switch
-  that shows only the hacks that are on and the areas that hold one, X the
-  hacks on as the section shows them and Y every standard hack (89), and
-  **Restore profile values**, which clears every override.
+- at its foot, which at Regular and Large never scrolls, **Show Active
+  Only (X/Y)**, a switch that shows only the hacks that are on and the
+  areas that hold one, X the hacks on as the section shows them and Y every
+  standard hack (89), and **Restore profile values**, which clears every
+  override.
+
+At Compact Developer scrolls as one (`developer_scrolls_as_one`): its
+three rows, the list from the line under them, then Show Active Only and
+Restore profile values under the list's last row, all in the section's
+own view with the section's scroll bar, as a long section scrolls. The
+focus walks from the rows into the list and on to Show Active Only, each
+scrolled the least that shows it whole; Page Down, End, the wheel and the
+scroll bar move all of it.
 
 A parameter's control follows its type: a switch for a boolean; a slider
 for a whole number, from its least to its most by its step, the hack's
@@ -997,9 +1163,9 @@ values clears them. The host keeps which areas and hacks are open and the
 filter while the game runs (`DeveloperList`).
 
 Developer's controls are numbered from the open section's first row's:
-Enable Developer Mode 14, Show performance statistics 15, Show Active Only
-16, Restore profile values 17, and the list's rows that take input from
-18, in the list's order. Every header takes the focus and a press, which
+Enable Developer Mode 17, Show performance statistics 18, UI kit gallery
+19, Show Active Only 20, Restore profile values 21, and the list's rows
+that take input from 22, in the list's order. Every header takes the focus and a press, which
 opens or closes it; a press on a hack's switch sets it. Space opens or
 closes an area or a hack and flips a switch; Left and Right close and open
 an area, turn a hack or a switch Off and On, and move a slider a stop.
@@ -1241,8 +1407,9 @@ which moved its list down; no other scene changed. The Graphics scenes
 joined Graphics' rows, which shortened the scroll bar's thumb and put the
 row between Explosion flash and Zoomed out units, and again when the
 camera's switches and the effect sliders joined them, which shortened the
-thumb further and put the water sliders at the end; no other scene
-changed.
+thumb further and put the water sliders at the end, and again when New
+unit shadows joined them at the end; no other scene changed. The Controls
+scenes were recorded again when Group keys centre the view joined its rows.
 
 `ui-engine-settings-dialog` also holds UI kit gallery's row: its label,
 its hint in two lines at Compact and one at Regular and Large, and SHOW,
@@ -1289,18 +1456,18 @@ with and without the player's own file, its six words each read and
 written alone, `150` with the modern fonts On, and as 100% read with them
 Off from the key or from a named file's default, the words it refuses
 (`0` among them) read as Auto, other keys left as they were, and Restore
-defaults; and the seven file-type switches: on by default, only `off`
+defaults; and the eight file-type switches: on by default, only `off`
 turning one off, the launch file's switch stored alone as `off` and as `on`
-with the other six keys untouched, and erased by Restore defaults;
+with the other seven keys untouched, and erased by Restore defaults;
 `ui-engine-settings-file-types` that each file-type switch stands for its
 own type alone, in the set a registration acts on, the set a withdrawal
 acts on and the opener change it asks for; that the launch file's switch
 turned off and on again, as OK applies it, registers and withdraws launch
 files alone: elsewhere than on Windows in a scratch XDG data folder (the
 launch file's desktop entry, icon and part of the MIME package go and come
-back, and no file of the other six, nor the program's icon, is written or
+back, and no file of the other seven, nor the program's icon, is written or
 removed), and on Windows under a scratch key of `HKEY_CURRENT_USER` (the
-launch file's six values go and come back, the other six's 36 never
+launch file's six values go and come back, the other seven's 42 never
 written or removed); and that on macOS, against a stand-in for the
 system's questions, it hands launch files alone back to the opener of
 plain text and takes them back, the switches then show what the system
@@ -1315,13 +1482,13 @@ their Compact sizes and in their order; its sections, switches and their one tab
 slider stops, both level strips, keys, footer buttons, locks and the faces
 it draws; the arrows by geometry (`the_arrows_move_by_geometry`: down a
 section's rows to the footer and back, from a section's entry to the row
-at its height, from MANAGE… to the entry at its height and back, from Developer's entry
+at its height, from Manage… to the entry at its height and back, from Developer's entry
 to Restore defaults, down Graphics past its view, from no focus, and Tab's
 order on every section); the OA button's icon at its size in both buttons, at rest, under
 the pointer, held and twice as large, and the mark without it; with the
 installed game, the header's icon in its place and the mark without it;
 the sections' order and names, Developer at the foot under the divider,
-and System holding Your files, then File Type Registration's seven
+and System holding Your files, then File Type Registration's eight
 switches, Launch files last, where the game registers file types at run
 time or the File types text row
 where the app declares them, and Engine Limits holding the unit limit, pathfinding and the skirmish
@@ -1333,10 +1500,10 @@ while the modern fonts are Off, lifted as they turn On; the Language
 drop-down's choices, each language named in itself, its field and list,
 the pointer and the keys on them, a press off the list, the command line's
 lock, and lists that scroll or open over their field;
-the Graphics section's twenty-one rows, Naval reflections last, their places at every offset
+the Graphics section's twenty-two rows, New unit shadows last, their places at every offset
 and under every lock, the focus scrolling them into view, both forms of a
-locked row, Smooth motion's switch and its two hints, Zoomed out units' faded Icons and After zoom's lock, every status of Hardware acceleration, Full's included, and
-the requests to try the graphics card afresh; User Interface's five rows, Menu scaling, Window frame, HUD scaling, Interface size and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Interface size's drop-down
+locked row, Smooth motion's and New unit shadows' switches and their two hints each, Zoomed out units' faded Icons and After zoom's lock, every status of Hardware acceleration, Full's included, and
+the requests to try the graphics card afresh; User Interface's seven rows, Menu scaling, Window frame, HUD scaling, Interface size, Window size, Reset window positions and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Accessibility's fifteen rows, the captions at both ends of each range, Choose… opening the key editor on Latchable while Edit keys… stays on All, and each change applying at once; Interface size's drop-down
 offering 150% only with the modern fonts shown On, and turning them Off
 taking 150% to 100%; Graphics drawn on the kit canvas's smooth form at 1.5×
 with every pixel painted whole; on sections of the test's own taller than the
@@ -1371,8 +1538,8 @@ press 15 points off nothing) at several scales, a slider dragged from under
 its track and an open list's nearest item; Game files: listed only with
 its flag, between Touch or User Interface and Downloads, the line and
 Developer under it, its entry numbered 8 with Touch 5, Controller 6,
-Developer 7, Downloads 9 and System 10, the
-focus walking it, its three rows and their texts, MANAGE… returning
+Developer 7, Downloads 9, System 10, Game Content 11 and Updates 12, the
+focus walking it, its three rows and their texts, Manage… returning
 `manage_game_files` to a click, to Space and to a finger beside it, the
 switch by either half and the keys, Restore defaults and Cancel, where the
 files are taking no press and no focus, and the lines a location breaks
@@ -1402,7 +1569,7 @@ fonts Off, turns them On and raises the size a stop, which the text style
 reads at once and OK saves, and chooses Deutsch from the Language
 drop-down, which puts German in effect at once, and steps back to English.
 On a 640 by 480 window it shows System at its top and its end in English
-and German, and finds File Type Registration and its seven switches, Launch
+and German, and finds File Type Registration and its eight switches, Launch
 files among them, drawn with no text wider than its box or across another.
 With touch controls on it finds Touch listed between User Interface and
 Developer with its rows at their defaults, and a finger's press beside
@@ -1415,16 +1582,16 @@ column, is drawn there pixel for pixel as the dialog drawn offscreen at
 them, and shows a section a click on its entry's middle asks for.
 It finds no Mods section, and the mods in the application's Library: no
 mod played, and a folder stored by an earlier version's Pick Folder...
-listed by its oamod.yaml's name with PLAY NOW; --base-game greys PLAY NOW
-with its note and PLAY NOW then changes nothing; on that folder played,
-SWITCH OFF asks the Switch Mod question, which Escape and CANCEL put away
+listed by its oamod.yaml's name with Play now; --base-game greys Play now
+with its note and Play now then changes nothing; on that folder played,
+Switch off asks the Switch Mod question, which Escape and CANCEL put away
 with the Mod unchanged, and SWITCH erases its keys, after which the next
 start no longer lists it, and a start erases a picked folder's key that
 names a folder other than the mod stored; a stored mod folder that is gone
 reads as no mod played, and OK replaces it; and a start that plays a
 folder without a profile keeps the overrides under the folder's own id.
-Over a match it finds no Mods section, the Library closed, PLAY NOW and
-SWITCH OFF greyed and asking nothing, and the keys never moving the focus
+Over a match it finds no Mods section, the Library closed, Play now and
+Switch off greyed and asking nothing, and the keys never moving the focus
 onto a row the game locks. `native-mod-switch` switches the mod ten times
 through the Library, each a soft restart.
 
@@ -1448,6 +1615,12 @@ dialog's own; listing them to automation, with
 Your files' buttons, is U11's, which also gives a drop-down's items ids of
 their own in place of their numbers.
 
+The practice pad answers keys only where the host hands them over
+(`dialog_practice_key`, `dialog_practice_tick`); the OA layer's settings
+screen does not yet, so on screen the pad shows its words and Turn every
+helper off works, but a key pressed there does nothing. The rows' buttons
+read Choose…, Manage…, Show, Reset and the like, in title case.
+
 ## The missing-language notice
 
 `include/oa/ui/engine_settings/language_notice.hpp` and
@@ -1465,17 +1638,27 @@ asked for the language, writes that language's tag into
 `oa-ui-engine-settings-pictures DIRECTORY` draws each section the engine's
 dialog lists when Touch, Controller and Game files are on: the dialog
 alone, unlocked, at Compact and 2× (960 by 648), in the installed game's
-fonts (`OA_GAME_DIR`). The header shows the shipped app icon, the plates,
+fonts (`OA_GAME_DIR`), or with `--modern FONTS` in the modern look, Barlow
+from the fonts folder named (`local/deps/text-fonts`, or the build's
+staged fonts), Look showing Modern. The manual's pictures are the modern
+look's. The header shows the shipped app icon, the plates,
 cropped to the pixels that show (`branding/open-annihilation-256.png`). It writes one PNG a section, under the names
 `docs/images/settings/` uses (`controls-1.png`, `language-1.png`,
-`graphics-1.png`, `downloads-1.png`, `system-1.png`, and `page_word` plus
-`.png` for the others), and `controls-2.png`, `downloads-2.png` and
-`system-2.png` with those sections scrolled to their ends. The
+`graphics-1.png`, `downloads-1.png`, `system-1.png`, `updates-1.png`,
+`accessibility-1.png`, and
+`page_word` plus `.png` for the others), and `controls-2.png`,
+`downloads-2.png`, `system-2.png`, `accessibility-2.png` with those sections scrolled to their
+ends, `updates-2.png` with a release offered on the card, and
+`updates-3.png` scrolled to Previous version. The
 rows a host fills (Your files, Game files, Downloads' install ID, Game
-Content) are the defaults the manual describes. The data test
+Content) are the defaults the manual describes. Updates is the card the
+game fills: Installed 0.8.7 and Up to date with Check now, then 0.8.8 is
+out with Download update and Skip this version, and at the end Previous
+version · 0.8.6 with Roll back…. The data test
 `ui-engine-settings-pictures` runs the same program into a scratch folder
-under the build. To refresh the manual, build the tests and run:
+under the build. To refresh the manual, build the tests, draw the
+pictures into a scratch folder and copy them into `docs/images/settings`:
 
 ```sh
-oa-ui-engine-settings-pictures docs/images/settings
+oa-ui-engine-settings-pictures pictures --modern local/deps/text-fonts
 ```

@@ -116,3 +116,20 @@ hacks:
   ui.whiteboard: true
 ```
 <!-- END GENERATED: schema -->
+
+## Keys
+
+<!-- BEGIN GENERATED: keys -->
+| Action | Default chords | What it does |
+| --- | --- | --- |
+| `whiteboard.draw` | `@Backslash` | Held: the whiteboard takes the mouse |
+| `whiteboard.jump` | `Ctrl+@Backslash` | Goes to the newest marker |
+| `whiteboard.line` | `MouseLeft` | Draws a line |
+| `whiteboard.dot` | `MouseMiddle` | Places a dot |
+| `whiteboard.text` | `MouseLeft:double` | Places text |
+| `whiteboard.move` | `MouseLeft` | Moves a marker |
+| `whiteboard.wipe` | `MouseRight` | Wipes the board |
+| `whiteboard.erase` | `MouseRight:double` | Erases a marker |
+<!-- END GENERATED: keys -->
+
+These keys move in the [key editor](../../keys.md#the-key-editor), in **Whiteboard**, while this hack is on.

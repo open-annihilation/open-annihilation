@@ -36,6 +36,7 @@
 #include "oa/ui/hud/share_panel.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/present/game_text.hpp"
+#include "oa/present/world_renderer/world_camera.hpp"
 #include "match_fault.hpp"
 
 #include <SDL3/SDL.h>
@@ -547,7 +548,7 @@ void Runtime::console_reload_unit_type(uint16_t type) {
     const oa::data::defs::UnitDefSources sources{
         "",
         &unit_table_.move_classes,
-        match_->state().game.weapon_defs,
+        weapon_registry_.records(),
         &unit_table_.sound_categories,
         &unit_table_.tables.categories,
         &unit_table_.tables.blocks,
@@ -681,6 +682,17 @@ void Runtime::open_chat_line() {
     start_text_input(layout::Rect{area.x, top, area.width, bottom - top});
 }
 
+void Runtime::open_allies_chat_line() {
+    if (local_player_watches())
+        return;
+    // open_chat_line clears the buffer. The prefix is typed after that, and
+    // nothing is sent until the player sends the line.
+    open_chat_line();
+    if (!chat_composing_)
+        return;
+    chat_buffer_ = "a,";
+}
+
 void Runtime::close_chat_line() {
     chat_composing_ = false;
     chat_buffer_.clear();
@@ -786,55 +798,43 @@ void Runtime::list_save_files(
     }
 }
 
-bool Runtime::handle_console_hotkey(const SDL_KeyboardEvent& key) {
+void Runtime::store_camera_bookmark(int32_t slot) {
+    if (!match_ || slot < 0 || slot >= oa::present::world_renderer::camera_slot_count)
+        return;
+    bind_match_view();
+    oa::present::world_renderer::camera_store_slot(match_->state().game, slot);
+}
+
+void Runtime::recall_camera_bookmark(int32_t slot) {
+    if (!match_ || slot < 0 || slot >= oa::present::world_renderer::camera_slot_count)
+        return;
+    stop_match_tracking();
+    auto& game = match_->state().game;
+    // The slot holds the view that was stored, which may sit past the map's
+    // edge. Recalling through the game block clamps that place to the corner,
+    // so the live view takes the slot itself.
+    const int32_t stored_x = game.camera_slot_x[slot];
+    const int32_t stored_y = game.camera_slot_y[slot];
+    oa::present::world_renderer::camera_recall_slot(game, slot);
+    set_camera_position(stored_x, stored_y, 0);
+    bind_match_view();
+    game.camera_target_x = static_cast<int32_t>(game.camera_x);
+    game.camera_target_y = static_cast<int32_t>(game.camera_y);
+}
+
+void Runtime::run_console_hotkey(uint32_t code) {
     console::Console* con = match_console();
     if (con == nullptr)
-        return false;
+        return;
     const oa::Game& game = con->world->game;
-    const bool developer = (console::console_flags(game) & console::console_flag::developer) != 0;
-    const bool debug_keys = (game.outcome_flags & console::outcome_flag::debug_keys) != 0;
-    // A multiplayer game's team menu (Tab) and share panel ('h'); a mod's
-    // rules may open the team menu in every game type.
-    const bool multiplayer = multiplayer_session();
-    // A mod's key remaps leave '\' to other uses, re-run the last line on
-    // Insert and toggle the debug keys on F10 as well.
-    const bool remaps = con->key_remaps;
-    const bool f10 = key.key == SDLK_F10 || key.scancode == SDL_SCANCODE_F10;
-    uint32_t code = 0;
-    if (key.key == SDLK_F4 || key.scancode == SDL_SCANCODE_F4)
-        code = console::hotkey::f1 + 3;
-    else if (key.key == SDLK_PAUSE || key.scancode == SDL_SCANCODE_PAUSE)
-        code = console::hotkey::pause;
-    else if ((multiplayer || con->team_menu_every_game) && key.key == SDLK_TAB)
-        code = console::hotkey::tab;
-    else if (multiplayer && key.key == SDLK_H)
-        code = 'h';
-    // The key below Escape is '`' on every layout, so that a layout with no
-    // '`' key, such as the Italian one, where it types '\', has the key too.
-    else if (key.key == SDLK_GRAVE || key.scancode == SDL_SCANCODE_GRAVE)
-        code = '`';
-    else if (!remaps && key.key == SDLK_BACKSLASH)
-        code = console::hotkey::repeat_command;
-    else if (remaps && key.key == SDLK_INSERT)
-        code = console::hotkey::insert;
-    else if (developer && key.key == SDLK_F11)
-        code = console::hotkey::f11;
-    else if ((input_modifiers(ModifierUse::keyboard) & SDL_KMOD_CTRL) != 0 && f10)
-        code = console::hotkey::control_f10;
-    else if (developer && remaps && f10)
-        code = console::hotkey::f10;
-    else if (debug_keys && key.key == SDLK_EQUALS)
-        code = '=';
-    else if (debug_keys && key.key == SDLK_RIGHTBRACKET)
-        code = ']';
-    else if (debug_keys && key.key == SDLK_I)
-        code = 'i';
-    else if (debug_keys && key.key == SDLK_M)
-        code = 'm';
-    if (code == 0)
-        return false;
-    // Only the keys above reach the dispatcher; the rest are the runtime's own
-    // hotkeys. Callbacks the runtime does not provide stay unbound.
+    // While a mod's remaps are on, the console ignores backslash and runs
+    // Insert as the last line. The repeat action arrives as backslash; hand
+    // it over as Insert so that line still runs. The chord is the registry's.
+    uint32_t presented = code;
+    if (con->key_remaps && code == console::hotkey::repeat_command)
+        presented = console::hotkey::insert;
+    // Callbacks the runtime does not provide stay unbound. Category selection
+    // and the view bookmarks are the console's own route.
     console::HotkeyHost host{};
     host.context = this;
     host.shift_down = [](void* context) {
@@ -877,13 +877,23 @@ bool Runtime::handle_console_hotkey(const SDL_KeyboardEvent& key) {
     host.begin_movie_capture = [](void* context, const char* path) {
         runtime_of(context)->begin_film_capture(path);
     };
-    console::hotkey_dispatch(con, &host, code);
+    host.select_by_category = [](void* context, const char* category, bool add) {
+        if (category == nullptr)
+            return;
+        runtime_of(context)->select_by_tag(category, add, TagReach::map);
+    };
+    host.store_camera = [](void* context, int32_t slot) {
+        runtime_of(context)->store_camera_bookmark(slot);
+    };
+    host.recall_camera = [](void* context, int32_t slot) {
+        runtime_of(context)->recall_camera_bookmark(slot);
+    };
+    console::hotkey_dispatch(con, &host, presented);
     sync_effects_toggle(match_.get(), *con);
     keep_console_carry();
-    if (code == console::hotkey::f11)
+    if (presented == console::hotkey::f11 || code == console::hotkey::f11)
         status_ = (game.outcome_flags & console::outcome_flag::debug_keys) != 0 ? "Debug keys on"
                                                                                 : "Debug keys off";
-    return true;
 }
 
 const oa::formats::fnt::Font* Runtime::console_clock_font() {

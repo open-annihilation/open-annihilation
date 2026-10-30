@@ -44,6 +44,7 @@ find_package(SDL3 3.4 CONFIG REQUIRED)
 # would be an application bundle of its own.
 set(OA_NATIVE_APP_MENU OFF CACHE BOOL "Build the macOS application menu's Settings item" FORCE)
 set(OA_PROCESS_SPAWNING OFF CACHE BOOL "The game may start other programs" FORCE)
+set(OA_SELF_UPDATE OFF CACHE BOOL "" FORCE)
 set(OA_NATIVE_FOLDER_DIALOG OFF CACHE BOOL "Ask for the game folder with the system's folder dialog" FORCE)
 set(OA_NATIVE_DENSITY_WINDOWS ON CACHE BOOL "Open the game's window at the display's own pixel density" FORCE)
 set(OA_TOUCH_FIRST ON CACHE BOOL "Touch controls are on from the start" FORCE)

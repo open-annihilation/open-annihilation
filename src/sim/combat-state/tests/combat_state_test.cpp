@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/combat_state.hpp"
+#include <cstring>
 #include <initializer_list>
 #include <iostream>
 #include <stdexcept>
@@ -109,6 +110,31 @@ struct IntelligenceFixture final : IntelligenceHost {
         return nullptr;
     }
 };
+
+void wide_weapon_registry_follows_the_table() {
+    WeaponRegistry registry;
+    CHECK(registry.capacity() == 256);
+    CHECK(registry.records().size() == 256);
+    CHECK(install_weapon_text(registry, "[W300]{id=300;}[W1000]{id=1000;}", false, 1024) == 2);
+    CHECK(registry.capacity() == 1001);
+    CHECK(registry.find("W1000")->registry_index == 1000);
+    CHECK(std::strcmp(registry.records()[300].key, "W300") == 0);
+    CHECK(oa::oa_weapon_def_id(&registry.records()[300]) == 300);
+    CHECK(&registry.definition(1000) == registry.find("W1000"));
+    registry.install_damage_override(1000, "ARMCOM", 12);
+    CHECK(damage_against(registry.definition(1000), "ARMCOM") == 12);
+    WeaponRegistry copy(registry);
+    CHECK(copy.capacity() == 1001);
+    CHECK(std::strcmp(copy.records()[300].key, "W300") == 0);
+    WeaponRegistry assigned;
+    assigned = registry;
+    CHECK(assigned.capacity() == 1001);
+    CHECK(assigned.find("W1000")->registry_index == 1000);
+    WeaponRegistry limited;
+    CHECK(install_weapon_text(limited, "[W300]{id=300;}[W1000]{id=1000;}") == 0);
+    CHECK(limited.capacity() == 256);
+    CHECK(limited.find("W300") == nullptr);
+}
 
 int main() {
     std::array<WeaponDefinition, 3> d{};
@@ -380,5 +406,6 @@ int main() {
     for (auto& weapon : maker.weapons)
         weapon = {};
     CHECK(classify_type(maker, windy) == 22);
+    wide_weapon_registry_follows_the_table();
     std::cout << "combat state tests passed\n";
 }

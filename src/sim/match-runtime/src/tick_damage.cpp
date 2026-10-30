@@ -33,11 +33,10 @@ bool side_commander(const oa::World& world, const oa::Unit& unit) noexcept {
     const auto* owner = oa::world_unit_owner(&world, &unit);
     const auto* info = owner != nullptr ? oa::world_player_info(&world, owner) : nullptr;
     const auto* definition = oa::world_unit_def_of(&world, &unit);
-    if (info == nullptr || info->side >= OA_SIDE_COUNT || definition == nullptr)
+    const oa::Side* side = info != nullptr ? oa::world_side(&world, info->side) : nullptr;
+    if (info == nullptr || side == nullptr || definition == nullptr)
         return false;
-    return formats::tdf::compare_nocase(
-               world.game.sides[info->side].commander, definition->unit_name
-           ) == 0;
+    return formats::tdf::compare_nocase(side->commander, definition->unit_name) == 0;
 }
 
 std::size_t Match::order_bucket(const sim::simulation_state::Order* order) noexcept {

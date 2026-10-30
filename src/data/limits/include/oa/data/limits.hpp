@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The engine's capacities that a mod may raise: units per player, unit type
-// ids, category masks, effect emitters, the path search's node budget, the
-// builders' build lists and the model composite buffer. Every field defaults
-// to its 3.1c value, so a default Limits plays the game exactly as 3.1c
-// does; a mod's profile fills the record before any game data loads.
+// ids, category masks, weapon ids, sides, effect emitters, the path search's
+// node budget, the builders' build lists and the model composite buffer.
+// Every field defaults to its 3.1c value, so a default Limits plays the game
+// exactly as 3.1c does; a mod's profile fills the record before any game
+// data loads.
 #pragma once
 
 #include <cstddef>
@@ -36,6 +37,14 @@ inline constexpr uint32_t highest_build_list_copy = 1024;
 /// The smallest and largest side of the model composite buffer, in pixels.
 inline constexpr int32_t lowest_composite_side = 64;
 inline constexpr int32_t highest_composite_side = 8192;
+/// The weapon ids 3.1c numbers: ids 0 to 255.
+inline constexpr uint32_t base_weapon_types = 256;
+/// The most weapon ids a mod may number: every id a 16-bit weapon id names.
+inline constexpr uint32_t highest_weapon_types = 65536;
+/// The SIDEDATA sides 3.1c loads: SIDE0 to SIDE4.
+inline constexpr uint32_t base_sides = 5;
+/// The most SIDEDATA sides a mod may load.
+inline constexpr uint32_t highest_sides = 32;
 
 /// The unit limit: how many units each player may own.
 struct UnitsPerPlayer {
@@ -128,6 +137,20 @@ struct ModelComposite {
     bool operator==(const ModelComposite&) const = default;
 };
 
+/// The weapon ids a mod may number, 0 to `types` - 1.
+struct WeaponTypes {
+    /// Weapon ids numbered, from 0 up to one less than this.
+    uint32_t types{base_weapon_types}; /// Compares every field.
+    bool operator==(const WeaponTypes&) const = default;
+};
+
+/// The SIDEDATA sides read, SIDE0 up to `count` - 1.
+struct Sides {
+    /// Sides loaded, SIDE0 up to one less than this.
+    uint32_t count{base_sides}; /// Compares every field.
+    bool operator==(const Sides&) const = default;
+};
+
 /// Returns how many CANBUILD entries a builder's list keeps.
 ///
 /// Both the unit table's build lists and the computer players' take their
@@ -148,7 +171,9 @@ struct Limits {
     Effects effects{};
     PathSearch path_search{};
     BuildLists build_lists{};
-    ModelComposite model_composite{}; /// Compares every field.
+    ModelComposite model_composite{};
+    WeaponTypes weapon_types{};
+    Sides sides{}; /// Compares every field.
     bool operator==(const Limits&) const = default;
 };
 
@@ -165,6 +190,8 @@ enum class LimitsError : uint8_t {
     build_list_copy,       ///< outside 1..highest_build_list_copy
     build_list_overflow,   ///< not a BuildListOverflow
     model_composite_sides, ///< a side outside lowest_composite_side..highest_composite_side
+    weapon_types,          ///< outside base_weapon_types..highest_weapon_types
+    sides,                 ///< outside base_sides..highest_sides
 };
 
 /// Checks every value of a Limits record against its range.

@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-mutator-room: Mutators for the host of a battle room hosted
-// alone, at 640x480 and 1280x720. The button wears the OA badge, is as large
-// as Select Map, stands over it from its left edge and meets no control of
-// the room; it reads "Mutators", "Mutators (2)" with two on and "Mutators
-// (4)" with four. Y opens the picker on a remembered multiplayer set
+// alone, at 640x480 and 1280x720. The button is one of the room's own on
+// and off buttons, with no part of the kit, is as large as Select Map,
+// stands over it with its edges and meets no control of the room; it reads
+// "Mutators", and its text for automation counts the room's list:
+// "Mutators · off", "Mutators · 2 on" with two on, its lamp lit, and
+// "Mutators · 4 on" with four. Y opens the picker on a remembered multiplayer set
 // (Gatehouse, Gatehouse Keep). USE THESE stores that set and the chat reads
 // the turned-on lines. Turning them off posts the off line. In French the
 // chat's lines are in the code page and fit the list. With Ridge Tough on,
@@ -14,8 +16,13 @@
 // the room's options locked, the button stays disabled and neither a press
 // nor Y opens the picker. Each size's frame is written as
 // mutator-room-host-<w>x<h>.png, mutator-room-host-on-<w>x<h>.png and
-// mutator-room-host-four-<w>x<h>.png. The feed is the mutator picker's.
+// mutator-room-host-four-<w>x<h>.png. Each frame's lamp is read back: red
+// with none on, green with some on, and while Visitor lacks Ridge Tough,
+// blinking, red on one frame and unlit on another, written as
+// mutator-room-blink-red-640x480.png and mutator-room-blink-unlit-640x480.png.
+// The feed is the mutator picker's.
 
+#include "brain_seats_room.hpp"
 #include "oa_layer.hpp"
 #include "oa_layer_check.hpp"
 #include "touch_state.hpp"
@@ -349,9 +356,10 @@ void Runtime::check_mutator_room() {
     guest_absent("after the room opens");
 
     // Places the button on one window and checks it against the room: as
-    // large as Select Map, over it from its left edge, centred between the
-    // player rows and Select Map, meeting no control, wearing the OA badge.
-    // `button_text` is what the button reads: "Mutators" or "Mutators (2)".
+    // large as Select Map, over it with its left and right edges, centred
+    // between the player rows and Select Map, meeting no control, one of the
+    // room's own parts. `button_text` is the button's text for automation:
+    // "Mutators · off" or "Mutators · 2 on"; its lamp is lit with mutators on.
     const auto check_window = [&](const CheckWindow& window,
                                   std::string_view button_text,
                                   std::string_view picture_kind) {
@@ -371,17 +379,20 @@ void Runtime::check_mutator_room() {
             require_named("oa.mutators", "oa.mutators is not shown" + on);
         require(
             button.text == button_text,
-            "the button does not read " + std::string(button_text) + " (" + button.text + ")" + on
+            "the button does not count " + std::string(button_text) + " (" + button.text + ")" + on
         );
         {
             LayerScreen* shown = oa_layer().find("mutators-button");
             require(shown != nullptr, "the mutators-button screen is not up" + on);
-            bool badge = false;
             for (const kit::Item& item : shown->display_list().items)
-                if (const auto* look = std::get_if<kit::ButtonLook>(&item.look))
-                    badge = badge || (item.role == kit::Role::button && look->oa_mark &&
-                                      look->style == kit::ButtonStyle::filled);
-            require(badge, "the button does not wear the OA badge in the filled look" + on);
+                require(
+                    item.role != kit::Role::button && item.role != kit::Role::chip,
+                    "the button draws a button or a chip of the kit" + on
+                );
+            require(
+                button.checked == (button_text != "Mutators · off"),
+                "the button's lamp does not follow the mutators on" + on
+            );
         }
 
         const std::vector<mp::BattleRoomControl> room = mp::multiplayer_battle_room_controls();
@@ -402,8 +413,13 @@ void Runtime::check_mutator_room() {
         const kit::Rect button_window = window_rect(button);
         const int32_t slack = percent / 50 + 1;
         require(
-            apart(button_window.x, map_window.x) <= 1,
-            "the button's left edge is not Select Map's" + on
+            apart(button_window.x, map_window.x) <= slack &&
+                apart(button_window.x + button_window.width, map_window.x + map_window.width) <=
+                    slack,
+            "the button's edges are not Select Map's (" + std::to_string(button_window.x) + " to " +
+                std::to_string(button_window.x + button_window.width) + ", not " +
+                std::to_string(map_window.x) + " to " +
+                std::to_string(map_window.x + map_window.width) + ")" + on
         );
         require(
             apart(button_window.width, map_window.width) <= slack &&
@@ -434,7 +450,7 @@ void Runtime::check_mutator_room() {
                 !overlaps(button_window, control_window), "the button meets " + control.name + on
             );
         }
-        std::cout << "mutator room check: " << size << " shows oa.mutators reading " << button.text
+        std::cout << "mutator room check: " << size << " shows oa.mutators counting " << button.text
                   << ", as large as Select Map and over it, meeting no room control" << std::endl;
 
         oa_layer().read_whole_window(true);
@@ -452,10 +468,22 @@ void Runtime::check_mutator_room() {
             "mutator-room-" + std::string(picture_kind) + "-" + size + ".png";
         write_png(fs::path(picture), presented);
         std::cout << "mutator room check: wrote " << picture << std::endl;
+        // Red with none on, green with some on, as 3.1c's on and off
+        // buttons light theirs.
+        const bool none_on = button_text == "Mutators · off";
+        const renderer::RoomLamp lamp =
+            mutators_lamp_seen(*this, oa_layer().view(), button_window, true, presented);
+        require(
+            lamp == (none_on ? renderer::RoomLamp::red : renderer::RoomLamp::green),
+            std::string("the lamp is not ") + (none_on ? "red" : "green") + " (it reads " +
+                std::to_string(static_cast<int32_t>(lamp)) + ")" + on
+        );
+        std::cout << "mutator room check: the lamp is " << (none_on ? "red" : "green") << on
+                  << std::endl;
         guest_absent(on);
     };
     for (const CheckWindow& window : kWindows)
-        check_window(window, "Mutators", "host");
+        check_window(window, "Mutators · off", "host");
 
     require(oa_layer().take_pad_action(pad::Action::library_search), "Y did not open the picker");
     frames(1);
@@ -502,7 +530,7 @@ void Runtime::check_mutator_room() {
     guest_absent("after USE THESE");
     // With two on the button counts them.
     for (const CheckWindow& window : kWindows)
-        check_window(window, "Mutators (2)", "host-on");
+        check_window(window, "Mutators · 2 on", "host-on");
     {
         // Four on for a moment: the button counts four. The two are put back.
         const auto held = room_mutators();
@@ -520,7 +548,7 @@ void Runtime::check_mutator_room() {
         set_room_mutators(std::move(four));
         frames(2);
         for (const CheckWindow& window : kWindows)
-            check_window(window, "Mutators (4)", "host-four");
+            check_window(window, "Mutators · 4 on", "host-four");
         set_room_mutators(std::move(two));
         frames(2);
         require(room_mutators().size() == 2, "the two did not come back after four");
@@ -859,11 +887,13 @@ void Runtime::check_mutator_room() {
                 }
                 absent_in_front = 0;
                 seen.clear();
-                for (const kit::Item& item : button_screen->display_list().items) {
-                    if (item.text == expected)
+                for (const kit::Control& line : button_screen->display_list().controls) {
+                    if (line.name != "mutators.waiting")
+                        continue;
+                    if (line.text == expected)
                         whole = true;
-                    else if (item.text.find("Visitor") != std::string::npos)
-                        seen += item.text;
+                    else if (line.text.find("Visitor") != std::string::npos)
+                        seen += line.text;
                 }
             }
             require(
@@ -878,6 +908,49 @@ void Runtime::check_mutator_room() {
         }
         frames(1);
         capture("mutator-room-waiting-" + std::string(tag) + "-640x480.png");
+        if (tag == "en") {
+            // While Visitor lacks one, the lamp blinks: red on one frame and
+            // unlit on another, never green, and the button is not checked.
+            bool seen_red = false;
+            bool seen_unlit = false;
+            const uint64_t started = SDL_GetTicks();
+            while (!(seen_red && seen_unlit) && SDL_GetTicks() - started < 4000) {
+                frames(1);
+                const std::optional<AutomationControl> button = named("oa.mutators");
+                if (!button)
+                    continue;
+                require(!button->checked, "the button is checked while its lamp blinks");
+                oa_layer().read_whole_window(true);
+                renderer::Surface presented;
+                capture_frame_ = &presented;
+                render();
+                capture_frame_ = nullptr;
+                oa_layer().read_whole_window(false);
+                const renderer::RoomLamp lamp = mutators_lamp_seen(
+                    *this, oa_layer().view(), window_rect(*button), true, presented
+                );
+                require(
+                    lamp != renderer::RoomLamp::green, "the lamp is green while Visitor lacks one"
+                );
+                bool* seen = lamp == renderer::RoomLamp::red ? &seen_red : &seen_unlit;
+                if (!*seen) {
+                    *seen = true;
+                    const std::string picture =
+                        std::string("mutator-room-blink-") +
+                        (lamp == renderer::RoomLamp::red ? "red" : "unlit") + "-640x480.png";
+                    write_png(fs::path(picture), presented);
+                    std::cout << "mutator room check: wrote " << picture << std::endl;
+                }
+                SDL_Delay(20);
+            }
+            require(
+                seen_red && seen_unlit,
+                std::string("the lamp does not blink while Visitor lacks one (") +
+                    (seen_red ? "red" : "") + (seen_unlit ? " unlit" : "") + " seen)"
+            );
+            std::cout << "mutator room check: the lamp blinks red while Visitor lacks one"
+                      << std::endl;
+        }
         unseat_visitor();
         frames(1);
         std::cout << "mutator room check: the 3.1c lines and the waiting line read whole" << in

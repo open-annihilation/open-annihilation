@@ -14,6 +14,7 @@
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/kit/theme.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -39,14 +40,27 @@ enum class Mark : uint8_t {
     key,          ///< a signing key, 7 by 7
 };
 
-/// Which of the six button looks a button is drawn in.
+/// Which of the button looks a button is drawn in. Every look has rounded
+/// corners, their radius the control radius of the button's height, so a
+/// button is never pill-shaped: a pill is a label (PillLook, ChipLook). One
+/// hierarchy serves every OA screen: the primary button once in a view, for
+/// the way forward; the secondary for every other action, at a control's
+/// height in a footer or a toolbar and at a row's smaller height beside a
+/// row; the danger look for a risky one; the quiet look only for a
+/// low-emphasis text link.
 enum class ButtonStyle : uint8_t {
-    accent, ///< the green button: OK, SWITCH, a notice's OK, MANAGE…
-    plain,  ///< no face at rest: Restore defaults, Cancel, a notice's other button
-    quiet,  ///< no face at rest, and the band while held: Your files, OPEN MODS FOLDER
-    inset,  ///< the list's face at rest: a mod row's ROLL BACK
-    /// the deep green face with white text and rounded corners, over a picture: Mutators
+    accent, ///< the primary button, lime with dark text: OK, Save changes, Close
+    /// the secondary button: a raised face a step lighter than the surfaces
+    /// it sits on, a clear one-point border, lighter under the pointer and
+    /// pressed in while held: Add registry…, Cancel, More, Uninstall, a row's Choose…
+    plain,
+    /// a text link in lime, with no face at rest: Show the log, Discard,
+    /// Skip this version, and a header's close and refresh marks
+    quiet,
+    inset, ///< the list's face at rest: a card's ground, not an action
+    /// the deep green face with white text, over a picture: Mutators
     filled,
+    danger, ///< outlined in the danger red, its caption red: Uninstall, Roll back…
 };
 
 /// What a button draws in place of its caption.
@@ -82,6 +96,9 @@ struct ButtonLook {
     bool oa_mark{false};
     /// The caption's font: the small font unless the caller picks the regular one.
     FontRole font{FontRole::small};
+    /// A refresh arrow before the caption, in the caption's colour, the two
+    /// centred together: a row's small Refresh. Off draws the caption alone.
+    bool refresh_icon{false};
 };
 
 /// An Off/On switch. The captions are already looked up.
@@ -91,6 +108,20 @@ struct SwitchLook {
     bool locked{};             ///< it cannot be changed: On shows without the accent
     std::string off_caption{}; ///< the Off half's words
     std::string on_caption{};  ///< the On half's words
+};
+
+/// A radio: one of a set of choices, of which one is chosen. With no
+/// caption it is the mark alone: a ring, and the accent's dot in it while it
+/// is the chosen one. With a caption it is a radio row: the mark at the
+/// row's left and the caption beside it, on a rounded box whose edge is the
+/// accent while it is chosen. The caption is already looked up and fitted
+/// to radio_parts' caption box.
+struct RadioLook {
+    bool on{};             ///< it is the chosen one: the dot shows
+    bool hovered{};        ///< the pointer is over it
+    bool held{};           ///< a press is held on it with the pointer over it
+    bool disabled{};       ///< it takes nothing: drawn in the idle colours
+    std::string caption{}; ///< a radio row's words; empty draws the mark alone
 };
 
 /// A strip of levels. captions are already looked up, one per level from the left.
@@ -129,6 +160,7 @@ struct ChoiceMenuRow {
     std::string aside{};  ///< right-aligned text; empty for none
     std::string id{};     ///< the automation word; empty on a divider, which is not named
     bool divider{false};  ///< a heading, not a choice: no focus, no press, no name
+    bool rule{false};     ///< a divider with no words: a line, not a heading
     bool choosable{true}; ///< a press on it chooses it; a greyed row is not
 };
 
@@ -143,6 +175,12 @@ struct ChoiceMenuLook {
     int32_t chosen{};   ///< the chosen choice's index
     int32_t marked{};   ///< the item the pointer or the keys mark
     bool focus_shown{}; ///< the keyboard focus outlines the marked item
+    /// A choice's height. 0 keeps every row choice_item_height, as before.
+    int32_t row_height{};
+    /// Points above a heading that is not the menu's first item. 0 for none.
+    int32_t heading_gap{};
+    /// A rule's height, when row_height is set. 0 draws a rule as a choice row.
+    int32_t rule_height{};
 };
 
 /// A lock's text, already looked up. The padlock is drawn with it.
@@ -221,6 +259,9 @@ enum class ChipState : uint8_t {
     online,    ///< is on the network: the online colour
     problem,   ///< something is wrong: the danger colour
     filter,    ///< a filter the player turns on and off: the list's selected face while on
+    /// a package's tag: quiet, so it never competes with the words over it,
+    /// an outline and its words in the hint colour, with no face
+    tag,
 };
 
 /// A state icon: a shape the kit draws at the canvas's own pixels, never
@@ -258,17 +299,21 @@ struct ChipLook {
     std::optional<StateIcon> icon{};
 };
 
-/// What a pill says, which chooses its colours. A pill is a word on a fully
-/// rounded ground, not a chip: chips stay rectangular. Active and inactive
-/// are the selectable pair: active is drawn as playing, inactive as neutral.
+/// What a pill says, which chooses its colours: a status badge's. A pill is
+/// a word on a fully rounded ground; a state's pill is its colour's tinted
+/// fill under words in that colour. Active and inactive are the selectable
+/// pair: active is drawn as playing, inactive as neutral.
 enum class PillState : uint8_t {
-    playing,   ///< accent ground, on_accent text
-    neutral,   ///< a muted ground, text colour: built in
-    installed, ///< the accent, as a chip's installed state
-    update,    ///< the lock colour, as a chip's update state
-    problem,   ///< the danger colour, as a chip's problem state
-    active,    ///< chosen, as playing: accent ground, on_accent text
-    inactive,  ///< not chosen, as neutral: a muted ground, text colour
+    playing,     ///< accent ground, on_accent text
+    neutral,     ///< a muted ground, text colour: built in
+    installed,   ///< the accent, as a chip's installed state
+    update,      ///< the lock colour, as a chip's update state
+    problem,     ///< the danger colour, as a chip's problem state
+    active,      ///< chosen, as playing: accent ground, on_accent text
+    inactive,    ///< not chosen, as neutral: a muted ground, text colour
+    information, ///< the information blue's tint and words: a release offered
+    brand,       ///< the brand gold's tint and words: a Core Prime badge
+    tag,         ///< a package's tag, as a tag chip: an outline and hint words, no ground
 };
 
 /// A pill: a short text on a fully rounded ground about chip_height high.
@@ -286,6 +331,20 @@ struct PillLook {
     /// A tag icon at the pill's left, inside the capsule, before the word,
     /// in the pill's text colour. None leaves the word where it was.
     std::optional<TagIcon> tag{};
+};
+
+/// How a list row spaces what is under its title, as Settings spaces a
+/// row's label and its hints: the first line hint_gap under the title's
+/// line, each line a step under the one before, and the tags a gap under
+/// the last line, each as tall as tag_height with tag_padding at its sides.
+/// The title, the lines and the tags are one block, centred down the row.
+struct RowSpacing {
+    int32_t title_gap{};   ///< the rows between the title's line and the first line
+    int32_t line_step{};   ///< the rows from one line's top to the next one's
+    int32_t tags_gap{};    ///< the rows between the last line and the tags
+    int32_t tag_height{};  ///< a tag's height
+    int32_t tag_padding{}; ///< the columns between a tag's edges and its words
+    int32_t tag_gap{};     ///< the columns between two tags, and the rows between their lines
 };
 
 /// A row of a list, in its full or its short form, which its rectangle's
@@ -314,7 +373,17 @@ struct ListRowLook {
     std::optional<MakerMark> maker{};
     std::vector<ChipLook> tags{}; ///< chips on the line after the last line
     bool selected{};              ///< the row is the chosen one: the accent tint and outline
-    bool hovered{};               ///< the pointer is over it, or holds it
+    /// The chosen row drawn as a nav entry: the list's selected fill and the
+    /// lime bar, and no accent outline. The keyboard focus keeps its own ring.
+    bool selection_bar{false};
+    bool hovered{}; ///< the pointer is over it, or holds it
+    /// False draws no badge. The title then starts `lead` points after the
+    /// left inset, so a mark column can sit there and the names still line up.
+    bool show_badge{true};
+    int32_t lead{0}; ///< points kept before the title when show_badge is false
+    /// The spacing of the lines and the tags under the title. Unset keeps
+    /// the kit's own: packed, or list_row_line_gap apart where the row has room.
+    std::optional<RowSpacing> spacing{};
 };
 
 /// A text field: the plain one, or with the magnifier the search field.
@@ -427,6 +496,7 @@ struct LinkLook {
 struct ProgressLook {
     int32_t done{};  ///< how far it has come, from 0 to whole
     int32_t whole{}; ///< the whole; 0 or less fills nothing
+    bool paused{};   ///< the work is paused: the fill is amber, not lime
 };
 
 /// A picture of the screen's own, scaled to fill the item's rectangle, such
@@ -613,6 +683,122 @@ inline constexpr int32_t grip_width = 6;
 /// A drag handle's height, in points, at every size class.
 inline constexpr int32_t grip_height = 12;
 
+/// A key's category tint. none is an untinted key. The letter on a tinted
+/// key is the caller's.
+enum class KeyTint : uint8_t {
+    none,      ///< no category
+    orders,    ///< orders
+    pointer,   ///< the pointer
+    selection, ///< selection
+    groups,    ///< groups
+    camera,    ///< the camera
+    building,  ///< building
+    game,      ///< the game
+    chat,      ///< chat
+    window,    ///< the window
+    hacks,     ///< a mod's hacks
+    mod,       ///< a mod's data
+    developer, ///< developer
+};
+
+/// A mark on a key. Each has its own shape.
+enum class KeyMark : uint8_t {
+    none,    ///< no mark
+    changed, ///< a filled diamond
+    clash,   ///< a triangle, and a dashed border
+    unbound, ///< a hollow ring
+    fixed,   ///< an open square, and a dashed border
+};
+
+/// A keycap. The label is what the key prints, the short name sits along
+/// the bottom, and the letter sits in a corner square. small is the 9-point
+/// badge: its label alone, in the accent on on_accent.
+struct KeycapLook {
+    std::string label{};         ///< what the key prints
+    std::string sub{};           ///< the short name along the bottom
+    KeyTint tint{KeyTint::none}; ///< the category; none is untinted
+    std::string letter{};        ///< the category letter in the corner
+    KeyMark mark{KeyMark::none}; ///< the corner mark
+    bool modifier{false};        ///< a modifier, in the button text colour when untinted
+    bool held{false};            ///< a press is held on it
+    bool hovered{false};         ///< the pointer is over it
+    bool focused{false};         ///< the keyboard focus is on it
+    bool disabled{false};        ///< it takes nothing
+    bool small{false};           ///< the 9-point corner badge
+    /// The mark alone, centred, with no key face. none draws nothing, so a
+    /// column of marks stays blank where a row has none.
+    bool mark_only{false};
+};
+
+/// A chord chip: keycaps joined by "+", then a gesture word. add draws the
+/// dashed add form, with keys empty. Its caption is add_caption, or
+/// "+ Add key" when that is empty. none_text after that caption is a quiet
+/// note. none_text alone, with add clear, is the unbound text.
+struct ChordChipLook {
+    std::vector<std::string> keys{}; ///< the keycaps' labels, in order
+    std::string gesture{};           ///< the gesture word after the keycaps
+    KeyMark mark{KeyMark::none};     ///< the mark on the last keycap
+    bool selected{false};            ///< the chip is chosen
+    bool hovered{false};             ///< the pointer is over it
+    bool add{false};                 ///< the dashed add form
+    std::string add_caption{};       ///< the add form's words; empty draws "+ Add key"
+    std::string none_text{};         ///< a quiet note on the add form, or the unbound text
+};
+
+/// Which keyboard a picture draws.
+enum class KeyboardShape : uint8_t {
+    ansi, ///< ANSI
+    iso,  ///< ISO, with IntlBackslash and a tall Enter
+    jis,  ///< JIS, with IntlYen, IntlRo and a shorter space
+};
+
+/// One key of a keyboard picture that is not left free.
+struct KeyboardKey {
+    std::string code{}; ///< the W3C code
+    KeycapLook cap{};   ///< what that key shows; an empty label keeps the geometry's
+};
+
+/// A keyboard picture. A code with no entry is a free key with the
+/// geometry's own label.
+struct KeyboardLook {
+    KeyboardShape shape{KeyboardShape::ansi}; ///< which keyboard
+    std::vector<KeyboardKey> keys{};          ///< the keys that are not free
+    /// Only the main block: the rows from Tab to Enter, Caps Lock to Enter
+    /// and Shift to Shift, scaled to the rectangle on their own, so a narrow
+    /// picture keeps keys large enough for their legends. Off draws the
+    /// whole keyboard.
+    bool main_block{false};
+};
+
+/// A mouse button, in the order MouseLook::buttons stores their looks.
+enum class MouseButton : uint8_t {
+    left,       ///< the left button
+    right,      ///< the right button
+    middle,     ///< the middle button
+    wheel_up,   ///< the wheel turned up
+    wheel_down, ///< the wheel turned down
+    back,       ///< the back side button
+    forward,    ///< the forward side button
+    button6,    ///< an extra button
+    button7,    ///< an extra button
+    button8,    ///< an extra button
+};
+
+/// A mouse picture. buttons is one look per MouseButton. extra_buttons
+/// draws buttons 6, 7 and 8.
+struct MouseLook {
+    std::array<KeycapLook, 10> buttons{}; ///< one look per MouseButton
+    bool extra_buttons{false};            ///< draws the three extra buttons
+};
+
+/// A hold ring filled clockwise from the top to done/whole. reduced_motion
+/// snaps the fill down to a quarter of the ring.
+struct HoldRingLook {
+    int32_t done{0};            ///< how far the ring has filled
+    int32_t whole{1};           ///< the full ring
+    bool reduced_motion{false}; ///< snap the fill down to quarters
+};
+
 /// What a component item draws. Empty for a generic role. Later components
 /// append looks. A locked fade has no look of its own: its rectangle is the
 /// item's.
@@ -654,6 +840,12 @@ using Look = std::variant<
     PictureWellLook,
     CallToActionLook,
     BadgeLook,
-    GripLook>;
+    GripLook,
+    KeycapLook,
+    ChordChipLook,
+    KeyboardLook,
+    MouseLook,
+    HoldRingLook,
+    RadioLook>;
 
 } // namespace oa::ui::kit

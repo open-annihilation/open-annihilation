@@ -391,7 +391,7 @@ void the_move_is_recorded_and_its_notice_waits() {
 void the_notice_says_what_moved_and_where() {
     const fs::path saves = fs::path("/home/player/Documents/Open Annihilation/Saves");
     const auto notice = oa::app::saves_moved_notice(MovesTold{RecordedMove{12, 0}, {}}, saves);
-    OA_CHECK(notice.title == "SAVED GAMES MOVED" && notice.open_caption == "OPEN FOLDER");
+    OA_CHECK(notice.title == "SAVED GAMES MOVED" && notice.open_caption == "Open folder");
     OA_CHECK(notice.paragraphs.size() == 3);
     OA_CHECK(notice.paragraphs[0].text == "12 saved games have moved to:");
     OA_CHECK(notice.paragraphs[1].path && notice.paragraphs[1].text == saves.string());
@@ -453,7 +453,7 @@ void a_mod_without_its_units_cannot_start() {
 
     const fs::path folder = fs::path("/home/player/Documents/Open Annihilation/Mods/Made Up/");
     const auto notice = oa::app::mod_files_missing_notice("Made Up", none, folder);
-    OA_CHECK(notice.title == "MOD FILES MISSING" && notice.open_caption == "OPEN MOD FOLDER");
+    OA_CHECK(notice.title == "MOD FILES MISSING" && notice.open_caption == "Open mod folder");
     OA_CHECK(notice.paragraphs.size() == 6);
     OA_CHECK(notice.paragraphs[0].text == "Made Up is missing files.");
     OA_CHECK(notice.paragraphs[1].text == "None of this mod's units were found.");

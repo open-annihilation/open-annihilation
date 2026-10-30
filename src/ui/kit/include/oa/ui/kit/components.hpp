@@ -90,8 +90,13 @@ void set_open_annihilation_mark(OpenAnnihilationMark mark);
 /// @return the mark
 [[nodiscard]] const OpenAnnihilationMark& open_annihilation_mark() noexcept;
 
-/// Draws the keyboard focus outline: the accent, grown by the focus inset
-/// when around is set, and on the control's own edge otherwise.
+/// Draws the keyboard focus ring, the one ring every control shows: a ring
+/// focus_ring points thick in the light accent, its corners rounded as a
+/// control of the control's height is (control_radius_for). When around is
+/// set its outside lies focus_inset points out from the control, the room
+/// the screens keep round a control, so a point clear of the control stays
+/// between them, and its corners are that much rounder; otherwise it lies
+/// on the inside of the control's own edge.
 ///
 /// @param canvas where it is drawn
 /// @param control the control
@@ -123,23 +128,37 @@ struct ButtonMarkParts {
 /// @return the badge and the caption's box; empty boxes when the button is too small
 [[nodiscard]] ButtonMarkParts button_mark_parts(const Rect& area) noexcept;
 
-/// Draws a button in one of the six looks. A filled button has rounded
-/// corners (filled_radius), its edge and face drawn as two rounded shapes,
-/// and keeps them while it is not enabled. The caption is centred in the
-/// look's font, small unless it says regular. A look that wears the OA badge
-/// draws the badge at the left and the caption after it, keeping to its left
-/// edge (button_mark_parts); the caller fits the caption to that box. A plain button that is not enabled draws the disabled look,
-/// whatever the pointer is doing. A refresh mark draws a circular arrow in
-/// place of the caption: the quiet look's face while the pointer is over it,
-/// the plain look's disabled face while it cannot be pressed, and the arrow
-/// in the text colour while it is turning. When the look's check has been
-/// showing, the arrow eases into a check in the accent, then the arrow returns.
+/// Draws a button in one of its looks, with rounded corners: the control
+/// radius of its height (control_radius_for), and a filled button's
+/// filled_radius. Its edge and face are drawn as two rounded shapes. A
+/// quiet button at rest draws its caption alone. A button that is not
+/// enabled draws no face, the control border and the idle caption,
+/// whatever the pointer is doing. The caption is centred in the look's
+/// font, small unless it says regular. A look that wears the OA badge draws
+/// the badge at the left and the caption after it, keeping to its left edge
+/// (button_mark_parts); the caller fits the caption to that box. A refresh
+/// mark draws a circular arrow in place of the caption: the quiet look's
+/// face while the pointer is over it, no face while it cannot be pressed,
+/// and the arrow in the text colour while it is turning. When the look's
+/// check has been showing, the arrow eases into a check in the accent, then
+/// the arrow returns.
 /// A close mark draws an × the same way, in the text colour, on that same face.
+/// A caption with a refresh arrow (ButtonLook::refresh_icon) draws the arrow
+/// and the caption side by side, centred together, in the caption's colour.
 ///
 /// @param canvas where it is drawn
 /// @param area the button
 /// @param look its caption, style and state
 void draw_button(const Canvas& canvas, const Rect& area, const ButtonLook& look);
+
+/// Returns the points a refresh arrow adds before a button's caption
+/// (ButtonLook::refresh_icon): the arrow, as tall as the button less two
+/// points above and below and at most a state icon's side, and the gap
+/// after it. A layout widens the button by it.
+///
+/// @param height the button's height, in points
+/// @return the points; 0 for a button too short to hold an arrow
+[[nodiscard]] int32_t refresh_icon_room(int32_t height) noexcept;
 
 /// How long one full turn of a refresh mark, or of the OA button's spinner,
 /// takes, in milliseconds. The place on the turn comes from this time, so it
@@ -183,12 +202,57 @@ inline constexpr uint32_t refresh_ease_ms = 160;
     return static_cast<uint8_t>(step * 255u / (steps - 1u));
 }
 
-/// Draws an Off/On switch.
+/// Returns where a switch's track lies in its area: switch_track_width by
+/// switch_height points, each held to the area's, at the area's right and
+/// centred down it.
+///
+/// @param area the switch's area
+/// @return the track
+[[nodiscard]] Rect switch_track(const Rect& area) noexcept;
+
+/// Draws an Off/On switch: a pill track with a round knob two points in,
+/// lime with the knob at the right in the dark ink while On, the selected
+/// surface with the knob at the left while Off. A locked On track is the
+/// hovered border's grey. The captions name the switch's halves to
+/// automation; the switch does not draw them.
 ///
 /// @param canvas where it is drawn
 /// @param area the switch
 /// @param look its state and its two captions
 void draw_switch(const Canvas& canvas, const Rect& area, const SwitchLook& look);
+
+/// Where a radio's parts lie in its area.
+struct RadioParts {
+    Rect mark{};    ///< the ring's square
+    Rect caption{}; ///< a radio row's caption's box; empty for the mark alone
+};
+
+/// Returns where a radio's parts lie. The mark alone is the largest square
+/// centred in the area. A radio row's mark is half the row's height
+/// (14, 17 and 19 points at Kit 2's control heights), at least 8 points,
+/// centred down the row and as far in from its left as from its top; the
+/// caption's box runs from that far past the mark to that far short of the
+/// row's right edge, the row's height. Callers fit the caption to that box.
+///
+/// @param area the radio's area
+/// @param row true for a radio row, false for the mark alone
+/// @return the mark and the caption's box; an empty caption box when the row has no room
+[[nodiscard]] RadioParts radio_parts(const Rect& area, bool row) noexcept;
+
+/// Draws a radio. The mark is a one-point ring: the idle switch grey while
+/// not chosen, the accent while chosen, lighter while hovered and deeper
+/// while held, with the accent's dot half the ring across in it while
+/// chosen. A disabled radio's ring and dot are the hovered border's grey. A
+/// radio row is a box with the control radius of its height round them:
+/// the selected surface with the accent's edge while chosen, the hover face
+/// with the hovered border while hovered, else no face and the control
+/// border; its caption in the regular font, in the text colour, the idle
+/// colour while disabled.
+///
+/// @param canvas where it is drawn
+/// @param area the radio's area: the mark's square, or the whole row
+/// @param look its state and, for a row, its caption
+void draw_radio(const Canvas& canvas, const Rect& area, const RadioLook& look);
 
 /// Draws a strip of levels. Levels from offered on are faded into the panel.
 ///
@@ -274,6 +338,17 @@ inline constexpr int32_t compact_footer_line =
 /// @param place the item's place among those shown, from 0
 /// @return the item's rectangle, inside the menu's border
 [[nodiscard]] Rect choice_item(const Rect& menu, int32_t place) noexcept;
+
+/// One shown item's rectangle when the menu names a row height. A look with
+/// no row height is choice_item. A heading that is not the menu's first item
+/// keeps heading_gap above its row, and a rule is rule_height.
+///
+/// @param menu the menu
+/// @param look the menu's rows
+/// @param place the item's place among those shown, from 0
+/// @return the item's rectangle, inside the menu's border
+[[nodiscard]] Rect
+menu_item_box(const Rect& menu, const ChoiceMenuLook& look, int32_t place) noexcept;
 
 /// Returns the shown item under a point.
 ///
@@ -488,6 +563,20 @@ void add_button(
 /// @param name the control's automation name
 void add_switch(
     DisplayList& list, const Rect& rect, const SwitchLook& look, ControlId id, std::string name
+);
+
+/// Appends a radio: one item, and with a control number one control, a
+/// button whose checked is the radio's state and whose text is its caption.
+/// With no_control it adds the item alone, for a mark inside a control the
+/// caller adds itself, such as a card.
+///
+/// @param[in,out] list the display list
+/// @param rect the radio: the mark's square, or the whole row
+/// @param look its look
+/// @param id the control's number, or no_control
+/// @param name the control's automation name
+void add_radio(
+    DisplayList& list, const Rect& rect, const RadioLook& look, ControlId id, std::string name
 );
 
 /// Appends a level strip: one item and one control. steps is set.

@@ -12,16 +12,17 @@
 # (engine_settings/language_notice.hpp), and System's file-type switches as the file types
 # they choose (engine_settings/file_types.hpp).
 add_library(oa-ui-engine-settings src/engine_settings.cpp src/dialog.cpp src/dialog_draw.cpp
-  src/developer.cpp src/downloads_page.cpp src/content_page.cpp src/language_page.cpp
+  src/developer.cpp src/downloads_page.cpp src/updates_page.cpp src/content_page.cpp src/language_page.cpp
   src/language_notice.cpp src/notice.cpp src/prompt.cpp src/challenge.cpp
-  src/add_registry.cpp src/registered.cpp src/settings_rows.cpp src/file_types.cpp)
+  src/add_registry.cpp src/registered.cpp src/settings_rows.cpp src/file_types.cpp
+  src/section_icons.cpp src/cards.cpp)
 add_library(oa::ui::engine_settings ALIAS oa-ui-engine-settings)
 target_include_directories(oa-ui-engine-settings PUBLIC include)
 target_compile_features(oa-ui-engine-settings PUBLIC cxx_std_20)
 target_link_libraries(oa-ui-engine-settings PUBLIC oa-platform-preferences oa-platform-file-types
   oa-data-languages oa-data-limits oa-data-mod-profile oa-ui-pad-controls oa-present
   oa-ui-frontend-renderer oa-formats-fnt oa-formats-hpi oa-ui-kit PRIVATE oa-sim-session oa-ui-decoded oa-ui-library oa-formats-url oa-options
-  oa-base-text oa-platform-display-modes)
+  oa-base-text oa-platform-display-modes oa-data-input-actions)
 
 if(BUILD_TESTING)
   add_executable(oa-ui-engine-settings-test tests/engine_settings_test.cpp)
@@ -74,10 +75,13 @@ if(BUILD_TESTING)
   # The test places parts through the dialog's own geometry (src/geometry.hpp).
   target_include_directories(oa-ui-engine-settings-dialog-test PRIVATE src)
   add_test(NAME ui-engine-settings-dialog COMMAND oa-ui-engine-settings-dialog-test)
-  # Ten seconds here, 24 minutes as a Debug build under Wine: the regression
-  # suite multiplies a set TIMEOUT by its lane's scale (8 there, so 30 minutes),
-  # and ctest's default 1500 s, which an unset one gets, it cannot scale.
-  set_tests_properties(ui-engine-settings-dialog PROPERTIES TIMEOUT 225)
+  # About half a minute on a Check build (33.9 s). The sanitizer lane with
+  # time scale 1 was killed at the old 300 s limit, and the same test
+  # finished in 488 s on the sanitizer lane whose scale is 6, so the limit
+  # is 900 s. Wine's debug lane multiplies a set TIMEOUT by 8 (two hours
+  # here), and ctest's default 1500 s, which an unset one gets, it cannot
+  # scale.
+  set_tests_properties(ui-engine-settings-dialog PROPERTIES TIMEOUT 900)
 
   # Downloads: the section list, the check, install IDs and the downloaded files.
   add_executable(oa-ui-engine-settings-downloads-test tests/downloads_page_test.cpp)

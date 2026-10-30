@@ -18,6 +18,7 @@
 #include "oa/platform/text_font.hpp"
 #include "oa/base/threads.hpp"
 #include "oa/present/game_text.hpp"
+#include "oa/ui/hud/backed_text.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -366,6 +367,39 @@ int32_t Runtime::painted_baseline(int32_t font_baseline, int32_t size) const noe
 int Runtime::paint_modern_text(
     const oa::present::TextLayers& layers, int x, int baseline_y, std::array<uint8_t, 3> color
 ) {
+    if (text_hold_.holding()) {
+        // The line's box is laid now, and its letters once every box of its
+        // group is (BackedText).
+        auto canvas = match_text_canvas();
+        oa::ui::hud::lay_text_backing(canvas, layers, x, baseline_y);
+        hold_painted_text([this,
+                           line = oa::ui::hud::without_backing(layers),
+                           x,
+                           baseline_y,
+                           color,
+                           backed = layers.background] {
+            lay_match_text(line, x, baseline_y, color, backed);
+        });
+        return layers.advance;
+    }
+    lay_match_text(layers, x, baseline_y, color, layers.background);
+    return layers.advance;
+}
+
+void Runtime::lay_match_text(
+    const oa::present::TextLayers& layers,
+    int x,
+    int baseline_y,
+    std::array<uint8_t, 3> color,
+    bool backed
+) {
+    if (painted_lines_)
+        painted_lines_->push_back({&paint_target(), {layers, x, baseline_y, color, backed}});
+    auto canvas = match_text_canvas();
+    oa::present::lay_text(canvas, layers, x, baseline_y, color);
+}
+
+oa::present::TextCanvas Runtime::match_text_canvas() {
     auto& dest = paint_target();
     const bool has_palette = match_palette_ != oa::PaletteBytes{};
     auto canvas = oa::present::rgb_canvas(
@@ -412,8 +446,7 @@ int Runtime::paint_modern_text(
             }
         };
     }
-    oa::present::lay_text(canvas, layers, x, baseline_y, color);
-    return layers.advance;
+    return canvas;
 }
 
 void Runtime::install_game_text_hooks() {

@@ -1,0 +1,93 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+# This build's version and package id, when a new release is due, the
+# worker that fetches the signed engine feed, the download, the update
+# centre's state and words, the player's choices, and the plan, state and
+# receipt files the game and the helper share. No SDL.
+add_library(oa-app-update src/build.cpp src/centre.cpp src/check.cpp src/checker.cpp
+  src/choices.cpp src/download.cpp src/offer.cpp src/plan.cpp src/receipt.cpp src/route.cpp)
+add_library(oa::app::update ALIAS oa-app-update)
+target_include_directories(oa-app-update PUBLIC include)
+target_compile_features(oa-app-update PUBLIC cxx_std_20)
+target_link_libraries(oa-app-update
+  PUBLIC oa-data-engine-feed oa-data-registry oa-formats-oamod oa-platform-preferences oa-options
+    oa-ui-library
+  PRIVATE oa-app-headers oa-netgame-http oa-base-threads oa-platform-shims oa-base-sha256
+    oa-formats-json oa-ui-engine-settings)
+if(APPLE)
+  # The running app's signing team. The helper does its own check of the new bundle.
+  target_link_libraries(oa-app-update PRIVATE "-framework Security" "-framework CoreFoundation")
+endif()
+# The root's per-source definitions do not reach a subdirectory target.
+# OA_SELF_UPDATE is public: every target that includes build.hpp reads it.
+# The packager strings are private to this file. \ and " are escaped so a
+# quoted definition stays one definition.
+target_compile_definitions(oa-app-update PUBLIC "OA_SELF_UPDATE=${oa_OA_SELF_UPDATE_value}")
+string(REPLACE "\\" "\\\\" oa_packager_name_quoted "${OA_PACKAGER_NAME}")
+string(REPLACE "\"" "\\\"" oa_packager_name_quoted "${oa_packager_name_quoted}")
+string(REPLACE "\\" "\\\\" oa_packager_command_quoted "${OA_PACKAGER_UPDATE_COMMAND}")
+string(REPLACE "\"" "\\\"" oa_packager_command_quoted "${oa_packager_command_quoted}")
+set_property(SOURCE src/build.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+  "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\""
+  "OA_ENGINE_VERSION_LABEL=\"${OA_VERSION_LABEL}\""
+  "OA_PACKAGER_NAME=\"${oa_packager_name_quoted}\""
+  "OA_PACKAGER_UPDATE_COMMAND=\"${oa_packager_command_quoted}\"")
+
+if(BUILD_TESTING)
+  add_executable(oa-app-update-build-test tests/build_test.cpp)
+  target_link_libraries(oa-app-update-build-test PRIVATE oa-app-update oa-app-headers oa-test-support)
+  set_property(SOURCE tests/build_test.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+    "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\""
+    "OA_ENGINE_VERSION_LABEL=\"${OA_VERSION_LABEL}\"")
+  add_test(NAME app-update-build COMMAND oa-app-update-build-test)
+  set_tests_properties(app-update-build PROPERTIES TIMEOUT 60)
+
+  add_executable(oa-app-update-check-test tests/check_test.cpp)
+  target_link_libraries(oa-app-update-check-test
+    PRIVATE oa-app-update oa-netgame-http oa-netgame-http-fixture oa-base-signing oa-base-sha256
+      oa-data-catalogue oa-base-threads oa-test-support)
+  add_test(NAME app-update-check COMMAND oa-app-update-check-test)
+  set_tests_properties(app-update-check PROPERTIES TIMEOUT 60)
+
+  add_executable(oa-app-update-offer-test tests/offer_test.cpp)
+  target_link_libraries(oa-app-update-offer-test PRIVATE oa-app-update oa-app-headers oa-test-support)
+  add_test(NAME app-update-offer COMMAND oa-app-update-offer-test)
+  set_tests_properties(app-update-offer PROPERTIES TIMEOUT 30)
+
+  add_executable(oa-app-update-plan-test tests/plan_test.cpp)
+  target_link_libraries(oa-app-update-plan-test PRIVATE oa-app-update oa-test-support oa-options)
+  add_test(NAME app-update-plan COMMAND oa-app-update-plan-test)
+  set_tests_properties(app-update-plan PROPERTIES TIMEOUT 30)
+
+  add_executable(oa-app-update-download-test tests/download_test.cpp)
+  target_link_libraries(oa-app-update-download-test
+    PRIVATE oa-app-update oa-netgame-http oa-netgame-http-fixture oa-base-sha256 oa-test-support)
+  add_test(NAME app-update-download COMMAND oa-app-update-download-test)
+  set_tests_properties(app-update-download PROPERTIES TIMEOUT 60)
+
+  add_executable(oa-app-update-route-test tests/route_test.cpp)
+  target_link_libraries(oa-app-update-route-test PRIVATE oa-app-update oa-test-support)
+  add_test(NAME app-update-route COMMAND oa-app-update-route-test)
+  set_tests_properties(app-update-route PROPERTIES TIMEOUT 60)
+
+  add_executable(oa-app-update-centre-test tests/centre_test.cpp)
+  target_link_libraries(oa-app-update-centre-test PRIVATE oa-app-update oa-test-support)
+  add_test(NAME app-update-centre COMMAND oa-app-update-centre-test)
+  set_tests_properties(app-update-centre PROPERTIES TIMEOUT 30)
+
+  add_executable(oa-app-update-receipt-test tests/receipt_test.cpp)
+  target_link_libraries(oa-app-update-receipt-test PRIVATE oa-app-update oa-test-support)
+  add_test(NAME app-update-receipt COMMAND oa-app-update-receipt-test)
+  set_tests_properties(app-update-receipt PROPERTIES TIMEOUT 30)
+
+  if(WIN32)
+    foreach(target oa-app-update-build-test oa-app-update-check-test oa-app-update-offer-test
+        oa-app-update-plan-test oa-app-update-download-test oa-app-update-route-test
+        oa-app-update-centre-test oa-app-update-receipt-test)
+      add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} "-DDLLS=$<TARGET_RUNTIME_DLLS:${target}>"
+          "-DDEST=$<TARGET_FILE_DIR:${target}>" -P "${PROJECT_SOURCE_DIR}/tools/copy_runtime.cmake")
+    endforeach()
+  endif()
+endif()

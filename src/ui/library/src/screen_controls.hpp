@@ -20,10 +20,11 @@ namespace oa::ui::library::controls {
 /// The first tab's control; the others follow in Tab's order.
 inline constexpr kit::ControlId first_tab = 1;
 /// The tab strip's arrow toward the earlier tabs. It is not a tab.
-/// The tabs occupy 1 through tab_total, so this follows the eighth tab.
-inline constexpr kit::ControlId tab_scroll_left = 9;
+/// The tabs occupy 1 through tab_total. These sit after MORE ▾ (14) and
+/// before the filters (20), so the ninth tab never shares a number with them.
+inline constexpr kit::ControlId tab_scroll_left = 15;
 /// The tab strip's arrow toward the later tabs. It is not a tab.
-inline constexpr kit::ControlId tab_scroll_right = 10;
+inline constexpr kit::ControlId tab_scroll_right = 16;
 /// The search field.
 inline constexpr kit::ControlId search = 11;
 /// Compact's filter drop-down (library.filter).
@@ -107,6 +108,10 @@ inline constexpr kit::ControlId active_expansions = 76;
 /// The label of the lock under the expansion pills, while a pill is locked.
 /// It takes no press.
 inline constexpr kit::ControlId active_lock = 77;
+/// The Active tab's KEYS tile. It takes no press.
+inline constexpr kit::ControlId active_keys = 78;
+/// CHANGE… on the KEYS tile. It opens Keys with the layout in use selected.
+inline constexpr kit::ControlId active_keys_change = 79;
 /// An entry's action button: this and the Action's value.
 inline constexpr kit::ControlId first_action = 100;
 /// A tag's chip or nav entry: this and the tag's place in tags_in_tab.
@@ -134,6 +139,58 @@ inline constexpr std::size_t most_detail_tags = 256;
 inline constexpr kit::ControlId first_expansion = 12000000;
 /// The most expansion pills named. A base game has fewer.
 inline constexpr std::size_t most_expansions = 64;
+/// The keyboard picture on a layout's details. An area, not a key.
+inline constexpr kit::ControlId keys_picture = 14000000;
+/// The first key of that picture. The keys that follow are drawn and take
+/// no focus; the area above is what automation names.
+inline constexpr kit::ControlId first_keys_picture_key = 14000001;
+/// A fact whose value opens another entry: this and the fact's place.
+inline constexpr kit::ControlId first_fact_link = 15000000;
+/// The most such facts one details pane names.
+inline constexpr std::size_t most_fact_links = 64;
+/// USE's question. Keep them on top is marked until the player chooses
+/// Start clean.
+inline constexpr kit::ControlId use_keep = 16000001;
+/// Start clean: the player's own changes stay with the layout they sit on.
+inline constexpr kit::ControlId use_aside = 16000002;
+/// Every game.
+inline constexpr kit::ControlId use_for_game = 16000003;
+/// Only with the mod being played.
+inline constexpr kit::ControlId use_for_mod = 16000004;
+/// CANCEL. Escape answers it, and it writes nothing.
+inline constexpr kit::ControlId use_cancel = 16000005;
+/// USE. Enter answers it.
+inline constexpr kit::ControlId use_confirm = 16000006;
+/// The shade behind the question. It takes a press so the Library under it does not.
+inline constexpr kit::ControlId use_blocker = 16000007;
+/// What moves: an area whose text names each command, its key now and afterwards.
+inline constexpr kit::ControlId use_moves = 16000008;
+/// The note under the own-changes choice: where those changes stay.
+inline constexpr kit::ControlId use_saved = 16000009;
+/// The helpers' note: they act in every game.
+inline constexpr kit::ControlId use_helpers_note = 16000010;
+/// A helper switch: this and the helper's place in the question.
+inline constexpr kit::ControlId first_use_helper = 16000100;
+/// The most helper switches one question names.
+inline constexpr std::size_t most_use_helpers = 16;
+
+/// Tells whether a control is a fact that opens a key layout.
+///
+/// @param id the control
+/// @return true for a link the details name
+[[nodiscard]] inline bool fact_link_control(kit::ControlId id) noexcept {
+    return id >= first_fact_link &&
+           id < first_fact_link + static_cast<kit::ControlId>(most_fact_links);
+}
+
+/// Tells whether a control is a helper switch on USE's question.
+///
+/// @param id the control
+/// @return true for a switch the question names
+[[nodiscard]] inline bool use_helper_control(kit::ControlId id) noexcept {
+    return id >= first_use_helper &&
+           id < first_use_helper + static_cast<kit::ControlId>(most_use_helpers);
+}
 
 /// Tells whether a control is an expansion pill.
 ///
@@ -196,12 +253,26 @@ inline constexpr int32_t details_group = 1;
 /// search are not in it: they stay put while the maps scroll.
 inline constexpr int32_t maps_group = 2;
 
+/// Large's filter pane: its filters, tags and worlds, which scroll under its
+/// headings. Tab stops on one of them, and the arrows move among them.
+inline constexpr int32_t filters_group = 3;
+
 /// Returns an action's button's control.
 ///
 /// @param action the action
 /// @return its number
 [[nodiscard]] constexpr kit::ControlId action_control(Action action) noexcept {
     return first_action + static_cast<kit::ControlId>(action);
+}
+
+/// Returns how far apart the list's rows lie, from their height: the row and
+/// a gap of an eighth of it under it, 4 points under Compact's 36-point row,
+/// so the tags of one row stand clear of the title of the next.
+///
+/// @param row_height the rows' height, in points
+/// @return the step from one row's top to the next's, in points
+[[nodiscard]] constexpr int32_t list_row_step(int32_t row_height) noexcept {
+    return row_height + row_height / 8;
 }
 
 /// Tells whether a control is a row's.
@@ -304,14 +375,18 @@ struct MenuItem {
     std::optional<Filter> filter{};   ///< the filter it shows, with every tag
     std::optional<std::size_t> tag{}; ///< the tag it shows, its place in tags_in_tab
     std::optional<Action> action{};   ///< the selected entry's action it asks for
+    /// A heading over the items after it, such as WORLD: not a choice, never
+    /// marked, pressed or named.
+    bool heading{};
 };
 
 /// Lists a drop-down's items.
 ///
 /// Compact's filter holds All, New, Installed and Updates with their counts,
-/// then every tag of the tab; the tags drop-down the tags without a chip or
-/// nav entry of their own; MORE the selected entry's actions after its
-/// first three.
+/// then every tag of the tab, a world tag as its world; the tags drop-down
+/// the tags without a chip or nav entry of their own, the world tags under
+/// the heading WORLD; MORE the selected entry's actions after its first
+/// three.
 ///
 /// @param library the model
 /// @param menu the drop-down

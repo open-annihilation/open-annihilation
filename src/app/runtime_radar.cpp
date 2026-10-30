@@ -10,7 +10,6 @@
 #include "oa/present/surface.hpp"
 #include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/present/world_renderer/world_fog.hpp"
-#include "oa/sim/visibility_state.hpp"
 #include "oa/sim/weapon_execution/weapon_keys.hpp"
 
 #include <algorithm>
@@ -144,42 +143,30 @@ void Runtime::refresh_radar_mapped() {
     namespace wr = oa::present::world_renderer;
     auto& radar = radar_state_;
     auto& game = match_->state().game;
-    absorb_radar_exploration();
-    // The radar fill walks a 32-pixel cell grid; the match sight grid is resampled
-    // onto it. Disabled mapping or line of sight reads as fully explored/seen.
+    // The radar fill walks a 32-pixel cell grid; the match sight grid is
+    // resampled onto it and read as the battlefield's fog reads it: the
+    // view player's mapped cells and sight, so that the radar shows explored
+    // exactly the ground the battlefield does not keep black. Disabled
+    // mapping or line of sight reads as fully explored or seen.
     const int grid_w = std::max(1, game.map_width / 2);
     const int grid_h = std::max(1, game.map_height / 2);
-    const auto cells = static_cast<std::size_t>(grid_w) * static_cast<std::size_t>(grid_h);
-    const bool mapping_on = match_mapping_on();
     const bool los_on = match_line_of_sight_on();
-    const auto viewer = game.viewpoint_player;
-    const auto bit = static_cast<uint16_t>(1u << (viewer & 0x1fu));
-    radar.sight_bits.assign(cells, mapping_on ? uint16_t{0} : bit);
-    radar.coverage.assign(cells, los_on ? uint8_t{0} : uint8_t{1});
-    if (mapping_on || los_on) {
-        const auto& sight = match_->sight();
-        // A viewer outside the player table has no live coverage.
-        std::span<const uint16_t> live{};
-        if (los_on && viewer < OA_PLAYER_COUNT)
-            live = match_->player_coverage(viewer);
-        if (sight.width > 0 && sight.height > 0) {
-            for (int gy = 0; gy < grid_h; ++gy) {
-                const auto sy = static_cast<std::size_t>(gy * sight.height / grid_h);
-                for (int gx = 0; gx < grid_w; ++gx) {
-                    const auto sx = static_cast<std::size_t>(gx * sight.width / grid_w);
-                    const auto index = sy * static_cast<std::size_t>(sight.width) + sx;
-                    const auto cell = static_cast<std::size_t>(gy) * grid_w + gx;
-                    if (mapping_on && index < radar_explored_.size() && radar_explored_[index] != 0)
-                        radar.sight_bits[cell] = bit;
-                    if (los_on && index < live.size() &&
-                        oa::sim::visibility_state::count_in_sight(
-                            live[index], oa::sim::visibility_state::SightReading::player
-                        ))
-                        radar.coverage[cell] = 1;
-                }
-            }
-        }
-    }
+    const auto viewer = match_view_player();
+    // A viewer outside the player table has no live coverage.
+    std::span<const uint16_t> live{};
+    if (los_on && viewer < OA_PLAYER_COUNT)
+        live = match_->player_coverage(viewer);
+    wr::radar_read_sight(
+        match_->sight(),
+        viewer,
+        live,
+        {los_on, match_mapping_on(), allied_mapped_bits()},
+        static_cast<uint16_t>(1u << (game.viewpoint_player & 0x1fu)),
+        grid_w,
+        grid_h,
+        radar.sight_bits,
+        radar.coverage
+    );
     // The match's sight grids keep no dirty mark for the mapped image, so
     // every refresh redraws it.
     game.radar_blink_flags =
@@ -188,6 +175,14 @@ void Runtime::refresh_radar_mapped() {
         game,
         radar.surfaces,
         {radar.sight_bits.data(), radar.coverage.data(), radar.gray_table.data()}
+    );
+}
+
+uint16_t Runtime::allied_mapped_bits() const {
+    if (!match_ || !match_->rules().intel.allied_los_sharing.enabled)
+        return 0;
+    return oa::present::world_renderer::allied_mapped_players(
+        match_->state().game, match_view_player()
     );
 }
 
@@ -214,7 +209,7 @@ void Runtime::compose_radar_final() {
         const auto* weapon = oa::world_weapon_def(&world, shot.def);
         return weapon != nullptr &&
                oa::sim::weapon_execution::silent_ownerless_shot(
-                   shot, *weapon, self.match_->rules_view().weapon(weapon->weapon_id)
+                   shot, *weapon, self.match_->rules_view().weapon(oa::oa_weapon_def_id(weapon))
                );
     };
     host.allied_units_shown = ui_rules().allied_unit_display.enabled;

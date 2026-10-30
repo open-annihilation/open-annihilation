@@ -31,7 +31,7 @@ namespace {
 constexpr std::size_t shown_diagnostics = 3;
 
 /// The Install button of a package the player opened.
-constexpr std::string_view install_caption = "INSTALL";
+constexpr std::string_view install_caption = "Install";
 
 /// The sentence for a manifest that is not an expansion's.
 constexpr std::string_view not_an_expansion = "It is not one of the game's expansions.";

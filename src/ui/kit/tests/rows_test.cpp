@@ -895,9 +895,9 @@ void a_view_shows_every_word_through_the_callers_function() {
             return "VSYNC";
         if (english == "Waits for the display.")
             return "WAITS";
-        if (english == "OFF")
+        if (english == "Off")
             return "AUS";
-        if (english == "ON")
+        if (english == "On")
             return "EIN";
         if (english == "Not during a game")
             return "NICHT JETZT";
@@ -918,13 +918,13 @@ void a_view_shows_every_word_through_the_callers_function() {
     OA_CHECK(views[0].label == "VSYNC" && views[0].hints == std::vector<std::string>{"WAITS"});
     OA_CHECK(views[0].captions == (std::vector<std::string>{"AUS", "EIN"}));
     OA_CHECK(views[0].lock == "NICHT JETZT");
-    OA_CHECK(views[1].captions[1] == "IMMER" && views[1].value == "Off");
+    OA_CHECK(views[1].captions[1] == "IMMER" && views[1].value == "AUS");
     OA_CHECK(views[4].buttons == std::vector<std::string>{"NEU"});
     OA_CHECK(views[5].buttons[1] == "BILDER" && views[5].button_ids[1] == "screenshots");
     OA_CHECK(views[6].text == "Ridge");
     // Without a function, every word shows as written.
     const std::vector<kit::RowView> written = views_of(kEveryKind, sample);
-    OA_CHECK(written[0].label == "Vertical sync" && written[0].captions[0] == "OFF");
+    OA_CHECK(written[0].label == "Vertical sync" && written[0].captions[0] == "Off");
     OA_CHECK(written[0].lock == "Not during a game");
 }
 
@@ -1101,7 +1101,7 @@ void the_display_list_names_and_orders_every_control() {
         OA_CHECK(same(control.clip, state.clip));
         OA_CHECK(same(control.rect, placed.rows[at].control_area));
     }
-    OA_CHECK(list.controls[0].checked && list.controls[0].text == "ON");
+    OA_CHECK(list.controls[0].checked && list.controls[0].text == "On");
     OA_CHECK(list.tab_order == (std::vector<kit::ControlId>{13, 14, 15, 16, 17, 18, 19, 20}));
 
     using kit::Role;
@@ -1128,7 +1128,8 @@ void the_display_list_names_and_orders_every_control() {
     OA_CHECK(list.items[10].text == "7f3a90d2" && list.items[10].align == kit::Align::left);
     const auto* reset = std::get_if<kit::ButtonLook>(&list.items[11].look);
     OA_CHECK(reset != nullptr && reset->caption == "RESET" && reset->enabled);
-    OA_CHECK(reset != nullptr && reset->style == kit::ButtonStyle::accent);
+    // A row's button is a secondary action; the dialog's OK is its primary.
+    OA_CHECK(reset != nullptr && reset->style == kit::ButtonStyle::plain);
     const auto* field = std::get_if<kit::SearchLook>(&list.items[18].look);
     OA_CHECK(field != nullptr && !field->magnifier && !field->focused);
     const auto* frame = std::get_if<kit::RowFrame>(&list.items[0].look);
@@ -1645,17 +1646,21 @@ void a_page_painted_draws_its_switch_as_the_model_has_it() {
     Sample sample;
     sample.vertical_sync = true;
     const renderer::Surface on = painted_page(sample);
-    // The switch is {415, 63, 52, 16}: its On half from column 441, its Off half from 416.
-    expect(on, 441, 64, {0x9c, 0xcc, 0x3c});
-    expect(on, 465, 77, {0x9c, 0xcc, 0x3c});
-    expect(on, 416, 64, {0x12, 0x14, 0x10});
+    // The switch is {415, 63, 52, 16}, its track the right 42 points: a
+    // lime track with its knob at the right while On, and the selected
+    // surface with its knob at the left while Off.
+    expect(on, 441, 64, kit::colour::accent);
+    expect(on, 430, 70, kit::colour::accent);
+    expect(on, 458, 70, kit::colour::on_accent);
+    expect(on, 466, 78, {0x00, 0x00, 0x00});
+    expect(on, 416, 64, {0x00, 0x00, 0x00});
     // The rows' rules, the first's and the one under the last.
     expect(on, 158, 54, {0x2b, 0x30, 0x27});
     expect(on, 466, 559, {0x2b, 0x30, 0x27});
     sample.vertical_sync = false;
     const renderer::Surface off = painted_page(sample);
-    expect(off, 441, 64, {0x12, 0x14, 0x10});
-    expect(off, 416, 64, {0x2c, 0x32, 0x26});
+    expect(off, 441, 64, kit::colour::off_selected);
+    expect(off, 432, 70, kit::colour::text_secondary);
     // Locked, an On switch keeps its value without the accent.
     sample.vertical_sync = true;
     sample.in_game = true;

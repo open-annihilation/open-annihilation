@@ -2,8 +2,9 @@
 
 Open Annihilation adds settings of its own to the game: a few controls, the
 unit limit, the language and fonts of the game's text, graphics and the
-size of Open Annihilation's own screens, touch and gamepad controls,
-downloads, where the game keeps your files and which of its file types it
+size of Open Annihilation's own screens, the input helpers, touch and
+gamepad controls, downloads, whether Open Annihilation looks for a new
+release, where the game keeps your files and which of its file types it
 opens, and Developer Mode. The registries packages come from are a tab
 of the Library. They live in one dialog, apart from the game's own
 options, which stay in 3.1c's Options menu. This page shows each section
@@ -11,15 +12,17 @@ of the dialog and says what every setting does, its default, when it takes
 effect and when you might change it.
 
 The mod you play is not a setting here: you choose it in
-[the Library](library.md#choosing-a-mod), where **PLAY NOW** plays a mod
-and **SWITCH OFF** goes back to the game as 3.1c plays it.
+[the Library](library.md#choosing-a-mod), where **Play now** plays a mod
+and **Switch off** goes back to the game as 3.1c plays it.
 
 The pictures show each section at its defaults on a Mac, the dialog alone,
-unlocked, at Compact drawn at 2× (960 by 648), with Touch, Controller and
-Game files listed. They are drawn by `oa-ui-engine-settings-pictures`
-([how to draw them](../src/ui/engine-settings/README.md#the-manuals-pictures)). A section taller
-than the dialog shows its top; Controls, Downloads and System have a second
-picture of their end.
+unlocked, at Compact drawn at 2× (960 by 648), in the modern look, with
+Touch, Controller and Game files listed. They are drawn by
+`oa-ui-engine-settings-pictures` with `--modern`
+([how to draw them](../src/ui/engine-settings/README.md#the-manuals-pictures)).
+A section taller
+than the dialog shows its top; Controls, Downloads, System and
+Accessibility have a second picture of their end.
 
 ## Contents
 
@@ -30,10 +33,12 @@ picture of their end.
 - [Language & Text](#language)
 - [Graphics](#graphics)
 - [User Interface](#user-interface)
+- [Accessibility](#accessibility)
 - [Touch](#touch)
 - [Controller](#controller)
 - [Game files](#game-files)
 - [Downloads](#downloads)
+- [Updates](#updates)
 - [Game Content](#game-content)
 - [System](#system)
 - [Developer](#developer)
@@ -49,24 +54,48 @@ The settings open from:
 - **SETTINGS…** at the foot of the Library;
 - the button under **Resume** in the in-game menu (F2), which shows the
   gears too;
+- **Cmd+,** on macOS, or **Settings…** in the application menu;
+- **Ctrl+,** on Windows and Linux.
 
 The dialog's header badge is those gears, on the main menu and in a
 match. Notices, prompts and the other OA headers keep the app icon, the
 plates alone.
-- **Cmd+,** on macOS, or **Settings…** in the application menu;
-- **Ctrl+,** on Windows and Linux.
 
 A game played alone stays paused while the settings are open. A
 multiplayer game keeps running, and the dialog's header says so in amber:
 "Shared game - still running".
 
-The column on the left lists the sections: Controls, Engine Limits,
-Language & Text, Graphics and User Interface, then Touch while the game
-has touch controls, Controller once a gamepad has been used, and Game
-files in the main menu on an iPhone or an iPad, then Downloads, Game
-Content, then System, and Developer at its foot under a divider. A
-section taller than the dialog, such as Graphics, scrolls with the mouse
-wheel, its scroll bar, Page Up, Page Down, Home and End.
+The column on the left lists the sections in four groups, a thin line
+between two, each section with a small picture beside its name:
+
+- what you play with: Controls and Accessibility, then Touch while the
+  game has touch controls, and Controller once a gamepad has been used;
+- how the game looks: Graphics, User Interface, and Language & Text;
+- what the game holds and fetches: Game files in the main menu on an
+  iPhone or an iPad, then Downloads, Updates and Game Content;
+- the computer and the engine: Engine Limits, System and Developer.
+
+At Regular and Large every section fits. At Compact, the smallest layout
+([Interface size](#user-interface)), the list scrolls once Touch,
+Controller or Game files is listed, a thin bar at its right shows where it
+is, and the open section's entry stays in view. Where a section's name in
+the language you play in needs the room, the Compact list leaves the
+pictures out. While an update downloads, Updates shows its share at its
+right, as "41%", and "ready" once it is ready
+([Updates](#updates)). A section taller than the dialog, such as Graphics,
+scrolls with the mouse wheel, its scroll bar, Page Up, Page Down, Home and
+End.
+
+The dialog moves: drag it by its title. It snaps to where it opened, to
+the middle of the window and to the window's edges, keeps at least 64
+points on screen and its title inside the window, and opens where you left
+it the next time, for each layout apart. A double-click on the title puts
+it back in the middle, and Alt with an arrow key moves the dialog 8
+points, 32 with Shift. On a touch screen, hold the title for a moment,
+then drag. The key editor, the Library, the map browser and the mutator
+and brain pickers move the same way; notices and questions stay in the
+middle. **Reset window positions**, in
+[User Interface](#user-interface), puts every window back.
 
 A mod's own options are not here: where a mod's profile turns them on,
 Ctrl+F2 in a match opens them in a dialog of their own
@@ -89,6 +118,11 @@ keep it. A row's hint says when a setting takes effect later instead:
   [Hardware acceleration](#graphics)), turns every install ID in Downloads
   back on and sets Check for content updates to Automatically; the
   registries stay as they are. Cancel still puts everything back.
+
+The footer says how many settings you have changed since the dialog
+opened, "1 setting changed" or "4 settings changed", beside Cancel, and
+nothing while you have changed none. A setting you change and then put
+back is not counted.
 
 The keyboard works the whole dialog:
 
@@ -119,10 +153,31 @@ A setting that cannot change now is faded, with a padlock and the reason:
 
 ## Controls
 
-![The top of the Controls section: Mouse wheel zoom On, Maximum zoom out at Automatic, Maximum zoom in at 4x and the top of View past the map's edge at 50%.](images/settings/controls-1.png)
+![The top of the Controls section: the key layout card, its keyboard tile, Key layout, OA default, "Applies to every game. Ctrl+/ in a match shows the keys.", Change layout… and Edit keys…, then Show keys on buttons On and Mouse wheel zoom On.](images/settings/controls-1.png)
 
 Each of these takes effect at once.
 
+- **Key layout** is a card at the top of the section. [Keys](keys.md)
+  is the chapter: the editor, the layouts, sharing and the default chords.
+  The card shows the layout in use,
+  its whole name, a badge counting your own changes to it ("4 changes of
+  your own", none while you have changed none), where it applies
+  ("Applies to every game.", or "Applies with {mod} only." while the mod
+  you play chooses its own), and the key that shows the keys in a match
+  ("Ctrl+/ in a match shows the keys.", Cmd+/ on a Mac). **Edit keys…**
+  opens the key editor over Settings, in the menus and in a match, and
+  saving there updates the card. **Change layout…**, on the main menu
+  only, opens the Library on Keys, where USE chooses a layout. The buttons
+  stand beside the words where they fit, and under them where they do
+  not. The layout itself is chosen in the editor, or with USE in the
+  Library.
+- **Key layout with <mod>** is shown only while a mod is played. Same as
+  the game uses Key layout. The other choices are the layouts you have
+  installed, those made for that mod first and marked made for it (for
+  Ridge, "Ridge keys · made for Ridge"). The choice is kept at once under
+  that mod, and Cancel puts the previous choice back.
+- **Show keys on buttons**, Off by default. Order buttons and build cells
+  show their key in a corner.
 - **Mouse wheel zoom**, On by default. The mouse wheel, or a trackpad's
   scroll, zooms the battlefield in and out smoothly about the pointer: the
   ground under the pointer stays under it on every frame of the zoom, as
@@ -187,13 +242,9 @@ Each of these takes effect at once.
   same until you let go. It does not start while the allied whiteboard is
   in use, in the menus, or on a panel. Turn it off to keep the middle
   button as it was.
-- **Select groups without Alt**, Off by default, as 3.1c plays. Off, Alt
-  and a number select that group of units, and a number alone turns the
-  selected unit's menu to that page. On, a number alone selects its group,
-  and Alt and a number turn the page. Ctrl and a number make a group either
-  way. Turn it on if you are used to selecting groups with the number keys
-  alone, as most strategy games do. It is 3.1c's own SwitchAlt option, so
-  the console's `+switchalt` changes it too.
+- **Number keys select groups** is the key editor's switch, not a row
+  here. It is 3.1c's own SwitchAlt option, so the console's `+switchalt`
+  changes it too: on, a number key selects its group on its own.
 - **Window edge**, Capture, Sticky or Free, Capture by default. What a
   window does with the pointer while a match's battlefield shows and the
   window has the focus. Capture keeps the pointer in the window: no push or
@@ -214,12 +265,21 @@ Each of these takes effect at once.
   level, so 5.0 holds five times as firmly. At 0.0 the edge never holds.
   Only Sticky uses it: with Capture or Free it is greyed, says Needs
   Sticky, and keeps its value.
+- **Group keys centre the view**, On a double press, Never or On every
+  press, On a double press by default. A group's key always selects the
+  group. On a double press, a second press of the same group's key within
+  the double-press time (Accessibility's Double press), with no other key
+  between, also moves the view to the group's centre, and one press leaves
+  the view where it is. Never leaves the view. On every press moves it when
+  the group is already exactly the selection, however long after the last
+  press, which is what 0.8.6 did. 3.1c leaves the view where it is on a
+  first press and on a second. It applies at once.
 
-![The end of the Controls section: Middle-click pans On, Select groups without Alt Off, Window edge at Capture, and Edge stickiness greyed at 1.0, Needs Sticky.](images/settings/controls-2.png)
+![The end of the Controls section: View past the map's edge at 50%, Middle-click pans On, Window edge at Capture, and Edge stickiness greyed at 1.0, Needs Sticky.](images/settings/controls-2.png)
 
 ## Engine Limits
 
-![The Engine Limits section: Unit limit at 250 per player, Pathfinding cycles at 1x and Skirmish players at 10.](images/settings/engine-limits.png)
+![The Engine Limits section: Unit limit at 250 per player, Pathfinding cycles at 1x, Skirmish players at 10, and the heading Set by the mod.](images/settings/engine-limits.png)
 
 - **Unit limit**, 50 to 1500 units per player in steps of 50 (a mod may
   allow more). By default it is the unit limit your Total Annihilation
@@ -239,9 +299,21 @@ Each of these takes effect at once.
   setup's key codes store, so a code changes the slider and the slider
   changes what a code would set. A count you already stored stays, including
   one outside 2 to 10, until you move the slider.
+- **Weapon types**, set by the mod. It counts how many weapon types the
+  mod allows. The base game allows 256. In a match it shows how many of
+  that limit the match loaded, as "312 of 4096". Every player in a game
+  has the same count. The row never takes input.
+- **Sides**, set by the mod. It counts how many sides the mod allows. The
+  base game has 5. In a match it shows how many of that limit the match
+  loaded, as "7 of 10". Every player in a game has the same count. The
+  row never takes input.
 
 The three sliders are locked during a game, and in a multiplayer game or a
-replay they show "Set by the host".
+replay they show "Set by the host". Weapon types and Sides never take a
+focus, a key or a click. Resting on either says
+"Set by the mod. Every player in a game has the same."
+
+![The end of the Engine Limits section: the heading Set by the mod, Weapon types at 256, and Sides at 5.](images/settings/engine-limits-2.png)
 
 <a id="language"></a>
 
@@ -476,13 +548,21 @@ the game draws its text and how the modern fonts draw it.
     greyed band along an edge reaches a few pixels past the black, and
     under the game's dithered fog (`+dither`) that band, like all ground
     out of sight, has every other pixel blacked out: the thin chequered
-    fringe the original game shows.
+    fringe the original game shows. Zoomed in or out the dither stays one
+    screen pixel fine, as the original game's is at its own scale.
   - **Smooth**: soft edges that fade across each sight cell.
+
+  Under Smooth the dithered fog darkens ground out of sight evenly, by the
+  tone the original game's dither averages to.
 
   While the processor draws the battlefield (Hardware acceleration Off or
   Basic) the fog is always Classic, as the original game drew it. It
   changes only what your screen shows, never what any player can see, and
   takes effect at once, in a multiplayer game or a replay too.
+
+  The processor's dither is one screen pixel fine at every zoom too; where
+  the graphics card enlarges the processor's picture (Basic, zoomed in) it
+  is drawn as the even darkening it averages to.
 - **Zoomed out units**, Rendered or Dots, Rendered by default; Icons is
   shown but cannot be chosen yet. It says how units are drawn when the
   view is zoomed out farther than After zoom. Rendered draws every unit,
@@ -549,10 +629,17 @@ the game draws its text and how the modern fonts draw it.
     them, and shells that strike the water splash. Torpedoes and their hits
     stay at their depth and make no splash.
   - **Coastal waves** run toward the shore, gentler on small, sheltered
-    water.
-  - **Underwater shimmer** tints and lights only the parts of scenery and
-    units that are under the water, more the deeper they lie; what stands
-    above the water keeps its colours. At 0% your own units under the
+    water. Their foam takes the colour of the map's picture under it,
+    lighter than the ground there, so that it blends with sand, grass,
+    rock, snow or dark water rather than drawing a white line round
+    every shore.
+  - **Underwater shimmer** tints and lights only the parts of units,
+    wrecks and shots that are under the water, more the deeper they lie;
+    what stands above the water keeps its colours. In the classic and the
+    rotated view, scenery the map draws in its own art, such as an
+    underwater metal patch, keeps the colours the map gives it, as the
+    water's art around it does, so that it blends into the water as the
+    game draws it. At 0% your own units under the
     water are darkened and tinted blue as the game draws them at every
     other Hardware acceleration.
   - **Naval reflections** draw a faint, soft picture of each visible
@@ -560,15 +647,37 @@ the game draws its text and how the modern fonts draw it.
     ship shows as far below its waterline as it stands above it, fainter
     the higher it stands. They fade as the view turns flat.
 
+  They follow the map's sea. On a lava world (a map whose OTA sets
+  `lavaworld=1`) the lava shows none of the four, as the game draws it:
+  no ripples, waves, rings or splashes, no shimmer on what lies in it and
+  no reflections, and shots that land in it show the game's own lava
+  splash. Where the map's sea swallows shots without a splash
+  (`nosealeveltrigger=1`), shots and naval guns leave no rings or
+  splashes on it; its waves stay. A map whose water does damage
+  (`waterdoesdamage=1`, such as an acid world) keeps all four.
+
   Fine detail fades as the view zooms out, and the reflections of distant
   fleets are kept few. These effects change only what your screen shows,
   never the water's depth, movement or what any player can see. With
-  shadows on and Full hardware acceleration, an aircraft's shadow also has
-  a soft edge, a little wider once it climbs to cruise height above the
-  ground or water under it; it keeps the place and the darkness it has at
-  every other Hardware acceleration.
+  shadows on, Full hardware acceleration and **New unit shadows** On, an
+  aircraft's shadow also has a soft edge, a little wider once it climbs to
+  cruise height above the ground or water under it; it keeps the place and
+  the darkness it has at every other Hardware acceleration.
+- **New unit shadows**, On by default. It says which shadows units, their
+  wrecks and their shots cast where the graphics card draws the
+  battlefield (Hardware acceleration Full). On, Open Annihilation's: every
+  unit's shadow is laid on the ground under everything that stands on it,
+  so shadows that overlap darken it once and a shadow never falls across a
+  tree or another unit, and an aircraft's shadow has a soft edge. Off, the
+  original game's: each unit casts its shadow as the game drew it, with
+  the unit, darkening the ground and whatever stands under it, the same
+  kind of shadow as the trees and rocks cast, which comes with their own
+  art. With Hardware acceleration Off or Basic the processor draws the
+  original game's shadows whatever it says. It changes only what your
+  screen shows, never the game, and takes effect at once, in a multiplayer
+  game or a replay too.
 
-![The end of the Graphics section: the Water ripples, Coastal waves, Underwater shimmer and Naval reflections sliders at their defaults, 60%, 30%, 100% and 100%.](images/settings/graphics-2.png)
+![The end of the Graphics section: the Coastal waves, Underwater shimmer and Naval reflections sliders at their defaults, 30%, 100% and 100%, and New unit shadows On.](images/settings/graphics-2.png)
 
 Some computers start with other defaults, which Restore defaults puts back
 and which a value you choose always replaces:
@@ -587,9 +696,11 @@ and which a value you choose always replaces:
 ![The top of the User Interface section: Menu scaling Sharp, Window frame Hidden in play, HUD scaling On and the Interface size row.](images/settings/user-interface.png)
 
 The User Interface section says how Open Annihilation's own screens, the
-window and the side panel are drawn, and whether Escape opens the game
-menu. Each setting takes effect at once, except Interface size, which
-applies when you press OK.
+window and the side panel are drawn, where OA's windows stand, whether
+Escape opens the game menu, and the look of OA's own letters. Each
+setting takes effect at once, except Window size, which applies when you
+press OK; Interface size and Look show at once and are kept when you
+press OK.
 
 - **Menu scaling**, Sharp, Whole steps or Unfiltered, Sharp by default. It
   says how the menus, drawn at 640x480, fill the window, and how a game in
@@ -620,47 +731,164 @@ applies when you press OK.
   It takes effect at once, in a game too.
 - **Interface size**, Auto, 100%, 150%, 200%, 300% or 400%, Auto by
   default: how large Open Annihilation's own screens are drawn. These are
-  the settings, their notices and questions, the Library, the map browser,
-  GET MAP in the battle room, the Add registry window, the check that you
-  are a person, the battle room's player cards and the UI kit gallery. The
-  3.1c screens keep Menu scaling, the game's text keeps Text size and the
-  side panel and bars keep HUD scaling.
+  the settings, their notices and questions, the Library, the key editor,
+  the map browser, the mutator and brain pickers, the update centre and
+  its prompts, GET MAP in the battle room, the Add registry window, the
+  check that you are a person, the battle room's player cards and the UI
+  kit gallery. The 3.1c screens keep Menu scaling, the game's text keeps
+  Text size and the side panel and bars keep HUD scaling.
   - **Auto** draws them at the nearest size to the window's height in
     pixels divided by 720, and a tie takes the larger size. While Use
     modern fonts for game text is On and those fonts opened, Auto chooses
     among 1x, 150%, 2x, 3x, 4x and so on: 1x below 900 lines, 150% from
     900, 2x from 1260 and 3x from 1800. While the modern fonts are Off, or
     they did not open, Auto keeps whole steps: 1x below 1080 lines, 2x
-    from 1080 and 3x from 1800. Either way it is never below the display's
+    from 1080 and 3x from 1800. Where one step smaller gives the screens
+    the Large layout, or the layout Window size chose, and that size does
+    not, Auto takes the step. Either way it is never below the display's
     own pixel density, so a phone keeps the smallest layout, and never
     larger than lets the smallest layout fit the window.
   - **A size you choose** is used as far as the smallest layout still fits
-    the window, so 400% on a 1920x1080 window draws at 3x. 150% is offered
-    only while Use modern fonts for game text is On, because the game's
-    own fonts draw only at whole steps; turning the modern fonts off while
-    it is chosen sets 100%.
+    the window, so 400% on a 1920x1080 window draws at 3x, and it never
+    steps down. 150% is offered only while Use modern fonts for game text
+    is On, because the game's own fonts draw only at whole steps; turning
+    the modern fonts off while it is chosen sets 100%.
 
-  At that size each screen lays itself out for the room the window leaves
-  it: the Compact layout, the 480x324 dialog of earlier versions, while
-  fewer than 960x540 points are left; Regular, 720x486, from 960x540; and
-  Large, 960x600, from 1280x720. So at 1920x1080 Auto draws Large at 150%
-  while the modern fonts are on, and Regular at 2x while they are off. A
-  window a few lines short of that, 1914x1077, draws Regular at 150% with
-  the modern fonts on. At 2560x1440 Auto draws Large at 2x. A 640x480
-  window draws exactly as earlier versions did. In a match the settings
-  sit beside the side column, at no more than its scale, and take their
-  layout from the room beside it. With HUD scaling On, a 1920x1080 match
-  shows Compact at 2x with the modern fonts off, where the menus show
-  Regular, and Regular at 150% with them on, where the menus show Large.
-  It takes effect as you choose it, so the open dialog and every OA screen
-  redraw at the new size at once, and is never locked. Cancel puts back
-  the size the dialog opened with; OK keeps the size you chose. Choose a
-  larger size if OA's screens are small to read on a large display, or a
-  smaller one to see more of a list at once.
+  At that size each screen takes the largest of three layouts whose
+  settings dialog fits the window with 24 points round it: Compact, the
+  480x324 dialog of earlier versions; Regular, 720x486, from 768x534
+  points; and Large, 960x600, from 1008x648 points. So a 640x480 window
+  draws exactly as earlier versions did, 800x600 draws Regular, and
+  1024x768, 1280x720 and 1280x800 draw Large, all at 1x. At 1920x1080 Auto
+  draws Large at 1x with the game's fonts, where 2x would leave room only
+  for Regular, and Large at 150% with the modern fonts on. At 2560x1440
+  it draws Large at 2x, and at 3840x2160 Large at 3x.
+
+  In a match the settings measure the whole window, less the safe insets
+  on a touch screen: they are centred in it, or centred in the room right
+  of the side column where the middle would cover the column and that
+  room holds them, at no more than the side column's scale. With HUD
+  scaling On, 640x480 shows Compact at 1x where it always stood, 800x600
+  Regular at 1x, 1280x720 and 1920x1080 Large at 1x, 1920x1080 Large at
+  150% with the modern fonts on, and 2560x1440 and 3840x2160 Large at 2x.
+
+  Interface size takes effect as you choose it, so the open dialog and
+  every OA screen redraw at the new size at once, and is never locked.
+  Cancel puts back the size the dialog opened with; OK keeps the size you
+  chose. Choose a larger size if OA's screens are small to read on a large
+  display, or a smaller one to see more of a list at once.
+- **Window size**, Auto, Compact, Regular or Large, Auto by default: the
+  layout Settings, the Library and OA's other windows take, in the menus
+  and in a match. Auto takes the largest whose dialog fits the window with
+  24 points round it, as above. A layout you choose is used wherever its
+  dialog fits the window whole, and elsewhere the largest that does, and
+  Auto's scale then steps down for it instead of for Large, so on a
+  1920x1080 window Compact draws at 2x. It applies when you press OK.
+  Choose a layout if you want the same one on every window.
+- **Reset window positions**: **Reset** puts every window you moved back
+  in the middle, at once, and the hint then says "Every window is back in
+  the middle." Cancel does not move them again. The places you gave the
+  overlays are kept ([Arrange overlays](controls.md#arrange-overlays)).
 - **Escape opens the game menu**, On by default on macOS and Off
   elsewhere. The first Escape cancels an order or clears the selection, as
   in 3.1c; the next opens the in-game menu. Turn it on if F2 is awkward to
   reach, as on many Mac keyboards.
+- **Look**, Modern or Classic, Modern by default: the letters of Open
+  Annihilation's own screens and overlays. These are Settings and its
+  notices and prompts, the Library, the key editor, the brain and mutator
+  pickers, the welcome setup, the UI kit gallery, the cards that show
+  over the rooms, and the overlays in a match (the keys panel, the latch
+  chips and the notices). It applies as you choose it, the open dialog
+  with the rest; Cancel puts back the look the dialog opened with, and
+  Restore defaults puts Modern back.
+  - **Modern**, "Open Annihilation's own screens in Barlow, a clear modern
+    face.": labels, values and buttons in Barlow SemiBold, hints and small
+    text in Barlow Regular, and the tracked capitals of window titles and
+    section headings in Barlow Condensed. A line in Greek or Cyrillic,
+    which Barlow lacks, is drawn whole in DejaVu Sans, so a word never
+    changes typeface part way; Chinese, Japanese and Korean come from the
+    language's own face, and emoji from Noto Emoji. Barlow is drawn sharp
+    at its own size at every Interface size, 150% among them, and the
+    layout is the same at each.
+  - **Classic**, "Open Annihilation's own screens in the game's own
+    fonts.": the game's two bitmap fonts at their own sizes, as 0.8.6 drew
+    every OA screen. The colours, shapes and spacing are the same in both
+    looks; only the letters differ.
+
+  The 3.1c game's own screens, its menus, rooms, side panel, briefings and
+  game text, keep the game's fonts in both looks. Game text has its own
+  switch, Use modern fonts for game text, in
+  [Language & Text](#language). A preferences file written before this
+  setting existed, by 0.8.6 or earlier, reads as Modern too, so a player
+  who updates sees Modern until choosing Classic. A file named with
+  `--preferences-file` starts in Classic. The setting is
+  `open-annihilation.ui.look`, `modern` or `classic`; any other text
+  reads as the default.
+
+## Accessibility
+
+![The top of the Accessibility section: Hold keys that latch 2 of 7 with Choose…, Sticky modifiers Off, Hold to confirm Off and the start of Long press.](images/settings/accessibility-1.png)
+
+![The end of the Accessibility section: Edge scrolling On, then the practice pad: Try it here, "Press a key, alone or with Shift, Ctrl or Alt.", its well, "Keys pressed here never reach the game." and Turn every helper off, greyed while every helper is off.](images/settings/accessibility-2.png)
+
+The Accessibility section gathers the input helpers in one place.
+[Keys](keys.md#accessibility) lists each helper, what it does in a match
+and where it is kept. Each
+setting takes effect at once. The pictures show two of the seven latchable
+actions on, so Hold keys that latch reads "2 of 7".
+
+Beside the rows, or under the last one at Compact, a practice pad lets you
+try the helpers before a match. It says what to try with the helpers that
+are on ("Tap Shift, then press A." while Sticky modifiers is on), shows
+the keys held, latched or locked, says what the last key did (latched,
+locked, let go, counted, too short for Slow keys, bounced, or held long
+enough for Hold to confirm, whose bar fills while you hold Ctrl + D), and
+says that keys pressed there never reach the game. The pad takes Shift,
+Ctrl, Alt, the letters and the digits while Accessibility is open; Tab,
+the arrows, Enter, Escape and the other keys work the dialog as anywhere
+else. **Turn every helper off** turns Sticky modifiers, Hold to confirm, Slow keys, Bounce keys, the
+Order wheel and Pointer keys off at once; it is greyed while they are all
+off.
+
+- **Hold keys that latch** shows how many latchable actions the layout in
+  use has turned on, of how many the game offers, as "2 of 7", and
+  **Choose…**. Choose… opens the key editor on Latchable, over the
+  settings. Key layout's Edit keys… still opens the editor on All. Queue
+  and the status strip latch: tap on, tap off. A chip shows each one on.
+- **Sticky modifiers**, Off or On, Off by default. A tapped Shift, Ctrl or
+  Alt holds for the next key or click. Tap twice to lock it.
+- **Hold to confirm**, Off or On, Off by default. Self-destruct, surrender
+  and quitting need a long press. A ring fills as you hold.
+- **Long press**, 200 to 1000 ms in steps of 50, 500 ms by default: how
+  long a hold is, for Hold to confirm and for keys bound to a hold.
+- **Slow keys**, Off, then 50 to 1000 ms in steps of 50, Off by default. A
+  key counts only after it is held this long, for a hand that brushes
+  keys.
+- **Bounce keys**, Off, then 50 to 1000 ms in steps of 50, Off by default.
+  A second press of the same key this soon is ignored.
+- **Order wheel**, Off, Hold right or Hold middle, Off by default. Holding
+  that mouse button opens the order wheel at the pointer.
+- **Pointer keys**, Off or On, Off by default. The numpad moves the
+  pointer; 5 clicks, 0 right-clicks.
+- **Double press**, System, then 200 to 1000 ms in steps of 50, System by
+  default. System uses the system's double-click time. Two presses this
+  close are a double press, and two clicks a double click.
+- **Key repeat delay**, System, then 150 to 1000 ms in steps of 50, System
+  by default, and **Key repeat rate**, System, then 2 to 30 a second,
+  System by default. System uses the system's repeat. Together they say
+  how soon a held camera, speed or page key repeats, and how fast.
+- **Drag threshold**, 32 to 96 px in steps of 8, 32 px by default: how far
+  a press may move and still be a click.
+- **Edge scrolling**, Off or On, On by default. Off stops the view
+  scrolling while the pointer rests at the window's edge. Arrow keys, and
+  the touch controls' edge band while a drag is held, keep moving the view.
+- **Move overlays**, Off or On, Off by default. On, the keys panel, the
+  chat line over the battlefield and the latch chips stand where you put
+  them; off, where the game puts them, and your places are kept.
+- **Overlay places**: whose places the overlays stand at, and
+  **Arrange…**, which can be pressed while Move overlays is on. It opens a
+  picture of the match where you drag them on a grid; each window size
+  keeps its own places ([Arrange overlays](controls.md#arrange-overlays)).
 
 ## Touch
 
@@ -736,7 +964,7 @@ each setting's choices and default, and what every input does.
 
 ## Game files
 
-![The Game files section: Installed reading 3.1c, Core Contingency, Battle Tactics and music, with MANAGE…, Include in device backups Off, and Where the files are.](images/settings/game-files.png)
+![The Game files section: Installed reading 3.1c, Core Contingency, Battle Tactics and music, with Manage…, Include in device backups Off, and Where the files are.](images/settings/game-files.png)
 
 On an iPhone or an iPad, the main menu's settings have a Game files
 section for the Total Annihilation files copied onto the device:
@@ -756,7 +984,7 @@ them.
 
 ![The top of the Downloads section: Check for content updates at Automatically, Install ID On with its hint, and under that hint the line "Made at your first download".](images/settings/downloads-1.png)
 
-![The end of the Downloads section: Install ID On with "Made at your first download", Downloaded files reading "Nothing kept" with EMPTY greyed, and REGISTRIES IN THE LIBRARY… with the line "Registries are in the Library."](images/settings/downloads-2.png)
+![The end of the Downloads section: Install ID On with "Made at your first download", Downloaded files reading "Nothing kept" with Empty greyed, and Registries in the Library… with the line "Registries are in the Library."](images/settings/downloads-2.png)
 
 Downloads says when Open Annihilation looks for new content, holds the
 install ID a registry asks for, and keeps the files downloads leave behind.
@@ -779,16 +1007,16 @@ download sends and records.
   are off; installed content keeps working. Before an ID is made, the
   line under the hint says "Made at your first download". Once one exists,
   a row labelled **Your install ID** shows it in part, as
-  "7f3a90d2 · · · c91e", or "Off" while the switch is off, and **RESET**
+  "7f3a90d2 · · · c91e", or "Off" while the switch is off, and **Reset**
   replaces it with a new random one at once. Each registry that asks for
   an install ID has its own,
   labelled "Install ID · *registry*" when there is more than one. The
   switch takes effect at OK; RESET acts at once, and Cancel does not undo
   it.
 - **Downloaded files**: how much the download folder keeps for resuming and
-  repairs, or "Nothing kept". **EMPTY** removes those files at once; it is
+  repairs, or "Nothing kept". **Empty** removes those files at once; it is
   greyed while nothing is kept, or while a download is using them.
-- **REGISTRIES IN THE LIBRARY…**, on the main menu only: opens the Library
+- **Registries in the Library…**, on the main menu only: opens the Library
   on its Registries tab, where every registry is listed, switched, removed
   or added. The line under it says "Registries are in the Library." During
   a game the row is not listed. [The Registries tab](library.md#the-registries-tab)
@@ -798,6 +1026,77 @@ download sends and records.
 During a game RESET and EMPTY are locked ("Locked during a game", as every
 other locked row says). The check and the install-ID switch can still
 change.
+
+## Updates
+
+![The top of the Updates section on a desktop, over the main menu: the card reading Installed 0.8.7 and Up to date with Check now, then Download automatically Off and the start of Check for updates.](images/settings/updates-1.png)
+
+![The same card while a release is offered: 0.8.8 is out, You have 0.8.7. The update is 24.5 MB., Download update and Skip this version, and the note that saved games, settings and mods stay as they are.](images/settings/updates-2.png)
+
+![The end of the Updates section: Check for updates at Automatically, Install updates at Ask each time, and Previous version · 0.8.6 with Roll back….](images/settings/updates-3.png)
+
+Updates says where an update of Open Annihilation stands, and when the
+game looks for one, downloads it and installs it. The three pictures come
+from the game itself, Settings at Compact over the main menu of a 640 by
+480 window, cut to the dialog and drawn at 2×, so they list no Touch,
+Controller or Game files; the version running there is 0.8.7, and 0.8.6
+is kept.
+
+- **The card** at the top: "Installed" and the version you are running,
+  the state ("Up to date", "0.8.8 is out", "Downloading 0.8.8", "0.8.8
+  is ready", "Not checked yet", "OA never checks" and the others
+  [Updates](updates.md#where-an-update-stands) lists), a line of detail
+  (the size of the update, the bytes done and the time left, or what
+  went wrong), a bar while a download moves, amber while it is paused,
+  the state's actions as buttons, the first in the accent, and a note
+  under them. The actions are those the state allows: **Check now**;
+  **Download update** and **Skip this version**; **Pause** or **Resume**,
+  with **Cancel download**; **Install when I quit**, or **Don't install
+  when I quit** once it is scheduled, with the action that installs now,
+  named for the way this copy installs (**Install and restart**, **Open
+  the installer** or **Close the game**); **Try this version** for a
+  release you skipped; **Try again** and **Show details** after a
+  failure. They act at once, and the dialog stays open. While a check
+  runs the card has no button. With Check for updates at Never the card
+  says "OA never checks" and offers no Check now.
+- **Download automatically**, Off unless you turn it on. Off, OA asks
+  before it downloads a release, as the hint says. On, a release that can
+  be installed here starts downloading at the settled main menu, and
+  stops during a match. It takes effect when you press OK. The setting is
+  `open-annihilation.update-download`, `0` or `1`. Absent reads as off,
+  so a found update is not fetched until you press Download update.
+- **Check for updates**, Automatically, Only when I ask, or Never,
+  Automatically by default. Automatically looks at every start and every
+  hour while the game runs. The first look waits until the main menu has
+  settled. A later one runs at a menu, in a match or in a dialog, and a
+  release found during a match waits for the next main menu. Only when I
+  ask waits for Check now. Never makes no request, and Check now is not
+  offered. It takes effect when you press OK. Cancel puts back the choice
+  the dialog opened with. The hint says OA looks for a newer Open
+  Annihilation at every start and every hour while it runs, and never
+  installs one until you say so.
+- **Install updates**, Ask each time or When I quit, Ask each time by
+  default. Ask each time asks with the ready prompt when a download is
+  ready. When I quit schedules a ready release for the next time you quit,
+  without asking. It takes effect when you press OK. The setting is
+  `open-annihilation.update-install`, `ask` or `when-i-quit`.
+- **Previous version · {version}**, shown only while a version is kept,
+  with **Roll back…** and the hint "Roll back restores {version} and the
+  settings you had before updating." Roll back… asks once, showing what
+  comes back and what stays as it is
+  ([Rolling back](updates.md#rolling-back)). OA restarts on the kept
+  version with the settings it had, and the version you leave is not
+  offered again until a newer release. The row is locked during a game,
+  as RESET is.
+
+While a download moves or is paused, the section list shows its share
+beside Updates, as "41%", and "ready" once a release is ready or
+scheduled. The header of every Settings page, and the Library's header,
+show the same short words beside the version where they fit, such as
+"0.8.8 · 41%" or "0.8.8 is ready".
+
+[Updates](updates.md) says what the check reads, what it sends, and what
+it keeps.
 
 ## Game Content
 
@@ -820,7 +1119,7 @@ installation is not used or changed.
 
 ## System
 
-![The top of the System section: Your files with the folder path and SAVES, SCREENSHOTS and MODS, Welcome setup with SHOW AGAIN, File Type Registration, and the Mod packages and Map packs switches On.](images/settings/system-1.png)
+![The top of the System section: Your files with the folder path and SAVES, SCREENSHOTS and MODS, Welcome setup with Show again, File Type Registration, and the Mod packages and Map packs switches On.](images/settings/system-1.png)
 
 System is where the game sits on your computer: your own folder, and which
 of the game's file types this copy opens.
@@ -838,12 +1137,12 @@ of the game's file types this copy opens.
   [Windows](installation/windows.md#where-it-keeps-its-files),
   [Linux](installation/linux.md#where-it-keeps-its-files)).
 - **Welcome setup** walks through the language, online features and the OA
-  buttons again. **SHOW AGAIN**, then **OK**, clears
+  buttons again. **Show again**, then **OK**, clears
   `open-annihilation.first-run`, and the welcome shows at the next main
   menu. **Cancel** leaves it as it was. During a game the row is locked
   and says "Choose from the main menu." The welcome itself is
   [the first-run setup](first-run.md).
-- **File Type Registration**, on Windows, Linux and macOS. Seven switches,
+- **File Type Registration**, on Windows, Linux and macOS. Eight switches,
   all On at first:
   - **Mod packages (.oamod)**
   - **Map packs (.oamap)**
@@ -851,11 +1150,12 @@ of the game's file types this copy opens.
   - **Registry files (.oareg)**
   - **Mutator packages (.oamut)**
   - **Brain packages (.oabrain)**
+  - **Key layout packages (.oakeys)**
   - **Launch files (.oalaunch)**: a launch file opened from the file
     manager starts the game in its battle room
     ([Opening a launch file](command-line.md#opening-a-launch-file))
 
-  ![The end of the System section: File Type Registration with its line, then the Mod packages, Map packs, Language packs, Registry files, Mutator packages, Brain packages and Launch files switches, each On.](images/settings/system-2.png)
+  ![The end of the System section: File Type Registration with its line, then the Mod packages, Map packs, Language packs, Registry files, Mutator packages, Brain packages, Key layout packages and Launch files switches, each On.](images/settings/system-2.png)
 
   The hint says "Open these files with the game from your file manager."
   **OK** applies a switch you moved, at once. **Cancel** leaves every
@@ -864,7 +1164,7 @@ of the game's file types this copy opens.
   the game does not put a type back.
   Each switch is kept as `on` or `off` under
   `open-annihilation.file-types.` and its extension (`.oamod`, `.oamap`,
-  `.oalang`, `.oareg`, `.oamut`, `.oabrain`, `.oalaunch`). A missing key, or any text other than
+  `.oalang`, `.oareg`, `.oamut`, `.oabrain`, `.oakeys`, `.oalaunch`). A missing key, or any text other than
   `off`, leaves the type on. Each switch acts on its own type alone: moving
   one never registers, withdraws or changes the opener of another.
 
@@ -884,7 +1184,7 @@ of the game's file types this copy opens.
   On a Mac, a switch that is on means Open Annihilation is the program
   Finder uses to open that type. The switch shows that choice as it is
   now, not only what was stored. Off hands the type back to the program
-  that opens a zip archive (the five packages, usually Archive Utility)
+  that opens a zip archive (the six packages, usually Archive Utility)
   or plain text (a registry file or a launch file). The app keeps the type
   and its icon either way; only the program that opens it changes. If the
   system refuses, the log says so and the switch shows the choice the
@@ -897,13 +1197,13 @@ of the game's file types this copy opens.
   System opens in this run, and it goes away when every switch matches
   what you asked. [macOS](installation/macos.md) says the same for opening
   a file.
-- **File types**, on iPhone and iPad, in place of the seven switches. The
+- **File types**, on iPhone and iPad, in place of the eight switches. The
   system takes the types from the app, and there is no way to choose a
   default opener, so there is no switch. The hint is one sentence.
 
 ## Developer
 
-![The Developer section: Enable Developer Mode Off, Show performance statistics Off and UI kit gallery with its SHOW button, then the first areas of the standard hacks closed (AI, Aircraft, Console), and under them Show Active Only and RESTORE PROFILE VALUES.](images/settings/developer.png)
+![The Developer section: Enable Developer Mode Off, Show performance statistics Off and UI kit gallery with its SHOW button, then the first areas of the standard hacks closed (AI, Aircraft, Console, Economy), scrolling with the rows; the section list is scrolled to Developer, at its foot.](images/settings/developer.png)
 
 The Developer section sits at the foot of the column, under the divider.
 
@@ -926,10 +1226,11 @@ The Developer section sits at the foot of the column, under the divider.
   battlefield at, and the display's size, refresh rate and scale (2x on a
   Retina display), as the `+stats` console command shows them. It works whether or not Developer Mode is
   on, and takes effect at once.
-- **UI kit gallery** is not a setting: **SHOW** opens the gallery over the
+- **UI kit gallery** is not a setting: **Show** opens the gallery over the
   settings, every part of Open Annihilation's own screens in each of its
   states, at the size and layout the window gives them now (see Interface
-  size, in [Graphics](#graphics)). **CLOSE** goes back to the settings.
+  size, in [User Interface](#user-interface)). **Close** goes back to the
+  settings.
   It is for checking how OA's screens look, and for people building
   them ([the UI kit](extensions/ui-kit.md)).
 
@@ -937,7 +1238,11 @@ Under them the section lists every standard hack, grouped by area, with a
 switch for each and a control for each of its values. **Show Active Only**
 shows only the hacks that are on, and **Restore profile values** clears
 every change. Developer Mode keeps its changes for each mod apart. Restore
-defaults turns it off but keeps the changes.
+defaults turns it off but keeps the changes. At Regular and Large the list
+scrolls in a view of its own under the three rows. At Compact the whole
+section scrolls as one: the three rows, then the list, then Show Active
+Only and Restore profile values, and the arrow keys walk from the rows
+into the list and on to those two.
 
 The hacks themselves are described in [Mod support](mods/README.md):
 [Developer Mode](mods/README.md#developer-mode) in full,
@@ -949,7 +1254,7 @@ a page for each in [standard-hacks](mods/standard-hacks/).
 These options set a setting for one run without changing what is kept.
 The row then shows "Set on the command line". The mod options choose the
 mod for the run: the Library then says "The command line chose this run's
-mod." and turns PLAY NOW and SWITCH OFF off.
+mod." and turns Play now and Switch off off.
 
 | Option | Setting | For the run |
 |---|---|---|

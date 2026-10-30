@@ -23,6 +23,7 @@ in this repository or in the release packages.
 | [DejaVu fonts](#dejavu-fonts) | 2.37, DejaVu Sans and DejaVu Sans Bold | Bitstream Vera and Arev licences; DejaVu changes public domain | font files | font files | font files |
 | [Noto Sans CJK](#noto-sans-cjk) | 2.004, SC Bold, cut to the languages' own names and the language notice | SIL Open Font License 1.1 | font file | font file | font file |
 | [Noto Emoji](#noto-emoji) | 3.002, monochrome | SIL Open Font License 1.1 | font file | font file | font file |
+| [Barlow](#barlow) | 1.422, Barlow Regular, Medium, SemiBold and Bold, Barlow Condensed SemiBold and Bold | SIL Open Font License 1.1 | font files | font files | font files |
 | [stb_vorbis](#stb_vorbis) | 1.22, changed | public domain or MIT | static | static | static |
 | [dr_mp3 and dr_flac](#dr_mp3-and-dr_flac) | 0.7.3 and 0.13.3, with later fixes | public domain or MIT No Attribution | static | static | static |
 | [Monocypher](#monocypher) | 4.0.2 | BSD-2-Clause | static | static | static |
@@ -335,6 +336,27 @@ Noto Emoji 3.002, the monochrome emoji font, unmodified, from
 as `NotoEmoji.ttf`, draws emoji in the colour of the text. Copyright 2013
 Google LLC. It is licensed under the SIL Open Font License, Version 1.1; the
 text is in [`licenses/NotoEmoji-OFL.txt`](licenses/NotoEmoji-OFL.txt).
+
+## Barlow
+
+Barlow Regular, Medium, SemiBold and Bold and Barlow Condensed SemiBold and
+Bold 1.422, unmodified, from <https://github.com/jpt/barlow> at the release
+tag `1.422`: `fonts/ttf/Barlow-Regular.ttf` (SHA-256
+`a72240db047b468c957834cdbd607f013da32edee62d096f5fe0a4c2dc8433ce`),
+`Barlow-Medium.ttf`
+(`5a26763b11d11a437ab9f1c46281d3615ab1f6b93c90b8fa181e03978971b9e9`),
+`Barlow-SemiBold.ttf`
+(`cafab6a24fc131fd2dbbe56b9cf8daa616db3d5929fa89c35acba690e620585e`),
+`Barlow-Bold.ttf`
+(`b5af7fa4dd961a259b075cd23094cd4e961afb6a0b5ac5cf0e3395fc54b7a4b5`),
+`BarlowCondensed-SemiBold.ttf`
+(`0dae49e31a5dd598184b8ed18ed877f9280e07c4cc3fa7c2cad25a5e7d8a3ad4`) and
+`BarlowCondensed-Bold.ttf`
+(`e4fd0ebbc8b4346229f5c409f34e052b5e0d7fbcb7a7c4c30f7c5d334b4953b2`), draw
+Open Annihilation's own screens in the modern look. Copyright 2017 The
+Barlow Project Authors (https://github.com/jpt/barlow). It is licensed
+under the SIL Open Font License, Version 1.1; the text is in
+[`licenses/Barlow-OFL.txt`](licenses/Barlow-OFL.txt).
 
 ## mingw-w64 runtime and winpthreads
 

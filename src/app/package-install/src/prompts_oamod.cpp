@@ -51,10 +51,10 @@ constexpr std::size_t shown_diagnostics = 3;
 std::string backup_removed(const InstalledPackage& backup) {
     if (backup.kind != FolderKind::package)
         return fill(
-            "The folder kept for ROLL BACK, which holds no mod that can be read, is removed.", {}
+            "The folder kept for Roll back, which holds no mod that can be read, is removed.", {}
         );
     return fill(
-        "The folder kept for ROLL BACK ({backup}) is removed.",
+        "The folder kept for Roll back ({backup}) is removed.",
         {{"backup", version_label(backup.version, backup.revision, true)}}
     );
 }
@@ -161,11 +161,11 @@ PackagePrompt question_prompt(
             )));
         if (installed.revision == 0)
             text.push_back(text_of(fill(
-                "The version installed is kept, and ROLL BACK in the Library brings it back.", {}
+                "The version installed is kept, and Roll back in the Library brings it back.", {}
             )));
         else
             text.push_back(text_of(fill(
-                "Revision {installed} is kept, and ROLL BACK in the Library brings it back.",
+                "Revision {installed} is kept, and Roll back in the Library brings it back.",
                 {{"installed", std::to_string(installed.revision)}}
             )));
         if (plan.backup)
@@ -188,7 +188,7 @@ PackagePrompt question_prompt(
             {{"title", title}, {"installed", installed.version}, {"incoming", incoming.version}}
         )));
         text.push_back(text_of(fill(
-            "Replacing keeps {installed}, and ROLL BACK in the Library brings it back.",
+            "Replacing keeps {installed}, and Roll back in the Library brings it back.",
             {{"installed", installed.version}}
         )));
         if (plan.backup)
@@ -229,7 +229,7 @@ PackagePrompt question_prompt(
                     {{"backup", version_label(plan.backup->version, plan.backup->revision, true)}}
                 )));
             else
-                text.push_back(text_of(fill("The folder kept for ROLL BACK stays.", {})));
+                text.push_back(text_of(fill("The folder kept for Roll back stays.", {})));
         }
         if (played)
             text.push_back(text_of(fill(played_text, {})));
@@ -273,11 +273,11 @@ PackagePrompt installed_prompt(const Incoming& incoming, const fs::path& folder,
     text.push_back(path_of(folder));
     text.push_back(text_of(
         play_now ? fill(
-                       "Choose PLAY NOW to play it, or choose it later with PLAY NOW in the "
+                       "Choose Play now to play it, or choose it later with Play now in the "
                        "Library.",
                        {}
                    )
-                 : fill("Choose it with PLAY NOW in the Library to play it.", {})
+                 : fill("Choose it with Play now in the Library to play it.", {})
     ));
     add_button(made, open_folder_caption, Answer::open_folder);
     if (play_now)
@@ -306,7 +306,7 @@ PackagePrompt updated_prompt(
     case Change::install:
         if (result.backup_kept)
             text.push_back(text_of(fill(
-                "{title} is now {new}. {old} is kept, and ROLL BACK in the Library brings it "
+                "{title} is now {new}. {old} is kept, and Roll back in the Library brings it "
                 "back.",
                 {{"title", now.name}, {"new", new_label}, {"old", old_label}}
             )));
@@ -324,7 +324,7 @@ PackagePrompt updated_prompt(
     case Change::roll_back:
         if (result.backup_kept)
             text.push_back(text_of(fill(
-                "{title} is back to {new}. {old} is kept, and ROLL BACK brings it back.",
+                "{title} is back to {new}. {old} is kept, and Roll back brings it back.",
                 {{"title", now.name}, {"new", new_label}, {"old", old_label}}
             )));
         else
@@ -473,7 +473,7 @@ roll_back_refused_prompt(std::string_view title, std::string_view to, std::strin
     made.prompt.title = tr("MOD NOT ROLLED BACK");
     auto& text = made.prompt.paragraphs;
     text.push_back(text_of(fill(
-        "{title} {to}, the version kept for ROLL BACK, cannot be played.",
+        "{title} {to}, the version kept for Roll back, cannot be played.",
         {{"title", std::string(title)}, {"to", std::string(to)}}
     )));
     text.push_back(text_of(std::string(reason)));

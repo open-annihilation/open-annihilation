@@ -9,6 +9,7 @@
 #include "library_host.hpp"
 #include "mod_install_state.hpp"
 #include "oa_layer.hpp"
+#include "window_placement.hpp"
 #include "oa/app/package_install.hpp"
 #include "oa/app/package_install/oamod.hpp"
 #include "oa/app/package_install/prompts.hpp"
@@ -25,13 +26,19 @@
 #include "oa/app/content_copy.hpp"
 #include "oa/app/setup_before_game.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/app/update/checker.hpp"
+#include "oa/app/update/build.hpp"
+#include "oa/app/update/centre.hpp"
 #include "oa/ui/engine_settings/file_types.hpp"
 #include "oa/ui/first_run/first_run.hpp"
 #include "oa/netgame/presence.hpp"
 #include "oa/app/view_rules.hpp"
 #include "oa/data/registry/descriptor.hpp"
+#include "oa/data/key_library/library.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/data/mod_profile/overrides.hpp"
+#include "oa/formats/oakeys/manifest.hpp"
+#include "oa/ui/key_editor/text.hpp"
 #include "render_host.hpp"
 #include "render_run.hpp"
 #include "screen_size.hpp"
@@ -63,6 +70,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <memory>
@@ -647,6 +655,115 @@ window_desktop(const Options& options, SDL_Window* window, settings::ScreenSize 
 
 /// The version the dialog's header shows.
 constexpr const char* kVersionText = "v" OA_ENGINE_VERSION;
+
+/// The generation of the update snapshot Updates last painted. A check that
+/// finishes on another section is painted the next time Updates is open.
+uint64_t& updates_generation_seen() {
+    static uint64_t seen = 0;
+    return seen;
+}
+
+/// Returns a version without a leading v, as the status line writes it.
+///
+/// @param header the header's version text
+/// @return the version
+std::string_view release_version(std::string_view header) noexcept {
+    if (!header.empty() && (header.front() == 'v' || header.front() == 'V'))
+        header.remove_prefix(1);
+    return header;
+}
+
+/// Returns the word the update preference stores for a way.
+///
+/// @param mode the way
+/// @return automatically, when-asked or never
+std::string_view update_mode_word(settings::UpdateCheck mode) noexcept {
+    switch (mode) {
+    case settings::UpdateCheck::when_asked:
+        return "when-asked";
+    case settings::UpdateCheck::never:
+        return "never";
+    case settings::UpdateCheck::automatically:
+        return "automatically";
+    }
+    return "automatically";
+}
+
+/// Returns where the host's snapshot stands, as the page's lines name it.
+///
+/// @param state the snapshot's state
+/// @return the stand
+settings::UpdateStand update_stand(update::CheckState state) noexcept {
+    switch (state) {
+    case update::CheckState::idle:
+        return settings::UpdateStand::idle;
+    case update::CheckState::checking:
+        return settings::UpdateStand::checking;
+    case update::CheckState::up_to_date:
+        return settings::UpdateStand::up_to_date;
+    case update::CheckState::offered:
+        return settings::UpdateStand::offered;
+    case update::CheckState::failed:
+        return settings::UpdateStand::failed;
+    case update::CheckState::cancelled:
+        return settings::UpdateStand::cancelled;
+    }
+    return settings::UpdateStand::idle;
+}
+
+/// Fills Updates from a snapshot. The way is the one the dialog shows, so an
+/// unsaved change is not put back.
+///
+/// @param[in,out] dialog the dialog
+/// @param snapshot the check
+/// @param version this build's version, without a leading v
+void paint_updates(
+    settings::Dialog& dialog, const update::CheckSnapshot& snapshot, std::string_view version
+) {
+    settings::UpdateReading reading;
+    reading.version = version;
+    reading.stand = update_stand(snapshot.state);
+    reading.never = dialog.chosen.update_check == settings::UpdateCheck::never;
+    reading.checked_at = snapshot.checked_at;
+    reading.now = std::chrono::duration_cast<std::chrono::seconds>(
+                      std::chrono::system_clock::now().time_since_epoch()
+    )
+                      .count();
+    if (snapshot.offer.release != nullptr)
+        reading.offer_version = snapshot.offer.release->version_text;
+    reading.replaces_itself = update::replaces_itself();
+    if (!reading.replaces_itself)
+        reading.packager = update::packager_name();
+    const settings::UpdateLines lines = settings::update_lines(reading);
+    dialog.updates.version_line = lines.version_line;
+    dialog.updates.status = lines.status;
+    dialog.updates.can_check = lines.can_check;
+    dialog.updates.offered = lines.offered;
+    dialog.updates.updated_by = lines.updated_by;
+    dialog.updates.mode = static_cast<int32_t>(dialog.chosen.update_check);
+}
+
+/// Notes the generation Updates was just painted from.
+///
+/// @param snapshot the check
+void note_updates_generation(const update::CheckSnapshot& snapshot) noexcept {
+    updates_generation_seen() = snapshot.generation;
+}
+
+/// Paints Updates when the check has moved and that section is open.
+///
+/// @param snapshot the check
+/// @param[in,out] dialog the dialog
+/// @return true when the lines changed
+bool refill_updates(const update::CheckSnapshot& snapshot, settings::Dialog& dialog) {
+    if (dialog.page != settings::Page::updates)
+        return false;
+    if (snapshot.generation == updates_generation_seen())
+        return false;
+    paint_updates(dialog, snapshot, release_version(dialog.version));
+    note_updates_generation(snapshot);
+    return true;
+}
 
 /// What the player is told when the preferences file could not be written.
 constexpr std::string_view kSaveFailedText = "Settings were not saved.";
@@ -1239,6 +1356,17 @@ void Runtime::apply_engine_settings(const settings::EngineSettings& chosen) {
     // ui.megamap acts only while the wheel zoom is off.
     if (before.wheel_zoom != chosen.wheel_zoom && match_)
         megamap_wheel_zoom_changed();
+    if (before.sticky_modifiers != chosen.sticky_modifiers)
+        apply_sticky_modifiers(chosen.sticky_modifiers);
+    if (before.pointer_keys != chosen.pointer_keys)
+        apply_pointer_keys(chosen.pointer_keys);
+    // Turning Hold to confirm off drops a hold that has not finished.
+    if (before.hold_to_confirm && !chosen.hold_to_confirm)
+        cancel_hold_confirm();
+    // Turning the order wheel off, or choosing the other button, drops a
+    // press that is waiting and closes a wheel the mouse opened.
+    if (before.order_wheel != chosen.order_wheel)
+        cancel_order_wheel();
     // SwitchAlt, where the keys read it: the match's options and the
     // frontend's preferences, which the match's options go back into.
     const auto with_switch_alt = [&](uint16_t flags) {
@@ -1291,6 +1419,7 @@ void Runtime::apply_engine_settings(const settings::EngineSettings& chosen) {
     // So does Include in device backups, on the game files themselves.
     if (chosen.game_files_backed_up != before.game_files_backed_up)
         EngineSettingsState::apply_game_files_backups(*this, chosen.game_files_backed_up);
+    apply_key_timings();
 }
 
 const oa::data::mod_profile::ModProfile* Runtime::mod_profile() const noexcept {
@@ -1601,6 +1730,245 @@ std::string kept_opener_hint_for(
     oa::platform::file_types::TypeSet asked, oa::platform::file_types::TypeSet open
 );
 
+namespace {
+
+namespace library = oa::data::key_library;
+namespace oakeys = oa::formats::oakeys;
+
+/// The most bytes of an own layout's manifest this dialog will read.
+constexpr std::size_t kOwnManifestBytes = 256U * 1024U;
+
+/// Reads a preference. An absent key is empty, and the map is not changed.
+///
+/// @param values the preferences
+/// @param key the key
+/// @return the value, or empty
+std::string stored_text(const std::map<std::string, std::string>& values, std::string_view key) {
+    const auto found = values.find(std::string(key));
+    if (found == values.end())
+        return {};
+    return found->second;
+}
+
+/// Reads oakeys.yaml when it is a regular file of at most kOwnManifestBytes.
+///
+/// @param file the manifest
+/// @param[out] manifest the manifest, when it reads
+/// @return true when the file was read
+bool read_own_manifest(const fs::path& file, oakeys::Manifest& manifest) {
+    std::error_code error;
+    const fs::file_status status = fs::symlink_status(file, error);
+    if (error || !fs::is_regular_file(status))
+        return false;
+    const auto size = fs::file_size(file, error);
+    if (error || size > kOwnManifestBytes)
+        return false;
+    std::ifstream in(file, std::ios::binary);
+    if (!in)
+        return false;
+    std::vector<uint8_t> bytes;
+    bytes.reserve(static_cast<std::size_t>(size));
+    for (std::istreambuf_iterator<char> at{in}, end; at != end; ++at)
+        bytes.push_back(static_cast<uint8_t>(*at));
+    if (!in && !in.eof())
+        return false;
+    std::vector<oakeys::Problem> problems;
+    return oakeys::read_manifest(bytes, manifest, problems);
+}
+
+/// How many actions an own layout names, each once. Helpers are not bindings.
+///
+/// @param manifest the own layout
+/// @return the count, held to what a 32-bit int stores
+int32_t actions_named(const oakeys::Manifest& manifest) {
+    std::vector<std::string> named;
+    named.reserve(manifest.bindings.size());
+    for (const oakeys::BindingEntry& binding : manifest.bindings) {
+        if (binding.action.empty())
+            continue;
+        bool seen = false;
+        for (const std::string& have : named) {
+            if (have == binding.action) {
+                seen = true;
+                break;
+            }
+        }
+        if (!seen)
+            named.push_back(binding.action);
+    }
+    return static_cast<int32_t>(named.size());
+}
+
+/// True when a layout's works-with names the mod.
+///
+/// @param manifest the layout
+/// @param mod_id the mod's id
+/// @return true when one condition's id is that mod
+bool made_for_mod(const oakeys::Manifest& manifest, std::string_view mod_id) {
+    if (mod_id.empty())
+        return false;
+    for (const auto& condition : manifest.works_with)
+        if (condition.id == mod_id)
+            return true;
+    return false;
+}
+
+/// The layout in use: a per-mod choice, else the base preference, else OA default.
+struct LayoutInUse {
+    std::string id{"oa-default"}; ///< the layout's id, which the own folder is named for
+    std::string name{std::string(oa::ui::key_editor::words::oa_default)}; ///< the name players see
+    bool builtin{true}; ///< OA default, whose name the catalogue translates
+};
+
+/// Resolves the layout in use the way the bindings do.
+///
+/// A per-mod id that is not installed is OA default, not the base preference.
+///
+/// @param listing the installed layouts
+/// @param per_mod the played mod's stored id; empty or `same` defers to the base
+/// @param base the base preference; empty or `oa-default` is OA default
+/// @return the layout
+LayoutInUse
+layout_in_use(const library::Listing& listing, std::string_view per_mod, std::string_view base) {
+    const auto from_installed = [](const library::Installed& installed) {
+        LayoutInUse used;
+        used.builtin = false;
+        used.id = installed.manifest.id;
+        used.name = installed.manifest.name.empty() ? used.id : installed.manifest.name;
+        return used;
+    };
+    if (!per_mod.empty() && per_mod != "same") {
+        if (const library::Installed* installed = library::find(listing, per_mod))
+            return from_installed(*installed);
+        return {};
+    }
+    if (!base.empty() && base != "oa-default" && base != "same") {
+        if (const library::Installed* installed = library::find(listing, base))
+            return from_installed(*installed);
+    }
+    return {};
+}
+
+/// Tells whether an id is the base game, not a mod.
+///
+/// Overrides are kept under `ta-3.1c`. The profile the base game resolves
+/// to carries `base-game`. Neither is a mod the Key layout row names.
+///
+/// @param id a profile id
+/// @return true when the id is empty or names the base game
+bool base_game_profile(std::string_view id) {
+    return id.empty() || id == oa::data::mod_profile::base_game_id || id == "base-game";
+}
+
+/// Returns the OA layer's Window size for the setting's: the same four
+/// choices under the same preference key.
+///
+/// @param size the setting
+/// @return the layer's choice
+window_placement::WindowSize placement_window_size(settings::WindowSize size) noexcept {
+    switch (size) {
+    case settings::WindowSize::compact:
+        return window_placement::WindowSize::compact;
+    case settings::WindowSize::regular:
+        return window_placement::WindowSize::regular;
+    case settings::WindowSize::large:
+        return window_placement::WindowSize::large;
+    case settings::WindowSize::automatic:
+        break;
+    }
+    return window_placement::WindowSize::automatic;
+}
+
+} // namespace
+
+void Runtime::fill_settings_key_layout(settings::Dialog& dialog) {
+    const auto* profile = mod_profile();
+    if (profile != nullptr && !base_game_profile(profile->id)) {
+        dialog.played_mod = profile->name.empty() ? profile->id : profile->name;
+        dialog.played_mod_id = profile->id;
+    } else {
+        dialog.played_mod.clear();
+        dialog.played_mod_id.clear();
+    }
+
+    const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
+    const library::Listing listing = library::list_installed(keys_folder);
+    dialog.key_layouts.clear();
+    for (const library::Installed& installed : listing.layouts) {
+        if (installed.origin == library::Origin::own || installed.manifest.id.starts_with("own-"))
+            continue;
+        settings::KeyLayoutChoice choice;
+        choice.id = installed.manifest.id;
+        choice.name = installed.manifest.name.empty() ? choice.id : installed.manifest.name;
+        choice.made_for = made_for_mod(installed.manifest, dialog.played_mod_id);
+        dialog.key_layouts.push_back(std::move(choice));
+    }
+
+    std::string chosen{"same"};
+    if (!dialog.played_mod_id.empty()) {
+        const std::string stored = stored_text(
+            preference_values_, std::string(settings::key::keys_layout) + "." + dialog.played_mod_id
+        );
+        if (!stored.empty())
+            chosen = stored;
+    }
+    dialog.key_layout_for_mod = chosen;
+    dialog.opened.key_layout_for_mod = chosen;
+    dialog.chosen.key_layout_for_mod = chosen;
+    engine_settings_state().current.key_layout_for_mod = chosen;
+    refresh_settings_key_layout_summary(dialog);
+}
+
+void Runtime::refresh_settings_key_layout_summary(settings::Dialog& dialog) {
+    const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
+    const library::Listing listing = library::list_installed(keys_folder);
+    const std::string per_mod =
+        dialog.played_mod_id.empty()
+            ? std::string{}
+            : stored_text(
+                  preference_values_,
+                  std::string(settings::key::keys_layout) + "." + dialog.played_mod_id
+              );
+    const std::string base = stored_text(preference_values_, settings::key::keys_layout);
+    const LayoutInUse used = layout_in_use(listing, per_mod, base);
+    const fs::path own_file =
+        keys_folder / library::own_folder_name(used.id) / std::string(oakeys::manifest_file);
+    oakeys::Manifest own;
+    const int32_t changes = read_own_manifest(own_file, own) ? actions_named(own) : 0;
+    std::string name = used.name;
+    if (used.builtin && changes > 0)
+        name = std::string(oa::data::languages::interface_text(name));
+    dialog.key_layout_summary = settings::key_layout_summary_text(name, changes);
+    // The key layout card shows the name, the count and where the layout
+    // applies apart: the played mod's own choice applies with it only.
+    dialog.key_layout_name =
+        used.builtin ? std::string(oa::data::languages::interface_text(used.name)) : used.name;
+    dialog.key_layout_changes = changes;
+    dialog.key_layout_mod_only = !per_mod.empty() && per_mod != "same";
+#if defined(__APPLE__)
+    dialog.primary_modifier = "Cmd";
+#endif
+    dialog.latched_count = latched_action_count();
+}
+
+void Runtime::apply_key_layout_preference(settings::Dialog& dialog) {
+    if (base_game_profile(dialog.played_mod_id))
+        return;
+    const std::string key = std::string(settings::key::keys_layout) + "." + dialog.played_mod_id;
+    std::string chosen = dialog.chosen.key_layout_for_mod;
+    if (chosen.empty())
+        chosen = "same";
+    const std::string stored_value = stored_text(preference_values_, key);
+    const std::string stored = stored_value.empty() ? std::string("same") : stored_value;
+    if (stored == chosen)
+        return;
+    preference_values_[key] = chosen;
+    preferences_dirty_ = true;
+    flush_preferences();
+    load_key_bindings();
+    refresh_settings_key_layout_summary(dialog);
+}
+
 settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind) {
     EngineSettingsState::take_live_settings(*this);
     auto& state = engine_settings_state();
@@ -1615,6 +1983,7 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
             profile != nullptr ? profile->rules.orders.con_patrol_guard_options : base_builders;
         defaults.mod_options =
             view_rules::dialog_options(view_rules::read_view_settings(ui, builders, {}), ui);
+        fill_mod_option_keys(current.mod_options, defaults.mod_options);
         auto& dialog = state.dialog.emplace();
         settings::open_mod_options_dialog(
             dialog, current, defaults, view_rules::dialog_option_locks(ui), kVersionText
@@ -1698,6 +2067,9 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
     }
     lay_game_content(dialog, user_folder_);
     request_content_check(user_folder_);
+    paint_updates(dialog, update_snapshot(), release_version(kVersionText));
+    apply_update_download(dialog);
+    note_updates_generation(update_snapshot());
     // Your files shows the player's own folder.
     dialog.user_folder = path_to_utf8(user_folder_);
     // The languages whose packs turn Unicode chat on.
@@ -1747,6 +2119,18 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
             state.file_type_kept_hint = kept_opener_hint_for(*state.file_type_asked, report->open);
         dialog.file_type_kept_hint = state.file_type_kept_hint;
     }
+    // Weapon types and sides: the profile's limits, and, in a match, how
+    // many of each the match loaded. No profile is the base game.
+    settings::ModLimitsShown mod_shown;
+    mod_shown.mod = mod_profile() != nullptr;
+    mod_shown.weapon_types = limits_.weapon_types.types;
+    mod_shown.sides = limits_.sides.count;
+    if (match_ != nullptr) {
+        mod_shown.loaded_weapon_types = match_weapon_types_;
+        mod_shown.loaded_sides = side_table_.count;
+    }
+    dialog.mod_limits = std::move(mod_shown);
+    fill_settings_key_layout(dialog);
     return dialog;
 }
 
@@ -1873,6 +2257,8 @@ settings::Dialog* Runtime::engine_settings_dialog() {
 }
 
 bool Runtime::refresh_game_content(settings::Dialog& dialog) {
+    const bool updates_moved = refill_updates(update_snapshot(), dialog);
+    const bool download_moved = apply_update_download(dialog);
     service_content_check();
     ContentCopyWatch& watch = content_copy_watch();
     if (watch.active) {
@@ -1923,13 +2309,13 @@ bool Runtime::refresh_game_content(settings::Dialog& dialog) {
     if (apply) {
         const std::vector<settings::GameContentRow> saved = dialog.game_content;
         paint_check_result(dialog, result);
-        return content_rows_differ(saved, dialog.game_content);
+        return updates_moved || download_moved || content_rows_differ(saved, dialog.game_content);
     }
     if (running) {
         paint_checking(dialog, done, total);
         return true;
     }
-    return false;
+    return updates_moved || download_moved;
 }
 
 bool Runtime::take_engine_settings_action(settings::DialogAction action) {
@@ -1972,9 +2358,16 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             view_rules::apply_dialog_options(
                 dialog->chosen.mod_options, ui_rules(), view_settings_
             );
+            take_mod_option_keys(dialog->chosen.mod_options);
             return false;
         }
         take_renderer_retry(*dialog);
+        // Reset window positions: every moved window goes back at once, the
+        // open dialog among them, and Cancel does not undo it.
+        if (std::exchange(dialog->window_reset_asked, false)) {
+            std::ignore = oa_layer().reset_window_places();
+            dialog->window_places_reset = true;
+        }
         {
             // A Screen size moved to applies when OK is pressed; until then
             // it stays as it was. The check for content updates does too,
@@ -1985,7 +2378,14 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             settings::EngineSettings live = dialog->chosen;
             live.screen_size = dialog->opened.screen_size;
             live.content_check = dialog->opened.content_check;
+            live.update_check = dialog->opened.update_check;
+            live.update_download = dialog->opened.update_download;
+            live.update_install = dialog->opened.update_install;
             apply_engine_settings(live);
+            apply_key_layout_preference(*dialog);
+            if (dialog->page == settings::Page::updates)
+                paint_updates(*dialog, update_snapshot(), release_version(dialog->version));
+            apply_update_download(*dialog);
             oa_layer().lay_out_for_size();
         }
         return false;
@@ -1995,6 +2395,8 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             view_rules::apply_dialog_options(
                 dialog->chosen.mod_options, ui_rules(), view_settings_
             );
+            take_mod_option_keys(dialog->chosen.mod_options);
+            close_mod_option_keys();
             save_view_settings();
             state.dialog.reset();
             return true;
@@ -2008,9 +2410,11 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         const bool screen_size_moved =
             chosen.screen_size != dialog->opened.screen_size ||
             (state.window_screen_size_shown && !dialog->window_screen_size);
+        const bool window_size_moved = chosen.window_size != dialog->opened.window_size;
         if (screen_size_moved)
             chosen.screen_size = EngineSettingsState::stored_screen_size(*this, chosen.screen_size);
         const bool check_changed = chosen.content_check != dialog->opened.content_check;
+        const bool updates_never = chosen.update_check == settings::UpdateCheck::never;
         const settings::ContentCheck chosen_check = chosen.content_check;
         const bool file_types_changed =
             !settings::moved_file_type_switches(dialog->opened, chosen).empty();
@@ -2053,11 +2457,17 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         tell_install_switches(content_downloads(), switches_opened, switches_chosen);
         if (check_changed)
             content_service().set_check_for_updates(check_mode(chosen_check));
+        if (updates_never)
+            cancel_update_check();
         state.last_page = dialog->page;
         state.last_developer_list = dialog->developer;
         state.dialog.reset();
         if (screen_size_moved)
             apply_screen_size(chosen.screen_size);
+        // Window size takes effect at OK, as Interface size does: every OA
+        // screen is laid out at the class it chooses.
+        if (window_size_moved)
+            oa_layer().set_window_size(placement_window_size(chosen.window_size));
         if (failure) {
             // A mod that was not stored would not be the one the restart
             // plays: the game stays as it is and says so.
@@ -2076,11 +2486,15 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             view_rules::apply_dialog_options(
                 dialog->opened.mod_options, ui_rules(), view_settings_
             );
+            restore_mod_option_keys();
             state.dialog.reset();
             return true;
         }
         const bool zoom_changed = match_ && match_zoom_target_ != state.opened_zoom_target;
         restore_renderer_records();
+        // Cancel put the opened choice back. Write that, and load it, when
+        // the choice had already been stored.
+        apply_key_layout_preference(*dialog);
         apply_engine_settings(dialog->opened);
         // The battlefield's zoom and the next game's unit limit go back to
         // what they were, a loaded game's limit included.
@@ -2101,6 +2515,22 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         // under it; Escape and its CLOSE come back to Developer.
         oa_layer().open_gallery();
         return false;
+    case settings::DialogAction::arrange_overlays:
+        // The picture of the match covers the window over the dialog, which
+        // stays open under it; Done and Cancel come back to Accessibility.
+        std::ignore = oa_layer().open_arrange_overlays();
+        return false;
+    case settings::DialogAction::edit_keys: {
+        // The key editor covers the window over the dialog, which stays open
+        // under it, in the menus and in a match. CHOOSE… opens on Latchable.
+        // EDIT KEYS… leaves the filter unset, which opens on All.
+        KeyEditorRequest request;
+        request.over_settings = true;
+        if (dialog->edit_keys_filter == settings::KeyEditorFilter::latchable)
+            request.filter = oa::ui::key_editor::Filter::latchable;
+        std::ignore = open_key_editor(request);
+        return false;
+    }
     case settings::DialogAction::check_content:
         // A copy is already reading the files. The check waits for it.
         if (content_copy_watch().active)
@@ -2163,6 +2593,75 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         // already, the dialog closes back to it.
         open_library(library_tab_of(dialog->library_tab));
         return false;
+    case settings::DialogAction::check_updates: {
+        // Never offers no button. A check the dialog shows, but has not
+        // stored yet, is lent to the preference for this one call.
+        if (dialog->chosen.update_check == settings::UpdateCheck::never)
+            return false;
+        const std::string key{settings::key::update_check};
+        const auto found = preference_values_.find(key);
+        const bool saved_never = found != preference_values_.end() && found->second == "never";
+        std::string saved_word;
+        if (saved_never)
+            saved_word = found->second;
+        if (saved_never)
+            preference_values_[key] = std::string(update_mode_word(dialog->chosen.update_check));
+        start_update_check(true);
+        if (saved_never)
+            preference_values_[key] = std::move(saved_word);
+        return false;
+    }
+    case settings::DialogAction::open_release:
+        if (!start_update_download())
+            open_release_page();
+        return false;
+    case settings::DialogAction::restart_update:
+        // Installing now: the ready release is scheduled, and the quit hands it over.
+        take_update_action(oa::app::update::Act::install_now);
+        return false;
+    case settings::DialogAction::retry_update:
+        retry_update_download();
+        return false;
+    case settings::DialogAction::update_action: {
+        // One of the update card's buttons: the update centre's action whose
+        // number the runtime gave the button (apply_update_download). The
+        // dialog stays open and follows the state on its next frame.
+        const int32_t act = dialog->update_act;
+        dialog->update_act = -1;
+        if (act >= 0 && act <= static_cast<int32_t>(oa::app::update::Act::whats_new))
+            take_update_action(static_cast<oa::app::update::Act>(act));
+        return false;
+    }
+    case settings::DialogAction::roll_back: {
+        // The question asks once. ROLL BACK quits, and main() starts the
+        // helper. CANCEL leaves Settings open. A match closes the question.
+        if (dialog == nullptr || dialog->updates.kept_version.empty())
+            return false;
+        const std::string kept = dialog->updates.kept_version;
+        const std::string current = oa::app::update::this_build({}).version_text;
+        kit::Question asked = settings::updates::roll_back_question(kept, current);
+        Runtime* runtime = this;
+        QuestionScreen::Host host;
+        host.answer = [runtime](int32_t button) {
+            if (button == 1) {
+                runtime->roll_back_requested_ = true;
+                runtime->quit_requested_ = true;
+                runtime->exit_status_ = 0;
+            }
+            return true;
+        };
+        host.tick = [runtime]() {
+            return runtime->engine_settings_dialog() == nullptr || runtime->match_ != nullptr ||
+                   runtime->screen_ == Screen::match;
+        };
+        OaLayer& layer = oa_layer();
+        layer.push(
+            std::make_unique<QuestionScreen>(
+                layer, Screen::main_menu, std::move(asked), std::move(host)
+            )
+        );
+        return false;
+    }
     case settings::DialogAction::download_language: {
         // The dialog stays open. The language applies when the pack arrives.
         std::string why;
@@ -2197,7 +2696,14 @@ const settings::DialogFonts* Runtime::engine_settings_fonts() {
                       << '\n';
         }
     }
-    return state.fonts ? &*state.fonts : nullptr;
+    if (!state.fonts)
+        return nullptr;
+    // The Look in effect: Modern draws every OA screen and overlay in Barlow
+    // from the bundled fonts, which follow the language shown; Classic, or
+    // bundled fonts that did not open, in the game's own two fonts.
+    state.fonts->modern =
+        state.current.look == settings::Look::modern ? oa_layer().smooth_fonts() : nullptr;
+    return &*state.fonts;
 }
 
 oa::ui::frontend_renderer::RgbaPicture Runtime::engine_settings_icon() {
@@ -2297,8 +2803,26 @@ namespace {
 
 } // namespace
 
+const std::vector<std::string>& Runtime::kept_content_bundles() const {
+    const bool first = content_bundles_seen_ == 0;
+    const bool folder_changed = !first && content_bundles_folder_ != options_.game_dir;
+    // A folder chosen after the first read is a new copied set. Moving the
+    // generation here lets a face or a picker that keys on it rebuild.
+    if (folder_changed)
+        note_content_bundles_changed();
+    const uint64_t generation = content_bundles_generation();
+    if (first || folder_changed || content_bundles_seen_ != generation) {
+        content_bundles_kept_ = copied_content_bundles(options_.game_dir);
+        content_bundles_folder_ = options_.game_dir;
+        // The generation from before the read. A record written while it ran
+        // is a different generation, so the next call reads again.
+        content_bundles_seen_ = generation;
+    }
+    return content_bundles_kept_;
+}
+
 oa::data::content_bundles::ContentChoice Runtime::content_choice() const {
-    const std::vector<std::string> copied = copied_content_bundles(options_.game_dir);
+    const std::vector<std::string>& copied = kept_content_bundles();
     const std::vector<std::string_view> copied_ids = id_views(copied);
     return content_choice_from_preferences(preference_values_, copied_ids, options_.content);
 }
@@ -2345,7 +2869,7 @@ oa::data::content_bundles::ContentChangeResult Runtime::turn_content_expansion(
     std::string_view bundle_id, bool on, std::span<const std::string_view> required
 ) {
     namespace bundles = oa::data::content_bundles;
-    const std::vector<std::string> copied = copied_content_bundles(options_.game_dir);
+    const std::vector<std::string>& copied = kept_content_bundles();
     const std::vector<std::string_view> views = id_views(copied);
     const bundles::ContentChoice now =
         content_choice_from_preferences(preference_values_, views, options_.content);
@@ -2367,7 +2891,7 @@ oa::data::content_bundles::ContentChangeResult Runtime::turn_content_expansion(
 oa::data::content_bundles::ContentChangeResult
 Runtime::choose_content_base_game(std::string_view bundle_id) {
     namespace bundles = oa::data::content_bundles;
-    const std::vector<std::string> copied = copied_content_bundles(options_.game_dir);
+    const std::vector<std::string>& copied = kept_content_bundles();
     const std::vector<std::string_view> views = id_views(copied);
     const bundles::ContentChoice now =
         content_choice_from_preferences(preference_values_, views, options_.content);

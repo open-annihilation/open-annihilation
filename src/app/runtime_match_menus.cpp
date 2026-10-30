@@ -26,8 +26,10 @@
 #include "oa/platform/preferences.hpp"
 #include "oa/ui/screen_registry.hpp"
 #include "oa/ui/console/game_fields.hpp"
+#include "oa/ui/console/hotkeys.hpp"
 #include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/app/runtime.hpp"
+#include "gui_actions.hpp"
 #include "panel_first_draw.hpp"
 #include "oa/base/text/line_break.hpp"
 #include "oa/ui/hud/resource_bar.hpp"
@@ -430,7 +432,7 @@ void panel_to_widgets(
         if (auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields)) {
             button->status = control.group_value;
             button->grayed_out = control.grayed != 0;
-            button->quick_key = control.quick_key;
+            copy_button_letter(*button, control);
             if (!text.empty() || button->stages <= 1)
                 button->text = text;
             const auto name = std::string(ui::control_name(control));
@@ -1562,15 +1564,22 @@ Runtime::side_panel_art_name(const std::string& side_gaf, const std::string& pag
     return stem + page_panel.substr(3);
 }
 
-const Runtime::MatchHudArt* Runtime::match_hud_art(const std::string& layout) {
+Runtime::MatchHudArt* Runtime::match_hud_art(const std::string& layout) {
     auto panel = match_side_panel_gaf();
-    const auto tile = "bitmaps/" + match_side_prefix() + "guisidetile.pcx";
+    const auto side = match_view_side();
     const auto font = match_side_font();
-    if (match_hud_art_ && match_hud_art_->tile == tile && match_hud_art_->panel == panel &&
+    // Art lent to a page went with the page when it was dropped.
+    if (match_hud_art_ && match_hud_art_->lent && !match_hud_)
+        match_hud_art_.reset();
+    // The side tile is looked up in the archives (match_side_tile), so it is
+    // found only when the art is read: the viewed side picks it.
+    if (match_hud_art_ && match_hud_art_->side == side && match_hud_art_->panel == panel &&
         match_hud_art_->font == font)
         return &*match_hud_art_;
     match_hud_art_.reset();
+    const auto tile = match_side_tile();
     MatchHudArt art;
+    art.side = side;
     art.tile = tile;
     art.panel = panel;
     art.font = font;
@@ -1581,11 +1590,18 @@ const Runtime::MatchHudArt* Runtime::match_hud_art(const std::string& layout) {
     // read, is drawn as none named.
     for (;;) {
         try {
+            // The side tile is kept as read, for each page to decode the
+            // background it draws its chrome over: the art's first page
+            // takes the background decoded here.
+            const auto tile_path = renderer::screen_background_path(assets_, tile);
+            art.tile_file = assets_.read(tile_path).bytes;
             // Command icons live in commongui.gaf; the side's chrome lives in
             // the GAF its intgaf names.
             art.screen = renderer::load_screen_art(
-                assets_, {{}, tile, "palettes/guipal.pal", "anims/commongui.gaf", panel}
+                assets_, {{}, {}, "palettes/guipal.pal", "anims/commongui.gaf", panel}
             );
+            art.screen.background =
+                oa::ui::decoded::require(oa::decode_pcx(art.tile_file), tile_path);
             // The order buttons and the bars' words in the shown language.
             caption_gaf_pictures("anims/commongui.gaf", art.screen.sprites);
             if (!panel.empty())
@@ -1599,6 +1615,7 @@ const Runtime::MatchHudArt* Runtime::match_hud_art(const std::string& layout) {
         }
     }
     art.read_panel = panel;
+    art.common_sequences = art.screen.sprites.sequences.size();
     // A font a mod lacks, or that cannot be read, is drawn as none named
     // (load_match_hud_layout).
     if (!font.empty())
@@ -1608,8 +1625,30 @@ const Runtime::MatchHudArt* Runtime::match_hud_art(const std::string& layout) {
         } catch (const std::exception& error) {
             std::cerr << "match font " << font << " unavailable: " << error.what() << '\n';
         }
+    art.names_font = art.side_font.has_value();
     match_hud_art_ = std::move(art);
     return &*match_hud_art_;
+}
+
+renderer::ScreenResources Runtime::take_match_hud_art(MatchHudArt& art) {
+    if (!art.lent) {
+        art.lent = true;
+        return std::move(art.screen);
+    }
+    // The page shown gives the art back: commongui's sequences without its
+    // own GAF's before them and the side's and its gadgets' after them, and
+    // the side tile decoded again, as the art read it, in place of the
+    // background the page drew its chrome over.
+    renderer::ScreenResources screen = std::move(*match_hud_);
+    auto& sequences = screen.sprites.sequences;
+    const auto first = std::min(art.page_sequences, sequences.size());
+    const auto last = std::min(first + art.common_sequences, sequences.size());
+    sequences.erase(sequences.begin() + static_cast<std::ptrdiff_t>(last), sequences.end());
+    sequences.erase(sequences.begin(), sequences.begin() + static_cast<std::ptrdiff_t>(first));
+    screen.layout = {};
+    screen.background = {};
+    screen.background = oa::ui::decoded::require(oa::decode_pcx(art.tile_file), art.tile);
+    return screen;
 }
 
 bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::SidePage side_page) {
@@ -1619,15 +1658,19 @@ bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::Side
     hud_scrolls_count_ = 0;
     // Every page is drawn with the side's art, which is read once a match
     // (match_hud_art): a page reads only its own GUI file and GAF.
-    const auto* art = match_hud_art(layout);
+    auto* art = match_hud_art(layout);
     if (art == nullptr)
         return false;
+    // The page takes the art from the page shown (take_match_hud_art), once
+    // its GUI file is read: a page that cannot be read leaves that one shown.
+    oa::ui::gui_layout::Layout laid_out;
     try {
-        match_hud_ = renderer::load_screen_layout(assets_, art->screen, layout);
+        laid_out = renderer::read_screen_layout(assets_, layout);
     } catch (const std::exception& error) {
         std::cerr << "match HUD '" << layout << "' unavailable: " << error.what() << '\n';
         return false;
     }
+    match_hud_ = renderer::lay_out_screen(take_match_hud_art(*art), std::move(laid_out));
     const std::string& panel = art->read_panel;
     match_hud_panel_ = layout;
     match_hud_side_page_ = side_page;
@@ -1659,6 +1702,7 @@ bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::Side
     {
         oa::formats::gaf::Archive own;
         append_gaf_file(own, "anims/" + stem + ".GAF");
+        art->page_sequences = own.sequences.size();
         auto& hud_sequences = match_hud_->sprites.sequences;
         hud_sequences.insert(
             hud_sequences.begin(),
@@ -1669,7 +1713,7 @@ bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::Side
     // The side's GAF's sequences come after commongui's, captioned as the
     // shared sprites read from the same file are.
     if (!panel.empty()) {
-        const auto& side = art->screen.shared_sprites.sequences;
+        const auto& side = match_hud_->shared_sprites.sequences;
         auto& hud_sequences = match_hud_->sprites.sequences;
         hud_sequences.insert(hud_sequences.end(), side.begin(), side.end());
     }
@@ -1700,10 +1744,12 @@ bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::Side
     // message lines, the font of the GUI text drawn last, or COMIX from the
     // load screen before any. The engine draws them in COMIX in every case.
     // A font a mod lacks, or that cannot be read, is drawn as none named.
-    match_side_names_font_ = art->side_font.has_value();
-    if (match_side_names_font_)
-        match_small_font_ = art->side_font;
-    else
+    // The art's first page takes the side's font, and its later pages keep
+    // it, so that the match holds it once.
+    match_side_names_font_ = art->names_font;
+    if (art->side_font)
+        match_small_font_ = std::exchange(art->side_font, std::nullopt);
+    else if (!match_side_names_font_)
         match_small_font_ = message_font_ ? message_font_ : small_font_;
     // The bars' rows are black from column 128 on under the side art and
     // the bars' art, as the game's screen is under its bars.
@@ -2060,10 +2106,7 @@ void Runtime::resume_match_pause() {
     if (match_ && match_hud_panel_ == oa::data::defs::gui_path("ARMOPT.GUI") &&
         (current_extension_state() & extension_state::shared_match) == 0 &&
         (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0) {
-        SDL_KeyboardEvent pause{};
-        pause.key = SDLK_PAUSE;
-        pause.scancode = SDL_SCANCODE_PAUSE;
-        std::ignore = handle_console_hotkey(pause);
+        run_console_hotkey(oa::ui::console::hotkey::pause);
     }
     // Resuming over the preferences keeps what they set, as leaving them does.
     if (match_preferences_open())
@@ -3329,25 +3372,42 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
         match_menu_session().ingame_panel == IngamePanel::exit_confirm && !team_panel_open();
     // The in-game menu and the tab menu give the panels the keyboard. The
     // surrender confirmation a close request opens over the running match
-    // has no keyboard focus, but takes its quick keys, Y and N in English,
-    // as the confirmation asked from the menu does.
+    // has no keyboard focus, but takes the keys its buttons show, as the
+    // confirmation asked from the menu does.
     const bool keyboard =
         match_panels_keyboard_ || match_hud_panel_ == oa::data::defs::gui_path(kPreferencesLayout);
     if (!keyboard && !confirming)
         return false;
-    // Keys with Ctrl, Alt or the system key down type no character.
-    if ((key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) != 0)
+    namespace bindings = oa::ui::key_bindings;
+    const auto down = [](const bindings::ActionEvent* fired) {
+        return fired != nullptr && fired->phase == bindings::Phase::pressed;
+    };
+    const bool accept = down(fired_action("ui.menu-accept"));
+    const bool cancel = down(fired_action("ui.menu-cancel"));
+    const bool press = down(fired_action("ui.menu-press"));
+    const bool menu_key = accept || cancel || press;
+    const auto panel_events = match_action_events();
+    bool gui_pressed = false;
+    for (const bindings::ActionEvent& fed : panel_events) {
+        if (fed.phase == bindings::Phase::pressed && fed.action.starts_with("gui.")) {
+            gui_pressed = true;
+            break;
+        }
+    }
+    // Keys with Ctrl, Alt or the system key down type no character. A menu or
+    // button action that was moved onto such a chord still answers.
+    const bool modified = (key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) != 0;
+    if (modified && !menu_key && !gui_pressed)
         return false;
-    const bool enter = key.key == SDLK_RETURN;
-    const bool escape = key.key == SDLK_ESCAPE;
-    if (confirming && (enter || escape))
+    // The surrender question answers Enter and Escape as No, outside this panel.
+    if (confirming && (accept || cancel))
         return false;
     // Without the keyboard, Space presses nothing.
-    if (!keyboard && key.key == SDLK_SPACE)
+    if (!keyboard && press)
         return false;
     const auto& gadgets = match_hud_->layout.gadgets;
     // Enter, Escape and Space go to the panel's key dispatch first.
-    if (enter || escape || key.key == SDLK_SPACE) {
+    if (menu_key) {
         gui_input::GadgetPanel panel;
         auto* owner = load_unplaced_panel(panel, match_hud_->layout, match_hud_panel_);
         if (owner == nullptr)
@@ -3356,8 +3416,8 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
             match_hud_focus_ > 0 && static_cast<std::size_t>(match_hud_focus_) < gadgets.size()
                 ? match_hud_focus_
                 : oa::ui::gui_layout::kNoGadget;
-        const auto code = enter    ? gui_input::key_code::enter
-                          : escape ? gui_input::key_code::escape
+        const auto code = accept   ? gui_input::key_code::enter
+                          : cancel ? gui_input::key_code::escape
                                    : gui_input::key_code::space;
         const auto left = gui_input::dispatch_key(panel, code);
         if (panel.activated != oa::ui::gui_layout::kNoGadget) {
@@ -3367,15 +3427,46 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
         if (left == 0)
             return true;
     }
-    // A key the dispatch leaves presses the first active button whose quick
-    // key it is in either case; a grayed-out button takes no key and passes
-    // it on.
-    const auto character = enter    ? gui_input::key_code::enter
-                           : escape ? gui_input::key_code::escape
-                                    : static_cast<int32_t>(key.key);
-    if (character <= 0 || character >= 0x7F)
+    // A key the dispatch leaves presses the first active, ungreyed button
+    // whose gui action this key started. A grayed button takes no key and
+    // passes it on. The typed character is kept so it reaches no chat line
+    // and no marker.
+    const std::string shown = shown_hud_stem();
+    if (!shown.empty()) {
+        for (const oa::ui::key_bindings::ActionEvent& fed : panel_events) {
+            if (fed.phase != oa::ui::key_bindings::Phase::pressed ||
+                !fed.action.starts_with("gui."))
+                continue;
+            for (std::size_t gadget_index = 1; gadget_index < gadgets.size(); ++gadget_index) {
+                const auto& gadget = gadgets[gadget_index];
+                const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
+                if (gadget.common.active == 0 || button == nullptr || button->grayed_out)
+                    continue;
+                if (gui_action_id(shown, gadget.common.name) != fed.action)
+                    continue;
+                if (key.key > 0 && key.key < 0x7F)
+                    answered_key_ = static_cast<int32_t>(std::tolower(static_cast<int>(key.key)));
+                // Yes on the surrender question holds. Enter and No are answered
+                // before this loop, and stay immediate.
+                if (confirming && gadget.common.name == "CHOICE1" &&
+                    start_yes_hold(static_cast<uint16_t>(key.scancode), false, 0, gadget_index))
+                    return true;
+                activate_match_hud(gadget_index);
+                return true;
+            }
+        }
+    }
+    // A caption's own letter is not a chord. It presses nothing while Ctrl,
+    // Alt or the system key is down.
+    if (modified || shown.empty() || key.key <= 0 || key.key >= 0x7F)
         return false;
-    const auto typed = std::tolower(character);
+    // A caption set while the panel is open gives its button a letter the
+    // file never stored, so no binding owns it. While a line is being typed
+    // the dispatcher searches only that line's keys, so a button's own letter
+    // is not among them either. That letter still presses the button. A
+    // binding that already owns the button keeps its key once typing ends.
+    const auto typed = std::tolower(static_cast<int>(key.key));
+    const bool typing = input_contexts().text_entry;
     for (std::size_t index = 1; index < gadgets.size(); ++index) {
         const auto& gadget = gadgets[index];
         const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
@@ -3383,6 +3474,18 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
             button->quick_key == 0 ||
             std::tolower(static_cast<unsigned char>(button->quick_key)) != typed)
             continue;
+        if (!typing) {
+            const std::string action_id = gui_action_id(shown, gadget.common.name);
+            bool owned = false;
+            for (const GuiQuickKey& quick : gui_quick_keys_) {
+                if (quick.action == action_id) {
+                    owned = true;
+                    break;
+                }
+            }
+            if (owned)
+                continue;
+        }
         answered_key_ = typed;
         activate_match_hud(index);
         return true;
@@ -4419,6 +4522,8 @@ void Runtime::activate_options_gadget() {
         // authored foreground colour the renderer draws the frame through.
         // Only a loaded panel's first draw clears it.
         bind_frontend_scrolls(oa::data::defs::gui_path("startopt.gui"), "anims/commongui.gaf");
+        set_menu_gui(oa::data::defs::gui_path("startopt.gui"));
+        add_menu_gui(oa::data::defs::gui_path(sub));
         // load() gave the focus a record of the sub-panel's file alone, which
         // the merged records no longer number so.
         frontend_focus_ = -1;

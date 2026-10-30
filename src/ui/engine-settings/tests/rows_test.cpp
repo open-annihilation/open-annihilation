@@ -15,6 +15,7 @@
 // order.
 
 #include "geometry.hpp"
+#include "updates_page.hpp"
 
 #include "oa/test/check.hpp"
 #include "oa/ui/engine_settings.hpp"
@@ -67,7 +68,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 96> kExpected{{
+constexpr std::array<Expected, 123> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -148,6 +149,7 @@ constexpr std::array<Expected, 96> kExpected{{
     {Setting::file_type_oareg, RowKind::toggle, "Registry files (.oareg)", 0, 0, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::file_type_oamut, RowKind::toggle, "Mutator packages (.oamut)", 0, 0, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::file_type_oabrain, RowKind::toggle, "Brain packages (.oabrain)", 0, 0, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::file_type_oakeys, RowKind::toggle, "Key layout packages (.oakeys)", 0, 0, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::file_type_oalaunch, RowKind::toggle, "Launch files (.oalaunch)", 0, 0, 0, 0, 0, false, Lock::none, nullptr},
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
     {Setting::file_types_note, RowKind::text, "File types", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
@@ -164,16 +166,41 @@ constexpr std::array<Expected, 96> kExpected{{
     {Setting::coastal_waves, RowKind::slider, "Coastal waves", 0, 0, 21, 0, 0, false, Lock::none, &Locks::water_effects},
     {Setting::underwater_shimmer, RowKind::slider, "Underwater shimmer", 0, 0, 21, 0, 0, false, Lock::none, &Locks::water_effects},
     {Setting::naval_reflections, RowKind::slider, "Naval reflections", 0, 0, 21, 0, 0, false, Lock::none, &Locks::water_effects},
-    {Setting::allow_full_3d, RowKind::toggle, "Allow Full 3D Mode", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
-    {Setting::unlocked_camera, RowKind::toggle, "Unlocked Camera", 1, 1, 0, 0, 0, false, Lock::none, &Locks::unlocked_camera},
+    {Setting::allow_full_3d, RowKind::toggle, "Allow full 3D mode", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::unlocked_camera, RowKind::toggle, "Unlocked camera", 1, 1, 0, 0, 0, false, Lock::none, &Locks::unlocked_camera},
     {Setting::welcome_setup, RowKind::value_and_button, "Welcome setup", 2, 2, 0, 0, 0, false, Lock::main_menu, &Locks::welcome_setup},
     {Setting::fog_of_war, RowKind::levels, "Fog of War", 1, 1, 2, 56, 2, false, Lock::none, nullptr},
+    {Setting::new_unit_shadows, RowKind::toggle, "New unit shadows", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::mod_limits_heading, RowKind::text, "Set by the mod", 0, 0, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::weapon_types, RowKind::text, "Weapon types", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::sides, RowKind::text, "Sides", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::key_layout, RowKind::value_and_button, "Key layout", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::key_layout_for_mod, RowKind::choice, "Key layout with {mod}", 1, 1, 1, 200, 0, false, Lock::none, nullptr},
+    {Setting::show_keys_on_buttons, RowKind::toggle, "Show keys on buttons", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::latching, RowKind::value_and_button, "Hold keys that latch", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::sticky_modifiers, RowKind::toggle, "Sticky modifiers", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::hold_to_confirm, RowKind::toggle, "Hold to confirm", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::long_press, RowKind::slider, "Long press", 1, 1, 17, 0, 0, false, Lock::none, nullptr},
+    {Setting::slow_keys, RowKind::slider, "Slow keys", 1, 1, 21, 0, 0, false, Lock::none, nullptr},
+    {Setting::bounce_keys, RowKind::slider, "Bounce keys", 1, 1, 21, 0, 0, false, Lock::none, nullptr},
+    {Setting::order_wheel, RowKind::levels, "Order wheel", 1, 1, 3, 76, 3, false, Lock::none, nullptr},
+    {Setting::pointer_keys, RowKind::toggle, "Pointer keys", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::double_press, RowKind::slider, "Double press", 1, 1, 18, 0, 0, false, Lock::none, nullptr},
+    {Setting::repeat_delay, RowKind::slider, "Key repeat delay", 1, 1, 19, 0, 0, false, Lock::none, nullptr},
+    {Setting::repeat_rate, RowKind::slider, "Key repeat rate", 1, 1, 30, 0, 0, false, Lock::none, nullptr},
+    {Setting::drag_threshold, RowKind::slider, "Drag threshold", 1, 1, 9, 0, 0, false, Lock::none, nullptr},
+    {Setting::edge_scroll, RowKind::toggle, "Edge scrolling", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::move_overlays, RowKind::toggle, "Move overlays", 2, 2, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::arrange_overlays, RowKind::value_and_button, "Overlay places", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::window_size, RowKind::choice, "Window size", 1, 1, 4, 200, 0, false, Lock::none, nullptr},
+    {Setting::reset_window_positions, RowKind::value_and_button, "Reset window positions", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::group_keys_centre, RowKind::choice, "Group keys centre the view", 1, 1, 3, 248, 0, false, Lock::none, nullptr},
+    {Setting::look, RowKind::levels, "Look", 1, 1, 2, 60, 2, false, Lock::none, nullptr},
 }};
 // clang-format on
 
 static_assert(
-    kExpected.size() == static_cast<std::size_t>(Setting::fog_of_war) + 1,
-    "every setting has its row"
+    kExpected.size() == static_cast<std::size_t>(Setting::look) + 1, "every setting has its row"
 );
 
 /// Every field of the dialog's locks that locks a row.
@@ -493,7 +520,8 @@ struct StoredChoice {
 };
 
 /// Every strip's and drop-down's setting, with its key.
-constexpr std::array<StoredChoice, 24> kStoredChoices{{
+constexpr std::array<StoredChoice, 29> kStoredChoices{{
+    {Setting::key_layout_for_mod, "open-annihilation.keys.layout.ridge"},
     {Setting::max_zoom_out, settings::key::max_zoom_out},
     {Setting::max_zoom_in, settings::key::max_zoom_in},
     {Setting::view_past_map_edge, settings::key::view_past_map_edge},
@@ -518,6 +546,10 @@ constexpr std::array<StoredChoice, 24> kStoredChoices{{
     {Setting::zoomed_out_after, settings::key::zoomed_out_after},
     {Setting::window_frame, settings::key::window_frame},
     {Setting::interface_size, settings::key::interface_size},
+    {Setting::order_wheel, settings::key::order_wheel},
+    {Setting::window_size, settings::key::window_size},
+    {Setting::group_keys_centre, settings::key::group_keys_centre},
+    {Setting::look, settings::key::look},
 }};
 
 void every_row_and_choice_has_an_id_of_one_word() {
@@ -545,6 +577,39 @@ void every_row_and_choice_has_an_id_of_one_word() {
             if (choice.setting == setting)
                 stored = &choice;
         OA_CHECK(stored != nullptr);
+        // Key layout with a mod is stored under the mod's id, and only while
+        // one is played. Same as the game is first; layouts made for it follow.
+        if (setting == Setting::key_layout_for_mod) {
+            settings::Dialog mod = dialog;
+            mod.played_mod = "Ridge";
+            mod.played_mod_id = "ridge";
+            mod.key_layouts.push_back({"plain-keys", "Plain keys", false});
+            mod.key_layouts.push_back({"ridge-keys", "Ridge keys", true});
+            const geometry::SettingsModel mod_model = geometry::reading(mod.chosen, mod);
+            std::vector<std::string> order;
+            std::vector<std::string> captions;
+            for (int32_t at = 0; at < kit::row_count(spec, mod_model); ++at) {
+                const std::string id = kit::row_choice_id(spec, mod_model, at);
+                OA_CHECK(kit::row_word(id));
+                order.push_back(id);
+                captions.push_back(kit::row_caption(spec, mod_model, at));
+            }
+            OA_CHECK(order == (std::vector<std::string>{"same", "ridge-keys", "plain-keys"}));
+            OA_CHECK(captions[0] == "Same as the game");
+            OA_CHECK(captions[1] == "Ridge keys · made for Ridge");
+            OA_CHECK(captions[2] == "Plain keys");
+            settings::EngineSettings chosen = mod.chosen;
+            geometry::SettingsModel choosing{&chosen, &mod};
+            kit::set_row_index(spec, choosing, 1);
+            settings::EngineSettings opened = chosen;
+            geometry::SettingsModel opening{&opened, &mod};
+            kit::set_row_index(spec, opening, 0);
+            oa::platform::preferences::Values values;
+            settings::write_settings(values, opened, chosen, mod.defaults, false, "ridge");
+            const auto written = values.find(std::string(stored->key));
+            OA_CHECK(written != values.end() && written->second == "ridge-keys");
+            continue;
+        }
         std::set<std::string> ids;
         const geometry::SettingsModel model = model_of(dialog);
         for (int32_t at = 0; at < kit::row_count(spec, model); ++at) {
@@ -613,47 +678,65 @@ std::vector<int32_t> tab_order(const settings::Dialog& dialog) {
     return geometry::dialog_list(dialog, nullptr).tab_order;
 }
 
+/// Returns a section's rows' controls, then the footer, the sections' entries
+/// in the list's order with every section listed (Controls, Accessibility,
+/// Touch, Controller; Graphics, User Interface, Language & Text; Game files,
+/// Downloads, Updates, Game Content; Engine Limits, System, Developer) and
+/// the title bar's close mark: the Tab order the dialog declares.
+///
+/// @param rows the section's own controls, in order
+/// @return the whole order
+std::vector<int32_t> with_footer_and_list(std::vector<int32_t> rows) {
+    for (const int32_t control :
+         {14, 15, 16, 0, 13, 5, 6, 3, 4, 2, 8, 9, 12, 11, 1, 10, 7, settings::close_x_control})
+        rows.push_back(control);
+    return rows;
+}
+
 void tab_follows_the_dialogs_focus_order() {
-    // Controls: its rows, the footer, then the sections' entries, Game files
-    // then Downloads, Game Content and System, listed before Developer.
+    // Controls: the key layout card's Edit keys…, its rows, the footer, then
+    // the sections' entries in their groups. The card shows Change layout…
+    // only where the Library opens over the dialog.
     const settings::Dialog controls =
         engine_dialog_of({}, settings::Page::controls, true, true, true);
+    OA_CHECK(tab_order(controls) == with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 27}));
+    settings::Dialog linked = controls;
+    linked.library_link = true;
     OA_CHECK(
-        tab_order(controls) == (std::vector<int32_t>{
-                                   16,
-                                   17,
-                                   18,
-                                   19,
-                                   20,
-                                   21,
-                                   22,
-                                   12,
-                                   13,
-                                   14,
-                                   0,
-                                   1,
-                                   2,
-                                   3,
-                                   4,
-                                   5,
-                                   6,
-                                   8,
-                                   9,
-                                   11,
-                                   10,
-                                   7,
-                                   settings::close_x_control
-                               })
+        tab_order(linked) ==
+        with_footer_and_list({settings::change_layout_control, 18, 19, 20, 21, 22, 23, 24, 25, 27})
     );
-    // Graphics: After zoom, locked while units are drawn whole, takes none.
+    // Accessibility: every row, Bounce keys included, then the footer and the
+    // list. A row below the fold stays in the order, and Tab scrolls it into
+    // view. Overlay places' ARRANGE… joins it while Move overlays is on. The
+    // practice pad's Turn every helper off follows the rows while a helper
+    // is on.
+    settings::Dialog accessibility = controls;
+    accessibility.page = settings::Page::accessibility;
+    OA_CHECK(
+        tab_order(accessibility) ==
+        with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31})
+    );
+    accessibility.chosen.move_overlays = true;
+    OA_CHECK(
+        tab_order(accessibility) ==
+        with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32})
+    );
+    accessibility.chosen.move_overlays = false;
+    accessibility.chosen.sticky_modifiers = true;
+    OA_CHECK(
+        tab_order(accessibility) ==
+        with_footer_and_list(
+            {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, settings::helpers_off_control}
+        )
+    );
+    // Graphics: After zoom, locked while units are drawn whole, takes none,
+    // nor do the water's sliders, locked below Full; New unit shadows last.
     settings::Dialog graphics = controls;
     graphics.page = settings::Page::graphics;
     OA_CHECK(
         tab_order(graphics) ==
-        (std::vector<int32_t>{16, 17, 18, 19, 20, 21, 22, 23,
-                              24, 25, 27, 28, 29, 30, 31, 32,
-                              12, 13, 14, 0,  1,  2,  3,  4,
-                              5,  6,  8,  9,  11, 10, 7,  settings::close_x_control})
+        with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31, 32, 33, 34, 39})
     );
     // Developer with its first area open: its rows, UI kit gallery's SHOW
     // last of them, its list's headers, Show Active Only and Restore profile
@@ -662,25 +745,153 @@ void tab_follows_the_dialogs_focus_order() {
     developer.page = settings::Page::developer;
     developer.chosen.developer_mode = true;
     developer.developer.areas_open[0] = 1;
+    OA_CHECK(tab_order(developer) == with_footer_and_list({18, 19, 20, 23, 24, 25, 26, 27,
+                                                           28, 29, 30, 31, 32, 33, 34, 35,
+                                                           36, 37, 38, 39, 40, 41, 42, 43,
+                                                           44, 45, 46, 47, 48, 49, 21, 22}));
+}
+
+void updates_names_its_ways() {
+    geometry::Row check_row;
+    check_row.updates = 1;
+    OA_CHECK(settings::updates::choice_count(check_row) == 3);
+    OA_CHECK(settings::updates::choice_id(check_row, 0) == "automatically");
+    OA_CHECK(settings::updates::choice_id(check_row, 1) == "when-asked");
+    OA_CHECK(settings::updates::choice_id(check_row, 2) == "never");
+    OA_CHECK(settings::updates::choice_caption(check_row, 0) == "Automatically");
+    OA_CHECK(settings::updates::choice_caption(check_row, 1) == "Only when I ask");
+    OA_CHECK(settings::updates::choice_caption(check_row, 2) == "Never");
+    OA_CHECK(settings::updates::choice_word(check_row) == "update-check");
+    // Install updates: Ask each time or When I quit, stored as the update
+    // centre reads them.
+    geometry::Row install_row;
+    install_row.updates = 4;
+    OA_CHECK(settings::updates::is_choice(install_row));
+    OA_CHECK(settings::updates::choice_count(install_row) == 2);
+    OA_CHECK(settings::updates::choice_id(install_row, 0) == "ask");
+    OA_CHECK(settings::updates::choice_id(install_row, 1) == "when-i-quit");
+    OA_CHECK(settings::updates::choice_caption(install_row, 0) == "Ask each time");
+    OA_CHECK(settings::updates::choice_caption(install_row, 1) == "When I quit");
+    OA_CHECK(settings::updates::choice_word(install_row) == "update-install");
+    {
+        settings::EngineSettings before;
+        settings::EngineSettings after;
+        after.update_install = settings::UpdateInstall::when_i_quit;
+        oa::platform::preferences::Values stored;
+        settings::write_settings(stored, before, after, before, false);
+        const auto install = stored.find(std::string(settings::key::update_install));
+        OA_CHECK(install != stored.end() && install->second == "when-i-quit");
+        OA_CHECK(
+            settings::read_settings(stored, settings::Inputs{}, false).update_install ==
+            settings::UpdateInstall::when_i_quit
+        );
+        stored[std::string(settings::key::update_install)] = "sometimes";
+        OA_CHECK(
+            settings::read_settings(stored, settings::Inputs{}, false).update_install ==
+            settings::UpdateInstall::ask
+        );
+    }
+
+    settings::EngineSettings opened;
+    settings::EngineSettings chosen;
+    chosen.update_check = settings::UpdateCheck::never;
+    oa::platform::preferences::Values values;
+    settings::write_settings(values, opened, chosen, opened, false);
+    const auto written = values.find(std::string(settings::key::update_check));
+    OA_CHECK(written != values.end() && written->second == "never");
+    const settings::EngineSettings read =
+        settings::read_settings(values, settings::Inputs{}, false);
+    OA_CHECK(read.update_check == settings::UpdateCheck::never);
+
+    settings::Dialog dialog = engine_dialog();
+    dialog.page = settings::Page::updates;
+    dialog.updates.version_line = "Open Annihilation 0.8.6";
+    dialog.updates.status = "Not checked yet";
+    dialog.updates.can_check = true;
+    dialog.updates.mode = static_cast<int32_t>(settings::UpdateCheck::automatically);
+    const kit::DisplayList list = geometry::dialog_list(dialog, nullptr);
+    OA_CHECK(kit::control_named(list, "settings.update-status.check-now") != settings::no_control);
+    OA_CHECK(kit::control_named(list, "settings.update-check") != settings::no_control);
+
+    // The open list's items are controls, named as the preference stores them.
+    // A click reaches the item where it is drawn.
+    dialog.focused = settings::first_row_control + 1;
     OA_CHECK(
-        tab_order(developer) ==
-        (std::vector<int32_t>{
-            16, 17, 18, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
-            34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 19, 20,
-            12, 13, 14, 0,  1,  2,  3,  4,  5,  6,  8,  9,  11, 10, 7,  settings::close_x_control
-        })
+        settings::dialog_key(dialog, settings::DialogKey::space) == settings::DialogAction::redraw
     );
+    OA_CHECK(dialog.open_list == settings::first_row_control + 1);
+    const kit::DisplayList open = geometry::dialog_list(dialog, nullptr);
+    OA_CHECK(
+        kit::control_named(open, "settings.update-check.automatically") ==
+        geometry::menu_item_control(0)
+    );
+    OA_CHECK(
+        kit::control_named(open, "settings.update-check.when-asked") ==
+        geometry::menu_item_control(1)
+    );
+    OA_CHECK(
+        kit::control_named(open, "settings.update-check.never") == geometry::menu_item_control(2)
+    );
+    const kit::Control* asked = nullptr;
+    for (const kit::Control& control : open.controls) {
+        if (control.id != geometry::menu_item_control(1))
+            continue;
+        asked = &control;
+        break;
+    }
+    OA_CHECK(asked != nullptr);
+    OA_CHECK(
+        kit::hit(open, {asked->rect.x + asked->rect.width / 2, asked->rect.y + 1}) == asked->id
+    );
+}
+
+/// Accessibility's sliders name both ends, and 0 is Off or System.
+void accessibility_captions_name_both_ends() {
+    const settings::Dialog dialog = engine_dialog();
+    const geometry::SettingsModel model = model_of(dialog);
+    const auto caption = [&model](Setting setting, int32_t stop) {
+        return kit::row_caption(geometry::row_spec(setting), model, stop);
+    };
+    const auto last = [&model](Setting setting) {
+        return kit::row_count(geometry::row_spec(setting), model) - 1;
+    };
+    OA_CHECK(caption(Setting::long_press, 0) == "200 ms");
+    OA_CHECK(caption(Setting::long_press, 6) == "500 ms");
+    OA_CHECK(caption(Setting::long_press, last(Setting::long_press)) == "1000 ms");
+    OA_CHECK(caption(Setting::slow_keys, 0) == "Off");
+    OA_CHECK(caption(Setting::slow_keys, last(Setting::slow_keys)) == "1000 ms");
+    OA_CHECK(caption(Setting::bounce_keys, 0) == "Off");
+    OA_CHECK(caption(Setting::bounce_keys, last(Setting::bounce_keys)) == "1000 ms");
+    OA_CHECK(caption(Setting::double_press, 0) == "System");
+    OA_CHECK(caption(Setting::double_press, 1) == "200 ms");
+    OA_CHECK(caption(Setting::double_press, last(Setting::double_press)) == "1000 ms");
+    OA_CHECK(caption(Setting::repeat_delay, 0) == "System");
+    OA_CHECK(caption(Setting::repeat_delay, 1) == "150 ms");
+    OA_CHECK(caption(Setting::repeat_delay, last(Setting::repeat_delay)) == "1000 ms");
+    OA_CHECK(caption(Setting::repeat_rate, 0) == "System");
+    OA_CHECK(caption(Setting::repeat_rate, 1) == "2 a second");
+    OA_CHECK(caption(Setting::repeat_rate, last(Setting::repeat_rate)) == "30 a second");
+    OA_CHECK(caption(Setting::drag_threshold, 0) == "32 px");
+    OA_CHECK(caption(Setting::drag_threshold, last(Setting::drag_threshold)) == "96 px");
+    OA_CHECK(caption(Setting::order_wheel, 0) == "Off");
+    OA_CHECK(caption(Setting::order_wheel, 1) == "Hold right");
+    OA_CHECK(caption(Setting::order_wheel, 2) == "Hold middle");
+    const kit::RowView latch = kit::view_of(geometry::row_spec(Setting::latching), model, {});
+    OA_CHECK(latch.value == "0 of 7");
+    OA_CHECK(latch.buttons.size() == 1 && latch.buttons[0] == "Choose…");
 }
 
 } // namespace
 
 int main() {
     every_setting_has_its_row();
+    accessibility_captions_name_both_ends();
     each_row_reads_its_own_lock();
     every_row_and_choice_has_an_id_of_one_word();
     every_section_names_its_controls_and_keeps_their_order();
     developer_names_every_hack_and_parameter();
     an_open_list_names_its_controls();
     tab_follows_the_dialogs_focus_order();
+    updates_names_its_ways();
     return oa::test::check_exit_status();
 }

@@ -152,7 +152,7 @@ With one extension the combined table behaves as that extension's own.
 ## The version
 
 `OA_EXTENSION_API_VERSION` numbers the table's contract, and
-`oa::app::extension_api_version` is its typed copy. The version is 17. It
+`oa::app::extension_api_version` is its typed copy. The version is 19. It
 rises by one with each change to the contract: a hook added, removed or
 renamed; a hook's parameters, its return value or the meaning of leaving it
 null; when or in which order the engine calls it; what it may keep or must
@@ -180,6 +180,19 @@ another machine to the computer seats on this machine that the line
 reached. A null line, and a call while no match runs, hand nothing on.
 It is not a hook.
 
+Version 18 adds the kit's keycaps, chord chips, keyboard and mouse
+pictures, key tints and marks, and the hold ring. It is not a hook.
+
+Version 19 is Kit 2's look in the kit's headers: `Metrics` gains the type,
+spacing and shape scales and Kit 2's control sizes, the theme its new
+tokens, and the kit a danger button, information and brand pills, a
+paused progress bar, a main-block keyboard picture, a header height, and a
+question's callouts, line boxes and quiet button with the update pill; and
+the Modern look's faces (`kit::Fonts`' `modern` member, the text functions
+that choose a face, the text-font `Style`'s family and two weights). An
+extension built against 18 reads `Metrics` and `Fonts` at the wrong places.
+It is not a hook.
+
 An extension states the version it follows, so that a build against a
 table of another version stops until its author has read the change. The
 automation endpoint's fixture window
@@ -190,7 +203,7 @@ so:
 // The version of the engine's extension table these hooks follow. A build
 // against a table of another version stops here until the engine's change
 // has been read and the hooks follow it.
-constexpr uint32_t kExtensionApiVersionFollowed = 17;
+constexpr uint32_t kExtensionApiVersionFollowed = 18;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "

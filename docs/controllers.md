@@ -161,6 +161,7 @@ adds.
 | D-pad ← | Clears the messages | F12 |
 | D-pad → | The team menu (multiplayer), the next primary unit (single player) | Tab |
 | L1 | The share panel (multiplayer), the previous primary unit (single player) | h, Shift+Tab |
+| R1 | The keys overlay | Cmd+/ or Ctrl+/ |
 | R2 | A screenshot | Ctrl+F9 |
 
 **Standing orders (hold R5 with a face button or the D-pad).** R5 with R2
@@ -225,6 +226,13 @@ factory shows. A press on a wedge is a press on that build button.
   scrolling with the left stick meanwhile stretches the box across the
   map. A short haptic marks the start of a box.
 - **Every unit of a type**: Y, two R2 presses, or the ring's Type.
+The pad's buttons press commands, not the letter those commands use by
+default. **Stop** (`order.stop`) is X. Moving Stop off S in the
+[key editor](keys.md#the-key-editor) leaves the pad's Stop where it is.
+The letter in the tables above is the default key, and that key moves on
+its own. Holding the right mouse button, or the middle one, opens the
+same order wheel when [Order wheel](keys.md#accessibility) says so.
+
 - **Orders**: click where the cursor shows the order; arm one with the
   order ring and A, or with the side panel's button and the pointer; give
   one at a point in one move by releasing R1 on it. Take back an armed
@@ -325,15 +333,15 @@ settings dialog, the Game files screen and the folder chooser.
 | Input | Does |
 |---|---|
 | Right trackpad (or the stick cursor), R2, L2 | The pointer, a left click and a right click |
-| D-pad, left stick | Move the focus between buttons and list rows; held, they repeat after 400 ms, then every 120 ms. On NEWGAME and Any Mission, Up and Down stay with the campaign and mission lists, including while the campaign brain button has the focus |
+| D-pad, left stick | Move the focus between buttons and list rows; held, they repeat after 400 ms, then every 120 ms. On NEWGAME and Any Mission, Up and Down stay with the campaign and mission lists, including while the campaign's brain button has the focus |
 | L1 and R1 | The previous and next group of buttons (Shift+Tab and Tab) |
-| A | Presses the focused button. With none focused, as when the main menu opens, the 640×480 menus focus their first button and the other screens press their default. In the battle room, on another player's row, it opens that player's card as View does, and does nothing when that row has no card. On the skirmish setup, on a computer row's brain button, it opens that seat's picker. On NEWGAME and Any Mission, on the campaign computer player's brain button, it opens that seat's picker |
+| A | Presses the focused button. With none focused, as when the main menu opens, the 640×480 menus focus their first button and the other screens press their default. In the battle room, on another player's row, it opens that player's card as View does, and does nothing when that row has no card. On the skirmish setup, on the notch of a computer row's Player button, it opens that seat's brain menu, and in the brain menu it chooses the selected row. On NEWGAME and Any Mission, on the campaign computer player's brain button, it opens the brain menu. In the battle room, on a computer row's Resolution cell, it opens the brain menu |
 | B | Back (Escape), as each screen has it |
 | Menu | Enter: the screen's default button; on the 640×480 menus, as A |
-| View | Information about the focused item, as F1. In the battle room it opens the focused player's card. On the skirmish setup, on a computer row's brain button, it shows that seat's card. On NEWGAME and Any Mission, on the campaign computer player's brain button, it shows that seat's card |
+| View | Information about the focused item, as F1. In the battle room it opens the focused player's card. On the skirmish setup, on the notch of a computer row's Player button, it shows that seat's card. On NEWGAME and Any Mission, on the campaign computer player's brain button, it shows that seat's card. On a Mutators button it shows the mutators' card |
 | Right stick ↑ and ↓ | The wheel: steps the map and mission lists |
 | A twice quickly on a list row | Starts the campaign, mission or map, as a double click does |
-| Y, in the Library and the map browser | Focuses the search. On the skirmish map list and the battle room host's map list it opens the map browser, as MORE MAPS… does. On the skirmish setup and the campaign launch it opens Mutators. On every other screen Y does nothing |
+| Y, in the Library and the map browser | Focuses the search. On the skirmish map list and the battle room host's map list it opens the map browser, as MORE MAPS… does. On the skirmish setup, the campaign launch and the battle room it opens Mutators, read-only for a guest. On every other screen Y does nothing |
 | X, in the Library | The selected entry's first action, when it is GET, UPDATE, CANCEL or RETRY and can be pressed. On every other screen X does nothing |
 | L1 and R1, in the Library | The previous and next tab |
 | B, in the Library | From the details page back to the list; otherwise closes the Library |
@@ -371,7 +379,8 @@ over the battlefield, beside the 3.1c screen:
 ([touch-controls.md](touch-controls.md)), and each control gains a small
 badge with its gamepad input when a gamepad has been used in this run:
 QUEUE R4, ADD L4, CLEAR B, SELECT ▾ D-pad ←, PAUSE View+X, CHAT View+A,
-CENTRE L3, FOLLOW R3, NEXT D-pad → and INFO View. The FORCE chip joins the
+CENTRE L3, FOLLOW R3, NEXT D-pad → and INFO View. The keys overlay is
+View+R1. The FORCE chip joins the
 thumb column. Badges change how controls look, never where they are. The
 long-press help on a touch control names the gamepad input too, for
 example "QUEUE: hold or tap R4".

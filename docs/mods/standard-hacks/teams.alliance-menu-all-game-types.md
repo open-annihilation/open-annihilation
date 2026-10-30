@@ -95,3 +95,13 @@ hacks:
   teams.alliance-menu-all-game-types: true
 ```
 <!-- END GENERATED: schema -->
+
+## Keys
+
+<!-- BEGIN GENERATED: keys -->
+| Action | Default chords | What it does |
+| --- | --- | --- |
+| `game.team-menu` | `Tab, Shift+Tab` | The allies menu |
+<!-- END GENERATED: keys -->
+
+These keys move in the [key editor](../../keys.md#the-key-editor), in **Game**, while this hack is on.

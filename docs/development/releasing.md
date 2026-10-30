@@ -58,7 +58,8 @@ expanded and checked, and the notary service's logs.
    the source's notices in `Contents/Resources`, the text fonts in its
    `fonts` folder, each the bootstrap's byte for byte, the built-in
    registries in `registries/` (Core Prime's descriptor the same bytes as
-   the source), and nothing else in the bundle. The notices are `LICENSE`, `ATTRIBUTIONS.md` and the files of
+   the source). `Contents/MacOS` holds the executable and `oa-update`, and
+   nothing else. The notices are `LICENSE`, `ATTRIBUTIONS.md` and the files of
    `licenses/` that Git tracks; a file Git does not track there, a
    `.DS_Store` for one, stops the script, since the build would put it in
    the application.
@@ -66,12 +67,13 @@ expanded and checked, and the notary service's logs.
    `Info.plist` gives (`CFBundleName`), with the notices Git tracks beside
    it. The build tree, `run.sh` and the tests keep the target's names,
    `open-annihilation.app` and the executable `open-annihilation`. The
-   staged executable is stripped of its symbols (`strip`), and the build's
-   own is kept in the `-symbols` folder.
+   staged executable and `oa-update` are stripped of their symbols (`strip`),
+   and the build's own copies are kept in the `-symbols` folder.
 4. **Signs it inside-out:** any code inside the bundle besides its
-   executable first, deepest first (the game has none today), then the
-   application, each with the hardened runtime and a secure timestamp
-   (`codesign --options runtime --timestamp`), never with `--deep`.
+   executable first, deepest first, including `oa-update` in
+   `Contents/MacOS`, then the application, each with the hardened runtime
+   and a secure timestamp (`codesign --options runtime --timestamp`), never
+   with `--deep`. The helper is signed with the same identity as the app.
 5. **Notarizes and staples it:** `ditto` zips the application,
    `xcrun notarytool submit --wait` sends it to Apple's notary service and
    waits for the verdict, the service's log is kept, and
@@ -330,9 +332,11 @@ and `windows-95`. The suite lays each one out as a folder named
 folder is what the installer packs. It holds `open-annihilation.exe`,
 `oa-intro.exe`, `oa-tool.exe`, `LICENSE`, `ATTRIBUTIONS.md`, `licenses/`,
 `fonts/`, `languages/interface.tdf`, `registries/` and `brains/` with
-Classic packed as `classic.oabrain`. The installer refuses a folder whose
-`brains/` has no `classic.oabrain`, and installs that file into `brains`
-beside the game. The uninstaller removes it.
+Classic packed as `classic.oabrain`. When the folder also holds
+`oa-update.exe`, the installer packs that too. The uninstaller removes
+`oa-update.exe` whether or not this package carried it. The installer
+refuses a folder whose `brains/` has no `classic.oabrain`, and installs
+that file into `brains` beside the game. The uninstaller removes it.
 
 `packaging/windows/open-annihilation.nsi` is the one NSIS 3 script. Build
 it with `makensis`, which is the `nsis` package on Debian and Nix and
@@ -359,16 +363,20 @@ or the default icon path is read from the wrong directory.
 The 64-bit and ARM installers use `$PROGRAMFILES64` and the 64-bit
 registry view. The 32-bit and Windows 95 installers use `$PROGRAMFILES`
 and the ordinary registry view. A desktop shortcut is a component, on by
-default, so a silent install adds it. Silent install is `/S`, and
-`/D=C:\Games\Open Annihilation` chooses the folder when it is the last
-argument and is not quoted. Silent uninstall is `Uninstall.exe /S` in the
-install folder.
+default. A silent install of a new folder adds it. A silent install over a
+copy already there keeps the choice that copy recorded, so a shortcut the
+player removed stays removed, and that choice is written back. Silent
+install is `/S`, and `/D=C:\Games\Open Annihilation` chooses the folder
+when it is the last argument and is not quoted. Silent uninstall is
+`Uninstall.exe /S` in the install folder.
 
 `packaging/windows/build-installers.sh` lays out four folders in that
 shape, using the tree's notices, catalogue and registries and stand-in
-executables, and builds all four with Homebrew's `makensis`. It also
-checks that an unknown package name, a folder missing `LICENSE` and a
-folder missing `classic.oabrain` in `brains/` are refused.
+executables, including a stand-in `oa-update.exe`, and builds all four
+with Homebrew's `makensis`. It checks that each installer lists
+`oa-update.exe`, that a folder without that file still builds, and that
+an unknown package name, a folder missing `LICENSE` and a folder missing
+`classic.oabrain` in `brains/` are refused.
 
 NSIS 3's ANSI installer is what the Windows 95 package ships. A run on a
 Windows 95 machine is what shows that it starts there. If that run fails,
@@ -392,12 +400,13 @@ package into `$out/bin`, which is the package root the suite copies:
 |---|---|
 | `open-annihilation.exe`, `oa-tool.exe` | the game and the tool, stripped, from a Release build with the self-checks left out |
 | `oa-intro.exe` | the intro player the game already links, built with the same Windows 95 toolchain and stripped the same way |
+| `oa-update.exe` | the update helper, built with that toolchain, stripped, and installed with the package |
 | `LICENSE`, `ATTRIBUTIONS.md`, `licenses/` | the notices the other Windows packages carry; not the Linux-only SDL notice |
 | `fonts/` | the text fonts |
 | `languages/interface.tdf` | the interface catalogue |
 | `registries/` | the registries the game ships with |
 
-`$out/symbols` holds those three programs as the build linked them, symbol
+`$out/symbols` holds those programs as the build linked them, symbol
 table included, and nothing else. The suite's symbols zip is made from that
 directory. What remains different from the 32-bit Windows package is the
 toolchain: no SSE, floats on the processor's floating-point unit, the C library Windows 95 ships,
@@ -408,3 +417,9 @@ The other Windows outputs of the flake (`windows`, `windows-i686`) still
 install only the executables, the fonts and the registries, unstripped. The
 suite lays those packages out and strips them. A start of `oa-intro.exe` on
 a Windows 95 machine is not part of building the package.
+
+## The signed feed
+
+A release is offered to players from one signed feed. After the packages
+are built, write the feed, sign it and check it as
+[The engine feed](engine-feed.md) describes.

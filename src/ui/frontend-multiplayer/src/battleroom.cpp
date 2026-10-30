@@ -3,6 +3,7 @@
 
 // Battleroom (LOUNGE2.GUI): slot rules, rows, options, start checks.
 #include "oa/ui/frontend_multiplayer/lobby.hpp"
+#include "oa/ui/frontend_multiplayer/room_limits.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 
 #include "oa/base/game_loop.hpp"
@@ -22,6 +23,8 @@
 #include "oa/sim/messages.hpp"
 #include "oa/sim/mission_units/map_units.hpp"
 #include "oa/base/text.hpp"
+#include "oa/core/side.h"
+#include "oa/data/languages/interface_text.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -434,13 +437,106 @@ void set_option_bit(uint16_t& options, uint16_t bit, bool on) noexcept {
     options = static_cast<uint16_t>(on ? options | bit : options & ~bit);
 }
 
+/// Tells whether two side names are the same, ignoring ASCII case.
+///
+/// @param left one name
+/// @param right the other
+/// @return true when every character matches, ignoring ASCII case
+bool same_side_name(std::string_view left, std::string_view right) noexcept {
+    if (left.size() != right.size())
+        return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        const auto one = static_cast<unsigned char>(left[index]);
+        const auto other = static_cast<unsigned char>(right[index]);
+        if (std::tolower(one) != std::tolower(other))
+            return false;
+    }
+    return true;
+}
+
+/// Posts that a launch named a side this game does not have.
+///
+/// @param[in,out] lobby Lobby state.
+/// @param side The number or name as the launch wrote it.
+void post_launch_side(Lobby& lobby, std::string_view side) {
+    std::string line(
+        oa::data::languages::interface_text(
+            "*** The launch names side {side}, which this game does not have."
+        )
+    );
+    const auto mark = line.find("{side}");
+    if (mark != std::string::npos)
+        line.replace(mark, std::string_view("{side}").size(), side);
+    lobby_post_chat(lobby, line.c_str());
+}
+
+/// Posts that a launch gave a computer player a side it may not take.
+///
+/// @param[in,out] lobby Lobby state.
+/// @param side The number or name as the launch wrote it.
+void post_computer_launch_side(Lobby& lobby, std::string_view side) {
+    std::string line(
+        oa::data::languages::interface_text(
+            "*** The launch gives a computer player side {side}, which computer players cannot "
+            "take in this game."
+        )
+    );
+    const auto mark = line.find("{side}");
+    if (mark != std::string::npos)
+        line.replace(mark, std::string_view("{side}").size(), side);
+    lobby_post_chat(lobby, line.c_str());
+}
+
+/// Seats a launch faction or SIDEDATA name, or leaves the room's side.
+///
+/// A faction N from 1 is side N - 1 when the room has it. With no faction, a
+/// name takes the side whose SIDEDATA name matches, ignoring ASCII case. A
+/// number or name the room lacks leaves the side and posts the launch line
+/// once. An empty name with no faction leaves the side.
+///
+/// @param[in,out] lobby Lobby state.
+/// @param[in,out] info The player's lobby block.
+/// @param faction The launch faction; none when the launch named a side.
+/// @param faction_name The SIDEDATA name; empty when the launch gave a faction.
+void seat_named_side(
+    Lobby& lobby, PlayerSetupInfo& info, int32_t faction, std::string_view faction_name
+) {
+    namespace nl = oa::ui::frontend_multiplayer::launch;
+    if (lobby.game == nullptr)
+        return;
+    const uint8_t count = lobby_side_count(*lobby.game);
+    if (faction != nl::faction::none) {
+        const int32_t side = faction - 1;
+        if (side >= 0 && static_cast<uint32_t>(side) < count) {
+            info.side = static_cast<uint8_t>(side);
+            info.options = static_cast<uint16_t>(info.options & ~option::watcher);
+        } else {
+            post_launch_side(lobby, std::to_string(side));
+        }
+        return;
+    }
+    if (faction_name.empty())
+        return;
+    const auto limit = std::min(lobby.side_names.size(), static_cast<std::size_t>(count));
+    for (std::size_t index = 0; index < limit; ++index) {
+        if (!same_side_name(lobby.side_names[index], faction_name))
+            continue;
+        info.side = static_cast<uint8_t>(index);
+        info.options = static_cast<uint16_t>(info.options & ~option::watcher);
+        return;
+    }
+    post_launch_side(lobby, faction_name);
+}
+
 /// Seats the local player as an active launch says: side or watching, team and colour.
 ///
-/// A faction becomes the player's side and a watcher watches instead; a team
-/// 1 to 5 becomes the player's team, which is sent with the alliances
-/// refreshed; a colour 1 to 10 is asked for as a click on the player's logo
-/// asks, and a colour another player has gives the next free one. A field
-/// that is 0 leaves its setting alone.
+/// A faction N from 1 becomes side N - 1 when the room has it, and a faction
+/// name the side whose SIDEDATA name matches, ignoring case. A side the room
+/// lacks is left as the room chose it and named once in the chat. A watcher
+/// watches instead. A team 1 to 5 becomes the player's team, which is sent
+/// with the alliances refreshed; a colour 1 to 10 is asked for as a click on
+/// the player's logo asks, and a colour another player has gives the next
+/// free one. A field that is 0 leaves its setting alone.
 ///
 /// @param[in,out] lobby Lobby state; its launch must be active.
 /// @param[in,out] me the local player
@@ -451,9 +547,10 @@ void apply_launch_seat(Lobby& lobby, Player& me, PlayerSetupInfo& info) noexcept
     if (block.watcher != 0) {
         info.side = 0;
         info.options |= option::watcher;
-    } else if (block.faction != nl::faction::none) {
-        info.side = block.faction != nl::faction::arm ? 1 : 0;
-        info.options &= static_cast<uint16_t>(~option::watcher);
+    } else {
+        seat_named_side(
+            lobby, info, block.faction, text_view(block.faction_name, sizeof block.faction_name)
+        );
     }
     if (block.team >= nl::kLaunchTeamFirst && block.team <= nl::kLaunchTeamLast) {
         lobby_player_team(me) = static_cast<uint8_t>(block.team - nl::kLaunchTeamFirst);
@@ -1378,6 +1475,18 @@ bool presence_keep(Lobby& lobby, const LobbyEvent& event) noexcept {
     // the records have brought it, including a part that continues the head.
     feed_host_assembly(lobby);
     lobby_note_classic_room(lobby);
+    // An OA joiner is judged when its record arrives, not on its block. A
+    // build that sends no record is never refused. A later record from a
+    // player already named does not post the line again.
+    if (host_is_local(lobby) && lobby_room_oa_only(lobby) && lobby_limits_remote_oa(lobby, slot) &&
+        !lobby_limits_covered(lobby, slot)) {
+        if (!lobby.limits_older_refused[slot]) {
+            lobby.limits_older_refused[slot] = true;
+            lobby_post_limits_line(lobby, lobby_limits_newer_line(), slot);
+        }
+        lobby_reject(lobby, event.player_id, kRejectVersion);
+        flush(lobby);
+    }
     return true;
 }
 
@@ -2102,12 +2211,30 @@ uint8_t lobby_side_count(const Game& game) noexcept {
     return static_cast<uint8_t>(std::min<uint32_t>(count, 0xff));
 }
 
-uint8_t lobby_offered_side(const Game& game, uint32_t side) noexcept {
+uint8_t lobby_offered_side(const Game& game, uint32_t side, uint32_t also_hidden) noexcept {
     const uint32_t count = lobby_side_count(game);
-    const uint32_t hidden = oa::data::defs::battle_room_hidden_sides();
+    const uint32_t hidden = oa::data::defs::battle_room_hidden_sides() | also_hidden;
     while (side < count && side < 32 && (hidden & (1U << side)) != 0)
         ++side;
     return static_cast<uint8_t>(std::min(side, count));
+}
+
+uint8_t lobby_offered_side_before(const Game& game, uint32_t side, uint32_t also_hidden) noexcept {
+    const uint32_t count = lobby_side_count(game);
+    const uint32_t hidden = oa::data::defs::battle_room_hidden_sides() | also_hidden;
+    uint32_t at = side < count ? side : count;
+    while (at > 0) {
+        --at;
+        if (at < 32 && (hidden & (1U << at)) != 0)
+            continue;
+        return static_cast<uint8_t>(at);
+    }
+    return static_cast<uint8_t>(count);
+}
+
+uint32_t lobby_computer_hidden_sides() noexcept {
+    const uint32_t allowed = oa::data::defs::computer_player_sides();
+    return allowed == 0 ? 0U : ~allowed;
 }
 
 StartedOptions lobby_started_options(Game& game) noexcept {
@@ -2199,11 +2326,13 @@ void lobby_reset(Lobby& lobby, Game& game) noexcept {
     lobby.presence_records.part_refused_digest.reset();
     lobby.mutators_hold_seen = false;
     lobby.classic_lines_posted = false;
+    lobby.leave_line = nullptr;
     std::fill(
         std::begin(lobby.side_past_table_posted),
         std::end(lobby.side_past_table_posted),
         static_cast<int16_t>(-1)
     );
+    std::fill(std::begin(lobby.limits_older_refused), std::end(lobby.limits_older_refused), false);
     // The recorder's session starts again; the line it answers with stays.
     char program[sizeof lobby.recorder.program];
     std::memcpy(program, lobby.recorder.program, sizeof program);
@@ -2467,6 +2596,7 @@ void lobby_swap_slots(Lobby& lobby, int32_t first, int32_t second) noexcept {
         lobby.computer_launch_brain[static_cast<std::size_t>(second)]
     );
     std::swap(lobby.side_past_table_posted[first], lobby.side_past_table_posted[second]);
+    std::swap(lobby.limits_older_refused[first], lobby.limits_older_refused[second]);
     slot_set_status(lobby, a, kSlotOpen);
     a.in_use = 0;
     // The game renumbers eleven records; the eleventh lies past the table.
@@ -3045,8 +3175,25 @@ bool seat_launch_computers(Lobby& lobby) noexcept {
                              lobby_color_available(lobby, player.player_id, colour)
                          ? static_cast<uint8_t>(colour)
                          : static_cast<uint8_t>(lobby_next_free_color(lobby));
-        if (computer.faction != nl::faction::none)
-            info.side = computer.faction != nl::faction::arm ? 1 : 0;
+        seat_named_side(
+            lobby,
+            info,
+            computer.faction,
+            text_view(computer.faction_name, sizeof computer.faction_name)
+        );
+        const uint32_t computer_hidden = lobby_computer_hidden_sides();
+        if (computer_hidden != 0 && info.side < 32 && (computer_hidden & (1U << info.side)) != 0) {
+            const uint8_t count = lobby_side_count(*lobby.game);
+            const uint8_t offered = lobby_offered_side(*lobby.game, 0, computer_hidden);
+            if (offered < count)
+                info.side = offered;
+            if (computer.faction != nl::faction::none)
+                post_computer_launch_side(lobby, std::to_string(computer.faction - 1));
+            else
+                post_computer_launch_side(
+                    lobby, text_view(computer.faction_name, sizeof computer.faction_name)
+                );
+        }
         if (computer.team >= nl::kLaunchTeamFirst && computer.team <= nl::kLaunchTeamLast)
             lobby_player_team(player) = static_cast<uint8_t>(computer.team - nl::kLaunchTeamFirst);
         if (computer.difficulty >= nl::difficulty::easy &&
@@ -3152,7 +3299,8 @@ void lobby_enter_battleroom(Lobby& lobby, Panel& panel) noexcept {
         panel,
         "START",
         !(host && lobby_ready_to_start(lobby) && lobby_content_allows_start(lobby) &&
-          lobby_mutators_allow_start(lobby) && lobby_sides_allow_start(lobby) && synced)
+          lobby_mutators_allow_start(lobby) && lobby_limits_allow_start(lobby) &&
+          lobby_sides_allow_start(lobby) && synced)
     );
     panel_set_grayed(panel, "RESTRICTIONS", false);
     panel_set_text(panel, "METALTEXT", "0");
@@ -3381,23 +3529,47 @@ LobbyAction handle_panel_event(Lobby& lobby, Panel& panel) noexcept {
             if (!lobby_launch_locked(lobby)) {
                 play(lobby, "Multi");
                 // The button steps past a side the mod keeps out of the
-                // battle room, and wraps to the first side offered.
+                // battle room, and wraps to the first side offered. Past
+                // 3.1c's five sides a right click walks that cycle backwards.
+                const uint8_t count = lobby_side_count(game);
+                const uint32_t computer_hidden =
+                    player.status == kSlotComputer ? lobby_computer_hidden_sides() : 0U;
                 const auto first_offered = [&] {
-                    const uint8_t first = lobby_offered_side(game, 0);
-                    return first < lobby_side_count(game) ? first : uint8_t{0};
+                    const uint8_t first = lobby_offered_side(game, 0, computer_hidden);
+                    return first < count ? first : uint8_t{0};
                 };
-                if (player.in_use != 0 && (info.options & option::watcher) != 0) {
+                const auto host = lobby_host_slot(lobby);
+                const auto host_options =
+                    host == kNoSlot ? 0 : info_of(lobby, slot_player(lobby, host)).options;
+                const bool may_watch = (host_options & option::watching_allowed) != 0 &&
+                                       player.in_use != 0 && player.status == kSlotLocal;
+                const bool watching = player.in_use != 0 && (info.options & option::watcher) != 0;
+                if (panel.button == 2 && count > OA_SIDE_COUNT) {
+                    const uint8_t earlier = lobby_offered_side_before(game, count, computer_hidden);
+                    const uint8_t last = earlier < count ? earlier : uint8_t{0};
+                    if (watching) {
+                        info.options &= static_cast<uint16_t>(~option::watcher);
+                        info.side = last;
+                    } else {
+                        const uint8_t previous =
+                            lobby_offered_side_before(game, info.side, computer_hidden);
+                        if (previous < count) {
+                            info.side = previous;
+                        } else if (may_watch) {
+                            info.options |= option::watcher;
+                        } else {
+                            info.side = last;
+                            panel_set_stage(panel, name, info.side);
+                        }
+                    }
+                } else if (watching) {
                     info.options &= static_cast<uint16_t>(~option::watcher);
                     info.side = first_offered();
                 } else {
-                    info.side = lobby_offered_side(game, info.side + 1U);
-                    if (info.side >= lobby_side_count(game)) {
+                    info.side = lobby_offered_side(game, info.side + 1U, computer_hidden);
+                    if (info.side >= count) {
                         info.side = first_offered();
-                        const auto host = lobby_host_slot(lobby);
-                        const auto host_options =
-                            host == kNoSlot ? 0 : info_of(lobby, slot_player(lobby, host)).options;
-                        if ((host_options & option::watching_allowed) == 0 || player.in_use == 0 ||
-                            player.status != kSlotLocal)
+                        if (!may_watch)
                             panel_set_stage(panel, name, info.side);
                         else
                             info.options |= option::watcher;
@@ -3619,8 +3791,10 @@ LobbyAction handle_panel_event(Lobby& lobby, Panel& panel) noexcept {
     }
     if (panel_selected_is(panel, "START")) {
         const bool mutators_allow = lobby_mutators_allow_start(lobby);
+        const bool limits_allow = lobby_limits_allow_start(lobby);
         const bool sides_allow = lobby_sides_allow_start(lobby);
-        if (!lobby_content_allows_start(lobby) || !mutators_allow || !sides_allow) {
+        if (!lobby_content_allows_start(lobby) || !mutators_allow || !limits_allow ||
+            !sides_allow) {
             if (!mutators_allow)
                 lobby_note_refused_start(lobby_mutators_block(lobby));
             panel.selected = kNoControl;
@@ -3811,7 +3985,8 @@ LobbyAction lobby_tick(Lobby& lobby, Panel& panel, LobbyFront front, Panel* view
                 const bool synced = unit_sync_complete(lobby);
                 const bool ready =
                     lobby_ready_to_start(lobby) && lobby_content_allows_start(lobby) &&
-                    lobby_mutators_allow_start(lobby) && lobby_sides_allow_start(lobby);
+                    lobby_mutators_allow_start(lobby) && lobby_limits_allow_start(lobby) &&
+                    lobby_sides_allow_start(lobby);
                 const auto tick = now(lobby);
                 panel_set_grayed(panel, "SYNCHING", true);
                 if (lobby.start_frame > 0 && lobby_clock_passed(tick, lobby.start_frame_tick)) {
@@ -4529,6 +4704,12 @@ void lobby_add_computer(Lobby& lobby, int32_t slot) noexcept {
         player.second_name, sizeof(player.second_name), text_view(player.name, sizeof(player.name))
     );
     note_computer_difficulty(lobby, slot, kDifficultyHard);
+    const uint32_t computer_hidden = lobby_computer_hidden_sides();
+    if (computer_hidden != 0 && info.side < 32 && (computer_hidden & (1U << info.side)) != 0) {
+        const uint8_t offered = lobby_offered_side(game, 0, computer_hidden);
+        if (offered < lobby_side_count(game))
+            info.side = offered;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -4701,6 +4882,7 @@ bool lobby_add_player(Lobby& lobby, uint32_t player_id, const char* name) noexce
     auto& player = game.players[slot];
     // Its block may still hold an earlier player's bytes until its own comes.
     presence_forget(lobby.presence_records, slot);
+    lobby.limits_older_refused[slot] = false;
     copy_text(
         player.name,
         sizeof(player.name),
@@ -4761,6 +4943,7 @@ bool lobby_apply_event(Lobby& lobby, const LobbyEvent& event) noexcept {
         if (slot < 0)
             return false;
         presence_forget(lobby.presence_records, slot);
+        lobby.limits_older_refused[slot] = false;
         auto& player = slot_player(lobby, slot);
         // The creator leaving before the start ends the game here: its
         // player and this machine's leave with reason 10.
@@ -4831,6 +5014,9 @@ bool lobby_apply_event(Lobby& lobby, const LobbyEvent& event) noexcept {
         const auto slot = slot_for_player_id(lobby, record.player_id);
         if (slot < 0 || slot_player(lobby, slot).status != kSlotRemote)
             return false;
+        // Read before the block is copied: a later block may not repeat the
+        // host bit, and the copy replaces the setup info.
+        const auto known_host = lobby_host_slot(lobby);
         auto* bytes = reinterpret_cast<uint8_t*>(slot_info(lobby, slot));
         std::memcpy(bytes, record.info_head, sizeof(record.info_head));
         std::memcpy(
@@ -4853,6 +5039,42 @@ bool lobby_apply_event(Lobby& lobby, const LobbyEvent& event) noexcept {
             lobby_reject(lobby, record.player_id, kRejectVersion);
             flush(lobby);
             return true;
+        }
+        // A 3.1c joiner cannot play a mod past 3.1c's limits. The mutator
+        // line keeps its place when both apply. An OA block is seated: its
+        // record has not arrived, so it is not refused here.
+        if (arriving && host_is_local(lobby) && lobby_room_oa_only(lobby)) {
+            const auto* arrived = slot_info(lobby, slot);
+            if (arrived != nullptr &&
+                !netgame::sent_by_open_annihilation(reinterpret_cast<const uint8_t*>(arrived))) {
+                lobby_post_limits_line(lobby, lobby_limits_classic_line(lobby), slot);
+                lobby_reject(lobby, record.player_id, kRejectVersion);
+                flush(lobby);
+                return true;
+            }
+        }
+        // This machine's mod is OA-only and the host plays 3.1c. Leave with
+        // the ordinary reason, and send no presence record to that host.
+        if (!host_is_local(lobby) && lobby_room_oa_only(lobby)) {
+            const auto host_now = lobby_host_slot(lobby);
+            const bool from_host =
+                (known_host != kNoSlot && slot == static_cast<int32_t>(known_host)) ||
+                (host_now != kNoSlot && slot == static_cast<int32_t>(host_now));
+            const auto* host_info = slot_info(lobby, slot);
+            if (from_host && host_info != nullptr &&
+                !netgame::sent_by_open_annihilation(reinterpret_cast<const uint8_t*>(host_info))) {
+                if (lobby.leave_line == nullptr) {
+                    lobby.leave_line = lobby_limits_leave_line();
+                    lobby_post_limits_line(lobby, lobby.leave_line, -1);
+                }
+                for (int32_t mine = 0; mine < kSlotCount; ++mine) {
+                    auto& seated = slot_player(lobby, mine);
+                    if (local_or_computer(seated))
+                        lobby_reject(lobby, seated.player_id, kRejectLeaving);
+                }
+                flush(lobby);
+                return true;
+            }
         }
         if (const auto* echoed = slot_info(lobby, slot)) {
             note_computer_command_echo(lobby, record.player_id, kComputerEditSide, echoed->side);
@@ -4962,10 +5184,30 @@ bool lobby_apply_event(Lobby& lobby, const LobbyEvent& event) noexcept {
         // The host refused a 3.1c joiner from its room with mutators: a
         // guest names it too, once, from the joiner's own block. A guest
         // never refuses anyone itself.
+        bool mutator_named = false;
         if (record.reason == kRejectVersion && !host_is_local(lobby) &&
             lobby.presence_records.block_player[slot] == record.player_id &&
-            classic_in_mutator_room(lobby, slot))
+            classic_in_mutator_room(lobby, slot)) {
             lobby_post_classic_line(lobby, kClassicRefusedLine, slot);
+            mutator_named = true;
+        }
+        // The host refused a player this mod cannot include. A guest names
+        // that player and does not refuse anyone itself. The mutator line
+        // keeps its place when both apply.
+        if (!mutator_named && record.reason == kRejectVersion && !host_is_local(lobby) &&
+            lobby.presence_records.block_player[slot] == record.player_id &&
+            lobby_room_oa_only(lobby)) {
+            const auto* named = slot_info(lobby, slot);
+            if (named != nullptr &&
+                !netgame::sent_by_open_annihilation(reinterpret_cast<const uint8_t*>(named)))
+                lobby_post_limits_line(lobby, lobby_limits_classic_line(lobby), slot);
+            else if (
+                named != nullptr &&
+                netgame::sent_by_open_annihilation(reinterpret_cast<const uint8_t*>(named)) &&
+                !lobby_limits_covered(lobby, slot)
+            )
+                lobby_post_limits_line(lobby, lobby_limits_newer_line(), slot);
+        }
         // Passed on once, as for a rejection made here.
         lobby_reject(lobby, record.player_id, record.reason);
         flush(lobby);

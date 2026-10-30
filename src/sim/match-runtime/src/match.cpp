@@ -312,6 +312,24 @@ void Match::State::load_types(const OfflineInputs& input) {
     }
 }
 
+void Match::bind_sides(std::span<const oa::Side> table, uint32_t count) {
+    for (uint32_t index = 0; index < OA_SIDE_COUNT; ++index)
+        state().game.sides[index] = table[index];
+    if (count > OA_SIDE_COUNT) {
+        const uint32_t extra = count - OA_SIDE_COUNT;
+        state_.extra_sides = std::make_unique<oa::Side[]>(extra);
+        for (uint32_t extra_index = 0; extra_index < extra; ++extra_index)
+            state_.extra_sides[extra_index] = table[OA_SIDE_COUNT + extra_index];
+        state().extra_sides = state_.extra_sides.get();
+        state().extra_side_count = extra;
+    } else {
+        state_.extra_sides.reset();
+        state().extra_sides = nullptr;
+        state().extra_side_count = 0;
+    }
+    state().game.side_count = count;
+}
+
 void Match::replace_unit_def(std::size_t type, const oa::UnitDef& record) {
     if (type >= state_.unit_defs.size()) {
         fault_.note("unit type outside the runtime table");
@@ -398,11 +416,21 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
         static_cast<uint32_t>(input.scenario_definitions->integer("waterdoesdamage", 0));
     state().environment_damage = input.scenario_definitions->integer("waterdamage", 0);
     state().game.gravity = sim::ballistics::simulation_gravity(false, 0, scenario_gravity_);
-    std::copy(
-        input.weapons.records().begin(),
-        input.weapons.records().end(),
-        std::begin(state().game.weapon_defs)
-    );
+    const auto weapon_records = input.weapons.records();
+    const std::size_t inline_slots =
+        std::min(weapon_records.size(), static_cast<std::size_t>(OA_WEAPON_DEF_COUNT));
+    std::copy_n(weapon_records.begin(), inline_slots, std::begin(state().game.weapon_defs));
+    if (weapon_records.size() > OA_WEAPON_DEF_COUNT) {
+        const std::size_t extra = weapon_records.size() - OA_WEAPON_DEF_COUNT;
+        state_.extra_weapon_defs = std::make_unique<oa::WeaponDef[]>(extra);
+        std::copy_n(
+            weapon_records.begin() + static_cast<std::ptrdiff_t>(OA_WEAPON_DEF_COUNT),
+            extra,
+            state_.extra_weapon_defs.get()
+        );
+        state().extra_weapon_defs = state_.extra_weapon_defs.get();
+        state().extra_weapon_def_count = static_cast<uint32_t>(extra);
+    }
     state().game.sea_level = terrain_.sea_level();
     // The map's cell counts and its size in world units.
     state().game.map_width = static_cast<int32_t>(input.map.attribute_width);
@@ -1361,6 +1389,15 @@ bool Match::point_mapped(const std::array<uint32_t, 3>& position) const {
         return false;
     // Deliberately the viewpoint bit, not the queried player's bit.
     return (sight_.player_bits[*index] & (1u << sight_.viewpoint_player)) != 0;
+}
+
+bool Match::player_mapped(uint8_t player, const std::array<uint32_t, 3>& position) const {
+    if (player >= OA_PLAYER_COUNT)
+        return false;
+    const auto index = sight_cell(sight_, position);
+    if (!index)
+        return false;
+    return (sight_.player_bits[*index] & (1u << player)) != 0;
 }
 
 bool Match::point_seen_by(uint8_t player, const std::array<uint32_t, 3>& position) const {

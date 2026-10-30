@@ -29,20 +29,29 @@ Every document in the repository, by what you want to do.
   short, the message the game shows when it runs out of memory, and a copy
   of the game that does not finish.
 - [settings.md](settings.md): Open Annihilation's own settings, with a
-  picture of each section: opening them, OK, Cancel and Restore defaults,
-  and what every setting in Mods, Controls, Engine Limits, Language & Text,
-  Graphics, User Interface (Menu scaling, Window frame, HUD scaling,
-  Interface size and Escape opens the game menu), Touch, Controller, Game files,
-  Downloads and Developer does, its default, when it takes effect and when
-  to change it; the command-line options that set them for one run, and
-  where they are kept.
+  picture of each section: opening them, the grouped section list, moving
+  OA's windows, OK, Cancel, Restore defaults and the count of changes, and
+  what every setting in Controls (the key layout card), Accessibility (the
+  input helpers and the practice pad), Touch, Controller, Graphics, User
+  Interface (Menu scaling, Window frame, HUD scaling, Interface size,
+  Window size, Reset window positions and Escape opens the game menu),
+  Language & Text, Game files, Downloads, Updates, Game Content, Engine
+  Limits, System and Developer does, its default, when it takes effect and
+  when to change it; the command-line options that set them for one run,
+  and where they are kept.
 - [first-run.md](first-run.md): the welcome at the first main menu, which
   chooses a language, explains online features and points out the Library
   and Settings buttons.
+- [updates.md](updates.md): looking for a new release of Open Annihilation,
+  when the check runs, what it sends, and that a release is only offered;
+  Settings' update card, the menu's pill and the update centre, the offer,
+  downloading, pausing and cancelling, the ready prompt and installing
+  when you quit, the recovery screen, and rolling back.
 - [library.md](library.md): the Library, where mods, map packs, mutators
   and language packs are found, installed, updated and rolled back from
-  inside the game: opening it, its tabs and states, the Mutators tab,
-  search and filters, the details, the download queue, updates, which
+  inside the game: opening it, its tabs and states, the Mutators tab, the
+  Keys tab and USE's question with Undo after it, search and filters, the
+  details, the download queue, updates, which
   downloads ask first and the update question, "Finishes when you leave …",
   offline use and the check that you are a person.
 - [playing-with-mutators.md](playing-with-mutators.md): getting a mutator
@@ -58,12 +67,18 @@ Every document in the repository, by what you want to do.
   an iPhone or a touch screen: the gestures, the tablet and phone layouts,
   QUEUE, ADD and x5, the order wheel, building, the Touch settings, the
   keyboard's Cmd keys and the Pencil.
-- [controls.md](controls.md): group keys, and a second recall of the
-  group that is already selected, which centres the view and does not
-  follow it.
+- [controls.md](controls.md): the keys panel in a match and the keys on
+  the buttons, the key editor (Common commands, Find by key, changing a
+  key, the clash question, the keyboard and the mouse, Undo), Arrange
+  overlays, group keys, and a second recall of the group that is already
+  selected, which centres the view and does not follow it.
+- [keys.md](keys.md): key bindings. Actions and chords, letter or place,
+  Escape's one fixed job, the key editor, keys for a unit's tags,
+  layouts, sharing, older keys from tdraw, zdraw and cnc-ddraw,
+  the accessibility helpers, the keys in a match, and the default chords.
 - [skirmish.md](skirmish.md): the skirmish setup's one **Player** row,
-  which a campaign mission leaves as you set it, and the **Mutators**
-  button on that setup.
+  which a campaign mission leaves as you set it, the **Mutators** button
+  on that setup, and a computer row's brain menu.
 - [saves.md](saves.md): saved games, recordings and films: the content
   note beside each, **This save needs other content**, where they are kept,
   and what a saved game keeps (no shots in flight, as in 3.1c).
@@ -82,11 +97,16 @@ Every document in the repository, by what you want to do.
   which others.
 - [multiplayer/content.md](multiplayer/content.md): the base game and
   expansions each player shows in the battle room, and when a difference
-  keeps the game from starting.
+  keeps the game from starting. A mod with more weapons or sides plays
+  only on Open Annihilation; the page points at the room's lines.
 - [multiplayer/mutators.md](multiplayer/mutators.md): mutators in the
   battle room: the host chooses, a guest sees the list and **GET
   MUTATORS**, **START** waits, and a room with mutators is Open
   Annihilation only and unranked.
+- [multiplayer/limits.md](multiplayer/limits.md): a mod with more than
+  256 weapon types, or more than five sides, is played only on Open
+  Annihilation. **START** stays grey, and the room says why a player
+  cannot be in it.
 - [typing.md](typing.md): typing in any script, Chinese among them, in
   the chat lines, a saved game's name and the whiteboard: input methods,
   commands, saves and recordings named in any script, the iPhone and iPad
@@ -147,6 +167,9 @@ Every document in the repository, by what you want to do.
   format of a mod profile (`oamod.yaml`) and its rules: parameters,
   presets, settings, limits, script extensions, data keys, hashes and
   network compatibility.
+- [keys/oakeys-standard.md](keys/oakeys-standard.md): the OAKeys standard,
+  the format of a key layout (`.oakeys`) and its rules: the manifest,
+  chords, action ids (including `select.tag-`), helpers and the text form.
 - [mutators/README.md](mutators/README.md): mutators: a package that changes
   one game, what it can and cannot change, and where the format, the guide
   and the command line are.
@@ -167,8 +190,9 @@ Every document in the repository, by what you want to do.
 - [brains/authoring.md](brains/authoring.md): writing a brain, from an
   empty folder through Steady Commander to Classic's walkthrough.
 - [playing-with-brains.md](playing-with-brains.md): getting a brain,
-  setting it on a computer seat, the default, and what a network game or
-  a stopped brain does.
+  setting it on a computer seat from the room's brain menu, the brain
+  picker's options, the default, and what a battle room or a stopped
+  brain does.
 - [registries/README.md](registries/README.md): the OA Registry
   Specification, version 1: the descriptor and `.oareg` file, the
   catalogue and its signature, packages, the download API, running a
@@ -211,6 +235,9 @@ Every document in the repository, by what you want to do.
   notarizing and checking the macOS release packages with
   `tools/release_macos.sh`, on the maintainer's Mac, and the Steam Deck
   package: the Linux x86_64 package with its `steam-deck` folder.
+- [development/engine-feed.md](development/engine-feed.md): the signed feed
+  a release is offered from, the release number, and how a release is
+  published.
 - [tools/sdl-patches](../tools/sdl-patches/README.md): the changes
   the build makes to the pinned SDL release, which
   [tools/bootstrap_sdl.py](../tools/bootstrap_sdl.py) applies, each offered
@@ -311,9 +338,9 @@ Platform and application:
   and overlays, the services table, each group of hooks, the automation
   endpoint and testing; and [extensions/ui-kit.md](extensions/ui-kit.md),
   the OA UI kit's chapter: Settings pages, kit screens, notices and prompts,
-  drawing in a match overlay, sizes and scales, focus and touch, automation
-  names, and the [UI kit](../src/ui/kit/README.md) gallery's pictures at
-  Compact, Regular and Large.
+  drawing in a match overlay, sizes and scales, Kit 2's look, focus and
+  touch, automation names, and the [UI kit](../src/ui/kit/README.md)
+  gallery's pictures on a 640x480, a 1280x720 and a 1920x1080 window.
 - [card command lists](../src/app/card/README.md): what a frame asks the
   graphics card to draw, and the executor that runs it on SDL's renderer,
   for the Full tier.

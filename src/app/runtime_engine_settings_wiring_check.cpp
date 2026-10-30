@@ -74,6 +74,15 @@ SDL_Event escape_press(bool repeat) {
     return event;
 }
 
+/// Escape let go.
+SDL_Event escape_release() {
+    SDL_Event event{};
+    event.type = SDL_EVENT_KEY_UP;
+    event.key.key = SDLK_ESCAPE;
+    event.key.scancode = SDL_SCANCODE_ESCAPE;
+    return event;
+}
+
 } // namespace
 
 void Runtime::check_engine_settings_wiring() {
@@ -84,6 +93,17 @@ void Runtime::check_engine_settings_wiring() {
     const auto send = [&](SDL_Event event) {
         handle_sdl_event(event, running);
         require(running, "an event ended the run");
+    };
+    // Escape goes in as the event loop takes a key (dispatch_event), which
+    // feeds the action dispatcher each down and its up, as a keyboard sends
+    // them.
+    const auto send_key = [&](SDL_Event event) {
+        dispatch_event(event, running);
+        require(running, "an event ended the run");
+    };
+    const auto tap_escape = [&] {
+        send_key(escape_press(false));
+        send_key(escape_release());
     };
 
     // With --preferences-file, every default is the game's own behaviour on
@@ -491,27 +511,28 @@ void Runtime::check_engine_settings_wiring() {
     chosen.escape_opens_menu = false;
     apply_engine_settings(chosen);
     clear_local_selection();
-    send(escape_press(false));
+    tap_escape();
     require(!match_paused_, "Escape opened the menu with the setting off");
     chosen.escape_opens_menu = true;
     apply_engine_settings(chosen);
     adopt_selection(commander);
     match_command_ = MatchCommand::move;
-    send(escape_press(false));
+    tap_escape();
     require(
         !match_paused_ && match_command_ == MatchCommand::none && has_local_selection(),
         "Escape did not first cancel the armed order"
     );
-    send(escape_press(false));
+    tap_escape();
     require(!match_paused_ && !has_local_selection(), "Escape did not clear the selection next");
-    send(escape_press(false));
+    send_key(escape_press(false));
     require(ingame_menu_column_shown(), "Escape with nothing to clear did not open the menu");
-    send(escape_press(true));
+    send_key(escape_press(true));
     require(match_paused_, "a held Escape's repeat closed the menu");
-    send(escape_press(false));
+    send_key(escape_release());
+    tap_escape();
     require(!match_paused_, "Escape did not close the menu it opened");
     open_chat_line();
-    send(escape_press(false));
+    tap_escape();
     require(!chat_composing_ && !match_paused_, "Escape did not close the chat line first");
     // The unit info panel closes first, then a pending build is cancelled,
     // and both keep the selection.
@@ -520,18 +541,18 @@ void Runtime::check_engine_settings_wiring() {
     const bool info_opened = open_unit_info() && unit_info_panel_;
     match_->state().game.cursor_unit_id = 0;
     require(info_opened, "F1 did not open the unit info panel");
-    send(escape_press(false));
+    tap_escape();
     require(
         !unit_info_panel_ && has_local_selection() && !match_paused_,
         "Escape did not close the unit info panel first"
     );
     pending_build_type_ = commander_type;
-    send(escape_press(false));
+    tap_escape();
     require(
         pending_build_type_ == 0 && has_local_selection() && !match_paused_,
         "Escape did not cancel the pending build before the selection"
     );
-    send(escape_press(false));
+    tap_escape();
     require(!has_local_selection() && !match_paused_, "Escape did not clear the selection");
     // In a shared game the menu Escape opens leaves the game running.
     {
@@ -539,10 +560,10 @@ void Runtime::check_engine_settings_wiring() {
         extension_.state = [](void*, const Runtime&) -> uint32_t {
             return extension_state::multiplayer | extension_state::shared_match;
         };
-        send(escape_press(false));
+        tap_escape();
         const bool menu_opened = ingame_menu_column_shown();
         const bool game_running = match_clock_steps();
-        send(escape_press(false));
+        tap_escape();
         const bool menu_closed = !ingame_menu_column_shown();
         extension_ = kept_extension;
         require(menu_opened, "Escape with nothing to clear did not open the menu in a shared game");

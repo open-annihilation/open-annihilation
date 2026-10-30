@@ -1,0 +1,2304 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+# The action registry, catalogue 1: every key, button and wheel turn the game
+# answers, with its default chord. tools/gen_input_actions.py checks it and
+# writes src/data/input-actions/src/actions.inc. input-actions-sync fails while
+# that table differs from this file, or this file breaks a rule.
+#
+# Top level: input-actions (must be 1), contexts, conditions, areas, families,
+# actions. gui., select.category- and select.tag- actions are made at load,
+# from families, and are not listed here.
+#
+# Context fields: parent (null only on global), overlay and title. The order
+# of the contexts is the bit order of an action's context mask.
+# Conditions: names is the bit order. exclusive pairs cannot both hold on one
+# action, and exclusive() is true when two masks hold a pair on opposite sides.
+# Area fields: order (the editor's category order) and title.
+#
+# Family fields: area, context, kind, by, source, and when they apply
+# default-template (kept as text, not parsed as a chord), order-panel
+# (area and context for an order-panel gadget) and words (name and
+# description templates; `{word}` is the data's spelling).
+#
+# Action fields, always: area, order, context, kind, source, words.
+#   area, order   the editor category and the order within it, from 1
+#   context       where the action is read
+#   when          conditions inside that context; absent means none
+#   kind          press, repeat, hold, modifier, pointer or wheel
+#   by            letter or place; required when a default's trigger is a
+#                 character or a key position
+#   source        3.1c, OA, data, or a hack id. An action whose sources are
+#                 all hack ids exists only while one of those hacks is on
+#   default       up to four chords of the OA default layout; absent means unbound
+#   words         name and description, the English texts (there are no word ids)
+#   replaces      the base action a hack action stands in for; no default then
+#   hacks         hack id to {default and/or when}: what the defaults or the
+#                 conditions become while that hack is on
+#   left-click-default  a pointer role's chord in the left-click interface
+#   target        where a pointer or wheel action lands
+#   gadget        the order-panel gadget word the action presses
+#   fixed         true only for Escape's fixed job (chat.cancel, ui.screen-cancel)
+#   latchable     a hold or modifier that may latch
+#   confirmable   an action that may require a hold to confirm
+#   repeatable    a repeat action the repeat helper may apply to
+#   pad           an Action enumerator of the pad controls
+#   touch         latch., radial. or select. and that enum's enumerator
+#   aliases       old ids kept after a rename
+#
+# A printable key of a by: place action is its position (@KeyW, @Digit1,
+# @Equal, @Minus, @Slash, @Backslash, @Backquote), not the character. Whether
+# an @ name is a real key position is checked by the C++ grammar (K04).
+
+input-actions: 1
+
+contexts:
+  global:
+    parent: null
+    overlay: false
+    title: Everywhere
+  oa-screens:
+    parent: global
+    overlay: false
+    title: Open Annihilation
+  menus:
+    parent: global
+    overlay: false
+    title: Menus
+  match:
+    parent: global
+    overlay: false
+    title: Match
+  play:
+    parent: match
+    overlay: false
+    title: Playing
+  watch:
+    parent: match
+    overlay: false
+    title: Watching
+  chat:
+    parent: match
+    overlay: true
+    title: Chat line
+  panel:
+    parent: match
+    overlay: true
+    title: Panels
+  unit-info:
+    parent: match
+    overlay: true
+    title: Unit info
+  megamap:
+    parent: match
+    overlay: true
+    title: Megamap
+  whiteboard:
+    parent: match
+    overlay: true
+    title: Whiteboard
+  placing:
+    parent: play
+    overlay: true
+    title: Placing
+  box:
+    parent: match
+    overlay: true
+    title: Selection box
+
+conditions:
+  names: [single-player, multiplayer, seat, selection, developer, debug-keys, wheel-zoom, no-wheel-zoom, pointer-keys]
+  exclusive:
+    - [single-player, multiplayer]
+    - [wheel-zoom, no-wheel-zoom]
+
+areas:
+  orders:
+    order: 1
+    title: Orders
+  mouse:
+    order: 2
+    title: Pointer
+  selection:
+    order: 3
+    title: Selection
+  groups:
+    order: 4
+    title: Groups
+  camera:
+    order: 5
+    title: Camera
+  building:
+    order: 6
+    title: Building
+  game:
+    order: 7
+    title: Game
+  chat:
+    order: 8
+    title: Chat
+  watching:
+    order: 9
+    title: Watching
+  window:
+    order: 10
+    title: Window
+  menus:
+    order: 11
+    title: Menus
+  developer:
+    order: 12
+    title: Developer
+  megamap:
+    order: 13
+    title: Megamap
+  whiteboard:
+    order: 14
+    title: Whiteboard
+
+families:
+  gui:
+    area: menus
+    context: [menus]
+    kind: press
+    by: letter
+    source: [data]
+    order-panel:
+      area: orders
+      context: [play]
+  select.category:
+    area: selection
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default-template: "Ctrl+<letter>"
+  select.tag:
+    area: selection
+    context: [play]
+    kind: press
+    by: letter
+    source: [data]
+    words:
+      name: "Select {word}"
+      description: "Selects your units tagged {word}: those on screen, then the whole map on a second press."
+
+actions:
+  order.move:
+    area: orders
+    order: 1
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["M"]
+    gadget: MOVE
+    touch: radial.move
+    words: {name: "Move", description: "Arms Move"}
+  order.stop:
+    area: orders
+    order: 2
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["S"]
+    gadget: STOP
+    pad: stop
+    touch: radial.stop
+    words: {name: "Stop", description: "Stop"}
+  order.patrol:
+    area: orders
+    order: 3
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["P"]
+    gadget: PATROL
+    touch: radial.patrol
+    words: {name: "Patrol", description: "Arms Patrol"}
+  order.attack:
+    area: orders
+    order: 4
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["A"]
+    gadget: ATTACK
+    touch: radial.attack
+    words: {name: "Attack", description: "Arms Attack"}
+  order.guard:
+    area: orders
+    order: 5
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["G"]
+    gadget: DEFEND
+    touch: radial.guard
+    words: {name: "Guard", description: "Arms Defend (guard)"}
+  order.dgun:
+    area: orders
+    order: 6
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["D"]
+    gadget: BLAST
+    touch: radial.blast
+    words: {name: "D-gun", description: "Arms BLAST (D-gun)"}
+  order.reclaim:
+    area: orders
+    order: 7
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["E"]
+    gadget: RECLAIM
+    touch: radial.reclaim
+    words: {name: "Reclaim", description: "Arms Reclaim"}
+  order.repair:
+    area: orders
+    order: 8
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["R"]
+    gadget: REPAIR
+    touch: radial.repair
+    words: {name: "Repair", description: "Arms Repair"}
+  order.capture:
+    area: orders
+    order: 9
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["C"]
+    gadget: CAPTURE
+    touch: radial.capture
+    words: {name: "Capture", description: "Arms Capture"}
+  order.load:
+    area: orders
+    order: 10
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["L"]
+    gadget: LOAD
+    touch: radial.load
+    words: {name: "Load", description: "Arms Load"}
+  order.unload:
+    area: orders
+    order: 11
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["U"]
+    gadget: UNLOAD
+    touch: radial.unload
+    words: {name: "Unload", description: "Arms Unload"}
+  order.cloak:
+    area: orders
+    order: 12
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["K"]
+    gadget: CLOAK
+    pad: cloak
+    words: {name: "Cloak", description: "Cloak on or off"}
+  order.on-off:
+    area: orders
+    order: 13
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["X"]
+    gadget: ONOFF
+    pad: on_off
+    words: {name: "On or off", description: "Activate on or off"}
+  order.fire-state:
+    area: orders
+    order: 14
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["F"]
+    gadget: FIREORD
+    pad: fire_orders
+    words: {name: "Fire state", description: "Steps the fire standing order"}
+  order.move-state:
+    area: orders
+    order: 15
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["V"]
+    gadget: MOVEORD
+    pad: move_orders
+    words: {name: "Move state", description: "Steps the move standing order"}
+  order.self-destruct:
+    area: orders
+    order: 16
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c]
+    default: ["Ctrl+D"]
+    confirmable: true
+    pad: self_destruct
+    words: {name: "Self-destruct", description: "Starts or stops the countdown"}
+  panel.orders-tab:
+    area: orders
+    order: 17
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["O"]
+    gadget: ORDERS
+    words: {name: "Orders tab", description: "The ORDERS tab"}
+  panel.build-tab:
+    area: orders
+    order: 18
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c, data]
+    default: ["B"]
+    gadget: BUILD
+    words: {name: "Build tab", description: "The BUILD tab"}
+  order.queue-modifier:
+    area: orders
+    order: 19
+    context: [play]
+    kind: modifier
+    source: [3.1c]
+    default: ["Shift"]
+    latchable: true
+    pad: queue
+    touch: latch.queue
+    words: {name: "Queue", description: "Held: orders join the queue, an armed order stays armed, queued orders show"}
+  order.force-modifier:
+    area: orders
+    order: 20
+    context: [play]
+    kind: modifier
+    source: [3.1c]
+    default: ["Ctrl"]
+    pad: force
+    words: {name: "Force attack", description: "Held: force-attack a unit or the ground"}
+  order.cancel:
+    area: orders
+    order: 21
+    context: [play, placing]
+    kind: press
+    source: [OA]
+    words: {name: "Cancel order", description: "Takes back an armed order or a placement only"}
+  pointer.select:
+    area: mouse
+    order: 1
+    context: [play]
+    kind: pointer
+    source: [3.1c]
+    default: ["MouseLeft"]
+    target: battlefield
+    words: {name: "Select", description: "Selects the unit under the pointer, or starts a box"}
+  pointer.command:
+    area: mouse
+    order: 2
+    context: [play]
+    kind: pointer
+    source: [3.1c]
+    default: ["MouseRight"]
+    left-click-default: "MouseLeft"
+    target: battlefield
+    words: {name: "Command", description: "The order the pointer shows"}
+  pointer.select-type:
+    area: mouse
+    order: 3
+    context: [play]
+    kind: pointer
+    source: [3.1c]
+    default: ["MouseLeft:double"]
+    target: battlefield
+    pad: select_type
+    touch: radial.type
+    words: {name: "Select type", description: "Every unit of that type on the map"}
+  pointer.select-type-on-screen:
+    area: mouse
+    order: 4
+    context: [play]
+    kind: pointer
+    source: [ui.selection-shortcuts]
+    replaces: pointer.select-type
+    target: battlefield
+    words: {name: "Select type on screen", description: "That type on screen only"}
+  select.add-modifier:
+    area: mouse
+    order: 5
+    context: [play]
+    kind: modifier
+    source: [3.1c]
+    default: ["Shift"]
+    latchable: true
+    pad: add
+    touch: latch.add
+    words: {name: "Add to selection", description: "Held: a click toggles a unit and a box adds"}
+  pointer.pan:
+    area: mouse
+    order: 6
+    context: [play, watch]
+    kind: pointer
+    source: [OA]
+    default: ["MouseMiddle"]
+    target: battlefield
+    words: {name: "Pan", description: "Pans towards the pointer"}
+  pointer.camera-orbit:
+    area: mouse
+    order: 7
+    context: [play, watch]
+    kind: pointer
+    source: [OA]
+    default: ["Alt+MouseLeft", "Alt+MouseMiddle"]
+    target: battlefield
+    words: {name: "Orbit camera", description: "Orbits the Full 3D view's camera"}
+  pointer.camera-pan:
+    area: mouse
+    order: 8
+    context: [play, watch]
+    kind: pointer
+    source: [OA]
+    default: ["Alt+Shift+MouseLeft"]
+    target: battlefield
+    words: {name: "Pan camera", description: "Pans the Full 3D view's camera"}
+  pointer.mouse-look:
+    area: mouse
+    order: 9
+    context: [play]
+    kind: pointer
+    source: [3.1c]
+    default: ["Ctrl+MouseRight"]
+    target: battlefield
+    words: {name: "Mouse look", description: "Drags the view"}
+  pointer.minimap-jump:
+    area: mouse
+    order: 10
+    context: [play, watch]
+    kind: pointer
+    source: [3.1c]
+    default: ["MouseRight"]
+    left-click-default: "MouseLeft"
+    target: minimap
+    words: {name: "Minimap jump", description: "Jumps the view to a minimap point"}
+  pointer.minimap-scroll:
+    area: mouse
+    order: 11
+    context: [play, watch]
+    kind: pointer
+    source: [3.1c]
+    default: ["MouseLeft"]
+    left-click-default: "MouseRight"
+    target: minimap
+    words: {name: "Minimap scroll", description: "Scrolls the view while held on the minimap"}
+  camera.zoom-in:
+    area: mouse
+    order: 12
+    context: [match]
+    when: [wheel-zoom]
+    kind: wheel
+    source: [OA]
+    default: ["WheelUp"]
+    target: battlefield
+    words: {name: "Zoom in", description: "Zooms in about the pointer"}
+  camera.zoom-out:
+    area: mouse
+    order: 13
+    context: [match]
+    when: [wheel-zoom]
+    kind: wheel
+    source: [OA]
+    default: ["WheelDown"]
+    target: battlefield
+    words: {name: "Zoom out", description: "Zooms out about the pointer"}
+  build.queue-modifier:
+    area: mouse
+    order: 14
+    context: [play]
+    kind: modifier
+    source: [3.1c]
+    default: ["Shift"]
+    latchable: true
+    touch: latch.times_five
+    words: {name: "Queue five", description: "Held: a build button adds or takes five"}
+  build.hundred-modifier:
+    area: mouse
+    order: 15
+    context: [play]
+    kind: modifier
+    source: [ui.selection-shortcuts]
+    default: ["Ctrl"]
+    words: {name: "Queue hundred", description: "Held with the queue modifier: a build button adds or takes 100"}
+  build.add:
+    area: mouse
+    order: 16
+    context: [play]
+    kind: pointer
+    source: [3.1c]
+    default: ["MouseLeft"]
+    target: build-button
+    words: {name: "Build add", description: "A build button: queue one, or start placing"}
+  build.remove:
+    area: mouse
+    order: 17
+    context: [play]
+    kind: pointer
+    source: [3.1c]
+    default: ["MouseRight"]
+    target: build-button
+    words: {name: "Build remove", description: "A build button: take one off"}
+  pointer.move-up:
+    area: mouse
+    order: 18
+    context: [global]
+    when: [pointer-keys]
+    kind: hold
+    by: place
+    source: [OA]
+    default: ["Numpad8"]
+    words: {name: "Pointer up", description: "Moves the pointer up, faster the longer the key is held"}
+  pointer.move-down:
+    area: mouse
+    order: 19
+    context: [global]
+    when: [pointer-keys]
+    kind: hold
+    by: place
+    source: [OA]
+    default: ["Numpad2"]
+    words: {name: "Pointer down", description: "Moves the pointer down, faster the longer the key is held"}
+  pointer.move-left:
+    area: mouse
+    order: 20
+    context: [global]
+    when: [pointer-keys]
+    kind: hold
+    by: place
+    source: [OA]
+    default: ["Numpad4"]
+    words: {name: "Pointer left", description: "Moves the pointer left, faster the longer the key is held"}
+  pointer.move-right:
+    area: mouse
+    order: 21
+    context: [global]
+    when: [pointer-keys]
+    kind: hold
+    by: place
+    source: [OA]
+    default: ["Numpad6"]
+    words: {name: "Pointer right", description: "Moves the pointer right, faster the longer the key is held"}
+  pointer.move-up-left:
+    area: mouse
+    order: 22
+    context: [global]
+    when: [pointer-keys]
+    kind: hold
+    by: place
+    source: [OA]
+    default: ["Numpad7"]
+    words: {name: "Pointer up left", description: "Moves the pointer up and left, faster the longer the key is held"}
+  pointer.move-up-right:
+    area: mouse
+    order: 23
+    context: [global]
+    when: [pointer-keys]
+    kind: hold
+    by: place
+    source: [OA]
+    default: ["Numpad9"]
+    words: {name: "Pointer up right", description: "Moves the pointer up and right, faster the longer the key is held"}
+  pointer.move-down-left:
+    area: mouse
+    order: 24
+    context: [global]
+    when: [pointer-keys]
+    kind: hold
+    by: place
+    source: [OA]
+    default: ["Numpad1"]
+    words: {name: "Pointer down left", description: "Moves the pointer down and left, faster the longer the key is held"}
+  pointer.move-down-right:
+    area: mouse
+    order: 25
+    context: [global]
+    when: [pointer-keys]
+    kind: hold
+    by: place
+    source: [OA]
+    default: ["Numpad3"]
+    words: {name: "Pointer down right", description: "Moves the pointer down and right, faster the longer the key is held"}
+  pointer.click-left:
+    area: mouse
+    order: 26
+    context: [global]
+    when: [pointer-keys]
+    kind: press
+    by: place
+    source: [OA]
+    default: ["Numpad5"]
+    words: {name: "Pointer click left", description: "Clicks the left button. Twice quickly, a double click"}
+  pointer.click-right:
+    area: mouse
+    order: 27
+    context: [global]
+    when: [pointer-keys]
+    kind: press
+    by: place
+    source: [OA]
+    default: ["Numpad0"]
+    words: {name: "Pointer click right", description: "Clicks the right button"}
+  pointer.hold-left:
+    area: mouse
+    order: 28
+    context: [global]
+    when: [pointer-keys]
+    kind: press
+    by: place
+    source: [OA]
+    default: ["NumpadAdd"]
+    words: {name: "Pointer hold left", description: "Holds the left button down until pressed again"}
+  pointer.let-go:
+    area: mouse
+    order: 29
+    context: [global]
+    when: [pointer-keys]
+    kind: press
+    by: place
+    source: [OA]
+    default: ["NumpadDecimal"]
+    words: {name: "Pointer let go", description: "Lets a held mouse button go"}
+  select.all:
+    area: selection
+    order: 1
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c]
+    default: ["Ctrl+A"]
+    touch: select.all
+    words: {name: "Select all", description: "Every unit"}
+  select.builders:
+    area: selection
+    order: 2
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c]
+    default: ["Ctrl+B"]
+    touch: select.builders
+    words: {name: "Select builders", description: "Units tagged CTRL_B"}
+  select.factories:
+    area: selection
+    order: 3
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c]
+    default: ["Ctrl+F"]
+    touch: select.factories
+    words: {name: "Select factories", description: "Units tagged CTRL_F"}
+  select.aircraft:
+    area: selection
+    order: 4
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c]
+    default: ["Ctrl+V"]
+    touch: select.aircraft
+    words: {name: "Select aircraft", description: "Units tagged CTRL_V"}
+  select.on-screen:
+    area: selection
+    order: 5
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c]
+    default: ["Ctrl+S"]
+    touch: select.on_screen
+    words: {name: "Select on screen", description: "Units on screen"}
+  select.commander:
+    area: selection
+    order: 6
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c]
+    default: ["Ctrl+C"]
+    pad: commander
+    touch: select.commander
+    words: {name: "Select commander", description: "Selects and follows the commander"}
+  select.commander-add:
+    area: selection
+    order: 7
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c]
+    default: ["Ctrl+Shift+C"]
+    pad: commander
+    touch: select.commander
+    words: {name: "Add commander", description: "Adds the commander"}
+  select.same-type:
+    area: selection
+    order: 8
+    context: [play]
+    kind: press
+    by: letter
+    source: [3.1c]
+    default: ["Ctrl+Z"]
+    pad: select_type
+    touch: select.same_type
+    words: {name: "Select same type", description: "Every unit of a selected unit's type"}
+  select.idle-builders:
+    area: selection
+    order: 9
+    context: [play]
+    kind: press
+    by: letter
+    source: [ui.selection-shortcuts]
+    replaces: select.builders
+    words: {name: "Idle builders", description: "Cycles idle constructors, centring on each"}
+  select.idle-factories:
+    area: selection
+    order: 10
+    context: [play]
+    kind: press
+    by: letter
+    source: [ui.selection-shortcuts]
+    replaces: select.factories
+    words: {name: "Idle factories", description: "Cycles idle factories"}
+  select.armed-on-screen:
+    area: selection
+    order: 11
+    context: [play]
+    kind: press
+    by: letter
+    source: [ui.selection-shortcuts]
+    replaces: select.on-screen
+    words: {name: "Armed on screen", description: "Mobile armed units on screen, not aircraft"}
+  select.box-combat:
+    area: selection
+    order: 12
+    context: [box]
+    kind: hold
+    by: place
+    source: [ui.selection-shortcuts]
+    default: ["@KeyW"]
+    words: {name: "Box combat", description: "Held as a box is released: keep mobile combat units"}
+  select.box-builders:
+    area: selection
+    order: 13
+    context: [box]
+    kind: hold
+    by: place
+    source: [ui.selection-shortcuts]
+    default: ["@KeyB"]
+    words: {name: "Box builders", description: "Held as a box is released: keep constructors"}
+  select.box-factories:
+    area: selection
+    order: 14
+    context: [box]
+    kind: hold
+    by: place
+    source: [ui.selection-shortcuts]
+    default: ["@KeyY"]
+    words: {name: "Box factories", description: "Held as a box is released: keep factories"}
+  select.next-primary:
+    area: selection
+    order: 15
+    context: [play]
+    when: [single-player, selection]
+    kind: press
+    source: [OA]
+    default: ["Tab"]
+    pad: team_menu
+    words: {name: "Next primary", description: "Next selected unit becomes primary"}
+  select.previous-primary:
+    area: selection
+    order: 16
+    context: [play]
+    when: [single-player, selection]
+    kind: press
+    source: [3.1c]
+    default: ["Shift+Tab"]
+    pad: share_panel
+    words: {name: "Previous primary", description: "Previous selected unit becomes primary"}
+  select.clear:
+    area: selection
+    order: 17
+    context: [play]
+    kind: press
+    source: [OA]
+    words: {name: "Clear selection", description: "Clears the selection only"}
+  group.assign-1:
+    area: groups
+    order: 1
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Ctrl+@Digit1", "Ctrl+Numpad1"]
+    words: {name: "Assign group 1", description: "Stores the selection as group 1"}
+  group.assign-2:
+    area: groups
+    order: 2
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Ctrl+@Digit2", "Ctrl+Numpad2"]
+    words: {name: "Assign group 2", description: "Stores the selection as group 2"}
+  group.assign-3:
+    area: groups
+    order: 3
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Ctrl+@Digit3", "Ctrl+Numpad3"]
+    words: {name: "Assign group 3", description: "Stores the selection as group 3"}
+  group.assign-4:
+    area: groups
+    order: 4
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Ctrl+@Digit4", "Ctrl+Numpad4"]
+    words: {name: "Assign group 4", description: "Stores the selection as group 4"}
+  group.assign-5:
+    area: groups
+    order: 5
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Ctrl+@Digit5", "Ctrl+Numpad5"]
+    words: {name: "Assign group 5", description: "Stores the selection as group 5"}
+  group.assign-6:
+    area: groups
+    order: 6
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Ctrl+@Digit6", "Ctrl+Numpad6"]
+    words: {name: "Assign group 6", description: "Stores the selection as group 6"}
+  group.assign-7:
+    area: groups
+    order: 7
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Ctrl+@Digit7", "Ctrl+Numpad7"]
+    words: {name: "Assign group 7", description: "Stores the selection as group 7"}
+  group.assign-8:
+    area: groups
+    order: 8
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Ctrl+@Digit8", "Ctrl+Numpad8"]
+    words: {name: "Assign group 8", description: "Stores the selection as group 8"}
+  group.assign-9:
+    area: groups
+    order: 9
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Ctrl+@Digit9", "Ctrl+Numpad9"]
+    words: {name: "Assign group 9", description: "Stores the selection as group 9"}
+  group.select-1:
+    area: groups
+    order: 10
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+@Digit1", "Alt+Numpad1"]
+    words: {name: "Select group 1", description: "Selects group 1; again centres on it"}
+  group.select-2:
+    area: groups
+    order: 11
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+@Digit2", "Alt+Numpad2"]
+    words: {name: "Select group 2", description: "Selects group 2; again centres on it"}
+  group.select-3:
+    area: groups
+    order: 12
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+@Digit3", "Alt+Numpad3"]
+    words: {name: "Select group 3", description: "Selects group 3; again centres on it"}
+  group.select-4:
+    area: groups
+    order: 13
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+@Digit4", "Alt+Numpad4"]
+    words: {name: "Select group 4", description: "Selects group 4; again centres on it"}
+  group.select-5:
+    area: groups
+    order: 14
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+@Digit5", "Alt+Numpad5"]
+    words: {name: "Select group 5", description: "Selects group 5; again centres on it"}
+  group.select-6:
+    area: groups
+    order: 15
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+@Digit6", "Alt+Numpad6"]
+    words: {name: "Select group 6", description: "Selects group 6; again centres on it"}
+  group.select-7:
+    area: groups
+    order: 16
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+@Digit7", "Alt+Numpad7"]
+    words: {name: "Select group 7", description: "Selects group 7; again centres on it"}
+  group.select-8:
+    area: groups
+    order: 17
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+@Digit8", "Alt+Numpad8"]
+    words: {name: "Select group 8", description: "Selects group 8; again centres on it"}
+  group.select-9:
+    area: groups
+    order: 18
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+@Digit9", "Alt+Numpad9"]
+    words: {name: "Select group 9", description: "Selects group 9; again centres on it"}
+  group.add-1:
+    area: groups
+    order: 19
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+Shift+@Digit1", "Alt+Shift+Numpad1"]
+    words: {name: "Add group 1", description: "Adds group 1"}
+  group.add-2:
+    area: groups
+    order: 20
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+Shift+@Digit2", "Alt+Shift+Numpad2"]
+    words: {name: "Add group 2", description: "Adds group 2"}
+  group.add-3:
+    area: groups
+    order: 21
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+Shift+@Digit3", "Alt+Shift+Numpad3"]
+    words: {name: "Add group 3", description: "Adds group 3"}
+  group.add-4:
+    area: groups
+    order: 22
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+Shift+@Digit4", "Alt+Shift+Numpad4"]
+    words: {name: "Add group 4", description: "Adds group 4"}
+  group.add-5:
+    area: groups
+    order: 23
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+Shift+@Digit5", "Alt+Shift+Numpad5"]
+    words: {name: "Add group 5", description: "Adds group 5"}
+  group.add-6:
+    area: groups
+    order: 24
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+Shift+@Digit6", "Alt+Shift+Numpad6"]
+    words: {name: "Add group 6", description: "Adds group 6"}
+  group.add-7:
+    area: groups
+    order: 25
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+Shift+@Digit7", "Alt+Shift+Numpad7"]
+    words: {name: "Add group 7", description: "Adds group 7"}
+  group.add-8:
+    area: groups
+    order: 26
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+Shift+@Digit8", "Alt+Shift+Numpad8"]
+    words: {name: "Add group 8", description: "Adds group 8"}
+  group.add-9:
+    area: groups
+    order: 27
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Alt+Shift+@Digit9", "Alt+Shift+Numpad9"]
+    words: {name: "Add group 9", description: "Adds group 9"}
+  build.page-1:
+    area: groups
+    order: 28
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["@Digit1", "Numpad1"]
+    words: {name: "Menu page 1", description: "Shows page 0 of the menu (1 is orders)"}
+  build.page-2:
+    area: groups
+    order: 29
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["@Digit2", "Numpad2"]
+    words: {name: "Menu page 2", description: "Shows page 1 of the menu (1 is orders)"}
+  build.page-3:
+    area: groups
+    order: 30
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["@Digit3", "Numpad3"]
+    words: {name: "Menu page 3", description: "Shows page 2 of the menu (1 is orders)"}
+  build.page-4:
+    area: groups
+    order: 31
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["@Digit4", "Numpad4"]
+    words: {name: "Menu page 4", description: "Shows page 3 of the menu (1 is orders)"}
+  build.page-5:
+    area: groups
+    order: 32
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["@Digit5", "Numpad5"]
+    words: {name: "Menu page 5", description: "Shows page 4 of the menu (1 is orders)"}
+  build.page-6:
+    area: groups
+    order: 33
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["@Digit6", "Numpad6"]
+    words: {name: "Menu page 6", description: "Shows page 5 of the menu (1 is orders)"}
+  build.page-7:
+    area: groups
+    order: 34
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["@Digit7", "Numpad7"]
+    words: {name: "Menu page 7", description: "Shows page 6 of the menu (1 is orders)"}
+  build.page-8:
+    area: groups
+    order: 35
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["@Digit8", "Numpad8"]
+    words: {name: "Menu page 8", description: "Shows page 7 of the menu (1 is orders)"}
+  build.page-9:
+    area: groups
+    order: 36
+    context: [play]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["@Digit9", "Numpad9"]
+    words: {name: "Menu page 9", description: "Shows page 8 of the menu (1 is orders)"}
+  camera.pan-up:
+    area: camera
+    order: 1
+    context: [match]
+    kind: repeat
+    by: place
+    source: [3.1c]
+    default: ["Up"]
+    repeatable: true
+    words: {name: "Pan up", description: "Scrolls the view up"}
+  camera.pan-down:
+    area: camera
+    order: 2
+    context: [match]
+    kind: repeat
+    by: place
+    source: [3.1c]
+    default: ["Down"]
+    repeatable: true
+    words: {name: "Pan down", description: "Scrolls the view down"}
+  camera.pan-left:
+    area: camera
+    order: 3
+    context: [match]
+    kind: repeat
+    by: place
+    source: [3.1c]
+    default: ["Left"]
+    repeatable: true
+    words: {name: "Pan left", description: "Scrolls the view left"}
+  camera.pan-right:
+    area: camera
+    order: 4
+    context: [match]
+    kind: repeat
+    by: place
+    source: [3.1c]
+    default: ["Right"]
+    repeatable: true
+    words: {name: "Pan right", description: "Scrolls the view right"}
+  camera.centre:
+    area: camera
+    order: 5
+    context: [match]
+    kind: press
+    source: [3.1c]
+    default: ["Home"]
+    pad: centre
+    touch: select.centre
+    words: {name: "Centre", description: "Centres on the selected unit, or selects and centres on the commander"}
+  camera.follow:
+    area: camera
+    order: 6
+    context: [match]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["T"]
+    pad: follow
+    touch: select.follow
+    words: {name: "Follow", description: "Follows the next selected unit"}
+  camera.follow-previous:
+    area: camera
+    order: 7
+    context: [match]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["Shift+T"]
+    pad: follow
+    words: {name: "Follow previous", description: "Follows the previous selected unit"}
+  camera.next-unit:
+    area: camera
+    order: 8
+    context: [match]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["N"]
+    pad: next_unit
+    touch: select.next_unit
+    words: {name: "Next unit", description: "Centres on the next unit not yet visited"}
+  camera.next-report:
+    area: camera
+    order: 9
+    context: [match, chat]
+    kind: press
+    source: [3.1c]
+    default: ["F3", "Ctrl+F3"]
+    pad: next_report
+    touch: select.next_report
+    words: {name: "Next report", description: "The next unit the message log reported"}
+  camera.bookmark-set-1:
+    area: camera
+    order: 10
+    context: [match]
+    kind: press
+    source: [3.1c]
+    default: ["Ctrl+F5"]
+    words: {name: "Set bookmark 1", description: "Stores the view as bookmark 1"}
+  camera.bookmark-set-2:
+    area: camera
+    order: 11
+    context: [match]
+    kind: press
+    source: [3.1c]
+    default: ["Ctrl+F6"]
+    words: {name: "Set bookmark 2", description: "Stores the view as bookmark 2"}
+  camera.bookmark-set-3:
+    area: camera
+    order: 12
+    context: [match]
+    kind: press
+    source: [3.1c]
+    default: ["Ctrl+F7"]
+    words: {name: "Set bookmark 3", description: "Stores the view as bookmark 3"}
+  camera.bookmark-set-4:
+    area: camera
+    order: 13
+    context: [match]
+    kind: press
+    source: [3.1c]
+    default: ["Ctrl+F8"]
+    words: {name: "Set bookmark 4", description: "Stores the view as bookmark 4"}
+  camera.bookmark-go-1:
+    area: camera
+    order: 14
+    context: [match]
+    kind: press
+    source: [3.1c]
+    default: ["F5"]
+    words: {name: "Go to bookmark 1", description: "Returns to bookmark 1"}
+  camera.bookmark-go-2:
+    area: camera
+    order: 15
+    context: [match]
+    kind: press
+    source: [3.1c]
+    default: ["F6"]
+    words: {name: "Go to bookmark 2", description: "Returns to bookmark 2"}
+  camera.bookmark-go-3:
+    area: camera
+    order: 16
+    context: [match]
+    kind: press
+    source: [3.1c]
+    default: ["F7"]
+    words: {name: "Go to bookmark 3", description: "Returns to bookmark 3"}
+  camera.bookmark-go-4:
+    area: camera
+    order: 17
+    context: [match]
+    kind: press
+    source: [3.1c]
+    default: ["F8"]
+    words: {name: "Go to bookmark 4", description: "Returns to bookmark 4"}
+  camera.zoom-in-key:
+    area: camera
+    order: 18
+    context: [match]
+    kind: repeat
+    source: [OA]
+    repeatable: true
+    pad: zoom_in
+    words: {name: "Zoom in key", description: "Zooms in about the centre"}
+  camera.zoom-out-key:
+    area: camera
+    order: 19
+    context: [match]
+    kind: repeat
+    source: [OA]
+    repeatable: true
+    pad: zoom_out
+    words: {name: "Zoom out key", description: "Zooms out about the centre"}
+  camera.zoom-reset:
+    area: camera
+    order: 20
+    context: [match]
+    kind: press
+    source: [OA]
+    words: {name: "Reset zoom", description: "The game's own scale"}
+  camera.classic-view:
+    area: camera
+    order: 21
+    context: [match]
+    kind: press
+    by: place
+    source: [OA]
+    default: ["Alt+@KeyR"]
+    words: {name: "Classic view", description: "Puts the Full 3D view's camera back to the classic view"}
+  camera.unlocked:
+    area: camera
+    order: 22
+    context: [match]
+    kind: press
+    by: place
+    source: [OA]
+    default: ["Alt+@KeyU"]
+    words: {name: "Unlocked camera", description: "Unlocked Camera on or off in the Full 3D view"}
+  camera.edge-scroll:
+    area: camera
+    order: 23
+    context: [match]
+    kind: hold
+    source: [3.1c]
+    words: {name: "Edge scroll", description: "Scrolls at the window's edge"}
+  build.page-next:
+    area: building
+    order: 1
+    context: [play]
+    kind: repeat
+    by: letter
+    source: [3.1c]
+    default: ["."]
+    repeatable: true
+    pad: next_page
+    words: {name: "Next page", description: "Next page of the build menu"}
+  build.page-previous:
+    area: building
+    order: 2
+    context: [play]
+    kind: repeat
+    by: letter
+    source: [3.1c]
+    default: [","]
+    repeatable: true
+    pad: previous_page
+    words: {name: "Previous page", description: "Previous page of the build menu"}
+  build.cell-1:
+    area: building
+    order: 3
+    context: [play]
+    kind: press
+    by: place
+    source: [OA]
+    words: {name: "Build cell 1", description: "Presses build button 1 of the page shown, in reading order"}
+  build.cell-2:
+    area: building
+    order: 4
+    context: [play]
+    kind: press
+    by: place
+    source: [OA]
+    words: {name: "Build cell 2", description: "Presses build button 2 of the page shown, in reading order"}
+  build.cell-3:
+    area: building
+    order: 5
+    context: [play]
+    kind: press
+    by: place
+    source: [OA]
+    words: {name: "Build cell 3", description: "Presses build button 3 of the page shown, in reading order"}
+  build.cell-4:
+    area: building
+    order: 6
+    context: [play]
+    kind: press
+    by: place
+    source: [OA]
+    words: {name: "Build cell 4", description: "Presses build button 4 of the page shown, in reading order"}
+  build.cell-5:
+    area: building
+    order: 7
+    context: [play]
+    kind: press
+    by: place
+    source: [OA]
+    words: {name: "Build cell 5", description: "Presses build button 5 of the page shown, in reading order"}
+  build.cell-6:
+    area: building
+    order: 8
+    context: [play]
+    kind: press
+    by: place
+    source: [OA]
+    words: {name: "Build cell 6", description: "Presses build button 6 of the page shown, in reading order"}
+  build.cell-7:
+    area: building
+    order: 9
+    context: [play]
+    kind: press
+    by: place
+    source: [OA]
+    words: {name: "Build cell 7", description: "Presses build button 7 of the page shown, in reading order"}
+  build.cell-8:
+    area: building
+    order: 10
+    context: [play]
+    kind: press
+    by: place
+    source: [OA]
+    words: {name: "Build cell 8", description: "Presses build button 8 of the page shown, in reading order"}
+  build.cell-9:
+    area: building
+    order: 11
+    context: [play]
+    kind: press
+    by: place
+    source: [OA]
+    words: {name: "Build cell 9", description: "Presses build button 9 of the page shown, in reading order"}
+  build.cell-10:
+    area: building
+    order: 12
+    context: [play]
+    kind: press
+    by: place
+    source: [OA]
+    words: {name: "Build cell 10", description: "Presses build button 10 of the page shown, in reading order"}
+  build.cell-11:
+    area: building
+    order: 13
+    context: [play]
+    kind: press
+    by: place
+    source: [OA]
+    words: {name: "Build cell 11", description: "Presses build button 11 of the page shown, in reading order"}
+  build.cell-12:
+    area: building
+    order: 14
+    context: [play]
+    kind: press
+    by: place
+    source: [OA]
+    words: {name: "Build cell 12", description: "Presses build button 12 of the page shown, in reading order"}
+  build.line:
+    area: building
+    order: 15
+    context: [placing]
+    kind: hold
+    by: place
+    source: [ui.build-tools]
+    default: ["@KeyX"]
+    latchable: true
+    words: {name: "Line build", description: "Held while placing: drag lays a line, a click rings a unit"}
+  build.spacing-up:
+    area: building
+    order: 16
+    context: [placing]
+    kind: repeat
+    source: [ui.build-tools]
+    default: ["PageUp", "WheelUp"]
+    repeatable: true
+    words: {name: "Spacing up", description: "Raises the spacing of a build line"}
+  build.spacing-down:
+    area: building
+    order: 17
+    context: [placing]
+    kind: repeat
+    source: [ui.build-tools]
+    default: ["PageDown", "WheelDown"]
+    repeatable: true
+    words: {name: "Spacing down", description: "Lowers the spacing of a build line"}
+  build.rotate:
+    area: building
+    order: 18
+    context: [placing]
+    kind: repeat
+    by: place
+    source: [units.build-rotation, ui.build-preview]
+    default: ["@Slash", "Shift+@Slash"]
+    repeatable: true
+    words: {name: "Rotate", description: "Next facing"}
+  build.move-queued-site:
+    area: building
+    order: 19
+    context: [play]
+    kind: pointer
+    source: [OA]
+    default: ["Shift+MouseLeft"]
+    target: queued-site
+    words: {name: "Move queued site", description: "Drags a queued build site"}
+  build.rotate-wheel:
+    area: building
+    order: 20
+    context: [placing]
+    kind: wheel
+    source: [units.build-rotation]
+    default: ["Alt+WheelUp", "Alt+WheelDown"]
+    target: battlefield
+    words: {name: "Rotate wheel", description: "Turns the facing"}
+  build.snap-override:
+    area: building
+    order: 21
+    context: [play, placing]
+    kind: modifier
+    source: [ui.click-snap, ui.build-tools]
+    default: ["Alt"]
+    latchable: true
+    words: {name: "Snap override", description: "Held: no mex or wreck snap, and drag queued orders"}
+  game.back:
+    area: game
+    order: 1
+    context: [match]
+    kind: press
+    source: [3.1c, OA]
+    default: ["Escape", "Ctrl+Escape"]
+    words: {name: "Back", description: "The Escape chain: armed order, selection, then the game menu"}
+  game.menu:
+    area: game
+    order: 2
+    context: [match, chat]
+    kind: press
+    source: [3.1c]
+    default: ["F2", "Ctrl+F2"]
+    pad: game_menu
+    words: {name: "Game menu", description: "The in-game menu, or resumes"}
+  game.pause:
+    area: game
+    order: 3
+    context: [match, watch, chat]
+    kind: press
+    source: [3.1c]
+    default: ["Pause", "Ctrl+Pause"]
+    pad: pause
+    words: {name: "Pause", description: "Pause on or off"}
+  game.speed-up:
+    area: game
+    order: 4
+    context: [match, watch]
+    kind: repeat
+    by: place
+    source: [3.1c]
+    default: ["@Equal", "NumpadAdd"]
+    repeatable: true
+    pad: faster
+    words: {name: "Speed up", description: "One speed step faster"}
+  game.speed-down:
+    area: game
+    order: 5
+    context: [match, watch]
+    kind: repeat
+    by: place
+    source: [3.1c]
+    default: ["@Minus", "NumpadSubtract"]
+    repeatable: true
+    pad: slower
+    words: {name: "Speed down", description: "One speed step slower"}
+  game.unit-info:
+    area: game
+    order: 6
+    context: [match, chat]
+    kind: press
+    source: [3.1c]
+    default: ["F1", "Ctrl+F1"]
+    pad: unit_info
+    touch: radial.info
+    words: {name: "Unit info", description: "The unit info panel"}
+  game.pin-unit:
+    area: game
+    order: 7
+    context: [match, chat]
+    kind: press
+    source: [3.1c]
+    default: ["Shift+F1", "Ctrl+Shift+F1"]
+    pad: unit_info
+    words: {name: "Pin unit", description: "Pins the unit under the pointer"}
+  game.kill-board:
+    area: game
+    order: 8
+    context: [match, chat]
+    kind: press
+    source: [3.1c]
+    default: ["F4", "Ctrl+F4"]
+    pad: kill_board
+    words: {name: "Kills board", description: "Pins the kills board"}
+  game.resource-panel:
+    area: game
+    order: 9
+    context: [match, chat]
+    kind: press
+    source: [ui.resource-panel]
+    replaces: game.kill-board
+    words: {name: "Resource panel", description: "The resource panel on or off"}
+  game.status-strip:
+    area: game
+    order: 10
+    context: [match]
+    kind: hold
+    source: [3.1c]
+    default: ["Space"]
+    latchable: true
+    words: {name: "Status strip", description: "Held: the status strip and kills board"}
+  game.health-bars:
+    area: game
+    order: 11
+    context: [match]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["@Backquote"]
+    pad: health_bars
+    words: {name: "Damage bars", description: "Damage bars on or off"}
+  game.health-bars-mode-1:
+    area: game
+    order: 12
+    context: [match]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Shift+@Digit1"]
+    words: {name: "Damage bar mode 1", description: "Damage bars the way the shifted 1 key shows them"}
+  game.health-bars-mode-2:
+    area: game
+    order: 13
+    context: [match]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Shift+@Digit3"]
+    words: {name: "Damage bar mode 2", description: "Damage bars the way the shifted 3 key shows them"}
+  game.health-bars-mode-3:
+    area: game
+    order: 14
+    context: [match]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Shift+@Digit8"]
+    words: {name: "Damage bar mode 3", description: "Damage bars the way the shifted 8 key shows them"}
+  game.health-bars-mode-4:
+    area: game
+    order: 15
+    context: [match]
+    kind: press
+    by: place
+    source: [3.1c]
+    default: ["Shift+@Backquote"]
+    words: {name: "Damage bar mode 4", description: "Damage bars the way the shifted backquote key shows them"}
+  game.clear-messages:
+    area: game
+    order: 16
+    context: [match, chat]
+    kind: press
+    source: [3.1c]
+    default: ["F12", "Ctrl+F12"]
+    pad: clear_messages
+    words: {name: "Clear messages", description: "Clears the message log"}
+  game.screenshot:
+    area: game
+    order: 17
+    context: [match, chat]
+    kind: press
+    source: [3.1c, ui.display-modes]
+    default: ["Ctrl+F9"]
+    hacks:
+      ui.display-modes:
+        default: ["Ctrl+F9", "PrintScreen"]
+    pad: screenshot
+    words: {name: "Screenshot", description: "Saves a screenshot"}
+  game.team-menu:
+    area: game
+    order: 18
+    context: [match]
+    when: [multiplayer]
+    kind: press
+    source: [3.1c, teams.alliance-menu-all-game-types]
+    default: ["Tab"]
+    hacks:
+      teams.alliance-menu-all-game-types:
+        default: ["Tab", "Shift+Tab"]
+        when: []
+    pad: team_menu
+    words: {name: "Allies menu", description: "The allies menu"}
+  game.share-panel:
+    area: game
+    order: 19
+    context: [match]
+    kind: press
+    by: letter
+    source: [3.1c]
+    default: ["H"]
+    pad: share_panel
+    words: {name: "Share panel", description: "The share panel"}
+  game.repeat-command:
+    area: game
+    order: 20
+    context: [match]
+    kind: press
+    by: letter
+    source: [3.1c]
+    default: ["\\"]
+    hacks:
+      console.key-remaps:
+        default: ["Insert"]
+    words: {name: "Repeat command", description: "Runs the last chat command again"}
+  game.options-dialog:
+    area: game
+    order: 21
+    context: [match]
+    kind: press
+    source: [ui.options-dialog]
+    default: ["Ctrl+F2"]
+    words: {name: "Options", description: "The mod's options dialog"}
+  game.chat-macro:
+    area: game
+    order: 22
+    context: [match]
+    kind: press
+    source: [ui.options-dialog]
+    default: ["F11"]
+    words: {name: "Chat macro", description: "Sends the mod's chat macro"}
+  chat.open:
+    area: game
+    order: 23
+    context: [match]
+    kind: press
+    source: [3.1c]
+    default: ["Enter"]
+    pad: chat
+    words: {name: "Open chat", description: "Opens the chat line"}
+  chat.open-allies:
+    area: game
+    order: 24
+    context: [match]
+    kind: press
+    source: [OA]
+    words: {name: "Open allies chat", description: "Opens the chat line to allies"}
+  debug.keys:
+    area: developer
+    order: 1
+    context: [match]
+    when: [developer]
+    kind: press
+    source: [3.1c]
+    default: ["F11"]
+    hacks:
+      console.key-remaps:
+        default: ["F11", "F10"]
+    words: {name: "Debug keys", description: "Debug keys on or off"}
+  debug.movie-capture:
+    area: developer
+    order: 2
+    context: [match]
+    when: [developer]
+    kind: press
+    source: [3.1c]
+    default: ["Ctrl+F10"]
+    words: {name: "Movie capture", description: "Movie capture"}
+  debug.refill:
+    area: developer
+    order: 3
+    context: [match]
+    when: [debug-keys]
+    kind: press
+    by: letter
+    source: [3.1c]
+    default: ["="]
+    words: {name: "Refill", description: "Refills resources"}
+  debug.kill-under-pointer:
+    area: developer
+    order: 4
+    context: [match]
+    when: [debug-keys]
+    kind: press
+    by: letter
+    source: [3.1c]
+    default: ["]"]
+    words: {name: "Kill under pointer", description: "Kills the unit under the pointer"}
+  debug.i:
+    area: developer
+    order: 5
+    context: [match]
+    when: [debug-keys]
+    kind: press
+    by: letter
+    source: [3.1c]
+    default: ["I"]
+    words: {name: "Developer info", description: "The developer information key"}
+  debug.overlay:
+    area: developer
+    order: 6
+    context: [match]
+    when: [debug-keys]
+    kind: press
+    by: letter
+    source: [3.1c]
+    default: ["M"]
+    words: {name: "Overlay", description: "Cycles the overlay"}
+  megamap.toggle:
+    area: megamap
+    order: 1
+    context: [match, megamap]
+    when: [no-wheel-zoom]
+    kind: press
+    source: [ui.megamap]
+    default: ["Tab"]
+    words: {name: "Megamap", description: "The megamap on or off"}
+  megamap.open-wheel:
+    area: megamap
+    order: 2
+    context: [match]
+    when: [no-wheel-zoom]
+    kind: wheel
+    source: [ui.megamap]
+    default: ["WheelDown"]
+    target: battlefield
+    words: {name: "Open megamap", description: "Opens the megamap"}
+  megamap.close-wheel:
+    area: megamap
+    order: 3
+    context: [megamap]
+    when: [no-wheel-zoom]
+    kind: wheel
+    source: [ui.megamap]
+    default: ["WheelUp"]
+    target: megamap
+    words: {name: "Close megamap", description: "Closes the megamap and centres on the pointer"}
+  megamap.jump:
+    area: megamap
+    order: 4
+    context: [megamap]
+    when: [no-wheel-zoom]
+    kind: pointer
+    source: [ui.megamap]
+    target: megamap
+    words: {name: "Megamap jump", description: "Jumps the view to a point of the megamap"}
+  whiteboard.draw:
+    area: whiteboard
+    order: 1
+    context: [match]
+    kind: hold
+    by: place
+    source: [ui.whiteboard]
+    default: ["@Backslash"]
+    latchable: true
+    words: {name: "Draw", description: "Held: the whiteboard takes the mouse"}
+  whiteboard.jump:
+    area: whiteboard
+    order: 2
+    context: [match]
+    kind: press
+    by: place
+    source: [ui.whiteboard]
+    default: ["Ctrl+@Backslash"]
+    words: {name: "Newest marker", description: "Goes to the newest marker"}
+  whiteboard.line:
+    area: whiteboard
+    order: 3
+    context: [whiteboard]
+    kind: pointer
+    source: [ui.whiteboard]
+    default: ["MouseLeft"]
+    target: battlefield
+    words: {name: "Line", description: "Draws a line"}
+  whiteboard.dot:
+    area: whiteboard
+    order: 4
+    context: [whiteboard]
+    kind: pointer
+    source: [ui.whiteboard]
+    default: ["MouseMiddle"]
+    target: battlefield
+    words: {name: "Dot", description: "Places a dot"}
+  whiteboard.text:
+    area: whiteboard
+    order: 5
+    context: [whiteboard]
+    kind: pointer
+    source: [ui.whiteboard]
+    default: ["MouseLeft:double"]
+    target: battlefield
+    words: {name: "Text", description: "Places text"}
+  whiteboard.move:
+    area: whiteboard
+    order: 6
+    context: [whiteboard]
+    kind: pointer
+    source: [ui.whiteboard]
+    default: ["MouseLeft"]
+    target: marker
+    words: {name: "Move marker", description: "Moves a marker"}
+  whiteboard.wipe:
+    area: whiteboard
+    order: 7
+    context: [whiteboard]
+    kind: pointer
+    source: [ui.whiteboard]
+    default: ["MouseRight"]
+    target: battlefield
+    words: {name: "Wipe", description: "Wipes the board"}
+  whiteboard.erase:
+    area: whiteboard
+    order: 8
+    context: [whiteboard]
+    kind: pointer
+    source: [ui.whiteboard]
+    default: ["MouseRight:double"]
+    target: marker
+    words: {name: "Erase", description: "Erases a marker"}
+  chat.send:
+    area: chat
+    order: 1
+    context: [chat]
+    kind: press
+    source: [3.1c]
+    default: ["Enter", "Ctrl+Enter"]
+    words: {name: "Send chat", description: "Sends the line"}
+  chat.cancel:
+    area: chat
+    order: 2
+    context: [chat]
+    kind: press
+    source: [3.1c]
+    default: ["Escape"]
+    fixed: true
+    words: {name: "Cancel chat", description: "Closes the line"}
+  watch.player-view:
+    area: watching
+    order: 1
+    context: [watch]
+    kind: pointer
+    source: [ui.resource-panel]
+    default: ["MouseLeft:double"]
+    target: resource-row
+    words: {name: "Player view", description: "Takes the view of the player whose row is clicked"}
+  watch.lock-view:
+    area: watching
+    order: 2
+    context: [watch]
+    kind: pointer
+    source: [ui.resource-panel]
+    default: ["MouseLeft:double"]
+    target: resource-row
+    words: {name: "Lock view", description: "Locks onto that player's camera"}
+  ui.settings:
+    area: window
+    order: 1
+    context: [global, chat]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["Primary+,"]
+    words: {name: "Settings", description: "Opens Settings"}
+  ui.full-screen:
+    area: window
+    order: 2
+    context: [global, chat]
+    kind: press
+    source: [OA]
+    default: ["Alt+Enter"]
+    words: {name: "Full screen", description: "Full screen on or off"}
+  ui.keys-overlay:
+    area: window
+    order: 3
+    context: [global]
+    kind: press
+    by: letter
+    source: [OA]
+    default: ["Primary+/"]
+    pad: keys_overlay
+    words: {name: "Keys overlay", description: "The keys overlay for the screen shown"}
+  ui.release-pointer:
+    area: window
+    order: 4
+    context: [global]
+    kind: press
+    source: [OA]
+    words: {name: "Release pointer", description: "Lets a captured pointer go"}
+  ui.quit:
+    area: window
+    order: 5
+    context: [global]
+    kind: press
+    source: [OA]
+    words: {name: "Quit", description: "Quits"}
+  ui.screen-accept:
+    area: window
+    order: 6
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Enter"]
+    words: {name: "Accept", description: "Accepts the screen, or presses the focused control"}
+  ui.screen-cancel:
+    area: window
+    order: 7
+    context: [oa-screens]
+    kind: press
+    source: [OA]
+    default: ["Escape"]
+    fixed: true
+    words: {name: "Cancel screen", description: "Closes the screen on top"}
+  ui.screen-up:
+    area: window
+    order: 8
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Up"]
+    words: {name: "Up", description: "Moves the focus up"}
+  ui.screen-down:
+    area: window
+    order: 9
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Down"]
+    words: {name: "Down", description: "Moves the focus down"}
+  ui.screen-left:
+    area: window
+    order: 10
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Left"]
+    words: {name: "Left", description: "Moves the focus left, or steps a control"}
+  ui.screen-right:
+    area: window
+    order: 11
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Right"]
+    words: {name: "Right", description: "Moves the focus right, or steps a control"}
+  ui.screen-press:
+    area: window
+    order: 12
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Space"]
+    words: {name: "Press", description: "Presses the focused control"}
+  ui.screen-focus-next:
+    area: window
+    order: 13
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Tab"]
+    words: {name: "Next control", description: "Moves the focus to the next control"}
+  ui.screen-focus-previous:
+    area: window
+    order: 14
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Shift+Tab"]
+    words: {name: "Previous control", description: "Moves the focus to the previous control"}
+  ui.screen-page-up:
+    area: window
+    order: 15
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["PageUp"]
+    words: {name: "Page up", description: "Scrolls up"}
+  ui.screen-page-down:
+    area: window
+    order: 16
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["PageDown"]
+    words: {name: "Page down", description: "Scrolls down"}
+  ui.screen-home:
+    area: window
+    order: 17
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Home"]
+    words: {name: "Go to start", description: "Scrolls to the top, or moves to the start of a text field"}
+  ui.screen-end:
+    area: window
+    order: 18
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["End"]
+    words: {name: "Go to end", description: "Scrolls to the end, or moves to the end of a text field"}
+  ui.screen-yes:
+    area: window
+    order: 19
+    context: [oa-screens]
+    kind: repeat
+    by: letter
+    source: [OA]
+    default: ["Y"]
+    words: {name: "Yes", description: "Answers yes"}
+  ui.screen-no:
+    area: window
+    order: 20
+    context: [oa-screens]
+    kind: repeat
+    by: letter
+    source: [OA]
+    default: ["N"]
+    words: {name: "No", description: "Answers no"}
+  ui.screen-info:
+    area: window
+    order: 21
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["F1"]
+    words: {name: "Information", description: "Shows more about what the focus is on"}
+  ui.screen-paste:
+    area: window
+    order: 22
+    context: [oa-screens]
+    kind: repeat
+    by: letter
+    source: [OA]
+    default: ["Primary+V", "Ctrl+V"]
+    words: {name: "Paste", description: "Pastes the clipboard into the focused text field"}
+  ui.screen-find:
+    area: window
+    order: 23
+    context: [oa-screens]
+    kind: repeat
+    by: letter
+    source: [OA]
+    default: ["Primary+F", "/"]
+    words: {name: "Find", description: "Finds on the screen"}
+  ui.screen-refresh:
+    area: window
+    order: 24
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["F5"]
+    words: {name: "Refresh", description: "Refreshes the screen"}
+  ui.screen-next-tab:
+    area: window
+    order: 25
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Ctrl+Tab"]
+    words: {name: "Next tab", description: "Shows the next tab"}
+  ui.screen-previous-tab:
+    area: window
+    order: 26
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Ctrl+Shift+Tab"]
+    words: {name: "Previous tab", description: "Shows the previous tab"}
+  ui.menu-accept:
+    area: menus
+    order: 1
+    context: [menus, panel, unit-info]
+    kind: press
+    source: [3.1c]
+    default: ["Enter"]
+    words: {name: "Accept", description: "Presses the focused button, or the screen's default"}
+  ui.menu-cancel:
+    area: menus
+    order: 2
+    context: [menus, panel, unit-info]
+    kind: repeat
+    source: [3.1c]
+    default: ["Escape"]
+    words: {name: "Cancel menu", description: "Closes the menu, or answers its cancel"}
+  ui.menu-press:
+    area: menus
+    order: 3
+    context: [menus, panel, unit-info]
+    kind: press
+    source: [3.1c]
+    default: ["Space"]
+    words: {name: "Press button", description: "Presses the focused button"}
+  ui.menu-focus-next:
+    area: menus
+    order: 4
+    context: [menus]
+    kind: repeat
+    source: [3.1c]
+    default: ["Tab"]
+    words: {name: "Next button", description: "Moves the focus to the next button"}
+  ui.menu-focus-previous:
+    area: menus
+    order: 5
+    context: [menus]
+    kind: repeat
+    source: [3.1c]
+    default: ["Shift+Tab"]
+    words: {name: "Previous button", description: "Moves the focus to the previous button"}
+  ui.menu-focus-up:
+    area: menus
+    order: 6
+    context: [menus]
+    kind: repeat
+    source: [3.1c]
+    words: {name: "Focus up", description: "Moves the focus up. Up itself steps a list"}
+  ui.menu-focus-down:
+    area: menus
+    order: 7
+    context: [menus]
+    kind: repeat
+    source: [3.1c]
+    words: {name: "Focus down", description: "Moves the focus down. Down itself steps a list"}
+  ui.menu-focus-left:
+    area: menus
+    order: 8
+    context: [menus]
+    kind: repeat
+    source: [3.1c]
+    default: ["Left"]
+    words: {name: "Focus left", description: "Moves the focus left from a button"}
+  ui.menu-focus-right:
+    area: menus
+    order: 9
+    context: [menus]
+    kind: repeat
+    source: [3.1c]
+    default: ["Right"]
+    words: {name: "Focus right", description: "Moves the focus right from a button"}
+  ui.menu-list-up:
+    area: menus
+    order: 10
+    context: [menus]
+    kind: repeat
+    source: [3.1c]
+    default: ["Up", "WheelUp"]
+    words: {name: "List up", description: "Steps a list up, or moves the focus up from a button"}
+  ui.menu-list-down:
+    area: menus
+    order: 11
+    context: [menus]
+    kind: repeat
+    source: [3.1c]
+    default: ["Down", "WheelDown"]
+    words: {name: "List down", description: "Steps a list down, or moves the focus down from a button"}

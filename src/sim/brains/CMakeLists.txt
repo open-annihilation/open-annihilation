@@ -71,6 +71,18 @@ if(BUILD_TESTING)
   add_test(NAME sim-brains-me COMMAND oa-sim-brains-me-test)
   set_tests_properties(sim-brains-me PROPERTIES TIMEOUT 180)
 
+  # What a brain reads of its seat's economy: produced, requested and spent,
+  # building from a full store, from an empty one, and idle. The made-up
+  # brain is economy-reader.
+  add_executable(oa-sim-brains-economy-test tests/economy_test.cpp)
+  target_compile_definitions(
+    oa-sim-brains-economy-test PRIVATE
+    "OA_ECONOMY_READER_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data/economy-reader\"")
+  target_link_libraries(oa-sim-brains-economy-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options)
+  add_test(NAME sim-brains-economy COMMAND oa-sim-brains-economy-test)
+  set_tests_properties(sim-brains-economy PROPERTIES TIMEOUT 120)
+
   add_executable(oa-sim-brains-events-test tests/events_test.cpp)
   target_link_libraries(oa-sim-brains-events-test PRIVATE oa-sim-brains oa-sim-unit-movement
     oa-base-sha256 oa-test-match oa-options oa-sim-state-hash)

@@ -121,6 +121,85 @@ constexpr int oa_mark_block_side = 20;
     };
 }
 
+/// Returns the style the screens draw a line in: antialiased, at a size, in a
+/// family. A bold line is DejaVu Sans Bold in the sans family and Barlow
+/// SemiBold, the modern look's labels' weight, in the interface family.
+///
+/// @param pixel_size pixels per em; clamped to the sizes the fonts draw
+/// @param bold whether the line is bold
+/// @param family the family
+/// @return the style
+[[nodiscard]] text_font::Style
+line_style(int pixel_size, bool bold, text_font::Family family) noexcept {
+    text_font::Style style{};
+    style.pixel_size = std::clamp(pixel_size, 1, text_font::max_pixel_size);
+    const text_font::Weight heavy =
+        family == text_font::Family::sans ? text_font::Weight::bold : text_font::Weight::semibold;
+    style.weight = bold ? heavy : text_font::Weight::regular;
+    style.rendering = text_font::Rendering::antialiased;
+    style.family = family;
+    return style;
+}
+
+/// Draws a line in the screens' style (line_style).
+///
+/// @param fonts the bundled fonts
+/// @param text UTF-8 text
+/// @param pixel_size pixels per em
+/// @param bold whether the line is bold
+/// @param family the family
+/// @return the line; not drawn for text the fonts refuse
+[[nodiscard]] paint::TextLine draw_screen_line(
+    text_font::FontStack& fonts,
+    std::string_view text,
+    int pixel_size,
+    bool bold,
+    text_font::Family family
+) {
+    paint::TextLine line{};
+    if (auto coverage = fonts.draw(text, line_style(pixel_size, bold, family))) {
+        line.coverage = std::move(*coverage);
+        line.drawn = true;
+    }
+    return line;
+}
+
+/// Returns how far a line in the screens' style moves the pen.
+///
+/// @param fonts the bundled fonts
+/// @param text UTF-8 text
+/// @param pixel_size pixels per em
+/// @param bold whether the line is bold
+/// @param family the family
+/// @return pixels; 0 for text the fonts refuse
+[[nodiscard]] int screen_text_width(
+    text_font::FontStack& fonts,
+    std::string_view text,
+    int pixel_size,
+    bool bold,
+    text_font::Family family
+) {
+    if (text.empty())
+        return 0;
+    const auto placed = fonts.layout(text, line_style(pixel_size, bold, family));
+    if (!placed || placed->empty())
+        return 0;
+    return placed->back().pen + placed->back().advance;
+}
+
+/// Returns the rows a line in the screens' style takes.
+///
+/// @param fonts the bundled fonts
+/// @param pixel_size pixels per em
+/// @param bold whether the line is bold
+/// @param family the family
+/// @return the rows; zeros for a size the fonts refuse
+[[nodiscard]] text_font::LineMetrics screen_line_metrics(
+    text_font::FontStack& fonts, int pixel_size, bool bold, text_font::Family family
+) {
+    return fonts.metrics(line_style(pixel_size, bold, family)).value_or(text_font::LineMetrics{});
+}
+
 /// What paints one layout: the painter, the fonts and the density.
 class LayoutPainter {
   public:
@@ -131,13 +210,16 @@ class LayoutPainter {
     /// @param fonts the bundled fonts; null paints no text
     /// @param px_per_point canvas pixels per point
     /// @param icon the Open Annihilation icon; empty draws the OA mark
+    /// @param family the family the text is drawn in
     LayoutPainter(
         paint::Canvas& canvas,
         text_font::FontStack* fonts,
         float px_per_point,
-        const renderer::RgbaPicture& icon
+        const renderer::RgbaPicture& icon,
+        text_font::Family family
     )
-        : painter_(canvas), fonts_(fonts), scale_(std::max(px_per_point, 0.25F)), icon_(icon) {}
+        : painter_(canvas), fonts_(fonts), scale_(std::max(px_per_point, 0.25F)), icon_(icon),
+          family_(family) {}
 
     /// Paints the background and every part, in order.
     ///
@@ -309,7 +391,7 @@ class LayoutPainter {
     [[nodiscard]] text_font::LineMetrics metrics(int pixel_size, bool bold) const {
         if (fonts_ == nullptr || pixel_size <= 0)
             return {};
-        return paint::line_metrics(*fonts_, pixel_size, bold);
+        return screen_line_metrics(*fonts_, pixel_size, bold, family_);
     }
 
     /// Paints an item's lines in a colour, top to bottom from the top of a box, one line
@@ -333,7 +415,7 @@ class LayoutPainter {
         const int top = centred_down ? box.y + (box.height - total) / 2 : box.y;
         int baseline = top + rows.ascent;
         for (const std::string& text : item.lines) {
-            const auto line = paint::draw_line(*fonts_, text, item.pixel_size, item.bold);
+            const auto line = draw_screen_line(*fonts_, text, item.pixel_size, item.bold, family_);
             int pen = box.x;
             if (align == Align::centre)
                 pen = box.x + (box.width - line.coverage.advance) / 2;
@@ -509,8 +591,9 @@ class LayoutPainter {
         int widest = 0;
         if (fonts_ != nullptr)
             for (const std::string& text : item.lines)
-                widest =
-                    std::max(widest, paint::text_width(*fonts_, text, item.pixel_size, item.bold));
+                widest = std::max(
+                    widest, screen_text_width(*fonts_, text, item.pixel_size, item.bold, family_)
+                );
         const int group = mark + (widest > 0 ? gap + widest : 0);
         const int left = item.rect.x + (item.rect.width - group) / 2;
         paint_mark(
@@ -607,21 +690,26 @@ class LayoutPainter {
     text_font::FontStack* fonts_{};     ///< the bundled fonts; null paints no text
     float scale_{1.0F};                 ///< canvas pixels per point
     const renderer::RgbaPicture& icon_; ///< the Open Annihilation icon; empty: the OA mark
+    text_font::Family family_{};        ///< the family the text is drawn in
 };
 
-/// Measures a line's width in the bundled fonts (TextMeasureHooks::width).
+/// Measures a line's width in the bundled fonts in a family (TextMeasureHooks::width).
+template <text_font::Family family>
 int measure_width(void* context, std::string_view text, int pixel_size, bool bold) {
     if (context == nullptr || text.empty() || pixel_size <= 0)
         return 0;
-    return paint::text_width(*static_cast<text_font::FontStack*>(context), text, pixel_size, bold);
+    return screen_text_width(
+        *static_cast<text_font::FontStack*>(context), text, pixel_size, bold, family
+    );
 }
 
-/// Measures a line's height in the bundled fonts (TextMeasureHooks::line_height).
+/// Measures a line's height in the bundled fonts in a family (TextMeasureHooks::line_height).
+template <text_font::Family family>
 int measure_line_height(void* context, int pixel_size, bool bold) {
     if (context == nullptr || pixel_size <= 0)
         return 0;
     const auto rows =
-        paint::line_metrics(*static_cast<text_font::FontStack*>(context), pixel_size, bold);
+        screen_line_metrics(*static_cast<text_font::FontStack*>(context), pixel_size, bold, family);
     return rows.ascent + rows.descent;
 }
 
@@ -648,12 +736,22 @@ Rgba game_files_rgba(gf::Colour colour) noexcept {
     return Rgba{colour.r, colour.g, colour.b, colour.a};
 }
 
-gf::TextMeasureHooks game_files_measure(text_font::FontStack* fonts) noexcept {
+gf::TextMeasureHooks
+game_files_measure(text_font::FontStack* fonts, text_font::Family family) noexcept {
     gf::TextMeasureHooks measure;
     measure.context = fonts;
-    if (fonts != nullptr) {
-        measure.width = measure_width;
-        measure.line_height = measure_line_height;
+    if (fonts == nullptr)
+        return measure;
+    switch (family) {
+    case text_font::Family::interface:
+    case text_font::Family::interface_condensed:
+        measure.width = measure_width<text_font::Family::interface>;
+        measure.line_height = measure_line_height<text_font::Family::interface>;
+        break;
+    case text_font::Family::sans:
+        measure.width = measure_width<text_font::Family::sans>;
+        measure.line_height = measure_line_height<text_font::Family::sans>;
+        break;
     }
     return measure;
 }
@@ -687,9 +785,10 @@ void paint_game_files(
     const gf::Layout& layout,
     text_font::FontStack* fonts,
     float px_per_point,
-    const renderer::RgbaPicture& icon
+    const renderer::RgbaPicture& icon,
+    text_font::Family family
 ) {
-    paint_game_files(canvas, layout.list, fonts, px_per_point, icon);
+    paint_game_files(canvas, layout.list, fonts, px_per_point, icon, family);
 }
 
 void paint_game_files(
@@ -697,11 +796,16 @@ void paint_game_files(
     const kit::DisplayList& parts,
     text_font::FontStack* fonts,
     float px_per_point,
-    const renderer::RgbaPicture& icon
+    const renderer::RgbaPicture& icon,
+    text_font::Family family
 ) {
     if (canvas.width <= 0 || canvas.height <= 0)
         return;
-    LayoutPainter(canvas, fonts, px_per_point, icon).paint(parts);
+    // The modern look's labels are Barlow; a condensed family is for
+    // titles in capitals, which the screens do not draw.
+    const text_font::Family drawn =
+        family == text_font::Family::sans ? family : text_font::Family::interface;
+    LayoutPainter(canvas, fonts, px_per_point, icon, drawn).paint(parts);
 }
 
 void paint_game_files_oa_mark(Painter& painter, Area area, const renderer::RgbaPicture& icon) {

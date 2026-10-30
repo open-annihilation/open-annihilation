@@ -2233,9 +2233,15 @@ int run_once(
         switch_memory.sample(restarts);
     const int status = runtime->run();
     if (!runtime->soft_restart_requested()) {
+        if (status == 0 && runtime->hand_off_requested())
+            runtime->hand_off_update();
+        else if (status == 0 && runtime->roll_back_requested())
+            runtime->hand_off_roll_back();
+        const int reported =
+            runtime->report_update_handoff() && runtime->report_roll_back_handoff() ? status : 1;
         if (checked_options)
-            return game_files_status(*checked_options, status);
-        return check_mod_switch && status == 0 ? switch_memory.verdict() : status;
+            return game_files_status(*checked_options, reported);
+        return check_mod_switch && reported == 0 ? switch_memory.verdict() : reported;
     }
     // The next runtime takes over the window as Alt+Enter left it, and the
     // renderer without this runtime's textures; this runtime and its
@@ -2370,7 +2376,7 @@ bool file_types_not_applied(const oa::platform::file_types::Registration& done) 
 }
 
 /// The file types whose preference is not the word off. A missing file, a
-/// missing key, or a failure to read the preferences leaves all seven on.
+/// missing key, or a failure to read the preferences leaves all eight on.
 ///
 /// @return the types to register
 oa::platform::file_types::TypeSet enabled_file_types() {
@@ -2400,6 +2406,8 @@ oa::platform::file_types::TypeSet enabled_file_types() {
             enabled.mutator = false;
         if (off(key::file_type_oabrain))
             enabled.brain = false;
+        if (off(key::file_type_oakeys))
+            enabled.keys = false;
         if (off(key::file_type_oalaunch))
             enabled.launch = false;
     } catch (const std::exception&) {
@@ -2602,6 +2610,11 @@ int main(int argc, char** argv) {
         // named (cat host.oalaunch | open-annihilation).
         allow_piped_launch();
         Options parsed = parse_options(argc, argv, extension);
+        // macOS and Windows count an unconfirmed start before a mod, the
+        // game's files or SDL's video are touched. A helper that was started
+        // puts the kept version back, and this process leaves.
+        if (guard_unconfirmed_start(argc, argv, parsed) == 0)
+            return 0;
         // The Game files screen's check installs its scripted platform
         // before anything reads the hooks.
         if constexpr (self_checks_built)

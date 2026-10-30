@@ -78,19 +78,19 @@ std::string transport_name(int32_t transport) {
     }
 }
 
-/// Parses a UDP port number.
+/// Parses a UDP port number. 0 is any port the system has free, for a game
+/// that hosts alone (a check), since nobody needs to find it.
 ///
-/// Anything but a whole number from 1 through 65535 throws std::runtime_error
-/// "--dplay-port expects a port from 1 through 65535".
+/// Anything but a whole number from 0 through 65535 throws std::runtime_error
+/// "--dplay-port expects a port from 0 through 65535".
 ///
 /// @param text The option's value.
 /// @return The port.
 [[nodiscard]] uint16_t parse_port(std::string_view text) {
     uint32_t value = 0;
     const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
-    if (result.ec != std::errc{} || result.ptr != text.data() + text.size() || value == 0 ||
-        value > 65535)
-        throw std::runtime_error("--dplay-port expects a port from 1 through 65535");
+    if (result.ec != std::errc{} || result.ptr != text.data() + text.size() || value > 65535)
+        throw std::runtime_error("--dplay-port expects a port from 0 through 65535");
     return static_cast<uint16_t>(value);
 }
 
@@ -193,7 +193,12 @@ bool take_option(void* context, const char* name, const OptionValues& values, ui
         result.net_loopback_each_ai = true;
     else if (argument == "--net-loopback-fixed-starts")
         result.net_loopback_fixed_starts = true;
-    else if (argument == "--check-host-not-found") {
+    else if (argument == "--net-loopback-shooter") {
+        const auto type = value();
+        if (type.empty())
+            throw std::runtime_error("--net-loopback-shooter needs a unit type");
+        result.net_loopback_shooter = std::string(type);
+    } else if (argument == "--check-host-not-found") {
         result.check_host_not_found = true;
         effects |= option_effect::unattended | option_effect::skip_intro;
     } else if (argument == "--dplay-port") {
@@ -632,7 +637,8 @@ const std::string& usage_runs() {
         listed += "[--list-content --json] "
                   "[--net-loopback-check TICKS] [--net-loopback-watcher] "
                   "[--net-loopback-computer] [--net-loopback-each-ai] "
-                  "[--net-loopback-fixed-starts] [--check-host-not-found] "
+                  "[--net-loopback-fixed-starts] [--net-loopback-shooter TYPE] "
+                  "[--check-host-not-found] "
                   "[--check-opened-launch start|menu FILE] "
                   "[--play-demo FILE.tad] "
                   "[--demo-unit-table strict|ignore] [--net-record FILE] [--replay-viewer] ";

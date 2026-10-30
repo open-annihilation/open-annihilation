@@ -216,7 +216,7 @@ void test_commands(const Scratch& scratch) {
 
 void test_help() {
     const auto table = oa::tool::commands();
-    OA_CHECK(table.size() == 12);
+    OA_CHECK(table.size() == 14);
     OA_CHECK(table[0].name == "list");
     OA_CHECK(table[1].name == "extract");
     OA_CHECK(table[2].name == "asset-extract");
@@ -226,9 +226,11 @@ void test_help() {
     OA_CHECK(table[6].name == "check");
     OA_CHECK(table[7].name == "mutator");
     OA_CHECK(table[8].name == "brain");
-    OA_CHECK(table[9].name == "catalogue");
-    OA_CHECK(table[10].name == "registry");
-    OA_CHECK(table[11].name == "interface-words");
+    OA_CHECK(table[9].name == "keys");
+    OA_CHECK(table[10].name == "catalogue");
+    OA_CHECK(table[11].name == "engine-feed");
+    OA_CHECK(table[12].name == "registry");
+    OA_CHECK(table[13].name == "interface-words");
     // mutator diff is the fourth subcommand. tools-oa-tool checks this list.
     OA_CHECK(table[7].subcommands.size() == 4);
     OA_CHECK(table[7].subcommands[0].name == "pack");
@@ -239,12 +241,21 @@ void test_help() {
     OA_CHECK(table[8].subcommands[0].name == "pack");
     OA_CHECK(table[8].subcommands[1].name == "check");
     OA_CHECK(table[8].subcommands[2].name == "net");
-    OA_CHECK(table[10].subcommands.size() == 2);
     OA_CHECK(table[9].subcommands.size() == 4);
-    OA_CHECK(table[9].subcommands[0].name == "keygen");
-    OA_CHECK(table[9].subcommands[1].name == "public");
-    OA_CHECK(table[9].subcommands[2].name == "sign");
-    OA_CHECK(table[9].subcommands[3].name == "verify");
+    OA_CHECK(table[9].subcommands[0].name == "pack");
+    OA_CHECK(table[9].subcommands[1].name == "check");
+    OA_CHECK(table[9].subcommands[2].name == "picture");
+    OA_CHECK(table[9].subcommands[3].name == "show");
+    OA_CHECK(table[11].subcommands.size() == 3);
+    OA_CHECK(table[11].subcommands[0].name == "write");
+    OA_CHECK(table[11].subcommands[1].name == "sign");
+    OA_CHECK(table[11].subcommands[2].name == "check");
+    OA_CHECK(table[12].subcommands.size() == 2);
+    OA_CHECK(table[10].subcommands.size() == 4);
+    OA_CHECK(table[10].subcommands[0].name == "keygen");
+    OA_CHECK(table[10].subcommands[1].name == "public");
+    OA_CHECK(table[10].subcommands[2].name == "sign");
+    OA_CHECK(table[10].subcommands[3].name == "verify");
 
     const auto bare = run({});
     OA_CHECK(bare.status == oa::tool::exit_usage);
@@ -260,8 +271,8 @@ void test_help() {
           "oa-tool preview ARCHIVE PCX_ENTRY OUTPUT.ppm|OUTPUT.png\n",
           "oa-tool decode-pcx INPUT.pcx OUTPUT.ppm|OUTPUT.png\n",
           "oa-tool pack FOLDER [--out FILE] [--force] [--game-dir DIR]\n",
-          "oa-tool check FILE [--game-dir DIR] [--mod FOLDER[=KEY]]... "
-          "[--accept-unimplemented-hacks] [--json]\n"}) {
+          "oa-tool check FILE|FOLDER [--game-dir DIR] [--mod FOLDER[=KEY]]... "
+          "[--accept-unimplemented-hacks] [--json] [--strict]\n"}) {
         OA_CHECK(contains(listed.out, line));
     }
 

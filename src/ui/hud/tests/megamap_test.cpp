@@ -14,6 +14,7 @@
 
 #include <array>
 #include <cstring>
+#include <string>
 #include <vector>
 
 using namespace oa;
@@ -175,6 +176,46 @@ void icon_file() {
     // The profile's count caps the category lines read.
     config = parse_icon_config(text, 2);
     CHECK(config.lines.size() == 2);
+
+    // 130 category lines, with the special lines among them. Those three are
+    // read and never count against the limit.
+    std::string wide = "[Icon]\n";
+    for (int index = 0; index < 130; ++index) {
+        if (index == 10)
+            wide += "Unknow=UNKNOWN.PCX;\n";
+        if (index == 40)
+            wide += "Nothing=NONE.pcx;\n";
+        if (index == 90)
+            wide += "NukeIcon=NUKEICON.pcx;\n";
+        wide += "CAT" + std::to_string(index) + "=C.pcx\n";
+    }
+    config = parse_icon_config(wide, 128);
+    CHECK(config.lines.size() == 128 && config.lines.back().category == "cat127");
+    CHECK(config.unknown_file == "UNKNOWN.PCX" && config.nothing_file == "NONE.pcx");
+    CHECK(config.nuke_file == "NUKEICON.pcx");
+    config = parse_icon_config(wide, 69);
+    CHECK(config.lines.size() == 69 && config.lines.back().category == "cat68");
+}
+
+void icon_masks() {
+    data::defs::CategoryRegistry registry{};
+    data::defs::category_registry_init(&registry);
+    for (int index = 0; index < 64; ++index) {
+        const std::string name = "CAT" + std::to_string(index);
+        CHECK(data::defs::category_registry_ref(&registry, name.c_str()) != 0);
+    }
+    CHECK(registry.count == 64 && registry.count == registry.capacity);
+    const IconLine known{"cAt12", "x.pcx"};
+    const auto* found = data::defs::category_registry_find(&registry, "CAT12");
+    CHECK(icon_category_mask(registry, known) == found && found != nullptr);
+    const IconLine missing{"no-such", "x.pcx"};
+    CHECK(icon_category_mask(registry, missing) == nullptr);
+    for (int index = 0; index < 70; ++index) {
+        const IconLine line{index % 2 == 0 ? "cat3" : "absent", "f.pcx"};
+        (void)icon_category_mask(registry, line);
+    }
+    CHECK(registry.count == 64 && registry.capacity == 64);
+    data::defs::category_registry_clear(&registry);
 }
 
 void choosing() {
@@ -237,6 +278,7 @@ int main() {
     features();
     feature_pictures();
     icon_file();
+    icon_masks();
     choosing();
     rings();
     std::puts("ui-hud-megamap-test: ok");

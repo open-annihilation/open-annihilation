@@ -115,6 +115,57 @@ hacks:
   recorder.ta-demo-recorder: true
 )";
 
+constexpr std::string_view wide_limits = R"(oamod: 1
+id: wide-limits
+name: "Wide limits"
+version: "1.0"
+requires: {base: ta-3.1c, catalogue: 1}
+author: {name: unknown}
+packaging: {revision: 1, date: 2026-10-04, packager: Open Annihilation}
+limits: {weapon-types: 1024, sides: 10}
+)";
+
+constexpr std::string_view sides_only = R"(oamod: 1
+id: sides-only
+name: "Sides only"
+version: "1.0"
+requires: {base: ta-3.1c, catalogue: 1}
+author: {name: unknown}
+packaging: {revision: 1, date: 2026-10-04, packager: Open Annihilation}
+limits: {sides: 7}
+)";
+
+constexpr std::string_view baseline_limits = R"(oamod: 1
+id: baseline-limits
+name: "Baseline limits"
+version: "1.0"
+requires: {base: ta-3.1c, catalogue: 1}
+author: {name: unknown}
+packaging: {revision: 1, date: 2026-10-04, packager: Open Annihilation}
+limits: {weapon-types: 256, sides: 5}
+)";
+
+void profile_limits_choose_the_records() {
+    const auto wide = resolve(wide_limits);
+    CHECK(wide.has_value());
+    if (wide) {
+        const auto rules = oa::app::netgame::wire_rules_of(&*wide);
+        CHECK(rules.weapon_types == 1024 && rules.sides == 10);
+        CHECK(ng::wide_weapon_records(rules) && ng::oa_only(rules));
+    }
+    const auto sides = resolve(sides_only);
+    CHECK(sides.has_value());
+    if (sides) {
+        const auto rules = oa::app::netgame::wire_rules_of(&*sides);
+        CHECK(rules.weapon_types == ng::wire_base_weapon_types && rules.sides == 7);
+        CHECK(ng::oa_only(rules) && !ng::wide_weapon_records(rules));
+    }
+    const auto baseline = resolve(baseline_limits);
+    CHECK(baseline.has_value());
+    if (baseline)
+        CHECK(oa::app::netgame::wire_rules_of(&*baseline) == ng::WireRules{});
+}
+
 void speed_lock_follows_syncon() {
     const auto profile = resolve(no_speed_lock);
     CHECK(profile.has_value());
@@ -214,6 +265,7 @@ int main() {
     every_rule_maps();
     rules_need_their_channel();
     speed_lock_follows_syncon();
+    profile_limits_choose_the_records();
     reference_profiles();
     if (failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", failures);

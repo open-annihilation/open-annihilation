@@ -15,6 +15,7 @@
 #include "oa/data/unit_definitions.hpp"
 #include "oa/sim/weapon_execution/interceptor.hpp"
 #include "oa/sim/weapon_execution/projectile_pool.hpp"
+#include "oa/sim/weapon_execution/retaliation.hpp"
 #include "oa/sim/weapon_execution/weapon_launch.hpp"
 #include "oa/base/text.hpp"
 
@@ -84,7 +85,7 @@ struct Recorder {
                                const sim::match_runtime::KillOutcome& outcome) {
             of(context).calls.push_back({"killed", unit, 0, static_cast<int32_t>(outcome.kind)});
         };
-        hooks.feature_hit_elsewhere = [](void*, uint8_t, int32_t, int32_t) { return false; };
+        hooks.feature_hit_elsewhere = [](void*, uint16_t, int32_t, int32_t) { return false; };
         hooks.feature_changed =
             [](void* context, FeatureChange change, int32_t x, int32_t z, uint16_t unit) {
                 of(context).calls.push_back(
@@ -1045,6 +1046,47 @@ void game_ended_from_elsewhere() {
     std::cout << "game ended from elsewhere passed\n";
 }
 
+// A gun numbered past 255 shares that whole id, and applying the shared shot
+// on another match launches the projectile of that weapon.
+void wide_weapon_shot_keeps_its_id() {
+    combat_fixture::Options options;
+    options.gun_id = 300;
+    options.weapon_types = 1024;
+    combat_fixture::Fixture first(options);
+    auto& shooter = first.spawn(0, 40, 40);
+    auto& target = first.spawn(1, 120, 40);
+
+    struct Capture {
+        sim::match_runtime::ShotEvent shot{};
+        bool seen = false;
+    } capture;
+
+    first.match->multiplayer.shot_fired = [](void* context,
+                                             const sim::match_runtime::ShotEvent& shot) {
+        auto& held = *static_cast<Capture*>(context);
+        if (!held.seen) {
+            held.shot = shot;
+            held.seen = true;
+        }
+    };
+    first.match->multiplayer.context = &capture;
+    sim::weapon_execution::aim_slot_at_unit(shooter.record, target.record, 0);
+    for (int step = 0; step < 60 && !capture.seen; ++step)
+        first.run(1);
+    CHECK(capture.seen);
+    CHECK(capture.shot.weapon_id == 300);
+
+    combat_fixture::Fixture second(options);
+    auto& again = second.spawn(0, 40, 40);
+    (void)second.spawn(1, 120, 40);
+    CHECK(again.unit_index == capture.shot.source_unit);
+    second.match->apply_shot(capture.shot);
+    const auto shots = second.match->projectiles();
+    CHECK(!shots.empty());
+    CHECK(shots.front().def == oa::oa_ref_from_index(300));
+    std::cout << "wide weapon shot keeps its id\n";
+}
+
 } // namespace
 
 int main() {
@@ -1058,6 +1100,7 @@ int main() {
         gift_to_another_machine();
         gift_to_this_machine();
         game_ended_from_elsewhere();
+        wide_weapon_shot_keeps_its_id();
     } catch (const std::exception& error) {
         std::cerr << "shared events: " << error.what() << '\n';
         return 1;

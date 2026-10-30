@@ -219,10 +219,10 @@ void test_button() {
                                                 {Action::open_folder, true}}
                                            )
         );
-        OA_CHECK_TEXT(lib::entry_actions(library, *ridge)[2].text, "UNINSTALL");
+        OA_CHECK_TEXT(lib::entry_actions(library, *ridge)[2].text, "Uninstall");
         OA_CHECK(lib::uninstall_off_reason(library, *ridge).empty());
     }
-    OA_CHECK_TEXT(lib::action_text(Action::uninstall), "UNINSTALL");
+    OA_CHECK_TEXT(lib::action_text(Action::uninstall), "Uninstall");
     // The player's own mod, a map pack and a language pack show it too.
     const lib::Entry* own = at(library, "", Kind::mod, "own-mod");
     if (own != nullptr)
@@ -322,7 +322,7 @@ void test_off() {
         OA_CHECK(shown);
         OA_CHECK_TEXT(
             lib::uninstall_off_reason(library, *ridge),
-            queue_holds ? "It is in the download queue: CANCEL it before you uninstall it." : ""
+            queue_holds ? "It is in the download queue: Cancel it before you uninstall it." : ""
         );
         OA_CHECK(
             lib::uninstall_step(library, *ridge) ==
@@ -337,7 +337,7 @@ void test_off() {
         lib::select(library, {std::string(core), Kind::mod, "cinder"});
         OA_CHECK_TEXT(
             lib::details_note(library),
-            "Finishes when you leave Cinder. It is in the download queue: CANCEL it before you "
+            "Finishes when you leave Cinder. It is in the download queue: Cancel it before you "
             "uninstall it."
         );
         lib::select(library, {std::string(core), Kind::mod, "ridge"});
@@ -380,18 +380,18 @@ void test_question() {
         if (asked.paragraphs.size() == 2) {
             OA_CHECK_TEXT(
                 asked.paragraphs[0].text,
-                "Uninstall Ridge? Its folder, Mods/ridge, is removed, and with it the copy ROLL "
-                "BACK keeps."
+                "Uninstall Ridge? Its folder, Mods/ridge, is removed, and with it the copy Roll "
+                "back keeps."
             );
-            OA_CHECK_TEXT(asked.paragraphs[1].text, "GET installs it again.");
+            OA_CHECK_TEXT(asked.paragraphs[1].text, "Get installs it again.");
             OA_CHECK(!asked.paragraphs[0].path && !asked.paragraphs[1].path);
         }
         OA_CHECK(asked.buttons.size() == 2);
         if (asked.buttons.size() == 2) {
-            OA_CHECK_TEXT(asked.buttons[0].caption, "CANCEL");
+            OA_CHECK_TEXT(asked.buttons[0].caption, "Cancel");
             OA_CHECK_TEXT(asked.buttons[0].id, lib::uninstall_cancel_button_id);
             OA_CHECK(!asked.buttons[0].accent);
-            OA_CHECK_TEXT(asked.buttons[1].caption, "UNINSTALL");
+            OA_CHECK_TEXT(asked.buttons[1].caption, "Uninstall");
             OA_CHECK_TEXT(asked.buttons[1].id, lib::uninstall_button_id);
             OA_CHECK(asked.buttons[1].accent);
         }
@@ -437,7 +437,7 @@ void test_notices() {
         if (told.paragraphs.size() == 1)
             OA_CHECK_TEXT(
                 told.paragraphs[0].text,
-                "You are playing Cinder. Switch it off first with SWITCH OFF, then uninstall it."
+                "You are playing Cinder. Switch it off first with Switch off, then uninstall it."
             );
     }
     const lib::Entry* pseudo = at(library, core, Kind::language, "en-XA");
@@ -460,7 +460,7 @@ void test_notices() {
         {lib::UninstallProblem::changed,
          "Its folder changed since the Library listed it. Try again."},
         {lib::UninstallProblem::link,
-         "Its folder is a link, and OA never removes what a link leads to. OPEN FOLDER shows it."},
+         "Its folder is a link, and OA never removes what a link leads to. Open folder shows it."},
         {lib::UninstallProblem::outside,
          "Its folder is not in your own Open Annihilation folder, and OA removes nothing outside "
          "it."},
@@ -550,7 +550,7 @@ void test_default_brain() {
                 "It is your default computer player: new computer seats go back to the built-in "
                 "player."
             );
-            OA_CHECK_TEXT(asked.paragraphs[2].text, "GET installs it again.");
+            OA_CHECK_TEXT(asked.paragraphs[2].text, "Get installs it again.");
         }
     }
     const lib::Entry* picky_row = at(library, core, Kind::brain, "picky-planner");
@@ -564,6 +564,48 @@ void test_default_brain() {
     }
 }
 
+/// UNINSTALL of the layout in use adds its paragraph before the last.
+/// Another layout's question does not.
+void test_layout_in_use() {
+    lib::Inputs inputs = fixture_inputs();
+    lib::Listing grid = listing(Kind::key_layout, "grid-test", "Grid Test");
+    lib::KeyLayoutFacts grid_facts;
+    grid.keys = grid_facts;
+    inputs.listings.push_back(grid);
+    lib::Installed grid_held =
+        installed(core, Kind::key_layout, "grid-test", "Grid Test", "grid-test");
+    grid_held.keys = grid_facts;
+    inputs.installed.push_back(std::move(grid_held));
+    lib::Listing lefty = listing(Kind::key_layout, "lefty-test", "Lefty Test");
+    lefty.keys = lib::KeyLayoutFacts{};
+    inputs.listings.push_back(lefty);
+    lib::Installed lefty_held =
+        installed(core, Kind::key_layout, "lefty-test", "Lefty Test", "lefty-test");
+    lefty_held.keys = lib::KeyLayoutFacts{};
+    inputs.installed.push_back(std::move(lefty_held));
+    inputs.keys_layout = "grid-test";
+    const lib::Library library = built(std::move(inputs));
+    const lib::Entry* grid_row = at(library, core, Kind::key_layout, "grid-test");
+    OA_CHECK(grid_row != nullptr && lib::layout_in_use(library, *grid_row));
+    if (grid_row != nullptr) {
+        const kit::Question asked = lib::uninstall_question(library, *grid_row, "Keys/grid-test");
+        OA_CHECK(asked.paragraphs.size() == 3);
+        if (asked.paragraphs.size() == 3) {
+            OA_CHECK_TEXT(
+                asked.paragraphs[1].text,
+                "You play with Grid Test now. Uninstall it and go back to OA default? Your own "
+                "changes stay saved."
+            );
+        }
+    }
+    const lib::Entry* lefty_row = at(library, core, Kind::key_layout, "lefty-test");
+    OA_CHECK(lefty_row != nullptr && !lib::layout_in_use(library, *lefty_row));
+    if (lefty_row != nullptr) {
+        const kit::Question asked = lib::uninstall_question(library, *lefty_row, "Keys/lefty-test");
+        OA_CHECK(asked.paragraphs.size() == 2);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -572,6 +614,7 @@ int main() {
     test_steps();
     test_question();
     test_default_brain();
+    test_layout_in_use();
     test_notices();
     test_lookup();
     return oa::test::check_exit_status();

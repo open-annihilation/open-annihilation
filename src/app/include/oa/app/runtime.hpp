@@ -56,6 +56,7 @@
 #include "oa/present/world_renderer/world_fog.hpp"
 #include "oa/present/world_renderer/world_overlays.hpp"
 #include "oa/sim/sprite_animation.hpp"
+#include "oa/ui/hud/backed_text.hpp"
 #include "oa/ui/hud/boundary.hpp"
 #include "oa/ui/hud/build_page_fit.hpp"
 #include "oa/ui/hud/camera_scroll.hpp"
@@ -70,10 +71,13 @@
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/mutator_picker/model.hpp"
+#include "oa/ui/key_editor/model.hpp"
+#include "oa/ui/key_editor/overlay.hpp"
 #include "oa/ui/brain_picker/model.hpp"
 #include "oa/data/content_bundles/content_choice.hpp"
 #include "oa/data/mutators/choice.hpp"
 #include "oa/data/mutators/dry_run.hpp"
+#include "oa/ui/key_bindings/dispatcher.hpp"
 #include "oa/ui/pad_controls.hpp"
 #include "oa/app/acceleration_status.hpp"
 #include "oa/app/content_copy.hpp"
@@ -126,6 +130,8 @@ namespace oa::app::renderer_water {
 struct Wind;
 class SurfaceCache;
 struct Disturbance;
+struct Sea;
+struct Levels;
 } // namespace oa::app::renderer_water
 
 namespace oa::app::renderer_effect_events {
@@ -173,6 +179,8 @@ enum class Tab : uint8_t;
 enum class Action : uint8_t;
 struct EntryId;
 struct Inputs;
+struct KeyUse;
+struct KeyUseResult;
 } // namespace oa::ui::library
 
 namespace oa::ui::kit {
@@ -442,6 +450,19 @@ struct MutatorPickerRequest {
     bool remembered{false};
 };
 
+/// What a caller hands the key editor.
+struct KeyEditorRequest {
+    /// True when Settings is the screen under the editor. Refused when a
+    /// modal screen other than Settings is up, and when Settings is up
+    /// without this set.
+    bool over_settings{false};
+    /// The filter the list opens on. Unset opens on Clashes when the draft
+    /// names a clash, and on All otherwise.
+    std::optional<oa::ui::key_editor::Filter> filter{};
+    /// The action the list opens on. Empty opens with none chosen.
+    std::string select{};
+};
+
 /// One computer player a match will seat with a brain.
 ///
 /// `saved` is the state a saved game hands back to `start`. Empty is no
@@ -537,6 +558,25 @@ struct MutatorStartStop {
     std::string reason{}; ///< why it stopped, as the player reads it
 };
 
+namespace update {
+struct CheckSnapshot;
+struct Centre;
+enum class Act : uint8_t;
+} // namespace update
+
+/// Counts one unconfirmed start on macOS and Windows, before the game loads.
+///
+/// A check, a headless check and an unattended run are not counted. When the
+/// count reaches the roll-back threshold the helper is started and this
+/// process should exit. Any other result, including a helper that cannot
+/// start, leaves the start to continue.
+///
+/// @param argc the argument count
+/// @param argv the arguments
+/// @param options the options already parsed, including the data folder
+/// @return 0 when the helper was started, otherwise -1
+[[nodiscard]] int guard_unconfirmed_start(int argc, char** argv, const Options& options);
+
 class Runtime final : public menu::Host,
                       public entry::SinglePlayerHost,
                       public frontend::Host,
@@ -611,6 +651,44 @@ class Runtime final : public menu::Host,
     ///
     /// @return true once SWITCH ended the run
     [[nodiscard]] bool soft_restart_requested() const noexcept { return soft_restart_requested_; }
+
+    /// Tells whether a verified package is waiting to be installed.
+    ///
+    /// A soft restart and a run that ended in failure do not ask. main()
+    /// calls this after run() returns.
+    ///
+    /// @return true when the next normal exit should start the helper
+    [[nodiscard]] bool hand_off_requested() const;
+
+    /// Writes the install plan and starts oa-update, or records that start.
+    ///
+    /// A helper that cannot start leaves the package ready and says why.
+    void hand_off_update();
+
+    /// Tells whether ROLL BACK asked to put the kept version back.
+    ///
+    /// main() calls this after run() returns, as it does for a ready package.
+    ///
+    /// @return true when the next normal exit should start the helper
+    [[nodiscard]] bool roll_back_requested() const noexcept { return roll_back_requested_; }
+
+    /// Writes a roll-back plan and starts oa-update, or records that start.
+    void hand_off_roll_back();
+
+    /// Reads the plan a roll-back check's hand-off wrote.
+    ///
+    /// A run that is not that check leaves the process status as it is.
+    ///
+    /// @return false when the plan was written and does not say roll-back
+    [[nodiscard]] bool report_roll_back_handoff();
+
+    /// Reads the plan a check's hand-off wrote, and says whether it holds.
+    ///
+    /// A run that is not the download check, and a hand-off that wrote
+    /// nothing, leave the process status as it is.
+    ///
+    /// @return false when the plan was written and does not read back
+    [[nodiscard]] bool report_update_handoff();
 
     /// Returns the full-screen state Alt+Enter left, which a runtime built
     /// after a soft restart takes over.
@@ -775,8 +853,10 @@ class Runtime final : public menu::Host,
 
     /// Handles the keys the profile's display rules give their own meaning
     /// in every screen (runtime_view_rules.cpp), before any screen sees them.
+    /// Screenshot chords are taken on both edges while display modes are on.
+    /// The chat macro and the build tools answer their actions in a match.
     ///
-    /// @param event a key event
+    /// @param event a key or wheel event
     /// @return true when the key is taken
     bool handle_view_rule_key(const SDL_Event& event);
 
@@ -787,17 +867,9 @@ class Runtime final : public menu::Host,
     /// Writes view_settings_ to the preferences, under the Eye section.
     void save_view_settings();
 
-    /// Tells whether a key the display-rule settings name is held; an Alt,
-    /// Ctrl or Shift key stands for either key of its kind.
+    /// Tells whether the snap-override action is held (build.snap-override).
     ///
-    /// @param key the SDL key code
-    /// @return true while it is held
-    [[nodiscard]] bool view_key_held(uint32_t key) const;
-
-    /// Tells whether the key held to stop a click snapping is down
-    /// (ViewSettings::snap_override_key).
-    ///
-    /// @return true while it is held
+    /// @return true while it is held or latched
     [[nodiscard]] bool snap_override_held() const;
 
     /// Takes a build click for the line and ring build tools
@@ -818,10 +890,10 @@ class Runtime final : public menu::Host,
     /// @param y canvas row
     void build_tool_motion(float x, float y);
 
-    /// Takes the line and ring build tools' keys in a match: the mouse wheel,
-    /// Page Up and Page Down change the spacing while the autoclick key is
-    /// held, letting it go drops the line or ring, and the key itself types
-    /// nothing in build mode.
+    /// Takes the line and ring build tools' actions in a match. The rotate
+    /// wheel turns the building. Spacing changes while the line action is
+    /// held. Letting the line key go drops the line or ring, and that key
+    /// types nothing while a building is armed.
     ///
     /// @param event a key or wheel event
     /// @return true when the tools took the event
@@ -1359,6 +1431,13 @@ class Runtime final : public menu::Host,
     /// @param[in,out] running loop flag; cleared when the event ends the loop
     void dispatch_event(SDL_Event& event, bool& running);
 
+    /// Dispatches one event after the action events have been fed: full screen, the settings
+    /// request, the view rules, then the screen. [runtime.cpp]
+    ///
+    /// @param event event to dispatch
+    /// @param[in,out] running loop flag; cleared when the event ends the loop
+    void dispatch_after_actions(SDL_Event& event, bool& running);
+
     /// Tracks the window's focus as the application-active flag.
     ///
     /// A focus gain or loss sets the flag. Any other event while inactive sets it
@@ -1492,6 +1571,12 @@ class Runtime final : public menu::Host,
     /// @param hook the hook's name
     /// @param message what it threw
     void report_hook_error(const char* hook, const char* message) noexcept;
+
+    /// Logs a fault of the game data on stderr the first time the run meets
+    /// it; the game plays on as 3.1c does.
+    ///
+    /// @param line what is wrong, without a newline
+    void report_data_fault(const std::string& line);
 
     /// Returns the report call_hook_or_report takes for report_hook_error.
     ///
@@ -1653,6 +1738,16 @@ class Runtime final : public menu::Host,
     /// @param report_directory directory the frames are written to
     void check_navigation_without_maps(const fs::path& report_directory);
 
+    /// Opens SINGLE.GUI from the main menu and checks New Campaign and Any Mission.
+    ///
+    /// New Campaign is greyed exactly when neither side has a campaign, and it
+    /// stays shown either way. Any Mission is hidden when there is no campaign.
+    /// With no campaign, a press on New Campaign and the key SINGLE.GUI gives
+    /// that button leave the menu on SINGLE.GUI with no notice. With a
+    /// campaign, New Campaign opens NEWGAME.GUI and Previous Menu returns.
+    /// Prints one line and throws std::runtime_error naming what differed.
+    void check_single_player_offers();
+
     /// Checks that a screen keeps the game's own fonts whatever the Language
     /// settings say: drawn with the modern fonts on, at the largest text
     /// size, it equals the frame drawn with them off. The player's settings
@@ -1774,6 +1869,21 @@ class Runtime final : public menu::Host,
     /// part shown half its fade later and whole once it has ended. Throws
     /// std::runtime_error on a failure.
     void check_kill_board();
+
+    /// Checks latched Shift and Space, then sticky Ctrl and Alt, on a skirmish.
+    ///
+    /// Throws std::runtime_error on a failure. [runtime_key_latches_check.cpp]
+    void check_key_latches();
+
+    /// Checks Hold to confirm on a skirmish: self-destruct, the order button
+    /// and the surrender question. Throws std::runtime_error on a failure.
+    /// [runtime_hold_confirm_check.cpp]
+    void check_hold_confirm();
+
+    /// Checks the order wheel a held mouse button opens, on a skirmish.
+    ///
+    /// Throws std::runtime_error on a failure. [runtime_order_wheel_check.cpp]
+    void check_order_wheel();
 
     /// Checks MULTI on the main menu.
     ///
@@ -2273,6 +2383,18 @@ class Runtime final : public menu::Host,
     /// Throws std::runtime_error when the check did not start.
     void finish_reclaim_check();
 
+    /// Starts --weapon-fire-check: places the named type, orders it to fire
+    /// its first weapon at a unit and a feature, and listens to those shots.
+    ///
+    /// Throws std::runtime_error when the type, its weapon or a place for the
+    /// units and the feature is missing.
+    void begin_weapon_fire_check();
+
+    /// Ends --weapon-fire-check: prints the shots, the damage, the feature
+    /// hit and the world digest, and throws std::runtime_error when one is
+    /// missing or does not come from the type's weapon.
+    void finish_weapon_fire_check();
+
     /// Times a benchmark scene and prints its phase times.
     ///
     /// Each frame drains the events, scrolls the camera back and forth when asked,
@@ -2440,12 +2562,625 @@ class Runtime final : public menu::Host,
     /// and those the automation endpoint holds), the pulse a synthetic key carries, and
     /// SDL_KMOD_LSHIFT when the use's latch is active.
     ///
-    /// Without touch state it is exactly the modifier keys held. Every place the engine reads the
-    /// modifier keys asks this for its own use. [runtime_input_modifiers.cpp]
+    /// `keyboard` stays those keys, plus a sticky modifier that is armed or locked. For an order,
+    /// a selection or a build button, Shift comes from the role `order.queue-modifier`,
+    /// `select.add-modifier` or `build.queue-modifier`, and for an order Ctrl comes from
+    /// `order.force-modifier`, once the bindings have been resolved. Before that, and when a role
+    /// is not among the bindings, the key's own bit is left as it is. The pulse, the latch and
+    /// the pad's FORCE are merged as before, and the sticky modifiers are added for every use.
+    /// With the stock bindings and sticky modifiers off, the bits are the keys held. Every place
+    /// the engine reads the modifier keys asks this for its own use. [runtime_input_modifiers.cpp]
     ///
     /// @param use what the read is for
     /// @return SDL_Keymod bits
     [[nodiscard]] SDL_Keymod input_modifiers(ModifierUse use) const;
+
+    /// Turns one key, button or wheel into action events and keeps them.
+    ///
+    /// Called after the input method has taken the keys it is composing, and not for a touch or a
+    /// pad event. A keymap change rebuilds the keyboard map and the bindings. Losing the window's
+    /// focus releases every held action and role, and clears the keyboard latches, the sticky
+    /// modifiers and the shared QUEUE, ADD and x5 latches. A running match answers the events
+    /// through handle_match_action. A key held back by slow keys, or dropped by bounce keys,
+    /// does not reach the rest of the game. Any other event, such as the pointer moving, keeps
+    /// no action events, so a key's press is not answered again by the event after it.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param event the event dispatch_event is given
+    /// @return true when the rest of the game should not see this event
+    bool feed_input_actions(const SDL_Event& event);
+
+    /// Presses and releases QUEUE, ADD and x5 on the shared latches when their
+    /// keys go down and up, and marks a held one used on a button press.
+    ///
+    /// Called only for an event the bindings accepted, including a key `advance`
+    /// admits late. A repeat does not toggle. [runtime_key_bindings.cpp]
+    ///
+    /// @param input the key, button or wheel
+    /// @param contexts the contexts this event is fed with
+    void apply_shared_key_latches(
+        const oa::ui::key_bindings::InputEvent& input,
+        const oa::ui::key_bindings::Contexts& contexts
+    );
+
+    /// Admits keys whose slow-key time has passed, fires holds, and fires the player's repeats,
+    /// once a frame after that frame's events. A key admitted here then reaches the rest of the
+    /// game. A mouse button held for the order wheel opens it from here once its
+    /// long-press time has passed. [runtime_key_bindings.cpp]
+    ///
+    /// @param[in,out] running loop flag; cleared when an admitted key ends the loop
+    void advance_input_actions(bool& running);
+
+    /// True while the key editor's capture or clash prompt is open.
+    ///
+    /// feed_input_actions returns before the dispatcher while this is true, so
+    /// no action fires. [runtime_key_editor.cpp]
+    ///
+    /// @return true while a prompt covers the editor
+    bool key_editor_capturing();
+
+    /// Gives a key-up to the key editor's capture. The layer does not hand a
+    /// key-up to the screen. [runtime_key_editor.cpp]
+    ///
+    /// @param event the event dispatch_event is given
+    void key_editor_capture_event(const SDL_Event& event);
+
+    /// Replays a mouse button the order wheel held back, at the press's point.
+    ///
+    /// A click is the press and its release. A drag is the press and the motion
+    /// that crossed the threshold. Nothing is replayed when no decision is waiting.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param[in,out] running loop flag; cleared when a replayed event ends the loop
+    void replay_order_wheel(bool& running);
+
+    /// Reports whether the order wheel on screen was opened by a mouse button.
+    ///
+    /// @return true while that wheel is open
+    [[nodiscard]] bool order_wheel_mouse_open() const;
+
+    /// The wedge the mouse aims, as a slot of the open wheel.
+    ///
+    /// @return the slot, or none when the pointer is on the hub or outside
+    [[nodiscard]] std::optional<std::size_t> order_wheel_mouse_aim() const;
+
+    /// Drops a press the order wheel is holding and closes a wheel the mouse opened.
+    /// [runtime_key_bindings.cpp]
+    void cancel_order_wheel();
+
+    /// The mouse button the order wheel holds, or 0 when the setting is off.
+    ///
+    /// @return SDL's button number
+    [[nodiscard]] uint8_t order_wheel_button() const;
+
+    /// Converts a pointer event into canvas pixels.
+    ///
+    /// @param event the event, in window coordinates when a renderer is up
+    /// @param[out] x canvas column
+    /// @param[out] y canvas row
+    /// @return false when the renderer refused the conversion
+    [[nodiscard]] bool order_wheel_canvas(const SDL_Event& event, float& x, float& y) const;
+
+    /// Reports whether this press may be held back for the order wheel.
+    ///
+    /// Playing a seat, on the battlefield, and not on a panel, the minimap, a
+    /// placed HUD region, or while placing, the megamap or the whiteboard holds
+    /// the pointer.
+    ///
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return true when the press waits
+    [[nodiscard]] bool order_wheel_press_eligible(float x, float y);
+
+    /// Motion, and Escape, while a wheel the mouse opened is up or a press is waiting.
+    ///
+    /// @param event the event
+    /// @return true when the rest of the game should not see it
+    bool take_order_wheel_aside(const SDL_Event& event);
+
+    /// A button the order wheel is watching.
+    ///
+    /// Called after the dispatcher has seen the button.
+    ///
+    /// @param event the button event
+    /// @return true when the rest of the game should not see it
+    bool take_order_wheel_button(const SDL_Event& event);
+
+    /// Applies the helper's decision to the press that is waiting.
+    ///
+    /// @param event the motion or release that was just given to the helper
+    /// @return true when the rest of the game should not see it
+    bool order_wheel_decide(const SDL_Event& event);
+
+    /// Opens the touch wheel at the held press. [runtime_key_bindings.cpp]
+    void open_mouse_order_wheel();
+
+    /// Aims the wedge under the pointer. [runtime_key_bindings.cpp]
+    ///
+    /// @param event the motion
+    void aim_mouse_order_wheel(const SDL_Event& event);
+
+    /// Gives the aimed order, or closes the wheel. [runtime_key_bindings.cpp]
+    ///
+    /// @param event the button release
+    void release_mouse_order_wheel(const SDL_Event& event);
+
+    /// Closes a wheel the mouse opened, and no other radial. [runtime_key_bindings.cpp]
+    void close_mouse_order_wheel();
+
+    /// Writes the touch viewport from the match layout when nothing else is.
+    /// [runtime_key_bindings.cpp]
+    void ensure_order_wheel_viewport();
+
+    /// Opens the wheel once a held press reaches the long-press time.
+    /// [runtime_key_bindings.cpp]
+    void advance_order_wheel();
+
+    /// Gives the dispatcher the key timings in effect, and sets the mouse's double-click time.
+    ///
+    /// A double-press time of zero gives the chords 500 ms and clears the mouse hint. Safe to call
+    /// before the dispatcher exists: the hint is still set. [runtime_key_bindings.cpp]
+    void apply_key_timings();
+
+    /// Forgets keys held back by slow keys, without replaying them. [runtime_key_bindings.cpp]
+    void forget_held_back_keys();
+
+    /// How many of the last fed action events name this action and phase.
+    ///
+    /// Zero when the dispatcher has not been made. [runtime_key_bindings.cpp]
+    ///
+    /// @param action the action id
+    /// @param phase the phase
+    /// @return the count
+    [[nodiscard]] int
+    recent_action_phase_count(std::string_view action, oa::ui::key_bindings::Phase phase) const;
+
+    /// The action events the current event produced.
+    ///
+    /// Valid until the next feed, advance or binding rebuild. Empty before the
+    /// bindings exist. [runtime_key_bindings.cpp]
+    ///
+    /// @return the events kept for the event just fed
+    [[nodiscard]] std::span<const oa::ui::key_bindings::ActionEvent> match_action_events() const;
+
+    /// The pressed or repeated event of one action.
+    ///
+    /// The pointer stays valid until the next feed, advance or binding rebuild.
+    /// Null when the dispatcher has not been made, or this event did not start
+    /// that action. [runtime_key_bindings.cpp]
+    ///
+    /// @param id the action id
+    /// @return that event, or null
+    [[nodiscard]] const oa::ui::key_bindings::ActionEvent* fired_action(std::string_view id) const;
+
+    /// The screen action this key still means.
+    ///
+    /// A screen action this event started comes first. Otherwise the screen
+    /// action whose chord still matches the key, the most specific chord, and
+    /// the earliest action when two match as well. Empty when the bindings are
+    /// not ready and this event started none. [runtime_key_bindings.cpp]
+    ///
+    /// @param key the SDL keycode
+    /// @param sdl_mods the SDL modifier bits
+    /// @return the action id, or empty
+    [[nodiscard]] std::string screen_action_for_key(uint32_t key, uint16_t sdl_mods) const;
+
+    /// Whether a key of the action's chords is down.
+    ///
+    /// A modifier never stops it: any chord whose key is held counts. Resolves
+    /// the bindings on first use. [runtime_key_bindings.cpp]
+    ///
+    /// @param action the action id
+    /// @return true while one of that action's keys is down
+    [[nodiscard]] bool action_key_held(std::string_view action);
+
+    /// Whether an action is held by its key, its modifier role or its latch.
+    ///
+    /// A modifier held with other modifiers still counts. Resolves the
+    /// bindings on first use. [runtime_key_bindings.cpp]
+    ///
+    /// @param action the action id
+    /// @return true while that action is held
+    [[nodiscard]] bool action_held(std::string_view action) const;
+
+    /// Whether this key is one of the action's chords.
+    ///
+    /// Context is ignored, so a chord still matches on a screen the action
+    /// does not list. Resolves the bindings on first use.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param action the action id
+    /// @param key the key event
+    /// @return true when the key is one of that action's chords
+    [[nodiscard]] bool action_key_matches(std::string_view action, const SDL_KeyboardEvent& key);
+
+    /// Whether this mouse button is one of the action's chords of that gesture.
+    ///
+    /// A double-press chord does not match a plain press. Resolves the
+    /// bindings on first use. [runtime_key_bindings.cpp]
+    ///
+    /// @param action the action id
+    /// @param button the SDL button number
+    /// @param gesture the gesture the chord must name
+    /// @return true when one chord is that button and gesture
+    [[nodiscard]] bool action_button_matches(
+        std::string_view action, uint8_t button, oa::ui::key_bindings::Gesture gesture
+    );
+
+    /// The contexts, the conditions and text entry for the event about to be fed.
+    ///
+    /// Computed for that event, not once a frame. While a modal Open Annihilation screen shows,
+    /// the match and the menus are left out: that screen takes the input. A screen that shows
+    /// and does not take the input exclusively is searched alongside the menus or the match.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @return the contexts the dispatcher searches
+    [[nodiscard]] oa::ui::key_bindings::Contexts input_contexts();
+
+    /// One gadget quick key gathered from a GUI file. [runtime_gui_actions.cpp]
+    struct GuiQuickKey {
+        std::string file_stem{}; ///< the file stem, folded as a gui id piece
+        std::string gadget{};    ///< the gadget name
+        std::string action{};    ///< the made `gui.` action id
+        char32_t letter{};       ///< the quick key
+        std::string help{};      ///< the help the file gives, unused by resolution
+        /// The text the button draws. Empty when the button draws no words.
+        std::string caption{};
+        /// The screen's title, or its name when the file draws no title.
+        std::string menu{};
+    };
+
+    /// One order or tab key read from an order file. [runtime_gui_actions.cpp]
+    struct OrderFileKey {
+        std::string action{}; ///< the registry action
+        std::string file{};   ///< the GUI file's name
+        std::string gadget{}; ///< the gadget name
+        char32_t letter{};    ///< the quick key
+    };
+
+    /// Resolves the layout in use again when the keyboard, the hacks, the pointer scheme,
+    /// SwitchAlt, the loaded layout, the side's order file, the panel on screen or the
+    /// pointer-keys setting changed, making the dispatcher on first use. A change of only
+    /// the panel on screen keeps a key that is already held. [runtime_key_bindings.cpp]
+    ///
+    /// @param keymap_changed the keymap changed, so the keyboard map is read again
+    void ensure_key_bindings(bool keymap_changed);
+
+    /// Notes pointer-key presses and releases among action events just stored.
+    ///
+    /// @param events the action events
+    void note_pointer_key_events(const std::vector<oa::ui::key_bindings::ActionEvent>& events);
+
+    /// Steps the numpad pointer and sends what it moved and which button changed.
+    /// [runtime_key_bindings.cpp]
+    void step_pointer_keys();
+
+    /// Drops every direction and sends an up for a button the numpad pointer already put down.
+    /// [runtime_key_bindings.cpp]
+    void drop_pointer_keys();
+
+    /// The scancode of `order.attack`'s unmodified press.
+    ///
+    /// A place chord uses its position. A capital letter uses that letter's key.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @return the scancode, or SDL_SCANCODE_UNKNOWN when that press is absent
+    [[nodiscard]] SDL_Scancode order_attack_press_scancode();
+
+    /// Fills the key editor from the layout in use, the player's own file and
+    /// the installed layouts. The own helpers are the own file's, not the
+    /// merged ones. [runtime_key_bindings.cpp]
+    ///
+    /// @param[out] inputs the editor's inputs
+    void fill_key_editor(oa::ui::key_editor::EditorInputs& inputs);
+
+    /// Writes the editor's save: each layout it made, then the player's own
+    /// file, the layout preference, and SwitchAlt when it changed. Clears the
+    /// load signature before the bindings are read again, so a key just taken
+    /// off stops firing. A write that fails leaves the editor's caller to
+    /// show the reason; the signature is cleared only after the own file is
+    /// written.
+    ///
+    /// @param saved what the editor's result names
+    /// @param[out] error why it was not written; empty on success
+    /// @return true when the files were written and the bindings reloaded
+    bool save_key_editor(const oa::ui::key_editor::SaveResult& saved, std::string& error);
+
+    /// Loads the layout for this run and the player's own changes, and imports stored keys once.
+    ///
+    /// Called after the view settings are read, and again when the played mod changes. `--keys`
+    /// and `--keys-reset` choose the layout for this run and save nothing. A `.oakeys` file is
+    /// read in memory and not installed. A layout named by `--keys` that cannot be read, or a
+    /// `.oakeys` file the installer refuses, sets key_bindings_refusal_; any other problem is
+    /// logged and the built-in layout is used. [runtime_key_bindings.cpp]
+    void load_key_bindings();
+
+    /// What USE in the Library changed, so that Undo can put it back.
+    struct LibraryKeyUseUndo {
+        /// The shared layout preference before USE; none when it was not set.
+        std::optional<std::string> layout_before{};
+        /// The played mod's layout preference before USE; none when it was not set.
+        std::optional<std::string> mod_layout_before{};
+        std::string mod_id{}; ///< the mod being played at USE; empty when none was
+        /// The engine settings before USE, which the helpers left on change.
+        oa::ui::engine_settings::EngineSettings settings_before{};
+        bool settings_changed{false}; ///< USE wrote the engine settings
+        /// The layout whose own folder USE created; empty when it created none.
+        /// Only that folder is ever removed; a folder that was there before stays.
+        std::string created_own{};
+        std::vector<std::string> toggle_before{}; ///< this run's latched actions before USE
+        /// This run's hold-to-confirm actions before USE; none means every confirmable one.
+        std::optional<std::vector<std::string>> hold_before{};
+        bool applied{false}; ///< USE changed something Undo can put back
+    };
+
+    /// Applies USE from the Library's question: copies own changes when Keep
+    /// is marked and the new layout has none, writes the helpers left on,
+    /// writes the layout preference, and loads that layout. CANCEL never
+    /// calls this. The interface mode is left as it is.
+    ///
+    /// @param used what USE applies
+    /// @param question the question, still open, including helpers left off
+    /// @param played_mod_id the mod being played; empty when none is
+    /// @return what it changed, for undo_library_key_use
+    LibraryKeyUseUndo apply_library_key_use(
+        const oa::ui::library::KeyUseResult& used,
+        const oa::ui::library::KeyUse& question,
+        std::string_view played_mod_id
+    );
+
+    /// Undoes USE: the layout preferences and the engine settings return to
+    /// what they were, an own folder USE created is removed, the layout in
+    /// use is loaded again and this run's latch and hold lists return. The
+    /// player's own changes in any folder USE did not create are never touched.
+    ///
+    /// @param undo what apply_library_key_use returned
+    void undo_library_key_use(const LibraryKeyUseUndo& undo);
+
+    /// The keyboard map the bindings read keys on: the player's keyboard,
+    /// as the system reports it.
+    ///
+    /// @return the map; the US map before the bindings are first read
+    [[nodiscard]] oa::ui::key_bindings::KeyboardMap key_map() const;
+
+    /// The mod data the bindings resolve with: the played mod's button keys,
+    /// category letters and Category words.
+    ///
+    /// @return the data; empty with no mod
+    [[nodiscard]] oa::ui::key_bindings::ModData key_mod_data() const;
+
+    /// Reads every GUI file's quick keys for the mod in use.
+    ///
+    /// A later mod load reads them again. [runtime_gui_actions.cpp]
+    void gather_gui_quick_keys();
+
+    /// The mod data resolution reads: one gui key per gathered button, the
+    /// category letters the loaded units use, and every gathered Category word.
+    ///
+    /// The gadget word is set only for `order_stem`, so only that side's order
+    /// file moves a registry action. The letters are `loaded_category_letters`.
+    /// [runtime_gui_actions.cpp]
+    ///
+    /// @param order_stem the order file's stem
+    /// @return the keys, in file order, and the category letters
+    [[nodiscard]] oa::ui::key_bindings::ModData gui_mod_data(std::string_view order_stem) const;
+
+    /// The single letters of `CTRL_<letter>` categories the loaded units use.
+    ///
+    /// A letter is kept when that category's mask holds a unit type. The letters
+    /// are lower case and sorted. None are gathered before units are loaded, and
+    /// a letter a named Ctrl action holds still makes no category action: the
+    /// key resolution leaves that chord with the named action. [runtime_gui_actions.cpp]
+    ///
+    /// @return the letters, or empty when no loaded unit uses one
+    [[nodiscard]] std::string loaded_category_letters() const;
+
+    /// Gives the shown file's gui actions the play and panel contexts, and a
+    /// unit info file's actions the unit-info context only.
+    ///
+    /// [runtime_gui_actions.cpp]
+    ///
+    /// @param[in,out] resolved the bindings just resolved
+    /// @param shown the stem of the panel on screen, or empty
+    void
+    apply_shown_gui_file(oa::ui::key_bindings::Resolved& resolved, std::string_view shown) const;
+
+    /// The order file stem of the side being played, or of the first side outside a match.
+    ///
+    /// [runtime_gui_actions.cpp]
+    ///
+    /// @return the stem, or empty when no side is loaded
+    [[nodiscard]] std::string order_side_stem() const;
+
+    /// The stem of the panel on screen.
+    ///
+    /// [runtime_gui_actions.cpp]
+    ///
+    /// @return the stem, or empty when no match panel is loaded
+    [[nodiscard]] std::string shown_hud_stem() const;
+
+    /// The order and tab keys of the two stock order files.
+    ///
+    /// Gathers the GUI keys first when they have not been read. [runtime_gui_actions.cpp]
+    ///
+    /// @return one row per gadget whose name holds a registry word
+    [[nodiscard]] std::vector<OrderFileKey> order_file_quick_keys();
+
+    /// Reads the layout in use again when `folder` is that layout.
+    ///
+    /// The runtime keeps no separate listing of layouts. The signature is cleared first, because
+    /// it does not include the folder's files. Installing never writes the preference.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param folder the folder a package change put in place
+    void reload_key_layout_if_in_use(const fs::path& folder);
+
+    /// The text a screen shows for an action's first chord.
+    ///
+    /// The bindings are resolved on first use. With no chord, the action's
+    /// first default is named. [runtime_key_bindings.cpp]
+    ///
+    /// @param action_id the action
+    /// @return the text, or empty when the action has no chord
+    [[nodiscard]] std::string bound_chord_text(std::string_view action_id);
+
+    /// Fills the options dialog's three key sliders from the bound actions
+    /// and remembers them, so a later move can be written or put back.
+    ///
+    /// The current sliders show each binding's first chord. The defaults show
+    /// each action's own first chord. [runtime_key_bindings.cpp]
+    ///
+    /// @param[in,out] current the dialog's settings
+    /// @param[in,out] defaults the settings a reset returns to
+    void fill_mod_option_keys(
+        oa::ui::engine_settings::ModOptions& current, oa::ui::engine_settings::ModOptions& defaults
+    );
+
+    /// Writes a key slider that moved into the player's own key changes, and
+    /// reloads them so the match answers the new chord. A key the action
+    /// cannot take is logged and left as it was. Leaving the sliders where
+    /// they were writes nothing.
+    ///
+    /// @param chosen the dialog's settings
+    void take_mod_option_keys(const oa::ui::engine_settings::ModOptions& chosen);
+
+    /// Puts back the key changes a slider wrote, when the dialog is cancelled.
+    void restore_mod_option_keys();
+
+    /// Forgets the dialog's key sliders without putting them back.
+    void close_mod_option_keys();
+
+    /// Prints one line for each action event when --trace-input is on.
+    ///
+    /// @param events the events just fed
+    void trace_fed_actions(const std::vector<oa::ui::key_bindings::ActionEvent>& events) const;
+
+    /// Whether one named hack is on for the bindings. [runtime_key_bindings.cpp]
+    ///
+    /// @param id the hack id
+    /// @return true while that hack is on
+    [[nodiscard]] bool key_binding_hack(std::string_view id) const;
+
+    /// Replaces the Shift or Ctrl bit of a use from the modifier role, when the bindings are
+    /// ready and name that role. [runtime_key_bindings.cpp]
+    ///
+    /// @param[in,out] modifiers the bits so far, including a synthetic key's pulse
+    /// @param use what the read is for
+    void apply_binding_roles(uint32_t& modifiers, ModifierUse use) const;
+
+    /// One mouse or wheel chord copied out of the bindings in use.
+    struct PointerRoleChord {
+        uint8_t modifiers{}; ///< binding modifier bits
+        uint8_t button{};    ///< mouse button, 1 to 8, or 0 for a wheel
+        int8_t wheel{};      ///< 1 up, -1 down, or 0 for a button
+        uint8_t kind{};      ///< TriggerKind
+        uint8_t gesture{};   ///< Gesture
+    };
+
+    /// How many pointer roles the match asks, and how many chords each keeps.
+    static constexpr std::size_t kPointerRoleCount = 14;
+    static constexpr std::size_t kPointerRoleChordLimit = 4;
+
+    /// The chords of those roles, copied whenever the bindings are resolved.
+    struct PointerRoleTable {
+        std::array<std::array<PointerRoleChord, kPointerRoleChordLimit>, kPointerRoleCount>
+            chords{};
+        std::array<uint8_t, kPointerRoleCount> counts{};
+        bool ready{};
+    };
+
+    /// What a camera drag on the battlefield does.
+    enum class PointerCameraDrag : uint8_t { none, orbit, pan };
+
+    /// Copies the pointer roles out of the bindings just resolved. [runtime_pointer_roles.cpp]
+    ///
+    /// @param resolved the bindings in use
+    void rebuild_pointer_roles(const oa::ui::key_bindings::Resolved& resolved);
+
+    /// The chords a role holds: the copy from the bindings, or the scheme's defaults.
+    /// [runtime_pointer_roles.cpp]
+    ///
+    /// @param action the action id
+    /// @param[out] out the chords
+    /// @param[out] count how many were written
+    void copy_role_chords(
+        std::string_view action,
+        std::array<PointerRoleChord, kPointerRoleChordLimit>& out,
+        uint8_t& count
+    ) const;
+
+    /// The mouse button a pointer role holds, or the scheme's default when it holds none.
+    ///
+    /// A double-click role reports that button. The left-click scheme's defaults stand in until
+    /// the bindings have been resolved, and whenever a role kept no mouse chord.
+    /// [runtime_pointer_roles.cpp]
+    ///
+    /// @param action the action id
+    /// @return the button, 1 to 8
+    [[nodiscard]] uint8_t pointer_role_button(std::string_view action) const;
+
+    /// The button that selects, boxes and gives the order the left button gives today.
+    ///
+    /// That is `pointer.select`. While select and command share a button, this is that button.
+    /// [runtime_pointer_roles.cpp]
+    [[nodiscard]] uint8_t match_select_button() const;
+
+    /// The button that commands, looks and clears as the right button does today.
+    ///
+    /// That is `pointer.command` when it is a different button from select, and otherwise
+    /// `pointer.mouse-look`. [runtime_pointer_roles.cpp]
+    [[nodiscard]] uint8_t match_command_button() const;
+
+    /// The button that starts and ends the minimap scroll in the current interface.
+    ///
+    /// The right-click interface scrolls with the select button. The left-click interface scrolls
+    /// with the command button. [runtime_pointer_roles.cpp]
+    [[nodiscard]] uint8_t pointer_radar_scroll_button() const;
+
+    /// Whether the match's interface is the left-click one. [runtime_pointer_roles.cpp]
+    [[nodiscard]] bool pointer_interface_is_left_click() const;
+
+    /// The signed wheel amount `camera.zoom-in` and `camera.zoom-out` give one turn.
+    ///
+    /// The magnitude is the turn's, including a fraction. The sign follows those roles, so the
+    /// stock bindings pass the turn through. [runtime_pointer_roles.cpp]
+    ///
+    /// @param turn the wheel's y, as the event gave it
+    /// @return the amount to zoom by; positive zooms in
+    [[nodiscard]] float pointer_zoom_amount(float turn) const;
+
+    /// The camera drag this button starts for the modifiers held now.
+    ///
+    /// The matching orbit or pan chord with the most modifiers wins. A plain pan chord pans only
+    /// while Middle-click pans is on and the rotated view is showing. [runtime_pointer_roles.cpp]
+    ///
+    /// @param button the mouse button
+    /// @param modifiers the binding modifier bits held now
+    /// @return orbit, pan, or none
+    [[nodiscard]] PointerCameraDrag pointer_camera_drag(uint8_t button, uint8_t modifiers);
+
+    /// The binding modifier bits held now, including the check's synthetic Shift.
+    /// [runtime_pointer_roles.cpp]
+    [[nodiscard]] uint8_t pointer_modifier_bits() const;
+
+    /// Whether a pointer role's modifier keys are held, ignoring its button.
+    ///
+    /// A pointer chord is invisible to `role_active`. [runtime_pointer_roles.cpp]
+    ///
+    /// @param action the action id
+    /// @param modifiers the binding modifier bits held now
+    /// @return true while every modifier of one of its mouse chords is held
+    [[nodiscard]] bool
+    pointer_role_modifiers_held(std::string_view action, uint8_t modifiers) const;
+
+    /// Whether a modifier role is held, from `role_active`, counting the check's synthetic Shift.
+    ///
+    /// The pad's FORCE is not included. A pointer chord is judged from its modifiers.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param action the action id
+    /// @return true while that role is held
+    [[nodiscard]] bool modifier_role_active(std::string_view action) const;
 
     /// Returns whether the touch latch for a use gives Shift now (false for keyboard).
     /// [runtime_input_modifiers.cpp]
@@ -2460,14 +3195,15 @@ class Runtime final : public menu::Host,
     /// No-op outside a running match. [runtime_input_modifiers.cpp]
     void refresh_pointer_modifiers();
 
-    /// Runs a key through handle_match_hotkey as if pressed with `mods`.
+    /// Presses an action in a match, as a key that starts it would, whatever chord the layout
+    /// gives the action.
     ///
-    /// `mods` are held as the pulse for the call, so every input_modifiers read sees them.
+    /// A hack that stands in for the action is pressed instead while that hack is on. No
+    /// modifier pulse is held. Outside a match this does nothing.
     /// [runtime_input_modifiers.cpp]
     ///
-    /// @param key the key pressed
-    /// @param mods SDL_Keymod bits held with it
-    void press_match_key(SDL_Keycode key, SDL_Keymod mods);
+    /// @param action the action id
+    void press_match_action(std::string_view action);
 
     /// Rewrites a hardware key event with Cmd held into its alternate, removing Cmd.
     ///
@@ -2606,11 +3342,20 @@ class Runtime final : public menu::Host,
     /// @param y canvas y of the point, pixels
     void zoom_match_about(float factor, float x, float y);
 
-    /// Takes back an armed order or a pending building (reloading the panel's page), else clears
-    /// the selection and closes an open unit info panel: the Escape key's first two steps, never
-    /// the in-game menu.
+    /// Takes back an armed order or a placement. With neither, it changes nothing
+    /// and the selection stays. The order panel's page reloads and the status
+    /// line says the command was cancelled. [runtime_hotkeys.cpp]
+    void cancel_match_order();
+
+    /// Clears the selection and closes an open unit info panel. An armed order
+    /// or a placement stays armed. [runtime_hotkeys.cpp]
+    void clear_match_selection();
+
+    /// Takes back an armed order or a placement, and otherwise clears the
+    /// selection and closes an open unit info panel: what a touch or pad clear
+    /// does, never the in-game menu.
     /// [runtime_hotkeys.cpp, extracted by the Interfaces stage]
-    void clear_or_cancel_match_command();
+    void cancel_or_clear_match_command();
 
     /// Arms an order by its order-panel name whatever page the panel shows, as its button does.
     ///
@@ -2945,6 +3690,8 @@ class Runtime final : public menu::Host,
     // A package asked to end the run (ScreenServices::quit), with this reason
     // (empty for none); finish_quit_request ends it.
     bool quit_requested_{};
+    /// ROLL BACK was confirmed. main() starts the helper after run() returns.
+    bool roll_back_requested_{};
     std::string quit_reason_{};
 
     /// Returns the side the viewed player plays, from its skirmish slot.
@@ -2960,6 +3707,15 @@ class Runtime final : public menu::Host,
     ///
     /// @return "cor" when the side's nameprefix is COR in any case, else "arm"
     std::string match_side_prefix() const;
+
+    /// Returns the side tile the match draws for the viewed player.
+    ///
+    /// The path is bitmaps/<nameprefix>guisidetile.pcx when the asset store
+    /// holds the viewed side's nameprefix tile, and otherwise the path
+    /// match_side_prefix names.
+    ///
+    /// @return the tile's path in the asset store
+    std::string match_side_tile() const;
 
     /// Returns the GAF that holds the viewed side's panels (PANELTOP,
     /// PANELSIDE and PANELBOT) and the rest of its HUD chrome: the file in
@@ -3330,16 +4086,29 @@ class Runtime final : public menu::Host,
     };
 
     /// The art every page of the match's side column is drawn with, read
-    /// once a match (match_hud_art).
+    /// once a match (match_hud_art) and held once: the page shown draws with
+    /// it, and the next page takes it from that page (take_match_hud_art).
     struct MatchHudArt {
+        std::size_t side{};     ///< the viewed side it was read for
         std::string tile;       ///< the side tile it was read for
         std::string panel;      ///< the side's interface GAF it was read for
         std::string font;       ///< the side's SIDEDATA font it was read for
         std::string read_panel; ///< the interface GAF read; empty when it could not be
+        /// The side tile's file as read, which each page after the first
+        /// decodes again for the background it draws its chrome over.
+        std::vector<uint8_t> tile_file;
         /// load_screen_art's resources, with no layout, captioned in the
-        /// shown language.
+        /// shown language, until the first page takes them; from then on
+        /// the page shown holds them (lent).
         renderer::ScreenResources screen;
-        /// The side's font; none when the side names none or it cannot be read.
+        std::size_t common_sequences = 0; ///< commongui.gaf's, the first of the art's sprites
+        /// The sequences of its own GAF the page shown put before the art's.
+        std::size_t page_sequences = 0;
+        bool lent = false;       ///< the page shown (match_hud_) holds the art
+        bool names_font = false; ///< the side names a font that could be read
+        /// The side's font until the art's first page takes it as
+        /// match_small_font_, which its later pages keep; none when the side
+        /// names none or it cannot be read.
         std::optional<oa::formats::fnt::Font> side_font;
     };
 
@@ -3348,14 +4117,27 @@ class Runtime final : public menu::Host,
     /// interface GAF in the shown language's captions, and the side's font.
     ///
     /// The art is read from the game's files as the match's first page
-    /// loads, and again only when the side's files are others, so that a
-    /// page reads only its own GUI file and GAF (load_match_hud_layout).
+    /// loads, and again only when the side's files are others or the page
+    /// holding it was dropped, so that a page reads only its own GUI file
+    /// and GAF (load_match_hud_layout).
     ///
     /// @param layout the page it is wanted for, named in a report of art that
     ///        cannot be read
     /// @return the art; null when it cannot be read even without the side's
     ///         interface GAF, which is reported on stderr
-    const MatchHudArt* match_hud_art(const std::string& layout);
+    MatchHudArt* match_hud_art(const std::string& layout);
+    /// Takes the side column's art for the page about to be laid out over it.
+    ///
+    /// The art's first page takes it from match_hud_art_; each later page
+    /// takes it from the page shown, which drew with it and gives it back
+    /// without the sequences it added and with the side tile decoded again
+    /// in place of the background it drew over. The art is moved, never
+    /// copied, so that the match holds it once.
+    ///
+    /// @param art the art match_hud_art returned
+    /// @return the art, with no layout; the page shown, if it held the art,
+    ///         is left holding none, to be replaced
+    renderer::ScreenResources take_match_hud_art(MatchHudArt& art);
     /// Loads an in-match panel layout as the match HUD with the viewed side's chrome.
     ///
     /// The panel's buttons keep their states and their GUI file's quick keys;
@@ -4679,6 +5461,14 @@ class Runtime final : public menu::Host,
     /// @param state state to free; null is allowed
     static void destroy_mutator_library_state(MutatorLibraryState* state) noexcept;
 
+    /// The key bindings' dispatcher, the bindings it searches and the last event's action events.
+    struct KeyBindingsState;
+
+    /// Frees the key bindings' dispatcher.
+    ///
+    /// @param state state to free; null is allowed
+    static void destroy_key_bindings_state(KeyBindingsState* state) noexcept;
+
     /// Returns the installed mutators, read on first use from
     /// `<user folder>/Mutators` and read again after every change of a
     /// mutator package.
@@ -4717,8 +5507,8 @@ class Runtime final : public menu::Host,
     /// The value of open-annihilation.brain.default when a brain of that id
     /// is installed, and empty when the key is absent, empty, or names a
     /// brain that is not installed. Once the Library's worker has searched,
-    /// this reads that listing and does not open the Brains folder. Before
-    /// that search, the folder is read.
+    /// this reads that listing under its lock and does not copy it or open
+    /// the Brains folder. Before that search, the folder is read.
     ///
     /// @return the id, or empty for the built-in computer player
     [[nodiscard]] std::string default_brain() const;
@@ -6022,6 +6812,134 @@ class Runtime final : public menu::Host,
     /// Passes Developer mode on when it changed, and notes a catalogue that moved on.
     void tick_content();
 
+    /// The background check for a new release (runtime_update.cpp).
+    struct UpdateState;
+
+    /// Frees the update check, joining its worker.
+    ///
+    /// @param state state to free; null is allowed
+    static void destroy_update_state(UpdateState* state) noexcept;
+
+    /// Starts one check for a new release.
+    ///
+    /// `asked` ignores the hour and Only when I ask. Never, a run whose
+    /// welcome is not finished, and an unattended or headless run without a
+    /// named feed do not start one. An asked check does not start during a
+    /// match. The first automatic check of a run starts at the settled main
+    /// menu, whatever the age of the last check. Another starts an hour
+    /// after the last automatic check of this run began, including during a
+    /// match.
+    ///
+    /// @param asked true when the player asked
+    void start_update_check(bool asked);
+
+    /// Starts an automatic check when it is due, and remembers a check that
+    /// reached the server. The first of a run waits for the settled main
+    /// menu. An hour later one starts wherever the player is. A release
+    /// found during a match waits for the next main menu.
+    void tick_update_check();
+
+    /// Queues the update question when a verified check offers a release the
+    /// player has not skipped and the main menu is up. A match, Settings or
+    /// a message box keeps it waiting. A match that starts while it is open
+    /// closes it, and the next settled menu of this run asks again. A copy
+    /// macOS is running from a protected place is not offered an update.
+    void offer_update();
+
+    /// Queues "Move OA to Applications" once, when macOS is running this
+    /// copy from a protected place and the main menu has settled. LATER
+    /// dismisses it. SHOW IN FINDER reveals the app. A match closes it and
+    /// this run does not ask again.
+    void offer_move_to_applications();
+
+    /// The main menu on its own, with no dialog and no settings window.
+    ///
+    /// @return true when a prompt may be shown there
+    [[nodiscard]] bool update_menu_settled();
+
+    /// Downloads the offered package where this install has a route.
+    ///
+    /// A match, a page-only offer and an install with no route do not start
+    /// one. One already fetching or ready for this release is left as it is.
+    ///
+    /// @return true when a download is running or the package is ready
+    bool start_update_download();
+
+    /// Starts the offered download again after it stopped.
+    void retry_update_download();
+
+    /// Tells whether Download in the background covers the offer now held.
+    ///
+    /// @return true when the question should stay closed
+    [[nodiscard]] bool background_download_covers_offer() const;
+
+    /// Queues the ready prompt when a verified package is waiting.
+    void offer_ready();
+
+    /// Queues "Updated to {version}" once, when this start was newer than
+    /// --updated-from and the main menu has settled.
+    void offer_updated_notice();
+
+    /// Applies --rolled-back-from to the preferences and the state, once.
+    ///
+    /// The Linux launcher leaves the unconfirmed bad version in the state.
+    /// A helper that already restored only leaves the prompt to show.
+    void settle_roll_back();
+
+    /// Marks this build good once the main menu has settled.
+    void confirm_installed_version();
+
+    /// Queues "Back on {version}" once the main menu has settled.
+    void offer_roll_back_prompt();
+
+    /// The header note beside the version, or empty when nothing is fetching
+    /// or ready.
+    ///
+    /// @return "{version} ready" or "{version} downloading"
+    [[nodiscard]] std::string update_header_note() const;
+
+    /// The update centre's state: where the check, the download and an install stand, the
+    /// versions, the bytes and the actions it allows (oa::app::update::centre_state).
+    ///
+    /// @return the state
+    [[nodiscard]] update::Centre update_centre() const;
+
+    /// Carries out one of the update centre's actions.
+    ///
+    /// @param action the action, one of the state's
+    void take_update_action(update::Act action);
+
+    /// Copies the download onto Settings: the switch's rows and the header note.
+    ///
+    /// @param[in,out] dialog the open dialog
+    /// @return true when a shown field changed
+    bool apply_update_download(oa::ui::engine_settings::Dialog& dialog);
+
+    /// Starts a background download, offers the ready prompt and the Updated
+    /// notice, and quits a --update-and-quit run when the file is ready.
+    void tick_update_install();
+
+    /// Starts the download on its own when Download in the background is on.
+    void consider_background_download();
+
+    /// Downloads without a prompt and quits, for --update-and-quit.
+    void consider_update_and_quit();
+
+    /// Opens the page of the release the question offered. A machine with no
+    /// browser names the page instead of opening it.
+    void open_release_page();
+
+    /// Asks a running check to stop. A match start calls this.
+    void cancel_update_check() noexcept;
+
+    /// The latest check the main thread has been shown.
+    ///
+    /// The reference stays valid until the next tick_update_check. An empty
+    /// snapshot is returned when no check has run.
+    ///
+    /// @return the snapshot
+    [[nodiscard]] const update::CheckSnapshot& update_snapshot() const;
+
     /// Returns the generation of the content service's snapshot.
     ///
     /// Does not start the content service. Nothing is returned until a
@@ -6113,6 +7031,18 @@ class Runtime final : public menu::Host,
     /// @param request the setup, the set it opens on, and what it hands back
     /// @return false when the picker cannot open
     bool open_mutator_picker(MutatorPickerRequest request);
+
+    /// Opens the key editor on the OA layer.
+    ///
+    /// On the menus it is centred at its size class's dialog size. In a match
+    /// it shows the pause menu first, as Settings does, and sits beside the
+    /// side column. Refused without the layer's fonts, while it is already
+    /// open, while a modal OA screen other than Settings is up, and while
+    /// Settings is up without `over_settings`.
+    ///
+    /// @param request whether it opens over Settings, and the list it opens on
+    /// @return false when the editor cannot open
+    bool open_key_editor(KeyEditorRequest request);
 
     /// Opens the brain picker on the OA layer, over the screen that asked.
     ///
@@ -6226,7 +7156,8 @@ class Runtime final : public menu::Host,
     [[nodiscard]] bool package_offers_play(const package_install::PackageKind& kind) const;
 
     /// Takes in what a change of this kind put in place. A mod change lists
-    /// the Mods folder again. A map pack change reads Maps again.
+    /// the Mods folder again. A map pack change reads Maps again. A key
+    /// layout change reads that layout again when it is the one in use.
     ///
     /// @param kind the package's kind
     /// @param folder the folder the change put in place
@@ -6690,14 +7621,23 @@ class Runtime final : public menu::Host,
     /// The map browser, a screen of the OA layer named map-browser.
     struct MapBrowserScreen;
 
+    /// The key editor, a screen of the OA layer named key-editor.
+    struct KeyEditorScreen;
+
+    /// The keys overlay, a screen of the OA layer named keys-overlay.
+    struct KeysOverlayScreen;
+
     /// The mutator picker, a screen of the OA layer named mutator-picker.
     struct MutatorPickerScreen;
 
     /// The brain picker, a screen of the OA layer named brain-picker.
     struct BrainPickerScreen;
 
-    /// MUTATORS… on the skirmish setup and the campaign launch, a screen of
-    /// the OA layer named mutators-button.
+    /// The Mutators button on the skirmish setup and the campaign launch, one
+    /// of the room's own on and off buttons with the OA stamp, a screen of
+    /// the OA layer named mutators-button. It reads "Mutators". Its lamp is
+    /// unlit while none is on and green while some are on. Its text for
+    /// automation counts the set: "Mutators · off", or "Mutators · N on".
     struct MutatorButtonScreen;
 
     /// Keeps MUTATORS… on the OA layer while the skirmish setup, NEWGAME,
@@ -6714,8 +7654,8 @@ class Runtime final : public menu::Host,
     void check_mutator_button();
 
     /// A computer seat's brain on SKIRMISH, a screen of the OA layer named
-    /// brain-seats. One button sits to the right of each computer row's
-    /// Energy button while a brain is installed.
+    /// brain-seats. Each computer row's own Player button names its brain
+    /// and opens the brain menu from its notch, while a brain is installed.
     struct BrainSeatsScreen;
 
     /// Keeps the computer-seat buttons on the OA layer while SKIRMISH, NEWGAME
@@ -6726,17 +7666,22 @@ class Runtime final : public menu::Host,
     void keep_brain_seats_screen();
 
     /// Runs --check-brain-seat-buttons: each computer row's brain button on
-    /// SKIRMISH at 640x480 and 1280x720, the focus hand-over, the picker,
-    /// the hover card and the brains a start seats. Writes
-    /// brain-seats-skirmish-<w>x<h>.png in the working folder.
+    /// SKIRMISH at 640x480 and 1280x720, the focus hand-over, the brain menu,
+    /// the hover card and the brains a start seats. On the 640x480 window it
+    /// also times 120 frames before a computer seat and 120 with two, requires
+    /// that the seated frames do not read the game folder and stay under 5 ms
+    /// of CPU, and checks that copying and removing a bundle is followed by
+    /// the new choice. Writes brain-seats-skirmish-<w>x<h>.png in the working
+    /// folder.
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_brain_seat_buttons();
 
     /// A computer seat's brain in the battle room, a screen of the OA layer
-    /// named brain-room. A button sits on each computer row this machine
-    /// runs, over that row's empty screen-size column, while a brain is
-    /// installed or the seat runs one. Another machine's brain is a label.
+    /// named brain-room. A computer row's Resolution cell shows its brain
+    /// and its Mem cell the brain's level, on each computer row this machine
+    /// runs, while a brain is installed or the seat runs one. Another
+    /// machine's brain is a label.
     struct BrainRoomScreen;
 
     /// Keeps the battle room's brain seats on the OA layer while the battle
@@ -6746,14 +7691,16 @@ class Runtime final : public menu::Host,
     void keep_brain_room_screen();
 
     /// Runs --check-brain-room: a battle room hosted alone, at 640x480 and
-    /// 1280x720, the seat button, the picker, the card and the presence
-    /// record. Writes brain-room-host-<w>x<h>.png in the working folder.
+    /// 1280x720, the seat button, the brain menu, the card and the presence
+    /// record. With a computer seated it times 120 frames and requires that
+    /// they do not read the game folder. Writes brain-room-host-<w>x<h>.png
+    /// in the working folder.
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_brain_room();
 
     /// Runs --check-brain-campaign: the campaign's brain button on NEWGAME
-    /// and Any Mission at 640x480 and 1280x720, Tab, the picker, the brain
+    /// and Any Mission at 640x480 and 1280x720, Tab, the brain menu, the brain
     /// the first mission seats and the seat a loaded campaign save leaves.
     /// Writes brain-campaign-<screen>-<w>x<h>.png in the working folder.
     ///
@@ -6846,6 +7793,71 @@ class Runtime final : public menu::Host,
     /// Throws std::runtime_error naming the first step that failed.
     void check_map_browser();
 
+    /// Runs --check-key-editor: the editor over Settings at 640x480, 1280x720
+    /// and 1920x1080, then the list's edits, the save, a paused skirmish, and
+    /// Developer Mode. Writes each window as key-editor-<w>x<h>.ppm, and the
+    /// match's as key-editor-match-<w>x<h>.ppm, when --snapshot names a file.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_key_editor();
+
+    /// Runs --check-key-capture: capturing a chord, a clash, Escape held for
+    /// a second, a refused Escape, Settings' chord, and a draft clash's card,
+    /// over a paused skirmish. Writes key-capture-<w>x<h>.ppm and
+    /// key-clash-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080 when
+    /// --snapshot names a file.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_key_capture();
+
+    /// Runs --check-key-share: SHARE…, PASTE… and IMPORT… at 640x480,
+    /// 1280x720 and 1920x1080, then a dropped layout that is refused and one
+    /// that is installed. Writes key-share-<w>x<h>.ppm, key-paste-<w>x<h>.ppm
+    /// and key-import-<w>x<h>.ppm when --snapshot names a file.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_key_share();
+
+    /// Puts text on the clipboard. --check-key-share uses this so the paste
+    /// step can hand the editor a text. COPY AS TEXT is the other writer.
+    ///
+    /// @param text the text
+    /// @return true when the clipboard holds it
+    bool stage_clipboard_text(std::string_view text);
+
+    /// Runs --check-key-views: the keyboard and the mouse at 640x480,
+    /// 1280x720 and 1920x1080, each modifier layer, the shape drop-down,
+    /// a free key through the capture prompt, the mouse's Forward, and
+    /// Left-click saved as Interface Type. With --snapshot it writes
+    /// key-keyboard-<w>x<h>.ppm and key-mouse-<w>x<h>.ppm.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_key_views();
+
+    /// Runs --check-keys-overlay: a skirmish with a selected builder, the
+    /// overlay while playing and while placing, the editor it opens, the
+    /// order and build badges, the help lines, the rotate hint and a latched
+    /// QUEUE. With --snapshot it writes keys-overlay-<w>x<h>.ppm and
+    /// key-badges-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_keys_overlay();
+
+    /// Runs --check-selection-keys: a skirmish with radar, sonar and jammer
+    /// units, aircraft and armed kbots planted for the local player and a
+    /// radar tower for the other. Each of 3.1c's Ctrl+letter keys, Ctrl+Shift+R
+    /// and Ctrl+Shift+P, Ctrl+1 and its group key, and Primary+/ go in as the
+    /// system sends them, modifier keys and all; each selection is the one the
+    /// loaded data's Category words name, Ctrl+R draws the rings on the
+    /// minimap, the group's key centres the view as Group keys centre the
+    /// view says (one press leaves it, two quick presses centre it, two slow
+    /// ones do not, Never leaves it, and On every press centres a later press
+    /// past the double-press time), and Primary+/ opens and closes the keys
+    /// overlay.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_selection_keys();
+
     /// Writes --check-mutator-picker's and --check-brain-picker's registry
     /// list into the player's folder, every built-in registry turned off,
     /// before the content service reads it, so that the check fetches nothing.
@@ -6924,6 +7936,29 @@ class Runtime final : public menu::Host,
     /// @param[in,out] dialog the open dialog
     void fill_game_files_rows(oa::ui::engine_settings::Dialog& dialog);
 
+    /// Fills Controls' key-layout rows from the layouts installed and the
+    /// preferences: the mod being played, the layouts, the choice and the summary.
+    ///
+    /// @param[in,out] dialog the open dialog
+    void fill_settings_key_layout(oa::ui::engine_settings::Dialog& dialog);
+
+    /// How many latchable actions the layout in use has turned on.
+    ///
+    /// @return the count; 0 when no bindings are loaded
+    [[nodiscard]] uint32_t latched_action_count() const;
+
+    /// Sets Key layout's value from the layout in use and the actions the
+    /// player's own layout names.
+    ///
+    /// @param[in,out] dialog the open dialog
+    void refresh_settings_key_layout_summary(oa::ui::engine_settings::Dialog& dialog);
+
+    /// Writes the played mod's layout preference when the choice differs from
+    /// what is stored, and loads that layout. Nothing is written with no mod.
+    ///
+    /// @param dialog the open dialog
+    void apply_key_layout_preference(oa::ui::engine_settings::Dialog& dialog);
+
     /// Tells whether a key opens the settings: Cmd+, on macOS, Ctrl+, elsewhere.
     ///
     /// @param key SDL keycode
@@ -6934,6 +7969,14 @@ class Runtime final : public menu::Host,
     /// Opens the settings on the screen shown: the main menu, or a match,
     /// where the in-game menu opens under the dialog; elsewhere nothing.
     void request_engine_settings();
+
+    /// Opens the settings for the settings action, except while the Library is
+    /// open over Settings, which goes back to Settings itself.
+    ///
+    /// [runtime_engine_settings_menu.cpp]
+    ///
+    /// @return true when the action opened the settings
+    bool take_settings_action();
 
     /// Takes the application menu's request to open the settings.
     ///
@@ -6988,7 +8031,7 @@ class Runtime final : public menu::Host,
     /// window at 640x480 and the language as it found it.
     void check_window_edge_rows_fit();
 
-    /// Checks that System's File Type Registration and its seven file-type
+    /// Checks that System's File Type Registration and its eight file-type
     /// switches fit the settings dialog on a 640x480 window in English and
     /// German, at the section's top and its end, as part of
     /// --check-engine-settings. Leaves the window at 640x480 and the
@@ -6999,6 +8042,10 @@ class Runtime final : public menu::Host,
     /// sections, as windows of several sizes show them (part of
     /// --check-engine-settings).
     void check_engine_settings_window_sizes();
+
+    /// Checks Controls' key-layout rows, the editor opened over Settings, and
+    /// +switchalt (part of --check-engine-settings).
+    void check_engine_settings_controls();
 
     /// The state of the renderer the runtime borrows (render_run.hpp).
     struct RenderRun;
@@ -7099,6 +8146,12 @@ class Runtime final : public menu::Host,
     /// @param event the SDL event in window coordinates
     /// @return whether the 3D view consumed the event
     bool live_renderer_take_event(SDL_Event& event);
+    /// Puts the classic view back, or switches Unlocked Camera, when the Full
+    /// 3D view is taking keys. [runtime_live_renderer.cpp]
+    ///
+    /// @param action `camera.classic-view` or `camera.unlocked`
+    /// @return true when that view took the key
+    bool answer_live_view_key(std::string_view action);
     /// Replaces the battlefield with the current match's 3D frame.
     /// @return false when the card could not draw the rotated frame, whose
     ///         battlefield the classic raster left out; the view is then
@@ -7116,10 +8169,20 @@ class Runtime final : public menu::Host,
     std::span<const renderer_effect_sources::Source> match_effect_sources() const noexcept;
     /// Stable map-derived surface flow and absolute-tick texture drift.
     renderer_water::Wind water_wind() const noexcept;
-    /// Cached water-body fetch for the current match; no per-frame map traversal.
+    /// Cached water-body fetch for the current match, sampled from its map the
+    /// first time it is asked for; no per-frame map traversal.
     const renderer_water::SurfaceCache* water_surface() const noexcept;
     /// Recent visible naval firing and water impacts; recheck sight when drawing.
+    /// Empty where the match's sea is not stirred by shots
+    /// (renderer_water::stirred_by_shots).
     std::span<const renderer_water::Disturbance> water_disturbances() const noexcept;
+    /// Gives the match's sea, from its map's lavaworld and nosealeveltrigger
+    /// as the match holds them.
+    /// @return the sea; a plain water sea without a match
+    renderer_water::Sea water_sea() const noexcept;
+    /// Gives the strengths the water effects are drawn at in this match.
+    /// @return the Graphics settings' sliders; none on a lava sea
+    renderer_water::Levels water_levels();
     /// Match a visible impact sprite to a recent EMG hit, independent of merged light centres.
     /// @param point canonical world location in fixed-point units
     /// @return true within six world pixels of an EMG hit in the last game second
@@ -7342,9 +8405,10 @@ class Runtime final : public menu::Host,
     ///
     /// `--content` names them for the run. Otherwise they are the preferences,
     /// or totala with every copied expansion when no base game is stored.
-    /// Copied bundles are the ones wholly present in the game folder. The
-    /// files mounted now are unchanged: the choice takes effect at the next
-    /// mount.
+    /// Copied bundles are the ones wholly present in the game folder. They
+    /// are read once and kept until that folder's content changes, or another
+    /// folder is chosen. The files mounted now are unchanged: the choice
+    /// takes effect at the next mount.
     ///
     /// @return the choice
     [[nodiscard]] oa::data::content_bundles::ContentChoice content_choice() const;
@@ -8195,6 +9259,42 @@ class Runtime final : public menu::Host,
         PanelText& operator=(const PanelText&) = delete;
     };
 
+    /// Lays the lines of game text painted while it lives over every
+    /// backing painted with them: while a line's background box, or a
+    /// backdrop a caller fills under its text, would show, each box is laid
+    /// where its line is painted and every line once the outermost group
+    /// ends, in the order they were painted, so that no box covers another
+    /// line of the group. A group opened inside another joins it. Without
+    /// a box to show, each line is painted where it is drawn, as if there
+    /// were no group.
+    struct BackedText {
+        Runtime* runtime{};
+        int exceptions{}; ///< exceptions in flight when the group opened
+
+        /// Opens a group of lines, or joins the one open.
+        ///
+        /// @param owner the runtime
+        explicit BackedText(Runtime& owner);
+        /// Closes the group: the outermost lays the lines it held. A group
+        /// left by an exception lets its lines go unlaid.
+        ~BackedText();
+        BackedText(const BackedText&) = delete;
+        BackedText& operator=(const BackedText&) = delete;
+    };
+
+    /// Tells whether the game text painted now may show a backing: a line's
+    /// background box, which the Language settings' background asks for,
+    /// or the message log's backdrop.
+    ///
+    /// @return true while either shows
+    [[nodiscard]] bool text_backings_shown() const;
+
+    /// Holds a line of text until its BackedText group ends, to be painted
+    /// on the paint target and from the paint origin there are now.
+    ///
+    /// @param paint paints the line, once, while nothing is held
+    void hold_painted_text(std::function<void()> paint);
+
     /// Gives the size a run of game text is painted at where text is
     /// painted now.
     ///
@@ -8500,10 +9600,6 @@ class Runtime final : public menu::Host,
     /// @param cell_z feature cell row
     /// @return true when the feature is not drawn
     bool feature_hidden_by_fog(uint16_t feature_index, int32_t cell_x, int32_t cell_z);
-
-    /// Marks the cells the viewer has mapped or covers as explored for the radar, while mapping is
-    /// on.
-    void absorb_radar_exploration();
 
     /// Blits the radar picture into the HUD's radar well.
     ///
@@ -9752,6 +10848,15 @@ class Runtime final : public menu::Host,
     /// read is reported and skipped.
     void read_interface_catalogue();
 
+    /// Reads that catalogue the first time a word is wanted in a language
+    /// other than English, when it is empty. The language shown stays as it
+    /// was. English does not ask, so its run leaves the catalogue unread.
+    void ensure_interface_catalogue();
+
+    /// Installs ensure_interface_catalogue as that reader. Cleared when the
+    /// language state is destroyed.
+    void install_interface_catalogue_loader();
+
     /// Takes the setting's choice of language and puts it in effect when it
     /// changed, readying the modern fonts for it (warm_game_text) and
     /// showing it at once on the screen shown (show_language_change).
@@ -9886,13 +10991,9 @@ class Runtime final : public menu::Host,
 
     /// Shows a sight rebuild in the view.
     ///
-    /// The runtime's copy of the viewer's explored terrain is dropped when the
-    /// mapped grid is refilled, and the radar, which every rebuild refills and
-    /// composes, is at its next frame. Fog is drawn from the match's sight grids
-    /// every frame.
-    ///
-    /// @param refill_mapped true when the mapped grid was refilled too
-    void reset_sight_presentation(bool refill_mapped);
+    /// The radar refills and composes its picture from the match's sight grids
+    /// at its next frame. Fog is drawn from them every frame.
+    void reset_sight_presentation();
 
     /// Rebuilds the match's sight grids, as a launch, a console visibility command or a respawn
     /// does; nothing while altitude sight is blocked.
@@ -10111,14 +11212,144 @@ class Runtime final : public menu::Host,
     /// Handles an event of the full-screen switch before any screen sees it
     /// (oa::app::take_full_screen_event), with the game's window.
     ///
-    /// Alt+Enter switches the mode and its repeats do nothing; the window's
-    /// entering or leaving full screen is noted and still reaches the screens,
-    /// which lay themselves out at the window's new size.
+    /// The full-screen action's chord switches the mode. Its repeats and its
+    /// key's release do nothing. The window's entering or leaving full screen
+    /// is noted and still reaches the screens, which lay themselves out at the
+    /// window's new size. A key handed here before the run has fed it, as
+    /// while a match loads or a movie plays, is fed first so the layout's
+    /// chord is known. Before a layout is read, the intro keeps Alt+Enter.
     ///
     /// @param event event just received
-    /// @return true when the event was Alt+Enter or one of its repeats, which
-    ///         no screen may see
+    /// @return true when the event was the full-screen action's chord, one of
+    ///         its repeats or its key's release, which no screen may see
     bool take_full_screen_event(const SDL_Event& event);
+
+    /// Answers the keys overlay before a screen sees the key.
+    ///
+    /// The press is taken. The installed hook is called, and in a match the
+    /// overlay opens or closes. A modal screen, or a screen that is not a
+    /// match, still takes the press and draws nothing. A repeat and the
+    /// key's release reach the screens.
+    ///
+    /// @return true when ui.keys-overlay was pressed
+    bool take_keys_overlay_action();
+
+    /// Closes the keys overlay when it is open; otherwise opens it over a
+    /// running match where no modal screen shows and the layer's fonts load.
+    ///
+    /// [runtime_keys_overlay.cpp]
+    void toggle_keys_overlay_screen();
+
+    /// Fills the overlay from the bindings in use, the contexts active now,
+    /// the latches and sticky modifiers that are on, and the layout's name
+    /// and changes. Before the bindings are read only the lookup is filled.
+    ///
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param[out] inputs the overlay's inputs
+    void fill_keys_overlay(oa::ui::key_editor::OverlayInputs& inputs);
+
+    /// Returns a text that changes whenever what the keys overlay lists
+    /// would: the contexts and conditions, the bindings, the layout and its
+    /// changes, the keyboard, the language and the chips that are on.
+    ///
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @return the stamp; empty before the bindings are read
+    [[nodiscard]] std::string keys_overlay_stamp();
+
+    /// Remembers the layout's name and how many of the player's own changes
+    /// it carries, when the bindings' signature changes.
+    ///
+    /// [runtime_key_bindings.cpp]
+    void note_keys_overlay_layout();
+
+    /// Reads the bindings again, including a layout just written.
+    ///
+    /// [runtime_key_bindings.cpp]
+    void reread_key_bindings();
+
+    /// The first key chord of an action that fires now: one of its contexts
+    /// is active and every condition it names holds, as the dispatcher
+    /// decides.
+    ///
+    /// Empty when the bindings are not ready, the action is absent or does
+    /// not fire now, or it has no key chord. A pointer or wheel action is
+    /// empty. [runtime_key_bindings.cpp]
+    ///
+    /// @param id the action id
+    /// @return the chord, as display_text spells it
+    [[nodiscard]] std::string active_key_chord(std::string_view id);
+
+    /// The letter a button's caption underlines for an order action: the
+    /// letter of the action's first key chord, as the caption spells it,
+    /// when that chord is a plain press of a letter key with no modifier
+    /// and the caption holds the letter.
+    ///
+    /// Nothing while the bindings are not ready, so the caption keeps the
+    /// letter it had. Zero when the action does not fire now, or its first
+    /// key chord is not such a letter, so no stale letter stays underlined.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param action the action id
+    /// @param caption the button's caption
+    /// @return the caption's own letter, zero, or nothing
+    [[nodiscard]] std::optional<char>
+    order_quick_letter(std::string_view action, std::string_view caption);
+
+    /// The chord of build.cell-n when that cell's key fires now.
+    ///
+    /// @param cell the cell, from 1
+    /// @return the chord, or empty outside 1..12 or when unbound
+    [[nodiscard]] std::string build_cell_chord(int32_t cell);
+
+    /// The wheel half of the rotate hint, from build.rotate-wheel's chords as
+    /// they answer while a building is placed.
+    ///
+    /// Two turns that share their modifiers are those modifiers' keycaps and
+    /// the word for the wheel, in the player's language ("Alt+wheel").
+    /// Anything else is the first wheel chord's name.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @return the wheel's name, or empty when it does not fire
+    [[nodiscard]] std::string rotate_wheel_text();
+
+    /// The rotate hint for the bindings in use: build.rotate's first key
+    /// chord and the wheel's name (rotate_wheel_text) in the player's words.
+    ///
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @return the hint, or empty when the key and the wheel are both unbound
+    [[nodiscard]] std::string rotate_hint_line();
+
+    /// Returns the build page's cells in reading order: the active unit and
+    /// weapon buttons of the panel shown, top row first and each row from
+    /// the left. build.cell-1 presses the first.
+    ///
+    /// [runtime_hud.cpp]
+    ///
+    /// @return the cells' gadget indices; empty with no panel
+    [[nodiscard]] std::vector<std::size_t> build_cell_gadgets() const;
+
+    /// Returns the action an order panel's gadget presses (order_action_id):
+    /// nothing for a build or weapon button, and nothing while a paused
+    /// menu's panel is shown.
+    ///
+    /// [runtime_hud.cpp]
+    ///
+    /// @param index the gadget of match_hud_
+    /// @return the action id, or empty
+    [[nodiscard]] std::string_view order_gadget_action(std::size_t index) const;
+
+    /// Draws the kit's small keycap on the order panel while Show keys on
+    /// buttons is on: each order button that takes a press wears its
+    /// action's first key chord at its top right, and each build cell its
+    /// build.cell-n chord at its bottom left, when that chord fires now.
+    /// Nothing is drawn over a paused menu, the unit info panel or the team
+    /// panel. Each badge drawn is noted in key_badges_drawn_.
+    ///
+    /// [runtime_hud.cpp]
+    void draw_key_badges();
 
     /// With `--trace-input`, writes the game's window as window_trace_line
     /// says on standard error: where it lies on its display, its state, how
@@ -10185,12 +11416,26 @@ class Runtime final : public menu::Host,
     /// Uploads an RGB24 surface into a texture of the opaque layers' formats
     /// (opaque_layer_format) through the display gamma.
     ///
+    /// A frame that follows the one the texture holds, given unchanged as
+    /// `before`, uploads only its bands of xrgb_band_rows rows that differ
+    /// from it; any other frame is uploaded whole. The texture keeps the
+    /// number of the frame it holds, never its pixels.
+    ///
     /// Throws PresentError when the texture cannot be locked.
     ///
     /// @param texture XRGB8888, ARGB8888 or RGB565 texture of the surface's
     ///        size; null uploads nothing
     /// @param source RGB surface
-    void upload_rgb24_frame(SDL_Texture* texture, const renderer::Surface& source);
+    /// @param frame the caller's number for the surface's frame, one more
+    ///        than the frame before's
+    /// @param before the frame numbered one less, as it was uploaded and
+    ///        since unchanged; null uploads the surface whole
+    void upload_rgb24_frame(
+        SDL_Texture* texture,
+        const renderer::Surface& source,
+        uint64_t frame = 0,
+        const renderer::Surface* before = nullptr
+    );
 
     /// Uploads an RGB24 surface into a texture or its tiles, of the opaque
     /// layers' formats, through the display gamma as upload_rgb24_frame does.
@@ -10381,6 +11626,10 @@ class Runtime final : public menu::Host,
         /// A picture-keeping reader draws the world as the standard tier does
         /// (ensure_screen_world).
         bool suspended{};
+        /// The last match frame is drawn again to be read back
+        /// (read_presented_world): finish_match_layers neither draws the
+        /// layers over the battlefield nor presents the frame.
+        bool reading_back{};
         /// The rung: the scene budget, magnify on or off, the chrome's filter
         /// and the card's magnification.
         render_policy::LadderState rung{};
@@ -11145,8 +12394,9 @@ class Runtime final : public menu::Host,
 
     /// Draws one standard-tier world for the moment the last frame showed, the
     /// same tick and fraction, when the accelerated presentation scaled the
-    /// world: the picture a screenshot, a film frame, the load and save
-    /// backdrop, the briefing's backdrop and the end screen keep. The units
+    /// world: the picture a screenshot, a film frame and the end screen keep,
+    /// and the load and save dialogs' and the briefing's backdrop where the
+    /// card's picture cannot be read back (compose_shown_match). The units
     /// drawn are counted for that draw alone and the frame's counts kept,
     /// and the HUD's resource readout is not eased again, so the match's
     /// Game.resource_readout stays as the frame left it. Makes no SDL call.
@@ -11154,6 +12404,39 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error when the world cannot be drawn.
     void ensure_screen_world();
+
+    /// Composes the match canvas as the last match frame showed it, for a
+    /// panel drawn over the paused match from a picture of it: the load and
+    /// save dialogs and the in-game briefing. As compose_match_layers, with
+    /// the battlefield as the frame presented it: where the graphics card
+    /// drew it (the Full tier) or magnified it (Basic above zoom 1), the
+    /// card's own picture read back (read_presented_world), so that the
+    /// units, the water and the fog behind the panel look as they did
+    /// without it; where it cannot be read back, the standard tier's draw
+    /// (ensure_screen_world); and otherwise the world layer as presented,
+    /// the area pass's picture below zoom 1 among them. Before the display
+    /// gamma, as compose_match_layers.
+    ///
+    /// Throws std::runtime_error when the world cannot be drawn.
+    ///
+    /// @param[out] frame canvas-sized RGB frame
+    void compose_shown_match(renderer::Surface& frame);
+
+    /// Draws the last match frame's battlefield again as its tier presented
+    /// it, into the window's frame without presenting it, which the next
+    /// frame draws over, and reads it back at the battlefield's size in
+    /// layout pixels (part of compose_shown_match). The frame is drawn from
+    /// the layers and the card's state the last match frame left, so it is
+    /// that frame's picture; the readback is taken back through the display
+    /// gamma, which the panel's presentation applies again, exactly where
+    /// the gamma is the identity and to the nearest level otherwise. A
+    /// window that shows the layout at another scale is read at its own
+    /// pixels and each layout pixel given the mean of the pixels it covers.
+    ///
+    /// @param[out] world the battlefield's picture, its width and height those of the world layer
+    /// @return false, with `world` left as it was, where the tier did not
+    ///     present the frame from the card or SDL refused a call
+    [[nodiscard]] bool read_presented_world(renderer::Surface& world);
 
     /// Presents the software cursor at the pointer, unless the system's
     /// pointer shows instead (pointer_shows_cursor) or the frame is drawn
@@ -11238,6 +12521,15 @@ class Runtime final : public menu::Host,
     ///
     /// @return the way chosen
     [[nodiscard]] oa::ui::engine_settings::WindowEdge window_edge_mode() const;
+
+    /// Lets a captured pointer go until the next click on the battlefield.
+    ///
+    /// With Window edge Capture, in a match, the pointer waits as Escape makes
+    /// it wait. Sticky and Free change nothing. The key is taken whenever the
+    /// action is pressed.
+    ///
+    /// @return true when ui.release-pointer was pressed
+    bool take_release_pointer_action();
 
     /// Tells whether a match's battlefield shows, in play: the match runs,
     /// and no game menu, pause screen, settings dialog or message box is
@@ -11433,7 +12725,7 @@ class Runtime final : public menu::Host,
     /// else the one nearest after the root's corner, passed on to the next
     /// when its setup hides it), moved by the GUI keyboard's keys
     /// (move_frontend_focus), given by Return to a panel with none
-    /// (press_frontend_focus_key) and given to a list pressed.
+    /// (press_frontend_focus_action) and given to a list pressed.
     ///
     /// @return the record, or -1 for none
     [[nodiscard]] int32_t frontend_focus() const;
@@ -11481,31 +12773,62 @@ class Runtime final : public menu::Host,
     /// LOAD and PREVMENU then close the map modal.
     void click_selected_frontend_gadget();
 
+    /// Notes the GUI file whose buttons the menus answer, in place of any noted before.
+    ///
+    /// An empty path notes none. The next key reads the letters. [runtime_key_bindings.cpp]
+    ///
+    /// @param path the GUI file, or empty
+    void set_menu_gui(std::string_view path);
+
+    /// Notes another GUI file whose buttons the menus answer, beside those already noted.
+    ///
+    /// An empty path adds nothing. A file already noted is left as it is.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param path the GUI file
+    void add_menu_gui(std::string_view path);
+
+    /// Answers the menus' Enter, Escape, Space, focus and list keys.
+    ///
+    /// Each screen keeps the target Escape has there today. A held Enter presses
+    /// nothing on the end screens. [runtime_events.cpp]
+    ///
+    /// @param key the key pressed
+    /// @return true when a menu action took the key
+    bool answer_menu_keys(const SDL_KeyboardEvent& key);
+
+    /// Steps a menu list for the wheel.
+    ///
+    /// The map list and Any Mission's mission list step. A wheel that does not
+    /// step a list is left for whatever follows. [runtime_events.cpp]
+    ///
+    /// @param wheel_y the wheel, positive away from the player
+    /// @return true when a list stepped
+    bool answer_menu_list_wheel(float wheel_y);
+
     /// Presses the frontend screen's button whose quick key a key is, as a
     /// left click released over it does.
     ///
-    /// The key presses the first active button in the panel's record order
-    /// whose quick key it is in either case; a grayed-out button takes no key
-    /// and passes it on. A key with Ctrl, Alt or the system key down, or a
-    /// held key's repeat, presses nothing.
+    /// A plain letter presses the first active button in the panel's record
+    /// order whose quick key it is in either case; a grayed-out button takes
+    /// no key and passes it on. That letter with Ctrl, Alt or the system key
+    /// down, or a held key's repeat, presses nothing. A rebound chord presses
+    /// the button of the action it started.
     ///
     /// @param key the key pressed
     /// @return true when the key pressed a button
-    bool press_frontend_quick_key(const SDL_KeyboardEvent& key);
+    bool press_frontend_gui_action(const SDL_KeyboardEvent& key);
 
-    /// Presses the frontend screen's focused button for Return, keypad Enter
-    /// or Space, as a left click released over it does; a gamepad's A and
-    /// Menu send Return.
+    /// Presses the frontend screen's focused button for the accept or press action.
     ///
-    /// With no record focused, as the main menu opens, Return and keypad
-    /// Enter give the panel its first focus (move_frontend_focus), ringed,
-    /// and press nothing. A focused record that is no active button, a
-    /// grayed-out button, a key with Ctrl, Alt or the system key down, and a
-    /// held key's repeat press nothing.
+    /// With no record focused, as the main menu opens, accept gives the panel
+    /// its first focus (move_frontend_focus), ringed, and presses nothing. A
+    /// focused record that is no active button, and a grayed-out button, press
+    /// nothing. Press does nothing while no record is focused.
     ///
-    /// @param key the key pressed
+    /// @param accept true for accept, false for the press action
     /// @return true when the key pressed the focused button or gave the focus
-    bool press_frontend_focus_key(const SDL_KeyboardEvent& key);
+    bool press_frontend_focus_action(bool accept);
 
     /// Presses a button of the frontend screen as a left click released over
     /// it does (click_selected_frontend_gadget), for a key that names it; a
@@ -11834,6 +13157,31 @@ class Runtime final : public menu::Host,
     /// @return the pixels the pen moves
     int paint_modern_text(
         const oa::present::TextLayers& layers, int x, int baseline_y, std::array<uint8_t, 3> color
+    );
+
+    /// Gives the canvas paint_modern_text lays lines on: the paint target,
+    /// reduced to the match palette, and on the Full tier's overlay canvas
+    /// the world under it handed to the card.
+    ///
+    /// @return the canvas
+    [[nodiscard]] oa::present::TextCanvas match_text_canvas();
+
+    /// Lays a line of the modern fonts on the paint target at once, as
+    /// paint_modern_text paints it outside a BackedText group, and notes it
+    /// for the checks while painted_lines_ holds a list.
+    ///
+    /// @param layers the line
+    /// @param x paint column of the pen
+    /// @param baseline_y paint row just below the capitals
+    /// @param color the letters' colour
+    /// @param backed whether the line's background box was laid, with it or
+    ///        before it
+    void lay_match_text(
+        const oa::present::TextLayers& layers,
+        int x,
+        int baseline_y,
+        std::array<uint8_t, 3> color,
+        bool backed
     );
 
     /// Measures game text in an FNT font as paint_text paints it.
@@ -12453,6 +13801,20 @@ class Runtime final : public menu::Host,
     /// (check_pointer_picks). Throws std::runtime_error on a failure.
     void check_pointer_interfaces();
 
+    /// Plays every row of options_.check_key_table on one skirmish, through
+    /// dispatch_event, and compares each effect with the file. Writes
+    /// key-table-observed.tsv in the working directory even when a row does
+    /// not match. Throws std::runtime_error on a failure.
+    void check_key_table();
+
+    /// Checks slow keys, bounce keys, the double-press time, the player's repeat and the drag
+    /// threshold on one skirmish. Throws std::runtime_error on a failure. [runtime_key_timing_check.cpp]
+    void check_key_timing();
+
+    /// Drives the pointer from the numpad on the main menu and in one skirmish.
+    /// Throws std::runtime_error on a failure. [runtime_pointer_keys_check.cpp]
+    void check_pointer_keys();
+
     /// Checks the screen's edges scrolling the camera through SDL input, on
     /// the skirmish check_pointer_interfaces() starts.
     ///
@@ -12944,36 +14306,120 @@ class Runtime final : public menu::Host,
     /// @param squad squad number, 1 through 9
     void assign_squad(int squad);
 
+    /// Whether recalling a group also moves the view to it.
+    enum class GroupViewMove {
+        /// only when the group already is exactly the selection, and tracking
+        /// stops: the group buttons of touch and the pad
+        when_selected,
+        never,  ///< the view stays where it is
+        always, ///< the view moves to the group's centre and tracking stops
+    };
+
     /// Selects a squad (digit; shift joins it to the selection), then plays SelectSquad.
     ///
-    /// Its CTRL_F members are left out while it also holds an armed unit. When the
-    /// squad is already exactly the selection, the view moves to the group's centre
-    /// and tracking stops.
+    /// Its CTRL_F members are left out while it also holds an armed unit. `move`
+    /// says whether the view moves to the group's centre, which stops tracking.
     ///
     /// @param squad squad number, 1 through 9
     /// @param add true to add to the selection
-    void select_squad(int squad, bool add);
+    /// @param move whether the view moves to the group
+    void select_squad(int squad, bool add, GroupViewMove move = GroupViewMove::when_selected);
+
+    /// Whether this press of a group's key moves the view to the group, by
+    /// Group keys centre the view: On a double press moves it on the second of
+    /// two presses of the same group's key within the double-press time, with
+    /// no other key between; Never never; On every press when the group is
+    /// already exactly the selection, however long after. Notes the press for
+    /// the next. [runtime_key_bindings.cpp]
+    ///
+    /// @param squad the group, 1 through 9
+    /// @return the move for select_squad
+    GroupViewMove group_key_view_move(int squad);
 
     /// Selects the local units a predicate accepts, replacing the selection.
     ///
     /// @param pred tests each local unit slot
     void select_units_matching(const std::function<bool(const oa::sim::unit_spawn::Slot&)>& pred);
 
-    /// Returns the squad a digit key names.
-    ///
-    /// @param key keyboard event
-    /// @return 1 through 9, or 0 for another key
-    int squad_from_key(const SDL_KeyboardEvent& key) const;
+    /// How far one tag selection reaches.
+    enum class TagReach {
+        map,       ///< one press selects the player's units of the tag across the map
+        two_press, ///< on screen first; the whole map on a second press while unchanged
+    };
 
-    /// Handles a key in a match: the function keys, speed, squads, quick keys, pages and the other
-    /// match shortcuts.
+    /// Selects the local player's units of one category tag.
+    ///
+    /// `TagReach::map` is one press across the map. Shift adds those units to
+    /// the selection; without Shift the selection becomes just those units. A
+    /// tag no loaded unit uses, or that none of the player's units have,
+    /// leaves the selection and the page as they are. Ctrl+letter actions and
+    /// the console host use this reach.
+    ///
+    /// `TagReach::two_press` selects the on-screen units of the tag. The same
+    /// word again, while the selection is still exactly those units, selects
+    /// across the map. The word is compared with case ignored. Shift adds.
+    /// With none of the tag on screen the first press selects none of them,
+    /// and the second still reaches the whole map. [runtime_selection.cpp]
+    ///
+    /// @param word the category name, such as CTRL_B, as the data spells it
+    /// @param add true to keep the units already selected
+    /// @param reach map-wide, or the two-press on-screen reach
+    /// @return false when the selection is left as it is; true when the call
+    ///     selected
+    bool select_by_tag(std::string_view word, bool add, TagReach reach);
+
+    /// Selects every local builder that can move, or every one that stays put.
+    ///
+    /// This is the whole-map selection the idle-builder and idle-factory keys
+    /// keep when Shift is held. [runtime_selection.cpp]
+    ///
+    /// @param mobile true for builders that move, false for the ones that do not
+    void select_builders_by_movement(bool mobile);
+
+    /// Presses the shown panel's button for an order, a tab or a gui action.
+    ///
+    /// An order or a tab finds the button whose name holds that registry word.
+    /// A gui action finds the button of the file on screen, and leaves a button
+    /// whose name holds a registry word to that action. A button the panel does
+    /// not show does nothing, and nothing is pressed while the unit info panel
+    /// is open, as in 3.1c. [runtime_hotkeys.cpp]
+    ///
+    /// @param id the action id
+    /// @param phase the phase
+    /// @return true when a button was pressed
+    bool press_shown_panel_action(std::string_view id, oa::ui::key_bindings::Phase phase);
+
+    /// Presses the nth shown build button, in reading order (top, then left).
+    ///
+    /// A shown button is a button with the unit or weapon build attribute,
+    /// active and with a size, grayed or not. The press is a left click, so
+    /// the queue modifier builds five. On the orders page, or past the last
+    /// such button, nothing is pressed and no page turns.
+    ///
+    /// @param cell 1 through 12
+    /// @return true when that button was pressed
+    bool press_build_cell(int cell);
+
+    /// Answers one match action.
+    ///
+    /// The effect is the one the key had. False leaves the key to the rest of
+    /// the chain. Action ids are text, so the dispatch compares them in turn.
+    /// [runtime_hotkeys.cpp]
+    ///
+    /// @param action the event
+    /// @return true when the action was taken
+    bool handle_match_action(const oa::ui::key_bindings::ActionEvent& action);
+
+    /// Handles a key in a match: the function keys, speed, squads, order buttons, pages and the
+    /// other match shortcuts.
     ///
     /// Pause toggles the pause of a match that is not finished and opens no
     /// menu; F2 opens and closes the in-game options menu. Escape takes back
     /// an armed command, else drops the selection, and never opens the menu;
     /// with the menu open it is left to the event handler, which closes it.
-    /// F1 opens the unit info panel, whose Enter and Escape press its DONE;
-    /// Shift+F1 pins the cursor unit. Ctrl+S selects the local units on
+    /// F1 opens the unit info panel, whose Enter and Escape press its DONE,
+    /// as does that button's gui action; Shift+F1 pins the cursor unit.
+    /// Ctrl+S selects the local units on
     /// screen and 'n' centres on the next unvisited local unit. Outside a
     /// multiplayer game 'h' does nothing. '+' and '-', and the keypad's,
     /// raise and lower the game speed a step, as each repeat of a held one
@@ -13177,11 +14623,15 @@ class Runtime final : public menu::Host,
     /// @param open true to open
     void set_megamap_open(bool open);
 
-    /// Takes Tab for ui.megamap: it opens and closes the megamap.
+    /// Opens or closes the megamap when the key is megamap.toggle.
+    ///
+    /// The chord is matched on the key itself, so a check that sends Tab
+    /// without feeding the dispatcher still opens the map. A repeat does not
+    /// toggle again. Nothing is taken while the megamap hack is off.
     ///
     /// @param key the key event
     /// @return true when the megamap took the key
-    bool megamap_key(const SDL_KeyboardEvent& key);
+    bool take_megamap_toggle(const SDL_KeyboardEvent& key);
 
     /// Takes the wheel for ui.megamap: rolled toward the player it opens the
     /// megamap; rolled away it closes it, the camera centred where the
@@ -13214,7 +14664,10 @@ class Runtime final : public menu::Host,
     /// (megamap_click) and a right press (megamap_right_press). A left drag
     /// selects a box of the viewer's units, one that takes in none closing
     /// the unit info panel, and a left double-click on one of them every
-    /// unit of its type, in either interface type. A press acts on the icon
+    /// unit of its type, in either interface type. A double-click bound to
+    /// megamap.jump, on ground or another player's unit, closes the megamap
+    /// and centres the view there; one on the viewer's own unit still selects
+    /// every unit of its type. A press acts on the icon
     /// last drawn under it (MegamapState::unit_at), as a finger's tap does
     /// with no frame drawn since it landed.
     /// Presses are taken in the overlays' area where the battlefield would
@@ -13311,10 +14764,9 @@ class Runtime final : public menu::Host,
     /// @return map x and y
     [[nodiscard]] std::array<int32_t, 2> battlefield_map_point(float x, float y) const;
 
-    /// Takes a pointer event for ui.whiteboard while its key is held or a
-    /// stroke runs: the left button draws, carries a marker or, double, writes
-    /// one; the middle button's release places a dot; the right button wipes
-    /// along its path or, double, erases a spot.
+    /// Takes a pointer event for ui.whiteboard while whiteboard.draw is held
+    /// or a stroke runs. The line, text, move, wipe, erase and dot actions
+    /// name the buttons. A dot is placed when its button is released.
     /// A stroke starts in the overlays' area and not where placed_hud_covers
     /// claims.
     ///
@@ -13324,12 +14776,12 @@ class Runtime final : public menu::Host,
     /// @return true when the whiteboard took the event
     bool whiteboard_pointer(const SDL_Event& event, float x, float y);
 
-    /// Takes a key for ui.whiteboard: the open text editor's keys, and Ctrl
-    /// with the whiteboard key to the newest received marker.
+    /// Takes a key for ui.whiteboard: the open text editor's keys, the draw
+    /// chord, and the jump chord to the newest received marker.
     ///
     /// @param key the key event
     /// @return true when the whiteboard took the key
-    bool whiteboard_key(const SDL_KeyboardEvent& key);
+    bool take_whiteboard_chord(const SDL_KeyboardEvent& key);
 
     /// Takes typed text into ui.whiteboard's open text editor.
     ///
@@ -13371,7 +14823,7 @@ class Runtime final : public menu::Host,
 
     /// Takes a double-click for ui.selection-shortcuts: on the second click of
     /// a pair, over one of the local player's units in the battlefield and
-    /// without the line build key held, the selection becomes the local
+    /// without build.line held, the selection becomes the local
     /// player's finished units on screen of the selected types
     /// (selection::select_selected_types_on_screen).
     ///
@@ -13381,17 +14833,24 @@ class Runtime final : public menu::Host,
     /// @return true when the double-click was taken, and the game's own click is skipped
     bool selection_shortcut_double_click(float x, float y, int32_t clicks);
 
-    /// Takes Ctrl+S, Ctrl+B or Ctrl+F for ui.selection-shortcuts: the mobile
-    /// combat units on screen, the next idle constructor or the next idle
-    /// factory. With shift the game's own key runs instead.
-    ///
-    /// @param sym the key, pressed with Ctrl
-    /// @param shift shift is held
-    /// @return true when the key was taken
-    bool selection_shortcut_key(SDL_Keycode sym, bool shift);
+    /// Which selection shortcut a key asked for. Shift leaves the game's own key.
+    enum class SelectionShortcut : uint8_t {
+        on_screen,     ///< mobile armed units on screen
+        idle_builders, ///< the next idle constructor
+        idle_factories ///< the next idle factory
+    };
 
-    /// Filters the selection a drag box just made by the W, B or Y key held
-    /// (ui.selection-shortcuts).
+    /// Takes one selection shortcut for ui.selection-shortcuts. With shift the
+    /// game's own key runs instead.
+    ///
+    /// @param which the shortcut the action named
+    /// @param shift shift is held
+    /// @return true when the shortcut was taken
+    bool selection_shortcut_key(SelectionShortcut which, bool shift);
+
+    /// Filters the selection a drag box just made by the box-filter actions
+    /// held as the box was released (ui.selection-shortcuts). A press of those
+    /// keys is never this filter.
     void selection_shortcut_drag_filter();
 
     /// Takes the selection the selection module left in the unit flags: each selected local unit
@@ -13582,10 +15041,6 @@ class Runtime final : public menu::Host,
     /// @return the gadget's name, or null when the pointer is over no gadget
     [[nodiscard]] const char* hovered_gadget_name() const;
 
-    /// Draws the game clock, the message log, the debug keys' line
-    /// (draw_debug_status_line) and the "+stats" overlay over the battlefield.
-    void draw_chat_overlay();
-
     /// Has the extension draw its readouts over the battlefield (Extension::draw_match_overlay).
     ///
     /// Nothing without the hook or a match. The battlefield layer is the paint
@@ -13657,7 +15112,8 @@ class Runtime final : public menu::Host,
     /// Draws the chat line over the battlefield while it is taller than the
     /// TALK field and two rows above and below it, and every line while the
     /// touch controls are on: a black box across the overlays' area
-    /// (overlay_area), standing on its bottom edge, as tall as the line with
+    /// (overlay_area), standing on its bottom edge or where the player put it
+    /// with Arrange overlays (OaLayer::overlay_shown), as tall as the line with
     /// two rows above and below it, and the line in it at the battlefield's
     /// scale from the column the field's text starts at (the area's left with
     /// the touch controls on). With the touch controls on and the game's fonts
@@ -14048,6 +15504,29 @@ class Runtime final : public menu::Host,
     /// on a failure.
     void check_side_orders();
 
+    /// Checks the skirmish Side button through the SDL presenter.
+    ///
+    /// From the main menu the skirmish opens, and Side0 is clicked with the
+    /// left button through every offered side and back to the first. With
+    /// more than five sides it is also clicked with the right button back
+    /// through them; with five or fewer a right click steps forward. After
+    /// each click the slot's side is the one the click should reach, the
+    /// button shows the SIDEx frame when the art has one and the side's
+    /// SIDEDATA name on the plain face otherwise, and the button's rectangle
+    /// was repainted. Prints `skirmish sides check: <n> sides, <k> by art,
+    /// <m> by name, back <yes|no>` and writes a snapshot per side when
+    /// --snapshot is given. Throws std::runtime_error on a failure.
+    void check_skirmish_sides();
+
+    /// Checks Engine Limits' weapon-type and side rows at the menu and in a match.
+    ///
+    /// At the main menu the rows show 256 and 5 without a mod profile, or the
+    /// profile's limits with one. A two-slot skirmish then shows those same
+    /// numbers without a profile, or how many of each limit the match loaded
+    /// with one. Prints one line, `mod limits check: menu <weapons>, <sides>;
+    /// match <weapons>, <sides>`. Throws std::runtime_error on a failure.
+    void check_mod_limits();
+
     /// Checks the command buttons through ARMGEN.GUI clicks.
     ///
     /// A lit command button arms its order, a click on it again turns it off, a
@@ -14120,6 +15599,16 @@ class Runtime final : public menu::Host,
     /// object, so the default order a click or a right press gives it is none.)
     /// Throws std::runtime_error on a failure.
     void check_factory_orders();
+
+    /// Checks that a unit driving off its factory's platform is drawn over it.
+    ///
+    /// Places a finished Vehicle Plant, has it build a Construction Vehicle and,
+    /// on every tick from the vehicle's release until its footprint has left the
+    /// plant's, draws the frame at each camera row of one plot's scroll: every
+    /// frame must draw the vehicle after the plant. With --snapshot, writes the
+    /// frames of the first ticks beside that path. Prints "factory departure
+    /// check: passed". Throws std::runtime_error on a failure.
+    void check_factory_departure();
 
     /// Starts a skirmish, plays it on for a while, selects the commander with a
     /// left click and sends it to open ground with another: the commander must
@@ -14465,6 +15954,29 @@ class Runtime final : public menu::Host,
     /// sizes. Throws std::runtime_error naming what differed.
     void check_progress();
 
+    /// Serves a signed feed and checks the background check for a new
+    /// release: at the first menu even when the last check was a minute ago,
+    /// again an hour later on a test clock, and not in an unattended run
+    /// that named no feed. Throws std::runtime_error naming what differed.
+    void check_engine_feed();
+
+    /// Serves a signed feed and checks the update question: its notes, that
+    /// it waits out a match, a message and Settings, and what its three
+    /// buttons do. Throws std::runtime_error naming what differed.
+    void check_update_offer();
+
+    /// Serves a package and checks the download, the ready prompt and the
+    /// hand-off. Returns the status the process should report.
+    ///
+    /// @return 0 when the case finished, 1 when it had no offer or could not
+    int check_update_download();
+
+    /// Checks confirming a start, the roll-back prompt, ROLL BACK and that a
+    /// check does not count as a failed start. Returns the status to report.
+    ///
+    /// @return 0 when the case finished, 1 when it could not
+    int check_update_roll_back();
+
     /// Opens every Open Annihilation screen in English, German, French,
     /// Spanish, Italian and Simplified Chinese, or in the languages
     /// --check-language names, at 640x480 and 1280x720. Throws
@@ -14598,6 +16110,25 @@ class Runtime final : public menu::Host,
     /// std::runtime_error on a failure.
     void check_wreck_pick();
 
+    /// Checks metal patches under the water in every tier: a skirmish on
+    /// Steel Jungle, a patch in open water, one on the shallows of a shore
+    /// and one at the west edge of a Skeeter's sight, each drawn at zoom 1 in the Off,
+    /// Basic and Full tiers. With the water's effects off and the fog
+    /// Classic, Basic and Full draw the processor's pixels over each patch,
+    /// in sight, at the edge of sight and at the edge of never-mapped ground;
+    /// with the water's effects at their defaults, Full draws each patch in
+    /// sight in the processor's colours, its mean 3 pixels in from its edge
+    /// within 6 levels a channel;
+    /// with the fog Smooth, each pixel of the edge's patch whose fog tile is
+    /// wholly in sight, out of sight or never mapped is the processor's, and
+    /// each at the soft edge lies between its colour, its grey and the black
+    /// of never-mapped ground. Writes pictures of each patch in each tier,
+    /// local/reports/native-underwater-features-CASE-TIER.png. Throws
+    /// std::runtime_error on a failure.
+    ///
+    /// @return 0 when it passed; 77 when it skipped
+    [[nodiscard]] int check_underwater_features();
+
     /// Checks the click snap (ui.click-snap) through SDL input, under a
     /// profile that gives a wreck radius of 1 cell and a mex radius of 3, or
     /// without the hack. With the hack on, the commander selected and
@@ -14625,6 +16156,21 @@ class Runtime final : public menu::Host,
     ///
     /// @return 0, or 77 where the machine cannot run the accelerated tiers
     int check_build_preview();
+
+    /// Checks the battlefield behind a dialog over a paused match in the
+    /// standard, Basic and Full tiers at zoom 1, 1.5, 2 and 0.5: over the CORE
+    /// campaign's nineteenth mission, its fleet in view, the in-game
+    /// briefing, the save dialog and the help dialog are each opened from the
+    /// in-game menu, and the frame presented with the dialog must equal the
+    /// frame presented without it in every battlefield pixel outside the
+    /// dialog's panel and the menu's. Then, at a raised display gamma, the
+    /// briefing in the Full tier at zoom 1 may move no level of the
+    /// battlefield by more than half the widest step between the gamma's
+    /// levels. Writes the frames at zoom 1, and any that differ, to
+    /// local/reports. Throws std::runtime_error on a failure.
+    ///
+    /// @return 0, or 77 where the machine cannot run the accelerated tiers
+    int check_dialog_backdrop();
     // Chat line and "+command" console (runtime_console.cpp).
 
     /// Returns the match's console, binding it to the running match's world on first use.
@@ -14658,6 +16204,12 @@ class Runtime final : public menu::Host,
     /// Opens the chat line and starts text input; no chat line opens for a watcher, a replay's
     /// viewer included.
     void open_chat_line();
+
+    /// Opens the chat line with the allies prefix already typed.
+    ///
+    /// The line begins `a,`, which a sent line reads as allies only. Nothing
+    /// is sent. A watcher opens no line.
+    void open_allies_chat_line();
 
     /// Closes the chat line, drops the typed text and stops text input.
     void close_chat_line();
@@ -15282,6 +16834,35 @@ class Runtime final : public menu::Host,
         const std::function<void(float)>& at_zoom,
         const fs::path& report_directory
     );
+
+    /// Checks that New unit shadows chooses between the Full tier's shadows
+    /// and the game's own, in every tier (runtime_unit_shadows_check.cpp).
+    ///
+    /// A tank and an aircraft high over the ground are placed beside the
+    /// nearest tree to the local commander that casts a shadow of its own,
+    /// and each tier given draws them at zoom 1 with the setting On, Off,
+    /// and with shadows off, each frame taking the setting at once. The
+    /// standard and Basic tiers draw the same frame On and Off. The Full
+    /// tier's frame changes: Off its shadows change the pixels the standard
+    /// tier's change, wherever the two tiers draw the same picture without
+    /// shadows, but for pixels so dark that the game's alpha table may leave
+    /// them as they are and a handful at most beside them; On they part from
+    /// them by more.
+    /// Pictures of the tree and the units in each tier, On, Off and without
+    /// shadows, go to the report. The units stay in the match; the settings
+    /// and the shadows' option are put back. Ends in the last tier given.
+    /// A game with none of the tanks or none of the aircraft skips the cases
+    /// and leaves the tier as it was. Throws std::runtime_error on a failure.
+    ///
+    /// @param set_level sets the flag's level and decides the tier again
+    /// @param levels the tiers checked, by the level that draws in each,
+    ///        the standard tier's first
+    /// @param report_directory where the pictures go
+    void check_unit_shadow_switch(
+        const std::function<void(oa::ui::engine_settings::HardwareAcceleration)>& set_level,
+        std::span<const oa::ui::engine_settings::HardwareAcceleration> levels,
+        const fs::path& report_directory
+    );
     // The 8-bit view of the match frame the poster writes: the palette index
     // of an RGB pixel and the display whose palette the image carries.
 
@@ -15380,23 +16961,34 @@ class Runtime final : public menu::Host,
         const std::function<void(const char*)>& enter_line, bool start_strike
     );
 
-    /// Sends a match key to the console's hotkeys.
+    /// Stores the view the player sees as a bookmark.
     ///
-    /// F4 pins the kills board and '`', or the key below Escape on any layout,
-    /// turns the damage bars on and off. Pause flips the pause bit of
-    /// Game.sim_run_flags and reports it through Extension::pause_changed. In
-    /// a multiplayer game Tab opens and closes the team menu and 'h' opens
-    /// SHARE.GUI. Backslash repeats the last console line under the same rule
-    /// as typing it (where the key below Escape types it, that key turns the
-    /// damage bars on and off instead). F11 toggles the debug keys once the
-    /// passphrase is accepted; while the debug keys are on, '=', ']', 'i' and
-    /// 'm' go to the
-    /// debug dispatcher instead of their normal use. Ctrl+F10 starts a film
-    /// capture.
+    /// The live view is copied into the match, then into the slot. A slot other
+    /// than 0, 1, 2 or 3 does nothing. The SelectSquad sound is played by the
+    /// console key that calls this. [runtime_console.cpp]
     ///
-    /// @param key keyboard event
-    /// @return false when the key is not a console hotkey or there is no match
-    bool handle_console_hotkey(const SDL_KeyboardEvent& key);
+    /// @param slot bookmark 0 to 3
+    void store_camera_bookmark(int32_t slot);
+
+    /// Moves the view to a bookmark and stops following a unit.
+    ///
+    /// The view returns to the stored place, including a view that looked past
+    /// the map's edge. An empty bookmark jumps to the map corner. A slot other
+    /// than 0, 1, 2 or 3 does nothing. The SelectSquad sound is played by the
+    /// console key that calls this. [runtime_console.cpp]
+    ///
+    /// @param slot bookmark 0 to 3
+    void recall_camera_bookmark(int32_t slot);
+
+    /// Runs one console hotkey code: the host and the dispatch.
+    ///
+    /// No match console does nothing. While a mod's key remaps are on, the
+    /// repeat code is handed over as Insert, which the console runs as the
+    /// last line. F11 sets the status to "Debug keys on" or "Debug keys off".
+    /// [runtime_console.cpp]
+    ///
+    /// @param code the console hotkey code
+    void run_console_hotkey(uint32_t code);
 
     /// Gives resources from one player to another, as "Give" does.
     ///
@@ -15843,6 +17435,10 @@ class Runtime final : public menu::Host,
 
     /// Returns the terrain point under the pointer, the pointer held inside the battlefield.
     ///
+    /// The drag box's corners. While View past the map's edge lets the view
+    /// past the map's edges, a point past them is the point itself at height
+    /// 0 (gameplay_input::drag_box_corner); at Off it is held on the map.
+    ///
     /// @param x canvas column
     /// @param y canvas row
     /// @return whole map pixels x, height and z, or nullopt without a match
@@ -15861,6 +17457,12 @@ class Runtime final : public menu::Host,
     /// @return the press corner and the far corner; zeros without a drag
     [[nodiscard]] std::array<oa::present::world_renderer::ScreenPoint, 2>
     match_drag_corners(const oa::present::world_renderer::BattlefieldViewport& viewport) const;
+
+    /// The box a drag must stay inside, in screen pixels, to count as a click. [runtime_hotkeys.cpp]
+    [[nodiscard]] int32_t drag_click_pixels() const;
+
+    /// The ticks a drag must finish within to count as a click. [runtime_hotkeys.cpp]
+    [[nodiscard]] uint32_t drag_click_ticks() const;
 
     /// Tests whether the release ends a click rather than a box selection: soon after the press and
     /// with the box small in x and z.
@@ -16066,6 +17668,17 @@ class Runtime final : public menu::Host,
     /// @param follow_pointer the zoom follows the pointer as it moves: the
     ///        wheel's; the touch buttons zoom about the point alone
     void handle_match_zoom(float wheel_y, float pointer_x, float pointer_y, bool follow_pointer);
+
+    /// Zooms from a zoom key about the battlefield's centre.
+    ///
+    /// camera.zoom-in-key and camera.zoom-out-key take one step of the wheel's
+    /// zoom, and a held key keeps stepping. camera.zoom-reset eases to the
+    /// battlefield's own scale. Nothing moves while Mouse wheel zoom is off,
+    /// and the zoom stays within its limits. The key is still taken then.
+    ///
+    /// @param id camera.zoom-in-key, camera.zoom-out-key or camera.zoom-reset
+    /// @return true when the id is one of those keys and a match is showing
+    bool zoom_match_from_key(std::string_view id);
 
     /// Returns the zoom's target after wheel steps (zoom_wheel_).
     ///
@@ -17002,6 +18615,11 @@ class Runtime final : public menu::Host,
 
     /// Tells whether the game data holds a campaign for a side.
     ///
+    /// Arm and Core are remembered together for the mounted folders, archives,
+    /// language and language packs, and read again when any of those change.
+    /// A mod switch is a new run, so it reads its own files. The campaign
+    /// screens are not built to answer this.
+    ///
     /// @param side 0 for Arm, 1 for Core
     /// @return true when a campaign file names the side
     [[nodiscard]] bool side_has_campaign(uint32_t side);
@@ -17103,7 +18721,8 @@ class Runtime final : public menu::Host,
     /// @param value new status
     void set_button_status(std::string_view name, int16_t value);
 
-    /// Sets a side button's stage, the frame and caption it shows.
+    /// Sets a side button's stage: the SIDEx frame when the art has one, else
+    /// the side's name on the plain face.
     ///
     /// @param name gadget name
     /// @param stage side index
@@ -17860,8 +19479,11 @@ class Runtime final : public menu::Host,
     oa::Image match_chrome_{};
     std::optional<renderer::ScreenResources> match_hud_;
     std::string match_hud_panel_; // GUI file of match_hud_, as its loader named it
-    /// The side column's art (match_hud_art); dropped as a match loads and
-    /// ends and as the language shown or its packs change.
+    /// GUI files whose buttons the menus answer, stems folded as a gui id's.
+    std::vector<std::string> menu_gui_stems_{};
+    /// The side column's art (match_hud_art), held by match_hud_ while it
+    /// is lent; dropped as a match loads and ends and as the language shown
+    /// or its packs change.
     std::optional<MatchHudArt> match_hud_art_;
     /// Where draw_match_bars repeats the top bar's art right of PANELTOP.
     oa::ui::hud::TopBarPieces top_bar_pieces_{};
@@ -17923,7 +19545,6 @@ class Runtime final : public menu::Host,
     SideHud side_hud_{};
     HudRect radar_picture_{};
     int radar_map_w_ = 0;
-    std::vector<uint8_t> radar_explored_{};
 
     // Radar surfaces over the match's Game block, built by the radar
     // picture set-up when a match is first drawn, and the 0x7e-square well
@@ -17974,13 +19595,27 @@ class Runtime final : public menu::Host,
     /// up by name when a game loads; the file is read once.
     void load_radar_sprites();
 
-    /// Refreshes the mapped radar image from the viewer's explored cells and current coverage
+    /// Refreshes the mapped radar image from the view player's mapped cells and current coverage
     /// through the radar fill.
     ///
     /// The radar fill walks a 32-pixel cell grid; the match sight grid is
-    /// resampled onto it. Disabled mapping or line of sight reads as fully
-    /// explored or seen.
+    /// resampled onto it and read as the battlefield's fog reads it
+    /// (radar_read_sight), so that the radar and the battlefield agree on the
+    /// ground explored and in sight. Disabled mapping or line of sight reads
+    /// as fully explored or seen.
     void refresh_radar_mapped();
+
+    /// Returns the players whose explored ground the view is shown besides its
+    /// own: under allied vision (intel.allied-los-sharing), each player who
+    /// allies the view player now (oa::present::world_renderer::allied_mapped_players);
+    /// none without it, as in 3.1c. Presentation alone reads it: every view
+    /// that tells explored ground by the mapped words (the fog in every tier,
+    /// the radar, features and wrecks, effects, the water and the live scene)
+    /// counts these players' bits beside the view player's own, and the
+    /// sight records are left as they are.
+    ///
+    /// @return a bit for each such player, as the sight grid's mapped words hold them
+    [[nodiscard]] uint16_t allied_mapped_bits() const;
 
     /// Composes the final radar image over the match, with the viewer's sight answering for shots.
     void compose_radar_final();
@@ -18002,9 +19637,11 @@ class Runtime final : public menu::Host,
     uint32_t console_clock_opacity_ = oa::ui::hud::kClockOpaque;
     std::optional<oa::formats::gaf::RenderedFrame> status_lightbar_{};
     bool status_lightbar_loaded_ = false;
-    std::string status_label_;           // last label translated for the status strip
-    std::string unit_panel_word_{};      // last word translated for the unit panel
-    uint32_t options_lightbar_sounds_{}; // "Options" sounds the lightbar sweeps have played
+    std::string status_label_;                   // last label translated for the status strip
+    std::string unit_panel_word_{};              // last word translated for the unit panel
+    std::string unit_panel_hover_name_{};        ///< the hovered button's name line
+    std::string unit_panel_hover_description_{}; ///< the hovered button's description line
+    uint32_t options_lightbar_sounds_{};         // "Options" sounds the lightbar sweeps have played
 
     /// Draws the status strip that slides up from the bottom of the battlefield while Space is
     /// held: the lightbar and the time, unit and speed readouts.
@@ -18017,6 +19654,194 @@ class Runtime final : public menu::Host,
     /// clock's showing on (oa::ui::hud::step_clock_fade), as the kills board
     /// drawn before it left the board's slide, on the strip's own clock.
     void draw_status_panel();
+
+    /// One chip for a latched hold or a sticky modifier, in the player's language.
+    struct KeyLatchChip {
+        std::string text{}; ///< the words
+        bool filled{};      ///< filled when latched or locked; outlined when only armed
+    };
+
+    /// The latches and sticky modifiers that are on, in the order they were turned on.
+    ///
+    /// QUEUE, ADD and x5 are left out while the touch or pad HUD shows them.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param[out] chips the chips, cleared first
+    void gather_key_latch_chips(std::vector<KeyLatchChip>& chips);
+
+    /// Draws those chips centred on the battlefield, 6 points under its top,
+    /// or where the player put them with Arrange overlays
+    /// (OaLayer::overlay_shown). [runtime_hud.cpp]
+    void draw_key_latch_chips();
+
+    /// What the hold ring and its card draw from the press that is running.
+    struct HoldConfirmDraw {
+        bool show{false};            ///< a hold is running
+        bool button{false};          ///< the ring sits on a button
+        bool click{false};           ///< the card names the button rather than a chord
+        int32_t x{0};                ///< the point, or the button's left, in match canvas pixels
+        int32_t y{0};                ///< the point, or the button's top
+        int32_t width{0};            ///< the button's width; 0 for the pointer
+        int32_t height{0};           ///< the button's height; 0 for the pointer
+        int32_t progress{0};         ///< how far the ring has filled, in thousandths
+        uint32_t long_press_ms{500}; ///< the long-press time the card names
+        std::size_t gadget{0};       ///< the button, when the ring sits on one
+        std::string title{};         ///< the card's title, in English
+        std::string chord{};         ///< the chord, as a screen shows it
+    };
+
+    /// The hold that is running, or an empty draw when none is.
+    /// [runtime_key_bindings.cpp]
+    [[nodiscard]] HoldConfirmDraw hold_confirm_draw() const;
+
+    /// Draws the hold ring and its card. A pointer's ring is on the battlefield.
+    /// A button's ring is on that button. The card stays on the battlefield,
+    /// clear of the side column. [runtime_hud.cpp]
+    void draw_hold_ring();
+
+    /// Starts a hold for self-destruct, or reports that the press should act now.
+    ///
+    /// A countdown that is already running is not held: the caller toggles it off.
+    ///
+    /// @param scancode the key, when the press is a chord
+    /// @param from_button the press is the order button
+    /// @param mouse_button the button, when the press is a click
+    /// @param gadget the button's gadget
+    /// @return true when the press is held and must not act yet
+    bool start_self_destruct_hold(
+        uint16_t scancode, bool from_button, uint8_t mouse_button, std::size_t gadget
+    );
+
+    /// Starts a hold for Yes on the surrender question.
+    ///
+    /// @param scancode the key, when the press is a chord
+    /// @param from_button the press is a click
+    /// @param mouse_button the button, when the press is a click
+    /// @param gadget the Yes button
+    /// @return true when the press is held and must not act yet
+    bool
+    start_yes_hold(uint16_t scancode, bool from_button, uint8_t mouse_button, std::size_t gadget);
+
+    /// Ends the hold without firing. [runtime_key_bindings.cpp]
+    void cancel_hold_confirm();
+
+    /// The key went up. A hold that key started ends without firing.
+    ///
+    /// @param scancode the key
+    void release_hold_confirm_key(uint16_t scancode);
+
+    /// The mouse button went up. A hold that button started ends without firing,
+    /// and its release is remembered so the button does not activate.
+    ///
+    /// @param button the mouse button
+    void release_hold_confirm_button(uint8_t button);
+
+    /// Reports, once, that the button release just seen must not activate.
+    ///
+    /// @return true when a hold swallowed that release
+    [[nodiscard]] bool take_hold_confirm_release();
+
+    /// Runs the held action when the long-press time has passed and the press
+    /// is still held. A release, Escape, a lost focus or the question closing
+    /// ends it with nothing done. [runtime_key_bindings.cpp]
+    void tick_hold_confirm();
+
+    /// Places the running hold as though it began this long ago.
+    ///
+    /// The hold-to-confirm check uses it to draw one fill twice.
+    ///
+    /// @param elapsed_ms how far the hold has come, in milliseconds
+    void replay_hold_confirm(uint32_t elapsed_ms);
+
+    /// Reports whether a selected unit's self-destruct countdown is running.
+    ///
+    /// @return true when one selected unit still has time left
+    [[nodiscard]] bool selection_counting_down() const;
+
+    /// Reports whether Hold to confirm asks this action for a hold.
+    ///
+    /// @param id the action id
+    /// @return true when the setting is on and the layout's rule names it
+    bool confirm_action_needs_hold(std::string_view id);
+
+    /// Which held press fires.
+    enum class ConfirmHoldKind : uint8_t {
+        none,          ///< no hold
+        self_destruct, ///< order.self-destruct
+        yes,           ///< the surrender question's Yes
+    };
+
+    /// Starts the hold `start_self_destruct_hold` and `start_yes_hold` share.
+    ///
+    /// @param id the action id
+    /// @param kind which action fires
+    /// @param scancode the key, when the press is a chord
+    /// @param from_button the press is a click
+    /// @param mouse_button the button, when the press is a click
+    /// @param gadget the button's gadget
+    /// @return true when the press is held and must not act yet
+    bool begin_confirm_hold(
+        std::string_view id,
+        ConfirmHoldKind kind,
+        uint16_t scancode,
+        bool from_button,
+        uint8_t mouse_button,
+        std::size_t gadget
+    );
+
+    /// Whether a keyboard latch other than QUEUE, ADD or x5 is on.
+    ///
+    /// @param id the action id
+    /// @return true while that latch is on
+    [[nodiscard]] bool action_latched(std::string_view id) const;
+
+    /// The sticky modifiers this read should add: the event's memory, or the live ones.
+    ///
+    /// @return the modifier bits
+    [[nodiscard]] uint8_t sticky_modifier_bits() const;
+
+    /// Remembers the sticky modifiers as they were at the start of this event.
+    void begin_sticky_event();
+
+    /// Forgets that memory and brings the pointer's Shift and Ctrl up to date.
+    void end_sticky_event();
+
+    /// Lets an armed sticky modifier go. A locked one stays. [runtime_key_bindings.cpp]
+    void consume_sticky_modifiers();
+
+    /// Marks the shared latch of a class used, when that role latches from the keyboard.
+    ///
+    /// `which` is 0 for selection, 1 for an order and 2 for a build button.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param which the class
+    void note_shared_latch_used(int which);
+
+    /// Puts the sticky-modifier preference on the dispatcher. [runtime_key_bindings.cpp]
+    ///
+    /// @param on true when a tap arms the next key or click
+    void apply_sticky_modifiers(bool on);
+
+    /// Sends one step of the numpad pointer as synthetic mouse events.
+    ///
+    /// The events use pointer_keys_mouse_id and window 0, and the pointer stays
+    /// on the canvas. A real mouse that has moved is adopted first.
+    /// [runtime_pointer_keys.cpp]
+    ///
+    /// @param step the movement and the button edges
+    /// @param x the pointer's column, kept between steps
+    /// @param y the pointer's row, kept between steps
+    /// @param known whether x and y have been placed
+    /// @param buttons the buttons already down
+    void emit_pointer_keys_step(
+        oa::ui::key_bindings::PointerStep step, float& x, float& y, bool& known, uint32_t& buttons
+    );
+
+    /// Rebuilds the bindings for pointer keys, and lets a held button go when they turn off.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param on true when the numpad moves the pointer
+    void apply_pointer_keys(bool on);
     int radar_map_h_ = 0;
     std::optional<oa::present::world_renderer::TextureCatalog> texture_catalog_;
     std::shared_ptr<MatchModels> match_models_; // 3DO renderer state, runtime_match_render.cpp
@@ -18166,12 +19991,95 @@ class Runtime final : public menu::Host,
     };
 
     std::optional<ReclaimCheck> reclaim_check_;
+
+    /// One shot, detonation or hit the weapon-fire check heard. The listener
+    /// copies these out of the event; the projectile pool does not keep them.
+    struct WeaponFireNote {
+        uint16_t source{};
+        uint16_t target{};
+        oa_ref32 def{};
+        int32_t cell_x{};
+        int32_t cell_z{};
+        int16_t amount{};
+        uint8_t kind{};
+        bool after_a_detonation{};
+    };
+
+    /// The units, feature and events --weapon-fire-check watches.
+    struct WeaponFireCheck {
+        std::string type;
+        uint16_t fired{}; ///< the first weapon's whole id
+        oa_ref32 weapon_ref{};
+        int32_t weapon_damage{};
+        uint16_t unit_a{};
+        uint16_t unit_t{};
+        uint16_t unit_b{};
+        int32_t feature_x{};
+        int32_t feature_z{};
+        int32_t footprint_x{1};
+        int32_t footprint_z{1};
+        uint16_t feature_word{};
+        std::size_t feature_plot{};
+        oa::sim::match_runtime::EventListenerId listener{};
+        bool a_detonated{};
+        std::vector<WeaponFireNote> shots;
+        std::vector<WeaponFireNote> detonations;
+        std::vector<WeaponFireNote> damage;
+    };
+
+    /// Copies a placed shot into the weapon-fire check.
+    ///
+    /// @param context the runtime
+    /// @param world the match's world
+    /// @param shot the shot, valid for this call only
+    /// @param source how the shot was placed
+    /// @param aim the aim point, or null
+    /// @param target_unit the unit aimed at, or 0
+    static void weapon_fire_shot_placed(
+        void* context,
+        const oa::World& world,
+        const oa::Projectile& shot,
+        oa::sim::match_runtime::ShotSource source,
+        const oa::FixedVec3* aim,
+        uint16_t target_unit
+    );
+
+    /// Copies a detonation into the weapon-fire check.
+    ///
+    /// @param context the runtime
+    /// @param world the match's world
+    /// @param shot the shot at the point it detonates
+    /// @param direct_unit the unit it struck, or 0
+    static void weapon_fire_shot_detonated(
+        void* context, const oa::World& world, const oa::Projectile& shot, uint16_t direct_unit
+    );
+
+    /// Copies a health event into the weapon-fire check.
+    ///
+    /// @param context the runtime
+    /// @param world the match's world
+    /// @param target the unit hit
+    /// @param source the attacker, or 0
+    /// @param amount health points taken
+    /// @param kind 1 for weapon damage
+    static void weapon_fire_unit_damaged(
+        void* context,
+        const oa::World& world,
+        uint16_t target,
+        uint16_t source,
+        int16_t amount,
+        uint8_t kind
+    );
+
+    std::optional<WeaponFireCheck> weapon_fire_check_;
     std::size_t wrecks_drawn_{};
     int32_t configured_map_metal_ = 0;
     std::vector<oa::sim::unit_spawn::Type> spawn_types_;
     std::vector<std::string> spawn_type_names_;
     // Build page button captions by gadget index (the queued counts).
     std::vector<std::string> build_captions_;
+    // Five sides stay in the table itself. A mod that loads more keeps the
+    // rest beside them, sized to the sides that load read.
     oa::data::defs::SideTable side_table_{};
     /// SHA-256 of the gamedata/sidedata.tdf bytes the run read. All zero when the file was missing.
     oa::base::sha256::Digest side_data_digest_{};
@@ -18219,8 +20127,8 @@ class Runtime final : public menu::Host,
     // any, as without a profile. The match copies them as it is built.
     std::vector<oa::data::match_rules::UnitTypeRules> unit_type_rules_;
     // Each weapon's own rules from the data keys the mod profile binds,
-    // indexed by weapon ID; empty when no weapon has any. The match copies
-    // them as it is built.
+    // indexed by slot, which is the weapon id; empty when no weapon has any.
+    // The match copies them as it is built.
     std::vector<oa::data::match_rules::WeaponTypeRules> weapon_rules_;
 
     // The map's placed units in this match (setup.map-scripted-units).
@@ -18240,9 +20148,12 @@ class Runtime final : public menu::Host,
 
     MapUnitRun map_units_{};
     oa::sim::combat_state::WeaponRegistry weapon_registry_;
+    /// The weapon types the playing match loaded. Empty until a match has
+    /// loaded its weapons.
+    std::optional<uint32_t> match_weapon_types_;
     // The 3DO model each weapon registry slot draws its shots with (TDF
     // `model`), read with the weapon definitions as the match starts.
-    std::map<uint8_t, std::string> weapon_model_names_;
+    std::map<uint16_t, std::string> weapon_model_names_;
     // Each unit type's target-category masks, by type id.
     std::vector<oa::data::unit_definitions::UnitTargetCategoryMasks> unit_target_masks_;
     // Each unit type's build-cursor preview keys, by type id; empty when the
@@ -18281,6 +20192,9 @@ class Runtime final : public menu::Host,
     std::map<std::string, std::size_t> widget_gaf_frames_;
     std::map<std::string, std::size_t> widget_text_stages_;
     std::map<std::string, renderer::SpriteOverride> widget_sprites_;
+    // Side buttons whose art has no frame for the shown side. The presentation
+    // draws their bevelled face and the side's name.
+    std::set<std::string> widget_caption_only_;
     uint32_t menu_flags_ = 0;
     int32_t event_button_ = 1;
     bool input_enabled_ = true;
@@ -18402,6 +20316,16 @@ class Runtime final : public menu::Host,
     // NEWGAME.GUI's gadget with the keyboard focus: the one its setup
     // focuses, then the control last pressed.
     std::string campaign_setup_focus_{};
+    /// The mounted folders, archives, language and language packs
+    /// side_has_campaign remembers its answers for.
+    [[nodiscard]] std::string side_campaign_mount_key() const;
+
+    // side_has_campaign's answers for side_campaign_key_. Dropped when the
+    // mounted folders, archives, language or language packs change.
+    std::string side_campaign_key_{};
+    bool side_campaign_known_ = false;
+    bool side_campaign_arm_ = false;
+    bool side_campaign_core_ = false;
     // The record of the frontend screen's panel holding the keyboard focus,
     // -1 for none (frontend_focus()).
     int32_t frontend_focus_ = -1;
@@ -18673,6 +20597,18 @@ class Runtime final : public menu::Host,
     renderer::Surface* overlay_target_ = nullptr;
     bool hud_source_space_ = false;
     oa::ui::display_layout::Point paint_origin_{}; // canvas position of the paint target's (0,0)
+    /// The lines the open BackedText groups hold.
+    oa::ui::hud::TextHold text_hold_{};
+
+    /// A line of the modern fonts laid on a layer, for the checks.
+    struct PaintedLine {
+        const renderer::Surface* target{}; ///< the layer
+        oa::ui::hud::LaidLine line{};
+    };
+
+    /// The lines lay_match_text laid, in order, while a check asks for them;
+    /// none noted while empty.
+    std::optional<std::vector<PaintedLine>> painted_lines_{};
     bool match_use_layers_ = false;
     renderer::Surface* capture_frame_ = nullptr;  // receives the next presented frame
     std::unique_ptr<VideoCapture> video_capture_; // --capture-video, while it runs
@@ -18680,7 +20616,10 @@ class Runtime final : public menu::Host,
     TiledTexture match_dialog_tex_;
     renderer::Surface match_hud_cpu_{};
     // The HUD layer the frame before showed, whose memory the next frame's
-    // HUD is drawn into.
+    // HUD is drawn into. Until then the HUD's upload sends only the bands
+    // that differ from it (upload_rgb24_frame), which holds while the HUD
+    // layer is drawn on only between its composition (compose_match_hud)
+    // and its upload.
     renderer::Surface spare_match_hud_{};
     renderer::Surface match_world_cpu_{};
     /// The health bars the last match frame drew, in the order drawn, in
@@ -19067,6 +21006,9 @@ class Runtime final : public menu::Host,
     std::set<std::string> missing_sounds_{};
     /// The sounds whose failure to play the run has reported, by the same key.
     std::set<std::string> reported_sounds_{};
+    /// The faults of the game data the run has logged, by their lines
+    /// (report_data_fault).
+    std::set<std::string> reported_data_faults_{};
     // The GUI context's cursor and pointer, with the picture the software
     // cursor shows and the cursor table index of the animation shown; the
     // runtime keeps them in place of the Game block's gui_context_block and
@@ -19294,6 +21236,12 @@ class Runtime final : public menu::Host,
     // The player's own folder for this run (start_user_folder); empty
     // before it is chosen.
     fs::path user_folder_;
+    /// Where --check-key-share writes the shared package. Empty asks the
+    /// player, or writes Keys/Shared when no dialog is offered.
+    fs::path key_share_save_path_{};
+    /// The folder --check-key-share reads Settings.ini and ddraw.ini from.
+    /// Empty uses the played mod's folder.
+    fs::path key_import_folder_{};
     // The opener of the player's folders and the main menu's notice of the
     // move; null until first used.
     std::unique_ptr<UserFolderState, void (*)(UserFolderState*) noexcept> user_folder_state_{
@@ -19318,6 +21266,111 @@ class Runtime final : public menu::Host,
     // The installed mutators; null until first read.
     mutable std::unique_ptr<MutatorLibraryState, void (*)(MutatorLibraryState*) noexcept>
         mutator_library_state_{nullptr, destroy_mutator_library_state};
+    // The key bindings' dispatcher; null until the first event or frame that feeds it.
+    mutable std::unique_ptr<KeyBindingsState, void (*)(KeyBindingsState*) noexcept>
+        key_bindings_state_{nullptr, destroy_key_bindings_state};
+    /// GUI quick keys of the mod in use. Empty until the first resolution.
+    std::vector<GuiQuickKey> gui_quick_keys_{};
+    /// Set once the mod's GUI files have been read. Cleared when the mod changes.
+    bool gui_quick_keys_gathered_{};
+
+    /// One Category word gathered at mod load, and the action that selects it.
+    struct GatheredTag {
+        std::string word{};   ///< the data's spelling
+        std::string action{}; ///< the action id
+    };
+
+    /// Category words of the mod's units, in registry order. Empty until the
+    /// GUI keys are gathered.
+    std::vector<GatheredTag> gathered_tags_{};
+    /// Reads the units' Category lines into `gathered_tags_`. [runtime_gui_actions.cpp]
+    void gather_tag_words();
+    /// The `select.tag-` actions this layout binds, and the `select.tag-` names
+    /// it keeps that the loaded units do not carry. Both stay empty when the
+    /// layout names no tag key. [runtime_key_bindings.cpp]
+    ///
+    /// @param bound tag actions that hold a chord
+    /// @param unknown tag names kept with their chords
+    void tag_layout_ids(std::vector<std::string>& bound, std::vector<std::string>& unknown) const;
+    /// The group whose key was pressed last, while a second press of it would
+    /// be a double press; 0 for none. Another key's press clears it.
+    int group_key_last_{};
+    /// When that key was pressed, in the key bindings' milliseconds.
+    uint64_t group_key_last_ms_{};
+    /// The word of the last two-press tag selection, as the data spells it.
+    std::string tag_reach_word_{};
+    /// Selected local unit ids after that press, in id order. The next press
+    /// of the same word reaches the whole map while the selection is still these.
+    std::vector<uint16_t> tag_reach_slots_{};
+    /// Sticky modifiers as they were when this event began, so a tap does not
+    /// apply to the key that armed it and a chord still sees them after consume.
+    bool sticky_event_{};
+    uint8_t sticky_event_mods_{};
+    /// Set while the key now being handled was already given to the action
+    /// dispatcher. A match hotkey reached any other way feeds its own press.
+    bool match_key_already_fed_{};
+    /// Called when the keys overlay is pressed. Null leaves the overlay to the match.
+    void (*keys_overlay_hook_)(Runtime&) = nullptr;
+    /// The layout name last read for the overlay. Empty is OA default.
+    std::string keys_overlay_layout_name_{};
+    int32_t keys_overlay_changes_{0};       ///< the player's own changes last read
+    std::string keys_overlay_signature_{};  ///< the bindings signature that name was read for
+    bool keys_overlay_layout_known_{false}; ///< the signature has been read, even when empty
+    /// The rotate hint last drawn over a building. Empty when none was drawn.
+    std::string rotate_hint_drawn_{};
+
+    /// One keycap drawn on an order button or a build cell.
+    struct KeyBadgeDrawn {
+        std::string gadget{}; ///< the gadget's name
+        std::string action{}; ///< the action id
+        std::string label{};  ///< the chord on the keycap
+    };
+
+    std::vector<KeyBadgeDrawn> key_badges_drawn_{}; ///< the badges last drawn
+
+    /// One order button whose underline followed its binding.
+    struct QuickKeyApplied {
+        std::string gadget{}; ///< the gadget's name
+        std::string action{}; ///< the action id
+        char letter{};        ///< the caption's letter, or 0
+    };
+
+    std::vector<QuickKeyApplied> quick_keys_applied_{}; ///< the underlines last applied
+
+    /// A latch or sticky modifier chip, and when it was turned on.
+    struct KeyLatchSeen {
+        std::string key{};    ///< which chip, stable when a modifier locks
+        uint64_t turned_on{}; ///< the order it joined the row
+    };
+
+    std::vector<KeyLatchSeen> key_latch_seen_{};
+    uint64_t key_latch_seen_next_{1};
+    /// The chip texts last drawn, including an overflow chip. Empty when none show.
+    std::vector<std::string> key_latch_chips_drawn_{};
+    /// The key of the press being handled, so a hold can tell which key lets it go.
+    uint16_t hold_key_scancode_{0};
+    /// The button release just seen started a hold, so that release activates nothing.
+    bool hold_confirm_ate_release_{false};
+    /// The hold ring snaps to quarters. No setting turns this on. The check sets it.
+    bool hold_confirm_reduced_motion_{false};
+    /// The pointer ring was drawn this frame.
+    bool hold_ring_drawn_{false};
+    int32_t hold_ring_done_{0};     ///< the ring's done, in the same units as hold_ring_whole_
+    int32_t hold_ring_whole_{1};    ///< the ring's whole
+    bool hold_ring_reduced_{false}; ///< the ring was drawn with reduced motion
+    int32_t hold_ring_x_{0};        ///< the pointer ring's left, in battlefield surface pixels
+    int32_t hold_ring_y_{0};        ///< the pointer ring's top
+    int32_t hold_ring_side_{0};     ///< the pointer ring's side, in surface pixels
+    /// The pointer roles copied from those bindings. Empty until the first resolution.
+    PointerRoleTable pointer_roles_{};
+    /// Set once the view settings have been read, so a later mod change loads again.
+    bool key_bindings_armed_{};
+    /// A mouse button 6, 7 or 8 went down this run. The key editor's mouse
+    /// picture draws those buttons once this is set.
+    bool mouse_extra_buttons_{false};
+    /// Why `--keys` cannot be played; empty when the run can start. The constructor ends with
+    /// status 2 when this is set.
+    std::string key_bindings_refusal_{};
     // The installed brains; null until first read.
     mutable std::unique_ptr<BrainLibraryState, void (*)(BrainLibraryState*) noexcept>
         brain_library_state_{nullptr, destroy_brain_library_state};
@@ -19325,6 +21378,19 @@ class Runtime final : public menu::Host,
     /// before the listing is first read. The brain picker's own feed reads it.
     /// It starts at 1, so a generation of 0 still means a feed has not spoken.
     mutable uint64_t installed_brains_generation_{1};
+
+    /// The copied bundle ids, read once until their generation moves or the
+    /// game folder changes. The main thread is the only one that reads them.
+    ///
+    /// @return the kept ids
+    [[nodiscard]] const std::vector<std::string>& kept_content_bundles() const;
+
+    /// The generation kept_content_bundles was read for. 0 before the first read.
+    mutable uint64_t content_bundles_seen_{0};
+    /// The game folder that read was for.
+    mutable std::filesystem::path content_bundles_folder_{};
+    /// The copied bundle ids from that read.
+    mutable std::vector<std::string> content_bundles_kept_{};
     /// True while the Library was on the OA layer last frame. Its closing
     /// reloads the installed brains once, not every frame it stays closed.
     bool library_was_open_{};
@@ -19531,6 +21597,10 @@ class Runtime final : public menu::Host,
     // The registries and their catalogues; null until start_content.
     std::unique_ptr<ContentState, void (*)(ContentState*) noexcept> content_{
         nullptr, destroy_content_state
+    };
+    // The background check for a new release; null until the first tick.
+    std::unique_ptr<UpdateState, void (*)(UpdateState*) noexcept> update_{
+        nullptr, destroy_update_state
     };
     // The state of the renderer borrowed with its host; null without one,
     // as in a headless run, on a window of the runtime's own or in the

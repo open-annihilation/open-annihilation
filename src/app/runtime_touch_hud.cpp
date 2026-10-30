@@ -211,6 +211,8 @@ struct PaintContext {
     const renderer::Surface* hud_layer{};
     /// Where each build ring wedge's picture comes from and goes; null without the ring.
     const std::array<RingPicture, hud::build_ring_slot_count>* pictures{};
+    /// The wedge a mouse-opened wheel aims, lit as a pressed wedge. The pad's aim is separate.
+    std::optional<std::size_t> mouse_aim{};
 };
 
 /// How a control's icon and label are arranged inside it.
@@ -1720,10 +1722,13 @@ void paint_radial(const PaintContext& context) {
     if (outer <= inner || inner <= 0.0F)
         return;
     // The ring, then each wedge's lit or ringed look, then the gaps between them. The wedge the
-    // pad aims at is lit as a pressed one.
+    // pad aims at, and the wedge a mouse-opened wheel aims at, are lit as a pressed one.
     const auto& pad_look = state.pad;
     const auto aimed = [&](std::size_t slot) {
-        return pad_look.ring_by_pad && pad_look.radial_aim && *pad_look.radial_aim == slot;
+        const bool pad_aims =
+            pad_look.ring_by_pad && pad_look.radial_aim && *pad_look.radial_aim == slot;
+        const bool mouse_aims = context.mouse_aim && *context.mouse_aim == slot;
+        return pad_aims || mouse_aims;
     };
     context.painter.fill_sector(centre, 0.0F, outer, 0.0F, pi, sheet_colour);
     for (std::size_t slot = 0; slot < radial.wedges.size(); ++slot) {
@@ -1761,12 +1766,44 @@ void paint_radial(const PaintContext& context) {
     context.painter.outline_circle(
         centre, outer - px(context, 0.5F), px(context, 1.0F), edge_colour
     );
-    // Each wedge's icon over its label.
+    // Each wedge's icon over its label. A lit wedge is lettered in the
+    // accent's own ink.
     const float side = px(context, 16.0F);
     const float size_points = 8.5F;
+    const float least_points = sub_label_points;
     const float cap = cap_share * static_cast<float>(font_px(context, size_points));
     const float gap = px(context, 3.0F);
-    const float room = (outer - inner) * 1.1F;
+    const paint::Rgba on_accent_colour{
+        kit::colour::on_accent.r,
+        kit::colour::on_accent.g,
+        kit::colour::on_accent.b,
+        kit::colour::on_accent.a
+    };
+    // Where a row of a wedge's caption may run: from the label's column
+    // outwards, as far as each side keeps clear of the wedge's edges and its
+    // two arcs.
+    const float clear = px(context, 2.0F);
+    const float step = std::max(px(context, 0.5F), 0.5F);
+    const auto in_wedge = [&](float middle, float at_x, float row) {
+        const float dx = at_x - centre.x;
+        const float dy = row - centre.y;
+        const float radius = std::hypot(dx, dy);
+        if (radius < inner + clear || radius > outer - clear)
+            return false;
+        float off = std::atan2(dx, -dy) - middle;
+        while (off > pi)
+            off -= 2.0F * pi;
+        while (off < -pi)
+            off += 2.0F * pi;
+        const float apart = slot_angle * 0.5F - std::abs(off);
+        return apart > 0.0F && radius * std::sin(apart) >= clear;
+    };
+    const auto row_reach = [&](float middle, float from_x, float row, float direction) {
+        float reach = 0.0F;
+        while (reach < outer && in_wedge(middle, from_x + direction * (reach + step), row))
+            reach += step;
+        return reach;
+    };
     for (std::size_t slot = 0; slot < radial.wedges.size(); ++slot) {
         const auto& wedge = radial.wedges[slot];
         const bool pressed =
@@ -1775,7 +1812,7 @@ void paint_radial(const PaintContext& context) {
              is_pressed(state, Control::radial_item, static_cast<uint8_t>(wedge.item)));
         paint::Rgba colour = wedge.default_item ? lit_colour : label_colour;
         if (pressed)
-            colour = ink_colour;
+            colour = on_accent_colour;
         colour = greyed_if(colour, !wedge.available);
         const float x = static_cast<float>(wedge.label.x) * context.scale_x;
         const float y = static_cast<float>(wedge.label.y) * context.scale_y;
@@ -1783,14 +1820,28 @@ void paint_radial(const PaintContext& context) {
         context.painter.draw_icon(
             radial_icon(wedge.item), paint::Area{x - side * 0.5F, top, side, side}, colour
         );
+        // The caption stays inside its wedge: its room is what both its top
+        // and its bottom rows keep clear, it sits in the middle of that room,
+        // and a caption wider than the room steps down in size, then is
+        // shortened.
+        const float middle = static_cast<float>(slot) * slot_angle;
+        const float caption_middle = top + side + gap + cap * 0.5F;
+        const float upper = caption_middle - cap * 0.5F;
+        const float lower = caption_middle + cap * 0.5F;
+        const float left =
+            x - std::min(row_reach(middle, x, upper, -1.0F), row_reach(middle, x, lower, -1.0F));
+        const float right =
+            x + std::min(row_reach(middle, x, upper, 1.0F), row_reach(middle, x, lower, 1.0F));
+        const float room = right - left;
+        const std::string caption = context.translate(radial_label(wedge.item, state));
+        float fitted_points = size_points;
+        while (fitted_points > least_points && context.fonts != nullptr &&
+               static_cast<float>(
+                   paint::text_width(*context.fonts, caption, font_px(context, fitted_points), true)
+               ) > room)
+            fitted_points -= 0.5F;
         text_centred(
-            context,
-            context.translate(radial_label(wedge.item, state)),
-            x,
-            top + side + gap + cap * 0.5F,
-            size_points,
-            colour,
-            room
+            context, caption, (left + right) * 0.5F, caption_middle, fitted_points, colour, room
         );
     }
     // The hub: QUEUE for the next pick, lit once tapped.
@@ -2210,14 +2261,22 @@ bool same_frame(const hud::Frame& a, const hud::Frame& b) {
 } // namespace
 
 bool TouchDrawAccess::refresh_layer(Runtime& runtime) {
-    // The touch controls, or the pad HUD a gamepad brought; without either nothing is drawn.
-    if (runtime.touch_ == nullptr || runtime.screen_ != Screen::match ||
-        (!runtime.touch_controls_active() && !runtime.touch_->hud.pad.hud))
+    // The touch controls, the pad HUD a gamepad brought, or a wheel a mouse button opened.
+    // With neither the controls nor the pad HUD on, that wheel is the only thing drawn.
+    if (runtime.touch_ == nullptr || runtime.screen_ != Screen::match)
+        return false;
+    const bool controls = runtime.touch_controls_active() || runtime.touch_->hud.pad.hud;
+    const bool mouse_wheel =
+        runtime.order_wheel_mouse_open() && runtime.touch_->hud.radial.has_value();
+    if (!controls && !mouse_wheel)
         return false;
     auto& state = *runtime.touch_;
     auto& layer = state.layer;
     const auto& match = runtime.match_layout_;
-    if (!state.frame_ready || match.width <= 0 || match.height <= 0)
+    if (match.width <= 0 || match.height <= 0)
+        return false;
+    // The full controls need a laid-out frame. The wheel alone does not.
+    if (controls && !state.frame_ready)
         return false;
     double density = runtime.match_display_density();
     if (!std::isfinite(density) || density <= 0.0)
@@ -2263,9 +2322,13 @@ bool TouchDrawAccess::refresh_layer(Runtime& runtime) {
         state.hud,
         state.frame,
         state.hud.build_ring ? &runtime.match_hud_cpu_ : nullptr,
-        state.hud.build_ring ? &pictures : nullptr
+        state.hud.build_ring ? &pictures : nullptr,
+        runtime.order_wheel_mouse_aim()
     };
-    paint_controls(context);
+    if (controls)
+        paint_controls(context);
+    else
+        paint_radial(context);
     layer.bounds = painter.painted();
     layer.drawn = look;
     layer.drawn_frame = state.frame;

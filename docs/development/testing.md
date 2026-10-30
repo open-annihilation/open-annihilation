@@ -88,7 +88,7 @@ player's copy, and its preferences and player folder stay in the build tree.
 `native-library-update-question` (`--check-library-update-question`) installs
 made-up Ridge from an added registry and offers an update whose rules change.
 At 640x480 it opens that row's details page, where the tabs are not shown.
-NOT NOW leaves the page. UPDATE, fifty times, leaves the Library on top with
+Not now leaves the page. UPDATE, fifty times, leaves the Library on top with
 its tabs on the next frames, including once the update is no longer offered.
 Its preferences, data and player folder stay in the build tree.
 
@@ -151,14 +151,16 @@ it, a mod's into its own folder, the earlier folders still read while they
 hold one, a save, a screenshot and a film
 placed in the `default` folders of `Saves`, `Screenshots` and `Films`
 without a mod and in a made-up mod's own with one, the main menu's notice
-of the moves shown once in the settings dialog's look and closed, its Open
+of the moves shown once in the settings dialog's look and closed, at
+640x480, 800x600 and 2560x1440, with its corners rounded as the OA layer
+shows them, its Open
 folder button and the
 settings' Your files buttons through a recorded opener, and the `Mods`
 folder's mods offered to the Library. With `--snapshot` it writes the
 notice and the Your files row beside the snapshot. `native-mod-switch`
 (`--check-mod-switch`) writes two test profiles into that folder's `Mods`
-and switches the mod thirteen times through the Library, with PLAY NOW, and
-SWITCH OFF and its Switch Mod question for no mod, each a soft restart on
+and switches the mod thirteen times through the Library, with Play now, and
+Switch off and its Switch Mod question for no mod, each a soft restart on
 the same window: each run plays the mod chosen, shown as played, and what
 the heap holds in live allocations as the last
 round's runs reach the main menu stays level with the first round's after
@@ -172,8 +174,8 @@ declines an older revision, installs another version alongside, leaves a
 folder that holds another mod as it is, refuses a profile that does not
 resolve, rolls a mod back twice in the Library, offers no roll back to a
 kept version this build cannot play and refuses, in a prompt, one that
-became so while it asked, and plays the mod with PLAY
-NOW; the second replaces the mod played, the change staged until the run
+became so while it asked, and plays the mod with Play
+now; the second replaces the mod played, the change staged until the run
 ends; the third finds it put in place, told, and rolls it back; the fourth
 finds that put in place and leaves the folder as a stop after a replace's
 first rename would; the fifth finds the mod played all the same, put back
@@ -190,8 +192,8 @@ that folder's `Mods`: one whose second side's interface art and font are
 missing, one whose unit files are missing, one whose commander's file the
 catalog refuses and one that plays whole; and two folders without a
 profile: one whose SIDEDATA names the same missing art and font, and one
-that lacks a side's LOGO, which the Library's PLAY NOW refuses in a note.
-It switches to each of the others with PLAY NOW, in one run: the folder
+that lacks a side's LOGO, which the Library's Play now refuses in a note.
+It switches to each of the others with Play now, in one run: the folder
 and the
 profile whose side files are missing each warn of both files once over the
 main menu and say that their games still start, and a skirmish on that
@@ -218,7 +220,7 @@ distortion at 0%, and its pinned sound with them at their defaults. With a
 named file Hardware acceleration and Vertical sync are
 Off, and the windowed checks' `SDL_RENDER_DRIVER=software` locks both, so no
 check draws through the graphics card or waits for the display; game text
-keeps the game's own fonts there too, as modern fonts are Off. Five
+keeps the game's own fonts there too, as modern fonts are Off. Six
 checks pass `--force-capable`, which lifts those locks:
 `native-engine-settings`, so that it can turn Vertical sync On and read it
 back, and set Hardware acceleration to Basic, Full and Off through the
@@ -255,6 +257,13 @@ panel among them, leaves to the card in the Full tier what of it lies over
 the battlefield, and the cases above hold it to what it asks: beside the
 processor's picture, under the fog, over the never-mapped ground's black
 and over the kill board.
+`native-underwater-features` draws metal patches on the sea bed of Steel
+Jungle, in open water, at a shore and at the edge of a boat's sight, in
+the Off, Basic and Full tiers with `--hardware-acceleration`, and holds
+each to the processor's picture: exactly with the water's effects off and
+the fog Classic, in the processor's colours with the water's effects at
+their defaults, and pixel by pixel through the Smooth fog's edge; its
+pictures go to `local/reports` in its folder of the build tree.
 
 No window of a check opens at the display's own pixel density but
 `native-render-tiers-density`'s, which `--native-density` opens so, and
@@ -303,7 +312,7 @@ up to four threads, one on a machine of one or two logical processors.
 `OA_DRAW_THREADS` (1 to 32) sets the count for every run of the game a test
 starts, and `--draw-threads N` for one run; every count draws the same
 frames, which `native-draw-threads`, `world-draw-bands`,
-`app-xrgb-conversion`, `present-surface-band`,
+`app-xrgb-conversion`, `app-renderer-effects`, `present-surface-band`,
 `model-render-rgb-bridge` and `model-render-mesh-raster`
 check. To run the whole suite on one drawing thread, or on many:
 
@@ -330,7 +339,17 @@ alone: `screens`, `orders`, `outcomes`, `zoom` (the zoom's limits and the
 first view of a match on the game's own screen), `zoom-1366x768`,
 `zoom-1920x1080` and `zoom-2560x1440` (the same on that window) and
 `campaign`. `--check-navigation` without a group runs every group in one
-game. The side commanders check runs
+game. `native-navigation-zoom-effects` runs the zoom group with weapon
+lighting, nanolathe lighting, wreck glow and heat distortion at 100%. A
+named preferences file otherwise reads those four effects as 0%, so the
+other navigation checks do not draw them. `native-single-player-offers`
+(`--check-single-player-offers`) opens Single Player over the installed
+game, where a side has a campaign, and checks New Campaign opens the
+campaign screen and Previous Menu returns.
+`native-single-player-offers-hidden` runs the same check over a mod folder
+that hides every campaign file with an empty file of the same name: New
+Campaign stays shown and greyed, a press and its key stay on Single Player
+with no notice, and Any Mission is hidden. The side commanders check runs
 as one test for each part (`--part`): `art`, `rule`, `loopback`, `give`, and
 `records-GROUP`, the navigation group over its mod folder.
 
@@ -429,6 +448,10 @@ files in the tree, and `mod-docs-sync` while a generated block of the
 [standard hack and script extension pages](../mods/README.md) or their
 tables differs from what `tools/gen_mod_docs.py` writes, or a page names no
 hack or extension; running the script brings each back in step.
+`input-actions-sync` fails while the action table
+`tools/gen_input_actions.py` writes differs from the tree or the registry
+breaks a rule, and `input-actions-sync-selftest` while the self-test
+reports a failure.
 
 `OA_MOD_GAME_DIR` names a mod's copied install: an `OA_GAME_DIR`
 installation with the mod's files copied over it. With it and
@@ -492,6 +515,18 @@ reference profile the same way, and skip without both variables:
 `defs-rule-keys` and `unit-script-extensions` cover the same readers with
 made-up files and scripts and always run.
 
+`limits-fixture` (`tools/make_limits_fixture.py`) makes two mod folders from
+the installed game when `OA_GAME_DIR` is set, and writes them under
+`${CMAKE_BINARY_DIR}/limits-fixture`. Nothing of them is committed. They
+hold weapon ids past 255 and seven sides, for the weapon and side limits.
+`ridge-wide` carries `RIDGE_W300` at id 300, `RIDGE_W1000` at id 1000 and
+`RIDGE_W2000` at id 2000, a unit whose first weapon is `RIDGE_W300`, and
+sides Ridge2 to Ridge6 beside the game's first two, with limits of 1024
+weapon types and 10 sides. `ridge-sides` carries the same seven sides and a
+limit of 7 sides, and no weapon clones. A check that reads either folder
+declares `FIXTURES_REQUIRED limits-fixture`. Make the folders by hand with
+`python3 tools/make_limits_fixture.py --game-dir "$OA_GAME_DIR" --oa-tool build/oa-tool --out build/limits-fixture`.
+
 ### Network play
 
 Network play is always built and tested. Its tests are `network`, the
@@ -526,6 +561,16 @@ names, these run the game headless:
   machines once, and gives up only after 200 rounds and 15 s with no
   progress (the unit sync shows its records as progress), so a machine
   under load takes longer over the checks without failing them;
+- `native-net-loopback-wide` (`--net-loopback-check 300 --mod-dir` of
+  `ridge-wide` and `--net-loopback-shooter RIDGEW300`) runs that check under
+  a profile with more than 256 weapon types. The host makes one `RIDGEW300`
+  beside its commander. That unit fires at the ground beside the commander's
+  aim point, its shots cross as the wide weapon records, both worlds digest
+  the same, and the joiner receives no 0x0d, 0x0e or 0x0f. It needs the
+  `limits-fixture` fixture;
+- `native-net-loopback-sides` runs the plain check on `ridge-sides`, whose
+  profile raises only the side limit, so weapon records stay the narrow ones
+  (`wide records applied 0 / 0`). It needs the `limits-fixture` fixture;
 - `native-multiplayer-menu` (`--check-multiplayer-menu`) clicks MULTI and
   checks the multiplayer screens;
 - `native-recording-hook` (`--check-recording-hook`) checks that the game
@@ -566,9 +611,13 @@ dialog's field and scrolls a skirmish's camera with an arrow key the
 endpoint holds down; `native-automation-frame`
 (`tools/check_native_automation_frame.py`) asks the game on the main menu
 for the frames it presents, in a 640x480 window and in a 1280x720 one,
-and checks them against the frame it composed; and
-`native-automation-digest` (`tools/check_native_automation_digest.py`)
-plays a recorded network game back in the main loop with and without the
+and checks them against the frame it composed;
+`native-automation-hit-areas` (`tools/check_native_automation_hit_areas.py`)
+presses every control of Settings, and clicks a sample of the Library's
+and the key editor's, at the centre of where it is drawn, at each
+Interface size and Window size Settings offers in both looks, and
+requires each to answer there; and `native-automation-digest`
+(`tools/check_native_automation_digest.py`) plays a recorded network game back in the main loop with and without the
 endpoint, a client reading the match and every event at every frame, and
 requires the same trace stream.
 `native-automation-extension-windows`
@@ -684,6 +733,31 @@ walk runs:
   back lifts, and, tripped while Full draws, drops Full first, freeing its
   pages, and Basic at the next sample while memory stays short. Each skips
   under 2 GiB.
+
+`native-dialog-backdrop` (`--check-dialog-backdrop`) opens the in-game
+briefing, the save dialog and the help dialog over a paused CORE mission
+at sea in the standard, Basic and Full tiers, at zoom 1, 1.5, 2 and 0.5,
+and holds the frame presented with each dialog to the frame presented
+without it in every battlefield pixel outside the dialog's panel, the
+units' among them, and at a raised display gamma the Full tier's within
+half a step of the gamma's levels. Unlike the checks above it leaves the video driver to
+the environment: on SDL's dummy driver it runs on the software renderer,
+switched to every tier as `--force-capable` allows, and on a machine with
+a graphics card, run without `SDL_VIDEO_DRIVER=dummy`, on the card (Metal
+on a Mac), in a window. It writes the frames at zoom 1, and any that
+differ, to `local/reports` in its folder, and skips under 2 GiB.
+
+`native-factory-departure` (`--check-factory-departure`) places, in a
+skirmish of its own each, a finished vehicle plant, Kbot lab, hovercraft
+platform, aircraft plant and shipyard of each side, the shipyard on the
+water nearest the commander, and has it build its construction unit. On
+every tick from the unit's release until it has left the factory's
+footprint, it draws the frame at each of the sixteen camera rows of one
+plot's scroll, and every frame must draw the unit after the factory, so
+that the platform never covers it; an aircraft may stay over the platform
+instead. A factory the installed game lacks is passed over with a line
+saying so. With `--snapshot`, it writes the frames of each factory's first
+tick beside that path.
 
 ### Touch controls
 
@@ -855,28 +929,28 @@ keyboard would, fails with the step it waited for when one does not come,
 and each test passes when the game prints `game-files check: <variant>:
 passed`:
 
-- `native-game-files`: CHOOSE FOLDER through Ready to copy (its list of
+- `native-game-files`: Choose folder through Ready to copy (its list of
   files left out, a switch off and on), copying and Ready to play to the
   main menu, at 1194x834, with the OA · Aa dialog opened and cancelled on
   the way; the game folder then holds the subset and none of the files left
   out, and it was kept out of the device's backups;
 - `native-game-files-phone`: the same in the phone form, at 852x393;
-- `native-game-files-demo`: CHOOSE INSTALLER with the demo's installer, its
+- `native-game-files-demo`: Choose installer with the demo's installer, its
   game data unpacked (skipped without `OA_DEMO_INSTALLER`);
-- `native-game-files-copy-yourself`: I HAVE COPIED IT with nothing there,
-  the files copied in by the check under another name, CHECK AGAIN, USE IT;
+- `native-game-files-copy-yourself`: I have copied it with nothing there,
+  the files copied in by the check under another name, Check again, Use it;
 - `native-game-files-stop`: a copy held to 4 MB a second; after 8 MB the
   game leaves the screen and comes back while it goes on, then leaves again
   until its time away runs out and the copy pauses and starts again on
-  return; then STOP, keeping what was copied;
+  return; then Stop, keeping what was copied;
 - `native-game-files-resume`: the next start continues that copy, skipping
   the files already copied (it needs `native-game-files-stop`);
 - `native-game-files-not-game`: a folder that holds no installation, chosen
   with a mouse click, left with Escape;
-- `native-game-files-short-space`: not enough space for the copy, COPY off,
-  CHECK AGAIN;
+- `native-game-files-short-space`: not enough space for the copy, Copy off,
+  Check again;
 - `native-game-files-manage`: the management state: adding a mod,
-  checking, removing the music, DONE;
+  checking, removing the music, Done;
 - `native-game-files-manage-next-start`: the next start applies the
   removal (it needs `native-game-files-manage`).
 
@@ -997,6 +1071,133 @@ corner; with the chip's setting stored Off the fixture draws none. Its
 output names each window size. `native-registered-kit` checks the same
 hosts with a page, a screen, a notice and a prompt registered from inside
 the engine, with their size class and scale.
+
+### OA's own screens
+
+The native checks of OA's own screens open them at window sizes chosen for
+the size class each gives under Auto: the largest class whose settings
+dialog fits with 24 points round it, one step of scale down where that
+gives Large ([src/ui/kit](../../src/ui/kit/README.md#entry-points)). With
+the modern fonts Off, as a check's preferences file leaves them, 640x480 is
+Compact at 1x, 800x600 Regular at 1x, 1280x720 and 1920x1080 Large at 1x,
+and 2560x1440 Large at 2x. `native-kit-gallery`, `native-key-editor` and
+`native-key-views` use 640x480, 1280x720 and 1920x1080;
+`native-mutator-picker`, `native-brain-picker` and `native-map-browser`
+add 2560x1440, the map browser showing six columns at Large. The checks
+that show a notice or a prompt (`native-user-folder`,
+`native-registered-kit`, `native-mod-warning` and `native-mod-install`)
+show it at 640x480, then at 800x600 and 2560x1440. Each compares the
+window with its own drawing of the screen, its corners rounded as the OA
+layer rounds every window and dialog; a check that draws a screen straight
+rounds it the same way (`round_drawn_screen` in
+`src/app/oa_layer_check.hpp`).
+
+`native-engine-settings` (`--check-engine-settings`) shows Settings over
+the main menu at 640x480, 800x600, 1280x720, 1920x1080 and 2560x1080, and
+chooses Interface sizes on 1920x1080: 200% is Regular at 2x, 400% Compact
+at 3x and Auto Large at 1x. In a match it shows the dialog at 640x480,
+1280x720, 1920x1080 and 2560x1080 with HUD scaling On and at 1920x1080 with
+it Off: Compact at 1x at 640x480 and Large at 1x on the others, clear of the
+side column, and the wheel scrolls a section only where it is taller than
+its view. It reads the step Page Up and Page Down take from the dialog
+(`dialog_page_step`, 184 points at Compact). At Compact, Developer scrolls
+as one: its walk pages down past its rows and its list to Show Active Only
+and Restore profile values, and scrolls back up before it presses Enable
+Developer Mode. The OA layer's own steps in the same check move Settings by
+its title (it keeps its place, a double-click centres it, Alt and the
+arrows move it, and Reset window positions puts it back), find a window's
+and a dialog's corners clear outside the quarter circle and edged along it
+at 1x, 1.5x and 2x, show a notice with rounded corners over the main menu
+at 640x480 and 2560x1440, and press S on Accessibility's practice pad, which
+shows it there and does not pass it to the main menu.
+
+`app-window-placement` checks where windows that move are kept: the Window
+size words and classes, the preference keys of a window's place, their
+values and Reset window positions forgetting them, rounding, a window
+kept 64 points on screen at 1x and 2x with its title in the room, snapping to
+the centred place, the room's centre and the safe edges, a drag and the
+Alt and arrow keys, a finger's hold before it drags, and the in-match
+dialog's class and place on a table of windows from 640x480 to a phone's.
+`app-overlay-placement` checks Arrange Overlays' places: the keys, values
+and refused texts, a place per size class, Reset forgetting only the
+overlays' keys, each place measured from the nearest edge or centre of the
+battlefield on the 8-point grid, a drag and the arrows with and without
+Shift, and the overlays' own places at 640x480, 1280x720 and 1920x1080,
+none past the battlefield nor over the 128-point side column.
+`native-keys-overlay` (`--check-keys-overlay`) checks the keys overlay in
+a skirmish, then the overlays' places: Move overlays off by default with
+Arrange… waiting for it; on the main menu at 1280x720 and 640x480, Move
+overlays on and Arrange… opening the picture of the match, a handle on each
+overlay's sample inside the battlefield, the keys overlay, the latch chips
+and the chat line dragged to places on the grid, Cancel putting places
+back and Reset forgetting them; in a second skirmish the keys overlay, a
+latched QUEUE's chip and the chat line at their places at both sizes and
+1920x1080 keeping 1280x720's; the in-game menu's OA Settings as wide as
+Resume under it, opening Settings; Arrange… in a match; and Move overlays
+off putting every overlay back while keeping the places. With
+`--snapshot` it writes `arrange-overlays-<w>x<h>.ppm` and
+`arrange-overlays-modern-<w>x<h>.ppm` at 640x480, 800x600 and 1280x720,
+`overlays-placed-<w>x<h>.ppm`, `ingame-menu-<w>x<h>.ppm` and
+`rounded-settings-<w>x<h>.ppm` at 640x480 and 1280x720,
+`arrange-overlays-match-1280x720.ppm` and `overlays-default-1280x720.ppm`.
+`native-keys-overlay-restart` starts the game again on the preferences the
+first run left, Move overlays on, and finds the keys overlay and the chat
+line where they were put. `native-selection-keys`
+(`--check-selection-keys`) presses each of 3.1c's Ctrl+letter keys in a
+skirmish as the system sends them: the modifier's own key down first, the
+key down and up, then the modifier up, each through the event queue with
+the pointer moving between them. It plants radar, sonar and jammer units,
+a fighter, a bomber, a scout plane and armed kbots, and an enemy radar
+tower, and requires Ctrl+A to take only the units that can be selected,
+each other selection the loaded data's Category words name,
+the rings Ctrl+R draws on the minimap, Ctrl+Shift+R and Ctrl+Shift+P
+adding, Ctrl+1 and its group key, and Primary+/ opening and closing the
+keys overlay. It plays Group keys centre the view each way: On a double
+press, one press of the group's key selects it and leaves the view, two
+quick presses centre the view on it and two slow ones do not; Never leaves
+the view; On every press leaves the view on the first press and centres it
+on a later press, past the double-press time. `native-match-layers` holds the frame a match
+ends on to the one the game kept with Show keys on buttons Off, since the
+key badges are drawn on the presented frame alone.
+
+The key editor's draw tests (`ui-key-editor-draw`, `-draw-data`) pin, in
+`src/ui/key-editor/tests/frames.txt`, the list on Common commands, the
+details, the capture's outcomes, the clash question and the settling
+question, Find by key, the draft line with Undo, the capture's More
+options and the keyboard shown as a list, at each class where the screen
+has one. `native-key-editor` (`--check-key-editor`) checks the editor over
+Settings and in a paused skirmish, and the question that asks before
+unsaved edits are closed, with Save, Discard and Keep editing; with
+`--snapshot` it also writes `key-editor-draft.ppm` and
+`key-editor-close-question.ppm` at 1280x720. `native-key-capture`
+(`--check-key-capture`) captures a chord, swaps a clash only once the
+question's confirm button is pressed, hears Primary+ through Find by key,
+and settles a draft clash from Settle…. `native-library`
+(`--check-library`) writes real layouts and the player's own changes into
+the check's Keys folder, presses USE and checks where it asks, What moves,
+Keep them on top and Start clean, that the own changes are never written
+over, and that Undo after USE puts the layout in use back and removes only
+an own folder USE made.
+
+`app-update-centre` checks the update centre's state for each set of
+facts, its actions and words, the route's install words, scheduling and
+taking it back, Later kept apart from Skip, a held release, each failure's
+words and the time left; `app-update-receipt` checks the receipt the
+update helper writes and the game reads. `native-update-download`
+(`tools/check_native_update_download.py`) runs the download check's cases,
+among them Pause and Resume from the main menu's update pill and from the
+update centre it opens, `cancel`, where Cancel download keeps nothing and
+goes back to the offer, and `pictures`, which draws every update screen in
+each state at 640x480, 1280x720 and 1920x1080 from made-up states and
+fetches nothing.
+
+The kit's own tests cover its additions: `ui-kit-notices` lays a
+question's parts out (callouts, boxes side by side, marked steps, a quiet
+and a danger button, a part the height cuts left out whole) and the update
+pill; `ui-kit-chrome` checks a header drawn at a height of its own
+(`header_takes_its_height`); and `ui-kit-keys` draws the keyboard's main
+block alone with every key's legend (`main_block_draws_its_keys_alone`,
+`main_block_keeps_every_legend`).
 
 ### Other builds
 
@@ -1159,6 +1360,28 @@ The installation of Total Annihilation 3.1c is not CI's to download: the
 game-data tests and the native checks over it run only on contributors'
 machines, so run them before asking for review.
 
+### Before a push: other compilers' warnings
+
+Clang on macOS does not turn on the narrowing warnings Visual Studio's
+compiler reports, or GCC's `-Wsign-compare`, so a push can be the first
+time those builds see them. `tools/check_conversions.py` compiles the C
+and C++ sources that changed since a merge base, with Clang and
+`-fsyntax-only`, and reports only the warnings that fall on changed
+lines. The three flags are:
+
+- `-Wimplicit-int-float-conversion` and `-Wshorten-64-to-32`, for the
+  narrowing Visual Studio's compiler reports as C4244 and C4267;
+- `-Wsign-compare`, the same warning GCC reports under that name.
+
+```sh
+python3 tools/check_conversions.py --base origin/main
+```
+
+The report names changed lines only. `--whole-files` reports every
+warning of those three flags in a changed file. The check needs Clang.
+Fix a finding with an explicit cast or a wider type. Do not turn the
+warning off.
+
 ## Start-up and screen timing
 
 A run writes `open-annihilation: timing:` lines. Each line ends with a
@@ -1207,7 +1430,7 @@ and the bar at three window sizes are in `docs/images/progress/`.
 | Characterisation | Pins what a decoder, raster routine or table does today, edge cases stated byte by byte and seeded sweeps pinned by digest | `present-rle`, `hpi-read-node` |
 | Pinned values | Pins digests or bytes that must not move: a whole match, the random streams, the bytes the writers produce | `match-determinism`, `match-shared-random`, `hpi-writer-golden`, `persist-bank-golden` |
 | Game data | Reads the installed game named by `OA_GAME_DIR` | `unit-definitions-data`, `installed-content` |
-| Native | Runs the game headless over the installation and checks what it does | `native-saveload`, `native-trace` |
+| Native | Runs the game headless over the installation and checks what it does | `native-saveload`, `native-saveload-limits`, `native-trace` |
 | Demo | Runs the game headless over the demo's data, unpacked from the installer `OA_DEMO_INSTALLER` names, and checks what it does | `native-demo-installer`, `native-demo-mission-ac01` |
 | Extension boundary | Checks the extension table and the `Runtime` members an extension may add | `extension-layout-mismatch`, `runtime-surface-names` |
 | Source checks | Check the tree's files against the conventions | `doc-links`, `style-ratchet`, `licensing-check` |
@@ -1236,7 +1459,7 @@ every commander's turn rate and worker time. The verdict stays compatible,
 each of those fields is held at 65535 on ARMCOM and CORCOM, and the dry
 run notes each held value once and prints the note. No match starts. `native-mutator-prompts` (`--check-mutator-prompts`) starts a skirmish with
 two made-up mutators, one of whose plans raises an error, and requires the
-start question, START WITHOUT IT, BACK, the question after a crash, Get
+start question, Start without it, Back, the question after a crash, Get
 mutators with RETRY, and the host's "The game did not start" for a guest
 without its release and for one with it. `native-mutator-picker`
 (`--check-mutator-picker`) opens the picker over the main menu at four
@@ -1255,8 +1478,48 @@ main menu at four window sizes on a fixture feed of made-up brains, then
 on the runtime's own feed after two packages are written into the scratch
 Brains folder.
 `native-brain-seat-buttons` (`--check-brain-seat-buttons`) checks each computer
-row's brain button on the skirmish setup at 640x480 and 1280x720, in a scratch
-folder: the label, Tab, the picker, the hover card and the brains a start seats.
+row's brain on the skirmish setup at 640x480 and 1280x720, in a scratch
+folder: the row's own Player button naming the brain, with the notch
+(`oa.brain-seat.<slot>`) at its right end, the label, Tab onto the notch,
+the brain menu from Return and from the right button, its level arrows,
+Options… opening the brain picker on that seat and USE THIS keeping the
+brain with its option, the built-in player putting the Difficulty word
+back, Use for every computer seat, the hover card, the left button keeping
+3.1c's own press, and the brains a start seats. With the Brains folder
+removed the setup's frame matches the one kept before any brain was
+written. It writes `brain-seats-skirmish-<w>x<h>.png` and, with the menu
+open, `brain-seats-menu-<w>x<h>.png`.
+`native-brain-campaign` (`--check-brain-campaign`) checks the campaign's
+computer player on NEWGAME and Any Mission: one button under Difficulty in
+the room's button art, Tab reaching it, the brain menu with no Use for
+every computer seat, the brain the first mission seats and the seat a
+loaded campaign save leaves. `native-brain-room` (`--check-brain-room`)
+hosts a battle room alone: a computer row's Resolution cell names its
+brain and its Mem cell shows the level over the room's greyed difficulty,
+the notch on its name opens the brain menu, the menu's built-in player
+and its level change the record the room sends, and the Mem cell steps the
+built-in player's difficulty. `native-mutator-button`
+(`--check-mutator-button`) and `native-mutator-room`
+(`--check-mutator-room`) check Mutators as one of the room's own on and
+off buttons on the skirmish setup, NEWGAME and the battle room: as large
+as its neighbour with the same edges (Previous Menu; on NEWGAME and Any
+Mission at the head of Difficulty's column; Select Map in the battle
+room), reading "Mutators", automation "Mutators · off" and "Mutators · N
+on", the lamp read from each frame (red with none on, green with some on
+and, in the battle room, blinking red while Visitor lacks one), the card
+the pointer shows on it, and, in the battle room, the button disabled
+while the room's options are locked.
+Among the battle room's steps of
+`native-net-room-mutators` (`tools/check_native_room_mutators.py`), which
+runs a host and a joiner as two programs, the host's button reads
+"Mutators" and its automation text "Mutators · 1 on" for an installed copy
+named by its id, and the room's chat names it by its name.
+`frontend-room-parts` draws the rooms' parts (a plate wider than its art,
+the notch, the OA stamp, a lamp, the bar and a list's rows) against a gray
+palette, steps a blinking lamp through its turns and reads lamps back from
+a picture, and `frontend-room-parts-data` draws each over the skirmish
+setup's background from the installed game's art and, with `--frames DIR`,
+writes `room-parts.png`.
 `native-replay-loadout` starts the game with
 `--check-replay-loadout`
 and two installed mutators. It refuses a loadout that cannot be read or
@@ -1302,6 +1565,17 @@ on the deep water must stand on their build grid at the sea level less
 their waterlines, a solar collector on a hill at the lowest corner under
 its footprint, read from the map with `oa-tool asset-extract`, and a patrol
 boat at a placed one's height, each to the end of the run.
+`native-lava-water-effects` (`tools/check_native_lava_water_effects.py`)
+finds a shore of flat land beside the sea in three maps' terrain, read with
+`oa-tool asset-extract`: Lava & Two Hills (`lavaworld=1`), Higher Ground
+(`lavaworld=1` and `nosealeveltrigger=1`) and Coast To Coast. On each, a
+stage walks a kbot along the shore's edge while two destroyers off it
+shell each other, and a director script renders it on the graphics card's
+Full tier, four seconds in the classic view and four turned, once with
+the four water effects at 100% and once at 0%. On the lava worlds every
+frame of the two renders is the same picture; on Coast To Coast every
+frame differs. It needs the system's video driver and skips under SDL's
+dummy driver; `--pictures DIR` keeps a still of each view of each render.
 
 ## Writing a test
 

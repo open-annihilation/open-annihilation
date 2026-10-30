@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The kit's points, Auto scale, the Interface size's scale rule, size
-// classes, arrangements, scroll areas and display list. The scroll numbers were computed with geometry::scroll_thumb,
+// classes and the resolution table they make, arrangements, scroll areas and display list. The scroll numbers were computed with geometry::scroll_thumb,
 // geometry::scroll_at and geometry::scroll_showing at c5e005df, the start of
 // this branch, by a throwaway program that was not committed. The parts of a
 // screen drawn in the modern fonts are measured with a made-up measure: 6
@@ -44,10 +44,12 @@ struct Window {
     kit::SizeClass size_class{kit::SizeClass::compact};
 };
 
-/// The design's six windows, at one canvas pixel a window point.
+/// The design's six windows, at one canvas pixel a window point, at the
+/// Auto scale of their height alone (kit::auto_scale), before the step down
+/// kit::layer_viewport may take.
 constexpr Window windows[] = {
     {640, 480, 1, 640, 480, kit::SizeClass::compact},
-    {1024, 768, 1, 1024, 768, kit::SizeClass::regular},
+    {1024, 768, 1, 1024, 768, kit::SizeClass::large},
     {1280, 720, 1, 1280, 720, kit::SizeClass::large},
     {1920, 1080, 2, 960, 540, kit::SizeClass::regular},
     {2560, 1440, 2, 1280, 720, kit::SizeClass::large},
@@ -169,8 +171,9 @@ void auto_chooses_one_and_a_half_where_it_is_offered() {
         kit::layer_viewport(desktop_canvas(720, 1077), kit::auto_with_fraction_percent)
             .scale_percent == 150
     );
-    // 1920 by 1080 is Large at 150%. 1914 by 1077, a few lines short, is
-    // Regular at 150%. Without 150% offered, 1080 is Regular at 2x.
+    // 1920 by 1080 is Large at 150%, and so is 1914 by 1077, a few lines
+    // short, with 1276 by 718 points. Without 150% offered, 1080 lines would
+    // be Regular at 2x, so Auto steps down to Large at 1x.
     const kit::Viewport full_hd =
         kit::layer_viewport(desktop_canvas(1920, 1080), kit::auto_with_fraction_percent);
     OA_CHECK(full_hd.scale_percent == 150);
@@ -178,8 +181,8 @@ void auto_chooses_one_and_a_half_where_it_is_offered() {
     const kit::Viewport short_hd =
         kit::layer_viewport(desktop_canvas(1914, 1077), kit::auto_with_fraction_percent);
     OA_CHECK(short_hd.scale_percent == 150);
-    OA_CHECK(kit::frame_of(short_hd).size_class == kit::SizeClass::regular);
-    OA_CHECK(kit::layer_viewport(desktop_canvas(1920, 1080), 0).scale_percent == 200);
+    OA_CHECK(kit::frame_of(short_hd).size_class == kit::SizeClass::large);
+    OA_CHECK(kit::layer_viewport(desktop_canvas(1920, 1080), 0).scale_percent == 100);
     // A phone at density 2 stays at 2x: the density floor is above 150%.
     kit::Viewport phone;
     phone.width = 1704;
@@ -204,10 +207,10 @@ void the_frame_matches_the_window_table() {
         OA_CHECK(rect_is(frame.area, 0, 0, window.points_width, window.points_height));
     }
     // One side reaching a class does not.
-    OA_CHECK(kit::size_class_of(1279, 720) == kit::SizeClass::regular);
-    OA_CHECK(kit::size_class_of(1280, 719) == kit::SizeClass::regular);
-    OA_CHECK(kit::size_class_of(959, 540) == kit::SizeClass::compact);
-    OA_CHECK(kit::size_class_of(960, 539) == kit::SizeClass::compact);
+    OA_CHECK(kit::size_class_of(1007, 648) == kit::SizeClass::regular);
+    OA_CHECK(kit::size_class_of(1008, 647) == kit::SizeClass::regular);
+    OA_CHECK(kit::size_class_of(767, 534) == kit::SizeClass::compact);
+    OA_CHECK(kit::size_class_of(768, 533) == kit::SizeClass::compact);
 
     // 2880 by 1800 at density 2: the height rounds to 3, above the density.
     OA_CHECK(kit::auto_scale(1800, 2.0F) == 300);
@@ -279,23 +282,18 @@ void an_interface_size_takes_the_largest_step_that_fits_compact() {
         OA_CHECK(laid.width == canvas.width && laid.height == canvas.height);
         OA_CHECK(laid.density == canvas.density);
     }
-    // Auto at each window of the design's table, and at the 2560 by 1080
-    // ultrawide window the window-size check takes: the Auto scale, which
-    // Compact fits at each.
-    for (const Window& window : windows) {
-        const kit::Viewport laid =
-            kit::layer_viewport(desktop_canvas(window.width, window.height), 0);
-        OA_CHECK(laid.scale_percent == window.scale * 100);
-        OA_CHECK(kit::frame_of(laid).size_class == window.size_class);
-    }
+    // Auto at each window is checked against the resolution table
+    // (compact_only_where_nothing_larger_fits). The 2560 by 1080 ultrawide
+    // window the window-size check takes would be Regular at 2x with 1280 by
+    // 540 points, so Auto steps down to Large at 1x.
     const kit::Viewport ultrawide = kit::layer_viewport(desktop_canvas(2560, 1080), 0);
-    OA_CHECK(ultrawide.scale_percent == 200);
-    OA_CHECK(kit::frame_of(ultrawide).size_class == kit::SizeClass::regular);
+    OA_CHECK(ultrawide.scale_percent == 100);
+    OA_CHECK(kit::frame_of(ultrawide).size_class == kit::SizeClass::large);
     // The canvas's own scale is not read, and a negative choice is Auto.
     kit::Viewport scaled = desktop_canvas(1920, 1080);
     scaled.scale_percent = 400;
-    OA_CHECK(kit::layer_viewport(scaled, 0).scale_percent == 200);
-    OA_CHECK(kit::layer_viewport(scaled, -100).scale_percent == 200);
+    OA_CHECK(kit::layer_viewport(scaled, 0).scale_percent == 100);
+    OA_CHECK(kit::layer_viewport(scaled, -100).scale_percent == 100);
     // Each step up to the most that fits, and no further; never below 1x.
     const kit::Viewport full_hd = desktop_canvas(1920, 1080);
     OA_CHECK(kit::layer_viewport(full_hd, 200).scale_percent == 200);
@@ -359,6 +357,113 @@ void an_interface_size_takes_the_largest_step_that_fits_compact() {
     OA_CHECK(kit::layer_viewport(inset_canvas, 300).scale_percent == 300);
     inset_canvas.safe = {0, 1, 0, 0};
     OA_CHECK(kit::layer_viewport(inset_canvas, 300).scale_percent == 200);
+}
+
+/// One row of the resolution table "Compact only where it is needed": a
+/// window, how Auto lays it out on the front end, and the room's points.
+struct Resolution {
+    int32_t width{};             ///< canvas pixels
+    int32_t height{};            ///< canvas pixels
+    float density{1.0F};         ///< canvas pixels per window point
+    bool offer_fractional{};     ///< 150% is among Auto's steps: the modern fonts
+    int32_t scale_percent{};     ///< the scale Auto lays the screens out at
+    int32_t points_width{};      ///< the room's width at that scale, in points
+    int32_t points_height{};     ///< the room's height at that scale, in points
+    kit::SizeClass size_class{}; ///< the room's class
+};
+
+/// The resolution table, menus: Compact only at 640 by 480; 800 by 600
+/// Regular; every larger window Large, Auto taking one step down where its
+/// height's scale would leave Regular.
+constexpr Resolution resolutions[] = {
+    {640, 480, 1.0F, false, 100, 640, 480, kit::SizeClass::compact},
+    {800, 600, 1.0F, false, 100, 800, 600, kit::SizeClass::regular},
+    {1024, 768, 1.0F, false, 100, 1024, 768, kit::SizeClass::large},
+    {1280, 720, 1.0F, false, 100, 1280, 720, kit::SizeClass::large},
+    {1366, 768, 1.0F, false, 100, 1366, 768, kit::SizeClass::large},
+    // The Steam Deck.
+    {1280, 800, 1.0F, false, 100, 1280, 800, kit::SizeClass::large},
+    // 150% would leave 960 by 600, Regular.
+    {1440, 900, 1.0F, true, 100, 1440, 900, kit::SizeClass::large},
+    {1440, 900, 1.0F, false, 100, 1440, 900, kit::SizeClass::large},
+    // 2x would leave 960 by 540, Regular.
+    {1920, 1080, 1.0F, false, 100, 1920, 1080, kit::SizeClass::large},
+    {1920, 1080, 1.0F, true, 150, 1280, 720, kit::SizeClass::large},
+    {2560, 1440, 1.0F, false, 200, 1280, 720, kit::SizeClass::large},
+    {2560, 1440, 1.0F, true, 200, 1280, 720, kit::SizeClass::large},
+    {3840, 2160, 1.0F, false, 300, 1280, 720, kit::SizeClass::large},
+    // A MacBook's full screen, two pixels a point: 3x leaves 1008 by 654.
+    {3024, 1964, 2.0F, false, 300, 1008, 654, kit::SizeClass::large},
+    {3024, 1964, 2.0F, true, 300, 1008, 654, kit::SizeClass::large},
+    // A 15-inch MacBook's full screen: 3x would leave 960 by 600, and 2x is
+    // the density floor.
+    {2880, 1800, 2.0F, false, 200, 1440, 900, kit::SizeClass::large},
+    // An 11-inch iPad on its side, 1194 by 834 points.
+    {2388, 1668, 2.0F, false, 200, 1194, 834, kit::SizeClass::large},
+};
+
+/// Checks the resolution table on the front end, the class edges, a chosen
+/// class held to the room, and the step down serving a chosen class.
+void compact_only_where_nothing_larger_fits() {
+    static_assert(kit::class_margin == 24);
+    static_assert(kit::regular_from.x == 768 && kit::regular_from.y == 534);
+    static_assert(kit::large_from.x == 1008 && kit::large_from.y == 648);
+    for (const Resolution& row : resolutions) {
+        kit::Viewport canvas = desktop_canvas(row.width, row.height);
+        canvas.density = row.density;
+        const kit::Viewport laid =
+            kit::layer_viewport(canvas, row.offer_fractional ? kit::auto_with_fraction_percent : 0);
+        const kit::Frame frame = kit::frame_of(laid);
+        OA_CHECK(laid.scale_percent == row.scale_percent);
+        OA_CHECK(rect_is(frame.area, 0, 0, row.points_width, row.points_height));
+        OA_CHECK(frame.size_class == row.size_class);
+    }
+    // The class edges, each side on its own.
+    OA_CHECK(kit::size_class_of(1008, 648) == kit::SizeClass::large);
+    OA_CHECK(kit::size_class_of(768, 534) == kit::SizeClass::regular);
+    OA_CHECK(kit::size_class_of(1007, 2000) == kit::SizeClass::regular);
+    OA_CHECK(kit::size_class_of(2000, 533) == kit::SizeClass::compact);
+
+    // A chosen class shows wherever its dialog fits whole, the margin not
+    // counted, and is held to the largest that does elsewhere.
+    using kit::SizeClass;
+    OA_CHECK(kit::size_class_within(SizeClass::large, 960, 600) == SizeClass::large);
+    OA_CHECK(kit::size_class_within(SizeClass::large, 959, 600) == SizeClass::regular);
+    OA_CHECK(kit::size_class_within(SizeClass::large, 960, 599) == SizeClass::regular);
+    OA_CHECK(kit::size_class_within(SizeClass::large, 719, 600) == SizeClass::compact);
+    OA_CHECK(kit::size_class_within(SizeClass::regular, 720, 486) == SizeClass::regular);
+    OA_CHECK(kit::size_class_within(SizeClass::regular, 720, 485) == SizeClass::compact);
+    OA_CHECK(kit::size_class_within(SizeClass::regular, 1920, 1080) == SizeClass::regular);
+    OA_CHECK(kit::size_class_within(SizeClass::compact, 1920, 1080) == SizeClass::compact);
+    OA_CHECK(kit::size_class_within(SizeClass::compact, 100, 100) == SizeClass::compact);
+
+    // The step down serves the class wanted: 1920 by 1080 is Regular at 2x,
+    // which a chosen Regular or Compact keeps. A step down that would not
+    // reach the wanted class is not taken: 1000 by 1080 is 500 by 540 at 2x,
+    // Compact, and Regular at 1x, so Large wanted keeps 2x and Regular wanted
+    // takes 1x.
+    const kit::Viewport full_hd = desktop_canvas(1920, 1080);
+    OA_CHECK(kit::layer_viewport(full_hd, 0, SizeClass::regular).scale_percent == 200);
+    OA_CHECK(kit::layer_viewport(full_hd, 0, SizeClass::compact).scale_percent == 200);
+    OA_CHECK(kit::layer_viewport(full_hd, 0, SizeClass::large).scale_percent == 100);
+    const kit::Viewport tall = desktop_canvas(1000, 1080);
+    OA_CHECK(kit::layer_viewport(tall, 0, SizeClass::large).scale_percent == 200);
+    OA_CHECK(kit::layer_viewport(tall, 0, SizeClass::regular).scale_percent == 100);
+    // A chosen percent is never stepped down.
+    OA_CHECK(kit::layer_viewport(full_hd, 200).scale_percent == 200);
+    // The density floor holds: the phone at two pixels a point stays at 2x,
+    // Compact, though 1x would give Large.
+    kit::Viewport phone = desktop_canvas(1704, 786);
+    phone.density = 2.0F;
+    phone.safe = {118, 0, 118, 42};
+    OA_CHECK(kit::layer_viewport(phone, 0).scale_percent == 200);
+    OA_CHECK(kit::layer_viewport(phone, kit::auto_with_fraction_percent).scale_percent == 200);
+    // With 150% offered the step below 2x is 150%: 1920 by 1280 is 960 by
+    // 640 at 2x, Regular, and 1280 by 853 at 150%, Large. On whole steps it
+    // is Large at 1x.
+    const kit::Viewport tall_hd = desktop_canvas(1920, 1280);
+    OA_CHECK(kit::layer_viewport(tall_hd, kit::auto_with_fraction_percent).scale_percent == 150);
+    OA_CHECK(kit::layer_viewport(tall_hd, 0).scale_percent == 100);
 }
 
 /// Checks that neighbouring rectangles share an edge at each scale, that each
@@ -947,6 +1052,7 @@ int main() {
     the_frame_matches_the_window_table();
     an_interface_size_takes_the_largest_step_that_fits_compact();
     each_class_gives_its_metrics();
+    compact_only_where_nothing_larger_fits();
     canvas_pixels_tile_and_whole_scales_round_trip();
     arrangements_place_the_rectangles();
     the_scroll_matches_the_settings_dialog();

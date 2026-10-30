@@ -117,7 +117,9 @@ game says so if it cannot open the folder.
    folder from step 3.
 2. Windows may say **"Windows protected your PC"**, because the program is
    new to it. Click **More info**, then **Run anyway**. On Windows XP, a
-   security warning may ask whether to run the file: click **Run**.
+   security warning may ask whether to run the file: click **Run**. A setup
+   the game downloaded itself has no browser mark on it, so that update asks
+   only about an unknown publisher, once.
 3. The first time, it asks for your Total Annihilation folder. Choose the
    folder from step 4. It remembers your choice.
 
@@ -151,9 +153,10 @@ bottom right of the main menu opens. See [Settings](../settings.md), and
 Each start registers this copy of the game, for your Windows account, as
 the opener of the file types left on in [Settings › System](../settings.md#system):
 mod packages (`.oamod`), map packs (`.oamap`), language packs (`.oalang`),
-mutator packages (`.oamut`), brain packages (`.oabrain`), registry files
+mutator packages (`.oamut`), brain packages (`.oabrain`), key layout packages
+(`.oakeys`), registry files
 (`.oareg`) and launch files
-(`.oalaunch`). All seven are on
+(`.oalaunch`). All eight are on
 until you turn one off. Turning one off and pressing OK withdraws that type
 at once; turning one on registers it at once. Neither waits for a restart. The game's icon is
 put on the types it opens. Double-click a `.oamod` file to install the mod
@@ -260,11 +263,21 @@ command, still takes the screenshots and films.
 
 ## Updating and removing
 
-- **To update an installed copy:** run the newer setup program. It replaces
-  the copy in the same folder. Your settings are kept, and so is the Open
-  Annihilation folder in Documents.
-- **To update a zip copy:** unzip the newer package and use its folder.
-  Your settings are kept.
+- **To update an installed copy:** the game downloads the setup and runs it
+  in the same folder. Windows asks once for permission. If you decline,
+  nothing changes and the game says "The update was cancelled." You can
+  also run a newer setup program yourself. Your settings are kept, and so
+  is the Open Annihilation folder in Documents.
+- **To update a zip copy:** the game replaces the program files in that
+  folder and keeps the ones you had in `previous` beside the game. On
+  Windows 95, 98 and Me, a file that is still open waits until you restart
+  Windows, and the window says "Restart Windows to finish installing
+  {version}." You can also unzip a newer package and use its folder. Your
+  settings are kept.
+- **Where to put it.** A plain name such as `C:\Games\Open Annihilation`
+  stays that name after an update. A zip folder keeps the version in its
+  name, so an update in place leaves that name behind. Prefer the plain
+  name.
 - **To remove an installed copy:** open **Settings** or **Control Panel**,
   choose **Apps** or **Add or Remove Programs**, select **Open
   Annihilation** and remove it. Or open the Start Menu folder and run
@@ -278,7 +291,7 @@ command, still takes the screenshots and films.
 - The uninstaller also removes the launch file association the installer
   made for everyone. For the Windows account that runs it, it removes the
   game's registration as the opener of `.oamod`, `.oalang`, `.oamap`,
-  `.oamut`, `.oabrain`, `.oareg` and `.oalaunch` files while that registration opens them with
+  `.oamut`, `.oabrain`, `.oakeys`, `.oareg` and `.oalaunch` files while that registration opens them with
   the installed `open-annihilation.exe`, and the empty (Default) of
   `HKEY_CURRENT_USER\Software\Classes\.oalaunch` that hid the association
   while Launch files was off. A type that a copy you unzipped elsewhere
@@ -294,19 +307,21 @@ command, still takes the screenshots and films.
   Open Annihilation from another copy, one unzipped or installed again:
   that start registers the copy that runs in its place, withdraws the types
   turned off in its settings, and removes the empty (Default) of
-  `.oalaunch`. Or delete the fourteen keys below in that account.
+  `.oalaunch`. Or delete the sixteen keys below in that account.
 - **To remove a zip copy:** delete that folder. The Open Annihilation
   folder in Documents is separate and stays until you delete it yourself.
 - **To remove your settings and logs too,** delete the Local AppData folder
   above. To make Windows forget a copy you unzipped as the opener of
-  `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain`, `.oareg` and `.oalaunch` files, delete
-  these fourteen keys with the Registry Editor:
+  `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain`, `.oakeys`, `.oareg` and `.oalaunch` files, delete
+  these sixteen keys with the Registry Editor:
   `HKEY_CURRENT_USER\Software\Classes\.oamod`,
   `HKEY_CURRENT_USER\Software\Classes\OpenAnnihilation.Mod`,
   `HKEY_CURRENT_USER\Software\Classes\.oamut`,
   `HKEY_CURRENT_USER\Software\Classes\OpenAnnihilation.Mutator`,
   `HKEY_CURRENT_USER\Software\Classes\.oabrain`,
   `HKEY_CURRENT_USER\Software\Classes\OpenAnnihilation.Brain`,
+  `HKEY_CURRENT_USER\Software\Classes\.oakeys`,
+  `HKEY_CURRENT_USER\Software\Classes\OpenAnnihilation.KeyLayout`,
   `HKEY_CURRENT_USER\Software\Classes\.oalang`,
   `HKEY_CURRENT_USER\Software\Classes\OpenAnnihilation.Language`,
   `HKEY_CURRENT_USER\Software\Classes\.oamap`,

@@ -15,9 +15,11 @@
 # OA_TEXT_FONTS_DIR names the folder of the fonts: the files OA_TEXT_FONT_FILES
 # lists, which oa_copy_text_fonts() copies beside a program, into the folder
 # oa::platform::text_font::bundled_font_directory() finds at run time. The list
-# is the module's face_files (oa/platform/text_font.hpp) and the bootstrap's
-# FONT_FILES; the three name the same files, in Face order. Every base face
-# is required.
+# is the module's face_files, then its interface_face_files
+# (oa/platform/text_font.hpp), and the bootstrap's FONT_FILES; the three name
+# the same files, in Face order. Every one is required: the base faces draw
+# game text, and the interface faces, Barlow and Barlow Condensed, draw OA's
+# own screens in the modern look.
 #
 # OA_TEXT_FONT_TESTS_DIR holds the test fixture's face. The build never copies
 # it beside the game. A missing fixture face is reported and does not stop
@@ -25,7 +27,9 @@
 include_guard(GLOBAL)
 
 set(OA_TEXT_FONT_FILES DejaVuSans-Bold.ttf DejaVuSans.ttf
-  NotoSansCJKsc-Bold-Endonyms.otf NotoEmoji.ttf)
+  NotoSansCJKsc-Bold-Endonyms.otf NotoEmoji.ttf
+  Barlow-Regular.ttf Barlow-Medium.ttf Barlow-SemiBold.ttf Barlow-Bold.ttf
+  BarlowCondensed-SemiBold.ttf BarlowCondensed-Bold.ttf)
 get_filename_component(oa_text_fonts_default "${CMAKE_CURRENT_LIST_DIR}/../local/deps/text-fonts" ABSOLUTE)
 set(OA_TEXT_FONTS_DIR "${oa_text_fonts_default}" CACHE PATH
   "Folder holding the fonts tools/bootstrap_text_fonts.py makes, which the build copies beside the game")

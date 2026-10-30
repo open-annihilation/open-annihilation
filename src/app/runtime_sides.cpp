@@ -52,14 +52,15 @@ const oa::Unit* live_side_commander(oa::World& world, uint8_t index) {
     oa::Player* player = oa::world_player(&world, index);
     const oa::PlayerSetupInfo* info =
         player != nullptr ? oa::world_player_info(&world, player) : nullptr;
-    if (info == nullptr || info->side >= OA_SIDE_COUNT)
+    const oa::Side* side = info != nullptr ? oa::world_side(&world, info->side) : nullptr;
+    if (info == nullptr || side == nullptr)
         return nullptr;
     uint32_t count = 0;
     const oa::Unit* units = oa::world_player_units(&world, player, &count);
     for (uint32_t i = 0; i < count; ++i) {
         const oa::UnitDef* def = oa::world_unit_def_of(&world, &units[i]);
         if ((units[i].flags & OA_UNIT_FLAG_LIVE) != 0 && def != nullptr &&
-            std::strcmp(def->unit_name, world.game.sides[info->side].commander) == 0)
+            std::strcmp(def->unit_name, side->commander) == 0)
             return &units[i];
     }
     return nullptr;
@@ -75,7 +76,7 @@ const oa::Unit* live_side_commander(oa::World& world, uint8_t index) {
 std::string side_file_report(
     const oa::data::defs::SideTable& table, const oa::data::defs::SideMissingFile& missing
 ) {
-    const auto& name = table.sides[missing.side].name;
+    const auto& name = oa::data::defs::side_at(table, missing.side)->name;
     return std::string(missing.path) + ", which GAMEDATA/SIDEDATA.TDF names for the " +
            std::string(name, strnlen(name, sizeof name)) + " side, is missing";
 }
@@ -133,13 +134,23 @@ SideBytes side_bytes(const oa::AssetStore& assets, const std::string& path) {
 void log_match_sides(const oa::data::defs::SideTable& table) {
     std::cerr << "open-annihilation: side data: this match reads gamedata/sidedata.tdf again: "
               << table.count << (table.count == 1 ? " side" : " sides") << ", commanders ";
-    for (uint32_t side = 0; side < table.count && side < OA_SIDE_COUNT; ++side) {
+    for (uint32_t side = 0; side < table.count; ++side) {
         if (side != 0)
             std::cerr << ", ";
-        const auto& name = table.sides[side].commander;
+        const auto& name = oa::data::defs::side_at(table, side)->commander;
         std::cerr << std::string_view(name, strnlen(name, sizeof name));
     }
     std::cerr << '\n';
+}
+
+/// Writes one line when the parse left SIDE sections out past the limit.
+///
+/// @param table the side table just parsed
+void log_sides_left_out(const oa::data::defs::SideTable& table) {
+    char line[256];
+    if (!oa::data::defs::side_table_past_limit_line(table, line, sizeof line))
+        return;
+    std::cerr << "open-annihilation: side data: " << line << '\n';
 }
 
 } // namespace
@@ -156,16 +167,28 @@ void Runtime::load_side_table() {
     const oa::data::defs::Files files = asset_files(assets_);
     // Side.font stays null: the match HUD loads the viewed side's font by its
     // name and nothing reads the handle.
-    const bool loaded =
-        oa::data::defs::load_side_data(&files, &side_table_, side_files_language_.c_str(), nullptr);
+    const bool loaded = oa::data::defs::load_side_data(
+        &files, &side_table_, side_files_language_.c_str(), nullptr, limits_.sides.count
+    );
     if (auto problem = side_table_problem(loaded, side_table_); !problem.empty())
         throw std::runtime_error(problem);
+    log_sides_left_out(side_table_);
     skirmish_ui_.side_count = static_cast<int32_t>(side_table_.count);
     skirmish_ui_.hidden_sides = oa::data::defs::skirmish_hidden_sides();
-    // The battle room's SIDE button cycles the same sides.
+    const uint32_t allowed = oa::data::defs::computer_player_sides();
+    skirmish_ui_.computer_hidden_sides = allowed == 0 ? 0U : ~allowed;
+    // The battle room's SIDE button cycles the same sides and shows a name
+    // the art has no frame for.
     oa::ui::frontend_multiplayer::multiplayer_bind_side_count(
         static_cast<int32_t>(side_table_.count)
     );
+    std::vector<std::string> side_names;
+    side_names.reserve(side_table_.count);
+    for (uint32_t index = 0; index < side_table_.count; ++index) {
+        const oa::Side* record = oa::data::defs::side_at(side_table_, index);
+        side_names.emplace_back(record->name, ::strnlen(record->name, sizeof record->name));
+    }
+    oa::ui::frontend_multiplayer::multiplayer_bind_side_names(side_names);
 }
 
 void Runtime::load_match_side_table() {
@@ -180,10 +203,12 @@ void Runtime::load_match_side_table() {
     // Parsed aside, so a table that cannot be played leaves the one in place.
     const auto fresh = std::make_unique<oa::data::defs::SideTable>();
     const oa::data::defs::Files files = asset_files(assets_);
-    const bool loaded =
-        oa::data::defs::load_side_data(&files, fresh.get(), side_files_language_.c_str(), nullptr);
+    const bool loaded = oa::data::defs::load_side_data(
+        &files, fresh.get(), side_files_language_.c_str(), nullptr, limits_.sides.count
+    );
     if (const auto problem = side_table_problem(loaded, *fresh); !problem.empty())
         throw std::runtime_error(problem);
+    log_sides_left_out(*fresh);
     if (!plays_mod()) {
         if (const auto gap = first_side_file_gap(files, *fresh, side_files_language_.c_str());
             !gap.empty())
@@ -272,14 +297,16 @@ std::string Runtime::side_data_problem_over(
 std::vector<std::string> Runtime::saved_game_side_names() const {
     namespace campaign = oa::ui::campaign;
     static_assert(sizeof(oa::Side::name) == campaign::kSideNameBytes);
-    char names[OA_SIDE_COUNT][campaign::kSideNameBytes] = {};
-    const auto count = std::min<uint32_t>(side_table_.count, OA_SIDE_COUNT);
+    char names[oa::data::defs::side_table_capacity][campaign::kSideNameBytes] = {};
+    const auto count = std::min<uint32_t>(side_table_.count, oa::data::defs::side_table_capacity);
     for (uint32_t side = 0; side < count; ++side)
-        std::memcpy(names[side], side_table_.sides[side].name, campaign::kSideNameBytes);
+        std::memcpy(
+            names[side], oa::data::defs::side_at(side_table_, side)->name, campaign::kSideNameBytes
+        );
     // The dialogs' side list: the names one after another, each ended by a
     // NUL, and one more NUL after the last.
     // The list is read to its closing NUL, so its length is not needed.
-    char list[OA_SIDE_COUNT * campaign::kSideNameBytes + 1] = {};
+    char list[oa::data::defs::side_table_capacity * campaign::kSideNameBytes + 1] = {};
     std::ignore = campaign::build_side_name_list(names, count, list, sizeof list);
     std::vector<std::string> shown;
     for (const char* name = list; *name != '\0'; name += std::strlen(name) + 1)
@@ -288,8 +315,8 @@ std::vector<std::string> Runtime::saved_game_side_names() const {
 }
 
 void Runtime::bind_player_records(oa::World& world) {
-    std::copy(std::begin(side_table_.sides), std::end(side_table_.sides), world.game.sides);
-    world.game.side_count = side_table_.count;
+    const std::vector<oa::Side> records = oa::data::defs::side_records(side_table_);
+    match_->bind_sides(records, side_table_.count);
     for (uint32_t slot = 0; slot < OA_PLAYER_RECORD_COUNT; ++slot) {
         oa::PlayerSetupInfo& info = world.player_info[slot];
         info = {};
@@ -310,13 +337,13 @@ void Runtime::bind_player_records(oa::World& world) {
 void Runtime::bind_respawn_view() {
     match_->respawn = {
         this,
-        [](void* context) { static_cast<Runtime*>(context)->reset_sight_presentation(true); },
+        [](void* context) { static_cast<Runtime*>(context)->reset_sight_presentation(); },
         [](void* context) { static_cast<Runtime*>(context)->select_side_commander(); },
     };
     match_->watch = {
         this, [](void* context, oa::sim::match_runtime::Match::WatchNotice notice) {
             auto& self = *static_cast<Runtime*>(context);
-            self.reset_sight_presentation(true);
+            self.reset_sight_presentation();
             if (notice == oa::sim::match_runtime::Match::WatchNotice::continue_prompt) {
                 auto ctx = self.screen_context();
                 oa::ui::frontend_dialogs::open_continue_watching(
@@ -355,9 +382,7 @@ void Runtime::bind_respawn_view() {
     };
 }
 
-void Runtime::reset_sight_presentation(bool refill_mapped) {
-    if (refill_mapped)
-        radar_explored_.clear();
+void Runtime::reset_sight_presentation() {
     radar_state_.reset_sight = true;
 }
 
@@ -365,7 +390,7 @@ void Runtime::reset_match_sight(bool refill_mapped) {
     if (!match_ || altitude_sight_blocked_)
         return;
     match_->reset_sight_buffers(refill_mapped);
-    reset_sight_presentation(refill_mapped);
+    reset_sight_presentation();
 }
 
 void Runtime::select_side_commander() {
@@ -448,14 +473,18 @@ void Runtime::check_player_records(std::string_view context) {
         throw std::runtime_error(label + " player check needs a match");
     oa::World& world = match_->state();
     // Game.sides holds each SIDEDATA side, with the commander it names.
-    if (world.game.side_count < 2 || world.game.side_count != side_table_.count)
+    if (oa::world_side_count(&world) < 2 || oa::world_side_count(&world) != side_table_.count)
         throw std::runtime_error(label + " player check: Game.sides lacks the SIDEDATA sides");
-    for (uint32_t side = 0; side < world.game.side_count; ++side)
-        if (std::strcmp(world.game.sides[side].commander, side_table_.sides[side].commander) != 0)
+    for (uint32_t side = 0; side < oa::world_side_count(&world); ++side) {
+        const oa::Side* record = oa::world_side(&world, side);
+        if (record == nullptr ||
+            std::strcmp(record->commander, oa::data::defs::side_at(side_table_, side)->commander) !=
+                0)
             throw std::runtime_error(
                 label + " player check: Game.sides " + std::to_string(side) +
                 " does not name its SIDEDATA commander"
             );
+    }
     uint32_t bound = 0;
     for (uint32_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
         const auto& setup = skirmish_settings_.slots[slot];

@@ -70,13 +70,13 @@ inline constexpr std::string_view verdict_not_compatible_base =
 inline constexpr std::string_view verdict_failed_base = "{name} stopped with No Mod";
 /// The hint when the picker opened on the remembered skirmish set.
 inline constexpr std::string_view hint_last_skirmish =
-    "Your last skirmish set, ready to use. CANCEL plays without mutators.";
+    "Your last skirmish set, ready to use. Cancel plays without mutators.";
 /// The hint when the picker opened on the remembered multiplayer set.
 inline constexpr std::string_view hint_last_multiplayer =
-    "Your last multiplayer set, ready to use. CANCEL plays without mutators.";
+    "Your last multiplayer set, ready to use. Cancel plays without mutators.";
 /// The hint when the picker opened on the remembered campaign set.
 inline constexpr std::string_view hint_last_campaign =
-    "Your last campaign set, ready to use. CANCEL plays without mutators.";
+    "Your last campaign set, ready to use. Cancel plays without mutators.";
 /// The campaign's second sentence, after the last-set hint when that shows.
 inline constexpr std::string_view hint_campaign =
     "The set holds for every mission of this campaign, and is saved with it.";
@@ -97,9 +97,9 @@ inline constexpr std::string_view turn_off_kept_one =
 inline constexpr std::string_view turn_off_kept_many =
     "They all stay installed. Turn one on again and {name} comes back with it.";
 /// The question's button that leaves the set as it is.
-inline constexpr std::string_view cancel = "CANCEL";
+inline constexpr std::string_view cancel = "Cancel";
 /// The question's button that switches the prerequisite and its dependants off.
-inline constexpr std::string_view turn_off = "TURN OFF";
+inline constexpr std::string_view turn_off = "Turn off";
 
 /// The window's title.
 inline constexpr std::string_view title_mutators = "Mutators";
@@ -122,7 +122,7 @@ inline constexpr std::string_view filter_downloads = "Downloads";
 /// A filter pill or the compact drop-down: the filter and how many it keeps.
 inline constexpr std::string_view filter_with_count = "{filter} ({count})";
 /// The button that holds the tags that do not fit as pills.
-inline constexpr std::string_view tags_menu = "TAGS";
+inline constexpr std::string_view tags_menu = "Tags";
 /// One tag in the compact drop-down or the tags menu, with how many it keeps.
 inline constexpr std::string_view tag_with_count = "Tag: {tag} ({count})";
 /// The search field's placeholder.
@@ -131,39 +131,39 @@ inline constexpr std::string_view search_mutators = "Search mutators";
 inline constexpr std::string_view heading_on = "ON · APPLIED TOP TO BOTTOM";
 /// The heading over the Off rows. Not a switch's Off half.
 inline constexpr std::string_view heading_off = "OFF · NOT APPLIED";
-/// A switch's Off half. The catalogue's shared OFF, which every switch uses.
-inline constexpr std::string_view switch_off = "OFF";
-/// A switch's On half. The catalogue's shared ON.
-inline constexpr std::string_view switch_on = "ON";
+/// A switch's Off half. The catalogue's shared Off, which every switch uses.
+inline constexpr std::string_view switch_off = "Off";
+/// A switch's On half. The catalogue's shared On.
+inline constexpr std::string_view switch_on = "On";
 /// The clash strip's Add caption, on a mutator that brings units or weapons.
-inline constexpr std::string_view clash_mode_add = "ADD";
+inline constexpr std::string_view clash_mode_add = "Add";
 /// The clash strip's Replace caption.
-inline constexpr std::string_view clash_mode_replace = "REPLACE";
+inline constexpr std::string_view clash_mode_replace = "Replace";
 /// The details' order label.
 inline constexpr std::string_view order_label = "Order";
 /// The button that moves the selected mutator up.
-inline constexpr std::string_view order_up = "▲ UP";
+inline constexpr std::string_view order_up = "▲ Up";
 /// The button that moves the selected mutator down.
-inline constexpr std::string_view order_down = "▼ DOWN";
+inline constexpr std::string_view order_down = "▼ Down";
 /// The details' version and author under the name.
 inline constexpr std::string_view version_author = "{version} · {author}";
 /// Compact's button that opens the details page.
-inline constexpr std::string_view details_button = "DETAILS";
+inline constexpr std::string_view details_button = "Details";
 /// The details page's button that returns to the list.
-inline constexpr std::string_view back_button = "BACK";
+inline constexpr std::string_view back_button = "Back";
 /// The button that keeps the set.
-inline constexpr std::string_view use_these = "USE THESE";
-/// USE THESE's summary while the first On mutator still downloading is fetched.
+inline constexpr std::string_view use_these = "Use these";
+/// Use these's summary while the first On mutator still downloading is fetched.
 /// `{name}` is that mutator. `{percent}` is how much of it has arrived, 0 when
 /// its size is not known yet.
 inline constexpr std::string_view waiting_getting = "Getting {name} · {percent}%";
-/// USE THESE's summary when that download stopped. `{problem}` is why.
+/// Use these's summary when that download stopped. `{problem}` is why.
 inline constexpr std::string_view waiting_failed = "{name}: {problem}";
 /// Why a mutator does not work with the mod being played. The row wraps it in
 /// `line_not_compatible`. `{names}` is the list it works with.
 inline constexpr std::string_view works_with_mods = "it works with {names}";
 /// The read-only footer's button, and the header's close mark.
-inline constexpr std::string_view close_button = "CLOSE";
+inline constexpr std::string_view close_button = "Close";
 /// The list when the host gave no mutators.
 inline constexpr std::string_view empty_none =
     "No mutators here yet. The Library on the main menu gets them.";
@@ -185,9 +185,9 @@ inline constexpr std::string_view stopped_many =
 /// One mutator's amber line: its name and why it stopped.
 inline constexpr std::string_view failure_line = "{name}: {reason}";
 /// The button that starts without the one mutator that stopped.
-inline constexpr std::string_view start_without_it = "START WITHOUT IT";
+inline constexpr std::string_view start_without_it = "Start without it";
 /// The button that starts without every mutator that stopped.
-inline constexpr std::string_view start_without_them = "START WITHOUT THEM";
+inline constexpr std::string_view start_without_them = "Start without them";
 /// The question after a crash that left a set on.
 inline constexpr std::string_view forget_title = "Forget the last set?";
 /// What forgetting does, and that nothing is uninstalled.
@@ -198,15 +198,15 @@ inline constexpr std::string_view forget_body =
 inline constexpr std::string_view forget_hint =
     "The game's log names them, so their authors can be told.";
 /// The button that keeps the remembered set.
-inline constexpr std::string_view keep_it = "KEEP IT";
+inline constexpr std::string_view keep_it = "Keep it";
 /// The button that forgets the remembered set.
-inline constexpr std::string_view forget_it = "FORGET IT";
+inline constexpr std::string_view forget_it = "Forget it";
 /// The question while On mutators are downloaded.
 inline constexpr std::string_view get_mutators_title = "Get mutators";
 /// Which download this is, among the set's.
 inline constexpr std::string_view downloading_of = "Downloading {name} · {index} of {total}";
 /// The amber line once a download has stopped. `{problem}` is why.
-inline constexpr std::string_view problem_retry = "{problem} RETRY tries again.";
+inline constexpr std::string_view problem_retry = "{problem} Retry tries again.";
 /// The question when another machine's mutators would play differently.
 inline constexpr std::string_view did_not_start_title = "The game did not start";
 /// Why the game was not started.

@@ -20,7 +20,9 @@
 // test, as the game draws them. The Active pictures and the Maps pictures
 // dress the fixture's maps with made-up minimaps on that drawing only, so
 // the tiles, the row and the details show those pictures and not a file
-// from the game. Given --frames DIR, it writes
+// from the game. Given --frames DIR, it writes the pictures in the modern
+// look, Barlow from the fonts beside the test at the window's size class.
+// The checks above still measure and draw the game's fonts. It writes
 // library-<class>.png, library-details-compact.png, library-active-<class>.png,
 // library-active-compact-maps.png, library-active-many-regular.png,
 // library-active-locked-compact.png,
@@ -48,6 +50,7 @@
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/library/game_icon.hpp"
 #include "oa/ui/library/library.hpp"
+#include "oa/ui/library/use_question.hpp"
 #include "oa/ui/library/screen.hpp"
 #include "screen_fixture.hpp"
 
@@ -153,6 +156,10 @@ struct Scene {
     /// On Active, the command line chose the mod played, which needs
     /// Campaign, so that pill is drawn locked with the reason under the pills.
     bool command_line_mod{};
+    /// Open USE's question over the selected layout before drawing.
+    bool key_use{};
+    /// Dress a layout in use and draw the Active tab's KEYS tile.
+    bool active_keys{};
 };
 
 /// A drawing of a scene: the picture with its margin, and its scale.
@@ -201,6 +208,154 @@ void dress_mutators(lib::Library& library) {
     inputs.listings.back().mutator->needs.push_back({"north-tower", {}, "North Tower"});
     inputs.listings.back().mutator->works_with.push_back({"ridge", {}, "Ridge"});
     lib::refresh(library, std::move(inputs));
+}
+
+/// Dresses the Keys pictures with two made-up layouts, on this drawing only.
+///
+/// Grid is installed and in use, with two of the player's own changes on
+/// it. It changes Q and W, so the keyboard marks those keys. Lefty is installed and is not in use. Column is only a
+/// listing. Grid Test is installed from its own file, which no registry
+/// lists, so its row's author and summary are its manifest's. OA default
+/// stays first and is left out of the count.
+///
+/// @param[in,out] library the scene's library
+void dress_keys(lib::Library& library) {
+    lib::Inputs inputs = std::move(library.inputs);
+    lib::KeyLayoutFacts grid_facts;
+    grid_facts.tags = {"grid"};
+    grid_facts.keyboard = "ansi";
+    grid_facts.pointer = "right-click";
+    grid_facts.changes = 12;
+    grid_facts.own_changes = 2;
+    lib::KeyMove patrol;
+    patrol.command = "Patrol";
+    patrol.after.keys = {"Q"};
+    patrol.own = true;
+    lib::KeyMove cloak;
+    cloak.command = "Cloak";
+    cloak.after.keys = {"K"};
+    cloak.own = true;
+    grid_facts.own_list = {patrol, cloak};
+    grid_facts.triggers = {"Q", "@KeyW", "MouseLeft", "Nope", "Ctrl"};
+    grid_facts.helpers = {"sticky-modifiers"};
+    lib::Listing grid;
+    grid.registry = std::string(fixture::core);
+    grid.kind = lib::Kind::key_layout;
+    grid.key = "grid";
+    grid.name = "Grid";
+    grid.version = "1.0";
+    grid.author = "Ada";
+    grid.summary = "Orders on a grid under the left hand.";
+    grid.size = 1024;
+    grid.keys = grid_facts;
+    inputs.listings.push_back(grid);
+    lib::Installed held;
+    held.kind = lib::Kind::key_layout;
+    held.key = "grid";
+    held.folder = "grid";
+    held.name = "Grid";
+    held.version = "1.0";
+    held.revision = 1;
+    held.registry = std::string(fixture::core);
+    held.release = 1;
+    held.keys = grid_facts;
+    inputs.installed.push_back(std::move(held));
+
+    lib::KeyLayoutFacts lefty_facts;
+    lefty_facts.tags = {"left-hand"};
+    lefty_facts.helpers = {"sticky-modifiers"};
+    lib::Listing lefty;
+    lefty.registry = std::string(fixture::core);
+    lefty.kind = lib::Kind::key_layout;
+    lefty.key = "lefty";
+    lefty.name = "Lefty";
+    lefty.version = "1.0";
+    lefty.author = "Bo";
+    lefty.summary = "Everything within reach of the left hand.";
+    lefty.size = 1024;
+    lefty.keys = lefty_facts;
+    inputs.listings.push_back(std::move(lefty));
+    lib::Installed lefty_held;
+    lefty_held.kind = lib::Kind::key_layout;
+    lefty_held.key = "lefty";
+    lefty_held.folder = "lefty";
+    lefty_held.name = "Lefty";
+    lefty_held.version = "1.0";
+    lefty_held.revision = 1;
+    lefty_held.registry = std::string(fixture::core);
+    lefty_held.release = 1;
+    lefty_held.keys = lefty_facts;
+    inputs.installed.push_back(std::move(lefty_held));
+
+    lib::Listing column;
+    column.registry = std::string(fixture::core);
+    column.kind = lib::Kind::key_layout;
+    column.key = "column";
+    column.name = "Column";
+    column.version = "1.0";
+    column.author = "Ada";
+    column.summary = "A listed layout.";
+    column.size = 1024;
+    column.keys = lib::KeyLayoutFacts{};
+    inputs.listings.push_back(std::move(column));
+
+    lib::Installed own;
+    own.kind = lib::Kind::key_layout;
+    own.key = "grid-test";
+    own.folder = "grid-test";
+    own.name = "Grid Test";
+    own.version = "1.0";
+    own.author = "Cy";
+    own.description = "Orders on a grid, from a file of its own.";
+    own.keys = lib::KeyLayoutFacts{};
+    own.keys->tags = {"grid"};
+    inputs.installed.push_back(std::move(own));
+    inputs.keys_layout = "grid";
+    // Highland is the fixture's played mod. The host copies that into
+    // Inputs::played; the picture does the same so USE can ask "Use it for".
+    inputs.played.id = "highland";
+    inputs.played.version = "0.4.0";
+    inputs.played.name = "Highland";
+    lib::refresh(library, std::move(inputs));
+}
+
+/// What USE would move in the Keys pictures: twelve commands from Grid to
+/// Lefty, Patrol among them on the player's own key, or eleven without it.
+///
+/// @return the moves
+lib::KeyMoves made_up_moves(std::string_view, std::string_view) {
+    lib::KeyMoves moves;
+    moves.known = true;
+    const auto move = [](std::string command,
+                         std::vector<std::string> before,
+                         std::vector<std::string> after,
+                         bool own) {
+        lib::KeyMove made;
+        made.command = std::move(command);
+        made.before.keys = std::move(before);
+        made.after.keys = std::move(after);
+        made.own = own;
+        return made;
+    };
+    moves.kept = {
+        move("Attack", {"A"}, {"Q"}, false),
+        move("Move", {"M"}, {"W"}, false),
+        move("Patrol", {"P"}, {"Q"}, true),
+        move("Guard", {"G"}, {"E"}, false),
+        move("Stop", {"S"}, {"R"}, false),
+        move("Fire at will", {"Shift", "F"}, {"A"}, false),
+        move("Reclaim", {"E"}, {"S"}, false),
+        move("Repair", {"R"}, {"D"}, false),
+        move("Capture", {"C"}, {"F"}, false),
+        move("Cloak", {"K"}, {}, false),
+        move("Self-destruct", {"Ctrl", "D"}, {"Ctrl", "X"}, false),
+        move("Load", {"L"}, {"V"}, false),
+    };
+    moves.kept_total = 12;
+    moves.clean = moves.kept;
+    moves.clean.erase(moves.clean.begin() + 2);
+    moves.clean_total = 11;
+    return moves;
 }
 
 /// Dresses the Languages picture: the fixture's built-in language pack names
@@ -591,6 +746,8 @@ Drawing draw_scene(const Scene& scene, const kit::Fonts& fonts) {
         dress_languages(library);
     else if (scene.tab == lib::Tab::mutators)
         dress_mutators(library);
+    else if (scene.tab == lib::Tab::keys || scene.active_keys)
+        dress_keys(library);
     if (!scene.in_use_language.empty())
         show_language_in_use(library, scene.in_use_language);
     if (scene.previews)
@@ -599,7 +756,7 @@ Drawing draw_scene(const Scene& scene, const kit::Fonts& fonts) {
         add_many_maps(library);
     if (scene.command_line_mod)
         dress_command_line_mod(library);
-    else if (scene.tab == lib::Tab::active && !scene.many)
+    else if (scene.tab == lib::Tab::active && !scene.many && !scene.active_keys)
         dress_active_choice(library);
     lib::select(library, fixture::ridge_id());
     lib::set_tab(library, scene.tab);
@@ -609,6 +766,8 @@ Drawing draw_scene(const Scene& scene, const kit::Fonts& fonts) {
             kind = lib::Kind::language;
         else if (scene.tab == lib::Tab::mutators)
             kind = lib::Kind::mutator;
+        else if (scene.tab == lib::Tab::keys)
+            kind = lib::Kind::key_layout;
         lib::select(library, {scene.select_registry, kind, scene.select_key});
     }
     lib::ScreenState state;
@@ -616,6 +775,11 @@ Drawing draw_scene(const Scene& scene, const kit::Fonts& fonts) {
     if (scene.details_page) {
         lib::open_details(library);
         state.details_page = true;
+    }
+    if (scene.key_use) {
+        library.key_hooks.moves = made_up_moves;
+        if (const lib::Entry* entry = lib::selected_entry(library))
+            lib::open_key_use(library, *entry);
     }
     const kit::Frame frame = kit::frame_of(scene.window);
     const kit::DisplayList list = lib::library_layout(library, state, frame, fonts);
@@ -871,6 +1035,83 @@ int main(int argc, char** argv) {
          false,
          std::string(fixture::core),
          "signal"},
+        {"keys-compact",
+         window_of(640, 480, 100),
+         true,
+         lib::Tab::keys,
+         false,
+         std::string(fixture::core),
+         "grid"},
+        {"keys-regular",
+         window_of(1920, 1080, 200),
+         false,
+         lib::Tab::keys,
+         false,
+         std::string(fixture::core),
+         "grid"},
+        {"keys-large",
+         window_of(2560, 1440, 200),
+         false,
+         lib::Tab::keys,
+         false,
+         std::string(fixture::core),
+         "grid"},
+        {"keys-use-compact",
+         window_of(640, 480, 100),
+         false,
+         lib::Tab::keys,
+         false,
+         std::string(fixture::core),
+         "lefty",
+         false,
+         {},
+         0,
+         false,
+         true},
+        {"keys-use-regular",
+         window_of(1920, 1080, 200),
+         false,
+         lib::Tab::keys,
+         false,
+         std::string(fixture::core),
+         "lefty",
+         false,
+         {},
+         0,
+         false,
+         true},
+        {"keys-use-large",
+         window_of(2560, 1440, 200),
+         false,
+         lib::Tab::keys,
+         false,
+         std::string(fixture::core),
+         "lefty",
+         false,
+         {},
+         0,
+         false,
+         true},
+        {"keys-lefty-large",
+         window_of(2560, 1440, 200),
+         false,
+         lib::Tab::keys,
+         false,
+         std::string(fixture::core),
+         "lefty"},
+        {"active-keys-regular",
+         window_of(1920, 1080, 200),
+         false,
+         lib::Tab::active,
+         false,
+         {},
+         {},
+         false,
+         {},
+         0,
+         false,
+         false,
+         true},
     };
     for (const Scene& scene : scenes) {
         const Drawing first = draw_scene(scene, fonts);
@@ -880,8 +1121,14 @@ int main(int argc, char** argv) {
         OA_CHECK(first.surface.rgb == second.surface.rgb);
         check_edges(scene, first);
         if (frames) {
+            kit::Fonts shown = fonts;
+            if (modern) {
+                shown.modern = modern.get();
+                shown.size_class = kit::frame_of(scene.window).size_class;
+            }
+            const Drawing pictured = draw_scene(scene, shown);
             const std::filesystem::path path = *frames / ("library-" + scene.name + ".png");
-            const bool written = write_window(first, path);
+            const bool written = write_window(pictured, path);
             if (!written)
                 std::fprintf(stderr, "draw: cannot write %s\n", path.string().c_str());
             OA_CHECK(written);

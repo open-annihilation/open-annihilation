@@ -22,10 +22,15 @@ the other frontend screens. The explicit names matter: the renderer does not
 infer that every screen follows the main-menu convention. `load_screen_art`
 loads the same names but the layout, and `load_screen_layout` lays a layout
 out over such art, reading only its GUI file: the two give what `load_screen`
-gives. The match's side column loads its art once a match and lays each of
-its pages out over it, so that a page a click opens reads one small file;
-`screen_art_test.cpp` (`frontend-screen-art`) checks the installed game's Arm
-pages and in-game menu so.
+gives. `read_screen_layout` and `lay_out_screen` are the two halves of
+`load_screen_layout`: the first reads and parses the GUI file, the second lays
+it out over art it takes, moved rather than copied when the caller moves it
+in, and `screen_background_path` names the file `load_screen_art` reads a
+background from. The match's side column loads its art once a match and hands
+it from page to page, each laid out over it, so that a page a click opens
+reads one small file and the art is held once; `screen_art_test.cpp`
+(`frontend-screen-art`) checks the installed game's Arm pages and in-game menu
+so, copied and handed on.
 
 `render_screen` draws a loaded screen into a new surface; `render_screen_into`
 draws it the same way into a surface the caller keeps, whose memory is used
@@ -91,6 +96,54 @@ step with its bar, and draws them over the screen (`draw_layout_scrolls`).
 `bind_screen_buttons` binds a panel's buttons as the first draw does, for a
 panel merged into a loaded one. `scroll_bars_test.cpp` (`frontend-scroll-bars`)
 pins the art, the drawing and a layout's bars and lists.
+
+## A room's own parts
+
+[room_parts.hpp](include/oa/ui/frontend_renderer/room_parts.hpp) draws
+Open Annihilation's additions to the game's rooms (the skirmish setup, the
+battle room, the new-campaign screen) from the room's own art, as the room
+draws its buttons, lamps and lists, so a mod's art and palette carry
+through:
+
+- A `RoomCanvas` covers part of the room's frame in its pixels. It starts
+  as the frame's pixels and marks the ones a part covers;
+  `room_canvas_rgba` gives the covered pixels opaque and the rest clear,
+  for the OA layer to lay over the room at the room's own scale.
+- `draw_room_button` draws a button's plate: its own art at its own size,
+  else the BUTTONS0 group a button of that size takes (`room_button_group`)
+  with its ends kept and its middle repeated where the plate is wider or
+  narrower, else the plain face. The caption is centred as a button's
+  caption is, in the caption font, else the label font where that is
+  allowed, else cut with "..." (`room_caption_shown`). `room_text` turns
+  UTF-8 words into the bytes the fonts draw.
+- `draw_room_switch` draws one of the room's on and off buttons, from
+  COMMONGUI.GAF's `stagebuttn1`: its first frame lights the red lamp, its
+  second the green one, its third neither. A plate of another size keeps
+  its lamps' end. `room_switch_width` measures the width a caption needs.
+- `draw_room_notch` draws a groove and a triangle at a button's right end
+  (`room_notch_rect`), the triangle in the caption font's colour with its
+  slanted sides a shade darker and no black edge, as the room's own arrows
+  are drawn, pointing up while what it opens is open.
+- `draw_room_stamp` draws the small engraved OA stamp that marks a part
+  3.1c does not have: a dark sunk plate with the OA mark in the palette's
+  gold (`room_stamp_rect` places it in a button's left end).
+- `draw_room_list` draws a list box: the plain face round a dark well, rows
+  of the caption font's line height and one, a heading in the label font, a
+  tick, a value column right-aligned or a CHECKBOX art box, a groove between
+  groups, a grey row darkened as a grayed button is, and the selected row
+  lit through light level 30 as a list's selection is.
+- `draw_room_bar` draws a bar that fills as work goes on: a dark sunk
+  well filled from its left in the green lamp's light.
+- `draw_room_text` draws a label's glyphs on what is under them,
+  `cover_room_area` lays the room's background over a cell, and
+  `draw_room_focus` lights the focus marker's six outlines round a record.
+
+`room_parts_test.cpp` (`frontend-room-parts`) checks the canvas, the plain
+face, a plate drawn wider than its art, the notch, the stamp, a lamp, a bar
+and a list's rows against a gray palette; with the installed game
+(`frontend-room-parts-data`) it draws every part over the skirmish setup's
+background and checks the plate, the lamps and the list, and with
+`--frames DIR` writes that picture as `room-parts.png` in DIR.
 
 ## Blending
 

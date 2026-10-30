@@ -14,8 +14,13 @@
 // Auto scale) and lays them out at the size class of the points left over:
 // at a whole scale on the kit canvas's crisp form, and at 150% on its smooth
 // form in the modern fonts. In a match the settings dialog takes a scale and
-// size class of its own, capped by the side column's scale, and is drawn at
-// them beside the column (OaLayer::match_dialog). oa_layer.cpp holds it, the
+// size class of its own from the whole window, capped by the side column's
+// scale (OaLayer::match_dialog). A window such as Settings or the Library
+// moves by its title, and keeps its place for each size class
+// (window_placement.hpp); its corners and a notice's are rounded, what lies
+// behind showing there (round_layer_corners). OA's overlays over a match
+// show where the player arranged them (oa_layer_overlays.hpp,
+// oa_layer_arrange.cpp). oa_layer.cpp holds it, the
 // settings' screen (Runtime::SettingsScreen), the screens of a notice
 // (NoticeScreen) and a question (QuestionScreen), and the UI kit gallery
 // (GalleryScreen), which covers the whole window over the settings.
@@ -26,6 +31,7 @@
 #include "oa/platform/text_font.hpp"
 #include "oa/ui/display_layout.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
+#include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/gallery.hpp"
@@ -34,6 +40,8 @@
 #include "oa/ui/pad_controls.hpp"
 #include "oa/ui/screen_registry.hpp"
 #include "oa/ui/screen_registry/kit.hpp"
+#include "oa_layer_overlays.hpp"
+#include "window_placement.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -41,6 +49,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -68,15 +77,21 @@ struct LayerView {
     bool fit_safe_area{};
     /// The room the screens have, in points, with its size class and scale.
     /// On the front end: the window's canvas less its safe insets while the
-    /// game has touch controls, divided by the scale (kit::frame_of). In a
-    /// match: the safe area, Compact at 100%, as the in-match Settings takes
-    /// its class and scale from the area beside the side column
+    /// game has touch controls, divided by the scale (kit::frame_of), its
+    /// class the Window size's where one is chosen
+    /// (window_placement::class_under). In a match: the safe area, Compact
+    /// at 100%, as the in-match Settings takes its own class and scale
     /// (OaLayer::match_dialog).
     oa::ui::kit::Frame frame{};
+    /// The Window size in effect (window_placement::window_size_key): Auto,
+    /// or the class the player chose, on the front end and in a match.
+    window_placement::WindowSize window_size{window_placement::WindowSize::automatic};
     /// The whole number of window pixels a point takes: the step the
     /// Interface size setting in effect chooses, or for Auto the window
-    /// canvas's Auto scale (kit::auto_scale), no larger than lets Compact's
-    /// settings dialog fit the room, and at least 1 (kit::layer_viewport).
+    /// canvas's Auto scale (kit::auto_scale), one step lower where that
+    /// gives the room the class the Window size wants, no larger than lets
+    /// Compact's settings dialog fit the room, and at least 1
+    /// (kit::layer_viewport).
     /// At 150% it is 1, and scale_percent holds the fraction. 1 in a match.
     int32_t scale{1};
     /// The window pixels a point takes, in percent: scale times 100, or 150
@@ -161,6 +176,15 @@ struct LayerPlacement {
     /// screen drawn at 1× and fitted onto a place of its own size, as the
     /// in-match Settings is on a phone, whose points map by the place's size.
     int32_t scale_percent{};
+    /// The radius of the place's rounded corners, in the screen's points:
+    /// the layer leaves what lies outside the rounded shape clear, so that
+    /// what is behind the screen shows there, and draws the window's edge
+    /// round each corner (round_layer_corners). Metrics::window_radius for a
+    /// window that moves (window_placement::moves), Metrics::dialog_radius
+    /// for a notice, a question and a work dialog, at the class each is laid
+    /// out at; 0, square, for every other screen and for one that fills its
+    /// whole room.
+    int32_t corner_radius{};
 };
 
 /// A screen of the OA layer as drawn, before it is laid over what lies under
@@ -306,6 +330,15 @@ class LayerScreen {
         return LayerAnswer::pass;
     }
 
+    /// Takes a key's release. The layer hands a screen every release it
+    /// sees while the screen takes input, as the keys it pressed were.
+    ///
+    /// @return what the screen did; pass, as every screen that does not
+    ///     follow a key's release answers
+    virtual LayerAnswer key_up(uint32_t /*sdl_key*/, uint16_t /*modifiers*/) {
+        return LayerAnswer::pass;
+    }
+
     /// Takes a gamepad action before it becomes a key, a click or anything
     /// else. The layer offers each action to the top screen, and a screen
     /// that answers other than pass took it, so it becomes no key. The
@@ -375,6 +408,15 @@ class LayerScreen {
     ///
     /// @return false, the default; true for a screen that keeps to it
     [[nodiscard]] virtual bool revision_covers_drawing() const { return false; }
+
+    /// Returns the fonts this screen is measured and drawn in, when they are
+    /// not the layer's own (OaLayer::screen_fonts). Settings in a match, and
+    /// a notice or a question over the match, return the fonts of their size
+    /// class, and the layer draws them with those, the same fonts their
+    /// input measures in. Null, the default, keeps the layer's fonts.
+    ///
+    /// @return the fonts; null to use the layer's
+    [[nodiscard]] virtual const oa::ui::kit::Fonts* drawing_fonts() const { return nullptr; }
 
     /// Returns a number no other screen made in this run has, by which the
     /// layer tells a screen's kept drawing from another's.
@@ -453,6 +495,50 @@ centred_placement(const LayerView& view, int32_t width_points, int32_t height_po
     uint8_t ground = 0
 );
 
+/// Draws on a clear canvas of a screen's size at a scale, as the OA layer
+/// draws a screen that is not opaque: it is drawn twice (layer_drawing),
+/// over black and over white, and each pixel's opacity is what it leaves of
+/// the white, 255 less the most any colour channel differs between the two;
+/// its colour is the one over black divided by that opacity, so that the
+/// colours stay straight. What it fills is opaque and keeps its colour
+/// exactly, what it leaves alone is clear, and what it blends over takes the
+/// blend's opacity.
+///
+/// @param points_width the width, in points
+/// @param points_height the height, in points
+/// @param scale_percent the scale, in percent: 100, 150, 200 and so on
+/// @param fonts the game's fonts it lays out and, crisp, draws in
+/// @param modern_fonts the modern fonts the smooth form draws text in; null
+///     draws no text there
+/// @param icon the Open Annihilation icon; empty draws the OA mark
+/// @param draw draws on the canvas it is given
+/// @return the drawing, its colours straight, with an opacity for each pixel
+[[nodiscard]] LayerDrawing clear_drawing(
+    int32_t points_width,
+    int32_t points_height,
+    int32_t scale_percent,
+    const oa::ui::kit::Fonts* fonts,
+    oa::platform::text_font::FontStack* modern_fonts,
+    const oa::ui::frontend_renderer::RgbaPicture& icon,
+    const std::function<void(const oa::ui::kit::Canvas&)>& draw
+);
+
+/// Rounds the corners of a screen's drawing as the layer shows it. Stepped
+/// at every scale: a pixel the rounded shape does not cover is fully clear
+/// (opacity 0, colour 0), and a pixel in the ring a point thick inside the
+/// edge takes the window's edge colour whole, the strong edge
+/// (kit::colour::edge_light) where the corner meets the top or the left and
+/// the dark edge (kit::colour::edge_dark) where it meets the bottom or the
+/// right. On the diagonal the dark edge wins, except at the top left. There
+/// is no coverage blend. A drawing with no opacity takes an opaque one
+/// first. Nothing changes for a radius of 0 or less.
+///
+/// @param[in,out] drawing the screen's drawing, straight colours, as large
+///     as its place
+/// @param radius_points the corners' radius, in the screen's points
+/// @param scale_percent the scale it is drawn at, in percent; 0 counts as 100
+void round_layer_corners(LayerDrawing& drawing, int32_t radius_points, int32_t scale_percent);
+
 /// A place in the window, in window pixels and their fractions.
 struct WindowPosition {
     double x{}; ///< column
@@ -505,22 +591,6 @@ layer_key(uint32_t sdl_key, uint16_t modifiers, bool in_match = false) noexcept;
 [[nodiscard]] AutomationControlKind
 automation_kind(const oa::ui::kit::AutomationEntry& entry) noexcept;
 
-/// Where the settings dialog shows in a match, and the size class and scale
-/// it is laid out and drawn at there (OaLayer::match_dialog).
-struct MatchDialogPlace {
-    /// The dialog's rectangle on the match's canvas, in its pixels: the
-    /// class's dialog points at the scale (kit::to_canvas), or on a phone
-    /// Compact fitted to the safe area.
-    oa::ui::display_layout::Rect shown{};
-    /// The class the dialog is laid out at: from the points of the area
-    /// right of the side column at the scale; Compact on a phone.
-    oa::ui::kit::SizeClass size_class{oa::ui::kit::SizeClass::compact};
-    /// The scale the dialog is drawn at, in percent: a whole step times 100,
-    /// or 150. 0 on a phone, where Compact is drawn at 1× and fitted to its
-    /// place.
-    int32_t scale_percent{100};
-};
-
 /// The host of Open Annihilation's own screens over every screen of the
 /// game (Runtime::oa_layer).
 ///
@@ -552,15 +622,39 @@ struct MatchDialogPlace {
 /// a match the layer is one picture of the window's size: the in-game OA
 /// button, the backdrop and the screens, drawn again when what it shows
 /// changes (refresh_match); Settings is laid out and drawn there at the
-/// class and scale match_dialog gives, beside the side column.
+/// class and scale match_dialog gives.
+///
+/// A window that moves (window_placement::moves) shows where the player put
+/// it: its title, the window's header, drags it, snapped to the room's
+/// centre and safe edges and kept on screen; a finger holds the title
+/// first; a double-click on the title puts it back in the centre; Alt and an
+/// arrow move the window that takes the keys, by 8 points, or 32 with Shift.
+/// Each window keeps its place for each size class in the preferences
+/// (window_placement::place_key), as an offset from its centre in points.
+/// Notices and questions stay centred. A window's corners take its class's
+/// window radius and a notice's, a question's and a work dialog's its
+/// dialog radius (LayerPlacement::corner_radius).
+///
+/// While Settings' Move overlays is on, the keys overlay, the chat line and
+/// the latch chips each show at the place the player gave them for the size
+/// class in effect (overlay_shown), kept in the preferences
+/// (overlay_placement::place_key); Settings' Arrange… opens Arrange
+/// overlays (open_arrange_overlays), a picture of the match where they are
+/// placed. While it is off they show where they lay themselves out.
 class OaLayer {
   public:
 
-    /// The in-game OA button's left column in the in-game menu's column, in
-    /// source pixels: under Resume, clear of its frame.
-    static constexpr int32_t match_button_source_x = 100;
-    /// The in-game OA button's top row in the in-game menu's column, in source pixels.
+    /// The in-game OA Settings button's left column in the in-game menu's
+    /// column, in source pixels: Resume's left edge.
+    static constexpr int32_t match_button_source_x = 14;
+    /// The in-game OA Settings button's top row in the in-game menu's
+    /// column, in source pixels: under Resume, clear of its frame.
     static constexpr int32_t match_button_source_y = 455;
+    /// The in-game OA Settings button's width, in source pixels: Resume's.
+    static constexpr int32_t match_button_source_width = 96;
+    /// The in-game OA Settings button's height, in source pixels: what the
+    /// column leaves under Resume.
+    static constexpr int32_t match_button_source_height = 24;
 
     /// Makes an empty layer.
     ///
@@ -639,11 +733,31 @@ class OaLayer {
     /// @return true while it is
     [[nodiscard]] bool holds(const LayerScreen* screen) const noexcept;
 
-    /// Returns the fonts the layer's screens are drawn in: the settings
-    /// dialog's (Runtime::engine_settings_fonts).
+    /// Returns the fonts the layer's screens are measured and drawn in: the
+    /// settings dialog's (Runtime::engine_settings_fonts), at the size class
+    /// the screens are laid out at now (kit::Fonts::size_class), so that in
+    /// the modern look each class's text takes that class's steps on the
+    /// type scale. The class is the view's when the layer last laid its
+    /// screens out (lay_out_screens): on the front end the class Settings,
+    /// the Library and the other screens take, and in a match Compact, the
+    /// class of the overlays, the gallery and the key editor. Each call also
+    /// sets that class on the shared fonts, which a match's HUD reads. A
+    /// dialog the match lays out at a class of its own (Settings, and a
+    /// notice or a question over the match) measures and draws with
+    /// screen_fonts(its class) instead.
     ///
     /// @return the fonts; null when they cannot be loaded
     [[nodiscard]] const oa::ui::kit::Fonts* screen_fonts() const;
+
+    /// Returns the fonts of one size class: the same glyphs and modern stack
+    /// as screen_fonts(), with that class's steps on the type scale. The
+    /// pointer for a class stays put until the shared fonts are loaded again.
+    /// It does not change the class of the shared fonts.
+    ///
+    /// @param size_class the class
+    /// @return the fonts; null when they cannot be loaded, or the class is
+    ///     not one of the three
+    [[nodiscard]] const oa::ui::kit::Fonts* screen_fonts(oa::ui::kit::SizeClass size_class) const;
 
     /// Returns what the screens are placed on now: the window over the front
     /// end's picture, with the scale and size class of the window's canvas
@@ -678,7 +792,192 @@ class OaLayer {
     /// @return the class; Compact in a match
     [[nodiscard]] oa::ui::kit::SizeClass screen_class() const { return view().frame.size_class; }
 
-    /// Returns where the topmost screen of a name shows now.
+    /// Returns the Window size in effect, as the preferences hold it
+    /// (window_placement::window_size_key).
+    ///
+    /// @return the size; Auto when none is chosen
+    [[nodiscard]] window_placement::WindowSize window_size() const;
+
+    /// Chooses the Window size, which overrides the size class OA's windows
+    /// are laid out at, keeps it in the preferences and writes them, and
+    /// lays every screen out again for it.
+    ///
+    /// @param size the size; Auto erases the preference
+    void set_window_size(window_placement::WindowSize size);
+
+    /// Puts every window back in its centre: forgets each window's place at
+    /// every size class (window_placement::forget_places), writes the
+    /// preferences, and ends a drag under way.
+    ///
+    /// @return true when a window had a place to forget
+    bool reset_window_places();
+
+    /// Returns the offset from its centre at which a window that moves shows
+    /// now, at the class it is laid out at: a drag's while one is under way,
+    /// else the one remembered.
+    ///
+    /// @param name the window's screen name
+    /// @return the offset, in points; 0, 0 when it shows centred
+    [[nodiscard]] oa::ui::kit::Point window_offset(std::string_view name) const;
+
+    /// Where OA's overlays over a match keep to, and what their places are
+    /// kept at (overlay_room).
+    struct OverlayRoom {
+        /// The match's canvas: 0, 0 and its width and height, in canvas pixels.
+        oa::ui::display_layout::Rect window{};
+        /// The overlays' area (Runtime::overlay_area): the battlefield, or
+        /// the part of it the touch controls leave clear, in canvas pixels.
+        oa::ui::display_layout::Rect area{};
+        /// The scale the places are measured at, in percent: the in-match
+        /// windows' (match_dialog), or 100 where that is fitted.
+        int32_t scale_percent{100};
+        /// The size class the places are kept for: the in-match windows'.
+        oa::ui::kit::SizeClass size_class{oa::ui::kit::SizeClass::compact};
+        /// Returns the area in points at the scale, from its own top left
+        /// corner.
+        ///
+        /// @return 0, 0 and the area's width and height in points, rounded down
+        [[nodiscard]] oa::ui::kit::Rect points() const noexcept;
+    };
+
+    /// One overlay as Arrange overlays shows it.
+    struct ArrangedOverlay {
+        std::string_view name{}; ///< the overlay's name (overlay_placement::overlays)
+        /// Where it lays itself out with no place of its own, in canvas
+        /// pixels: as large as it is now, or for one that shows nothing now
+        /// (no chip on, no line typed) as large as it would be.
+        oa::ui::display_layout::Rect unplaced{};
+    };
+
+    /// Returns where OA's overlays keep to now: in a match, the overlays'
+    /// area at the in-match windows' scale and size class.
+    ///
+    /// @return the room; nothing off a match or while the area is empty
+    [[nodiscard]] std::optional<OverlayRoom> overlay_room() const;
+
+    /// Returns the room Arrange overlays pictures: in a match, overlay_room;
+    /// on the front end, the battlefield of a match laid out at the window's
+    /// canvas (Runtime::match_canvas_point), at the class and scale the
+    /// in-match windows take there.
+    ///
+    /// @return the room; nothing while the window or the area is empty
+    [[nodiscard]] std::optional<OverlayRoom> arranging_room() const;
+
+    /// Tells whether Settings' Move overlays is on: the overlays show at the
+    /// places the player gave them (overlay_shown).
+    ///
+    /// @return true while it is on
+    [[nodiscard]] bool overlays_move() const;
+
+    /// Returns where an overlay shows over the match: while Move overlays is
+    /// on (overlays_move), where it lays itself out, moved to the place the
+    /// player gave it at the size class in effect
+    /// (overlay_placement::rect_at), as large as it is and kept in the
+    /// overlays' area. With no place, or while Move overlays is off, it shows
+    /// where it lays itself out, pixel for pixel.
+    ///
+    /// @param overlay the overlay's name (overlay_placement::overlays)
+    /// @param unplaced where it lays itself out, in canvas pixels
+    /// @return where it shows, in canvas pixels
+    [[nodiscard]] oa::ui::display_layout::Rect
+    overlay_shown(std::string_view overlay, const oa::ui::display_layout::Rect& unplaced) const;
+
+    /// Returns the overlays Arrange overlays moves and where each lays
+    /// itself out over the match now (ArrangedOverlay).
+    ///
+    /// @return the keys overlay, the chat line and the latch chips; empty off a match
+    [[nodiscard]] std::vector<ArrangedOverlay> arranged_overlays() const;
+
+    /// Returns the overlays Arrange overlays moves and where each lays
+    /// itself out in a room: as the match shows them now, or with Arrange
+    /// overlays' samples (the keys overlay's short list, keys_overlay_sample,
+    /// and a latched Queue's chip).
+    ///
+    /// @param room the room
+    /// @param samples the samples' sizes, else the match's overlays'
+    /// @return the keys overlay, the chat line and the latch chips, in canvas pixels
+    [[nodiscard]] std::vector<ArrangedOverlay>
+    arranged_overlays_in(const OverlayRoom& room, bool samples) const;
+
+    /// Lays out Arrange overlays' keys overlay: the first few keys of a match
+    /// being played, laid out beside the side column of a room as the match
+    /// lays the panel out.
+    ///
+    /// @param room the room
+    /// @return the panel, its position in points from the overlays' area's
+    ///     top left corner; empty without fonts
+    [[nodiscard]] oa::ui::key_editor::OverlayLayout
+    keys_overlay_sample(const OverlayRoom& room) const;
+
+    /// Returns where the keys overlay lays itself out over the match now,
+    /// whether or not it is open: its panel as it would be laid out at the
+    /// in-match windows' class and scale, before any place of the player's.
+    /// [runtime_keys_overlay.cpp]
+    ///
+    /// @return the panel, in canvas pixels; empty off a match or without fonts
+    [[nodiscard]] oa::ui::display_layout::Rect keys_overlay_unplaced() const;
+
+    /// Returns an overlay's place at a size class.
+    ///
+    /// @param overlay the overlay's name
+    /// @param size_class the class
+    /// @return the place; nothing while it has none
+    [[nodiscard]] std::optional<overlay_placement::OverlayPlace>
+    overlay_place(std::string_view overlay, oa::ui::kit::SizeClass size_class) const;
+
+    /// Keeps an overlay's place at a size class, writes the preferences and
+    /// lays the screens out again for it.
+    ///
+    /// @param overlay the overlay's name
+    /// @param size_class the class
+    /// @param place the place
+    /// @return true when the place changed
+    bool place_overlay(
+        std::string_view overlay,
+        oa::ui::kit::SizeClass size_class,
+        const overlay_placement::OverlayPlace& place
+    );
+
+    /// Forgets an overlay's place at a size class, so that it shows where it
+    /// lays itself out there again, and writes the preferences.
+    ///
+    /// @param overlay the overlay's name
+    /// @param size_class the class
+    /// @return true when it had a place
+    bool forget_overlay_place(std::string_view overlay, oa::ui::kit::SizeClass size_class);
+
+    /// Puts every overlay back where it lays itself out: forgets every
+    /// overlay's place at every size class (overlay_placement::forget_places)
+    /// and writes the preferences.
+    ///
+    /// @return true when an overlay had a place to forget
+    bool reset_overlay_places();
+
+    /// Returns every overlay's place at every size class, as the preferences
+    /// hold them (the keys that start with overlay_placement::place_key_start).
+    ///
+    /// @return the keys and their values
+    [[nodiscard]] std::map<std::string, std::string> kept_overlay_places() const;
+
+    /// Puts every overlay's place back as kept_overlay_places returned them:
+    /// forgets the places there are now, keeps those, and writes the
+    /// preferences.
+    ///
+    /// @param kept the places
+    void restore_overlay_places(const std::map<std::string, std::string>& kept);
+
+    /// Opens Arrange overlays over Settings (Accessibility's Arrange…):
+    /// modal, as large as the window, a picture of the match in the kit's
+    /// look (arranging_room) with the overlays' samples, a handle on each to
+    /// drag on the grid, and a card with Reset, Cancel and Done
+    /// (oa_layer_arrange.cpp).
+    ///
+    /// @return true when it opened; false while it is open, without fonts or
+    ///     with no room to picture
+    bool open_arrange_overlays();
+
+    /// Returns where the topmost screen of a name shows now, moved where the
+    /// player put it (shown_placement).
     ///
     /// @param name the screen's name
     /// @return its place, in window pixels; empty when no such screen shows
@@ -801,7 +1100,8 @@ class OaLayer {
     void compose_front_end(renderer::Surface& frame) const;
 
     /// Draws the match's layer again when what it shows changed: the
-    /// in-game OA button while the in-game menu's column shows, the backdrop
+    /// in-game OA Settings button while the in-game menu's column shows,
+    /// the backdrop
     /// under a modal screen, and the screens that show, each darkened as
     /// the button is once for each modal screen with a backdrop above it.
     /// Each screen is drawn at its placement's scale (Settings at
@@ -853,9 +1153,10 @@ class OaLayer {
 
     /// Appends what the layer shows to the automation endpoint's controls
     /// (docs/automation.md, "OA's own screens"): the OA button while it
-    /// shows, named oa.button, and on the main menu the Settings button
-    /// beside it, named oa.settings-button, each with no dialog and enabled
-    /// while no modal screen shows; then each screen that shows, from the
+    /// shows, named oa.button (in the in-game menu the OA Settings button,
+    /// its text its words), and on the main menu the Settings button beside
+    /// it, named oa.settings-button, each with no dialog and enabled while no
+    /// modal screen shows; then each screen that shows, from the
     /// top down to the first modal one, each control and part of its display
     /// list (kit::automation_parts) named oa. and its name, of the kind
     /// automation_kind gives, its dialog oa. and the screen's name.
@@ -961,8 +1262,9 @@ class OaLayer {
     [[nodiscard]] static oa::ui::display_layout::Rect
     match_safe_area(const oa::ui::display_layout::MatchLayout& match_layout) noexcept;
 
-    /// Returns where the OA button shows on the match's canvas: under Resume
-    /// in the side column at the column's own scale, which a side-column page
+    /// Returns where the OA Settings button shows on the match's canvas:
+    /// under Resume, as wide as it from its left edge (match_button_source_x
+    /// and the rest), in the side column at the column's own scale, which a side-column page
     /// taller than the window makes smaller than the bars' (so the button
     /// stays in the in-game menu at every window size); fitted to the safe
     /// area, where a placed region showing that part of the column puts it,
@@ -976,48 +1278,43 @@ class OaLayer {
         const oa::ui::display_layout::MatchLayout& match_layout, bool fit = false
     ) noexcept;
 
-    /// Draws the OA button's face as the match's layer shows it: at the
-    /// whole-number scale at or above the side column's, so that its icon
-    /// keeps its detail when the face is fitted to match_button_rect, and
-    /// darkened as the screen is under a modal screen.
+    /// Draws the in-game OA Settings button as the match's layer shows it,
+    /// in the in-game menu's own art as OA's parts in 3.1c's rooms are drawn
+    /// (oa/ui/frontend_renderer/room_parts.hpp): the game's BUTTONS0 plate at
+    /// the button's source size, the small engraved OA stamp at its left end
+    /// and "OA Settings" in the menu's caption font (the label font, or cut,
+    /// where that does not fit), sunk while pressed, darkened as the screen
+    /// is under a modal screen.
     ///
-    /// @param match_layout the match's layout
-    /// @param look how the button looks
-    /// @param darkened a modal screen shows over the screen
-    /// @param fonts the dialog's fonts
-    /// @param icon the icon it shows, the settings icon; empty draws the OA mark
-    /// @param fit the button fits the safe area (match_fits_safe_area): the
-    ///     face takes the whole-number scale at or above the button's own
-    /// @return the face, ingame_button_side source pixels a side at that scale
-    [[nodiscard]] static renderer::Surface match_button_face(
-        const oa::ui::display_layout::MatchLayout& match_layout,
+    /// @param resources the in-game menu's art (Runtime::match_hud_); null
+    ///     draws the game's plain button face
+    /// @param look how the button looks: idle, hovered or pressed
+    /// @param darkened a modal screen with a backdrop shows over the screen
+    /// @return the face, at its source size, clear where no part of it is drawn
+    [[nodiscard]] static LayerDrawing match_button_face(
+        const oa::ui::frontend_renderer::ScreenResources* resources,
         oa::ui::engine_settings::ButtonLook look,
-        bool darkened,
-        const oa::ui::engine_settings::DialogFonts& fonts,
-        const oa::ui::frontend_renderer::RgbaPicture& icon,
-        bool fit = false
+        bool darkened
     );
 
-    /// Returns where the settings dialog shows on the match's canvas, and the
-    /// size class and scale it is laid out and drawn at there.
+    /// Returns where the settings dialog shows unmoved on the match's
+    /// canvas, and the size class and scale it is laid out and drawn at
+    /// there (window_placement::match_window).
     ///
-    /// The scale starts as the layer's on the match's canvas
-    /// (kit::layer_viewport of its pixels, density and safe insets at the
-    /// Interface size: its step, 150%, or for Auto the canvas height's).
-    /// Above the side column's scale (MatchLayout::scale, which HUD scaling
-    /// caps) it takes the largest whole step at or below that scale, and at
-    /// least 1. Where Compact's dialog points do not fit the area right of
-    /// the column (the canvas from the column's right edge, its whole
-    /// height) at that scale, it takes the largest whole step at which they
-    /// do, and at least 1. The class comes from that area's points at the
-    /// scale (kit::frame_of), and the dialog is the class's dialog points at
-    /// the scale (kit::to_canvas), centred in the area: left = column's
-    /// right edge + (area width - dialog width) / 2, top = (canvas height -
-    /// dialog height) / 2. A 640 by 480 window is Compact at 1× at (144,
-    /// 78), as before; 1280 by 720 is Regular at 1×, 1920 by 1080 Compact
-    /// at 2× and 2560 by 1080 Regular at 2× with HUD scaling On and 150%
-    /// not offered, 1920 by 1080 Regular at 1.5× with it offered, and 1920
-    /// by 1080 with HUD scaling Off Large at 1×.
+    /// The scale is the layer's on the match's canvas (kit::layer_viewport
+    /// of its pixels, density and safe insets at the Interface size: its
+    /// step, 150%, or for Auto the canvas height's, one step lower where
+    /// that gives the class the Window size wants), and above the side
+    /// column's scale (MatchLayout::scale, which HUD scaling caps) the
+    /// largest whole step at or below that scale, and at least 1. The class
+    /// comes from the points of the window's whole safe area at the scale,
+    /// or the Window size held to what fits it: the dialog may cover the side
+    /// column. It is centred in the safe area, or centred across in the area
+    /// right of the column where that holds it. A 640 by 480 window is
+    /// Compact at 1× at (144, 78), as before; 800 by 600 Regular at 1×;
+    /// 1024 by 768, 1280 by 720, 1366 by 768 and 1280 by 800 Large at 1×;
+    /// 1920 by 1080 Large at 1×, or at 1.5× while 150% is offered; 2560 by
+    /// 1440 Large at 2×.
     ///
     /// Fitted to a phone's safe area, Compact is drawn at 1× and fitted to
     /// the largest scale that shows it whole there (min(safe width /
@@ -1028,25 +1325,22 @@ class OaLayer {
     /// @param interface_percent the Interface size in effect, in percent
     ///     (LayerView::interface_percent): 0 for Auto
     /// @param fit the dialog fits the safe area (match_fits_safe_area)
+    /// @param size the Window size in effect (LayerView::window_size)
     /// @return the dialog's rectangle, class and scale
     [[nodiscard]] static MatchDialogPlace match_dialog(
         const oa::ui::display_layout::MatchLayout& match_layout,
         int32_t interface_percent,
-        bool fit = false
+        bool fit = false,
+        window_placement::WindowSize size = window_placement::WindowSize::automatic
     ) noexcept;
 
     /// Returns the frame the UI kit gallery takes in a match: the match's
     /// canvas less its safe insets, at the layer's scale on it
-    /// (kit::layer_viewport of its pixels, density and safe insets at the
-    /// Interface size: its step, 150%, or for Auto the canvas height's), no
-    /// larger than the side column's scale (MatchLayout::scale, which HUD
-    /// scaling caps: the largest whole step at or below it instead, and at
-    /// least 1), and the size class of the canvas's points at that scale
-    /// (kit::frame_of). Unlike the settings dialog the gallery covers the
-    /// whole canvas, so the room right of the column plays no part: a 640
-    /// by 480 window is Compact at 1×, 1280 by 720 Large at 1× and 1920 by
-    /// 1080 Regular at 2× with HUD scaling On while 150% is not offered,
-    /// and Large at 1.5× while it is.
+    /// (window_placement::match_viewport at Auto's Window size), and the
+    /// size class of the canvas's points at that scale (kit::frame_of). It
+    /// covers the whole canvas: a 640 by 480 window is Compact at 1×, 1280
+    /// by 720 Large at 1× and 1920 by 1080 Large at 1× while 150% is not
+    /// offered, and Large at 1.5× while it is.
     ///
     /// @param match_layout the match's layout
     /// @param interface_percent the Interface size in effect, in percent
@@ -1123,7 +1417,7 @@ class OaLayer {
 
     /// Checks, for --check-engine-settings, screens that are not opaque and
     /// the information key (oa_layer_check.cpp). On the main menu in a 640
-    /// by 480 and a 1920 by 1080 window, such a screen changes no pixel of
+    /// by 480 and a 2560 by 1440 window, such a screen changes no pixel of
     /// the window, nor of the frame without the cursor, but those it draws,
     /// alone, over an opaque screen and under one, and darkens nothing; the
     /// cursor shows above it; opaque screens draw as before; automation
@@ -1134,6 +1428,10 @@ class OaLayer {
     /// to the game, and such a screen changes no pixel of the match's
     /// picture but those it draws. The match's layer lays a pixel over its
     /// own by its opacity, its colours straight.
+    /// Settings, on a 640 by 480 main menu, moves 60 by 40 points by a drag
+    /// on its title and keeps that place in the preferences, a double-click
+    /// on the title centres it again, Alt and Right then Alt, Shift and Down
+    /// move it 8 and 32 points, and reset_window_places centres it.
     ///
     /// Throws std::runtime_error naming the first thing that failed.
     void check_clear_screens();
@@ -1149,7 +1447,8 @@ class OaLayer {
         /// The OA button's rectangle, x, y, width and height, in window
         /// pixels: it moves with the safe area on a phone (fit_safe_area).
         std::array<int32_t, 4> button{};
-        /// Each screen's rectangle, x, y, width and height, in window pixels.
+        /// Each screen's rectangle, x, y, width and height, in window pixels,
+        /// and its corners' radius, in its points.
         std::vector<int32_t> placed{};
         /// Each screen's revision, in the stack's order.
         std::vector<uint64_t> revisions{};
@@ -1176,13 +1475,16 @@ class OaLayer {
     /// Everything but the screen itself that a front-end screen's drawing
     /// is drawn from.
     struct DrawingInputs {
-        /// Where it shows, in window pixels: left, top, width and height.
+        /// Its place's size, in window pixels: 0, 0, width and height. Where
+        /// it shows does not change what it draws, so a window moved keeps
+        /// its drawing.
         std::array<int32_t, 4> shown{};
         int32_t points_width{};     ///< its width, in its points
         int32_t points_height{};    ///< its height, in its points
         int32_t placed_percent{};   ///< its placement's scale, in percent
         int32_t scale_percent{};    ///< the scale it is drawn at, in percent
         uint32_t darkenings{};      ///< the modal screens with a backdrop above it
+        int32_t corner_radius{};    ///< its place's corners' radius, in its points
         bool opaque{};              ///< it covers its place
         const void* fonts{};        ///< the game's fonts it is drawn in
         const void* modern_fonts{}; ///< the modern fonts it is drawn in; null for none
@@ -1228,6 +1530,59 @@ class OaLayer {
     /// @param seen what the screens are placed on
     /// @return the screen; null when none shows
     [[nodiscard]] LayerScreen* top_modal(const LayerView& seen) const;
+
+    /// Returns where a screen shows: its own placement, and for a window
+    /// that moves that placement moved to the window's offset and kept on
+    /// screen (window_placement::shown_at). Every place the layer draws,
+    /// hands input to and lists for automation comes from here.
+    ///
+    /// @param screen the screen
+    /// @param seen what the screens are placed on
+    /// @return its place, in window pixels
+    [[nodiscard]] LayerPlacement
+    shown_placement(const LayerScreen& screen, const LayerView& seen) const;
+
+    /// Returns the room a window that moves keeps to and where it shows
+    /// unmoved, when it moves now.
+    ///
+    /// @param screen the screen
+    /// @param seen what the screens are placed on
+    /// @param own the screen's own placement
+    /// @return the room; nothing for a screen that does not move now: not a
+    ///     window that moves, not shown, or fitted to a place of its own size
+    [[nodiscard]] std::optional<window_placement::WindowRoom>
+    window_room(const LayerScreen& screen, const LayerView& seen, const LayerPlacement& own) const;
+
+    /// Returns the size class a window's place is remembered for: the
+    /// in-match Settings' class in a match, the view's on the front end.
+    ///
+    /// @param seen what the screens are placed on
+    /// @return the class
+    [[nodiscard]] oa::ui::kit::SizeClass window_class(const LayerView& seen) const;
+
+    /// Takes the input that moves a window: a press on a window's title,
+    /// which starts a drag or, double-clicked, puts the window back in its
+    /// centre; the moves and release of that press; and Alt with an arrow
+    /// for the top modal screen.
+    ///
+    /// @param seen what the screens are placed on
+    /// @param input the input
+    /// @return true when the input moved, or may yet move, a window
+    bool take_window_move(const LayerView& seen, const ScreenInput& input);
+
+    /// Remembers a window's offset at a class in the preferences, writing
+    /// them when it changed, and draws the match's layer again.
+    ///
+    /// @param window the window's screen name
+    /// @param size_class the class it is laid out at
+    /// @param offset its offset from its centre, in points
+    void remember_window(
+        std::string_view window, oa::ui::kit::SizeClass size_class, oa::ui::kit::Point offset
+    );
+
+    /// Writes the preferences after a window's place or the Window size
+    /// changed, telling of a failure once.
+    void write_window_preferences();
 
     /// Tells whether a screen waits in the queue.
     ///
@@ -1287,9 +1642,9 @@ class OaLayer {
     /// @return the id
     uint32_t take_request_id() noexcept;
 
-    /// Takes the input the in-game OA button answers to: the shortcut,
-    /// Ctrl+F2 while the profile offers the mod options, and the pointer
-    /// over the button.
+    /// Takes the input the in-game OA Settings button answers to: the
+    /// shortcut, Ctrl+F2 while the profile offers the mod options, and the
+    /// pointer over the button, whose release opens Settings.
     ///
     /// @param input the input, in window pixels
     /// @return true when it was taken
@@ -1301,19 +1656,22 @@ class OaLayer {
     void sync_text_input();
 
     /// Lays every screen out for the view now, and every one waiting
-    /// (LayerScreen::lay_out).
+    /// (LayerScreen::lay_out), first handing the screens' fonts the view's
+    /// size class (screen_fonts).
     void lay_out_screens();
+
+    /// Returns the fonts a screen is drawn in: its own (LayerScreen::drawing_fonts),
+    /// or the layer's (screen_fonts) when it names none.
+    ///
+    /// @param screen the screen
+    /// @return the fonts; null when they cannot be loaded
+    [[nodiscard]] const oa::ui::kit::Fonts* fonts_for(const LayerScreen& screen) const;
 
     /// Draws a screen from its own top left corner at a scale, never drawn
     /// at another and enlarged (layer_drawing): an opaque screen on a
-    /// picture cleared to black. One that is not opaque draws on a surface
-    /// cleared to clear: it is drawn twice, over black and over white, and
-    /// each pixel's opacity is what it leaves of the white, 255 less the
-    /// most any colour channel differs between the two; its colour is the
-    /// one over black divided by that opacity, so that the colours stay
-    /// straight. What the screen fills is opaque and keeps its colour
-    /// exactly, what it leaves alone is clear, and what it blends over takes
-    /// the blend's opacity.
+    /// picture cleared to black, its corners then rounded by its placement's
+    /// radius (round_layer_corners); one that is not opaque on a surface
+    /// cleared to clear (clear_drawing). The canvas carries fonts_for.
     ///
     /// @param screen the screen
     /// @param placed where it shows
@@ -1345,6 +1703,12 @@ class OaLayer {
     void present_match();
 
     Runtime& runtime_; ///< the runtime it hosts screens for
+    /// The press on a window's title that moves it; none while no title is held.
+    std::optional<window_placement::TitleDrag> drag_{};
+    /// The screen drag_ moves; null while no title is held.
+    const LayerScreen* dragged_{};
+    /// A failure to write a window's place was told once.
+    bool window_write_failure_told_{};
     /// The screens, bottom first.
     std::vector<std::unique_ptr<LayerScreen>> screens_{};
     /// The screens waiting for the layer to be free, first in first.
@@ -1362,8 +1726,8 @@ class OaLayer {
     /// coordinates input arrives in; none while the layer has not started it.
     std::optional<oa::ui::display_layout::Rect> text_field_{};
     bool whole_window_{}; ///< the front end's read-back holds the whole window (read_whole_window)
-    bool button_hovered_{}; ///< the pointer is over the in-game OA button
-    bool button_pressed_{}; ///< a press on the in-game OA button is held
+    bool button_hovered_{}; ///< the pointer is over the in-game OA Settings button
+    bool button_pressed_{}; ///< a press on the in-game OA Settings button is held
     /// Counts the changes to what the match's layer shows that MatchLook
     /// cannot see: the button's hover and press, screens coming and going.
     uint64_t revision_{};
@@ -1417,6 +1781,17 @@ class OaLayer {
     /// The fonts generation of the language's faces the modern fonts hold
     /// (Runtime::follow_language_fonts); empty before they took any.
     mutable std::optional<uint64_t> smooth_fonts_generation_{};
+    /// The size class the screens were last laid out at, which their fonts
+    /// take (screen_fonts).
+    oa::ui::kit::SizeClass fonts_class_{oa::ui::kit::SizeClass::compact};
+    /// One kit::Fonts a size class (screen_fonts(SizeClass)), copied from the
+    /// shared fonts the first time they are asked for. A slot's class stays
+    /// its own. The shared fonts' class is still what screen_fonts() sets,
+    /// Compact in a match, which the HUD reads.
+    mutable std::array<oa::ui::kit::Fonts, 3> class_fonts_{};
+    /// The shared fonts class_fonts_ were copied from. A new load copies again.
+    mutable const oa::ui::kit::Fonts* class_fonts_source_{nullptr};
+    mutable bool class_fonts_ready_{}; ///< class_fonts_ holds a copy
     /// Settings pages registered for this runtime.
     SettingsRegistry settings_pages_{};
     /// The next id queue_notice and queue_prompt hand out. Never 0.

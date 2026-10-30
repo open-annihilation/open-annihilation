@@ -35,7 +35,7 @@ constexpr uint32_t found_notice_menu_frames = 2;
 oa::ui::engine_settings::Notice found_notice(std::string_view words) {
     oa::ui::engine_settings::Notice notice;
     notice.title = "GAME FOLDER FOUND";
-    notice.open_caption = "OPEN FOLDER";
+    notice.open_caption = "Open folder";
     const std::size_t line_end = words.find('\n');
     notice.paragraphs.push_back({std::string(words.substr(0, line_end)), false});
     if (line_end != std::string_view::npos && line_end + 1 < words.size())

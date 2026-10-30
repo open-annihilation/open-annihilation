@@ -3,8 +3,11 @@
 
 // Match left-click handling, selection, tracking and squads.
 #include "oa/app/runtime.hpp"
+#include "touch_state.hpp"
+#include "oa/data/defs/categories.hpp"
 #include "oa/sim/match_runtime/construction_orders.hpp"
 #include "oa/sim/selection.hpp"
+#include "oa/sim/simulation_state.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <bit>
@@ -45,6 +48,8 @@ input::OrderCommand armed_command(MatchCommand command) {
 } // namespace
 
 void Runtime::handle_match_left_click(float x, float y, int32_t clicks) {
+    consume_sticky_modifiers();
+    note_shared_latch_used(match_command_ == MatchCommand::none ? 0 : 1);
     // The frame's pick at the click: the unit under the pointer is the
     // cursor unit (Game.cursor_unit_id).
     update_pointer(x, y);
@@ -76,7 +81,13 @@ void Runtime::handle_match_left_click(float x, float y, int32_t clicks) {
             issue_pointer_ground_blast(x, y, queueing());
         return;
     }
-    const bool force_attack = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_CTRL) != 0;
+    // The role replaces the keyboard's Ctrl. The pad's FORCE is not asked here; the click's
+    // pulse still carries the Ctrl that pulse holds for this press, as the keyboard read did.
+    uint32_t click_pulse = 0;
+    if (const auto* touch = touch_state_if_made())
+        click_pulse = static_cast<uint32_t>(touch->dispatch.pulse);
+    const bool force_attack =
+        modifier_role_active("order.force-modifier") || (click_pulse & SDL_KMOD_CTRL) != 0;
     if ((match_command_ == MatchCommand::none && !force_attack) ||
         match_command_ == MatchCommand::move || match_command_ == MatchCommand::repair ||
         match_command_ == MatchCommand::guard) {
@@ -499,7 +510,7 @@ void Runtime::assign_squad(int squad) {
     status_ = "Squad " + std::to_string(squad) + " assigned";
 }
 
-void Runtime::select_squad(int squad, bool add) {
+void Runtime::select_squad(int squad, bool add, GroupViewMove move) {
     if (!match_ || squad < 1 || squad > 9)
         return;
     namespace selection = oa::sim::selection;
@@ -510,18 +521,27 @@ void Runtime::select_squad(int squad, bool add) {
     );
     const selection::TypeMask no_skip{};
     // The shared hooks centre the view and stop tracking when the squad is
-    // already the selection. The command reset stays the one a squad key has
-    // always used: it does not also drop a building waiting to be placed.
+    // already the selection; the move asked for decides otherwise. The
+    // command reset stays the one a squad key has always used: it does not
+    // also drop a building waiting to be placed.
     selection::Hooks hooks = selection_hooks();
     hooks.reset_command = [](void* context) {
         static_cast<Runtime*>(context)->reset_match_command();
     };
+    if (move != GroupViewMove::when_selected) {
+        hooks.center_camera = nullptr;
+        hooks.stop_follow = nullptr;
+    }
     const bool any =
         selection::select_squad(world, squad, add, skip != nullptr ? *skip : no_skip, hooks);
     play_match_interface_sound("SelectSquad");
     selected_match_unit_ = 0;
     uint16_t first = 0;
     int count = 0;
+    // The group's centre: the average of its selected units' whole map
+    // pixels, divided as integers, as the selection module takes it.
+    int32_t sum_x = 0;
+    int32_t sum_z = 0;
     for (auto& slot : match_->world().slots) {
         if (slot.unit == nullptr || slot.owner_index != match_local_player_ ||
             (slot.unit->flags & OA_UNIT_FLAG_SELECTED) == 0)
@@ -532,11 +552,20 @@ void Runtime::select_squad(int squad, bool add) {
         if (first == 0)
             first = slot.unit_index;
         ++count;
+        sum_x += static_cast<int16_t>(static_cast<uint32_t>(slot.record.position.x) >> 16);
+        sum_z += static_cast<int16_t>(static_cast<uint32_t>(slot.record.position.z) >> 16);
     }
     if (!any) {
         status_ = "Squad " + std::to_string(squad) + " empty";
         apply_match_hud_for_selection();
         return;
+    }
+    if (move == GroupViewMove::always && count > 0) {
+        stop_match_tracking();
+        set_camera_position(
+            sum_x / count - visible_map_width() / 2, sum_z / count - visible_map_height() / 2, 0
+        );
+        render_match_surface();
     }
     selected_match_unit_ = first;
     apply_match_hud_for_selection();
@@ -565,14 +594,129 @@ void Runtime::select_units_matching(
     status_ = count == 0 ? "No units" : std::to_string(count) + " selected";
 }
 
-int Runtime::squad_from_key(const SDL_KeyboardEvent& key) const {
-    if (key.scancode >= SDL_SCANCODE_1 && key.scancode <= SDL_SCANCODE_9)
-        return static_cast<int>(key.scancode - SDL_SCANCODE_1) + 1;
-    if (key.scancode >= SDL_SCANCODE_KP_1 && key.scancode <= SDL_SCANCODE_KP_9)
-        return static_cast<int>(key.scancode - SDL_SCANCODE_KP_1) + 1;
-    if (key.key >= SDLK_1 && key.key <= SDLK_9)
-        return static_cast<int>(key.key - SDLK_1) + 1;
-    return 0;
+namespace {
+
+/// Whether a category mask holds any unit type.
+///
+/// @param mask the mask, or null
+/// @return true when some type bit is set
+bool mask_holds_a_type(const oa::data::defs::CategoryMask* mask) {
+    if (mask == nullptr || mask->words == nullptr)
+        return false;
+    for (uint32_t index = 0; index < mask->word_count; ++index) {
+        if (mask->words[index] != 0)
+            return true;
+    }
+    return false;
+}
+
+/// Whether a selectable unit of the local player carries a type the mask names.
+///
+/// @param world units and players
+/// @param mask types the tag names; not null
+/// @return true when selecting the tag would select a unit
+bool local_unit_has_tag(oa::World& world, const oa::data::defs::CategoryMask& mask) {
+    const oa::Player* player = oa::world_player(&world, world.game.local_player_index);
+    if (player == nullptr)
+        return false;
+    uint32_t count = 0;
+    oa::Unit* first = oa::world_player_units(&world, player, &count);
+    if (first == nullptr)
+        return false;
+    for (uint32_t index = 0; index < count; ++index) {
+        oa::Unit& unit = first[index];
+        if (!oa::sim::simulation_state::unit_selectable(world, unit))
+            continue;
+        if (oa::data::defs::category_mask_contains(&mask, unit.type_index))
+            return true;
+    }
+    return false;
+}
+
+/// True when the two words are the same category name, ignoring ASCII case.
+///
+/// @param left one spelling
+/// @param right the other spelling
+/// @return true when they match
+bool same_tag_word(std::string_view left, std::string_view right) {
+    if (left.size() != right.size())
+        return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        unsigned char a = static_cast<unsigned char>(left[index]);
+        unsigned char b = static_cast<unsigned char>(right[index]);
+        if (a >= 'A' && a <= 'Z')
+            a = static_cast<unsigned char>(a - 'A' + 'a');
+        if (b >= 'A' && b <= 'Z')
+            b = static_cast<unsigned char>(b - 'A' + 'a');
+        if (a != b)
+            return false;
+    }
+    return true;
+}
+
+} // namespace
+
+bool Runtime::select_by_tag(std::string_view word, bool add, TagReach reach) {
+    if (!match_ || word.empty())
+        return false;
+    auto& world = match_->state();
+    world.game.local_player_index = match_local_player_;
+    const std::string name{word};
+    const oa::data::defs::CategoryMask* mask =
+        oa::data::defs::category_registry_find(&unit_table_.tables.categories, name.c_str());
+    // A letter whose tag names nothing does nothing: the selection and the
+    // page stay as they are. A map-wide press also does nothing when the
+    // player has no unit of the tag. A two-press call still runs, so a second
+    // press can reach units that were off screen.
+    if (!mask_holds_a_type(mask))
+        return false;
+    if (reach == TagReach::map && !local_unit_has_tag(world, *mask))
+        return false;
+    const auto selected_ids = [&]() {
+        std::vector<uint16_t> ids;
+        for (const auto& slot : match_->world().slots) {
+            if (slot.unit == nullptr || slot.owner_index != match_local_player_)
+                continue;
+            if ((slot.unit->flags & OA_UNIT_FLAG_SELECTED) == 0)
+                continue;
+            ids.push_back(slot.unit_index);
+        }
+        std::sort(ids.begin(), ids.end());
+        return ids;
+    };
+    const bool second = reach == TagReach::two_press && same_tag_word(tag_reach_word_, word) &&
+                        selected_ids() == tag_reach_slots_;
+    if (reach == TagReach::two_press && !second) {
+        oa::sim::selection::select_type_mask_on_screen(
+            world, on_screen_lists(), *mask, add, selection_hooks()
+        );
+    } else {
+        oa::sim::selection::apply_type_mask_selection(world, *mask, add, selection_hooks());
+    }
+    if (reach == TagReach::two_press) {
+        tag_reach_word_.assign(word);
+        tag_reach_slots_ = selected_ids();
+    }
+    adopt_selected_units();
+    int count = 0;
+    for (const auto& slot : match_->world().slots) {
+        if (slot.unit == nullptr || slot.owner_index != match_local_player_ ||
+            (slot.unit->flags & OA_UNIT_FLAG_SELECTED) == 0)
+            continue;
+        ++count;
+    }
+    status_ = count == 0 ? "No units" : std::to_string(count) + " selected";
+    return true;
+}
+
+void Runtime::select_builders_by_movement(bool mobile) {
+    select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
+        const auto* definition = definition_for(slot.unit_index);
+        if (definition == nullptr || !definition->builder)
+            return false;
+        const bool moves = definition->bm_code != 0;
+        return mobile ? moves : !moves;
+    });
 }
 
 } // namespace oa::app

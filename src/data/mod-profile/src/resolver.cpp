@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdint>
 #include <map>
 #include <set>
 #include <optional>
@@ -63,6 +64,10 @@ std::string_view limits_error_name(limits::LimitsError error) {
         return "build_list_overflow";
     case limits::LimitsError::model_composite_sides:
         return "model_composite_sides";
+    case limits::LimitsError::weapon_types:
+        return "weapon_types";
+    case limits::LimitsError::sides:
+        return "sides";
     }
     return "unknown";
 }
@@ -1751,6 +1756,94 @@ class Resolver {
 
     // -------------------------------------------------------------- the effective profile
 
+    /// Refuses side keys that reach past the profile's own side limit.
+    ///
+    /// A registry constraint cannot name another entry's parameter: it
+    /// compares two parameters of the one entry. Identity keys have no
+    /// parameters, so nothing in the registry can name limits.sides.count.
+    /// The check is here, after the limits have resolved into the profile.
+    ///
+    /// @param profile the resolved records
+    void check_side_keys(const ModProfile& profile) {
+        const auto side_count = profile.limits.sides.count;
+        const auto& names = profile.identity.side_names;
+        if (names.size() > side_count) {
+            error(
+                {},
+                "identity.side-names",
+                std::to_string(names.size()) + " names, more than the " +
+                    std::to_string(side_count) + " sides of limits.sides"
+            );
+            return;
+        }
+        // The first problem wins: a side the profile does not have, then a
+        // list that offers nothing.
+        const auto hidden_problem = [&](const auto& hidden) -> std::string {
+            for (uint16_t index = 0; index < hidden.count; ++index) {
+                const auto side = hidden.items[index];
+                if (side >= 0 && static_cast<uint64_t>(side) >= side_count)
+                    return "side " + std::to_string(side) + " is past the " +
+                           std::to_string(side_count) + " sides of limits.sides";
+            }
+            if (hidden.count >= side_count)
+                return "hides every one of the " + std::to_string(side_count) +
+                       " sides of limits.sides";
+            return {};
+        };
+        const std::string skirmish = hidden_problem(profile.identity.skirmish_hidden_sides);
+        if (!skirmish.empty()) {
+            error({}, "identity.skirmish-hidden-sides", skirmish);
+            return;
+        }
+        const std::string battle_room = hidden_problem(profile.identity.battle_room_hidden_sides);
+        if (!battle_room.empty()) {
+            error({}, "identity.battle-room-hidden-sides", battle_room);
+            return;
+        }
+        const auto& computers = profile.identity.computer_player_sides;
+        for (uint16_t index = 0; index < computers.count; ++index) {
+            const auto side = computers.items[index];
+            if (side >= 0 && static_cast<uint64_t>(side) >= side_count) {
+                error(
+                    {},
+                    "identity.computer-player-sides",
+                    "side " + std::to_string(side) + " is past the " + std::to_string(side_count) +
+                        " sides of limits.sides"
+                );
+                return;
+            }
+        }
+        // A computer player still needs a side the buttons offer.
+        const auto lists_side = [](const auto& sides, int32_t wanted) {
+            for (uint16_t at = 0; at < sides.count; ++at)
+                if (sides.items[at] == wanted)
+                    return true;
+            return false;
+        };
+        const auto every_side_hidden = [&](const auto& hidden) {
+            if (computers.count == 0)
+                return false;
+            for (uint16_t at = 0; at < computers.count; ++at)
+                if (!lists_side(hidden, computers.items[at]))
+                    return false;
+            return true;
+        };
+        if (every_side_hidden(profile.identity.skirmish_hidden_sides)) {
+            error(
+                {},
+                "identity.computer-player-sides",
+                "every side computer players may take is hidden from the skirmish"
+            );
+            return;
+        }
+        if (every_side_hidden(profile.identity.battle_room_hidden_sides))
+            error(
+                {},
+                "identity.computer-player-sides",
+                "every side computer players may take is hidden from the battle room"
+            );
+    }
+
     void finish() {
         Value effective = make_map();
         for (const Member& member : meta_.members)
@@ -1953,6 +2046,9 @@ class Resolver {
             );
             return;
         }
+        check_side_keys(resolution.profile);
+        if (!result_.errors.empty())
+            return;
         for (const auto& [path, source] : provenance_)
             resolution.provenance.push_back(Provenance{path, source});
         resolution.effective = std::move(effective);
@@ -1969,14 +2065,18 @@ class Resolver {
 
     /// Returns the profile the hashes read, when it is not the effective one.
     ///
-    /// Four keys were added after grammar 1's first release: an empty
+    /// Seven keys were added after grammar 1's first release: an empty
     /// `layout.installation-archives` list mounts nothing, an
-    /// `identity.watcher-side-frame` of 2 shows 3.1c's watcher art, and an
-    /// empty `identity.skirmish-hidden-sides` or `battle-room-hidden-sides`
-    /// list hides no side, the same as a profile that never wrote the key. So the canonical form leaves each
-    /// out at that value, and existing profiles keep both hashes. Any other
-    /// value stays, and the effective profile is read as it is, uncopied.
-    /// The effective profile itself still holds every key.
+    /// `identity.watcher-side-frame` of 2 shows 3.1c's watcher art, an empty
+    /// `identity.skirmish-hidden-sides` or `battle-room-hidden-sides` list
+    /// hides no side, and an empty `identity.computer-player-sides` list lets
+    /// computer players take every side. A `limits.weapon-types` of 256
+    /// weapon types and a `limits.sides` of five sides number and load what
+    /// 3.1c does. Each of those is what a profile that never wrote the key
+    /// does, so the canonical form leaves each out at that value, and existing
+    /// profiles keep both hashes. Any other value stays, and the effective
+    /// profile is read as it is, uncopied, when none of the keys is at its
+    /// baseline. The effective profile itself still holds every key.
     ///
     /// @param effective the effective profile
     /// @return a copy without those keys; nothing when there are none to leave out
@@ -1987,7 +2087,7 @@ class Resolver {
             bool (*at_baseline)(const Value&);
         };
 
-        static constexpr std::array<LateKey, 4> late_keys{{
+        static constexpr std::array<LateKey, 7> late_keys{{
             {"layout",
              "installation-archives",
              [](const Value& value) {
@@ -2005,8 +2105,33 @@ class Resolver {
              [](const Value& value) {
                  return value.kind == ValueKind::list && value.items.empty();
              }},
-            {"identity", "battle-room-hidden-sides", [](const Value& value) {
+            {"identity",
+             "battle-room-hidden-sides",
+             [](const Value& value) {
                  return value.kind == ValueKind::list && value.items.empty();
+             }},
+            {"identity",
+             "computer-player-sides",
+             [](const Value& value) {
+                 return value.kind == ValueKind::list && value.items.empty();
+             }},
+            {"limits",
+             "weapon-types",
+             [](const Value& value) {
+                 const Value* types = find_member(value, "types");
+                 int64_t numbered = 0;
+                 return value.kind == ValueKind::map && types != nullptr &&
+                        types->kind == ValueKind::number &&
+                        formats::oamod::integer_value(types->number, numbered) &&
+                        numbered == limits::base_weapon_types;
+             }},
+            {"limits", "sides", [](const Value& value) {
+                 const Value* count = find_member(value, "count");
+                 int64_t loaded = 0;
+                 return value.kind == ValueKind::map && count != nullptr &&
+                        count->kind == ValueKind::number &&
+                        formats::oamod::integer_value(count->number, loaded) &&
+                        loaded == limits::base_sides;
              }},
         }};
         std::optional<Value> copy;

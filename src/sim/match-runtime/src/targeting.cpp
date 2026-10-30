@@ -210,9 +210,7 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
         projected.secondary_slot_flags = from.record.weapons[1].flags;
         projected.primary_surface_fire =
             match.rules_view()
-                .weapon(
-                    match.state().game.weapon_defs[weapons.definitions[0]->registry_index].weapon_id
-                )
+                .weapon(oa::oa_weapon_def_id(&match.weapon_record(*weapons.definitions[0])))
                 .surface_fire;
         const auto source_cap = pack_command_capabilities(
             definition.can_attack,
@@ -303,7 +301,7 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
             return false;
         }
         const auto rules = match.rules_view();
-        const auto& record = match.state().game.weapon_defs[weapon->registry_index];
+        const auto& record = match.weapon_record(*weapon);
         const sim::ballistics::WeaponReachParameters reach{
             weapon->flags,
             weapon->range_world_units,
@@ -313,7 +311,7 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
                 match.state().game.gravity,
                 rules.rules()
             ),
-            sim::weapon_execution::reach_keys(rules.weapon(record.weapon_id))
+            sim::weapon_execution::reach_keys(rules.weapon(oa::oa_weapon_def_id(&record)))
         };
         return sim::ballistics::weapon_can_reach(
             reach, reach_geometry(from), reach_geometry(to), match.simulation_.sea_level

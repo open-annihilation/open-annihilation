@@ -12,6 +12,7 @@
 #include "oa/sim/weapon_execution/retaliation.hpp"
 #include "oa/sim/weapon_execution/weapon_launch.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <iostream>
@@ -51,8 +52,12 @@ void reinstall(Fixture& f, const std::string& tdf, size_t count) {
 /// @param weapon_id the weapon's ID
 /// @param rules its rules
 /// @return a table indexed by weapon ID
-std::vector<WeaponTypeRules> one_weapon(uint8_t weapon_id, WeaponTypeRules rules) {
-    std::vector<WeaponTypeRules> table(OA_WEAPON_DEF_COUNT);
+std::vector<WeaponTypeRules> one_weapon(uint16_t weapon_id, WeaponTypeRules rules) {
+    std::vector<WeaponTypeRules> table(
+        std::max(
+            static_cast<std::size_t>(OA_WEAPON_DEF_COUNT), static_cast<std::size_t>(weapon_id) + 1
+        )
+    );
     table[weapon_id] = rules;
     return table;
 }
@@ -342,6 +347,33 @@ void reach_keys_in_match() {
     }
 }
 
+// A not-to-air key bound to the whole id applies to that weapon. The same
+// key bound to the id's low byte does not.
+void rules_follow_the_whole_id() {
+    const WeaponTypeRules not_to_air{true, false, false, false};
+    const auto place_pair = [](Fixture& f) {
+        auto& shooter = f.spawn(0, 200, 40);
+        auto& plane = f.spawn(1, 220, 40);
+        place(shooter, 200, 60, 40);
+        place(plane, 220, 120, 40);
+        plane.unit->flags = (plane.unit->flags & ~3u) | airborne;
+        return f.match->weapon_can_reach(shooter.unit_index, plane.unit_index, 0);
+    };
+    Options wide;
+    wide.gun_id = 300;
+    wide.weapon_types = 1024;
+    wide.weapon_rules = one_weapon(300, not_to_air);
+    Fixture bound(wide);
+    CHECK(!place_pair(bound));
+
+    Options folded;
+    folded.gun_id = 300;
+    folded.weapon_types = 1024;
+    folded.weapon_rules = one_weapon(44, not_to_air);
+    Fixture low(folded);
+    CHECK(place_pair(low));
+}
+
 // weapons.vlaunch-before-turret: a weapon with turret and vlaunch is aimed as
 // a turret either way. 3.1c fires it with the turret constructor, along its
 // aim; the rule fires it with the vertical-launch constructor, straight up.
@@ -401,6 +433,7 @@ int main() {
         timed_shells_run_out(true, WeaponsTimedShellDetonationRule::burnblow);
         timed_shells_run_out(true, WeaponsTimedShellDetonationRule::not_noautorange);
         reach_keys_in_match();
+        rules_follow_the_whole_id();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

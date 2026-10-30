@@ -36,14 +36,43 @@ constexpr float height_lift = 0.5F;
 constexpr int32_t maximum_terrain_row_shift = 128;
 constexpr uint64_t hash_start = 14695981039346656037ULL;
 constexpr uint64_t hash_multiplier = 1099511628211ULL;
-constexpr std::size_t maximum_vertices = 4U * 1024U * 1024U;
+constexpr std::size_t maximum_vertices = renderer_live_gpu::largest_vertex_count;
 constexpr uint32_t maximum_atlas_edge = 4096;
+/// A terrain material's square in the atlas at full detail: the tile's 32
+/// pixels in its own palette and in the grey one side by side, each with its
+/// smaller levels under it.
+constexpr uint32_t full_terrain_square = 2 * tile_edge;
+/// The smallest square a frame packs a terrain tile into when its terrain
+/// needs more room than the atlas has: the tile at 4 by 4 pixels.
+constexpr uint32_t smallest_terrain_square = 8;
+/// The room the terrain leaves the other materials at least, and in
+/// proportion to what they took when last measured: they are packed after
+/// it, and a battle brings more into view.
+constexpr uint64_t least_material_room = uint64_t{maximum_atlas_edge} * maximum_atlas_edge / 16;
+/// The most height cells a side of a square of ground drawn as one, far
+/// out over a large map.
+constexpr int32_t coarsest_terrain_step = 8;
 
-/// Signals a full atlas so the next attempt can discard old frame materials.
-class AtlasFull : public std::runtime_error {
+/// A frame that needs more room than the renderer has: a camera that drew
+/// can still draw.
+class OutOfRoom : public std::runtime_error {
   public:
 
-    AtlasFull() : std::runtime_error("experimental material atlas is full") {}
+    using std::runtime_error::runtime_error;
+};
+
+/// Signals a full atlas so the next attempt can discard old frame materials.
+class AtlasFull : public OutOfRoom {
+  public:
+
+    AtlasFull() : OutOfRoom("experimental material atlas is full") {}
+};
+
+/// More triangles than the frame's geometry budget.
+class GeometryFull : public OutOfRoom {
+  public:
+
+    GeometryFull() : OutOfRoom("experimental scene exceeds its geometry budget") {}
 };
 
 /// Separates undiscovered ground from mapped ground outside current sight.
@@ -58,13 +87,18 @@ Fog fog_at(const full::SightView& sight, int32_t x, int32_t z) {
         return sight.mapping ? Fog::black : Fog::seen;
     const std::size_t index = static_cast<std::size_t>(row) * sight.width + column;
     if (sight.mapping &&
-        (index >= sight.player_bits.size() || (sight.player_bits[index] & sight.viewer_bit) == 0))
+        (index >= sight.player_bits.size() || (sight.player_bits[index] & sight.mapped_bits) == 0))
         return Fog::black;
-    const bool visible = index < sight.coverage.size() &&
-                         sim::visibility_state::count_in_sight(
-                             sight.coverage[index], sim::visibility_state::SightReading::player
-                         );
-    return sight.line_of_sight && !visible ? Fog::grey : Fog::seen;
+    const present::world_renderer::FogOptions options{
+        sight.line_of_sight, sight.mapping, sight.shared_bits
+    };
+    const bool visible = present::world_renderer::cell_shown_in_sight(
+        index < sight.coverage.size() ? sight.coverage[index] : uint16_t{0},
+        index < sight.player_bits.size() ? sight.player_bits[index] : uint16_t{0},
+        static_cast<uint16_t>(sight.mapped_bits & ~sight.shared_bits),
+        options
+    );
+    return present::world_renderer::view_greys(options) && !visible ? Fog::grey : Fog::seen;
 }
 
 /// Interpolates fog inside known ground and fades to black before unknown cells.
@@ -124,6 +158,41 @@ float brightness_at(const full::SightView& sight, float x, float y, float unseen
     return value * edge_fade;
 }
 
+/// The ground's fog at a painted map point: how much of it is known, and how
+/// far the known part blends toward the grey palette. The same figures the
+/// terrain stores on each vertex, so a feature can grey with the ground.
+struct GroundFog {
+    float known{1};
+    float grey{};
+};
+
+GroundFog fog_of_ground(const Inputs& in, float painted_x, float painted_y, float brightness) {
+    GroundFog ground;
+    ground.known = brightness >= 1   ? 1
+                   : brightness <= 0 ? 0
+                                     : brightness_at(in.sight, painted_x, painted_y, 1);
+    const float grey_brightness = in.sight.dithered ? 0.5F : 0.35F;
+    ground.grey =
+        ground.known > 0
+            ? std::clamp(
+                  (ground.known - brightness) / (ground.known * (1 - grey_brightness)), 0.0F, 1.0F
+              )
+            : 0;
+    return ground;
+}
+
+/// How many times a fog boundary splits a cell. Distant views keep fewer.
+int32_t fog_divisions(const Inputs& in) {
+    constexpr int32_t most = 4;
+    const bool distant =
+        std::isfinite(in.detail_scale) && in.detail_scale > 0 && in.detail_scale < 1;
+    if (distant && in.detail_scale <= 0.25F)
+        return 1;
+    if (distant && in.detail_scale <= 0.5F)
+        return 2;
+    return most;
+}
+
 /// Samples the canonical world grid at a bounded world coordinate.
 float height_at(const formats::tnt::Map& map, int32_t x, int32_t y) {
     const auto column = std::clamp(x / cell_edge, 0, static_cast<int32_t>(map.attribute_width) - 1);
@@ -171,7 +240,7 @@ void polygon(Scene& scene, std::span<const Vertex> vertices) {
     if (vertices.size() < 3)
         return;
     if (scene.vertices.size() + (vertices.size() - 2) * 3 > maximum_vertices)
-        throw std::runtime_error("experimental scene exceeds its geometry budget");
+        throw GeometryFull();
     for (std::size_t corner = 1; corner + 1 < vertices.size(); ++corner)
         scene.vertices.insert(
             scene.vertices.end(), {vertices[0], vertices[corner], vertices[corner + 1]}
@@ -268,6 +337,7 @@ AtlasRect material(
     scene.next_x += width;
     scene.row_height = std::max(scene.row_height, height);
     scene.materials.emplace(digest, rect);
+    scene.packed_material_area += uint64_t{width} * height;
     ++scene.texture_revision;
     scene.atlas_update.first_row = std::min(scene.atlas_update.first_row, rect.y);
     scene.atlas_update.end_row = std::max(scene.atlas_update.end_row, rect.y + height);
@@ -352,33 +422,80 @@ clip_ground_fixed(const GroundPolygon& source, bool horizontal, float edge, bool
     return result;
 }
 
-/// Packs colour and classic grey palettes with independently clamped mip chains.
+/// Takes a square of the atlas for a terrain material: a full square from
+/// the rows as every other material is packed, and a smaller one from a
+/// quarter left of a square split for its size, splitting one when none is
+/// left, so that small squares waste no rows.
+///
+/// @param[in,out] scene the atlas and its spare quarters
+/// @param edge the square's edge: full_terrain_square or a power of two
+///     down to smallest_terrain_square
+/// @return the square
+/// @throws AtlasFull when the atlas has no room left for it
+AtlasRect terrain_square(Scene& scene, uint32_t edge) {
+    if (edge >= full_terrain_square) {
+        if (scene.next_x + full_terrain_square > scene.texture_width) {
+            scene.next_x = 0;
+            scene.next_y += scene.row_height;
+            scene.row_height = 0;
+        }
+        if (scene.next_y + full_terrain_square > scene.texture_height)
+            throw AtlasFull();
+        const AtlasRect rect{scene.next_x, scene.next_y, full_terrain_square, full_terrain_square};
+        scene.next_x += full_terrain_square;
+        scene.row_height = std::max(scene.row_height, full_terrain_square);
+        return rect;
+    }
+    const auto size = static_cast<std::size_t>(std::countr_zero(full_terrain_square / edge)) - 1;
+    auto& spare = scene.spare_terrain_squares.at(size);
+    if (spare.empty()) {
+        const auto parent = terrain_square(scene, edge * 2);
+        spare.push_back({parent.x + edge, parent.y + edge, edge, edge});
+        spare.push_back({parent.x, parent.y + edge, edge, edge});
+        spare.push_back({parent.x + edge, parent.y, edge, edge});
+        return {parent.x, parent.y, edge, edge};
+    }
+    const auto rect = spare.back();
+    spare.pop_back();
+    return rect;
+}
+
+/// Packs colour and classic grey palettes with independently clamped mip
+/// chains. A full square holds the tile's 32 pixels; a smaller one starts
+/// its chain at a smaller level, each level averaged from the whole tile
+/// as a full square's same level is.
+///
+/// @param[in,out] scene the atlas
+/// @param palette the tile's colours
+/// @param grey the colours of ground out of sight
+/// @param pixels the tile's palette indices
+/// @param fog black for undiscovered ground
+/// @param edge the square's edge, full_terrain_square or smaller
+/// @return the square, whose top left levels are edge / 2 pixels wide
 AtlasRect terrain_material(
     Scene& scene,
     const PaletteBytes& palette,
     const PaletteBytes& grey,
     std::span<const uint8_t> pixels,
-    Fog fog
+    Fog fog,
+    uint32_t edge = full_terrain_square
 ) {
-    constexpr uint32_t packed_edge = 64;
-    if (scene.next_x + packed_edge > scene.texture_width) {
-        scene.next_x = 0;
-        scene.next_y += scene.row_height;
-        scene.row_height = 0;
-    }
-    if (scene.next_y + packed_edge > scene.texture_height)
-        throw AtlasFull();
-    const AtlasRect rect{scene.next_x, scene.next_y, packed_edge, packed_edge};
+    const AtlasRect rect = terrain_square(scene, edge);
+    const uint32_t detail = rect.width / 2;
     const auto pixel_at = [&](uint32_t x, uint32_t y) {
         return scene.texture_rgba.data() +
                (static_cast<std::size_t>(rect.y + y) * scene.texture_width + rect.x + x) * channels;
     };
+    std::array<uint8_t, static_cast<std::size_t>(tile_edge) * tile_edge * channels> whole{};
+    const auto whole_at = [&](uint32_t x, uint32_t y) {
+        return whole.data() + (static_cast<std::size_t>(y) * tile_edge + x) * channels;
+    };
     for (uint32_t variant = 0; variant < 2; ++variant) {
         const auto& colours = variant == 0 ? palette : grey;
-        const uint32_t origin = variant * tile_edge;
+        const uint32_t origin = variant * detail;
         for (uint32_t y = 0; y < tile_edge; ++y)
             for (uint32_t x = 0; x < tile_edge; ++x) {
-                auto* out = pixel_at(origin + x, y);
+                auto* out = whole_at(x, y);
                 const auto index =
                     static_cast<std::size_t>(pixels[y * tile_edge + x]) * palette_entry_bytes;
                 for (uint32_t channel = 0; channel < 3; ++channel) {
@@ -387,48 +504,212 @@ AtlasRect terrain_material(
                 }
                 out[3] = 255;
             }
-        uint32_t row = tile_edge, edge = tile_edge / 2;
-        for (; edge != 0; edge /= 2) {
-            for (uint32_t y = 0; y < edge; ++y)
-                for (uint32_t x = 0; x < edge; ++x) {
+        uint32_t row = 0;
+        for (uint32_t level = detail; level != 0; level /= 2) {
+            const uint32_t factor = tile_edge / level;
+            const uint32_t count = factor * factor;
+            for (uint32_t y = 0; y < level; ++y)
+                for (uint32_t x = 0; x < level; ++x) {
                     auto* out = pixel_at(origin + x, row + y);
                     for (uint32_t channel = 0; channel < channels; ++channel) {
                         uint32_t sum = 0;
-                        const uint32_t factor = tile_edge / edge;
                         for (uint32_t dy = 0; dy < factor; ++dy)
                             for (uint32_t dx = 0; dx < factor; ++dx)
-                                sum += pixel_at(origin + x * factor + dx, y * factor + dy)[channel];
-                        const uint32_t count = factor * factor;
+                                sum += whole_at(x * factor + dx, y * factor + dy)[channel];
                         out[channel] = static_cast<uint8_t>((sum + count / 2) / count);
                     }
                 }
-            row += edge;
+            row += level;
         }
     }
-    scene.next_x += packed_edge;
-    scene.row_height = std::max(scene.row_height, packed_edge);
     ++scene.texture_revision;
     scene.atlas_update.first_row = std::min(scene.atlas_update.first_row, rect.y);
-    scene.atlas_update.end_row = std::max(scene.atlas_update.end_row, rect.y + packed_edge);
+    scene.atlas_update.end_row = std::max(scene.atlas_update.end_row, rect.y + rect.height);
     return rect;
 }
 
-/// Emits terrain cells with tile UVs and a separate fog material per cell.
-void terrain(const Inputs& in, Scene& scene) {
+/// The squares a frame packs its terrain tiles into: full squares, unless
+/// the tiles it draws need more room than the atlas has.
+struct TerrainPlan {
+    /// Each tile key's square where any is smaller than full.
+    std::unordered_map<uint64_t, uint32_t> squares{};
+    /// The square of a tile the survey did not foresee.
+    uint32_t fallback{full_terrain_square};
+
+    /// @param key a tile key, as the terrain pass makes it
+    /// @return the edge of the square to pack it into
+    [[nodiscard]] uint32_t square(uint64_t key) const {
+        const auto found = squares.find(key);
+        return found == squares.end() ? fallback : found->second;
+    }
+};
+
+/// One terrain tile a frame draws, and how near the camera it comes.
+struct TileDemand {
+    uint64_t key{};
+    float nearest{}; ///< the greatest depth of its cells: nearer is greater
+};
+
+/// The tile key of a painted tile position: its tile, and black for
+/// undiscovered ground, as the terrain pass packs it.
+uint64_t terrain_tile_key(const Inputs& in, int32_t tile_x, int32_t tile_y) {
     const auto& map = *in.map;
-    const int32_t left =
-        std::clamp(in.left, 0, static_cast<int32_t>(map.attribute_width) * cell_edge) / cell_edge *
-        cell_edge;
-    const int32_t top =
-        std::clamp(in.top, 0, static_cast<int32_t>(map.attribute_height) * cell_edge) / cell_edge *
-        cell_edge;
-    const int32_t right =
-        std::clamp(in.right, 0, static_cast<int32_t>(map.attribute_width) * cell_edge);
-    const int32_t bottom = std::clamp(
-        in.bottom + maximum_terrain_row_shift,
-        0,
-        static_cast<int32_t>(map.attribute_height) * cell_edge
+    const auto tile = map.tile_indices.at(
+        static_cast<std::size_t>(tile_y / tile_edge) * map.tile_width + tile_x / tile_edge
     );
+    const auto fog = fog_at(in.sight, tile_x, tile_y) == Fog::black ? Fog::black : Fog::seen;
+    return static_cast<uint64_t>(tile) * 3 + static_cast<uint64_t>(fog);
+}
+
+/// The painted rectangle the terrain pass draws, in map pixels: whole cells
+/// from the left and top, and as far below as the highest ground lifts.
+struct TerrainCrop {
+    int32_t left{};
+    int32_t top{};
+    int32_t right{};
+    int32_t bottom{};
+};
+
+TerrainCrop terrain_crop(const Inputs& in) {
+    const auto& map = *in.map;
+    const int32_t width = static_cast<int32_t>(map.attribute_width) * cell_edge;
+    const int32_t height = static_cast<int32_t>(map.attribute_height) * cell_edge;
+    return {
+        std::clamp(in.left, 0, width) / cell_edge * cell_edge,
+        std::clamp(in.top, 0, height) / cell_edge * cell_edge,
+        std::clamp(in.right, 0, width),
+        std::clamp(in.bottom + maximum_terrain_row_shift, 0, height)
+    };
+}
+
+/// Surveys the tiles the terrain pass will draw: for each height cell of
+/// the crop, every tile its painted rows reach, as the pass clips its
+/// triangles to tiles. Returns nothing when even every painted tile
+/// position in reach would fit in full squares.
+///
+/// @param in the frame
+/// @param room the atlas area the terrain may take
+/// @return each tile key once, nearest the camera first
+std::vector<TileDemand> terrain_demand(const Inputs& in, uint64_t room) {
+    const auto& map = *in.map;
+    const auto crop = terrain_crop(in);
+    std::vector<TileDemand> demand;
+    if (crop.right <= crop.left || crop.bottom <= crop.top)
+        return demand;
+    constexpr uint64_t full_area = uint64_t{full_terrain_square} * full_terrain_square;
+    const auto reach =
+        static_cast<uint64_t>((crop.right - crop.left) / tile_edge + 2) *
+        static_cast<uint64_t>((crop.bottom - crop.top + maximum_terrain_row_shift) / tile_edge + 2);
+    if (reach * full_area <= room)
+        return demand;
+    const int32_t columns = static_cast<int32_t>(map.tile_width);
+    const int32_t rows = static_cast<int32_t>(map.tile_height);
+    constexpr float unreached = -std::numeric_limits<float>::infinity();
+    std::vector<float> nearest(static_cast<std::size_t>(columns) * rows, unreached);
+    const auto& m = in.clip_projection;
+    for (int32_t y = crop.top; y < crop.bottom; y += cell_edge)
+        for (int32_t x = crop.left; x < crop.right; x += cell_edge) {
+            const std::array corners{
+                height_at(map, x, y),
+                height_at(map, x + cell_edge, y),
+                height_at(map, x + cell_edge, y + cell_edge),
+                height_at(map, x, y + cell_edge)
+            };
+            const auto [low, high] = std::minmax_element(corners.begin(), corners.end());
+            const float top = static_cast<float>(y) - *high * height_lift;
+            const float bottom = static_cast<float>(y + cell_edge) - *low * height_lift;
+            const int32_t column = x / tile_edge;
+            const int32_t first = std::max(0, static_cast<int32_t>(std::floor(top / tile_edge)));
+            const int32_t last = std::min(
+                rows, std::max(first + 1, static_cast<int32_t>(std::ceil(bottom / tile_edge)))
+            );
+            if (column >= columns)
+                continue;
+            const float middle = (*low + *high) * 0.5F;
+            const float depth = m[8] * (static_cast<float>(x) + cell_edge * 0.5F) + m[9] * middle +
+                                m[10] * (static_cast<float>(y) + cell_edge * 0.5F) + m[11];
+            for (int32_t row = first; row < last; ++row) {
+                auto& point = nearest[static_cast<std::size_t>(row) * columns + column];
+                point = std::max(point, depth);
+            }
+        }
+    std::unordered_map<uint64_t, std::size_t> found;
+    for (int32_t row = 0; row < rows; ++row)
+        for (int32_t column = 0; column < columns; ++column) {
+            const float depth = nearest[static_cast<std::size_t>(row) * columns + column];
+            if (depth == unreached)
+                continue;
+            const auto key = terrain_tile_key(in, column * tile_edge, row * tile_edge);
+            const auto [entry, added] = found.try_emplace(key, demand.size());
+            if (added)
+                demand.push_back({key, depth});
+            else
+                demand[entry->second].nearest = std::max(demand[entry->second].nearest, depth);
+        }
+    std::sort(demand.begin(), demand.end(), [](const TileDemand& a, const TileDemand& b) {
+        return a.nearest != b.nearest ? a.nearest > b.nearest : a.key < b.key;
+    });
+    return demand;
+}
+
+/// Chooses each surveyed tile's square so that the terrain fits the room:
+/// every tile full where they all fit; otherwise the nearest tiles in the
+/// larger of two neighbouring sizes and the rest in the smaller, at the
+/// largest pair that fits, the smallest squares at the least.
+///
+/// @param demand the surveyed tiles, nearest first
+/// @param room the atlas area the terrain may take
+/// @return the plan
+TerrainPlan plan_terrain(std::span<const TileDemand> demand, uint64_t room) {
+    TerrainPlan plan;
+    const uint64_t count = demand.size();
+    if (count * full_terrain_square * full_terrain_square <= room)
+        return plan;
+    for (uint32_t larger = full_terrain_square; larger > smallest_terrain_square; larger /= 2) {
+        const uint32_t smaller = larger / 2;
+        const uint64_t smaller_area = uint64_t{smaller} * smaller;
+        const uint64_t larger_area = uint64_t{larger} * larger;
+        if (count * smaller_area > room && smaller != smallest_terrain_square)
+            continue;
+        const uint64_t larger_count =
+            count * smaller_area > room
+                ? 0
+                : std::min(count, (room - count * smaller_area) / (larger_area - smaller_area));
+        plan.squares.reserve(demand.size());
+        for (std::size_t index = 0; index < demand.size(); ++index)
+            plan.squares.emplace(demand[index].key, index < larger_count ? larger : smaller);
+        plan.fallback = smaller;
+        break;
+    }
+    return plan;
+}
+
+/// @return the atlas area a plan's tiles take
+uint64_t planned_area(std::span<const TileDemand> demand, const TerrainPlan& plan) {
+    uint64_t area = 0;
+    for (const auto& tile : demand) {
+        const uint64_t edge = plan.square(tile.key);
+        area += edge * edge;
+    }
+    return area;
+}
+
+/// Emits terrain cells with tile UVs and a separate fog material per cell,
+/// each tile packed into the square the plan gives it.
+///
+/// @param in the frame
+/// @param[in,out] scene the geometry and atlas
+/// @param plan the square of each tile
+/// @param step the height cells a side of each drawn square of ground: 1
+///     for every cell, or 2, 4 or 8 for a frame whose ground would
+///     otherwise take more triangles than the frame may hold
+void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t step) {
+    const auto& map = *in.map;
+    const auto crop = terrain_crop(in);
+    const int32_t left = crop.left;
+    const int32_t top = crop.top;
+    const int32_t right = crop.right;
+    const int32_t bottom = crop.bottom;
     // Compare palette bytes once per pass and tile bytes once per visible key.
     // The retained copies detect edits even when the same map object is reused.
     if (scene.terrain_palette != *in.palette) {
@@ -450,7 +731,9 @@ void terrain(const Inputs& in, Scene& scene) {
             );
         }
     }
-    constexpr std::size_t maximum_cached_tiles = 8192;
+    // Room for every tile of the largest map at least once in full and once
+    // black, so that a wide view of one does not empty the cache each frame.
+    constexpr std::size_t maximum_cached_tiles = 32768;
     // A tile's texels are reused by all four height cells and every repeated tile.
     std::unordered_map<uint64_t, AtlasRect> tiles;
     const auto tile_material = [&](int32_t tile_x, int32_t tile_y) {
@@ -466,11 +749,15 @@ void terrain(const Inputs& in, Scene& scene) {
                 throw std::runtime_error("experimental terrain tile is out of bounds");
             const auto pixels = std::span(map.tile_palette_indices)
                                     .subspan(start, formats::tnt::layout::tile_bytes);
+            // A tile packed larger in an earlier frame keeps its detail.
+            const uint32_t square = plan.square(key);
             auto cached = scene.terrain_materials.find(key);
             if (cached == scene.terrain_materials.end() ||
+                cached->second.rectangle.width < square ||
                 std::memcmp(cached->second.pixels.data(), pixels.data(), pixels.size()) != 0) {
-                const auto rectangle =
-                    terrain_material(scene, *in.palette, scene.terrain_grey_palette, pixels, fog);
+                const auto rectangle = terrain_material(
+                    scene, *in.palette, scene.terrain_grey_palette, pixels, fog, square
+                );
                 if (scene.terrain_materials.size() >= maximum_cached_tiles)
                     scene.terrain_materials.clear();
                 scene.aircraft_shadow_materials.clear();
@@ -519,6 +806,9 @@ void terrain(const Inputs& in, Scene& scene) {
                 if (clipped.count < 3)
                     return;
                 const auto rect = tile_material(tx, ty);
+                // A smaller square holds the tile at a fraction of its pixels.
+                const bool full = rect.width == full_terrain_square;
+                const float scale = static_cast<float>(rect.width) / full_terrain_square;
                 std::array<Vertex, 8> output{};
                 for (std::size_t index = 0; index < clipped.count; ++index) {
                     const auto& point = clipped.points[index];
@@ -526,28 +816,19 @@ void terrain(const Inputs& in, Scene& scene) {
                         point.x,
                         point.height,
                         point.y + point.height * height_lift,
-                        (rect.x + point.x - tx) / scene.texture_width,
-                        (rect.y + point.y - ty) / scene.texture_height,
+                        (full ? rect.x + point.x - tx : rect.x + (point.x - tx) * scale) /
+                            scene.texture_width,
+                        (full ? rect.y + point.y - ty : rect.y + (point.y - ty) * scale) /
+                            scene.texture_height,
                         point.brightness
                     };
                     auto& vertex = output[index];
                     vertex.terrain_x = static_cast<float>(rect.x);
                     vertex.terrain_y = static_cast<float>(rect.y);
-                    vertex.terrain_size = tile_edge;
-                    vertex.terrain_known = point.brightness >= 1 ? 1
-                                           : point.brightness <= 0
-                                               ? 0
-                                               : brightness_at(in.sight, point.x, point.y, 1);
-                    const float grey_brightness = in.sight.dithered ? 0.5F : 0.35F;
-                    vertex.terrain_grey =
-                        vertex.terrain_known > 0
-                            ? std::clamp(
-                                  (vertex.terrain_known - point.brightness) /
-                                      (vertex.terrain_known * (1 - grey_brightness)),
-                                  0.0F,
-                                  1.0F
-                              )
-                            : 0;
+                    vertex.terrain_size = static_cast<float>(rect.width / 2);
+                    const auto ground = fog_of_ground(in, point.x, point.y, point.brightness);
+                    vertex.terrain_known = ground.known;
+                    vertex.terrain_grey = ground.grey;
                 }
                 for (std::size_t index = 1; index + 1 < clipped.count; ++index) {
                     const auto& a = output[0];
@@ -573,6 +854,52 @@ void terrain(const Inputs& in, Scene& scene) {
                 }
         }
     };
+    if (step > 1) {
+        // Seen from this far out, a cell is a pixel or two: the ground is
+        // drawn from every step-th height sample, each square as four
+        // triangles about its middle sample, or two where all five lie
+        // level and in even fog. Each still samples its own tiles' art.
+        const int32_t edge = cell_edge * step;
+        const int32_t map_width = static_cast<int32_t>(map.attribute_width) * cell_edge;
+        const int32_t map_height = static_cast<int32_t>(map.attribute_height) * cell_edge;
+        const auto ground = [&](int32_t x, int32_t y) {
+            const float h = height_at(map, x, y);
+            return Vertex{
+                static_cast<float>(x),
+                h,
+                static_cast<float>(y),
+                0,
+                0,
+                brightness_at(in.sight, float(x), y - h * height_lift)
+            };
+        };
+        for (int32_t y = top / edge * edge; y < bottom; y += edge)
+            for (int32_t x = left / edge * edge; x < right; x += edge) {
+                const int32_t far_x = std::min(x + edge, map_width);
+                const int32_t far_y = std::min(y + edge, map_height);
+                const std::array corners{
+                    ground(x, y), ground(far_x, y), ground(far_x, far_y), ground(x, far_y)
+                };
+                const auto middle = ground((x + far_x) / 2, (y + far_y) / 2);
+                const bool level =
+                    std::all_of(corners.begin(), corners.end(), [&](const Vertex& v) {
+                        return v.height == middle.height &&
+                               std::abs(v.brightness - middle.brightness) < 0.001F;
+                    });
+                if (level) {
+                    emit(corners);
+                    continue;
+                }
+                for (std::size_t corner = 0; corner < corners.size(); ++corner) {
+                    const std::array fan{
+                        middle, corners[corner], corners[(corner + 1) % corners.size()]
+                    };
+                    emit(fan);
+                }
+            }
+        scene.terrain_vertex_count = scene.vertices.size();
+        return;
+    }
     const int32_t columns = (right - left + cell_edge - 1) / cell_edge + 1;
     const int32_t rows = (bottom - top + cell_edge - 1) / cell_edge + 1;
     const auto count = static_cast<std::size_t>(columns) * rows;
@@ -686,9 +1013,7 @@ void terrain(const Inputs& in, Scene& scene) {
             }
             // Refine only sight transitions, retaining each original terrain plane.
             constexpr int32_t maximum_divisions = 4;
-            const int32_t divisions = distant && in.detail_scale <= 0.25F  ? 1
-                                      : distant && in.detail_scale <= 0.5F ? 2
-                                                                           : maximum_divisions;
+            const int32_t divisions = fog_divisions(in);
             const auto triangle = [&](const Vertex& a, const Vertex& b, const Vertex& c) {
                 const auto make_point = [&](int32_t column, int32_t row) {
                     const float u = static_cast<float>(column) / divisions;
@@ -772,7 +1097,9 @@ void decal(
     const FixedVec3* anchor = nullptr,
     float footprint_scale = 1,
     bool water_receiver = false,
-    bool soft_edges = false
+    bool soft_edges = false,
+    bool scenery = false,
+    const AtlasRect* grey = nullptr
 ) {
     constexpr float surface_lift = 0.05F;
     if (in.detail_scale > 0 && in.detail_scale < 1) {
@@ -851,29 +1178,127 @@ void decal(
                 clipped = clip_ground_fixed(clipped, true, right, false);
                 clipped = clip_ground_fixed(clipped, false, top, true);
                 clipped = clip_ground_fixed(clipped, false, bottom, false);
+                if (clipped.count < 3)
+                    continue;
                 std::array<Vertex, 8> corners{};
                 for (std::size_t corner = 0; corner < clipped.count; ++corner) {
                     const auto& p = clipped.points[corner];
                     const float h = p.height + surface_lift;
+                    const float painted_y =
+                        p.y + (anchor ? anchor_lift - p.height * height_lift : 0);
                     corners[corner] = {
                         p.x,
                         h,
                         p.y + (anchor ? anchor_lift : p.height * height_lift),
                         (rect.x + (p.x - left) / footprint_scale) / scene.texture_width,
                         (rect.y + (p.y - top) / footprint_scale) / scene.texture_height,
-                        shadow ? 1.0F
-                               : brightness_at(
-                                     in.sight,
-                                     p.x,
-                                     p.y + (anchor ? anchor_lift - p.height * height_lift : 0)
-                                 ),
+                        shadow ? 1.0F : brightness_at(in.sight, p.x, painted_y),
                         opacity
                     };
-                    if (soft_edges)
+                    // A map feature keeps the ground's sampling. Its grey image
+                    // shares the colour image's place in the frame, and the
+                    // fragment stage reads that from terrain_x and terrain_y.
+                    if (scenery) {
+                        corners[corner].terrain_size = soft_edges ? -7.0F : -6.0F;
+                        if (grey != nullptr) {
+                            corners[corner].terrain_x =
+                                (grey->x + (p.x - left) / footprint_scale) / scene.texture_width;
+                            corners[corner].terrain_y =
+                                (grey->y + (p.y - top) / footprint_scale) / scene.texture_height;
+                            const auto ground =
+                                fog_of_ground(in, p.x, painted_y, corners[corner].brightness);
+                            corners[corner].terrain_known = ground.known;
+                            corners[corner].terrain_grey = ground.grey;
+                        }
+                    } else if (soft_edges) {
                         corners[corner].terrain_size = -1;
-                    move_with_swells(in, corners[corner]);
+                    }
                 }
-                polygon(scene, std::span(corners).first(clipped.count));
+                float low_brightness = corners[0].brightness;
+                float high_brightness = low_brightness;
+                for (std::size_t corner = 1; corner < clipped.count; ++corner) {
+                    low_brightness = std::min(low_brightness, corners[corner].brightness);
+                    high_brightness = std::max(high_brightness, corners[corner].brightness);
+                }
+                // Even fog keeps the polygon the ground pass has always emitted.
+                // A boundary is split as the terrain under the feature is, in
+                // map space, before the swells move the sea bed.
+                const int32_t divisions = fog_divisions(in);
+                if (grey == nullptr || high_brightness - low_brightness < 0.001F ||
+                    divisions <= 1) {
+                    for (std::size_t corner = 0; corner < clipped.count; ++corner)
+                        move_with_swells(in, corners[corner]);
+                    polygon(scene, std::span(corners).first(clipped.count));
+                    continue;
+                }
+                const auto sample_point = [&](const Vertex& a,
+                                              const Vertex& b,
+                                              const Vertex& c,
+                                              int32_t column,
+                                              int32_t row) {
+                    const float u = static_cast<float>(column) / divisions;
+                    const float v = static_cast<float>(row) / divisions;
+                    const auto blend = [u, v](float first, float second, float third) {
+                        return first + u * (second - first) + v * (third - first);
+                    };
+                    Vertex result{
+                        blend(a.x, b.x, c.x),
+                        blend(a.height, b.height, c.height),
+                        blend(a.z, b.z, c.z),
+                        blend(a.u, b.u, c.u),
+                        blend(a.v, b.v, c.v),
+                        1.0F,
+                        blend(a.opacity, b.opacity, c.opacity),
+                        blend(a.emission_r, b.emission_r, c.emission_r),
+                        blend(a.emission_g, b.emission_g, c.emission_g),
+                        blend(a.emission_b, b.emission_b, c.emission_b),
+                        blend(a.terrain_x, b.terrain_x, c.terrain_x),
+                        blend(a.terrain_y, b.terrain_y, c.terrain_y),
+                        a.terrain_size
+                    };
+                    const float painted_x = result.x;
+                    const float painted_y = result.z - (result.height - surface_lift) * height_lift;
+                    result.brightness = brightness_at(in.sight, painted_x, painted_y);
+                    const auto ground = fog_of_ground(in, painted_x, painted_y, result.brightness);
+                    result.terrain_known = ground.known;
+                    result.terrain_grey = ground.grey;
+                    move_with_swells(in, result);
+                    return result;
+                };
+                constexpr int32_t row_stride = 5;
+                for (std::size_t fan = 1; fan + 1 < clipped.count; ++fan) {
+                    const Vertex& a = corners[0];
+                    const Vertex& b = corners[fan];
+                    const Vertex& c = corners[fan + 1];
+                    std::array<Vertex, row_stride * row_stride> points{};
+                    for (int32_t row = 0; row <= divisions; ++row)
+                        for (int32_t column = 0; column <= divisions - row; ++column)
+                            points[static_cast<std::size_t>(row * row_stride + column)] =
+                                sample_point(a, b, c, column, row);
+                    for (int32_t row = 0; row < divisions; ++row)
+                        for (int32_t column = 0; column < divisions - row; ++column) {
+                            const auto at = [&](int32_t point_column, int32_t point_row) {
+                                return points[static_cast<std::size_t>(
+                                    point_row * row_stride + point_column
+                                )];
+                            };
+                            polygon(
+                                scene,
+                                std::array{
+                                    at(column, row), at(column + 1, row), at(column, row + 1)
+                                }
+                            );
+                            if (column + row + 1 < divisions)
+                                polygon(
+                                    scene,
+                                    std::array{
+                                        at(column + 1, row),
+                                        at(column + 1, row + 1),
+                                        at(column, row + 1)
+                                    }
+                                );
+                        }
+                }
             }
         }
 }
@@ -945,7 +1370,8 @@ void unit_shadows(const Inputs& in, Scene& scene) {
             height_at(*in.map, position.x / 65536, position.z / 65536), float(in.sea_level)
         );
         const float altitude = std::max(0.0F, position.y / fixed_scale - receiver);
-        const bool aircraft = (flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 && altitude > 0;
+        const bool aircraft =
+            in.new_unit_shadows && (flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 && altitude > 0;
         if (aircraft && image.width <= 256 && image.height <= 256) {
             const uint32_t radius = renderer_aircraft_shadow::edge_radius(altitude);
             uint64_t key = hash_start;
@@ -1022,8 +1448,8 @@ clip_foundation(std::span<const Vertex> source, bool horizontal, float edge, boo
                  std::lerp(previous.emission_r, current.emission_r, t),
                  std::lerp(previous.emission_g, current.emission_g, t),
                  std::lerp(previous.emission_b, current.emission_b, t),
-                 previous.terrain_x,
-                 previous.terrain_y,
+                 std::lerp(previous.terrain_x, current.terrain_x, t),
+                 std::lerp(previous.terrain_y, current.terrain_y, t),
                  previous.terrain_size,
                  std::lerp(previous.terrain_known, current.terrain_known, t),
                  std::lerp(previous.terrain_grey, current.terrain_grey, t)}
@@ -1045,8 +1471,90 @@ clip_foundation(std::span<const Vertex> source, bool horizontal, float edge, boo
     return result;
 }
 
+/// How far below a structure's height, in map pixels, the ground under it
+/// goes to keep its base piece in view. A base piece reaching deeper is sunk
+/// into the ground by design, and the ground still covers what lies deeper.
+constexpr float deepest_base = 1;
+
+/// How far above a structure's height, in map pixels, its base piece's
+/// corners count as standing on the ground: the floor plates of the game's
+/// structures lie up to about a map pixel above it. Higher parts of the base
+/// may overhang the ground around without levelling it.
+constexpr float base_reach = 2;
+
+/// Where a structure's base piece, the root every other piece of its model
+/// hangs from, meets the ground.
+struct BasePiece {
+    float depth{}; ///< its lowest corner below the structure's height, 0 to deepest_base
+    /// The map rectangle its corners up to base_reach cover, in map pixels
+    /// across and world rows down; empty, left above right, when it has none.
+    float left{std::numeric_limits<float>::infinity()};
+    float right{-std::numeric_limits<float>::infinity()};
+    float top{std::numeric_limits<float>::infinity()};
+    float bottom{-std::numeric_limits<float>::infinity()};
+};
+
+/// Measures a structure's base piece as the models pass draws it: every face
+/// but the selection plate, at the piece's pose this frame. The other pieces
+/// move (guns, doors, hatches) and may sink below the ground by design, so
+/// they leave the ground as it is.
+///
+/// @param draw the structure's draw, with its model
+/// @param x the map column its model stands on, in map pixels
+/// @param z the world row its model stands on
+/// @return the base piece; at no depth and empty when the model draws none
+BasePiece base_piece(const ModelDraw& draw, float x, float z) {
+    BasePiece result;
+    const auto& reference = draw.model;
+    if (reference.instance == nullptr || reference.prepared == nullptr)
+        return result;
+    const auto pieces = reference.instance->pieces();
+    const auto root = reference.instance->root_piece();
+    if (root >= pieces.size())
+        return result;
+    const auto& piece = pieces[root];
+    const auto& objects = reference.instance->model().objects;
+    if ((piece.flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) == 0 ||
+        piece.object_index >= objects.size() ||
+        piece.object_index >= reference.prepared->objects.size())
+        return result;
+    const auto& points =
+        root < draw.shown_vertices.size() ? draw.shown_vertices[root] : piece.transformed_vertices;
+    const auto& object = objects[piece.object_index];
+    for (const auto& primitive : reference.prepared->objects[piece.object_index].primitives) {
+        if (static_cast<int32_t>(primitive.source_index) == object.selection_primitive ||
+            primitive.source_index >= object.primitives.size())
+            continue;
+        const auto& source = object.primitives[primitive.source_index];
+        if (source.vertex_indices.size() < 3)
+            continue;
+        for (const auto index : source.vertex_indices) {
+            if (index >= points.size())
+                continue;
+            const auto& point = points[index];
+            const float below = -(point.y / fixed_scale);
+            result.depth = std::max(result.depth, std::min(deepest_base, below));
+            if (-below > base_reach)
+                continue;
+            const float corner_x = x + point.x / fixed_scale;
+            const float corner_z = z - point.z / fixed_scale;
+            result.left = std::min(result.left, corner_x);
+            result.right = std::max(result.right, corner_x);
+            result.top = std::min(result.top, corner_z);
+            result.bottom = std::max(result.bottom, corner_z);
+        }
+    }
+    return result;
+}
+
 /// Levels only drawn ground structures' foundations, without changing map or unit records.
-/// Ground decals share the split geometry and keep their small lift above the terrain.
+///
+/// The ground under a structure's footprint, and under its base piece where
+/// that reaches past the footprint, lies flat a little below the structure's
+/// height, or below its base piece's lowest corner where that is lower, so
+/// that no part of the base is hidden at any angle; it rises back to the
+/// terrain over one cell around. Ground decals share the split geometry and
+/// keep their small lift above the levelled ground.
 void foundations(const Inputs& in, Scene& scene) {
     constexpr float blend_width = cell_edge;
     constexpr float ground_separation = 0.1F;
@@ -1085,11 +1593,14 @@ void foundations(const Inputs& in, Scene& scene) {
         // Canonical footprints already include the building's facing.
         const float half_width = unit->footprint_x * cell_edge * 0.5F;
         const float half_depth = unit->footprint_z * cell_edge * 0.5F;
-        const float left = centre_x - half_width;
-        const float right = centre_x + half_width;
-        const float top = centre_y - half_depth;
-        const float bottom = centre_y + half_depth;
-        plots.push_back({left, right, top, bottom, height});
+        // The base piece where the models pass draws the model.
+        const auto shown = draw.shown_position.value_or(unit->position);
+        const auto footing = base_piece(draw, shown.x / fixed_scale, shown.z / fixed_scale);
+        const float left = std::min(centre_x - half_width, footing.left);
+        const float right = std::max(centre_x + half_width, footing.right);
+        const float top = std::min(centre_y - half_depth, footing.top);
+        const float bottom = std::max(centre_y + half_depth, footing.bottom);
+        plots.push_back({left, right, top, bottom, height - footing.depth});
     }
     if (plots.empty())
         return;
@@ -1172,7 +1683,7 @@ void foundations(const Inputs& in, Scene& scene) {
     const auto copy_pending = [&](std::size_t end) {
         const auto count = end - pending_begin;
         if (scene.vertices.size() + count > maximum_vertices)
-            throw std::runtime_error("experimental scene exceeds its geometry budget");
+            throw GeometryFull();
         if (pending_begin < terrain_end && end >= terrain_end)
             scene.terrain_vertex_count = scene.vertices.size() + terrain_end - pending_begin;
         scene.vertices.insert(
@@ -1595,6 +2106,34 @@ void models(const Inputs& in, Scene& scene) {
                                std::all_of(projection.begin(), projection.end(), [](float value) {
                                    return std::isfinite(value);
                                });
+    // The nanolathe particles that light units' vertices: the emissive ones
+    // in sight among an even sample of at most 16 of the frame's particles,
+    // the same for every vertex, in map pixels.
+    constexpr std::size_t light_samples = 16;
+    constexpr float light_radius = 32.0F;
+    std::vector<std::array<float, 3>> nanolathe_lights;
+    if (in.nanolathe_lighting) {
+        const auto& particles = in.draws->spatial_particles;
+        const auto stride = std::max<std::size_t>(1, particles.size() / light_samples);
+        for (std::size_t sample = 0, count = 0; sample < particles.size() && count < light_samples;
+             sample += stride, ++count) {
+            const auto& particle = particles[sample];
+            if (!particle.emissive ||
+                fog_at(
+                    in.sight,
+                    particle.position.x / 65536,
+                    static_cast<int32_t>(
+                        (particle.position.z - particle.position.y * 0.5F) / fixed_scale
+                    )
+                ) != Fog::seen)
+                continue;
+            nanolathe_lights.push_back(
+                {particle.position.x / fixed_scale,
+                 particle.position.y / fixed_scale,
+                 particle.position.z / fixed_scale}
+            );
+        }
+    }
     for (const auto& draw : in.draws->models) {
         if (!draw.plan.linked.drawn)
             continue;
@@ -1862,28 +2401,15 @@ void models(const Inputs& in, Scene& scene) {
                                      ? 0.65F * remaining *
                                            renderer_effect_sources::construction_pulse(in.tick)
                                      : 0.0F;
-                    constexpr std::size_t light_samples = 16;
-                    constexpr float light_radius = 32.0F;
-                    const auto& particles = in.draws->spatial_particles;
-                    const auto stride = std::max<std::size_t>(1, particles.size() / light_samples);
-                    for (std::size_t sample = 0, count = 0;
-                         in.nanolathe_lighting && sample < particles.size() &&
-                         count < light_samples;
-                         sample += stride, ++count) {
-                        const auto& particle = particles[sample];
-                        if (!particle.emissive ||
-                            fog_at(
-                                in.sight,
-                                particle.position.x / 65536,
-                                static_cast<int32_t>(
-                                    (particle.position.z - particle.position.y * 0.5F) / fixed_scale
-                                )
-                            ) != Fog::seen)
+                    for (const auto& light : nanolathe_lights) {
+                        const float dx = vertex.x - light[0];
+                        const float dy = vertex.height - light[1];
+                        const float dz = vertex.z - light[2];
+                        const float distance_squared = dx * dx + dy * dy + dz * dz;
+                        // A light a radius or more away adds nothing.
+                        if (distance_squared >= light_radius * light_radius)
                             continue;
-                        const float dx = vertex.x - particle.position.x / fixed_scale;
-                        const float dy = vertex.height - particle.position.y / fixed_scale;
-                        const float dz = vertex.z - particle.position.z / fixed_scale;
-                        const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+                        const float distance = std::sqrt(distance_squared);
                         glow = std::max(glow, 0.5F * std::max(0.0F, 1 - distance / light_radius));
                     }
                     const float visible_glow =
@@ -2106,7 +2632,7 @@ void particles(const Inputs& in, Scene& scene) {
                 };
             }
             if (scene.vertices.size() + triangles.size() > maximum_vertices)
-                throw std::runtime_error("experimental particle geometry exceeds its limit");
+                throw GeometryFull();
             scene.vertices.insert(scene.vertices.end(), triangles.begin(), triangles.end());
         };
         if (core_opacity > 0)
@@ -2220,10 +2746,17 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
     // survives a build, so animated or recoloured frames are hashed again.
     std::unordered_map<const formats::gaf::RenderedFrame*, std::array<std::optional<AtlasRect>, 4>>
         prepared;
+    std::unordered_map<const formats::gaf::RenderedFrame*, std::optional<AtlasRect>> grey_frames;
     std::vector<bool> light_masks(in.draws->sprites.size());
-    for (const auto& draw : in.draws->draws)
-        if (draw.kind == WorldDrawKind::lit_sprite && draw.index < light_masks.size())
+    std::vector<bool> blended_sprites(in.draws->sprites.size());
+    for (const auto& draw : in.draws->draws) {
+        if (draw.index >= light_masks.size())
+            continue;
+        if (draw.kind == WorldDrawKind::lit_sprite)
             light_masks[draw.index] = true;
+        if (draw.kind == WorldDrawKind::blended_sprite)
+            blended_sprites[draw.index] = true;
+    }
     for (std::size_t index = 0; index < in.draws->sprites.size(); ++index) {
         const auto& sprite = in.draws->sprites[index];
         const bool light_mask = light_masks[index];
@@ -2293,6 +2826,27 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
                 in.draws->flash_strength
             );
         const auto rect = *cached;
+        // Scenery keeps its colours under the water. An opaque frame also
+        // greys with the ground; a blended frame does not, as the classic
+        // view leaves a blended feature's fog to the cell it is drawn in.
+        const bool scenery = sprite.on_map && !sprite.shadow && !light_mask;
+        const bool ground_fog = scenery && !blended_sprites[index];
+        std::optional<AtlasRect> grey_rect;
+        if (ground_fog) {
+            auto& cached_grey = grey_frames[sprite.frame];
+            if (!cached_grey)
+                cached_grey = material(
+                    scene,
+                    scene.terrain_grey_palette,
+                    frame.width,
+                    frame.height,
+                    frame.pixels,
+                    frame.coverage,
+                    frame.transparency_index,
+                    Fog::seen
+                );
+            grey_rect = cached_grey;
+        }
         if (ground_pass) {
             if (sprite.shadow && in.draws->shadow_level == 0)
                 continue;
@@ -2313,7 +2867,12 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
                     frame.origin_y,
                 opacity,
                 sprite.shadow,
-                sprite.world_position ? &*sprite.world_position : nullptr
+                sprite.world_position ? &*sprite.world_position : nullptr,
+                1,
+                false,
+                false,
+                scenery,
+                grey_rect ? &*grey_rect : nullptr
             );
             ++scene.sprite_count;
             continue;
@@ -2347,25 +2906,40 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
             const float across = (dx - frame.origin_x) * sprite.effect_scale;
             const float above = (frame.origin_y - dy) * sprite.effect_scale;
             const bool facing = sprite.world_position.has_value() && !sprite.on_map;
+            const float sample_x =
+                sprite.soft_effect ? std::clamp(dx, 0.5F, float(rect.width) - 0.5F) : dx;
+            const float sample_y =
+                sprite.soft_effect ? std::clamp(dy, 0.5F, float(rect.height) - 0.5F) : dy;
             Vertex result{
                 origin_x + (facing ? right[0] * across + up[0] * above : across),
                 origin_h + surface_lift + (facing ? up[1] * above : above / height_lift),
                 origin_z + (facing ? right[2] * across + up[2] * above : 0),
-                (rect.x + dx) / scene.texture_width,
-                (rect.y + dy) / scene.texture_height,
+                (rect.x + (sprite.soft_effect || submerged_effect ? sample_x : dx)) /
+                    scene.texture_width,
+                (rect.y + (sprite.soft_effect || submerged_effect ? sample_y : dy)) /
+                    scene.texture_height,
                 brightness_at(in.sight, static_cast<float>(x), static_cast<float>(y)),
                 sprite.effect_opacity
             };
-            if (sprite.soft_effect || submerged_effect) {
-                result.u =
-                    (rect.x + std::clamp(dx, 0.5F, float(rect.width) - 0.5F)) / scene.texture_width;
-                result.v = (rect.y + std::clamp(dy, 0.5F, float(rect.height) - 0.5F)) /
-                           scene.texture_height;
+            if ((sprite.soft_effect || submerged_effect) && !scenery)
                 result.terrain_size = -1;
-            }
             if (submerged_effect) {
                 result.terrain_size = -5;
                 result.terrain_x = in.sea_level - origin_h;
+            } else if (scenery) {
+                result.terrain_size = sprite.soft_effect ? -7.0F : -6.0F;
+                if (ground_fog && grey_rect) {
+                    result.terrain_x = (grey_rect->x + sample_x) / scene.texture_width;
+                    result.terrain_y = (grey_rect->y + sample_y) / scene.texture_height;
+                    const float painted_x = result.x;
+                    const float painted_y = result.z - result.height * height_lift;
+                    result.brightness = brightness_at(in.sight, painted_x, painted_y);
+                    const auto ground = fog_of_ground(in, painted_x, painted_y, result.brightness);
+                    result.terrain_known = ground.known;
+                    result.terrain_grey = ground.grey;
+                }
+                if (!facing)
+                    move_with_swells(in, result);
             } else if (!facing) {
                 move_with_swells(in, result);
             }
@@ -2373,11 +2947,41 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
         };
         const std::array corners{
             vertex(0, 0),
-            vertex(frame.width, 0),
-            vertex(frame.width, frame.height),
-            vertex(0, frame.height)
+            vertex(static_cast<float>(frame.width), 0),
+            vertex(static_cast<float>(frame.width), static_cast<float>(frame.height)),
+            vertex(0, static_cast<float>(frame.height))
         };
-        polygon(scene, corners);
+        float low_brightness = corners[0].brightness;
+        float high_brightness = low_brightness;
+        for (const auto& point : corners) {
+            low_brightness = std::min(low_brightness, point.brightness);
+            high_brightness = std::max(high_brightness, point.brightness);
+        }
+        // A frame standing in even fog stays one card. A fog boundary splits
+        // it on the map, as the ground under it is split.
+        if (!ground_fog || high_brightness - low_brightness < 0.001F) {
+            polygon(scene, corners);
+        } else {
+            const int step = std::max(1, cell_edge / fog_divisions(in));
+            for (int top_row = 0; top_row < frame.height; top_row += step) {
+                const int bottom_row = std::min(static_cast<int>(frame.height), top_row + step);
+                for (int left_column = 0; left_column < frame.width; left_column += step) {
+                    const int right_column =
+                        std::min(static_cast<int>(frame.width), left_column + step);
+                    polygon(
+                        scene,
+                        std::array{
+                            vertex(static_cast<float>(left_column), static_cast<float>(top_row)),
+                            vertex(static_cast<float>(right_column), static_cast<float>(top_row)),
+                            vertex(
+                                static_cast<float>(right_column), static_cast<float>(bottom_row)
+                            ),
+                            vertex(static_cast<float>(left_column), static_cast<float>(bottom_row))
+                        }
+                    );
+                }
+            }
+        }
         ++scene.sprite_count;
     }
 }
@@ -2497,6 +3101,21 @@ void water_surface(const Inputs& in, Scene& scene) {
             }))
             continue;
         for (auto& vertex : triangle) {
+            // The foam takes the colour of the picture the ground under it
+            // shows (SurfaceCache::foam_colour); the fragment stage draws it
+            // in the vertex's material colour.
+            const auto foam = in.water_surface
+                                  ? in.water_surface->foam_colour(
+                                        vertex.x, vertex.z - vertex.height * height_lift
+                                    )
+                                  : std::array<float, 3>{
+                                        renderer_water_appearance::foam_red,
+                                        renderer_water_appearance::foam_green,
+                                        renderer_water_appearance::foam_blue
+                                    };
+            vertex.red = foam[0];
+            vertex.green = foam[1];
+            vertex.blue = foam[2];
             vertex.terrain_x = in.sea_level - vertex.height;
             vertex.terrain_y = in.water_surface ? in.water_surface->fetch(vertex.x, vertex.z) : 1;
             vertex.terrain_size = -2;
@@ -2510,6 +3129,7 @@ void water_surface(const Inputs& in, Scene& scene) {
 
 bool build(const Inputs& inputs, Scene& scene, std::string& error) {
     scene.atlas_update = {scene.texture_revision, scene.texture_height, 0};
+    scene.out_of_room = false;
     try {
         if (inputs.map == nullptr || inputs.palette == nullptr || inputs.draws == nullptr ||
             inputs.map->attribute_width == 0 || inputs.map->attribute_height == 0)
@@ -2528,10 +3148,35 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         if (scene.texture_width == 0 || scene.texture_height == 0 ||
             scene.texture_width > maximum_atlas_edge || scene.texture_height > maximum_atlas_edge)
             throw std::runtime_error("experimental renderer received an invalid atlas size");
-        // Retry once with only this frame's materials, growing to the bounded
+        // The terrain takes the atlas at its largest, less room for the other
+        // materials: in full squares while every tile it draws fits so, and
+        // otherwise the tiles nearest the camera in the larger squares that fit.
+        constexpr uint64_t atlas_area = uint64_t{maximum_atlas_edge} * maximum_atlas_edge;
+        uint64_t room =
+            atlas_area -
+            std::min(atlas_area, std::max(least_material_room, scene.material_area / 2 * 3));
+        const auto demand = terrain_demand(inputs, room);
+        auto plan = plan_terrain(demand, room);
+        // Far out over a large map, the ground is drawn from fewer height
+        // samples, as few as keep its triangles within the frame's
+        // geometry budget: fewer than the last frame that ran out found
+        // too many, and twice as few each time this frame runs out.
+        const auto crop = terrain_crop(inputs);
+        const uint64_t cells = static_cast<uint64_t>((crop.right - crop.left) / cell_edge + 1) *
+                               static_cast<uint64_t>((crop.bottom - crop.top) / cell_edge + 1);
+        int32_t step = 1;
+        while (cells / (static_cast<uint64_t>(step) * step) > scene.terrain_square_limit &&
+               step < coarsest_terrain_step)
+            step *= 2;
+        // Retry with only this frame's materials, growing to the bounded
         // maximum when the smaller atlas has filled. Old map and animation
-        // variants therefore cannot exhaust the cache permanently.
-        for (uint32_t attempt = 0; attempt < 2; ++attempt) {
+        // variants therefore cannot exhaust the cache permanently. A frame
+        // whose materials still do not fit gives its terrain half the room,
+        // and then a quarter, before the frame is given up.
+        constexpr uint32_t attempts = 4;
+        bool emptied = scene.next_x == 0 && scene.next_y == 0 && scene.materials.empty() &&
+                       scene.terrain_materials.empty();
+        for (uint32_t attempt = 0; attempt < attempts;) {
             scene.vertices.clear();
             scene.unit_ranges.clear();
             scene.translucent_vertices.clear();
@@ -2541,11 +3186,15 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             scene.sprite_count = 0;
             scene.particle_count = 0;
             scene.nano_particle_count = 0;
+            scene.packed_material_area = 0;
             scene.texture_rgba.resize(
                 static_cast<std::size_t>(scene.texture_width) * scene.texture_height * channels
             );
+            // How much of the geometry budget the ground took, once drawn.
+            std::size_t ground_vertices = maximum_vertices;
             try {
-                terrain(inputs, scene);
+                terrain(inputs, scene, plan, step);
+                ground_vertices = scene.terrain_vertex_count;
                 sprites(inputs, scene, true);
                 unit_shadows(inputs, scene);
                 foundations(inputs, scene);
@@ -2567,10 +3216,30 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 );
                 water_surface(inputs, scene);
                 water_disturbances(inputs, scene);
+                // Every other material this frame draws was packed into the
+                // emptied atlas, so their area is what they need.
+                if (emptied)
+                    scene.material_area = scene.packed_material_area;
                 break;
-            } catch (const AtlasFull&) {
-                if (attempt != 0)
+            } catch (const GeometryFull&) {
+                // Fewer height samples help only where the ground takes
+                // most of the budget.
+                if (step >= coarsest_terrain_step || ground_vertices < maximum_vertices / 2)
                     throw;
+                scene.terrain_square_limit = std::min(
+                    scene.terrain_square_limit, cells / (static_cast<uint64_t>(step) * step) / 2
+                );
+                step *= 2;
+            } catch (const AtlasFull&) {
+                if (++attempt == attempts)
+                    throw;
+                // An emptied atlas at its largest could not hold the plan.
+                if (emptied && scene.texture_width == maximum_atlas_edge &&
+                    scene.texture_height == maximum_atlas_edge) {
+                    room = std::min(room, planned_area(demand, plan)) / 2;
+                    plan = plan_terrain(demand, room);
+                }
+                emptied = true;
                 scene.texture_width = maximum_atlas_edge;
                 scene.texture_height = maximum_atlas_edge;
                 // Old atlas coordinates are discarded, including when already
@@ -2581,6 +3250,8 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 scene.materials.clear();
                 scene.terrain_materials.clear();
                 scene.aircraft_shadow_materials.clear();
+                for (auto& spare : scene.spare_terrain_squares)
+                    spare.clear();
                 scene.next_x = 0;
                 scene.next_y = 0;
                 scene.row_height = 0;
@@ -2594,6 +3265,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         error.clear();
         return true;
     } catch (const std::exception& exception) {
+        scene.out_of_room = dynamic_cast<const OutOfRoom*>(&exception) != nullptr;
         scene.vertices.clear();
         scene.unit_ranges.clear();
         scene.shadow_count = 0;

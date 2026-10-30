@@ -51,9 +51,9 @@ enum class RowKind : uint8_t {
 using ActionId = int32_t;
 
 /// A switch's Off half's words, in English, shown through the caller's text function.
-inline constexpr std::string_view switch_off_text = "OFF";
+inline constexpr std::string_view switch_off_text = "Off";
 /// A switch's On half's words, in English, shown through the caller's text function.
-inline constexpr std::string_view switch_on_text = "ON";
+inline constexpr std::string_view switch_on_text = "On";
 
 /// The function that gives the text to show for an English text: the
 /// interface catalogue's translation, or the text itself. An empty function
@@ -178,6 +178,10 @@ struct RowSpec {
     std::array<std::string_view, 3> button_ids{};
     /// What each button, or the link, asks its screen to do.
     std::array<ActionId, 3> actions{};
+    /// A value_and_button row's button is a risky action, such as Roll
+    /// back… or emptying a folder: drawn in the danger look. Off draws the
+    /// secondary look every row's button takes.
+    bool danger{};
     /// Tells whether the row's control can be pressed now, such as a RESET
     /// with nothing to reset: a value_and_button's or a buttons row's buttons
     /// draw the disabled look, a link its idle colour, and neither a press nor
@@ -874,6 +878,7 @@ struct RowView {
     /// and the control the line under the lock.
     bool lock_below{};
     bool enabled{true}; ///< its control can be pressed now
+    bool danger{};      ///< its button is a risky action: the danger look
 };
 
 /// Reads a row's view from its spec and the model.
@@ -923,6 +928,7 @@ view_of(const RowSpec<Model>& spec, const Model& model, const ShownText& shown) 
     view.hint_is_status = spec.hint_is_status;
     view.control_width = spec.control_width;
     view.enabled = row_enabled(spec, model);
+    view.danger = spec.danger;
     switch (spec.kind) {
     case RowKind::toggle:
         view.on = row_on(spec, model);
@@ -988,6 +994,13 @@ struct RowPlacement {
     /// tall_hint_line_gap further apart.
     bool tall{};
     ControlId first_control{}; ///< the first row's control number; each next row's is one more
+    /// 0 keeps a switch, a level strip and a drop-down at regular_line.
+    /// Above 0, those three take this height. A button, a link and a slider's
+    /// track stay as they are. Settings sets it from the size class in the
+    /// modern look at Regular and Large.
+    int32_t control_height{};
+    /// 0 keeps a text field at field_height. Above 0, the field takes this height.
+    int32_t field_height{};
 };
 
 /// One row, placed. An empty rectangle is a part the row does not have.
@@ -1043,9 +1056,14 @@ struct PlacedRows {
 /// tall_hint_line_gap more between lines while tall. A slider's track and value, slider_gap
 /// under the hints and slider_line_height high (the value slider_value_width
 /// wide at the right, slider_value_gap from the track), a drop-down's field
-/// (regular_line high) or a text field (field_height high), each slider_gap
-/// under the hints and choice_width wide or the control width, stand on a
-/// line of their own. row_padding follows the last part.
+/// (regular_line high, or control_height when that is set) or a text field
+/// (field_height high, or the placement's field_height when that is set),
+/// each slider_gap under the hints and choice_width wide or the control
+/// width, stand on a line of their own. A switch or a level strip on the
+/// label line is control_height high when that is set, and the label and a
+/// lock on that line match it; a lock that dropped under the label stays
+/// regular_line, and the hints start under whichever of those extends lower.
+/// A button stays regular_line. row_padding follows the last part.
 ///
 /// @param views the rows, top to bottom
 /// @param placement where the column lies

@@ -80,7 +80,7 @@ On Linux, in a terminal in the game's folder:
 - A word that begins with `-` or `/` and a letter, such as `-c` or `/d`, is
   one of 3.1c's switches ([The 3.1c command line](#the-31c-command-line)).
   Any other word names the language, as in 3.1c: `german`.
-- A `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain` or `.oareg` file named on
+- A `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain`, `.oakeys` or `.oareg` file named on
   its own is opened
   as `--open FILE` opens it. A launch file is named with `-c` or `--launch`:
   on its own, its name is just a word of 3.1c's command line, and no launch
@@ -148,7 +148,7 @@ the console it was started from.
 | `--preferences-file PATH` | Reads and writes the preferences in `PATH` instead of the usual file. Your Open Annihilation folder is then the one beside it ([settings](settings.md#where-the-settings-are-kept)). |
 | `--data-dir PATH` | Keeps the data the game unpacks for itself in `PATH`, in place of the system's per-user data folder. |
 | `--log-dir PATH` | Writes this run's log into `PATH`, whatever kind of run it is. What the game prints goes into the log too; only `--status-stdout`'s lines stay on standard output. |
-| `--open FILE` | Opens a `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain` or `.oareg` file once the main menu shows, as opening it from the desktop does; give it once for each file. |
+| `--open FILE` | Opens a `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain`, `.oakeys` or `.oareg` file once the main menu shows, as opening it from the desktop does; give it once for each file. |
 | `--install-mod FILE` | The same as `--open FILE`. |
 | `--no-game-files-screen` | With no usable game folder, shows the notice with its look-again button instead of the Game files screen, where a system offers both ([game files](game-files.md)). |
 
@@ -195,6 +195,16 @@ manifests refuse (one id twice, a prerequisite that is not above it, or
 two that conflict) is refused with status 2, before the game starts. An
 id is refused the same way when no player folder can be worked out.
 
+### Keys
+
+| Option | What it does |
+|---|---|
+| `--keys ID\|PATH` | Plays this run with one key layout. `ID` is a layout installed in the Keys folder, or `oa-default` for the game's own layout. `PATH` is a folder holding `oakeys.yaml`, that file itself, or a `.oakeys` file. A `.oakeys` file is read in memory. The player's own changes are not laid on top. Nothing is saved: not the layout preference, not an own layout, and not which mods have had their stored keys carried over. |
+| `--keys-reset` | Plays this run with `oa-default` and no own changes. Nothing is saved. |
+
+What a layout is, where it is kept, and the chords `oa-default` ships
+with, is [Keys](keys.md). `--keys` and `--keys-reset` together are refused with status 1. An id `--keys` names that is not installed, a path it cannot read, a manifest with an error, or a `.oakeys` file the installer refuses, ends the run with status 2 before the game starts; each problem is printed, and nothing is installed or written. `oa-default` is the built-in layout, not an installed folder. A layout named in the preferences, rather than by `--keys`, that is not installed is left unused for that run and `oa-default` is played instead: that does not end the run.
+
 ### Display and sound
 
 | Option | What it does |
@@ -239,7 +249,7 @@ for limitations and a weapon-effect test recipe.
 | `--game-name NAME` | With `--host`, the game's name; with `--join`, the game to join when several answer at the address. |
 | `--game-password PASSWORD` | With `--host`, the game's password; with `--join`, the password sent. |
 | `--dplay-guid GUID` | The application GUID this game hosts under and looks for. [Below](#--dplay-guid). |
-| `--dplay-port PORT` | The DirectPlay port this game hosts on and looks for games at, from 1 through 65535, in place of the standard 47624. |
+| `--dplay-port PORT` | The DirectPlay port this game hosts on and looks for games at, from 1 through 65535, in place of the standard 47624. 0 is any port the system has free, for a game that hosts alone, as the battle room checks do. |
 | `--play-demo FILE.tad` | Plays back a recorded network game ([recordings](../README.md#demo-recorder)). |
 | `--demo-unit-table strict\|ignore` | `ignore` plays a recording back even when its units differ from the game's, for diagnosis only; `strict`, the default, refuses it. |
 | `--net-record FILE` | Records the next network game to `FILE`, replacing it, whatever the mod's profile says. |
@@ -343,7 +353,8 @@ The checks drive the game by themselves, with no player, and end with
 status 0 when they pass and 1 when they fail; one that cannot run on this
 machine, such as one that needs 2 GiB of memory, ends with 77. The engine's
 tests run them ([testing](development/testing.md)). Check and Debug builds
-hold the self-checks, the `--check-` options and `--reclaim-check`; the
+hold the self-checks, the `--check-` options, `--reclaim-check` and
+`--weapon-fire-check`; the
 release packages leave them out and refuse them with a line that says so.
 Network play's own checks, the last rows, are in every build.
 
@@ -353,16 +364,19 @@ Network play's own checks, the last rows, are in every build.
 | `--frames N` | Ends the run after N frames of the main menu's loop. |
 | `--snapshot PATH.ppm` | Writes a picture of what a headless run ends on, such as the main menu, to `PATH`; a check writes its own pictures beside it. |
 | `--display-modes MODES` | A made-up monitor for a check on SDL's dummy video driver: `WIDTHxHEIGHT[@RATE][/DENSITY]` modes, separated by commas, or `none`. |
-| `--force-capable` | Counts the renderer as one the graphics card can scale frames on, for `--check-render-tiers`, `--check-build-preview`, `--check-engine-settings` and `--check-kill-board` only. |
+| `--force-capable` | Counts the renderer as one the graphics card can scale frames on, for `--check-render-tiers`, `--check-build-preview`, `--check-dialog-backdrop`, `--check-engine-settings` and `--check-kill-board` only. |
 | `--check-navigation [GROUP]` | Walks the menus and a skirmish through their keys and buttons: every group, or one of `screens`, `orders`, `outcomes`, `zoom`, `zoom-1366x768`, `zoom-1920x1080`, `zoom-2560x1440` and `campaign`. |
 | `--check-match-dialogs` | Opens the help dialog over a live match, then the briefing and the in-game dialogs, in the language the preferences file names, such as an installed pack's. |
 | `--check-match-layers` | Checks the presented match frame against the processor's composition. |
 | `--check-render-tiers` | Checks the accelerated drawing of the main menu and a skirmish against the processor's. |
 | `--check-match-orders` | Clicks the order page's buttons and checks what the units do. |
 | `--check-side-orders` | Clicks each side's order page buttons, whatever prefix their names carry, and checks what the units do. |
+| `--check-skirmish-sides` | Clicks the skirmish Side button through every offered side, and back when the game has more than five, and checks the face each side shows. |
+| `--check-mod-limits` | Opens Settings on Engine Limits at the menu and in a two-slot skirmish and checks the weapon-type and side rows. |
 | `--check-side-data-per-match` | Plays skirmishes and checks each match reads side data again when `gamedata/sidedata.tdf` has changed. |
 | `--check-gadget-art-per-match` | Plays three skirmishes and checks a download button's picture appears only in the match whose mod folder holds it. |
 | `--check-factory-orders` | Gives a Kbot Lab a move and checks the unit it builds carries it out. |
+| `--check-factory-departure` | Has each factory with a platform build a unit and checks the unit is drawn over the platform as it leaves, at every row of a small scroll. |
 | `--check-unit-speech` | Selects and orders the commander and checks what it says. |
 | `--check-mutator-layer` | Plays skirmishes with the mutators `--mutator` named and checks the commanders, and that a mutator which does not apply leaves no layer. |
 | `--check-mutator-verdicts` | Writes four made-up mutators and checks their verdicts against the installed game, then again from the verdict file. |
@@ -387,6 +401,19 @@ Network play's own checks, the last rows, are in every build.
 | `--check-setup-window` | Walks the window before the game: the language, the game and the copy. |
 | `--check-window-place` | Checks the next start opens the window at the same size and place. |
 | `--check-progress` | Shows the progress dialog for a slow piece of work. |
+| `--update-feed URL` | For one run, looks for a new release at this feed instead of the published one. A self-check. |
+| `--update-key ID=ed25519:KEY` | A key that may sign the `--update-feed` feed. Give it once for each key. Needs `--update-feed`. A self-check. |
+| `--check-engine-feed` | Checks looking for a new release against a feed the check serves. |
+| `--updated-from VERSION` | Every build. The version this start replaced. The first settled main menu shows "Updated to …" once when this copy is newer. |
+| `--rolled-back-from VERSION` | Every build. The version this start replaced by rolling back. Used with `--roll-back-reason`. The first settled main menu says "Back on …". |
+| `--roll-back-reason failed-starts or player` | Every build. Why the roll back happened. Used with `--rolled-back-from`. |
+| `--check-update-roll-back` | Checks confirming a version, the roll-back prompt, Settings' Roll back… and that a check is not counted as a start. The confirm case also leaves the receipt of a failed install and checks the recovery screen shows it once and holds its release. |
+| `--roll-back-case NAME` | With `--check-update-roll-back`, which part to run: `guard`, `confirm`, `prompt` or `settings`. Needs `--check-update-roll-back`. |
+| `--update-install-folder DIR` | A self-check. With `--update-feed`, the route is that folder, so a download can be handed to the helper in a test. Needs `--update-feed`. |
+| `--update-and-quit` | A self-check. Needs `--update-feed`. At the settled main menu, downloads where there is a route, with no prompt, and quits when the file is ready so the hand-off follows. With no offer or no route, quits with status 1. |
+| `--check-update-offer` | Shows the update question against a feed the check serves, including its notes, and checks it waits out a match, a message and Settings. |
+| `--check-update-download` | Serves a feed and a package and checks the download, Pause and Resume from the main menu's update pill and from the update centre it opens, the pause during a match, the ready prompt, Settings and the recorded hand-off. |
+| `--update-download-case NAME` | With `--check-update-download`, which part to run: `corrupt` (a package that fails its check is deleted and nothing is queued), `background` (Download automatically fetches with no offer, the ready prompt shows first, and Keep it ready schedules nothing), `no-offer` (with `--update-and-quit`, a feed with nothing newer), `cancel` (Cancel download in the update centre keeps no part and no file and goes back to the offer) or `pictures` (draws every update screen in each state at 640x480, 1280x720 and 1920x1080 from made-up states, writes `update-<screen>-<state>-<w>x<h>.png` to its folder and fetches nothing). With none, the whole download is checked. Needs `--check-update-download`. |
 | `--check-icloud-wait` | On macOS, holds one evicted archive's read and checks the window keeps drawing the iCloud line, then continues. Elsewhere, checks the line never names iCloud. |
 | `--check-text-fit` | Opens every Open Annihilation screen in each built-in language and Simplified Chinese at two sizes, and fails when a text does not fit. |
 | `--check-language TAG` | With `--check-text-fit`, the language to check in place of those, such as an installed pack's (`uk`); give it once for each. With `--check-language-switch`, the language it starts in. The language must be one the game shows. |
@@ -394,11 +421,20 @@ Network play's own checks, the last rows, are in every build.
 | `--check-patrol-reclaim` | Checks a construction kbot on patrol reclaims on its way. |
 | `--check-reclaim-cursor` | Checks the cursor over trees, features and wrecks. |
 | `--check-wreck-pick` | Checks a sunken wreck and a wreck on high ground are picked where they are drawn. |
+| `--check-underwater-features` | Draws metal patches under the water, in open water, at a shore and at the edge of a unit's sight, in every tier, and checks each against the processor's picture. |
 | `--check-click-snap` | Checks the cursor RECLAIM shows beside a wreck, and where a RECLAIM click there and a metal extractor's build click beside a deposit land, with `ui.click-snap` on or off. |
 | `--check-build-preview` | Checks the building drawn under the build cursor. |
+| `--check-dialog-backdrop` | Checks that the briefing, the save dialog and the help dialog over a paused match leave the battlefield as the match showed it, in every tier. |
 | `--check-megamap-clicks` | Checks clicks on the megamap. |
+| `--check-single-player-offers` | Opens Single Player and checks New Campaign and Any Mission when a side has a campaign, and when neither side has one. |
 | `--check-radar-orders` | Checks presses on the radar for every order. |
 | `--check-pointer-interfaces` | Drives the pointer's buttons in both interface types. |
+| `--check-key-latches` | Checks a latched Shift and Space, then sticky Ctrl and Alt, on a skirmish. |
+| `--check-hold-confirm` | Checks Hold to confirm: self-destruct, the order button and the surrender question, on a skirmish. |
+| `--check-order-wheel` | Checks the order wheel: a held right or middle button opens it, a short click and a drag do not, on a skirmish. |
+| `--check-key-table FILE` | Drives every key, click and wheel turn the match answers and compares what each did with FILE. |
+| `--check-key-timing` | Checks slow keys, bounce keys, the double-press time, the player's key repeat and the drag threshold. |
+| `--check-pointer-keys` | Drives the pointer from the numpad on the main menu and in a skirmish. |
 | `--check-pad-controls` | Drives the gamepad controls with SDL's virtual pads ([controllers](controllers.md)). |
 | `--check-touch-controls` | Drives the touch controls with finger events ([touch controls](touch-controls.md)). |
 | `--check-running-while-inactive` | Checks the game keeps running while its window is inactive, when it must. |
@@ -423,15 +459,21 @@ Network play's own checks, the last rows, are in every build.
 | `--check-map-packs` | Checks which maps of two map packs the skirmish list shows. |
 | `--check-map-pack-lists` | Installs a map pack while both map lists exist. |
 | `--check-mod-map-settings` | Checks a mod's settings for a map pack's map, with `--mod-dir`. |
-| `--check-map-browser` | Checks the map browser at four window sizes. |
-| `--check-mutator-button` | Checks Mutators on the skirmish setup and the campaign launch at 640x480 and 1280x720: the button's size and place, its badge and count, Tab, Down, a finger's reach, Y, the remembered set and the set a start hands on. |
-| `--check-mutator-room` | Hosts a battle room alone and checks Mutators above Select Map, as large as it, at 640x480 and 1280x720, its count, the remembered multiplayer set, the chat lines, and the button while the room's options are locked. |
-| `--check-brain-room` | Hosts a battle room alone and checks each computer row's brain button at 640x480 and 1280x720: the label, the greyed difficulty, the picker, every computer seat, the hover card, and the button meeting no control of the room but its row's empty screen-size column. |
+| `--check-map-browser` | Checks the map browser at four window sizes, and MORE MAPS… on the skirmish map picker and, in a battle room it hosts alone, the room's map dialog: the lime button under the list at its old size, clear of every other control and of the title, in the Classic and the Modern look. |
+| `--check-key-editor` | Checks the key editor at 640x480, 1280x720 and 1920x1080, on the menus and in a paused skirmish. |
+| `--check-key-capture` | Captures a chord and settles a clash in the key editor, over a paused skirmish: the clash question's outcome written only by its confirm button, Escape held for a second, Find by key, and a draft clash settled from Settle…. |
+| `--check-key-views` | Checks the key editor's keyboard and mouse at 640x480, 1280x720 and 1920x1080. |
+| `--check-key-share` | Checks sharing, pasting and importing a key layout at 640x480, 1280x720 and 1920x1080, then a dropped layout that is refused and one that is installed. With `--snapshot`, writes key-share, key-paste and key-import pictures. |
+| `--check-keys-overlay` | Checks the keys overlay in a skirmish, with `--mod-dir` and `--user-folder`: Primary+/ and Escape, Edit keys…, the order and build cell badges, the help lines, the rotate hint and a latched QUEUE in the overlay. Then the overlays' places: Settings › Accessibility's Move overlays, off by default, turned on; Arrange… opening a picture of the match on the main menu and in a match, its handles dragged on the 8-point grid, Cancel and Reset; the keys overlay, a latched QUEUE's chip and the chat line at their places in a second skirmish, and back where they lay themselves out with Move overlays off; the in-game menu's OA Settings button as wide as Resume. Run again on the same preferences, it finds the keys overlay and the chat line where they were left. With `--snapshot`, writes the overlay and the badges at 640x480, 1280x720 and 1920x1080, Arrange Overlays in both looks at 640x480, 800x600 and 1280x720, and the placed overlays, the in-game menu and the rounded Settings at 640x480 and 1280x720. |
+| `--check-selection-keys` | Presses each of 3.1c's Ctrl+letter keys in a skirmish as the system sends them, with the pointer moving between the key's events, and checks the selection each makes from the units' Category words (Ctrl+R the radar, sonar and jammer units, with their rings on the minimap; Ctrl+P the combat aircraft), Ctrl+Shift+R and Ctrl+Shift+P adding, Ctrl+1 and its group key, Group keys centre the view each way (one press leaves the view, two quick presses centre it, two slow presses do not, Never leaves it, and On every press centres a later press past the double-press time), and Primary+/ opening and closing the keys overlay. Runs under a mod with `--mod-dir`. |
+| `--check-mutator-button` | Checks Mutators on the skirmish setup and the campaign launch at 640x480 and 1280x720: the room's own on and off button, as large as Previous Menu with the same edges (on the skirmish setup centred between Difficulty and Previous Menu; on NEWGAME and Any Mission at the head of Difficulty's column), reading "Mutators", automation "Mutators · off" and "Mutators · N on", the card the pointer shows on it, Tab, Down, a finger's reach, Y, the remembered set and the set a start hands on. |
+| `--check-mutator-room` | Hosts a battle room alone and checks Mutators above Select Map, the room's own on and off button as large as Select Map with the same edges and no widening, at 640x480 and 1280x720, reading "Mutators", automation "Mutators · off" and "Mutators · N on" with its lamp, the remembered multiplayer set, the chat lines, and the button while the room's options are locked. |
+| `--check-brain-room` | Hosts a battle room alone and checks each computer row at 640x480 and 1280x720: its Resolution cell naming the brain and its Mem cell the level over the room's greyed difficulty, the notch on its name opening the brain menu, the built-in player and its level, the Mem cell stepping the built-in player's difficulty, Use for every computer seat, the hover card, and the cell meeting no control of the room but its row's empty screen-size column. |
 | `--check-mutator-picker` | Checks the mutator picker at four window sizes, including a cancelled download, a check after an install, USE THESE fetching one, a download already under way, and the runtime's own feed. |
 | `--check-brain-picker` | Checks the brain picker at four window sizes: the row order, a locked brain, the level, USE THIS, every computer seat, CANCEL, the keys, the controller, and the runtime's own feed. |
-| `--check-brain-seat-buttons` | Checks each computer row's brain button on the skirmish setup at 640x480 and 1280x720: its place beside Energy, the label, Tab, the picker, the hover card and the brains a start seats. |
-| `--check-brain-campaign` | Checks the campaign computer player's brain button on NEWGAME and Any Mission at 640x480 and 1280x720: its place under Difficulty, the label, Tab, the picker, the brain the first mission seats and the seat a loaded campaign save leaves. |
-| `--check-mutator-prompts` | Checks the questions a stopped skirmish start, a crash and Get mutators ask: START WITHOUT IT, BACK, FORGET IT and RETRY. Then the host's "The game did not start" for a guest without its release and for one with it. |
+| `--check-brain-seat-buttons` | Checks each computer row's brain on the skirmish setup at 640x480 and 1280x720: the row's own Player button naming it, with the notch at its right end, the label, Tab, the brain menu from the notch, Return and the right button, its levels, Options… opening the brain picker, Use for every computer seat, the hover card, the left button keeping 3.1c's own press, and the brains a start seats. |
+| `--check-brain-campaign` | Checks the campaign computer player's button on NEWGAME and Any Mission at 640x480 and 1280x720: its place under Difficulty, the label, Tab, the brain menu without Use for every computer seat, the brain the first mission seats and the seat a loaded campaign save leaves. |
+| `--check-mutator-prompts` | Checks the questions a stopped skirmish start, a crash and Get mutators ask: Start without it, Back, Forget it and Retry. Then the host's "The game did not start" for a guest without its release and for one with it. |
 | `--check-mod-warning` | Checks the warning for a mod whose files are missing. |
 | `--check-mod-install` | Installs, rolls back and replaces made-up mod packages. |
 | `--check-language-install` | Installs a language pack from a dropped file. |
@@ -452,9 +494,11 @@ Network play's own checks, the last rows, are in every build.
 | `--check-interpolation` | Checks the frames drawn between ticks, and the frames at whole ticks with Smooth motion Off. |
 | `--check-unit-playout` | Checks another machine's units move evenly. |
 | `--reclaim-check` | Has the commander reclaim the nearest feature in a headless skirmish. |
+| `--weapon-fire-check TYPE` | In a headless skirmish of `--match-ticks` ticks, places `TYPE` and checks its first weapon fires at a unit and a feature. |
 | `--net-loopback-check TICKS` | Hosts and joins a match in one process over 127.0.0.1 and compares both worlds after `TICKS` ticks. |
 | `--net-loopback-watcher` | The loopback check's joiner watches. |
 | `--net-loopback-computer` | The loopback check's host seats a computer player. |
+| `--net-loopback-shooter TYPE` | The loopback check's host makes one finished `TYPE` beside its commander, and that unit fires at the ground beside the commander's aim point. |
 | `--net-loopback-each-ai` | The loopback check's host and joiner each seat a computer player. |
 | `--net-loopback-fixed-starts` | The loopback check's host fixes the start positions. |
 | `--check-host-not-found` | Checks a joiner whose host is never found. |
@@ -501,7 +545,7 @@ one, for the engine's developers.
 | `--trace-digest FILE` | Writes a digest of the match at each tick. |
 | `--trace-units FILE` | Adds a line for each unit to it. It needs `--trace-digest`. |
 | `--trace-lookups FILE` | Writes every game file and listing the run looks up, and, for a path a mutator serves or hides, which mutator. |
-| `--trace-input` | Prints each press of the pointer's buttons, and where it lands, each move of the pointer over a match, and the game's window, its display and the pointer as a match begins and at each change of the window or a display, on standard error. [Below](#--trace-input). |
+| `--trace-input` | Prints each press of the pointer's buttons, and where it lands, each move of the pointer over a match, the game's window, its display and the pointer as a match begins and at each change of the window or a display, and each action event, on standard error. [Below](#--trace-input). |
 | `--debug-order-lines` | Draws each construction beam as a plain line, to debug it. |
 | `--draw-threads N` | The threads that draw, from 1 through 32. |
 
@@ -515,6 +559,14 @@ On Windows, add `--trace-input` at the end of the game shortcut's Target,
 or run `open-annihilation.exe --trace-input` from a command prompt in the
 game's folder. The lines go to standard error, which the game writes into
 its log (or into the folder `--log-dir` names).
+
+Each action event writes one line:
+
+```text
+input action pressed order.attack chord=A context=play
+```
+
+The word after `input action` is `pressed`, `released`, `repeated`, `double`, `held`, `active` or `inactive`. Then the action's id, the chord that matched, and the context that took the event, such as `play`. The ids and the default chords are in [Keys](keys.md#the-default-keys).
 
 Each move of the pointer over a match writes one line:
 
@@ -989,8 +1041,10 @@ setting the file leaves out keeps the battle room's own choice.
 `--join ADDRESS` on the command line. A host plays over TCP/IP. A player who
 joins needs `game.address`, or `--join ADDRESS`.
 
-Each item of `computer-players` is a group of `side` (`arm` or `core`),
-`team` (`1` to `5`, or `none`), `colour` (`1` to `10`), `difficulty`
+Each item of `computer-players` is a group of `side` (`arm`, `core`, a
+number from 0 through 31 or a name of 1 to 29 characters, matched without
+regard to case; a side this game does not have leaves the room's own
+choice), `team` (`1` to `5`, or `none`), `colour` (`1` to `10`), `difficulty`
 (`easy`, `medium` or `hard`) and `brain`, an installed brain's id. Any but
 the side may be left out, and the battle room then chooses it as it does
 for a computer player a click seats: no team, the next free colour, hard,
@@ -1156,7 +1210,7 @@ settings in src/app/netgame/launch_file.cpp, word for word. -->
 | `game.directplay.application-guid` | `--dplay-guid GUID` | The DirectPlay application GUID the game hosts under and looks for, with or without braces. |
 | `game.directplay.port` | `--dplay-port PORT` | The DirectPlay port the game hosts on and looks for games at, from 1 through 65535. |
 | `player.name` | `--player-name NAME` | The player's name, at most 16 characters. |
-| `player.side` | `--side arm\|core\|watcher` | The player's side, or `watcher` to watch instead of play. |
+| `player.side` | `--side arm\|core\|watcher\|0-31\|NAME` | The player's side: `arm`, `core` or `watcher` to watch instead of play, a side's number from 0 through 31 (SIDEDATA's sections, counting from 0) or its name, 1 to 29 characters, matched without regard to case. A side this game does not have leaves the battle room's own choice. |
 | `player.team` | `--team 1-5\|none` | The player's team, from 1 through 5, or `none`. |
 | `player.colour` | `--colour 1-10` | The player's colour, from 1 through 10 in the order the battle room steps through them. A colour another player has gives the next free one. |
 | `map` | `--map NAME` | The map the host plays: the name the list shows, or its key (`name@package` for a pack map). At most 63 characters. |
@@ -1172,7 +1226,7 @@ settings in src/app/netgame/launch_file.cpp, word for word. -->
 | `rules.time-limit` | `--time-limit N` | A whole number of 0 or more, kept and passed on with the score report. |
 | `rules.lock-options` | `--lock-options[=on\|off]` | Locks the battle room's option controls for a host: `on` or `off`. |
 | `rules.unit-restrictions` | `--unit-restriction UNIT=0-100\|no-limit` | Build limits, as the battle room's Restrictions sets them: each unit by its FBI UnitName (such as `CORKROG`), from 0, which cannot be built, through 100, or `no-limit`. Give the option once for each unit. A unit the game's content does not have is left out. |
-| `computer-players` | `--computer-player arm\|core[:TEAM[:COLOUR[:DIFFICULTY[:BRAIN]]]]` | The computer players this machine seats, at most 9, each with a side, and a team, colour and difficulty (`easy`, `medium` or `hard`) the battle room otherwise chooses, then a brain's id. A brain that is not installed refuses the launch; one that does not fit plays the built-in player. Give the option once for each. |
+| `computer-players` | `--computer-player arm\|core\|0-31\|NAME[:TEAM[:COLOUR[:DIFFICULTY[:BRAIN]]]]` | The computer players this machine seats, at most 9, each with a side (`arm`, `core`, a number from 0 through 31 or a name of 1 to 29 characters, matched without regard to case; a side this game does not have leaves the room's own choice), and a team, colour and difficulty (`easy`, `medium` or `hard`) the battle room otherwise chooses, then a brain's id. A brain that is not installed refuses the launch; one that does not fit plays the built-in player. Give the option once for each. |
 | `content.base-game` | `--content GAME[:EXPANSION,...]` | The base game this run plays, by its id. |
 | `content.expansions` | `--content GAME[:EXPANSION,...]` | The expansions this run plays, a list of ids. It needs a base game. |
 | `content.mod` | `--mod FILE \| --mod-dir PATH` | The mod this run plays: in the file a mod's id or a path, and on the command line its profile or its folder. |
@@ -1181,7 +1235,8 @@ settings in src/app/netgame/launch_file.cpp, word for word. -->
 | `status.file` | `--status-file PATH` | Writes the status stream to this file. |
 | `status.quit-after-game` | `--quit-after-game[=after-score]` | Leaves when the game ends (`on`), stays (`off`), or leaves after the score (`after-score`). |
 
-`--computer-player` takes the computer player's side, then, after a colon
+`--computer-player` takes the computer player's side (`arm`, `core`, a
+number from 0 through 31 or a name of 1 to 29 characters), then, after a colon
 each, its team (`1` to `5`, or `none`), its colour (`1` to `10`), its
 difficulty (`easy`, `medium` or `hard`) and a brain's id. A part left out
 or left empty is chosen by the battle room: `core:2::hard` is Core on team

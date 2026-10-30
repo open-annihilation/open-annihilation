@@ -16,10 +16,11 @@ inline constexpr int32_t alliance_count = 6, color_search_limit = 10;
 
 // Panel state; the first two fields are kept in the skirmish settings block.
 struct UiState {
-    int32_t selected_slot{};     // the digit that ends the selected gadget's name
-    int32_t base_widget_count{}; // the GUI's signed record count before the slot rows
-    int32_t side_count{};        // Game.side_count, loaded side definitions
-    uint32_t hidden_sides{};     // bit n: the Side button never offers side n
+    int32_t selected_slot{};          // the digit that ends the selected gadget's name
+    int32_t base_widget_count{};      // the GUI's signed record count before the slot rows
+    int32_t side_count{};             // Game.side_count, loaded side definitions
+    uint32_t hidden_sides{};          // bit n: the Side button never offers side n
+    uint32_t computer_hidden_sides{}; // bit n: a computer slot's Side button never offers side n
 };
 enum class Button {
     start,
@@ -296,15 +297,27 @@ int32_t alliance_members(const Settings& settings, int32_t alliance);
 /// @throws std::invalid_argument for a slot_count outside 0..11.
 void update_alliance_images(const Settings& settings, Host& h);
 
-/// Cycles a slot's controller: disabled, computer, then human when none is human.
-///
-/// A slot that becomes enabled with a colour in use takes the first unused colour.
+/// Cycles a slot's controller as 3.1c does: disabled, computer, then human when none
+/// is human. A slot that becomes enabled with a colour in use takes the first unused
+/// colour; the side is left as it is.
 ///
 /// @param[in,out] settings Skirmish settings.
 /// @param slot Slot index.
 /// @param[in,out] h Routines the panel calls.
 /// @throws std::out_of_range for a slot outside slot_count.
 void cycle_player(Settings& settings, int32_t slot, Host& h);
+
+/// Cycles a slot's controller: disabled, computer, then human when none is human.
+///
+/// A slot that becomes enabled with a colour in use takes the first unused colour.
+/// A slot that becomes a computer moves to the first side its Side button offers.
+///
+/// @param[in,out] settings Skirmish settings.
+/// @param slot Slot index.
+/// @param ui Panel state; a computer slot's side mask comes from it.
+/// @param[in,out] h Routines the panel calls.
+/// @throws std::out_of_range for a slot outside slot_count.
+void cycle_player(Settings& settings, int32_t slot, const UiState& ui, Host& h);
 
 /// Cycles a slot's colour, skipping colours in use.
 ///
@@ -325,6 +338,17 @@ void cycle_color(Settings& settings, int32_t slot, bool reverse, Host& h);
 /// @param hidden_sides Bit n set for a side the Side button never offers.
 /// @throws std::invalid_argument for an empty side table, and std::out_of_range for a bad slot.
 void advance_side(Settings& settings, int32_t slot, int32_t side_count, uint32_t hidden_sides = 0);
+
+/// Steps a slot to the previous loaded side, wrapping to the last, past the
+/// hidden ones. When only the current side is offered, it stays. When every
+/// side is hidden, it steps to the previous side.
+///
+/// @param[in,out] settings Skirmish settings.
+/// @param slot Slot index.
+/// @param side_count Number of loaded sides.
+/// @param hidden_sides Bit n set for a side the Side button never offers.
+/// @throws std::invalid_argument for an empty side table, and std::out_of_range for a bad slot.
+void retreat_side(Settings& settings, int32_t slot, int32_t side_count, uint32_t hidden_sides = 0);
 
 /// Returns the side a slot shows: its own, or the next one offered when its
 /// own is hidden, as a skirmish saved on a hidden side opens. A side past

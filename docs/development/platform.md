@@ -48,10 +48,45 @@ Text outside the game's own fonts is drawn through FreeType from fonts that
 travel with the game, the same on every platform
 ([text font](../../src/platform/text-font/README.md)).
 `tools/bootstrap_text_fonts.py` fetches FreeType and the fonts, pinned by
-SHA-256, builds FreeType as a static library into
+SHA-256, checks each licence text against the one `licenses/` holds,
+builds FreeType as a static library into
 `local/deps/freetype-install-<release>` and puts the fonts in
 `local/deps/text-fonts`: DejaVu Sans Bold, DejaVu Sans,
-`NotoSansCJKsc-Bold-Endonyms.otf` and Noto Emoji.
-A configuration without them stops and says so
-(`cmake/OaTextFonts.cmake`). Neither is vendored in the tree. The macOS and
+`NotoSansCJKsc-Bold-Endonyms.otf` and Noto Emoji for game text, and the
+interface faces of OA's modern look, Barlow 1.422 Regular, Medium,
+SemiBold and Bold and Barlow Condensed SemiBold and Bold, from the Barlow
+project's release
+([Look](../settings.md#user-interface)). The build copies the ten fonts
+beside the game. A configuration without them stops and says so
+(`cmake/OaTextFonts.cmake`), so a checkout made before Barlow joined runs
+`python3 tools/bootstrap_text_fonts.py`, or `--fonts-only`, once. Neither
+FreeType nor the fonts is vendored in the tree. The macOS and
 Windows dependency bootstraps build the same FreeType for their targets.
+
+## What a platform can do
+
+`cmake/OaPlatformCapabilities.cmake` holds the options a platform sets
+before it adds the engine. Each is on or off, and the sources that read it
+are given 0 or 1.
+
+| Option | Default | What it does |
+|---|---|---|
+| `OA_PROCESS_SPAWNING` | ON | the game may start other programs |
+| `OA_NATIVE_FOLDER_DIALOG` | ON | the game may ask for its folder with the system's folder dialog |
+| `OA_NATIVE_DENSITY_WINDOWS` | OFF | the window opens at the display's own pixel density |
+| `OA_TOUCH_FIRST` | OFF | the touch controls are on from the start |
+| `OA_SELF_UPDATE` | ON | the game may replace itself with a newer release through `oa-update` |
+
+`OA_PACKAGER_NAME` names who updates a copy that cannot replace itself:
+Flathub, Nix, Homebrew or a distribution. Empty names nobody.
+`OA_PACKAGER_UPDATE_COMMAND` is a command a player can type, or empty. A
+name or a command longer than 64 bytes, or one that holds a line break,
+stops the configuration. Self-update on while process spawning is off also
+stops it, because that build cannot start the helper.
+
+With self-update off, `oa-update` is not built. The game still checks for a
+release when the player lets it. The prompt and Settings say who updates
+the copy ([Updates](../updates.md#copies-a-package-manager-updates)). The
+repository's Nix package sets self-update off and the name Nix. iOS sets
+self-update off and leaves the name empty. The official Windows package
+leaves self-update on.

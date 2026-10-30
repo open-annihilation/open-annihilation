@@ -492,10 +492,10 @@ void Runtime::check_mod_install() {
         const int32_t scale = oa_layer().screen_scale();
         settings::Prompt sized = prompt;
         sized.size_class = oa_layer().screen_class();
+        const oa::ui::kit::PlacedQuestion laid = oa::ui::kit::place_question(sized, fonts);
         require(
-            oa_layer().holds(state.prompt) &&
-                placed.points_width == oa::ui::kit::metrics_of(sized.size_class).notice_width &&
-                placed.points_height == settings::prompt_height(sized, fonts) &&
+            oa_layer().holds(state.prompt) && placed.points_width == laid.width &&
+                placed.points_height == laid.height &&
                 placed.shown.width == placed.points_width * scale &&
                 placed.shown.height == placed.points_height * scale,
             "the prompt does not show on the OA layer at its class and scale"
@@ -861,7 +861,7 @@ void Runtime::check_mod_install() {
             titled("UPDATE MOD") && says("revision 1, is installed. Replace it with revision 2"),
             "an update was not asked"
         );
-        // At 1280x720 and 1920x1080 the question is laid out at the window's
+        // At 800x600 and 2560x1440 the question is laid out at the window's
         // class and drawn at its scale, centred over the main menu darkened
         // over the whole window.
         oa_layer().read_whole_window(true);
@@ -881,10 +881,10 @@ void Runtime::check_mod_install() {
             settings::Prompt sized = state.prompt->question();
             sized.size_class = larger.size_class;
             const auto* fonts = engine_settings_fonts();
-            const int32_t sized_height = settings::prompt_height(sized, fonts);
+            const oa::ui::kit::PlacedQuestion laid = oa::ui::kit::place_question(sized, fonts);
+            const int32_t sized_height = laid.height;
             const auto at = state.prompt->placement(oa_layer().view());
-            const int32_t shown_width =
-                oa::ui::kit::metrics_of(larger.size_class).notice_width * larger.scale;
+            const int32_t shown_width = laid.width * larger.scale;
             require(
                 at.shown.width == shown_width && at.shown.height == sized_height * larger.scale &&
                     at.shown.x == (larger.width - shown_width) / 2 &&
@@ -943,7 +943,7 @@ void Runtime::check_mod_install() {
         install::post_package_file(mod_package(packages, "1.0", 3));
         until_prompt("the third revision");
         require(
-            says("The folder kept for ROLL BACK (1.0 revision 1) is removed."),
+            says("The folder kept for Roll back (1.0 revision 1) is removed."),
             "the kept version's removal is not said"
         );
         require(
@@ -1107,7 +1107,7 @@ void Runtime::check_mod_install() {
         require(
             titled("MOD NOT ROLLED BACK") &&
                 says(
-                    "Broken Mod 1.0 revision 1, the version kept for ROLL BACK, cannot be "
+                    "Broken Mod 1.0 revision 1, the version kept for Roll back, cannot be "
                     "played."
                 ) &&
                 says("Nothing was changed."),

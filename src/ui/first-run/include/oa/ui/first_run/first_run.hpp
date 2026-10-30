@@ -274,10 +274,10 @@ struct Model {
     bool windowed{};
 };
 
-/// The room the setup lays out in on a large window, in points: Regular's
-/// least. A larger window draws this room larger, so the setup's words,
-/// buttons and cards grow with the window together.
-inline constexpr kit::Point setup_room = kit::regular_from;
+/// The room the setup lays out in on a large window, in points: 960 by 540,
+/// a 1920 by 1080 screen at 2x. A larger window draws this room larger, so
+/// the setup's words, buttons and cards grow with the window together.
+inline constexpr kit::Point setup_room{960, 540};
 
 /// Returns the scale the setup is drawn at in a room of window pixels.
 ///
@@ -573,7 +573,7 @@ enum class PointerKind : uint8_t {
 [[nodiscard]] Outcome wheel(Session& session, const Scene& scene, float notches);
 
 /// Words the sample Library looks up through the model's text hook: the Active
-/// and Mods tabs, PLAYING, UNLOAD MOD and Built in, one a line.
+/// and Mods tabs, Playing, Unload mod and Built in, one a line.
 ///
 /// The picture well draws the same Library. A hook that marks each text
 /// changes these words; an empty hook leaves them in English.

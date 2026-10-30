@@ -229,9 +229,14 @@ triangles as decals; standing sprites such as trees remain upright. Fog
 brightness blends across the mapped side of visibility boundaries, while
 unmapped cells remain black and hidden units stay excluded. Unit shadows
 use the existing cached silhouettes, projected onto the terrain.
-Ground structures level the rendered terrain beneath their gameplay footprint
-to their placement height, with a small separation beneath floor plates and
-a one-cell transition to surrounding terrain. Ground decals and shadows follow
+Ground structures level the rendered terrain beneath their gameplay footprint,
+and beneath their model's base piece where it reaches past the footprint, to
+their placement height, with a small separation beneath floor plates and
+a one-cell transition to surrounding terrain. A base piece whose floor plates
+lie below the placement height, as the Arm aircraft plants' do, takes the
+ground down below its lowest corner, by up to a map pixel, so that the
+terrain hides no part of the base at any angle; other pieces sunk into the
+ground stay covered. Ground decals and shadows follow
 that foundation. Placement previews show the same leveling; simulation terrain
 and model positions remain unchanged.
 The terrain crop follows the viewport across the full terrain height range.
@@ -308,6 +313,15 @@ its effect visibility raster only visits rows and columns reached by effects.
 Zooming out reduces fog subdivision, merges planar terrain cells, and fades
 subpixel decals and particles. Small light footprints fade out; heat distortion
 fades sooner as its pixel displacement becomes imperceptible.
+A frame whose terrain needs more tiles than the atlas holds at full detail,
+as a low or zoomed-out view of a large map does, packs the tiles nearest the
+camera at full detail and the rest at half, a quarter or an eighth of their
+pixels; a frame whose tiles fit keeps them all at full detail. Far out over a
+large map, the ground is drawn from every second, fourth or eighth height
+sample when its triangles would pass the frame's limit. A frame that still
+needs more room than the renderer has goes back to the last camera drawn, so a
+turn or a zoom stops there; only a failure of the card puts the classic view
+back.
 Terrain minification blends averaged texture levels, with each tile clamped to
 its own texels. Level selection uses output pixels independently of the
 anti-aliasing factor; sprites retain nearest sampling.
@@ -328,8 +342,8 @@ selection, menu keyboard navigation, release of camera drags across menus,
 terrain picking, orders, pointer-anchored zoom, queue overlays,
 contours, projected health bars, interpolated movement, factory build subjects,
 construction particles, coloured light on terrain, advancing simulation,
-unlock, exact classic reset, both zoom limits, recovery after GPU rejection
-and target resize:
+unlock, exact classic reset, both zoom limits, a low unlocked view at the
+furthest zoom, recovery after GPU rejection and target resize:
 
 ```sh
 OA_BUILD_TYPE=Check ./run.sh --game-dir "$OA_GAME_DIR" --check-live-renderer

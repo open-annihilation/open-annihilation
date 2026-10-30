@@ -66,27 +66,89 @@ InitializationResult initialize_weapon_slots(
     };
 }
 
-WeaponRegistry::WeaponRegistry() : slots_(std::make_unique<Slots>()) {
-    for (size_t i = 0; i < weapon_registry_capacity; ++i) {
-        slots_->definitions[i].registry_index = static_cast<uint8_t>(i);
-        slots_->records[i].weapon_id = static_cast<uint8_t>(i);
+void WeaponRegistry::allocate(std::size_t capacity) {
+    definitions_ = std::make_unique<WeaponDefinition[]>(capacity);
+    names_ = std::make_unique<SlotName[]>(capacity);
+    records_ = std::make_unique<WeaponDef[]>(capacity);
+    capacity_ = capacity;
+    for (std::size_t slot = 0; slot < capacity_; ++slot) {
+        const auto index = static_cast<uint16_t>(slot);
+        definitions_[slot].registry_index = index;
+        oa_weapon_def_set_id(&records_[slot], index);
     }
 }
 
-WeaponRegistry::WeaponRegistry(const WeaponRegistry& other)
-    : slots_(std::make_unique<Slots>(*other.slots_)) {
+WeaponRegistry::WeaponRegistry(std::size_t capacity) {
+    allocate(capacity);
+}
+
+WeaponRegistry::WeaponRegistry(const WeaponRegistry& other) {
+    allocate(other.capacity_);
+    for (std::size_t slot = 0; slot < capacity_; ++slot) {
+        definitions_[slot] = other.definitions_[slot];
+        names_[slot] = other.names_[slot];
+        records_[slot] = other.records_[slot];
+    }
 }
 
 WeaponRegistry& WeaponRegistry::operator=(const WeaponRegistry& other) {
-    if (this != &other)
-        *slots_ = *other.slots_;
+    if (this == &other)
+        return *this;
+    if (capacity_ != other.capacity_)
+        allocate(other.capacity_);
+    for (std::size_t slot = 0; slot < capacity_; ++slot) {
+        definitions_[slot] = other.definitions_[slot];
+        names_[slot] = other.names_[slot];
+        records_[slot] = other.records_[slot];
+    }
     return *this;
 }
 
+WeaponRegistry::WeaponRegistry(WeaponRegistry&& other) noexcept
+    : definitions_(std::move(other.definitions_)), names_(std::move(other.names_)),
+      records_(std::move(other.records_)), capacity_(other.capacity_) {
+    other.capacity_ = 0;
+}
+
+WeaponRegistry& WeaponRegistry::operator=(WeaponRegistry&& other) noexcept {
+    if (this != &other) {
+        definitions_ = std::move(other.definitions_);
+        names_ = std::move(other.names_);
+        records_ = std::move(other.records_);
+        capacity_ = other.capacity_;
+        other.capacity_ = 0;
+    }
+    return *this;
+}
+
+void WeaponRegistry::grow(std::size_t capacity) {
+    if (capacity <= capacity_)
+        return;
+    auto definitions = std::make_unique<WeaponDefinition[]>(capacity);
+    auto names = std::make_unique<SlotName[]>(capacity);
+    auto records = std::make_unique<WeaponDef[]>(capacity);
+    for (std::size_t slot = 0; slot < capacity_; ++slot) {
+        definitions[slot] = std::move(definitions_[slot]);
+        names[slot] = std::move(names_[slot]);
+        records[slot] = records_[slot];
+    }
+    for (std::size_t slot = capacity_; slot < capacity; ++slot) {
+        const auto index = static_cast<uint16_t>(slot);
+        definitions[slot].registry_index = index;
+        oa_weapon_def_set_id(&records[slot], index);
+    }
+    definitions_ = std::move(definitions);
+    names_ = std::move(names);
+    records_ = std::move(records);
+    capacity_ = capacity;
+}
+
 void WeaponRegistry::install(const WeaponDef& weapon, const data::defs::WeaponAssetNames& assets) {
-    const uint8_t index = weapon.weapon_id;
-    slots_->records[index] = weapon;
-    auto& definition = slots_->definitions[index];
+    const uint16_t index = oa_weapon_def_id(&weapon);
+    if (static_cast<std::size_t>(index) >= capacity_)
+        grow(static_cast<std::size_t>(index) + 1u);
+    records_[index] = weapon;
+    auto& definition = definitions_[index];
     definition.reload_time_ticks = static_cast<uint16_t>(weapon.reload_time);
     definition.default_damage = static_cast<uint16_t>(weapon.damage_default);
     definition.projectile_velocity = weapon.weapon_velocity;
@@ -124,13 +186,14 @@ void WeaponRegistry::install(const WeaponDef& weapon, const data::defs::WeaponAs
     definition.flight_time_ticks = static_cast<uint16_t>(weapon.flight_time);
     definition.smoke_delay_ticks = static_cast<uint16_t>(weapon.smoke_delay);
     definition.coverage = weapon.coverage;
-    slots_->names[index] = weapon.key;
+    definition.registry_index = index;
+    names_[index] = weapon.key;
 }
 
 void WeaponRegistry::install_damage_override(
-    uint8_t index, std::string_view unit_name, int32_t amount
+    uint16_t index, std::string_view unit_name, int32_t amount
 ) {
-    auto& overrides = slots_->definitions[index].damage_overrides;
+    auto& overrides = definitions_[index].damage_overrides;
     std::string name(unit_name);
     for (auto& c : name)
         if (c >= 'A' && c <= 'Z')
@@ -178,15 +241,17 @@ bool equal_name(std::string_view left, std::string_view right) noexcept {
 const WeaponDefinition* WeaponRegistry::find(std::string_view name) const noexcept {
     if (name.empty())
         return nullptr;
-    for (size_t i = 0; i < weapon_registry_capacity; ++i)
-        if (!slots_->names[i].empty() && equal_name(slots_->names[i], name))
-            return &slots_->definitions[i];
+    for (std::size_t slot = 0; slot < capacity_; ++slot)
+        if (!names_[slot].empty() && equal_name(names_[slot], name))
+            return &definitions_[slot];
     return nullptr;
 }
 
 size_t install_weapon_table(WeaponRegistry& registry, const data::defs::WeaponTable& table) {
+    if (table.defs.size() > registry.capacity())
+        registry.grow(table.defs.size());
     size_t installed = 0;
-    for (size_t slot = 0; slot < weapon_registry_capacity; ++slot) {
+    for (size_t slot = 0; slot < table.defs.size(); ++slot) {
         const WeaponDef& weapon = table.defs[slot];
         if (weapon.key[0] == '\0')
             continue;
@@ -197,27 +262,34 @@ size_t install_weapon_table(WeaponRegistry& registry, const data::defs::WeaponTa
         const data::defs::WeaponDamageTable& damage = table.damage[slot];
         for (uint32_t entry = damage.count; entry-- > 0;)
             registry.install_damage_override(
-                weapon.weapon_id, damage.entries[entry].unit, damage.entries[entry].damage
+                oa_weapon_def_id(&weapon), damage.entries[entry].unit, damage.entries[entry].damage
             );
         ++installed;
     }
     return installed;
 }
 
-size_t
-install_weapon_files(WeaponRegistry& registry, const data::defs::Files& files, bool lava_world) {
+size_t install_weapon_files(
+    WeaponRegistry& registry, const data::defs::Files& files, bool lava_world, uint32_t weapon_types
+) {
     const auto table = std::make_unique<data::defs::WeaponTable>();
-    const data::defs::WeaponLoadOptions options{nullptr, nullptr, lava_world, false};
+    const data::defs::WeaponLoadOptions options{
+        nullptr, nullptr, lava_world, false, nullptr, weapon_types
+    };
     data::defs::load_weapon_defs(&files, table.get(), &options);
     const size_t installed = install_weapon_table(registry, *table);
     data::defs::weapon_table_free(table.get());
     return installed;
 }
 
-size_t install_weapon_text(WeaponRegistry& registry, std::string_view text, bool lava_world) {
+size_t install_weapon_text(
+    WeaponRegistry& registry, std::string_view text, bool lava_world, uint32_t weapon_types
+) {
     const auto table = std::make_unique<data::defs::WeaponTable>();
     data::defs::weapon_table_init(table.get());
-    const data::defs::WeaponLoadOptions options{nullptr, nullptr, lava_world, false};
+    const data::defs::WeaponLoadOptions options{
+        nullptr, nullptr, lava_world, false, nullptr, weapon_types
+    };
     (void)data::defs::load_weapon_text(
         table.get(), text.data(), static_cast<uint32_t>(text.size()), &options
     );

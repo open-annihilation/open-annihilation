@@ -374,7 +374,8 @@ build_text_layers(const TextMask& mask, const TextStyle& style, int32_t thicknes
 ///
 /// The layers of the lines drawn last are kept, at most 256 lines and
 /// 16 MiB of them, so a line drawn again with the same letters and borders
-/// is laid from them rather than built anew.
+/// is laid from them rather than built anew; forget_undrawn_text_layers
+/// lets go those of the lines no longer drawn.
 ///
 /// @param text UTF-8 text
 /// @param face the game font it stands in for
@@ -406,6 +407,13 @@ modern_text_advance(std::string_view text, TextFace face, int32_t scale, int32_t
 /// each line is built anew when it is next drawn. Installing hooks drops
 /// them too.
 void forget_text_layers() noexcept;
+
+/// Drops the layers modern_text keeps of the lines it has not drawn since
+/// the last call, so that a caller that draws every line it shows on each
+/// of its frames, as a match does, keeps the layers of those lines alone
+/// and none of the lines it showed before: a readout's earlier numbers or
+/// the screens left behind.
+void forget_undrawn_text_layers() noexcept;
 
 /// Gives the longest start of a text whose modern line fits a width.
 ///

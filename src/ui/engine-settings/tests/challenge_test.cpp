@@ -68,8 +68,8 @@ void test_words() {
     OA_CHECK(waiting.code == "HXQ7-4KP2");
     OA_CHECK(waiting.status == "Waiting for the check. This updates by itself.");
     OA_CHECK(waiting.buttons.size() == 2);
-    OA_CHECK(waiting.buttons[0].caption == "CANCEL");
-    OA_CHECK(waiting.buttons[1].caption == "OPEN THE CHECK");
+    OA_CHECK(waiting.buttons[0].caption == "Cancel");
+    OA_CHECK(waiting.buttons[1].caption == "Open the check");
 
     const settings::ChallengeText phone = settings::challenge_text(waiting_window(false));
     OA_CHECK(
@@ -78,7 +78,7 @@ void test_words() {
         "Go to downloads.example.net/verify on another device and enter:"
     );
     OA_CHECK(phone.buttons.size() == 1);
-    OA_CHECK(phone.buttons[0].caption == "CANCEL");
+    OA_CHECK(phone.buttons[0].caption == "Cancel");
 
     settings::ChallengeWindow expired = waiting_window(true);
     expired.status = settings::ChallengeWindow::Status::expired;
@@ -86,8 +86,8 @@ void test_words() {
     OA_CHECK(ran_out.body == waiting.body);
     OA_CHECK(ran_out.status == "The check ran out. Try again for a new code.");
     OA_CHECK(ran_out.buttons.size() == 2);
-    OA_CHECK(ran_out.buttons[0].caption == "CANCEL");
-    OA_CHECK(ran_out.buttons[1].caption == "TRY AGAIN");
+    OA_CHECK(ran_out.buttons[0].caption == "Cancel");
+    OA_CHECK(ran_out.buttons[1].caption == "Try again");
 
     settings::ChallengeWindow passed = waiting_window(true);
     passed.status = settings::ChallengeWindow::Status::passed;
@@ -95,7 +95,7 @@ void test_words() {
     OA_CHECK(done.body == waiting.body);
     OA_CHECK(done.status.empty());
     OA_CHECK(done.buttons.size() == 1);
-    OA_CHECK(done.buttons[0].caption == "CANCEL");
+    OA_CHECK(done.buttons[0].caption == "Cancel");
 
     settings::ChallengeWindow passed_phone = waiting_window(false);
     passed_phone.status = settings::ChallengeWindow::Status::passed;
@@ -199,8 +199,8 @@ void test_layout() {
         OA_CHECK(code->text == "HXQ7-4KP2");
         OA_CHECK(status->kind == kit::ControlKind::area && !status->enabled && !status->focusable);
         OA_CHECK(status->text == "Waiting for the check. This updates by itself.");
-        OA_CHECK(open->kind == kit::ControlKind::button && open->text == "OPEN THE CHECK");
-        OA_CHECK(cancel->kind == kit::ControlKind::button && cancel->text == "CANCEL");
+        OA_CHECK(open->kind == kit::ControlKind::button && open->text == "Open the check");
+        OA_CHECK(cancel->kind == kit::ControlKind::button && cancel->text == "Cancel");
         const kit::Item* code_text = text_of(list, settings::challenge_code_control);
         OA_CHECK(code_text != nullptr);
         OA_CHECK(code_text->font == kit::FontRole::regular);
@@ -217,7 +217,7 @@ void test_layout() {
     const kit::DisplayList expired_list = settings::challenge_list(expired);
     OA_CHECK(kit::name_problem(expired_list).empty());
     const kit::Control* try_again = named(expired_list, "challenge.try-again");
-    OA_CHECK(try_again != nullptr && try_again->text == "TRY AGAIN");
+    OA_CHECK(try_again != nullptr && try_again->text == "Try again");
     OA_CHECK(named(expired_list, "challenge.open") == nullptr);
     const kit::Control* expired_status = named(expired_list, "challenge.status");
     OA_CHECK(

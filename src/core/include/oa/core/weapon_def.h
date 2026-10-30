@@ -7,6 +7,7 @@
 
 #include "oa/core/types.h"
 
+/* The slots Game.weapon_defs holds: 3.1c's weapon table. */
 #define OA_WEAPON_DEF_COUNT 256
 
 /* Bits of WeaponDef.flags, packed from the TDF boolean of the same name. */
@@ -46,7 +47,8 @@ OA_CORE_BEGIN
 
 #pragma pack(push, 1)
 
-/* One weapon TDF record. The game state holds 256 inline, indexed by weaponid. */
+/* One weapon TDF record. The game state holds slots 0 to 255 inline; a mod
+ * that numbers more keeps the rest in World.extra_weapon_defs. */
 typedef struct WeaponDef {
     char key[32]; /* TDF section name */
     char name[64];
@@ -89,13 +91,14 @@ typedef struct WeaponDef {
     int16_t accuracy;
     int16_t tolerance;
     int16_t pitch_tolerance;
-    uint8_t weapon_id; /* own slot index, written at table init */
+    uint8_t weapon_id; /* the id's low byte; the slot index, written at table init */
     int8_t fire_starter;
     int8_t render_type;
     int8_t color;
     int8_t color2;
-    uint8_t reserved_after_color2[0x2]; /* no known use: zeroed with the table */
-    uint32_t flags;                     /* WEAPON_FLAG_*; unaligned */
+    uint8_t weapon_id_high;                     /* the id's high byte; 0 for every id under 256 */
+    uint8_t reserved_after_weapon_id_high[0x1]; /* no known use: zeroed with the table */
+    uint32_t flags;                             /* WEAPON_FLAG_*; unaligned */
 } WeaponDef;
 
 #pragma pack(pop)
@@ -145,8 +148,26 @@ OA_ASSERT_OFFSET(WeaponDef, fire_starter, 0x10b);
 OA_ASSERT_OFFSET(WeaponDef, render_type, 0x10c);
 OA_ASSERT_OFFSET(WeaponDef, color, 0x10d);
 OA_ASSERT_OFFSET(WeaponDef, color2, 0x10e);
-OA_ASSERT_OFFSET(WeaponDef, reserved_after_color2, 0x10f);
+OA_ASSERT_OFFSET(WeaponDef, weapon_id_high, 0x10f);
+OA_ASSERT_OFFSET(WeaponDef, reserved_after_weapon_id_high, 0x110);
 OA_ASSERT_OFFSET(WeaponDef, flags, 0x111);
+
+/// Returns the weapon id stored across the record's two id bytes.
+///
+/// @param weapon record whose id is read
+/// @return the low byte with the high byte above it
+static inline uint16_t oa_weapon_def_id(const WeaponDef* weapon) {
+    return (uint16_t)weapon->weapon_id | (uint16_t)((uint16_t)weapon->weapon_id_high << 8);
+}
+
+/// Writes a weapon id into the record's two id bytes.
+///
+/// @param[in,out] weapon record whose id is written
+/// @param id id from 0 to 65535
+static inline void oa_weapon_def_set_id(WeaponDef* weapon, uint16_t id) {
+    weapon->weapon_id = (uint8_t)(id & 0xffu);
+    weapon->weapon_id_high = (uint8_t)((id >> 8) & 0xffu);
+}
 
 OA_CORE_END
 

@@ -108,7 +108,7 @@ class Failure : public std::runtime_error {
 
 // The package command, defined in pack.cpp.
 
-/// Packs a folder as a .oamod, a .oalang, a .oamap, a .oaexp, a .oamut or a .oabrain.
+/// Packs a folder as a .oamod, a .oalang, a .oamap, a .oaexp, a .oamut, a .oabrain or a .oakeys.
 ///
 /// One positional argument is the folder. `--out FILE` names the package,
 /// and `--force` replaces a file that already exists. `--game-dir DIR` is
@@ -177,6 +177,66 @@ class Failure : public std::runtime_error {
 ///         the arguments are not the command's
 /// @throws Failure when the folder cannot be packed
 [[nodiscard]] int run_brain_pack(std::span<const std::string> arguments, Output& output);
+
+// The key-layout commands, defined in keys.cpp.
+
+/// Packs a key-layout folder as a .oakeys.
+///
+/// One positional argument is the folder. It must hold `oakeys.yaml` at its
+/// top; another folder is a usage error. The other arguments are `run_pack`'s,
+/// and the package is packed by that command. `--game-dir` is a usage error.
+///
+/// @param arguments the folder and any options
+/// @param[in,out] output receives the packed line, and a usage line when the
+///        folder is not a key layout
+/// @return exit_done, or exit_usage when the folder holds no oakeys.yaml or
+///         the arguments are not the command's
+/// @throws Failure when the folder cannot be packed
+[[nodiscard]] int run_keys_pack(std::span<const std::string> arguments, Output& output);
+
+/// Checks a .oakeys, or a folder whose top holds oakeys.yaml.
+///
+/// A file of another kind, or a folder without `oakeys.yaml`, is a usage
+/// error. The other arguments are `run_check`'s, plus `--strict`, and the
+/// report is that command's. `--strict` refuses a layout that has a warning.
+///
+/// @param arguments the file or folder and any options
+/// @param[in,out] output receives the report, and a usage line when it is
+///        not a key layout
+/// @return exit_done when the layout would be installed, exit_failed when it
+///         would be refused or `--strict` meets a warning, or exit_usage when
+///         it is not a key layout or the arguments are not the command's
+[[nodiscard]] int run_keys_check(std::span<const std::string> arguments, Output& output);
+
+/// Draws the keyboard picture of what a layout changes.
+///
+/// One positional argument is a `.oakeys`, a folder whose top holds
+/// `oakeys.yaml`, or it is refused. `--out` is the PNG and is required.
+/// `--width` is the picture's width in pixels; it is 1200 when omitted.
+/// `--fonts` is the folder of text fonts; the fonts beside the program are
+/// used when it is omitted. A font that cannot be opened writes nothing.
+///
+/// @param arguments the file or folder and the options
+/// @param[in,out] output receives the written line, and a usage line when the
+///        arguments are not the command's
+/// @return exit_done when the PNG was written, exit_failed when the layout
+///         or the fonts cannot be read, or exit_usage when the arguments are
+///         not the command's
+[[nodiscard]] int run_keys_picture(std::span<const std::string> arguments, Output& output);
+
+/// Prints the bindings after the base and one layout.
+///
+/// One positional argument is a `.oakeys`, a folder whose top holds
+/// `oakeys.yaml`, or the literal `oa-default`. `--json` prints one array.
+/// A layout whose chords do not parse is refused. A warning is still shown.
+///
+/// @param arguments the file, folder or `oa-default`, and any options
+/// @param[in,out] output receives the bindings, and a usage line when the
+///        arguments are not the command's
+/// @return exit_done when the bindings were printed, exit_failed when the
+///         layout cannot be read, or exit_usage when the arguments are not
+///         the command's
+[[nodiscard]] int run_keys_show(std::span<const std::string> arguments, Output& output);
 
 /// Loads a brain against a game and reports how it started.
 ///
@@ -331,6 +391,56 @@ class Failure : public std::runtime_error {
 ///         refused, or exit_usage when the arguments are not the command's
 /// @throws Failure when the catalogue or the signature cannot be read
 [[nodiscard]] int run_catalogue_verify(std::span<const std::string> arguments, Output& output);
+
+// The engine feed commands, defined in engine_feed.cpp.
+
+/// Writes one release of the signed engine feed.
+///
+/// `--version`, `--date`, `--from`, `--page`, `--out` and at least one
+/// `--mirror` are required, with one or more package files. `--release`
+/// defaults to the release number of `--version`. `--notes` is a JSON object
+/// of language to lines. `--previous` copies older releases from an earlier
+/// feed, five releases in all. The file is read back before success.
+///
+/// @param arguments the options and the package files
+/// @param[in,out] output receives the written line, and a usage line when the
+///        arguments are not the command's
+/// @return exit_done, or exit_usage when the arguments are not the command's
+/// @throws Failure when the feed cannot be written
+[[nodiscard]] int run_engine_feed_write(std::span<const std::string> arguments, Output& output);
+
+/// Signs an engine feed with a sealed key.
+///
+/// `--key` is the sealed key. The positional argument is the feed. `--out`
+/// names the signature file; without it the signature is written beside the
+/// feed, with `.sig` added to the name. A feed this build would refuse is
+/// refused before the key is opened. The written pair is checked before the
+/// command reports success.
+///
+/// @param arguments the key, the feed and any options
+/// @param[in,out] output receives the signed line, and a usage line when the
+///        arguments are not the command's
+/// @return exit_done, or exit_usage when the arguments are not the command's
+/// @throws Failure when the feed cannot be signed
+[[nodiscard]] int run_engine_feed_sign(std::span<const std::string> arguments, Output& output);
+
+/// Checks an engine feed's signature.
+///
+/// The positional argument is the feed, or `--url` fetches the feed and that
+/// address with `.sig` added. `--sig` names the signature file; without it
+/// the signature is the feed's name with `.sig` added. `--key` is an id, `=`,
+/// `ed25519:` and the key in base64. Without `--key` the keys are this
+/// build's pinned keys. Prints the signing key and one line a release, and
+/// exits 0 when the feed can be used. A refused feed prints the verdict and
+/// exits 1.
+///
+/// @param arguments the feed or the address, and any options
+/// @param[in,out] output receives the verdict, and a usage line when the
+///        arguments are not the command's
+/// @return exit_done when the feed can be used, exit_failed when it is
+///         refused, or exit_usage when the arguments are not the command's
+/// @throws Failure when the feed or the signature cannot be read
+[[nodiscard]] int run_engine_feed_check(std::span<const std::string> arguments, Output& output);
 
 // The registry commands, defined in registry.cpp.
 

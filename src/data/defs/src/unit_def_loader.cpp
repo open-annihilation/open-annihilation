@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 
 namespace oa::data::defs {
 namespace {
@@ -28,7 +29,7 @@ uint32_t with_bit(uint32_t word, uint32_t bit, int32_t value) noexcept {
 }
 
 oa_ref32 weapon_ref(
-    const formats::tdf::Block* block, const char* key, const WeaponDef* weapon_defs
+    const formats::tdf::Block* block, const char* key, std::span<const WeaponDef> weapon_defs
 ) noexcept {
     char name[weapon_name_capacity];
     formats::tdf::get_string(block, key, name, sizeof name, "");
@@ -171,10 +172,10 @@ uint32_t unit_def_block_size(const UnitDefBlocks* blocks, oa_ref32 ref) noexcept
     return ref != 0 && ref <= blocks->count ? blocks->blocks[ref - 1u].size : 0u;
 }
 
-int find_weapon_by_name(const WeaponDef* weapon_defs, const char* name) noexcept {
+int find_weapon_by_name(std::span<const WeaponDef> weapon_defs, const char* name) noexcept {
     if (name == nullptr || name[0] == '\0')
         return -1;
-    for (uint32_t index = 0; index < OA_WEAPON_DEF_COUNT; ++index)
+    for (uint32_t index = 0; index < weapon_defs.size(); ++index)
         if (formats::tdf::compare_nocase(name, weapon_defs[index].key) == 0)
             return static_cast<int>(index);
     return -1;

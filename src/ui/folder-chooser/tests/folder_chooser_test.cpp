@@ -509,6 +509,18 @@ std::string_view role_name(kit::Role role) {
         return "package_badge";
     case kit::Role::grip:
         return "grip";
+    case kit::Role::keycap:
+        return "keycap";
+    case kit::Role::chord_chip:
+        return "chord_chip";
+    case kit::Role::keyboard:
+        return "keyboard";
+    case kit::Role::mouse_picture:
+        return "mouse_picture";
+    case kit::Role::hold_ring:
+        return "hold_ring";
+    case kit::Role::radio:
+        return "radio";
     }
     return "?";
 }

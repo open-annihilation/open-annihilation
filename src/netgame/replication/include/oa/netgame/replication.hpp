@@ -108,23 +108,27 @@ struct ReplicationSim {
     /// @param record The kill event.
     void (*apply_kill)(void* context, World* world, const UnitKilledRecord& record){};
 
-    /// Handles a 0x0d weapon-fire record by launching the shot here as well.
+    /// Handles a 0x0d or 0xe0 weapon-fire record by launching the shot here as well.
+    ///
+    /// A narrow record arrives already widened. The weapon id is 16 bits.
     ///
     /// @param context ReplicationSim.context.
     /// @param world Receiving world.
     /// @param sender Player record of the sender, or null.
     /// @param record The shot.
     void (*weapon_fire)(
-        void* context, World* world, Player* sender, const WeaponFireRecord& record
+        void* context, World* world, Player* sender, const WideWeaponFireRecord& record
     ){};
 
-    /// Handles a 0x0e record: the first shot aimed at the record's point with its weapon blows up.
+    /// Handles a 0x0e or 0xe1 record: the first shot aimed at the record's point with its weapon blows up.
+    ///
+    /// A narrow record arrives already widened. The weapon id is 16 bits.
     ///
     /// @param context ReplicationSim.context.
     /// @param world Receiving world.
     /// @param record Target point and weapon id of the intercepted shot.
     void (*detonate_projectile)(
-        void* context, World* world, const ProjectileInterceptedRecord& record
+        void* context, World* world, const WideProjectileInterceptedRecord& record
     ){};
 
     /// Handles a 0x0f feature event with action 0xfd (flagged false) or 0xff (flagged true).
@@ -146,14 +150,18 @@ struct ReplicationSim {
     /// @param y Plot row.
     void (*tree_burn)(void* context, World* world, uint16_t x, uint16_t y){};
 
-    /// Handles a 0x0f feature event with any other action: that weapon damages the feature on the plot.
+    /// Handles a feature hit: that weapon damages the feature on the plot.
+    ///
+    /// A narrow 0x0f whose action is not 0xfd, 0xfe or 0xff arrives as a weapon
+    /// hit whose id is that action byte. A wide 0xe2 weapon hit carries the
+    /// 16-bit id.
     ///
     /// @param context ReplicationSim.context.
     /// @param world Receiving world.
-    /// @param weapon Game.weapon_defs index.
+    /// @param weapon Weapon id.
     /// @param x Plot column.
     /// @param y Plot row.
-    void (*feature_event)(void* context, World* world, uint8_t weapon, uint16_t x, uint16_t y){};
+    void (*feature_event)(void* context, World* world, uint16_t weapon, uint16_t x, uint16_t y){};
 
     /// Handles a 0x10 script start on a live unit.
     ///

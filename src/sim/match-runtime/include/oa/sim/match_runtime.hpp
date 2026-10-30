@@ -272,9 +272,9 @@ inline std::array<uint32_t, 3> fixed_words(const oa::FixedVec3& point) noexcept 
 // machine that apply_shot launches here. A meteor fills only the start, its
 // fall velocity in `target` and the weapon.
 struct ShotEvent {
-    FixedVec3 start{};  // muzzle; the unit's position for a fixed line weapon
-    FixedVec3 target{}; // aim point
-    uint8_t weapon_id{};
+    FixedVec3 start{};    // muzzle; the unit's position for a fixed line weapon
+    FixedVec3 target{};   // aim point
+    uint16_t weapon_id{}; ///< the weapon's whole id
     bool interceptor{};
     int16_t aim_heading{}; // the slot's angles once it has fired
     int16_t aim_pitch{};
@@ -362,13 +362,13 @@ struct MultiplayerHooks {
     /// player's machine, which then applies it instead of this one.
     ///
     /// @param context The hooks' context.
-    /// @param weapon_id The hitting weapon's WeaponDef.weapon_id.
+    /// @param weapon_id The hitting weapon's id.
     /// @param cell_x Hit plot column.
     /// @param cell_z Hit plot row.
     /// @return True when the hit went to that machine and nothing is applied
     ///     here; null applies every hit here.
     bool (*feature_hit_elsewhere)(
-        void* context, uint8_t weapon_id, int32_t cell_x, int32_t cell_z
+        void* context, uint16_t weapon_id, int32_t cell_x, int32_t cell_z
     ){};
     /// Shares a feature change settled here: a fire that started here, a
     /// feature weapon damage destroyed, one a unit finished reclaiming, or a
@@ -491,6 +491,11 @@ struct BuildSiteOptions {
     /// off: also for such a unit in the skipped slot or out of the placer's
     /// sight; left as it is otherwise.
     bool* over_own_units{};
+    /// Whose explored ground the footprint centre must lie on.
+    /// `no_site_units_player` reads the viewpoint player's mapped ground, which
+    /// is what the build cursor asks. A brain passes its own seat, so that
+    /// seat judges ground it has explored.
+    uint8_t mapped_player{no_site_units_player};
 };
 
 /// How the local view sees a replay that leaves the viewer no slot of its own
@@ -505,6 +510,26 @@ enum class SlotlessViewer : uint8_t {
     /// The viewer is every recorded player's ally: every unit is a radar
     /// contact in every view.
     ally_of_every_player,
+};
+
+/// What one player's economy paid out in its last second, read back for the
+/// player's computer seat. The match keeps it beside the game state: it is
+/// not saved, hashed, traced or shared, and the simulation never reads it.
+struct SettledSpending {
+    /// Energy paid out per second: what the store paid at once for shots,
+    /// cloaks and gifts since the settlement before, and what the settlement
+    /// paid toward the units' work, upkeep and earlier shortfalls.
+    float energy{};
+    /// Metal paid out per second, the same way.
+    float metal{};
+    /// Player.energy as the last settlement left it.
+    float energy_left{};
+    /// Player.metal as the last settlement left it.
+    float metal_left{};
+    /// True when energy_left and metal_left are the stores the last
+    /// settlement left: false before the player's first settlement, and
+    /// again once the load's pass has put the starting stores back.
+    bool stores_left_known{};
 };
 
 // Owns the real unit pool, model/VM objects, weapon slots, spatial plots/buckets
@@ -595,6 +620,18 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param type Type index; one outside the table is noted and changes nothing.
     /// @param record The new UnitDef record.
     void replace_unit_def(std::size_t type, const oa::UnitDef& record);
+
+    /// Copies loaded sides into the match.
+    ///
+    /// `table` holds at least five records, and at least `count` records
+    /// when more than five sides were loaded. The first five, zeroed slots
+    /// included, are copied into Game.sides. Further sides are a table this
+    /// match owns, which the World points at. Game.side_count becomes
+    /// `count`. It draws no random number and changes nothing else.
+    ///
+    /// @param table side records, at least five and at least `count`
+    /// @param count sides this match plays
+    void bind_sides(std::span<const oa::Side> table, uint32_t count);
 
     /// Returns a unit's legacy order queue.
     ///
@@ -2431,6 +2468,19 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         return seat_hooks_[player];
     }
 
+    /// Returns what one player's economy paid out at its last settlement.
+    ///
+    /// Zero until the player's first settlement. It is not saved, hashed or
+    /// shared, and nothing in the simulation reads it.
+    ///
+    /// @param player player index, 0 to 9
+    /// @return that player's spending, or a default value outside 0..9
+    [[nodiscard]] SettledSpending settled_spending(uint8_t player) const noexcept {
+        if (player >= OA_PLAYER_COUNT)
+            return {};
+        return settled_spending_[player];
+    }
+
     /// Returns the brains' state. Whoever seats a brain owns what it points at.
     ///
     /// The state ends with the match. It is not saved, hashed or shared.
@@ -2663,6 +2713,16 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param position Signed 16.16 point as bit patterns.
     /// @return True when the viewpoint player's mapped bit is set there.
     bool point_mapped(const std::array<uint32_t, 3>& position) const;
+    /// Tells whether a player has mapped the terrain under a point.
+    ///
+    /// The build cursor keeps reading the viewpoint (`point_mapped`). A brain
+    /// judging a site reads the seat this names.
+    ///
+    /// @param player Player index 0..9. One outside that has mapped nothing.
+    /// @param position Signed 16.16 point as bit patterns; the sight cell is
+    ///     taken at z raised by half the height, as `point_mapped` takes it.
+    /// @return True when that player's mapped bit is set there.
+    bool player_mapped(uint8_t player, const std::array<uint32_t, 3>& position) const;
 
     /// Returns the live records of the canonical projectile pool.
     std::span<const oa::Projectile> projectiles() const noexcept {
@@ -2677,9 +2737,9 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @return The entry, or null for a weapon reference outside the table.
     const sim::combat_state::WeaponDefinition*
     projectile_weapon(const oa::Projectile& shot) const noexcept {
-        if (shot.def == 0 || shot.def > OA_WEAPON_DEF_COUNT)
+        if (shot.def == 0 || static_cast<std::size_t>(shot.def) > input_.weapons.capacity())
             return nullptr;
-        return &input_.weapons.definition(static_cast<uint8_t>(shot.def - 1u));
+        return &input_.weapons.definition(static_cast<uint16_t>(shot.def - 1u));
     }
 
     struct NanoLaser {
@@ -3063,6 +3123,16 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     void set_movement_layer(uint16_t unit, uint8_t layer);
 
   private:
+
+    /// Returns the weapon record of a registry entry, including one past the
+    /// first 256.
+    ///
+    /// @param definition Registry entry of the weapon.
+    /// @return The record `world_weapon_def` holds for that entry's index.
+    const oa::WeaponDef&
+    weapon_record(const sim::combat_state::WeaponDefinition& definition) const {
+        return *oa::world_weapon_def(&state(), oa::oa_ref_from_index(definition.registry_index));
+    }
 
     /// Bytes of allied vision's rule state: whether it has followed the
     /// players yet, the viewpoint player it followed, and the alliance rows
@@ -3706,6 +3776,11 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         std::vector<oa::UnitDef> unit_defs;
         std::vector<oa::FeatureDef> feature_defs;
         std::unique_ptr<oa::MapPlot[]> plots;
+        // Weapon slots from 256 on. Null when the registry holds 256.
+        std::unique_ptr<oa::WeaponDef[]> extra_weapon_defs;
+        // Sides past the game state's five. Null when five or fewer are bound.
+        // The World points at them and does not free them.
+        std::unique_ptr<oa::Side[]> extra_sides;
         std::unique_ptr<sim::feature_runtime::PlacedFeature[]> placed_features;
         std::vector<oa::Projectile> projectiles;
         std::vector<sim::unit_spawn::SlotAssets> assets;
@@ -3856,6 +3931,10 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     // plays it. Not saved, hashed or shared. Declared before the brains'
     // state so that state is destroyed first.
     std::array<SeatHooks, OA_PLAYER_COUNT> seat_hooks_{};
+    // What each player's last settlement paid out (settled_spending). Written
+    // by update_player_economy and never read by the simulation; not saved,
+    // hashed or shared.
+    std::array<SettledSpending, OA_PLAYER_COUNT> settled_spending_{};
     std::shared_ptr<void> seat_state_;
     uint32_t lcg_seed_{};
     std::unique_ptr<sim::effect_particles::EffectWorld> effects_;

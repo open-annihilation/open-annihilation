@@ -183,6 +183,11 @@ constexpr int32_t kDesignNameGap = 10;
 constexpr int32_t kDesignNamePoints = 27;
 /// Letters in the badge, in points, on the design's 88-point badge.
 constexpr int32_t kDesignLetterPoints = 32;
+/// A small line on the design card, and the gap under the own name and
+/// between those lines. The box is at least the small font; the gap is what
+/// keeps a side card's lines apart after the carousel shrinks the card.
+constexpr int32_t kDesignSmallLine = 18;
+constexpr int32_t kDesignLineGap = 8;
 
 /// Scales a design measure to a rectangle's side.
 ///
@@ -205,6 +210,8 @@ struct CardMeasures {
     int32_t name_gap{};      ///< points between the badge and the own name
     int32_t name_points{};   ///< the own name's size, in points, before it shrinks
     int32_t letter_points{}; ///< the badge letters' size, in points, before they shrink
+    int32_t small_line{};    ///< a small line's box, at least the small font
+    int32_t line_gap{};      ///< points between the own name and the small lines
 };
 
 /// Returns a card's measures scaled from the design card.
@@ -222,6 +229,11 @@ CardMeasures card_measures(const Rect& rect) noexcept {
         std::max(scale_measure(kDesignNamePoints, rect.height, kDesignCardHeight), int32_t{1});
     measures.letter_points =
         std::max(scale_measure(kDesignLetterPoints, measures.badge, kDesignBadge), int32_t{1});
+    measures.small_line = std::max(
+        scale_measure(kDesignSmallLine, rect.height, kDesignCardHeight), compact_metrics.small_line
+    );
+    measures.line_gap =
+        std::max(scale_measure(kDesignLineGap, rect.height, kDesignCardHeight), int32_t{2});
     const int32_t room_w = std::max(rect.width - 2 * measures.pad_side, int32_t{0});
     const int32_t room_h =
         std::max(rect.height - measures.pad_top - measures.pad_bottom, int32_t{0});
@@ -244,13 +256,17 @@ struct EndonymLine {
 /// @param fonts the modern fonts
 /// @param text the text, in UTF-8
 /// @param pixel_size pixels per em
+/// @param family the faces looked in first: Barlow in the modern look
 /// @return the line
-EndonymLine draw_endonym(text_font::FontStack& fonts, std::string_view text, int32_t pixel_size) {
+EndonymLine draw_endonym(
+    text_font::FontStack& fonts, std::string_view text, int32_t pixel_size, text_font::Family family
+) {
     text_font::Style style;
     style.pixel_size = std::clamp(pixel_size, int32_t{1}, text_font::max_pixel_size);
     style.weight = text_font::Weight::bold;
     style.rendering = text_font::Rendering::antialiased;
     style.least_cjk_pixel_size = style.pixel_size;
+    style.family = family;
     EndonymLine line;
     if (std::optional<text_font::Coverage> coverage = fonts.draw(text, style)) {
         line.coverage = std::move(*coverage);
@@ -263,9 +279,11 @@ EndonymLine draw_endonym(text_font::FontStack& fonts, std::string_view text, int
 ///
 /// @param fonts the modern fonts
 /// @param pixel_size pixels per em
+/// @param family the faces looked in first
 /// @return the rows; a share of the size when the fonts cannot draw it
-int32_t endonym_capitals(text_font::FontStack& fonts, int32_t pixel_size) {
-    const EndonymLine line = draw_endonym(fonts, "H", pixel_size);
+int32_t
+endonym_capitals(text_font::FontStack& fonts, int32_t pixel_size, text_font::Family family) {
+    const EndonymLine line = draw_endonym(fonts, "H", pixel_size, family);
     const text_font::Coverage& drawn = line.coverage;
     if (!line.drawn || drawn.width <= 0)
         return std::max(pixel_size * 7 / 10, int32_t{1});
@@ -328,10 +346,14 @@ void draw_modern_line(
         text_font::max_pixel_size
     );
     const int32_t size = std::clamp(wanted, int32_t{1}, text_font::max_pixel_size);
-    EndonymLine line = draw_endonym(*fonts, text, size);
+    // The modern look draws the name in Barlow Bold, a name in another
+    // alphabet in the faces after it.
+    const text_font::Family family =
+        canvas.fonts != nullptr && modern_look(*canvas.fonts) ? text_font::Family::interface : text_font::Family::sans;
+    EndonymLine line = draw_endonym(*fonts, text, size, family);
     if (!line.drawn)
         return;
-    const int32_t capitals_tall = endonym_capitals(*fonts, size);
+    const int32_t capitals_tall = endonym_capitals(*fonts, size, family);
     const int32_t pen = pixels.x + (pixels.width - line.coverage.advance) / 2;
     // A line the large size cannot fit wraps at the font's own size. The
     // point box is the one the caller laid out.
@@ -693,6 +715,9 @@ int32_t
 smooth_tracked(const Canvas& canvas, FontRole role, std::string_view text, int32_t tracking) {
     if (text.empty() || canvas.smooth.fonts == nullptr)
         return 0;
+    // The modern look measures in points at every scale.
+    if (canvas.fonts != nullptr && modern_look(*canvas.fonts))
+        return tracked_width(*canvas.fonts, role, text, tracking);
     if (tracking == 0)
         return measure_text(canvas, role, text);
     int32_t width = 0;
@@ -1099,7 +1124,8 @@ void draw_language_card(const Canvas& canvas, const Rect& rect, const LanguageCa
     const Colour hint = look.disabled ? colour::switch_idle : colour::hint;
     const Colour quiet = look.disabled ? colour::switch_idle : colour::quiet;
     int32_t text_y = measures.pad_top + badge + measures.name_gap;
-    const int32_t small = rect.height < 64 ? 8 : compact_metrics.small_line;
+    const int32_t small = rect.height < 64 ? 8 : measures.small_line;
+    const int32_t line_gap = rect.height < 64 ? 2 : measures.line_gap;
     if (text_y + name_h <= pill_top && content_w > 0) {
         draw_fitted(
             local,
@@ -1109,7 +1135,7 @@ void draw_language_card(const Canvas& canvas, const Rect& rect, const LanguageCa
             ink,
             measures.name_points
         );
-        text_y += name_h;
+        text_y += name_h + line_gap;
     }
     if (text_y + small <= pill_top && content_w > 0) {
         line_in(
@@ -1120,7 +1146,7 @@ void draw_language_card(const Canvas& canvas, const Rect& rect, const LanguageCa
             hint,
             Align::centre
         );
-        text_y += small;
+        text_y += small + line_gap;
     }
     // Facts stay one line when they fit. A line wider than the card wraps
     // onto the next small line, above the pill, so a narrow card still shows
@@ -1155,7 +1181,7 @@ void draw_language_card(const Canvas& canvas, const Rect& rect, const LanguageCa
                     quiet,
                     Align::centre
                 );
-                y += small;
+                y += small + line_gap;
             }
         }
     }

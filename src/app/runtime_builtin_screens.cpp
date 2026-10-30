@@ -315,6 +315,10 @@ struct BuiltinScreens {
     // writes the version label back to its widget; without `starts_music`
     // the music plays on as it is.
     static void setup_main_menu_panel(Runtime& runtime, bool starts_music = true) {
+        // The main menu's descriptor names no layout file, so load() recorded
+        // no menu. This panel is MAINMENU.GUI, and a letter on it is that
+        // file's quick key.
+        runtime.set_menu_gui(oa::data::defs::gui_path("mainmenu.gui"));
         // The main menu shows in its picture's palette, which the skirmish
         // setup and the map selection keep.
         runtime.main_menu_palette_ = runtime.resources_.background.palette;

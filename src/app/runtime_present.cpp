@@ -394,7 +394,19 @@ void Runtime::initialize_sdl() {
 }
 
 bool Runtime::take_full_screen_event(const SDL_Event& event) {
-    return oa::app::take_full_screen_event(sdl_.window, full_screen_switch_, event);
+    const bool key_event = event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP;
+    // Loading and a movie hand the event here without the run's feed. The
+    // layout's chord is known only after that feed. A key the bindings hold
+    // back is not the switch until they admit it; its release is still taken,
+    // so a held chord's key can come up.
+    if (key_event && !match_key_already_fed_ && feed_input_actions(event) &&
+        event.type == SDL_EVENT_KEY_DOWN)
+        return false;
+    const oa::ui::key_bindings::ActionEvent* full_screen = fired_action("ui.full-screen");
+    const bool switch_chord = event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+                              full_screen != nullptr &&
+                              full_screen->phase == oa::ui::key_bindings::Phase::pressed;
+    return oa::app::take_full_screen_event(sdl_.window, full_screen_switch_, event, switch_chord);
 }
 
 void Runtime::trace_window(std::string_view reason) {
@@ -516,19 +528,21 @@ uint32_t Runtime::render_texture_limit() const {
 
 namespace {
 
-/// What a streaming texture holds since upload_rgb24_frame last uploaded
-/// into it. It is kept among the texture's properties, so that it goes
-/// with the texture: a texture made again, at a new size or after the
-/// device went, starts without one and is uploaded whole.
+/// Which frame a streaming texture holds since upload_rgb24_frame last
+/// uploaded into it. It is kept among the texture's properties, so that it
+/// goes with the texture: a texture made again, at a new size or after the
+/// device went, starts without one and is uploaded whole. The frame's
+/// pixels are not kept: the caller's frame before the next one stands for
+/// them.
 struct UploadedFrame {
-    std::vector<uint8_t> rgb; ///< the surface's bytes the texture holds
-    uint32_t width{};         ///< the surface's pixels in a row
-    uint32_t height{};        ///< its rows
+    uint64_t frame{};  ///< the caller's number for the frame
+    uint32_t width{};  ///< the surface's pixels in a row
+    uint32_t height{}; ///< its rows
     /// The display gamma the texture's pixels went through; unset for a
     /// gamma of 1.
     std::optional<std::array<uint8_t, 256>> gamma;
-    /// The bands of xrgb_band_rows rows that differ from the surface, one
-    /// entry a band.
+    /// The bands of xrgb_band_rows rows that differ from the frame before,
+    /// one entry a band.
     std::vector<uint8_t> changed;
 };
 
@@ -544,7 +558,12 @@ void free_uploaded_frame(void*, void* value) {
 
 } // namespace
 
-void Runtime::upload_rgb24_frame(SDL_Texture* texture, const renderer::Surface& source) {
+void Runtime::upload_rgb24_frame(
+    SDL_Texture* texture,
+    const renderer::Surface& source,
+    uint64_t frame,
+    const renderer::Surface* before
+) {
     if (texture == nullptr || source.rgb.empty())
         return;
     const auto* gamma = gamma_identity_ ? nullptr : &gamma_table_;
@@ -557,13 +576,16 @@ void Runtime::upload_rgb24_frame(SDL_Texture* texture, const renderer::Surface& 
                            )
                          : nullptr;
     const std::size_t row_bytes = static_cast<std::size_t>(source.width) * 3U;
-    const bool same_frame = uploaded != nullptr && uploaded->width == source.width &&
-                            uploaded->height == source.height &&
-                            uploaded->rgb.size() == source.rgb.size() &&
-                            source.rgb.size() >= row_bytes * source.height &&
-                            uploaded->gamma.has_value() == (gamma != nullptr) &&
-                            (gamma == nullptr || *uploaded->gamma == *gamma);
-    if (!same_frame) {
+    // The frame before stands for what the texture holds when the texture
+    // holds that frame, through the same gamma, and it is the source's size.
+    const bool follows =
+        uploaded != nullptr && before != nullptr && uploaded->frame + 1U == frame &&
+        uploaded->width == source.width && uploaded->height == source.height &&
+        before->width == source.width && before->height == source.height &&
+        before->rgb.size() == source.rgb.size() && source.rgb.size() >= row_bytes * source.height &&
+        uploaded->gamma.has_value() == (gamma != nullptr) &&
+        (gamma == nullptr || *uploaded->gamma == *gamma);
+    if (!follows) {
         void* pixels = nullptr;
         int pitch = 0;
         if (!SDL_LockTexture(texture, nullptr, &pixels, &pitch))
@@ -588,7 +610,7 @@ void Runtime::upload_rgb24_frame(SDL_Texture* texture, const renderer::Surface& 
                 // SDL let the record go already; every upload stays whole.
                 return;
         }
-        uploaded->rgb = source.rgb;
+        uploaded->frame = frame;
         uploaded->width = source.width;
         uploaded->height = source.height;
         uploaded->gamma.reset();
@@ -599,10 +621,10 @@ void Runtime::upload_rgb24_frame(SDL_Texture* texture, const renderer::Surface& 
         );
         return;
     }
-    // Only the bands that differ from what the texture holds are uploaded,
-    // a run of neighbouring bands at once.
+    // Only the bands that differ from the frame before, which the texture
+    // holds, are uploaded, a run of neighbouring bands at once.
     find_changed_rgb24_bands(
-        source.rgb.data(), uploaded->rgb.data(), source.width, source.height, uploaded->changed
+        source.rgb.data(), before->rgb.data(), source.width, source.height, uploaded->changed
     );
     const auto bands = static_cast<uint32_t>(uploaded->changed.size());
     for (uint32_t band = 0; band < bands;) {
@@ -636,13 +658,9 @@ void Runtime::upload_rgb24_frame(SDL_Texture* texture, const renderer::Surface& 
             draw_pool_.get()
         );
         SDL_UnlockTexture(texture);
-        std::memcpy(
-            uploaded->rgb.data() + static_cast<std::size_t>(first_row) * row_bytes,
-            from,
-            static_cast<std::size_t>(end_row - first_row) * row_bytes
-        );
         band = end;
     }
+    uploaded->frame = frame;
 }
 
 void Runtime::upload_rgb24_tiles(
@@ -921,7 +939,9 @@ void Runtime::present_match_layers() {
         SDL_BLENDMODE_NONE
     );
     const auto upload_start = std::chrono::steady_clock::now();
-    upload_rgb24_frame(match_hud_tex_, match_hud_cpu_);
+    upload_rgb24_frame(
+        match_hud_tex_, match_hud_cpu_, accelerated_.hud_revision, &spare_match_hud_
+    );
     upload_rgb24_tiles(
         match_world_tex_, match_world_cpu_, gamma_identity_ ? nullptr : &gamma_table_
     );
@@ -980,6 +1000,9 @@ void Runtime::finish_match_layers(
     std::chrono::steady_clock::time_point upload_start,
     std::chrono::steady_clock::time_point present_start
 ) {
+    // A frame drawn again to be read back is read as the battlefield stands.
+    if (accelerated_.reading_back)
+        return;
     // The layers laid out 1:1 reach the display's pixels on a window at
     // native density: NEAREST, but in the accelerated tier at a density
     // that is not a whole number.

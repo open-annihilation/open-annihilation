@@ -898,7 +898,7 @@ void own_name_shrinks_to_fit_and_the_active_card_has_a_ring() {
         "the badge is not centred under the top padding"
     );
     expect(
-        pixel_is(short_name, origin + 4, badge_y + 2, 0x1b, 0x1e, 0x19),
+        pixel_is(short_name, origin + 4, badge_y + 2, 0x1d, 0x21, 0x19),
         "the badge still sits at the top left"
     );
 

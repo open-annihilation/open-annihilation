@@ -11,7 +11,9 @@
 #include "oa/ui/engine_settings.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -23,6 +25,10 @@
 
 namespace oa::app {
 namespace {
+
+/// Reads of the copied bundles, and the generation those reads belong to.
+std::atomic<uint64_t> bundle_walks{0};
+std::atomic<uint64_t> bundle_generation{1};
 
 // Opened by the frontend before anything else draws; each 3.1 installation
 // carries them in totala1.hpi. Each lies in a directory of the data layout,
@@ -906,7 +912,20 @@ void remember_mod_directory(oa::platform::preferences::Values& values, const fs:
         path_to_utf8(fs::absolute(folder).lexically_normal());
 }
 
+uint64_t copied_content_bundles_walks() noexcept {
+    return bundle_walks.load(std::memory_order_relaxed);
+}
+
+uint64_t content_bundles_generation() noexcept {
+    return bundle_generation.load(std::memory_order_relaxed);
+}
+
+void note_content_bundles_changed() noexcept {
+    bundle_generation.fetch_add(1, std::memory_order_relaxed);
+}
+
 std::vector<std::string> copied_content_bundles(const fs::path& folder) {
+    bundle_walks.fetch_add(1, std::memory_order_relaxed);
     if (const std::optional<fs::path> managed = managed_user_of(folder))
         return recorded_content_bundles(*managed);
     std::vector<std::string> ids;
@@ -1108,6 +1127,7 @@ void plant_icloud_wait_copy(const fs::path& user) {
     }
     if (!record)
         throw std::runtime_error("icloud wait: the content record was not written");
+    note_content_bundles_changed();
 }
 
 std::optional<GameDirectory> compose_managed_content(

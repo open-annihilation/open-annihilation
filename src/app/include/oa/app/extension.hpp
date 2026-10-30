@@ -223,8 +223,18 @@
 /// extension fills it. Version 17 adds hear_remote_seat_chat, which hands a
 /// chat line from another machine to the computer seats on this machine
 /// that the line reached. It is not a hook: the engine does not call it,
-/// and no extension fills it.
-#define OA_EXTENSION_API_VERSION 17
+/// and no extension fills it. Version 18 adds the kit's keycaps, chord
+/// chips, keyboard and mouse pictures, key tints and marks, and the hold
+/// ring. It is not a hook: the engine does not call it, and no extension
+/// fills it. Version 19 is Kit 2's look in the kit's headers: Metrics gains
+/// the type, spacing and shape scales and Kit 2's control sizes, the theme
+/// its new tokens, and the kit a danger button, information and brand
+/// pills, a paused progress bar, a main-block keyboard picture, a header
+/// height, and a question's callouts, line boxes and quiet button with the
+/// update pill; and the Modern look's faces (kit::Fonts' modern member, the
+/// text functions that choose a face, the text-font Style's family and two
+/// weights). It is not a hook.
+#define OA_EXTENSION_API_VERSION 19
 
 namespace oa {
 struct Game;

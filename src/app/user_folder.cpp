@@ -660,7 +660,7 @@ oa::ui::engine_settings::Notice saves_moved_notice(const MovesTold& moves, const
         }
     oa::ui::engine_settings::Notice notice;
     notice.title = "SAVED GAMES MOVED";
-    notice.open_caption = "OPEN FOLDER";
+    notice.open_caption = "Open folder";
     // Where they went, or with none moved, where new ones go.
     notice.paragraphs.push_back(
         {move.moved != 0
@@ -714,7 +714,7 @@ oa::ui::engine_settings::Notice mod_files_missing_notice(
 ) {
     oa::ui::engine_settings::Notice notice;
     notice.title = "MOD FILES MISSING";
-    notice.open_caption = "OPEN MOD FOLDER";
+    notice.open_caption = "Open mod folder";
     notice.paragraphs.push_back(
         {(mod_name.empty() ? std::string("This mod") : std::string(mod_name)) +
              " is missing files.",

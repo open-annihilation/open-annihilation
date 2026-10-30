@@ -40,8 +40,8 @@ ARG0_SCOPED = {
 # Argument 1 is the English text. An empty first argument ({}) is a lookup
 # the caller did not ask for.
 ARG1_SCOPED = {
-    "shown": ("src/ui/library/",),
-    "filled": ("src/ui/library/",),
+    "shown": ("src/ui/library/", "src/app/update/"),
+    "filled": ("src/ui/library/", "src/app/update/"),
     "interface_word": ("src/",),
     "library_word": ("src/",),
     "shown_word": ("src/",),
@@ -64,6 +64,7 @@ NOTICE_SHOWN = "src/ui/engine-settings/src/language_notice.cpp"
 ROW_FILES = {
     "src/ui/engine-settings/src/settings_rows.cpp",
     "src/ui/engine-settings/src/downloads_page.cpp",
+    "src/ui/engine-settings/src/updates_page.cpp",
     "src/ui/engine-settings/src/registered.cpp",
 }
 ROW_FUNCS = {

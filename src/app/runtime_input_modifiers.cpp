@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The modifier keys as each use reads them: the keyboard's, a synthetic
-// key's pulse, the touch latch that gives Shift to that use and the pad's
+// The modifier keys as each use reads them: the keyboard's, the touch
+// dispatch's pulse, the touch latch that gives Shift to that use and the pad's
 // FORCE that gives Ctrl to orders and selection; the pointer key word kept
 // in step with a latch; keys pressed for the touch controls; the Cmd
 // alternates of a hardware keyboard; the keypad's Enter as Return; haptics, on the platform's device and
@@ -11,15 +11,20 @@
 // endpoint's (device_state.hpp). This is the one place the engine reads
 // SDL_GetModState(), SDL_GetKeyboardState() and SDL_GetMouseState().
 #include "oa/app/runtime.hpp"
+#include "console_actions.hpp"
 #include "device_state.hpp"
 #include "touch_state.hpp"
 #include "oa/app/platform_hooks.hpp"
+#include "oa/data/input_actions/actions.hpp"
 #include "oa/sim/gameplay_input/input.hpp"
+#include "oa/ui/key_bindings/chord.hpp"
 #include "oa/ui/pad_controls.hpp"
 #include "oa/ui/touch_hud.hpp"
 #include <SDL3/SDL.h>
 #include <array>
 #include <cstdint>
+#include <optional>
+#include <string_view>
 #include <tuple>
 
 namespace oa::app {
@@ -133,11 +138,25 @@ SDL_Keymod Runtime::input_modifiers(ModifierUse use) const {
     auto modifiers = static_cast<uint32_t>(device_state::modifiers_held());
     if (const auto* state = touch_state_if_made(); state != nullptr)
         modifiers |= state->dispatch.pulse;
+    // The role is read before the latch and FORCE, so those still add their bits.
+    apply_binding_roles(modifiers, use);
     if (virtual_shift(use))
         modifiers |= SDL_KMOD_LSHIFT;
     // FORCE is the pad's Ctrl for clicks, never for the keys the pad presses.
     if ((use == ModifierUse::order || use == ModifierUse::selection) && pad_force_held())
         modifiers |= SDL_KMOD_LCTRL;
+    // Sticky modifiers apply to every use, including the keyboard. During an
+    // event they stay as they were when the event began.
+    const uint8_t sticky = sticky_modifier_bits();
+    namespace keys = oa::ui::key_bindings;
+    if ((sticky & keys::ctrl) != 0)
+        modifiers |= SDL_KMOD_LCTRL;
+    if ((sticky & keys::shift) != 0)
+        modifiers |= SDL_KMOD_LSHIFT;
+    if ((sticky & keys::alt) != 0)
+        modifiers |= SDL_KMOD_LALT;
+    if ((sticky & keys::meta) != 0)
+        modifiers |= SDL_KMOD_LGUI;
     return static_cast<SDL_Keymod>(modifiers);
 }
 
@@ -175,26 +194,54 @@ void Runtime::refresh_pointer_modifiers() {
     game.pointer_state[2] = keys;
 }
 
-void Runtime::press_match_key(SDL_Keycode key, SDL_Keymod mods) {
-    SDL_KeyboardEvent event{};
-    event.type = SDL_EVENT_KEY_DOWN;
-    event.timestamp = SDL_GetTicksNS();
-    event.key = key;
-    event.scancode = SDL_GetScancodeFromKey(key, nullptr);
-    event.mod = mods;
-    event.down = true;
-    event.repeat = false;
-    // The pulse holds for the call alone, whatever the key does.
-    auto& dispatch = touch_state().dispatch;
-    const SDL_Keymod before = dispatch.pulse;
-    dispatch.pulse = mods;
-    try {
-        std::ignore = handle_match_hotkey(event);
-    } catch (...) {
-        dispatch.pulse = before;
-        throw;
+void Runtime::press_match_action(std::string_view action) {
+    if (screen_ != Screen::match || !match_ || action.empty())
+        return;
+    // A hack's action stands in for the one it replaces while that hack is on, as a key of the
+    // replaced action is answered. The registry lists actions by id, so the first such hack wins.
+    std::string_view id = action;
+    for (const oa::data::input_actions::Action& entry : oa::data::input_actions::actions()) {
+        if (entry.replaces != action)
+            continue;
+        bool hack_on = false;
+        for (const std::string_view hack_source : entry.source)
+            hack_on = hack_on || key_binding_hack(hack_source);
+        if (!hack_on)
+            continue;
+        id = entry.id;
+        break;
     }
-    dispatch.pulse = before;
+    namespace keys = oa::ui::key_bindings;
+    keys::ActionEvent pressed;
+    pressed.action = id;
+    pressed.phase = keys::Phase::pressed;
+    // These run before chat and before a pause, as a key of each one does.
+    const bool early = id == "game.kill-board" || id == "game.resource-panel" ||
+                       id == "game.unit-info" || id == "game.pin-unit" || id == "game.menu" ||
+                       id == "camera.next-report" || id == "game.clear-messages" ||
+                       id == "game.pause" || id == "game.screenshot";
+    if (early) {
+        std::ignore = handle_match_action(pressed);
+        return;
+    }
+    if (chat_composing_ && !match_question_open()) {
+        if (id == "chat.cancel" || id == "chat.send")
+            std::ignore = handle_match_action(pressed);
+        return;
+    }
+    // The console's actions come before a pause, so a shared game's allies menu still opens.
+    if (const std::optional<uint32_t> hotkey = console_code(id);
+        hotkey && match_console() != nullptr) {
+        run_console_hotkey(*hotkey);
+        return;
+    }
+    if (id == "game.back") {
+        std::ignore = handle_match_action(pressed);
+        return;
+    }
+    if (match_paused_)
+        return;
+    std::ignore = handle_match_action(pressed);
 }
 
 void Runtime::remap_command_key(SDL_Event& event) const {

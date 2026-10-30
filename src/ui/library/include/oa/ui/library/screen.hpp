@@ -40,7 +40,8 @@ enum class Pane : uint8_t {
     none, ///< none of them
     list, ///< the list of entries
     details, ///< the selected entry's details: the pane at Regular and Large, the page's body at Compact
-    maps, ///< the Active tab's maps, under the MAPS heading; the mod and the language stay put
+    maps,    ///< the Active tab's maps, under the MAPS heading; the mod and the language stay put
+    filters, ///< Large's filter pane: the filters, the tags and the worlds, under their headings
 };
 
 /// A finger's press in a pane, which becomes a drag that scrolls the pane
@@ -86,6 +87,19 @@ struct ScreenState {
     mutable int32_t reveal_row{-1};
     kit::WheelCarry list_wheel{};    ///< the wheel's turn the list has not scrolled yet
     kit::WheelCarry details_wheel{}; ///< the wheel's turn the details have not scrolled yet
+    /// How far Large's filter pane is scrolled, in points. The layout writes
+    /// it to bring the chosen entry into view when another is chosen.
+    mutable int32_t filters_scroll{};
+    kit::WheelCarry filters_wheel{}; ///< the wheel's turn the filter pane has not scrolled yet
+    /// The filter pane's chosen entry when it was last laid out: the tab, the
+    /// filter and the tag, as one word. Empty before the first layout. When
+    /// another entry is chosen the layout brings that one into view.
+    mutable std::string filters_chosen{};
+    /// The filter pane's entry Tab stops on while the focus is elsewhere: the
+    /// one that last had the focus there, so Shift+Tab from the list comes
+    /// back to it. The layout writes it, and forgets it when another entry
+    /// is chosen; none stops on the chosen entry.
+    mutable kit::ControlId filters_stop{kit::no_control};
     /// The search field's text and caret. Its text is the model's query: the
     /// input keeps them the same.
     kit::TextField search{};
@@ -98,7 +112,7 @@ struct ScreenState {
     kit::WheelCarry maps_wheel{}; ///< the wheel's turn that scroll has not taken yet
     /// The pane whose scroll bar the pointer holds; none while it holds none.
     /// The Registries tab's bar and the Compact details page's are the
-    /// details'.
+    /// details'; the filter pane's is its own.
     Pane bar_held{Pane::none};
     int32_t bar_grab{};            ///< where on the thumb the pointer took hold, from its top
     MenuKind menu{MenuKind::none}; ///< the open drop-down
@@ -221,9 +235,12 @@ enum class ScreenCommand : uint8_t {
 /// (details_page_layout) while the state and the model both say it shows.
 /// Regular shows the list and the details side by side, and Large the
 /// filters, the list and the details. Every control carries its automation
-/// name (library.…). The layout reads the model's visible entries, its
-/// entries' actions, facts, status lines and bylines, the playing note and
-/// the queue lines, and decides no rule of its own.
+/// name (library.…). The Keys tab is `library.tab.keys`, between Brains and
+/// Languages. The Active panel's layout line is `library.active.keys`, and
+/// its CHANGE… button is `library.active.keys.change`. The layout reads the
+/// model's visible entries, its entries' actions, facts, status lines and
+/// bylines, the playing note and the queue lines, and decides no rule of
+/// its own.
 ///
 /// @param library the model; the display list refers to its badges' pixels,
 ///     and to the base game's badge scaled for this layout, until the next
@@ -340,6 +357,15 @@ entry_row_shown(const Library& library, const kit::DisplayList& list, const Entr
 /// @param name the name, in UTF-8
 /// @return the letters, such as "RID" for "Ridge" and "TZ" for "TA Zero"
 [[nodiscard]] std::string badge_letters(std::string_view name);
+
+/// Gives the open tab's search field the text focus, shown: the maps search
+/// on the Active tab, the catalogue search on a catalogue tab. The Registries
+/// tab has no search, and the focus stays where it is. A host calls it as it
+/// opens the Library; a tab opened inside the Library does it itself.
+///
+/// @param library the model, its tab open
+/// @param[in,out] state the screen's state; its focus changes
+void focus_tab_search(const Library& library, ScreenState& state) noexcept;
 
 /// Returns the search field while it has the focus, over which a host keeps
 /// the system's text input started. On the Active tab that field is the maps

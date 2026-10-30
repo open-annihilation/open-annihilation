@@ -441,8 +441,10 @@ void components_draw_on_the_smooth_form() {
     kit::draw_button(smooth.canvas, {4, 4, 52, 17}, look);
     // 4 * 1.5 = 6 to 56 * 1.5 = 84; 4 * 1.5 = 6 to 21 * 1.5 = 31.5, 32.
     OA_CHECK(inked(smooth.pixels) == (paint::Box{6, 6, 78, 26}));
-    OA_CHECK(is(smooth.pixels, 7, 7, kit::colour::accent_light));
+    // The primary button's face is its border; its corners are rounded.
+    OA_CHECK(is(smooth.pixels, 40, 6, kit::colour::accent));
     OA_CHECK(is(smooth.pixels, 20, 10, kit::colour::accent));
+    OA_CHECK(!is(smooth.pixels, 6, 6, kit::colour::accent));
     if (!fonts)
         return;
     int caption = 0;

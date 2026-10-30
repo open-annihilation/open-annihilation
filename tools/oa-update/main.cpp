@@ -1,0 +1,155 @@
+// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+// oa-update: wait for the game to leave, put a checked package in place and
+// start the game again. It makes no request of its own.
+
+#include "oa/update_helper/paths.hpp"
+#include "oa/update_helper/run.hpp"
+
+#include <SDL3/SDL_main.h>
+
+#include <charconv>
+#include <cstdint>
+#include <exception>
+#include <iostream>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <vector>
+
+#if __has_include("oa_engine_build.hpp")
+#include "oa_engine_build.hpp"
+#endif
+#include "oa/app/version_line.hpp"
+
+namespace {
+
+void print_help() {
+    std::cout << "oa-update --plan FILE\n"
+                 "oa-update --plan FILE --elevated-swap\n"
+                 "oa-update --plan FILE --helper-parent PID\n"
+                 "oa-update --recover --updates DIR\n"
+                 "oa-update --version\n"
+                 "oa-update --help\n";
+#if OA_SELF_CHECKS_BUILT
+    std::cout << "oa-update --plan FILE --feed-key ID=ed25519:BASE64\n"
+                 "oa-update --plan FILE --stage-only\n";
+#endif
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    if (oa::app::version_argument_present(argc, argv)) {
+        std::cout << oa::app::running_engine_version_line() << '\n';
+        return oa::update_helper::exit_swapped;
+    }
+    try {
+        bool help = false;
+        bool recover = false;
+        bool elevated = false;
+        bool stage_only = false;
+        bool parent_set = false;
+        int64_t helper_parent = 0;
+        std::string plan;
+        std::string updates;
+        std::vector<oa::update_helper::FeedKey> keys;
+        for (int index = 1; index < argc; ++index) {
+            if (argv[index] == nullptr)
+                continue;
+            const std::string_view argument(argv[index]);
+            auto need_value = [&](std::string& dest) {
+                if (index + 1 >= argc || argv[index + 1] == nullptr) {
+                    std::cerr << "oa-update: " << argument << " needs a value\n";
+                    return false;
+                }
+                ++index;
+                dest = argv[index];
+                return true;
+            };
+            if (argument == "--help") {
+                help = true;
+            } else if (argument == "--plan") {
+                if (!plan.empty() || !need_value(plan))
+                    return oa::update_helper::exit_usage;
+            } else if (argument == "--recover") {
+                recover = true;
+            } else if (argument == "--elevated-swap") {
+                elevated = true;
+            } else if (argument == "--helper-parent") {
+                std::string text;
+                if (parent_set || !need_value(text))
+                    return oa::update_helper::exit_usage;
+                int64_t parsed = 0;
+                const char* const begin = text.data();
+                const char* const end = begin + text.size();
+                const std::from_chars_result parsed_id = std::from_chars(begin, end, parsed);
+                if (parsed_id.ec != std::errc{} || parsed_id.ptr != end || parsed <= 0) {
+                    std::cerr << "oa-update: --helper-parent needs a process id\n";
+                    return oa::update_helper::exit_usage;
+                }
+                helper_parent = parsed;
+                parent_set = true;
+            } else if (argument == "--updates") {
+                if (!updates.empty() || !need_value(updates))
+                    return oa::update_helper::exit_usage;
+            } else if (argument == "--feed-key") {
+#if OA_SELF_CHECKS_BUILT
+                std::string text;
+                if (!need_value(text))
+                    return oa::update_helper::exit_usage;
+                oa::update_helper::FeedKey key;
+                std::string error;
+                if (!oa::update_helper::parse_feed_key(text, key, &error)) {
+                    std::cerr << "oa-update: " << error << '\n';
+                    return oa::update_helper::exit_usage;
+                }
+                keys.push_back(std::move(key));
+#else
+                std::cerr << "oa-update: --feed-key is not in this build\n";
+                return oa::update_helper::exit_usage;
+#endif
+            } else if (argument == "--stage-only") {
+#if OA_SELF_CHECKS_BUILT
+                stage_only = true;
+#else
+                std::cerr << "oa-update: --stage-only is not in this build\n";
+                return oa::update_helper::exit_usage;
+#endif
+            } else {
+                std::cerr << "oa-update: unknown argument\n";
+                return oa::update_helper::exit_usage;
+            }
+        }
+        if (help) {
+            print_help();
+            return oa::update_helper::exit_swapped;
+        }
+        if (elevated && (recover || plan.empty() || !keys.empty())) {
+            std::cerr << "oa-update: --elevated-swap needs --plan\n";
+            return oa::update_helper::exit_usage;
+        }
+        if (recover && !plan.empty()) {
+            std::cerr << "oa-update: pass --plan, or --recover with --updates\n";
+            return oa::update_helper::exit_usage;
+        }
+        if (recover) {
+            if (updates.empty() || !keys.empty() || parent_set) {
+                std::cerr << "oa-update: --recover needs --updates\n";
+                return oa::update_helper::exit_usage;
+            }
+            return oa::update_helper::recover_updates(oa::update_helper::path_from(updates));
+        }
+        if (plan.empty()) {
+            std::cerr << "oa-update: pass --plan, or --recover with --updates\n";
+            return oa::update_helper::exit_usage;
+        }
+        return oa::update_helper::run_plan(
+            oa::update_helper::path_from(plan), keys, elevated, stage_only, helper_parent
+        );
+    } catch (const std::exception& raised) {
+        std::cerr << "oa-update: " << raised.what() << '\n';
+        return oa::update_helper::exit_usage;
+    }
+}

@@ -9,7 +9,9 @@
 // face and Noto Emoji. The endonym face is a cut of Noto Sans CJK that holds
 // the languages' own names and the notice shown before a language pack is
 // installed. A language pack may add faces while the stack is open. The full
-// Simplified Chinese face travels with that pack.
+// Simplified Chinese face travels with that pack. The interface faces,
+// Barlow and Barlow Condensed, draw OA's own screens in the modern look and
+// leave what they lack to the base faces.
 #pragma once
 
 #include <array>
@@ -25,8 +27,9 @@
 
 namespace oa::platform::text_font {
 
-/// The base fonts of the stack. Values from face_count up are pack faces
-/// (pack_face), added while the stack is open.
+/// The fonts of the stack. These are the base faces. Values from face_count
+/// up are pack faces (pack_face), added while the stack is open, up to
+/// most_pack_faces of them; the interface faces follow (interface_face).
 enum class Face : uint8_t {
     dejavu_sans_bold, ///< Latin, Greek, Cyrillic and symbols, bold
     dejavu_sans,      ///< the same scripts with more characters, regular
@@ -39,6 +42,32 @@ inline constexpr std::size_t face_count = 4;
 
 /// The most font faces a language pack may add to an open stack.
 inline constexpr std::size_t most_pack_faces = 4;
+
+/// How many interface faces the stack may hold.
+inline constexpr std::size_t interface_face_count = 6;
+
+/// Returns the interface face at a place among them: the faces after the
+/// last pack face.
+///
+/// @param index the face's place among the interface faces, from 0 to
+///     interface_face_count - 1
+/// @return the face
+[[nodiscard]] constexpr Face interface_face(std::size_t index) noexcept {
+    return static_cast<Face>(face_count + most_pack_faces + index);
+}
+
+/// Barlow Regular, the interface family's regular weight.
+inline constexpr Face barlow_regular = interface_face(0);
+/// Barlow Medium.
+inline constexpr Face barlow_medium = interface_face(1);
+/// Barlow SemiBold.
+inline constexpr Face barlow_semibold = interface_face(2);
+/// Barlow Bold.
+inline constexpr Face barlow_bold = interface_face(3);
+/// Barlow Condensed SemiBold, the condensed family's lighter weight.
+inline constexpr Face barlow_condensed_semibold = interface_face(4);
+/// Barlow Condensed Bold.
+inline constexpr Face barlow_condensed_bold = interface_face(5);
 
 /// How a pack's face is drawn.
 enum class FaceRole : uint8_t {
@@ -75,6 +104,27 @@ inline constexpr std::array<std::string_view, face_count> face_files{
     "NotoEmoji.ttf",
 };
 
+/// The file of each interface face in the fonts folder, in the order of
+/// interface_face.
+inline constexpr std::array<std::string_view, interface_face_count> interface_face_files{
+    "Barlow-Regular.ttf",
+    "Barlow-Medium.ttf",
+    "Barlow-SemiBold.ttf",
+    "Barlow-Bold.ttf",
+    "BarlowCondensed-SemiBold.ttf",
+    "BarlowCondensed-Bold.ttf",
+};
+
+/// Tells whether a face is one of the interface faces.
+///
+/// @param face a face
+/// @return true from barlow_regular to the last interface face
+[[nodiscard]] constexpr bool is_interface_face(Face face) noexcept {
+    const auto index = static_cast<std::size_t>(face);
+    const auto first = static_cast<std::size_t>(interface_face(0));
+    return index >= first && index < first + interface_face_count;
+}
+
 /// The name of the folder beside the game that holds the fonts.
 inline constexpr std::string_view font_folder = "fonts";
 
@@ -91,6 +141,25 @@ inline constexpr int32_t max_letter_spacing = 16;
 enum class Weight : uint8_t {
     regular, ///< DejaVu Sans first; Noto Emoji at its regular weight
     bold,    ///< DejaVu Sans Bold first, then DejaVu Sans for what it lacks
+    /// between the two: Barlow Medium in the interface family; the sans
+    /// faces draw it as regular
+    medium,
+    /// Barlow SemiBold in the interface family; the sans faces draw it as bold
+    semibold,
+};
+
+/// The faces a line looks a character up in first.
+enum class Family : uint8_t {
+    /// DejaVu Sans and DejaVu Sans Bold: game text, and the characters the
+    /// game's fonts lack
+    sans,
+    /// Barlow at the line's weight, then the sans family: OA's own screens
+    /// in the modern look
+    interface,
+    /// Barlow Condensed, SemiBold for a regular, medium or semibold line and
+    /// Bold for a bold one, then the sans family: the modern look's window
+    /// titles and section headings
+    interface_condensed,
 };
 
 /// How glyphs become pixels.
@@ -112,6 +181,10 @@ struct Style {
     /// 0..max_pixel_size: smaller ideographs fill in; 0 leaves it at
     /// related_pixel_size
     int32_t least_cjk_pixel_size{};
+    /// the faces looked in first; an interface family draws at pixel_size
+    /// too, and a line holding a letter beyond ASCII its face lacks is drawn
+    /// whole in the sans family, so that no word changes typeface part way
+    Family family{Family::sans};
 };
 
 /// The rows of a line in one style, which fit every font of the stack.
@@ -165,11 +238,12 @@ struct Placement {
 
 /// Gives the base faces a weight looks a character up in, in that order.
 ///
-/// This is the base chain, without a pack's faces. Bold looks in DejaVu
-/// Sans Bold first, then DejaVu Sans for what it lacks. Regular looks in
-/// DejaVu Sans first. Both then look in the endonym face and Noto Emoji.
-/// FontStack::chain gives the faces one open stack looks in, pack faces
-/// included. The span lives as long as the program.
+/// This is the base chain, without a pack's faces. Bold and semibold look
+/// in DejaVu Sans Bold first, then DejaVu Sans for what it lacks. Regular
+/// and medium look in DejaVu Sans first. Both then look in the endonym face
+/// and Noto Emoji. FontStack::chain gives the faces one open stack looks
+/// in, pack faces and interface faces included. The span lives as long as
+/// the program.
 ///
 /// @param weight the weight of the line
 /// @return the base faces, the first that has a character drawing it
@@ -215,18 +289,36 @@ struct Placement {
 /// @return the folder; empty when the executable's own path is unknown
 [[nodiscard]] std::filesystem::path bundled_font_directory();
 
+/// Tells whether a font file opened for drawing would stay open in a program
+/// this one starts.
+///
+/// Windows will not rename the fonts folder while a file in it is open in
+/// any program. A font file is opened so that does not happen. A file that
+/// cannot be opened reports false, as does every system but Windows, and a
+/// Windows that cannot say.
+///
+/// @param path the font file
+/// @return true when a program this one starts would still hold the file
+[[nodiscard]] bool font_file_reaches_a_started_program(const std::filesystem::path& path);
+
 /// The fonts of the stack, opened from one folder, with the glyphs drawn so
 /// far kept for the lines that draw them again.
 ///
-/// The fonts are read from their files as glyphs are needed. One thread at a
-/// time uses a stack.
+/// The fonts are read from their files as glyphs are needed. In the Windows
+/// 95 build each file is read whole when the stack opens and then closed.
+/// One thread at a time uses a stack.
 class FontStack {
   public:
 
-    /// Opens the stack's base fonts.
+    /// Opens the stack's base fonts and its interface faces.
     ///
     /// Every base face is required (face_required). A missing file, a file
     /// FreeType cannot read, or a file that is not scalable fails the open.
+    /// Each interface face (interface_face_files) opens when its file is
+    /// there and is skipped otherwise: an interface family whose face did
+    /// not open draws in the sans family. In the Windows 95 build each file
+    /// is read whole and closed, so the few files that system can keep open
+    /// stay free for the game's archives and for saving a game.
     ///
     /// @param directory the folder that holds the files of face_files
     /// @return the stack; null when a required file is missing or FreeType
@@ -263,13 +355,15 @@ class FontStack {
     ///
     /// Bold: DejaVu Sans Bold, DejaVu Sans, the letters pack faces in the
     /// order they were added, the ideographs pack faces in that order, the
-    /// endonym face, then Noto Emoji. Regular is the same without DejaVu
-    /// Sans Bold. A face that is not open is left out of the chain, and
-    /// lookup skips one that is closed.
+    /// endonym face, then Noto Emoji. Semibold is the same. Regular and
+    /// medium are the same without DejaVu Sans Bold. An interface family
+    /// puts its face for the weight first (Family). A face that is not open
+    /// is left out of the chain, and lookup skips one that is closed.
     ///
     /// @param weight the weight of the line
+    /// @param family the faces looked in first
     /// @return the faces
-    [[nodiscard]] std::vector<Face> chain(Weight weight) const;
+    [[nodiscard]] std::vector<Face> chain(Weight weight, Family family = Family::sans) const;
 
     /// Tells whether FreeType opens a file as a scalable font.
     ///
@@ -286,11 +380,13 @@ class FontStack {
     ///
     /// @param character the code point
     /// @param weight the weight of the line
+    /// @param family the faces looked in first
     /// @return the first open font of the stack's chain for the weight that
     ///         has the character, else that chain's first open font, which
     ///         draws its missing-glyph box; empty for a character
     ///         is_invisible names
-    [[nodiscard]] std::optional<Face> face_for(char32_t character, Weight weight) const;
+    [[nodiscard]] std::optional<Face>
+    face_for(char32_t character, Weight weight, Family family = Family::sans) const;
 
     /// Tells whether the stack can draw a text in a weight with no
     /// missing character.
@@ -302,14 +398,27 @@ class FontStack {
     ///
     /// @param text the bytes
     /// @param weight the weight of the line
+    /// @param family the faces looked in first
     /// @return false when the text is not UTF-8, or a visible character is
     ///     in no face of the chain
-    [[nodiscard]] bool draws(std::string_view text, Weight weight) const;
+    [[nodiscard]] bool
+    draws(std::string_view text, Weight weight, Family family = Family::sans) const;
+
+    /// Gives the family a line is drawn in, as layout and draw choose it:
+    /// the style's, or the sans family when the line holds a letter beyond
+    /// ASCII its family's face lacks, or that face is not open. A caller
+    /// that draws a line a character at a time draws each in this family.
+    ///
+    /// @param text UTF-8 text
+    /// @param style the style
+    /// @return the family; the sans family for text that is not UTF-8
+    [[nodiscard]] Family line_family(std::string_view text, const Style& style) const;
 
     /// Gives the rows of a line in a style.
     ///
     /// The rows are the greatest ascent and descent of the open base faces
-    /// at the size the style draws them. A pack's faces never change them.
+    /// at the size the style draws them, and of an interface family's face
+    /// for the weight. A pack's faces never change them.
     /// The endonym face is cut from Noto Sans CJK and keeps those rows, so
     /// a line beside the 14 px bold face has 14 above the baseline and 4
     /// below.
@@ -320,8 +429,9 @@ class FontStack {
 
     /// Gives the rows of one face at the pixel size a style draws it at.
     ///
-    /// The sans faces and letters pack faces take the style's pixel size.
-    /// The endonym face and ideographs pack faces take related_pixel_size
+    /// The sans faces, the interface faces and letters pack faces take the
+    /// style's pixel size. The endonym face and ideographs pack faces take
+    /// related_pixel_size
     /// of it, and no less than the style's least size. Noto Emoji takes
     /// related_pixel_size and is set to the style's weight.
     ///

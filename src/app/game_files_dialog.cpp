@@ -429,12 +429,15 @@ struct DialogPlace {
 /// @param viewport the viewport
 /// @param place where the dialog lies
 /// @param dialog the dialog
+/// @param fonts the dialog's fonts: no game fonts, and in the modern look the bundled
+///     fonts' Barlow at the dialog's class
 /// @return the frame
 [[nodiscard]] paint::Canvas compose_frame(
     const paint::Canvas* under,
     const oa::ui::game_files::Viewport& viewport,
     const DialogPlace& place,
-    const settings::Dialog& dialog
+    const settings::Dialog& dialog,
+    const settings::DialogFonts& fonts
 ) {
     paint::Canvas canvas = paint::make_canvas(viewport.width, viewport.height);
     const auto back = oa::ui::game_files::background_colour;
@@ -468,8 +471,7 @@ struct DialogPlace {
     }
     renderer::Placement placement;
     placement.scale = place.scale;
-    static const settings::DialogFonts no_fonts{};
-    settings::draw_dialog(surface, placement, dialog, no_fonts, renderer::RgbaPicture{});
+    settings::draw_dialog(surface, placement, dialog, fonts, renderer::RgbaPicture{});
     for (uint32_t row = 0; row < surface.height; ++row) {
         const int32_t y = place.y + static_cast<int32_t>(row);
         if (y < 0 || y >= canvas.height)
@@ -547,6 +549,16 @@ dialog_key_of(const SDL_KeyboardEvent& key) noexcept {
 
 } // namespace
 
+text_font::Family game_files_text_family(const std::optional<fs::path>& preferences_file) {
+    settings::Inputs inputs{};
+    inputs.players_own_profile = !preferences_file.has_value();
+    const settings::EngineSettings current =
+        settings::read_settings(load_preferences(preference_file(preferences_file)), inputs, false);
+    if (current.look != settings::Look::modern)
+        return text_font::Family::sans;
+    return text_font::Family::interface;
+}
+
 void install_game_files_language(
     const std::optional<fs::path>& preferences_file,
     const std::optional<fs::path>& user_folder_option
@@ -623,6 +635,13 @@ bool run_game_files_language_dialog(const GameFilesLanguageRequest& request) {
     );
     DialogText text{request.fonts, {}};
     const TextHooksInstall install(text);
+    // No game fonts: the modern faces stand in for them through the text hooks, or in the
+    // modern look Barlow draws every text at the dialog's class (kit::Fonts::modern).
+    settings::DialogFonts fonts{};
+    if (current.look == settings::Look::modern)
+        fonts.modern = request.fonts;
+    // A press finds each control where these fonts draw it.
+    dialog.drawn_fonts = &fonts;
     const GameFilesDialogHooks& hooks = request.hooks;
     bool dirty = true;
     std::optional<SDL_FingerID> finger;
@@ -680,7 +699,10 @@ bool run_game_files_language_dialog(const GameFilesLanguageRequest& request) {
             }
         }
         if (dirty && viewport.width > 0 && viewport.height > 0 && hooks.present != nullptr) {
-            hooks.present(hooks.context, compose_frame(request.under, viewport, place, dialog));
+            fonts.size_class = place.size_class;
+            hooks.present(
+                hooks.context, compose_frame(request.under, viewport, place, dialog, fonts)
+            );
             dirty = false;
         }
         if (hooks.pass != nullptr)
@@ -815,6 +837,14 @@ bool run_game_files_language_dialog(const GameFilesLanguageRequest& request) {
             case settings::DialogAction::copy_content_again:
             case settings::DialogAction::open_content_folder:
             case settings::DialogAction::cancel_content_copy:
+            case settings::DialogAction::check_updates:
+            case settings::DialogAction::open_release:
+            case settings::DialogAction::restart_update:
+            case settings::DialogAction::retry_update:
+            case settings::DialogAction::roll_back:
+            case settings::DialogAction::edit_keys:
+            case settings::DialogAction::update_action:
+            case settings::DialogAction::arrange_overlays:
                 // The Language dialog lists none of the controls that ask
                 // for these, and no language that is only available to download.
                 dirty = true;

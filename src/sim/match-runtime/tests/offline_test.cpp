@@ -6,6 +6,7 @@
 #include <iostream>
 #include <bit>
 #include <cstring>
+#include <memory>
 #include <stdexcept>
 #include <cstdint>
 #include "oa/test/match_services.hpp"
@@ -187,6 +188,79 @@ void loader_records_become_the_world_table() {
     CHECK(mismatched.fault() != nullptr);
 }
 
+/// Builds a match over `weapons` and returns it. The registry must outlive the match.
+std::unique_ptr<sim::match_runtime::Match>
+match_over(const sim::combat_state::WeaponRegistry& weapons) {
+    formats::tnt::Map map;
+    map.attribute_width = map.attribute_height = 16;
+    map.attributes.resize(256);
+    std::vector<sim::visibility_state::TerrainCell> terrain_values(256);
+    sim::visibility_state::SightMask mask;
+    mask.width = mask.height = 1;
+    mask.pixels = {1};
+    const std::array masks{mask};
+    std::array<sim::unit_spawn::LoadedType, 2> loaded;
+    std::array<sim::unit_spawn::Type, 2> types;
+    std::array<sim::match_runtime::RuntimeTypeFields, 2> fields{};
+    std::array<UnitDef, 2> records{};
+    oa::base::text::copy_terminated(records[1].unit_name, "ARMSOLAR");
+    records[1].type_id = 1;
+    std::vector<sim::spatial_state::Plot> collision_plots(256);
+    Services services;
+    Scenario scenario;
+    sim::match_runtime::OfflineInputs input{
+        map,
+        loaded,
+        types,
+        fields,
+        weapons,
+        terrain_values,
+        masks,
+        8,
+        8,
+        2,
+        2,
+        0,
+        30,
+        1,
+        &scenario,
+        {},
+        collision_plots,
+        {}
+    };
+    input.unit_defs = records;
+    return std::make_unique<sim::match_runtime::Match>(input, services);
+}
+
+// Slots from 256 live beside Game.weapon_defs. A registry of 256 leaves that
+// table null. W300 at a raised limit is slot 300, reference 301.
+void weapon_records_past_255_fill_the_extra_table() {
+    sim::combat_state::WeaponRegistry plain;
+    const auto stock = match_over(plain);
+    CHECK(stock->fault() == nullptr);
+    CHECK(stock->state().extra_weapon_defs == nullptr);
+    CHECK(stock->state().extra_weapon_def_count == 0);
+    CHECK(oa::world_weapon_def_count(&stock->state()) == OA_WEAPON_DEF_COUNT);
+
+    sim::combat_state::WeaponRegistry wide;
+    CHECK(sim::combat_state::install_weapon_text(wide, "[W300]{id=300;}", false, 1024) == 1);
+    const auto match = match_over(wide);
+    CHECK(match->fault() == nullptr);
+    const oa::World& state = match->state();
+    CHECK(state.extra_weapon_def_count == 45);
+    CHECK(
+        std::memcmp(
+            state.game.weapon_defs,
+            wide.records().data(),
+            sizeof(oa::WeaponDef) * OA_WEAPON_DEF_COUNT
+        ) == 0
+    );
+    const oa::WeaponDef* weapon = oa::world_weapon_def(&state, 301);
+    CHECK(weapon != nullptr && std::strcmp(weapon->key, "W300") == 0);
+    CHECK(oa::oa_weapon_def_id(weapon) == 300);
+    CHECK(oa::world_weapon_ref(&state, weapon) == 301);
+}
+
 // The capacities the match sizes from OfflineInputs::limits: the effect layers
 // and pool, the path search's credit and, from the per-player limit, the unit
 // slots. 3.1c's by default; a mod's limits raise them, up to the largest a
@@ -266,6 +340,7 @@ void limits_size_the_match() {
 
 int main() {
     loader_records_become_the_world_table();
+    weapon_records_past_255_fill_the_extra_table();
     limits_size_the_match();
     formats::tnt::Map map;
     map.attribute_width = map.attribute_height = 16;

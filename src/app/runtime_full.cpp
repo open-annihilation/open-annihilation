@@ -1618,7 +1618,9 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         }
         const auto* gamma = gamma_identity_ ? nullptr : &gamma_table_;
         const auto upload_start = std::chrono::steady_clock::now();
-        upload_rgb24_frame(match_hud_tex_, match_hud_cpu_);
+        upload_rgb24_frame(
+            match_hud_tex_, match_hud_cpu_, accelerated_.hud_revision, &spare_match_hud_
+        );
         // What the painters painted on the canvas, by its key, uploaded in
         // the bands that hold it now or held it at the last upload, so the
         // texture holds this frame's overlay whatever came before.
@@ -1751,7 +1753,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             renderer_water_classic::Inputs ripples;
             ripples.map = &*selected_tnt_;
             ripples.view.zoom = zoom;
-            ripples.ripples = engine_settings().water_ripples / 100.0F;
+            ripples.ripples = water_levels().ripples;
             ripples.wind = water_wind();
             const double reach = 2.0 * oa::present::gpu_world::tile_edge;
             water_art = renderer_water_classic::art_motion(
@@ -1813,6 +1815,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         model_inputs.light_scale = models.renderer.light_scale;
         model_inputs.projectile_shadow =
             full.projectile_shadow.width != 0 ? &full.projectile_shadow : nullptr;
+        model_inputs.new_unit_shadows = engine_settings().new_unit_shadows;
         full::SpriteStageInputs sprite_inputs;
         sprite_inputs.list = &models.draws;
         std::span<const uint16_t> coverage;
@@ -1827,11 +1830,23 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             sprite_inputs.sight.player_bits = sight.player_bits;
             sprite_inputs.sight.width = sight.width;
             sprite_inputs.sight.height = sight.height;
-            sprite_inputs.sight.viewer_bit =
-                static_cast<uint16_t>(1U << (sight.viewpoint_player & 0x1fU));
+            sprite_inputs.sight.shared_bits = allied_mapped_bits();
+            sprite_inputs.sight.mapped_bits = static_cast<uint16_t>(
+                (1U << (sight.viewpoint_player & 0x1fU)) | sprite_inputs.sight.shared_bits
+            );
             sprite_inputs.sight.line_of_sight = match_line_of_sight_on();
             sprite_inputs.sight.mapping = match_mapping_on();
             sprite_inputs.sight.dithered = fog.dithered;
+        }
+        // A feature's frame takes the greyed pass the ground under it takes,
+        // pixel by pixel: the processor greys the features with the ground.
+        full::FogCover fog_cover;
+        if (fogged) {
+            fog_cover.grid = &fog.grid;
+            fog_cover.camera_x = fog.camera_x;
+            fog_cover.camera_z = fog.camera_z;
+            fog_cover.shapes = classic ? &full.fog_shapes : nullptr;
+            sprite_inputs.fog = &fog_cover;
         }
         sprite_inputs.palette = &match_palette_;
         sprite_inputs.gamma = gamma;
@@ -1872,12 +1887,16 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 water.map = &*selected_tnt_;
                 water.view = scene;
                 water.seconds = double(match_->simulation().tick) / 30.0;
-                const auto& water_settings = engine_settings();
-                water.ripples = water_settings.water_ripples / 100.0F;
-                water.coast = water_settings.coastal_waves / 100.0F;
-                water.shimmer = water_settings.underwater_shimmer / 100.0F;
-                water.reflections = water_settings.naval_reflections / 100.0F;
+                // The sliders' strengths, which a lava sea leaves at none.
+                const auto levels = water_levels();
+                water.ripples = levels.ripples;
+                water.coast = levels.coast;
+                water.shimmer = levels.shimmer;
+                water.reflections = levels.reflections;
                 water.water_surface = water_surface();
+                // The water's effects end where the terrain does.
+                const auto shown_map = shown_map_size();
+                water.shown = {float(shown_map[0]), float(shown_map[1])};
                 water.disturbances = water_disturbances();
                 water.wind = water_wind();
                 water.art = &water_art;
@@ -1891,9 +1910,12 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 model_inputs.water_seconds = water.seconds;
                 const auto water_coverage = match_->player_coverage(match_view_player());
                 const auto& water_sight = match_->sight();
-                const auto water_bit = uint16_t(1U << (match_view_player() & 0x1fU));
-                const bool water_mapping = match_mapping_on();
-                const bool water_los = match_line_of_sight_on();
+                const auto water_own = uint16_t(1U << (match_view_player() & 0x1fU));
+                const present::world_renderer::FogOptions water_rules{
+                    match_line_of_sight_on(), match_mapping_on(), allied_mapped_bits()
+                };
+                const auto water_bit = uint16_t(water_own | water_rules.shared_mapped);
+                const bool water_mapping = water_rules.mapping;
                 water.visible = [&](float x, float y) {
                     constexpr float edge = present::world_renderer::fog_cell_pixels;
                     const int column = int(std::floor(x / edge));
@@ -1905,11 +1927,13 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                     if (water_mapping && (index >= water_sight.player_bits.size() ||
                                           (water_sight.player_bits[index] & water_bit) == 0))
                         return false;
-                    return !water_los ||
-                           (index < water_coverage.size() &&
-                            sim::visibility_state::count_in_sight(
-                                water_coverage[index], sim::visibility_state::SightReading::player
-                            ));
+                    return present::world_renderer::cell_shown_in_sight(
+                        index < water_coverage.size() ? water_coverage[index] : uint16_t{0},
+                        index < water_sight.player_bits.size() ? water_sight.player_bits[index]
+                                                               : uint16_t{0},
+                        water_own,
+                        water_rules
+                    );
                 };
                 {
                     full::SpriteFrame sprites(sprite_inputs, full.sprite_pages, hooks, frame);

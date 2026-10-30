@@ -1,33 +1,49 @@
 # Mutators in the battle room
 
-The host chooses the mutators. **Mutators**, with the OA badge, sits
-directly above **Select Map** and is as large as it, and opens the same
-picker a skirmish uses. It reads **Mutators** while the room has none,
-and **Mutators (2)** while it plays two; the picker shows which. While a
-launch locks the host's options, **Mutators** is drawn disabled and opens
-nothing. How the picker works, including **USE THESE** and
-**CANCEL**, is [Playing with mutators](../playing-with-mutators.md).
+The host chooses the mutators. **Mutators** is one of the battle room's
+own on and off buttons, with the OA stamp, directly above **Select Map**
+and as large as it, and does not grow for its words. It opens the same
+picker a skirmish uses. The button reads **Mutators**. As on the room's
+own on and off buttons, its red lamp is lit while the room has none, and
+its green lamp while it plays some; the red lamp blinks while a seated
+player lacks one. Resting the pointer
+on it shows a card that lists
+them in the order they apply. While a launch locks the host's options,
+**Mutators** is greyed and opens nothing. How the picker works, including
+**Use these** and **Cancel**, is
+[Playing with mutators](../playing-with-mutators.md).
 
 **Mutators** opens on the room's set. When the room has none, it opens
 on the last set the host started a battle-room game with, already on.
 Only the host's machine remembers that set, and only when **START**
-really starts the match. **USE THESE** makes the set the room's.
-**CANCEL** leaves the room's list as it was.
+really starts the match. **Use these** makes the set the room's.
+**Cancel** leaves the room's list as it was.
 
-A guest sees that list and cannot change it. **VIEW…** opens the picker
+A guest sees that list and cannot change it. Where the host's button
+stands, a guest has the same on and off button, as large as **Select
+Map** and over it, with no widening. It reads **Mutators**. Its lamp is
+green once this
+machine has built the host's list, blinking red while one is missing,
+and red with no set. A press on it, Return or the controller's Y opens the picker
 read-only. Its hint is "The host's mutators. Only the host can change
-them." The footer is **CLOSE**. Anything this machine does not have is
-named in the chat: "*** You do not have {name}. GET MUTATORS downloads it
-from {registry}." With several it reads "*** You do not have {names}. GET
-MUTATORS downloads it from {registry}." Only the first sentence is posted
-when no registry you use offers it, when downloads from that registry are
-off, or when the catalogue has not been read yet. **GET MUTATORS**
-downloads the host's release, in the host's order. While one is arriving
-the line reads "Downloading {name} · {percent}%". A stop shows "{name}:
-{problem}" and **GET MUTATORS** again. A mutator no registry you use
-offers reads "{name} is not offered by a registry you use." Downloads
-that are off read "Downloads from {registry} are off." **READY** waits:
-its place reads "Ready once {name} is here".
+them." The footer is **CLOSE**. Resting the pointer on the button shows
+the card, a missing one reading "{name}: not installed", and "Click to
+read.".
+
+Anything this machine does not have is named in the chat: "*** You do not
+have {name}. GET MUTATORS downloads it from {registry}." With several it
+reads "*** You do not have {names}. GET MUTATORS downloads it from
+{registry}." Only the first sentence is posted when no registry you use
+offers it, when downloads from that registry are off, or when the
+catalogue has not been read yet. Left of the button, **GET MUTATORS**, a
+button in the room's own art, downloads the host's release, in the host's
+order. While one is arriving a bar in the room's green fills there. A stop
+shows "{name}: {problem}" and **GET MUTATORS** again. A mutator no
+registry you use offers reads "{name}: not offered.", and downloads that
+are off read "{registry}: downloads off." Those lines are in the room's
+own lettering. Once this machine has every one, nothing stands beside the
+button. **READY** waits: beside **START** a line reads "Ready once {name}
+is here".
 
 Every player's chat posts the change, including a guest who arrives in a
 room that already has a set. Turning a set on posts "*** {host} turned on

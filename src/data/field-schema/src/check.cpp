@@ -383,9 +383,20 @@ double twice_fixed_number(const oa::formats::tdf::Block* block, const char* from
     return static_cast<double>(doubled) / 65536.0;
 }
 
+/// The ceiling a weapon id is refused above, or the spec's own ceiling.
+///
+/// @param spec the field being judged
+/// @param weapon_types the weapon types a weapon id is held to
+/// @return weapon_types - 1 for a weapon id, otherwise the spec's refuse_above
+double refused_above(const FieldSpec& spec, uint32_t weapon_types) noexcept {
+    if (spec.record == RecordKind::weapon && spec.key == "id")
+        return static_cast<double>(weapon_types) - 1.0;
+    return spec.refuse_above;
+}
+
 } // namespace
 
-Check check_number(RecordKind record, std::string_view key, double value) {
+Check check_number(RecordKind record, std::string_view key, double value, uint32_t weapon_types) {
     const FieldSpec* spec = find_field(record, key);
     if (spec == nullptr || !numeric_type(spec->type))
         return {};
@@ -410,10 +421,9 @@ Check check_number(RecordKind record, std::string_view key, double value) {
         return bounded(
             Verdict::refuse, shown_key, value, "is below", spec->refuse_below, spec->why
         );
-    if (judged > spec->refuse_above)
-        return bounded(
-            Verdict::refuse, shown_key, value, "is above", spec->refuse_above, spec->why
-        );
+    const double ceiling = refused_above(*spec, weapon_types);
+    if (judged > ceiling)
+        return bounded(Verdict::refuse, shown_key, value, "is above", ceiling, spec->why);
     if (on_off_bounds(*spec) && (judged < spec->warn_below || judged > spec->warn_above)) {
         char shown[64];
         char reason[768];
@@ -510,9 +520,10 @@ Check judged_number(
     std::string_view key,
     std::string_view shown_key,
     double value,
-    std::string_view ignored
+    std::string_view ignored,
+    uint32_t weapon_types
 ) {
-    Check judged = check_number(record, key, value);
+    Check judged = check_number(record, key, value, weapon_types);
     if (ignored.empty() || judged.verdict == Verdict::refuse)
         return judged;
     const std::string snippet = printable_snippet(ignored);
@@ -534,7 +545,9 @@ Check judged_number(
     return verdict_reason(Verdict::warn, reason);
 }
 
-Check check_text(RecordKind record, std::string_view key, std::string_view text) {
+Check check_text(
+    RecordKind record, std::string_view key, std::string_view text, uint32_t weapon_types
+) {
     const FieldSpec* spec = find_field(record, key);
     if (spec == nullptr)
         return {};
@@ -564,10 +577,10 @@ Check check_text(RecordKind record, std::string_view key, std::string_view text)
     const std::string_view ignored(owned.data() + used, owned.size() - used);
     if (spec->type == FieldType::integer || spec->type == FieldType::flag) {
         const IntRead scanned = scan_int(owned.c_str());
-        return judged_number(record, key, shown_key, scanned.magnitude, ignored);
+        return judged_number(record, key, shown_key, scanned.magnitude, ignored, weapon_types);
     }
     return judged_number(
-        record, key, shown_key, oa::formats::tdf::parse_double(owned.c_str()), ignored
+        record, key, shown_key, oa::formats::tdf::parse_double(owned.c_str()), ignored, weapon_types
     );
 }
 

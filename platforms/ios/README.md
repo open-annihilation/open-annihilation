@@ -109,17 +109,17 @@ On the first start without a game folder it can play, the game opens the **Game 
 which the engine draws itself in its bundled fonts, with no game art (none is installed yet):
 [docs/game-files.md](../../docs/game-files.md) describes it. It offers three ways in:
 
-- **Choose the game folder** (CHOOSE FOLDER): the system's document picker, which reaches iCloud
+- **Choose the game folder** (Choose folder): the system's document picker, which reaches iCloud
   Drive, a USB drive, a computer's shared folder and the device itself. The game lists the folder
   (names and sizes only, so nothing is downloaded yet), checks it by name and, when its files are
   on the device, with the game's own check, and shows **Ready to copy**: the parts it found, with a
-  switch for each optional one, what it leaves out and why, and the space it needs. COPY copies it
+  switch for each optional one, what it leaves out and why, and the space it needs. Copy copies it
   into a staging folder, downloading each file iCloud holds as it goes, checks the copy, and puts
   it in place as `Documents/Total Annihilation` with one rename.
-- **Copy it yourself** (I HAVE COPIED IT): the player copies the folder into On My iPhone or On My
+- **Copy it yourself** (I have copied it): the player copies the folder into On My iPhone or On My
   iPad › Open Annihilation with the Files app, or from a Mac with the Finder, and the game checks
   it. A folder copied under another name, or archives copied loose, are found and put in place.
-- **Play the 1997 demo** (CHOOSE INSTALLER): the picker chooses the installer of the Total
+- **Play the 1997 demo** (Choose installer): the picker chooses the installer of the Total
   Annihilation demo (1997), which the system copies for the game; the game recognises it, never
   runs it, and unpacks its game data. This is the route for App Review.
 
@@ -178,13 +178,13 @@ space; its test folders are written by the script, never kept in the repository.
 
 ```sh
 S=platforms/ios/scripts/stage-files-source.sh
-$S --game-dir <your game folder>          # On My iPhone › Total Annihilation, for CHOOSE FOLDER
-$S --demo-installer <the demo installer>  # On My iPhone › Total Annihilation.exe, for CHOOSE INSTALLER
+$S --game-dir <your game folder>          # On My iPhone › Total Annihilation, for Choose folder
+$S --demo-installer <the demo installer>  # On My iPhone › Total Annihilation.exe, for Choose installer
 $S --fixture not-a-game                   # On My iPhone › Not a game: text files only
 $S --fixture nested                       # On My iPhone › Old PC › Games › Total Annihilation
 $S --fixture mod                          # On My iPhone › Picker Test Mod: a usable mod profile
 $S --fixture mutator                      # On My iPhone › Picker Test Mutator.oamut: tap it to install
-$S --into-documents "TA Commander Pack"   # the game folder under another name, for I HAVE COPIED IT
+$S --into-documents "TA Commander Pack"   # the game folder under another name, for I have copied it
 $S --clear                                # remove everything it put there
 ```
 
@@ -195,16 +195,16 @@ platforms/ios/run.sh --reinstall --no-data          # build, a fresh install, th
 platforms/ios/run.sh --no-build --no-data -- --no-game-files-screen   # the Check again alert
 ```
 
-Then CHOOSE FOLDER, Browse › On My iPhone › Total Annihilation › Open. The simulator is landscape
+Then Choose folder, Browse › On My iPhone › Total Annihilation › Open. The simulator is landscape
 and the picker is the system's, so drive it by hand in the Simulator app, or with any tool that
 taps in the simulator's portrait screen points. To see an iPhone's other landscape side (the
 camera housing on the right) without turning the simulator, launch with
 `SIMCTL_CHILD_OA_IOS_LANDSCAPE=left` in the environment (`right` is the other side): the game
 asks iOS for that orientation as its window opens. An iPad ignores it, since iPadOS would put the
 game in a window instead. A copy within the simulator's own storage takes about a second, too
-short to press STOP or to leave the game while it runs: `SIMCTL_CHILD_OA_IOS_COPY_RATE=10000000`
+short to press Stop or to leave the game while it runs: `SIMCTL_CHILD_OA_IOS_COPY_RATE=10000000`
 holds the copy to about 10 MB a second, as a slow shared folder would (each file waits its share
-of time before it is read, and STOP ends the wait). The game's log
+of time before it is read, and Stop ends the wait). The game's log
 (`Library/Application Support/net.coreprime.open-annihilation/logs` in its data container) records
 the copy, including the files a continued copy skipped. `xattr -l` on the container's
 `Documents/Total Annihilation` shows `com.apple.metadata:com_apple_backup_excludeItem` while the
@@ -224,6 +224,7 @@ capability that any other platform can set the same way:
 |---|---|---|
 | `OA_NATIVE_APP_MENU` | OFF | no macOS menu bar item |
 | `OA_PROCESS_SPAWNING` | OFF | the video capture and the director's encoder, which start another program, say this build starts none |
+| `OA_SELF_UPDATE` | OFF | the game does not replace itself; a newer release is a notice with the release page, and the player builds it the same way |
 | `OA_NATIVE_FOLDER_DIALOG` | OFF | no folder dialog; the game says where its folder goes |
 | `OA_NATIVE_DENSITY_WINDOWS` | ON | the window opens at the screen's own pixel density |
 | `OA_TOUCH_FIRST` | ON | the touch controls are on from the start |
@@ -263,8 +264,8 @@ option: the desktop installs none.
 icon, the distribution keys (see [For distribution](#for-distribution)), shows the Documents
 folder in the Files app and the Finder, reads a mouse or trackpad as a pointer, and declares the
 type of the game's archives (`net.coreprime.open-annihilation.game-archive`: `.hpi`, `.ufo`,
-`.ccx` and `.gp3`), which the picker offers when the player adds archives, and the seven file
-types (`.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain`, `.oareg` and `.oalaunch`), which the app exports
+`.ccx` and `.gp3`), which the picker offers when the player adds archives, and the eight file
+types (`.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain`, `.oakeys`, `.oareg` and `.oalaunch`), which the app exports
 and opens as their owner, so that the Files app and the share sheet offer Open Annihilation for each, with the app's
 icon. `app-bundle-file-types` checks both bundles' declarations.
 [LaunchScreen.storyboard](LaunchScreen.storyboard) is the black launch screen with the title.
@@ -368,7 +369,7 @@ here: it needs a paid developer team.
   progress (iOS 26), continuing a copy without choosing the folder again, importing a .zip,
   "Open in Open Annihilation", drag and drop, and VoiceOver for the engine-drawn screens. Changes
   made in Manage take effect from the next start: the game reloads itself without ending for a
-  switch of mod (the Library's PLAY NOW), but that reload does not take them up yet.
+  switch of mod (the Library's Play now), but that reload does not take them up yet.
 
 - No resume after iOS ends the game in the background: a match played alone pauses with the
   in-game menu when the game leaves the screen, and is lost if iOS then ends the process.

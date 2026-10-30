@@ -271,6 +271,7 @@ bool same_block(const nl::LaunchBlock& left, const nl::LaunchBlock& right) {
         left.team == right.team && left.color == right.color && left.watcher == right.watcher &&
         left.computer_count == right.computer_count && left.closed == right.closed &&
         left.restriction_count == right.restriction_count &&
+        same_text(left.faction_name, right.faction_name) &&
         same_text(left.provider_label, right.provider_label) &&
         same_text(left.session_name, right.session_name) &&
         same_text(left.mission, right.mission) && same_text(left.password, right.password) &&
@@ -279,7 +280,8 @@ bool same_block(const nl::LaunchBlock& left, const nl::LaunchBlock& right) {
         const auto& one = left.computers[at];
         const auto& other = right.computers[at];
         same = one.faction == other.faction && one.team == other.team && one.color == other.color &&
-               one.difficulty == other.difficulty && same_text(one.brain, other.brain);
+               one.difficulty == other.difficulty && same_text(one.brain, other.brain) &&
+               same_text(one.faction_name, other.faction_name);
     }
     for (int32_t at = 0; same && at < left.restriction_count && at < nl::kLaunchRestrictionLimit;
          ++at)
@@ -1372,6 +1374,71 @@ void check_name_limits() {
     }
 }
 
+/// A side is a faction, a number from 0, or a SIDEDATA name.
+void check_side_values() {
+    const auto numbered = launch_file::read_launch_text(
+        "launch.oalaunch", "oalaunch: 1\ngame:\n  role: host\nplayer:\n  side: 6\n"
+    );
+    expect(
+        numbered.block.faction == 7 && numbered.block.watcher == 0 &&
+            numbered.block.faction_name[0] == '\0',
+        "side 6 is faction 7"
+    );
+    const auto named = launch_file::read_launch_text(
+        "launch.oalaunch", "oalaunch: 1\ngame:\n  role: host\nplayer:\n  side: Ridge6\n"
+    );
+    expect(
+        named.block.faction == nl::faction::none && named.block.watcher == 0 &&
+            same_text(named.block.faction_name, "Ridge6"),
+        "Ridge6 is the side's name"
+    );
+    const auto by_option = parse({"--host", "--side", "6"});
+    expect(
+        by_option.launch.block.faction == 7 && by_option.launch.block.faction_name[0] == '\0',
+        "--side 6 is faction 7"
+    );
+    const auto computer = parse({"--host", "--computer-player", "Ridge6:2"});
+    expect(
+        computer.launch.block.computer_count == 1 &&
+            computer.launch.block.computers[0].faction == nl::faction::none &&
+            computer.launch.block.computers[0].team == 2 &&
+            same_text(computer.launch.block.computers[0].faction_name, "Ridge6"),
+        "--computer-player Ridge6:2 names the side and the team"
+    );
+    const auto arm = launch_file::read_launch_text(
+        "launch.oalaunch", "oalaunch: 1\ngame:\n  role: host\nplayer:\n  side: arm\n"
+    );
+    expect(
+        arm.block.faction == nl::faction::arm && arm.block.watcher == 0 &&
+            arm.block.faction_name[0] == '\0',
+        "arm is faction 1"
+    );
+    const auto core = launch_file::read_launch_text(
+        "launch.oalaunch", "oalaunch: 1\ngame:\n  role: host\nplayer:\n  side: core\n"
+    );
+    expect(
+        core.block.faction == nl::faction::core && core.block.watcher == 0 &&
+            core.block.faction_name[0] == '\0',
+        "core is faction 2"
+    );
+    const auto watcher = launch_file::read_launch_text(
+        "launch.oalaunch",
+        "oalaunch: 1\ngame:\n  role: host\nrules:\n  watchers: on\nplayer:\n  side: watcher\n"
+    );
+    expect(
+        watcher.block.faction == nl::faction::none && watcher.block.watcher == 1 &&
+            watcher.block.faction_name[0] == '\0',
+        "watcher watches"
+    );
+    const std::string empty =
+        refused_text("oalaunch: 1\ngame:\n  role: host\nplayer:\n  side: \"\"\n");
+    expect(
+        empty.find("expected arm, core, watcher, a side's number from 0 to 31 or its name") !=
+            std::string::npos,
+        "an empty side is refused: " + empty
+    );
+}
+
 /// Each refusal names the field in the file, or the option, and why.
 ///
 /// @param scratch the directory the files are written in
@@ -1395,7 +1462,14 @@ void check_refusals(const Scratch& scratch) {
          "CORKROG=101",
          "rules:\n  unit-restrictions:\n    CORKROG: 101\n",
          "101 is above 100"},
-        {"--side", "zeta", "player:\n  side: zeta\n", "expected arm, core or watcher"},
+        {"--side",
+         "32",
+         "player:\n  side: 32\n",
+         "expected arm, core, watcher, a side's number from 0 to 31 or its name"},
+        {"--side",
+         "012345678901234567890123456789",
+         "player:\n  side: \"012345678901234567890123456789\"\n",
+         "expected arm, core, watcher, a side's number from 0 to 31 or its name"},
         {"--team", "6", "player:\n  team: 6\n", "expected 1 to 5 or none"},
         {"--colour", "11", "player:\n  colour: 11\n", "11 is above 10"},
         {"--map",
@@ -1426,9 +1500,13 @@ void check_refusals(const Scratch& scratch) {
          "rules:\n  lock-options: sometimes\n",
          "expected on or off"},
         {"--computer-player",
-         "green",
-         "computer-players:\n  - side: green\n",
-         "expected arm or core"},
+         "32",
+         "computer-players:\n  - side: 32\n",
+         "expected arm, core, a side's number from 0 to 31 or its name"},
+        {"--computer-player",
+         "012345678901234567890123456789",
+         "computer-players:\n  - side: \"012345678901234567890123456789\"\n",
+         "expected arm, core, a side's number from 0 to 31 or its name"},
     };
     std::set<std::string> covered;
     for (const auto& case_of : refused) {
@@ -1996,6 +2074,7 @@ int main() {
         scratch.write("launch.oalaunch", kLaunch), scratch.write("plain.oalaunch", kPlainHost)
     );
     check_refusals(scratch);
+    check_side_values();
     check_computer_brains();
     check_name_limits();
     check_either_file(scratch);

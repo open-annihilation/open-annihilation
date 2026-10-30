@@ -12,6 +12,7 @@
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/controls.hpp"
 #include "oa/ui/kit/first_run.hpp"
+#include "oa/ui/kit/keys.hpp"
 
 #include "oa/ui/frontend_renderer/artless.hpp"
 
@@ -34,6 +35,10 @@ namespace {
 
 /// The app icon the maker's mark draws, or empty so the badge stays a plate.
 OpenAnnihilationMark installed_oa_mark{};
+
+/// The points between a button's refresh arrow and its caption. A button
+/// is not a chip, so a chip's padding does not move it.
+constexpr int32_t kRefreshIconGap = 4;
 
 } // namespace
 
@@ -220,6 +225,16 @@ struct ButtonColours {
     Colour caption{};
 };
 
+/// Returns a button's colours: the primary button lime with dark text, the
+/// secondary raised a step above the surfaces with a clear border, lighter
+/// under the pointer and pressed in to the hover surface while held, the
+/// quiet one a lime caption with no face at rest, the inset one the list's
+/// face, the filled one deep green with white text, and the danger one
+/// outlined in red. A button that is not enabled has no face, the control
+/// border and the idle caption.
+///
+/// @param look the button
+/// @return its face, when it has one, its border and its caption
 ButtonColours button_colours(const ButtonLook& look) noexcept {
     if (look.style == ButtonStyle::accent) {
         Colour face = colour::accent;
@@ -227,11 +242,14 @@ ButtonColours button_colours(const ButtonLook& look) noexcept {
             face = colour::accent_held;
         else if (look.hovered || look.bright)
             face = colour::accent_light;
-        return {face, colour::accent_light, colour::on_accent};
+        return {face, face, colour::on_accent};
     }
     const bool hovered = look.enabled && look.hovered;
     const bool held = look.enabled && look.held;
-    if (look.style == ButtonStyle::filled && look.enabled) {
+    if (!look.enabled)
+        return {std::nullopt, colour::control_border, colour::switch_idle};
+    switch (look.style) {
+    case ButtonStyle::filled: {
         Colour face = colour::filled;
         if (held)
             face = colour::filled_held;
@@ -239,28 +257,74 @@ ButtonColours button_colours(const ButtonLook& look) noexcept {
             face = colour::filled_light;
         return {face, hovered ? colour::accent : colour::accent_held, colour::text};
     }
-    if ((look.style == ButtonStyle::plain || look.style == ButtonStyle::filled) && !look.enabled)
-        return {std::nullopt, colour::control_border, colour::switch_idle};
-    const Colour border = hovered ? colour::control_hover : colour::control_border;
-    const Colour caption = hovered ? colour::text : colour::button_text;
-    if (look.style == ButtonStyle::inset) {
+    case ButtonStyle::quiet: {
+        std::optional<Colour> face;
+        if (held)
+            face = colour::list_selected;
+        else if (hovered)
+            face = colour::hover;
+        return {
+            face, face.value_or(colour::panel), hovered ? colour::accent_light : colour::accent
+        };
+    }
+    case ButtonStyle::inset: {
         Colour face = colour::list;
         if (held)
             face = colour::band;
         else if (hovered)
             face = colour::hover;
-        return {face, border, caption};
+        return {face, hovered ? colour::control_hover : colour::control_border, colour::text};
     }
-    std::optional<Colour> face;
-    if (look.style == ButtonStyle::quiet) {
-        if (held)
-            face = colour::band;
-        else if (hovered)
-            face = colour::hover;
-    } else if (held || hovered) {
-        face = colour::hover;
+    case ButtonStyle::danger: {
+        std::optional<Colour> face;
+        if (held || hovered)
+            face = colour::danger_tint;
+        return {face, colour::danger, colour::danger};
     }
-    return {face, border, caption};
+    case ButtonStyle::accent:
+    case ButtonStyle::plain:
+        break;
+    }
+    Colour face = colour::raised;
+    if (held)
+        face = colour::raised_held;
+    else if (hovered)
+        face = colour::raised_hover;
+    return {face, hovered ? colour::raised_border_hover : colour::raised_border, colour::text};
+}
+
+/// Draws a control's rounded ground: its face, when it has one, inside a
+/// one-point border, or the border alone. The border is the whole shape and
+/// the face the shape one point in, so a partial pixel is one colour or the
+/// other.
+///
+/// @param canvas where it is drawn
+/// @param area the control
+/// @param radius the corners' radius, in points
+/// @param face the face; none leaves what is under the control
+/// @param border the border's colour
+void draw_rounded_ground(
+    const Canvas& canvas,
+    const Rect& area,
+    int32_t radius,
+    std::optional<Colour> face,
+    Colour border
+) {
+    if (!face) {
+        outline_corner_rect(canvas, area, radius, border);
+        return;
+    }
+    if (*face == border || area.width <= 2 || area.height <= 2) {
+        fill_corner_rect(canvas, area, radius, *face);
+        return;
+    }
+    fill_corner_rect(canvas, area, radius, border);
+    fill_corner_rect(
+        canvas,
+        {area.x + 1, area.y + 1, area.width - 2, area.height - 2},
+        std::max(radius - 1, int32_t{0}),
+        *face
+    );
 }
 
 void draw_mark_square(const Canvas& canvas, int32_t side, Colour ink) {
@@ -446,7 +510,7 @@ void paint_item(const Canvas& canvas, const Item& item) {
         break;
     case Role::progress:
         if (const auto* look = std::get_if<ProgressLook>(&item.look))
-            draw_progress(drawn, item.rect, look->done, look->whole);
+            draw_progress(drawn, item.rect, look->done, look->whole, look->paused);
         break;
     case Role::language_card:
         if (const auto* look = std::get_if<LanguageCardLook>(&item.look))
@@ -491,6 +555,30 @@ void paint_item(const Canvas& canvas, const Item& item) {
     case Role::grip:
         if (const auto* look = std::get_if<GripLook>(&item.look))
             draw_grip(drawn, item.rect, *look);
+        break;
+    case Role::keycap:
+        if (const auto* look = std::get_if<KeycapLook>(&item.look))
+            draw_keycap(drawn, item.rect, *look);
+        break;
+    case Role::chord_chip:
+        if (const auto* look = std::get_if<ChordChipLook>(&item.look))
+            draw_chord_chip(drawn, item.rect, *look);
+        break;
+    case Role::keyboard:
+        if (const auto* look = std::get_if<KeyboardLook>(&item.look))
+            draw_keyboard(drawn, item.rect, *look);
+        break;
+    case Role::mouse_picture:
+        if (const auto* look = std::get_if<MouseLook>(&item.look))
+            draw_mouse(drawn, item.rect, *look);
+        break;
+    case Role::hold_ring:
+        if (const auto* look = std::get_if<HoldRingLook>(&item.look))
+            draw_hold_ring(drawn, item.rect, *look);
+        break;
+    case Role::radio:
+        if (const auto* look = std::get_if<RadioLook>(&item.look))
+            draw_radio(drawn, item.rect, *look);
         break;
     case Role::header_bar:
     case Role::badge:
@@ -1334,7 +1422,7 @@ void draw_maker_icon(const Canvas& canvas, const Rect& rect, StateIcon icon) {
                 return on_oa_letters(point, scale);
             });
         blend_coverage(canvas, rect, plate, kOaPlate);
-        blend_coverage(canvas, rect, letters, colour::lock);
+        blend_coverage(canvas, rect, letters, colour::brand);
         return;
     }
     const std::vector<uint8_t> outline =
@@ -1388,8 +1476,24 @@ void draw_tag_icon(const Canvas& canvas, const Rect& rect, TagIcon icon, Colour 
 void draw_focus_ring(const Canvas& canvas, const Rect& control, bool around) {
     if (!drawable(canvas))
         return;
-    const Rect ring = around ? grown(control, compact_metrics.focus_inset) : control;
-    outline_rect(canvas, ring, colour::accent);
+    const int32_t radius = control_radius_for(control.height);
+    if (!around) {
+        ring_corner_rect(canvas, control, radius, compact_metrics.focus_ring, colour::focus);
+        return;
+    }
+    const int32_t out = compact_metrics.focus_inset;
+    ring_corner_rect(
+        canvas, grown(control, out), radius + out, compact_metrics.focus_ring, colour::focus
+    );
+}
+
+/// Returns the border of a button that draws a mark: the control border,
+/// lighter under the pointer.
+///
+/// @param look the button
+/// @return the border's colour
+Colour mark_border(const ButtonLook& look) noexcept {
+    return look.enabled && look.hovered ? colour::control_hover : colour::control_border;
 }
 
 /// Draws a refresh arrow in a button: the quiet look's face while the pointer
@@ -1404,10 +1508,10 @@ void draw_refresh_button(const Canvas& canvas, const Rect& area, const ButtonLoo
     ButtonLook face = look;
     face.style = !look.enabled && !look.turning ? ButtonStyle::plain : ButtonStyle::quiet;
     const ButtonColours colours = button_colours(face);
-    if (colours.face)
-        fill_rect(canvas, area, *colours.face);
-    outline_rect(canvas, area, colours.border);
-    const Colour ink = look.turning ? colour::button_text : colours.caption;
+    draw_rounded_ground(
+        canvas, area, control_radius_for(area.height), colours.face, mark_border(look)
+    );
+    const Colour ink = !look.enabled && !look.turning ? colour::switch_idle : colour::text;
     constexpr int32_t inset = 2;
     const Rect icon{
         area.x + inset,
@@ -1444,9 +1548,10 @@ void draw_close_button(const Canvas& canvas, const Rect& area, const ButtonLook&
     ButtonLook face = look;
     face.style = look.enabled ? ButtonStyle::quiet : ButtonStyle::plain;
     const ButtonColours colours = button_colours(face);
-    if (colours.face)
-        fill_rect(canvas, area, *colours.face);
-    outline_rect(canvas, area, colours.border);
+    draw_rounded_ground(
+        canvas, area, control_radius_for(area.height), colours.face, mark_border(look)
+    );
+    const Colour ink = look.enabled ? colour::text : colour::switch_idle;
     constexpr int32_t inset = 2;
     const Rect icon{
         area.x + inset,
@@ -1459,7 +1564,40 @@ void draw_close_button(const Canvas& canvas, const Rect& area, const ButtonLook&
     const Point pixels = covered_pixels(canvas, icon);
     if (pixels.x <= 0 || pixels.y <= 0 || pixels.x > kMostIconPixels || pixels.y > kMostIconPixels)
         return;
-    blend_coverage(canvas, icon, close_icon_coverage(pixels.x, pixels.y), colours.caption);
+    blend_coverage(canvas, icon, close_icon_coverage(pixels.x, pixels.y), ink);
+}
+
+/// Draws a button's refresh arrow and its caption side by side, centred
+/// together in the button: the arrow as tall as the button less two points
+/// above and below, at most the state icon's side, then a gap and the words.
+///
+/// @param canvas where it is drawn
+/// @param area the button
+/// @param look the caption and its font
+/// @param ink the caption's colour, which the arrow takes too
+void draw_refresh_caption(
+    const Canvas& canvas, const Rect& area, const ButtonLook& look, Colour ink
+) {
+    const int32_t room = refresh_icon_room(area.height);
+    const int32_t side = room > 0 ? room - kRefreshIconGap : 0;
+    const int32_t words = measure_text(canvas, look.font, look.caption);
+    const int32_t whole = room + words;
+    const int32_t left = area.x + std::max((area.width - whole) / 2, int32_t{0});
+    if (side > 0) {
+        const Rect icon{left, area.y + (area.height - side) / 2, side, side};
+        const Point pixels = covered_pixels(canvas, icon);
+        if (pixels.x > 0 && pixels.y > 0 && pixels.x <= kMostIconPixels &&
+            pixels.y <= kMostIconPixels)
+            blend_coverage(canvas, icon, refresh_icon_coverage(pixels.x, pixels.y, 0), ink);
+    }
+    const int32_t words_left = left + room;
+    const Rect box{
+        words_left,
+        area.y,
+        std::max(area.x + area.width - words_left, int32_t{0}),
+        area.height,
+    };
+    paint_text(clipped(canvas, area), look.font, look.caption, box, Align::left, ink);
 }
 
 void draw_button(const Canvas& canvas, const Rect& area, const ButtonLook& look) {
@@ -1474,27 +1612,12 @@ void draw_button(const Canvas& canvas, const Rect& area, const ButtonLook& look)
         return;
     }
     const ButtonColours colours = button_colours(look);
-    if (look.style == ButtonStyle::filled) {
-        // Rounded: the edge is the whole shape and the face the shape one
-        // point in, so a partial pixel is one colour or the other.
-        const int32_t radius = filled_radius(area);
-        if (colours.face) {
-            fill_corner_rect(canvas, area, radius, colours.border);
-            if (area.width > 2 && area.height > 2)
-                fill_corner_rect(
-                    canvas,
-                    {area.x + 1, area.y + 1, area.width - 2, area.height - 2},
-                    std::max(radius - 1, int32_t{0}),
-                    *colours.face
-                );
-        } else {
-            outline_corner_rect(canvas, area, radius, colours.border);
-        }
-    } else {
-        if (colours.face)
-            fill_rect(canvas, area, *colours.face);
-        outline_rect(canvas, area, colours.border);
-    }
+    const int32_t radius =
+        look.style == ButtonStyle::filled ? filled_radius(area) : control_radius_for(area.height);
+    // A quiet button at rest has no face and no border: its caption is the button.
+    const bool bare = look.style == ButtonStyle::quiet && look.enabled && !colours.face;
+    if (!bare)
+        draw_rounded_ground(canvas, area, radius, colours.face, colours.border);
     if (look.oa_mark) {
         const ButtonMarkParts parts = button_mark_parts(area);
         if (parts.mark.width > 0)
@@ -1505,7 +1628,18 @@ void draw_button(const Canvas& canvas, const Rect& area, const ButtonLook& look)
             );
         return;
     }
+    if (look.refresh_icon) {
+        draw_refresh_caption(canvas, area, look, colours.caption);
+        return;
+    }
     paint_text(canvas, look.font, look.caption, area, Align::centre, colours.caption);
+}
+
+int32_t refresh_icon_room(int32_t height) noexcept {
+    constexpr int32_t inset = 2;
+    const int32_t side =
+        std::clamp(height - 2 * inset, int32_t{0}, compact_metrics.state_icon_side);
+    return side > 0 ? side + kRefreshIconGap : 0;
 }
 
 int32_t filled_radius(const Rect& area) noexcept {
@@ -1526,41 +1660,148 @@ ButtonMarkParts button_mark_parts(const Rect& area) noexcept {
     return parts;
 }
 
+Rect switch_track(const Rect& area) noexcept {
+    const int32_t width = std::min(area.width, compact_metrics.switch_track_width);
+    const int32_t height = std::min(area.height, compact_metrics.switch_height);
+    return {area.x + area.width - width, area.y + (area.height - height) / 2, width, height};
+}
+
 void draw_switch(const Canvas& canvas, const Rect& area, const SwitchLook& look) {
     if (!drawable(canvas))
         return;
-    fill_rect(canvas, area, colour::well);
-    outline_rect(canvas, area, look.hovered ? colour::control_hover : colour::control_border);
-    const int32_t half = (area.width - 2) / 2;
-    const Rect off{area.x + 1, area.y + 1, half, area.height - 2};
-    const Rect on_half{area.x + 1 + half, area.y + 1, half, area.height - 2};
+    const Rect track = switch_track(area);
+    if (track.width <= 0 || track.height <= 0)
+        return;
+    // The track is a pill: lime while On, the selected surface while Off,
+    // the hovered border's grey while On is locked.
+    Colour ground = colour::off_selected;
     if (look.on)
-        fill_rect(canvas, on_half, look.locked ? colour::control_hover : colour::accent);
-    else
-        fill_rect(canvas, off, colour::off_selected);
-    paint_text(
+        ground = look.locked ? colour::control_hover : colour::accent;
+    if (look.on && look.hovered && !look.locked)
+        ground = colour::accent_light;
+    const int32_t radius = track.height / 2;
+    if (look.on) {
+        fill_round_rect(canvas, track, radius, ground);
+    } else {
+        fill_round_rect(
+            canvas, track, radius, look.hovered ? colour::control_hover : colour::control_border
+        );
+        if (track.width > 2 && track.height > 2)
+            fill_round_rect(
+                canvas,
+                {track.x + 1, track.y + 1, track.width - 2, track.height - 2},
+                std::max(radius - 1, int32_t{0}),
+                ground
+            );
+    }
+    // The round knob, two points in: at the right while On, the left while Off.
+    constexpr int32_t kKnobInset = 2;
+    const int32_t knob = std::max(track.height - 2 * kKnobInset, int32_t{0});
+    if (knob <= 0)
+        return;
+    const int32_t knob_x =
+        look.on ? track.x + track.width - kKnobInset - knob : track.x + kKnobInset;
+    fill_round_rect(
         canvas,
-        FontRole::small,
-        look.off_caption,
-        off,
-        Align::centre,
-        look.on ? colour::switch_idle : colour::text
+        {knob_x, track.y + kKnobInset, knob, knob},
+        knob / 2,
+        look.on ? colour::on_accent : colour::text_secondary
     );
-    paint_text(
-        canvas,
-        FontRole::small,
-        look.on_caption,
-        on_half,
-        Align::centre,
-        look.on ? colour::on_accent : colour::switch_idle
-    );
+}
+
+RadioParts radio_parts(const Rect& area, bool row) noexcept {
+    RadioParts parts;
+    if (area.width <= 0 || area.height <= 0)
+        return parts;
+    if (!row) {
+        const int32_t side = std::min(area.width, area.height);
+        parts.mark = {
+            area.x + (area.width - side) / 2, area.y + (area.height - side) / 2, side, side
+        };
+        return parts;
+    }
+    // Half the row's height, 8 points at the least, and never past the row.
+    constexpr int32_t kLeastSide = 8;
+    const int32_t side = std::min(std::max(area.height / 2, kLeastSide), area.height);
+    const int32_t inset = (area.height - side) / 2;
+    if (area.width < side + 2 * inset)
+        return parts;
+    parts.mark = {area.x + inset, area.y + inset, side, side};
+    const int32_t caption_x = parts.mark.x + side + inset;
+    const int32_t caption_width = area.x + area.width - inset - caption_x;
+    if (caption_width > 0)
+        parts.caption = {caption_x, area.y, caption_width, area.height};
+    return parts;
+}
+
+void draw_radio(const Canvas& canvas, const Rect& area, const RadioLook& look) {
+    if (!drawable(canvas))
+        return;
+    const bool row = !look.caption.empty();
+    const RadioParts parts = radio_parts(area, row);
+    if (row) {
+        // The row's box: the selected surface and the accent's edge while
+        // chosen, the hover face while hovered, else only the border.
+        std::optional<Colour> face;
+        Colour edge = colour::control_border;
+        if (!look.disabled && look.on) {
+            face = colour::list_selected;
+            edge = look.hovered || look.held ? colour::accent_light : colour::accent;
+        } else if (!look.disabled && (look.hovered || look.held)) {
+            face = colour::hover;
+            edge = colour::control_hover;
+        }
+        const int32_t radius = control_radius_for(area.height);
+        if (face.has_value())
+            fill_corner_rect(canvas, area, radius, *face);
+        outline_corner_rect(canvas, area, radius, edge);
+        if (parts.caption.width > 0)
+            paint_text(
+                clipped(canvas, parts.caption),
+                FontRole::regular,
+                look.caption,
+                parts.caption,
+                Align::left,
+                look.disabled ? colour::switch_idle : colour::text
+            );
+    }
+    const Rect& mark = parts.mark;
+    if (mark.width <= 0 || mark.height <= 0)
+        return;
+    // The ring: the idle grey, or the accent while chosen; lighter while
+    // hovered, deeper while held; the hovered border's grey while disabled.
+    Colour ink = look.on ? colour::accent : colour::switch_idle;
+    if (look.disabled)
+        ink = colour::control_hover;
+    else if (look.held)
+        ink = look.on ? colour::accent_held : colour::text_secondary;
+    else if (look.hovered)
+        ink = look.on ? colour::accent_light : colour::text_secondary;
+    const int32_t side = mark.width;
+    ring_corner_rect(canvas, mark, side / 2, 1, ink);
+    if (!look.on)
+        return;
+    // The dot: half the ring across, as many points from each side of it.
+    int32_t dot = side / 2;
+    if ((side - dot) % 2 != 0)
+        ++dot;
+    const int32_t inset = (side - dot) / 2;
+    if (dot <= 0)
+        return;
+    fill_round_rect(canvas, {mark.x + inset, mark.y + inset, dot, dot}, dot / 2, ink);
 }
 
 void draw_levels(const Canvas& canvas, const Rect& area, const LevelsLook& look) {
     if (!drawable(canvas))
         return;
-    fill_rect(canvas, area, colour::well);
-    outline_rect(canvas, area, look.hovered ? colour::control_hover : colour::control_border);
+    const int32_t radius = control_radius_for(area.height);
+    draw_rounded_ground(
+        canvas,
+        area,
+        radius,
+        colour::well,
+        look.hovered ? colour::control_hover : colour::control_border
+    );
     for (std::size_t index = 0; index < look.captions.size(); ++index) {
         const Rect segment{
             area.x + 1 + static_cast<int32_t>(index) * look.level_width,
@@ -1570,7 +1811,12 @@ void draw_levels(const Canvas& canvas, const Rect& area, const LevelsLook& look)
         };
         const bool selected = index == look.chosen;
         if (selected)
-            fill_rect(canvas, segment, look.locked ? colour::control_hover : colour::accent);
+            fill_corner_rect(
+                canvas,
+                segment,
+                std::max(radius - 1, int32_t{0}),
+                look.locked ? colour::control_hover : colour::accent
+            );
         paint_text(
             canvas,
             FontRole::small,
@@ -1598,14 +1844,16 @@ void draw_slider(const Canvas& canvas, const Rect& area, const SliderLook& look)
     const Rect track{
         area.x, area.y + compact_metrics.track_offset, area.width, compact_metrics.track_height
     };
-    fill_rect(canvas, track, colour::well);
-    outline_rect(canvas, track, colour::control_border);
+    const int32_t track_radius = track.height / 2;
+    fill_round_rect(canvas, track, track_radius, colour::control_border);
     const int32_t knob = knob_column(area, look.stop, look.stops);
-    fill_rect(
-        canvas,
-        {track.x + 1, track.y + 1, knob - track.x - 1, track.height - 2},
-        look.locked ? colour::control_border : colour::accent
-    );
+    if (knob > track.x)
+        fill_round_rect(
+            canvas,
+            {track.x, track.y, knob - track.x, track.height},
+            track_radius,
+            look.locked ? colour::control_hover : colour::accent
+        );
     const int32_t travel = area.width - compact_metrics.knob_width;
     if (look.stops > 1 && travel / (look.stops - 1) >= compact_metrics.least_stop_spacing) {
         for (int32_t index = 0; index < look.stops; ++index) {
@@ -1625,13 +1873,20 @@ void draw_slider(const Canvas& canvas, const Rect& area, const SliderLook& look)
         compact_metrics.knob_width,
         compact_metrics.knob_height
     };
-    Colour face = colour::accent;
+    Colour face = colour::text;
     if (look.locked)
         face = colour::control_hover;
     else if (look.hovered)
         face = colour::accent_light;
-    fill_rect(canvas, knob_rect, face);
-    outline_rect(canvas, knob_rect, colour::on_accent);
+    const int32_t knob_radius = compact_metrics.knob_width / 2;
+    fill_corner_rect(canvas, knob_rect, knob_radius, colour::on_accent);
+    if (knob_rect.width > 2 && knob_rect.height > 2)
+        fill_corner_rect(
+            canvas,
+            {knob_rect.x + 1, knob_rect.y + 1, knob_rect.width - 2, knob_rect.height - 2},
+            std::max(knob_radius - 1, int32_t{0}),
+            face
+        );
 }
 
 int32_t knob_column(const Rect& track, int32_t stop, int32_t stops) noexcept {
@@ -1655,13 +1910,12 @@ int32_t stop_at(const Rect& track, int32_t column, int32_t stops) noexcept {
 void draw_choice(const Canvas& canvas, const Rect& area, const ChoiceLook& look) {
     if (!drawable(canvas))
         return;
-    fill_rect(canvas, area, colour::well);
     Colour border = colour::control_border;
     if (look.open)
         border = colour::accent;
     else if (look.hovered)
         border = colour::control_hover;
-    outline_rect(canvas, area, border);
+    draw_rounded_ground(canvas, area, control_radius_for(area.height), colour::well, border);
     const Rect text_box{
         area.x + compact_metrics.choice_text_inset,
         area.y,
@@ -1677,7 +1931,7 @@ void draw_choice(const Canvas& canvas, const Rect& area, const ChoiceLook& look)
         {area.x + area.width - compact_metrics.choice_arrow_room +
              (compact_metrics.choice_arrow_room - compact_metrics.choice_arrow_width) / 2,
          area.y + (area.height - compact_metrics.choice_arrow_height) / 2},
-        look.open ? colour::accent : colour::button_text
+        look.open ? colour::accent : colour::text_secondary
     );
 }
 
@@ -1744,17 +1998,32 @@ void draw_menu_text(
 void draw_choice_menu(const Canvas& canvas, const Rect& menu, const ChoiceMenuLook& look) {
     if (!drawable(canvas))
         return;
-    fill_rect(canvas, menu, colour::list);
-    outline_rect(canvas, menu, colour::control_hover);
+    draw_rounded_ground(
+        canvas, menu, compact_metrics.control_radius, colour::list, colour::control_hover
+    );
     const int32_t count = static_cast<int32_t>(look.shown.size());
     for (int32_t place = 0; place < count; ++place) {
         const int32_t item = look.first + place;
         if (look.total >= 0 && item >= look.total)
             break;
-        const Rect box = choice_item(menu, place);
+        const Rect box = menu_item_box(menu, look, place);
         const ChoiceMenuRow* row = menu_row(look, item);
         // A divider is a section heading: no selection, no marker, no focus.
         if (row != nullptr && row->divider) {
+            if (look.row_height > 0 && row->rule) {
+                const int32_t line = box.y + box.height / 2;
+                fill_rect(
+                    canvas,
+                    {box.x + compact_metrics.choice_item_text_inset,
+                     line,
+                     std::max(
+                         box.width - compact_metrics.choice_item_text_inset - kChoiceTextMargin, 0
+                     ),
+                     1},
+                    colour::rule
+                );
+                continue;
+            }
             const Rect heading{
                 box.x + compact_metrics.choice_item_text_inset,
                 box.y,
@@ -1784,7 +2053,13 @@ void draw_choice_menu(const Canvas& canvas, const Rect& menu, const ChoiceMenuLo
             if (choosable)
                 text = colour::text;
             if (look.focus_shown)
-                outline_rect(canvas, box, colour::accent);
+                ring_corner_rect(
+                    canvas,
+                    box,
+                    control_radius_for(box.height),
+                    compact_metrics.focus_ring,
+                    colour::focus
+                );
         }
         const std::string_view aside =
             row != nullptr ? std::string_view{row->aside} : std::string_view{};
@@ -1808,7 +2083,9 @@ void draw_choice_menu(const Canvas& canvas, const Rect& menu, const ChoiceMenuLo
         }
     }
     const int32_t window =
-        shown_choices(static_cast<std::size_t>(std::max(look.total, int32_t{0})));
+        look.row_height > 0
+            ? static_cast<int32_t>(look.shown.size())
+            : shown_choices(static_cast<std::size_t>(std::max(look.total, int32_t{0})));
     if (look.total > window) {
         const int32_t travel = menu.height - 2;
         const int32_t height = std::max(travel * window / look.total, 4);
@@ -1839,6 +2116,53 @@ Rect choice_item(const Rect& menu, int32_t place) noexcept {
         menu.width - 2,
         compact_metrics.choice_item_height
     };
+}
+
+namespace {
+
+/// The points above one item, when a heading keeps room above its group.
+///
+/// @param look the menu
+/// @param index the item, from 0
+/// @return the gap; 0 for a choice, a rule, the first item, or a classic menu
+int32_t menu_lead(const ChoiceMenuLook& look, int32_t index) noexcept {
+    if (look.row_height <= 0 || look.heading_gap <= 0 || index <= 0)
+        return 0;
+    if (static_cast<std::size_t>(index) >= look.items.size())
+        return 0;
+    const ChoiceMenuRow& row = look.items[static_cast<std::size_t>(index)];
+    if (!row.divider || row.rule)
+        return 0;
+    return look.heading_gap;
+}
+
+/// How tall one item is.
+///
+/// @param look the menu
+/// @param index the item, from 0
+/// @return the height, in points
+int32_t menu_span(const ChoiceMenuLook& look, int32_t index) noexcept {
+    if (look.row_height <= 0)
+        return compact_metrics.choice_item_height;
+    if (index >= 0 && static_cast<std::size_t>(index) < look.items.size() &&
+        look.items[static_cast<std::size_t>(index)].rule && look.rule_height > 0)
+        return look.rule_height;
+    return look.row_height;
+}
+
+} // namespace
+
+Rect menu_item_box(const Rect& menu, const ChoiceMenuLook& look, int32_t place) noexcept {
+    if (look.row_height <= 0)
+        return choice_item(menu, place);
+    int32_t top = menu.y + 1;
+    for (int32_t step = 0; step < place; ++step) {
+        const int32_t index = look.first + step;
+        top += menu_lead(look, index) + menu_span(look, index);
+    }
+    const int32_t index = look.first + place;
+    top += menu_lead(look, index);
+    return {menu.x + 1, top, menu.width - 2, menu_span(look, index)};
 }
 
 int32_t choice_item_at(const Rect& menu, int32_t x, int32_t y) noexcept {
@@ -1898,9 +2222,14 @@ void draw_lock(const Canvas& canvas, const Rect& area, const LockLook& look) {
 void draw_scroll_bar(const Canvas& canvas, const Rect& well, const Rect& thumb, bool hot) {
     if (!drawable(canvas))
         return;
-    fill_rect(canvas, well, colour::well);
-    outline_rect(canvas, well, hot ? colour::control_hover : colour::control_border);
-    fill_rect(canvas, thumb, hot ? colour::switch_idle : colour::control_hover);
+    // Rounded at both ends whichever way the bar runs.
+    fill_corner_rect(canvas, well, std::min(well.width, well.height) / 2, colour::well);
+    fill_corner_rect(
+        canvas,
+        thumb,
+        std::min(thumb.width, thumb.height) / 2,
+        hot ? colour::text_tertiary : colour::control_hover
+    );
 }
 
 namespace {
@@ -1940,7 +2269,7 @@ void draw_oa_button_face(const Canvas& canvas, int32_t side, OaButtonState state
         return;
     }
     draw_mark_square(
-        canvas, side, state == OaButtonState::idle ? colour::accent : colour::accent_light
+        canvas, side, state == OaButtonState::idle ? colour::brand : colour::brand_light
     );
 }
 
@@ -2215,7 +2544,7 @@ void draw_oa_mark(const Canvas& canvas, int32_t side) {
         draw_picture(canvas, {0, 0, side, side}, canvas.icon);
         return;
     }
-    draw_mark_square(canvas, side, colour::accent);
+    draw_mark_square(canvas, side, colour::brand);
 }
 
 void draw_header_mark(const Canvas& canvas, const Rect& place) {
@@ -2232,13 +2561,13 @@ void draw_header_mark(const Canvas& canvas, const Rect& place) {
         side,
         side,
     };
-    outline_rect(canvas, square, colour::accent);
+    outline_rect(canvas, square, colour::brand);
     draw_mark(
         canvas,
         kSmallMark,
         {square.x + (square.width - kSmallMark.width) / 2,
          square.y + (square.height - kSmallMark.height + 1) / 2},
-        colour::accent
+        colour::brand
     );
 }
 
@@ -2284,6 +2613,35 @@ void add_switch(
     list.items.push_back(std::move(item));
     add_control(
         list, rect, id, std::move(name), ControlKind::toggle, true, look.on, text, !look.locked
+    );
+}
+
+void add_radio(
+    DisplayList& list, const Rect& rect, const RadioLook& look, ControlId id, std::string name
+) {
+    Item item;
+    item.role = Role::radio;
+    item.rect = rect;
+    item.control = id;
+    item.text = look.caption;
+    item.state.hovered = look.hovered;
+    item.state.pressed = look.held;
+    item.state.selected = look.on;
+    item.state.disabled = look.disabled;
+    item.look = look;
+    list.items.push_back(std::move(item));
+    if (id == no_control)
+        return;
+    add_control(
+        list,
+        rect,
+        id,
+        std::move(name),
+        ControlKind::button,
+        false,
+        look.on,
+        look.caption,
+        !look.disabled
     );
 }
 

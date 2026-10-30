@@ -16,6 +16,7 @@
 #include "engine_settings_state.hpp"
 
 #include "oa/app/content/updates.hpp"
+#include "oa/app/game_directory.hpp"
 #include "oa/app/mod_summary.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/data/brain_library/library.hpp"
@@ -851,8 +852,13 @@ std::vector<brains::Brain> Runtime::own_brain_picker_brains(void* context) {
 }
 
 uint64_t Runtime::own_brain_picker_generation(void* context) {
-    // The count reload_installed_brains moves. This does not list the folder.
-    return static_cast<Runtime*>(context)->installed_brains_generation_;
+    // Either count only rises. The high half is the brain listing and the low
+    // half is the copied bundles, so a change of either rebuilds the list.
+    // This does not list a folder.
+    const Runtime& runtime = *static_cast<Runtime*>(context);
+    const uint64_t brains = runtime.installed_brains_generation_;
+    const uint64_t content = content_bundles_generation();
+    return (brains << 32) | (content & 0xffffffffu);
 }
 
 bool Runtime::open_brain_picker(BrainPickerRequest request) {

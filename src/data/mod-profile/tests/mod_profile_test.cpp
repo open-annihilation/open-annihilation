@@ -743,18 +743,128 @@ void test_blocks() {
         const auto& hidden = room_other.resolution->profile.identity.battle_room_hidden_sides;
         OA_CHECK(hidden.count == 1 && hidden.items[0] == 3);
     }
+    // The sides a computer player may take: an empty list hashes as a profile
+    // without the key; naming a side changes the full hash and not the sim hash.
+    const ResolveResult computers_none =
+        resolve(profile_text("minimal", "identity:\n  computer-player-sides: []\n"));
+    const ResolveResult computers_arm =
+        resolve(profile_text("minimal", "identity:\n  computer-player-sides: [0]\n"));
+    OA_CHECK(computers_none.resolution && computers_arm.resolution);
+    if (computers_none.resolution && computers_arm.resolution && left_out.resolution) {
+        const auto& base = left_out.resolution->profile;
+        OA_CHECK(computers_none.resolution->profile.full_hash == base.full_hash);
+        OA_CHECK(computers_none.resolution->profile.sim_hash == base.sim_hash);
+        OA_CHECK(computers_arm.resolution->profile.sim_hash == base.sim_hash);
+        OA_CHECK(computers_arm.resolution->profile.full_hash != base.full_hash);
+        const auto& taken = computers_arm.resolution->profile.identity.computer_player_sides;
+        OA_CHECK(taken.count == 1 && taken.items[0] == 0);
+    }
+    OA_CHECK(refused_with(
+        profile_text("computer-side-past", "identity:\n  computer-player-sides: [5]\n"),
+        "side 5 is past the 5 sides of limits.sides"
+    ));
+    const ResolveResult computers_wide = resolve(profile_text(
+        "computer-sides", "limits: {sides: 7}\nidentity:\n  computer-player-sides: [5]\n"
+    ));
+    OA_CHECK(computers_wide.resolution.has_value());
+    if (computers_wide.resolution) {
+        const auto& taken = computers_wide.resolution->profile.identity.computer_player_sides;
+        OA_CHECK(taken.count == 1 && taken.items[0] == 5);
+    }
+    OA_CHECK(refused_with(
+        profile_text(
+            "computer-skirmish-hidden",
+            "identity:\n  computer-player-sides: [1]\n  skirmish-hidden-sides: [1]\n"
+        ),
+        "hidden from the skirmish"
+    ));
+    OA_CHECK(refused_with(
+        profile_text(
+            "computer-room-hidden",
+            "identity:\n  computer-player-sides: [1]\n  battle-room-hidden-sides: [1]\n"
+        ),
+        "hidden from the battle room"
+    ));
+    OA_CHECK(refused_with(
+        profile_text("computer-side-ceiling", "identity:\n  computer-player-sides: [32]\n"),
+        "is outside [0, 31]"
+    ));
+    // At five sides, side 5 is past the limit. With seven sides, 5 and 6 are
+    // hidden: view scope, so the full hash moves and the sim hash does not.
     OA_CHECK(refused_with(
         profile_text("hidden-side-past", "identity:\n  skirmish-hidden-sides: [5]\n"),
-        "is outside [0, 4]"
+        "past the 5 sides of limits.sides"
+    ));
+    OA_CHECK(refused_with(
+        profile_text("room-side-past", "identity:\n  battle-room-hidden-sides: [5]\n"),
+        "past the 5 sides of limits.sides"
+    ));
+    const ResolveResult wide_hidden = resolve(profile_text(
+        "wide-hidden", "limits: {sides: 7}\nidentity:\n  skirmish-hidden-sides: [5, 6]\n"
+    ));
+    const ResolveResult wide_plain = resolve(profile_text("wide-hidden", "limits: {sides: 7}\n"));
+    OA_CHECK(wide_hidden.resolution && wide_plain.resolution);
+    if (wide_hidden.resolution && wide_plain.resolution) {
+        const auto& hidden = wide_hidden.resolution->profile.identity.skirmish_hidden_sides;
+        OA_CHECK(hidden.count == 2 && hidden.items[0] == 5 && hidden.items[1] == 6);
+        OA_CHECK(
+            wide_hidden.resolution->profile.sim_hash == wide_plain.resolution->profile.sim_hash
+        );
+        OA_CHECK(
+            wide_hidden.resolution->profile.full_hash != wide_plain.resolution->profile.full_hash
+        );
+    }
+    OA_CHECK(refused_with(
+        profile_text("hidden-side-ceiling", "identity:\n  skirmish-hidden-sides: [32]\n"),
+        "is outside [0, 31]"
+    ));
+    OA_CHECK(refused_with(
+        profile_text("hidden-every-side", "identity:\n  skirmish-hidden-sides: [0, 1, 2, 3, 4]\n"),
+        "hides every one of the 5 sides"
     ));
     OA_CHECK(refused_with(
         profile_text("hidden-side-twice", "identity:\n  skirmish-hidden-sides: [2, 2]\n"),
         "repeated items"
     ));
+    // Frames 16 and 63 are view scope: the sim hash stays, the full hash moves.
+    const ResolveResult frame_16 =
+        resolve(profile_text("minimal", "identity:\n  watcher-side-frame: 16\n"));
+    const ResolveResult frame_63 =
+        resolve(profile_text("minimal", "identity:\n  watcher-side-frame: 63\n"));
+    OA_CHECK(frame_16.resolution && frame_63.resolution);
+    if (frame_16.resolution && frame_63.resolution && left_out.resolution) {
+        const auto& base = left_out.resolution->profile;
+        OA_CHECK(frame_16.resolution->profile.identity.watcher_side_frame == 16);
+        OA_CHECK(frame_63.resolution->profile.identity.watcher_side_frame == 63);
+        OA_CHECK(frame_16.resolution->profile.sim_hash == base.sim_hash);
+        OA_CHECK(frame_63.resolution->profile.sim_hash == base.sim_hash);
+        OA_CHECK(frame_16.resolution->profile.full_hash != base.full_hash);
+        OA_CHECK(frame_63.resolution->profile.full_hash != base.full_hash);
+    }
     OA_CHECK(refused_with(
-        profile_text("watcher-frame-past", "identity:\n  watcher-side-frame: 16\n"),
-        "is outside [0, 15]"
+        profile_text("watcher-frame-past", "identity:\n  watcher-side-frame: 64\n"),
+        "is outside [0, 63]"
     ));
+    // icon-categories is view scope: 128 is the bound, 129 is refused, and a
+    // count of 69 moves the full hash only.
+    const ResolveResult icon_128 =
+        resolve(profile_text("icon-cats", "hacks:\n  ui.megamap: {icon-categories: 128}\n"));
+    OA_CHECK(icon_128.resolution.has_value());
+    if (icon_128.resolution)
+        OA_CHECK(icon_128.resolution->profile.ui.megamap.icon_categories == 128);
+    OA_CHECK(refused_with(
+        profile_text("icon-cats-past", "hacks:\n  ui.megamap: {icon-categories: 129}\n"),
+        "is outside [0, 128]"
+    ));
+    const ResolveResult icon_69 =
+        resolve(profile_text("icon-cats", "hacks:\n  ui.megamap: {icon-categories: 69}\n"));
+    const ResolveResult icon_9 =
+        resolve(profile_text("icon-cats", "hacks:\n  ui.megamap: {icon-categories: 9}\n"));
+    OA_CHECK(icon_69.resolution && icon_9.resolution);
+    if (icon_69.resolution && icon_9.resolution) {
+        OA_CHECK(icon_69.resolution->profile.sim_hash == icon_9.resolution->profile.sim_hash);
+        OA_CHECK(icon_69.resolution->profile.full_hash != icon_9.resolution->profile.full_hash);
+    }
     OA_CHECK(refused_with(
         profile_text("archives-slash", "layout:\n  installation-archives: [\"dir/addon.ccx\"]\n"),
         "does not match"
@@ -805,7 +915,8 @@ void test_blocks() {
     );
 }
 
-/// A profile names one side a name, up to five sides; three names give three.
+/// A profile names one side a name, two or more and no more than limits.sides;
+/// three names give three.
 void test_side_names() {
     const ResolveResult result =
         resolve(profile_text("sides", "identity:\n  side-names: [North, South, East]\n"));
@@ -818,6 +929,22 @@ void test_side_names() {
         text_of(at(*result.resolution, {"identity", "side-names"})) ==
         "[\"North\",\"South\",\"East\"]"
     );
+    OA_CHECK(refused_with(
+        profile_text("six-names", "identity:\n  side-names: [A, B, C, D, E, F]\n"),
+        "6 names, more than the 5 sides"
+    ));
+    const ResolveResult six = resolve(profile_text(
+        "six-sides", "limits: {sides: 7}\nidentity:\n  side-names: [A, B, C, D, E, F]\n"
+    ));
+    OA_CHECK(six.resolution && six.resolution->profile.identity.side_names.size() == 6);
+    std::string many = "identity:\n  side-names: [";
+    for (int name = 0; name < 33; ++name) {
+        if (name != 0)
+            many += ", ";
+        many += "S" + std::to_string(name);
+    }
+    many += "]\n";
+    OA_CHECK(refused_with(profile_text("too-many-names", many), "2-32 items"));
 }
 
 void test_comments_and_true() {
@@ -929,7 +1056,7 @@ void test_refusals() {
         {"settings: {registry-seeds: {UnitLimit: true}}", "integers or strings"},
         {"identity: {network-version: [3, 1, 0]}", "2 items"},
         {"identity: {side-names: [Arm]}", "items"},
-        {"identity: {side-names: [A, B, C, D, E, F]}", "items"},
+        {"identity: {side-names: [A, B, C, D, E, F]}", "6 names, more than the 5 sides"},
         {"identity: {display-version: 3.1}", "expected a string"},
         {"layout: {directories: {maps: maps}}", "unknown key"},
         {"layout: {archive-patterns: {ufo: SWX}}", "does not match"},
@@ -944,6 +1071,11 @@ void test_refusals() {
         {"detect: {all: [{file: a.gp3}]}", "unknown top-level"},
         {"notes: text", "unknown top-level"},
         {"5: five", "unknown top-level"},
+        {"limits: {weapon-types: 255}", "outside"},
+        {"limits: {weapon-types: 65537}", "outside"},
+        {"limits: {sides: 4}", "outside"},
+        {"limits: {sides: 33}", "outside"},
+        {"limits: {weapon-types: 1.5}", "integer"},
     };
     for (const Case& refusal : cases) {
         const bool refused =
@@ -1644,6 +1776,69 @@ void test_content_needs() {
     OA_CHECK(refused_with(profile_text("many-games", many), "at most 16"));
 }
 
+void test_weapon_and_side_limits() {
+    const ResolveResult minimal = resolve(profile_text("minimal"));
+    OA_CHECK(minimal.resolution.has_value());
+    if (!minimal.resolution)
+        return;
+    const Resolution& base = *minimal.resolution;
+    OA_CHECK(base.profile.limits.weapon_types.types == 256);
+    OA_CHECK(base.profile.limits.sides.count == 5);
+    OA_CHECK(text_of(at(base, {"limits", "weapon-types"})) == "{\"types\":256}");
+    OA_CHECK(text_of(at(base, {"limits", "sides"})) == "{\"count\":5}");
+    OA_CHECK(base.canonical.find("\"weapon-types\"") == std::string::npos);
+    OA_CHECK(base.canonical.find("\"sides\"") == std::string::npos);
+
+    const ResolveResult turned_on =
+        resolve(profile_text("on", "limits: {weapon-types: true, sides: true}\n"));
+    OA_CHECK(turned_on.resolution.has_value());
+    if (turned_on.resolution) {
+        OA_CHECK(turned_on.resolution->profile.limits.weapon_types.types == 4096);
+        OA_CHECK(turned_on.resolution->profile.limits.sides.count == 10);
+    }
+
+    const ResolveResult shorthand =
+        resolve(profile_text("shorthand", "limits: {weapon-types: 1024, sides: 7}\n"));
+    OA_CHECK(shorthand.resolution.has_value());
+    if (shorthand.resolution) {
+        OA_CHECK(shorthand.resolution->profile.limits.weapon_types.types == 1024);
+        OA_CHECK(shorthand.resolution->profile.limits.sides.count == 7);
+        OA_CHECK(
+            shorthand.resolution->canonical.find("\"weapon-types\":{\"types\":1024}") !=
+            std::string::npos
+        );
+        OA_CHECK(
+            shorthand.resolution->canonical.find("\"sides\":{\"count\":7}") != std::string::npos
+        );
+    }
+
+    const char* written_at_baseline[] = {
+        "limits: {weapon-types: false, sides: false}\n",
+        "limits: {weapon-types: 256, sides: 5}\n",
+        "limits: {weapon-types: {preset: baseline}, sides: {preset: baseline}}\n",
+    };
+    for (const char* body : written_at_baseline) {
+        const ResolveResult written = resolve(profile_text("minimal", body));
+        OA_CHECK(written.resolution.has_value());
+        if (!written.resolution)
+            continue;
+        OA_CHECK(written.resolution->profile.sim_hash == base.profile.sim_hash);
+        OA_CHECK(written.resolution->profile.full_hash == base.profile.full_hash);
+    }
+
+    OA_CHECK(turned_on.resolution && shorthand.resolution);
+    if (turned_on.resolution && shorthand.resolution) {
+        OA_CHECK(turned_on.resolution->profile.sim_hash != base.profile.sim_hash);
+        OA_CHECK(turned_on.resolution->profile.full_hash != base.profile.full_hash);
+        OA_CHECK(shorthand.resolution->profile.sim_hash != base.profile.sim_hash);
+        OA_CHECK(shorthand.resolution->profile.full_hash != base.profile.full_hash);
+        OA_CHECK(turned_on.resolution->profile.sim_hash != shorthand.resolution->profile.sim_hash);
+        OA_CHECK(
+            turned_on.resolution->profile.full_hash != shorthand.resolution->profile.full_hash
+        );
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && std::string_view{argv[1]} == "--references")
         return test_references();
@@ -1657,6 +1852,7 @@ int main(int argc, char** argv) {
     test_comments_and_true();
     test_unimplemented();
     test_refusals();
+    test_weapon_and_side_limits();
     test_author_and_packaging();
     test_overrides();
     test_override_text_and_states();

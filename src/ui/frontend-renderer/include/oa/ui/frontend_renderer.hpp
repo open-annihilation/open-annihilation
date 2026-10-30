@@ -62,6 +62,9 @@ struct ButtonPresentation {
     // The caption is game text, such as a player's name, which the
     // Language settings may draw in the modern fonts.
     bool game_text = false;
+    /// Draws the button's bevelled face and caption with no art, as a button
+    /// without art is drawn, whatever art its record names.
+    bool caption_only = false;
 };
 
 // Runtime records bound to a type-2 gadget. List storage lives outside the
@@ -157,6 +160,40 @@ struct ScreenAssetNames {
 /// @throws std::runtime_error when the layout is missing or malformed.
 [[nodiscard]] ScreenResources
 load_screen_layout(AssetStore& assets, const ScreenResources& art, const std::string& layout);
+
+/// Reads a GUI layout, its texts in the game's language, as load_screen()
+/// reads a screen's.
+///
+/// @param assets Asset store searched loose files first, then archives.
+/// @param layout The layout's name.
+/// @return The layout, its buttons not yet bound to any art.
+/// @throws std::runtime_error when the layout is missing or malformed.
+[[nodiscard]] ui::gui_layout::Layout
+read_screen_layout(AssetStore& assets, const std::string& layout);
+
+/// Lays a layout read_screen_layout() read out over a screen's art, taking
+/// the art.
+///
+/// What load_screen_layout() gives, reading nothing, with the art moved into
+/// the result rather than copied when the caller moves it in: the match's
+/// side column hands its art from page to page so, and holds it once.
+///
+/// @param art Resources load_screen_art() loaded; its layout is replaced.
+/// @param layout The layout; its buttons are bound to the art as load_screen()
+///        binds them.
+/// @return The art with the layout.
+[[nodiscard]] ScreenResources lay_out_screen(ScreenResources art, ui::gui_layout::Layout layout);
+
+/// Returns the file a screen's background is read from.
+///
+/// load_screen() and load_screen_art() read the background in the language's
+/// folder when the game data has it there (bitmaps-German), as 3.1c looks
+/// first, and the background named otherwise.
+///
+/// @param assets Asset store searched loose files first, then archives.
+/// @param background The background's name.
+/// @return The path read.
+[[nodiscard]] std::string screen_background_path(AssetStore& assets, const std::string& background);
 
 /// Binds a screen's buttons and labels as the first draw of their panel does.
 ///

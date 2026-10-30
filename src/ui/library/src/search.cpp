@@ -91,6 +91,8 @@ struct Fields {
     std::string summary{};
     /// True for a brain, so a tag's label is a brain tag's.
     bool brain{};
+    /// True for a key layout, so a tag's label is a key-layout tag's.
+    bool keys{};
 };
 
 /// Folds an entry's fields.
@@ -126,6 +128,11 @@ Fields fields_of(const Entry& entry) {
         fields.brain = true;
         return fields;
     }
+    if (is_built_in_layout(entry.id)) {
+        fields.summary = folded(entry_summary(entry));
+        fields.keys = true;
+        return fields;
+    }
     if (entry.id.kind == Kind::mutator) {
         if (const std::vector<std::string>* tags = mutator_tag_list(entry))
             fields.tags = *tags;
@@ -134,6 +141,12 @@ Fields fields_of(const Entry& entry) {
     } else if (entry.id.kind == Kind::brain) {
         fields.brain = true;
         if (const BrainFacts* facts = brain_facts(entry))
+            fields.tags = facts->tags;
+        if (entry.listing == nullptr)
+            return fields;
+    } else if (entry.id.kind == Kind::key_layout) {
+        fields.keys = true;
+        if (const KeyLayoutFacts* facts = key_facts(entry))
             fields.tags = facts->tags;
         if (entry.listing == nullptr)
             return fields;
@@ -163,8 +176,13 @@ class_of(const Fields& fields, std::string_view word, const TextHooks& text) {
         const std::string id = folded(tag);
         if (std::string_view(id).substr(0, word.size()) == word)
             return MatchClass::tag;
-        const std::string label =
-            folded(fields.brain ? brain_tag_label(tag, text) : tag_label(tag, text));
+        // A world tag is found by its world's name too, as the list shows it.
+        if (world_tag(id) && world_name(id).substr(0, word.size()) == word)
+            return MatchClass::tag;
+        const std::string label = folded(
+            fields.brain ? brain_tag_label(tag, text)
+                         : (fields.keys ? key_tag_label(tag, text) : tag_label(tag, text))
+        );
         if (label != id && std::string_view(label).substr(0, word.size()) == word)
             return MatchClass::tag;
     }
@@ -281,6 +299,8 @@ bool tab_holds(Tab tab, Kind kind) {
         return kind == Kind::mutator;
     case Tab::brains:
         return kind == Kind::brain;
+    case Tab::keys:
+        return kind == Kind::key_layout;
     case Tab::languages:
         return kind == Kind::language;
     case Tab::updates:
@@ -345,6 +365,18 @@ bool shows_built_in_brain(const Library& library, Filter filter) {
     return library.tab == Tab::brains && (filter == Filter::all || filter == Filter::installed);
 }
 
+/// Tells whether OA default shows under a filter.
+///
+/// It shows on Keys, under All and Installed, and under no other tab or
+/// filter. New never holds it: it is not a package a registry published.
+///
+/// @param library the Library
+/// @param filter the filter
+/// @return true when the list keeps it
+bool shows_built_in_layout(const Library& library, Filter filter) {
+    return library.tab == Tab::keys && (filter == Filter::all || filter == Filter::installed);
+}
+
 /// Tells whether the tab's filter offers the tag that is stored.
 ///
 /// Counts never apply the tag, and the chip row lists only the tags of this
@@ -395,6 +427,16 @@ std::optional<Rank> rank(const Entry& entry, std::string_view query, const TextH
         fields.tags.emplace_back("default");
         fields.tags.emplace_back(shown(text, words::chip_default));
     }
+    // "built" and "in" find OA default, including under a translation of
+    // Built in. The row still shows the sentence the catalogue gives it.
+    if (is_built_in_layout(entry.id)) {
+        const std::string built_in = folded(shown(text, words::registry_built_in));
+        if (!built_in.empty()) {
+            if (!fields.summary.empty())
+                fields.summary.push_back(' ');
+            fields.summary.append(built_in);
+        }
+    }
     Rank result;
     for (const std::string_view word : terms) {
         const std::optional<MatchClass> found = class_of(fields, word, text);
@@ -419,6 +461,8 @@ std::vector<bool> kept_by_filter(const Library& library, Filter filter) {
                 kept[index] = shows_built_in_language(library, filter);
             else if (is_built_in_brain(entry.id))
                 kept[index] = shows_built_in_brain(library, filter);
+            else if (is_built_in_layout(entry.id))
+                kept[index] = shows_built_in_layout(library, filter);
             else
                 kept[index] = tab_holds(library.tab, entry.id.kind) && state_kept(filter, entry);
         }
@@ -429,7 +473,8 @@ std::vector<bool> kept_by_filter(const Library& library, Filter filter) {
     std::vector<Candidate> dated;
     for (std::size_t index = 0; index < library.entries.size(); ++index) {
         const Entry& entry = library.entries[index];
-        if (is_base_game(entry.id) || is_built_in_language(entry.id) || is_built_in_brain(entry.id))
+        if (is_base_game(entry.id) || is_built_in_language(entry.id) ||
+            is_built_in_brain(entry.id) || is_built_in_layout(entry.id))
             continue;
         if (tab_holds(library.tab, entry.id.kind) && !published_day(entry).empty())
             dated.push_back({index, {}, Group::get, folded(entry_name(entry))});
@@ -450,6 +495,9 @@ bool has_shown_tag(const Library& library, const Entry& entry) {
         tags = mutator_tag_list(entry);
     else if (entry.id.kind == Kind::brain) {
         if (const BrainFacts* facts = brain_facts(entry))
+            tags = &facts->tags;
+    } else if (entry.id.kind == Kind::key_layout) {
+        if (const KeyLayoutFacts* facts = key_facts(entry))
             tags = &facts->tags;
     } else if (entry.listing != nullptr)
         tags = &entry.listing->tags;
@@ -527,6 +575,24 @@ void update_visible(Library& library) {
         if (built_in != kept.end() && built_in != kept.begin())
             std::rotate(kept.begin(), built_in, built_in + 1);
     }
+    // OA default leads the Keys list. Layouts made for the mod being played
+    // come next, ahead of the order the other packages take.
+    if (library.tab == Tab::keys) {
+        const auto built_in =
+            std::find_if(kept.begin(), kept.end(), [&](const Candidate& candidate) {
+                return is_built_in_layout(library.entries[candidate.index].id);
+            });
+        if (built_in != kept.end() && built_in != kept.begin())
+            std::rotate(kept.begin(), built_in, built_in + 1);
+        auto rest = kept.begin();
+        if (rest != kept.end() && is_built_in_layout(library.entries[rest->index].id))
+            ++rest;
+        std::stable_partition(rest, kept.end(), [&](const Candidate& candidate) {
+            const Entry& entry = library.entries[candidate.index];
+            const KeyLayoutFacts* facts = key_facts(entry);
+            return facts != nullptr && layout_made_for_played(library.inputs, facts->works_with);
+        });
+    }
     library.visible.clear();
     for (const Candidate& candidate : kept)
         library.visible.push_back(candidate.index);
@@ -544,7 +610,8 @@ std::size_t tab_count(const Library& library, Tab tab) {
     std::size_t count = 0;
     for (const Entry& entry : library.entries)
         if (tab_holds(tab, entry.id.kind) && !is_base_game(entry.id) &&
-            !is_built_in_language(entry.id) && !is_built_in_brain(entry.id))
+            !is_built_in_language(entry.id) && !is_built_in_brain(entry.id) &&
+            !is_built_in_layout(entry.id))
             ++count;
     return count;
 }

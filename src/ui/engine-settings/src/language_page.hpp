@@ -113,7 +113,7 @@ void set_language(SettingsModel& model, int32_t index);
 /// the Library can open over it (Dialog::library_link).
 [[nodiscard]] inline constexpr kit::RowSpec<SettingsModel> more_in_library_row() noexcept {
     kit::RowSpec<SettingsModel> spec =
-        kit::link<SettingsModel>("more-in-library", "MORE IN THE LIBRARY…", open_library_action);
+        kit::link<SettingsModel>("more-in-library", "More in the Library…", open_library_action);
     spec.hint = {"More languages are in the Library.", {}};
     return spec;
 }

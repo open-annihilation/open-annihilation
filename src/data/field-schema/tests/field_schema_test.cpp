@@ -127,6 +127,17 @@ void check_schema() {
     expect_verdict(Verdict::refuse, check_number(RecordKind::weapon, "id", -1));
     expect_verdict(Verdict::ok, check_number(RecordKind::weapon, "id", 0));
     expect_verdict(Verdict::ok, check_number(RecordKind::weapon, "id", 255));
+    expect_verdict(Verdict::ok, check_number(RecordKind::weapon, "id", 1023, 1024));
+    expect_verdict(Verdict::refuse, check_number(RecordKind::weapon, "id", 1024, 1024));
+    OA_CHECK(
+        check_number(RecordKind::weapon, "id", 1024, 1024).reason.find("1023") != std::string::npos
+    );
+    expect_verdict(Verdict::ok, check_text(RecordKind::weapon, "id", "1023", 1024));
+    expect_verdict(Verdict::refuse, check_text(RecordKind::weapon, "id", "1024", 1024));
+    OA_CHECK(
+        check_text(RecordKind::weapon, "id", "1024", 1024).reason.find("1023") != std::string::npos
+    );
+    expect_verdict(Verdict::warn, check_number(RecordKind::weapon, "color", 256, 1024));
     expect_verdict(Verdict::refuse, check_number(RecordKind::weapon, "burst", -1));
     expect_verdict(Verdict::refuse, check_text(RecordKind::unit, "name", "a;b"));
     expect_verdict(Verdict::refuse, check_text(RecordKind::unit, "name", "a\nb"));

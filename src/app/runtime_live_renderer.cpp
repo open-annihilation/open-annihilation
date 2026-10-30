@@ -14,10 +14,12 @@
 #include "oa/sim/unit_movement/terrain.hpp"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <string_view>
 #include <unordered_map>
 
 namespace oa::app {
@@ -46,6 +48,26 @@ struct Runtime::LiveRenderer {
     bool failed{};
     bool unavailable{};
     const void* match{};
+
+    /// The camera of the last frame drawn, turned or classic: a frame that
+    /// needs more room than the renderer has goes back to it, rather than to
+    /// the classic view, so that a turn or a zoom stops where the frames
+    /// could still be drawn.
+    struct Drawn {
+        bool held{};
+        renderer_live_camera::State camera{};
+        renderer_live_camera::View view{};
+        std::array<double, 2> place{};
+        float zoom{};
+        Runtime::ViewHold view_hold{};
+    };
+
+    Drawn drawn{};
+    /// The view has gone back for lack of room since a frame last drew
+    /// where it was asked to: reported once until then.
+    bool out_of_room{};
+    /// The frame being drawn again is drawn from the camera last drawn.
+    bool went_back{};
 };
 
 void Runtime::destroy_live_renderer(LiveRenderer* renderer) noexcept {
@@ -131,6 +153,37 @@ void Runtime::reset_live_renderer() {
     }
 }
 
+bool Runtime::answer_live_view_key(std::string_view action) {
+    if (action != "camera.classic-view" && action != "camera.unlocked")
+        return false;
+    // Where no rotated view can be drawn, Alt and its keys stay the game's.
+    if ((live_renderer_ && live_renderer_->gpu.device_unavailable) ||
+        !engine_settings().allow_full_3d || screen_ != Screen::match || !match_ || !selected_tnt_)
+        return false;
+    if (!full_presentation() && !options_.headless_check)
+        return false;
+    // A marker's text takes the letters, and a panel or the question owns the
+    // keys.
+    if (match_question_open() || chat_composing_ || whiteboard_input_.editing || match_paused_)
+        return false;
+    if (!live_renderer_)
+        live_renderer_.reset(new LiveRenderer{});
+    if (action == "camera.classic-view") {
+        reset_live_renderer();
+        return true;
+    }
+    auto& live = *live_renderer_;
+    live.failed = false;
+    live.unavailable = false;
+    const auto before = engine_settings();
+    auto chosen = before;
+    chosen.unlocked_camera = !chosen.unlocked_camera;
+    apply_engine_settings(chosen);
+    if (const auto error = save_engine_settings(before, chosen, false))
+        status_ = *error;
+    return true;
+}
+
 bool Runtime::live_renderer_take_event(SDL_Event& event) {
     // Where no rotated view can be drawn, Alt and its clicks and keys stay
     // the game's: below Full hardware acceleration, which never draws it,
@@ -162,23 +215,15 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         live.drag_button = 0;
         return false;
     }
-    const bool option_key = event.type == SDL_EVENT_KEY_DOWN && (event.key.mod & SDL_KMOD_ALT) != 0;
-    if (option_key && (event.key.key == SDLK_R || event.key.scancode == SDL_SCANCODE_R)) {
-        reset_live_renderer();
-        return true;
-    }
-    if (option_key && (event.key.key == SDLK_U || event.key.scancode == SDL_SCANCODE_U)) {
-        if (!event.key.repeat) {
-            live.failed = false;
-            live.unavailable = false;
-            const auto before = engine_settings();
-            auto chosen = before;
-            chosen.unlocked_camera = !chosen.unlocked_camera;
-            apply_engine_settings(chosen);
-            if (const auto error = save_engine_settings(before, chosen, false))
-                status_ = *error;
+    if (event.type == SDL_EVENT_KEY_DOWN) {
+        const auto actions = match_action_events();
+        for (const oa::ui::key_bindings::ActionEvent& action : actions) {
+            if (action.phase != oa::ui::key_bindings::Phase::pressed)
+                continue;
+            if (action.action != "camera.classic-view" && action.action != "camera.unlocked")
+                continue;
+            return handle_match_action(action);
         }
-        return true;
     }
     SDL_Event converted = event;
     const bool pointer =
@@ -204,30 +249,27 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         update_pointer(x, y);
         return true;
     }
-    const auto modifiers = input_modifiers(ModifierUse::keyboard);
-    // While an order or a building is armed, Alt is the click snap's
-    // override key (ClickSnapOverrideKey): that click places it unsnapped.
+    // While an order or a building is armed, Alt on the select button is the
+    // click snap's override: that click places it unsnapped. The pan button
+    // still orbits or pans.
     const bool order_armed = match_command_ != MatchCommand::none || pending_build_type_ != 0;
-    const bool primary_camera_drag = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
-                                     event.button.button == SDL_BUTTON_LEFT &&
-                                     (modifiers & SDL_KMOD_ALT) != 0 && !order_armed;
-    const bool middle_camera_drag =
-        event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_MIDDLE &&
-        ((modifiers & SDL_KMOD_ALT) != 0 ||
-         (live_renderer_active() && engine_settings().middle_click_pan));
-    if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && battlefield &&
-        (middle_camera_drag || primary_camera_drag)) {
-        // An explicit camera gesture retries after a failed frame.
-        live.failed = false;
-        live.unavailable = false;
-        renderer_live_camera::set_unlocked(live.camera, engine_settings().unlocked_camera);
-        live.dragging = true;
-        live.drag_button = event.button.button;
-        live.orbiting = primary_camera_drag ? (modifiers & SDL_KMOD_SHIFT) == 0
-                                            : (modifiers & SDL_KMOD_ALT) != 0;
-        match_drag_.reset();
-        update_pointer(x, y);
-        return true;
+    ensure_key_bindings(false);
+    if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && battlefield) {
+        const uint8_t button = event.button.button;
+        const PointerCameraDrag drag = pointer_camera_drag(button, pointer_modifier_bits());
+        const bool blocked = order_armed && button == match_select_button();
+        if (drag != PointerCameraDrag::none && !blocked) {
+            // An explicit camera gesture retries after a failed frame.
+            live.failed = false;
+            live.unavailable = false;
+            renderer_live_camera::set_unlocked(live.camera, engine_settings().unlocked_camera);
+            live.dragging = true;
+            live.drag_button = button;
+            live.orbiting = drag == PointerCameraDrag::orbit;
+            match_drag_.reset();
+            update_pointer(x, y);
+            return true;
+        }
     }
     if (event.type == SDL_EVENT_MOUSE_MOTION && live.dragging) {
         // Camera gestures consume the event before normal pointer handling.
@@ -259,8 +301,9 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         return true;
     if (!engine_settings().wheel_zoom || live.failed)
         return true;
-    const float turned =
+    const float turned_raw =
         event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -event.wheel.y : event.wheel.y;
+    const float turned = pointer_zoom_amount(turned_raw);
     if (!std::isfinite(turned) || turned == 0)
         return true;
     const auto anchor = live_ground_hit(x, y);
@@ -297,6 +340,7 @@ bool Runtime::render_live_match_surface() {
     auto& live = *live_renderer_;
     if (live.match != match_.get()) {
         live.scene = {};
+        live.drawn = {};
         live.pivot_held = false;
         live.match = match_.get();
         live.failed = false;
@@ -334,6 +378,9 @@ bool Runtime::render_live_match_surface() {
     };
     if (!renderer_live_camera::projection(live.camera, live.view, live.projection))
         return true;
+    // A classic frame is the last camera drawn until a turned one draws.
+    if (!live_renderer_active())
+        live.drawn = {true, live.camera, live.view, place, zoom, view_hold_};
     if (live_renderer_active() && !live.failed) {
         auto& models = match_models();
         renderer_live_scene::Inputs inputs{};
@@ -349,11 +396,13 @@ bool Runtime::render_live_match_surface() {
         inputs.light_scale = models.renderer.light_scale;
         inputs.sea_level = map.sea_level;
         inputs.detail_scale = zoom;
+        // The sliders' strengths, which a lava sea leaves at none.
+        const auto levels = water_levels();
         inputs.water = {
-            engine_settings().water_ripples / 100.0F,
-            engine_settings().coastal_waves / 100.0F,
-            engine_settings().underwater_shimmer / 100.0F,
-            engine_settings().naval_reflections / 100.0F,
+            levels.ripples,
+            levels.coast,
+            levels.shimmer,
+            levels.reflections,
             float(map.sea_level),
             float(match_->simulation().tick % 108000U) / 30.0F,
             std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
@@ -366,6 +415,7 @@ bool Runtime::render_live_match_surface() {
         inputs.nanolathe_intensity = engine_settings().nanolathe_lighting / 100.0F;
         inputs.tick = match_->simulation().tick;
         inputs.translucent_units = match_->state().game.debug_overlay != 0;
+        inputs.new_unit_shadows = engine_settings().new_unit_shadows;
         inputs.view_direction = {live.projection[8], live.projection[9], live.projection[10]};
         inputs.clip_projection = live.projection;
         inputs.clip_width = match_world_cpu_.width;
@@ -380,7 +430,10 @@ bool Runtime::render_live_match_surface() {
         inputs.sight.player_bits = sight.player_bits;
         inputs.sight.width = sight.width;
         inputs.sight.height = sight.height;
-        inputs.sight.viewer_bit = static_cast<uint16_t>(1U << (sight.viewpoint_player & 0x1fU));
+        inputs.sight.shared_bits = allied_mapped_bits();
+        inputs.sight.mapped_bits = static_cast<uint16_t>(
+            (1U << (sight.viewpoint_player & 0x1fU)) | inputs.sight.shared_bits
+        );
         inputs.sight.mapping = match_mapping_on();
         inputs.sight.line_of_sight = match_line_of_sight_on();
         inputs.sight.dithered =
@@ -427,13 +480,55 @@ bool Runtime::render_live_match_surface() {
                                         &inputs.water
                                     )
                                   : renderer_live_gpu::Result::failed;
+        const auto& last = live.drawn;
+        const bool at_last =
+            live.went_back || (last.held && last.camera.yaw_degrees == live.camera.yaw_degrees &&
+                               last.camera.pitch_degrees == live.camera.pitch_degrees &&
+                               last.place == place && last.zoom == zoom);
+        live.went_back = false;
         if (result == renderer_live_gpu::Result::success) {
+            live.drawn = {true, live.camera, live.view, place, zoom, view_hold_};
+            live.out_of_room = false;
             rebuild_live_picking();
             for (std::size_t pixel = 0; pixel < match_world_cpu_.rgb.size() / 3; ++pixel)
                 std::copy_n(
                     live.rgba.data() + pixel * 4, 3, match_world_cpu_.rgb.data() + pixel * 3
                 );
             compose_match_effects(match_world_cpu_, true);
+        } else if (
+            !built && live.scene.out_of_room && last.held && director_ == nullptr &&
+            (!at_last || live.rgba.size() == match_world_cpu_.rgb.size() / 3 * 4)
+        ) {
+            // A frame that needs more room than the renderer has is no
+            // failure of the card: the view goes back to the last camera
+            // drawn, its angle, height, place and zoom, and the frame is
+            // drawn again from there, so that a turn or a zoom stops at
+            // that limit instead of the view going back to classic.
+            if (!live.out_of_room)
+                std::cerr << "3D view: " << error << "; the view stays where it was last drawn\n";
+            live.out_of_room = true;
+            if (at_last) {
+                // The camera last drawn no longer fits either, as when more
+                // comes into view: its last picture stays, with nothing to
+                // pick in it.
+                rebuild_live_picking();
+                for (std::size_t pixel = 0; pixel < match_world_cpu_.rgb.size() / 3; ++pixel)
+                    std::copy_n(
+                        live.rgba.data() + pixel * 4, 3, match_world_cpu_.rgb.data() + pixel * 3
+                    );
+                compose_match_effects(match_world_cpu_, true);
+            } else {
+                const auto back = last;
+                live.camera = back.camera;
+                live.view = back.view;
+                live.pivot_held = true;
+                match_zoom_ = match_zoom_target_ = back.zoom;
+                place_match_view(back.place[0], back.place[1]);
+                view_hold_ = back.view_hold;
+                live.went_back = true;
+                // render_match_surface draws the frame again, from there.
+                return false;
+            }
         } else {
             live.failed = true;
             live.unavailable = result == renderer_live_gpu::Result::unavailable;
@@ -740,6 +835,18 @@ void Runtime::live_scene_visibility(
         if (requested_left >= requested_right)
             return;
     }
+
+    // The triangles that can reach the requested pixels, in their order,
+    // each with the pixels its bounds cover.
+    struct Reach {
+        std::size_t index{}; ///< the triangle's first vertex
+        int x0{};
+        int x1{};
+        int y0{};
+        int y1{};
+    };
+
+    std::vector<Reach> reaches;
     const auto vertex_count = std::min(live.projected.size(), live.scene.vertices.size());
     for (std::size_t index = 0; index + 2 < vertex_count; index += 3) {
         const std::array triangle{
@@ -775,61 +882,96 @@ void Runtime::live_scene_visibility(
             if (!intersects)
                 continue;
         }
-        renderer_live_camera::PreparedTriangle prepared;
-        if (!renderer_live_camera::prepare_triangle(triangle, prepared))
-            continue;
-        for (int y = y0; y < y1; ++y) {
-            const int left_limit =
-                bounded ? std::max(x0, static_cast<int>(std::min(row_left[y], width))) : x0;
-            const int right_limit =
-                bounded ? std::min(x1, static_cast<int>(std::min(row_right[y], width))) : x1;
-            for (int x = left_limit; x < right_limit; ++x) {
-                const std::size_t pixel = static_cast<std::size_t>(y) * width + x;
-                if (!requested_pixels.empty() && requested_pixels[pixel] == 0)
-                    continue;
-                std::array<float, 3> weights{};
-                float depth{};
-                constexpr float pixel_centre = 0.5F;
-                if (!renderer_live_camera::triangle_hit_prepared(
-                        prepared, x + pixel_centre, y + pixel_centre, weights, depth
-                    ) ||
-                    depth <= depths[pixel])
-                    continue;
-                float u{}, v{}, opacity{}, brightness{};
-                for (std::size_t corner = 0; corner < weights.size(); ++corner) {
-                    const auto& vertex = live.scene.vertices[index + corner];
-                    u += vertex.u * weights[corner];
-                    v += vertex.v * weights[corner];
-                    opacity += vertex.opacity * weights[corner];
-                    brightness += vertex.brightness * weights[corner];
+        reaches.push_back({index, x0, x1, y0, y1});
+    }
+    // Each band of rows takes the triangles that reach it in their order and
+    // writes its own rows alone, so each pixel takes the triangles in the
+    // same order whatever the bands and threads. One thread takes the rows
+    // as one band, preparing each triangle once.
+    const uint32_t raster_band_rows =
+        draw_pool_ && draw_pool_->threads() > 1 ? rows_per_band : height;
+    const uint32_t raster_bands = platform::job_pool::bands_of_rows(height, raster_band_rows);
+    std::vector<uint32_t> band_firsts(raster_bands + 1, 0);
+    for (const auto& reach : reaches)
+        for (auto band = static_cast<uint32_t>(reach.y0) / raster_band_rows;
+             band <= static_cast<uint32_t>(reach.y1 - 1) / raster_band_rows;
+             ++band)
+            ++band_firsts[band + 1];
+    for (uint32_t band = 0; band < raster_bands; ++band)
+        band_firsts[band + 1] += band_firsts[band];
+    std::vector<uint32_t> band_reaches(band_firsts[raster_bands]);
+    {
+        std::vector<uint32_t> filled(band_firsts.begin(), band_firsts.end() - 1);
+        for (uint32_t reach = 0; reach < reaches.size(); ++reach)
+            for (auto band = static_cast<uint32_t>(reaches[reach].y0) / raster_band_rows;
+                 band <= static_cast<uint32_t>(reaches[reach].y1 - 1) / raster_band_rows;
+                 ++band)
+                band_reaches[filled[band]++] = reach;
+    }
+    platform::job_pool::run_bands(draw_pool_.get(), raster_bands, [&](uint32_t band) {
+        const int band_top = static_cast<int>(band * raster_band_rows);
+        const int band_end = std::min(static_cast<int>(height), band_top + int(raster_band_rows));
+        for (uint32_t slot = band_firsts[band]; slot < band_firsts[band + 1]; ++slot) {
+            const auto& [index, x0, x1, y0, y1] = reaches[band_reaches[slot]];
+            const std::array triangle{
+                live.projected[index], live.projected[index + 1], live.projected[index + 2]
+            };
+            renderer_live_camera::PreparedTriangle prepared;
+            if (!renderer_live_camera::prepare_triangle(triangle, prepared))
+                continue;
+            for (int y = std::max(y0, band_top); y < std::min(y1, band_end); ++y) {
+                const int left_limit =
+                    bounded ? std::max(x0, static_cast<int>(std::min(row_left[y], width))) : x0;
+                const int right_limit =
+                    bounded ? std::min(x1, static_cast<int>(std::min(row_right[y], width))) : x1;
+                for (int x = left_limit; x < right_limit; ++x) {
+                    const std::size_t pixel = static_cast<std::size_t>(y) * width + x;
+                    if (!requested_pixels.empty() && requested_pixels[pixel] == 0)
+                        continue;
+                    std::array<float, 3> weights{};
+                    float depth{};
+                    constexpr float pixel_centre = 0.5F;
+                    if (!renderer_live_camera::triangle_hit_prepared(
+                            prepared, x + pixel_centre, y + pixel_centre, weights, depth
+                        ) ||
+                        depth <= depths[pixel])
+                        continue;
+                    float u{}, v{}, opacity{}, brightness{};
+                    for (std::size_t corner = 0; corner < weights.size(); ++corner) {
+                        const auto& vertex = live.scene.vertices[index + corner];
+                        u += vertex.u * weights[corner];
+                        v += vertex.v * weights[corner];
+                        opacity += vertex.opacity * weights[corner];
+                        brightness += vertex.brightness * weights[corner];
+                    }
+                    constexpr float opaque_alpha = 128;
+                    constexpr float full_alpha = 255;
+                    if (!std::isfinite(u) || !std::isfinite(v) || !std::isfinite(opacity) ||
+                        opacity * full_alpha < opaque_alpha)
+                        continue;
+                    const auto column = static_cast<uint32_t>(std::clamp(
+                        u * live.scene.texture_width, 0.0F, float(live.scene.texture_width - 1)
+                    ));
+                    const auto row = static_cast<uint32_t>(std::clamp(
+                        v * live.scene.texture_height, 0.0F, float(live.scene.texture_height - 1)
+                    ));
+                    const auto alpha =
+                        (static_cast<std::size_t>(row) * live.scene.texture_width + column) * 4 + 3;
+                    if (alpha >= live.scene.texture_rgba.size() ||
+                        live.scene.texture_rgba[alpha] * opacity < opaque_alpha)
+                        continue;
+                    depths[pixel] = depth;
+                    // Unmapped black terrain must not reveal its contours. Known
+                    // terrain carries the same smooth fog attenuation as its draw.
+                    visibility[pixel] =
+                        (!terrain_only || index < live.scene.terrain_vertex_count) &&
+                                std::isfinite(brightness)
+                            ? static_cast<uint8_t>(std::clamp(brightness, 0.0F, 1.0F) * full_alpha)
+                            : 0;
                 }
-                constexpr float opaque_alpha = 128;
-                constexpr float full_alpha = 255;
-                if (!std::isfinite(u) || !std::isfinite(v) || !std::isfinite(opacity) ||
-                    opacity * full_alpha < opaque_alpha)
-                    continue;
-                const auto column = static_cast<uint32_t>(std::clamp(
-                    u * live.scene.texture_width, 0.0F, float(live.scene.texture_width - 1)
-                ));
-                const auto row = static_cast<uint32_t>(std::clamp(
-                    v * live.scene.texture_height, 0.0F, float(live.scene.texture_height - 1)
-                ));
-                const auto alpha =
-                    (static_cast<std::size_t>(row) * live.scene.texture_width + column) * 4 + 3;
-                if (alpha >= live.scene.texture_rgba.size() ||
-                    live.scene.texture_rgba[alpha] * opacity < opaque_alpha)
-                    continue;
-                depths[pixel] = depth;
-                // Unmapped black terrain must not reveal its contours. Known
-                // terrain carries the same smooth fog attenuation as its draw.
-                visibility[pixel] =
-                    (!terrain_only || index < live.scene.terrain_vertex_count) &&
-                            std::isfinite(brightness)
-                        ? static_cast<uint8_t>(std::clamp(brightness, 0.0F, 1.0F) * full_alpha)
-                        : 0;
             }
         }
-    }
+    });
 }
 
 void Runtime::draw_live_selection() {

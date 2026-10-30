@@ -272,7 +272,7 @@ if [[ -z "$app" ]]; then
         "-DZLIB_INCLUDE_DIR=$prefix/zlib/include" "-DZLIB_LIBRARY=$prefix/zlib/lib/libz.a"
 
     step "build"
-    cmake --build "$build_dir" --parallel "$jobs" --target oa-game
+    cmake --build "$build_dir" --parallel "$jobs" --target oa-game --target oa-update
     app="$build_dir/open-annihilation.app"
     release_build=1
 else
@@ -282,6 +282,11 @@ fi
 [[ -f "$app/Contents/Info.plist" ]] || fail "no application bundle at $app"
 app_executable="$(plist_value "$app" CFBundleExecutable)"
 [[ -x "$app/Contents/MacOS/$app_executable" ]] || fail "no executable in $app"
+[[ -x "$app/Contents/MacOS/oa-update" ]] || fail "no oa-update in $app"
+macos_names="$(ls -A "$app/Contents/MacOS" | LC_ALL=C sort | tr '\n' ' ')"
+expected_macos="$(printf '%s\n' "$app_executable" oa-update | LC_ALL=C sort | tr '\n' ' ')"
+[[ "$macos_names" == "$expected_macos" ]] \
+    || fail "Contents/MacOS holds $macos_names, not $expected_macos"
 # The packages name the application as its Info.plist does, Open
 # Annihilation.app; the build tree keeps the target's name.
 app_name="$(plist_value "$app" CFBundleName)"
@@ -292,7 +297,6 @@ app_version="$(plist_value "$app" CFBundleShortVersionString)"
 if [[ "$release_build" == 1 ]]; then
     step "check the build"
     binary="$app/Contents/MacOS/$app_executable"
-    [[ "$(ls -A "$app/Contents/MacOS")" == "$app_executable" ]] || fail "Contents/MacOS holds more than $app_executable"
     resources="$(ls -A "$app/Contents/Resources" | LC_ALL=C sort | tr '\n' ' ')"
     # Classic, packed beside the game, when the source ships it.
     shipped_brains=""
@@ -335,6 +339,13 @@ if [[ "$release_build" == 1 ]]; then
             found && $1 == "minos" && minos == "" {minos = $2} END {print minos}')"
         [[ "$minos" == "$macos_minimum" ]] || fail "the $arch game needs macOS $minos, not $macos_minimum"
     done
+    helper="$app/Contents/MacOS/oa-update"
+    for arch in "${architectures[@]}"; do
+        lipo "$helper" -verify_arch "$arch" || fail "oa-update has no $arch code"
+        if otool -arch "$arch" -L "$helper" | tail -n +2 | grep -Ev '^[[:space:]]+(/usr/lib/|/System/Library/)'; then
+            fail "the $arch helper needs a library outside the system (above)"
+        fi
+    done
     [[ "$(plist_value "$app" LSMinimumSystemVersion)" == "$macos_minimum" ]] \
         || fail "the Info.plist's LSMinimumSystemVersion is not $macos_minimum"
     check_notices "$app/Contents/Resources"
@@ -369,15 +380,18 @@ echo "$staged_app"
 step "strip"
 mkdir -p "$symbols_dir"
 cp "$staged_app/Contents/MacOS/$app_executable" "$symbols_dir/$app_executable"
+cp "$staged_app/Contents/MacOS/oa-update" "$symbols_dir/oa-update"
 strip "$staged_app/Contents/MacOS/$app_executable"
+strip "$staged_app/Contents/MacOS/oa-update"
 echo "$symbols_dir/$app_executable: $(wc -c <"$symbols_dir/$app_executable" | tr -d ' ') bytes," \
     "$(wc -c <"$staged_app/Contents/MacOS/$app_executable" | tr -d ' ') stripped"
+echo "$symbols_dir/oa-update: $(wc -c <"$symbols_dir/oa-update" | tr -d ' ') bytes," \
+    "$(wc -c <"$staged_app/Contents/MacOS/oa-update" | tr -d ' ') stripped"
 
 # Code inside the bundle besides its executable is signed before what holds
 # it: every Mach-O file, then every nested bundle, each deepest first, then
-# the application. The game has none today, since SDL3, zlib and FreeType
-# are linked into its executable, but a library or helper added later is signed
-# where it lies. A Developer ID signature carries the hardened runtime and a
+# the application. Contents/MacOS holds the executable and oa-update, and the
+# helper is signed here before the bundle. A Developer ID signature carries the hardened runtime and a
 # secure timestamp, and no entitlements (docs/development/releasing.md).
 step "sign"
 sign() {

@@ -72,10 +72,10 @@ void start_without() {
     OA_CHECK(one.progress < 0);
     OA_CHECK(one.buttons.size() == 2);
     OA_CHECK(
-        one.buttons[0].caption == "BACK" && one.buttons[0].id == "back" && !one.buttons[0].accent
+        one.buttons[0].caption == "Back" && one.buttons[0].id == "back" && !one.buttons[0].accent
     );
     OA_CHECK(
-        one.buttons[1].caption == "START WITHOUT IT" && one.buttons[1].id == "start-without" &&
+        one.buttons[1].caption == "Start without it" && one.buttons[1].id == "start-without" &&
         one.buttons[1].accent
     );
     OA_CHECK(one.cancel_button == 0 && one.primary_button == 1 && one.marked == 1);
@@ -99,7 +99,7 @@ void start_without() {
         many.failure == "Slip: the ridge gave way Lantern: the wick was wet the list was refused"
     );
     OA_CHECK(
-        many.buttons[1].caption == "START WITHOUT THEM" && many.buttons[1].id == "start-without"
+        many.buttons[1].caption == "Start without them" && many.buttons[1].id == "start-without"
     );
     OA_CHECK(many.marked == 1 && many.primary_button == 1 && many.cancel_button == 0);
     fits(many);
@@ -117,11 +117,11 @@ void forget_set() {
     OA_CHECK(paragraphs_of(one)[1] == "The game's log names them, so their authors can be told.");
     OA_CHECK(one.failure.empty());
     OA_CHECK(
-        one.buttons[0].caption == "KEEP IT" && one.buttons[0].id == "keep-it" &&
+        one.buttons[0].caption == "Keep it" && one.buttons[0].id == "keep-it" &&
         !one.buttons[0].accent
     );
     OA_CHECK(
-        one.buttons[1].caption == "FORGET IT" && one.buttons[1].id == "forget-it" &&
+        one.buttons[1].caption == "Forget it" && one.buttons[1].id == "forget-it" &&
         one.buttons[1].accent
     );
     OA_CHECK(one.cancel_button == 0 && one.primary_button == 1 && one.marked == 1);
@@ -150,17 +150,17 @@ void get_mutators() {
     OA_CHECK(running.progress == 400);
     OA_CHECK(running.failure.empty());
     OA_CHECK(running.buttons.size() == 1);
-    OA_CHECK(running.buttons[0].caption == "CANCEL" && running.buttons[0].id == "cancel");
+    OA_CHECK(running.buttons[0].caption == "Cancel" && running.buttons[0].id == "cancel");
     OA_CHECK(running.cancel_button == 0 && running.primary_button == 0 && running.marked == 0);
     OA_CHECK(names_of(running) == std::vector<std::string>({"prompt.cancel", "prompt.body"}));
     fits(running);
 
     progress.problem = "the ridge did not answer.";
     const kit::Question stopped = picker::get_mutators_question(progress);
-    OA_CHECK(stopped.failure == "the ridge did not answer. RETRY tries again.");
+    OA_CHECK(stopped.failure == "the ridge did not answer. Retry tries again.");
     OA_CHECK(stopped.buttons.size() == 2);
     OA_CHECK(
-        stopped.buttons[1].caption == "RETRY" && stopped.buttons[1].id == "retry" &&
+        stopped.buttons[1].caption == "Retry" && stopped.buttons[1].id == "retry" &&
         stopped.buttons[1].accent
     );
     OA_CHECK(stopped.cancel_button == 0 && stopped.primary_button == 1 && stopped.marked == 1);

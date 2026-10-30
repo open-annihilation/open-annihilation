@@ -14,6 +14,7 @@
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/controls.hpp"
 #include "oa/ui/kit/first_run.hpp"
+#include "oa/ui/kit/keys.hpp"
 #include "oa/ui/kit/theme.hpp"
 
 #include <algorithm>
@@ -74,6 +75,7 @@ constexpr ControlId kSetupBack = kSetupSkip + 1;
 constexpr ControlId kSetupNext = kSetupBack + 1;
 constexpr ControlId kCallToAction = kSetupNext + 1;
 constexpr ControlId kLanguageCard = kCallToAction + 1;
+constexpr ControlId kKeycap = kLanguageCard + 1;
 
 static_assert(
     std::tuple_size_v<decltype(GalleryModel::chips)> == kChipCount,
@@ -129,7 +131,7 @@ constexpr int32_t kWheelStep = 2 * kMetrics.small_line; ///< what a notch of the
 
 constexpr std::string_view kTitle = "Open Annihilation";
 constexpr std::string_view kSecond = "UI kit gallery";
-constexpr std::string_view kCloseCaption = "CLOSE";
+constexpr std::string_view kCloseCaption = "Close";
 constexpr std::array<std::string_view, kTabCount> kTabCaptions{"Mods", "Maps", "Updates"};
 constexpr std::array<int32_t, kTabCount> kTabCounts{0, 0, 2};
 constexpr std::array<std::string_view, kLevelCount> kLevelCaptions{"Off", "Basic", "Full"};
@@ -501,7 +503,7 @@ ListRowLook row_look(const Package& package, bool full) {
 /// @return the look
 CardLook card_look(const Package& package) {
     CardLook look;
-    look.placeholder = "PREVIEW";
+    look.placeholder = "Preview";
     look.title = std::string(package.name);
     look.subtitle = std::string(package.version);
     look.chips.push_back({std::string(package.chip), package.state});
@@ -656,27 +658,27 @@ int32_t tabs(Builder& b, Point at, int32_t width, std::string_view word) {
            );
 }
 
-/// Buttons: a working button and link, the five looks, then a button and a
-/// link in each state.
+/// Buttons: a working button and link, the six looks, then a button and a
+/// link in each state, at Kit 2's Compact control height.
 int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view word) {
     const GalleryModel& model = *b.model;
     int32_t top = at.y;
     {
-        const Rect button{at.x, top, kButtonWidth, kMetrics.button_height};
+        const Rect button{at.x, top, kButtonWidth, kMetrics.control_height};
         const bool over = model.interaction.hovered == kButton;
         const std::size_t part_at = b.list.items.size();
         add_button(
             b.list,
             button,
             button_look(
-                "PRESS", ButtonStyle::accent, over, over && model.interaction.pressed == kButton
+                "Press", ButtonStyle::accent, over, over && model.interaction.pressed == kButton
             ),
             kButton,
             named(word, 1)
         );
         show_working(b, part_at, kButton, button);
         b.order.push_back(kButton);
-        const Rect count{button.x + button.width + kCellGap, top, 96, kMetrics.button_height};
+        const Rect count{button.x + button.width + kCellGap, top, 96, kMetrics.control_height};
         add_words(
             b.list,
             count,
@@ -690,7 +692,7 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
         link.hovered = pointer_on(model, kLink);
         const Rect link_rect{
             count.x + count.width + kCellGap,
-            top + (kMetrics.button_height - kMetrics.small_line) / 2,
+            top + (kMetrics.control_height - kMetrics.small_line) / 2,
             link_width(*b.fonts, link),
             kMetrics.small_line
         };
@@ -698,25 +700,28 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
         add_link(b.list, link_rect, link, kLink, named(word, 2));
         show_working(b, link_at, kLink, link_rect);
         b.order.push_back(kLink);
-        top += kMetrics.button_height + kLineGap;
+        top += kMetrics.control_height + kLineGap;
     }
-    // The five looks, at rest.
-    constexpr std::array<std::string_view, 5> kLooks{"Accent", "Plain", "Quiet", "Inset", "Filled"};
-    constexpr std::array<std::string_view, 5> kLookCaptions{
-        "OK", "Cancel", "Open folder", "Roll back", "Mutators"
+    // The six looks, at rest.
+    constexpr std::array<std::string_view, 6> kLooks{
+        "Accent", "Plain", "Quiet", "Inset", "Filled", "Danger"
     };
-    constexpr std::array<ButtonStyle, 5> kStyles{
+    constexpr std::array<std::string_view, 6> kLookCaptions{
+        "OK", "Cancel", "Open folder", "Roll back", "Mutators", "Uninstall"
+    };
+    constexpr std::array<ButtonStyle, 6> kStyles{
         ButtonStyle::accent,
         ButtonStyle::plain,
         ButtonStyle::quiet,
         ButtonStyle::inset,
-        ButtonStyle::filled
+        ButtonStyle::filled,
+        ButtonStyle::danger
     };
     top += add_cells(
                b.list,
                {at.x, top},
                width,
-               {kButtonWidth, kMetrics.button_height},
+               {kButtonWidth, kMetrics.control_height},
                kLooks,
                [&](const Rect& rect, std::size_t place) {
                    add_fixed(b.list, rect, {}, Sample::idle, false, [&] {
@@ -734,7 +739,7 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
                b.list,
                {at.x, top},
                width,
-               {kButtonWidth, kMetrics.button_height},
+               {kButtonWidth, kMetrics.control_height},
                kFiveStates,
                [&](const Rect& rect, Sample shown) {
                    add_fixed(b.list, rect, rect, shown, false, [&] {
@@ -761,7 +766,7 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
                b.list,
                {at.x, top},
                width,
-               {kMetrics.button_height, kMetrics.button_height},
+               {kMetrics.control_height, kMetrics.control_height},
                kFiveStates,
                [&](const Rect& rect, Sample shown) {
                    add_fixed(b.list, rect, rect, shown, false, [&] {
@@ -801,15 +806,16 @@ int32_t buttons_section(Builder& b, Point at, int32_t width, std::string_view wo
 }
 
 /// Toggle: a working switch beside its label, then a switch in each state
-/// and locked.
+/// and locked, then radios: the mark not chosen and chosen in each state,
+/// and a radio row of each.
 int32_t toggle_section(Builder& b, Point at, int32_t width, std::string_view word) {
     const GalleryModel& model = *b.model;
-    const Rect field{at.x, at.y, kMetrics.switch_width, kMetrics.regular_line};
+    const Rect field{at.x, at.y, kMetrics.switch_width, kMetrics.switch_height};
     SwitchLook look;
     look.on = model.toggle_on;
     look.hovered = pointer_on(model, kToggle);
-    look.off_caption = "OFF";
-    look.on_caption = "ON";
+    look.off_caption = "Off";
+    look.on_caption = "On";
     const std::size_t part_at = b.list.items.size();
     add_switch(b.list, field, look, kToggle, named(word, 1));
     show_working(b, part_at, kToggle, field);
@@ -819,19 +825,18 @@ int32_t toggle_section(Builder& b, Point at, int32_t width, std::string_view wor
         {field.x + field.width + kCellGap,
          at.y,
          std::max(width - field.width - kCellGap, 0),
-         kMetrics.regular_line},
+         kMetrics.switch_height},
         "Unicode chat",
         FontRole::regular,
         Align::left,
         colour::text
     );
-    const int32_t top = at.y + kMetrics.regular_line + kLineGap;
-    return top - at.y +
-           add_states(
+    int32_t top = at.y + kMetrics.switch_height + kLineGap;
+    top += add_states(
                b.list,
                {at.x, top},
                width,
-               {kMetrics.switch_width, kMetrics.regular_line},
+               {kMetrics.switch_width, kMetrics.switch_height},
                kLockedStates,
                [&](const Rect& rect, Sample shown) {
                    SwitchLook sample = look;
@@ -842,7 +847,52 @@ int32_t toggle_section(Builder& b, Point at, int32_t width, std::string_view wor
                        add_switch(b.list, rect, sample, no_control, {});
                    });
                }
-           );
+           ) +
+           kLineGap;
+    // A radio's mark, not chosen and then chosen, in each state.
+    const int32_t mark_side = kMetrics.control_height / 2;
+    for (const bool chosen : {false, true})
+        top += add_states(
+                   b.list,
+                   {at.x, top},
+                   width,
+                   {mark_side, mark_side},
+                   kFiveStates,
+                   [&](const Rect& rect, Sample shown) {
+                       RadioLook radio;
+                       radio.on = chosen;
+                       radio.hovered = looks_hovered(shown);
+                       radio.held = shown == Sample::pressed;
+                       radio.disabled = shown == Sample::disabled;
+                       add_fixed(b.list, rect, rect, shown, false, [&] {
+                           add_radio(b.list, rect, radio, no_control, {});
+                       });
+                   }
+               ) +
+               kLineGap;
+    // A pair of radio rows, the first chosen.
+    const int32_t row_width = std::min((width - kCellGap) / 2, int32_t{200});
+    if (row_width > 0) {
+        constexpr std::array<std::string_view, 2> kRows{"Keep them on top", "Start clean"};
+        for (std::size_t place = 0; place < kRows.size(); ++place) {
+            RadioLook radio;
+            radio.on = place == 0;
+            const Rect rect{
+                at.x + static_cast<int32_t>(place) * (row_width + kCellGap),
+                top,
+                row_width,
+                kMetrics.control_height,
+            };
+            radio.caption = cut_to_width(
+                *b.fonts, FontRole::regular, kRows[place], radio_parts(rect, true).caption.width
+            );
+            add_radio(b.list, rect, radio, no_control, {});
+        }
+        top += kMetrics.control_height;
+    } else {
+        top -= kLineGap;
+    }
+    return top - at.y;
 }
 
 /// Level strip: a working strip of three levels, then one in each state and
@@ -1185,11 +1235,12 @@ int32_t chips_section(Builder& b, Point at, int32_t width, std::string_view word
 }
 
 /// Pills: one of each state, display only, then a selectable pill in each
-/// state. Playing and active are filled; neutral and inactive are the muted
-/// ground; installed, update and problem outline that ground. Hover, focus
-/// and disabled are drawn on the pill, so a sample has no separate ring.
+/// state. Playing and active are filled; neutral and inactive are the
+/// selected surface; installed, update, problem, information and brand are
+/// their colour's tint. Hover and disabled are drawn on the pill, and focus
+/// is the pill's own ring, so a sample has no separate ring.
 int32_t pills_section(Builder& b, Point at, int32_t width, std::string_view /*word*/) {
-    const std::array<PillLook, 7> kinds{{
+    const std::array<PillLook, 9> kinds{{
         {"Playing", PillState::playing},
         {"Built in", PillState::neutral},
         {"Installed", PillState::installed},
@@ -1197,6 +1248,8 @@ int32_t pills_section(Builder& b, Point at, int32_t width, std::string_view /*wo
         {"Problem", PillState::problem},
         {"Active", PillState::active},
         {"Inactive", PillState::inactive},
+        {"Update 0.8.8", PillState::information},
+        {"Core Prime", PillState::brand},
     }};
     int32_t x = at.x;
     int32_t y = at.y;
@@ -1231,13 +1284,15 @@ int32_t pills_section(Builder& b, Point at, int32_t width, std::string_view /*wo
     return y + pill_height() + kLineGap + states - at.y;
 }
 
-/// Progress: a bar waiting, part done and done, each with its share.
+/// Progress: a bar waiting, part done, paused part done and done, each
+/// with its share.
 int32_t progress_section(Builder& b, Point at, int32_t width, std::string_view /*word*/) {
     constexpr int32_t kShareWidth = 40;
-    constexpr std::array<int32_t, 3> kDone{0, 400, 1000};
+    constexpr std::array<int32_t, 4> kDone{0, 400, 400, 1000};
     const int32_t bar_width = std::max(width - kShareWidth - kCellGap, 1);
     int32_t top = at.y;
-    for (const int32_t done : kDone) {
+    for (std::size_t place = 0; place < kDone.size(); ++place) {
+        const int32_t done = kDone[place];
         add_progress(
             b.list,
             {at.x,
@@ -1245,7 +1300,8 @@ int32_t progress_section(Builder& b, Point at, int32_t width, std::string_view /
              bar_width,
              kMetrics.progress_bar_height},
             done,
-            question_progress_whole
+            question_progress_whole,
+            place == 2
         );
         add_words(
             b.list,
@@ -1574,7 +1630,7 @@ int32_t notice_section(Builder& b, Point at, int32_t /*width*/, std::string_view
         {"Sample Mod 4.8 · rev 3 is ready to play, in your Mods folder:", false},
         {"Mods/sample-mod", true},
     };
-    notice.open_caption = "OPEN FOLDER";
+    notice.open_caption = "Open folder";
     GalleryPanel panel;
     panel.origin = at;
     const int32_t height = place_notice(notice, b.fonts).height;
@@ -1592,19 +1648,19 @@ int32_t question_section(Builder& b, Point at, int32_t /*width*/, std::string_vi
     question.paragraphs = {
         {"Sample Mod 4.8 · rev 3 replaces 4.7. Another Mod and Third Mod use it.", false},
     };
-    question.buttons = {{"CANCEL", false, "cancel"}, {"UPDATE", true, "update"}};
+    question.buttons = {{"Cancel", false, "cancel"}, {"Update", true, "update"}};
     question.cancel_button = 0;
     question.primary_button = 1;
     question.progress = 400;
     question.marked = 1;
     GalleryPanel panel;
     panel.origin = at;
-    const int32_t height = place_question(question, b.fonts).height;
-    panel.place = {at.x, at.y, notice_width, height};
+    const PlacedQuestion placed = place_question(question, b.fonts);
+    panel.place = {at.x, at.y, placed.width, placed.height};
     panel.list = question_list(question, b.fonts);
     without_input(panel.list);
     b.panels.push_back(std::move(panel));
-    return height;
+    return placed.height;
 }
 
 /// OA mark: a working OA button, the OA mark alone, the icon as a picture
@@ -2144,7 +2200,7 @@ int32_t first_run(Builder& b, Point at, int32_t width, std::string_view /*word*/
             constexpr int32_t kCardLeast = 140;
             const int32_t gaps = coach_gap + 8;
             if (layer.width - gaps - target_w < kCardLeast)
-                target_w = std::max(layer.width - gaps - kCardLeast, int32_t{12});
+                target_w = std::max(layer.width - gaps - kCardLeast, int32_t{8});
             target = {
                 layer.x + 4,
                 layer.y + std::max((layer.height - mark) / 2, int32_t{0}),
@@ -2503,7 +2559,7 @@ int32_t badges_section(Builder& b, Point at, int32_t width, std::string_view /*w
     Question question;
     question.title = "GET GATEHOUSE?";
     question.paragraphs = {{"Install these mutators.", false}};
-    question.buttons = {{"CANCEL", false, "cancel"}, {"GET", true, "get"}};
+    question.buttons = {{"Cancel", false, "cancel"}, {"Get", true, "get"}};
     question.cancel_button = 0;
     question.primary_button = 1;
     QuestionItem gatehouse;
@@ -2518,12 +2574,241 @@ int32_t badges_section(Builder& b, Point at, int32_t width, std::string_view /*w
     question.items = {std::move(gatehouse), std::move(keep)};
     GalleryPanel panel;
     panel.origin = {at.x, y};
-    const int32_t height = place_question(question, b.fonts).height;
-    panel.place = {at.x, y, notice_width, height};
+    const PlacedQuestion placed = place_question(question, b.fonts);
+    panel.place = {at.x, y, placed.width, placed.height};
     panel.list = question_list(question, b.fonts);
     without_input(panel.list);
     b.panels.push_back(std::move(panel));
-    return y + height - at.y;
+    return y + placed.height - at.y;
+}
+
+/// Keys: a working keycap, every state and tint, a modifier, two small
+/// badges, chord chips, the three keyboards, a mouse and hold rings.
+///
+/// The keyboard's and the mouse's keys are controls so automation can name
+/// them, and they are not focusable. Tab through every key would walk the
+/// gallery hundreds of times. The working keycap is the section's focus stop.
+int32_t keys_section(Builder& b, Point at, int32_t width, std::string_view word) {
+    const GalleryModel& model = *b.model;
+    int32_t y = at.y;
+    const bool over = pointer_on(model, kKeycap);
+    KeycapLook working;
+    working.label = "A";
+    working.sub = "Go";
+    working.tint = KeyTint::orders;
+    working.letter = "O";
+    working.hovered = over;
+    working.held = over && model.interaction.pressed == kKeycap;
+    working.focused = focus_on(model, kKeycap);
+    const int32_t working_across =
+        std::min(std::max(keycap_width(*b.fonts, working), int32_t{28}), width);
+    const Rect working_rect{at.x, y, working_across, keycap_height};
+    const std::size_t part_at = b.list.items.size();
+    add_keycap(b.list, working_rect, working, kKeycap, named(word, 1));
+    show_working(b, part_at, kKeycap, working_rect);
+    b.order.push_back(kKeycap);
+    y += keycap_height + kLineGap;
+
+    y += add_states(
+             b.list,
+             {at.x, y},
+             width,
+             {28, keycap_height},
+             kFiveStates,
+             [&](const Rect& rect, Sample shown) {
+                 add_fixed(b.list, rect, rect, shown, false, [&] {
+                     KeycapLook look;
+                     look.label = "A";
+                     look.letter = "O";
+                     look.tint = KeyTint::orders;
+                     look.hovered = looks_hovered(shown);
+                     look.held = shown == Sample::pressed;
+                     look.focused = shown == Sample::focused;
+                     look.disabled = shown == Sample::disabled;
+                     add_keycap(b.list, rect, look, no_control, {});
+                 });
+             }
+         ) +
+         kLineGap;
+
+    struct TintCap {
+        KeyTint tint;
+        std::string_view letter;
+    };
+
+    constexpr std::array<TintCap, 12> kTints{{
+        {KeyTint::orders, "O"},
+        {KeyTint::pointer, "P"},
+        {KeyTint::selection, "S"},
+        {KeyTint::groups, "G"},
+        {KeyTint::camera, "C"},
+        {KeyTint::building, "B"},
+        {KeyTint::game, "M"},
+        {KeyTint::chat, "T"},
+        {KeyTint::window, "W"},
+        {KeyTint::hacks, "L"},
+        {KeyTint::mod, "D"},
+        {KeyTint::developer, "V"},
+    }};
+    constexpr std::array<std::string_view, 12> kTintCaptions{
+        "O", "P", "S", "G", "C", "B", "M", "T", "W", "L", "D", "V"
+    };
+    y += add_cells(
+             b.list,
+             {at.x, y},
+             width,
+             {28, keycap_height},
+             kTintCaptions,
+             [&](const Rect& rect, std::size_t place) {
+                 KeycapLook look;
+                 look.label = "A";
+                 look.tint = kTints[place].tint;
+                 look.letter = std::string(kTints[place].letter);
+                 add_keycap(b.list, rect, look, no_control, {});
+             }
+         ) +
+         kLineGap;
+
+    constexpr std::array<KeyMark, 4> kMarks{
+        KeyMark::changed, KeyMark::clash, KeyMark::unbound, KeyMark::fixed
+    };
+    constexpr std::array<std::string_view, 4> kMarkCaptions{"Changed", "Clash", "Unbound", "Fixed"};
+    y += add_cells(
+             b.list,
+             {at.x, y},
+             width,
+             {28, keycap_height},
+             kMarkCaptions,
+             [&](const Rect& rect, std::size_t place) {
+                 KeycapLook look;
+                 look.label = "A";
+                 look.mark = kMarks[place];
+                 add_keycap(b.list, rect, look, no_control, {});
+             }
+         ) +
+         kLineGap;
+
+    KeycapLook modifier;
+    modifier.label = "Shift";
+    modifier.modifier = true;
+    const int32_t modifier_across =
+        std::min(std::max(keycap_width(*b.fonts, modifier), keycap_least_width), width);
+    add_keycap(b.list, {at.x, y, modifier_across, keycap_height}, modifier, no_control, {});
+    int32_t badge_x = at.x + modifier_across + kCellGap;
+    for (const std::string_view badge : {"A", "B"}) {
+        if (badge_x + 9 > at.x + width)
+            break;
+        KeycapLook small;
+        small.label = std::string(badge);
+        small.small = true;
+        add_keycap(b.list, {badge_x, y, 9, 9}, small, no_control, {});
+        badge_x += 9 + kCellGap;
+    }
+    y += keycap_height + kLineGap;
+
+    const auto place_chord = [&](ChordChipLook look) {
+        const int32_t want = chord_chip_width(*b.fonts, look);
+        const int32_t across = std::min(std::max(want, keycap_least_width), width);
+        add_chord_chip(b.list, {at.x, y, across, keycap_height}, std::move(look), no_control, {});
+        y += keycap_height + kLineGap;
+    };
+    ChordChipLook ctrl_b;
+    ctrl_b.keys = {"Ctrl", "B"};
+    place_chord(std::move(ctrl_b));
+    ChordChipLook ctrl_d;
+    ctrl_d.keys = {"Ctrl", "D"};
+    ctrl_d.gesture = "hold";
+    place_chord(std::move(ctrl_d));
+    ChordChipLook mouse5;
+    mouse5.keys = {"Mouse 5"};
+    mouse5.selected = true;
+    place_chord(std::move(mouse5));
+    ChordChipLook clash;
+    clash.keys = {"Ctrl", "K"};
+    clash.mark = KeyMark::clash;
+    place_chord(std::move(clash));
+    ChordChipLook changed;
+    changed.keys = {"Ctrl", "G"};
+    changed.mark = KeyMark::changed;
+    place_chord(std::move(changed));
+    ChordChipLook add;
+    add.add = true;
+    add.none_text = "Pick a key";
+    place_chord(std::move(add));
+    ChordChipLook unbound;
+    unbound.none_text = "Escape does it as Back";
+    place_chord(std::move(unbound));
+
+    ControlId next_id = kKeycap + 1;
+    const auto place_keyboard = [&](KeyboardLook look, std::string name) {
+        const int32_t across = std::min(width, int32_t{91 * 4});
+        const int32_t quarter = std::max(across / 91, int32_t{1});
+        const int32_t high = 25 * quarter;
+        const std::size_t first_control = b.list.controls.size();
+        add_keyboard(b.list, {at.x, y, across, high}, look, next_id, std::move(name));
+        next_id += static_cast<ControlId>(keyboard_places(look.shape).size());
+        for (std::size_t index = first_control; index < b.list.controls.size(); ++index)
+            b.list.controls[index].focusable = false;
+        y += high + kLineGap;
+    };
+    KeyboardLook ansi;
+    ansi.shape = KeyboardShape::ansi;
+    KeyboardKey orders_key;
+    orders_key.code = "KeyA";
+    orders_key.cap.tint = KeyTint::orders;
+    orders_key.cap.letter = "O";
+    orders_key.cap.sub = "Go";
+    ansi.keys.push_back(orders_key);
+    place_keyboard(ansi, "gallery.keys.ansi");
+    KeyboardLook iso;
+    iso.shape = KeyboardShape::iso;
+    place_keyboard(std::move(iso), "gallery.keys.iso");
+    KeyboardLook jis;
+    jis.shape = KeyboardShape::jis;
+    place_keyboard(std::move(jis), "gallery.keys.jis");
+
+    constexpr int32_t kMouseAcross = 80;
+    constexpr int32_t kMouseDown = 128;
+    const int32_t mouse_across = std::min(width, kMouseAcross);
+    const int32_t mouse_down = mouse_across >= 40 ? kMouseDown : 0;
+    if (mouse_down > 0) {
+        MouseLook mouse;
+        mouse.extra_buttons = true;
+        mouse.buttons[static_cast<std::size_t>(MouseButton::left)].tint = KeyTint::pointer;
+        mouse.buttons[static_cast<std::size_t>(MouseButton::left)].letter = "P";
+        const std::size_t first_control = b.list.controls.size();
+        add_mouse(
+            b.list, {at.x, y, mouse_across, mouse_down}, mouse, next_id, "gallery.keys.mouse"
+        );
+        for (std::size_t index = first_control; index < b.list.controls.size(); ++index)
+            b.list.controls[index].focusable = false;
+        y += mouse_down + kLineGap;
+    }
+
+    constexpr std::array<HoldRingLook, 8> kRings{{
+        {0, 3, false},
+        {1, 3, false},
+        {2, 3, false},
+        {3, 3, false},
+        {0, 3, true},
+        {1, 3, true},
+        {2, 3, true},
+        {3, 3, true},
+    }};
+    constexpr int32_t kRingSide = 32;
+    int32_t ring_x = at.x;
+    int32_t ring_y = y;
+    int32_t ring_bottom = y;
+    for (const HoldRingLook& ring : kRings) {
+        if (ring_x > at.x && ring_x + kRingSide > at.x + width) {
+            ring_x = at.x;
+            ring_y += kRingSide + kCellGap;
+        }
+        add_hold_ring(b.list, {ring_x, ring_y, kRingSide, kRingSide}, ring);
+        ring_x += kRingSide + kCellGap;
+        ring_bottom = ring_y + kRingSide;
+    }
+    return ring_bottom - at.y;
 }
 
 /// One section of the gallery.
@@ -2560,6 +2845,7 @@ constexpr auto kSections = std::to_array<Section>({
     {"QUESTION", "question", &question_section},
     {"OA MARK", "oa-mark", &oa_mark},
     {"BADGES AND TAGS", "badges", &badges_section},
+    {"KEYS", "keys", &keys_section},
 });
 
 /// Adds a section: its heading, the rule under it and its samples.

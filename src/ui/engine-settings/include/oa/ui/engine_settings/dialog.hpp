@@ -19,6 +19,7 @@
 #include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/frontend_renderer/artless.hpp"
 #include "oa/ui/kit/canvas.hpp"
+#include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/input.hpp"
 #include "oa/ui/kit/layout.hpp"
 #include "oa/ui/kit/rows.hpp"
@@ -98,6 +99,16 @@ enum class Page : uint8_t {
     /// Listed after Downloads and before System. Its number follows System's
     /// so System stays 10.
     game_content,
+    /// Updates: this build's version and whether a release is out, and when
+    /// Open Annihilation looks for one. Listed after Downloads and before
+    /// Game Content. Its number follows Game Content's, so Downloads, System
+    /// and Game Content stay 9, 10 and 11.
+    updates,
+    /// Accessibility: the input helpers, in one section. Listed after User
+    /// Interface and before Touch. Its number follows Updates', so Touch,
+    /// Controller, Developer, Game files, Downloads, System, Game Content
+    /// and Updates stay 5, 6, 7, 8, 9, 10, 11 and 12.
+    accessibility,
     mod_keys,   ///< the mod's keys
     mod_patrol, ///< what patrolling builders do
     mod_guard,  ///< what guarding builders do
@@ -109,13 +120,13 @@ enum class Page : uint8_t {
 };
 
 /// The number of sections, of every kind of dialog, counting Downloads,
-/// Game Content, System and the registered page.
-inline constexpr std::size_t page_count = 18;
-/// The most sections a dialog lists: the engine's settings' twelve with
-/// Touch, Controller and Game files, nine without them; a mod's options have
+/// Updates, Accessibility, Game Content, System and the registered page.
+inline constexpr std::size_t page_count = 20;
+/// The most sections a dialog lists: the engine's settings' fourteen with
+/// Touch, Controller and Game files, eleven without them; a mod's options have
 /// five.
-inline constexpr std::size_t most_listed_pages = 12;
-/// Windows and Linux register the seven file types at run time, and macOS
+inline constexpr std::size_t most_listed_pages = 14;
+/// Windows and Linux register the eight file types at run time, and macOS
 /// chooses whether this copy is the default opener of each, so System lists
 /// a switch for each. iOS takes the types from the app and has no way to
 /// choose a default opener, so System shows a text row. Android does not
@@ -143,18 +154,18 @@ enum class DialogKind : uint8_t {
 ///
 /// @param kind the dialog's kind
 /// @param touch the game has touch controls (Dialog::touch), so that the
-///     engine's settings list Touch after User Interface and before Downloads
+///     engine's settings list Touch after Accessibility and before Downloads
 /// @param game_files the dialog lists Game files (Dialog::game_files),
 ///     after Touch and Controller and before Developer
 /// @param controller a gamepad has sent input in this run
 ///     (Dialog::controller), so that the engine's settings list Controller
 ///     after Touch and before Game files and Developer
-/// @return nine sections for the engine's settings (Controls, Common
-///     Tweaks, Language & Text, Graphics, User Interface, Downloads, Game
-///     Content, System and Developer), one more for each of Touch, Controller
-///     and Game files listed, twelve with all three; five
-///     for a mod's options and one for Language & Text alone, whatever the
-///     others say
+/// @return eleven sections for the engine's settings (Controls, Common
+///     Tweaks, Language & Text, Graphics, User Interface, Accessibility,
+///     Downloads, Updates, Game Content, System and Developer), one more
+///     for each of Touch, Controller and Game files listed, fourteen with
+///     all three; five for a mod's options and one for Language & Text
+///     alone, whatever the others say
 [[nodiscard]] std::span<const Page> dialog_pages(
     DialogKind kind, bool touch = false, bool game_files = false, bool controller = false
 ) noexcept;
@@ -286,7 +297,7 @@ enum class Setting : uint8_t {
     /// part of Open Annihilation's own screens (DialogAction::show_gallery);
     /// it changes no setting
     kit_gallery,
-    /// File Type Registration: the heading over the seven file-type switches,
+    /// File Type Registration: the heading over the eight file-type switches,
     /// with the group's hint. It changes no setting.
     file_type_registration,
     file_type_oamod,    ///< Mod packages (.oamod): a switch
@@ -295,6 +306,7 @@ enum class Setting : uint8_t {
     file_type_oareg,    ///< Registry files (.oareg): a switch
     file_type_oamut,    ///< Mutator packages (.oamut): a switch
     file_type_oabrain,  ///< Brain packages (.oabrain): a switch
+    file_type_oakeys,   ///< Key layout packages (.oakeys): a switch
     file_type_oalaunch, ///< Launch files (.oalaunch): a switch
     /// File types: the text row iOS shows in place of the switches.
     /// It changes no setting.
@@ -313,7 +325,7 @@ enum class Setting : uint8_t {
     underwater_shimmer, ///< Underwater shimmer: an intensity slider
     naval_reflections,  ///< Naval reflections: an intensity slider
 
-    allow_full_3d,   ///< Allow Full 3D Mode: a switch
+    allow_full_3d,   ///< Allow full 3D mode: a switch
     unlocked_camera, ///< Unrestricted camera angles: a switch
     /// Welcome setup: SHOW AGAIN walks through the language, online features
     /// and the OA buttons again. It changes no setting. During a game the
@@ -321,6 +333,66 @@ enum class Setting : uint8_t {
     welcome_setup,
     /// Fog of War: a strip of Classic and Smooth
     fog_of_war,
+    /// New unit shadows: a switch, On for Open Annihilation's shadows where
+    /// the graphics card draws them, Off for the game's own
+    new_unit_shadows,
+    /// Set by the mod: the heading over the limits the mod fixes.
+    /// It keeps no setting.
+    mod_limits_heading,
+    /// Weapon types: how many weapon types the mod allows, and in a match
+    /// how many of them the match loaded. It keeps no setting.
+    weapon_types,
+    /// Sides: how many sides the mod allows, and in a match how many of
+    /// them the match loaded. It keeps no setting.
+    sides,
+    /// Key layout: the layout in use, and how many of its actions the player
+    /// changed, with EDIT KEYS…. It keeps no setting. The layout itself is
+    /// chosen in the editor.
+    key_layout,
+    /// Key layout with the mod being played: Same as the game, or one
+    /// installed layout. Shown only while a mod is played.
+    key_layout_for_mod,
+    /// Show keys on buttons: order buttons and build cells show their key.
+    show_keys_on_buttons,
+    /// Hold keys that latch: how many latchable actions are on, and CHOOSE…
+    /// which opens the key editor on its Latchable filter. It keeps no setting.
+    latching,
+    sticky_modifiers, ///< Sticky modifiers: a switch
+    hold_to_confirm,  ///< Hold to confirm: a switch
+    long_press,       ///< Long press: a slider of milliseconds
+    slow_keys,        ///< Slow keys: a slider of milliseconds, Off at 0
+    bounce_keys,      ///< Bounce keys: a slider of milliseconds, Off at 0
+    order_wheel,      ///< Order wheel: a strip of Off, Hold right and Hold middle
+    pointer_keys,     ///< Pointer keys: a switch
+    /// Double press: a slider of milliseconds. The first stop is the system's time.
+    double_press,
+    /// Key repeat delay: a slider of milliseconds. The first stop is the system's delay.
+    repeat_delay,
+    /// Key repeat rate: a slider of repeats a second. The first stop is the system's rate.
+    repeat_rate,
+    drag_threshold, ///< Drag threshold: a slider of pixels
+    /// Edge scrolling: a switch. Off stops the view scrolling at the window's edge.
+    edge_scroll,
+    /// Move overlays: a switch. On, the keys overlay, the chat line and the
+    /// latch chips show where the player put them; off, where they lay
+    /// themselves out.
+    move_overlays,
+    /// Overlay places: ARRANGE… opens a picture of the match where the
+    /// overlays are placed (DialogAction::arrange_overlays), pressable while
+    /// Move overlays is on. It keeps no setting.
+    arrange_overlays,
+    /// Window size: a drop-down of Auto, Compact, Regular and Large, on User
+    /// Interface under Interface size
+    window_size,
+    /// Reset window positions: Reset asks the host to put every window the
+    /// player moved back in its place (Dialog::window_reset_asked). It keeps
+    /// no setting.
+    reset_window_positions,
+    /// Group keys centre the view: a drop-down of On a double press, Never
+    /// and On every press, Controls' last row
+    group_keys_centre,
+    /// Look: a strip of Modern and Classic, User Interface's last row
+    look,
 };
 
 /// Returns the settings a section shows, top to bottom.
@@ -346,6 +418,17 @@ inline constexpr int32_t no_control = -1;
 /// An open drop-down's items take the numbers just under no_control, so the
 /// mark keeps a number clear of that run and of the registered list.
 inline constexpr int32_t close_x_control = -9000;
+/// Change layout… on Controls' key layout card: it asks the host to open the
+/// Library on Keys (DialogAction::open_library). Its number follows the close
+/// mark's, clear of an open list's items and of the registered list.
+inline constexpr int32_t change_layout_control = close_x_control - 1;
+/// Turn every helper off, on Accessibility's practice pad.
+inline constexpr int32_t helpers_off_control = close_x_control - 2;
+/// The update card's second button on Updates (UpdatesOffer::actions); its
+/// first is the card's row control.
+inline constexpr int32_t update_second_control = close_x_control - 3;
+/// The update card's third button.
+inline constexpr int32_t update_third_control = close_x_control - 4;
 /// The first section's entry in the list; each section's entry is its
 /// place among its kind of dialog's sections with Touch and Controller
 /// (page_control), whether or not the dialog lists them.
@@ -403,8 +486,9 @@ inline constexpr int32_t first_registered_nav_control = -10000;
 /// Returns the control of a section's entry in the list: its place among
 /// its kind of dialog's sections, each section counted whether or not it is
 /// listed, so that Touch is 5, Controller 6, Developer 7, Game files 8,
-/// Downloads 9, System 10 and Game Content 11 in every dialog of the engine's settings, and a dialog
-/// without Touch has no control 5, one without Controller no control 6.
+/// Downloads 9, System 10, Game Content 11, Updates 12 and Accessibility 13
+/// in every dialog of the engine's settings, and a dialog without Touch has
+/// no control 5, one without Controller no control 6.
 /// The registered page has no entry of this form; its entries are
 /// registered_nav_control.
 ///
@@ -581,7 +665,57 @@ enum class DialogAction : uint8_t {
     /// CANCEL on the bundle being copied: stop that copy. What was already
     /// in the managed folders stays. The dialog stays open.
     cancel_content_copy,
+    /// CHECK NOW on Updates: look for a release now. The dialog stays open.
+    /// Nothing is asked while the check is Never.
+    check_updates,
+    /// UPDATE… on Updates: open the release's page, or download the package
+    /// where this install has a route. The dialog stays open.
+    open_release,
+    /// RESTART TO UPDATE on Updates: the verified package installs as the
+    /// player quits, and the game asks to quit now. The dialog stays open
+    /// until that quit runs.
+    restart_update,
+    /// RETRY on Updates: start the download of the offered package again.
+    /// The dialog stays open.
+    retry_update,
+    /// ROLL BACK on Updates: ask, then put the kept version back. The dialog
+    /// stays open until that question is answered.
+    roll_back,
+    /// EDIT KEYS… on Key layout, or CHOOSE… on Hold keys that latch: the host
+    /// opens the key editor over the dialog, which stays open under it, in
+    /// the menus and in a match. Dialog::edit_keys_filter says which list.
+    edit_keys,
+    /// One of the update card's buttons on Updates: the host carries out the
+    /// update centre's action Dialog::update_act names. The dialog stays open.
+    update_action,
+    /// ARRANGE… on Overlay places: the host opens a picture of the match over
+    /// the dialog, which stays open under it, where the overlays are placed
+    arrange_overlays,
 };
+
+/// Which list EDIT KEYS… or CHOOSE… opens the key editor on.
+enum class KeyEditorFilter : uint8_t {
+    all,       ///< every action. Key layout's EDIT KEYS… asks for this.
+    latchable, ///< actions the registry marks latchable. Hold keys that latch asks for this.
+};
+
+/// One installed layout Key layout with a mod offers.
+struct KeyLayoutChoice {
+    std::string id{};   ///< the layout's id, a word automation names it by
+    std::string name{}; ///< the name players see
+    /// The layout's works-with names the mod being played.
+    bool made_for{};
+};
+
+/// The text Key layout shows: the layout's name, or that name and how many
+/// actions the player's own layout names. None is the name alone. One is
+/// "1 change of your own". More is "{n} changes of your own". The count is
+/// the editor's Changed filter: each action the own layout names, once.
+///
+/// @param name the layout's name, as the player should read it
+/// @param changes how many actions the own layout names; negative counts as none
+/// @return the text
+[[nodiscard]] std::string key_layout_summary_text(std::string_view name, int32_t changes);
 
 /// One of the Library's tabs, as the dialog asks the host to open it
 /// (DialogAction::open_library). It mirrors the Library's own tabs, so that
@@ -592,6 +726,7 @@ enum class LibraryTab : uint8_t {
     languages,  ///< Languages
     updates,    ///< Updates
     registries, ///< Registries
+    keys,       ///< Keys. Appended so the earlier tabs keep their numbers.
 };
 
 /// How the OA button looks.
@@ -693,6 +828,14 @@ struct AvailableLanguage {
 /// @return the size, such as "312 kB", "4.0 MB" or "188 MB"
 [[nodiscard]] std::string download_size_text(uint64_t bytes);
 
+/// Returns a package's size as the Library shows it, the figure the update
+/// prompt and Settings › Updates share: binary KB below 1 MiB, MB to one
+/// decimal below 100 MiB, then whole MB and GB.
+///
+/// @param bytes the package's size
+/// @return the size, such as "23.4 MB"
+[[nodiscard]] std::string update_size_text(uint64_t bytes);
+
 /// Returns the aside of an available language.
 ///
 /// A reviewed pack from "OA team" shows its size and the download mark.
@@ -753,6 +896,119 @@ struct DownloadsOffer {
     bool https_over_http{};
 };
 
+/// Where a download of the offered package stands, as Updates shows it.
+enum class DownloadShown : uint8_t {
+    none,        ///< no download to show; the status is the check's own line
+    downloading, ///< "Downloading {version} · {done} of {size}"
+    paused,      ///< "Paused during the game"
+    ready,       ///< "{version} is ready · {size} downloaded", RESTART TO UPDATE
+    stopped,     ///< "The download stopped: {reason}", RETRY
+};
+
+/// One of the update centre's actions, as Updates' card shows it.
+struct UpdateCardAction {
+    int32_t act{};         ///< the host's number for it; Dialog::update_act carries it back
+    std::string id{};      ///< the button's word to automation: a-z, 0-9 and hyphens
+    std::string caption{}; ///< already as shown, in title case
+};
+
+/// The most buttons Updates' card shows.
+inline constexpr std::size_t most_update_card_actions = 3;
+
+/// What Updates shows besides the check, which the host fills. The check the
+/// player moves lives on the dialog, as its chosen settings do, and takes
+/// effect at OK. CHECK NOW, UPDATE…, RESTART TO UPDATE and RETRY act at once.
+struct UpdatesOffer {
+    std::string version_line; ///< "Open Annihilation {version}", already filled
+    std::string status;       ///< the status line, already as the page shows it
+    bool can_check{};         ///< CHECK NOW can be pressed
+    bool offered{};           ///< a release is out; the button is UPDATE…
+    int32_t mode{};           ///< the check as UpdateCheck, so the page can hide the button
+    /// "Updated by {name}", already filled, when this copy cannot replace
+    /// itself and a packager is named. Empty otherwise. The status line
+    /// joins it after the check's own words.
+    std::string updated_by;
+    /// The background switch and the download's own status. Off leaves the
+    /// two rows the page has always shown, so a picture of that page does
+    /// not move.
+    bool show_download{};
+    DownloadShown download{DownloadShown::none}; ///< which download line the status shows
+    std::string download_version;                ///< the release being fetched
+    std::string download_done;                   ///< bytes so far, as the player reads a size
+    std::string download_size;                   ///< the whole file, as the player reads a size
+    std::string download_reason;                 ///< why it stopped; not looked up
+    /// The version kept beside this one. Empty hides Previous version, so the
+    /// page keeps the two rows a picture of it was drawn with.
+    std::string kept_version;
+    /// The update centre's state, as the card at the page's top shows it,
+    /// filled by the host. An empty heading leaves the status row as it was,
+    /// with its one button.
+    std::string card_status;
+    std::string card_installed; ///< "Installed {version}", already filled; empty for none
+    std::string card_detail;    ///< the line under the heading; empty for none
+    std::string card_note;      ///< guidance under the buttons; empty for none
+    int32_t percent{-1};        ///< the card's bar, 0 to 100; -1 draws none
+    bool paused{};              ///< the bar is drawn paused, in the lock colour
+    /// The state's actions, at most most_update_card_actions, the first in
+    /// the accent. Roll back… stays Previous version's.
+    std::vector<UpdateCardAction> actions{};
+};
+
+namespace updates {
+
+/// The question ROLL BACK asks. {version} is the kept one, {current} this build.
+///
+/// @param kept the version that would be put back
+/// @param current the version that is running
+/// @return the question, already in the language shown
+[[nodiscard]] oa::ui::kit::Question
+roll_back_question(std::string_view kept, std::string_view current);
+
+} // namespace updates
+
+/// Where a check for a release stands, as the host tells update_lines.
+enum class UpdateStand : uint8_t {
+    idle,       ///< no check has run
+    checking,   ///< a check is in progress
+    up_to_date, ///< the feed verified and offers nothing newer
+    offered,    ///< the feed verified and offers a newer release
+    failed,     ///< the check failed, or the feed was refused
+    cancelled,  ///< the check was cancelled before it finished
+};
+
+/// What the host knows when it asks for Updates' lines.
+struct UpdateReading {
+    std::string_view version;             ///< this build's version, without a leading v
+    std::string_view offer_version;       ///< the offered release's version, when one is out
+    UpdateStand stand{UpdateStand::idle}; ///< where the check stands
+    bool never{};                         ///< the check the dialog shows is Never
+    std::optional<int64_t> checked_at;    ///< when the server answered, seconds since 1970
+    int64_t now{};                        ///< the clock now, seconds since 1970
+    /// True when this build may replace itself. False keeps CHECK NOW in
+    /// place of UPDATE…, because the player asks for a check and does not install.
+    bool replaces_itself{true};
+    /// Who updates this copy when it cannot replace itself. Empty names nobody.
+    std::string_view packager{};
+};
+
+/// The lines Updates shows, and which button they allow.
+struct UpdateLines {
+    std::string version_line; ///< the label
+    std::string status;       ///< the status; a key while it is still looked up
+    bool can_check{};         ///< CHECK NOW can be pressed
+    bool offered{};           ///< the button is UPDATE…
+    /// "Updated by {name}", already filled. Empty when this build replaces
+    /// itself or names nobody.
+    std::string updated_by;
+};
+
+/// Returns the lines Updates shows for one reading. The templates are looked
+/// up; the version and the time are filled in and are not looked up again.
+///
+/// @param reading what the host knows
+/// @return the lines
+[[nodiscard]] UpdateLines update_lines(const UpdateReading& reading);
+
 /// One install-ID switch, as the dialog keeps the player's choice.
 struct InstallIdChoice {
     std::string registry_id; ///< the registry's id
@@ -780,8 +1036,96 @@ struct RegisteredWrite {
     void* state{};                                                      ///< the page's state
 };
 
+/// The weapon types and sides a mod fixes, as Engine Limits shows them.
+/// The host fills it after open_dialog. The default is the base game: no
+/// mod, 256 weapon types and 5 sides, and nothing loaded.
+struct ModLimitsShown {
+    /// A mod profile is in use. Without one the rows show 256 and 5, in a
+    /// match as well as at the menu.
+    bool mod{};
+    /// The weapon types the profile allows, or 256 for the base game.
+    uint32_t weapon_types{256};
+    /// The sides the profile allows, or 5 for the base game.
+    uint32_t sides{5};
+    /// The weapon types the playing match loaded. Empty outside a match.
+    /// The rows ignore it for the base game.
+    std::optional<uint32_t> loaded_weapon_types;
+    /// The sides the playing match loaded. Empty outside a match. The rows
+    /// ignore it for the base game.
+    std::optional<uint32_t> loaded_sides;
+};
+
+/// A modifier the practice pad on Accessibility tells apart.
+enum class PracticeModifier : uint8_t {
+    none,  ///< not a modifier: a letter, a digit or another key
+    shift, ///< Shift
+    ctrl,  ///< Ctrl
+    alt,   ///< Alt, Option on a Mac keyboard
+};
+
+/// One key the host hands the practice pad: a modifier, or another key and
+/// the legend its keycap shows.
+struct PracticeKey {
+    PracticeModifier modifier{PracticeModifier::none}; ///< which modifier; none for another key
+    /// What the key's cap shows, as the player reads it: "A", "Shift", "Ctrl".
+    std::string label;
+};
+
+/// What the practice pad's last key did, with the helpers the dialog shows.
+enum class PracticeOutcome : uint8_t {
+    none,      ///< nothing pressed yet
+    latched,   ///< a modifier tapped alone stays down for the next key (Sticky modifiers)
+    locked,    ///< a modifier tapped twice stays down until it is tapped again
+    unlocked,  ///< a locked modifier tapped again lets go
+    counted,   ///< a key counted, with the modifiers held or latched
+    too_short, ///< a key let go before Slow keys' time: it did not count
+    bounced,   ///< a key pressed again within Bounce keys' time: it did not count
+    held,      ///< Hold to confirm's chord held to its end: the order would go
+    cancelled, ///< Hold to confirm's chord let go before its end: nothing happens
+};
+
+/// The bit of a modifier in PracticePad's sets of modifiers.
+///
+/// @param modifier the modifier
+/// @return its bit; 0 for none
+[[nodiscard]] constexpr uint8_t practice_bit(PracticeModifier modifier) noexcept {
+    return modifier == PracticeModifier::none
+               ? uint8_t{0}
+               : static_cast<uint8_t>(1U << (static_cast<uint32_t>(modifier) - 1U));
+}
+
+/// Accessibility's practice pad: the keys the player tries there, as the
+/// helpers the dialog shows treat them. Keys pressed here never reach the
+/// game or the dialog's other controls. Each set of modifiers is
+/// practice_bit's bits.
+struct PracticePad {
+    uint8_t held{};    ///< the modifiers down now
+    uint8_t latched{}; ///< the modifiers Sticky modifiers keeps down for the next key
+    uint8_t locked{};  ///< the modifiers a second tap keeps down until tapped again
+    /// The modifiers pressed since the last other key, so that one let go
+    /// with none pressed in between counts as a tap.
+    uint8_t alone{};
+    std::string key_down;       ///< the other key held now; empty for none
+    uint8_t key_modifiers{};    ///< the modifiers held or latched as it went down
+    uint64_t key_down_ms{};     ///< when it went down, in milliseconds
+    bool key_counted{};         ///< it counted already (Slow keys' time passed)
+    bool key_bounced{};         ///< it came again within Bounce keys' time and does not count
+    std::string last_released;  ///< the last key that counted and was let go, for Bounce keys
+    uint64_t last_release_ms{}; ///< when it was let go, in milliseconds
+    PracticeOutcome outcome{PracticeOutcome::none}; ///< what the last key did
+    std::string outcome_key;                        ///< the key it was about
+    uint8_t outcome_modifiers{};                    ///< the modifiers with it
+    uint8_t outcome_released{}; ///< the latched modifiers the key used, which then let go
+    uint32_t outcome_ms{}; ///< how long it was held, or how soon it came again, in milliseconds
+    /// Hold to confirm's chord, the confirm modifier and D, is held: its bar fills.
+    bool holding{};
+    uint64_t hold_started_ms{}; ///< when the chord's hold began, in milliseconds
+    uint64_t now_ms{};          ///< the time the pad was last told, in milliseconds
+};
+
 /// One open dialog. A host reads opened, chosen, defaults, restored, page
-/// and forget_renderer_failures, sets acceleration, and reads and may keep
+/// and forget_renderer_failures, sets acceleration, size_class and
+/// drawn_fonts, and reads and may keep
 /// developer between openings; section_hooks is set only by tests and
 /// checks; the other members after them are the dialog's own.
 struct Dialog {
@@ -791,8 +1135,11 @@ struct Dialog {
     Locks locks{};                     ///< what cannot be changed now
     AccelerationStatus acceleration{}; ///< Hardware acceleration's status
     std::string version;               ///< the header's version text
-    Page page{Page::controls};         ///< the section shown
-    bool restored{};                   ///< Restore defaults was pressed
+    /// A note beside the version, already translated. Empty shows none.
+    /// A shared game's note still takes the header instead.
+    std::string header_note;
+    Page page{Page::controls}; ///< the section shown
+    bool restored{};           ///< Restore defaults was pressed
     /// The times the player asked, since the dialog opened, for the graphics
     /// card to be tried afresh: each press of Restore defaults, and each
     /// time Hardware acceleration passed to a higher level, from Off to
@@ -898,6 +1245,48 @@ struct Dialog {
     std::string game_files_location{};
     /// The device's name in the backups switch's hint.
     std::string game_files_device{};
+    /// Weapon types and sides, as the mod fixes them and as a match loaded
+    /// them. The host sets it as the dialog opens. The default is the base game.
+    ModLimitsShown mod_limits{};
+    /// The mod being played, as players see its name. Empty while no mod is
+    /// played, and Controls then hides Key layout with that mod.
+    std::string played_mod;
+    /// That mod's id, which the choice is saved under. Empty while no mod
+    /// is played.
+    std::string played_mod_id;
+    /// What Key layout shows: the layout in use and how many keys the player
+    /// changed. The host sets it as the dialog opens and after the editor saves.
+    std::string key_layout_summary;
+    /// The key layout card's name of the layout in use. Empty shows
+    /// key_layout_summary as the name, and no count. The host sets it with the
+    /// summary.
+    std::string key_layout_name;
+    /// How many actions the player's own layout over it changes, which the
+    /// card's badge counts; 0 shows no badge. The host sets it with the summary.
+    int32_t key_layout_changes{};
+    /// The layout in use is the one chosen for the mod being played, so that
+    /// the card says it applies with that mod only; false, it applies to every
+    /// game. The host sets it with the summary.
+    bool key_layout_mod_only{};
+    /// The modifier Key layout's hint names in "{primary}+/". The host gives
+    /// Cmd on macOS; elsewhere, and in the tests and their pins, it is Ctrl.
+    std::string primary_modifier{"Ctrl"};
+    /// Which list the next EDIT KEYS… or CHOOSE… opens the key editor on.
+    /// EDIT KEYS… sets all. CHOOSE… on Hold keys that latch sets latchable.
+    KeyEditorFilter edit_keys_filter{KeyEditorFilter::all};
+    /// How many latchable actions the layout in use holds on. The host sets
+    /// it as the dialog opens and after the editor saves. The row's total is
+    /// the registry's count of latchable actions.
+    uint32_t latched_count{};
+    /// Installed layouts Key layout with the mod offers, after Same as the
+    /// game. The row lists those made for the mod first. The host sets it as
+    /// the dialog opens.
+    std::vector<KeyLayoutChoice> key_layouts;
+    /// The layout chosen for the mod being played: `same`, or one of
+    /// key_layouts' ids. EngineSettings::key_layout_for_mod holds the same
+    /// text, which the row reads and writes. The host sets both as the dialog
+    /// opens.
+    std::string key_layout_for_mod{"same"};
     /// Developer Mode's list of the standard hacks.
     DeveloperList developer{};
     /// The language the operating system's preferred locales choose, which
@@ -934,6 +1323,17 @@ struct Dialog {
     /// What Downloads shows, which the host sets with set_downloads_offer
     /// after the dialog has opened. open_dialog clears it.
     DownloadsOffer downloads{};
+    /// What Updates shows, which the host fills after the dialog has opened.
+    /// open_dialog clears it, and sets mode from the check in effect.
+    UpdatesOffer updates{};
+    /// The update centre's action the card's button asked for
+    /// (DialogAction::update_action), as UpdateCardAction::act; -1 for none.
+    int32_t update_act{-1};
+    /// A short word at the right of Updates' entry in the section list, in
+    /// the accent: how far a download has come ("41%") or that a release is
+    /// ready, as the update centre's pill says it. Empty shows none. The host
+    /// keeps it as the update moves.
+    std::string updates_badge;
     /// Each install-ID switch as the player has it, in downloads.install_ids'
     /// order. A switch takes effect at OK.
     std::vector<InstallIdChoice> install_id_chosen{};
@@ -947,6 +1347,14 @@ struct Dialog {
     /// the room it has; the scroll offsets are held to the class's limits
     /// wherever they are used.
     oa::ui::kit::SizeClass size_class{oa::ui::kit::SizeClass::compact};
+    /// The fonts the host draws the dialog in, at the type of the class they
+    /// carry. The pointer, a finger, the keys and the wheel find every
+    /// control where these fonts place it, as the drawing does, and
+    /// dialog_layout lists it there, so a control answers where it is drawn
+    /// however its texts wrap. Null measures every character at
+    /// estimated_character_width, as the dialog is laid out without fonts.
+    /// The host keeps them while the dialog shows.
+    const oa::ui::kit::Fonts* drawn_fonts{};
     /// Registered pages listed after the engine's sections. Empty leaves the
     /// list as the engine's own, Developer pinned at its foot.
     std::vector<RegisteredPage> registered_pages;
@@ -957,8 +1365,9 @@ struct Dialog {
     /// Those values as the pages were given. Cancel puts them back, and OK
     /// writes a key whose text differs.
     oa::ui::kit::PreferenceModel registered_opened{};
-    /// The section list's scroll, in source pixels, while registered pages
-    /// make the list taller than its room.
+    /// The section list's scroll, in source pixels, while the list is taller
+    /// than its room: registered pages, or the engine's own fourteen sections
+    /// at Compact. Developer stays pinned under the divider and does not scroll.
     int32_t nav_scroll{};
     /// The part of a source pixel the wheel has turned over the section list
     /// and not yet scrolled.
@@ -970,6 +1379,16 @@ struct Dialog {
     /// it as the dialog opens and when CHECK AGAIN returns. Empty still shows
     /// the sentence and the three buttons.
     std::vector<GameContentRow> game_content;
+    /// Reset on Reset window positions was pressed, which reports
+    /// DialogAction::changed: the host forgets the place of every window the
+    /// player moved, at once, clears this and sets window_places_reset.
+    /// Cancel does not put the places back.
+    bool window_reset_asked{};
+    /// The host forgot every moved window's place while the dialog was open,
+    /// so that the row says each window is back in its place.
+    bool window_places_reset{};
+    /// Accessibility's practice pad.
+    PracticePad practice{};
 };
 
 /// Returns every standard hack as Developer Mode shows it: as the profile
@@ -1008,13 +1427,14 @@ using DialogFonts = oa::ui::kit::Fonts;
 /// values, the scroll bar while the section scrolls, and the footer's
 /// buttons. No two overlap, and each lies inside the dialog's edge. Of the
 /// open section's rows only the parts that lie wholly in its view are
-/// listed; a part the view cuts is drawn but not listed. The player's own
-/// folder's path shows as its tail that fits its place (path_tail): measured in the
-/// fonts when they are given, else at estimated_character_width a
-/// character.
+/// listed; a part the view cuts is drawn but not listed. Every part is
+/// placed as the fonts place it, the same places a press finds: the
+/// fonts given, else the dialog's own (Dialog::drawn_fonts), else at
+/// estimated_character_width a character. The player's own folder's path
+/// shows as its tail that fits its place (path_tail).
 ///
 /// @param dialog the dialog
-/// @param fonts the fonts the dialog is drawn in; null to estimate widths
+/// @param fonts the fonts the dialog is drawn in; null for Dialog::drawn_fonts
 /// @return the parts
 [[nodiscard]] std::vector<LayoutPart>
 dialog_layout(const Dialog& dialog, const DialogFonts* fonts = nullptr);
@@ -1332,6 +1752,53 @@ set_controller_section(Dialog& dialog, bool controller, bool steam_input) noexce
 /// @return what the turn asks of the host: DialogAction::redraw when the
 ///     section scrolled, else DialogAction::none
 [[nodiscard]] DialogAction dialog_wheel(Dialog& dialog, int32_t x, int32_t y, float notches);
+
+/// Returns how far Page Up and Page Down scroll the open section: its view
+/// at the dialog's size class, less three hint lines, so that what showed
+/// at one edge still shows at the other.
+///
+/// @param dialog the dialog
+/// @return the rows, in source pixels
+[[nodiscard]] int32_t dialog_page_step(const Dialog& dialog) noexcept;
+
+/// Lays the dialog out at a size class (Dialog::size_class) and scrolls its
+/// section list the least that shows the open section's entry there.
+///
+/// @param[in,out] dialog the dialog
+/// @param size_class the class
+void set_dialog_size_class(Dialog& dialog, oa::ui::kit::SizeClass size_class);
+
+/// Takes a key the player presses or lets go while Accessibility shows: the
+/// practice pad tries it with the helpers the dialog shows (Sticky
+/// modifiers, Slow keys, Bounce keys and Hold to confirm), and it reaches
+/// nothing else. On any other section the pad takes no key. A host hands it
+/// the modifiers and the keys that print a legend, and the keys the dialog
+/// answers to (dialog_key) still go there.
+///
+/// @param[in,out] dialog the dialog
+/// @param key the key
+/// @param down true as it goes down, false as it is let go
+/// @param now_ms the time, in milliseconds, from one clock for every call
+/// @return redraw when the pad shows something else; none when it took no key
+[[nodiscard]] DialogAction
+dialog_practice_key(Dialog& dialog, const PracticeKey& key, bool down, uint64_t now_ms);
+
+/// Moves the practice pad's time on: a key held for Slow keys' time counts,
+/// and Hold to confirm's bar fills and ends. A host calls it every frame
+/// while the dialog is open.
+///
+/// @param[in,out] dialog the dialog
+/// @param now_ms the time, in milliseconds, from the clock dialog_practice_key is given
+/// @return redraw while the pad's bar or outcome moved; none otherwise
+[[nodiscard]] DialogAction dialog_practice_tick(Dialog& dialog, uint64_t now_ms);
+
+/// Counts the settings the dialog shows changed from what it opened with: each
+/// setting whose stored value would change, an install ID's switch, a
+/// registered page's key and Skirmish players. The footer shows the count.
+///
+/// @param dialog the dialog
+/// @return the count; 0 when nothing changed
+[[nodiscard]] std::size_t changed_settings_count(const Dialog& dialog);
 
 /// Tells whether a point lies on the dialog at Compact.
 ///

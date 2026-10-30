@@ -6,7 +6,8 @@
 
 Reads src/data/mod-profile/registry/hack-registry.yaml, checks that it is
 consistent (every baseline, default and preset valid for its parameter, presets
-complete, constraints kept, references resolved), and writes:
+complete, constraints kept, references resolved, and each hack's actions list
+naming action ids from gen_input_actions.py --list), and writes:
 
   src/data/mod-profile/src/registry_table.inc
       the registry as constant C++ tables, which the resolver reads;
@@ -33,6 +34,7 @@ escaped in what this writes.
 
 import argparse
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -73,6 +75,8 @@ LIMIT_FIELDS = {
                                "clamp-oversize": "model_composite.clamp_oversize"},
     "limits.build-list-entries": {"copy": "build_lists.copy", "overflow": "build_lists.overflow"},
     "limits.category-mask-types": {"types": "category_masks.types"},
+    "limits.weapon-types": {"types": "weapon_types.types"},
+    "limits.sides": {"count": "sides.count"},
 }
 # Hack areas whose rules the simulation reads; the others are read outside it.
 SIM_AREAS = ["ai", "orders", "air", "weapons", "repair", "veterancy", "economy", "intel", "setup",
@@ -189,10 +193,36 @@ def holds(constraint, values):
     return {"<=": x <= y, "<": x < y, ">=": x >= y, ">": x > y}[op]
 
 
-def check_registry(reg):
-    """The registry's own consistency; returns a list of problems."""
+def list_action_ids():
+    """The action ids `gen_input_actions.py --list` prints, one per line."""
+    script = Path(__file__).resolve().parent / "gen_input_actions.py"
+    run = subprocess.run(
+        [sys.executable, str(script), "--list"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if run.returncode != 0:
+        detail = (run.stderr or run.stdout).strip()
+        raise RegistryError(detail or "gen_input_actions.py --list failed")
+    return {line.strip() for line in run.stdout.splitlines() if line.strip()}
+
+
+def check_registry(reg, known_actions=None):
+    """The registry's own consistency; returns a list of problems.
+
+    `known_actions` is the set of action ids. When an entry lists `actions` and
+    this is left out, the ids come from `gen_input_actions.py --list`. The
+    `actions` lists are not written into the generated tables.
+    """
     problems = []
     entries = reg["entries"]
+    if known_actions is None and any("actions" in entry for entry in entries.values()):
+        try:
+            known_actions = list_action_ids()
+        except RegistryError as error:
+            problems.append(str(error))
+            known_actions = set()
     transforms = set(reg.get("setting-transforms", {}))
     area_titles = reg.get("area-titles", {})
     titles = {}
@@ -212,6 +242,23 @@ def check_registry(reg):
             continue
         if e.get("scope") not in ("sim", "view"):
             problems.append(f"{where}: scope must be sim or view")
+        listed = e.get("actions")
+        if "actions" in e:
+            if e["kind"] != "hack":
+                problems.append(f"{where}: only a hack lists actions")
+            elif not isinstance(listed, list) or not listed:
+                problems.append(f"{where}: actions is a list of action ids")
+            else:
+                seen_actions = set()
+                for action_id in listed:
+                    if not isinstance(action_id, str) or not action_id:
+                        problems.append(f"{where}: an action id is not text")
+                    elif action_id in seen_actions:
+                        problems.append(f"{where}: action {action_id} is listed twice")
+                    elif action_id not in known_actions:
+                        problems.append(f"{where}: action {action_id} is not in the action registry")
+                    else:
+                        seen_actions.add(action_id)
         if e["kind"] in ("identity", "layout", "string", "media"):
             attempt(check_value, e["value"], e["value"]["baseline"], f"{where} baseline")
             if e["value"].get("scope") not in ("sim", "view"):
@@ -957,6 +1004,34 @@ def self_test():
             failures.append(f"the registry check misses {needle!r}: {problems}")
     if check_registry({"entries": {"units.example": good}, "setting-transforms": {}, "area-titles": named}):
         failures.append("the registry check refuses a good entry")
+    known = {"order.attack"}
+    listed = dict(good, actions=["order.attack"])
+    if check_registry({"entries": {"units.example": listed}, "setting-transforms": {},
+                       "area-titles": named}, known):
+        failures.append("the registry check refuses a hack action that is listed")
+    for change, needle in (
+            ({"actions": ["no.such"]}, "no.such"),
+            ({"actions": ["order.attack", "order.attack"]}, "listed twice"),
+            ({"actions": []}, "a list of action ids"),
+            ({"actions": [1]}, "not text"),
+    ):
+        problems = check_registry(
+            {"entries": {"units.example": dict(good, **change)}, "setting-transforms": {},
+             "area-titles": named},
+            known,
+        )
+        if not any(needle in problem for problem in problems):
+            failures.append(f"the registry check misses {needle!r}: {problems}")
+    keyed = {"kind": "data-key", "scope": "sim", "file": "unit", "actions": ["order.attack"]}
+    problems = check_registry(
+        {"entries": {"units.key": keyed}, "setting-transforms": {}, "area-titles": named}, known
+    )
+    if not any("only a hack lists actions" in problem for problem in problems):
+        failures.append(f"the registry check misses an actions list on a data key: {problems}")
+    live = dict(good, actions=["megamap.toggle"])
+    if check_registry({"entries": {"units.example": live}, "setting-transforms": {},
+                       "area-titles": named}):
+        failures.append("gen_input_actions.py --list did not accept megamap.toggle")
     marked = dict(good, mutator=True)
     marked["params"] = {"ticks": dict(good["params"]["ticks"], adjustable="match")}
     if check_registry({"entries": {"units.example": marked}, "setting-transforms": {}, "area-titles": named}):

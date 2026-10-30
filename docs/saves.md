@@ -27,7 +27,9 @@ own folders for that mod.
 A save or a recording made with mutators keeps those mutators, and so does
 a campaign save. Loading it needs the same ones. When one is missing, the
 game names it. [Playing with mutators](playing-with-mutators.md) says what
-the note holds and what the refusal reads.
+the note holds and what the refusal reads. A recording of a mod with more
+weapon types or more sides is in
+[Mods with more weapon types or sides](#mods-with-more-weapon-types-or-sides).
 
 A save keeps each computer seat's brain as well: the id, the version, the
 level and the options. The note beside the save, and beside a recording,
@@ -42,9 +44,39 @@ quotes the question.
 ## What a saved game keeps
 
 A saved game keeps what a 3.1c saved game keeps. Shots in flight are not
-among them: shells, rockets, beams and missiles, nuclear missiles included,
-are gone when the game loads, as in 3.1c. A nuclear missile launched just
-before saving does not land after loading, and its silo does not get it
-back: the round left the silo's stockpile at launch, and the save holds the
-stockpile as it was after the launch. Save before you launch, or after the
-missile lands.
+among them, as in 3.1c: shells, rockets, beams and missiles are gone when
+the game loads. A stockpiled round that is still in flight, a nuclear
+missile or an anti-nuke missile, is written back into its weapon's
+stockpile, up to 200. After loading, the silo holds the round and can
+launch it again. The missile does not land. A save made with nothing of
+the kind in flight is the same file 3.1c writes.
+
+## Repairs in games from 0.8.6 or earlier
+
+From 0.8.7 a repair costs the unit doing the repairing, as in 3.1c. A
+repair pad pays for the aircraft on it, and a builder pays for the unit it
+repairs, an ally's unit included, so the bottom bar shows the energy on the
+pad or the builder. Open Annihilation 0.8.6 and earlier charged the unit
+being repaired.
+
+A save made with 0.8.6 or earlier while a unit was being repaired still
+loads, but the game goes on from it a little differently from the way the
+older version played it. A recording of such a game, with a repair in it,
+may not play back exactly as it was played. Saves and recordings with no
+repair in them are not affected.
+
+## Mods with more weapon types or sides
+
+A game played under a mod that numbers more weapon types, or loads more
+sides, saves and loads like any other game, and only under that mod.
+
+Its recording keeps the mod's two limits. It plays back only under a mod
+with the same weapon types and the same sides. Under any other it says
+"This recording needs a mod with {n} weapon types and {m} sides."
+
+A recording made without those limits (one from 3.1c, or one Open
+Annihilation made of a game under 3.1c's limits) does not play under a mod
+that raises either. It says "This recording was made with 256 weapon types
+and five sides. The mod you are playing has more."
+
+Other replayers stop at the first of Open Annihilation's wide weapon records.

@@ -239,8 +239,17 @@ row, left to right: a tree covers the units in its own row and the rows
 behind it, and units in the rows in front of it cover the tree. A unit's row
 is the camera's plot row plus the whole rows between the camera and the
 unit, truncated toward zero, so it follows the camera's position within a
-plot. Units not on the ground (in the air, or carried) draw in a last pass,
-after the projectiles and explosions. Its test pins each of these rules.
+plot. A ground unit whose place lies on a building's footprint
+(`stands_on_footprint`), as a unit leaving a factory stands on its
+platform, draws straight after that building wherever its row and its place
+in the list would draw it first, so that the building never covers it; units
+following one building keep their order among themselves. 3.1c drew such a
+unit by its own row alone, so a unit released from a platform north of the
+factory's centre, as the Arm Vehicle Plant's is, was drawn under the
+platform at most camera positions until it drove past the centre. Units not
+on the ground (in the air, or carried) draw in a last pass, after the
+projectiles and explosions. Its test pins each of these rules, and
+`native-factory-departure` checks every factory with a platform in a match.
 
 ## Solid 3DO primitives
 

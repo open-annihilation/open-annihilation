@@ -46,8 +46,10 @@ unzip open-annihilation-<version>-linux-x86_64.zip
 ```
 
 This makes the folder `open-annihilation-<version>-linux-x86_64`, which
-holds the game, `open-annihilation`. If `unzip` is missing, install it, for
-example with `sudo apt install unzip`.
+holds the game, `open-annihilation`. Rename that folder to a plain name
+such as `open-annihilation` and keep it in your home folder: the game
+updates itself there, and a copy under `/opt` or `/usr` cannot. If `unzip`
+is missing, install it, for example with `sudo apt install unzip`.
 
 ## 4. Get the game data
 
@@ -144,11 +146,12 @@ bottom right of the main menu opens. See [Settings](../settings.md), and
 Each start on a desktop registers this copy of the game, for your account,
 as the opener of the file types left on in [Settings › System](../settings.md#system):
 mod packages (`.oamod`), map packs (`.oamap`), language packs (`.oalang`),
-mutator packages (`.oamut`), brain packages (`.oabrain`), registry files
+mutator packages (`.oamut`), brain packages (`.oabrain`), key layout packages
+(`.oakeys`), registry files
 (`.oareg`) and launch files
-(`.oalaunch`). All seven are on
+(`.oalaunch`). All eight are on
 until you turn one off. Turning one off and pressing OK withdraws that type
-at once; turning one on registers it at once. With all seven off, the
+at once; turning one on registers it at once. With all eight off, the
 desktop entries and the MIME package are removed. Neither waits for a restart. The game's icon is put
 on the types it opens. Open a `.oamod` file from the file manager to
 install the mod it holds
@@ -251,20 +254,28 @@ command, still takes the screenshots and films.
 
 ## Updating and removing
 
-- **To update:** unzip the newer package and start the game from its
-  folder. Your settings are kept.
+- **To update:** from 0.8.7 on, the game downloads a release and installs
+  it in this folder. The first update moves the program into `versions/`,
+  adds a `current` link, and puts a small launcher where
+  `open-annihilation` was, so a shortcut that names that file keeps
+  working. `oa-tool` is then `current/oa-tool`. A copy under `/opt`,
+  `/usr`, `/snap` or Flatpak, or one you do not own, only tells you to
+  install the new release the way this copy was installed. An install from
+  0.8.6 or older is replaced once by unzipping 0.8.7 into a folder of your
+  own; after that the game updates itself. Your settings are kept.
 - **To remove:** delete the game's folder. To remove your settings and logs
   too, delete the two folders above; your saved games, screenshots, films,
   recordings and mods are in the Open Annihilation folder in Documents. To make your
   desktop forget the game as the opener of `.oamod`, `.oalang`, `.oamap`,
-  `.oamut`, `.oabrain`, `.oareg` and `.oalaunch` files, delete
+  `.oamut`, `.oabrain`, `.oakeys`, `.oareg` and `.oalaunch` files, delete
   `~/.local/share/mime/packages/net.coreprime.open-annihilation.xml`,
   `~/.local/share/applications/net.coreprime.open-annihilation.desktop`,
   `~/.local/share/applications/net.coreprime.open-annihilation.launch.desktop`,
-  the eight icon files `apps/net.coreprime.open-annihilation.png`,
+  the nine icon files `apps/net.coreprime.open-annihilation.png`,
   `mimetypes/application-x-oamod.png`, `mimetypes/application-x-oalang.png`,
   `mimetypes/application-x-oamap.png`, `mimetypes/application-x-oamut.png`,
-  `mimetypes/application-x-oabrain.png`, `mimetypes/application-x-oareg.png`
+  `mimetypes/application-x-oabrain.png`, `mimetypes/application-x-oakeys.png`,
+  `mimetypes/application-x-oareg.png`
   and `mimetypes/application-x-oalaunch.png`
   under `~/.local/share/icons/hicolor/256x256`, and the hidden empty
   `.net.coreprime.open-annihilation.updated` files in the `mime`,

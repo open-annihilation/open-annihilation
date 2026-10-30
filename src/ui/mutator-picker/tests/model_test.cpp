@@ -237,7 +237,7 @@ void open_full_set() {
     OA_CHECK(model.on[0].options[0].second == "4");
     OA_CHECK(
         picker::hint(model) ==
-        "Your last skirmish set, ready to use. CANCEL plays without mutators."
+        "Your last skirmish set, ready to use. Cancel plays without mutators."
     );
     OA_CHECK(model.selected && *model.selected == "fast-builders");
 }
@@ -1081,10 +1081,10 @@ void question_words() {
     OA_CHECK(one.paragraphs[1].text.find("Gatehouse Keep") != std::string::npos);
     OA_CHECK(one.paragraphs[1].text.find("comes back with it") != std::string::npos);
     OA_CHECK(one.buttons.size() == 2);
-    OA_CHECK(one.buttons[0].caption == "CANCEL");
+    OA_CHECK(one.buttons[0].caption == "Cancel");
     OA_CHECK(!one.buttons[0].accent);
     OA_CHECK(one.buttons[0].id == "cancel");
-    OA_CHECK(one.buttons[1].caption == "TURN OFF");
+    OA_CHECK(one.buttons[1].caption == "Turn off");
     OA_CHECK(one.buttons[1].accent);
     OA_CHECK(one.buttons[1].id == "turn-off");
     OA_CHECK(one.marked == 0);
@@ -1223,7 +1223,7 @@ void locked_missing_prerequisite() {
     OA_CHECK(model.left_out.size() == 1 && model.left_out[0] == "Gatehouse Keep");
     OA_CHECK(picker::ready(model));
     OA_CHECK(
-        picker::hint(model) == "Your last skirmish set, ready to use. CANCEL plays without "
+        picker::hint(model) == "Your last skirmish set, ready to use. Cancel plays without "
                                "mutators. Left out of your last set: Gatehouse Keep"
     );
 }
@@ -1367,7 +1367,7 @@ void stale_conflict() {
     check_ids(model, {"grounded", "fast-builders"});
     OA_CHECK(model.left_out.size() == 1 && model.left_out[0] == "Quiet Seas");
     OA_CHECK(
-        picker::hint(model) == "Your last skirmish set, ready to use. CANCEL plays without "
+        picker::hint(model) == "Your last skirmish set, ready to use. Cancel plays without "
                                "mutators. Left out of your last set: Quiet Seas"
     );
     const std::vector<picker::Row> listed = picker::rows(model);

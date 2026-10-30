@@ -410,13 +410,13 @@ brain match: map Painted Desert seed 4242 ticks 1800
 brain match: seat 1 steady-commander 1.0 level medium side 0
 brain match: seat 2 classic 1.0 level medium side 1
 brain match: end tick 1800 winner none reason time
-brain match: seat 1 units 6 built 6 lost 0 kills 0 metal 9155 energy 8064 metal-produced 45 energy-produced 1492 instructions 746835 status playing
-brain match: seat 2 units 4 built 4 lost 0 kills 0 metal 943 energy 542 metal-produced 94 energy-produced 1234 instructions 11247757 status playing
-brain match: digest a166a0bb22a312d5
+brain match: seat 1 units 5 built 5 lost 0 kills 0 metal 474 energy 0 metal-produced 44 energy-produced 1388 instructions 742590 status playing
+brain match: seat 2 units 4 built 4 lost 0 kills 0 metal 831 energy 162 metal-produced 90 energy-produced 1446 instructions 11190718 status playing
+brain match: digest 10720ca66e625d92
 ```
 
 `status playing` means the script stayed inside its budget for the whole
-match ([5.2 Budgets](oabrain-standard.md#52-budgets)). Seat 1 has built 6
+match ([5.2 Budgets](oabrain-standard.md#52-budgets)). Seat 1 has built 5
 units. Medium asks for two metal extractors and one energy building, then
 one land factory, and that factory queues a combat unit. Steady Commander
 never reads `me.knowledge`. The record of this match is quoted in
@@ -444,9 +444,9 @@ brain match: map Painted Desert seed 4242 ticks 2400
 brain match: seat 1 steady-commander 1.0 level medium side 0
 brain match: seat 2 built-in level hard side 1
 brain match: end tick 2400 winner none reason time
-brain match: seat 1 units 7 built 7 lost 0 kills 0 metal 9108 energy 7846 metal-produced 60 energy-produced 2206 instructions 965058 status playing
-brain match: seat 2 units 5 built 5 lost 0 kills 0 metal 703 energy 656 metal-produced 195 energy-produced 3225 instructions - status built-in
-brain match: digest 8c8a9e89f53f3ff1
+brain match: seat 1 units 5 built 5 lost 0 kills 0 metal 269 energy 9 metal-produced 58 energy-produced 1798 instructions 956550 status playing
+brain match: seat 2 units 6 built 6 lost 0 kills 0 metal 726 energy 607 metal-produced 187 energy-produced 3415 instructions - status built-in
+brain match: digest 7ddfb2fc6344624d
 ```
 
 Tick 1 calls `onUnitIdle`, draws while it classifies, and places the
@@ -525,6 +525,18 @@ as allies now, and it changes when an alliance does. The fields are in
 [7.2 the map](oabrain-standard.md#72-the-map) and
 [7.5 the seat](oabrain-standard.md#75-the-seat).
 
+The economy figures on `me` are per second, from the seat's last
+settlement, once a second of game time. `me.energy_requested` is demand:
+what the units asked for, construction, upkeep, cloaks and shots, whether
+it was paid or not. So `me.energy_surplus`, produced less requested, is
+negative nearly every second something is built, and that alone is no
+shortage. `me.energy_spent` is what was actually paid. While it equals
+`me.energy_requested`, the seat builds at full speed; when it falls short,
+the store has run dry and construction slows. The metal figures work the
+same way. What goes into each, and a commander building a solar
+collector worked through, is
+[7.5.1 The economy](oabrain-standard.md#751-the-economy).
+
 During `start`, before the first tick, `each_unit` can still
 be empty: the commander arrives as `onUnitIdle` on tick 1. Classify then,
 or from the timer, and remember the records so later ticks do not draw
@@ -552,7 +564,8 @@ nearest `near` and walks outward. It returns the cell and the centre, or
 nil. `facing` is 0 to 3. Steady Commander passes the builder's `x` and
 `z`, a radius of 200 and `brain.random(4) - 1`. `brain.random` is never
 called with 0. On a seat without full awareness the site test is the
-building site with this seat as the placing player. A nil return leaves
+building site with this seat as the placing player, on ground that seat
+has explored. A nil return leaves
 that building unplaced, and the same turn tries the next one.
 
 A refused order returns false and is counted. It is not raised. The
@@ -785,8 +798,8 @@ or `builtin`. It needs `--headless-check`, `--match-ticks` and
 Every line starts with `brain match: `. `winner none` and `reason time`
 mean both seats still had units when the tick count was spent. `units`
 counts the living units. `built` counts units the seat has built. In the
-Classic match Steady Commander's `built` count is 6, and in the built-in
-match it is 7. `instructions` is what the brain's calls have used, or
+Classic match Steady Commander's `built` count is 5, and in the built-in
+match it is 5. `instructions` is what the brain's calls have used, or
 `-` for a built-in seat. `status playing` means the brain was still
 being called. `digest` is the world digest. Status 0 means the match
 played to the end. The rest of the words are
@@ -817,7 +830,7 @@ The Classic match's record is three JSON lines:
 
 ```text
 {"kind":"header","format":1,"map":"Painted Desert","seed":4242,"seats":[{"seat":1,"brain":"steady-commander","version":"1.0","level":"medium"},{"seat":2,"brain":"classic","version":"1.0","level":"medium"}]}
-{"kind":"result","seat":1,"winner":false,"tick":1800,"units":6}
+{"kind":"result","seat":1,"winner":false,"tick":1800,"units":5}
 {"kind":"result","seat":2,"winner":false,"tick":1800,"units":4}
 ```
 
@@ -825,8 +838,8 @@ The built-in match's record is the same shape:
 
 ```text
 {"kind":"header","format":1,"map":"Painted Desert","seed":4242,"seats":[{"seat":1,"brain":"steady-commander","version":"1.0","level":"medium"},{"seat":2,"brain":"builtin","level":"hard"}]}
-{"kind":"result","seat":1,"winner":false,"tick":2400,"units":7}
-{"kind":"result","seat":2,"winner":false,"tick":2400,"units":5}
+{"kind":"result","seat":1,"winner":false,"tick":2400,"units":5}
+{"kind":"result","seat":2,"winner":false,"tick":2400,"units":6}
 ```
 
 Steady Commander never calls `brain.record`, so there is no `sample`

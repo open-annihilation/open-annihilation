@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/ui/frontend_state/skirmish_ui.hpp"
+#include "oa/core/side.h"
 #include "oa/data/match_rules/difficulty_names.hpp"
 #include <algorithm>
 #include <bit>
@@ -160,8 +161,32 @@ void update_alliance_images(const Settings& s, Host& h) {
     h.invalidate_menu();
 }
 
-void cycle_player(Settings& s, int32_t index, Host& h) {
+/// The sides a slot's Side button never offers.
+///
+/// A computer slot also skips the sides computer players may not take.
+///
+/// @param ui Panel state.
+/// @param value The slot.
+/// @return bit n set for a side the button never offers
+uint32_t slot_hidden_sides(const UiState& ui, const game_entry::SkirmishSlot& value) noexcept {
+    uint32_t hidden = ui.hidden_sides;
+    if (value.controller == game_entry::controller::computer)
+        hidden |= ui.computer_hidden_sides;
+    return hidden;
+}
+
+namespace {
+
+/// Cycles a slot's controller; with panel state, a slot that becomes a
+/// computer also moves to the first side its Side button offers.
+///
+/// @param[in,out] s Skirmish settings.
+/// @param index Slot index.
+/// @param ui Panel state, or null to leave the side as it is.
+/// @param[in,out] h Routines the panel calls.
+void cycle_player_with(Settings& s, int32_t index, const UiState* ui, Host& h) {
     auto& value = slot(s, index);
+    const int32_t before = value.controller;
     switch (value.controller) {
     case game_entry::controller::disabled:
         value.controller = game_entry::controller::computer;
@@ -189,8 +214,23 @@ void cycle_player(Settings& s, int32_t index, Host& h) {
             widget("Color", index), Sprite::player_colors, static_cast<uint16_t>(value.color)
         );
     }
+    if (ui != nullptr && value.controller == game_entry::controller::computer &&
+        before != game_entry::controller::computer) {
+        value.side = offered_side(value.side, ui->side_count, slot_hidden_sides(*ui, value));
+        h.set_side_stage(widget("Side", index), static_cast<uint8_t>(value.side));
+    }
     enable_slot(index, value.controller != 0, h);
     update_alliance_images(s, h);
+}
+
+} // namespace
+
+void cycle_player(Settings& s, int32_t index, Host& h) {
+    cycle_player_with(s, index, nullptr, h);
+}
+
+void cycle_player(Settings& s, int32_t index, const UiState& ui, Host& h) {
+    cycle_player_with(s, index, &ui, h);
 }
 
 void cycle_color(Settings& s, int32_t index, bool reverse, Host& h) {
@@ -290,7 +330,7 @@ void populate(Settings& s, Preferences& p, UiState& ui, Host& h) {
             h.zero_team_icon_frame_origin(0); // Frame zero is fetched every time.
     for (int32_t i = 0; i < s.slot_count; ++i) {
         auto& value = s.slots[static_cast<std::size_t>(i)];
-        value.side = offered_side(value.side, ui.side_count, ui.hidden_sides);
+        value.side = offered_side(value.side, ui.side_count, slot_hidden_sides(ui, value));
         if (value.controller >= 0 && value.controller <= 2)
             h.set_text(
                 h.frontend_menu(),
@@ -383,6 +423,36 @@ void advance_side(Settings& s, int32_t index, int32_t side_count, uint32_t hidde
     value.side = offered_side(next, side_count, hidden_sides);
 }
 
+void retreat_side(Settings& s, int32_t index, int32_t side_count, uint32_t hidden_sides) {
+    if (side_count <= 0)
+        throw std::invalid_argument("empty side table");
+    auto& value = slot(s, index);
+    const auto hidden = [&](int32_t at) {
+        return at >= 0 && at < 32 && (hidden_sides & (1U << static_cast<uint32_t>(at))) != 0;
+    };
+    // offered_side of a negative index opens on side 0, so a step back walks
+    // the positive indices itself.
+    const auto wrapped_before = [&](int32_t step) {
+        int32_t previous = value.side - step;
+        previous %= side_count;
+        if (previous < 0)
+            previous += side_count;
+        return previous;
+    };
+    for (int32_t step = 1; step < side_count; ++step) {
+        const int32_t previous = wrapped_before(step);
+        if (!hidden(previous)) {
+            value.side = previous;
+            return;
+        }
+    }
+    // Nothing earlier is offered. Stay on the one side that is. When this
+    // side is hidden too, step back one, as when every side is hidden.
+    if (value.side >= 0 && value.side < side_count && !hidden(value.side))
+        return;
+    value.side = wrapped_before(1);
+}
+
 void cycle_alliance(Settings& s, int32_t index, Host& h) {
     auto& value = slot(s, index);
     value.alliance = add_wrapped(value.alliance, 1) % alliance_count;
@@ -460,10 +530,15 @@ bool handle_event(
     auto sound = [&] { h.play_ui_sound("Skirmish", 0); };
     if (selected == "Player") {
         sound();
-        cycle_player(s, ui.selected_slot, h);
+        cycle_player(s, ui.selected_slot, ui, h);
     } else if (selected == "Side") {
         sound();
-        advance_side(s, ui.selected_slot, ui.side_count, ui.hidden_sides);
+        const uint32_t hidden = slot_hidden_sides(ui, slot(s, ui.selected_slot));
+        // Past 3.1c's five sides a right click steps back; fewer still go forward.
+        if (h.event_button(event.menu) == right_button && ui.side_count > OA_SIDE_COUNT)
+            retreat_side(s, ui.selected_slot, ui.side_count, hidden);
+        else
+            advance_side(s, ui.selected_slot, ui.side_count, hidden);
         // The button's own two stages wrap at Core; its frame follows the
         // side instead, so a third or later SIDEDATA side shows its own art.
         h.set_side_stage(

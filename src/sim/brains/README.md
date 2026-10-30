@@ -198,6 +198,18 @@ libraries a check can call when no match is open.
 on the same fixture and reads that seat's units, squads, economy and
 knowledge.
 
+`sim-brains-economy` (`tests/economy_test.cpp`) seats the made-up brain
+`economy-reader` on the same fixture, with a builder that makes, uses and
+works as a commander does and a building that costs what a Core solar
+collector costs. The brain has the builder put the building up and reads
+the economy every turn. Each turn reads exactly what the match held after
+the tick before. Building from a full store spends what was requested, to
+the bit; building from an empty energy store spends what came in, less than
+was requested; with both stores empty the builder waits on the metal it
+owes and spends only its energy upkeep; an idle builder spends its upkeep,
+and a cloaked one its upkeep and its cloak's. In every case what was spent
+is what the stores paid out. The load's pass keeps its figures.
+
 `sim-brains-events` (`tests/events_test.cpp`) seats the made-up brain
 `steady-commander` on the same fixture. Its hooks record every call. The
 test checks creation, damage, death and a wreck, the order of one turn, a
@@ -269,7 +281,10 @@ refusal would not be counted.
 `me` stays the table B01 created. `player`, `level`, `difficulty` and
 `options` move into a hidden table, and assigning `me` raises `me is
 read-only`. The seat then reads its name, side, team and color, its resources
-as `f32`, and its surpluses as Lua numbers. `tick` is the match tick.
+as `f32`, and its surpluses as Lua numbers. `energy_spent` and `metal_spent`
+are what the match's last settlement for the seat paid out
+(`Match::settled_spending`), as `f32`; they are nil for a seat with no match.
+`tick` is the match tick.
 `handed_over` is recorded when the seat is made: false before the built-in
 player's set-up has run, true when a seat is made after that. `me.knowledge`
 is that built-in player's knowledge record for the seat (`tick`, `builders`,
@@ -642,8 +657,10 @@ turn.
 full awareness, `"site"` (the default) is `site_clear_for` and `"yard"` is
 `building_site_clear`. On any other seat the type must be a building,
 `"site"` is that check's map-edge test and then `building_site` with the
-seat as the placing player, and `"yard"` is `building_site` alone. Full
-awareness is the only choice. `seat_is_classic` does not decide it.
+seat as the placing player, and `"yard"` is `building_site` alone. The
+mapped ground is the seat's own, so a seat other than the viewer finds a
+site on ground it has explored. Full awareness is the only choice.
+`seat_is_classic` does not decide it.
 `brain.place(type, near, radius [, facing])` starts at the footprint cell
 whose centre is `near`, then walks rings at Chebyshev distance up to
 `radius` world units divided by 16, each ring from its north-west corner
@@ -655,7 +672,10 @@ charges 16.
 and from C++ on a second match, and compares the queues and the next tick.
 `sim-brains-sites` compares `brain.site` with the check the seat's
 awareness selects, over a grid of cells and every facing, and compares
-`brain.place` with that same walk.
+`brain.place` with that same walk. It also seats a brain without full
+awareness on the computer, with the viewer on the other seat: the brain
+finds a site on ground that seat has explored, orders a building there,
+and finds none on ground only the viewer has mapped.
 
 ## When a brain fails
 
@@ -756,7 +776,7 @@ index, the weapon id, or the feature's index from 0.
 
 `units[i]` is type index `i`, from 1. Index 0 is the reserved empty type and
 is not a record. `#units` is that count. `weapons[id]` is the weapon id from
-0 to 255, or nil when that slot was not loaded. `#weapons` is how many slots
+0 to the mod's weapon types minus one (255 without a limit), or nil when that slot was not loaded. `#weapons` is how many slots
 are loaded, so it matches `each` and `pairs`; the id is still the key, and a
 gap stays a gap. `features[i]` is the feature type at index `i - 1`.
 

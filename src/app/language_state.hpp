@@ -55,6 +55,10 @@ struct Runtime::LanguageState {
     oa::data::languages::UnitTexts unit_texts;
     /// The interface catalogue of the engine's own words.
     oa::data::languages::InterfaceText catalogue;
+    /// True after a translation asked for the catalogue and it was read,
+    /// including a read that found nothing. Cleared when the catalogue is
+    /// dropped, so the next such word reads it again.
+    bool catalogue_sought{};
     /// The game data's translation table and fonts are loaded for a word.
     bool loaded{};
     /// The word they are loaded for.

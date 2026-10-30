@@ -55,10 +55,10 @@ constexpr std::string_view kKeyPlaceholder = "ed25519:…";
 /// A public key is 52 characters. A longer paste stays too long to be a key
 /// rather than being cut into one.
 constexpr std::size_t kMaxSigningKeyBytes = 128;
-constexpr std::string_view kCancelCaption = "CANCEL";
-constexpr std::string_view kCheckCaption = "CHECK";
-constexpr std::string_view kAddCaption = "ADD";
-constexpr std::string_view kAddMirrorCaption = "ADD MIRROR";
+constexpr std::string_view kCancelCaption = "Cancel";
+constexpr std::string_view kCheckCaption = "Check";
+constexpr std::string_view kAddCaption = "Add";
+constexpr std::string_view kAddMirrorCaption = "Add mirror";
 constexpr std::string_view kUnsignedText = "Unsigned · accepted in Developer mode only";
 constexpr std::string_view kWarningText =
     "Not reviewed by the OA team. Only add registries you trust. OA checks every package it "

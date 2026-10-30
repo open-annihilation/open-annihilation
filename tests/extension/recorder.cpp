@@ -75,8 +75,10 @@ namespace kit = oa::ui::kit;
 // recorder records and registers its own page from. Version 16 adds
 // run_mutators, a function an extension calls, so the hook count is unchanged.
 // Version 17 adds hear_remote_seat_chat, also a function an extension calls,
-// so the hook count is unchanged.
-constexpr uint32_t kExtensionApiVersionRecorded = 17;
+// so the hook count is unchanged. Version 18 adds the kit's key pictures,
+// not a hook, so the hook count is unchanged. Version 19 is Kit 2's look in
+// the kit's headers, not a hook, so the hook count is unchanged.
+constexpr uint32_t kExtensionApiVersionRecorded = 19;
 constexpr std::size_t kHookCount = 41;
 static_assert(
     extension_api_version == kExtensionApiVersionRecorded,

@@ -1,0 +1,416 @@
+// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+#include "menu_geom.hpp"
+
+#include "oa/ui/key_editor/text.hpp"
+
+#include <algorithm>
+#include <cstddef>
+#include <string_view>
+
+namespace oa::ui::key_editor {
+namespace {
+
+/// True when a control name is words the kit accepts.
+///
+/// @param name the name
+/// @return true when it is words of a-z, 0-9 and hyphens joined by dots
+bool name_ok(std::string_view name) {
+    if (name.empty() || name.size() > 100)
+        return false;
+    bool word = false;
+    for (const char letter : name) {
+        if (letter == '.') {
+            if (!word)
+                return false;
+            word = false;
+            continue;
+        }
+        const bool ordinary =
+            (letter >= 'a' && letter <= 'z') || (letter >= '0' && letter <= '9') || letter == '-';
+        if (!ordinary)
+            return false;
+        word = true;
+    }
+    return word;
+}
+
+/// A control name, or `fallback` when `name` would be refused.
+///
+/// @param name the name the item would have
+/// @param fallback a name that is sound
+/// @return the name to give the control
+std::string sound_name(std::string name, std::string fallback) {
+    if (name_ok(name))
+        return name;
+    return fallback;
+}
+
+/// One filter's caption, with how many actions it keeps in the category.
+///
+/// @param editor the editor
+/// @param state the category
+/// @param filter which filter
+/// @param word the filter's name
+/// @return the caption
+std::string filter_caption(
+    const Editor& editor, const ScreenState& state, Filter filter, std::string_view word
+) {
+    const std::string label = show(editor.text(), word);
+    const std::string count = std::to_string(editor.rows(state.category, filter, "").size());
+    return fill(show(editor.text(), words::filter_count), {{"filter", label}, {"count", count}});
+}
+
+/// Appends one item to a menu.
+///
+/// @param[in,out] entries the menu
+/// @param kind what choosing it does
+/// @param id the layout, or the action's word
+/// @param caption the words, already looked up
+/// @param name the control's name
+void add_entry(
+    std::vector<MenuEntry>& entries,
+    MenuKind kind,
+    std::string id,
+    std::string caption,
+    std::string name
+) {
+    MenuEntry entry;
+    entry.kind = kind;
+    entry.id = std::move(id);
+    entry.caption = std::move(caption);
+    entry.name = std::move(name);
+    entries.push_back(std::move(entry));
+}
+
+/// Appends a heading: a divider with a caption, as the category menu's are.
+///
+/// @param[in,out] entries the menu
+/// @param editor the words
+/// @param word the heading, in English
+void add_heading(std::vector<MenuEntry>& entries, const Editor& editor, std::string_view word) {
+    MenuEntry entry;
+    entry.kind = MenuKind::divider;
+    entry.caption = show(editor.text(), word);
+    entries.push_back(std::move(entry));
+}
+
+/// The layouts to choose from: OA default, then each installed layout.
+///
+/// @param editor the editor
+/// @return the items
+std::vector<MenuEntry> layout_choices(const Editor& editor) {
+    std::vector<MenuEntry> entries;
+    add_entry(
+        entries,
+        MenuKind::layout_id,
+        "oa-default",
+        show(editor.text(), words::oa_default),
+        std::string(name_layout) + ".oa-default"
+    );
+    std::size_t place = 0;
+    for (const LayoutSummary& layout : editor.installed()) {
+        const std::string fallback = std::string(name_layout) + ".n" + std::to_string(place);
+        add_entry(
+            entries,
+            MenuKind::layout_id,
+            layout.id,
+            layout.name,
+            sound_name(std::string(name_layout) + "." + layout.id, fallback)
+        );
+        ++place;
+    }
+    return entries;
+}
+
+/// Appends Clone as New Layout… and, on a layout other than OA default,
+/// Rename and Describe….
+///
+/// @param[in,out] entries the menu
+/// @param editor the editor
+/// @param clone_control the name Clone's control takes
+/// @param describe_control the name Rename and Describe's control takes
+void add_clone_items(
+    std::vector<MenuEntry>& entries,
+    const Editor& editor,
+    std::string clone_control,
+    std::string describe_control
+) {
+    add_entry(
+        entries,
+        MenuKind::clone,
+        "clone",
+        show(editor.text(), words::clone_item),
+        std::move(clone_control)
+    );
+    if (editor.layout_id() != "oa-default")
+        add_entry(
+            entries,
+            MenuKind::describe,
+            "describe",
+            show(editor.text(), words::describe_item),
+            std::move(describe_control)
+        );
+}
+
+/// The layout menu: the layouts, a rule, then Clone as New Layout… and, on
+/// a layout other than OA default, Rename and Describe….
+///
+/// @param editor the editor
+/// @return the items
+std::vector<MenuEntry> layout_entries(const Editor& editor) {
+    std::vector<MenuEntry> entries = layout_choices(editor);
+    MenuEntry rule;
+    rule.kind = MenuKind::divider;
+    entries.push_back(std::move(rule));
+    add_clone_items(
+        entries, editor, std::string(name_layout) + ".clone", std::string(name_layout) + ".describe"
+    );
+    return entries;
+}
+
+/// The category menu. Compact adds the filters under a rule.
+///
+/// @param editor the editor
+/// @param state the category, for the filters' counts
+/// @param compact true when the filters are items of this menu
+/// @return the items
+std::vector<MenuEntry>
+category_entries(const Editor& editor, const ScreenState& state, bool compact) {
+    std::vector<MenuEntry> entries;
+    for (const CategoryEntry& category : editor.categories()) {
+        MenuEntry entry;
+        if (category.id.starts_with("heading.")) {
+            entry.kind = MenuKind::divider;
+            entry.caption = category.title;
+        } else {
+            if (category.id == "all") {
+                // All actions follows a rule, apart from the categories.
+                MenuEntry rule;
+                rule.kind = MenuKind::divider;
+                entries.push_back(std::move(rule));
+            }
+            entry.kind = MenuKind::category;
+            entry.id = category.id;
+            const std::string count = std::to_string(category.count);
+            const std::string& name_shown = category.title;
+            entry.caption = fill(
+                show(editor.text(), words::category_count), {{"name", name_shown}, {"count", count}}
+            );
+            entry.name = sound_name(
+                std::string(name_category) + "." + category.id,
+                std::string(name_category) + ".n" + std::to_string(entries.size())
+            );
+        }
+        entries.push_back(std::move(entry));
+    }
+    if (!compact)
+        return entries;
+    MenuEntry rule;
+    rule.kind = MenuKind::divider;
+    entries.push_back(std::move(rule));
+    const Filter filters[] = {
+        Filter::all, Filter::changed, Filter::clashes, Filter::unbound, Filter::latchable
+    };
+    const std::string_view words_of[] = {
+        words::filter_all,
+        words::filter_changed,
+        words::filter_clashes,
+        words::filter_unbound,
+        words::filter_latchable
+    };
+    const std::string_view names[] = {
+        name_filter_all,
+        name_filter_changed,
+        name_filter_clashes,
+        name_filter_unbound,
+        name_filter_latchable
+    };
+    const char* ids[] = {"all", "changed", "clashes", "unbound", "latchable"};
+    for (int index = 0; index < 5; ++index) {
+        MenuEntry entry;
+        entry.kind = MenuKind::filter;
+        entry.id = ids[index];
+        entry.caption = filter_caption(editor, state, filters[index], words_of[index]);
+        entry.name = std::string(names[index]);
+        entries.push_back(std::move(entry));
+    }
+    return entries;
+}
+
+/// True when the item is a rule: a divider with nothing to read.
+bool rule_entry(const MenuEntry& entry) noexcept {
+    return entry.kind == MenuKind::divider && entry.caption.empty();
+}
+
+/// True when the item is a heading.
+bool heading_entry(const MenuEntry& entry) noexcept {
+    return entry.kind == MenuKind::divider && !entry.caption.empty();
+}
+
+/// The points above one item.
+int32_t item_lead(
+    const kit::Metrics& metrics, const std::vector<MenuEntry>& entries, int32_t index
+) noexcept {
+    if (index <= 0 || static_cast<std::size_t>(index) >= entries.size())
+        return 0;
+    if (!heading_entry(entries[static_cast<std::size_t>(index)]))
+        return 0;
+    return metrics.space;
+}
+
+/// How tall one item is.
+int32_t item_span(const kit::Metrics& metrics, const MenuEntry& entry) noexcept {
+    if (rule_entry(entry))
+        return std::max(metrics.space, int32_t{4});
+    return metrics.row_height;
+}
+
+} // namespace
+
+int32_t menu_inner_height(
+    const kit::Metrics& metrics, const std::vector<MenuEntry>& entries, int32_t first, int32_t count
+) noexcept {
+    int32_t height = 0;
+    for (int32_t step = 0; step < count; ++step) {
+        const int32_t index = first + step;
+        if (index < 0 || static_cast<std::size_t>(index) >= entries.size())
+            break;
+        height += item_lead(metrics, entries, index) +
+                  item_span(metrics, entries[static_cast<std::size_t>(index)]);
+    }
+    return height;
+}
+
+int32_t menu_rows_that_fit(
+    const kit::Metrics& metrics, const std::vector<MenuEntry>& entries, int32_t room
+) noexcept {
+    if (entries.empty())
+        return 0;
+    const int32_t most =
+        std::min(static_cast<int32_t>(entries.size()), kit::compact_metrics.most_shown_choices);
+    int32_t shown = 1;
+    for (int32_t count = 1; count <= most; ++count) {
+        int32_t worst = 0;
+        const int32_t last = static_cast<int32_t>(entries.size()) - count;
+        for (int32_t begin = 0; begin <= last; ++begin)
+            worst = std::max(worst, menu_inner_height(metrics, entries, begin, count) + 2);
+        if (worst <= room)
+            shown = count;
+    }
+    return shown;
+}
+
+int32_t menu_room(const kit::Metrics& metrics, kit::SizeClass size_class) noexcept {
+    const int32_t header = size_class == kit::SizeClass::compact ? metrics.header_height
+                                                                 : metrics.window_header_height;
+    const int32_t footer = size_class == kit::SizeClass::compact
+                               ? metrics.control_height + metrics.space * 2
+                               : metrics.window_footer_height;
+    const int32_t body_top = metrics.edge + header + 1;
+    const int32_t footer_rule = metrics.dialog_height - metrics.edge - footer - 1;
+    return std::max(footer_rule - body_top - metrics.control_height, metrics.row_height + 2);
+}
+
+std::vector<MenuEntry>
+menu_entries(const Editor& editor, Menu menu, const ScreenState& state, bool compact) {
+    if (menu == Menu::layout)
+        return layout_entries(editor);
+    if (menu == Menu::category)
+        return category_entries(editor, state, compact);
+    if (menu == Menu::shape) {
+        const std::string_view ids[] = {"system", "ansi", "iso", "jis"};
+        const std::string_view words_of[] = {
+            words::shape_system, words::shape_ansi, words::shape_iso, words::shape_jis
+        };
+        std::vector<MenuEntry> entries;
+        for (int index = 0; index < 4; ++index) {
+            MenuEntry entry;
+            entry.kind = MenuKind::shape;
+            entry.id = std::string(ids[index]);
+            entry.caption = show(editor.text(), words_of[index]);
+            entry.name = std::string(name_keyboard_shape) + "." + entry.id;
+            entries.push_back(std::move(entry));
+        }
+        return entries;
+    }
+    if (menu == Menu::more) {
+        // More holds the rarer actions in two groups, each under its heading:
+        // Layouts, then Sharing. Compact has no LAYOUT drop-down, so the
+        // layouts lead More there, and Clone and Rename and Describe keep
+        // the names the layout menu gives them.
+        std::vector<MenuEntry> entries;
+        if (compact)
+            entries = layout_choices(editor);
+        const auto add_more =
+            [&](MenuKind kind, std::string id, std::string_view word, std::string_view control) {
+                add_entry(
+                    entries, kind, std::move(id), show(editor.text(), word), std::string(control)
+                );
+            };
+        add_heading(entries, editor, words::layouts_heading);
+        add_more(MenuKind::import, "import", words::import_button, name_import);
+        if (compact)
+            add_clone_items(
+                entries,
+                editor,
+                std::string(name_layout) + ".clone",
+                std::string(name_layout) + ".describe"
+            );
+        else
+            add_clone_items(entries, editor, std::string(name_clone), std::string(name_describe));
+        add_more(MenuKind::restore, "restore", words::restore_title, name_restore);
+        add_heading(entries, editor, words::sharing_heading);
+        add_more(MenuKind::share, "share", words::share_button, name_share);
+        add_more(MenuKind::paste, "paste", words::paste_button, name_paste);
+        return entries;
+    }
+    return {};
+}
+
+int32_t menu_chosen(
+    const Editor& editor, Menu menu, const ScreenState& state, const std::vector<MenuEntry>& entries
+) {
+    if (menu == Menu::layout) {
+        const std::string id = editor.layout_id();
+        for (std::size_t index = 0; index < entries.size(); ++index) {
+            if (entries[index].kind == MenuKind::layout_id && entries[index].id == id)
+                return static_cast<int32_t>(index);
+        }
+        return 0;
+    }
+    if (menu == Menu::category) {
+        for (std::size_t index = 0; index < entries.size(); ++index) {
+            if (entries[index].kind == MenuKind::category && entries[index].id == state.category)
+                return static_cast<int32_t>(index);
+        }
+    }
+    if (menu == Menu::shape) {
+        std::string chosen = "system";
+        if (!state.shape_from_system) {
+            if (state.shape == kit::KeyboardShape::iso)
+                chosen = "iso";
+            else if (state.shape == kit::KeyboardShape::jis)
+                chosen = "jis";
+            else
+                chosen = "ansi";
+        }
+        for (std::size_t index = 0; index < entries.size(); ++index) {
+            if (entries[index].kind == MenuKind::shape && entries[index].id == chosen)
+                return static_cast<int32_t>(index);
+        }
+        return 0;
+    }
+    if (menu == Menu::more) {
+        const std::string id = editor.layout_id();
+        for (std::size_t index = 0; index < entries.size(); ++index) {
+            if (entries[index].kind == MenuKind::layout_id && entries[index].id == id)
+                return static_cast<int32_t>(index);
+        }
+        return -1;
+    }
+    return -1;
+}
+
+} // namespace oa::ui::key_editor

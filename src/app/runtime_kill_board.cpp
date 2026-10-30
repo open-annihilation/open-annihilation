@@ -318,6 +318,13 @@ int Runtime::overlay_gui_glyphs(
     for (const unsigned char byte : line)
         if (const oa::Sprite* glyph = byte >= ' ' ? oa::present::gaf_frame(glyphs, byte) : nullptr)
             width += glyph->width;
+    if (text_hold_.holding()) {
+        // Overlaid once every box of its group is laid (BackedText).
+        hold_painted_text([this, face = &font, pen, line, rows_below_pen, scale] {
+            std::ignore = overlay_gui_glyphs(*face, pen, line, rows_below_pen, scale);
+        });
+        return width;
+    }
 
     struct Run {
         const oa::present::GafSprites* font;
@@ -352,7 +359,7 @@ int Runtime::overlay_gui_glyphs(
 void Runtime::draw_board_text(
     std::string_view text, int32_t x, int32_t y, int32_t width, uint8_t flash
 ) {
-    const auto draw_glyphs = [this,
+    const auto glyph_patch = [this,
                               y](int32_t pen, std::string_view bytes, int32_t room, uint8_t light) {
         struct Line {
             const oa::present::GafSprites* font;
@@ -374,6 +381,18 @@ void Runtime::draw_board_text(
             &line
         );
     };
+    // The glyphs are overlaid once every box of the board's group is laid
+    // (BackedText).
+    const auto draw_glyphs =
+        [this, &glyph_patch](int32_t pen, std::string_view bytes, int32_t room, uint8_t light) {
+            if (!text_hold_.holding()) {
+                glyph_patch(pen, bytes, room, light);
+                return;
+            }
+            hold_painted_text([glyph_patch, pen, glyphs = std::string(bytes), room, light] {
+                glyph_patch(pen, glyphs, room, light);
+            });
+        };
     if (!renderer::needs_text_runs(text, true)) {
         draw_glyphs(x, text, width, flash);
         return;
@@ -487,7 +506,7 @@ void Runtime::draw_match_kill_board() {
                 const_cast<Logo*>(&logo)
             );
         };
-    const bool held = control_key_down(oa::ui::gui_input::ControlKey::space);
+    const bool held = action_key_held("game.status-strip") || space_held_by_check_;
     const auto now = oa::base::game_loop::scaled_clock(clock_milliseconds(), match_clock_scale());
     hud::draw_kill_board(
         world,
@@ -572,7 +591,7 @@ void Runtime::check_kill_board() {
     visibility = static_cast<uint8_t>(
         visibility & ~(visibility_flag::mapping | visibility_flag::line_of_sight)
     );
-    reset_sight_presentation(false);
+    reset_sight_presentation();
     pointer_x_ = static_cast<float>(match_layout_.left + kCursorReach);
     pointer_y_ = static_cast<float>(match_layout_.height / 2);
     const Rect cursor{

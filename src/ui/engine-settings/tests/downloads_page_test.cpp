@@ -279,39 +279,50 @@ void section_list_puts_downloads_before_developer() {
                     settings::DialogKind::engine, touch, game_files, controller
                 );
                 const auto downloads = std::find(pages.begin(), pages.end(), Page::downloads);
+                const auto updates = std::find(pages.begin(), pages.end(), Page::updates);
                 const auto content = std::find(pages.begin(), pages.end(), Page::game_content);
                 const auto system = std::find(pages.begin(), pages.end(), Page::system);
                 const auto developer = std::find(pages.begin(), pages.end(), Page::developer);
                 OA_CHECK(
-                    downloads != pages.end() && content != pages.end() && system != pages.end() &&
-                    developer != pages.end()
+                    downloads != pages.end() && updates != pages.end() && content != pages.end() &&
+                    system != pages.end() && developer != pages.end()
                 );
-                OA_CHECK(downloads + 1 == content);
-                OA_CHECK(content + 1 == system);
+                // Content's group ends Downloads, Updates, Game Content;
+                // System's follows: Engine Limits, System, Developer.
+                const auto limits = std::find(pages.begin(), pages.end(), Page::common_tweaks);
+                OA_CHECK(limits != pages.end());
+                OA_CHECK(downloads + 1 == updates);
+                OA_CHECK(updates + 1 == content);
+                OA_CHECK(content + 1 == limits);
+                OA_CHECK(limits + 1 == system);
                 OA_CHECK(system + 1 == developer);
-                const int32_t optionals =
-                    (touch ? 1 : 0) + (controller ? 1 : 0) + (game_files ? 1 : 0);
-                // The fullest compact list drops the gap so System ends on the divider.
-                const int32_t stride =
-                    geometry::list_item_height + (optionals == 3 ? 0 : geometry::list_item_gap);
-                const int32_t downloads_y = geometry::list_first_top + (5 + optionals) * stride;
+                const auto user_interface =
+                    std::find(pages.begin(), pages.end(), Page::user_interface);
+                const auto accessibility =
+                    std::find(pages.begin(), pages.end(), Page::accessibility);
+                OA_CHECK(user_interface != pages.end() && accessibility != pages.end());
+                OA_CHECK(pages.size() > 1 && pages[1] == Page::accessibility);
+                OA_CHECK(accessibility < user_interface && user_interface < downloads);
+                // Entries of a group lie an entry and a gap apart; a rule and
+                // its margins part two groups. list_item is the content's
+                // place, before the list scrolls.
+                const geometry::NavMetrics& nav = geometry::compact_sizes.nav;
+                const auto top_of = [&](Page page) {
+                    return geometry::list_item(page, touch, game_files, controller).y;
+                };
+                const int32_t stride = nav.entry_height + nav.entry_gap;
+                const int32_t rule = 2 * nav.rule_margin + 1;
+                OA_CHECK(top_of(Page::controls) == geometry::body_top + nav.margin);
+                OA_CHECK(top_of(Page::updates) == top_of(Page::downloads) + stride);
+                OA_CHECK(top_of(Page::game_content) == top_of(Page::updates) + stride);
                 OA_CHECK(
-                    geometry::list_item(Page::downloads, touch, game_files, controller).y ==
-                    downloads_y
+                    top_of(Page::common_tweaks) ==
+                    top_of(Page::game_content) + nav.entry_height + rule
                 );
-                OA_CHECK(
-                    geometry::list_item(Page::game_content, touch, game_files, controller).y ==
-                    downloads_y + stride
-                );
-                OA_CHECK(
-                    geometry::list_item(Page::system, touch, game_files, controller).y ==
-                    downloads_y + 2 * stride
-                );
-                OA_CHECK(
-                    geometry::list_item(Page::developer, touch, game_files, controller).y == 262
-                );
-                OA_CHECK(geometry::list_divider().y == 256);
+                OA_CHECK(top_of(Page::system) == top_of(Page::common_tweaks) + stride);
+                OA_CHECK(top_of(Page::developer) == top_of(Page::system) + stride);
                 OA_CHECK(settings::page_control(Page::downloads) == 9);
+                OA_CHECK(settings::page_control(Page::updates) == 12);
                 OA_CHECK(settings::page_control(Page::game_content) == 11);
                 OA_CHECK(settings::page_control(Page::system) == 10);
                 const settings::Dialog dialog = opened({}, touch, controller, game_files);
@@ -377,7 +388,7 @@ void rows_follow_the_registries() {
     const kit::Control* link = kit::control_of(
         linked_list, kit::control_named(linked_list, "settings.registries-in-library")
     );
-    OA_CHECK(link != nullptr && link->text == "REGISTRIES IN THE LIBRARY…");
+    OA_CHECK(link != nullptr && link->text == "Registries in the Library…");
     if (link != nullptr) {
         linked.library_tab = settings::LibraryTab::mods;
         const Point at = centre({link->rect.x, link->rect.y, link->rect.width, link->rect.height});
@@ -449,7 +460,7 @@ void reset_and_empty_are_disabled_when_they_cannot_act() {
     settings::Dialog dialog = opened(offer);
     const NamedControl reset = control_named(dialog, "settings.install-id.core-prime.reset");
     OA_CHECK(reset.found && !reset.enabled);
-    OA_CHECK(click_caption(dialog, "RESET") != DialogAction::reset_install_id);
+    OA_CHECK(click_caption(dialog, "Reset") != DialogAction::reset_install_id);
 
     offer.install_ids[0].on = true;
     offer.install_ids[0].made = false;
@@ -458,18 +469,21 @@ void reset_and_empty_are_disabled_when_they_cannot_act() {
     OA_CHECK(layout_has(dialog, "Made at your first download"));
     OA_CHECK(!layout_has(dialog, "Your install ID"));
 
+    // EMPTY is the last row's button; the end of the scroll shows it whole.
     offer.kept_bytes = 0;
     dialog = opened(offer);
+    dialog.scroll[static_cast<std::size_t>(Page::downloads)] = settings::scroll_limit(dialog);
     const NamedControl empty = control_named(dialog, "settings.downloaded-files.empty");
     OA_CHECK(empty.found && !empty.enabled);
-    OA_CHECK(click_caption(dialog, "EMPTY") != DialogAction::empty_downloads);
+    OA_CHECK(click_caption(dialog, "Empty") != DialogAction::empty_downloads);
 
     offer.kept_bytes = kKept;
     offer.downloads_busy = true;
     dialog = opened(offer);
+    dialog.scroll[static_cast<std::size_t>(Page::downloads)] = settings::scroll_limit(dialog);
     const NamedControl busy = control_named(dialog, "settings.downloaded-files.empty");
     OA_CHECK(busy.found && !busy.enabled);
-    OA_CHECK(click_caption(dialog, "EMPTY") != DialogAction::empty_downloads);
+    OA_CHECK(click_caption(dialog, "Empty") != DialogAction::empty_downloads);
 }
 
 void a_game_locks_reset_and_empty() {
@@ -482,7 +496,7 @@ void a_game_locks_reset_and_empty() {
     OA_CHECK(!control_named(dialog, "settings.install-id.core-prime.reset").found);
     OA_CHECK(!control_named(dialog, "settings.downloaded-files.empty").found);
     OA_CHECK(!value_has(dialog, "412 MB kept for resuming and repairs"));
-    OA_CHECK(layout_has(dialog, "EMPTY"));
+    OA_CHECK(layout_has(dialog, "Empty"));
     OA_CHECK(layout_has(dialog, "Your install ID"));
     dialog.focused = settings::first_row_control + 2;
     OA_CHECK(settings::dialog_key(dialog, DialogKey::space) != DialogAction::reset_install_id);

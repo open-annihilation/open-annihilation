@@ -47,7 +47,15 @@
 #include "oa/data/registry/trust.hpp"
 #include "oa/formats/hpi.hpp"
 #include "oa/data/brain_library/library.hpp"
+#include "oa/data/key_library/library.hpp"
 #include "oa/data/mutator_library/library.hpp"
+#include "oa/formats/oakeys/manifest.hpp"
+#include "oa/data/input_actions/actions.hpp"
+#include "oa/ui/key_bindings/chord.hpp"
+#include "oa/ui/key_bindings/input.hpp"
+#include "oa/ui/key_bindings/layout.hpp"
+#include "oa/ui/key_bindings/layout_file.hpp"
+#include "oa/ui/library/use_question.hpp"
 #include "oa/data/script_host/script_host.hpp"
 #include "oa/sim/brains/check.hpp"
 #include "oa/formats/oamod/package_keys.hpp"
@@ -66,6 +74,7 @@
 #include "oa/ui/library/prerequisites.hpp"
 #include "oa/ui/library/screen.hpp"
 #include "oa/ui/library/text.hpp"
+#include "oa/ui/key_editor/text.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -98,6 +107,8 @@ namespace oa::app {
 namespace settings = oa::ui::engine_settings;
 namespace kit = oa::ui::kit;
 namespace library = oa::ui::library;
+namespace key_editor = oa::ui::key_editor;
+namespace key_words = oa::ui::key_editor::words;
 namespace mutators = oa::data::mutators;
 
 namespace {
@@ -117,12 +128,6 @@ constexpr std::string_view kOwnModWord = "mod";
 /// The author's name a mod's or a map pack's manifest gives when nobody is
 /// known (docs/mods/oamod-standard.md): the details name no author for it.
 constexpr std::string_view kUnknownAuthor = "unknown";
-/// The modifier that holds the Library's Find: Cmd on macOS, Ctrl elsewhere.
-#ifdef SDL_PLATFORM_MACOS
-constexpr uint16_t kCommandModifier = SDL_KMOD_GUI;
-#else
-constexpr uint16_t kCommandModifier = SDL_KMOD_CTRL;
-#endif
 
 /// Returns one of the Library's words in the language shown.
 ///
@@ -152,6 +157,8 @@ library::Kind kind_of(data::catalogue::Kind kind) noexcept {
         return library::Kind::mutator;
     case data::catalogue::Kind::oabrain:
         return library::Kind::brain;
+    case data::catalogue::Kind::oakeys:
+        return library::Kind::key_layout;
     }
     return library::Kind::mod;
 }
@@ -173,6 +180,8 @@ std::optional<library::Kind> kind_of(const package_install::PackageKind* kind) {
         return library::Kind::mutator;
     if (kind->name == "oabrain")
         return library::Kind::brain;
+    if (kind->name == "oakeys")
+        return library::Kind::key_layout;
     return std::nullopt;
 }
 
@@ -471,6 +480,474 @@ brain_at(const data::brain_library::Listing& listing, const std::filesystem::pat
     return nullptr;
 }
 
+/// Finds the installed layout whose folder is a package's folder.
+///
+/// @param listing the Keys folder
+/// @param folder the package's folder
+/// @return the layout, or null
+const data::key_library::Installed*
+layout_at(const data::key_library::Listing& listing, const std::filesystem::path& folder) {
+    for (const data::key_library::Installed& layout : listing.layouts) {
+        if (layout.folder == folder)
+            return &layout;
+        std::error_code error;
+        if (std::filesystem::equivalent(layout.folder, folder, error))
+            return &layout;
+    }
+    return nullptr;
+}
+
+/// Appends one helper token a USE switch can turn on.
+///
+/// @param[in,out] helpers the tokens so far
+/// @param token the token
+void add_key_helper(std::vector<std::string>& helpers, std::string token) {
+    if (token.empty() || helpers.size() >= 16)
+        return;
+    for (const std::string& have : helpers)
+        if (have == token)
+            return;
+    helpers.push_back(std::move(token));
+}
+
+/// Copies an installed layout's helpers into switch tokens.
+///
+/// @param helpers the manifest's helpers
+/// @param[out] tokens the tokens, in the order a question shows them
+void key_helper_tokens(
+    const oa::formats::oakeys::Helpers& helpers, std::vector<std::string>& tokens
+) {
+    if (helpers.sticky_modifiers && *helpers.sticky_modifiers)
+        add_key_helper(tokens, "sticky-modifiers");
+    if (helpers.pointer_keys && *helpers.pointer_keys)
+        add_key_helper(tokens, "pointer-keys");
+    if (helpers.hold_to_confirm) {
+        if (helpers.hold_to_confirm->empty())
+            add_key_helper(tokens, "hold-to-confirm");
+        else
+            for (const std::string& action : *helpers.hold_to_confirm)
+                add_key_helper(tokens, "hold-to-confirm:" + action);
+    }
+    if (helpers.toggle) {
+        for (const std::string& action : *helpers.toggle)
+            add_key_helper(tokens, "toggle:" + action);
+    }
+    if (helpers.radial_orders) {
+        if (*helpers.radial_orders == oa::formats::oakeys::RadialOrders::hold_middle)
+            add_key_helper(tokens, "radial-orders:hold-middle");
+        else if (*helpers.radial_orders == oa::formats::oakeys::RadialOrders::hold_right)
+            add_key_helper(tokens, "radial-orders:hold-right");
+    }
+    if (helpers.edge_scroll && *helpers.edge_scroll == oa::formats::oakeys::EdgeScroll::off)
+        add_key_helper(tokens, "edge-scroll:off");
+}
+
+/// The word a layout's keyboard stores.
+///
+/// @param keyboard the manifest's keyboard
+/// @return "any", "ansi", "iso" or "jis"
+std::string_view keyboard_word(oa::formats::oakeys::Keyboard keyboard) noexcept {
+    switch (keyboard) {
+    case oa::formats::oakeys::Keyboard::any:
+        return "any";
+    case oa::formats::oakeys::Keyboard::ansi:
+        return "ansi";
+    case oa::formats::oakeys::Keyboard::iso:
+        return "iso";
+    case oa::formats::oakeys::Keyboard::jis:
+        return "jis";
+    }
+    return "any";
+}
+
+/// The areas of commands in the order the key editor lists them. A command
+/// of another area comes after these.
+constexpr std::array<std::string_view, 11> listed_key_areas{
+    "orders",
+    "mouse",
+    "selection",
+    "groups",
+    "camera",
+    "building",
+    "game",
+    "chat",
+    "watching",
+    "window",
+    "menus",
+};
+
+/// Returns where a command's area comes in the key editor's list.
+///
+/// @param area the command's area
+/// @return its place; every other area after them
+std::size_t key_area_place(std::string_view area) noexcept {
+    for (std::size_t place = 0; place < listed_key_areas.size(); ++place)
+        if (listed_key_areas[place] == area)
+            return place;
+    return listed_key_areas.size();
+}
+
+/// Which key Primary means on this build, as the Library's lists name it.
+///
+/// @return the platform
+oa::ui::key_bindings::Platform shown_key_platform() noexcept {
+    oa::ui::key_bindings::Platform where;
+#ifdef __APPLE__
+    where.primary_is_meta = true;
+#else
+    where.primary_is_meta = false;
+#endif
+    return where;
+}
+
+/// Returns a chord as the Library's lists show it: its keycaps, and its
+/// gesture apart. A key written by its place shows the letter the keyboard
+/// prints there.
+///
+/// @param chord the chord
+/// @param map the keyboard the keycaps are read on; the US one when not given
+/// @return the keycaps and the gesture
+library::KeyChord shown_chord(
+    const oa::ui::key_bindings::Chord& chord, const oa::ui::key_bindings::KeyboardMap* map = nullptr
+) {
+    static const oa::ui::key_bindings::KeyboardMap us = oa::ui::key_bindings::KeyboardMap::us();
+    if (map == nullptr)
+        map = &us;
+    library::KeyChord shown;
+    std::vector<oa::ui::key_bindings::KeyCap> caps =
+        oa::ui::key_bindings::keycaps(chord, *map, shown_key_platform());
+    if (chord.gesture != oa::ui::key_bindings::Gesture::press && !caps.empty()) {
+        shown.gesture = std::move(caps.back().text);
+        caps.pop_back();
+    }
+    for (oa::ui::key_bindings::KeyCap& cap : caps)
+        shown.keys.push_back(std::move(cap.text));
+    return shown;
+}
+
+/// Lists the player's own changes on a layout: each command, by the key
+/// editor's English name, and its first key, in the key editor's order, at
+/// most most_key_moves. A command this build does not know is left out.
+///
+/// @param own the own-changes manifest
+/// @return the changes
+std::vector<library::KeyMove> own_changes_of(const oa::formats::oakeys::Manifest& own) {
+    struct Listed {
+        std::size_t area{};
+        uint16_t order{};
+        library::KeyMove change{};
+    };
+
+    std::vector<Listed> listed;
+    for (const oa::formats::oakeys::BindingEntry& binding : own.bindings) {
+        const oa::data::input_actions::Action* action =
+            oa::data::input_actions::find(binding.action);
+        if (action == nullptr)
+            continue;
+        Listed one;
+        one.area = key_area_place(action->area);
+        one.order = action->order;
+        one.change.command = std::string(action->words.name);
+        one.change.own = true;
+        if (!binding.chords.empty()) {
+            oa::ui::key_bindings::ChordError error;
+            if (const std::optional<oa::ui::key_bindings::Chord> chord =
+                    oa::ui::key_bindings::parse_chord(binding.chords.front().text, error))
+                one.change.after = shown_chord(*chord);
+        }
+        listed.push_back(std::move(one));
+    }
+    std::stable_sort(listed.begin(), listed.end(), [](const Listed& a, const Listed& b) {
+        return a.area != b.area ? a.area < b.area : a.order < b.order;
+    });
+    std::vector<library::KeyMove> changes;
+    for (Listed& one : listed) {
+        if (changes.size() >= library::most_key_moves)
+            break;
+        changes.push_back(std::move(one.change));
+    }
+    return changes;
+}
+
+/// A layout and the player's own changes on it, as the Keys folder holds them.
+struct LayoutWithOwn {
+    oa::ui::key_bindings::Base base{oa::ui::key_bindings::Base::oa_default}; ///< its base
+    std::optional<oa::ui::key_bindings::Layout> layout{}; ///< none for OA default
+    std::optional<oa::ui::key_bindings::Layout> own{};    ///< the player's changes, or none
+};
+
+/// Reads one layout of the Keys folder into resolution's form.
+///
+/// @param listing the Keys folder
+/// @param id the layout's id
+/// @return the layout; none when the folder has no readable layout of that id
+std::optional<oa::ui::key_bindings::Layout>
+read_key_layout(const data::key_library::Listing& listing, std::string_view id) {
+    const data::key_library::Installed* found = data::key_library::find(listing, id);
+    if (found == nullptr)
+        return std::nullopt;
+    oa::ui::key_bindings::Layout layout;
+    std::vector<oa::ui::key_bindings::LayoutProblem> problems;
+    if (!oa::ui::key_bindings::layout_from_manifest(found->manifest, nullptr, layout, problems))
+        return std::nullopt;
+    return layout;
+}
+
+/// Each command's first chord and the step that bound it, by command id.
+using FirstChords =
+    std::map<std::string, std::optional<oa::ui::key_bindings::BoundChord>, std::less<>>;
+
+/// How the player's keys are read: their keyboard, the played mod's letters
+/// and the interface.
+struct KeyReading {
+    /// The keyboard the bindings read keys on.
+    oa::ui::key_bindings::KeyboardMap map{oa::ui::key_bindings::KeyboardMap::us()};
+    oa::ui::key_bindings::ModData mod{}; ///< the played mod's button keys and letters
+    bool left_click{false};              ///< the player uses the left-click interface
+};
+
+/// Resolves a layout with its own changes and keeps each command's first chord.
+///
+/// @param layout the layout and the own changes on it
+/// @param reading the player's keyboard, the mod's letters and the interface
+/// @return each command's first chord, none for a command with no chord
+FirstChords first_chords(const LayoutWithOwn& layout, const KeyReading& reading) {
+    const bool left_click = reading.left_click;
+    const oa::ui::key_bindings::KeyboardMap& map = reading.map;
+    oa::ui::key_bindings::ResolveInput input;
+    input.base = layout.base;
+    input.chosen = layout.layout ? &*layout.layout : nullptr;
+    input.own = layout.own ? &*layout.own : nullptr;
+    input.scheme = left_click ? oa::ui::key_bindings::PointerScheme::left_click
+                              : oa::ui::key_bindings::PointerScheme::right_click;
+    input.platform = shown_key_platform();
+    input.keyboard = &map;
+    input.mod = &reading.mod;
+    const oa::ui::key_bindings::Resolved resolved = oa::ui::key_bindings::resolve(input);
+    FirstChords firsts;
+    for (const oa::ui::key_bindings::Bound& bound : resolved.actions) {
+        if (bound.entry == nullptr)
+            continue;
+        if (bound.chords.empty())
+            firsts.emplace(bound.id, std::nullopt);
+        else
+            firsts.emplace(bound.id, bound.chords.front());
+    }
+    return firsts;
+}
+
+/// Lists the commands whose first chord differs between two resolutions, and
+/// those whose chord afterwards is one of the player's own, in the key
+/// editor's order, at most most_key_moves, and counts them all.
+///
+/// @param before the chords now
+/// @param after the chords afterwards
+/// @param map the keyboard the keycaps are read on
+/// @param[out] total how many commands differ
+/// @return the moves
+std::vector<library::KeyMove> moves_between(
+    const FirstChords& before,
+    const FirstChords& after,
+    const oa::ui::key_bindings::KeyboardMap& map,
+    uint32_t& total
+) {
+    struct Listed {
+        std::size_t area{};
+        uint16_t order{};
+        library::KeyMove move{};
+    };
+
+    std::vector<Listed> listed;
+    for (const auto& [id, chord] : after) {
+        const auto was = before.find(id);
+        const std::optional<oa::ui::key_bindings::BoundChord> old =
+            was != before.end() ? was->second : std::nullopt;
+        // A command on one of the player's own keys is listed whether or not
+        // its key changes, so the list shows that the change is kept.
+        const bool same = old.has_value() == chord.has_value() &&
+                          (!old.has_value() || old->chord == chord->chord);
+        const bool own = chord.has_value() && chord->step == oa::ui::key_bindings::Step::own;
+        if (same && !own)
+            continue;
+        const oa::data::input_actions::Action* action = oa::data::input_actions::find(id);
+        if (action == nullptr)
+            continue;
+        Listed one;
+        one.area = key_area_place(action->area);
+        one.order = action->order;
+        one.move.command = std::string(action->words.name);
+        if (old)
+            one.move.before = shown_chord(old->chord, &map);
+        if (chord) {
+            one.move.after = shown_chord(chord->chord, &map);
+            one.move.own = chord->step == oa::ui::key_bindings::Step::own;
+        }
+        listed.push_back(std::move(one));
+    }
+    std::stable_sort(listed.begin(), listed.end(), [](const Listed& a, const Listed& b) {
+        return a.area != b.area ? a.area < b.area : a.order < b.order;
+    });
+    total = static_cast<uint32_t>(std::min(listed.size(), std::size_t{UINT32_MAX}));
+    std::vector<library::KeyMove> moves;
+    for (Listed& one : listed) {
+        if (moves.size() >= library::most_key_moves)
+            break;
+        moves.push_back(std::move(one.move));
+    }
+    return moves;
+}
+
+/// Works out what USE would move, from the layout in use to another, with
+/// the player's own changes kept on top and without them, as
+/// Runtime::apply_library_key_use applies them: kept puts the own changes of
+/// the layout in use on the new one unless it already has its own, and both
+/// keep the new layout's own changes. Nothing is written.
+///
+/// @param keys_folder the player's Keys folder
+/// @param from the layout in use: a package key, or "oa-default"
+/// @param to the layout USE names: a package key, or "oa-default"
+/// @param reading the player's keyboard, the mod's letters and the interface
+/// @return the moves; not known when either layout cannot be read
+library::KeyMoves key_moves_between(
+    const std::filesystem::path& keys_folder,
+    std::string_view from,
+    std::string_view to,
+    const KeyReading& reading
+) {
+    library::KeyMoves moves;
+    if (keys_folder.empty())
+        return moves;
+    data::key_library::Listing listing;
+    try {
+        listing = data::key_library::list_installed(keys_folder);
+    } catch (const std::exception& error) {
+        std::cerr << "open-annihilation: library: the Keys folder was not read: " << error.what()
+                  << '\n';
+        return moves;
+    }
+    const auto own_of = [&](std::string_view id) {
+        return read_key_layout(listing, std::string("own-") + std::string(id));
+    };
+    const auto layout_of = [&](std::string_view id, LayoutWithOwn& made) {
+        if (id == "oa-default")
+            return true;
+        made.layout = read_key_layout(listing, id);
+        if (!made.layout)
+            return false;
+        made.base = made.layout->base;
+        return true;
+    };
+    LayoutWithOwn now;
+    LayoutWithOwn clean;
+    if (!layout_of(from, now) || !layout_of(to, clean))
+        return moves;
+    now.own = own_of(from);
+    clean.own = own_of(to);
+    LayoutWithOwn kept = clean;
+    if (!kept.own)
+        kept.own = now.own;
+    const FirstChords before = first_chords(now, reading);
+    moves.kept = moves_between(before, first_chords(kept, reading), reading.map, moves.kept_total);
+    moves.clean =
+        moves_between(before, first_chords(clean, reading), reading.map, moves.clean_total);
+    moves.known = true;
+    return moves;
+}
+
+/// Copies an installed layout's facts. The unknown-action count is resolved
+/// here, on the worker. Names stay empty for the caller to fill.
+///
+/// @param manifest the installed manifest
+/// @param listing the Keys folder, for the own-change count
+/// @return the facts
+library::KeyLayoutFacts key_facts_of(
+    const oa::formats::oakeys::Manifest& manifest, const data::key_library::Listing& listing
+) {
+    library::KeyLayoutFacts facts;
+    facts.tags = manifest.tags;
+    for (const oa::formats::oamut::Condition& condition : manifest.works_with) {
+        library::WorksWith item;
+        item.id = condition.id;
+        item.range = condition.range_text;
+        facts.works_with.push_back(std::move(item));
+    }
+    facts.requires_engine = manifest.requires_engine;
+    facts.base = manifest.base == oa::formats::oakeys::Base::none ? "none" : "oa-default";
+    facts.keyboard = std::string(keyboard_word(manifest.keyboard));
+    if (manifest.pointer) {
+        facts.pointer = *manifest.pointer == oa::formats::oakeys::Pointer::left_click
+                            ? "left-click"
+                            : "right-click";
+    }
+    key_helper_tokens(manifest.helpers, facts.helpers);
+    facts.changes = static_cast<uint32_t>(std::min(manifest.bindings.size(), std::size_t{2048}));
+    for (const oa::formats::oakeys::BindingEntry& binding : manifest.bindings) {
+        for (const oa::formats::oakeys::ChordText& chord : binding.chords) {
+            if (facts.triggers.size() >= 128)
+                break;
+            facts.triggers.push_back(chord.text);
+        }
+        if (facts.triggers.size() >= 128)
+            break;
+    }
+    oa::ui::key_bindings::Layout layout;
+    std::vector<oa::ui::key_bindings::LayoutProblem> problems;
+    if (oa::ui::key_bindings::layout_from_manifest(manifest, nullptr, layout, problems)) {
+        oa::ui::key_bindings::ResolveInput input;
+        input.base = layout.base;
+        input.chosen = &layout;
+        const oa::ui::key_bindings::Resolved resolved = oa::ui::key_bindings::resolve(input);
+        facts.unknown_actions = static_cast<uint32_t>(resolved.unknown.size());
+    }
+    const std::string own_id = std::string("own-") + manifest.id;
+    if (const data::key_library::Installed* own = data::key_library::find(listing, own_id)) {
+        facts.own_changes =
+            static_cast<uint32_t>(std::min(own->manifest.bindings.size(), std::size_t{2048}));
+        facts.own_list = own_changes_of(own->manifest);
+    }
+    return facts;
+}
+
+/// Copies a catalogue layout's facts. Names stay empty for the caller to fill.
+///
+/// @param package the catalogue entry
+/// @return the facts
+library::KeyLayoutFacts key_facts_of(const data::catalogue::Package& package) {
+    library::KeyLayoutFacts facts;
+    facts.tags = package.tags;
+    for (const std::string& written : package.works_with) {
+        const std::optional<oa::formats::oamut::Condition> condition =
+            oa::formats::oamut::parse_condition(written);
+        if (!condition)
+            continue;
+        library::WorksWith item;
+        item.id = condition->id;
+        item.range = condition->range_text;
+        facts.works_with.push_back(std::move(item));
+    }
+    facts.requires_engine = package.requires_engine_text;
+    facts.base = package.key_base;
+    facts.keyboard = package.keyboard.empty() ? "any" : package.keyboard;
+    facts.pointer = package.pointer;
+    facts.helpers = package.helpers;
+    facts.changes = package.changes;
+    facts.triggers = package.triggers;
+    return facts;
+}
+
+/// Tells whether an installed package is the player's own changes, which
+/// are not a Library entry.
+///
+/// @param package the package
+/// @return true for an own- layout
+bool own_key_layout(const content::InstalledPackage& package) {
+    if (package.kind == nullptr || package.kind->name != "oakeys")
+        return false;
+    if (package.key.starts_with("own-"))
+        return true;
+    return path_to_utf8(package.folder.filename()).starts_with("own-");
+}
+
 /// Fills the names a player reads on a brain's works-with mods. `*` and the
 /// base game stay unnamed. Installed copies are tried before listings.
 ///
@@ -498,6 +975,90 @@ void name_brain_facts(library::Inputs& inputs) {
     for (library::Installed& installed : inputs.installed)
         if (installed.brain)
             name_one(*installed.brain);
+}
+
+/// Fills the names a player reads on a layout's works-with mods. `*` and the
+/// base game stay unnamed. Installed copies are tried before listings.
+///
+/// @param[in,out] inputs the Library's inputs, listings and installed filled
+void name_key_facts(library::Inputs& inputs) {
+    const auto mod_name = [&](std::string_view id) -> std::string {
+        for (const library::Installed& item : inputs.installed)
+            if (item.kind == library::Kind::mod && item.key == id)
+                return item.name;
+        for (const library::Listing& listing : inputs.listings)
+            if (listing.kind == library::Kind::mod && listing.key == id)
+                return listing.name;
+        return {};
+    };
+    const auto name_one = [&](library::KeyLayoutFacts& facts) {
+        for (library::WorksWith& item : facts.works_with) {
+            if (!item.name.empty() || item.id == "*" || item.id == library::supported_base)
+                continue;
+            item.name = mod_name(item.id);
+        }
+    };
+    for (library::Listing& listing : inputs.listings)
+        if (listing.keys)
+            name_one(*listing.keys);
+    for (library::Installed& installed : inputs.installed)
+        if (installed.keys)
+            name_one(*installed.keys);
+}
+
+/// Copies the layout preferences and the player's interface scheme into the
+/// inputs. The keyboard stays empty, which the picture reads as ANSI. A
+/// layout never writes the interface scheme.
+///
+/// @param[in,out] inputs listings, installed copies and the played mod filled
+/// @param preferences the stored preferences
+/// @param left_click the player uses the left-click interface
+/// @param default_own own changes sitting on OA default
+void fill_key_preferences(
+    library::Inputs& inputs,
+    const std::map<std::string, std::string>& preferences,
+    bool left_click,
+    uint32_t default_own
+) {
+    inputs.player_pointer = left_click ? "left-click" : "right-click";
+    const auto pref = [&](const std::string& key) -> std::string {
+        const auto found = preferences.find(key);
+        return found == preferences.end() ? std::string{} : found->second;
+    };
+    inputs.keys_layout = pref(std::string(settings::key::keys_layout));
+    if (!inputs.played.id.empty()) {
+        const std::string per =
+            pref(std::string(settings::key::keys_layout) + "." + inputs.played.id);
+        if (!per.empty() && per != "same")
+            inputs.keys_for_mod = std::move(per);
+    }
+    const auto own_for = [&](std::string_view id) -> uint32_t {
+        if (library::layout_names_oa_default(id))
+            return default_own;
+        for (const library::Installed& item : inputs.installed)
+            if (item.kind == library::Kind::key_layout && item.key == id && item.keys)
+                return item.keys->own_changes;
+        return 0;
+    };
+    const auto layout_name = [&](std::string_view id) -> std::string {
+        if (library::layout_names_oa_default(id))
+            return std::string(library::words::built_in_layout_name);
+        for (const library::Installed& item : inputs.installed)
+            if (item.kind == library::Kind::key_layout && item.key == id)
+                return item.name.empty() ? std::string(id) : item.name;
+        for (const library::Listing& listing : inputs.listings)
+            if (listing.kind == library::Kind::key_layout && listing.key == id)
+                return listing.name.empty() ? std::string(id) : listing.name;
+        return std::string(id);
+    };
+    inputs.keys_own_changes = own_for(
+        inputs.keys_layout.empty() ? std::string_view{"oa-default"}
+                                   : std::string_view{inputs.keys_layout}
+    );
+    if (!inputs.keys_for_mod.empty()) {
+        inputs.keys_for_mod_own = own_for(inputs.keys_for_mod);
+        inputs.keys_for_mod_name = layout_name(inputs.keys_for_mod);
+    }
 }
 
 /// Fills the names a player reads on mutator facts: a prerequisite from a
@@ -560,8 +1121,11 @@ void search_updates(
     std::vector<ModBadge> pictures;
     std::vector<std::optional<library::MutatorFacts>> mutator_facts;
     std::vector<std::optional<library::BrainFacts>> brain_facts;
+    std::vector<std::optional<library::KeyLayoutFacts>> key_facts;
     data::mutator_library::Listing mutators;
     data::brain_library::Listing brains;
+    data::key_library::Listing keys;
+    uint32_t default_own = 0;
     try {
         if (!folder.empty())
             installed = content::list_installed(folder);
@@ -573,6 +1137,24 @@ void search_updates(
             brains = data::brain_library::list_installed(
                 folder / std::string(data::brain_library::brains_folder_name)
             );
+        if (!folder.empty())
+            keys = data::key_library::list_installed(
+                folder / std::string(data::key_library::keys_folder_name)
+            );
+        if (const data::key_library::Installed* own =
+                data::key_library::find(keys, "own-oa-default"))
+            default_own =
+                static_cast<uint32_t>(std::min(own->manifest.bindings.size(), std::size_t{2048}));
+        {
+            std::vector<content::InstalledPackage> visible;
+            visible.reserve(installed.size());
+            for (content::InstalledPackage& package : installed) {
+                if (own_key_layout(package))
+                    continue;
+                visible.push_back(std::move(package));
+            }
+            installed = std::move(visible);
+        }
         // A folder with no package SHA-256 is read here, off the main thread,
         // so the rebuild after this search finds its digest kept.
         for (const data::mutator_library::InstalledMutator& mutator : mutators.mutators) {
@@ -591,6 +1173,7 @@ void search_updates(
             ModBadge badge;
             std::optional<library::MutatorFacts> facts;
             std::optional<library::BrainFacts> one_brain;
+            std::optional<library::KeyLayoutFacts> one_layout;
             if (kind == library::Kind::mod)
                 badge = read_mod_summary(package.folder).badge;
             else if (kind == library::Kind::mutator) {
@@ -607,10 +1190,17 @@ void search_updates(
                     if (!found->manifest.icon.empty())
                         badge = read_limited_badge(found->folder / found->manifest.icon);
                 }
+            } else if (kind == library::Kind::key_layout) {
+                if (const data::key_library::Installed* found = layout_at(keys, package.folder)) {
+                    one_layout = key_facts_of(found->manifest, keys);
+                    if (!found->manifest.icon.empty())
+                        badge = read_limited_badge(found->folder / found->manifest.icon);
+                }
             }
             pictures.push_back(std::move(badge));
             mutator_facts.push_back(std::move(facts));
             brain_facts.push_back(std::move(one_brain));
+            key_facts.push_back(std::move(one_layout));
         }
         updates = content::find_updates(installed, snapshot, content::this_engine_rules());
     } catch (const std::exception& error) {
@@ -631,6 +1221,8 @@ void search_updates(
     work.mutator_listing = std::move(mutators);
     work.installed_brains = std::move(brain_facts);
     work.brain_listing = std::move(brains);
+    work.installed_keys = std::move(key_facts);
+    work.default_layout_own_changes = default_own;
     ++work.searches;
 }
 
@@ -918,6 +1510,8 @@ library::Tab library_tab_of(settings::LibraryTab tab) noexcept {
         return library::Tab::updates;
     case settings::LibraryTab::registries:
         return library::Tab::registries;
+    case settings::LibraryTab::keys:
+        return library::Tab::keys;
     }
     return library::Tab::mods;
 }
@@ -1666,6 +2260,19 @@ Runtime::LibraryHost& Runtime::library_host() {
             LibraryHost::own_installed_listed
         };
         host.model.text = library::TextHooks{nullptr, shown_word};
+        // USE's question lists what the layout would move, read from the
+        // player's Keys folder when it opens.
+        host.model.key_hooks.moves = [this](std::string_view from, std::string_view to) {
+            const std::filesystem::path keys_folder =
+                user_folder_.empty()
+                    ? std::filesystem::path{}
+                    : user_folder_ / std::string(data::key_library::keys_folder_name);
+            KeyReading reading;
+            reading.map = key_map();
+            reading.mod = key_mod_data();
+            reading.left_click = pointer_interface_is_left_click();
+            return key_moves_between(keys_folder, from, to, reading);
+        };
         // The pictures are kept beside the cached catalogues.
         const std::filesystem::path content_folder = content_service().content_folder();
         std::filesystem::path pictures_folder;
@@ -2308,6 +2915,19 @@ library::Inputs Runtime::library_inputs() {
                 listing.supported_games.clear();
                 listing.brain = brain_facts_of(package);
             }
+            if (package.kind == data::catalogue::Kind::oakeys) {
+                // A layout's base, hacks and expansion list are not a mod's.
+                // Another base or a hack list would block GET, and GET stays
+                // on when the engine range is unmet.
+                if (listing.base != library::supported_base)
+                    listing.base.clear();
+                listing.hack_ids.clear();
+                listing.game_hacks = 0;
+                listing.view_hacks = 0;
+                listing.required_expansions.clear();
+                listing.supported_games.clear();
+                listing.keys = key_facts_of(package);
+            }
             const content::RegistryView* view = registry_view(*snapshot, entry.registry);
             for (const data::catalogue::MapEntry& map : package.maps) {
                 library::MapLine line;
@@ -2361,6 +2981,8 @@ library::Inputs Runtime::library_inputs() {
     std::vector<ModBadge> pictures;
     std::vector<std::optional<library::MutatorFacts>> mutator_facts;
     std::vector<std::optional<library::BrainFacts>> brain_facts;
+    std::vector<std::optional<library::KeyLayoutFacts>> key_facts;
+    uint32_t default_own = 0;
     {
         base::threads::LockGuard guard(host.work.mutex);
         installed = host.work.installed;
@@ -2369,6 +2991,8 @@ library::Inputs Runtime::library_inputs() {
         pictures = host.work.installed_badges;
         mutator_facts = host.work.installed_mutators;
         brain_facts = host.work.installed_brains;
+        key_facts = host.work.installed_keys;
+        default_own = host.work.default_layout_own_changes;
         // searches starts at 0. One more keeps a named reading apart from
         // "the inputs do not say", which is 0.
         inputs.installed_generation = host.work.searches + 1;
@@ -2408,7 +3032,9 @@ library::Inputs Runtime::library_inputs() {
             shown.mutator = std::move(mutator_facts[index]);
         if (index < brain_facts.size())
             shown.brain = std::move(brain_facts[index]);
-        if (*kind == library::Kind::brain) {
+        if (index < key_facts.size())
+            shown.keys = std::move(key_facts[index]);
+        if (*kind == library::Kind::brain || *kind == library::Kind::key_layout) {
             shown.required_expansions.clear();
             shown.supported_games.clear();
         }
@@ -2505,6 +3131,7 @@ library::Inputs Runtime::library_inputs() {
     }
     name_mutator_facts(inputs);
     name_brain_facts(inputs);
+    name_key_facts(inputs);
     for (const content::Update& update : updates) {
         if (update.installed >= installed.size())
             continue;
@@ -2584,6 +3211,11 @@ library::Inputs Runtime::library_inputs() {
 
     inputs.engine = content::this_engine_rules().engine;
     inputs.version_text = "v" + formats::oamod::engine_version_text(inputs.engine);
+    const std::string update_note = update_header_note();
+    if (!update_note.empty()) {
+        inputs.version_text += " · ";
+        inputs.version_text += update_note;
+    }
     inputs.in_match = screen_ == Screen::match || match_ != nullptr;
     inputs.mod_from_command_line = !options_.mod_dir.empty() || options_.base_game;
 
@@ -2724,6 +3356,9 @@ library::Inputs Runtime::library_inputs() {
         options_.game_folders.empty() ? options_.game_dir : options_.game_folders.back();
     inputs.base_game_badge = base_game_icon(game_folder);
     inputs.default_brain = default_brain();
+    fill_key_preferences(
+        inputs, preference_values_, pointer_interface_is_left_click(), default_own
+    );
     return inputs;
 }
 
@@ -2964,34 +3599,35 @@ struct Runtime::LibraryScreen final : LayerScreen {
         return take(library::library_key(host.model, host.state, list_, pressed));
     }
 
-    /// Takes the Library's own keys before the kit's: Cmd+F on macOS and
-    /// Ctrl+F elsewhere, and `/` outside the search, find; Ctrl+Tab and
-    /// Ctrl+Shift+Tab move between the tabs; F5 presses the header's
-    /// refresh icon; the settings' shortcut opens Settings over the Library.
+    /// Takes the Library's own actions before the kit's keys: find, refresh
+    /// and the two tab actions, and the settings action, which opens Settings
+    /// over the Library. A plain `/` typed into the search stays text.
     ///
-    /// @param sdl_key the key's SDL keycode
-    /// @param modifiers SDL_Keymod bits
     /// @return what the Library did; pass for every other key
-    LayerAnswer shortcut(uint32_t sdl_key, uint16_t modifiers) override {
-        if (Runtime::engine_settings_shortcut(sdl_key, modifiers))
+    LayerAnswer shortcut(uint32_t /*sdl_key*/, uint16_t /*modifiers*/) override {
+        namespace bindings = oa::ui::key_bindings;
+        if (const auto* settings_action = runtime_.fired_action("ui.settings");
+            settings_action != nullptr && settings_action->phase == bindings::Phase::pressed)
             return take({.action = library::Action::settings, .redraw = true});
         LibraryHost& host = runtime_.library_host();
-        if (sdl_key == SDLK_F5) {
+        if (runtime_.fired_action("ui.screen-refresh") != nullptr) {
             if (!library::can_check_now(host.model))
                 return LayerAnswer::none;
             return take({.action = library::Action::check_now, .redraw = true});
         }
         std::optional<library::ScreenCommand> command;
-        if (sdl_key == SDLK_F && (modifiers & kCommandModifier) != 0)
-            command = library::ScreenCommand::find;
-        else if (sdl_key == SDLK_TAB && (modifiers & SDL_KMOD_CTRL) != 0)
-            command = (modifiers & SDL_KMOD_SHIFT) != 0 ? library::ScreenCommand::previous_tab
-                                                        : library::ScreenCommand::next_tab;
-        else if (
-            sdl_key == SDLK_SLASH && (modifiers & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) == 0 &&
-            !library::focused_field(host.state, list_)
-        )
-            command = library::ScreenCommand::find;
+        if (const auto* find = runtime_.fired_action("ui.screen-find"); find != nullptr) {
+            const bool typed_slash = find->chord.kind == bindings::TriggerKind::character &&
+                                     find->chord.character == U'/' && find->chord.modifiers == 0;
+            if (!(typed_slash && library::focused_field(host.state, list_)))
+                command = library::ScreenCommand::find;
+        }
+        if (!command) {
+            if (runtime_.fired_action("ui.screen-next-tab") != nullptr)
+                command = library::ScreenCommand::next_tab;
+            else if (runtime_.fired_action("ui.screen-previous-tab") != nullptr)
+                command = library::ScreenCommand::previous_tab;
+        }
         if (!command)
             return LayerAnswer::pass;
         return take(library::library_command(host.model, host.state, list_, *command));
@@ -3730,6 +4366,61 @@ struct Runtime::LibraryScreen final : LayerScreen {
             );
             return false;
         }
+        case library::Action::use_layout: {
+            // The question stays open until this reads it. CANCEL never arrives here.
+            const std::optional<library::KeyUseResult> used = library::key_use_result(host.model);
+            if (!used)
+                return false;
+            const library::Entry* named = library::find_entry(host.model, used->layout);
+            const std::string layout_name =
+                named != nullptr ? std::string(library::entry_name(*named)) : used->layout.key;
+            const std::string mod_name = host.model.key_use.mod_name;
+            Runtime::LibraryKeyUseUndo undo = runtime_.apply_library_key_use(
+                *used, host.model.key_use, host.model.inputs.played.id
+            );
+            library::close_key_use(host.model);
+            host.rebuild(runtime_);
+            // A notice says where the layout is now used, and Undo puts back
+            // everything USE changed.
+            oa::ui::kit::Question told;
+            told.title = std::string(shown_word(nullptr, key_words::keys));
+            oa::ui::kit::Paragraph line;
+            line.text = key_editor::fill(
+                shown_word(
+                    nullptr, used->for_mod ? key_words::using_with_mod : key_words::using_everywhere
+                ),
+                {{"layout", layout_name}, {"mod", mod_name}}
+            );
+            told.paragraphs.push_back(std::move(line));
+            oa::ui::kit::QuestionButton ok;
+            ok.caption = std::string(shown_word(nullptr, key_words::ok));
+            ok.accent = true;
+            ok.id = "ok";
+            told.buttons.push_back(std::move(ok));
+            oa::ui::kit::QuestionButton take_back;
+            take_back.caption = std::string(shown_word(nullptr, key_words::undo));
+            take_back.id = "undo";
+            told.buttons.push_back(std::move(take_back));
+            told.primary_button = 0;
+            told.cancel_button = 0;
+            QuestionScreen::Host answers;
+            answers.answer = [&runtime = runtime_, &host, undo = std::move(undo)](int32_t button) {
+                if (button == 1) {
+                    runtime.undo_library_key_use(undo);
+                    host.rebuild(runtime);
+                }
+                return true;
+            };
+            answers.tick = [&runtime = runtime_] { return runtime.screen_ != Screen::main_menu; };
+            OaLayer& layer = runtime_.oa_layer();
+            layer.push(
+                std::make_unique<QuestionScreen>(layer, Screen::main_menu, std::move(told), answers)
+            );
+            return false;
+        }
+        case library::Action::edit_keys:
+            runtime_.open_key_editor({});
+            return false;
         }
         return false;
     }
@@ -3777,6 +4468,7 @@ void Runtime::open_library(std::optional<library::Tab> tab) {
         host.state.details_page = false;
         library::close_details(host.model);
         library::set_tab(host.model, shown);
+        library::focus_tab_search(host.model, host.state);
     } else {
         host.state = {};
         host.kept_selection.reset();
@@ -3784,6 +4476,7 @@ void Runtime::open_library(std::optional<library::Tab> tab) {
         library::set_query(host.model, {});
         library::close_details(host.model);
         library::set_tab(host.model, shown);
+        library::focus_tab_search(host.model, host.state);
         layer.push(std::make_unique<LibraryScreen>(*this));
     }
     ++host.model_revision;

@@ -206,11 +206,13 @@ Binding groups_binding(const MapContext& ctx, PadButton role) noexcept {
     }
 }
 
-/// Returns a button's meaning in the game layer, by role.
+/// Returns a button's meaning in the game layer, by role. R1 toggles the keys overlay on the
+/// default map; the fallback map leaves that slot empty.
 ///
+/// @param ctx which map applies
 /// @param role the button by role
 /// @return its binding
-Binding game_binding(PadButton role) noexcept {
+Binding game_binding(const MapContext& ctx, PadButton role) noexcept {
     switch (role) {
     case PadButton::a:
         return bind(Action::chat);
@@ -232,6 +234,8 @@ Binding game_binding(PadButton role) noexcept {
         return bind(Action::share_panel);
     case PadButton::r2:
         return bind(Action::screenshot);
+    case PadButton::r1:
+        return ctx.fallback ? Binding{} : bind(Action::keys_overlay);
     default:
         return {};
     }
@@ -522,7 +526,7 @@ Binding binding_for(const MapContext& ctx, Layer layer, PadButton button) noexce
     case Layer::groups:
         return groups_binding(ctx, role);
     case Layer::game:
-        return game_binding(role);
+        return game_binding(ctx, role);
     case Layer::standing_orders:
         return standing_binding(role);
     case Layer::order_ring:

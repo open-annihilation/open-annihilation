@@ -183,6 +183,25 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${OA_GAME_DIR}")
     --preferences-file "${oa_netgame_checks}/net-loopback.conf")
   set_tests_properties(native-net-loopback PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
     FAIL_REGULAR_EXPRESSION "its commander went too")
+  # A profile with more than 256 weapon types: the host's extra unit fires,
+  # and those shots cross as the wide records.
+  add_test(NAME native-net-loopback-wide COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+    --skip-intro --mute --headless-check --net-loopback-check 300
+    --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-wide"
+    --net-loopback-shooter RIDGEW300
+    --preferences-file "${oa_netgame_checks}/net-loopback-wide.conf")
+  set_tests_properties(native-net-loopback-wide PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+    FAIL_REGULAR_EXPRESSION "its commander went too"
+    PASS_REGULAR_EXPRESSION "shooter RIDGEW300 fired [1-9][0-9]* / "
+    FIXTURES_REQUIRED limits-fixture)
+  # A profile that raises only the side limit keeps the narrow weapon records.
+  add_test(NAME native-net-loopback-sides COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+    --skip-intro --mute --headless-check --net-loopback-check 300
+    --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-sides"
+    --preferences-file "${oa_netgame_checks}/net-loopback-sides.conf")
+  set_tests_properties(native-net-loopback-sides PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+    PASS_REGULAR_EXPRESSION "wide records applied 0 / 0"
+    FIXTURES_REQUIRED limits-fixture)
   add_test(NAME native-net-loopback-watcher COMMAND oa-game --game-dir "${OA_GAME_DIR}"
     --skip-intro --mute --headless-check --net-loopback-check 300 --net-loopback-watcher
     --preferences-file "${oa_netgame_checks}/net-loopback-watcher.conf")

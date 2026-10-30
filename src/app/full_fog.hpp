@@ -29,11 +29,13 @@
 // rectangles of ClassicShapes, so that the edges step from cell to cell
 // as the game drew them. The greyed pass draws the greyed terrain under
 // the gray tiles' rectangles at alpha 1, the dithered form clears every
-// other map pixel under them to the dither colour through a page of the
-// checkerboard, and the black pass fills the black tiles' rectangles with
-// their palette colours; tiles wholly out of sight or never mapped are
-// drawn as the smooth passes draw them, which is already the processor's
-// picture.
+// other pixel under them to the dither colour through a page of the
+// checkerboard laid on the target's pixels, so that the dither is the
+// processor's at every zoom: every other map pixel at the whole zoom, and
+// one pixel fine on the screen at any other; and the black pass fills the
+// black tiles' rectangles with their palette colours. Tiles wholly out of
+// sight or never mapped are drawn as the smooth passes draw them, which is
+// already the processor's picture.
 //
 // Beside the fog, the alphas of the quads that stand in for the two
 // painters that shade the world beneath them, the kill board's shade and
@@ -48,6 +50,7 @@
 #include "oa/present/world_renderer/world_fog.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -318,14 +321,16 @@ void build_classic_shapes(
     const oa::present::world_renderer::FogTileSet& tiles, ClassicShapes& shapes
 );
 
-/// Texels a side of the Classic dither's page: one fog tile's.
-inline constexpr uint32_t dither_page_edge = 32;
+/// Texels a side of the Classic dither's page: a fog tile's target pixels at
+/// the largest zoom, and room besides; a rectangle that spans more is drawn
+/// in pieces.
+inline constexpr uint32_t dither_page_edge = 256;
 
 /// Fills the Classic dither's page, dither_page_edge texels a side: opaque
-/// white at each texel whose column and row sum to an even number, the map
-/// pixels the dither clears, and clear between. A fog tile's top-left map
-/// pixel is always even across and down, so the page laid over any tile
-/// clears the pixels the processor clears.
+/// white at each texel whose column and row sum to an even number, the
+/// pixels the dither clears, and clear between. The dithered pass lays the
+/// page on the target's pixels with the phase the processor's dither has
+/// there.
 ///
 /// @param[out] texels the page's texels, row by row
 void build_dither_texels(std::vector<card::Texel>& texels);
@@ -361,13 +366,86 @@ uint32_t append_unseen_terrain_classic(
     const card::Rect* scissor
 );
 
+/// A point of the greyed pass in a target: where it lands, and how much of
+/// the greyed picture the pass draws there.
+struct FogPoint {
+    float x{};     ///< target pixel column
+    float y{};     ///< target pixel row
+    float alpha{}; ///< from 0, the colour, to 1, the grey
+};
+
+/// Most points one piece of a greyed cover holds: a triangle cut by the
+/// four sides of a rectangle.
+inline constexpr std::size_t most_cover_points = 7;
+
+/// One piece of a greyed cover: a convex polygon, its points in order round
+/// it, across which the alpha is linear.
+struct CoverPiece {
+    std::array<FogPoint, most_cover_points> points{};
+    uint32_t count{}; ///< the points used, 3 or more
+};
+
+/// How much of a rectangle the greyed pass covers.
+enum class Cover : uint8_t {
+    none,  ///< nothing of it: what lies there is drawn in colour
+    part,  ///< the pieces greyed_cover collected
+    whole, ///< all of it at alpha 1: what lies there is drawn greyed
+};
+
+/// Collects the greyed pass over a rectangle of a target, so that a
+/// feature's frame drawn there takes the fog pixel by pixel as the ground
+/// under it does, where the processor greys every pixel of the battlefield
+/// under its gray FOG.GAF tiles, the ground and the features alike: the
+/// pieces of each fog tile with a corner out of sight that the rectangle
+/// cuts, at the alphas the pass draws the terrain there at.
+///
+/// With `shapes` null, the smooth pass: each quarter of such a tile is the
+/// two triangles of append_unseen_terrain's quad, its diagonal from the
+/// top-left to the bottom-right corner and its corners at the corner
+/// alphas interpolated to them, so that the alpha at each pixel is the one
+/// the terrain's quad draws there, each triangle cut by the rectangle. With
+/// `shapes`, the Classic pass: a tile wholly out of sight, and each
+/// rectangle of a partly out-of-sight tile's gray FOG.GAF shape, at alpha
+/// 1, cut by the rectangle. A tile wholly never mapped adds nothing, since
+/// the black pass goes over it as over the ground. Edges land where the
+/// terrain's do (FogPlacement::whole_pixels). Pieces past the map's edges
+/// are kept, where the terrain's are left out: a feature's frame is cut off
+/// there by its scissor.
+///
+/// @param grid the fog grid, built for the placement's camera
+/// @param shapes the Classic fog's shapes, built; null for the smooth pass
+/// @param placement where the grid lands in the target
+/// @param left the rectangle's left edge, in target pixels
+/// @param top its top edge
+/// @param right its right edge
+/// @param bottom its bottom edge
+/// @param[out] pieces the pieces for Cover::part; emptied otherwise
+/// @return how much of the rectangle the pass covers: Cover::whole only
+///         where every tile it reaches is wholly out of sight at alpha 1,
+///         and Cover::none for an empty rectangle, an empty grid, or
+///         Classic shapes not built
+Cover greyed_cover(
+    const oa::present::world_renderer::FogGrid& grid,
+    const ClassicShapes* shapes,
+    const FogPlacement& placement,
+    float left,
+    float top,
+    float right,
+    float bottom,
+    std::vector<CoverPiece>& pieces
+);
+
 /// Appends the Classic dithered form of the greyed pass: for each fog tile
 /// with any corner out of sight and not wholly never mapped, the dither's
 /// page drawn NEAREST in the dither colour over the whole tile where every
 /// corner is out of sight, and over the rectangles of its gray FOG.GAF
-/// shape elsewhere, so that every other map pixel under the gray tiles
-/// takes the dither colour, as the processor clears them. It goes over the
-/// objects, as the smooth form does.
+/// shape elsewhere, its texels on the target's pixels, so that every other
+/// target pixel under the gray tiles takes the dither colour, as the
+/// processor clears every other pixel it draws: at the whole zoom every
+/// other map pixel, as the game does, and at any other zoom a dither one
+/// pixel fine that does not grow or shrink with the zoom. The camera's map
+/// pixel and the view's corner on the target set its phase. It goes over
+/// the objects, as the smooth form does.
 ///
 /// @param[in,out] frame the frame
 /// @param grid the fog grid, built for the placement's camera

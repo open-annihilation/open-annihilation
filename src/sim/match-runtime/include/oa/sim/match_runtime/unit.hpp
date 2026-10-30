@@ -163,6 +163,9 @@ class UnitInstance {
     /// @param random Shared stream the script's RANDOM draws from.
     /// @param clock_scale SLEEP multiplier supplied by the owning
     ///     application (see ScriptInstance).
+    /// @param type_script Prepared program for this type, kept by the match.
+    ///     Null when the type has no COB program. A type that has a program
+    ///     but no prepared one is noted and starts no script.
     /// @param fault Where refusals and interpreter errors are noted, or null
     ///     to drop them; must outlive the instance.
     UnitInstance(
@@ -174,6 +177,7 @@ class UnitInstance {
         Effects& effects,
         SharedRandom& random,
         int32_t clock_scale,
+        const SharedScriptProgram* type_script,
         MatchFault* fault = nullptr
     );
     /// Removes the interpreter from the world's script table.

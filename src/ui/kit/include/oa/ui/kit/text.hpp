@@ -3,16 +3,18 @@
 
 // Provisional: this header changes whenever OA's screens need it to, until the kit is declared stable (src/ui/kit/README.md).
 
-// The OA UI kit's text: the game's two fonts and the modern faces that draw
-// what they lack, one measure, one wrap, and the stand-in characters. The
-// kit never looks a word up in the interface catalogue; a caller passes the
-// text to show.
+// The OA UI kit's text: the classic look's two game fonts and the modern
+// faces that draw what they lack, the modern look's Barlow, one measure,
+// one wrap, and the stand-in characters. The kit never looks a word up in
+// the interface catalogue; a caller passes the text to show.
 #pragma once
 
 #include "oa/formats/hpi.hpp"
+#include "oa/platform/text_font.hpp"
 #include "oa/present/game_text.hpp"
 #include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/frontend_renderer/artless.hpp"
+#include "oa/ui/kit/theme.hpp"
 
 #include <array>
 #include <cstdint>
@@ -29,6 +31,47 @@ enum class FontRole : uint8_t {
     small,   ///< the section heading, the hints and the version
 };
 
+/// Returns the game font the classic look draws a level of the type scale
+/// in: a title and a label in the regular font, body and small text in the
+/// small one.
+///
+/// @param level the level
+/// @return the font
+[[nodiscard]] constexpr FontRole classic_font(TextLevel level) noexcept {
+    return level == TextLevel::title || level == TextLevel::label ? FontRole::regular
+                                                                  : FontRole::small;
+}
+
+/// Returns a level's size in the modern look at a size class's metrics.
+///
+/// @param metrics the class's metrics
+/// @param level the level
+/// @return the size, in points
+[[nodiscard]] constexpr int32_t text_size(const Metrics& metrics, TextLevel level) noexcept {
+    switch (level) {
+    case TextLevel::title:
+        return metrics.title_size;
+    case TextLevel::label:
+        return metrics.label_size;
+    case TextLevel::body:
+        return metrics.body_size;
+    case TextLevel::small:
+        return metrics.small_size;
+    }
+    return metrics.body_size;
+}
+
+/// Returns the modern face that draws a font's characters the game font
+/// lacks, and every character where the game's fonts are missing: the one
+/// place the kit chooses its modern face. The regular font's is the
+/// message face and the small font's the status face.
+///
+/// @param role which font
+/// @return the face
+[[nodiscard]] constexpr oa::present::TextFace modern_face(FontRole role) noexcept {
+    return role == FontRole::small ? oa::present::TextFace::status : oa::present::TextFace::message;
+}
+
 /// The fonts a screen draws its texts in.
 struct Fonts {
     oa::ui::frontend_renderer::TextFont regular; ///< labels, values and buttons
@@ -37,7 +80,122 @@ struct Fonts {
     /// name in itself; the modern fonts draw the others.
     oa::present::FontCharacters regular_characters{};
     oa::present::FontCharacters small_characters{}; ///< the small font's
+    /// The modern look's fonts. While set, every text is measured and drawn
+    /// in Barlow from this stack at its role's type (modern_type), and what
+    /// Barlow lacks in the faces after it; the game's fonts above are not
+    /// used. Null keeps the classic look. The host owns the stack, and one
+    /// thread at a time uses it.
+    oa::platform::text_font::FontStack* modern{};
+    /// The size class whose steps on the type scale the modern look
+    /// measures and draws in (modern_type): the class of the screens these
+    /// fonts are handed to, which the host sets as it lays them out at a
+    /// class. The classic look's game fonts keep one size at every class.
+    SizeClass size_class{SizeClass::compact};
 };
+
+/// Tells whether fonts draw the modern look.
+///
+/// @param fonts the fonts
+/// @return true while they hold the modern look's stack
+[[nodiscard]] constexpr bool modern_look(const Fonts& fonts) noexcept {
+    return fonts.modern != nullptr;
+}
+
+/// The type the modern look draws a line in.
+struct ModernType {
+    int32_t points{}; ///< its size, in points: pixels per em at a scale of 1
+    oa::platform::text_font::Weight weight{}; ///< its weight
+    oa::platform::text_font::Family family{}; ///< the faces it looks in first
+};
+
+/// Returns the type the modern look draws a font's text in at a size
+/// class: that class's steps on the type scale (metrics_of). The regular
+/// font's text is a label, Barlow SemiBold at label_size (14, 15 and 16
+/// points at Compact, Regular and Large); the small font's is small text,
+/// Barlow Regular at small_size (12, 12 and 13). A tracked line, a
+/// window's title or a section's heading in capitals, is Barlow Condensed:
+/// the regular font's Bold at window_title_size (14, 16 and 17), in
+/// proportion with the header band it stands in, the small font's SemiBold
+/// at small_size.
+///
+/// @param role which font
+/// @param tracked the line has tracking
+/// @param size_class the class whose steps it takes (Fonts::size_class)
+/// @return the type
+[[nodiscard]] constexpr ModernType
+modern_type(FontRole role, bool tracked, SizeClass size_class = SizeClass::compact) noexcept {
+    using oa::platform::text_font::Family;
+    using oa::platform::text_font::Weight;
+    const Metrics& steps = metrics_of(size_class);
+    if (tracked)
+        return role == FontRole::regular
+                   ? ModernType{steps.window_title_size, Weight::bold, Family::interface_condensed}
+                   : ModernType{steps.small_size, Weight::semibold, Family::interface_condensed};
+    return role == FontRole::regular
+               ? ModernType{steps.label_size, Weight::semibold, Family::interface}
+               : ModernType{steps.small_size, Weight::regular, Family::interface};
+}
+
+/// Returns a line's width in the modern look: each character's advance at
+/// a scale of 1, and the tracking after each character but the last. The
+/// line is as wide in points at every scale it is drawn at (modern_line).
+///
+/// @param fonts the modern look's stack
+/// @param text the text, in UTF-8
+/// @param type its type
+/// @param tracking extra points after each character but the last
+/// @return the width, in points; 0 for text the stack refuses
+[[nodiscard]] int32_t modern_width(
+    oa::platform::text_font::FontStack& fonts,
+    std::string_view text,
+    const ModernType& type,
+    int32_t tracking
+);
+
+/// One character of a line in the modern look, drawn at a scale.
+struct ModernGlyph {
+    oa::platform::text_font::Coverage coverage{}; ///< the character, antialiased
+    int32_t pen{}; ///< the pen's column, in pixels from the line's start
+};
+
+/// A line in the modern look drawn at a scale.
+struct ModernLine {
+    int32_t width{}; ///< points, as modern_width gives it
+    /// Its characters, or the whole line as one where nothing needs them
+    /// apart: at a scale of 1 without tracking.
+    std::vector<ModernGlyph> glyphs{};
+};
+
+/// Draws a line in the modern look at a scale. Each character is drawn at
+/// the type's size times the scale, its pen at its pen at a scale of 1
+/// times the scale, rounded, so the line keeps the width its measure gave
+/// at every scale. A line in an alphabet Barlow lacks is drawn whole in
+/// the sans faces (oa::platform::text_font::Family).
+///
+/// @param fonts the modern look's stack
+/// @param text the text, in UTF-8
+/// @param type its type
+/// @param tracking extra points after each character but the last
+/// @param scale_percent pixels a point, in percent: 100, 150, 200 and so on
+/// @return the line; empty for text the stack refuses
+[[nodiscard]] ModernLine modern_line(
+    oa::platform::text_font::FontStack& fonts,
+    std::string_view text,
+    const ModernType& type,
+    int32_t tracking,
+    int32_t scale_percent
+);
+
+/// Returns the rows a type's capitals stand above its baseline in the
+/// modern look at a scale: those of its capital H at least half covered.
+///
+/// @param fonts the modern look's stack
+/// @param type the type
+/// @param scale_percent pixels a point, in percent
+/// @return the rows, in pixels; 0 when the stack cannot draw it
+[[nodiscard]] int32_t modern_capitals(
+    oa::platform::text_font::FontStack& fonts, const ModernType& type, int32_t scale_percent
+);
 
 /// Loads the game's fonts: the button font as the regular one and the label
 /// font as the small one, each readied for text in one colour. Their letters
@@ -53,7 +211,8 @@ struct Fonts {
 /// Returns a UTF-8 text's width as it is drawn: the characters a font draws
 /// at its glyphs' widths, and the others in the modern fonts. A character the
 /// game font lacks, of the ones it stands in for, is measured as the
-/// characters drawn in its place.
+/// characters drawn in its place. In the modern look, its width in the
+/// role's type (modern_width).
 ///
 /// @param fonts the fonts
 /// @param role which of them
@@ -64,7 +223,8 @@ struct Fonts {
 /// Returns a text's width with extra columns after each character but the last.
 ///
 /// The extra columns are counted on the text as given. The width itself counts
-/// a stood-in character as the characters drawn in its place.
+/// a stood-in character as the characters drawn in its place. In the modern
+/// look a line with tracking is measured in the tracked type (modern_type).
 ///
 /// @param fonts the fonts
 /// @param role which of them
@@ -75,7 +235,8 @@ struct Fonts {
 tracked_width(const Fonts& fonts, FontRole role, std::string_view text, int32_t tracking);
 
 /// Returns how far a tracked text drawn wholly in the modern face moves the
-/// pen, one character at a time at a scale, as draw_boxed_text draws it.
+/// pen, one character at a time at a scale, as draw_boxed_text draws it. In
+/// the modern look, tracked_width.
 ///
 /// @param fonts the fonts
 /// @param role which of them
@@ -89,7 +250,8 @@ tracked_width(const Fonts& fonts, FontRole role, std::string_view text, int32_t 
 
 /// Returns how many rows a font's capitals stand: the game font's nominal
 /// height, or, for a font the modern face stands in for wholly, the rows its
-/// capital H stands above its baseline.
+/// capital H stands above its baseline. In the modern look, the rows of the
+/// role's type at a scale of 1 (modern_capitals).
 ///
 /// @param fonts the fonts
 /// @param role which of them
@@ -99,7 +261,7 @@ tracked_width(const Fonts& fonts, FontRole role, std::string_view text, int32_t 
 /// Returns a text as a font shows it. Where the game font lacks the ellipsis
 /// or the mark between a location's folders, the characters it draws in their
 /// place are written instead: "..." and ">". A font the modern face stands in
-/// for wholly is returned unchanged.
+/// for wholly, and every text in the modern look, is returned unchanged.
 ///
 /// @param fonts the fonts
 /// @param role which of them
@@ -109,7 +271,8 @@ tracked_width(const Fonts& fonts, FontRole role, std::string_view text, int32_t 
 
 /// Draws a UTF-8 text: the characters the font draws with its glyphs, the
 /// others in the modern fonts on the font's baseline, at the placement's
-/// scale and within its clip.
+/// scale and within its clip. In the modern look the whole text is drawn in
+/// the role's type (modern_line), antialiased, with no outline or shadow.
 ///
 /// @param[in,out] target the surface
 /// @param placement where the picture lands
@@ -141,7 +304,8 @@ enum class Align : uint8_t {
 /// Draws a text in a box, its capitals centred on the box's height. The text
 /// is what the caller wants shown: the kit does not look it up. A character
 /// the game font lacks, of the ones it stands in for, is drawn as the
-/// characters in its place.
+/// characters in its place. In the modern look a line with tracking is drawn
+/// in the tracked type (modern_type).
 ///
 /// @param[in,out] target the surface
 /// @param placement where the picture lands

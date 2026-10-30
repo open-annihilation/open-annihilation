@@ -1066,7 +1066,7 @@ mb::Browser picture_browser() {
 /// @param directory where the file goes
 /// @param file_name the file's name
 /// @param frame the frame
-/// @param fonts the game's fonts
+/// @param fonts the fonts, the modern look while they hold Barlow
 /// @return true when the file was written
 bool write_picture(
     const std::filesystem::path& directory,
@@ -1135,7 +1135,12 @@ int write_pictures(const std::filesystem::path& directory) {
     }};
     int failed = 0;
     for (const auto& [file_name, frame] : shots) {
-        if (!write_picture(directory, file_name, frame, fonts)) {
+        kit::Fonts shown = fonts;
+        if (modern) {
+            shown.modern = modern.get();
+            shown.size_class = frame.size_class;
+        }
+        if (!write_picture(directory, file_name, frame, shown)) {
             std::fprintf(
                 stderr,
                 "map browser: cannot write %.*s\n",

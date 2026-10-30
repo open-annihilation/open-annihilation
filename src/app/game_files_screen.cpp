@@ -242,6 +242,8 @@ struct GameFilesScreen::State {
     game_files::RunSnapshot run{};               ///< the copy's latest snapshot
     game_files::ScanSnapshot scan{};             ///< the scan's latest snapshot
     bool quit{};                                 ///< the loop should end as a quit
+    /// The family the text is drawn in: Barlow in the modern look (game_files_text_family).
+    oa::platform::text_font::Family text_family{oa::platform::text_font::Family::sans};
 
     /// Makes the loop's state for a request.
     ///
@@ -439,6 +441,7 @@ void GameFilesScreen::State::start() {
         std::cerr << "open-annihilation: the Game files screen shows no text: the bundled fonts "
                      "are missing\n";
     fonts = font_owner_.get();
+    text_family = game_files_text_family(request_.preferences_file);
     backed_up_ = read_backed_up(
         request_.preferences_file.value_or(oa::platform::preferences::default_file())
     );
@@ -788,7 +791,7 @@ void GameFilesScreen::State::repaint() {
         return;
     if (viewport.width <= 0 || viewport.height <= 0)
         return;
-    layout = view::lay_out(model, viewport, game_files_measure(fonts));
+    layout = view::lay_out(model, viewport, game_files_measure(fonts, text_family));
     // A shown focus that left the layout moves to its first control.
     const std::vector<oa::ui::kit::ControlId>& order = layout.list.tab_order;
     if (interaction_.focus_shown && !order.empty() &&
@@ -797,7 +800,7 @@ void GameFilesScreen::State::repaint() {
     oa::ui::kit::mark_states(layout.list, interaction_);
     if (canvas.width != viewport.width || canvas.height != viewport.height)
         canvas = paint::make_canvas(viewport.width, viewport.height);
-    paint_game_files(canvas, layout, fonts, viewport.px_per_point);
+    paint_game_files(canvas, layout, fonts, viewport.px_per_point, game_files_icon(), text_family);
     dirty_ = false;
     progress_dirty_ = false;
     painted_ = true;
@@ -1291,7 +1294,7 @@ void GameFilesScreen::State::update_space() {
 }
 
 game_files::ImportMode GameFilesScreen::State::run_mode() const noexcept {
-    // The demo's installer chosen with ADD FILES… joins the game folder as an addition.
+    // The demo's installer chosen with Add files… joins the game folder as an addition.
     if (scan_kind_ == SourceKind::demo_installer && model.management && !manage_replace_)
         return game_files::ImportMode::add;
     if (plan_)
@@ -1388,6 +1391,7 @@ void GameFilesScreen::State::take_checked(const game_files::RunSnapshot& snapsho
         show_problem(view::Problem::staging_unwritable, commit.error);
         return;
     }
+    note_content_bundles_changed();
     log_import(
         "committed to " + path_to_utf8(request_.paths.game_folder) +
         (commit.old_folder.empty()
@@ -1620,7 +1624,7 @@ void GameFilesScreen::State::fill_manage() {
         row.bytes_known = summary.bytes_known;
         row.count = part == game_files::Part::music ? summary.music_tracks : summary.files;
         row.mark = view::Mark::found;
-        // The game archives go only with everything (REMOVE ALL GAME FILES).
+        // The game archives go only with everything (Remove all GAME FILES).
         row.removable = part != game_files::Part::game_archives;
         model.parts.push_back(row);
         rows_.push_back(RowSource{RowSource::Kind::part, part, 0, {}});

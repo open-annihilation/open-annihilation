@@ -11,6 +11,7 @@
 #include "oa/core/player.h"
 #include "oa/core/side.h"
 #include "oa/data/brain_facts.hpp"
+#include "oa/data/limits.hpp"
 #include "oa/data/defs/asset_files.hpp"
 #include "oa/data/defs/layout.hpp"
 #include "oa/data/defs/move_classes.hpp"
@@ -494,11 +495,10 @@ facts::GameFacts make_facts(
     game.mode = facts::GameMode::skirmish;
     game.difficulty = difficulty;
     game.mod = facts::mod_facts_of(profile);
-    const uint32_t side_count = sides.count < OA_SIDE_COUNT ? sides.count : OA_SIDE_COUNT;
     game.mod.sides.clear();
-    game.mod.sides.reserve(side_count);
-    for (uint32_t index = 0; index < side_count; ++index) {
-        const Side& side = sides.sides[index];
+    game.mod.sides.reserve(sides.count);
+    for (uint32_t index = 0; index < sides.count; ++index) {
+        const Side& side = *defs::side_at(sides, index);
         facts::SideFacts stored;
         stored.name = text_of(side.name, sizeof side.name);
         stored.prefix = text_of(side.name_prefix, sizeof side.name_prefix);
@@ -701,7 +701,9 @@ bool load_units(
         problem = "the weapon files do not list";
         return false;
     }
-    static_cast<void>(sim::combat_state::install_weapon_files(weapons, files));
+    const uint32_t weapon_types = profile != nullptr ? profile->limits.weapon_types.types
+                                                     : data::limits::Limits{}.weapon_types.types;
+    static_cast<void>(sim::combat_state::install_weapon_files(weapons, files, false, weapon_types));
 
     const char* units_directory = defs::directory_name(defs::DataDirectory::units);
     std::vector<std::string> paths =
@@ -756,7 +758,7 @@ bool load_units(
     const defs::UnitDefSources unit_sources{
         "",
         movement.get(),
-        weapons.records().data(),
+        weapons.records(),
         &tables.sounds,
         &tables.units.categories,
         &tables.units.blocks,
@@ -764,7 +766,7 @@ bool load_units(
         yard_maps
     };
     const data::unit_definitions::UnitDefinitionSources definition_sources{
-        movement.get(), weapons.records().data(), &tables.sounds, &tables.units.categories
+        movement.get(), weapons.records(), &tables.sounds, &tables.units.categories
     };
     StoreReader reader(store);
 
@@ -963,18 +965,20 @@ std::optional<BrainCheckReport> check_seated(
         return std::nullopt;
 
     defs::SideTable side_table;
-    if (!defs::load_side_data(&files, &side_table, nullptr, nullptr) || side_table.count == 0) {
+    const uint32_t side_limit =
+        profile != nullptr ? profile->limits.sides.count : data::limits::base_sides;
+    if (!defs::load_side_data(&files, &side_table, nullptr, nullptr, side_limit) ||
+        side_table.count == 0) {
         problem = side_table.error[0] != '\0' ? std::string(side_table.error)
                                               : "the side data does not load";
         return std::nullopt;
     }
-    if (request.side >= side_table.count || request.side >= OA_SIDE_COUNT) {
+    if (request.side >= side_table.count) {
         problem = "side " + std::to_string(request.side) + " is not one of this game's sides";
         return std::nullopt;
     }
-    const std::string commander = text_of(
-        side_table.sides[request.side].commander, sizeof side_table.sides[request.side].commander
-    );
+    const Side* chosen = defs::side_at(side_table, request.side);
+    const std::string commander = text_of(chosen->commander, sizeof chosen->commander);
     if (commander.empty()) {
         problem = "side " + std::to_string(request.side) + " names no commander";
         return std::nullopt;
@@ -1044,8 +1048,8 @@ std::optional<BrainCheckReport> check_seated(
     match->configure_outcomes(0, local_allies, false);
 
     oa::World& world = match->state();
-    std::copy(std::begin(side_table.sides), std::end(side_table.sides), world.game.sides);
-    world.game.side_count = side_table.count;
+    const std::vector<oa::Side> records = defs::side_records(side_table);
+    match->bind_sides(records, side_table.count);
     world.player_info[brain_player].side = request.side;
 
     sim::unit_spawn::Slot* slot = match->create(

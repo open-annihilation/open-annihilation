@@ -9,12 +9,16 @@
 // two controls overlap; Tab visits every focusable control once in the
 // declared order; Down goes to the nearest control below; the names are
 // sound and start with gallery.; no text shows the build's version; and
-// toggling, choosing and typing change the gallery's model alone.
+// toggling, choosing and typing change the gallery's model alone. Each case
+// runs in the classic look, a synthetic font, and again in the modern look,
+// Barlow from the fonts beside the test, which draws other pixels and lays
+// the header's title out at its own width.
 //
 // The synthetic font's glyph for byte b is 2 + b % 4 columns by 8 rows, as
 // the other kit tests draw.
 
 #include "oa/formats/fnt.hpp"
+#include "oa/platform/text_font.hpp"
 #include "oa/test/check.hpp"
 #include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/frontend_renderer/artless.hpp"
@@ -60,7 +64,8 @@ constexpr std::array<std::string_view, kit::all_roles.size()> kRoleNames{
     "progress_track", "progress_fill", "progress_busy", "backdrop",       "sheet",
     "pill",           "language_card", "carousel",      "step_indicator", "setup_chrome",
     "choice_card",    "coach_mark",    "spotlight",     "picture_well",   "call_to_action",
-    "package_badge",  "grip",
+    "package_badge",  "grip",          "keycap",        "chord_chip",     "keyboard",
+    "mouse_picture",  "hold_ring",     "radio",
 };
 
 /// Returns a role's name.
@@ -93,12 +98,17 @@ kit::Fonts block_fonts() {
     return {font, font, {}, {}};
 }
 
+/// The fonts the cases are laid out in now: the synthetic fonts, then the
+/// modern look's.
+const kit::Fonts* checked_fonts = nullptr;
+/// The look the cases are laid out in now, as the messages name it.
+std::string_view checked_look = "classic";
+
 /// Returns the fonts every case is laid out in.
 ///
-/// @return the synthetic fonts
+/// @return the fonts of the look being checked
 const kit::Fonts& fonts() {
-    static const kit::Fonts loaded = block_fonts();
-    return loaded;
+    return *checked_fonts;
 }
 
 /// One window the gallery is laid out for.
@@ -271,9 +281,11 @@ void expect(bool ok, const Case& shown, const std::string& what) {
     if (!ok)
         std::fprintf(
             stderr,
-            "%.*s: %s\n",
+            "%.*s, %.*s: %s\n",
             static_cast<int>(shown.name.size()),
             shown.name.data(),
+            static_cast<int>(checked_look.size()),
+            checked_look.data(),
             what.c_str()
         );
     OA_CHECK(ok);
@@ -815,6 +827,78 @@ void using_the_samples_changes_the_model_alone(const Case& shown, const kit::Fra
     }
 }
 
+/// Draws the gallery on a canvas of its frame at its scale.
+///
+/// @param frame the frame
+/// @param laid the gallery laid out
+/// @param drawn the fonts it is drawn in
+/// @return the picture
+renderer::Surface
+gallery_picture(const kit::Frame& frame, const kit::GalleryLayout& laid, const kit::Fonts& drawn) {
+    const int32_t scale = std::max(frame.scale_percent / 100, int32_t{1});
+    renderer::Surface surface;
+    surface.width = static_cast<uint32_t>(frame.area.width * scale);
+    surface.height = static_cast<uint32_t>(frame.area.height * scale);
+    surface.rgb.assign(static_cast<std::size_t>(surface.width) * surface.height * 3U, 0);
+    const kit::Canvas canvas{&surface, {0, 0, scale, {}}, &drawn, {}};
+    kit::draw_gallery(canvas, laid);
+    return surface;
+}
+
+/// The gallery follows the look: in the modern look its header's title is
+/// as wide as Barlow Condensed draws it at the case's class, and its text is
+/// drawn in other pixels than the classic look's.
+void the_gallery_follows_the_look(
+    const Case& shown, const kit::Frame& frame, const kit::Fonts& classic, const kit::Fonts& modern
+) {
+    const kit::GalleryModel model;
+    const kit::GalleryLayout in_classic = kit::gallery_layout(model, frame, classic);
+    const kit::GalleryLayout in_modern = kit::gallery_layout(model, frame, modern);
+    // The window's header: its title and the width laid out for it.
+    const auto header_of = [](const kit::GalleryLayout& laid) -> const kit::HeaderLook* {
+        for (const kit::Item& item : laid.list.items)
+            if (item.role == kit::Role::header)
+                if (const auto* look = std::get_if<kit::HeaderLook>(&item.look))
+                    return look;
+        return nullptr;
+    };
+    const kit::HeaderLook* classic_header = header_of(in_classic);
+    const kit::HeaderLook* modern_header = header_of(in_modern);
+    expect(classic_header != nullptr && modern_header != nullptr, shown, "no header");
+    if (classic_header == nullptr || modern_header == nullptr)
+        return;
+    expect(
+        modern_header->title_width ==
+            kit::tracked_width(
+                modern, kit::FontRole::regular, modern_header->title, modern_header->tracking
+            ),
+        shown,
+        "the modern look's header title is not Barlow Condensed's width"
+    );
+    expect(
+        modern_header->title_width ==
+            kit::modern_width(
+                *modern.modern,
+                modern_header->title,
+                kit::modern_type(kit::FontRole::regular, true, shown.size_class),
+                modern_header->tracking
+            ),
+        shown,
+        "the modern look's header title is not measured in its tracked type"
+    );
+    expect(
+        classic_header->title_width != modern_header->title_width,
+        shown,
+        "the header title keeps the classic width"
+    );
+    expect(
+        gallery_picture(frame, in_classic, classic).rgb !=
+            gallery_picture(frame, in_modern, modern).rgb,
+        shown,
+        "the modern look draws the classic look's pixels"
+    );
+}
+
 /// The gallery draws on a canvas of its frame at its scale.
 void the_gallery_draws(const Case& shown, const kit::Frame& frame, const kit::GalleryLayout& laid) {
     const int32_t scale = std::max(frame.scale_percent / 100, int32_t{1});
@@ -840,31 +924,56 @@ void the_gallery_draws(const Case& shown, const kit::Frame& frame, const kit::Ga
 } // namespace
 
 int main() {
-    for (const Case& shown : kCases) {
-        const kit::Frame frame = frame_of(shown);
-        expect(frame.size_class == shown.size_class, shown, "the frame is not of its class");
-        const kit::GalleryModel model;
-        const kit::GalleryLayout laid = kit::gallery_layout(model, frame, fonts());
-        expect(laid.columns == shown.columns, shown, "the sections do not flow in their columns");
-        every_role_shows(shown, laid);
-        every_input_role_shows_five_states(shown, laid);
-        every_part_lies_in_the_frame_or_its_scroll_area(shown, frame, laid);
-        no_two_controls_overlap(shown, laid);
-        tab_visits_every_control_once(shown, frame);
-        down_moves_to_the_nearest_control_below(shown, frame);
-        names_are_sound(shown, laid);
-        no_text_shows_the_version(shown, laid);
-        using_the_samples_changes_the_model_alone(shown, frame);
-        the_gallery_draws(shown, frame, laid);
-        if (shown.size_class != kit::SizeClass::compact) {
-            const kit::Item* coach = nullptr;
-            for (const kit::Item& item : laid.list.items)
-                if (item.role == kit::Role::coach_mark)
-                    coach = &item;
+    static const kit::Fonts classic = block_fonts();
+    const std::unique_ptr<oa::platform::text_font::FontStack> stack =
+        oa::platform::text_font::FontStack::open(oa::platform::text_font::bundled_font_directory());
+    OA_CHECK(stack != nullptr);
+    if (!stack)
+        return oa::test::check_exit_status();
+    kit::Fonts modern = classic;
+    modern.modern = stack.get();
+    for (const auto& [look, look_fonts] :
+         {std::pair<std::string_view, const kit::Fonts*>{"classic", &classic},
+          std::pair<std::string_view, const kit::Fonts*>{"modern", &modern}}) {
+        checked_look = look;
+        checked_fonts = look_fonts;
+        for (const Case& shown : kCases) {
+            const kit::Frame frame = frame_of(shown);
+            expect(frame.size_class == shown.size_class, shown, "the frame is not of its class");
+            // The modern look's type takes the case's class, as the OA
+            // layer hands its screens their class's fonts.
+            modern.size_class = shown.size_class;
+            const kit::GalleryModel model;
+            const kit::GalleryLayout laid = kit::gallery_layout(model, frame, fonts());
             expect(
-                coach != nullptr && coach->rect.width >= 140, shown, "the coach mark is squeezed"
+                laid.columns == shown.columns, shown, "the sections do not flow in their columns"
             );
+            every_role_shows(shown, laid);
+            every_input_role_shows_five_states(shown, laid);
+            every_part_lies_in_the_frame_or_its_scroll_area(shown, frame, laid);
+            no_two_controls_overlap(shown, laid);
+            tab_visits_every_control_once(shown, frame);
+            down_moves_to_the_nearest_control_below(shown, frame);
+            names_are_sound(shown, laid);
+            no_text_shows_the_version(shown, laid);
+            using_the_samples_changes_the_model_alone(shown, frame);
+            the_gallery_draws(shown, frame, laid);
+            if (shown.size_class != kit::SizeClass::compact) {
+                const kit::Item* coach = nullptr;
+                for (const kit::Item& item : laid.list.items)
+                    if (item.role == kit::Role::coach_mark)
+                        coach = &item;
+                expect(
+                    coach != nullptr && coach->rect.width >= 140,
+                    shown,
+                    "the coach mark is squeezed"
+                );
+            }
         }
+    }
+    for (const Case& shown : kCases) {
+        modern.size_class = shown.size_class;
+        the_gallery_follows_the_look(shown, frame_of(shown), classic, modern);
     }
     return oa::test::check_exit_status();
 }

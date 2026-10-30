@@ -509,4 +509,16 @@ int32_t campaign_count_files(const CampaignFiles* files);
 int32_t
 campaign_load_names(const CampaignFiles* files, const char* side, char* out, std::size_t capacity);
 
+/// Tells whether a side has any campaign, without listing the names.
+///
+/// The walk is campaign_load_names's: the same files, the same order, the
+/// same reports for a file that does not load. It stops once both sides
+/// have been found, so a later file is not opened. A file that names "ALL"
+/// counts for both sides. A null pointer is left alone.
+///
+/// @param files file services
+/// @param[out] arm set when an Arm or all-sides campaign loads; null to skip
+/// @param[out] core set when a Core or all-sides campaign loads; null to skip
+void campaign_sides_present(const CampaignFiles* files, bool* arm, bool* core);
+
 } // namespace oa::data::campaign

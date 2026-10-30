@@ -506,7 +506,10 @@ void Runtime::check_user_folder() {
             settings::backdrop_color,
             settings::menu_backdrop_opacity
         );
+        const auto darkened = expected;
         settings::draw_notice(expected, placement, notice, *fonts, engine_settings_icon());
+        // Its corners rounded, the darkened menu showing outside them.
+        round_drawn_screen(expected, darkened, placed);
         const auto shown = frame();
         step_snapshot(options_.snapshot, "notice", shown);
         require(
@@ -520,7 +523,7 @@ void Runtime::check_user_folder() {
                 std::to_string(differing_shown) + " pixels differ"
         );
     }
-    // At 1280x720 and 1920x1080 the notice is laid out at the window's
+    // At 800x600 and 2560x1440 the notice is laid out at the window's
     // class and drawn at its scale, centred over the main menu darkened
     // over the whole window.
     oa_layer().read_whole_window(true);
@@ -696,9 +699,10 @@ void Runtime::check_user_folder() {
             "the question Settings asks is not over it"
         );
         const auto& question = static_cast<const QuestionScreen*>(asked)->question();
-        const int32_t question_height = settings::prompt_height(question, fonts);
+        const kit::PlacedQuestion laid = kit::place_question(question, fonts);
+        const int32_t question_height = laid.height;
         const artless::Placement question_at{
-            (kCanvasWidth - settings::notice_width) / 2, (kCanvasHeight - question_height) / 2, 1
+            (kCanvasWidth - laid.width) / 2, (kCanvasHeight - question_height) / 2, 1
         };
         const auto question_placed = asked->placement(oa_layer().view());
         require(
@@ -724,6 +728,7 @@ void Runtime::check_user_folder() {
                 );
             };
             darken_whole();
+            const auto under_settings = expected;
             settings::draw_dialog(
                 expected,
                 {(kCanvasWidth - settings::dialog_width) / 2,
@@ -733,8 +738,13 @@ void Runtime::check_user_folder() {
                 *fonts,
                 EngineSettingsMenuHost::settings_icon(*this)
             );
+            // Each with its corners rounded, what lies under it showing
+            // outside them.
+            round_drawn_screen(expected, under_settings, oa_layer().placement_of("settings"));
             darken_whole();
+            const auto under_question = expected;
             settings::draw_prompt(expected, question_at, question, *fonts, engine_settings_icon());
+            round_drawn_screen(expected, under_question, question_placed);
             const auto shown = frame();
             step_snapshot(options_.snapshot, "question-over-settings", shown);
             require(

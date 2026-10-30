@@ -33,12 +33,15 @@
 #include "oa/app/game_files_hooks.hpp"
 #include "oa/app/mod_profile_loader.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/app/update/checker.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/data/mod_profile/overrides.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
+#include "oa/ui/first_run/first_run.hpp"
 #include "oa/ui/frontend_renderer/artless.hpp"
 #include "oa/ui/kit/canvas.hpp"
+#include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/input.hpp"
 #include "oa/ui/kit/layout.hpp"
 #include "oa/ui/kit/text.hpp"
@@ -52,6 +55,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -119,7 +123,7 @@ constexpr int32_t kCursorReach = 40;
 /// one, two 16:9 sizes and an ultrawide one.
 constexpr std::array<std::pair<int, int>, 5> kWindowSizes{{
     {640, 480},
-    {1024, 768},
+    {800, 600},
     {1280, 720},
     {1920, 1080},
     {2560, 1080},
@@ -133,23 +137,25 @@ struct WindowLayout {
 };
 
 /// The class and scale each of kWindowSizes gives, in its order: the
-/// design's table of windows. The check's preferences file leaves the
-/// modern fonts Off, so Auto keeps whole steps.
+/// resolution table, Compact only where nothing larger fits. The check's
+/// preferences file leaves the modern fonts Off, so Auto keeps whole steps:
+/// 1920 by 1080 and 2560 by 1080 would be Regular at 2x, so Auto takes the
+/// step down to Large at 1x.
 constexpr std::array<WindowLayout, 5> kWindowLayouts{{
     {oa::ui::kit::SizeClass::compact, 1},
     {oa::ui::kit::SizeClass::regular, 1},
     {oa::ui::kit::SizeClass::large, 1},
-    {oa::ui::kit::SizeClass::regular, 2},
-    {oa::ui::kit::SizeClass::regular, 2},
+    {oa::ui::kit::SizeClass::large, 1},
+    {oa::ui::kit::SizeClass::large, 1},
 }};
 static_assert(kWindowLayouts.size() == kWindowSizes.size(), "one layout for each window size");
 
-/// Graphics' scroll limit at Compact: its twenty-one rows, Smooth motion and
-/// Fog of War among them, after Menu scaling, Window frame, HUD scaling and
-/// Interface size left for User Interface.
-constexpr int32_t kGraphicsScrollLimit = 972;
+/// Graphics' scroll limit at Compact: its twenty-two rows, Smooth motion,
+/// Fog of War and New unit shadows among them, after Menu scaling, Window
+/// frame, HUD scaling and Interface size left for User Interface.
+constexpr int32_t kGraphicsScrollLimit = 1047;
 /// Graphics' scroll limit at Large, whose taller view holds more of its rows.
-constexpr int32_t kGraphicsLargeScrollLimit = 600;
+constexpr int32_t kGraphicsLargeScrollLimit = 673;
 /// Interface size's place on User Interface, from the section's first row.
 constexpr int32_t kInterfaceSizeRow = 3;
 
@@ -165,14 +171,14 @@ struct InterfaceSizeStep {
     int32_t scale{};                     ///< window pixels a point
 };
 
-/// The Interface sizes chosen in turn: 100% is Large at 1x; 400% is
-/// Compact at 3x, as 4x does not fit Compact's 480 by 324 points in 1080
-/// rows and 3x (1440 by 972) does; Auto, with the modern fonts Off, is the
-/// window's own Regular at 2x.
+/// The Interface sizes chosen in turn: 200% is Regular at 2x, 960 by 540
+/// points; 400% is Compact at 3x, as 4x does not fit Compact's 480 by 324
+/// points in 1080 rows and 3x (1440 by 972) does; Auto, with the modern
+/// fonts Off, steps down from 2x to the window's Large at 1x.
 constexpr std::array<InterfaceSizeStep, 3> kInterfaceSizeSteps{{
-    {settings::InterfaceSize::size_100, "100%", oa::ui::kit::SizeClass::large, 1},
+    {settings::InterfaceSize::size_200, "200%", oa::ui::kit::SizeClass::regular, 2},
     {settings::InterfaceSize::size_400, "400%", oa::ui::kit::SizeClass::compact, 3},
-    {settings::InterfaceSize::automatic, "Auto", oa::ui::kit::SizeClass::regular, 2},
+    {settings::InterfaceSize::automatic, "Auto", oa::ui::kit::SizeClass::large, 1},
 }};
 
 /// The preferences keys' common start: the keys of the Open Annihilation settings.
@@ -199,7 +205,7 @@ void require(bool ok, std::string_view what) {
 }
 
 #if defined(__APPLE__) && !TARGET_OS_IPHONE
-/// The seven file-type switches, cleared, so a comparison can ignore them.
+/// The eight file-type switches, cleared, so a comparison can ignore them.
 ///
 /// @param settings the settings
 /// @return the same settings with every file-type switch off
@@ -210,6 +216,7 @@ settings::EngineSettings without_file_type_switches(settings::EngineSettings set
     settings.file_type_oareg = false;
     settings.file_type_oamut = false;
     settings.file_type_oabrain = false;
+    settings.file_type_oakeys = false;
     settings.file_type_oalaunch = false;
     return settings;
 }
@@ -260,6 +267,10 @@ std::string_view page_slug(settings::Page page) {
         return "system";
     case settings::Page::game_content:
         return "game-content";
+    case settings::Page::updates:
+        return "updates";
+    case settings::Page::accessibility:
+        return "accessibility";
     case settings::Page::mod_keys:
     case settings::Page::mod_patrol:
     case settings::Page::mod_guard:
@@ -273,12 +284,13 @@ std::string_view page_slug(settings::Page page) {
 }
 
 /// The dialog's sections, in the order its list shows them.
-constexpr std::array<settings::Page, 7> kPages{
+constexpr std::array<settings::Page, 8> kPages{
     settings::Page::controls,
     settings::Page::common_tweaks,
     settings::Page::language,
     settings::Page::graphics,
     settings::Page::user_interface,
+    settings::Page::accessibility,
     settings::Page::system,
     settings::Page::developer,
 };
@@ -309,7 +321,7 @@ std::string active_only_label(std::size_t active) {
 ///
 /// @param parts the dialog's layout
 /// @param hack the hack's title, as its header shows it
-/// @param caption "OFF" or "ON"
+/// @param caption "Off" or "On"
 /// @return the switch's half; nullptr when the hack does not show
 const settings::LayoutPart* hack_switch(
     const std::vector<settings::LayoutPart>& parts, std::string_view hack, std::string_view caption
@@ -348,6 +360,8 @@ std::string_view label_of(settings::Setting setting) {
         return "Middle-click pans";
     case settings::Setting::escape_opens_menu:
         return "Escape opens the game menu";
+    case settings::Setting::group_keys_centre:
+        return "Group keys centre the view";
     case settings::Setting::switch_alt:
         return "Select groups without Alt";
     case settings::Setting::window_edge:
@@ -420,6 +434,8 @@ std::string_view label_of(settings::Setting setting) {
         return "Mutator packages (.oamut)";
     case settings::Setting::file_type_oabrain:
         return "Brain packages (.oabrain)";
+    case settings::Setting::file_type_oakeys:
+        return "Key layout packages (.oakeys)";
     case settings::Setting::file_type_oalaunch:
         return "Launch files (.oalaunch)";
     case settings::Setting::file_types_note:
@@ -443,13 +459,63 @@ std::string_view label_of(settings::Setting setting) {
     case settings::Setting::heat_distortion:
         return "Heat distortion";
     case settings::Setting::allow_full_3d:
-        return "Allow Full 3D Mode";
+        return "Allow full 3D mode";
     case settings::Setting::unlocked_camera:
-        return "Unlocked Camera";
+        return "Unlocked camera";
+    case settings::Setting::mod_limits_heading:
+        return "Set by the mod";
+    case settings::Setting::weapon_types:
+        return "Weapon types";
+    case settings::Setting::sides:
+        return "Sides";
+    case settings::Setting::key_layout:
+        return "Key layout";
+    case settings::Setting::key_layout_for_mod:
+        return "Key layout with Ridge";
+    case settings::Setting::show_keys_on_buttons:
+        return "Show keys on buttons";
+    case settings::Setting::latching:
+        return "Hold keys that latch";
+    case settings::Setting::sticky_modifiers:
+        return "Sticky modifiers";
+    case settings::Setting::hold_to_confirm:
+        return "Hold to confirm";
+    case settings::Setting::long_press:
+        return "Long press";
+    case settings::Setting::slow_keys:
+        return "Slow keys";
+    case settings::Setting::bounce_keys:
+        return "Bounce keys";
+    case settings::Setting::order_wheel:
+        return "Order wheel";
+    case settings::Setting::pointer_keys:
+        return "Pointer keys";
+    case settings::Setting::double_press:
+        return "Double press";
+    case settings::Setting::repeat_delay:
+        return "Key repeat delay";
+    case settings::Setting::repeat_rate:
+        return "Key repeat rate";
+    case settings::Setting::drag_threshold:
+        return "Drag threshold";
+    case settings::Setting::edge_scroll:
+        return "Edge scrolling";
+    case settings::Setting::move_overlays:
+        return "Move overlays";
+    case settings::Setting::arrange_overlays:
+        return "Overlay places";
     case settings::Setting::welcome_setup:
         return "Welcome setup";
     case settings::Setting::fog_of_war:
         return "Fog of War";
+    case settings::Setting::new_unit_shadows:
+        return "New unit shadows";
+    case settings::Setting::window_size:
+        return "Window size";
+    case settings::Setting::reset_window_positions:
+        return "Reset window positions";
+    case settings::Setting::look:
+        return "Look";
     default:
         return {};
     }
@@ -826,7 +892,7 @@ void Runtime::check_engine_settings_dialog() {
 
     // The wheel and the scroll keys reach the dialog. Given a section taller
     // than its view, a notch towards the player scrolls it 24 pixels, Page
-    // Down 200 more and End to its end, Page Up 200 back and Home to its top;
+    // Down a page more and End to its end, Page Up a page back and Home to its top;
     // a notch away from the player at the top, a notch towards the player at
     // the end, and a notch outside the dialog, do nothing.
     {
@@ -868,18 +934,23 @@ void Runtime::check_engine_settings_dialog() {
         require(offset() == tall::kWheelStepPixels, "the wheel outside the dialog scrolled it");
         tap(SDLK_PAGEDOWN);
         require(
-            offset() == tall::kWheelStepPixels + tall::kPageStepPixels,
+            offset() ==
+                tall::kWheelStepPixels + settings::dialog_page_step(*engine_settings_dialog()),
             "Page Down did not scroll the dialog"
         );
         tap(SDLK_END);
         const int32_t end = offset();
         require(
-            end > tall::kWheelStepPixels + tall::kPageStepPixels, "End did not scroll to the end"
+            end > tall::kWheelStepPixels + settings::dialog_page_step(*engine_settings_dialog()),
+            "End did not scroll to the end"
         );
         turn_wheel(over_rows, -1.0F);
         require(offset() == end, "the wheel scrolled the dialog past its end");
         tap(SDLK_PAGEUP);
-        require(offset() == end - tall::kPageStepPixels, "Page Up did not scroll the dialog");
+        require(
+            offset() == end - settings::dialog_page_step(*engine_settings_dialog()),
+            "Page Up did not scroll the dialog"
+        );
         tap(SDLK_HOME);
         require(offset() == 0, "Home did not scroll back to the top");
         require(
@@ -946,41 +1017,31 @@ void Runtime::check_engine_settings_dialog() {
     );
 
     click(settings::page_control(settings::Page::controls), {}, "Controls' entry");
-    click(settings::first_row_control, "OFF", "Mouse wheel zoom's Off");
+    // Key layout and Show keys on buttons sit above the wheel. The wheel and
+    // the limits keep their own names, so those rows do not move the press.
+    click(control_named("settings.wheel-zoom"), "Off", "Mouse wheel zoom's Off");
     chosen.wheel_zoom = false;
     expect("Mouse wheel zoom Off");
     // The zoom's limits, on their drop-downs: Right steps a choice on and
     // Left one back.
-    focus(settings::first_row_control + 1, "Maximum zoom out");
+    focus(control_named("settings.max-zoom-out"), "Maximum zoom out");
     tap(SDLK_RIGHT);
     chosen.max_zoom_out = settings::ZoomOutLimit::whole_map;
     expect("Maximum zoom out Whole map");
-    focus(settings::first_row_control + 2, "Maximum zoom in");
+    focus(control_named("settings.max-zoom-in"), "Maximum zoom in");
     tap(SDLK_LEFT);
     chosen.max_zoom_in = settings::ZoomInLimit::three_times;
     expect("Maximum zoom in 3x");
     // The rows under them, scrolled into view as the focus reaches them.
     // View past the map's edge: 25% is the share the view's limits take.
-    focus(settings::first_row_control + 3, "View past the map's edge");
-    click(settings::first_row_control + 3, "25%", "View past the map's edge's 25%");
+    focus(control_named("settings.view-past-map-edge"), "View past the map's edge");
+    click(control_named("settings.view-past-map-edge"), "25%", "View past the map's edge's 25%");
     chosen.view_past_map_edge = settings::ViewPastMapEdge::one_quarter;
     expect("View past the map's edge 25%");
     require(
         past_map_edge_share() == 0.25,
         "View past the map's edge 25% is not the view's limits' share"
     );
-    const int32_t groups = control_named("settings.switch-alt");
-    focus(groups, "Select groups without Alt");
-    click(groups, "ON", "Select groups without Alt's On");
-    chosen.switch_alt = true;
-    expect("Select groups without Alt On");
-    require(
-        (preferences_.graphics_flags & init::preference_flags::switch_alt) != 0,
-        "Select groups without Alt did not set SwitchAlt"
-    );
-    // A click on the side a switch already shows changes nothing.
-    click(groups, "ON", "Select groups without Alt's On");
-    expect("a second click on On");
     // Window edge opens on Capture, with Edge stickiness under it locked at
     // 1.0: Tab passes it by and its keys change nothing. Sticky frees it,
     // and a step of it is the sticky edge's firmness at once. Free locks it
@@ -1048,8 +1109,9 @@ void Runtime::check_engine_settings_dialog() {
 
     // Escape opens the game menu, the last row of User Interface.
     click(settings::page_control(settings::Page::user_interface), {}, "User Interface's entry");
-    focus(settings::first_row_control + 4, "Escape opens the game menu");
-    click(settings::first_row_control + 4, "ON", "Escape opens the game menu's On");
+    const int32_t escape_row = control_named("settings.escape-opens-menu");
+    focus(escape_row, "Escape opens the game menu");
+    click(escape_row, "On", "Escape opens the game menu's On");
     chosen.escape_opens_menu = true;
     expect("Escape opens the game menu On");
 
@@ -1156,7 +1218,7 @@ void Runtime::check_engine_settings_dialog() {
         require(!renderer_waits(sdl_.renderer), "the renderer waits for the display at Off");
         focus(settings::first_row_control + 4, "Vertical sync");
         require(
-            dialog->scroll[static_cast<std::size_t>(settings::Page::graphics)] == 72,
+            dialog->scroll[static_cast<std::size_t>(settings::Page::graphics)] == 88,
             "the focus on Vertical sync did not scroll Graphics to show it"
         );
         require(
@@ -1210,7 +1272,7 @@ void Runtime::check_engine_settings_dialog() {
     // Smooth motion: Off draws the next frame, and every frame after it, at
     // the latest tick (present_frame_between_ticks), and its hint says so.
     focus(settings::first_row_control + 5, "Smooth motion");
-    click(settings::first_row_control + 5, "OFF", "Smooth motion's Off");
+    click(settings::first_row_control + 5, "Off", "Smooth motion's Off");
     chosen.smooth_motion = false;
     expect("Smooth motion Off");
     require(
@@ -1226,7 +1288,7 @@ void Runtime::check_engine_settings_dialog() {
     // keeps the density it opened at.
     const bool dense = native_density_window();
     focus(settings::first_row_control + 6, "Native pixel density");
-    click(settings::first_row_control + 6, "ON", "Native pixel density's On");
+    click(settings::first_row_control + 6, "On", "Native pixel density's On");
     chosen.native_density = true;
     expect("Native pixel density On");
     require(
@@ -1310,7 +1372,7 @@ void Runtime::check_engine_settings_dialog() {
     // row, and the rows under it come one control later.
     const int32_t library_link = engine_settings_dialog()->library_link ? 1 : 0;
     click(
-        settings::first_row_control + 1 + library_link, "ON", "Use modern fonts for game text's On"
+        settings::first_row_control + 1 + library_link, "On", "Use modern fonts for game text's On"
     );
     chosen.modern_fonts = true;
     expect("Use modern fonts for game text On");
@@ -1339,7 +1401,7 @@ void Runtime::check_engine_settings_dialog() {
     );
 
     click(settings::page_control(settings::Page::developer), {}, "Developer's entry");
-    click(settings::first_row_control + 1, "ON", "Show performance statistics' On");
+    click(settings::first_row_control + 1, "On", "Show performance statistics' On");
     chosen.frame_stats = true;
     expect("Show performance statistics On");
     require(frame_stats_shown_, "Show performance statistics did not show the statistics");
@@ -1393,7 +1455,13 @@ void Runtime::check_engine_settings_dialog() {
     expected_keys.emplace(std::string(settings::key::fog_of_war), "classic");
     const auto saved = oa::platform::preferences::load(preference_path_);
     require(engine_keys(saved) == expected_keys, "OK did not save exactly the settings changed");
-    require(saved_general_number("SwitchAlt") == 1, "OK did not save SwitchAlt");
+    // The preferences load writes SwitchAlt's default, 0, into 3.1c's own
+    // key before the dialog opens. Controls no longer shows that switch, so
+    // OK leaves the key as the load stored it.
+    require(
+        saved_general_number("SwitchAlt") == 0,
+        "OK changed SwitchAlt though Controls no longer shows it"
+    );
     dialog = open("again");
     require(
         same_settings(dialog->opened, chosen) && dialog->page == settings::Page::developer,
@@ -1401,14 +1469,14 @@ void Runtime::check_engine_settings_dialog() {
     );
 
     // Cancel (its button) puts back what the dialog opened with and saves nothing.
-    click(settings::first_row_control + 1, "OFF", "Show performance statistics' Off");
+    click(settings::first_row_control + 1, "Off", "Show performance statistics' Off");
     click(settings::page_control(settings::Page::controls), {}, "Controls' entry");
-    click(settings::first_row_control, "ON", "Mouse wheel zoom's On");
+    click(control_named("settings.wheel-zoom"), "On", "Mouse wheel zoom's On");
     require(
         !engine_settings().frame_stats && engine_settings().wheel_zoom && !frame_stats_shown_,
         "the changes before Cancel did not take effect at once"
     );
-    click(settings::cancel_control, "CANCEL", "Cancel");
+    click(settings::cancel_control, "Cancel", "Cancel");
     require(engine_settings_dialog() == nullptr, "Cancel did not close the dialog");
     require(
         same_settings(engine_settings(), chosen) && frame_stats_shown_,
@@ -1526,7 +1594,7 @@ void Runtime::check_engine_settings_dialog() {
             "Simplified Chinese is not waiting after its download was recorded"
         );
         std::cout << "engine settings check: recorded download " << recorded << '\n';
-        click(settings::cancel_control, "CANCEL", "Cancel");
+        click(settings::cancel_control, "Cancel", "Cancel");
         require(engine_settings_dialog() == nullptr, "Cancel did not close the language dialog");
         require(
             engine_settings().language == opened_language && shown_language().tag == "en" &&
@@ -1641,31 +1709,36 @@ void Runtime::check_engine_settings_dialog() {
         auto parts = parts_now();
         require(
             shows_text(parts, "Enable Developer Mode") &&
-                shows_text(parts, "Show performance statistics") &&
-                shows_text(parts, active_only_label(0)),
+                shows_text(parts, "Show performance statistics"),
             "Developer does not show its switches with no hack on"
         );
         require(!shows_text(parts, kRuleHack), "an area of Developer Mode starts open");
+        // At Compact Developer scrolls as one: Show Active Only follows the
+        // list, and the walk pages down to it.
+        require(reveal(active_only_label(0)), "Developer does not show Show Active Only");
+        tap(SDLK_HOME);
         click_text(kFirstArea, "first area");
         require(reveal(kRuleHack), "a click on an area did not open it");
-        click_hack(kRuleHack, "ON");
+        click_hack(kRuleHack, "On");
         require(
             engine_settings_dialog()->chosen.hack_overrides.empty() && mod_profile() == nullptr,
             "a hack's switch took a change while Developer Mode was off"
         );
-        click(settings::developer_mode_control, "ON", "Enable Developer Mode's On");
+        tap(SDLK_HOME);
+        click(settings::developer_mode_control, "On", "Enable Developer Mode's On");
         require(developer_mode(), "Enable Developer Mode did not turn it on at once");
-        click_hack(kRuleHack, "ON");
+        require(reveal(kRuleHack), "the rule hack did not show again");
+        click_hack(kRuleHack, "On");
         const auto* rules = mod_profile();
         require(
             rules != nullptr && rules->rules.ai.attack_wave_size.enabled &&
-                shows_text(parts_now(), active_only_label(1)),
+                reveal(active_only_label(1)),
             "a rule hack turned on did not play at once with no match running"
         );
         require(reveal(kDisplayArea), "Developer Mode does not list the display area");
         click_text(kDisplayArea, "display area");
         require(reveal(kDisplayHack), "the display area did not open");
-        click_hack(kDisplayHack, "ON");
+        click_hack(kDisplayHack, "On");
         require(
             ui_rules().whiteboard.enabled &&
                 engine_settings_dialog()->chosen.hack_overrides.size() == 2,
@@ -1680,15 +1753,17 @@ void Runtime::check_engine_settings_dialog() {
         );
         dialog = open("for Restore profile values");
         require(dialog->page == settings::Page::developer, "the dialog did not open on Developer");
+        require(reveal("Restore profile values"), "Developer does not show Restore profile values");
         click(
-            settings::restore_profile_control, "RESTORE PROFILE VALUES", "Restore profile values"
+            settings::restore_profile_control, "Restore profile values", "Restore profile values"
         );
         require(
             engine_settings_dialog()->chosen.hack_overrides.empty() && mod_profile() == nullptr &&
                 !ui_rules().whiteboard.enabled,
             "Restore profile values did not put the profile's values back at once"
         );
-        click(settings::developer_mode_control, "OFF", "Enable Developer Mode's Off");
+        tap(SDLK_HOME);
+        click(settings::developer_mode_control, "Off", "Enable Developer Mode's Off");
         require(!developer_mode(), "Enable Developer Mode did not turn it off at once");
         click(settings::ok_control, "OK", "OK");
         const auto cleared = oa::platform::preferences::load(preference_path_);
@@ -1757,17 +1832,17 @@ void Runtime::check_engine_settings_dialog() {
         dialog = open("with touch controls");
         require(dialog->touch, "the dialog opened with touch controls does not list Touch");
         auto parts = settings::dialog_layout(*dialog);
-        const auto* graphics_entry =
-            find_part(parts, settings::page_control(settings::Page::graphics), {});
+        const auto* accessibility_entry =
+            find_part(parts, settings::page_control(settings::Page::accessibility), {});
         const auto* touch_entry =
             find_part(parts, settings::page_control(settings::Page::touch), {});
-        const auto* developer_entry =
-            find_part(parts, settings::page_control(settings::Page::developer), {});
+        const auto* graphics_entry =
+            find_part(parts, settings::page_control(settings::Page::graphics), {});
         require(
-            graphics_entry != nullptr && touch_entry != nullptr && developer_entry != nullptr &&
-                touch_entry->text == "Touch" && graphics_entry->rect.y < touch_entry->rect.y &&
-                touch_entry->rect.y < developer_entry->rect.y,
-            "Touch is not listed between Graphics and Developer"
+            accessibility_entry != nullptr && touch_entry != nullptr && graphics_entry != nullptr &&
+                touch_entry->text == "Touch" && accessibility_entry->rect.y < touch_entry->rect.y &&
+                touch_entry->rect.y < graphics_entry->rect.y,
+            "Touch is not listed between Accessibility and Graphics"
         );
         click(settings::page_control(settings::Page::touch), {}, "Touch's entry");
         require(engine_settings_dialog()->page == settings::Page::touch, "Touch did not show");
@@ -1783,7 +1858,7 @@ void Runtime::check_engine_settings_dialog() {
             require(shows_text(parts, text), "Touch does not show " + std::string(text));
         // Haptics, the fourth row, is On; a press left of its switch, two
         // thirds of the touch controls' reach from its Off half, takes it.
-        const auto* haptics_off = find_part(parts, settings::first_row_control + 3, "OFF");
+        const auto* haptics_off = find_part(parts, settings::first_row_control + 3, "Off");
         require(haptics_off != nullptr && engine_settings().touch_haptics, "Haptics is not On");
         const int32_t reach = EngineSettingsState::finger_reach(*this, 1.0);
         const layout::Point beside{
@@ -1792,7 +1867,9 @@ void Runtime::check_engine_settings_dialog() {
         };
         click_at(beside.x - placement().x, beside.y - placement().y);
         require(engine_settings().touch_haptics, "a mouse press beside Haptics' switch took it");
-        finger_click({beside.x - reach, beside.y});
+        // A finger the reach farther left, and half of it higher so that
+        // Cancel under the row stays out of reach too, takes nothing.
+        finger_click({beside.x - reach, beside.y - reach / 2});
         require(engine_settings().touch_haptics, "a finger's press out of reach took Haptics");
         finger_click(beside);
         require(
@@ -1844,7 +1921,7 @@ void Runtime::check_engine_settings_dialog() {
                 "Settings still lists a Mods section"
             );
         }
-        click(settings::cancel_control, "CANCEL", "Cancel");
+        click(settings::cancel_control, "Cancel", "Cancel");
         // The Library over the mod folders the run lists.
         LibraryHost& host = library_host();
         // A Library opens on Active: the mods are chosen on its Mods tab.
@@ -1958,7 +2035,7 @@ void Runtime::check_engine_settings_dialog() {
                     asked != nullptr && asked->question().buttons.size() == 2 &&
                         asked->question().buttons[0].id == "cancel" &&
                         asked->question().buttons[1].id == "switch" &&
-                        asked->question().buttons[1].caption == "SWITCH" &&
+                        asked->question().buttons[1].caption == "Switch" &&
                         asked->question().marked == 0,
                     "SWITCH OFF did not ask the Switch Mod question"
                 );
@@ -2417,20 +2494,33 @@ void Runtime::check_engine_settings_window_sizes() {
                 {
                     const auto area_parts = settings::dialog_layout(*engine_settings_dialog());
                     click_part(
-                        find_part(area_parts, settings::developer_mode_control, "ON"),
+                        find_part(area_parts, settings::developer_mode_control, "On"),
                         "Enable Developer Mode's On"
                     );
                 }
                 shows_dialog("Developer Mode on");
                 snapshot("menu-dialog-developer-on-" + size);
+                // Compact's list view holds little more than the area's
+                // header: Page Down brings the hack into it, Home back.
+                const auto reveal_text = [&](std::string_view text) {
+                    for (int32_t pages = 0; pages < 40; ++pages) {
+                        if (shows_text(settings::dialog_layout(*engine_settings_dialog()), text))
+                            return;
+                        tap(SDLK_PAGEDOWN);
+                    }
+                };
+                reveal_text(kShownHack);
                 click_text(kShownHack);
                 {
+                    reveal_text(kShownHack);
                     const auto hack_parts = settings::dialog_layout(*engine_settings_dialog());
-                    click_part(hack_switch(hack_parts, kShownHack, "ON"), "rule hack's switch");
+                    click_part(hack_switch(hack_parts, kShownHack, "On"), "rule hack's switch");
                 }
                 shows_dialog("Developer Mode with a rule hack open and on");
                 snapshot("menu-dialog-developer-hack-" + size);
+                reveal_text(kShownHack);
                 click_text(kShownHack);
+                tap(SDLK_HOME);
                 click_text(kFirstArea);
             }
             if (page != settings::Page::graphics)
@@ -2458,6 +2548,467 @@ void Runtime::check_engine_settings_window_sizes() {
             shows_dialog("Graphics at its end");
             snapshot("menu-dialog-graphics-end-" + size);
             tap(SDLK_HOME);
+        }
+        // Updates, on the three windows the ticket names. The mode is chosen
+        // through its drop-down and read back after OK. Never then hides
+        // CHECK NOW and starts nothing. CHECK NOW is pressed once the mode
+        // is Automatically again, against a feed this check names, and the
+        // dialog is left open for the Escape below. The preferences, the
+        // feed and the settings are put back on every path, including a
+        // failure.
+        if ((width == 640 && height == 480) || (width == 1280 && height == 720) ||
+            (width == 1920 && height == 1080)) {
+            struct RestoreUpdates {
+                Runtime& runtime;
+                oa::platform::preferences::Values values;
+                std::optional<std::string> feed;
+                settings::EngineSettings settings;
+
+                ~RestoreUpdates() {
+                    runtime.preference_values_ = values;
+                    runtime.preferences_dirty_ = true;
+                    try {
+                        runtime.flush_preferences();
+                    } catch (const std::exception& failure) {
+                        std::cerr << "engine settings check: Updates could not restore "
+                                     "preferences: "
+                                  << failure.what() << '\n';
+                    }
+                    runtime.options_.update_feed = std::move(feed);
+                    runtime.apply_engine_settings(settings);
+                    runtime.cancel_update_check();
+                }
+            } restore{*this, preference_values_, options_.update_feed, engine_settings()};
+
+            const auto click_updates =
+                [&](int32_t control, std::string_view text, std::string_view what) {
+                    const auto parts_now = settings::dialog_layout(*engine_settings_dialog());
+                    click_part(find_part(parts_now, control, text), what);
+                };
+            const oa::ui::kit::DisplayList named =
+                settings::geometry::dialog_list(*dialog, nullptr);
+            const int32_t updates_nav = oa::ui::kit::control_named(named, "settings.nav.updates");
+            require(
+                updates_nav == settings::page_control(settings::Page::updates),
+                "oa.settings.nav.updates is not Updates' entry" + on
+            );
+            click_updates(updates_nav, {}, "oa.settings.nav.updates");
+            require(
+                engine_settings_dialog() != nullptr &&
+                    engine_settings_dialog()->page == settings::Page::updates,
+                "oa.settings.nav.updates did not show Updates" + on
+            );
+            snapshot("settings-updates-" + size);
+            std::cout << "engine settings check: Updates (oa.settings.nav.updates) on the " << size
+                      << " window\n";
+
+            const int32_t mode_row = settings::first_row_control + 1;
+            click_updates(mode_row, {}, "Check for updates");
+            require(
+                engine_settings_dialog()->open_list == mode_row,
+                "Check for updates did not open" + on
+            );
+            click_updates(settings::no_control, "Only when I ask", "Only when I ask");
+            require(
+                engine_settings_dialog()->chosen.update_check ==
+                        settings::UpdateCheck::when_asked &&
+                    engine_settings_dialog()->open_list == settings::no_control,
+                "Only when I ask was not chosen" + on
+            );
+            click_updates(settings::ok_control, "OK", "OK");
+            require(engine_settings_dialog() == nullptr, "OK did not close Updates" + on);
+            {
+                const auto stored =
+                    preference_values_.find(std::string(settings::key::update_check));
+                require(
+                    stored != preference_values_.end() && stored->second == "when-asked",
+                    "OK did not store Check for updates as when-asked" + on
+                );
+            }
+            std::cout << "engine settings check: Updates stored Only when I ask on the " << size
+                      << " window\n";
+
+            preference_values_ = restore.values;
+            preferences_dirty_ = true;
+            flush_preferences();
+            apply_engine_settings(restore.settings);
+            preference_values_[std::string(oa::ui::first_run::preference_key)] =
+                std::string(oa::ui::first_run::preference_done);
+            options_.update_feed = "http://127.0.0.1:9/v1/engine/stable.json";
+
+            tap(SDLK_COMMA, kShortcutModifier);
+            require(engine_settings_dialog() != nullptr, "Updates did not open again" + on);
+            click_updates(
+                settings::page_control(settings::Page::updates), {}, "oa.settings.nav.updates"
+            );
+            require(
+                engine_settings_dialog() != nullptr &&
+                    engine_settings_dialog()->page == settings::Page::updates,
+                "Updates did not show again" + on
+            );
+            // The previous window's CHECK NOW may still be finishing. Let it
+            // leave checking before Never is judged, so its result is not a
+            // request Never made.
+            cancel_update_check();
+            const auto drain_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            while (std::chrono::steady_clock::now() < drain_deadline) {
+                const oa::app::update::CheckState state = update_snapshot().state;
+                tick_update_check();
+                if (update_snapshot().state == state &&
+                    state != oa::app::update::CheckState::checking)
+                    break;
+                SDL_Delay(10);
+            }
+            click_updates(mode_row, {}, "Check for updates");
+            require(
+                engine_settings_dialog()->open_list == mode_row,
+                "Check for updates did not open again" + on
+            );
+            click_updates(settings::no_control, "Never", "Never");
+            require(
+                engine_settings_dialog()->chosen.update_check == settings::UpdateCheck::never &&
+                    engine_settings_dialog()->open_list == settings::no_control,
+                "Never was not chosen" + on
+            );
+            {
+                const auto never_parts = settings::dialog_layout(*engine_settings_dialog());
+                require(
+                    !shows_text(never_parts, "Check now") &&
+                        !shows_text(never_parts, "Update\u2026"),
+                    "CHECK NOW was shown with Check for updates at Never" + on
+                );
+            }
+            const uint64_t generation_never = update_snapshot().generation;
+            tick_update_check();
+            require(
+                update_snapshot().generation == generation_never &&
+                    update_snapshot().state != oa::app::update::CheckState::checking,
+                "Never started a check" + on
+            );
+            std::cout << "engine settings check: Updates Never made no request on the " << size
+                      << " window\n";
+            click_updates(mode_row, {}, "Check for updates");
+            require(
+                engine_settings_dialog()->open_list == mode_row,
+                "Check for updates did not open after Never" + on
+            );
+            click_updates(settings::no_control, "Automatically", "Automatically");
+            require(
+                engine_settings_dialog()->chosen.update_check ==
+                        settings::UpdateCheck::automatically &&
+                    engine_settings_dialog()->open_list == settings::no_control,
+                "Automatically was not chosen after Never" + on
+            );
+
+            const uint64_t generation = update_snapshot().generation;
+            // The button is the status row's control, not a caption with no control.
+            click_updates(settings::first_row_control, "Check now", "Check now");
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
+            bool started = false;
+            while (std::chrono::steady_clock::now() < deadline) {
+                tick_update_check();
+                const oa::app::update::CheckSnapshot& snap = update_snapshot();
+                if (snap.state != oa::app::update::CheckState::idle ||
+                    snap.generation != generation) {
+                    started = true;
+                    break;
+                }
+                SDL_Delay(10);
+            }
+            require(started, "CHECK NOW did not start a check" + on);
+            std::cout << "engine settings check: Updates CHECK NOW started on the " << size
+                      << " window\n";
+
+            // Accessibility, on the three windows the ticket names. Each row
+            // is changed through its named control and applies at once. OK
+            // writes the preferences, which are read back and then put back,
+            // with the settings, on every path. CHOOSE… opens the key editor
+            // on Latchable over the dialog, and Escape leaves the dialog open.
+            struct RestoreAccess {
+                Runtime& runtime;
+                oa::platform::preferences::Values values;
+                settings::EngineSettings settings;
+
+                ~RestoreAccess() {
+                    runtime.preference_values_ = values;
+                    runtime.preferences_dirty_ = true;
+                    try {
+                        runtime.flush_preferences();
+                    } catch (const std::exception& failure) {
+                        std::cerr << "engine settings check: Accessibility could not restore "
+                                     "preferences: "
+                                  << failure.what() << '\n';
+                    }
+                    runtime.apply_engine_settings(settings);
+                }
+            } restore_access{*this, preference_values_, engine_settings()};
+
+            const auto named_control = [&](std::string_view name) {
+                auto* open = engine_settings_dialog();
+                require(open != nullptr, std::string(name) + " was asked with no dialog" + on);
+                const oa::ui::kit::DisplayList list =
+                    settings::geometry::dialog_list(*open, nullptr);
+                const int32_t control = oa::ui::kit::control_named(list, name);
+                require(
+                    control != oa::ui::kit::no_control, std::string(name) + " is not shown" + on
+                );
+                return control;
+            };
+            const auto focus_access = [&](int32_t control, std::string_view what) {
+                auto* open = engine_settings_dialog();
+                require(open != nullptr, std::string(what) + " was asked with no dialog" + on);
+                const oa::ui::kit::DisplayList list =
+                    settings::geometry::dialog_list(*open, nullptr);
+                // The stops Tab walks: one per row (a strip and a slider are
+                // one control), then the footer, the list and the close mark.
+                // One press past that count walks the whole order from any stop.
+                const std::size_t order = list.tab_order.size();
+                for (std::size_t presses = 0; presses <= order; ++presses) {
+                    if (engine_settings_dialog()->focused == control)
+                        return;
+                    tap(SDLK_TAB);
+                }
+                require(false, "Tab never reached " + std::string(what) + on);
+            };
+            // Slow keys and Bounce keys run from 0 to 1,000 ms by 50. Stop 1 is 50 ms.
+            constexpr int32_t kTimingStops = 21;
+            constexpr int32_t kTimingStop = 1;
+            // Presses the slider's track at a stop. The pointer sets it, so a
+            // timing already on cannot swallow the press the way it swallows a tap.
+            const auto press_stop = [&](int32_t control, std::string_view what) {
+                const auto parts_now = settings::dialog_layout(*engine_settings_dialog());
+                const settings::LayoutPart* track = find_part(parts_now, control, {});
+                require(track != nullptr, std::string(what) + " is not in view" + on);
+                const int32_t column =
+                    oa::ui::kit::knob_column(track->rect, kTimingStop, kTimingStops);
+                click_window(
+                    layer_window_pixel(placed(), {column, track->rect.y + track->rect.height / 2})
+                );
+            };
+            // One notch toward the player, over the dialog's middle. The wheel
+            // is not a key, so Slow keys cannot hold it back.
+            const auto wheel_down = [&] {
+                const auto place = placed();
+                const SDL_Event motion = window_pointer_event(
+                    sdl_.window,
+                    sdl_.renderer,
+                    SDL_EVENT_MOUSE_MOTION,
+                    layer_window_pixel(place, {place.points_width / 2, place.points_height / 2}),
+                    0
+                );
+                SDL_Event wheel{};
+                wheel.type = SDL_EVENT_MOUSE_WHEEL;
+                wheel.wheel.windowID = motion.motion.windowID;
+                wheel.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+                wheel.wheel.y = -1.0F;
+                wheel.wheel.mouse_x = motion.motion.x;
+                wheel.wheel.mouse_y = motion.motion.y;
+                bool running = true;
+                dispatch_event(wheel, running);
+                require(running, "the wheel in the dialog ended the run" + on);
+            };
+            const auto row_in_view = [&](int32_t control) {
+                const auto parts_now = settings::dialog_layout(*engine_settings_dialog());
+                return find_part(parts_now, control, {}) != nullptr;
+            };
+            const auto require_now = [&](bool ok, std::string_view what) {
+                require(
+                    ok && engine_settings_dialog() != nullptr &&
+                        same_settings(engine_settings(), engine_settings_dialog()->chosen),
+                    std::string(what) + " did not apply at once" + on
+                );
+            };
+
+            const int32_t access_nav = named_control("settings.nav.accessibility");
+            require(
+                access_nav == settings::page_control(settings::Page::accessibility),
+                "oa.settings.nav.accessibility is not Accessibility's entry" + on
+            );
+            click_updates(access_nav, {}, "oa.settings.nav.accessibility");
+            require(
+                engine_settings_dialog() != nullptr &&
+                    engine_settings_dialog()->page == settings::Page::accessibility,
+                "oa.settings.nav.accessibility did not show Accessibility" + on
+            );
+            snapshot("settings-accessibility-" + size);
+            std::cout << "engine settings check: Accessibility (oa.settings.nav.accessibility) on "
+                         "the "
+                      << size << " window\n";
+
+            const int32_t sticky = named_control("settings.sticky-modifiers");
+            focus_access(sticky, "Sticky modifiers");
+            click_updates(sticky, "On", "Sticky modifiers' On");
+            require_now(engine_settings_dialog()->chosen.sticky_modifiers, "Sticky modifiers On");
+            const int32_t hold = named_control("settings.hold-to-confirm");
+            focus_access(hold, "Hold to confirm");
+            click_updates(hold, "On", "Hold to confirm's On");
+            require_now(engine_settings_dialog()->chosen.hold_to_confirm, "Hold to confirm On");
+            const int32_t long_press = named_control("settings.long-press");
+            focus_access(long_press, "Long press");
+            tap(SDLK_RIGHT);
+            require_now(engine_settings_dialog()->chosen.long_press_ms == 550, "Long press 550 ms");
+            // Left at Off through the rest of the walk. An instant tap is
+            // shorter than Slow keys, and Bounce keys drops a second Tab
+            // inside its window, so neither timing is turned on until every
+            // row has been reached.
+            const int32_t slow = named_control("settings.slow-keys");
+            focus_access(slow, "Slow keys");
+            const int32_t bounce = named_control("settings.bounce-keys");
+            focus_access(bounce, "Bounce keys");
+            const int32_t wheel = named_control("settings.order-wheel");
+            focus_access(wheel, "Order wheel");
+            click_updates(wheel, "Hold right", "Order wheel's Hold right");
+            require_now(
+                engine_settings_dialog()->chosen.order_wheel == settings::OrderWheel::hold_right,
+                "Order wheel Hold right"
+            );
+            const int32_t pointer = named_control("settings.pointer-keys");
+            focus_access(pointer, "Pointer keys");
+            click_updates(pointer, "On", "Pointer keys' On");
+            require_now(engine_settings_dialog()->chosen.pointer_keys, "Pointer keys On");
+            const int32_t doublet = named_control("settings.double-press");
+            focus_access(doublet, "Double press");
+            tap(SDLK_RIGHT);
+            require_now(
+                engine_settings_dialog()->chosen.double_press_ms == 200, "Double press 200 ms"
+            );
+            const int32_t repeat_delay = named_control("settings.repeat-delay");
+            focus_access(repeat_delay, "Key repeat delay");
+            tap(SDLK_RIGHT);
+            require_now(
+                engine_settings_dialog()->chosen.repeat_delay_ms == 150, "Key repeat delay 150 ms"
+            );
+            const int32_t repeat_rate = named_control("settings.repeat-rate");
+            focus_access(repeat_rate, "Key repeat rate");
+            tap(SDLK_RIGHT);
+            require_now(engine_settings_dialog()->chosen.repeat_rate == 2, "Key repeat rate 2");
+            const int32_t drag = named_control("settings.drag-threshold");
+            focus_access(drag, "Drag threshold");
+            tap(SDLK_RIGHT);
+            require_now(
+                engine_settings_dialog()->chosen.drag_threshold == 40, "Drag threshold 40 px"
+            );
+            const int32_t edge = named_control("settings.edge-scroll");
+            focus_access(edge, "Edge scrolling");
+            click_updates(edge, "Off", "Edge scrolling's Off");
+            require_now(!engine_settings_dialog()->chosen.edge_scroll, "Edge scrolling Off");
+            // Tab has reached both while they are Off. Focusing Slow keys
+            // leaves Bounce keys under the view. The pointer sets each track:
+            // a key after Slow keys is on is held back, and the wheel, which
+            // is not a key, brings Bounce keys into view.
+            focus_access(slow, "Slow keys");
+            press_stop(slow, "Slow keys");
+            require_now(engine_settings_dialog()->chosen.slow_keys_ms == 50, "Slow keys 50 ms");
+            if (!row_in_view(bounce)) {
+                const auto scrolled = [this] {
+                    const auto* open = engine_settings_dialog();
+                    return open->scroll[static_cast<std::size_t>(open->page)];
+                };
+                const int32_t before = scrolled();
+                wheel_down();
+                require(scrolled() > before, "the wheel did not scroll to Bounce keys" + on);
+                for (int notch = 1; !row_in_view(bounce) && notch < 40; ++notch)
+                    wheel_down();
+            }
+            press_stop(bounce, "Bounce keys");
+            require_now(engine_settings_dialog()->chosen.bounce_keys_ms == 50, "Bounce keys 50 ms");
+            std::cout << "engine settings check: Accessibility changed each row on the " << size
+                      << " window\n";
+
+            click_updates(settings::ok_control, "OK", "OK");
+            require(engine_settings_dialog() == nullptr, "OK did not close Accessibility" + on);
+            const auto stored_as = [&](std::string_view key, std::string_view text) {
+                const auto found = preference_values_.find(std::string(key));
+                require(
+                    found != preference_values_.end() && found->second == text,
+                    "OK did not store " + std::string(key) + " as " + std::string(text) + on
+                );
+            };
+            stored_as(settings::key::sticky_modifiers, "1");
+            stored_as(settings::key::hold_to_confirm, "1");
+            stored_as(settings::key::access_long_press, "550");
+            stored_as(settings::key::access_slow_keys, "50");
+            stored_as(settings::key::access_bounce_keys, "50");
+            stored_as(settings::key::order_wheel, "hold-right");
+            stored_as(settings::key::pointer_keys, "1");
+            stored_as(settings::key::access_double_press, "200");
+            stored_as(settings::key::access_repeat_delay, "150");
+            stored_as(settings::key::access_repeat_rate, "2");
+            stored_as(settings::key::access_drag_threshold, "40");
+            stored_as(settings::key::edge_scroll, "0");
+            std::cout << "engine settings check: Accessibility stored each row on the " << size
+                      << " window\n";
+
+            preference_values_ = restore_access.values;
+            preferences_dirty_ = true;
+            flush_preferences();
+            apply_engine_settings(restore_access.settings);
+            tap(SDLK_COMMA, kShortcutModifier);
+            require(engine_settings_dialog() != nullptr, "Accessibility did not open again" + on);
+            click_updates(
+                settings::page_control(settings::Page::accessibility),
+                {},
+                "oa.settings.nav.accessibility"
+            );
+            require(
+                engine_settings_dialog() != nullptr &&
+                    engine_settings_dialog()->page == settings::Page::accessibility,
+                "Accessibility did not show again" + on
+            );
+            const int32_t choose = named_control("settings.latching.choose");
+            focus_access(choose, "Choose…");
+            click_updates(choose, "Choose\u2026", "oa.settings.latching.choose");
+            require(
+                oa_layer().find("key-editor") != nullptr,
+                "oa.settings.latching.choose did not open the key editor" + on
+            );
+            const auto latchable_on = [&] {
+                std::vector<AutomationControl> listed;
+                oa_layer().automation_controls(listed);
+                for (const AutomationControl& control : listed) {
+                    if (control.name == "oa.key-editor.filter.latchable" && control.visible &&
+                        control.checked)
+                        return true;
+                }
+                return false;
+            };
+            // Regular and Large draw Latchable as a pill that is on. Compact
+            // keeps it in the category menu, past the rows that menu shows
+            // first, so End brings it into view. The menu still marks the
+            // category; the filter row reports that it is on. Escape closes
+            // that menu, and the Escape below leaves Settings.
+            bool filters_in_menu = false;
+            if (!latchable_on()) {
+                std::vector<AutomationControl> listed;
+                oa_layer().automation_controls(listed);
+                int32_t at_x = 0;
+                int32_t at_y = 0;
+                bool category_shown = false;
+                for (const AutomationControl& control : listed) {
+                    if (control.name == "oa.key-editor.category" && control.visible &&
+                        control.window_width > 0 && control.window_height > 0) {
+                        at_x = control.window_x + control.window_width / 2;
+                        at_y = control.window_y + control.window_height / 2;
+                        category_shown = true;
+                        break;
+                    }
+                }
+                require(category_shown, "the key editor shows no category menu" + on);
+                click_window({at_x, at_y});
+                tap(SDLK_END);
+                filters_in_menu = true;
+            }
+            require(latchable_on(), "the key editor did not open on its Latchable filter" + on);
+            std::cout << "engine settings check: Accessibility Choose\u2026 opened the key editor "
+                         "on Latchable on the "
+                      << size << " window\n";
+            if (filters_in_menu)
+                tap(SDLK_ESCAPE);
+            tap(SDLK_ESCAPE);
+            require(
+                oa_layer().find("key-editor") == nullptr && engine_settings_dialog() != nullptr,
+                "Escape did not leave Settings under the key editor" + on
+            );
         }
         tap(SDLK_ESCAPE);
         require(engine_settings_dialog() == nullptr, "Escape did not close the dialog" + on);
@@ -2490,7 +3041,8 @@ void Runtime::check_engine_settings_window_sizes() {
                 sized->page == settings::Page::user_interface,
                 "a click on User Interface's entry did not show it" + on
             );
-            tap(SDLK_END);
+            // A page down shows Interface size's row whole at every class.
+            tap(SDLK_PAGEDOWN);
             const int32_t row_control = settings::first_row_control + kInterfaceSizeRow;
             click_control(row_control, {}, "Interface size's field");
             require(
@@ -2640,13 +3192,13 @@ void Runtime::check_engine_settings_window_sizes() {
         // Large, 1x; then Auto goes back.
         const std::string fractional = "Interface size 150%" + on;
         const int32_t size_row = settings::first_row_control + kInterfaceSizeRow;
-        // Opens Interface size's drop-down on User Interface, at its end,
+        // Opens Interface size's drop-down on User Interface, a page down,
         // where the field shows whole.
         const auto open_sizes = [&](settings::Dialog& shown_dialog) {
             click_control(
                 settings::page_control(settings::Page::user_interface), {}, "User Interface's entry"
             );
-            tap(SDLK_END);
+            tap(SDLK_PAGEDOWN);
             click_control(size_row, {}, "Interface size's field");
             require(
                 shown_dialog.open_list == size_row,
@@ -2678,7 +3230,7 @@ void Runtime::check_engine_settings_window_sizes() {
             "Escape did not close Interface size's list" + on
         );
         click_control(settings::page_control(settings::Page::language), {}, "Language's entry");
-        click_control(fonts_row, "ON", "Use modern fonts for game text's On");
+        click_control(fonts_row, "On", "Use modern fonts for game text's On");
         require(
             fraction_dialog->chosen.modern_fonts,
             "a click on Use modern fonts for game text's On did not turn them on" + on
@@ -2759,7 +3311,7 @@ void Runtime::check_engine_settings_window_sizes() {
                   << " window is Large, 1.5x\n";
         // The modern fonts turned Off take 150% back to 100%, shown at once.
         click_control(settings::page_control(settings::Page::language), {}, "Language's entry");
-        click_control(fonts_row, "OFF", "Use modern fonts for game text's Off");
+        click_control(fonts_row, "Off", "Use modern fonts for game text's Off");
         require(
             !fraction_reopened->chosen.modern_fonts &&
                 fraction_reopened->chosen.interface_size == settings::InterfaceSize::size_100,
@@ -2890,7 +3442,7 @@ void Runtime::check_window_edge_rows_fit() {
 }
 
 void Runtime::check_file_type_rows_fit() {
-    // System's File Type Registration and its seven switches, the launch
+    // System's File Type Registration and its eight switches, the launch
     // file's last, on the 640x480 window, Compact, in English and German, at
     // the section's top and at its end: no text of theirs is wider than its
     // box or drawn across another. Simplified Chinese draws from its pack,
@@ -2902,7 +3454,7 @@ void Runtime::check_file_type_rows_fit() {
     load(Screen::main_menu);
     require(screen_ == Screen::main_menu, "the main menu did not open on the 640x480 window");
     const std::string kept_language = language_state().choice;
-    constexpr std::array<std::string_view, 9> words{
+    constexpr std::array<std::string_view, 10> words{
         "File Type Registration",
         "Open these files with the game from your file manager.",
         "Mod packages (.oamod)",
@@ -2911,6 +3463,7 @@ void Runtime::check_file_type_rows_fit() {
         "Registry files (.oareg)",
         "Mutator packages (.oamut)",
         "Brain packages (.oabrain)",
+        "Key layout packages (.oakeys)",
         "Launch files (.oalaunch)",
     };
     for (const std::string_view tag : {std::string_view{"en"}, std::string_view{"de"}}) {

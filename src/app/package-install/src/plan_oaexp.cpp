@@ -9,6 +9,7 @@
 #include "package_file.hpp"
 
 #include "oa/app/content_copy.hpp"
+#include "oa/app/game_directory.hpp"
 #include "oa/app/package_install/oaexp.hpp"
 #include "oa/base/sha256.hpp"
 #include "oa/data/content_bundles/expansion_package.hpp"
@@ -722,6 +723,7 @@ bool install_checked(
     }
     if (installed != nullptr)
         *installed = dest;
+    oa::app::note_content_bundles_changed();
     return true;
 }
 
@@ -866,6 +868,7 @@ bool uninstall_expansion(const fs::path& user_folder, std::string_view id, Probl
         problem.detail = error.message();
         return false;
     }
+    oa::app::note_content_bundles_changed();
     return true;
 }
 

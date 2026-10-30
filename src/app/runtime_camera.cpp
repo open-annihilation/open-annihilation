@@ -6,7 +6,6 @@
 #include "oa/app/far_view.hpp"
 #include "oa/app/frame_coordinates.hpp"
 #include "oa/app/full_screen.hpp"
-#include "device_state.hpp"
 #include "oa/core/map_plot.h"
 #include "engine_settings_state.hpp"
 #include "oa/sim/feature_runtime.hpp"
@@ -25,6 +24,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 
@@ -797,6 +797,27 @@ void Runtime::handle_match_zoom(
     match_zoom_target_ = wheel_zoom_target(wheel_y);
 }
 
+bool Runtime::zoom_match_from_key(std::string_view id) {
+    if (screen_ != Screen::match || match_ == nullptr)
+        return false;
+    const bool zoom_in = id == "camera.zoom-in-key";
+    const bool zoom_out = id == "camera.zoom-out-key";
+    const bool reset = id == "camera.zoom-reset";
+    if (!zoom_in && !zoom_out && !reset)
+        return false;
+    // Mouse wheel zoom off is the game's own scale: the key is taken and the
+    // view stays where it is, including at either end of the zoom's range.
+    if (!engine_settings().wheel_zoom)
+        return true;
+    if (reset) {
+        EngineSettingsState::ease_zoom_about_centre(*this, kDefaultBattlefieldZoom);
+        return true;
+    }
+    const float target = wheel_zoom_target(zoom_in ? 1.0F : -1.0F);
+    EngineSettingsState::ease_zoom_about_centre(*this, target);
+    return true;
+}
+
 float Runtime::wheel_zoom_target(float wheel_y) {
     // A target something else set since the wheel's last step begins the
     // count again.
@@ -865,56 +886,61 @@ void Runtime::pan_match_camera() {
     // A --frame-rate run's held scroll is an arrow key.
     if (frame_run_clock_ns_)
         dx += frame_run_scroll_;
-    // Only the arrow keys scroll, as in 3.1c: the letter keys stay the
-    // game's own commands (A attack, S stop and so on).
-    if (device_state::key_held(SDL_SCANCODE_LEFT))
+    // Only the pan actions scroll, as in 3.1c: the letter keys stay the
+    // game's own commands (A attack, S stop and so on). A modifier never
+    // stops an arrow that is held.
+    if (action_key_held("camera.pan-left"))
         --dx;
-    if (device_state::key_held(SDL_SCANCODE_RIGHT))
+    if (action_key_held("camera.pan-right"))
         ++dx;
-    if (device_state::key_held(SDL_SCANCODE_UP))
+    if (action_key_held("camera.pan-up"))
         --dz;
-    if (device_state::key_held(SDL_SCANCODE_DOWN))
+    if (action_key_held("camera.pan-down"))
         ++dz;
-    // The pointer on the screen's outermost pixels scrolls toward that edge,
-    // and in a corner both ways, whatever panel lies under it, as in 3.1c: in
-    // full screen and in a window alike, while the pointer is in the window
-    // at a place SDL has reported on this screen. On macOS a full-screen
-    // window may lie below the camera housing of a MacBook's display, and a
-    // pointer in the strip beside the housing, outside the window past its
-    // top edge, touches that edge (full_screen_pointer).
-    const auto flags = sdl_.window != nullptr ? SDL_GetWindowFlags(sdl_.window) : 0u;
-    std::optional<SDL_FPoint> touched;
-    if (match_pointer_known_ && (flags & SDL_WINDOW_MOUSE_FOCUS) != 0)
-        touched = SDL_FPoint{match_pointer_x_, match_pointer_y_};
+    // Off stops this edge scroll only. Arrow keys above, and the touch HUD's
+    // edge band while a drag is held, keep moving the view.
+    if (engine_settings_state().current.edge_scroll) {
+        // The pointer on the screen's outermost pixels scrolls toward that edge,
+        // and in a corner both ways, whatever panel lies under it, as in 3.1c: in
+        // full screen and in a window alike, while the pointer is in the window
+        // at a place SDL has reported on this screen. On macOS a full-screen
+        // window may lie below the camera housing of a MacBook's display, and a
+        // pointer in the strip beside the housing, outside the window past its
+        // top edge, touches that edge (full_screen_pointer).
+        const auto flags = sdl_.window != nullptr ? SDL_GetWindowFlags(sdl_.window) : 0u;
+        std::optional<SDL_FPoint> touched;
+        if (match_pointer_known_ && (flags & SDL_WINDOW_MOUSE_FOCUS) != 0)
+            touched = SDL_FPoint{match_pointer_x_, match_pointer_y_};
 #ifdef SDL_PLATFORM_MACOS
-    else if ((flags & SDL_WINDOW_MOUSE_FOCUS) == 0)
-        touched = full_screen_edge_point(
-            sdl_.window, sdl_.renderer, match_layout_.width, match_layout_.height
-        );
+        else if ((flags & SDL_WINDOW_MOUSE_FOCUS) == 0)
+            touched = full_screen_edge_point(
+                sdl_.window, sdl_.renderer, match_layout_.width, match_layout_.height
+            );
 #endif
-    if (touched) {
-        // A window point covers several pixels on a high-density display, and
-        // the pointer rests on the outermost point, not the outermost pixel;
-        // on a window at native density the layout is in window points. A
-        // scaled frame's pixels to a window point are its width over the
-        // points it is presented across.
-        float per_point = SDL_GetWindowPixelDensity(sdl_.window);
-        SDL_FRect presented{};
-        const bool scaled = scaled_frame_width_ > 0 &&
-                            SDL_GetRenderLogicalPresentationRect(sdl_.renderer, &presented) &&
-                            presented.w > 0.0F;
-        if (scaled)
-            per_point = per_point * static_cast<float>(match_layout_.width) / presented.w;
-        const auto edge = edge_scroll_depth(at_native_density(flags) && !scaled, per_point);
-        const auto way = oa::ui::hud::edge_scroll(
-            static_cast<int32_t>(std::floor(touched->x)),
-            static_cast<int32_t>(std::floor(touched->y)),
-            match_layout_.width,
-            match_layout_.height,
-            edge
-        );
-        dx += way.x;
-        dz += way.y;
+        if (touched) {
+            // A window point covers several pixels on a high-density display, and
+            // the pointer rests on the outermost point, not the outermost pixel;
+            // on a window at native density the layout is in window points. A
+            // scaled frame's pixels to a window point are its width over the
+            // points it is presented across.
+            float per_point = SDL_GetWindowPixelDensity(sdl_.window);
+            SDL_FRect presented{};
+            const bool scaled = scaled_frame_width_ > 0 &&
+                                SDL_GetRenderLogicalPresentationRect(sdl_.renderer, &presented) &&
+                                presented.w > 0.0F;
+            if (scaled)
+                per_point = per_point * static_cast<float>(match_layout_.width) / presented.w;
+            const auto edge = edge_scroll_depth(at_native_density(flags) && !scaled, per_point);
+            const auto way = oa::ui::hud::edge_scroll(
+                static_cast<int32_t>(std::floor(touched->x)),
+                static_cast<int32_t>(std::floor(touched->y)),
+                match_layout_.width,
+                match_layout_.height,
+                edge
+            );
+            dx += way.x;
+            dz += way.y;
+        }
     }
     if (dx == 0 && dz == 0)
         return;

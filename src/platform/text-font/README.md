@@ -1,8 +1,9 @@
 # Text font
 
-Game text in the modern fonts, and the text the game's own 8-bit fonts
+Game text in the modern fonts, the text the game's own 8-bit fonts
 cannot draw, such as Greek, Cyrillic, Chinese, Japanese, Korean and emoji,
-drawn through FreeType from fonts that travel with the game. Every platform
+and OA's own screens in the modern look, drawn through FreeType from fonts
+that travel with the game. Every platform
 draws it the same way, pixel for pixel: macOS, Windows (XP included) and
 Linux. The application draws game text through it
 ([runtime_game_text.cpp](../../app/runtime_game_text.cpp)), with the
@@ -24,6 +25,16 @@ the first open font of the stack's chain that has it:
 | `endonyms` | `NotoSansCJKsc-Bold-Endonyms.otf` | the languages' own names and the notice shown before a language pack is installed; required |
 | `noto_emoji` | `NotoEmoji.ttf` | emoji, in one colour like any character; its weight axis follows the line's weight |
 
+The interface faces open with the stack from the same folder,
+`interface_face_files`, each when its file is there: a missing one leaves
+its family to the sans faces. They are the `Face` values after the pack
+faces' (`interface_face`), each named by a constant.
+
+| Face | File | Draws |
+|---|---|---|
+| `barlow_regular`, `barlow_medium`, `barlow_semibold`, `barlow_bold` | `Barlow-Regular.ttf`, `Barlow-Medium.ttf`, `Barlow-SemiBold.ttf`, `Barlow-Bold.ttf` | the interface family's Latin letters, digits and marks at each weight |
+| `barlow_condensed_semibold`, `barlow_condensed_bold` | `BarlowCondensed-SemiBold.ttf`, `BarlowCondensed-Bold.ttf` | the condensed interface family: SemiBold for a regular, medium or semibold line, Bold for a bold one |
+
 The full Simplified Chinese face travels with that language's pack, not
 with the game. A language pack may add up to `most_pack_faces` (4) faces
 while the stack is open (`add_face`). An `ideographs` face is drawn at
@@ -31,8 +42,17 @@ the related size and no less than the style's least size. A `letters`
 face is drawn at the sans faces' size. Bold looks in DejaVu Sans Bold,
 DejaVu Sans, the letters pack faces in the order they were added, the
 ideographs pack faces in that order, the endonym face, then Noto Emoji.
-Regular is the same without DejaVu Sans Bold. `FontStack::chain` gives
-that chain; `fallback_chain` stays the base faces only.
+Regular is the same without DejaVu Sans Bold. Semibold looks as bold
+does and medium as regular. `Style::family` chooses the faces looked in
+first: the sans family (`Family::sans`, the default) is the chain above;
+the interface family (`Family::interface`) puts the Barlow face of the
+line's weight before it, and the condensed one
+(`Family::interface_condensed`) Barlow Condensed. Barlow holds Latin
+letters and no Greek or Cyrillic, so a line that holds a letter beyond
+ASCII its face lacks is drawn whole in the sans family, its digits and
+marks with it, and no word changes typeface part way; ideographs and emoji
+come from their own faces either way. `FontStack::chain` gives that chain;
+`fallback_chain` stays the base faces only.
 
 A character no open font has draws the chain's first open font's
 missing-glyph box. Control characters, variation selectors, zero-width
@@ -42,8 +62,10 @@ spaces and joiners, and the byte-order mark draw nothing and take no room
 `tools/bootstrap_text_fonts.py` fetches the fonts and FreeType, pinned by
 SHA-256, into `local/deps`, and cuts Noto Sans CJK SC Bold down to the
 languages' own names and the notice in `tools/text-fonts/endonyms.txt`.
-The full face comes with the Simplified Chinese language pack. The build
-copies the four fonts into the `fonts` folder beside the game
+Barlow and Barlow Condensed are the static faces of the project's release
+1.422 (<https://github.com/jpt/barlow>), unmodified. The full CJK face
+comes with the Simplified Chinese language pack. The build copies the ten
+fonts into the `fonts` folder beside the game
 (`cmake/OaTextFonts.cmake`), which `bundled_font_directory` finds at run
 time: the bundle's `Contents/Resources/fonts` on macOS, the fonts folder
 beside the executable elsewhere. Their licences are in the repository's
@@ -57,7 +79,7 @@ beside the executable elsewhere. Their licences are in the repository's
   rendering and the letter spacing. `Rendering::mono` hints the outlines to
   whole pixels and draws one bit a pixel, coverage 0 or 255, crisp like the
   game's pixel fonts; `Rendering::antialiased` hints them and draws 256
-  levels. The pen starts at the coverage's `origin` column and moves by each
+  levels. `Style::family` chooses the faces looked in first. The pen starts at the coverage's `origin` column and moves by each
   character's advance rounded to a whole pixel, plus the letter spacing
   after each character that moves it. Characters are not shaped, kerned or
   reordered, so scripts that need shaping (Arabic, Hebrew, the Indic
@@ -87,11 +109,13 @@ beside the executable elsewhere. Their licences are in the repository's
   as a scalable font.
 - `FontStack::face_metrics` gives one face's pixel size and rows at the size
   a style draws it at, and is empty when the face is not open. The sans
-  faces and letters pack faces take the style's pixel size. The endonym
+  faces, the interface faces and letters pack faces take the style's pixel
+  size. The endonym
   face and ideographs pack faces take `related_pixel_size` of it, and no
   less than the style's least size. Noto Emoji takes `related_pixel_size`.
   `FontStack::metrics` is the greatest ascent and descent of the open base
-  faces only. A pack's faces never change the line's rows. The endonym face
+  faces and of an interface family's face for the weight. A pack's faces
+  never change the line's rows. The endonym face
   keeps the rows a CJK face has, so the line is 14 above the baseline and
   4 below at 14 px bold.
 - `related_pixel_size` gives the size the endonym face, ideographs pack
@@ -124,7 +148,11 @@ sizes and never under 7 px, mono at every size.
   machine draws alike.
 - The fonts are read from their files as glyphs are needed, through the
   module's own file stream, so a folder whose path is not in the Windows code
-  page opens too.
+  page opens too. A stack keeps the tables FreeType reads and the glyphs it
+  drew, not the fonts' outlines. The Windows 95 build reads each base and
+  interface font whole when the stack opens and closes its file, since the
+  C library Windows 95 ships keeps only a few files open at once and the
+  game's archives and a saved game need them.
 - Each glyph is drawn once per font, size, weight and rendering and kept, up
   to `FontStack::kept_glyphs`; past it, the glyphs used longest ago are
   forgotten, and only between lines.
@@ -152,8 +180,17 @@ ideographs pack face's rows from 7 px to 48 px, 14 and 4 at 14 px bold
 matching the endonym face's drawing of an ideograph and refusing a fifth
 face or a file that is not a font (`pack_faces_join_the_chain`), a removed
 pack face leaving none of its glyphs for the face that reuses its index
-(`removed_faces_leave_no_glyphs`), and `face_file_opens` accepting each
-bundled file and refusing a text file and a missing path.
+(`removed_faces_leave_no_glyphs`), the interface faces: each open, first in
+their family's chain at each weight, the sans faces, the endonym face and
+the emoji face drawing what Barlow lacks, a Cyrillic word drawn whole in
+the sans faces while ideographs leave Latin letters in Barlow, Barlow
+narrower than DejaVu Sans and its condensed face narrower again, their
+glyphs kept when pack faces leave, and a folder without them opening with
+their families in the sans faces (`interface_faces_go_first`), and
+`face_file_opens` accepting each bundled file and refusing a text file and
+a missing path, and in the Windows 95 build an open stack leaving each of
+its font files free for an exclusive open
+(`an_open_stack_closes_its_font_files`).
 `platform-text-font-pixels`
 runs the same program with `--pixels`: "Ab", a Chinese character and an emoji
 in bold at 14 px, mono, pixel for pixel as FreeType 2.14.3 draws them; it
@@ -162,6 +199,8 @@ skips with another FreeType. `--show TEXT` prints a line as it is drawn.
 ## Limitations
 
 - No shaping, kerning or bidirectional text, and no colour emoji.
+- Barlow holds no Greek or Cyrillic: a line in those alphabets is drawn in
+  DejaVu Sans in the interface families too.
 - Ideographs other than the languages' own names draw from a pack's face.
   Without that face they draw the missing-glyph box.
 - A pack's ideograph face is the Simplified Chinese face, so Japanese and

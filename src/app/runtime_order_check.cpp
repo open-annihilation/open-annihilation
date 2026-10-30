@@ -94,6 +94,13 @@ void require(bool condition, const std::string& what) {
 void Runtime::check_match_orders() {
     const fs::path report_directory = "local/reports";
     fs::create_directories(report_directory);
+    // The buttons are compared with the game's own art, so they wear no key
+    // badges.
+    {
+        auto chosen = engine_settings();
+        chosen.show_keys_on_buttons = false;
+        apply_engine_settings(chosen);
+    }
     start_benchmark_skirmish();
     auto& slots = match_->world().slots;
     uint16_t commander = 0;

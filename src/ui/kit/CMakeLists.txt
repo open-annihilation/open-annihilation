@@ -6,11 +6,13 @@
 # include/oa/ui/kit/layout.hpp, include/oa/ui/kit/input.hpp,
 # include/oa/ui/kit/looks.hpp, include/oa/ui/kit/canvas.hpp, include/oa/ui/kit/components.hpp,
 # include/oa/ui/kit/chrome.hpp, include/oa/ui/kit/controls.hpp,
-# include/oa/ui/kit/components_more.hpp, include/oa/ui/kit/first_run.hpp), and the
+# include/oa/ui/kit/components_more.hpp, include/oa/ui/kit/first_run.hpp,
+# include/oa/ui/kit/keys.hpp), and the
 # gallery of every component (include/oa/ui/kit/gallery.hpp). Provisional until
 # the kit is declared stable.
 add_library(oa-ui-kit src/text.cpp src/wrap.cpp src/layout.cpp src/input.cpp src/canvas.cpp src/components.cpp
-  src/chrome.cpp src/controls.cpp src/components_more.cpp src/first_run.cpp src/gallery.cpp)
+  src/chrome.cpp src/controls.cpp src/components_more.cpp src/first_run.cpp src/gallery.cpp
+  src/keys.cpp)
 # Declared rows: a settings page as a table (include/oa/ui/kit/rows.hpp).
 target_sources(oa-ui-kit PRIVATE src/rows.cpp)
 add_library(oa::ui::kit ALIAS oa-ui-kit)
@@ -70,6 +72,12 @@ if(BUILD_TESTING)
   add_test(NAME ui-kit-tag-icons COMMAND oa-ui-kit-tag-icons-test)
   set_tests_properties(ui-kit-tag-icons PROPERTIES TIMEOUT 30)
 
+  add_executable(oa-ui-kit-keys-test tests/keys_test.cpp)
+  target_link_libraries(oa-ui-kit-keys-test PRIVATE oa-ui-kit oa-test-support oa-options
+    oa-ui-paint)
+  add_test(NAME ui-kit-keys COMMAND oa-ui-kit-keys-test)
+  set_tests_properties(ui-kit-keys PROPERTIES TIMEOUT 30)
+
   add_executable(oa-ui-kit-notices-test tests/notices_test.cpp)
   target_link_libraries(oa-ui-kit-notices-test PRIVATE oa-ui-kit oa-test-support oa-options)
   add_test(NAME ui-kit-notices COMMAND oa-ui-kit-notices-test)
@@ -96,8 +104,18 @@ if(BUILD_TESTING)
   target_link_libraries(oa-ui-kit-gallery-test PRIVATE oa-ui-kit oa-test-support oa-options)
   target_compile_definitions(oa-ui-kit-gallery-test PRIVATE
     "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
+  # The modern look's case reads the bundled fonts, staged with the text test's.
+  oa_copy_text_fonts(oa-ui-kit-gallery-test "${oa_ui_kit_font_dir}")
+  target_link_libraries(oa-ui-kit-gallery-test PRIVATE oa-platform-text-font)
   add_test(NAME ui-kit-gallery COMMAND oa-ui-kit-gallery-test)
-  set_tests_properties(ui-kit-gallery PROPERTIES TIMEOUT 30)
+  # About 2 to 3 s on a Check build, five to six times what it took at 0.8.6
+  # (four and a half times in a Debug build): the gallery now holds the key
+  # pictures and the radio, 369 controls where it had 43, and every case runs
+  # again in the modern look, whose text the bundled fonts lay out. The
+  # Visual Studio Debug lane multiplies a set TIMEOUT by 8 and took 80 to
+  # 130 s of its 240 s at 0.8.6, so the limit grows six times with the work
+  # to keep that margin.
+  set_tests_properties(ui-kit-gallery PROPERTIES TIMEOUT 180)
 
   # The first-run pieces at Compact, Regular and Large, at 1x and at 150%.
   # The smooth draws read the bundled fonts beside the test.

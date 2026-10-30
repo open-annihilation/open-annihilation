@@ -515,7 +515,7 @@ bool read_weapon_key(const oa::WeaponDef& weapon, const char* folded, FieldValue
     if (same(folded, "holdtime"))
         return put_integer(out, weapon.hold_time);
     if (same(folded, "id"))
-        return put_integer(out, weapon.weapon_id);
+        return put_integer(out, oa_weapon_def_id(&weapon));
     if (same(folded, "interceptor"))
         return put_bool(out, flag_on(weapon.flags, OA_WEAPON_FLAG_INTERCEPTOR));
     if (same(folded, "lineofsight"))

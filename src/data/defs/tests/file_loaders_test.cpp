@@ -186,13 +186,13 @@ void test_load_side_data() {
     SideTable table{};
 
     CHECK(load_side_data(&view, &table, nullptr, &fonts));
-    CHECK(table.count == 2 && std::strcmp(table.sides[1].name, "CORE") == 0);
-    CHECK(std::strcmp(table.sides[0].commander, "ARMCOM") == 0 && table.sides[0].font == 7);
-    CHECK(table.sides[0].energy_color == 208 && table.sides[0].metal_color == 224);
+    CHECK(table.count == 2 && std::strcmp(side_at(table, 1)->name, "CORE") == 0);
+    CHECK(std::strcmp(side_at(table, 0)->commander, "ARMCOM") == 0 && side_at(table, 0)->font == 7);
+    CHECK(side_at(table, 0)->energy_color == 208 && side_at(table, 0)->metal_color == 224);
     // METALBAR is the fourth rectangle read (k = 3), RELOAD3 the last (k = 29).
-    CHECK(table.sides[1].rect_metal_bar.x1 == 3 && table.sides[1].rect_metal_bar.y2 == 11);
-    CHECK(table.sides[0].rect_reload3.x2 == 39 && table.sides[0].rect_reload3.y1 == 58);
-    CHECK(side_index(&table.sides[1]) == 1 && side_index(&table.sides[2]) == 2);
+    CHECK(side_at(table, 1)->rect_metal_bar.x1 == 3 && side_at(table, 1)->rect_metal_bar.y2 == 11);
+    CHECK(side_at(table, 0)->rect_reload3.x2 == 39 && side_at(table, 0)->rect_reload3.y1 == 58);
+    CHECK(side_index(side_at(table, 1)) == 1 && side_index(side_at(table, 2)) == 2);
 
     // A side missing a rectangle stops the load and names it.
     MemoryFiles incomplete;
@@ -246,10 +246,18 @@ void test_side_files() {
 
     CHECK(load_side_data(&view, &table, nullptr, nullptr));
     CHECK(table.count == 4);
-    CHECK(table.has_panel_gaf[0] && table.has_panel_gaf[1] && !table.has_panel_gaf[2]);
-    CHECK(table.has_font[0] && table.has_font[1] && !table.has_font[2] && table.has_font[3]);
-    CHECK(std::strcmp(table.panel_gaf[1], "COREPANEL") == 0);
-    CHECK(std::strcmp(table.font_name[1], "COREFONT") == 0 && table.font_name[3][0] == '\0');
+    CHECK(
+        side_has_panel_gaf(table, 0) && side_has_panel_gaf(table, 1) &&
+        !side_has_panel_gaf(table, 2)
+    );
+    CHECK(
+        side_has_font(table, 0) && side_has_font(table, 1) && !side_has_font(table, 2) &&
+        side_has_font(table, 3)
+    );
+    CHECK(std::strcmp(panel_gaf_of(table, 1), "COREPANEL") == 0);
+    CHECK(
+        std::strcmp(font_name_of(table, 1), "COREFONT") == 0 && font_name_of(table, 3)[0] == '\0'
+    );
     char path[path_capacity];
     CHECK(side_file_path(&view, table, 0, SideFile::panels, variant, path, sizeof path));
     CHECK(std::strcmp(path, "anims\\ARMPANEL.GAF") == 0);
@@ -435,6 +443,127 @@ void test_category_mask_width() {
     CHECK(widest.words_per_mask == max_category_mask_words);
 }
 
+/// Builds SIDE0 .. SIDE<count - 1>, each named S<n> so the prefix fits.
+///
+/// @param count how many sections
+/// @param broken_last rectangle left out of the last section; null for none
+/// @return the sections
+std::string side_sections(int32_t count, const char* broken_last) {
+    std::string text;
+    for (int32_t index = 0; index < count; ++index) {
+        const std::string name = "S" + std::to_string(index);
+        const char* skipped = index + 1 == count ? broken_last : nullptr;
+        text += side_section(index, name.c_str(), skipped);
+    }
+    return text;
+}
+
+/// Loads `text` through the file boundary at the given side limit.
+///
+/// @param text SIDEDATA.TDF body
+/// @param side_limit sides the load may take
+/// @param[out] table table to fill
+/// @return what load_side_data returned
+bool load_text(const std::string& text, uint32_t side_limit, SideTable& table) {
+    MemoryFiles files;
+    files.files.push_back({"gamedata/sidedata.tdf", text});
+    const Files view = files.view();
+    return load_side_data(&view, &table, nullptr, nullptr, side_limit);
+}
+
+/// Checks the side limit, the sections left unread past it, and a side past the fifth.
+void test_side_limit() {
+    const std::string seven = side_sections(7, nullptr);
+    MemoryFiles files;
+    files.files.push_back({"gamedata/sidedata.tdf", seven});
+    const Files view = files.view();
+    SideTable table{};
+    char line[256];
+
+    CHECK(load_side_data(&view, &table, nullptr, nullptr, 7));
+    CHECK(table.count == 7 && table.limit == 7 && table.past_limit == 0);
+    CHECK(table.extra_sides.size() == 2 && table.extra_sides.capacity() == 2);
+    CHECK(std::strcmp(side_at(table, 6)->name, "S6") == 0);
+    CHECK(std::strcmp(side_at(table, 6)->name_prefix, "S6") == 0);
+    CHECK(std::strcmp(side_at(table, 6)->commander, "S6COM") == 0);
+    line[0] = 'x';
+    CHECK(!side_table_past_limit_line(table, line, sizeof line));
+    CHECK(line[0] == '\0');
+
+    CHECK(load_side_data(&view, &table, nullptr, nullptr, 10));
+    CHECK(table.count == 7 && table.limit == 10 && table.past_limit == 0);
+    line[0] = 'x';
+    CHECK(!side_table_past_limit_line(table, line, sizeof line));
+    CHECK(line[0] == '\0');
+
+    char path[path_capacity];
+    CHECK(side_file_path(&view, table, 6, SideFile::font, nullptr, path, sizeof path));
+    CHECK(std::strcmp(path, "fonts\\S6FONT.FNT") == 0);
+    SideMissingFile missing[side_missing_file_capacity];
+    const uint32_t gaps = side_missing_files(&view, table, nullptr, missing);
+    bool saw_side_6 = false;
+    const uint32_t listed = gaps < side_missing_file_capacity ? gaps : side_missing_file_capacity;
+    for (uint32_t index = 0; index < listed; ++index)
+        if (missing[index].side == 6 && missing[index].file == SideFile::font)
+            saw_side_6 = true;
+    CHECK(saw_side_6);
+
+    CHECK(load_side_data(&view, &table, nullptr, nullptr));
+    CHECK(table.count == 5 && table.limit == 5 && table.past_limit == 2);
+    CHECK(table.extra_sides.empty() && table.extra_sides.capacity() == 0);
+    CHECK(side_table_past_limit_line(table, line, sizeof line));
+    CHECK(
+        std::strcmp(
+            line,
+            "gamedata/sidedata.tdf: SIDE5 to SIDE6 are past the 5 sides this game plays "
+            "(limits.sides) and are left out"
+        ) == 0
+    );
+
+    const std::string six = side_sections(6, nullptr);
+    CHECK(load_text(six, oa::data::limits::base_sides, table));
+    CHECK(table.count == 5 && table.past_limit == 1);
+    CHECK(side_table_past_limit_line(table, line, sizeof line));
+    CHECK(
+        std::strcmp(
+            line,
+            "gamedata/sidedata.tdf: SIDE5 is past the 5 sides this game plays (limits.sides) and "
+            "is left out"
+        ) == 0
+    );
+
+    // A rectangle missing from a section the limit already left out still loads.
+    const std::string broken = side_sections(6, "METALBAR");
+    CHECK(load_text(broken, oa::data::limits::base_sides, table));
+    CHECK(table.count == 5 && table.past_limit == 1);
+
+    const std::string wide = side_sections(33, nullptr);
+    CHECK(load_text(wide, static_cast<uint32_t>(side_table_capacity), table));
+    CHECK(table.count == 32 && table.limit == 32 && table.past_limit == 1);
+    CHECK(table.extra_sides.size() == 27 && table.extra_sides.capacity() == 27);
+
+    // Ten sides are read through the accessors, and a five-side load that
+    // follows keeps none of that extra storage.
+    const std::string ten = side_sections(10, nullptr);
+    CHECK(load_text(ten, 10, table));
+    CHECK(table.count == 10 && table.limit == 10 && table.past_limit == 0);
+    CHECK(table.extra_sides.size() == 5 && table.extra_sides.capacity() == 5);
+    for (uint32_t index = 0; index < 10; ++index) {
+        const std::string name = "S" + std::to_string(index);
+        const auto* loaded = side_at(table, index);
+        CHECK(loaded != nullptr && std::strcmp(loaded->name, name.c_str()) == 0);
+        CHECK(std::strcmp(loaded->name_prefix, name.c_str()) == 0);
+        CHECK(std::strcmp(loaded->commander, (name + "COM").c_str()) == 0);
+        CHECK(side_has_font(table, index));
+        CHECK(std::strcmp(font_name_of(table, index), (name + "FONT").c_str()) == 0);
+        CHECK(!side_has_panel_gaf(table, index));
+        CHECK(panel_gaf_of(table, index) != nullptr && panel_gaf_of(table, index)[0] == '\0');
+    }
+    CHECK(side_at(table, 10) == nullptr && panel_gaf_of(table, 10) == nullptr);
+    CHECK(load_text(side_sections(5, nullptr), oa::data::limits::base_sides, table));
+    CHECK(table.count == 5 && table.extra_sides.empty() && table.extra_sides.capacity() == 0);
+}
+
 } // namespace
 
 int main() {
@@ -442,6 +571,7 @@ int main() {
     test_load_sound_categories();
     test_load_side_data();
     test_side_files();
+    test_side_limit();
     test_load_locale_table();
     test_category_registry_mask();
     test_category_mask_width();

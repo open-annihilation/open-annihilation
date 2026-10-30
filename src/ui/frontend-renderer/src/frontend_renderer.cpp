@@ -410,8 +410,11 @@ std::string_view fitted_caption(
 // present::lowest_text_size, until it fits (fitted_fnt_text_size). The
 // caption, or the first stage's of a button with stages, that the game font
 // draws, or that is still too wide, then loses characters from its end until
-// it fits. It is placed as a caption that fits: centred, a long label shows
-// its start inside the button rather than running past both its sides.
+// it fits. A side name (game text) skips that stage translation and is fitted
+// to the record's inclusive width, so the table's spelling stays whole when
+// it fits the button and two names that share a prefix stay distinct. It is
+// placed as a caption that fits: centred, a long label shows its start inside
+// the button rather than running past both its sides.
 void draw_button_text(
     Surface& surface,
     const ui::gui_layout::Gadget& gadget,
@@ -429,10 +432,13 @@ void draw_button_text(
         return;
     auto text = staged_caption(fields->text, selected_stage);
     const bool fitted = text.data() == fields->text.data();
-    const auto translated = translated_stage_caption(*fields, selected_stage);
+    const auto translated =
+        game_text ? std::nullopt : translated_stage_caption(*fields, selected_stage);
     if (translated)
         text = *translated;
-    const int32_t limit = record_width - caption_margin;
+    // Inclusive width: the ordinary margin would cut two side names that share
+    // a prefix down to that prefix on a button the size of one SIDEx frame.
+    const int32_t limit = game_text ? record_width - 1 : record_width - caption_margin;
     const int32_t most_size = fitted_fnt_text_size(selected_font, text, limit, game_text);
     if (fitted)
         text = fitted_caption(selected_font, text, limit, game_text, most_size);
@@ -1043,16 +1049,14 @@ void draw_list_box(
     }
 }
 
-/// Lays a GUI layout out over a screen's art, its texts in the game's
-/// language, and binds its buttons as the panel's first draw does.
+/// Parses a GUI layout, its texts in the game's language.
 ///
-/// @param[in,out] screen The art; it takes the layout
 /// @param name The layout's name, for an error
 /// @param layout The layout's GUI file
+/// @return The layout
 /// @throws std::runtime_error when the layout is malformed
-void lay_out_screen(
-    ScreenResources& screen, const std::string& name, std::span<const uint8_t> layout
-) {
+ui::gui_layout::Layout
+parse_screen_layout(const std::string& name, std::span<const uint8_t> layout) {
     // The panel's texts in the game's language, as 3.1c's GUI loader
     // translates them.
     auto parsed_layout = ui::gui_layout::parse(layout, ui::gui_layout::game_translation_lookup());
@@ -1061,16 +1065,15 @@ void lay_out_screen(
             "cannot parse GUI layout '" + name + "': " + parsed_layout.error->message
         );
     }
-    screen.layout = std::move(*parsed_layout.layout);
-    bind_screen_buttons(screen, 0);
+    return std::move(*parsed_layout.layout);
 }
 
 ScreenResources load_screen_with_layout(
     AssetStore& assets, const ScreenAssetNames& names, std::span<const uint8_t> layout
 ) {
     ScreenResources result = load_screen_art(assets, names);
-    lay_out_screen(result, names.layout, layout);
-    return result;
+    auto parsed = parse_screen_layout(names.layout, layout);
+    return lay_out_screen(std::move(result), std::move(parsed));
 }
 
 } // namespace
@@ -1078,12 +1081,7 @@ ScreenResources load_screen_with_layout(
 ScreenResources load_screen_art(AssetStore& assets, const ScreenAssetNames& names) {
     ScreenResources result;
     if (!names.background.empty()) {
-        // The background in the language's folder when the game data has it
-        // there (bitmaps-German), as 3.1c looks first.
-        std::string background = names.background;
-        if (const auto variant = data::languages::language_folder_path(background);
-            variant && assets.file_size(*variant) > 0)
-            background = *variant;
+        const std::string background = screen_background_path(assets, names.background);
         result.background =
             ui::decoded::require(decode_pcx(assets.read(background).bytes), background);
     }
@@ -1140,10 +1138,27 @@ ScreenResources load_screen_art(AssetStore& assets, const ScreenAssetNames& name
 
 ScreenResources
 load_screen_layout(AssetStore& assets, const ScreenResources& art, const std::string& layout) {
-    const auto bytes = assets.read(layout).bytes;
-    ScreenResources result = art;
-    lay_out_screen(result, layout, bytes);
-    return result;
+    auto parsed = read_screen_layout(assets, layout);
+    return lay_out_screen(art, std::move(parsed));
+}
+
+ui::gui_layout::Layout read_screen_layout(AssetStore& assets, const std::string& layout) {
+    return parse_screen_layout(layout, assets.read(layout).bytes);
+}
+
+ScreenResources lay_out_screen(ScreenResources art, ui::gui_layout::Layout layout) {
+    art.layout = std::move(layout);
+    bind_screen_buttons(art, 0);
+    return art;
+}
+
+std::string screen_background_path(AssetStore& assets, const std::string& background) {
+    // The background in the language's folder when the game data has it
+    // there (bitmaps-German), as 3.1c looks first.
+    if (auto variant = data::languages::language_folder_path(background);
+        variant && assets.file_size(*variant) > 0)
+        return std::move(*variant);
+    return background;
 }
 
 std::string_view staged_caption(std::string_view text, std::size_t stage) noexcept {
@@ -1417,7 +1432,10 @@ void render_screen_into(
         // A pressed button underlines its key in the bevel's dark colour.
         const auto underline =
             gui_color(condition == ButtonCondition::pressed ? palette_black : palette_underline);
-        const auto binding = resolve_button_sprite(resources, gadget, state);
+        // A side past the art shows its name on the plain face, never a frame.
+        const bool caption_only = state != nullptr && state->caption_only;
+        const auto binding =
+            caption_only ? ResolvedSprite{} : resolve_button_sprite(resources, gadget, state);
         const auto* sequence = binding.sequence;
         constexpr uint32_t invisible_hit_attribute = 0x400U;
         const auto* button_fields = std::get_if<ui::gui_layout::ButtonFields>(&gadget.fields);
@@ -1517,7 +1535,8 @@ void render_screen_into(
                 shade_rectangle(result, gadget_rectangle(resolved_gadget), *grayed_shade);
             continue;
         }
-        if (portrait_hit)
+        // The plain face is the bevel even when the record is an empty hit target.
+        if (portrait_hit && !caption_only)
             continue;
 
         // A button is filled with map entry 20, or 19 when grayed, then given

@@ -104,6 +104,12 @@ inline constexpr std::size_t target_a = 0x00, target_b = 0x02, aim_ready = 0x04,
 inline constexpr uint8_t saved_flags = 0x1f; // UnitWeapon.flags bits kept
 } // namespace weapon_record
 
+/// How many bits of a saved weapon id the unit restore writes back.
+///
+/// byte is 3.1c's read of the low byte. wide is 16 bits, under a profile
+/// whose weapon-types is above 256.
+enum class WeaponIdWidth : uint8_t { byte, wide };
+
 // Unit.flags as the unit writer packs them: the low nibble of
 // Unit.build_flags in bits 0..3, flags 0..11 in bits 4..15, flag 13 in bit 16
 // and flags 14..25 from bit 20. The unit restore hands flags 0..1 to the
@@ -368,16 +374,37 @@ bool save_read_unit_economy(Unit* unit, Bank* bank);
 /// @param[in,out] bank bank with the Units account open
 void save_write_unit_mobility(const uint8_t* movement, const Unit* unit, Bank* bank);
 
+/// The most a stockpile order builds, the match runtime's stockpile_limit.
+inline constexpr uint8_t saved_stockpile_limit = 200;
+
+/// The slot's stockpile plus one for each round of its weapon the unit fired that is still in flight.
+///
+/// Live, not retired records of a stockpiled weapon whose source is the unit
+/// count as one round per (def, source, created_tick). The round is credited
+/// to the first slot of the unit holding that weapon, at most
+/// saved_stockpile_limit, and never below the slot's own count. A slot whose
+/// weapon is not stockpiled returns its count unchanged.
+///
+/// @param world world holding the projectile pool and weapon definitions
+/// @param unit unit whose weapon slot is saved; a record in world.units
+/// @param slot weapon slot, 0 .. OA_UNIT_WEAPON_COUNT-1
+/// @return the stockpile count to write into the unit record
+[[nodiscard]] uint8_t saved_stockpile(const World& world, const Unit& unit, uint32_t slot) noexcept;
+
 /// Restores one weapon slot from its record as the unit restore does.
 ///
 /// Targets, aim-ready word, muzzle offset, reload, aim angles,
-/// stockpile and the kept flag bits (weapon_record::saved_flags) are restored;
-/// the saved weapon id goes back into the slot's WeaponDef.
+/// stockpile and the kept flag bits (weapon_record::saved_flags) are restored.
+/// The saved weapon id goes back into the slot's WeaponDef: width byte writes
+/// the low byte only, and width wide writes both bytes.
 ///
 /// @param[in,out] world world holding the slot's WeaponDef
 /// @param slot weapon_record-laid-out bytes of the unit record
 /// @param[in,out] weapon weapon slot to restore
-void save_restore_unit_weapon(World* world, const uint8_t* slot, UnitWeapon& weapon);
+/// @param width how many bits of the saved id are written
+void save_restore_unit_weapon(
+    World* world, const uint8_t* slot, UnitWeapon& weapon, WeaponIdWidth width
+);
 
 /// Fills one 0xb8-byte unit record.
 ///
@@ -556,8 +583,9 @@ inline constexpr int32_t no_human_player = OA_PLAYER_COUNT;
 /// @param files file boundary
 /// @return false when the bank cannot be created or the file cannot be written
 /// @quirk No account holds the projectiles in flight, so a loaded game starts
-///     with none, as in 3.1c. A stockpiled missile in flight is lost with them:
-///     its weapon's stockpile was spent at launch.
+///     with none, as in 3.1c. A stockpiled round still in flight is written
+///     back into its weapon's stockpile, up to saved_stockpile_limit; the
+///     missile does not go on.
 bool save_write_game(
     SaveContext* save,
     const SummaryHooks* summary,

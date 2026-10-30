@@ -12,6 +12,7 @@
 #include "geometry.hpp"
 #include "language_page.hpp"
 
+#include "oa/data/input_actions/actions.hpp"
 #include "oa/data/languages.hpp"
 #include "oa/platform/display_modes.hpp"
 #include "oa/ui/kit/text.hpp"
@@ -45,38 +46,61 @@ using Stepper = kit::Stepper<SettingsModel>;
 using Hint = std::array<std::string_view, 2>;
 
 /// The number of settings: Setting's enumerators.
-constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::fog_of_war) + 1;
+constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::look) + 1;
 
 // ---------------------------------------------------------------------------
 // The sections' rows.
 
-/// Controls' rows: the zoom's limits right under the switch for the wheel,
-/// how far past the map's edges the view goes under them, middle-click
-/// panning, whether a window keeps the pointer, and how firmly a sticky
-/// edge holds right under that.
-constexpr std::array<Setting, 8> kControlsRows{
+/// Controls' rows: the layout in use, whether buttons show their key, the
+/// zoom's limits right under the switch for the wheel, how far past the
+/// map's edges the view goes under them, middle-click panning, whether a
+/// window keeps the pointer, and how firmly a sticky edge holds right under
+/// that, then whether a group's key moves the view. Select groups without
+/// Alt stays declared and is the editor's Number keys select groups, not a
+/// row here.
+constexpr std::array<Setting, 10> kControlsRows{
+    Setting::key_layout,
+    Setting::show_keys_on_buttons,
     Setting::wheel_zoom,
     Setting::max_zoom_out,
     Setting::max_zoom_in,
     Setting::view_past_map_edge,
     Setting::middle_click_pan,
-    Setting::switch_alt,
     Setting::window_edge,
     Setting::window_edge_stickiness,
+    Setting::group_keys_centre,
+};
+/// Controls while a mod is played: Key layout with that mod under Key layout.
+constexpr std::array<Setting, 11> kControlsModRows{
+    Setting::key_layout,
+    Setting::key_layout_for_mod,
+    Setting::show_keys_on_buttons,
+    Setting::wheel_zoom,
+    Setting::max_zoom_out,
+    Setting::max_zoom_in,
+    Setting::view_past_map_edge,
+    Setting::middle_click_pan,
+    Setting::window_edge,
+    Setting::window_edge_stickiness,
+    Setting::group_keys_centre,
 };
 /// Engine Limits' rows: the unit limit, pathfinding, then how many player
-/// rows the skirmish setup shows.
-constexpr std::array<Setting, 3> kEngineLimitsRows{
+/// rows the skirmish setup shows, then the heading and the two rows for the
+/// limits the mod fixes.
+constexpr std::array<Setting, 6> kEngineLimitsRows{
     Setting::unit_limit,
     Setting::path_search,
     Setting::skirmish_players,
+    Setting::mod_limits_heading,
+    Setting::weapon_types,
+    Setting::sides,
 };
 /// Graphics' rows: how the frames are drawn, Smooth motion right under
 /// Vertical sync, the fog's edges under the explosions' flash, then how
 /// units look zoomed out, and the zoom they look so from right under the
 /// way. The camera's rotation, then the lighting, glow, heat and water
-/// effects follow.
-constexpr std::array<Setting, 21> kGraphicsRows{
+/// effects follow, and last the units' shadows.
+constexpr std::array<Setting, 22> kGraphicsRows{
     Setting::max_frame_rate,     Setting::anti_aliasing,
     Setting::screen_size,        Setting::hardware_acceleration,
     Setting::vertical_sync,      Setting::smooth_motion,
@@ -87,17 +111,41 @@ constexpr std::array<Setting, 21> kGraphicsRows{
     Setting::nanolathe_lighting, Setting::wreck_glow,
     Setting::heat_distortion,    Setting::water_ripples,
     Setting::coastal_waves,      Setting::underwater_shimmer,
-    Setting::naval_reflections,
+    Setting::naval_reflections,  Setting::new_unit_shadows,
 };
 /// User Interface's rows: how the menus scale, the window's frame, the
-/// HUD's scaling, the size Open Annihilation's own screens are drawn at,
-/// then whether Escape opens the game menu.
-constexpr std::array<Setting, 5> kUserInterfaceRows{
+/// HUD's scaling, the size Open Annihilation's own screens are drawn at and
+/// the size class their windows take, putting moved windows back, whether
+/// Escape opens the game menu, then the letters those screens are drawn in.
+/// Look comes last, so every row before it keeps its place and its
+/// control's number.
+constexpr std::array<Setting, 8> kUserInterfaceRows{
     Setting::menu_scaling,
     Setting::window_frame,
     Setting::hud_scaling,
     Setting::interface_size,
+    Setting::window_size,
+    Setting::reset_window_positions,
     Setting::escape_opens_menu,
+    Setting::look,
+};
+/// Accessibility's rows: the helpers, each applying as it is changed.
+constexpr std::array<Setting, 15> kAccessibilityRows{
+    Setting::latching,
+    Setting::sticky_modifiers,
+    Setting::hold_to_confirm,
+    Setting::long_press,
+    Setting::slow_keys,
+    Setting::bounce_keys,
+    Setting::order_wheel,
+    Setting::pointer_keys,
+    Setting::double_press,
+    Setting::repeat_delay,
+    Setting::repeat_rate,
+    Setting::drag_threshold,
+    Setting::edge_scroll,
+    Setting::move_overlays,
+    Setting::arrange_overlays,
 };
 /// Language's rows: the language first, and the text size right
 /// under the switch it needs.
@@ -207,9 +255,11 @@ constexpr std::array<Setting, 3> kModChatRows{
 };
 /// Downloads builds its rows from the host's offer, not from settings.
 constexpr std::array<Setting, 0> kDownloadsRows{};
+/// Updates builds its rows from the host's offer, not from settings.
+constexpr std::array<Setting, 0> kUpdatesRows{};
 /// System where the game registers file types at run time: Your files, then
 /// Welcome setup, then the group's heading and one switch for each type.
-constexpr std::array<Setting, 10> kSystemRuntimeRows{
+constexpr std::array<Setting, 11> kSystemRuntimeRows{
     Setting::user_folder,
     Setting::welcome_setup,
     Setting::file_type_registration,
@@ -219,6 +269,7 @@ constexpr std::array<Setting, 10> kSystemRuntimeRows{
     Setting::file_type_oareg,
     Setting::file_type_oamut,
     Setting::file_type_oabrain,
+    Setting::file_type_oakeys,
     Setting::file_type_oalaunch,
 };
 /// System where the app's bundle declares the types: Your files, then
@@ -236,88 +287,34 @@ constexpr std::span<const Setting> kSystemRows = file_types_switchable
 
 /// What each section shows, in Page's order.
 constexpr std::array<std::span<const Setting>, page_count> kPageRows{
-    kControlsRows,
-    kEngineLimitsRows,
-    kLanguageRows,
-    kGraphicsRows,
-    kUserInterfaceRows,
-    kTouchRows,
-    kControllerRows,
-    kDeveloperRows,
-    kGameFilesRows,
-    kDownloadsRows,
-    kSystemRows,
-    {},
-    kModKeysRows,
-    kModPatrolRows,
-    kModGuardRows,
-    kModToolsRows,
-    kModChatRows,
-    {},
+    kControlsRows,      kEngineLimitsRows,  kLanguageRows,   kGraphicsRows,
+    kUserInterfaceRows, kTouchRows,         kControllerRows, kDeveloperRows,
+    kGameFilesRows,     kDownloadsRows,     kSystemRows,     {},
+    kUpdatesRows,       kAccessibilityRows, kModKeysRows,    kModPatrolRows,
+    kModGuardRows,      kModToolsRows,      kModChatRows,    {},
 };
 /// Each section's name, as its list entry shows it, in Page's order.
 constexpr std::array<std::string_view, page_count> kPageNames{
-    "Controls",
-    "Engine Limits",
-    "Language & Text",
-    "Graphics",
-    "User Interface",
-    "Touch",
-    "Controller",
-    "Developer",
-    "Game files",
-    "Downloads",
-    "System",
-    "Game Content",
-    "Keys",
-    "Patrolling",
-    "Guarding",
-    "Build tools",
-    "Snap & chat",
-    "",
+    "Controls",   "Engine Limits", "Language & Text", "Graphics",      "User Interface",
+    "Touch",      "Controller",    "Developer",       "Game files",    "Downloads",
+    "System",     "Game Content",  "Updates",         "Accessibility", "Keys",
+    "Patrolling", "Guarding",      "Build tools",     "Snap & chat",   "",
 };
 /// Each section's heading, in capitals, in Page's order.
 constexpr std::array<std::string_view, page_count> kPageHeadings{
-    "CONTROLS",
-    "ENGINE LIMITS",
-    "LANGUAGE & TEXT",
-    "GRAPHICS",
-    "USER INTERFACE",
-    "TOUCH",
-    "CONTROLLER",
-    "DEVELOPER",
-    "GAME FILES",
-    "DOWNLOADS",
-    "SYSTEM",
-    "GAME CONTENT",
-    "MOD KEYS",
-    "PATROLLING BUILDERS",
-    "GUARDING BUILDERS",
-    "BUILD TOOLS",
-    "SNAP & CHAT",
-    "",
+    "CONTROLS",          "ENGINE LIMITS", "LANGUAGE & TEXT", "GRAPHICS",
+    "USER INTERFACE",    "TOUCH",         "CONTROLLER",      "DEVELOPER",
+    "GAME FILES",        "DOWNLOADS",     "SYSTEM",          "GAME CONTENT",
+    "UPDATES",           "ACCESSIBILITY", "MOD KEYS",        "PATROLLING BUILDERS",
+    "GUARDING BUILDERS", "BUILD TOOLS",   "SNAP & CHAT",     "",
 };
 /// Each section's automation word, in kebab case, in Page's order.
 /// Engine Limits' word is engine-limits; its enumerator stays common_tweaks.
 constexpr std::array<std::string_view, page_count> kPageWords{
-    "controls",
-    "engine-limits",
-    "language",
-    "graphics",
-    "user-interface",
-    "touch",
-    "controller",
-    "developer",
-    "game-files",
-    "downloads",
-    "system",
-    "game-content",
-    "mod-keys",
-    "mod-patrol",
-    "mod-guard",
-    "mod-tools",
-    "mod-chat",
-    "registered",
+    "controls",   "engine-limits", "language",  "graphics",      "user-interface",
+    "touch",      "controller",    "developer", "game-files",    "downloads",
+    "system",     "game-content",  "updates",   "accessibility", "mod-keys",
+    "mod-patrol", "mod-guard",     "mod-tools", "mod-chat",      "registered",
 };
 static_assert(
     static_cast<std::size_t>(Page::registered) + 1 == page_count,
@@ -359,6 +356,15 @@ static_assert(
     kViewPastMapEdgeCaptions.size() == view_past_map_edge_choices.size(),
     "every choice of View past the map's edge has its caption"
 );
+/// Order wheel's captions, in kOrderWheelChoices' order.
+constexpr std::array<OrderWheel, 3> kOrderWheelChoices{
+    OrderWheel::off, OrderWheel::hold_right, OrderWheel::hold_middle
+};
+constexpr std::array<std::string_view, 3> kOrderWheelCaptions{"Off", "Hold right", "Hold middle"};
+static_assert(
+    kOrderWheelCaptions.size() == kOrderWheelChoices.size(),
+    "every way of opening the order wheel has its caption"
+);
 /// Fog of War's captions, in fog_of_war_choices' order.
 constexpr std::array<std::string_view, 2> kFogOfWarCaptions{"Classic", "Smooth"};
 static_assert(
@@ -376,12 +382,23 @@ static_assert(
     kWindowEdgeCaptions.size() == window_edge_choices.size(),
     "every way of Window edge has its caption"
 );
+/// Group keys centre the view's captions, in group_keys_centre_choices' order.
+constexpr std::array<std::string_view, 3> kGroupKeysCentreCaptions{
+    "On a double press", "Never", "On every press"
+};
+static_assert(
+    kGroupKeysCentreCaptions.size() == group_keys_centre_choices.size(),
+    "every way of Group keys centre the view has its caption"
+);
 /// Window frame's captions, in window_frame_choices' order.
 constexpr std::array<std::string_view, 2> kWindowFrameCaptions{"Hidden in play", "Always shown"};
 static_assert(
     kWindowFrameCaptions.size() == window_frame_choices.size(),
     "every way of Window frame has its caption"
 );
+/// Look's captions, in look_choices' order.
+constexpr std::array<std::string_view, 2> kLookCaptions{"Modern", "Classic"};
+static_assert(kLookCaptions.size() == look_choices.size(), "every Look has its caption");
 /// Interface size's choices' texts, in interface_size_choices' order.
 constexpr std::array<std::string_view, 6> kInterfaceSizeCaptions{
     "Auto", "100%", "150%", "200%", "300%", "400%"
@@ -389,6 +406,13 @@ constexpr std::array<std::string_view, 6> kInterfaceSizeCaptions{
 static_assert(
     kInterfaceSizeCaptions.size() == interface_size_choices.size(),
     "every Interface size has its caption"
+);
+/// Window size's captions, in window_size_choices' order.
+constexpr std::array<std::string_view, 4> kWindowSizeCaptions{
+    "Auto", "Compact", "Regular", "Large"
+};
+static_assert(
+    kWindowSizeCaptions.size() == window_size_choices.size(), "every Window size has its caption"
 );
 /// One-finger drag's captions, in touch_drag_choices' order.
 constexpr std::array<std::string_view, 3> kTouchDragCaptions{"Automatic", "Box", "Scroll"};
@@ -592,6 +616,38 @@ struct Linear {
     /// Sets it to a stop's value.
     static void set(SettingsModel& model, int32_t stop) {
         model.settings->*Field = static_cast<Number>(Lowest + on_stops(stop, count(model)) * Step);
+    }
+};
+
+/// A slider whose first stop stores 0 and whose later stops are an equal run
+/// that does not start at 0: the system's own timing, then a range.
+template <uint32_t EngineSettings::* Field, uint32_t First, uint32_t Last, uint32_t Step>
+struct SystemThen {
+    static constexpr int32_t numeric = static_cast<int32_t>((Last - First) / Step + 1);
+
+    /// Returns its stops: the system's own timing, then the run.
+    static int32_t count(const SettingsModel&) { return 1 + numeric; }
+
+    /// Returns the stop nearest its value. 0 is its own stop.
+    static int32_t get(const SettingsModel& model) {
+        const uint32_t value = model.settings->*Field;
+        if (value == 0)
+            return 0;
+        if (value <= First)
+            return 1;
+        const uint32_t steps = static_cast<uint32_t>((value - First + Step / 2) / Step);
+        const uint32_t capped = std::min(steps, static_cast<uint32_t>(numeric - 1));
+        return 1 + static_cast<int32_t>(capped);
+    }
+
+    /// Sets it to a stop's value. The first stop stores 0.
+    static void set(SettingsModel& model, int32_t stop) {
+        const int32_t held = on_stops(stop, count(model));
+        if (held <= 0) {
+            model.settings->*Field = 0;
+            return;
+        }
+        model.settings->*Field = First + static_cast<uint32_t>(held - 1) * Step;
     }
 };
 
@@ -808,6 +864,64 @@ using SkirmishPlayers = Linear<
 /// Returns the skirmish player count as the slider shows it.
 std::string skirmish_players_text(const SettingsModel& model) {
     return std::to_string(model.settings->skirmish_players);
+}
+
+/// The limits Engine Limits shows. No dialog is the base game.
+ModLimitsShown limits_shown(const SettingsModel& model) {
+    return model.dialog != nullptr ? model.dialog->mod_limits : ModLimitsShown{};
+}
+
+/// The limit as plain digits, or "{count} of {limit}" once a mod's match
+/// has loaded a count. The base game never shows "of".
+std::string plain_or_of(uint32_t limit, bool mod, const std::optional<uint32_t>& loaded) {
+    if (!mod || !loaded)
+        return std::to_string(limit);
+    std::string text(shown_text("{count} of {limit}"));
+    const std::string count_text = std::to_string(*loaded);
+    const std::string limit_text = std::to_string(limit);
+    constexpr std::string_view count_field = "{count}";
+    constexpr std::string_view limit_field = "{limit}";
+    for (std::size_t at = text.find(count_field); at != std::string::npos;
+         at = text.find(count_field, at + count_text.size()))
+        text.replace(at, count_field.size(), count_text);
+    for (std::size_t at = text.find(limit_field); at != std::string::npos;
+         at = text.find(limit_field, at + limit_text.size()))
+        text.replace(at, limit_field.size(), limit_text);
+    return text;
+}
+
+/// Weapon types: the mod's limit, or how many of it the match loaded.
+std::string weapon_types_text(const SettingsModel& model) {
+    const ModLimitsShown limits = limits_shown(model);
+    return plain_or_of(limits.weapon_types, limits.mod, limits.loaded_weapon_types);
+}
+
+/// Sides: the mod's limit, or how many of it the match loaded.
+std::string sides_text(const SettingsModel& model) {
+    const ModLimitsShown limits = limits_shown(model);
+    return plain_or_of(limits.sides, limits.mod, limits.loaded_sides);
+}
+
+/// The hint under Weapon types and under Sides.
+constexpr std::string_view kModLimitsHint = "Set by the mod. Every player in a game has the same.";
+
+/// The heading over the limits the mod fixes. It keeps no setting.
+constexpr Spec mod_limits_heading_row() noexcept {
+    return kit::text<SettingsModel>("set-by-the-mod", "Set by the mod", nullptr);
+}
+
+/// Weapon types, read from the dialog's mod limits. It keeps no setting.
+constexpr Spec weapon_types_row() noexcept {
+    Spec spec = kit::text<SettingsModel>("weapon-types", "Weapon types", &weapon_types_text);
+    spec.hint = {kModLimitsHint, {}};
+    return spec;
+}
+
+/// Sides, read from the dialog's mod limits. It keeps no setting.
+constexpr Spec sides_row() noexcept {
+    Spec spec = kit::text<SettingsModel>("sides", "Sides", &sides_text);
+    spec.hint = {kModLimitsHint, {}};
+    return spec;
 }
 
 // Maximum frame rate, Text size, Hold delay, Pointer speed and Gyro speed.
@@ -1585,6 +1699,15 @@ std::string fog_of_war_hint(const SettingsModel& model, std::size_t line) {
     return {};
 }
 
+/// Returns a line of New unit shadows' hint, by the switch.
+std::string new_unit_shadows_hint(const SettingsModel& model, std::size_t line) {
+    // Which shadows units cast where the graphics card draws the
+    // battlefield; the processor always casts the game's own.
+    if (model.settings->new_unit_shadows)
+        return line_of({"Softer aircraft shadows, laid under every unit and tree (Full)."}, line);
+    return line_of({"Units cast the original game's shadows, as trees and rocks do."}, line);
+}
+
 /// Returns a line of Zoomed out units' hint, by the way chosen.
 std::string zoomed_out_units_hint(const SettingsModel& model, std::size_t line) {
     // What the way chosen draws past After zoom, and what it costs.
@@ -1681,6 +1804,17 @@ std::string window_frame_hint(const SettingsModel& model, std::size_t line) {
         return line_of(
             {"A window shows its title bar and borders on every screen, a game's included."}, line
         );
+    }
+    return {};
+}
+
+/// Returns a line of Look's hint, by the look chosen.
+std::string look_hint(const SettingsModel& model, std::size_t line) {
+    switch (model.settings->look) {
+    case Look::modern:
+        return line_of({"OA's screens in Barlow, a clear modern face."}, line);
+    case Look::classic:
+        return line_of({"OA's screens in the game's own bitmap fonts."}, line);
     }
     return {};
 }
@@ -1975,14 +2109,14 @@ std::size_t welcome_setup_hint_count(const SettingsModel& model) {
     return welcome_setup_hint_lines(model).size();
 }
 
-/// The Welcome setup row: SHOW AGAIN walks through the first-run setup again
+/// The Welcome setup row: Show again walks through the first-run setup again
 /// at the next main menu, once OK is pressed. It keeps no setting.
 constexpr Spec welcome_setup_row() noexcept {
     const Spec spec = kit::value_and_button<SettingsModel>(
         "first-run",
         "Welcome setup",
         nullptr,
-        "SHOW AGAIN",
+        "Show again",
         "",
         show_welcome_action,
         {welcome_setup_hint_text, {}}
@@ -1990,14 +2124,14 @@ constexpr Spec welcome_setup_row() noexcept {
     return changing(spec, &welcome_setup_hint, &welcome_setup_hint_count);
 }
 
-/// The UI kit gallery row: SHOW opens the gallery of every part of Open
+/// The UI kit gallery row: Show opens the gallery of every part of Open
 /// Annihilation's own screens. It keeps no setting.
 constexpr Spec kit_gallery_row() noexcept {
     const Spec spec = kit::value_and_button<SettingsModel>(
         "kit-gallery",
         "UI kit gallery",
         nullptr,
-        "SHOW",
+        "Show",
         "show",
         show_gallery_action,
         {kit_gallery_hint_text, {}}
@@ -2077,7 +2211,7 @@ constexpr Spec user_folder_row() noexcept {
     Spec spec = kit::buttons<SettingsModel>(
         "user-folder",
         "Your files",
-        {"SAVES", "SCREENSHOTS", "MODS"},
+        {"Saves", "Screenshots", "Mods"},
         {"saves", "screenshots", "mods"},
         {first_folder_action + static_cast<kit::ActionId>(FolderButton::saves),
          first_folder_action + static_cast<kit::ActionId>(FolderButton::screenshots),
@@ -2145,6 +2279,301 @@ builders_row(std::string_view id, std::string_view label, Stepper stepper, Hint 
     spec.hint_lines = &lines<1>;
     return spec;
 }
+
+// ---------------------------------------------------------------------------
+// Key layout.
+
+/// Same as the game, the first item of Key layout with a mod.
+constexpr std::string_view kSameAsTheGame = "same";
+
+/// Installed layouts with those made for the mod first, in the order given.
+std::vector<std::size_t> key_layout_order(const Dialog& dialog) {
+    std::vector<std::size_t> made;
+    std::vector<std::size_t> other;
+    made.reserve(dialog.key_layouts.size());
+    other.reserve(dialog.key_layouts.size());
+    for (std::size_t index = 0; index < dialog.key_layouts.size(); ++index) {
+        if (dialog.key_layouts[index].made_for)
+            made.push_back(index);
+        else
+            other.push_back(index);
+    }
+    made.insert(made.end(), other.begin(), other.end());
+    return made;
+}
+
+/// Returns Key layout's value: the summary the host filled, or OA default.
+std::string key_layout_value(const SettingsModel& model) {
+    if (model.dialog != nullptr && !model.dialog->key_layout_summary.empty())
+        return model.dialog->key_layout_summary;
+    return std::string("OA default");
+}
+
+/// Returns Key layout's hint, with Cmd or Ctrl in place of {primary}.
+std::string key_layout_hint(const SettingsModel& model, std::size_t line) {
+    if (line != 0)
+        return {};
+    const std::string_view primary =
+        model.dialog != nullptr ? std::string_view{model.dialog->primary_modifier} : "Ctrl";
+    return filled(
+        "The keys, mouse buttons and wheel turns the game answers. {primary}+/ in a match shows "
+        "them.",
+        {{"primary", primary}}
+    );
+}
+
+/// Returns how many items Key layout with a mod offers.
+int32_t key_layout_for_mod_count(const SettingsModel& model) {
+    if (model.dialog == nullptr)
+        return 1;
+    return 1 + static_cast<int32_t>(model.dialog->key_layouts.size());
+}
+
+/// Returns the item of the layout chosen for the mod. An unknown id shows
+/// Same as the game.
+int32_t key_layout_for_mod_index(const SettingsModel& model) {
+    if (model.settings == nullptr || model.dialog == nullptr)
+        return 0;
+    const std::string& id = model.settings->key_layout_for_mod;
+    if (id.empty() || id == kSameAsTheGame)
+        return 0;
+    const std::vector<std::size_t> order = key_layout_order(*model.dialog);
+    for (std::size_t place = 0; place < order.size(); ++place)
+        if (model.dialog->key_layouts[order[place]].id == id)
+            return static_cast<int32_t>(place) + 1;
+    return 0;
+}
+
+/// Sets the layout chosen for the mod, and the dialog's copy of it.
+void set_key_layout_for_mod(SettingsModel& model, int32_t index) {
+    if (model.settings == nullptr)
+        return;
+    std::string id{kSameAsTheGame};
+    if (model.dialog != nullptr && index > 0) {
+        const std::vector<std::size_t> order = key_layout_order(*model.dialog);
+        const auto place = static_cast<std::size_t>(index - 1);
+        if (place < order.size())
+            id = model.dialog->key_layouts[order[place]].id;
+    }
+    model.settings->key_layout_for_mod = id;
+    if (model.dialog != nullptr)
+        const_cast<Dialog*>(model.dialog)->key_layout_for_mod = id;
+}
+
+/// Returns one item's text. Layouts made for the mod say so.
+std::string key_layout_for_mod_caption(const SettingsModel& model, int32_t index) {
+    if (index <= 0 || model.dialog == nullptr)
+        return std::string("Same as the game");
+    const std::vector<std::size_t> order = key_layout_order(*model.dialog);
+    const auto place = static_cast<std::size_t>(index - 1);
+    if (place >= order.size())
+        return {};
+    const KeyLayoutChoice& choice = model.dialog->key_layouts[order[place]];
+    if (!choice.made_for)
+        return choice.name;
+    return filled(
+        "{name} · made for {mod}", {{"name", choice.name}, {"mod", model.dialog->played_mod}}
+    );
+}
+
+/// Returns one item's word.
+std::string key_layout_for_mod_id(const SettingsModel& model, int32_t index) {
+    if (index <= 0)
+        return std::string(kSameAsTheGame);
+    if (model.dialog == nullptr)
+        return {};
+    const std::vector<std::size_t> order = key_layout_order(*model.dialog);
+    const auto place = static_cast<std::size_t>(index - 1);
+    if (place >= order.size())
+        return {};
+    return model.dialog->key_layouts[order[place]].id;
+}
+
+/// Returns Key layout with <mod>, the mod's name in the label.
+std::string key_layout_for_mod_label(const SettingsModel& model) {
+    const std::string_view mod =
+        model.dialog != nullptr ? std::string_view{model.dialog->played_mod} : std::string_view{};
+    return filled("Key layout with {mod}", {{"mod", mod}});
+}
+
+/// Returns Key layout with a mod's hint.
+std::string key_layout_for_mod_hint(const SettingsModel& model, std::size_t line) {
+    if (line != 0)
+        return {};
+    const std::string_view mod =
+        model.dialog != nullptr ? std::string_view{model.dialog->played_mod} : std::string_view{};
+    return filled("Used while {mod} is played. Same as the game uses Key layout.", {{"mod", mod}});
+}
+
+/// Reset window positions' hint while no reset has happened.
+constexpr std::string_view reset_windows_hint_text =
+    "Puts every window you moved back in the middle.";
+/// Reset window positions' hint once the host forgot the places.
+constexpr std::string_view windows_reset_text = "Every window is back in the middle.";
+
+/// Returns Reset window positions' hint: what Reset does, or that it did it.
+std::string reset_windows_hint(const SettingsModel& model, std::size_t line) {
+    if (line != 0)
+        return {};
+    const bool reset = model.dialog != nullptr && model.dialog->window_places_reset;
+    return std::string(shown_text(reset ? windows_reset_text : reset_windows_hint_text));
+}
+
+/// Reset window positions: Reset forgets every moved window's place at
+/// once. It keeps no setting.
+constexpr Spec reset_windows_row() noexcept {
+    Spec spec = kit::value_and_button<SettingsModel>(
+        "reset-window-positions",
+        "Reset window positions",
+        nullptr,
+        "Reset",
+        "reset",
+        reset_windows_action,
+        {}
+    );
+    spec.hint_text = &reset_windows_hint;
+    spec.hint_lines = &lines<1>;
+    return spec;
+}
+
+/// Key layout: the layout in use, and Edit keys….
+constexpr Spec key_layout_row() noexcept {
+    Spec spec = kit::value_and_button<SettingsModel>(
+        "key-layout", "Key layout", &key_layout_value, "Edit keys…", "edit", edit_keys_action, {}
+    );
+    spec.hint_text = &key_layout_hint;
+    spec.hint_lines = &lines<1>;
+    return spec;
+}
+
+/// Key layout with the mod being played.
+constexpr Spec key_layout_for_mod_row() noexcept {
+    Spec spec = kit::choice(
+        "key-layout-for-mod",
+        "Key layout with {mod}",
+        Stepper{
+            &key_layout_for_mod_count,
+            &key_layout_for_mod_index,
+            &set_key_layout_for_mod,
+            &key_layout_for_mod_caption,
+            nullptr,
+            &key_layout_for_mod_id,
+        },
+        {}
+    );
+    spec.control_width = choice_width;
+    spec.label_text = &key_layout_for_mod_label;
+    spec.hint_text = &key_layout_for_mod_hint;
+    spec.hint_lines = &lines<1>;
+    return spec;
+}
+
+// ---------------------------------------------------------------------------
+// Accessibility.
+
+/// Returns a timing as milliseconds, or Off when it waits nothing.
+template <uint32_t EngineSettings::* Field>
+std::string off_or_ms(const SettingsModel& model) {
+    const uint32_t value = model.settings->*Field;
+    if (value == 0)
+        return std::string(shown_text("Off"));
+    return std::to_string(value) + " " + std::string(shown_text("ms"));
+}
+
+/// Returns a timing as milliseconds.
+template <uint32_t EngineSettings::* Field>
+std::string milliseconds_text(const SettingsModel& model) {
+    return std::to_string(model.settings->*Field) + " " + std::string(shown_text("ms"));
+}
+
+/// Returns a timing as milliseconds, or System when the key stores 0.
+template <uint32_t EngineSettings::* Field>
+std::string system_or_ms(const SettingsModel& model) {
+    const uint32_t value = model.settings->*Field;
+    if (value == 0)
+        return std::string(shown_text("System"));
+    return std::to_string(value) + " " + std::string(shown_text("ms"));
+}
+
+/// Returns how many times a second a key repeats, or System when the key stores 0.
+std::string repeat_rate_text(const SettingsModel& model) {
+    const uint32_t value = model.settings->repeat_rate;
+    if (value == 0)
+        return std::string(shown_text("System"));
+    return std::to_string(value) + " " + std::string(shown_text("a second"));
+}
+
+/// Returns how far a press may move and still be a click.
+std::string drag_threshold_text(const SettingsModel& model) {
+    return std::to_string(model.settings->drag_threshold) + " " + std::string(shown_text("px"));
+}
+
+/// How many actions the registry marks latchable.
+uint32_t latchable_total() {
+    uint32_t count = 0;
+    for (const oa::data::input_actions::Action& action : oa::data::input_actions::actions())
+        if (action.latchable)
+            ++count;
+    return count;
+}
+
+/// Hold keys that latch: how many of the latchable actions are on.
+std::string latching_value(const SettingsModel& model) {
+    const uint32_t on = model.dialog != nullptr ? model.dialog->latched_count : 0;
+    return plain_or_of(latchable_total(), true, on);
+}
+
+/// Hold keys that latch: the count, and CHOOSE….
+constexpr Spec latching_row() noexcept {
+    Spec spec = kit::value_and_button<SettingsModel>(
+        "latching",
+        "Hold keys that latch",
+        &latching_value,
+        "Choose…",
+        "choose",
+        choose_latch_action,
+        {"Queue and the status strip latch: tap on, tap off. A chip shows each one on.", {}}
+    );
+    spec.hint_lines = &lines<1>;
+    return spec;
+}
+
+/// Overlay places: whose places the overlays show at.
+std::string overlay_places_value(const SettingsModel& model) {
+    return std::string(
+        shown_text(model.settings->move_overlays ? "Your places" : "The game's places")
+    );
+}
+
+/// Overlay places' ARRANGE… can be pressed while Move overlays is on.
+bool overlays_move(const SettingsModel& model) {
+    return model.settings->move_overlays;
+}
+
+/// Overlay places: whose places the overlays show at, and ARRANGE…, which
+/// opens a picture of the match where they are placed.
+constexpr Spec arrange_overlays_row() noexcept {
+    Spec spec = kit::value_and_button<SettingsModel>(
+        "arrange-overlays",
+        "Overlay places",
+        &overlay_places_value,
+        "Arrange…",
+        "arrange",
+        arrange_overlays_action,
+        {"Drag them on a picture of the match. Each window size keeps its own places.", {}}
+    );
+    spec.enabled = &overlays_move;
+    spec.hint_lines = &lines<1>;
+    return spec;
+}
+
+using LongPress = Linear<uint32_t, &EngineSettings::long_press_ms, 200, 1000, 50>;
+using SlowKeys = Linear<uint32_t, &EngineSettings::slow_keys_ms, 0, 1000, 50>;
+using BounceKeys = Linear<uint32_t, &EngineSettings::bounce_keys_ms, 0, 1000, 50>;
+using DoublePress = SystemThen<&EngineSettings::double_press_ms, 200, 1000, 50>;
+using RepeatDelay = SystemThen<&EngineSettings::repeat_delay_ms, 150, 1000, 50>;
+using RepeatRate = SystemThen<&EngineSettings::repeat_rate, 2, 30, 1>;
+using DragThreshold = Linear<uint32_t, &EngineSettings::drag_threshold, 32, 96, 8>;
 
 // ---------------------------------------------------------------------------
 // The table.
@@ -2474,6 +2903,8 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
      .spec = engine_switch<&E::file_type_oamut>("file-type-oamut", "Mutator packages (.oamut)", {})},
     {.setting = S::file_type_oabrain,
      .spec = engine_switch<&E::file_type_oabrain>("file-type-oabrain", "Brain packages (.oabrain)", {})},
+    {.setting = S::file_type_oakeys,
+     .spec = engine_switch<&E::file_type_oakeys>("file-type-oakeys", "Key layout packages (.oakeys)", {})},
     {.setting = S::file_type_oalaunch,
      .spec = engine_switch<&E::file_type_oalaunch>("file-type-oalaunch", "Launch files (.oalaunch)", {})},
     {.setting = S::file_types_note,
@@ -2510,9 +2941,9 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
      .spec = effect_slider<&E::naval_reflections>("naval-reflections", "Naval reflections"),
      .lock = &Locks::water_effects},
     {.setting = S::allow_full_3d,
-     .spec = engine_switch<&E::allow_full_3d>("allow-full-3d", "Allow Full 3D Mode", {"Requires Full hardware acceleration."})},
+     .spec = engine_switch<&E::allow_full_3d>("allow-full-3d", "Allow full 3D mode", {"Requires Full hardware acceleration."})},
     {.setting = S::unlocked_camera,
-     .spec = engine_switch<&E::unlocked_camera>("unlocked-camera", "Unlocked Camera", {"Allow angles outside the ideal range for TA art."}),
+     .spec = engine_switch<&E::unlocked_camera>("unlocked-camera", "Unlocked camera", {"Allow angles outside the ideal range for TA art."}),
      .lock = &Locks::unlocked_camera},
     {.setting = S::welcome_setup,
      .spec = welcome_setup_row(),
@@ -2523,6 +2954,121 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
                                   fog_of_war_level_width),
                       &fog_of_war_hint, &lines<1>),
      .copy = &copy_field<&E::fog_of_war>},
+    {.setting = S::new_unit_shadows,
+     .spec = changing(engine_switch<&E::new_unit_shadows>("new-unit-shadows", "New unit shadows", {}),
+                      &new_unit_shadows_hint, &lines<1>)},
+    {.setting = S::mod_limits_heading, .spec = mod_limits_heading_row()},
+    {.setting = S::weapon_types, .spec = weapon_types_row()},
+    {.setting = S::sides, .spec = sides_row()},
+    {.setting = S::key_layout, .spec = key_layout_row()},
+    {.setting = S::key_layout_for_mod, .spec = key_layout_for_mod_row()},
+    {.setting = S::show_keys_on_buttons,
+     .spec = engine_switch<&E::show_keys_on_buttons>(
+         "show-keys-on-buttons",
+         "Show keys on buttons",
+         {"Order buttons and build cells show their key in a corner.", {}})},
+    {.setting = S::latching, .spec = latching_row()},
+    {.setting = S::sticky_modifiers,
+     .spec = engine_switch<&E::sticky_modifiers>(
+         "sticky-modifiers",
+         "Sticky modifiers",
+         {"A tapped Shift, Ctrl or Alt holds for the next key or click. Tap twice to lock it.", {}}),
+     .copy = &copy_field<&E::sticky_modifiers>},
+    {.setting = S::hold_to_confirm,
+     .spec = engine_switch<&E::hold_to_confirm>(
+         "hold-to-confirm",
+         "Hold to confirm",
+         {"Self-destruct, surrender and quitting need a long press. A ring fills as you hold.", {}}),
+     .copy = &copy_field<&E::hold_to_confirm>},
+    {.setting = S::long_press,
+     .spec = linear<LongPress, &milliseconds_text<&E::long_press_ms>>(
+         "long-press",
+         "Long press",
+         {"How long a hold is: hold to confirm, and keys bound to a hold.", {}}),
+     .copy = &copy_field<&E::long_press_ms>},
+    {.setting = S::slow_keys,
+     .spec = linear<SlowKeys, &off_or_ms<&E::slow_keys_ms>>(
+         "slow-keys",
+         "Slow keys",
+         {"A key counts only after it is held this long. For a hand that brushes keys.", {}}),
+     .copy = &copy_field<&E::slow_keys_ms>},
+    {.setting = S::bounce_keys,
+     .spec = linear<BounceKeys, &off_or_ms<&E::bounce_keys_ms>>(
+         "bounce-keys",
+         "Bounce keys",
+         {"A second press of the same key this soon is ignored.", {}}),
+     .copy = &copy_field<&E::bounce_keys_ms>},
+    {.setting = S::order_wheel,
+     .spec = kit::levels(
+         "order-wheel",
+         "Order wheel",
+         LevelStrip<OrderWheel, 3, kOrderWheelChoices, &E::order_wheel, kOrderWheelCaptions,
+                    &table_word<order_wheel_words, OrderWheel>>::stepper(),
+         order_wheel_level_width,
+         {"Holding a mouse button opens the order wheel at the pointer.", {}}),
+     .copy = &copy_field<&E::order_wheel>},
+    {.setting = S::pointer_keys,
+     .spec = engine_switch<&E::pointer_keys>(
+         "pointer-keys",
+         "Pointer keys",
+         {"The numpad moves the pointer; 5 clicks, 0 right-clicks.", {}}),
+     .copy = &copy_field<&E::pointer_keys>},
+    {.setting = S::double_press,
+     .spec = linear<DoublePress, &system_or_ms<&E::double_press_ms>>(
+         "double-press",
+         "Double press",
+         {"Two presses this close are a double press, and two clicks a double click.", {}}),
+     .copy = &copy_field<&E::double_press_ms>},
+    {.setting = S::repeat_delay,
+     .spec = linear<RepeatDelay, &system_or_ms<&E::repeat_delay_ms>>(
+         "repeat-delay",
+         "Key repeat delay",
+         {"How soon a held camera, speed or page key repeats, and how fast.", {}}),
+     .copy = &copy_field<&E::repeat_delay_ms>},
+    {.setting = S::repeat_rate,
+     .spec = linear<RepeatRate, &repeat_rate_text>(
+         "repeat-rate",
+         "Key repeat rate",
+         {"How soon a held camera, speed or page key repeats, and how fast.", {}}),
+     .copy = &copy_field<&E::repeat_rate>},
+    {.setting = S::drag_threshold,
+     .spec = linear<DragThreshold, &drag_threshold_text>(
+         "drag-threshold",
+         "Drag threshold",
+         {"How far a press may move and still be a click.", {}}),
+     .copy = &copy_field<&E::drag_threshold>},
+    {.setting = S::edge_scroll,
+     .spec = engine_switch<&E::edge_scroll>(
+         "edge-scroll",
+         "Edge scrolling",
+         {"Off stops the view scrolling while the pointer rests at the window's edge.", {}}),
+     .copy = &copy_field<&E::edge_scroll>},
+    {.setting = S::move_overlays,
+     .spec = engine_switch<&E::move_overlays>(
+         "move-overlays",
+         "Move overlays",
+         {"The keys overlay, the chat line and the latch chips show where you put them.",
+          "Off, they show where the game puts them."}),
+     .copy = &copy_field<&E::move_overlays>},
+    {.setting = S::arrange_overlays,
+     .spec = arrange_overlays_row()},
+    {.setting = S::window_size,
+     .spec = wide(kit::choice("window-size", "Window size",
+                              DropDown<WindowSize, 4, window_size_choices, &E::window_size, kWindowSizeCaptions, &table_word<window_size_words, WindowSize>>::stepper(),
+                              {"The size Settings, the Library and the other OA windows take. Auto takes the largest that fits."}),
+                  choice_width)},
+    {.setting = S::reset_window_positions,
+     .spec = reset_windows_row()},
+    {.setting = S::group_keys_centre,
+     .spec = wide(kit::choice("group-keys-centre", "Group keys centre the view",
+                              DropDown<GroupKeysCentre, 3, group_keys_centre_choices, &E::group_keys_centre, kGroupKeysCentreCaptions, &table_word<group_keys_centre_words, GroupKeysCentre>>::stepper(),
+                              {"Whether a group's key also moves the view to the group."}),
+                  wide_choice_width)},
+    {.setting = S::look,
+     .spec = changing(kit::levels("look", "Look",
+                                  LevelStrip<Look, 2, look_choices, &E::look, kLookCaptions, &table_word<look_words, Look>>::stepper(),
+                                  look_level_width),
+                      &look_hint, &lines<1>)},
 }};
 // clang-format on
 
@@ -2608,6 +3154,7 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "file-type-oareg",
     "file-type-oamut",
     "file-type-oabrain",
+    "file-type-oakeys",
     "file-type-oalaunch",
     "file-types",
     "skirmish-players",
@@ -2625,6 +3172,32 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "unlocked-camera",
     "first-run",
     "fog-of-war",
+    "new-unit-shadows",
+    "set-by-the-mod",
+    "weapon-types",
+    "sides",
+    "key-layout",
+    "key-layout-for-mod",
+    "show-keys-on-buttons",
+    "latching",
+    "sticky-modifiers",
+    "hold-to-confirm",
+    "long-press",
+    "slow-keys",
+    "bounce-keys",
+    "order-wheel",
+    "pointer-keys",
+    "double-press",
+    "repeat-delay",
+    "repeat-rate",
+    "drag-threshold",
+    "edge-scroll",
+    "move-overlays",
+    "arrange-overlays",
+    "window-size",
+    "reset-window-positions",
+    "group-keys-centre",
+    "look",
 };
 
 /// Tells whether every row stands at its setting's place and is named by
@@ -2756,6 +3329,25 @@ const kit::RowSpec<SettingsModel>& row_spec(Setting setting) noexcept {
     return entry(setting).spec;
 }
 
+std::string row_value_text(Setting setting, const SettingsModel& model) {
+    const Spec& spec = entry(setting).spec;
+    switch (spec.kind) {
+    case kit::RowKind::toggle:
+        return kit::row_on(spec, model) ? "1" : "0";
+    case kit::RowKind::choice:
+    case kit::RowKind::slider:
+    case kit::RowKind::levels:
+        return std::to_string(kit::row_index(spec, model));
+    case kit::RowKind::value_and_button:
+    case kit::RowKind::buttons:
+    case kit::RowKind::text_field:
+    case kit::RowKind::link:
+    case kit::RowKind::text:
+        break;
+    }
+    return {};
+}
+
 kit::RowKind kind_of(Setting setting) noexcept {
     return entry(setting).spec.kind;
 }
@@ -2876,6 +3468,8 @@ section_settings(Page page, const SectionHooks* section, const RowContext& conte
             return std::span<const Setting>(kSteamInputControllerRows);
         if (page == Page::language && context.library_link)
             return std::span<const Setting>(kLanguageLibraryRows);
+        if (page == Page::controls && context.played_mod)
+            return std::span<const Setting>(kControlsModRows);
         return page_settings(page);
     }
     return section->settings(section->context, page);

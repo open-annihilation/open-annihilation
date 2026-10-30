@@ -3,8 +3,9 @@
 
 // Helpers for the native checks of the OA layer's screens as the window
 // shows them (oa_layer_check.hpp), the checks' mark screen, and the layer's
-// own check of screens that are not opaque and of the information key
-// (OaLayer::check_clear_screens), which --check-engine-settings runs.
+// own check of screens that are not opaque, of the information key and of
+// Settings moved by its title (OaLayer::check_clear_screens), which
+// --check-engine-settings runs.
 
 #include "oa_layer_check.hpp"
 
@@ -14,6 +15,7 @@
 #include "oa/ui/kit/theme.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -96,7 +98,11 @@ artless::Surface expected_layer_frame(
             oa::ui::kit::rgb(oa::ui::kit::colour::backdrop),
             oa::ui::kit::menu_backdrop_opacity
         );
-    // The drawing at its place, pixel for pixel.
+    // The drawing at its place, pixel for pixel, its corners rounded as the
+    // layer rounds them: what lies outside them shows the frame behind.
+    LayerDrawing rounded;
+    rounded.picture = drawing;
+    round_layer_corners(rounded, placement.corner_radius, placement.scale_percent);
     const auto& shown = placement.shown;
     const auto drawn_width = static_cast<int32_t>(drawing.width);
     const auto drawn_height = static_cast<int32_t>(drawing.height);
@@ -110,10 +116,11 @@ artless::Surface expected_layer_frame(
     );
     for (int32_t row = top; row < bottom; ++row)
         for (int32_t column = left; column < right; ++column) {
-            const auto* from =
-                drawing.rgb.data() + (static_cast<std::size_t>(row - shown.y) * drawing.width +
-                                      static_cast<std::size_t>(column - shown.x)) *
-                                         3U;
+            const std::size_t source = static_cast<std::size_t>(row - shown.y) * drawing.width +
+                                       static_cast<std::size_t>(column - shown.x);
+            if (!rounded.opacity.empty() && rounded.opacity[source] == 0)
+                continue;
+            const auto* from = rounded.picture.rgb.data() + source * 3U;
             auto* to = expected.rgb.data() + (static_cast<std::size_t>(row) * expected.width +
                                               static_cast<std::size_t>(column)) *
                                                  3U;
@@ -122,6 +129,43 @@ artless::Surface expected_layer_frame(
             to[2] = from[2];
         }
     return expected;
+}
+
+void round_drawn_screen(
+    artless::Surface& frame, const artless::Surface& before, const LayerPlacement& placement
+) {
+    const auto& shown = placement.shown;
+    if (placement.corner_radius <= 0 || shown.width <= 0 || shown.height <= 0 ||
+        before.width != frame.width || before.height != frame.height || shown.x < 0 ||
+        shown.y < 0 || shown.x + shown.width > static_cast<int32_t>(frame.width) ||
+        shown.y + shown.height > static_cast<int32_t>(frame.height))
+        return;
+    // The screen's rectangle, rounded as the layer rounds it.
+    LayerDrawing drawn;
+    drawn.picture.width = static_cast<uint32_t>(shown.width);
+    drawn.picture.height = static_cast<uint32_t>(shown.height);
+    drawn.picture.rgb.resize(static_cast<std::size_t>(shown.width) * shown.height * 3U);
+    for (int32_t row = 0; row < shown.height; ++row)
+        std::copy_n(
+            frame.rgb.data() + (static_cast<std::size_t>(shown.y + row) * frame.width +
+                                static_cast<std::size_t>(shown.x)) *
+                                   3U,
+            static_cast<std::size_t>(shown.width) * 3U,
+            drawn.picture.rgb.data() + static_cast<std::size_t>(row) * shown.width * 3U
+        );
+    round_layer_corners(drawn, placement.corner_radius, placement.scale_percent);
+    for (int32_t row = 0; row < shown.height; ++row)
+        for (int32_t column = 0; column < shown.width; ++column) {
+            const std::size_t source =
+                static_cast<std::size_t>(row) * shown.width + static_cast<std::size_t>(column);
+            const std::size_t target = (static_cast<std::size_t>(shown.y + row) * frame.width +
+                                        static_cast<std::size_t>(shown.x + column)) *
+                                       3U;
+            const uint8_t* from = drawn.opacity.empty() || drawn.opacity[source] != 0
+                                      ? drawn.picture.rgb.data() + source * 3U
+                                      : before.rgb.data() + target;
+            std::copy_n(from, 3U, frame.rgb.data() + target);
+        }
 }
 
 std::size_t layer_differences(
@@ -333,8 +377,9 @@ struct CheckWindow {
     int32_t scale{};  ///< window pixels a point
 };
 
-/// The windows: the picture's own 640 by 480, and 1920 by 1080 at 2×.
-constexpr std::array<CheckWindow, 2> kCheckWindows{{{640, 480, 1}, {1920, 1080, 2}}};
+/// The windows: the picture's own 640 by 480, and 2560 by 1440 at 2×, where
+/// Auto stays at 2× for Large.
+constexpr std::array<CheckWindow, 2> kCheckWindows{{{640, 480, 1}, {2560, 1440, 2}}};
 
 /// The colour of the marks of the screens that are not opaque.
 constexpr artless::Rgb kClearColour{0xe0, 0x38, 0xb0};
@@ -856,6 +901,103 @@ void OaLayer::check_clear_screens() {
             close(find(under_cursor.name));
         }
 
+        // A notice over the darkened main menu has rounded corners: outside
+        // them the window shows the darkened menu, as expected_layer_frame
+        // and round_drawn_screen expect.
+        {
+            kit::Notice told;
+            told.title = "ROUNDED";
+            told.paragraphs.push_back({"A notice of the layer's check.", false});
+            push(
+                std::make_unique<NoticeScreen>(
+                    *this, Screen::main_menu, std::move(told), NoticeScreen::Host{}
+                )
+            );
+            lay_out_screens();
+            const LayerScreen* notice = find(NoticeScreen::screen_name);
+            require(notice != nullptr, "the check's notice is not on the layer" + on);
+            const LayerPlacement noticed = placement_of(NoticeScreen::screen_name);
+            require(
+                noticed.corner_radius == kit::metrics_of(seen.frame.size_class).dialog_radius,
+                "the notice does not take its class's dialog radius" + on
+            );
+            const artless::Surface drawing = layer_drawing(
+                noticed.points_width,
+                noticed.points_height,
+                noticed.scale_percent,
+                runtime_.engine_settings_fonts(),
+                nullptr,
+                runtime_.engine_settings_icon(),
+                [notice](const kit::Canvas& canvas) { notice->draw(canvas); }
+            );
+            artless::Surface window_now;
+            artless::Surface picture_now;
+            read_frames(window_now, picture_now);
+            const artless::Surface expected =
+                expected_layer_frame(closed_window, drawing, noticed, 1);
+            // Over the notice's place: the window's own buttons elsewhere are
+            // drawn in its pixels and darkened apart, which this step is not
+            // about.
+            std::size_t differing = 0;
+            for (int32_t row = std::max(noticed.shown.y, 0);
+                 row <
+                 std::min(
+                     noticed.shown.y + noticed.shown.height, static_cast<int32_t>(window_now.height)
+                 );
+                 ++row)
+                for (int32_t column = std::max(noticed.shown.x, 0);
+                     column < std::min(
+                                  noticed.shown.x + noticed.shown.width,
+                                  static_cast<int32_t>(window_now.width)
+                              );
+                     ++column) {
+                    if (column >= resting.at.x - resting.reach &&
+                        column < resting.at.x + resting.reach &&
+                        row >= resting.at.y - resting.reach && row < resting.at.y + resting.reach)
+                        continue;
+                    const std::size_t at = (static_cast<std::size_t>(row) * window_now.width +
+                                            static_cast<std::size_t>(column)) *
+                                           3U;
+                    if (window_now.rgb.size() != expected.rgb.size() ||
+                        !std::equal(
+                            window_now.rgb.begin() + static_cast<std::ptrdiff_t>(at),
+                            window_now.rgb.begin() + static_cast<std::ptrdiff_t>(at + 3U),
+                            expected.rgb.begin() + static_cast<std::ptrdiff_t>(at)
+                        ))
+                        ++differing;
+                }
+            if (differing != 0) {
+                // Beside the check, to compare.
+                write_ppm("oa-layer-rounded-notice-" + size_name + "-window.ppm", window_now);
+                write_ppm("oa-layer-rounded-notice-" + size_name + "-expected.ppm", expected);
+            }
+            require(
+                differing == 0,
+                "the window does not show the notice with rounded corners" + on + ": " +
+                    std::to_string(differing) + " pixels differ"
+            );
+            // A check that draws the notice straight into its frame and
+            // rounds it after expects the same.
+            const artless::Surface darkened =
+                expected_layer_frame(closed_window, {}, LayerPlacement{}, 1);
+            artless::Surface straight = darkened;
+            for (int32_t row = 0; row < noticed.shown.height; ++row)
+                std::copy_n(
+                    drawing.rgb.data() + static_cast<std::size_t>(row) * drawing.width * 3U,
+                    static_cast<std::size_t>(noticed.shown.width) * 3U,
+                    straight.rgb.data() +
+                        (static_cast<std::size_t>(noticed.shown.y + row) * straight.width +
+                         static_cast<std::size_t>(noticed.shown.x)) *
+                            3U
+                );
+            round_drawn_screen(straight, darkened, noticed);
+            require(
+                straight.rgb == expected.rgb,
+                "a notice drawn straight and rounded is not the layer's own" + on
+            );
+            close(find(NoticeScreen::screen_name));
+        }
+
         // An opaque screen draws as before: its whole place, black where it
         // draws nothing.
         MarkLook box{};
@@ -1076,6 +1218,224 @@ void OaLayer::check_clear_screens() {
         runtime_.leave_match();
         std::cout << "OA layer check: in a match F1 goes on to the game, and a screen that is not "
                      "opaque changes only the pixels it draws\n";
+    }
+
+    // Settings moves by its title on the main menu of a 640 by 480 window,
+    // at 1x, so that its points are the window's pixels: a drag keeps its
+    // place for Compact in the preferences, a double-click on the title
+    // centres it again, Alt and the arrows move it 8 points (32 with Shift),
+    // and Reset window positions puts it back.
+    {
+        require(
+            SDL_SetWindowSize(runtime_.sdl_.window, kCanvasWidth, kCanvasHeight) &&
+                SDL_SyncWindow(runtime_.sdl_.window),
+            "the window did not take 640x480 to move Settings"
+        );
+        runtime_.load(Screen::main_menu);
+        static_cast<void>(reset_window_places());
+        runtime_.open_engine_settings_from_menu();
+        const LayerScreen* settings_screen = find("settings");
+        require(
+            settings_screen != nullptr && runtime_.engine_settings_dialog() != nullptr,
+            "Settings did not open to be moved"
+        );
+        const LayerPlacement centred = placement_of("settings");
+        require(
+            view().scale_percent == 100 && window_offset("settings").x == 0 &&
+                window_offset("settings").y == 0,
+            "Settings is not centred at 1x before it is moved"
+        );
+        // A point of the title that no control holds.
+        const kit::DisplayList list = settings_screen->display_list();
+        const auto header =
+            std::find_if(list.items.begin(), list.items.end(), [](const auto& item) {
+                return item.role == kit::Role::header;
+            });
+        require(header != list.items.end(), "Settings has no title to be moved by");
+        kit::Point grip{-1, -1};
+        for (int32_t x = header->rect.x + 2;
+             x < header->rect.x + header->rect.width - 2 && grip.x < 0;
+             ++x) {
+            const kit::Point at{x, header->rect.y + header->rect.height / 2};
+            if (kit::hit(list, at) == kit::no_control)
+                grip = at;
+        }
+        require(grip.x >= 0, "every point of Settings' title is a control");
+        const std::string key = window_placement::place_key("settings", kit::SizeClass::compact);
+        const auto stored = [this, &key]() -> std::string {
+            const auto found = runtime_.preference_values_.find(key);
+            return found == runtime_.preference_values_.end() ? std::string{} : found->second;
+        };
+        const auto shows_at = [this, &centred](int32_t across, int32_t down) {
+            const LayerPlacement now = placement_of("settings");
+            return now.shown.x == centred.shown.x + across &&
+                   now.shown.y == centred.shown.y + down &&
+                   now.shown.width == centred.shown.width &&
+                   now.shown.height == centred.shown.height;
+        };
+        const layout::Point pressed{centred.shown.x + grip.x, centred.shown.y + grip.y};
+        const layout::Point dropped{pressed.x + 60, pressed.y + 40};
+        runtime_.send_check_pointer(SDL_EVENT_MOUSE_MOTION, pressed, 0);
+        runtime_.send_check_pointer(SDL_EVENT_MOUSE_BUTTON_DOWN, pressed, SDL_BUTTON_LEFT);
+        runtime_.send_check_pointer(SDL_EVENT_MOUSE_MOTION, dropped, 0);
+        runtime_.send_check_pointer(SDL_EVENT_MOUSE_BUTTON_UP, dropped, SDL_BUTTON_LEFT);
+        require(
+            runtime_.engine_settings_dialog() != nullptr && shows_at(60, 40) && stored() == "60,40",
+            "a drag by its title did not move Settings 60 by 40 points and keep its place"
+        );
+        // A double-click on the title centres it again and forgets the place.
+        for (const uint8_t clicks : {uint8_t{1}, uint8_t{2}}) {
+            runtime_.send_check_pointer(
+                SDL_EVENT_MOUSE_BUTTON_DOWN, dropped, SDL_BUTTON_LEFT, clicks
+            );
+            runtime_.send_check_pointer(
+                SDL_EVENT_MOUSE_BUTTON_UP, dropped, SDL_BUTTON_LEFT, clicks
+            );
+        }
+        require(
+            runtime_.engine_settings_dialog() != nullptr && shows_at(0, 0) && stored().empty(),
+            "a double-click on its title did not centre Settings again"
+        );
+        // Alt and the arrows move the window that takes the keys.
+        const auto press = [this](SDL_Keycode code, SDL_Keymod modifiers) {
+            bool running = true;
+            for (const bool down : {true, false}) {
+                SDL_Event event{};
+                event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+                event.key.windowID = SDL_GetWindowID(runtime_.sdl_.window);
+                event.key.key = code;
+                event.key.scancode = SDL_GetScancodeFromKey(code, nullptr);
+                event.key.mod = modifiers;
+                event.key.down = down;
+                runtime_.dispatch_event(event, running);
+            }
+            require(running, "a key ended the run");
+        };
+        press(SDLK_RIGHT, SDL_KMOD_LALT);
+        press(SDLK_DOWN, static_cast<SDL_Keymod>(SDL_KMOD_LALT | SDL_KMOD_LSHIFT));
+        require(
+            runtime_.engine_settings_dialog() != nullptr && shows_at(8, 32) && stored() == "8,32",
+            "Alt and Right, then Alt, Shift and Down did not move Settings 8 and 32 points"
+        );
+        require(
+            reset_window_places() && shows_at(0, 0) && stored().empty(),
+            "Reset window positions did not centre Settings again"
+        );
+        require(
+            placement_of("settings").corner_radius == kit::compact_metrics.window_radius,
+            "Settings at Compact does not take Compact's window radius"
+        );
+        // Accessibility's practice pad takes S, pressed and let go: it shows
+        // there, and the main menu, whose S opens the single player screen,
+        // never sees it.
+        {
+            oa::ui::engine_settings::Dialog* dialog = runtime_.engine_settings_dialog();
+            dialog->page = oa::ui::engine_settings::Page::accessibility;
+            redraw();
+            press(SDLK_S, SDL_KMOD_NONE);
+            require(
+                runtime_.engine_settings_dialog() == dialog &&
+                    runtime_.screen_ == Screen::main_menu,
+                "S on the practice pad left Settings or reached the main menu"
+            );
+            require(
+                dialog->practice.outcome_key == "S" &&
+                    dialog->practice.outcome == oa::ui::engine_settings::PracticeOutcome::counted &&
+                    dialog->practice.key_down.empty(),
+                "the practice pad does not show S pressed and let go"
+            );
+            dialog->page = oa::ui::engine_settings::Page::controls;
+            redraw();
+            std::cout << "OA layer check: S on Accessibility's practice pad shows there and "
+                         "does not reach the main menu\n";
+        }
+        press(SDLK_ESCAPE, SDL_KMOD_NONE);
+        require(
+            runtime_.engine_settings_dialog() == nullptr, "Escape did not close the moved Settings"
+        );
+        std::cout << "OA layer check: Settings moves by its title and keeps its place, a "
+                     "double-click centres it, Alt and the arrows move it, and a reset puts it "
+                     "back\n";
+    }
+
+    {
+        // Rounded corners: a window's drawing of one colour, its corners
+        // rounded at 1x, 1.5x and 2x. Outside each quarter circle the pixels
+        // are clear, along it the strong edge at the top left and the dark
+        // edge at the bottom right, and everything else as drawn.
+        const kit::Colour face = kit::colour::panel;
+        constexpr int32_t radius_points = 10;
+        for (const int32_t percent : {100, 150, 200}) {
+            const kit::Rect size = kit::to_canvas({0, 0, 60, 40}, percent);
+            const int32_t radius = kit::to_canvas({0, 0, radius_points, 0}, percent).width;
+            LayerDrawing drawn;
+            drawn.picture.width = static_cast<uint32_t>(size.width);
+            drawn.picture.height = static_cast<uint32_t>(size.height);
+            for (int32_t pixel = 0; pixel < size.width * size.height; ++pixel)
+                drawn.picture.rgb.insert(drawn.picture.rgb.end(), {face.r, face.g, face.b});
+            round_layer_corners(drawn, radius_points, percent);
+            const std::string at = " at " + std::to_string(percent) + "%";
+            require(
+                drawn.opacity.size() == static_cast<std::size_t>(size.width * size.height),
+                "a rounded drawing has no opacity for each pixel" + at
+            );
+            const auto pixel_at = [&](int32_t column, int32_t row) {
+                return static_cast<std::size_t>(row) * static_cast<std::size_t>(size.width) +
+                       static_cast<std::size_t>(column);
+            };
+            const auto colour_is = [&](std::size_t pixel, const kit::Colour& ink) {
+                const uint8_t* rgb = drawn.picture.rgb.data() + pixel * 3U;
+                return rgb[0] == ink.r && rgb[1] == ink.g && rgb[2] == ink.b;
+            };
+            int32_t light = 0;
+            int32_t dark = 0;
+            for (int32_t row = 0; row < size.height; ++row)
+                for (int32_t column = 0; column < size.width; ++column) {
+                    const std::size_t pixel = pixel_at(column, row);
+                    const int32_t across = std::min(column, size.width - 1 - column);
+                    const int32_t down = std::min(row, size.height - 1 - row);
+                    const bool in_corner = across < radius && down < radius;
+                    if (!in_corner) {
+                        require(
+                            drawn.opacity[pixel] == 255 && colour_is(pixel, face),
+                            "a pixel outside the corners changed" + at
+                        );
+                        continue;
+                    }
+                    if (drawn.opacity[pixel] == 0)
+                        continue;
+                    require(
+                        drawn.opacity[pixel] == 255,
+                        "a rounded corner has a pixel neither clear nor opaque" + at
+                    );
+                    const bool top_left = column < radius && row < radius;
+                    const bool bottom_right =
+                        column >= size.width - radius && row >= size.height - radius;
+                    if (colour_is(pixel, kit::colour::edge_light)) {
+                        require(!bottom_right, "the bottom right corner has the strong edge" + at);
+                        ++light;
+                    } else if (colour_is(pixel, kit::colour::edge_dark)) {
+                        require(!top_left, "the top left corner has the dark edge" + at);
+                        ++dark;
+                    } else {
+                        require(
+                            colour_is(pixel, face), "a corner's pixel is neither edge nor face" + at
+                        );
+                    }
+                }
+            for (const auto& [column, row] : std::array<std::pair<int32_t, int32_t>, 4>{
+                     {{0, 0},
+                      {size.width - 1, 0},
+                      {0, size.height - 1},
+                      {size.width - 1, size.height - 1}}
+                 })
+                require(
+                    drawn.opacity[pixel_at(column, row)] == 0, "a corner's pixel is not clear" + at
+                );
+            require(light > 0 && dark > 0, "the corners have no edge drawn round them" + at);
+        }
+        std::cout << "OA layer check: a window's and a dialog's corners are clear outside the "
+                     "quarter circle and edged along it, at 1x, 1.5x and 2x\n";
     }
 
     require(

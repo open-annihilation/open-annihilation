@@ -287,6 +287,38 @@ void dithered_fog_clears_alternate_map_pixels() {
     OA_CHECK(canvas.red(17, 48) == 9 && canvas.red(18, 48) == 100);
 }
 
+// Away from the whole zoom the dither stays on the destination's pixels,
+// every other one cleared whatever the zoom, so that no pattern grows or
+// shrinks with it; the even tone moves each pixel half way to the dither
+// colour instead.
+void dithered_fog_stays_one_pixel_fine_at_every_zoom() {
+    auto shading = test_shading();
+    shading.dithered = true;
+    // Zoom 2: unseen tile (2, 1) covers destination [96, 128) x [32, 96).
+    Canvas zoomed_in(128);
+    const wr::FogView in{0, 0, 128, 128, 5, 0, 2 * wr::fog_zoom_one};
+    wr::draw_fog_grid(zoomed_in.surface, in, test_grid(), test_tiles(), shading);
+    OA_CHECK(zoomed_in.red(96, 32) == 100 && zoomed_in.red(97, 32) == 9);
+    OA_CHECK(zoomed_in.red(96, 33) == 9 && zoomed_in.red(97, 33) == 100);
+    OA_CHECK(zoomed_in.red(127, 95) == 100 && zoomed_in.red(126, 95) == 9);
+    // The partial tile's gray quadrant, past its black texel at [32, 34).
+    OA_CHECK(zoomed_in.red(34, 96) == 100 && zoomed_in.red(35, 96) == 9);
+    OA_CHECK(zoomed_in.red(34, 97) == 9);
+    // Zoom 1/2: the same tile covers destination [24, 32) x [8, 24).
+    Canvas zoomed_out(64);
+    const wr::FogView out{0, 0, 64, 64, 5, 0, wr::fog_zoom_one / 2};
+    wr::draw_fog_grid(zoomed_out.surface, out, test_grid(), test_tiles(), shading);
+    OA_CHECK(zoomed_out.red(24, 8) == 100 && zoomed_out.red(25, 8) == 9);
+    OA_CHECK(zoomed_out.red(24, 9) == 9 && zoomed_out.red(30, 23) == 9);
+    // The even tone: (100 + 9) / 2, rounded to nearest, on every pixel.
+    shading.dither_even = true;
+    Canvas even(128);
+    wr::draw_fog_grid(even.surface, in, test_grid(), test_tiles(), shading);
+    OA_CHECK(even.red(96, 32) == 55 && even.red(97, 32) == 55 && even.red(97, 33) == 55);
+    OA_CHECK(even.red(34, 96) == 55 && even.red(35, 96) == 55);
+    OA_CHECK(even.red(96, 31) == 100);
+}
+
 } // namespace
 
 // ui.map-features-ignore-los: a map-placed feature's owner slot decides
@@ -429,6 +461,7 @@ int main() {
     drawing_scales_with_the_zoom();
     drawing_clips_to_the_surface_and_view();
     dithered_fog_clears_alternate_map_pixels();
+    dithered_fog_stays_one_pixel_fine_at_every_zoom();
     feature_owner_rule_skips_the_sight_test();
     update_keeps_a_grid_built_from_the_same_sight();
     return oa::test::check_exit_status();

@@ -1,0 +1,143 @@
+// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+// The background check of one run (Runtime::UpdateState): the worker, the
+// snapshot the main thread last read, and when this run's automatic check
+// began. runtime_update.cpp starts it and reads it.
+#pragma once
+
+#include "oa/app/runtime.hpp"
+#include "oa/app/update/centre.hpp"
+#include "oa/app/update/checker.hpp"
+#include "oa/app/update/receipt.hpp"
+
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+#include "oa/app/update/download.hpp"
+#include "oa/app/update/route.hpp"
+#endif
+
+namespace oa::app {
+
+struct Runtime::UpdateState {
+    /// The worker. Empty until a check has somewhere to keep the feed.
+    std::unique_ptr<update::Checker> checker;
+    /// The snapshot last copied for the main thread.
+    update::CheckSnapshot held{};
+    /// The generation already copied into `held`.
+    uint64_t seen_generation = 0;
+    /// An automatic check has started this run, or --update-and-quit has
+    /// started its one check. The hour is `automatic_began`, not this flag.
+    bool ran = false;
+    /// When the last automatic check of this run began, seconds since 1970.
+    /// Empty until one starts. --update-and-quit leaves this empty.
+    std::optional<int64_t> automatic_began;
+    /// The schedule's clock, seconds since 1970. Empty reads the wall clock.
+    /// A check sets it so an hour can pass without waiting.
+    std::optional<int64_t> schedule_now;
+    /// Settled main-menu frames in a row.
+    uint32_t menu_frames = 0;
+    /// The release number of the build the running check asked about.
+    int64_t release = 0;
+    /// A missing data folder has already been logged.
+    bool logged_folder = false;
+    /// The release the question was queued for this run. Empty when it has
+    /// not been asked, or a match closed it before an answer, so the next
+    /// settled menu asks again. Later, Skip and Update leave it set. A
+    /// higher release still asks.
+    std::optional<int64_t> offered_release;
+    /// The page that question opens. Empty when the feed named none. Set
+    /// with `offered_release`, so a later check cannot change the page.
+    std::optional<std::string> offered_page;
+    /// The Updated notice has been queued this run.
+    bool updated_notice_shown = false;
+    /// --rolled-back-from has been applied to the preferences and the state.
+    bool roll_back_bookkept = false;
+    /// A settled menu has confirmed this build, or there was nothing to confirm.
+    bool version_confirmed = false;
+    /// The "Back on {version}" question has been queued this run.
+    bool roll_back_prompted = false;
+    /// `kept_version` has been read from state.json this run.
+    bool kept_loaded = false;
+    /// The version state.json keeps. Empty when none is kept.
+    std::string kept_version;
+    /// state.json, read with `kept_version`, names this build installed and
+    /// not yet confirmed. A settled menu confirms it (`version_confirmed`).
+    bool installed_unconfirmed = false;
+    /// This build's version, as the update centre names it. Empty until read.
+    std::string running_version;
+    /// The helper's last receipt, read once for the update centre. A receipt
+    /// shown at the menu replaces it.
+    std::optional<update::Receipt> receipt;
+    /// `receipt` has been read this run.
+    bool receipt_loaded = false;
+    /// The way this copy installs, as the update centre names its install
+    /// action, for the offer `centre_way_page_only` describes. Meaningful
+    /// when `centre_way_known`.
+    update::InstallWay centre_way{update::InstallWay::restart};
+    /// The route behind `centre_way` installs from the feed's installer.
+    bool centre_installer = false;
+    /// `centre_way` was found for an offer on its page.
+    bool centre_way_page_only = false;
+    /// `centre_way` has been found this run.
+    bool centre_way_known = false;
+    /// What the update centre reads in place of what the runtime knows, so
+    /// that each update screen can be drawn in each state. Only the pictures
+    /// case of --check-update-download sets it.
+    std::optional<update::CentreInputs> pictured;
+    /// The ready prompt was queued for this release. A match clears it.
+    std::optional<int64_t> ready_prompt_release;
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+    /// The package download. Empty until one is started.
+    std::unique_ptr<update::PackageDownload> download;
+    /// The release a download was started for. 0 until then.
+    int64_t download_release = 0;
+    /// That release's version, as the feed shows it.
+    std::string download_version;
+    /// The package id the download is fetching.
+    std::string download_package;
+    /// True when the file is the package's installer.
+    bool download_installer = false;
+    /// A download of `download_release` has been started, including one that failed.
+    bool download_attempted = false;
+    /// The route the download is using. Meaningful when `route_known`.
+    update::Where route{};
+    /// `route` has been filled for the offer now held.
+    bool route_known = false;
+    /// A missing route has already been logged.
+    bool logged_route = false;
+    /// The version that is running, for the plan's kept-version line.
+    std::string from_version;
+    /// Starts the helper. Null records the start instead of making it.
+    bool (*start_helper)(
+        void* context,
+        const std::filesystem::path& helper,
+        const std::vector<std::string>& arguments,
+        std::string& why
+    ){};
+    /// What `start_helper` is called with. The state itself, for a recorded start.
+    void* helper_context{};
+    /// The helper start has been chosen for this run.
+    bool helper_chosen = false;
+    /// The helper a hand-off asked to start, and the arguments it was given.
+    std::string helper;
+    std::vector<std::string> helper_arguments;
+    /// A hand-off asked the hooks to start the helper.
+    bool handed = false;
+    /// macOS has been asked where this copy is running from.
+    bool mac_facts_known = false;
+    /// This copy is running from a protected place.
+    bool mac_translocated = false;
+    /// The bundle to show in Finder. Empty when this copy is not a bundle.
+    std::string mac_bundle;
+    /// The move prompt has been queued this run.
+    bool mac_move_offered = false;
+#endif
+};
+
+} // namespace oa::app

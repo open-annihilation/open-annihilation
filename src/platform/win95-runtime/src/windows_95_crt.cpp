@@ -139,6 +139,29 @@ errno_t __cdecl local_time_32(struct tm* out, const __time32_t* timer) {
 
 OA_XP_DEFINE_LIBRARY(local_time_32, _localtime32_s);
 
+extern "C" errno_t __cdecl
+utc_time_32(struct tm* out, const __time32_t* timer) __asm__(OA_XP_LIBRARY_SYMBOL(_gmtime32_s));
+
+/// Breaks a 32-bit time down into the UTC time it names, as _gmtime32_s
+/// does. The stand-in has the system's gmtime fill it in; the C library
+/// Windows 95 ships has no secure form of its own.
+///
+/// @param[out] out receives the broken-down time
+/// @param timer seconds since the epoch
+/// @return 0, or EINVAL for a null argument or a time gmtime refuses
+errno_t __cdecl utc_time_32(struct tm* out, const __time32_t* timer) {
+    if (out == nullptr || timer == nullptr)
+        return EINVAL;
+    const time_t value = static_cast<time_t>(*timer);
+    const struct tm* broken_down = std::gmtime(&value);
+    if (broken_down == nullptr)
+        return EINVAL;
+    *out = *broken_down;
+    return 0;
+}
+
+OA_XP_DEFINE_LIBRARY(utc_time_32, _gmtime32_s);
+
 // The header names the wide stat calls as macros pointing at a time_t
 // variant, and the symbols below are taken from the names as written.
 #undef _wstat64

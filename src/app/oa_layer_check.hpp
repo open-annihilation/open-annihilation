@@ -39,10 +39,10 @@ struct LayerWindow {
 };
 
 /// The windows the notice and prompt checks show their screens at beyond
-/// 640 by 480: 1280 by 720, Large at 1×, and 1920 by 1080, Regular at 2×.
+/// 640 by 480: 800 by 600, Regular at 1×, and 2560 by 1440, Large at 2×.
 inline constexpr std::array<LayerWindow, 2> larger_layer_windows{{
-    {1280, 720, oa::ui::kit::SizeClass::large, 1},
-    {1920, 1080, oa::ui::kit::SizeClass::regular, 2},
+    {800, 600, oa::ui::kit::SizeClass::regular, 1},
+    {2560, 1440, oa::ui::kit::SizeClass::large, 2},
 }};
 
 /// Returns a size class's name, as the checks print it.
@@ -77,7 +77,8 @@ window_pointer(const LayerView& view, oa::ui::display_layout::Point picture_poin
 /// over the front end: the frame presented with no OA screen open, every
 /// pixel darkened as a modal screen's backdrop darkens it (the backdrop's
 /// colour blended at the main menu's opacity, once for each such screen),
-/// with the screen's own drawing copied at its placement.
+/// with the screen's own drawing copied at its placement, its corners rounded
+/// by the placement's radius as the layer rounds them (round_layer_corners).
 ///
 /// The frames are compared at the display gamma the window shows; the
 /// darkening is the frame's own, so the comparison holds where that gamma
@@ -94,6 +95,21 @@ window_pointer(const LayerView& view, oa::ui::display_layout::Point picture_poin
     const oa::ui::frontend_renderer::Surface& drawing,
     const LayerPlacement& placement,
     uint32_t darkenings = 1
+);
+
+/// Rounds the corners of a screen a check drew straight into an expected
+/// frame, as the layer shows them (round_layer_corners): outside each
+/// quarter circle the frame shows what it held before the screen was drawn,
+/// and along it the window's edge. A placement with no corner radius
+/// changes nothing.
+///
+/// @param[in,out] frame the expected frame, the screen drawn in it at its place
+/// @param before the same frame before the screen was drawn in it
+/// @param placement where the screen shows in the frame, with its corners' radius
+void round_drawn_screen(
+    oa::ui::frontend_renderer::Surface& frame,
+    const oa::ui::frontend_renderer::Surface& before,
+    const LayerPlacement& placement
 );
 
 /// Counts the pixels in which a presented window frame differs from the

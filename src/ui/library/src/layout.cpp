@@ -2,14 +2,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The Library's layout at Compact, Regular and Large, made of the UI kit's
-// components: the window's face, header and footer, the tabs, the search,
-// the filters with their counts, the list and the details, the Active tab's
-// setup, and the Registries tab's cards, every control named for automation.
+// components: the window's face, header and footer, the section list, the
+// heading and its search, the list and the details, the Active tab's setup,
+// and the Registries tab's cards, every control named for automation.
 // It reads the model and decides none of its rules.
 #include "oa/ui/library/screen.hpp"
 
 #include "oa/base/text/line_break.hpp"
 #include "oa/ui/kit/chrome.hpp"
+#include "oa/ui/kit/keys.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/controls.hpp"
@@ -21,6 +22,7 @@
 #include "oa/ui/library/library.hpp"
 #include "oa/ui/library/text.hpp"
 #include "oa/ui/library/uninstall.hpp"
+#include "oa/ui/library/use_question.hpp"
 #include "screen_controls.hpp"
 #include "visible.hpp"
 
@@ -43,22 +45,15 @@ namespace {
 
 // The Library's own sizes, from the design; every other size is a kit metric.
 
-/// The columns Compact's search row keeps right of the search field, for the
-/// filter drop-down and its count, such as "Installed (12)".
-constexpr int32_t compact_filter_room = 128;
-/// The search field's width at Regular and Large.
+/// The search field's width on the heading row, when the row has room.
 constexpr int32_t wide_search_width = 240;
 /// The Active tab's maps search, at the right of the MAPS heading, when the row has room.
 constexpr int32_t maps_search_width = 148;
 /// How many map rows the Active page keeps in view, once scrolled to them,
 /// before it scrolls the tiles and the maps as one page.
 constexpr int32_t maps_rows_kept = 4;
-/// The list pane's width at Regular.
-constexpr int32_t regular_list_width = 420;
-/// The list pane's width at Large.
+/// The list pane's width at Large, while the details keep their floor.
 constexpr int32_t large_list_width = 400;
-/// The filter pane's width at Large.
-constexpr int32_t filter_pane_width = 180;
 /// The side of the details' badge at Regular and Large.
 constexpr int32_t details_badge_side = 40;
 /// The most lines of the summary on Compact's details page.
@@ -73,8 +68,6 @@ constexpr std::size_t wide_fact_lines = 3;
 constexpr std::size_t wide_status_lines = 2;
 /// How many actions Compact's details page shows as buttons, before MORE.
 constexpr std::size_t compact_action_buttons = 3;
-/// How many action buttons a line of the details pane holds.
-constexpr int32_t actions_per_line = 3;
 /// The most letters a badge shows.
 constexpr std::size_t badge_letter_count = 3;
 /// The face behind a badge's letters when its package has no picture. The
@@ -97,13 +90,14 @@ constexpr std::array<Tab, tab_total> tab_order{
     Tab::maps,
     Tab::mutators,
     Tab::brains,
+    Tab::keys,
     Tab::languages,
     Tab::updates,
     Tab::registries
 };
 /// The words the tabs are named by, in that order.
 constexpr std::array<std::string_view, tab_total> tab_words{
-    "active", "mods", "maps", "mutators", "brains", "languages", "updates", "registries"
+    "active", "mods", "maps", "mutators", "brains", "keys", "languages", "updates", "registries"
 };
 /// The filters, in the order they are shown.
 constexpr std::array<Filter, filter_total> filter_order{
@@ -128,6 +122,11 @@ const std::vector<std::string>* shown_tags(const Entry& entry) {
             return &facts->tags;
         return nullptr;
     }
+    if (entry.id.kind == Kind::key_layout) {
+        if (const KeyLayoutFacts* facts = key_facts(entry))
+            return &facts->tags;
+        return nullptr;
+    }
     if (entry.listing != nullptr)
         return &entry.listing->tags;
     return nullptr;
@@ -136,18 +135,23 @@ const std::vector<std::string>* shown_tags(const Entry& entry) {
 /// Returns the words a tag shows in one place.
 ///
 /// A mutator's chips and detail pills, and the Mutators tab's filter pills,
-/// pane and menu, use the eight ids' labels. Every other tag is the id as
-/// written, so a mod's or a map pack's own tag does not change.
+/// pane and menu, use the eight ids' labels. A world tag shows its world's
+/// name (world_name). Every other tag is the id as written, so a mod's or a
+/// map pack's own tag does not change.
 ///
 /// @param library the Library
 /// @param tag the catalogue id
 /// @param labelled true for a mutator's tags, or for the Mutators tab's filters
 /// @return the words; a view of `tag` when this place does not label it
 std::string_view tag_caption(const Library& library, std::string_view tag, bool labelled) {
+    if (world_tag(tag))
+        return world_name(tag);
     if (!labelled)
         return tag;
     if (library.tab == Tab::brains)
         return brain_tag_label(tag, library.text);
+    if (library.tab == Tab::keys)
+        return key_tag_label(tag, library.text);
     return tag_label(tag, library.text);
 }
 
@@ -217,6 +221,10 @@ std::string_view action_word(Action action) {
         return "use-by-default";
     case Action::get_with:
         return "get-with";
+    case Action::use_layout:
+        return "use";
+    case Action::edit_keys:
+        return "edit-keys";
     }
     return "action";
 }
@@ -271,9 +279,12 @@ std::string named(std::string_view words_after) {
 
 /// The window's rows and columns at a size class.
 struct Window {
-    int32_t width{};       ///< the window's width, in points
-    int32_t height{};      ///< the window's height, in points
-    int32_t padding{};     ///< the class's padding
+    int32_t width{};   ///< the window's width, in points
+    int32_t height{};  ///< the window's height, in points
+    int32_t padding{}; ///< Kit 2's window padding: the dialogs over the Library keep it
+    /// The shell's margin: the columns between the window's edges and its
+    /// parts, and between its panes, two spaces.
+    int32_t gutter{};
     int32_t left{};        ///< the content's left column
     int32_t right{};       ///< the column after the content's last
     int32_t body_top{};    ///< the first row under the header's rule
@@ -281,6 +292,15 @@ struct Window {
     int32_t footer_top{};  ///< the footer's first row
     int32_t button_top{};  ///< the footer's buttons' top row
     int32_t gap{};         ///< the rows between stacked parts
+    int32_t bottom_gap{}; ///< the rows between the shell's last part and the footer's rule: a space
+    /// The footer's height: Kit 2's window footer, or at Compact its controls
+    /// with a space above and below, so the list keeps its room.
+    int32_t footer_height{};
+    int32_t button_height{}; ///< a footer's or a bar's button: Kit 2's control height
+    /// The search on the heading's row: Kit 2's control height, as Settings'
+    /// buttons and fields have it.
+    int32_t field_height{};
+    int32_t header_height{}; ///< the header's band: Kit 2's window header, Compact's at Compact
 };
 
 /// Returns the window's rows and columns for a frame, as the settings
@@ -290,18 +310,36 @@ struct Window {
 /// @return the window
 Window window_of(const kit::Frame& frame) {
     const kit::Metrics& metrics = kit::metrics_of(frame.size_class);
+    const bool compact = frame.size_class == kit::SizeClass::compact;
     const kit::Point size = window_size(frame);
     Window window;
     window.width = size.x;
     window.height = size.y;
-    window.padding = metrics.padding;
-    window.left = metrics.padding;
-    window.right = size.x - metrics.edge - metrics.padding;
-    window.body_top = metrics.edge + metrics.header_height + 1;
-    window.footer_rule = size.y - metrics.edge - metrics.footer_height - 1;
+    // Kit 2's sizes for the shell's controls: its window header, fields,
+    // controls and footer. The shell keeps two spaces round
+    // its parts and between its panes, a space less than Kit 2's window
+    // padding, so the lists have the room. Compact's stacked parts sit a
+    // space apart and its footer holds its controls with a space above and
+    // below, so the list keeps its room.
+    window.padding = metrics.window_padding;
+    window.gutter = 2 * metrics.space;
+    window.left = window.gutter;
+    window.right = size.x - metrics.edge - window.gutter;
+    window.button_height = metrics.control_height;
+    window.field_height = metrics.control_height;
+    window.footer_height =
+        compact ? metrics.control_height + 2 * metrics.space : metrics.window_footer_height;
+    // Regular and Large take Kit 2's window header. Compact keeps the kit's
+    // Compact band: ten points more would cost its list a row and leave the
+    // Active page's lowest controls over the footer's, where no arrow
+    // passes them.
+    window.header_height = compact ? metrics.header_height : metrics.window_header_height;
+    window.body_top = metrics.edge + window.header_height + 1;
+    window.footer_rule = size.y - metrics.edge - window.footer_height - 1;
     window.footer_top = window.footer_rule + 1;
-    window.button_top = window.footer_top + (metrics.footer_height - metrics.button_height) / 2;
-    window.gap = metrics.paragraph_gap;
+    window.button_top = window.footer_top + (window.footer_height - window.button_height) / 2;
+    window.gap = compact ? metrics.space : metrics.row_gap;
+    window.bottom_gap = metrics.space;
     return window;
 }
 
@@ -336,6 +374,8 @@ struct Building {
     std::vector<kit::ControlId> order{}; ///< Tab's order, built in the order it is declared
     /// Tab's order while the chooser is open: its rows and buttons only.
     std::vector<kit::ControlId> chooser_order{};
+    /// Tab's order while USE's question is open: its choices and buttons only.
+    std::vector<kit::ControlId> question_order{};
     std::unordered_set<std::string> names{}; ///< the names given so far
     /// For each name wanted, the first count after it not yet tried.
     std::unordered_map<std::string, int32_t> next_count{};
@@ -566,8 +606,9 @@ bool focused(const Building& building, kit::ControlId id) {
     return interaction.focus_shown && interaction.focused == id;
 }
 
-/// Returns a button's width: its caption in the small font and the room a
-/// question's button keeps either side, and at least OK's width.
+/// Returns a button's width as Settings sizes its buttons (Cancel, OK,
+/// Change layout…): its caption in the regular font with two spaces either
+/// side, and at least twice the control height.
 ///
 /// @param building the layout
 /// @param caption the caption
@@ -575,12 +616,197 @@ bool focused(const Building& building, kit::ControlId id) {
 int32_t button_width(const Building& building, std::string_view caption) {
     const kit::Metrics& metrics = *building.metrics;
     return std::max(
+        width_of(building, kit::FontRole::regular, caption) + 4 * metrics.space,
+        2 * metrics.control_height
+    );
+}
+
+/// Returns a small button's width: its caption in the small font and the
+/// room a question's button keeps either side, and at least OK's width at
+/// Compact. The Registries tab's cards and the dialogs over the Library
+/// keep these buttons.
+///
+/// @param building the layout
+/// @param caption the caption
+/// @return the width, in points
+int32_t small_button_width(const Building& building, std::string_view caption) {
+    const kit::Metrics& metrics = *building.metrics;
+    return std::max(
         metrics.button_width,
         width_of(building, kit::FontRole::small, caption) + metrics.prompt_button_padding
     );
 }
 
-/// Appends a button.
+/// The gap Settings keeps between two buttons side by side: two spaces.
+///
+/// @param metrics the class's metrics
+/// @return the columns, in points
+int32_t button_spacing(const kit::Metrics& metrics) {
+    return 2 * metrics.space;
+}
+
+/// Tells whether the words are drawn in the modern fonts, where Settings
+/// keeps a hint's lines tall_hint_line_gap further apart.
+///
+/// @param building the layout
+/// @return true in the modern look
+bool tall_lines(const Building& building) {
+    return kit::modern_look(*building.fonts);
+}
+
+/// Returns the rows from one line of small text to the next, as Settings
+/// steps a hint's lines: the small font's line, and tall_hint_line_gap more
+/// in the modern fonts, whose letters stand as tall as that line.
+///
+/// @param building the layout
+/// @return the rows, in points
+int32_t hint_step(const Building& building) {
+    const kit::Metrics& metrics = *building.metrics;
+    return metrics.small_line + (tall_lines(building) ? metrics.tall_hint_line_gap : 0);
+}
+
+/// Returns the rows lines of small text take, stepped as hint_step steps them.
+///
+/// @param building the layout
+/// @param count how many lines
+/// @return the rows, in points; 0 for none
+int32_t hint_lines_height(const Building& building, std::size_t count) {
+    if (count == 0)
+        return 0;
+    return static_cast<int32_t>(count - 1) * hint_step(building) + building.metrics->small_line;
+}
+
+/// Returns a chip's height: a tag, a state, an expansion or the pill on a
+/// tile, each a word on a rounded ground with room above and below it: the
+/// small font's line and half a space above and below it.
+///
+/// @param metrics the class's metrics
+/// @return the height, in points
+int32_t chip_height(const kit::Metrics& metrics) {
+    return metrics.small_line + metrics.space;
+}
+
+/// Returns the columns a chip keeps either side of its words: the columns
+/// Settings keeps clear beside a row's label (Metrics::label_gap).
+///
+/// @param metrics the class's metrics
+/// @return the columns, in points
+int32_t chip_side(const kit::Metrics& metrics) {
+    return metrics.label_gap;
+}
+
+/// Returns the rows between two parts of a card, as Settings' cards keep
+/// between their parts: two spaces.
+///
+/// @param metrics the class's metrics
+/// @return the rows, in points
+int32_t part_gap(const kit::Metrics& metrics) {
+    return 2 * metrics.space;
+}
+
+/// Returns a pill's width at chip_height: its words with a chip's side
+/// either side of them (chip_side), and for each icon the room the kit
+/// draws it in, as far in from the pill's round end as from its top.
+///
+/// @param building the layout
+/// @param look the pill
+/// @return the width, in points
+int32_t pill_width_of(const Building& building, const kit::PillLook& look) {
+    const kit::Metrics& metrics = *building.metrics;
+    kit::PillLook plain;
+    plain.text = look.text;
+    // The kit's own width with and without the icons tells what each icon
+    // and its gap take; the icon's side is the kit's pill height less two.
+    const int32_t icons_room =
+        kit::pill_width(*building.fonts, look) - kit::pill_width(*building.fonts, plain);
+    const int32_t icon_inset = (chip_height(metrics) - (kit::pill_height() - 2)) / 2;
+    const int32_t icons = (look.tag.has_value() ? 1 : 0) + (look.icon.has_value() ? 1 : 0);
+    return width_of(building, kit::FontRole::small, look.text) + 2 * chip_side(metrics) +
+           icons_room + icons * icon_inset;
+}
+
+/// Returns a tag chip's width in a row: its state icon's side, or its words
+/// with a chip's side either side of them, as the kit's row draws it with
+/// the Library's spacing (row_spacing).
+///
+/// @param building the layout
+/// @param chip the chip
+/// @return the width, in points
+int32_t tag_width(const Building& building, const kit::ChipLook& chip) {
+    const kit::Metrics& metrics = *building.metrics;
+    if (chip.icon.has_value())
+        return metrics.state_icon_side;
+    return width_of(building, kit::FontRole::small, chip.text) + 2 * chip_side(metrics);
+}
+
+/// Returns the spacing of a list row's lines and tags, as Settings spaces a
+/// row's label and its hints: the first line hint_gap under the title, the
+/// lines a hint's step apart, the tags slider_gap under them (where
+/// Settings puts a control under a row's hints), each chip_height high.
+///
+/// @param building the layout
+/// @return the spacing
+kit::RowSpacing row_spacing(const Building& building) {
+    const kit::Metrics& metrics = *building.metrics;
+    kit::RowSpacing spacing;
+    spacing.title_gap = metrics.hint_gap;
+    spacing.line_step = hint_step(building);
+    spacing.tags_gap = metrics.slider_gap;
+    spacing.tag_height = chip_height(metrics);
+    spacing.tag_padding = chip_side(metrics);
+    spacing.tag_gap = metrics.chip_gap;
+    return spacing;
+}
+
+/// Appends a button in a font.
+///
+/// @param[in,out] building the layout
+/// @param group the group its control goes to
+/// @param rect where it lies
+/// @param caption its words, looked up
+/// @param accent drawn as the main button while it is enabled
+/// @param enabled it takes a press
+/// @param id its number
+/// @param name its name
+/// @param clip the part of it that shows; empty for all
+/// @param scroll_group its scroll area, or -1
+/// @param font the caption's font
+/// @param in_tab_order false draws it and leaves Tab's order for the caller
+void add_button_in(
+    Building& building,
+    std::vector<kit::Control>& group,
+    const kit::Rect& rect,
+    std::string_view caption,
+    bool accent,
+    bool enabled,
+    kit::ControlId id,
+    std::string name,
+    const kit::Rect& clip,
+    int32_t scroll_group,
+    kit::FontRole font,
+    bool in_tab_order
+) {
+    kit::ButtonLook look;
+    look.caption = cut(building, font, caption, rect.width - 2);
+    look.style = accent && enabled ? kit::ButtonStyle::accent : kit::ButtonStyle::plain;
+    look.hovered = hovered(building, id);
+    look.held = held(building, id);
+    look.enabled = enabled;
+    look.font = font;
+    const std::size_t before = building.list.controls.size();
+    kit::add_button(building.list, rect, look, id, unique_name(building, std::move(name)));
+    building.list.items.back().clip = clip;
+    move_controls(building.list, before, group);
+    group.back().clip = clip;
+    group.back().group = scroll_group;
+    group.back().text = std::string(caption);
+    if (in_tab_order)
+        tab_stop(building, group.back());
+}
+
+/// Appends one of Settings' buttons: its caption in the regular font, as
+/// Settings' Cancel, OK and Change layout… have theirs. The rectangle is
+/// the caller's, at the control height.
 ///
 /// @param[in,out] building the layout
 /// @param group the group its control goes to
@@ -606,21 +832,59 @@ void add_button(
     int32_t scroll_group,
     bool in_tab_order = true
 ) {
-    kit::ButtonLook look;
-    look.caption = cut(building, kit::FontRole::small, caption, rect.width - 2);
-    look.style = accent && enabled ? kit::ButtonStyle::accent : kit::ButtonStyle::plain;
-    look.hovered = hovered(building, id);
-    look.held = held(building, id);
-    look.enabled = enabled;
-    const std::size_t before = building.list.controls.size();
-    kit::add_button(building.list, rect, look, id, unique_name(building, std::move(name)));
-    building.list.items.back().clip = clip;
-    move_controls(building.list, before, group);
-    group.back().clip = clip;
-    group.back().group = scroll_group;
-    group.back().text = std::string(caption);
-    if (in_tab_order)
-        tab_stop(building, group.back());
+    add_button_in(
+        building,
+        group,
+        rect,
+        caption,
+        accent,
+        enabled,
+        id,
+        std::move(name),
+        clip,
+        scroll_group,
+        kit::FontRole::regular,
+        in_tab_order
+    );
+}
+
+/// Appends a small button, its caption in the small font: the Registries
+/// tab's cards keep these.
+///
+/// @param[in,out] building the layout
+/// @param group the group its control goes to
+/// @param rect where it lies
+/// @param caption its words, looked up
+/// @param enabled it takes a press
+/// @param id its number
+/// @param name its name
+/// @param clip the part of it that shows; empty for all
+/// @param scroll_group its scroll area, or -1
+void add_small_button(
+    Building& building,
+    std::vector<kit::Control>& group,
+    const kit::Rect& rect,
+    std::string_view caption,
+    bool enabled,
+    kit::ControlId id,
+    std::string name,
+    const kit::Rect& clip,
+    int32_t scroll_group
+) {
+    add_button_in(
+        building,
+        group,
+        rect,
+        caption,
+        false,
+        enabled,
+        id,
+        std::move(name),
+        clip,
+        scroll_group,
+        kit::FontRole::small,
+        true
+    );
 }
 
 /// Returns the chip a state is shown with.
@@ -707,6 +971,43 @@ kit::ChipLook entry_chip(const Library& library, const Entry& entry) {
         chip.state = in_use ? kit::ChipState::playing : kit::ChipState::installed;
         return chip;
     }
+    // A key layout says its one state in words: In use, Built in, Update,
+    // Installed, or Get with the download's size. The layout in use is
+    // filled with the accent, as PLAYING is.
+    if (entry.id.kind == Kind::key_layout) {
+        if (layout_in_use(library, entry)) {
+            chip.text = std::string(shown(library.text, words::chip_in_use));
+            chip.state = kit::ChipState::playing;
+            return chip;
+        }
+        if (is_built_in_layout(entry.id)) {
+            chip.text = std::string(shown(library.text, words::registry_built_in));
+            chip.state = kit::ChipState::installed;
+            return chip;
+        }
+        chip.state = chip_state_of(entry.state);
+        chip.disabled = !entry.can_act;
+        switch (entry.state) {
+        case State::update:
+            chip.text = std::string(shown(library.text, words::layout_state_update));
+            break;
+        case State::get:
+            chip.text = entry.listing != nullptr && entry.listing->size > 0
+                            ? filled(
+                                  library.text,
+                                  words::layout_state_get_size,
+                                  {{"size", size_text(entry.listing->size, library.text)}}
+                              )
+                            : std::string(shown(library.text, words::layout_state_get));
+            break;
+        case State::installed:
+        case State::playing:
+            chip.text = std::string(shown(library.text, words::layout_state_installed));
+            chip.disabled = false;
+            break;
+        }
+        return chip;
+    }
     // An installed language pack in use says so too, unless an update is
     // waiting: that arrow stays, and USE NOW is still withheld.
     if (entry.id.kind == Kind::language && entry.installed != nullptr && entry.installed->in_use &&
@@ -729,7 +1030,7 @@ kit::ChipLook entry_chip(const Library& library, const Entry& entry) {
 /// @param entry the entry
 /// @return the version; empty when neither names one
 std::string entry_version(const Library& library, const Entry& entry) {
-    if (is_built_in_brain(entry.id))
+    if (is_built_in_brain(entry.id) || is_built_in_layout(entry.id))
         return std::string(shown(library.text, words::registry_built_in));
     if (entry.installed != nullptr)
         return version_text(*entry.installed, library.text);
@@ -826,27 +1127,46 @@ std::string row_name(const Entry& entry) {
 
 /// How a row is shown: Compact's short row, Regular's or Large's.
 enum class RowForm : uint8_t {
-    compact, ///< the name, then its version and size; short_list_row_height
-    regular, ///< the name and byline, then the summary; the version over the size; list_row_height
+    compact, ///< the name, then its version and size; Kit 2's row height
+    regular, ///< the name and byline, then the summary; the version over the size; a key
+             ///< layout's chips on a third line
     large,   ///< as regular, with the tags as chips on a third line
 };
 
-/// Returns a row's height in a form.
+/// Returns the rows a list row keeps above and below its words: Settings'
+/// row padding, and a space at Compact, whose short list keeps its rows.
 ///
-/// @param metrics the class's metrics
+/// @param building the layout
+/// @return the rows, in points
+int32_t row_padding_of(const Building& building) {
+    const kit::Metrics& metrics = *building.metrics;
+    return building.size_class == kit::SizeClass::compact ? metrics.space : metrics.row_padding;
+}
+
+/// Returns a row's height in a form: Kit 2's row height (Metrics::row_height),
+/// and at least the lines the form holds, spaced as Settings spaces a row's
+/// label and hint (row_spacing), with the row's padding above and below.
+///
+/// @param building the layout
 /// @param form the form
 /// @return the height, in points
-int32_t row_height(const kit::Metrics& metrics, RowForm form) {
+int32_t row_height(const Building& building, RowForm form) {
+    const kit::Metrics& metrics = *building.metrics;
+    const kit::RowSpacing spacing = row_spacing(building);
+    // The title's line and a line under it, the gap between them, and the
+    // padding above and below the words.
+    const int32_t two_lines = metrics.regular_line + spacing.title_gap + metrics.small_line +
+                              2 * row_padding_of(building);
     switch (form) {
     case RowForm::compact:
-        return metrics.short_list_row_height;
+        return std::max({metrics.short_list_row_height, metrics.row_height, two_lines});
     case RowForm::regular:
-        return metrics.list_row_height;
+        return std::max(two_lines, metrics.row_height);
     case RowForm::large:
-        // The title's line, two lines under it and the rows above the title.
-        return metrics.list_row_line_top + 2 * metrics.small_line + metrics.list_row_title_top;
+        // The title's line, a line under it and the tags under that.
+        return std::max(two_lines + spacing.tags_gap + spacing.tag_height, metrics.row_height);
     }
-    return metrics.list_row_height;
+    return metrics.row_height;
 }
 
 /// Returns the columns a row's chip line may use, as the kit's row draws it.
@@ -875,7 +1195,7 @@ int32_t chip_line_room(
     if (look.chip.has_value()) {
         const int32_t used = stacked || look.chip->icon.has_value()
                                  ? metrics.state_icon_side
-                                 : kit::chip_width(*building.fonts, *look.chip);
+                                 : tag_width(building, *look.chip);
         right = row_width - inset - used - metrics.list_row_gap;
     } else if (look.maker.has_value()) {
         right = row_width - inset - metrics.state_icon_side - metrics.list_row_gap;
@@ -901,15 +1221,42 @@ int32_t chip_line_room(
 /// @param room the columns the line may use
 /// @return true when every chip fits
 bool chips_fit(const Building& building, const std::vector<kit::ChipLook>& chips, int32_t room) {
-    const int32_t gap = kit::compact_metrics.chip_gap;
+    const int32_t gap = row_spacing(building).tag_gap;
     int32_t left = 0;
     for (const kit::ChipLook& chip : chips) {
-        const int32_t width = kit::chip_width(*building.fonts, chip);
+        const int32_t width = tag_width(building, chip);
         if (left + width > room)
             return false;
         left += width + gap;
     }
     return true;
+}
+
+/// Returns how many lines a chip row takes when a chip that does not fit wraps.
+///
+/// A chip wider than the line takes a line of its own and is still counted,
+/// so the row can grow for it. No chips take no line.
+///
+/// @param building the layout
+/// @param chips the chips, in the order they are drawn
+/// @param room the columns one line may use
+/// @return the lines
+int32_t
+chip_lines_in(const Building& building, const std::vector<kit::ChipLook>& chips, int32_t room) {
+    if (chips.empty())
+        return 0;
+    const int32_t gap = row_spacing(building).tag_gap;
+    int32_t lines = 1;
+    int32_t left = 0;
+    for (const kit::ChipLook& chip : chips) {
+        const int32_t width = tag_width(building, chip);
+        if (left > 0 && left + width > room) {
+            ++lines;
+            left = 0;
+        }
+        left += width + gap;
+    }
+    return lines;
 }
 
 /// Returns a mutator's state chip, drawn in the lock colour.
@@ -921,6 +1268,82 @@ kit::ChipLook state_chip(std::string text) {
     chip.text = std::move(text);
     chip.state = kit::ChipState::update;
     return chip;
+}
+
+/// Returns a tag chip: quiet, outlined, its words in the hint colour.
+///
+/// @param text the chip's words, looked up
+/// @return the chip
+kit::ChipLook tag_chip(std::string text) {
+    kit::ChipLook chip;
+    chip.text = std::move(text);
+    chip.state = kit::ChipState::tag;
+    return chip;
+}
+
+/// Joins two pieces with a space. An empty piece is left out.
+///
+/// @param left the piece on the left
+/// @param right the piece on the right
+/// @return the joined text
+std::string joined_line(std::string_view left, std::string_view right) {
+    if (left.empty())
+        return std::string(right);
+    if (right.empty())
+        return std::string(left);
+    std::string text;
+    text.reserve(left.size() + right.size() + 1);
+    text.append(left);
+    text.push_back(' ');
+    text.append(right);
+    return text;
+}
+
+/// Returns a Compact key layout's one line under its name.
+///
+/// The summary stays. "Made for {mod}" and the own-changes count share that
+/// line. A tag's word follows only while the line still holds it, and the
+/// tags are the ones left off, as a chip line drops them.
+///
+/// @param building the layout
+/// @param summary the summary; empty when the row has none
+/// @param made "Made for {mod}"; empty when the layout is not made for this mod
+/// @param own the own-changes line; empty when the player has none
+/// @param tags the tag words, in the order they would be drawn
+/// @param room the columns the line may use
+/// @return the line
+std::string compact_key_line(
+    const Building& building,
+    std::string summary,
+    std::string_view made,
+    std::string_view own,
+    const std::vector<std::string>& tags,
+    int32_t room
+) {
+    const auto text_width = [&](std::string_view text) {
+        return width_of(building, kit::FontRole::small, text);
+    };
+    const std::string notes = joined_line(made, own);
+    std::string line = std::move(summary);
+    if (!notes.empty()) {
+        const int32_t notes_width = text_width(std::string(" ") + notes);
+        if (line.empty() || notes_width >= room) {
+            line = notes;
+        } else {
+            const int32_t head_room = room - notes_width;
+            if (text_width(line) > head_room)
+                line = cut(building, kit::FontRole::small, line, head_room);
+            const std::string both = joined_line(line, notes);
+            line = text_width(both) <= room ? both : notes;
+        }
+    }
+    for (const std::string& tag : tags) {
+        const std::string trial = joined_line(line, tag);
+        if (text_width(trial) > room)
+            break;
+        line = trial;
+    }
+    return line;
 }
 
 /// Returns what an entry's row shows.
@@ -973,7 +1396,7 @@ kit::ListRowLook row_look(
                 }
             }
         }
-        if (named) {
+        if (named && entry.id.kind != Kind::key_layout) {
             look.lines.push_back(lines.row);
             return look;
         }
@@ -995,25 +1418,63 @@ kit::ListRowLook row_look(
                 words::row_from_registry,
                 {{"line", line}, {"registry", entry.registry_name}}
             );
+        if (entry.id.kind == Kind::key_layout) {
+            // One line under the name: the summary, then Made for and the
+            // own-changes count on that same line. The row is not tall
+            // enough for a chip line, so a tag's word follows only while
+            // the line holds it.
+            std::string about;
+            if (named)
+                about = lines.row;
+            else
+                about = std::string(entry_summary(entry));
+            if (about.empty())
+                about = line;
+            const std::string made = layout_made_for_line(library, entry);
+            const KeyLayoutFacts* facts = key_facts(entry);
+            const std::string own =
+                own_changes_line(facts != nullptr ? facts->own_changes : 0, library.text);
+            std::vector<std::string> tag_words;
+            if (const std::vector<std::string>* tags = shown_tags(entry)) {
+                tag_words.reserve(tags->size());
+                for (const std::string& tag : *tags)
+                    tag_words.emplace_back(tag_caption(library, tag, true));
+            }
+            const int32_t room = chip_line_room(building, look, row_width, row_height);
+            line = compact_key_line(building, std::move(about), made, own, tag_words, room);
+        }
         look.lines.push_back(std::move(line));
         return look;
     }
     look.by = byline(entry, library.text);
+    // A key layout installed from its own file has no listing: its row says
+    // what it does and who made it from its manifest, as Compact's line does.
+    if (entry.id.kind == Kind::key_layout && look.by.empty() && entry.installed != nullptr &&
+        !entry.installed->author.empty() && !is_built_in_layout(entry.id))
+        look.by = filled(library.text, words::byline, {{"author", entry.installed->author}});
     if (named)
         look.lines.push_back(lines.row);
     else if (entry.listing != nullptr && !entry.listing->summary.empty())
         look.lines.push_back(entry.listing->summary);
+    else if (entry.id.kind == Kind::key_layout && !entry_summary(entry).empty())
+        look.lines.push_back(std::string(entry_summary(entry)));
     else if (
-        is_base_game(entry.id) || is_built_in_language(entry.id) || is_built_in_brain(entry.id)
+        is_base_game(entry.id) || is_built_in_language(entry.id) || is_built_in_brain(entry.id) ||
+        is_built_in_layout(entry.id)
     ) {
         const std::string_view about = entry_summary(entry);
         if (!about.empty())
             look.lines.push_back(std::string(about));
     }
-    if (!version.empty())
-        look.aside.push_back(version);
-    if (!size.empty())
-        look.aside.push_back(size);
+    // A key layout's row says what it does and its one state; its version
+    // and size are in its details. OA default's chip says Built in, as a
+    // built-in language's does.
+    if (entry.id.kind != Kind::key_layout) {
+        if (!version.empty())
+            look.aside.push_back(version);
+        if (!size.empty())
+            look.aside.push_back(size);
+    }
     if (form == RowForm::large && entry.id.kind == Kind::brain) {
         // Default, then Full awareness, then the tags, then why it does not
         // fit. When the line cannot hold them, the tags are the ones dropped.
@@ -1033,12 +1494,8 @@ kit::ListRowLook row_look(
         }
         std::vector<kit::ChipLook> labels;
         if (facts != nullptr) {
-            for (const std::string& tag : facts->tags) {
-                kit::ChipLook chip;
-                chip.text = std::string(brain_tag_label(tag, library.text));
-                chip.state = kit::ChipState::filter;
-                labels.push_back(std::move(chip));
-            }
+            for (const std::string& tag : facts->tags)
+                labels.push_back(tag_chip(std::string(brain_tag_label(tag, library.text))));
         }
         std::vector<kit::ChipLook> unfit;
         if (entry.not_compatible && facts != nullptr) {
@@ -1057,15 +1514,41 @@ kit::ListRowLook row_look(
             look.tags.insert(look.tags.end(), unfit.begin(), unfit.end());
             look.tags.insert(look.tags.end(), labels.begin(), labels.end());
         }
+    } else if (entry.id.kind == Kind::key_layout) {
+        // The summary is the line under the name. Made for, the own-changes
+        // count and the tags are chips under that, at Regular and Large.
+        // Made for is this chip and not a line as well. A chip that does not
+        // fit the line wraps under it, so the order stays and none is dropped.
+        const std::string made = layout_made_for_line(library, entry);
+        std::string own;
+        if (const KeyLayoutFacts* facts = key_facts(entry);
+            facts != nullptr && facts->own_changes > 0)
+            own = facts->own_changes == 1 ? std::string(shown(library.text, words::own_count_one))
+                                          : filled(
+                                                library.text,
+                                                words::own_count_many,
+                                                {{"count", std::to_string(facts->own_changes)}}
+                                            );
+        std::vector<kit::ChipLook> kept;
+        if (!made.empty())
+            kept.push_back(tag_chip(made));
+        if (!own.empty())
+            kept.push_back(state_chip(std::move(own)));
+        std::vector<kit::ChipLook> labels;
+        if (const std::vector<std::string>* tags = shown_tags(entry)) {
+            labels.reserve(tags->size());
+            for (const std::string& tag : *tags)
+                labels.push_back(tag_chip(std::string(tag_caption(library, tag, true))));
+        }
+        kept.insert(kept.end(), labels.begin(), labels.end());
+        look.tags = std::move(kept);
     } else if (form == RowForm::large) {
         std::vector<kit::ChipLook> labels;
         if (const std::vector<std::string>* tags = shown_tags(entry)) {
-            for (const std::string& tag : *tags) {
-                kit::ChipLook chip;
-                chip.text = std::string(tag_caption(library, tag, entry.id.kind == Kind::mutator));
-                chip.state = kit::ChipState::filter;
-                labels.push_back(std::move(chip));
-            }
+            for (const std::string& tag : *tags)
+                labels.push_back(
+                    tag_chip(std::string(tag_caption(library, tag, entry.id.kind == Kind::mutator)))
+                );
         }
         if (entry.id.kind != Kind::mutator) {
             look.tags = std::move(labels);
@@ -1132,6 +1615,7 @@ void add_header(
 
     kit::HeaderLook look;
     look.width = window.width;
+    look.height = window.header_height;
     look.tracking = tracking;
     look.right_inset = right_inset;
     look.title = std::string(title);
@@ -1150,7 +1634,7 @@ void add_header(
     );
     look.version = cut(building, kit::FontRole::small, right, version_room);
     look.version_width = width_of(building, kit::FontRole::small, look.version);
-    const int32_t header_rule = compact.edge + compact.header_height;
+    const int32_t header_rule = compact.edge + window.header_height;
     add_item(building.list, kit::Role::header, {0, 0, window.width, header_rule + 1}, {}).look =
         std::move(look);
 }
@@ -1164,7 +1648,7 @@ kit::Rect header_close_rect(const Window& window) {
     const int32_t side = compact.button_height;
     return {
         window.width - compact.edge - compact.padding - side,
-        compact.edge + (compact.header_height - side) / 2,
+        compact.edge + (window.header_height - side) / 2,
         side,
         side,
     };
@@ -1280,7 +1764,7 @@ void add_offline_mark(Building& building, const Window& window) {
         icon_left - compact.header_gap - mark_width,
         compact.edge,
         std::max(mark_width, int32_t{0}),
-        compact.header_height,
+        window.header_height,
     };
     add_text(building, kit::FontRole::small, mark, box, kit::Align::right, kit::colour::lock, {});
 }
@@ -1322,183 +1806,6 @@ std::string tab_caption(const Library& library, Tab tab, bool compact) {
     );
 }
 
-/// Returns the strip's look: each tab's caption and reading, the open tab,
-/// the hovered one and the scroll asked for. The counts the kit would draw
-/// beside a caption stay unset, so the brackets are the only digits. The
-/// open tab is kept wholly in view until the player scrolls the strip, and
-/// again once another tab opens.
-///
-/// @param building the layout
-/// @return the look
-kit::TabsLook tabs_look(const Building& building) {
-    const Library& library = *building.library;
-    const ScreenState& state = *building.state;
-    kit::TabsLook look;
-    look.count_style = kit::TabCountStyle::words;
-    look.scroll = state.tab_scroll;
-    look.keep_selected_in_view = !state.tab_scrolled || state.tab_laid_out != library.tab;
-    look.left_arrow_hovered = hovered(building, controls::tab_scroll_left);
-    look.right_arrow_hovered = hovered(building, controls::tab_scroll_right);
-    for (std::size_t index = 0; index < tab_order.size(); ++index) {
-        const Tab tab = tab_order[index];
-        const std::string caption = tab_caption(library, tab, false);
-        look.captions.push_back(caption);
-        look.counts.push_back(-1);
-        look.count_amber.push_back(0);
-        if (tab == Tab::active)
-            look.readings.emplace_back();
-        else
-            look.readings.push_back(caption);
-        if (tab == library.tab)
-            look.selected = index;
-        if (hovered(building, controls::tab_control(tab)))
-            look.hovered = index;
-    }
-    return look;
-}
-
-/// Tells whether every tab fits a strip of a width, with no scroll.
-///
-/// @param building the layout
-/// @param width the strip's width, in points
-/// @return true when the tabs fit
-bool tabs_fit(const Building& building, int32_t width) {
-    const kit::Rect strip{0, 0, width, building.metrics->tab_height};
-    return !kit::place_tabs(*building.fonts, strip, tabs_look(building)).overflows;
-}
-
-/// Returns the place of the Updates tab in the strip.
-///
-/// @return its index
-std::size_t updates_tab_index() {
-    for (std::size_t index = 0; index < tab_order.size(); ++index)
-        if (tab_order[index] == Tab::updates)
-            return index;
-    return tab_order.size();
-}
-
-/// Tells whether Updates lies wholly in the strip when the scroll is at the
-/// start, which is where the Library opens on Active.
-///
-/// @param building the layout
-/// @param strip the strip
-/// @param look the captions and the gaps
-/// @return true when Updates is wholly shown
-bool updates_wholly_shown(
-    const Building& building, const kit::Rect& strip, const kit::TabsLook& look
-) {
-    kit::TabsLook opening = look;
-    opening.scroll = 0;
-    opening.selected = 0;
-    const kit::TabStrip placed = kit::place_tabs(*building.fonts, strip, opening);
-    const std::size_t updates = updates_tab_index();
-    return updates < placed.tabs.size() && kit::wholly_in(placed.tabs[updates], placed.view);
-}
-
-/// Writes Compact's short names into a strip that already holds the full ones.
-///
-/// @param library the model
-/// @param[in,out] look the captions and their readings
-void use_compact_tab_names(const Library& library, kit::TabsLook& look) {
-    for (std::size_t index = 0; index < tab_order.size() && index < look.captions.size(); ++index) {
-        const std::string caption = tab_caption(library, tab_order[index], true);
-        look.captions[index] = caption;
-        if (index >= look.readings.size())
-            continue;
-        if (tab_order[index] == Tab::active)
-            look.readings[index].clear();
-        else
-            look.readings[index] = caption;
-    }
-}
-
-/// Closes the gaps around the names until Updates lies wholly in the opening
-/// view. The largest padding that does it is kept, and the theme's tracking
-/// while any padding can keep it. Compact's short names stand in only when
-/// the full names cannot, however far the gaps close.
-///
-/// @param building the layout
-/// @param strip the strip
-/// @param[in,out] look the captions, the open tab and the gaps
-void keep_updates_in_view(Building& building, const kit::Rect& strip, kit::TabsLook& look) {
-    if (updates_wholly_shown(building, strip, look))
-        return;
-    const int32_t theme_pad = building.metrics->tab_padding;
-    const int32_t theme_track = building.metrics->tab_tracking;
-    const auto tighten = [&](int32_t letter_gap) {
-        for (int32_t side = theme_pad; side >= 0; --side) {
-            look.side_padding = side;
-            look.tracking = letter_gap;
-            if (updates_wholly_shown(building, strip, look))
-                return true;
-        }
-        return false;
-    };
-    if (tighten(theme_track))
-        return;
-    if (theme_track != 0 && tighten(0))
-        return;
-    use_compact_tab_names(*building.library, look);
-    if (tighten(theme_track))
-        return;
-    if (theme_track != 0 && tighten(0))
-        return;
-    look.side_padding = 0;
-    look.tracking = 0;
-}
-
-/// Appends the strip of tabs. Each tab after Active shows its count in
-/// brackets after its title, in that title's font and colour. Active has
-/// no count. The names are the full ones while those keep Updates wholly in
-/// the view the strip opens on. When they do not fit, the strip scrolls
-/// sideways: an arrow at an end moves it by one tab, and a drag moves it
-/// with the pointer. The scroll is written back, clamped to the strip, and
-/// so the open tab stays wholly in view until the player scrolls it.
-///
-/// @param[in,out] building the layout
-/// @param strip the strip
-void add_tabs(Building& building, const kit::Rect& strip) {
-    kit::TabsLook look = tabs_look(building);
-    keep_updates_in_view(building, strip, look);
-    std::array<kit::ControlId, tab_order.size()> ids{};
-    std::array<std::string, tab_order.size()> names{};
-    for (std::size_t index = 0; index < tab_order.size(); ++index) {
-        ids[index] = controls::tab_control(tab_order[index]);
-        names[index] = unique_name(building, named("tab." + std::string(tab_words[index])));
-    }
-    const std::string left_name = unique_name(building, named("tab.scroll-left"));
-    const std::string right_name = unique_name(building, named("tab.scroll-right"));
-    const std::size_t before = building.list.controls.size();
-    const std::size_t top_before = building.top.size();
-    kit::add_tabs(
-        building.list,
-        *building.fonts,
-        strip,
-        look,
-        ids,
-        names,
-        controls::tab_scroll_left,
-        left_name,
-        controls::tab_scroll_right,
-        right_name
-    );
-    for (auto cursor = building.list.items.rbegin(); cursor != building.list.items.rend();
-         ++cursor) {
-        if (cursor->role != kit::Role::tabs)
-            continue;
-        if (const auto* stored = std::get_if<kit::TabsLook>(&cursor->look))
-            building.state->tab_scroll = stored->scroll;
-        break;
-    }
-    if (building.state->tab_laid_out != building.library->tab) {
-        building.state->tab_laid_out = building.library->tab;
-        building.state->tab_scrolled = false;
-    }
-    move_controls(building.list, before, building.top);
-    for (std::size_t index = top_before; index < building.top.size(); ++index)
-        tab_stop(building, building.top[index]);
-}
-
 /// Returns the search field's words while it is empty, for the open tab.
 ///
 /// @param library the model
@@ -1516,6 +1823,8 @@ std::string_view placeholder_of(const Library& library) {
         return shown(library.text, words::search_mutators);
     case Tab::brains:
         return shown(library.text, words::search_brains);
+    case Tab::keys:
+        return shown(library.text, words::search_keys);
     case Tab::languages:
         return shown(library.text, words::search_languages);
     case Tab::updates:
@@ -1629,7 +1938,7 @@ void add_updates_line(Building& building, const kit::Rect& row) {
     const kit::Metrics& metrics = *building.metrics;
     const std::string_view caption = action_text(Action::update_all, library.text);
     const int32_t width = std::min(button_width(building, caption), row.width);
-    const kit::Rect button{row.x + row.width - width, row.y, width, metrics.button_height};
+    const kit::Rect button{row.x + row.width - width, row.y, width, row.height};
     const std::size_t shown_count = updates_shown(library);
     const std::string count = filled(
         library.text,
@@ -1637,7 +1946,7 @@ void add_updates_line(Building& building, const kit::Rect& row) {
         {{"count", std::to_string(shown_count)}}
     );
     const int32_t count_room = std::max(button.x - metrics.label_gap - row.x, int32_t{0});
-    const kit::Rect words_box{row.x, row.y, count_room, metrics.button_height};
+    const kit::Rect words_box{row.x, row.y, count_room, row.height};
     add_text(
         building,
         kit::FontRole::small,
@@ -1652,7 +1961,7 @@ void add_updates_line(Building& building, const kit::Rect& row) {
         building.top,
         button,
         caption,
-        true,
+        false,
         update_count(library) > 0,
         controls::update_all,
         named("action.update-all"),
@@ -1661,250 +1970,537 @@ void add_updates_line(Building& building, const kit::Rect& row) {
     );
 }
 
-/// Appends Compact's search row: the search field and the filter drop-down.
+/// Settings' section list, copied from the settings dialog's NavMetrics.
+/// The Library does not include that module. Compact, Regular, then Large:
+/// an entry's height, the gap under it, the rows above and below a divider,
+/// the rows kept above the first entry, and the icon's column, side and the
+/// caption's column.
+struct SectionNav {
+    int32_t entry_height{};
+    int32_t entry_gap{};
+    int32_t rule_margin{};
+    int32_t margin{};
+    int32_t icon_left{};
+    int32_t icon_side{};
+    int32_t text_left{};
+};
+
+/// The columns an entry keeps clear of its right, as the settings list does.
+constexpr int32_t section_text_margin = 4;
+/// The columns between the list's sides and a rule between its groups.
+constexpr int32_t section_divider_inset = 4;
+/// How far a filter or a tag sits in from a tab, so the lime bar moves with it.
+constexpr int32_t section_filter_indent = 12;
+/// The least the list keeps when the nav is folded back on a narrow window.
+constexpr int32_t least_list_width = 96;
+/// The details pane keeps this much at Regular and Large, and the list gives
+/// way, so an action's words are not cut.
+constexpr int32_t details_floor = 280;
+
+/// Returns the section list's sizes at a class.
 ///
-/// @param[in,out] building the layout
-/// @param row the row
-void add_compact_search_row(Building& building, const kit::Rect& row) {
-    const Library& library = *building.library;
-    const kit::Metrics& metrics = *building.metrics;
-    const int32_t field_width = std::max(row.width - compact_filter_room, int32_t{0});
-    add_search(building, {row.x, row.y, field_width, metrics.field_height});
-    std::vector<controls::MenuItem> items = controls::menu_items(library, MenuKind::filter, {});
-    const int32_t chosen = controls::chosen_item(library, MenuKind::filter, items);
-    const std::string caption =
-        chosen >= 0 ? items[static_cast<std::size_t>(chosen)].caption : std::string();
-    add_drop_down(
-        building,
-        building.top,
-        {row.x + field_width + metrics.button_gap,
-         row.y,
-         compact_filter_room - metrics.button_gap,
-         metrics.regular_line},
-        MenuKind::filter,
-        caption,
-        std::move(items),
-        controls::filter_menu,
-        named("filter")
+/// @param size_class the class
+/// @return the sizes
+SectionNav section_nav_of(kit::SizeClass size_class) {
+    static constexpr std::array<SectionNav, 3> metrics{{
+        {19, 0, 3, 6, 7, 9, 19},
+        {25, 1, 3, 6, 12, 14, 33},
+        {32, 1, 5, 10, 14, 16, 38},
+    }};
+    const auto index = static_cast<std::size_t>(size_class);
+    return index < metrics.size() ? metrics[index] : metrics.back();
+}
+
+/// Drops the icons when the widest tab's word does not fit beside them, as
+/// Settings drops its section icons. The names then start at the icon's column.
+///
+/// @param[in,out] nav the sizes
+/// @param building the layout
+/// @param entry_width an entry's width
+void fit_section_icons(SectionNav& nav, const Building& building, int32_t entry_width) {
+    int32_t widest = 0;
+    for (const Tab tab : tab_order) {
+        const std::string word(tab_text(tab, false, building.library->text));
+        widest = std::max(widest, width_of(building, kit::FontRole::regular, word));
+    }
+    const int32_t room = entry_width - nav.text_left - section_text_margin;
+    if (widest > room) {
+        nav.text_left = nav.icon_left;
+        nav.icon_side = 0;
+    }
+}
+
+/// Returns the tag icon a tab draws. Keys and Registries use a mark instead.
+///
+/// @param tab the tab
+/// @return the icon; none for Keys and Registries
+std::optional<kit::TagIcon> tab_tag_icon(Tab tab) {
+    switch (tab) {
+    case Tab::active:
+        return kit::TagIcon::commanders;
+    case Tab::mods:
+        return kit::TagIcon::new_units;
+    case Tab::maps:
+        return kit::TagIcon::maps;
+    case Tab::mutators:
+        return kit::TagIcon::gameplay;
+    case Tab::brains:
+        return kit::TagIcon::ai;
+    case Tab::languages:
+        return kit::TagIcon::statistics;
+    case Tab::updates:
+        return kit::TagIcon::economy;
+    case Tab::keys:
+    case Tab::registries:
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+/// Returns the mark a tab draws beside its name when the icons show.
+///
+/// @param tab the tab
+/// @return the mark; none when the tab uses a tag icon
+std::optional<kit::Mark> tab_mark(Tab tab) {
+    if (tab == Tab::keys)
+        return kit::Mark::key;
+    if (tab == Tab::registries)
+        return kit::Mark::padlock;
+    return std::nullopt;
+}
+
+/// Returns a heading in capitals. Only ASCII letters change, so a translated
+/// title that is already capitals is left as it is.
+///
+/// @param title the open tab's name
+/// @return the heading
+std::string heading_of(std::string_view title) {
+    std::string heading(title);
+    for (char& letter : heading) {
+        if (letter >= 'a' && letter <= 'z')
+            letter = static_cast<char>(letter - 'a' + 'A');
+    }
+    return heading;
+}
+
+/// Returns the word that says which entry the nav shows as chosen: the tab,
+/// the filter and the tag.
+///
+/// @param library the model
+/// @return the word
+std::string filter_choice_word(const Library& library) {
+    return std::to_string(static_cast<int32_t>(library.tab)) + "/" +
+           std::to_string(static_cast<int32_t>(shown_filter(library))) + "/" + library.tag;
+}
+
+/// Returns the offset nearest another that shows a part whole, or its top
+/// when it is taller than the view.
+///
+/// @param offset the offset now
+/// @param top the part's top when the nav is not scrolled
+/// @param height the part's height
+/// @param view_height the view's height
+/// @param limit the greatest offset
+/// @return the offset
+int32_t
+shown_offset(int32_t offset, int32_t top, int32_t height, int32_t view_height, int32_t limit) {
+    const int32_t lowest = top + height - view_height;
+    return std::clamp(
+        std::min(std::max(offset, lowest), top), int32_t{0}, std::max(limit, int32_t{0})
     );
 }
 
-/// Appends Regular's pills: All, New, Installed and Updates with their
-/// counts, the tab's tags while they fit, and TAGS ▾ with the rest. The
-/// chosen one is active, the others inactive. Large's column is unchanged.
+/// One row of the section list, placed from the top of its content.
+struct NavPart {
+    bool heading{};                     ///< TAGS or WORLD, not an entry
+    int32_t top{};                      ///< its top, from the content's top
+    int32_t height{};                   ///< its height
+    int32_t indent{};                   ///< columns in from a tab
+    std::string word{};                 ///< the word that is drawn
+    std::string count{};                ///< the digits after it; empty draws none
+    std::string reading{};              ///< the control's text, with the count in brackets
+    bool selected{};                    ///< the open tab, the chosen filter or the chosen tag
+    kit::ControlId id{kit::no_control}; ///< an entry's control
+    std::string name{};                 ///< an entry's name
+    std::optional<kit::TagIcon> tag{};  ///< an entry's tag icon
+    std::optional<kit::Mark> mark{};    ///< a tab's mark, when it has no tag icon
+    bool in_filters{};                  ///< a filter or a tag: the pane's scroll group
+};
+
+/// Appends the section list down the left: the tabs, then, under a divider,
+/// the open tab's filters and tags. The whole column scrolls. The tabs are
+/// stops here; the filters and tags are stopped once the search has been,
+/// so Tab's order stays tabs, search, filters.
 ///
 /// @param[in,out] building the layout
-/// @param row the row
-void add_chip_row(Building& building, const kit::Rect& row) {
+/// @param column the list's face
+void add_section_nav(Building& building, const kit::Rect& column) {
     const Library& library = *building.library;
+    const ScreenState& state = *building.state;
     const kit::Metrics& metrics = *building.metrics;
-    const int32_t height = kit::pill_height();
-    const int32_t pill_top = row.y + (row.height - height) / 2;
-    int32_t left = row.x;
-    const auto add_one = [&](kit::PillLook look, kit::ControlId id, std::string name) {
-        look.hovered = hovered(building, id);
-        look.focused = focused(building, id);
-        const int32_t width = kit::pill_width(*building.fonts, look);
-        const kit::Rect rect{left, pill_top, width, height};
-        const std::size_t before = building.list.controls.size();
-        kit::add_pill(building.list, rect, look, id, unique_name(building, std::move(name)));
-        move_controls(building.list, before, building.top);
-        tab_stop(building, building.top.back());
-        left += width + metrics.chip_gap;
+    SectionNav nav = section_nav_of(building.size_class);
+    // Settings' list_item_left is edge + 6. The face starts on the window's
+    // edge, so an entry starts six columns in and keeps six clear of the rule.
+    const int32_t entry_width = std::max(column.width - 12, int32_t{0});
+    const int32_t item_left = column.x + 6;
+
+    kit::NavLook face;
+    face.area = column;
+    face.rule_column = column.x + column.width - 1;
+    add_item(building.list, kit::Role::nav, column, {}).look = face;
+
+    const kit::Rect view{
+        column.x,
+        column.y + nav.margin,
+        column.width,
+        std::max(column.height - 2 * nav.margin, int32_t{0}),
     };
-    for (std::size_t index = 0; index < filter_order.size(); ++index) {
-        kit::PillLook look;
-        look.text = filter_caption(library, filter_order[index]);
-        look.state = shown_filter(library) == filter_order[index] ? kit::PillState::active
-                                                                  : kit::PillState::inactive;
-        add_one(
-            look,
-            controls::filter_control(filter_order[index]),
-            named("filter." + std::string(filter_words[index]))
-        );
-    }
-    const std::vector<std::pair<std::string, std::size_t>> tags = tags_in_tab(library);
-    const bool mutator_tab = library.tab == Tab::mutators;
-    const bool labelled = mutator_tab || library.tab == Tab::brains;
-    std::vector<int32_t> widths;
-    int32_t total = 0;
-    for (const auto& [tag, count] : tags) {
-        kit::PillLook look;
-        look.text = std::string(tag_caption(library, tag, labelled));
-        if (mutator_tab)
-            look.tag = kit::tag_icon_of(tag);
-        widths.push_back(kit::pill_width(*building.fonts, look));
-        total += widths.back() + metrics.chip_gap;
-    }
-    const int32_t row_right = row.x + row.width;
-    std::vector<bool> tag_shown(tags.size(), true);
-    int32_t limit = row_right;
-    if (left + total - metrics.chip_gap > row_right) {
-        // Not every tag fits: TAGS ▾ takes the row's end and holds the rest.
-        std::vector<bool> none(tags.size(), false);
-        const std::vector<controls::MenuItem> every =
-            controls::menu_items(library, MenuKind::tags, none);
-        limit = row_right -
-                drop_down_width(building, shown(library.text, words::tags_menu), every) -
-                metrics.chip_gap;
-    }
-    for (std::size_t index = 0; index < tags.size(); ++index) {
-        if (left + widths[index] > limit) {
-            // The tags keep their order: once one does not fit, the rest go to TAGS ▾.
-            std::fill(
-                tag_shown.begin() + static_cast<std::ptrdiff_t>(index), tag_shown.end(), false
-            );
-            break;
-        }
-        kit::PillLook look;
-        look.text = std::string(tag_caption(library, tags[index].first, labelled));
-        if (mutator_tab)
-            look.tag = kit::tag_icon_of(tags[index].first);
-        look.state =
-            library.tag == tags[index].first ? kit::PillState::active : kit::PillState::inactive;
-        add_one(
-            look,
-            controls::first_tag + static_cast<kit::ControlId>(index),
-            named("tag." + name_word(tags[index].first))
-        );
-    }
-    if (std::find(tag_shown.begin(), tag_shown.end(), false) == tag_shown.end())
-        return;
-    std::vector<controls::MenuItem> items =
-        controls::menu_items(library, MenuKind::tags, tag_shown);
-    const std::string_view caption = shown(library.text, words::tags_menu);
-    const int32_t width = std::min(drop_down_width(building, caption, items), row_right - left);
-    add_drop_down(
-        building,
-        building.top,
-        {row_right - width,
-         row.y + (row.height - metrics.regular_line) / 2,
-         width,
-         metrics.regular_line},
-        MenuKind::tags,
-        caption,
-        std::move(items),
-        controls::tags_menu,
-        named("tags")
-    );
-}
 
-/// Appends Large's filter pane: a nav list of All, New, Installed and
-/// Updates with their counts, the heading TAGS and a nav list of the tab's
-/// tags with their counts, TAGS ▾ holding those that do not fit.
-///
-/// @param[in,out] building the layout
-/// @param pane the pane
-void add_filter_pane(Building& building, const kit::Rect& pane) {
-    const Library& library = *building.library;
-    const kit::Metrics& metrics = *building.metrics;
-    kit::NavLook nav;
-    nav.area = pane;
-    nav.rule_column = pane.x + pane.width - 1;
-    const int32_t inset = metrics.paragraph_gap;
-    const int32_t entry_left = pane.x + inset;
-    const int32_t entry_width = pane.width - 2 * inset;
-    // The kit's nav draws an entry's caption from 12 columns in, and keeps 4 clear at its right.
-    const int32_t caption_room =
-        entry_width - kit::compact_metrics.padding - kit::compact_metrics.list_row_inset;
-    const int32_t entry_height = metrics.regular_line + metrics.list_row_inset;
-    const int32_t step = entry_height + metrics.hairline;
-    int32_t top = pane.y + inset;
+    std::vector<NavPart> parts;
+    int32_t cursor = 0;
+    const auto push = [&](NavPart part) {
+        part.top = cursor;
+        parts.push_back(std::move(part));
+        cursor += parts.back().height;
+    };
+    for (std::size_t index = 0; index < tab_order.size(); ++index) {
+        const Tab tab = tab_order[index];
+        NavPart part;
+        part.height = nav.entry_height;
+        part.word = std::string(tab_text(tab, false, library.text));
+        part.reading = tab_caption(library, tab, false);
+        if (tab != Tab::active)
+            part.count = std::to_string(tab_count(library, tab));
+        part.selected = tab == library.tab;
+        part.id = controls::tab_control(tab);
+        part.name = named("tab." + std::string(tab_words[index]));
+        part.tag = tab_tag_icon(tab);
+        part.mark = tab_mark(tab);
+        push(std::move(part));
+        if (index + 1 < tab_order.size())
+            cursor += nav.entry_gap;
+    }
+
+    const bool catalogue = library.tab != Tab::active && library.tab != Tab::registries;
+    int32_t divider_top = -1;
+    if (catalogue) {
+        cursor += nav.rule_margin;
+        divider_top = cursor;
+        cursor += 1 + nav.rule_margin;
+        for (std::size_t index = 0; index < filter_order.size(); ++index) {
+            const Filter filter = filter_order[index];
+            NavPart part;
+            part.height = nav.entry_height;
+            part.indent = section_filter_indent;
+            part.word = std::string(filter_text(filter, library.text));
+            part.count = std::to_string(filter_count(library, filter));
+            part.reading = filter_caption(library, filter);
+            part.selected = shown_filter(library) == filter;
+            part.id = controls::filter_control(filter);
+            part.name = named("filter." + std::string(filter_words[index]));
+            part.in_filters = true;
+            push(std::move(part));
+            cursor += nav.entry_gap;
+        }
+        const bool labelled =
+            library.tab == Tab::mutators || library.tab == Tab::brains || library.tab == Tab::keys;
+        const std::vector<std::pair<std::string, std::size_t>> tags = tags_in_tab(library);
+        bool tags_headed = false;
+        bool worlds_headed = false;
+        for (std::size_t index = 0; index < tags.size(); ++index) {
+            const std::string& tag = tags[index].first;
+            if (world_tag(tag) && !worlds_headed) {
+                cursor += metrics.paragraph_gap;
+                NavPart heading;
+                heading.heading = true;
+                heading.height = metrics.small_line;
+                heading.indent = section_filter_indent;
+                heading.word = std::string(shown(library.text, words::world_heading));
+                push(std::move(heading));
+                cursor += metrics.hint_gap;
+                worlds_headed = true;
+            } else if (!world_tag(tag) && !tags_headed) {
+                cursor += metrics.paragraph_gap;
+                NavPart heading;
+                heading.heading = true;
+                heading.height = metrics.small_line;
+                heading.indent = section_filter_indent;
+                heading.word = std::string(shown(library.text, words::tags_menu));
+                push(std::move(heading));
+                cursor += metrics.hint_gap;
+                tags_headed = true;
+            }
+            NavPart part;
+            part.height = nav.entry_height;
+            part.indent = section_filter_indent;
+            part.word = std::string(tag_caption(library, tag, labelled));
+            part.count = std::to_string(tags[index].second);
+            part.reading = filled(
+                library.text, words::tag_with_count, {{"tag", part.word}, {"count", part.count}}
+            );
+            part.selected = library.tag == tag;
+            part.id = controls::first_tag + static_cast<kit::ControlId>(index);
+            part.name = named("tag." + name_word(tag));
+            part.tag = library.tab == Tab::mutators ? kit::tag_icon_of(tag) : std::nullopt;
+            part.in_filters = true;
+            push(std::move(part));
+            cursor += nav.entry_gap;
+        }
+    }
+    const int32_t content_height = parts.empty() ? 0 : parts.back().top + parts.back().height;
+    const int32_t limit = kit::ScrollArea::limit_for(content_height, view.height);
+    const int32_t fitted_width =
+        limit > 0 ? std::max(
+                        entry_width - (metrics.scroll_thumb_width + 2 + 4 + metrics.button_gap),
+                        int32_t{0}
+                    )
+                  : entry_width;
+    fit_section_icons(nav, building, fitted_width);
+    const int32_t well_width = metrics.scroll_thumb_width + 2;
+    const kit::Rect well{view.x + view.width - well_width - 4, view.y, well_width, view.height};
+
+    const std::string choice = filter_choice_word(library);
+    const auto slash = choice.find('/');
+    const auto old_slash = state.filters_chosen.find('/');
+    const bool choice_changed = choice != state.filters_chosen;
+    // Empty is the first layout, not a change of tab: a tag already chosen,
+    // including one a fresh state opens on, is brought into the view. A later
+    // change of tab shows the open tab from the top.
+    const bool tab_changed = !state.filters_chosen.empty() && slash != std::string::npos &&
+                             old_slash != std::string::npos &&
+                             choice.compare(0, slash, state.filters_chosen, 0, old_slash) != 0;
+    if (choice_changed) {
+        if (tab_changed) {
+            for (const NavPart& part : parts) {
+                if (part.heading || part.in_filters || !part.selected)
+                    continue;
+                state.filters_scroll = shown_offset(0, part.top, part.height, view.height, limit);
+                break;
+            }
+        } else {
+            for (auto part_at = parts.rbegin(); part_at != parts.rend(); ++part_at) {
+                const NavPart& part = *part_at;
+                if (part.heading || !part.selected)
+                    continue;
+                state.filters_scroll =
+                    shown_offset(state.filters_scroll, part.top, part.height, view.height, limit);
+                break;
+            }
+        }
+        state.filters_chosen = choice;
+        state.filters_stop = kit::no_control;
+    }
+    const kit::ControlId focused_id = state.interaction.focused;
+    for (const NavPart& part : parts) {
+        if (part.heading || part.id != focused_id)
+            continue;
+        state.filters_scroll =
+            shown_offset(state.filters_scroll, part.top, part.height, view.height, limit);
+        break;
+    }
+    const int32_t offset = std::clamp(state.filters_scroll, int32_t{0}, limit);
+    state.filters_scroll = offset;
+
+    const auto room_for = [&](int32_t width, const NavPart& part) {
+        int32_t visual = width - nav.text_left - section_text_margin;
+        if (!part.count.empty()) {
+            const int32_t count_width = width_of(building, kit::FontRole::small, part.count);
+            const int32_t gap = width_of(building, kit::FontRole::small, " ");
+            const int32_t with_count = visual - count_width - gap;
+            if (with_count >= metrics.regular_line)
+                visual = with_count;
+        }
+        const int32_t check =
+            width - kit::compact_metrics.padding - kit::compact_metrics.list_row_inset;
+        return std::max(std::min(visual, check), int32_t{0});
+    };
+
+    kit::NavLook list_look;
+    if (divider_top >= 0) {
+        list_look.divider = kit::Rect{
+            item_left + section_divider_inset,
+            view.y - offset + divider_top,
+            std::max(entry_width - 2 * section_divider_inset, int32_t{0}),
+            1,
+        };
+    }
     std::vector<kit::ControlId> ids;
     std::vector<std::string> names;
-    const auto add_entry = [&](std::string caption,
-                               bool selected,
-                               kit::ControlId id,
-                               std::string name,
-                               std::optional<kit::TagIcon> tag = std::nullopt) {
+    std::vector<std::string> readings;
+    std::vector<NavPart> marks;
+    const int32_t scroll_right = limit > 0 ? well.x - metrics.button_gap : item_left + entry_width;
+    for (NavPart& part : parts) {
+        const int32_t row = view.y - offset + part.top;
+        const int32_t left = item_left + part.indent;
+        const int32_t width =
+            std::max(std::min(item_left + entry_width, scroll_right) - left, int32_t{0});
+        if (part.heading) {
+            int32_t room = width;
+            std::string drawn =
+                cut(building, kit::FontRole::small, part.word, std::max(room, int32_t{0}));
+            while (room > 0 &&
+                   kit::tracked_width(
+                       *building.fonts, kit::FontRole::small, drawn, metrics.heading_tracking
+                   ) > width) {
+                --room;
+                drawn = cut(building, kit::FontRole::small, part.word, room);
+            }
+            kit::Item& item =
+                add_item(building.list, kit::Role::heading, {left, row, width, part.height}, view);
+            item.text = drawn;
+            item.look = kit::HeadingLook{drawn};
+            continue;
+        }
         kit::NavEntry entry;
-        entry.rect = {entry_left, top, entry_width, entry_height};
-        // The kit draws a tag's icon in the caption's box and shifts the
-        // words by the icon and a gap. The fit check still uses the whole
-        // box, so the words are cut to what remains beside the icon.
-        int32_t room = caption_room;
-        if (tag.has_value()) {
-            const int32_t icon_side = std::max(kit::compact_metrics.regular_line - 4, int32_t{0});
-            const int32_t icon_shift = icon_side + kit::compact_metrics.list_row_gap;
-            room = std::max(room - icon_shift, int32_t{0});
-        }
-        entry.caption = cut(building, kit::FontRole::regular, caption, room);
-        entry.tag = tag;
-        entry.selected = selected;
-        entry.hovered = hovered(building, id) || building.state->interaction.pressed == id;
-        entry.focused = focused(building, id);
-        nav.entries.push_back(std::move(entry));
-        ids.push_back(id);
-        names.push_back(unique_name(building, std::move(name)));
-        top += step;
-    };
-    for (std::size_t index = 0; index < filter_order.size(); ++index)
-        add_entry(
-            filter_caption(library, filter_order[index]),
-            shown_filter(library) == filter_order[index],
-            controls::filter_control(filter_order[index]),
-            named("filter." + std::string(filter_words[index]))
-        );
-    const std::vector<std::pair<std::string, std::size_t>> tags = tags_in_tab(library);
-    std::optional<kit::Rect> heading;
-    std::vector<bool> tag_shown(tags.size(), false);
-    if (!tags.empty()) {
-        top += metrics.paragraph_gap;
-        heading = kit::Rect{entry_left, top, entry_width, metrics.small_line};
-        top += metrics.small_line + metrics.hint_gap;
-        const int32_t bottom = pane.y + pane.height - inset;
-        for (std::size_t index = 0; index < tags.size(); ++index) {
-            const bool last = index + 1 == tags.size();
-            // The last place left holds TAGS ▾ when tags remain after it.
-            const int32_t needed = last ? entry_height : step + metrics.regular_line;
-            if (top + needed > bottom)
-                break;
-            tag_shown[index] = true;
-            add_entry(
-                filled(
-                    library.text,
-                    words::tag_with_count,
-                    {{"tag",
-                      tag_caption(
-                          library,
-                          tags[index].first,
-                          library.tab == Tab::mutators || library.tab == Tab::brains
-                      )},
-                     {"count", std::to_string(tags[index].second)}}
-                ),
-                library.tag == tags[index].first,
-                controls::first_tag + static_cast<kit::ControlId>(index),
-                named("tag." + name_word(tags[index].first)),
-                library.tab == Tab::mutators ? kit::tag_icon_of(tags[index].first) : std::nullopt
-            );
-        }
+        entry.rect = {left, row, width, part.height};
+        entry.caption = cut(building, kit::FontRole::regular, part.word, room_for(width, part));
+        entry.count = part.count;
+        entry.icon_column = nav.icon_left;
+        entry.icon_side = nav.icon_side;
+        entry.text_column = nav.text_left;
+        if (nav.icon_side > 0)
+            entry.tag = part.tag;
+        entry.selected = part.selected;
+        entry.hovered =
+            hovered(building, part.id) || building.state->interaction.pressed == part.id;
+        entry.focused = focused(building, part.id);
+        list_look.entries.push_back(std::move(entry));
+        ids.push_back(part.id);
+        names.push_back(unique_name(building, std::move(part.name)));
+        readings.push_back(std::move(part.reading));
+        if (nav.icon_side > 0 && part.mark.has_value())
+            marks.push_back(part);
     }
+    const std::size_t first_item = building.list.items.size();
     const std::size_t before = building.list.controls.size();
-    if (nav.entries.empty())
-        add_item(building.list, kit::Role::nav, pane, {}).look = nav;
-    else
-        kit::add_nav(building.list, nav, ids, names);
+    const std::size_t first_control = building.top.size();
+    if (!list_look.entries.empty())
+        kit::add_nav(building.list, list_look, ids, names);
+    for (std::size_t index = first_item; index < building.list.items.size(); ++index) {
+        kit::Item& item = building.list.items[index];
+        item.clip = view;
+        // The entry draws its own focus ring. The item carries the control so
+        // the screen's ring is not drawn over that one.
+        const std::size_t entry = index - first_item;
+        if (entry < ids.size())
+            item.control = ids[entry];
+    }
     move_controls(building.list, before, building.top);
-    for (std::size_t index = building.top.size() - ids.size(); index < building.top.size(); ++index)
-        tab_stop(building, building.top[index]);
-    if (heading)
-        add_item(building.list, kit::Role::heading, *heading, {}).look =
-            kit::HeadingLook{std::string(shown(library.text, words::tags_menu))};
-    if (std::find(tag_shown.begin(), tag_shown.end(), false) == tag_shown.end())
-        return;
-    std::vector<controls::MenuItem> items =
-        controls::menu_items(library, MenuKind::tags, tag_shown);
-    const std::string_view caption = shown(library.text, words::tags_menu);
-    add_drop_down(
-        building,
-        building.top,
-        {entry_left, top, entry_width, metrics.regular_line},
-        MenuKind::tags,
-        caption,
-        std::move(items),
-        controls::tags_menu,
-        named("tags")
+    for (std::size_t index = 0;
+         index < readings.size() && first_control + index < building.top.size();
+         ++index) {
+        kit::Control& control = building.top[first_control + index];
+        control.clip = view;
+        control.text = readings[index];
+    }
+    for (std::size_t index = first_control; index < building.top.size(); ++index) {
+        kit::Control& control = building.top[index];
+        const bool in_filters = control.name.find(".filter.") != std::string::npos ||
+                                control.name.find(".tag.") != std::string::npos;
+        if (in_filters)
+            control.group = controls::filters_group;
+        else
+            tab_stop(building, control);
+    }
+    for (const NavPart& part : marks) {
+        const kit::Point pixels = kit::mark_size(*part.mark);
+        const int32_t row = view.y - offset + part.top;
+        const int32_t left = item_left + part.indent;
+        const int32_t x = left + nav.icon_left + (nav.icon_side - pixels.x) / 2;
+        const int32_t y = row + (part.height - pixels.y) / 2;
+        const kit::Colour ink = part.selected ? kit::colour::text : kit::colour::list_text;
+        kit::Item& item =
+            add_item(building.list, kit::Role::mark, {x, y, pixels.x, pixels.y}, view);
+        item.look = kit::MarkLook{*part.mark, ink};
+    }
+    if (limit > 0) {
+        kit::ScrollArea scroll;
+        scroll.view = view;
+        scroll.well = well;
+        scroll.content_height = content_height;
+        scroll.limit = limit;
+        scroll.offset = offset;
+        add_item(building.list, kit::Role::scroll_bar, well, {}).look = kit::ScrollBarLook{
+            scroll.thumb(metrics.least_thumb_height), state.bar_held == Pane::filters
+        };
+    }
+}
+
+/// Stops on the filters and tags, after the search, so Tab reaches them in
+/// the order they are drawn and then the list.
+///
+/// @param[in,out] building the layout
+void stop_on_filters(Building& building) {
+    for (kit::Control& control : building.top)
+        if (control.group == controls::filters_group)
+            tab_stop(building, control);
+}
+
+/// Appends the open tab's heading, and on a catalogue tab the search at the
+/// row's right, at the control's height.
+///
+/// @param[in,out] building the layout
+/// @param row the row
+/// @param with_search true draws the search
+void add_section_heading(Building& building, const kit::Rect& row, bool with_search) {
+    const Library& library = *building.library;
+    const kit::Metrics& metrics = *building.metrics;
+    const std::string heading = heading_of(tab_text(library.tab, false, library.text));
+    int32_t search_width = 0;
+    if (with_search) {
+        const int32_t gap = metrics.space;
+        const int32_t words = kit::tracked_width(
+            *building.fonts, kit::FontRole::small, heading, metrics.heading_tracking
+        );
+        const int32_t spare = std::max(row.width - words - gap, int32_t{0});
+        search_width = std::min(wide_search_width, spare);
+        const int32_t least = std::min(wide_search_width, std::max(row.width / 2, int32_t{0}));
+        if (search_width < least)
+            search_width =
+                std::min(least, std::max(row.width - metrics.small_line - gap, int32_t{0}));
+    }
+    const int32_t gap = search_width > 0 ? metrics.space : 0;
+    const int32_t heading_width = std::max(row.width - search_width - gap, int32_t{0});
+    int32_t room = heading_width;
+    std::string drawn = cut(building, kit::FontRole::small, heading, std::max(room, int32_t{0}));
+    while (room > 0 && kit::tracked_width(
+                           *building.fonts, kit::FontRole::small, drawn, metrics.heading_tracking
+                       ) > heading_width) {
+        --room;
+        drawn = cut(building, kit::FontRole::small, heading, room);
+    }
+    const int32_t text_height = metrics.small_line;
+    const int32_t text_y = row.y + std::max(row.height - text_height, int32_t{0}) / 2;
+    kit::Item& item = add_item(
+        building.list, kit::Role::heading, {row.x, text_y, heading_width, text_height}, {}
     );
+    item.text = drawn;
+    item.look = kit::HeadingLook{drawn};
+    if (search_width > 0)
+        add_search(building, {row.x + row.width - search_width, row.y, search_width, row.height});
+}
+
+/// Returns the nav's face and the content to its right.
+///
+/// @param window the window
+/// @param metrics the class's metrics
+/// @return the nav, then the content
+std::pair<kit::Rect, kit::Rect> section_columns(const Window& window, const kit::Metrics& metrics) {
+    int32_t nav_width = metrics.nav_width;
+    int32_t content_left = metrics.edge + nav_width + window.gutter;
+    int32_t content_width = window.right - content_left;
+    if (content_width < least_list_width) {
+        const int32_t room = std::max(window.right - metrics.edge - window.gutter, int32_t{0});
+        content_width = std::min(least_list_width, room);
+        nav_width = std::max(room - content_width, int32_t{0});
+        content_left = metrics.edge + nav_width + window.gutter;
+        content_width = std::max(window.right - content_left, int32_t{0});
+    }
+    const int32_t top = window.body_top;
+    const int32_t height = std::max(window.footer_rule - top, int32_t{0});
+    const kit::Rect nav{metrics.edge, top, nav_width, height};
+    const kit::Rect content{content_left, top, content_width, height};
+    return {nav, content};
 }
 
 /// Returns the words an empty list shows.
@@ -2270,6 +2866,58 @@ constexpr int32_t map_preview_cell = 72;
 /// How many lines of a map's description a grid cell keeps.
 constexpr std::size_t map_preview_lines = 3;
 
+/// Returns the Keys tab's row height: Large's row, grown for each chip line
+/// past the first. The kit wraps a row's tags in the fonts the layout
+/// measured them in (kit::RowSpacing), so they wrap where they are counted
+/// here.
+///
+/// @param building the layout
+/// @param rows_width a row's width, in points
+/// @return the height, in points
+int32_t keys_chip_row_height(const Building& building, int32_t rows_width) {
+    const int32_t nominal = row_height(building, RowForm::large);
+    int32_t lines = 1;
+    const Library& library = *building.library;
+    for (const std::size_t place : library.visible) {
+        const Entry& entry = library.entries[place];
+        if (entry.id.kind != Kind::key_layout)
+            continue;
+        const kit::ListRowLook look =
+            row_look(building, entry, RowForm::large, rows_width, nominal);
+        const int32_t room = chip_line_room(building, look, rows_width, nominal);
+        lines = std::max(lines, chip_lines_in(building, look.tags, room));
+    }
+    if (lines <= 1)
+        return nominal;
+    const kit::RowSpacing spacing = row_spacing(building);
+    return nominal + (lines - 1) * (spacing.tag_height + spacing.tag_gap);
+}
+
+/// Tells whether an entry's Large row shows chips under its lines, as
+/// row_look gives them: a brain's Default, Full awareness, tags and why it
+/// does not fit, a mutator's tags, what it needs and that it does not fit
+/// this mod, and any other entry's tags.
+///
+/// @param library the model
+/// @param entry the entry
+/// @return true when the row shows a chip under its lines
+bool shows_row_chips(const Library& library, const Entry& entry) {
+    if (entry.id.kind == Kind::brain) {
+        const BrainFacts* facts = brain_facts(entry);
+        if (entry.is_default)
+            return true;
+        if (facts == nullptr)
+            return false;
+        return facts->full_awareness || !facts->tags.empty() ||
+               (entry.not_compatible &&
+                !brain_unfit_reason(library.inputs, *facts, library.text).empty());
+    }
+    if (entry.id.kind == Kind::mutator && (!entry.needs_missing.empty() || entry.not_compatible))
+        return true;
+    const std::vector<std::string>* tags = shown_tags(entry);
+    return tags != nullptr && !tags->empty();
+}
+
 /// Appends the list pane: the note on a list the last fetch could not
 /// bring up to date, the rows that show, an empty list's words, the scroll
 /// bar and the list's own control.
@@ -2299,13 +2947,27 @@ void add_list(Building& building, const kit::Rect& pane, RowForm form) {
         area.y += metrics.small_line + metrics.hint_gap;
         area.height -= metrics.small_line + metrics.hint_gap;
     }
-    const int32_t height = row_height(metrics, form);
-    const int32_t view_height = std::max(area.height, int32_t{0}) / height * height;
-    const kit::Rect view{area.x, area.y, area.width, view_height};
     const int32_t well_width = metrics.scroll_thumb_width + 2;
+    const int32_t rows_width = std::max(area.width - well_width - metrics.button_gap, int32_t{0});
+    // Keys keeps every chip, wrapping onto further lines, so its rows grow
+    // together. Every other list keeps the form's one height, and a Large
+    // list none of whose rows shows a chip under its lines keeps Regular's,
+    // so its rows hold no empty line.
+    int32_t height = form == RowForm::large && library.tab == Tab::keys
+                         ? keys_chip_row_height(building, rows_width)
+                         : row_height(building, form);
+    if (form == RowForm::large && library.tab != Tab::keys &&
+        std::none_of(library.visible.begin(), library.visible.end(), [&library](std::size_t place) {
+            return shows_row_chips(library, library.entries[place]);
+        }))
+        height = row_height(building, RowForm::regular);
+    // The rows lie a step apart, a gap under each (controls::list_row_step),
+    // and the view holds whole steps.
+    const int32_t step = controls::list_row_step(height);
+    const int32_t view_height = std::max(area.height, int32_t{0}) / step * step;
+    const kit::Rect view{area.x, area.y, area.width, view_height};
     const kit::Rect well{view.x + view.width - well_width, view.y, well_width, view.height};
-    const int32_t rows_width = view.width - well_width - metrics.button_gap;
-    const auto content = static_cast<int32_t>(library.visible.size()) * height;
+    const auto content = static_cast<int32_t>(library.visible.size()) * step;
     const int32_t limit = kit::ScrollArea::limit_for(content, view.height);
     // A From link names the row to put at the top of the list. The write is
     // through the state's mutable scroll: the layout is handed a const state,
@@ -2313,7 +2975,7 @@ void add_list(Building& building, const kit::Rect& pane, RowForm form) {
     if (building.state->reveal_row >= 0 && !library.visible.empty()) {
         const int32_t last = static_cast<int32_t>(library.visible.size()) - 1;
         const int32_t place = std::clamp(building.state->reveal_row, int32_t{0}, last);
-        const int64_t raw = static_cast<int64_t>(place) * static_cast<int64_t>(height);
+        const int64_t raw = static_cast<int64_t>(place) * static_cast<int64_t>(step);
         const int64_t furthest = static_cast<int64_t>(std::max(limit, int32_t{0}));
         building.state->list_scroll = static_cast<int32_t>(std::clamp(raw, int64_t{0}, furthest));
         building.state->reveal_row = -1;
@@ -2330,14 +2992,24 @@ void add_list(Building& building, const kit::Rect& pane, RowForm form) {
             kit::colour::hint,
             {}
         );
+    const kit::RowSpacing spacing = row_spacing(building);
     for (std::size_t place = 0; place < library.visible.size(); ++place) {
-        const int32_t top = view.y + static_cast<int32_t>(place) * height - offset;
+        const int32_t top = view.y + static_cast<int32_t>(place) * step - offset;
         if (top + height <= view.y || top >= view.y + view.height)
             continue;
+        // A hairline between two rows, as Settings separates its rows, in
+        // the middle of the gap over each row but the first.
+        if (place > 0) {
+            const int32_t rule = top - (step - height) + (step - height - 1) / 2;
+            add_item(building.list, kit::Role::rule, {view.x, rule, rows_width, 1}, view).colour =
+                kit::colour::rule;
+        }
         const Entry& entry = library.entries[library.visible[place]];
         const kit::ControlId id = controls::first_row + static_cast<kit::ControlId>(place);
         kit::ListRowLook look = row_look(building, entry, form, rows_width, height);
+        look.spacing = spacing;
         look.selected = library.selected.has_value() && *library.selected == entry.id;
+        look.selection_bar = true;
         look.hovered = hovered(building, id);
         const kit::Rect rect{view.x, top, rows_width, height};
         const RowPreview preview = row_preview(library, entry);
@@ -2546,7 +3218,8 @@ std::string players_and_size(const Building& building, int32_t players, std::str
     );
 }
 
-/// Appends lines of a text in the small font, one under another.
+/// Appends lines of a text in the small font, one under another, a hint's
+/// step apart (hint_step).
 ///
 /// @param[in,out] building the layout
 /// @param lines the lines
@@ -2608,9 +3281,9 @@ int32_t add_map_previews(
         std::vector<std::vector<std::string>> descriptions(row_count);
         for (std::size_t place = 0; place < row_count; ++place) {
             const ShownMap& map = maps[index + place];
-            int32_t lines = one ? int32_t{0} : metrics.small_line;
+            std::size_t line_count = one ? 0 : 1;
             if (!map.size.empty() || map.players > 0)
-                lines += metrics.small_line;
+                ++line_count;
             if (!map.description.empty()) {
                 descriptions[place] = wrapped(
                     building,
@@ -2619,9 +3292,11 @@ int32_t add_map_previews(
                     across,
                     one ? wide_summary_lines : map_preview_lines
                 );
-                lines += static_cast<int32_t>(descriptions[place].size()) * metrics.small_line;
+                line_count += descriptions[place].size();
             }
-            block_height = std::max(block_height, across + metrics.hint_gap + lines);
+            block_height = std::max(
+                block_height, across + metrics.hint_gap + hint_lines_height(building, line_count)
+            );
         }
         for (std::size_t place = 0; place < row_count; ++place) {
             const ShownMap& map = maps[index + place];
@@ -2641,7 +3316,7 @@ int32_t add_map_previews(
                         clip
                     );
                 }
-                text_top += metrics.small_line;
+                text_top += hint_step(building);
             }
             if (!map.size.empty() || map.players > 0) {
                 const std::string meta = players_and_size(building, map.players, map.size);
@@ -2657,7 +3332,7 @@ int32_t add_map_previews(
                         kit::colour::hint,
                         clip
                     );
-                text_top += metrics.small_line;
+                text_top += hint_step(building);
             }
             if (!descriptions[place].empty())
                 add_lines(
@@ -2676,6 +3351,155 @@ int32_t add_map_previews(
             row_top += gap;
     }
     return row_top + metrics.paragraph_gap;
+}
+
+/// A trigger as a W3C code, when the keyboard picture has that key.
+///
+/// A leading "@" is dropped. One letter becomes KeyQ and the like. A code
+/// the picture does not draw, including a mouse or pad code, is left out.
+///
+/// @param trigger the catalogue's trigger, or a chord's
+/// @param shape the keyboard the picture draws
+/// @return the code; empty when the picture has no such key
+std::string marked_key_code(std::string_view trigger, kit::KeyboardShape shape) {
+    if (!trigger.empty() && trigger.front() == '@')
+        trigger.remove_prefix(1);
+    std::string code(trigger);
+    if (code.size() == 1) {
+        const char letter = code.front();
+        const bool small = letter >= 'a' && letter <= 'z';
+        const bool capital = letter >= 'A' && letter <= 'Z';
+        if (small || capital) {
+            code = "Key";
+            code.push_back(small ? static_cast<char>(letter - 'a' + 'A') : letter);
+        }
+    }
+    for (const kit::KeyPlace& place : kit::keyboard_places(shape)) {
+        if (place.code == code)
+            return code;
+    }
+    return {};
+}
+
+/// The keyboard a picture draws: the layout's, unless that is empty or
+/// "any", then the player's, then ANSI.
+///
+/// @param keyboard the layout's keyboard
+/// @param player the player's keyboard
+/// @return the shape
+kit::KeyboardShape keyboard_shape_of(std::string_view keyboard, std::string_view player) {
+    std::string_view which = keyboard;
+    if (which.empty() || which == "any")
+        which = player;
+    if (which == "iso")
+        return kit::KeyboardShape::iso;
+    if (which == "jis")
+        return kit::KeyboardShape::jis;
+    return kit::KeyboardShape::ansi;
+}
+
+/// Appends the keyboard picture of what a layout changes, and an area whose
+/// text names the keys it marks: the main block alone while every key it
+/// changes lies in that block, else the whole keyboard. Compact and the wide
+/// details both call this before the facts.
+///
+/// @param[in,out] building the layout
+/// @param entry the entry
+/// @param left the picture's left column
+/// @param top the picture's top row
+/// @param width the columns it may use
+/// @param clip what drawing may touch
+/// @return the row under the picture, or `top` when the entry is not a layout
+int32_t add_key_picture(
+    Building& building,
+    const Entry& entry,
+    int32_t left,
+    int32_t top,
+    int32_t width,
+    const kit::Rect& clip
+) {
+    if (entry.id.kind != Kind::key_layout || width <= 0)
+        return top;
+    const Library& library = *building.library;
+    const kit::Metrics& metrics = *building.metrics;
+    const KeyLayoutFacts* facts = key_facts(entry);
+    const std::string_view keyboard = facts != nullptr ? facts->keyboard : std::string_view{};
+    const kit::KeyboardShape shape = keyboard_shape_of(keyboard, library.inputs.player_keyboard);
+    kit::KeyboardLook look;
+    look.shape = shape;
+    std::string named_keys;
+    if (facts != nullptr) {
+        for (const std::string& trigger : facts->triggers) {
+            const std::string code = marked_key_code(trigger, shape);
+            if (code.empty())
+                continue;
+            bool seen = false;
+            for (const kit::KeyboardKey& key : look.keys) {
+                if (key.code == code) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (seen)
+                continue;
+            kit::KeyboardKey key;
+            key.code = code;
+            key.cap.mark = kit::KeyMark::changed;
+            look.keys.push_back(std::move(key));
+            if (!named_keys.empty())
+                named_keys.push_back(' ');
+            named_keys += code;
+        }
+    }
+    // The main block alone, as wide as the details, so its keys' legends can
+    // be read, at every class: the layout's own keys are hardest to read
+    // where the screen is smallest. The whole keyboard when a key the layout
+    // changes lies outside that block.
+    bool inside = true;
+    for (const kit::KeyboardKey& key : look.keys) {
+        for (const kit::KeyPlace& place : kit::keyboard_places(shape)) {
+            if (place.code != key.code)
+                continue;
+            kit::KeyboardLook block;
+            block.main_block = true;
+            inside = inside && kit::keyboard_draws(place, block);
+        }
+    }
+    look.main_block = inside;
+    // The main block's keys are large enough to read, so a changed key is
+    // filled with the accent under its legend, as the design marks it,
+    // rather than wearing a corner mark over the legend.
+    if (inside)
+        for (kit::KeyboardKey& key : look.keys) {
+            key.cap.mark = kit::KeyMark::none;
+            key.cap.held = true;
+        }
+    const kit::Point unit = kit::keyboard_size(look);
+    const int32_t picture_width = width;
+    const int32_t picture_height =
+        unit.x > 0 ? std::max(picture_width * unit.y / unit.x, int32_t{1}) : int32_t{25};
+    const kit::Rect rect{left, top, picture_width, picture_height};
+    const std::size_t first_item = building.list.items.size();
+    const std::size_t first_control = building.list.controls.size();
+    kit::add_keyboard(
+        building.list, rect, look, controls::first_keys_picture_key, named("keys.picture")
+    );
+    for (std::size_t index = first_item; index < building.list.items.size(); ++index)
+        building.list.items[index].clip = clip;
+    // The picture is one area. The per-key buttons are not controls the
+    // player reaches, and they are not named beside the area.
+    if (building.list.controls.size() > first_control)
+        building.list.controls.resize(first_control);
+    add_label(
+        building.detail,
+        controls::keys_picture,
+        kit::intersect(rect, clip),
+        unique_name(building, named("keys.picture")),
+        named_keys,
+        clip,
+        controls::details_group
+    );
+    return top + picture_height + metrics.paragraph_gap;
 }
 
 /// Tells whether a fact is the Rules fact.
@@ -2699,7 +3523,9 @@ bool from_fact(const Library& library, const Fact& fact) {
 /// Appends an entry's facts as label and value columns, from a row.
 ///
 /// Rules and From show their whole value; the others take at most a number
-/// of lines, the last cut with "...". A value that is met ends with the
+/// of lines, the last cut with "...". A value's lines lie a hint's step
+/// apart (hint_step) and the facts a space further, so a wrapped value
+/// stands apart from the fact under it. A value that is met ends with the
 /// kit's check in the accent, a warning is drawn in the lock colour, and a
 /// bad mark in the danger colour.
 ///
@@ -2733,6 +3559,7 @@ int32_t add_facts(
     const int32_t met_width = width_of(building, kit::FontRole::small, met);
     const int32_t space_width = width_of(building, kit::FontRole::small, " ");
     int32_t top = area.y;
+    std::size_t fact_index = 0;
     for (const Fact& fact : list) {
         const std::string& label = long_form ? fact.long_label : fact.short_label;
         const std::string& value = long_form ? fact.long_value : fact.short_value;
@@ -2777,10 +3604,13 @@ int32_t add_facts(
             clip
         );
         kit::Colour ink = kit::colour::text;
-        if (fact.mark == Mark::warn)
+        if (fact.opens)
+            ink = kit::colour::accent;
+        else if (fact.mark == Mark::warn)
             ink = kit::colour::lock;
         else if (fact.mark == Mark::bad)
             ink = kit::colour::danger;
+        const int32_t step = hint_step(building);
         int32_t line_top = top;
         for (const std::string& line : lines) {
             add_text(
@@ -2792,12 +3622,12 @@ int32_t add_facts(
                 ink,
                 clip
             );
-            line_top += metrics.small_line;
+            line_top += step;
         }
         if (good) {
             const int32_t last_width =
                 lines.empty() ? 0 : width_of(building, kit::FontRole::small, lines.back());
-            const int32_t met_top = lines.empty() ? top : line_top - metrics.small_line;
+            const int32_t met_top = lines.empty() ? top : line_top - step;
             add_text(
                 building,
                 kit::FontRole::small,
@@ -2809,7 +3639,7 @@ int32_t add_facts(
             );
         }
         const int32_t lines_height =
-            std::max(static_cast<int32_t>(lines.size()), int32_t{1}) * metrics.small_line;
+            hint_lines_height(building, std::max(lines.size(), std::size_t{1}));
         const int32_t box_width = std::max(value_left + value_width - text_left, int32_t{0});
         const kit::Rect value_box{text_left, top, box_width, lines_height};
         if (rules_fact(library, fact))
@@ -2832,12 +3662,28 @@ int32_t add_facts(
                 clip,
                 controls::details_group
             );
-        top += lines_height;
+        if (fact.opens && fact_index < controls::most_fact_links) {
+            kit::Control link;
+            link.id = controls::first_fact_link + static_cast<kit::ControlId>(fact_index);
+            link.rect = value_box;
+            link.clip = clip;
+            link.enabled = true;
+            link.focusable = true;
+            link.kind = kit::ControlKind::link;
+            link.group = controls::details_group;
+            link.name = unique_name(building, named("fact.keys." + name_word(fact.long_value)));
+            link.text = fact.long_value;
+            building.detail.push_back(std::move(link));
+            tab_stop(building, building.detail.back());
+        }
+        ++fact_index;
+        top += lines_height + metrics.space;
     }
-    return top;
+    return list.empty() ? top : top - metrics.space;
 }
 
-/// Appends lines of a text in the small font, one under another.
+/// Appends lines of a text in the small font, one under another, a hint's
+/// step apart (hint_step).
 ///
 /// @param[in,out] building the layout
 /// @param lines the lines
@@ -2856,19 +3702,21 @@ int32_t add_lines(
     kit::Colour ink,
     const kit::Rect& clip
 ) {
+    const int32_t step = hint_step(building);
+    int32_t row = top;
     for (const std::string& line : lines) {
         add_text(
             building,
             kit::FontRole::small,
             line,
-            {left, top, width, building.metrics->small_line},
+            {left, row, width, building.metrics->small_line},
             kit::Align::left,
             ink,
             clip
         );
-        top += building.metrics->small_line;
+        row += step;
     }
-    return top;
+    return top + hint_lines_height(building, lines.size());
 }
 
 /// Returns the colour an entry's status line is drawn in: the lock colour
@@ -2914,8 +3762,9 @@ int32_t add_note(
     return bottom;
 }
 
-/// Appends a package's tags as inactive pills on a wrapping row. Pressing
-/// one chooses that tag. Nothing is added when the package has no tags.
+/// Appends a package's tags as tag pills, quiet as the tags under a row
+/// and as tall, on a wrapping row. Pressing one chooses that tag. Nothing
+/// is added when the package has no tags.
 ///
 /// @param[in,out] building the layout
 /// @param entry the entry
@@ -2938,22 +3787,25 @@ int32_t add_detail_tags(
     if (tags == nullptr || tags->empty() || width <= 0)
         return top;
     const kit::Metrics& metrics = *building.metrics;
-    const int32_t height = kit::pill_height();
+    const int32_t height = chip_height(metrics);
     int32_t x = left;
     int32_t y = top;
     const std::size_t count = std::min(tags->size(), controls::most_detail_tags);
     for (std::size_t index = 0; index < count; ++index) {
         const std::string& tag = (*tags)[index];
         kit::PillLook look;
-        look.text =
-            std::string(tag_caption(*building.library, tag, entry.id.kind == Kind::mutator));
+        look.text = std::string(tag_caption(
+            *building.library,
+            tag,
+            entry.id.kind == Kind::mutator || entry.id.kind == Kind::key_layout
+        ));
         if (entry.id.kind == Kind::mutator)
             look.tag = kit::tag_icon_of(tag);
-        look.state = kit::PillState::inactive;
+        look.state = kit::PillState::tag;
         const kit::ControlId id = controls::first_detail_tag + static_cast<kit::ControlId>(index);
         look.hovered = hovered(building, id);
         look.focused = focused(building, id);
-        const int32_t across = kit::pill_width(*building.fonts, look);
+        const int32_t across = pill_width_of(building, look);
         if (index > 0 && x > left && x + across > left + width) {
             x = left;
             y += height + metrics.chip_gap;
@@ -2997,9 +3849,17 @@ int32_t add_details_content(
     add_badge(building, entry, {left, first, details_badge_side, details_badge_side}, view);
     const int32_t text_left = left + details_badge_side + metrics.list_row_gap;
     const int32_t text_width = std::max(left + width - text_left, int32_t{0});
+    // The state is said once: a key layout's chip says it in words, where it
+    // is used while it is the layout in use, and the status line under the
+    // name is left out when it would say the same.
     kit::ChipLook chip = entry_chip(library, entry);
-    const int32_t chip_width = kit::chip_width(*building.fonts, chip);
-    const int32_t chip_height = chip.icon ? metrics.state_icon_side : metrics.chip_height;
+    const std::string status_words = status_line(library, entry);
+    if (entry.id.kind == Kind::key_layout && !is_built_in_layout(entry.id) &&
+        layout_in_use(library, entry))
+        chip.text = status_words;
+    const bool status_on_chip = !chip.icon && chip.text == status_words;
+    const int32_t chip_width = tag_width(building, chip);
+    const int32_t chip_tall = chip.icon ? metrics.state_icon_side : chip_height(metrics);
     const std::string name =
         cut(building,
             kit::FontRole::regular,
@@ -3017,95 +3877,170 @@ int32_t add_details_content(
     );
     const kit::Rect chip_rect{
         text_left + name_width + metrics.list_row_gap,
-        first + (metrics.regular_line - chip_height) / 2,
+        first + (metrics.regular_line - chip_tall) / 2,
         chip_width,
-        chip_height,
+        chip_tall,
     };
     kit::add_chip(building.list, chip_rect, chip, kit::no_control, {});
     building.list.items.back().clip = view;
-    const std::vector<std::string> status = wrapped(
-        building, kit::FontRole::small, status_line(library, entry), text_width, wide_status_lines
-    );
-    const int32_t status_top = first + metrics.regular_line;
+    const std::vector<std::string> status =
+        status_on_chip
+            ? std::vector<std::string>{}
+            : wrapped(building, kit::FontRole::small, status_words, text_width, wide_status_lines);
+    const int32_t status_top = first + metrics.regular_line + metrics.hint_gap;
     const int32_t status_bottom =
         add_lines(building, status, text_left, status_top, text_width, status_colour(entry), view);
+    // Automation reads the status where it is shown: the line, or the chip.
     add_label(
         building.detail,
         controls::status,
-        {text_left,
-         status_top,
-         text_width,
-         std::max(status_bottom - status_top, metrics.small_line)},
+        status_on_chip ? chip_rect
+                       : kit::Rect{text_left,
+                                   status_top,
+                                   text_width,
+                                   std::max(status_bottom - status_top, metrics.small_line)},
         unique_name(building, named("status")),
-        joined(status),
+        status_on_chip ? status_words : joined(status),
         view,
         controls::details_group
     );
-    int32_t top = first + std::max(details_badge_side, status_bottom - first) +
-                  building.metrics->paragraph_gap;
+    const int32_t gap = part_gap(metrics);
+    int32_t top = first + std::max(details_badge_side, status_bottom - first) + gap;
 
     // The listing's summary, or a mod of the player's own's description.
     if (const std::string_view about = entry_summary(entry); !about.empty()) {
         const std::vector<std::string> summary =
             wrapped(building, kit::FontRole::small, about, width, wide_summary_lines);
-        top = add_lines(building, summary, left, top, width, kit::colour::list_text, view) +
-              metrics.paragraph_gap;
+        top = add_lines(building, summary, left, top, width, kit::colour::list_text, view) + gap;
     }
     const int32_t tags_bottom =
         add_detail_tags(building, entry, left, top, width, view, controls::details_group);
     if (tags_bottom != top)
-        top = tags_bottom + metrics.paragraph_gap;
+        top = tags_bottom + gap;
     top = add_map_previews(building, entry, left, top, width, view);
-    top = add_facts(building, entry, {left, top, width, 0}, true, wide_fact_lines, view) +
-          metrics.paragraph_gap;
+    top = add_key_picture(building, entry, left, top, width, view);
+    top = add_facts(building, entry, {left, top, width, 0}, true, wide_fact_lines, view) + gap;
 
-    const std::vector<ActionButton> actions = entry_actions(library, entry);
-    const int32_t button_gap = metrics.button_gap;
-    const int32_t each =
-        std::max((width - (actions_per_line - 1) * button_gap) / actions_per_line, int32_t{0});
-    for (std::size_t index = 0; index < actions.size(); ++index) {
-        const auto column = static_cast<int32_t>(index) % actions_per_line;
-        const auto line = static_cast<int32_t>(index) / actions_per_line;
-        const ActionButton& action = actions[index];
-        add_button(
-            building,
-            building.detail,
-            {left + column * (each + button_gap),
-             top + line * (metrics.button_height + button_gap),
-             each,
-             metrics.button_height},
-            action.text,
-            // UNINSTALL is never drawn as the main button.
-            index == 0 && action.action != Action::uninstall,
-            action.enabled,
-            controls::action_control(action.action),
-            named("action." + std::string(action_word(action.action))),
-            view,
-            controls::details_group
-        );
-    }
-    if (!actions.empty()) {
-        const auto lines =
-            (static_cast<int32_t>(actions.size()) + actions_per_line - 1) / actions_per_line;
-        top += lines * metrics.button_height + (lines - 1) * button_gap + metrics.paragraph_gap;
-    }
     static_cast<void>(add_note(building, left, top, width, view, controls::details_group));
     const std::optional<controls::Extent> extent =
         controls::clipped_extent(building.list, view, first_item);
     return extent ? extent->bottom - first : 0;
 }
 
-/// Appends the details pane of the selected entry. When its parts are
-/// taller than the pane they scroll, and the pane keeps a column for the
-/// scroll bar at its right.
+/// Where the details' actions lie in their bar, as Settings lays out a
+/// card's buttons.
+struct ActionPlan {
+    std::vector<kit::Rect> buttons{}; ///< each action's button, from the bar's top left
+    int32_t height{};                 ///< the bar's rows; 0 with no action
+};
+
+/// Returns where the details' actions lie in a bar of a width, as Settings
+/// lays out its Updates card's buttons: left to right, each as wide as its
+/// caption needs (button_width) and at the control height, two spaces
+/// apart, and one that does not fit starting a line a space under the one
+/// before. One wider than the bar takes the bar.
+///
+/// @param building the layout
+/// @param actions the actions, in the order they are shown
+/// @param width the bar's width, in points
+/// @return the plan
+ActionPlan
+plan_actions(const Building& building, const std::vector<ActionButton>& actions, int32_t width) {
+    const kit::Metrics& metrics = *building.metrics;
+    ActionPlan plan;
+    if (actions.empty())
+        return plan;
+    const int32_t gap = button_spacing(metrics);
+    const int32_t button_height = metrics.control_height;
+    int32_t x = 0;
+    int32_t y = 0;
+    for (const ActionButton& action : actions) {
+        const int32_t across =
+            std::min(button_width(building, action.text), std::max(width, int32_t{0}));
+        if (x > 0 && x + across > width) {
+            x = 0;
+            y += button_height + metrics.space;
+        }
+        plan.buttons.push_back({x, y, across, button_height});
+        x += across + gap;
+    }
+    plan.height = y + button_height;
+    return plan;
+}
+
+/// Returns the rows the details' actions take at the pane's foot.
+///
+/// @param building the layout
+/// @param entry the entry
+/// @param width the pane's width, in points
+/// @return the rows; 0 when it has no action
+int32_t detail_actions_height(const Building& building, const Entry& entry, int32_t width) {
+    return plan_actions(building, entry_actions(*building.library, entry), width).height;
+}
+
+/// Appends the details' actions, as plan_actions places them, in a bar at
+/// the pane's foot that does not scroll.
 ///
 /// @param[in,out] building the layout
-/// @param pane the pane
-void add_details_pane(Building& building, const kit::Rect& pane) {
+/// @param entry the entry
+/// @param bar the bar
+void add_detail_actions(Building& building, const Entry& entry, const kit::Rect& bar) {
+    const std::vector<ActionButton> actions = entry_actions(*building.library, entry);
+    const ActionPlan plan = plan_actions(building, actions, bar.width);
+    for (std::size_t index = 0; index < actions.size() && index < plan.buttons.size(); ++index) {
+        const ActionButton& action = actions[index];
+        const kit::Rect& place = plan.buttons[index];
+        add_button(
+            building,
+            building.detail,
+            {bar.x + place.x, bar.y + place.y, place.width, place.height},
+            action.text,
+            // UNINSTALL is never drawn as the main button.
+            index == 0 && action.action != Action::uninstall,
+            action.enabled,
+            controls::action_control(action.action),
+            named("action." + std::string(action_word(action.action))),
+            {},
+            -1
+        );
+    }
+}
+
+/// Appends a card's face, as Settings' side card: the inset button's fill
+/// and border, and no control, so it never takes a press from the actions.
+///
+/// @param[in,out] building the layout
+/// @param rect the card
+void add_card_face(Building& building, const kit::Rect& rect) {
+    kit::ButtonLook face;
+    face.style = kit::ButtonStyle::inset;
+    face.enabled = true;
+    add_item(building.list, kit::Role::button, rect, {}).look = std::move(face);
+}
+
+/// Appends the details pane of the selected entry in a bordered card. Its
+/// parts scroll when they are taller than the room above the actions, and
+/// the actions sit at the card's foot, which does not scroll.
+///
+/// @param[in,out] building the layout
+/// @param whole the card
+void add_details_pane(Building& building, const kit::Rect& whole) {
     const Entry* entry = selected_entry(*building.library);
     if (entry == nullptr)
         return;
     const kit::Metrics& metrics = *building.metrics;
+    const int32_t pad = 2 * metrics.space;
+    add_card_face(building, whole);
+    const kit::Rect inner{
+        whole.x + pad,
+        whole.y + pad,
+        std::max(whole.width - 2 * pad, int32_t{0}),
+        std::max(whole.height - 2 * pad, int32_t{0}),
+    };
+    const int32_t actions_height = detail_actions_height(building, *entry, inner.width);
+    kit::Rect pane = inner;
+    if (actions_height > 0)
+        pane.height = std::max(inner.height - actions_height - metrics.row_gap, int32_t{0});
     // Laid out once at the pane's width to learn its height, then again
     // narrower when that is taller than the pane.
     Building trial = building;
@@ -3138,7 +4073,18 @@ void add_details_pane(Building& building, const kit::Rect& pane) {
             scroll.thumb(metrics.least_thumb_height), building.state->bar_held == Pane::details
         };
     }
+    if (actions_height > 0)
+        add_detail_actions(
+            building,
+            *entry,
+            {inner.x, inner.y + inner.height - actions_height, inner.width, actions_height}
+        );
 }
+
+/// The narrowest a tile's words may be with its button beside them, as
+/// Settings' key layout card keeps its words; narrower, the button stands
+/// under the words.
+constexpr int32_t least_beside_words = 120;
 
 /// The side of an Active tile's badge. A list row's badge plus the card's
 /// inset on either side, so the badge is larger than a row's and the size
@@ -3148,6 +4094,16 @@ void add_details_pane(Building& building, const kit::Rect& pane) {
 /// @return the side, in points
 int32_t active_badge_side(const kit::Metrics& metrics) {
     return metrics.list_row_badge + 2 * metrics.card_inset;
+}
+
+/// Returns the points between an Active tile's edges and its badge, its
+/// words and its button: a space, as a list row keeps above and below its
+/// words at Compact, and Settings' row padding at Large.
+///
+/// @param metrics the class's metrics
+/// @return the points
+int32_t tile_inset(const kit::Metrics& metrics) {
+    return metrics.space;
 }
 
 /// Appends a tile's face: the kit card's fill and its outline. Nothing
@@ -3168,55 +4124,148 @@ struct TileLine {
     kit::Colour ink{kit::colour::text};
 };
 
-/// Returns a tile line's height.
+/// Returns the tops of a tile's lines from the first one's, as Settings
+/// spaces a row's label and its hints: the first line first_height high,
+/// a line in the small font hint_gap under a line in the regular font and
+/// a hint's step under one in the small font (hint_step).
 ///
-/// @param metrics the class's metrics
-/// @param font the line's font
-/// @return the height, in points
-int32_t tile_line_height(const kit::Metrics& metrics, kit::FontRole font) {
-    return font == kit::FontRole::regular ? metrics.regular_line : metrics.small_line;
+/// @param building the layout
+/// @param lines the lines
+/// @param first_height the first line's height: its font's line, or the
+///        pill's height when a pill stands on it
+/// @return each line's top, from 0, and the rows the lines take last
+std::vector<int32_t>
+tile_line_tops(const Building& building, const std::vector<TileLine>& lines, int32_t first_height) {
+    const kit::Metrics& metrics = *building.metrics;
+    std::vector<int32_t> tops;
+    tops.reserve(lines.size() + 1);
+    int32_t row = 0;
+    int32_t above = 0; // the height of the line above
+    for (std::size_t index = 0; index < lines.size(); ++index) {
+        const TileLine& line = lines[index];
+        if (index > 0) {
+            const bool hints =
+                line.font == kit::FontRole::small && lines[index - 1].font == kit::FontRole::small;
+            row += above + (hints ? hint_step(building) - metrics.small_line : metrics.hint_gap);
+        }
+        tops.push_back(row);
+        above = index == 0                          ? first_height
+                : line.font == kit::FontRole::small ? metrics.small_line
+                                                    : metrics.regular_line;
+    }
+    tops.push_back(lines.empty() ? 0 : row + above);
+    return tops;
 }
 
-/// Returns the height of a tile's lines, stacked.
+/// Returns the height of a tile's first line: its font's line, and the
+/// pill's height when a pill stands on it, as Settings' label line takes
+/// the height of the control beside it.
 ///
-/// @param metrics the class's metrics
+/// @param building the layout
 /// @param lines the lines
+/// @param pill a pill stands on the first line
 /// @return the height, in points
-int32_t tile_lines_height(const kit::Metrics& metrics, const std::vector<TileLine>& lines) {
-    int32_t height = 0;
-    for (const TileLine& line : lines)
-        height += tile_line_height(metrics, line.font);
-    return height;
+int32_t
+first_tile_line_height(const Building& building, const std::vector<TileLine>& lines, bool pill) {
+    const kit::Metrics& metrics = *building.metrics;
+    const int32_t line = lines.empty() || lines.front().font == kit::FontRole::regular
+                             ? metrics.regular_line
+                             : metrics.small_line;
+    return pill ? std::max(line, chip_height(metrics)) : line;
+}
+
+/// Tells whether an identity tile's button stands beside its words, as
+/// Settings' key layout card's buttons do: while the words keep
+/// least_beside_words beside it.
+///
+/// @param building the layout
+/// @param width the tile's width
+/// @param caption the button's words; empty for no button
+/// @param may_stand_beside false keeps the button under the words
+/// @return true beside, false under the words or with no button
+bool button_beside(
+    const Building& building, int32_t width, std::string_view caption, bool may_stand_beside
+) {
+    if (caption.empty() || !may_stand_beside)
+        return false;
+    const kit::Metrics& metrics = *building.metrics;
+    const int32_t inset = tile_inset(metrics);
+    const int32_t words = width - 2 * inset - active_badge_side(metrics) - metrics.list_row_gap -
+                          button_width(building, caption) - button_spacing(metrics);
+    return words >= least_beside_words;
+}
+
+/// Tells whether the lines after a tile's first fit beside its button
+/// when the button stands at the tile's bottom right, under the first line.
+///
+/// @param building the layout
+/// @param lines the lines
+/// @param words_width the columns the lines take beside the badge
+/// @param caption the button's words
+/// @return true when every line after the first fits left of the button
+bool lines_fit_beside_button(
+    const Building& building,
+    const std::vector<TileLine>& lines,
+    int32_t words_width,
+    std::string_view caption
+) {
+    const int32_t room =
+        words_width - button_width(building, caption) - button_spacing(*building.metrics);
+    for (std::size_t index = 1; index < lines.size(); ++index)
+        if (width_of(building, lines[index].font, lines[index].text) > room)
+            return false;
+    return room > 0;
 }
 
 /// Returns an identity tile's height. The badge and the lines start at the
-/// top inset. A tile with a button keeps it under both, with the button gap
-/// between and the card's inset below the button. One without a button keeps
-/// that inset below the badge or the last line.
+/// top inset, the inset under the taller of them. A button beside the
+/// words is centred on the badge. Otherwise it stands at the tile's bottom
+/// right: hint_gap under the first line when the lines after it fit beside
+/// it, else two spaces under every line.
 ///
-/// @param metrics the class's metrics
-/// @param badge the badge's side
+/// @param building the layout
 /// @param lines the lines beside the badge
-/// @param button the tile holds a button
+/// @param pill a pill stands on the first line
+/// @param width the tile's width
+/// @param caption the button's words; empty for no button
+/// @param may_stand_beside false keeps the button at the bottom right
 /// @return the height, in points
 int32_t identity_tile_height(
-    const kit::Metrics& metrics, int32_t badge, const std::vector<TileLine>& lines, bool button
+    const Building& building,
+    const std::vector<TileLine>& lines,
+    bool pill,
+    int32_t width,
+    std::string_view caption,
+    bool may_stand_beside
 ) {
-    int32_t stack = std::max(badge, tile_lines_height(metrics, lines));
-    if (button)
-        stack += metrics.button_gap + metrics.button_height;
-    return stack + 2 * metrics.card_inset;
+    const kit::Metrics& metrics = *building.metrics;
+    const int32_t inset = tile_inset(metrics);
+    const int32_t first_height = first_tile_line_height(building, lines, pill);
+    const std::vector<int32_t> tops = tile_line_tops(building, lines, first_height);
+    const int32_t side = active_badge_side(metrics);
+    int32_t stack = std::max(side, tops.back());
+    if (!caption.empty() && !button_beside(building, width, caption, may_stand_beside)) {
+        const int32_t words = width - 2 * inset - side - metrics.list_row_gap;
+        if (lines_fit_beside_button(building, lines, words, caption))
+            stack = std::max(stack, first_height + metrics.hint_gap + metrics.control_height);
+        else
+            stack += part_gap(metrics) + metrics.control_height;
+    }
+    return stack + 2 * inset;
 }
 
-/// Appends a tile's lines. The first line keeps room at its right for a
-/// chip; a line that cannot fit is left out, and its row is kept.
+/// Appends a tile's lines. Each line that stands beside the pill or the
+/// button keeps room at its right for it; a line that cannot fit is left
+/// out, and its row is kept.
 ///
 /// @param[in,out] building the layout
 /// @param lines the lines
 /// @param left their left column
 /// @param top the first line's top row
 /// @param width their width
-/// @param first_room the first line's width
+/// @param first_height the first line's height
+/// @param first_room the first line's width, short of the pill
+/// @param button the button's rectangle, or an empty one
 /// @param clip what drawing may touch
 void place_tile_lines(
     Building& building,
@@ -3224,15 +4273,22 @@ void place_tile_lines(
     int32_t left,
     int32_t top,
     int32_t width,
+    int32_t first_height,
     int32_t first_room,
+    const kit::Rect& button,
     const kit::Rect& clip
 ) {
     const kit::Metrics& metrics = *building.metrics;
-    int32_t row = top;
+    const std::vector<int32_t> tops = tile_line_tops(building, lines, first_height);
     for (std::size_t index = 0; index < lines.size(); ++index) {
         const TileLine& line = lines[index];
-        const int32_t room = index == 0 ? first_room : width;
-        const int32_t height = tile_line_height(metrics, line.font);
+        const int32_t height = index == 0                            ? first_height
+                               : line.font == kit::FontRole::regular ? metrics.regular_line
+                                                                     : metrics.small_line;
+        const int32_t row = top + tops[index];
+        int32_t room = index == 0 ? first_room : width;
+        if (button.width > 0 && row < button.y + button.height && row + height > button.y)
+            room = std::min(room, button.x - button_spacing(metrics) - left);
         if (room > 0 && !line.text.empty()) {
             const std::string drawn = cut(building, line.font, line.text, room);
             if (width_of(building, line.font, drawn) <= room)
@@ -3246,11 +4302,11 @@ void place_tile_lines(
                     clip
                 );
         }
-        row += height;
     }
 }
 
-/// Appends a pill that takes no press, at the right of a line, when it fits.
+/// Appends a pill that takes no press, at the right of a line and centred
+/// down it, when it fits the line's width.
 ///
 /// @param[in,out] building the layout
 /// @param line the line it sits on
@@ -3270,9 +4326,9 @@ int32_t add_idle_pill(
     kit::PillLook look;
     look.text = words_shown;
     look.state = state;
-    const int32_t width = kit::pill_width(*building.fonts, look);
-    const int32_t height = kit::pill_height();
-    if (width > line.width || height > line.height)
+    const int32_t width = pill_width_of(building, look);
+    const int32_t height = chip_height(*building.metrics);
+    if (width > line.width)
         return 0;
     const kit::Rect pill{
         line.x + line.width - width,
@@ -3286,9 +4342,11 @@ int32_t add_idle_pill(
 }
 
 /// Appends an identity tile: a badge and lines from the top inset, a pill
-/// at the right of the title's line, and a button at the bottom right when
-/// the tile has one. The label is the tile above that button, so the two do
-/// not meet, and the label takes no press.
+/// at the right of the title's line, and a button. As on Settings' key
+/// layout card, the button stands beside the words, centred on the badge,
+/// while the words keep their room (button_beside), and under them at the
+/// tile's bottom right otherwise. The label is the tile left of or above
+/// that button, so the two do not meet, and the label takes no press.
 ///
 /// @param[in,out] building the layout
 /// @param tile the tile
@@ -3298,6 +4356,7 @@ int32_t add_idle_pill(
 /// @param pill the pill's words; empty for none
 /// @param pill_state the pill's colours
 /// @param button the tile holds a button
+/// @param may_stand_beside false keeps the button under the words
 /// @param button_caption the button's words, looked up
 /// @param button_enabled the button takes a press
 /// @param button_id the button's number
@@ -3315,6 +4374,7 @@ void add_identity_tile(
     const std::string& pill,
     kit::PillState pill_state,
     bool button,
+    bool may_stand_beside,
     const std::string& button_caption,
     bool button_enabled,
     kit::ControlId button_id,
@@ -3325,7 +4385,7 @@ void add_identity_tile(
     const kit::Rect& clip
 ) {
     const kit::Metrics& metrics = *building.metrics;
-    const int32_t inset = metrics.card_inset;
+    const int32_t inset = tile_inset(metrics);
     const int32_t side =
         std::min(active_badge_side(metrics), std::max(tile.width - 2 * inset, int32_t{0}));
     add_tile_face(building, tile, clip);
@@ -3335,66 +4395,115 @@ void add_identity_tile(
         add_badge_of(
             building, picture_of(badge), letters, {inner_left, inner_top, side, side}, clip
         );
+    const bool has_button = button && !button_caption.empty();
+    const bool beside =
+        has_button && button_beside(building, tile.width, button_caption, may_stand_beside);
+    const int32_t across = has_button ? std::min(
+                                            button_width(building, button_caption),
+                                            std::max(tile.width - 2 * inset, int32_t{0})
+                                        )
+                                      : 0;
     const int32_t text_left = inner_left + side + metrics.list_row_gap;
-    const int32_t text_width = std::max(tile.x + tile.width - inset - text_left, int32_t{0});
+    const int32_t words_right = beside
+                                    ? tile.x + tile.width - inset - across - button_spacing(metrics)
+                                    : tile.x + tile.width - inset;
+    const int32_t text_width = std::max(words_right - text_left, int32_t{0});
     const int32_t text_top = inner_top;
-    const int32_t title_height =
-        lines.empty() ? metrics.regular_line : tile_line_height(metrics, lines.front().font);
+    const int32_t first_height = first_tile_line_height(building, lines, !pill.empty());
     const int32_t pill_width = add_idle_pill(
-        building, {text_left, text_top, text_width, title_height}, pill, pill_state, clip
+        building, {text_left, text_top, text_width, first_height}, pill, pill_state, clip
     );
     const int32_t first_room =
         pill_width > 0 ? std::max(text_width - pill_width - metrics.list_row_gap, int32_t{0})
                        : text_width;
-    place_tile_lines(building, lines, text_left, text_top, text_width, first_room, clip);
+    kit::Rect button_rect{};
+    if (has_button && across > 0) {
+        button_rect = beside ? kit::Rect{
+                                   tile.x + tile.width - inset - across,
+                                   inner_top + (side - metrics.control_height) / 2,
+                                   across,
+                                   metrics.control_height,
+                               }
+                             : kit::Rect{
+                                   tile.x + tile.width - inset - across,
+                                   tile.y + tile.height - inset - metrics.control_height,
+                                   across,
+                                   metrics.control_height,
+                               };
+        if (button_rect.y < tile.y)
+            button_rect = {};
+    }
+    place_tile_lines(
+        building,
+        lines,
+        text_left,
+        text_top,
+        text_width,
+        first_height,
+        first_room,
+        beside ? kit::Rect{} : button_rect,
+        clip
+    );
     kit::Rect label = tile;
-    if (button && !button_caption.empty()) {
-        const int32_t across = std::min(
-            button_width(building, button_caption), std::max(tile.width - 2 * inset, int32_t{0})
+    if (button_rect.width > 0) {
+        add_button(
+            building,
+            building.detail,
+            button_rect,
+            button_caption,
+            false,
+            button_enabled,
+            button_id,
+            button_name,
+            clip,
+            -1
         );
-        const kit::Rect button_rect{
-            tile.x + tile.width - inset - across,
-            tile.y + tile.height - inset - metrics.button_height,
-            across,
-            metrics.button_height,
-        };
-        if (across > 0 && button_rect.y >= tile.y) {
-            add_button(
-                building,
-                building.detail,
-                button_rect,
-                button_caption,
-                true,
-                button_enabled,
-                button_id,
-                button_name,
-                clip,
-                -1
-            );
+        if (beside)
+            label.width =
+                std::max(button_rect.x - button_spacing(metrics) / 2 - tile.x, int32_t{0});
+        else
             label.height = std::max(button_rect.y - tile.y, int32_t{0});
-        }
     }
     add_label(
         building.detail, id, kit::intersect(label, clip), std::move(name), std::move(read), clip, -1
     );
 }
 
-/// Returns one map tile's height: the minimap or the lines beside it,
-/// whichever is taller, with the card's padding above and below. A pack
-/// of several maps keeps a From line; a pack of one does not.
+/// Returns the rows from one small line of a map tile to the next: a
+/// hint's step (hint_step), and at least hint_gap clear between them, so
+/// the players line, the description and the From line stand apart in
+/// either look.
 ///
-/// @param metrics the class's metrics
+/// @param building the layout
+/// @return the rows, in points
+int32_t map_line_step(const Building& building) {
+    const kit::Metrics& metrics = *building.metrics;
+    return std::max(hint_step(building), metrics.small_line + metrics.hint_gap);
+}
+
+/// Returns one map tile's height: the minimap or the lines beside it,
+/// whichever is taller, with the tile's inset above and below. The lines
+/// are spaced as Settings spaces a row's label and its hints: the players
+/// and size hint_gap under the title, and the description and the From
+/// line each a step under the line above (map_line_step). A pack of
+/// several maps keeps a From line; a pack of one does not.
+///
+/// @param building the layout
 /// @param side the minimap's side
 /// @param described the map has a description to show
 /// @param from_line the tile draws "From <pack>"
 /// @return the height, in points
-int32_t map_tile_height(const kit::Metrics& metrics, int32_t side, bool described, bool from_line) {
-    int32_t lines = metrics.regular_line + metrics.small_line;
+int32_t map_tile_height(const Building& building, int32_t side, bool described, bool from_line) {
+    const kit::Metrics& metrics = *building.metrics;
+    int32_t small_lines = 1;
     if (described)
-        lines += metrics.small_line;
+        ++small_lines;
     if (from_line)
-        lines += metrics.small_line;
-    return metrics.card_inset + std::max(side, lines) + metrics.card_inset;
+        ++small_lines;
+    const int32_t lines = metrics.regular_line + metrics.hint_gap +
+                          (small_lines - 1) * map_line_step(building) + metrics.small_line;
+    const int32_t inset = tile_inset(metrics);
+    return inset + std::max(side, lines) + inset;
 }
 
 /// What an identity tile shows. The layout paints it; the model chose the words.
@@ -3404,7 +4513,11 @@ struct IdentityTile {
     std::vector<TileLine> lines{};
     std::string pill{};
     kit::PillState pill_state{kit::PillState::neutral};
-    bool button{}; ///< a button at the bottom right
+    bool button{}; ///< a button: beside the words, or at the bottom right
+    /// The button may stand beside the words. The mod's stands under them,
+    /// at the bottom right of a tile as tall as the expansions, so Tab
+    /// reaches it after every expansion.
+    bool beside{true};
     std::string button_caption{};
     bool button_enabled{true};
     kit::ControlId button_id{};
@@ -3453,6 +4566,7 @@ IdentityTile mod_tile(Building& building, const ActiveSetup& setup) {
         tile.pill = setup.mod_state;
         tile.pill_state = kit::PillState::playing;
         tile.button = true;
+        tile.beside = false;
         tile.button_caption = std::string(shown(building.library->text, words::action_unload_mod));
         tile.button_enabled = can_switch(*building.library);
         tile.button_id = controls::active_unload;
@@ -3498,13 +4612,59 @@ IdentityTile language_tile(Building& building, const ActiveSetup& setup) {
     return tile;
 }
 
-/// Returns an identity tile's height at this class.
+/// Returns the KEYS tile: the layout in use, its own-changes line, and
+/// "With {mod}" when a per-mod layout is set. CHANGE… opens Keys on it.
 ///
-/// @param metrics the class's metrics
+/// @param[in,out] building the layout, which records the label's name
+/// @param setup what the tab shows
+/// @return the tile
+IdentityTile keys_tile(Building& building, const ActiveSetup& setup) {
+    IdentityTile tile;
+    tile.letters = setup.keys_name.empty()
+                       ? std::string(shown(building.library->text, words::built_in_layout_name))
+                       : setup.keys_name;
+    tile.id = controls::active_keys;
+    tile.name = unique_name(building, named("active.keys"));
+    tile.read = setup.keys_name;
+    if (!setup.keys_line.empty())
+        tile.read += " " + setup.keys_line;
+    if (!setup.keys_with.empty())
+        tile.read += " " + setup.keys_with;
+    if (!setup.keys_name.empty())
+        tile.lines.push_back(TileLine{setup.keys_name, kit::FontRole::regular, kit::colour::text});
+    if (!setup.keys_line.empty())
+        tile.lines.push_back(TileLine{setup.keys_line, kit::FontRole::small, kit::colour::hint});
+    if (!setup.keys_with.empty())
+        tile.lines.push_back(
+            TileLine{setup.keys_with, kit::FontRole::small, kit::colour::list_text}
+        );
+    tile.pill = setup.keys_badge;
+    tile.pill_state = setup.keys_badge == shown(building.library->text, words::chip_using)
+                          ? kit::PillState::playing
+                          : kit::PillState::neutral;
+    tile.button = true;
+    tile.button_caption = std::string(shown(building.library->text, words::active_change));
+    tile.button_enabled = true;
+    tile.button_id = controls::active_keys_change;
+    tile.button_name = named("active.keys.change");
+    return tile;
+}
+
+/// Returns an identity tile's height at this class and a width.
+///
+/// @param building the layout
 /// @param tile the tile
+/// @param width the tile's width
 /// @return the height, in points
-int32_t identity_height(const kit::Metrics& metrics, const IdentityTile& tile) {
-    return identity_tile_height(metrics, active_badge_side(metrics), tile.lines, tile.button);
+int32_t identity_height(const Building& building, const IdentityTile& tile, int32_t width) {
+    return identity_tile_height(
+        building,
+        tile.lines,
+        !tile.pill.empty(),
+        width,
+        tile.button ? std::string_view(tile.button_caption) : std::string_view{},
+        tile.beside
+    );
 }
 
 /// Appends an identity tile.
@@ -3525,6 +4685,7 @@ void place_identity(
         tile.pill,
         tile.pill_state,
         tile.button,
+        tile.beside,
         tile.button_caption,
         tile.button_enabled,
         tile.button_id,
@@ -3554,7 +4715,7 @@ void add_map_tile(
     const kit::Rect& clip
 ) {
     const kit::Metrics& metrics = *building.metrics;
-    const int32_t inset = metrics.card_inset;
+    const int32_t inset = tile_inset(metrics);
     const int32_t side =
         std::min(active_badge_side(metrics), std::max(tile.width - 2 * inset, int32_t{0}));
     add_tile_face(building, tile, clip);
@@ -3624,10 +4785,12 @@ void add_map_tile(
             tab_stop(building, control);
         }
     }
+    const int32_t step = map_line_step(building);
     if (number <= controls::most_active_maps) {
         // The composed line stays a label. When the title is the link, the
         // label sits on the players-and-size line so the two do not meet.
-        const int32_t label_top = title_is_link ? row + metrics.regular_line : row;
+        const int32_t label_top =
+            title_is_link ? row + metrics.regular_line + metrics.hint_gap : row;
         const int32_t label_height = title_is_link ? metrics.small_line : metrics.regular_line;
         add_label(
             building.detail,
@@ -3639,7 +4802,7 @@ void add_map_tile(
             controls::maps_group
         );
     }
-    row += metrics.regular_line;
+    row += metrics.regular_line + metrics.hint_gap;
     const std::string meta = filled(
         building.library->text,
         words::map_players_size,
@@ -3656,7 +4819,7 @@ void add_map_tile(
             kit::colour::hint,
             clip
         );
-    row += metrics.small_line;
+    row += step;
     if (!map.description.empty()) {
         const std::string described =
             cut(building, kit::FontRole::small, map.description, text_width);
@@ -3670,7 +4833,7 @@ void add_map_tile(
                 kit::colour::list_text,
                 clip
             );
-        row += metrics.small_line;
+        row += step;
     }
     if (number > controls::most_active_maps || map.from.empty())
         return;
@@ -3705,15 +4868,6 @@ void add_map_tile(
     tab_stop(building, control);
 }
 
-/// Appends a heading of the Active tab, and returns the row under it.
-///
-/// @param[in,out] building the layout
-/// @param words_shown the heading, looked up
-/// @param left its left column
-/// @param top its top row
-/// @param width its width
-/// @param clip what drawing may touch
-/// @return the row under it and the gap after it
 /// Returns a heading cut so its tracked width fits.
 ///
 /// @param building the layout
@@ -3748,6 +4902,79 @@ std::string cut_heading(const Building& building, std::string_view words_shown, 
     return kept;
 }
 
+/// Appends Compact's KEYS line and returns the row under it.
+///
+/// A full tile here pushes an expansion pill off the 640 by 480 page once
+/// the maps scroll into view. The line keeps the heading above it and puts
+/// the layout's name, its own-changes line and CHANGE… on one row, with no
+/// badge. The label reads the whole of that. The words drawn are cut to the
+/// room left of the button.
+///
+/// @param[in,out] building the layout
+/// @param keys the tile's words and its button
+/// @param left the line's left column
+/// @param top the line's top row, under the KEYS heading
+/// @param width the line's width
+/// @param clip what drawing may touch
+/// @return the row under the line and the gap after it
+int32_t place_compact_keys_line(
+    Building& building,
+    const IdentityTile& keys,
+    int32_t left,
+    int32_t top,
+    int32_t width,
+    const kit::Rect& clip
+) {
+    const kit::Metrics& metrics = *building.metrics;
+    const int32_t row_height = std::max(metrics.regular_line, metrics.control_height);
+    const int32_t across =
+        std::min(button_width(building, keys.button_caption), std::max(width, int32_t{0}));
+    const int32_t button_x = left + std::max(width - across, int32_t{0});
+    const int32_t text_right = std::max(button_x - metrics.list_row_gap, left);
+    const int32_t text_width = std::max(text_right - left, int32_t{0});
+    const kit::Rect text_box{left, top, text_width, row_height};
+    if (text_width > 0 && !keys.read.empty()) {
+        add_text(
+            building,
+            kit::FontRole::regular,
+            cut(building, kit::FontRole::regular, keys.read, text_width),
+            text_box,
+            kit::Align::left,
+            kit::colour::text,
+            clip
+        );
+    }
+    if (across > 0 && !keys.button_caption.empty()) {
+        const int32_t button_y =
+            top + std::max((row_height - metrics.control_height) / 2, int32_t{0});
+        add_button(
+            building,
+            building.detail,
+            {button_x, button_y, across, metrics.control_height},
+            keys.button_caption,
+            false,
+            keys.button_enabled,
+            keys.button_id,
+            keys.button_name,
+            clip,
+            -1
+        );
+    }
+    add_label(
+        building.detail, keys.id, kit::intersect(text_box, clip), keys.name, keys.read, clip, -1
+    );
+    return top + row_height + metrics.paragraph_gap;
+}
+
+/// Appends a heading of the Active tab, and returns the row under it.
+///
+/// @param[in,out] building the layout
+/// @param words_shown the heading, looked up
+/// @param left its left column
+/// @param top its top row
+/// @param width its width
+/// @param clip what drawing may touch
+/// @return the row under it and the gap after it
 int32_t add_active_heading(
     Building& building,
     std::string_view words_shown,
@@ -3870,11 +5097,11 @@ MapGrid measure_map_grid(
                 const int32_t across = tile_across(grid, index + place);
                 const int32_t side = std::min(
                     active_badge_side(metrics),
-                    std::max(across - 2 * metrics.card_inset, int32_t{0})
+                    std::max(across - 2 * tile_inset(metrics), int32_t{0})
                 );
                 row_height = std::max(
                     row_height,
-                    map_tile_height(metrics, side, !map.description.empty(), !map.from.empty())
+                    map_tile_height(building, side, !map.description.empty(), !map.from.empty())
                 );
             }
         }
@@ -3933,8 +5160,9 @@ void add_maps_search(Building& building, const kit::Rect& rect, const kit::Rect&
     tab_stop(building, added);
 }
 
-/// Appends the MAPS heading and, at its right, the maps search. While the
-/// search holds text, the count of tiles shown sits after the heading.
+/// Appends the MAPS heading and, at its right, the maps search, a control
+/// high as the other tabs' search is. While the search holds text, the count
+/// of tiles shown sits after the heading.
 ///
 /// @param[in,out] building the layout
 /// @param left the row's left column
@@ -3975,7 +5203,7 @@ void add_maps_heading_row(
     const int32_t field_width =
         std::max(std::min(maps_search_width, std::max(width - beside, int32_t{0})), int32_t{0});
     const int32_t field_x = left + std::max(width - field_width, int32_t{0});
-    const int32_t text_top = top + std::max((metrics.field_height - metrics.small_line) / 2, 0);
+    const int32_t text_top = top + std::max((metrics.control_height - metrics.small_line) / 2, 0);
     const int32_t heading_room =
         std::max(std::min(heading_width, std::max(field_x - gap - left, int32_t{0})), int32_t{0});
     if (heading_room > 0) {
@@ -4004,7 +5232,7 @@ void add_maps_heading_row(
             );
     }
     if (field_width > 0)
-        add_maps_search(building, {field_x, top, field_width, metrics.field_height}, clip);
+        add_maps_search(building, {field_x, top, field_width, metrics.control_height}, clip);
 }
 
 /// Appends the line the maps pane shows when it has no tile.
@@ -4313,13 +5541,13 @@ std::string fit_pill_text(
     look.text = text;
     if (room <= 0)
         return {};
-    if (kit::pill_width(*building.fonts, look) <= room)
+    if (pill_width_of(building, look) <= room)
         return text;
-    const int32_t padding = std::max(building.metrics->chip_padding, kit::pill_height() / 2);
+    const int32_t padding = chip_side(*building.metrics);
     std::string fitted =
         cut(building, kit::FontRole::small, text, std::max(room - 2 * padding, int32_t{0}));
     look.text = fitted;
-    while (!fitted.empty() && kit::pill_width(*building.fonts, look) > room) {
+    while (!fitted.empty() && pill_width_of(building, look) > room) {
         std::size_t drop = 1;
         if (fitted.size() >= 3 && fitted.compare(fitted.size() - 3, 3, "...") == 0 &&
             fitted.size() > 3) {
@@ -4356,6 +5584,15 @@ struct ExpansionWrap {
     bool hint{};
 };
 
+/// Returns the points between two expansion pills, side by side or one
+/// line under another: the kit's gap between chips, as a row's tags keep.
+///
+/// @param metrics the class's metrics
+/// @return the points
+int32_t expansion_line_gap(const kit::Metrics& metrics) {
+    return metrics.chip_gap;
+}
+
 /// Wraps the expansion pills into a width.
 ///
 /// @param building the layout
@@ -4367,8 +5604,8 @@ wrap_expansions(const Building& building, const ActiveContent& content, int32_t 
     const kit::Metrics& metrics = *building.metrics;
     ExpansionWrap wrap;
     const int32_t room = std::max(inner, int32_t{0});
-    const int32_t gap = metrics.button_gap;
-    const int32_t pill_height = kit::pill_height();
+    const int32_t gap = expansion_line_gap(metrics);
+    const int32_t pill_height = chip_height(metrics);
     ExpansionRow row;
     int32_t across = 0;
     for (std::size_t index = 0; index < content.pills.size(); ++index) {
@@ -4379,7 +5616,7 @@ wrap_expansions(const Building& building, const ActiveContent& content, int32_t 
         kit::PillLook look;
         look.icon = icon;
         look.text = fit_pill_text(building, pill.text, room, icon);
-        int32_t width = room <= 0 ? 0 : kit::pill_width(*building.fonts, look);
+        int32_t width = room <= 0 ? 0 : pill_width_of(building, look);
         if (room > 0)
             width = std::min(width, room);
         if (!row.indexes.empty() && across + gap + width > room) {
@@ -4398,7 +5635,7 @@ wrap_expansions(const Building& building, const ActiveContent& content, int32_t 
         wrap.rows.push_back(std::move(row));
     for (std::size_t row_index = 0; row_index < wrap.rows.size(); ++row_index) {
         if (row_index != 0)
-            wrap.rows_height += gap;
+            wrap.rows_height += expansion_line_gap(metrics);
         wrap.rows_height += wrap.rows[row_index].band;
     }
     wrap.hint = !content.hint.empty();
@@ -4443,9 +5680,12 @@ expansion_lock_lines(const Building& building, std::string_view lock, int32_t in
     return wrapped(building, kit::FontRole::small, lock, room, 0);
 }
 
-/// Returns the expansions tile's height, including a button's room when the
-/// mod tile has UNLOAD MOD, so the pills stay above that button. The lock
-/// and the hint take one line for each line they wrap to.
+/// Returns the expansions tile's height, including the room a button needs
+/// when the mod tile has UNLOAD MOD: that button stands at the bottom of a
+/// tile as tall, so the tile keeps the control height less a pill's under
+/// the pills, and the button's top is level with the last line of pills or
+/// under it, where Tab reaches it after them. The lock and the hint take
+/// one line for each line they wrap to.
 ///
 /// @param building the layout
 /// @param content the pills, the lock and the hint
@@ -4456,23 +5696,21 @@ int32_t expansions_height(
     const Building& building, const ActiveContent& content, int32_t width, bool reserve_button
 ) {
     const kit::Metrics& metrics = *building.metrics;
-    const int32_t inset = metrics.card_inset;
+    const int32_t inset = tile_inset(metrics);
     const int32_t inner = std::max(width - 2 * inset, int32_t{0});
     const ExpansionWrap wrap = wrap_expansions(building, content, inner);
     int32_t stack = wrap.rows_height;
     bool placed = !wrap.rows.empty();
     const std::vector<std::string> lock_lines = expansion_lock_lines(building, content.lock, inner);
     if (!lock_lines.empty()) {
-        stack += (placed ? metrics.hint_gap : 0) +
-                 static_cast<int32_t>(lock_lines.size()) * metrics.small_line;
+        stack += (placed ? metrics.slider_gap : 0) + hint_lines_height(building, lock_lines.size());
         placed = true;
     }
     const std::vector<std::string> hint_lines = expansion_hint_lines(building, content.hint, inner);
     if (!hint_lines.empty())
-        stack += (placed ? metrics.hint_gap : 0) +
-                 static_cast<int32_t>(hint_lines.size()) * metrics.small_line;
+        stack += (placed ? metrics.slider_gap : 0) + hint_lines_height(building, hint_lines.size());
     if (reserve_button)
-        stack += metrics.button_gap + metrics.button_height;
+        stack += std::max(metrics.control_height - chip_height(metrics), int32_t{0});
     return stack + 2 * inset;
 }
 
@@ -4489,13 +5727,13 @@ void place_expansions(
     Building& building, const ActiveContent& content, const kit::Rect& tile, const kit::Rect& clip
 ) {
     const kit::Metrics& metrics = *building.metrics;
-    const int32_t inset = metrics.card_inset;
+    const int32_t inset = tile_inset(metrics);
     add_tile_face(building, tile, clip);
     const int32_t inner_left = tile.x + inset;
     const int32_t inner_width = std::max(tile.width - 2 * inset, int32_t{0});
     const ExpansionWrap wrap = wrap_expansions(building, content, inner_width);
     int32_t row_y = tile.y + inset;
-    const int32_t pill_height = kit::pill_height();
+    const int32_t pill_height = chip_height(metrics);
     for (const ExpansionRow& row : wrap.rows) {
         int32_t column = inner_left;
         const int32_t band = std::max(row.band, pill_height);
@@ -4504,7 +5742,7 @@ void place_expansions(
             const ExpansionPill& pill = content.pills[index];
             const int32_t width = row.widths[place];
             if (width <= 0 || index >= controls::most_expansions) {
-                column += width + metrics.button_gap;
+                column += width + expansion_line_gap(metrics);
                 continue;
             }
             const kit::ControlId id =
@@ -4517,8 +5755,10 @@ void place_expansions(
             look.icon = pill.arrow ? std::optional<kit::StateIcon>{kit::StateIcon::download_arrow}
                                    : std::nullopt;
             look.text = fit_pill_text(building, pill.text, width, look.icon);
+            // An expansion that is off is outlined as a tag, so it reads as a
+            // chip on the tile's face; one that is on is the accent.
             look.state =
-                pill.face == ExpansionFace::on ? kit::PillState::active : kit::PillState::inactive;
+                pill.face == ExpansionFace::on ? kit::PillState::active : kit::PillState::tag;
             look.hovered = pressable && hovered(building, id);
             look.focused = pressable && focused(building, id);
             // A locked pill keeps its face, faded below, so it still reads as on.
@@ -4538,25 +5778,31 @@ void place_expansions(
                 add_item(building.list, kit::Role::locked_fade, rect, clip);
             move_controls(building.list, before, building.detail);
             kit::Control& control = building.detail.back();
+            // Drawing may cut the words. Automation keeps the whole line, as a
+            // button's caption does, so "Add from…" still reads when the tile is narrow.
+            control.text = pill.text;
             control.clip = clip;
             control.group = -1;
             control.focusable = pressable;
             control.enabled = pressable;
             tab_stop(building, control);
-            column += width + metrics.button_gap;
+            column += width + expansion_line_gap(metrics);
         }
-        row_y += band + metrics.button_gap;
+        row_y += band + expansion_line_gap(metrics);
     }
-    // After the last row of pills, row_y is a button gap below it. The lock
-    // and the hint each stand a hint gap below what is above them.
+    // After the last row of pills, row_y is a line gap below it. The lock
+    // and the hint each stand slider_gap below what is above them, as
+    // Settings keeps between a row's hints and its control, their lines a
+    // hint's step apart (hint_step).
     bool placed = !wrap.rows.empty();
     if (placed)
-        row_y -= metrics.button_gap;
+        row_y -= expansion_line_gap(metrics);
+    const int32_t step = hint_step(building);
     const std::vector<std::string> lock_lines =
         expansion_lock_lines(building, content.lock, inner_width);
     if (!lock_lines.empty()) {
         if (placed)
-            row_y += metrics.hint_gap;
+            row_y += metrics.slider_gap;
         const int32_t lock_top = row_y;
         const int32_t indent = padlock_room(metrics);
         kit::add_mark(
@@ -4576,8 +5822,9 @@ void place_expansions(
                 kit::colour::lock,
                 clip
             );
-            row_y += metrics.small_line;
+            row_y += step;
         }
+        row_y = lock_top + hint_lines_height(building, lock_lines.size());
         add_label(
             building.detail,
             controls::active_lock,
@@ -4593,7 +5840,7 @@ void place_expansions(
         expansion_hint_lines(building, content.hint, inner_width);
     if (!hint_lines.empty()) {
         if (placed)
-            row_y += metrics.hint_gap;
+            row_y += metrics.slider_gap;
         for (const std::string& hint_line : hint_lines) {
             add_text(
                 building,
@@ -4604,15 +5851,17 @@ void place_expansions(
                 kit::colour::hint,
                 clip
             );
-            row_y += metrics.small_line;
+            row_y += step;
         }
     }
 }
 
-/// Appends the base game, the language, the expansions and the mod, and
-/// returns the row under them. The four tiles stand two by two at every
-/// size. `area` places them; `clip` is what drawing may touch, the page
-/// when that page scrolls.
+/// Appends the base game, the language, the expansions, the mod and the
+/// layout in use, and returns the row under them. The four tiles stand two
+/// by two at every size. On a small window the layout is one line under its
+/// heading, so the expansion rows stay in view when the maps scroll up. On
+/// a larger window it is a full-width tile. `area` places them; `clip` is
+/// what drawing may touch, the page when that page scrolls.
 ///
 /// @param[in,out] building the layout
 /// @param setup what the tab shows of the mod and the language
@@ -4632,10 +5881,13 @@ int32_t place_fixed_identity(
     const int32_t left_width = std::max((area.width - gap) / 2, int32_t{0});
     const int32_t right = area.x + left_width + gap;
     const int32_t right_width = std::max(area.x + area.width - right, int32_t{0});
-    const int32_t row1 =
-        std::max(identity_height(metrics, base), identity_height(metrics, language));
+    const int32_t row1 = std::max(
+        identity_height(building, base, left_width),
+        identity_height(building, language, right_width)
+    );
     const int32_t row2 = std::max(
-        expansions_height(building, content, left_width, mod.button), identity_height(metrics, mod)
+        expansions_height(building, content, left_width, mod.button),
+        identity_height(building, mod, right_width)
     );
 
     int32_t top = area.y;
@@ -4666,7 +5918,23 @@ int32_t place_fixed_identity(
     ));
     place_expansions(building, content, {area.x, second, left_width, row2}, clip);
     place_identity(building, mod, {right, second, right_width, row2}, clip);
-    return second + row2 + metrics.paragraph_gap;
+
+    const IdentityTile keys = keys_tile(building, setup);
+    const int32_t keys_top = second + row2 + metrics.paragraph_gap;
+    const int32_t keys_heading = add_active_heading(
+        building,
+        shown(library.text, words::active_heading_keys),
+        area.x,
+        keys_top,
+        area.width,
+        clip
+    );
+    if (building.size_class == kit::SizeClass::compact) {
+        return place_compact_keys_line(building, keys, area.x, keys_heading, area.width, clip);
+    }
+    const int32_t keys_height = identity_height(building, keys, area.width);
+    place_identity(building, keys, {area.x, keys_heading, area.width, keys_height}, clip);
+    return keys_heading + keys_height + metrics.paragraph_gap;
 }
 
 /// Returns the row under the four tiles, measured without appending them.
@@ -4714,13 +5982,13 @@ void add_active_bar(
     };
 }
 
-/// Appends the Active tab. The four tiles stand under the tabs, then the
-/// MAPS heading and its search, then the maps. On a small window, when the
-/// tiles leave the maps fewer than four rows, the page scrolls as one: the
-/// tiles, then the maps, and once the maps are scrolled to the top at least
-/// four rows fit. Otherwise the maps pane scrolls on its own and the tiles
-/// stay. Either scroll bar is the one the other pages use. A search on the
-/// heading leaves the tiles whose name or pack name holds the text.
+/// Appends the Active tab. The four tiles stand under the tabs, then KEYS,
+/// then the MAPS heading and its search, then the maps. When the tiles
+/// leave the maps fewer than four rows, at any size, the page scrolls as
+/// one: the tiles, then the maps, and once the maps are scrolled to the top at
+/// least four rows fit. Otherwise the maps pane scrolls on its own and the
+/// tiles stay. Either scroll bar is the one the other pages use. A search on
+/// the heading leaves the tiles whose name or pack name holds the text.
 ///
 /// @param[in,out] building the layout
 /// @param area the area
@@ -4735,11 +6003,10 @@ void add_active(Building& building, const kit::Rect& area) {
         if (map_matches_query(setup.maps[index], query))
             matching.push_back(index);
 
-    const int32_t heading_span = metrics.field_height + metrics.hint_gap;
+    const int32_t heading_span = metrics.control_height + metrics.hint_gap;
     const int32_t full_bottom = measured_identity_bottom(building, setup, area);
     const int32_t pane_height = area.y + area.height - (full_bottom + heading_span);
-    const bool page = building.size_class == kit::SizeClass::compact &&
-                      pane_height < maps_rows_kept * metrics.small_line;
+    const bool page = pane_height < maps_rows_kept * metrics.small_line;
     const int32_t well_width = metrics.scroll_thumb_width + 2;
 
     if (page) {
@@ -4948,9 +6215,12 @@ add_registries_content(Building& building, const kit::Rect& view, int32_t width,
         const int32_t title_band = std::max(metrics.regular_line, metrics.button_height);
         // The right cluster, from the switch inward: REFRESH, the refresh
         // mark while this registry is being asked or its check is showing,
-        // and the key icon. The key, REFRESH and the switch share the band's
-        // top, so Tab reads them left to right and then the buttons below.
-        // A wrapped heading grows under that band.
+        // and the key icon. They share the title's band when the title keeps
+        // a letter's width beside them, so Tab reads them left to right and
+        // then the buttons below. A translation of Refresh such as
+        // Auffrischen can leave the title narrower than its first letter;
+        // the controls then take the row under the title, and the title
+        // keeps the card's width. A wrapped heading grows under its band.
         const uint16_t check_ms =
             registry.refreshing ? uint16_t{0} : registry_check_ms(*building.state, registry.id);
         const bool show_mark = registry.refreshing || check_ms > 0;
@@ -4965,33 +6235,35 @@ add_registries_content(Building& building, const kit::Rect& view, int32_t width,
         const int32_t switch_columns =
             std::max(metrics.switch_width, (std::max(off_width, on_width) + switch_pad) * 2 + 2);
         cluster -= switch_columns;
-        const kit::Rect toggle{
-            cluster,
-            band_top,
-            switch_columns,
-            metrics.regular_line,
-        };
+        const int32_t toggle_x = cluster;
         cluster -= metrics.button_gap;
+        // REFRESH is a row's small secondary button with its arrow.
         const std::string_view refresh_caption = shown(library.text, words::registry_refresh);
-        const int32_t refresh_width = button_width(building, refresh_caption);
+        const int32_t refresh_width = small_button_width(building, refresh_caption) +
+                                      kit::refresh_icon_room(metrics.button_height);
         cluster -= refresh_width;
-        const kit::Rect refresh_rect{cluster, band_top, refresh_width, metrics.button_height};
+        const int32_t refresh_x = cluster;
         cluster -= metrics.button_gap;
-        kit::Rect turning_rect{};
+        int32_t turning_x = 0;
         if (show_mark) {
             cluster -= metrics.button_height;
-            turning_rect = {cluster, band_top, metrics.button_height, metrics.button_height};
+            turning_x = cluster;
             cluster -= metrics.button_gap;
         }
         cluster -= metrics.state_icon_side;
-        const kit::Rect key_rect{
-            cluster, band_top, metrics.state_icon_side, metrics.state_icon_side
-        };
+        const int32_t key_x = cluster;
         const int32_t text_left = inner_left + side + metrics.list_row_gap;
-        const int32_t title_right = cluster - metrics.label_gap;
-        const int32_t title_width = title_right - text_left;
+        int32_t title_width = key_x - metrics.label_gap - text_left;
         const std::string_view heading = registry.title.empty() ? std::string_view{registry.name}
                                                                 : std::string_view{registry.title};
+        const std::size_t glyph_bytes = std::min(kit::character_bytes(heading), heading.size());
+        const int32_t glyph =
+            glyph_bytes == 0
+                ? 0
+                : width_of(building, kit::FontRole::regular, heading.substr(0, glyph_bytes));
+        const bool stack_controls = glyph > 0 && title_width < glyph;
+        if (stack_controls)
+            title_width = std::max(inner_right - text_left, int32_t{0});
         // A built-in registry's pill sits on the title's line, at its right,
         // as the Active tab's Language tile places Built in. The heading
         // keeps clear of it.
@@ -5019,7 +6291,22 @@ add_registries_content(Building& building, const kit::Rect& view, int32_t width,
         const int32_t heading_height =
             static_cast<int32_t>(std::max(heading_lines.size(), std::size_t{1})) *
             metrics.regular_line;
-        const int32_t header_height = std::max(title_band, std::max(heading_height, side));
+        const int32_t cluster_row = std::max(metrics.button_height, metrics.state_icon_side * 2);
+        int32_t cluster_top = band_top;
+        int32_t header_height = std::max(title_band, std::max(heading_height, side));
+        if (stack_controls) {
+            const int32_t title_block = std::max(title_band, std::max(heading_height, side));
+            cluster_top = band_top + title_block + metrics.hint_gap;
+            header_height = cluster_top - band_top + cluster_row;
+        }
+        const kit::Rect toggle{toggle_x, cluster_top, switch_columns, metrics.regular_line};
+        const kit::Rect refresh_rect{refresh_x, cluster_top, refresh_width, metrics.button_height};
+        kit::Rect turning_rect{};
+        if (show_mark)
+            turning_rect = {turning_x, cluster_top, metrics.button_height, metrics.button_height};
+        const kit::Rect key_rect{
+            key_x, cluster_top, metrics.state_icon_side, metrics.state_icon_side
+        };
         const int32_t lines_width = std::max(inner_right - text_left, int32_t{0});
         std::vector<std::string> description_lines;
         if (!registry.description.empty() && lines_width > 0)
@@ -5056,15 +6343,19 @@ add_registries_content(Building& building, const kit::Rect& view, int32_t width,
         for (std::size_t line = 0; line < heading_lines.size(); ++line) {
             const int32_t box_width =
                 line == 0 && show_built_in ? first_box : std::max(title_width, int32_t{0});
-            add_text(
-                building,
-                kit::FontRole::regular,
-                heading_lines[line],
-                {text_left, heading_top, box_width, metrics.regular_line},
-                kit::Align::left,
-                kit::colour::text,
-                view
-            );
+            // A word wider than the box is not drawn. The wrap keeps a first
+            // letter even when that letter is wider, and that letter would
+            // fail the text-fit check.
+            if (width_of(building, kit::FontRole::regular, heading_lines[line]) <= box_width)
+                add_text(
+                    building,
+                    kit::FontRole::regular,
+                    heading_lines[line],
+                    {text_left, heading_top, box_width, metrics.regular_line},
+                    kit::Align::left,
+                    kit::colour::text,
+                    view
+                );
             heading_top += metrics.regular_line;
         }
         if (show_built_in) {
@@ -5120,18 +6411,19 @@ add_registries_content(Building& building, const kit::Rect& view, int32_t width,
             kit::Item& spun = add_item(building.list, kit::Role::button, turning_rect, view);
             spun.look = spinning;
         }
-        add_button(
+        add_small_button(
             building,
             building.detail,
             refresh_rect,
             refresh_caption,
-            false,
             registry.on && !registry.refreshing,
             controls::first_registry_refresh + static_cast<kit::ControlId>(index),
             named("registry." + word + ".refresh"),
             view,
             controls::details_group
         );
+        if (auto* refresh_look = std::get_if<kit::ButtonLook>(&building.list.items.back().look))
+            refresh_look->refresh_icon = true;
         add_registry_switch(
             building,
             toggle,
@@ -5210,13 +6502,12 @@ add_registries_content(Building& building, const kit::Rect& view, int32_t width,
         if (!registry.built_in) {
             const int32_t buttons_top = bottom + metrics.folder_button_gap;
             const std::string_view remove_caption = shown(library.text, words::registry_remove);
-            const int32_t remove_width = button_width(building, remove_caption);
-            add_button(
+            const int32_t remove_width = small_button_width(building, remove_caption);
+            add_small_button(
                 building,
                 building.detail,
                 {text_left, buttons_top, remove_width, metrics.button_height},
                 remove_caption,
-                false,
                 true,
                 controls::first_registry_remove + static_cast<kit::ControlId>(index),
                 named("registry." + word + ".remove"),
@@ -5239,15 +6530,14 @@ add_registries_content(Building& building, const kit::Rect& view, int32_t width,
             } else {
                 const std::string_view mirror_caption =
                     shown(library.text, words::registry_add_mirror);
-                add_button(
+                add_small_button(
                     building,
                     building.detail,
                     {mirror_left,
                      buttons_top,
-                     button_width(building, mirror_caption),
+                     small_button_width(building, mirror_caption),
                      metrics.button_height},
                     mirror_caption,
-                    false,
                     true,
                     controls::first_registry_mirror + static_cast<kit::ControlId>(index),
                     named("registry." + word + ".add-mirror"),
@@ -5382,7 +6672,7 @@ void add_registry_bar(Building& building, const Window& window, int32_t& top) {
     if (library.tab != Tab::registries)
         return;
     const kit::Metrics& metrics = *building.metrics;
-    const int32_t height = metrics.button_height;
+    const int32_t height = window.button_height;
     const int32_t room = std::max(window.right - window.left, int32_t{0});
     if (library.inputs.in_match) {
         const int32_t lock_width = std::min(
@@ -5421,6 +6711,22 @@ void add_registry_bar(Building& building, const Window& window, int32_t& top) {
     top += height + window.gap;
 }
 
+/// Appends the footer's band: the line over it and the band, Kit 2's footer
+/// height (Window::footer_height) under the line.
+///
+/// @param[in,out] building the layout
+/// @param window the window
+void add_footer_band(Building& building, const Window& window) {
+    const int32_t edge = building.metrics->edge;
+    const int32_t inner = window.width - 2 * edge;
+    add_item(building.list, kit::Role::rule, {edge, window.footer_rule, inner, 1}, {}).colour =
+        kit::colour::rule;
+    add_item(
+        building.list, kit::Role::fill, {edge, window.footer_top, inner, window.footer_height}, {}
+    )
+        .colour = kit::colour::band;
+}
+
 /// Appends the footer's band, the queue's words at its left and its buttons
 /// at its right: DETAILS at Compact but not on the Active or Registries
 /// tabs, and CLOSE, the main action. On the Registries tab, ADD REGISTRY…
@@ -5432,13 +6738,7 @@ void add_registry_bar(Building& building, const Window& window, int32_t& top) {
 void add_list_footer(Building& building, const Window& window, bool compact) {
     const Library& library = *building.library;
     const kit::Metrics& metrics = *building.metrics;
-    add_item(
-        building.list,
-        kit::Role::footer_band,
-        {0, window.footer_rule, window.width, metrics.footer_height + 1},
-        {}
-    )
-        .look = kit::FooterBandLook{window.width, window.footer_rule};
+    add_footer_band(building, window);
 
     struct FooterButton {
         Action action{};
@@ -5452,9 +6752,9 @@ void add_list_footer(Building& building, const Window& window, bool compact) {
     buttons.push_back({Action::close, controls::close, true});
     int32_t total = 0;
     for (const FooterButton& button : buttons)
-        total +=
-            button_width(building, action_text(button.action, library.text)) + metrics.button_gap;
-    total -= metrics.button_gap;
+        total += button_width(building, action_text(button.action, library.text)) +
+                 button_spacing(metrics);
+    total -= button_spacing(metrics);
     int32_t left = window.right - total;
     const int32_t queue_right = left - metrics.label_gap;
     if (library.tab == Tab::registries) {
@@ -5468,7 +6768,7 @@ void add_list_footer(Building& building, const Window& window, bool compact) {
         add_button(
             building,
             building.footer,
-            {left, window.button_top, width, metrics.button_height},
+            {left, window.button_top, width, window.button_height},
             caption,
             button.action == Action::close,
             button.enabled,
@@ -5477,7 +6777,7 @@ void add_list_footer(Building& building, const Window& window, bool compact) {
             {},
             -1
         );
-        left += width + metrics.button_gap;
+        left += width + button_spacing(metrics);
     }
 
     const QueueLines lines = queue_lines(library);
@@ -5498,14 +6798,14 @@ void add_list_footer(Building& building, const Window& window, bool compact) {
     const int32_t line_count = second_line ? 2 : 1;
     int32_t gap = bar ? metrics.hint_gap : 0;
     int32_t block = line_count * metrics.small_line + (bar ? gap + metrics.progress_bar_height : 0);
-    if (bar && block > metrics.footer_height) {
+    if (bar && block > window.footer_height) {
         gap = std::max(
-            metrics.footer_height - line_count * metrics.small_line - metrics.progress_bar_height,
+            window.footer_height - line_count * metrics.small_line - metrics.progress_bar_height,
             int32_t{0}
         );
         block = line_count * metrics.small_line + gap + metrics.progress_bar_height;
     }
-    const int32_t line_top = window.footer_top + (metrics.footer_height - block) / 2;
+    const int32_t line_top = window.footer_top + (window.footer_height - block) / 2;
     const std::string first = cut(building, kit::FontRole::small, primary, queue_width);
     const kit::Rect box{window.left, line_top, queue_width, metrics.small_line};
     add_text(building, kit::FontRole::small, first, box, kit::Align::left, kit::colour::text, {});
@@ -5594,6 +6894,21 @@ void add_open_menu(Building& building, int32_t footer_line) {
     look.chosen = menu_open.chosen;
     look.marked = building.state->menu_marked;
     look.focus_shown = building.state->interaction.focus_shown;
+    // A menu with a heading names each row: a heading is a divider, which
+    // takes no press and no name.
+    const bool headed = std::any_of(
+        menu_open.items.begin(), menu_open.items.end(), [](const controls::MenuItem& item) {
+            return item.heading;
+        }
+    );
+    if (headed)
+        for (const controls::MenuItem& item : menu_open.items) {
+            kit::ChoiceMenuRow row;
+            row.id = item.heading ? std::string{} : item.word;
+            row.divider = item.heading;
+            row.choosable = !item.heading;
+            look.items.push_back(std::move(row));
+        }
     for (int32_t place = 0; place < shown_count && first + place < count; ++place) {
         const controls::MenuItem& item = menu_open.items[static_cast<std::size_t>(first + place)];
         const kit::Rect box = kit::choice_item(menu, place);
@@ -5603,6 +6918,8 @@ void add_open_menu(Building& building, int32_t footer_line) {
                 item.caption,
                 box.width - metrics.choice_item_text_inset - metrics.list_row_inset)
         );
+        if (item.heading)
+            continue;
         kit::Control control;
         control.id = controls::first_menu_item + first + place;
         control.rect = box;
@@ -6098,6 +7415,615 @@ void add_base_chooser(Building& building, const Window& window) {
     building.overlay.back().focusable = false;
 }
 
+/// Returns a key as USE's question draws it: its keycaps and its gesture, or
+/// the words for no key.
+///
+/// @param library the model
+/// @param chord the key; no keycaps is no key
+/// @return the chip
+kit::ChordChipLook move_chip(const Library& library, const KeyChord& chord) {
+    kit::ChordChipLook look;
+    look.keys = chord.keys;
+    look.gesture = chord.gesture;
+    if (chord.keys.empty())
+        look.none_text = std::string(shown(library.text, words::use_no_key));
+    return look;
+}
+
+/// Returns a key as automation reads it: its keycaps joined with "+", then
+/// its gesture, or the words for no key.
+///
+/// @param library the model
+/// @param chord the key
+/// @return the words
+std::string chord_reading(const Library& library, const KeyChord& chord) {
+    if (chord.keys.empty())
+        return std::string(shown(library.text, words::use_no_key));
+    std::string read;
+    for (const std::string& cap : chord.keys) {
+        if (!read.empty())
+            read.push_back('+');
+        read += cap;
+    }
+    if (!chord.gesture.empty()) {
+        read.push_back(' ');
+        read += chord.gesture;
+    }
+    return read;
+}
+
+/// What USE's question shows, and the rows each part takes, once it has
+/// been fitted to the window.
+struct KeyUsePlan {
+    std::vector<std::string> saved{};   ///< where the own changes stay, wrapped
+    std::vector<std::string> helpers{}; ///< the helpers' note, wrapped
+    std::vector<std::string> pointer{}; ///< the interface note, wrapped
+    bool show_moves{};                  ///< What moves is shown
+    int32_t move_lines{};               ///< the lines it takes, "and {count} more" among them
+    int32_t move_columns{1};            ///< its columns: two at Compact, else one
+};
+
+/// The least width of a column of What moves at Compact: a command's name,
+/// a key on either side of the arrow, and the gaps between them.
+constexpr int32_t least_move_column = 200;
+
+/// Appends USE's question over the Library, scope first: a shade, the
+/// title, Where (every game, or only the mod being played), the player's own
+/// changes (keep them on top, or start clean, and where they stay either
+/// way), What moves (each command's key now and afterwards), the helpers the
+/// layout asks for, and Cancel and USE, whose caption names the answer to
+/// Where. It is a dialog the width of a notice, the whole window at Compact,
+/// as tall as it needs. Where the window is too short, What moves keeps
+/// fewer lines and then the notes keep one line each. The choices and the
+/// buttons are tried before the shade, and the shade before the Library.
+///
+/// @param[in,out] building the layout
+/// @param window the window
+void add_key_use(Building& building, const Window& window) {
+    const Library& library = *building.library;
+    const KeyUse& use = library.key_use;
+    if (!use.open)
+        return;
+    const kit::Metrics& metrics = *building.metrics;
+    const TextHooks& text = library.text;
+    const bool compact = building.size_class == kit::SizeClass::compact;
+    const kit::Rect shade{0, 0, window.width, window.height};
+    kit::Item& dim = add_item(building.list, kit::Role::blend, shade, {});
+    dim.colour = kit::colour::backdrop;
+    dim.opacity = 180;
+
+    // Kit 2's sizes: the controls' height, the window padding inside the
+    // dialog, a space between a heading and what it heads, and a row's gap
+    // between sections. Compact keeps half the padding round the dialog.
+    const int32_t outer = compact ? metrics.space : window.padding;
+    const int32_t pad = compact ? 2 * metrics.space : metrics.window_padding;
+    const int32_t gap = metrics.space;
+    const int32_t section_gap = metrics.row_gap;
+    const int32_t control = metrics.control_height;
+    const int32_t switch_row = std::min(metrics.switch_height, control);
+    const int32_t move_line = kit::keycap_height + 2;
+    const int32_t room_width = std::max(window.width - 2 * outer, int32_t{1});
+    const int32_t dialog_width = compact ? room_width : std::min(metrics.notice_width, room_width);
+    const int32_t inner = std::max(dialog_width - 2 * pad, int32_t{1});
+    const int32_t most_height = std::max(window.height - 2 * outer, int32_t{1});
+
+    const Entry* entry = find_entry(library, use.layout);
+    const std::string name = entry != nullptr ? std::string(entry_name(*entry)) : std::string{};
+    const bool show_own = use.show_own || use.already;
+    const bool choose_own = use.show_own && !use.already;
+    const std::size_t helper_count = std::min(use.helpers.size(), controls::most_use_helpers);
+    const std::vector<KeyMove>& moves = key_use_moves(use);
+    const uint32_t moves_total =
+        std::max(key_use_moves_total(use), static_cast<uint32_t>(moves.size()));
+
+    // The notes, at the widths they are drawn.
+    std::string saved_words;
+    if (use.already) {
+        saved_words =
+            use.already_count == 1
+                ? filled(text, words::use_already_one, {{"name", use.already_name}})
+                : filled(
+                      text,
+                      words::use_already_many,
+                      {{"name", use.already_name}, {"count", std::to_string(use.already_count)}}
+                  );
+        if (use.show_own && !use.saved_with.empty())
+            saved_words +=
+                " " + filled(
+                          text,
+                          use.own_count == 1 ? words::use_saved_one : words::use_saved_many,
+                          {{"name", use.saved_with}}
+                      );
+    } else if (use.show_own && !use.saved_with.empty()) {
+        saved_words = filled(
+            text,
+            use.own_count == 1 ? words::use_saved_one : words::use_saved_many,
+            {{"name", use.saved_with}}
+        );
+    }
+    const std::string helpers_words =
+        use.show_scope && use.for_mod
+            ? filled(text, words::use_helpers_not_only, {{"mod", use.mod_name}})
+            : std::string(shown(text, words::use_helpers_every_game));
+    const int32_t callout_inner = std::max(inner - 2 * gap, int32_t{1});
+
+    KeyUsePlan plan;
+    plan.saved = wrapped(building, kit::FontRole::small, saved_words, inner, 0);
+    if (helper_count > 0)
+        plan.helpers = wrapped(building, kit::FontRole::small, helpers_words, callout_inner, 0);
+    plan.pointer = wrapped(building, kit::FontRole::small, use.pointer_note, inner, 0);
+    plan.show_moves = use.moves.known;
+    const auto lines_height = [&](const std::vector<std::string>& lines) {
+        return hint_lines_height(building, lines.size());
+    };
+    const auto fixed_height = [&] {
+        int32_t height = pad + metrics.regular_line + section_gap;
+        if (use.show_scope)
+            height += metrics.small_line + gap + control + section_gap;
+        if (show_own) {
+            height += metrics.small_line + gap;
+            if (choose_own)
+                height += control + gap;
+            height += lines_height(plan.saved) + section_gap;
+        }
+        if (plan.show_moves)
+            height += metrics.small_line + gap + section_gap;
+        if (helper_count > 0)
+            height += gap + lines_height(plan.helpers) + gap +
+                      static_cast<int32_t>(helper_count) * switch_row + gap + section_gap;
+        if (!plan.pointer.empty())
+            height += lines_height(plan.pointer) + section_gap;
+        return height + control + pad;
+    };
+    // What moves takes the rows left over: every move when they fit, else
+    // as many as fit and "and {count} more", and at least one line. At
+    // Compact it fills two columns, row by row, where the dialog is wide
+    // enough.
+    if (compact && inner - gap >= 2 * least_move_column)
+        plan.move_columns = 2;
+    const int32_t wanted_cells =
+        moves.empty() ? 1
+                      : static_cast<int32_t>(moves.size()) +
+                            (moves_total > static_cast<uint32_t>(moves.size()) ? 1 : 0);
+    const int32_t wanted_lines = (wanted_cells + plan.move_columns - 1) / plan.move_columns;
+    const auto fit_moves = [&] {
+        const int32_t room = most_height - fixed_height();
+        plan.move_lines = std::clamp(room / move_line, int32_t{1}, wanted_lines);
+        return room >= plan.move_lines * move_line;
+    };
+    if (plan.show_moves && !fit_moves()) {
+        // Too short: the notes keep one line each, then What moves goes.
+        if (plan.saved.size() > 1)
+            plan.saved = {cut(building, kit::FontRole::small, saved_words, inner)};
+        if (plan.helpers.size() > 1)
+            plan.helpers = {cut(building, kit::FontRole::small, helpers_words, callout_inner)};
+        if (!fit_moves())
+            plan.show_moves = false;
+    }
+    if (!plan.show_moves)
+        plan.move_lines = 0;
+    const int32_t dialog_height =
+        std::min(fixed_height() + plan.move_lines * move_line, most_height);
+    const int32_t dialog_x = (window.width - dialog_width) / 2;
+    const int32_t dialog_y = std::max((window.height - dialog_height) / 2, int32_t{0});
+    const kit::Rect dialog{dialog_x, dialog_y, dialog_width, dialog_height};
+    add_item(building.list, kit::Role::fill, dialog, {}).colour = kit::colour::panel;
+    add_item(building.list, kit::Role::outline, dialog, {}).colour = kit::colour::control_border;
+
+    const int32_t left = dialog_x + pad;
+    int32_t cursor = dialog_y + pad;
+    int32_t number = 0;
+    const auto heading = [&](std::string_view words_shown) {
+        ++number;
+        add_text(
+            building,
+            kit::FontRole::small,
+            cut(building,
+                kit::FontRole::small,
+                filled(
+                    text,
+                    words::use_section,
+                    {{"number", std::to_string(number)}, {"heading", std::string(words_shown)}}
+                ),
+                inner),
+            {left, cursor, inner, metrics.small_line},
+            kit::Align::left,
+            kit::colour::hint,
+            {}
+        );
+        cursor += metrics.small_line + gap;
+    };
+    const auto note = [&](const std::vector<std::string>& lines,
+                          kit::ControlId id,
+                          std::string control_name,
+                          std::string_view read,
+                          int32_t at,
+                          int32_t width,
+                          kit::Colour ink) {
+        const int32_t top = cursor;
+        cursor = add_lines(building, lines, at, cursor, width, ink, {});
+        if (id != kit::no_control && !lines.empty())
+            add_label(
+                building.overlay,
+                id,
+                {at, top, width, cursor - top},
+                unique_name(building, named(std::move(control_name))),
+                std::string(read),
+                {},
+                -1
+            );
+    };
+    // One of a pair of choices: a radio row, the marked one on the list's
+    // selected face with the accent's edge and its dot.
+    const auto choice = [&](kit::ControlId id,
+                            std::string control_name,
+                            const kit::Rect& rect,
+                            std::string caption,
+                            bool marked) {
+        kit::RadioLook look;
+        look.caption = cut(
+            building, kit::FontRole::regular, caption, kit::radio_parts(rect, true).caption.width
+        );
+        look.on = marked;
+        look.hovered = hovered(building, id);
+        look.held = held(building, id);
+        const std::size_t before = building.list.controls.size();
+        kit::add_radio(
+            building.list, rect, look, id, unique_name(building, named(std::move(control_name)))
+        );
+        move_controls(building.list, before, building.overlay);
+        kit::Control& added = building.overlay.back();
+        added.focusable = true;
+        added.enabled = true;
+        added.text = caption;
+        building.question_order.push_back(added.id);
+    };
+    const int32_t half = std::max((inner - gap) / 2, int32_t{1});
+
+    add_text(
+        building,
+        kit::FontRole::regular,
+        cut(building,
+            kit::FontRole::regular,
+            filled(text, words::use_title, {{"name", name}}),
+            inner),
+        {left, cursor, inner, metrics.regular_line},
+        kit::Align::left,
+        kit::colour::text,
+        {}
+    );
+    cursor += metrics.regular_line + section_gap;
+
+    if (use.show_scope) {
+        heading(shown(text, words::use_where));
+        choice(
+            controls::use_for_game,
+            "use.for.game",
+            {left, cursor, half, control},
+            std::string(shown(text, words::use_every_game)),
+            !use.for_mod
+        );
+        choice(
+            controls::use_for_mod,
+            "use.for.mod",
+            {left + half + gap, cursor, inner - half - gap, control},
+            filled(text, words::use_only_with, {{"mod", use.mod_name}}),
+            use.for_mod
+        );
+        cursor += control + section_gap;
+    }
+
+    if (show_own) {
+        if (use.show_own)
+            heading(
+                use.own_count == 1
+                    ? filled(text, words::use_yours_one, {{"name", use.saved_with}})
+                    : filled(
+                          text,
+                          words::use_yours_many,
+                          {{"count", std::to_string(use.own_count)}, {"name", use.saved_with}}
+                      )
+            );
+        else
+            heading(shown(text, words::fact_your_changes));
+        if (choose_own) {
+            choice(
+                controls::use_keep,
+                "use.keep",
+                {left, cursor, half, control},
+                std::string(
+                    shown(text, use.own_count == 1 ? words::use_keep_it : words::use_keep_them)
+                ),
+                use.keep
+            );
+            choice(
+                controls::use_aside,
+                "use.aside",
+                {left + half + gap, cursor, inner - half - gap, control},
+                std::string(shown(text, words::use_start_clean)),
+                !use.keep
+            );
+            cursor += control + gap;
+        }
+        note(
+            plan.saved,
+            controls::use_saved,
+            "use.saved",
+            saved_words,
+            left,
+            inner,
+            kit::colour::hint
+        );
+        cursor += section_gap;
+    }
+
+    if (plan.show_moves) {
+        heading(shown(text, words::use_what_moves));
+        const int32_t top = cursor;
+        std::string read;
+        const int32_t cells = plan.move_lines * plan.move_columns;
+        const bool more = moves_total > static_cast<uint32_t>(moves.size()) ||
+                          cells < static_cast<int32_t>(moves.size());
+        const int32_t shown_moves =
+            moves.empty() ? 0
+                          : std::min(more ? cells - 1 : cells, static_cast<int32_t>(moves.size()));
+        const int32_t column_width =
+            plan.move_columns > 1 ? (inner - gap) / plan.move_columns : inner;
+        const std::string_view arrow = "→";
+        const int32_t arrow_width = width_of(building, kit::FontRole::small, arrow);
+        if (moves.empty()) {
+            const std::string none(shown(text, words::use_nothing_moves));
+            add_text(
+                building,
+                kit::FontRole::small,
+                cut(building, kit::FontRole::small, none, inner),
+                {left, cursor, inner, move_line},
+                kit::Align::left,
+                kit::colour::hint,
+                {}
+            );
+            read = none;
+            cursor += move_line;
+        }
+        // A cell's place: row by row, the columns from the left.
+        const auto cell_left = [&](int32_t index) {
+            return left + (index % plan.move_columns) * (column_width + gap);
+        };
+        const auto cell_top = [&](int32_t index) {
+            return top + (index / plan.move_columns) * move_line;
+        };
+        for (int32_t index = 0; index < shown_moves; ++index) {
+            const KeyMove& move = moves[static_cast<std::size_t>(index)];
+            const kit::ChordChipLook before = move_chip(library, move.before);
+            const kit::ChordChipLook after = move_chip(library, move.after);
+            const int32_t after_width = kit::chord_chip_width(*building.fonts, after);
+            const int32_t before_width = kit::chord_chip_width(*building.fonts, before);
+            const int32_t cell_x = cell_left(index);
+            cursor = cell_top(index);
+            const int32_t chip_top = cursor + (move_line - kit::keycap_height) / 2;
+            const int32_t after_x = cell_x + column_width - after_width;
+            const int32_t arrow_x = after_x - gap - arrow_width;
+            const int32_t before_x = arrow_x - gap - before_width;
+            kit::add_chord_chip(
+                building.list,
+                {after_x, chip_top, after_width, kit::keycap_height},
+                after,
+                kit::no_control,
+                {}
+            );
+            add_text(
+                building,
+                kit::FontRole::small,
+                std::string(arrow),
+                {arrow_x, cursor, arrow_width, move_line},
+                kit::Align::left,
+                kit::colour::hint,
+                {}
+            );
+            kit::add_chord_chip(
+                building.list,
+                {before_x, chip_top, before_width, kit::keycap_height},
+                before,
+                kit::no_control,
+                {}
+            );
+            int32_t name_room = std::max(before_x - gap - cell_x, int32_t{0});
+            const std::string command(shown(text, move.command));
+            if (move.own) {
+                kit::PillLook yours;
+                yours.text = std::string(shown(text, words::use_yours));
+                yours.state = kit::PillState::update;
+                const int32_t yours_width = kit::pill_width(*building.fonts, yours);
+                name_room = std::max(name_room - yours_width - gap, int32_t{0});
+                const std::string drawn = cut(building, kit::FontRole::small, command, name_room);
+                const int32_t drawn_width = width_of(building, kit::FontRole::small, drawn);
+                add_text(
+                    building,
+                    kit::FontRole::small,
+                    drawn,
+                    {cell_x, cursor, drawn_width, move_line},
+                    kit::Align::left,
+                    kit::colour::text,
+                    {}
+                );
+                kit::add_pill(
+                    building.list,
+                    {cell_x + drawn_width + gap,
+                     cursor + (move_line - kit::pill_height()) / 2,
+                     yours_width,
+                     kit::pill_height()},
+                    yours,
+                    kit::no_control,
+                    {}
+                );
+            } else {
+                add_text(
+                    building,
+                    kit::FontRole::small,
+                    cut(building, kit::FontRole::small, command, name_room),
+                    {cell_x, cursor, name_room, move_line},
+                    kit::Align::left,
+                    kit::colour::text,
+                    {}
+                );
+            }
+            if (!read.empty())
+                read += "\n";
+            read += command;
+            if (move.own)
+                read += " (" + std::string(shown(text, words::use_yours)) + ")";
+            read += ": " + chord_reading(library, move.before) + " " + std::string(arrow) + " " +
+                    chord_reading(library, move.after);
+        }
+        if (more && !moves.empty()) {
+            const uint32_t left_out = moves_total - static_cast<uint32_t>(shown_moves);
+            const std::string rest =
+                filled(text, words::names_more, {{"count", std::to_string(left_out)}});
+            add_text(
+                building,
+                kit::FontRole::small,
+                cut(building, kit::FontRole::small, rest, column_width),
+                {cell_left(shown_moves), cell_top(shown_moves), column_width, move_line},
+                kit::Align::left,
+                kit::colour::hint,
+                {}
+            );
+            read += "\n" + rest;
+        }
+        if (!moves.empty())
+            cursor = top + plan.move_lines * move_line;
+        add_label(
+            building.overlay,
+            controls::use_moves,
+            {left, top, inner, cursor - top},
+            unique_name(building, named("use.moves")),
+            read,
+            {},
+            -1
+        );
+        cursor += section_gap;
+    }
+
+    if (helper_count > 0) {
+        // The helpers are settings of the player's own, so the note says they
+        // act in every game, inside a box in the lock colour's tint.
+        const int32_t box_top = cursor;
+        const int32_t box_height = gap + lines_height(plan.helpers) + gap +
+                                   static_cast<int32_t>(helper_count) * switch_row + gap;
+        add_item(building.list, kit::Role::fill, {left, box_top, inner, box_height}, {}).colour =
+            kit::colour::caution_tint;
+        cursor += gap;
+        note(
+            plan.helpers,
+            controls::use_helpers_note,
+            "use.helpers",
+            helpers_words,
+            left + gap,
+            callout_inner,
+            kit::colour::lock
+        );
+        cursor += gap;
+        for (std::size_t index = 0; index < helper_count; ++index) {
+            const KeyHelperSwitch& one = use.helpers[index];
+            const kit::ControlId id =
+                controls::first_use_helper + static_cast<kit::ControlId>(index);
+            const kit::Rect rect{left + gap, cursor, metrics.switch_width, switch_row};
+            kit::SwitchLook look;
+            look.on = one.on;
+            look.hovered = hovered(building, id);
+            look.off_caption = std::string(shown(text, words::registry_off));
+            look.on_caption = std::string(shown(text, words::registry_on));
+            const std::size_t before = building.list.controls.size();
+            kit::add_switch(
+                building.list,
+                rect,
+                look,
+                id,
+                unique_name(building, named("use.helper." + one.name))
+            );
+            move_controls(building.list, before, building.overlay);
+            kit::Control& added = building.overlay.back();
+            added.focusable = true;
+            added.enabled = true;
+            added.text = one.label;
+            building.question_order.push_back(added.id);
+            const int32_t label_left = rect.x + rect.width + metrics.list_row_gap;
+            add_text(
+                building,
+                kit::FontRole::small,
+                cut(building, kit::FontRole::small, one.label, left + inner - gap - label_left),
+                {label_left,
+                 rect.y,
+                 std::max(left + inner - gap - label_left, int32_t{0}),
+                 rect.height},
+                kit::Align::left,
+                kit::colour::text,
+                {}
+            );
+            cursor += switch_row;
+        }
+        cursor = box_top + box_height + section_gap;
+    }
+    if (!plan.pointer.empty()) {
+        cursor = add_lines(building, plan.pointer, left, cursor, inner, kit::colour::lock, {});
+        cursor += section_gap;
+    }
+
+    // Cancel, and USE named by the answer to Where, at the dialog's foot.
+    const int32_t button_y = dialog_y + dialog_height - pad - control;
+    const std::string use_caption = key_use_button(library);
+    const std::string cancel_caption(shown(text, words::use_cancel));
+    const int32_t use_width = std::min(
+        std::max(small_button_width(building, use_caption), int32_t{80}), inner / 2 + inner / 4
+    );
+    const int32_t cancel_width =
+        std::max(small_button_width(building, cancel_caption), int32_t{80});
+    const int32_t use_x = left + inner - use_width;
+    const int32_t cancel_x = use_x - gap - cancel_width;
+    const auto take = [&](kit::ControlId id,
+                          std::string control_name,
+                          const kit::Rect& rect,
+                          std::string caption,
+                          bool accent) {
+        kit::ButtonLook look;
+        look.caption = cut(building, kit::FontRole::small, caption, rect.width - 2);
+        look.style = accent ? kit::ButtonStyle::accent : kit::ButtonStyle::plain;
+        look.hovered = hovered(building, id);
+        look.held = held(building, id);
+        const std::size_t before = building.list.controls.size();
+        kit::add_button(
+            building.list, rect, look, id, unique_name(building, std::move(control_name))
+        );
+        move_controls(building.list, before, building.overlay);
+        kit::Control& added = building.overlay.back();
+        added.focusable = true;
+        added.enabled = true;
+        added.text = caption;
+        building.question_order.push_back(added.id);
+    };
+    take(
+        controls::use_cancel,
+        "prompt.cancel",
+        {cancel_x, button_y, cancel_width, control},
+        cancel_caption,
+        false
+    );
+    take(
+        controls::use_confirm,
+        "prompt.use",
+        {use_x, button_y, use_width, control},
+        use_caption,
+        true
+    );
+    const std::size_t before = building.list.controls.size();
+    kit::ButtonLook shade_look;
+    shade_look.style = kit::ButtonStyle::quiet;
+    kit::add_button(building.list, shade, shade_look, controls::use_blocker, named("use.block"));
+    move_controls(building.list, before, building.overlay);
+    building.overlay.back().enabled = true;
+    building.overlay.back().focusable = false;
+}
+
 /// Finishes a layout: the window's edge, the focus ring, the open menu over
 /// everything, the key tooltip, and the controls in the order a press tries them.
 ///
@@ -6112,6 +8038,7 @@ kit::DisplayList finish(Building& building, const Window& window) {
     add_unload_note(building, window);
     add_key_tooltip(building, window);
     add_base_chooser(building, window);
+    add_key_use(building, window);
     for (kit::Control& control : building.top)
         if (control.id == controls::close_x)
             tab_stop(building, control);
@@ -6130,6 +8057,8 @@ kit::DisplayList finish(Building& building, const Window& window) {
             list.controls.push_back(std::move(control));
     if (building.library->chooser.open)
         list.tab_order = std::move(building.chooser_order);
+    else if (building.library->key_use.open)
+        list.tab_order = std::move(building.question_order);
     else
         list.tab_order = std::move(building.order);
     return list;
@@ -6166,12 +8095,13 @@ menu_items(const Library& library, MenuKind menu, const std::vector<bool>& tag_s
             items.push_back(std::move(item));
         }
         const std::vector<std::pair<std::string, std::size_t>> tags = tags_in_tab(library);
-        const bool labelled = library.tab == Tab::mutators || library.tab == Tab::brains;
+        const bool labelled =
+            library.tab == Tab::mutators || library.tab == Tab::brains || library.tab == Tab::keys;
         for (std::size_t index = 0; index < tags.size(); ++index) {
             MenuItem item;
             item.caption = filled(
                 library.text,
-                words::filter_tag,
+                world_tag(tags[index].first) ? words::filter_world : words::filter_tag,
                 {{"tag", tag_caption(library, tags[index].first, labelled)},
                  {"count", std::to_string(tags[index].second)}}
             );
@@ -6183,9 +8113,18 @@ menu_items(const Library& library, MenuKind menu, const std::vector<bool>& tag_s
     }
     case MenuKind::tags: {
         const std::vector<std::pair<std::string, std::size_t>> tags = tags_in_tab(library);
+        bool worlds_headed = false;
         for (std::size_t index = 0; index < tags.size(); ++index) {
             if (index < tag_shown.size() && tag_shown[index])
                 continue;
+            // The world tags come last, under their own heading.
+            if (world_tag(tags[index].first) && !worlds_headed) {
+                MenuItem heading;
+                heading.caption = std::string(shown(library.text, words::world_heading));
+                heading.heading = true;
+                items.push_back(std::move(heading));
+                worlds_headed = true;
+            }
             MenuItem item;
             item.caption = filled(
                 library.text,
@@ -6194,7 +8133,8 @@ menu_items(const Library& library, MenuKind menu, const std::vector<bool>& tag_s
                   tag_caption(
                       library,
                       tags[index].first,
-                      library.tab == Tab::mutators || library.tab == Tab::brains
+                      library.tab == Tab::mutators || library.tab == Tab::brains ||
+                          library.tab == Tab::keys
                   )},
                  {"count", std::to_string(tags[index].second)}}
             );
@@ -6317,14 +8257,13 @@ kit::DisplayList library_layout(
         return details_page_layout(library, state, frame, fonts);
     Building building = start(library, state, frame, fonts);
     const Window window = window_of(frame);
-    const kit::Metrics& metrics = *building.metrics;
     const bool compact = frame.size_class == kit::SizeClass::compact;
     const bool large = frame.size_class == kit::SizeClass::large;
     if (compact) {
         add_library_header(
             building,
             window,
-            shown(library.text, words::title_library),
+            shown(library.text, words::title_library_header),
             {},
             library.inputs.version_text
         );
@@ -6333,104 +8272,76 @@ kit::DisplayList library_layout(
             building,
             window,
             shown(library.text, words::title_open_annihilation),
-            shown(library.text, words::title_library),
+            shown(library.text, words::title_library_header),
             library.inputs.version_text
         );
     }
-    const int32_t content_width = window.right - window.left;
-    int32_t top = window.body_top + window.gap;
+    const auto [nav, content] = section_columns(window, *building.metrics);
+    add_section_nav(building, nav);
     const bool active = library.tab == Tab::active;
     const bool registries = library.tab == Tab::registries;
     const bool catalogue = !active && !registries;
     // The Updates tab's line, count and UPDATE ALL, takes a row over its list.
     const bool updates_line = library.tab == Tab::updates;
-    const int32_t updates_row = metrics.button_height + window.gap;
+    const int32_t updates_row = window.button_height + window.gap;
+    int32_t top = content.y;
+    const int32_t heading_height = catalogue ? window.field_height : building.metrics->small_line;
+    add_section_heading(building, {content.x, top, content.width, heading_height}, catalogue);
+    top += heading_height + window.gap;
+    // The filters join Tab's order after the search, which the heading added.
+    stop_on_filters(building);
     const auto body_of = [&](int32_t body_top) {
         return kit::Rect{
-            window.left, body_top, content_width, window.footer_rule - window.gap - body_top
+            content.x,
+            body_top,
+            content.width,
+            window.footer_rule - window.bottom_gap - body_top,
         };
     };
-    if (compact) {
-        add_tabs(building, {window.left, top, content_width, metrics.tab_height});
-        top += metrics.tab_height + window.gap;
-        if (active)
-            add_active(building, body_of(top));
-        else if (registries) {
-            add_registry_bar(building, window, top);
-            add_registries(building, body_of(top));
-        } else {
-            const int32_t row_height_points = std::max(metrics.field_height, metrics.button_height);
-            add_compact_search_row(building, {window.left, top, content_width, row_height_points});
-            top += row_height_points + window.gap;
-            if (updates_line) {
-                add_updates_line(
-                    building, {window.left, top, content_width, metrics.button_height}
-                );
-                top += updates_row;
-            }
-            add_list(
-                building,
-                {window.left, top, content_width, window.footer_rule - window.gap - top},
-                RowForm::compact
-            );
-        }
+    if (active)
+        add_active(building, body_of(top));
+    else if (registries) {
+        add_registry_bar(building, window, top);
+        add_registries(building, body_of(top));
     } else {
-        // Active and Registries draw no search, so the tabs take the whole
-        // row. A catalogue tab keeps room for the search beside them while
-        // every tab fits there; when they do not, as a wordier language's
-        // names do, the tabs take the whole row and the search a row of its
-        // own under them, at the same place on the right, so that no tab is
-        // hidden beside it. The names stay whole; a strip they do not fit
-        // even then scrolls.
-        const int32_t beside_width = content_width - wide_search_width - window.padding;
-        const bool search_beside = catalogue && tabs_fit(building, beside_width);
-        const int32_t tab_width = search_beside ? beside_width : content_width;
-        add_tabs(building, {window.left, top, tab_width, metrics.tab_height});
-        if (search_beside)
-            add_search(
-                building,
-                {window.right - wide_search_width,
-                 top + (metrics.tab_height - metrics.field_height) / 2,
-                 wide_search_width,
-                 metrics.field_height}
-            );
-        top += metrics.tab_height + window.gap;
-        if (catalogue && !search_beside) {
-            add_search(
-                building,
-                {window.right - wide_search_width, top, wide_search_width, metrics.field_height}
-            );
-            top += metrics.field_height + window.gap;
+        int32_t list_width = content.width;
+        if (!compact) {
+            const int32_t beside =
+                std::max(content.width - window.gutter - details_floor, int32_t{1});
+            list_width = large ? std::min(large_list_width, beside) : beside;
+            if (list_width + window.gutter >= content.width)
+                list_width = std::max(content.width / 2, int32_t{1});
         }
-        if (active)
-            add_active(building, body_of(top));
-        else if (registries) {
-            add_registry_bar(building, window, top);
-            add_registries(building, body_of(top));
-        } else {
-            if (!large) {
-                add_chip_row(building, {window.left, top, content_width, metrics.button_height});
-                top += metrics.button_height + window.gap;
-            }
-            const int32_t panes_height = window.footer_rule - window.gap - top;
-            int32_t left = window.left;
-            if (large) {
-                add_filter_pane(building, {left, top, filter_pane_width, panes_height});
-                left += filter_pane_width + window.padding;
-            }
-            const int32_t list_width = large ? large_list_width : regular_list_width;
-            int32_t list_top = top;
-            if (updates_line) {
-                add_updates_line(building, {left, top, list_width, metrics.button_height});
-                list_top += updates_row;
-            }
-            add_list(
+        const int32_t panes_height = window.footer_rule - window.bottom_gap - top;
+        int32_t list_top = top;
+        if (updates_line) {
+            add_updates_line(
                 building,
-                {left, list_top, list_width, window.footer_rule - window.gap - list_top},
-                (large || library.tab == Tab::brains) ? RowForm::large : RowForm::regular
+                {content.x, top, compact ? content.width : list_width, window.button_height}
             );
-            left += list_width + window.padding;
-            add_details_pane(building, {left, top, window.right - left, panes_height});
+            list_top += updates_row;
+        }
+        const RowForm form = compact ? RowForm::compact
+                             : (large || library.tab == Tab::brains || library.tab == Tab::keys)
+                                 ? RowForm::large
+                                 : RowForm::regular;
+        add_list(
+            building,
+            {content.x,
+             list_top,
+             compact ? content.width : list_width,
+             window.footer_rule - window.bottom_gap - list_top},
+            form
+        );
+        if (!compact) {
+            const int32_t details_left = content.x + list_width + window.gutter;
+            add_details_pane(
+                building,
+                {details_left,
+                 top,
+                 std::max(content.x + content.width - details_left, int32_t{0}),
+                 panes_height}
+            );
         }
     }
     add_list_footer(building, window, compact);
@@ -6448,7 +8359,9 @@ kit::DisplayList details_page_layout(
     const kit::Metrics& metrics = *building.metrics;
     const Entry* entry = selected_entry(library);
     if (entry == nullptr) {
-        add_library_header(building, window, shown(library.text, words::title_library), {}, {});
+        add_library_header(
+            building, window, shown(library.text, words::title_library_header), {}, {}
+        );
         return finish(building, window);
     }
     // A mutator's name sits beside its 40-point badge in the body, so the
@@ -6459,7 +8372,7 @@ kit::DisplayList details_page_layout(
         add_library_header(
             building,
             window,
-            shown(library.text, words::title_library),
+            shown(library.text, words::title_library_header),
             shown(library.text, words::tab_mutators),
             library.inputs.version_text
         );
@@ -6469,11 +8382,20 @@ kit::DisplayList details_page_layout(
         );
     }
 
-    // The body scrolls between the header and the footer.
+    // The body scrolls in a card between the header and the footer. The
+    // footer's actions stay outside the card.
     const int32_t content_width = window.right - window.left;
     const int32_t body_top = window.body_top + window.gap;
+    const int32_t pad = 2 * metrics.space;
+    const kit::Rect card{
+        window.left, body_top, content_width, window.footer_rule - window.bottom_gap - body_top
+    };
+    add_card_face(building, card);
     const kit::Rect view{
-        window.left, body_top, content_width, window.footer_rule - window.gap - body_top
+        card.x + pad,
+        card.y + pad,
+        std::max(card.width - 2 * pad, int32_t{0}),
+        std::max(card.height - 2 * pad, int32_t{0}),
     };
     const auto lay_out_body = [&](Building& into, int32_t width, int32_t offset) {
         const int32_t first = view.y - offset;
@@ -6496,7 +8418,7 @@ kit::DisplayList details_page_layout(
                 kit::colour::text,
                 view
             );
-            top += metrics.regular_line;
+            top += metrics.regular_line + metrics.hint_gap;
         }
         const std::string status =
             cut(into, kit::FontRole::small, status_line(library, *entry), status_width);
@@ -6524,6 +8446,7 @@ kit::DisplayList details_page_layout(
             top = std::max(top, first + details_badge_side);
         const std::string by = byline(*entry, library.text);
         if (!by.empty()) {
+            top += hint_step(into) - metrics.small_line;
             add_text(
                 into,
                 kit::FontRole::small,
@@ -6535,20 +8458,21 @@ kit::DisplayList details_page_layout(
             );
             top += metrics.small_line;
         }
-        top += metrics.paragraph_gap;
+        const int32_t gap = part_gap(metrics);
+        top += gap;
         if (const std::string_view about = entry_summary(*entry); !about.empty()) {
             const std::vector<std::string> summary =
                 wrapped(into, kit::FontRole::small, about, width, compact_summary_lines);
-            top = add_lines(into, summary, view.x, top, width, kit::colour::list_text, view) +
-                  metrics.paragraph_gap;
+            top = add_lines(into, summary, view.x, top, width, kit::colour::list_text, view) + gap;
         }
         const int32_t tags_bottom =
             add_detail_tags(into, *entry, view.x, top, width, view, controls::details_group);
         if (tags_bottom != top)
-            top = tags_bottom + metrics.paragraph_gap;
+            top = tags_bottom + gap;
         top = add_map_previews(into, *entry, view.x, top, width, view);
-        top = add_facts(into, *entry, {view.x, top, width, 0}, false, compact_fact_lines, view) +
-              metrics.paragraph_gap;
+        top = add_key_picture(into, *entry, view.x, top, width, view);
+        top =
+            add_facts(into, *entry, {view.x, top, width, 0}, false, compact_fact_lines, view) + gap;
         static_cast<void>(add_note(into, view.x, top, width, view, controls::details_group));
         const std::optional<controls::Extent> extent =
             controls::clipped_extent(into.list, view, first_item);
@@ -6581,13 +8505,7 @@ kit::DisplayList details_page_layout(
 
     // The footer: the first three actions, MORE ▾ with the rest, and BACK.
     // BACK does what the old breadcrumb did: the list, with its place kept.
-    add_item(
-        building.list,
-        kit::Role::footer_band,
-        {0, window.footer_rule, window.width, metrics.footer_height + 1},
-        {}
-    )
-        .look = kit::FooterBandLook{window.width, window.footer_rule};
+    add_footer_band(building, window);
     const std::vector<ActionButton> actions = entry_actions(library, *entry);
     int32_t left = window.left;
     for (std::size_t index = 0; index < actions.size() && index < compact_action_buttons; ++index) {
@@ -6596,7 +8514,7 @@ kit::DisplayList details_page_layout(
         add_button(
             building,
             building.footer,
-            {left, window.button_top, width_points, metrics.button_height},
+            {left, window.button_top, width_points, window.button_height},
             action.text,
             index == 0 && action.action != Action::uninstall,
             action.enabled,
@@ -6605,7 +8523,7 @@ kit::DisplayList details_page_layout(
             {},
             -1
         );
-        left += width_points + metrics.button_gap;
+        left += width_points + button_spacing(metrics);
     }
     if (actions.size() > compact_action_buttons) {
         std::vector<controls::MenuItem> items = controls::menu_items(library, MenuKind::more, {});
@@ -6614,10 +8532,7 @@ kit::DisplayList details_page_layout(
         add_drop_down(
             building,
             building.footer,
-            {left,
-             window.button_top + (metrics.button_height - metrics.regular_line) / 2,
-             width_points,
-             metrics.regular_line},
+            {left, window.button_top, width_points, window.button_height},
             MenuKind::more,
             caption,
             std::move(items),
@@ -6630,7 +8545,7 @@ kit::DisplayList details_page_layout(
     add_button(
         building,
         building.footer,
-        {window.right - back_width, window.button_top, back_width, metrics.button_height},
+        {window.right - back_width, window.button_top, back_width, window.button_height},
         back_caption,
         true,
         true,

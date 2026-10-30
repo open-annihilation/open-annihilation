@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+# The left and right mouse buttons exchange the roles they hold. The layout
+# replaces each action's chords, so both interface modes use these buttons.
+oakeys: 1
+id: swapped-buttons
+name: "Swapped mouse buttons"
+version: "1.0"
+author: {name: "Open Annihilation"}
+description: "The left and right mouse buttons exchange the roles they hold."
+tags: [mouse, swapped]
+base: oa-default
+bindings:
+  pointer.select: ["MouseRight"]
+  pointer.command: ["MouseLeft"]
+  pointer.select-type: ["MouseRight:double"]
+  pointer.mouse-look: ["Ctrl+MouseLeft"]
+  pointer.minimap-jump: ["MouseLeft"]
+  pointer.minimap-scroll: ["MouseRight"]
+  pointer.camera-orbit: ["Alt+MouseRight", "Alt+MouseMiddle"]
+  pointer.camera-pan: ["Alt+Shift+MouseRight"]
+  build.add: ["MouseRight"]
+  build.remove: ["MouseLeft"]
+  build.move-queued-site: ["Shift+MouseRight"]

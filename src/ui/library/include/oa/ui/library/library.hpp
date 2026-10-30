@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <deque>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -27,11 +28,12 @@ namespace oa::ui::library {
 
 /// What kind of package an entry is.
 enum class Kind : uint8_t {
-    mod,      ///< an .oamod
-    map_pack, ///< an .oamap
-    language, ///< an .oalang
-    mutator,  ///< an .oamut
-    brain,    ///< an .oabrain
+    mod,        ///< an .oamod
+    map_pack,   ///< an .oamap
+    language,   ///< an .oalang
+    mutator,    ///< an .oamut
+    brain,      ///< an .oabrain
+    key_layout, ///< an .oakeys
 };
 
 /// One signing key a registry's catalogue is checked against.
@@ -231,6 +233,97 @@ struct BrainFacts {
     std::optional<Verdict> verdict{};
 };
 
+/// A key as a row of keycaps shows it: the keycaps' labels in order, and a
+/// gesture word after them. No keycaps is no key.
+struct KeyChord {
+    std::vector<std::string> keys{}; ///< the keycaps' labels, modifiers first
+    std::string gesture{};           ///< the gesture word, such as "hold"; empty for a press
+};
+
+/// One command whose key changes: a layout's own change, or what USE moves.
+struct KeyMove {
+    /// The command's English name, as the key editor lists it. It is looked
+    /// up when it is shown.
+    std::string command{};
+    KeyChord before{}; ///< its first key now; empty when it has none
+    KeyChord after{};  ///< its first key afterwards; empty when it will have none
+    /// The key afterwards is one of the player's own changes.
+    bool own{};
+};
+
+/// The most commands a list of moves or own changes holds. Its total counts
+/// the rest.
+inline constexpr std::size_t most_key_moves = 64;
+
+/// What USE would move: the commands whose first key differs now and
+/// afterwards, in the key editor's order, for each answer to the question
+/// about the player's own changes.
+///
+/// `kept` is the layout with the own changes it would hold when they are kept
+/// on top: its own, when it already has some, else those of the layout in
+/// use. `clean` is the layout with its own changes alone. Nothing here is
+/// written anywhere.
+struct KeyMoves {
+    /// The host read both layouts. Unset lists nothing, and the question
+    /// leaves out what moves.
+    bool known{};
+    std::vector<KeyMove> kept{};  ///< with the own changes on top
+    uint32_t kept_total{};        ///< how many commands `kept` moves, all of them
+    std::vector<KeyMove> clean{}; ///< with the layout's own changes alone
+    uint32_t clean_total{};       ///< how many commands `clean` moves, all of them
+};
+
+/// How the Library asks its host what USE would move. Empty asks nothing.
+struct KeyUseHooks {
+    /// Returns what changing from one layout to another moves. Each id is a
+    /// package key, or "oa-default" for OA default.
+    std::function<KeyMoves(std::string_view from, std::string_view to)> moves{};
+};
+
+/// What a key layout's manifest or catalogue entry says about it.
+///
+/// `tags` is read the way a brain's are: the chips and the search use them,
+/// and an installed layout that no registry lists has no catalogue tag list.
+/// The installed manifest wins when both are set. A layout never changes
+/// the interface mode. `pointer` is only the scheme it was drawn for.
+struct KeyLayoutFacts {
+    /// The tag ids, in the order written.
+    std::vector<std::string> tags{};
+    /// The mods it is made for. Empty means any mod.
+    std::vector<WorksWith> works_with{};
+    /// The engine requirement as written, such as ">= 0.8.0"; empty for none.
+    std::string requires_engine{};
+    /// The layout this one changes: "oa-default", "none", or another id.
+    std::string base{};
+    /// The keyboard it was drawn for: "any", "ansi", "iso" or "jis".
+    std::string keyboard{};
+    /// The pointer scheme it was drawn for: "right-click" or "left-click".
+    /// Empty when the file names none.
+    std::string pointer{};
+    /// Helpers it asks for. A catalogue listing stores the six names. An
+    /// installed manifest stores one token a switch can turn on:
+    /// "sticky-modifiers", "pointer-keys", "hold-to-confirm",
+    /// "hold-to-confirm:<action>", "toggle:<action>", "edge-scroll:off",
+    /// "radial-orders:hold-right" or "radial-orders:hold-middle".
+    std::vector<std::string> helpers{};
+    /// How many actions the layout names.
+    uint32_t changes{};
+    /// Triggers the keyboard picture marks, as the catalogue or the chords write them.
+    std::vector<std::string> triggers{};
+    /// Actions this version of the game does not know. Information only.
+    uint32_t unknown_actions{};
+    /// The player's own changes sitting on this layout. Not an entry of their own.
+    uint32_t own_changes{};
+    /// Those changes, each a command and its first key (`after`), in the key
+    /// editor's order, at most most_key_moves. Empty when the host names
+    /// none; the details then count them.
+    std::vector<KeyMove> own_list{};
+    /// This copy is the layout in use. The built-in layout reads Inputs instead.
+    bool in_use{};
+    /// "Made for {mod}" when works-with names the mod being played. Empty otherwise.
+    std::string made_for{};
+};
+
 /// One package a registry's catalogue lists.
 struct Listing {
     std::string registry{}; ///< the registry's id
@@ -271,6 +364,8 @@ struct Listing {
     /// A brain's facts, when the kind is a brain. Names may be empty until
     /// the host resolves them.
     std::optional<BrainFacts> brain{};
+    /// A key layout's facts, when the kind is a key layout.
+    std::optional<KeyLayoutFacts> keys{};
 };
 
 /// The version a package keeps from before its last update.
@@ -314,6 +409,9 @@ struct Installed {
     /// A brain's facts, from the installed manifest. When set, these win
     /// over the listing's.
     std::optional<BrainFacts> brain{};
+    /// A key layout's facts, from the installed manifest. When set, these
+    /// win over the listing's.
+    std::optional<KeyLayoutFacts> keys{};
 };
 
 /// A newer release of an installed package, in the same registry.
@@ -545,6 +643,24 @@ struct Inputs {
     /// The base game and expansions the Active tab shows. The host fills
     /// this from the stored choice. A pill does not write it back.
     ContentSnapshot content{};
+    /// The layout in use. Empty, "oa-default" or "same" means OA default.
+    /// The id is the layout's package key, not built_in_layout_key.
+    std::string keys_layout{};
+    /// How many of the player's own changes sit on the layout in use.
+    uint32_t keys_own_changes{};
+    /// A layout used only with the mod being played. Empty when that mod
+    /// uses keys_layout. The id is the layout's package key.
+    std::string keys_for_mod{};
+    /// That layout's name, for the Active tile's "With {mod}" line.
+    std::string keys_for_mod_name{};
+    /// How many of the player's own changes sit on the per-mod layout.
+    uint32_t keys_for_mod_own{};
+    /// The player's keyboard: "ansi", "iso" or "jis". Empty means ANSI.
+    /// The picture uses a layout's keyboard when that is not "any".
+    std::string player_keyboard{};
+    /// The player's interface mode: "right-click" or "left-click". Empty
+    /// means right-click. A layout never writes this.
+    std::string player_pointer{};
 };
 
 /// One of the Library's tabs, in the order they are shown.
@@ -554,13 +670,14 @@ enum class Tab : uint8_t {
     maps,
     mutators, ///< every mutator the player has or a registry lists
     brains,   ///< every brain the player has or a registry lists
+    keys,     ///< every key layout the player has or a registry lists
     languages,
     updates,    ///< every kind, opening on the entries with an update
     registries, ///< every registry, with its switch; no list of packages
 };
 
 /// How many tabs there are.
-inline constexpr std::size_t tab_total = 8;
+inline constexpr std::size_t tab_total = 9;
 
 /// Which entries a tab shows, apart from its kind, in the order the filters are shown.
 enum class Filter : uint8_t {
@@ -673,6 +790,38 @@ inline constexpr std::string_view built_in_brain_key = "@built-in";
     return id.kind == Kind::brain && id.registry.empty() && id.key == built_in_brain_key;
 }
 
+/// OA default's key.
+///
+/// A package key is lower-case kebab-case, so it cannot hold `@`. No
+/// package's id is this one. The preference that names OA default is
+/// "oa-default", "same" or empty, not this key.
+inline constexpr std::string_view built_in_layout_key = "@oa-default";
+
+/// Returns OA default's id: a key layout, no registry, and built_in_layout_key.
+///
+/// @return the id
+[[nodiscard]] inline EntryId built_in_layout_id() {
+    return {{}, Kind::key_layout, std::string(built_in_layout_key)};
+}
+
+/// Tells whether an id is OA default.
+///
+/// @param id the id
+/// @return true for a key layout, an empty registry and built_in_layout_key
+[[nodiscard]] inline bool is_built_in_layout(const EntryId& id) {
+    return id.kind == Kind::key_layout && id.registry.empty() && id.key == built_in_layout_key;
+}
+
+/// Tells whether a preference names OA default.
+///
+/// Empty, "oa-default" and "same" do, and so does built_in_layout_key.
+///
+/// @param id the preference, or a layout id
+/// @return true when it names OA default
+[[nodiscard]] inline bool layout_names_oa_default(std::string_view id) noexcept {
+    return id.empty() || id == "oa-default" || id == "same" || id == built_in_layout_key;
+}
+
 /// One row of the Library.
 ///
 /// The pointers point into the owning Library's `inputs` and stay valid until
@@ -768,6 +917,24 @@ struct Entry {
         return &*entry.installed->brain;
     if (entry.listing != nullptr && entry.listing->brain)
         return &*entry.listing->brain;
+    return nullptr;
+}
+
+/// Returns the facts that decide a key layout's tags, works-with, keyboard,
+/// pointer, helpers and the counts the details show.
+///
+/// The installed manifest wins when it is set. Otherwise the listing's
+/// facts are used.
+///
+/// @param entry the entry
+/// @return the facts, or null when the entry is not a key layout or names none
+[[nodiscard]] inline const KeyLayoutFacts* key_facts(const Entry& entry) {
+    if (entry.id.kind != Kind::key_layout)
+        return nullptr;
+    if (entry.installed != nullptr && entry.installed->keys)
+        return &*entry.installed->keys;
+    if (entry.listing != nullptr && entry.listing->keys)
+        return &*entry.listing->keys;
     return nullptr;
 }
 
@@ -937,6 +1104,60 @@ struct BaseOpen {
     int32_t focus{-1};
 };
 
+/// One helper the USE question can leave on.
+struct KeyHelperSwitch {
+    /// The token the host writes, such as "sticky-modifiers" or "toggle:queue".
+    std::string token{};
+    /// The word after library.use.helper, such as "sticky-modifiers" or "toggle.queue".
+    std::string name{};
+    /// The words the switch shows.
+    std::string label{};
+    /// On until the player switches it off. Off writes nothing.
+    bool on{true};
+};
+
+/// The USE question while it is open. Nothing here is written until USE.
+struct KeyUse {
+    bool open{};
+    /// The layout the question is about.
+    EntryId layout{};
+    /// "Your own changes" is shown.
+    bool show_own{};
+    /// Keep is marked. Aside leaves the own folder of the new layout alone.
+    bool keep{true};
+    /// How many own changes the layout in use holds.
+    uint32_t own_count{};
+    /// The layout those changes sit on, for "They stay saved with {name}."
+    std::string saved_with{};
+    /// own-<new id> already holds changes, so keep does not write over them.
+    bool already{};
+    uint32_t already_count{};
+    std::string already_name{};
+    /// One switch per helper the layout asks for. Each starts on.
+    std::vector<KeyHelperSwitch> helpers{};
+    /// "Use it for" is shown, because a mod is being played.
+    bool show_scope{};
+    /// Only with the mod. Every game when false. Marked when works-with names the mod.
+    bool for_mod{};
+    std::string mod_name{};
+    /// "Made for the left-click interface; yours is right-click." Empty when the schemes agree.
+    std::string pointer_note{};
+    /// What USE would move, from KeyUseHooks when the question opened.
+    KeyMoves moves{};
+};
+
+/// What USE applies. CANCEL does not build one.
+struct KeyUseResult {
+    /// The layout the question named.
+    EntryId layout{};
+    /// Keep the own changes on top of the new layout. False sets them aside.
+    bool keep{};
+    /// Helpers left on, as KeyHelperSwitch::token.
+    std::vector<std::string> helpers_on{};
+    /// Write the per-mod preference. False writes the preference for every game.
+    bool for_mod{};
+};
+
 /// The Library's whole state.
 struct Library {
     Inputs inputs{};
@@ -946,6 +1167,7 @@ struct Library {
     /// the others on All. Active and Registries have no filters and ignore
     /// their own.
     std::array<Filter, tab_total> filters{
+        Filter::all,
         Filter::all,
         Filter::all,
         Filter::all,
@@ -969,6 +1191,11 @@ struct Library {
     /// The base game chooser, over the Library. Empty `open` draws nothing.
     /// Choosing a game writes the pending choice; it does not remount.
     BaseChooser chooser{};
+    /// The USE question, over the Library. Empty `open` draws nothing.
+    /// GET, an install and a catalogue update never open it.
+    KeyUse key_use{};
+    /// How the question learns what USE would move. Empty lists nothing.
+    KeyUseHooks key_hooks{};
     /// A stored note said a mod was cleared because an expansion it needs
     /// went off. Set when the inputs say so, and kept across refresh so the
     /// Active tab can still say why after the host clears the preference.
@@ -1036,6 +1263,74 @@ brain_works_with(const Inputs& inputs, const BrainFacts& facts, const TextHooks&
 /// @return the words; empty when the brain fits
 [[nodiscard]] std::string
 brain_unfit_reason(const Inputs& inputs, const BrainFacts& facts, const TextHooks& text = {});
+
+/// Tells whether an entry is the layout in use.
+///
+/// The per-mod preference wins while it is set. Empty, "oa-default" and
+/// "same" name OA default, and so does a preference no installed layout has.
+/// KeyLayoutFacts::in_use is also read, so a host that sets only that flag
+/// still shows USING.
+///
+/// @param library the Library
+/// @param entry one of its entries
+/// @return true when the player plays with this layout
+[[nodiscard]] bool layout_in_use(const Library& library, const Entry& entry);
+
+/// Returns the layout the player plays with now: the one used only with the
+/// mod being played while that is set, else the one for every game.
+///
+/// @param inputs the Library's inputs
+/// @return its package key, or "oa-default" for OA default
+[[nodiscard]] std::string layout_in_effect(const Inputs& inputs);
+
+/// Tells whether a layout's works-with list fits the mod being played.
+///
+/// An empty list and `*` fit any mod. `ta-3.1c` fits while no mod is played.
+/// A mod id fits when the mutator manifest's matcher holds the played version.
+///
+/// @param inputs the Library's inputs
+/// @param works the layout's works-with list
+/// @return true when the layout fits
+[[nodiscard]] bool layout_fits_played(const Inputs& inputs, const std::vector<WorksWith>& works);
+
+/// Tells whether works-with names the mod being played.
+///
+/// @param inputs the Library's inputs
+/// @param works the layout's works-with list
+/// @return true when one entry is that mod and its range holds
+[[nodiscard]] bool
+layout_made_for_played(const Inputs& inputs, const std::vector<WorksWith>& works);
+
+/// The words a helper token shows, as Settings › Accessibility names it.
+///
+/// @param token a helper token from KeyLayoutFacts::helpers
+/// @param text how texts are looked up
+/// @return the label
+[[nodiscard]] std::string key_helper_label(std::string_view token, const TextHooks& text = {});
+
+/// The automation word after library.use.helper for a helper token.
+///
+/// A latch is "toggle.<action id>". Any other helper is its name.
+///
+/// @param token a helper token
+/// @return the word
+[[nodiscard]] std::string key_helper_name(std::string_view token);
+
+/// "· {n} changes of your own". Empty when `count` is zero.
+///
+/// @param count how many actions the player's own layout names
+/// @param text how texts are looked up
+/// @return the line
+[[nodiscard]] std::string own_changes_line(uint32_t count, const TextHooks& text = {});
+
+/// "Made for {mod}" when the layout's works-with names the mod being played.
+///
+/// KeyLayoutFacts::made_for wins when the host has already written it.
+///
+/// @param library the Library
+/// @param entry a key layout
+/// @return the line; empty when the layout is not made for the mod being played
+[[nodiscard]] std::string layout_made_for_line(const Library& library, const Entry& entry);
 
 /// Rebuilds the entries from new inputs.
 ///
@@ -1161,6 +1456,27 @@ void close_details(Library& library);
 /// @return the words; empty when neither gives any
 [[nodiscard]] std::string_view entry_summary(const Entry& entry);
 
+/// What a tag naming a map's world starts with: the world its terrain is
+/// drawn from, such as world-ice or world-green.
+inline constexpr std::string_view world_tag_prefix = "world-";
+
+/// Tells whether a tag names a map's world: world_tag_prefix and a name.
+///
+/// @param tag the catalogue id
+/// @return true for a world tag
+[[nodiscard]] constexpr bool world_tag(std::string_view tag) noexcept {
+    return tag.size() > world_tag_prefix.size() && tag.starts_with(world_tag_prefix);
+}
+
+/// Returns the words a world tag shows: the world's name, without the
+/// prefix, so world-ice shows as ice. Any other tag is returned as it is.
+///
+/// @param tag the catalogue id
+/// @return a view of `tag`
+[[nodiscard]] constexpr std::string_view world_name(std::string_view tag) noexcept {
+    return world_tag(tag) ? tag.substr(world_tag_prefix.size()) : tag;
+}
+
 /// Lists the tags of the entries a tab shows under its filter, with how many have each.
 ///
 /// The tag and the search are not applied. A mutator's tags are its listing's
@@ -1169,7 +1485,9 @@ void close_details(Library& library);
 /// come first, in the kit's order, and any other id follows. On the Brains
 /// tab the nine brain ids come first, in that order, and any other id
 /// follows. Each id is listed only when at least one entry has it. Other
-/// tabs list every tag by id.
+/// tabs list every tag by id. On every tab the world tags (world_tag) come
+/// last, in the same order among themselves, so they stand apart under
+/// their own heading.
 ///
 /// @param library the Library
 /// @return each tag and its count
@@ -1300,6 +1618,17 @@ struct ActiveSetup {
     /// The installed maps, ordered by title and then by pack, both folded
     /// to lower case. One tile each, not one tile per pack.
     std::vector<ActiveMap> maps{};
+    /// The layout in use, "OA default" when that is the one.
+    std::string keys_name{};
+    /// "· {n} changes of your own" on that layout. Empty when there are none.
+    std::string keys_line{};
+    /// "With {mod}: {name}" when a layout is set for the mod being played.
+    std::string keys_with{};
+    /// "USING" while a layout is in use, or "Built in" for OA default.
+    std::string keys_badge{};
+    /// The layout CHANGE… opens on the Keys tab: the one in use, the per-mod
+    /// one when that is set.
+    EntryId keys_id{};
 };
 
 /// Describes the Active tab.
@@ -1605,6 +1934,13 @@ enum class Action : uint8_t {
     /// GET WITH on a mutator whose plan holds more than itself. The host
     /// asks, then queues every step, prerequisites first. It takes GET's place.
     get_with,
+    /// USE on an installed key layout that is not the one in use, or on
+    /// OA default while another layout is. The press opens the question.
+    /// Nothing is written until the question's USE.
+    use_layout,
+    /// EDIT KEYS… on the layout in use. The host opens the key editor as
+    /// Settings › Controls does.
+    edit_keys,
 };
 
 /// Returns the action an expansion's download arrow asks for.
@@ -1783,6 +2119,9 @@ struct Fact {
     std::string short_label{};
     std::string short_value{};
     Mark mark{Mark::none};
+    /// When set, the value is a link that opens the Keys tab with this entry
+    /// selected. A mod's "Key layouts" facts use it.
+    std::optional<EntryId> opens{};
 };
 
 /// Lists an entry's facts: Installed, Latest, Author, Size, Base, Games,

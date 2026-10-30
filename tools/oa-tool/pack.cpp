@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // pack: a folder with one manifest becomes a .oamod, a .oalang, a .oamap,
-// a .oaexp, a .oamut or a .oabrain.
+// a .oaexp, a .oamut, a .oabrain or a .oakeys.
 // A mod or a language is written here. A map is handed to pack_map. The
 // manifest is written first, then every other file in byte order of its
 // path, stored or deflated by a fixed rule, with the writer's fixed times.
@@ -12,6 +12,7 @@
 
 #include "arguments.hpp"
 #include "check_brain.hpp"
+#include "check_keys.hpp"
 #include "check_mutator.hpp"
 #include "command.hpp"
 #include "expansion.hpp"
@@ -21,6 +22,7 @@
 #include "oa/app/package_install.hpp"
 #include "oa/app/package_install/oamod.hpp"
 #include "oa/base/sha256.hpp"
+#include "oa/data/key_library/library.hpp"
 #include "oa/data/languages/language_pack.hpp"
 #include "oa/data/mod_profile.hpp"
 #include "oa/formats/oabrain/manifest.hpp"
@@ -976,6 +978,86 @@ int pack_brain(
     return exit_done;
 }
 
+/// Packs a folder whose top holds oakeys.yaml.
+///
+/// The folder is read by the key-layout packer. A manifest problem, a file
+/// outside the layout, an icon outside the limits and a chord that does not
+/// parse are listed, and nothing is written. A warning does not refuse the
+/// package. The installer then reads the package back, and a refusal deletes
+/// it. `.png` files are stored and every other file is deflated.
+///
+/// @param folder the folder
+/// @param out_path the --out path; empty for the default name
+/// @param force an existing output may be replaced
+/// @param output where the result and the diagnostics are printed
+/// @return exit_done
+int pack_keys(const fs::path& folder, const std::string& out_path, bool force, Output& output) {
+    const KeyFolder inspected = inspect_key_folder(folder);
+    if (!inspected.have_files || !inspected.problems.empty()) {
+        for (const std::string& problem : inspected.problems)
+            output.err << problem << '\n';
+        if (inspected.problems.empty())
+            output.err << "oakeys.yaml: it cannot be read\n";
+        throw Failure(
+            inspected.manifest.id.empty() ? "oakeys.yaml has errors" : "the key layout has errors"
+        );
+    }
+
+    std::string pack_problem;
+    const std::optional<std::vector<uint8_t>> bytes =
+        oa::data::key_library::package_bytes(inspected.files, &pack_problem);
+    if (!bytes) {
+        output.err << (pack_problem.empty() ? "the key layout cannot be packed" : pack_problem)
+                   << '\n';
+        throw Failure("the key layout has errors");
+    }
+
+    fs::path destination;
+    if (!out_path.empty()) {
+        destination = fs::path(std::u8string(out_path.begin(), out_path.end()));
+    } else {
+        const std::string name = inspected.manifest.id + "-" +
+                                 oa::formats::oamut::version_text(inspected.manifest.version) +
+                                 ".oakeys";
+        if (name.find('/') != std::string::npos || name.find('\\') != std::string::npos ||
+            !install::portable_name_problem(name).empty())
+            throw Failure("the package's name is not a file name");
+        destination = name;
+    }
+    const std::string destination_name = folded(utf8_of(destination.filename()));
+    if (!ends_with_extension(destination_name, ".oakeys"))
+        throw Failure("a key layout folder is packed as a .oakeys file");
+
+    std::error_code error;
+    if (!destination.parent_path().empty() &&
+        !fs::is_directory(fs::symlink_status(destination.parent_path(), error)))
+        throw Failure("cannot write " + utf8_of(destination));
+    const fs::file_status existing = fs::symlink_status(destination, error);
+    if (!error && fs::exists(existing)) {
+        if (fs::is_directory(existing))
+            throw Failure("the output is a folder: " + utf8_of(destination));
+        if (!force)
+            throw Failure("the output already exists: " + utf8_of(destination));
+    }
+
+    std::string write_problem;
+    if (!oa::data::key_library::write_package(destination, *bytes, &write_problem))
+        throw Failure(
+            write_problem.empty() ? "cannot write " + utf8_of(destination) : write_problem
+        );
+    RemoveUnless output_file(destination);
+    verify_mutator(destination, output);
+    const sha256::Digest digest = digest_file(destination, static_cast<uint64_t>(bytes->size()));
+    output_file.release();
+
+    const auto hex = sha256::to_hex(digest);
+    output.out << "packed " << utf8_of(destination) << ": " << inspected.files.size() << " files, "
+               << bytes->size() << " bytes, sha256 ";
+    output.out.write(hex.data(), static_cast<std::streamsize>(hex.size()));
+    output.out << '\n';
+    return exit_done;
+}
+
 /// Packs one folder.
 ///
 /// @param folder the folder
@@ -998,6 +1080,7 @@ int pack_folder(
     std::string expansion_name;
     std::string mutator_name;
     std::string brain_name;
+    std::string keys_name;
     for (const Item& item : items) {
         if (item.folder || item.name.find('/') != std::string::npos)
             continue;
@@ -1013,16 +1096,34 @@ int pack_folder(
             mutator_name = item.name;
         else if (same_ascii(item.name, "oabrain.yaml"))
             brain_name = item.name;
+        else if (same_ascii(item.name, "oakeys.yaml"))
+            keys_name = item.name;
     }
     const int manifests = (mod_name.empty() ? 0 : 1) + (language_name.empty() ? 0 : 1) +
                           (map_name.empty() ? 0 : 1) + (expansion_name.empty() ? 0 : 1) +
-                          (mutator_name.empty() ? 0 : 1) + (brain_name.empty() ? 0 : 1);
+                          (mutator_name.empty() ? 0 : 1) + (brain_name.empty() ? 0 : 1) +
+                          (keys_name.empty() ? 0 : 1);
     if (manifests == 0)
         throw Failure(
             "the folder holds no oamod.yaml or language.yaml or oamap.yaml or oaexp.yaml or "
-            "oamut.yaml or oabrain.yaml"
+            "oamut.yaml or oabrain.yaml or oakeys.yaml"
         );
     if (manifests > 1) {
+        if (!keys_name.empty() && manifests == 2) {
+            if (!mod_name.empty())
+                throw Failure("the folder holds both oakeys.yaml and oamod.yaml");
+            if (!language_name.empty())
+                throw Failure("the folder holds both oakeys.yaml and language.yaml");
+            if (!map_name.empty())
+                throw Failure("the folder holds both oakeys.yaml and oamap.yaml");
+            if (!expansion_name.empty())
+                throw Failure("the folder holds both oakeys.yaml and oaexp.yaml");
+            if (!mutator_name.empty())
+                throw Failure("the folder holds both oakeys.yaml and oamut.yaml");
+            throw Failure("the folder holds both oakeys.yaml and oabrain.yaml");
+        }
+        if (!keys_name.empty())
+            throw Failure("the folder holds more than one manifest");
         if (!brain_name.empty() && manifests == 2) {
             if (!mod_name.empty())
                 throw Failure("the folder holds both oamod.yaml and oabrain.yaml");
@@ -1080,6 +1181,13 @@ int pack_folder(
             return exit_usage;
         }
         return pack_brain(std::move(items), brain_name, out_path, force, output);
+    }
+    if (!keys_name.empty()) {
+        if (game_dir.has_value()) {
+            report_usage(output, "--game-dir is not for a key layout");
+            return exit_usage;
+        }
+        return pack_keys(folder, out_path, force, output);
     }
     if (game_dir.has_value()) {
         report_usage(output, "--game-dir is only for a map pack");

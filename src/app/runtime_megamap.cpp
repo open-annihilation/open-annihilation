@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// ui.megamap in a running match: Tab and the wheel open and close it; open,
+// ui.megamap in a running match: its toggle and the wheel open and close it; open,
 // it draws the whole map over the battlefield with small pictures of its
 // indestructible features, the sight shading, the category icons of the
 // units the minimap shows and the selection's sensor rings; its clicks act
@@ -146,7 +146,7 @@ void Runtime::prepare_megamap() {
     const uint32_t type_bits = categories.words_per_mask * 32U;
     // The sets made here first, so that their masks keep their places.
     const auto& game = world.game;
-    const uint32_t sides = std::min<uint32_t>(game.side_count, std::size(game.sides));
+    const uint32_t sides = oa::world_side_count(&world);
     const bool built_in = state.config.options.default_icons;
     const std::size_t own_count = built_in ? 7 : sides;
     state.own_words.assign(own_count, {});
@@ -193,22 +193,25 @@ void Runtime::prepare_megamap() {
     } else {
         // Each side's commanders first, under the side's name.
         for (uint32_t side = 0; side < sides; ++side) {
-            for (uint32_t index = 0; index < world.unit_def_count; ++index) {
-                const auto& def = world.unit_defs[index];
-                if (commander_type(def) && same_side(def.side, game.sides[side].name))
-                    add_type(state.own_masks[side], def.type_id);
+            const oa::Side* record = oa::world_side(&world, side);
+            if (record != nullptr) {
+                for (uint32_t index = 0; index < world.unit_def_count; ++index) {
+                    const auto& def = world.unit_defs[index];
+                    if (commander_type(def) && same_side(def.side, record->name))
+                        add_type(state.own_masks[side], def.type_id);
+                }
             }
-            std::string name(
-                game.sides[side].name,
-                ::strnlen(game.sides[side].name, sizeof game.sides[side].name)
-            );
+            const char* side_name = record != nullptr ? record->name : "";
+            std::string name(side_name, ::strnlen(side_name, sizeof(oa::Side::name)));
             state.entries.push_back({load_megamap_icon(name + ".PCX"), &state.own_masks[side]});
         }
-        for (const auto& line : state.config.lines)
+        for (const auto& line : state.config.lines) {
+            // A line must not add a category: adding one can move the masks
+            // earlier lines point at.
             state.entries.push_back(
-                {load_megamap_icon(line.file),
-                 oa::data::defs::category_registry_find_or_add(&categories, line.category.c_str())}
+                {load_megamap_icon(line.file), hud::icon_category_mask(categories, line)}
             );
+        }
         state.unknown = load_megamap_icon(state.config.unknown_file);
         state.nothing = load_megamap_icon(state.config.nothing_file);
     }
@@ -341,8 +344,8 @@ void Runtime::set_megamap_open(bool open) {
     play_match_interface_sound(open ? kOpenSound : kCloseSound);
 }
 
-bool Runtime::megamap_key(const SDL_KeyboardEvent& key) {
-    if (!megamap_on() || key.key != SDLK_TAB)
+bool Runtime::take_megamap_toggle(const SDL_KeyboardEvent& key) {
+    if (!megamap_on() || key.repeat || !action_key_matches("megamap.toggle", key))
         return false;
     set_megamap_open(!megamap_open_);
     return true;
@@ -606,9 +609,11 @@ bool Runtime::megamap_pointer(const SDL_Event& event, float x, float y) {
                          x < static_cast<float>(area.x + area.width) &&
                          y < static_cast<float>(area.y + area.height) && !placed_hud_covers(x, y) &&
                          !hovered_;
+    const uint8_t select_button = match_select_button();
+    const uint8_t command_button = match_command_button();
     const bool held_by_panel =
         event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && match_paused_ &&
-        !(event.button.button == SDL_BUTTON_RIGHT && right_press_beside_menu(x, y));
+        !(event.button.button == command_button && right_press_beside_menu(x, y));
     if ((!in_area || held_by_panel) && !(state.pressed && event.type == SDL_EVENT_MOUSE_BUTTON_UP))
         return false;
     auto& world = match_->state();
@@ -622,16 +627,17 @@ bool Runtime::megamap_pointer(const SDL_Event& event, float x, float y) {
     // battlefield's.
     record_pointer_event(event);
     const auto ground = [&] { return megamap_ground(x, y); };
-    if (event.button.button == SDL_BUTTON_RIGHT) {
+    if (event.button.button == command_button && command_button != select_button) {
         if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
             megamap_right_press(state.hovered, ground());
         return true;
     }
-    if (event.button.button != SDL_BUTTON_LEFT)
+    if (event.button.button != select_button)
         return true;
     const bool shift = (input_modifiers(ModifierUse::selection) & SDL_KMOD_SHIFT) != 0;
     if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
-        if (event.button.clicks >= 2 && event.button.clicks % 2 == 0 && state.hovered != 0) {
+        const bool doubled = event.button.clicks >= 2 && event.button.clicks % 2 == 0;
+        if (doubled && state.hovered != 0) {
             // A double-click on one of the viewer's units selects every unit of its type.
             const auto* unit = oa::world_unit_at(&world, state.hovered);
             if (unit != nullptr && unit->owner_index == match_local_player_) {
@@ -639,7 +645,36 @@ bool Runtime::megamap_pointer(const SDL_Event& event, float x, float y) {
                 select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
                     return slot.unit && slot.unit->type_index == type;
                 });
+                state.pressed = false;
+                return true;
             }
+        }
+        // A double-click on ground or another player's unit, when the jump is
+        // bound, closes the megamap and centres the view there. The gesture's
+        // phase is a double press, which fired_action does not report.
+        // Unbound, another player's unit is not selected and ground is an
+        // ordinary press.
+        bool jump = false;
+        if (doubled) {
+            for (const oa::ui::key_bindings::ActionEvent& fed : match_action_events()) {
+                if (fed.action == "megamap.jump" &&
+                    fed.phase == oa::ui::key_bindings::Phase::double_press) {
+                    jump = true;
+                    break;
+                }
+            }
+        }
+        if (jump) {
+            const auto point = hud::megamap_map_point(state.layout, px, py);
+            set_megamap_open(false);
+            if (point)
+                set_camera_position(
+                    (*point)[0] - visible_map_width() / 2, (*point)[1] - visible_map_height() / 2, 0
+                );
+            state.pressed = false;
+            return true;
+        }
+        if (doubled && state.hovered != 0) {
             state.pressed = false;
             return true;
         }

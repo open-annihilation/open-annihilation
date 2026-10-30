@@ -42,6 +42,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <iostream>
 #include <iterator>
 #include <memory>
@@ -171,9 +172,8 @@ struct CampaignRuntime {
     missions::CampaignFiles dialog_files{};
     Runtime* dialog_owner = nullptr;
     // `files` with the campaign list's reports also written to the log
-    // (campaign_list_env), and the reports the run has logged.
+    // (campaign_list_env).
     missions::CampaignFiles list_files{};
-    std::set<std::string> logged_list_messages;
     PackageEvents events;
     const oa::formats::fnt::Font* font = nullptr;
 };
@@ -207,7 +207,11 @@ int32_t asset_read(void* context, const char* path, char* buffer, uint32_t capac
     try {
         const auto data = static_cast<oa::AssetStore*>(context)->read(path);
         const auto count = std::min<std::size_t>(capacity, data.bytes.size());
-        std::memcpy(buffer, data.bytes.data(), count);
+        // An empty file, such as one laid over a campaign to hide it, has no
+        // bytes. Copying none from a null source is undefined, so copy only
+        // when the file has bytes.
+        if (count != 0)
+            std::memcpy(buffer, data.bytes.data(), count);
         return static_cast<int32_t>(count);
     } catch (const std::exception&) {
         return -1;
@@ -267,13 +271,30 @@ void package_message(void*, const char* text) {
     campaign_runtime().events.message = text;
 }
 
+// The campaign-list reports already written this run. The list is built again
+// for each side and each visit, and a report is written once.
+std::set<std::string>& logged_campaign_list_messages() {
+    static std::set<std::string> logged;
+    return logged;
+}
+
+void write_campaign_list_message(const char* text) {
+    if (text != nullptr && logged_campaign_list_messages().insert(text).second)
+        std::cerr << "open-annihilation: " << text << '\n';
+}
+
 // package_message, with each text also written to the log the first time the
 // run sees it: the campaign list reports every file it leaves out each time
 // it is built, once per side and per visit to the panel.
 void list_message(void* context, const char* text) {
     package_message(context, text);
-    if (campaign_runtime().logged_list_messages.insert(text).second)
-        std::cerr << "open-annihilation: " << text << '\n';
+    write_campaign_list_message(text);
+}
+
+// The same log line, without the campaign screens' message. Asking whether a
+// side has a campaign must not build those screens.
+void presence_message(void*, const char* text) {
+    write_campaign_list_message(text);
 }
 
 // Measures a briefing's text as draw_briefing_overlays draws it: in its FNT
@@ -518,15 +539,17 @@ void Runtime::enter_single_player_panel() {
     const auto host = single_player_host();
     campaign::single_player_enter(&setup, &host, game_language());
     typed_key_hook_ = TypedKeyHook::single_player_code;
-    // Load Game, Any Mission and Skirmish follow what this base game can open.
+    // Load Game, Any Mission, Skirmish and New Campaign follow what this
+    // base game or mod can open.
     oa::ui::frontend::Panel offers_panel;
     oa::ui::frontend::panel_load_layout(offers_panel, resources_.layout);
     oa::ui::frontend::SinglePlayerOffers offers;
     offers.saved_games = offers_saved_games();
     offers.any_mission = offers_any_mission();
     offers.skirmish = offers_skirmish();
+    offers.campaigns = side_has_campaign(0) || side_has_campaign(1);
     oa::ui::frontend::apply_single_player_offers(offers_panel, offers);
-    for (const std::string_view entry_name : {"LoadGame", "AnyMsn", "Skirmish"}) {
+    for (const std::string_view entry_name : {"LoadGame", "AnyMsn", "Skirmish", "NewCamp"}) {
         const auto found = oa::ui::frontend::panel_find(offers_panel, entry_name);
         if (found < 0 || static_cast<std::size_t>(found) >= resources_.layout.gadgets.size())
             continue;
@@ -558,12 +581,48 @@ bool Runtime::offers_any_mission() const {
            assets_.file_size("bitmaps/playanygame4.pcx") != 0;
 }
 
+// The mounted folders and archives, the language and its packs: a change of
+// any of them is a different set of campaign files, and the remembered
+// answers no longer apply. A mod switch builds a new runtime, whose answers
+// start unread.
+std::string Runtime::side_campaign_mount_key() const {
+    std::string key;
+    const auto append = [&key](const auto& paths) {
+        for (const auto& path : paths) {
+            key.push_back('\n');
+            key.append(path.string());
+        }
+    };
+    append(assets_.loose_roots());
+    key.push_back('|');
+    append(assets_.mount_paths());
+    key.push_back('|');
+    if (const char* word = game_language())
+        key.append(word);
+    key.push_back('|');
+    append(language_pack_folders());
+    return key;
+}
+
 bool Runtime::side_has_campaign(uint32_t side) {
-    const auto env = campaign_list_env(assets_, preferences_.difficulty, difficulty_names());
-    std::vector<char> names(64 * 1024);
-    return missions::campaign_load_names(
-               env.files, side == 0 ? "ARM" : "CORE", names.data(), names.size()
-           ) > 0;
+    const std::string key = side_campaign_mount_key();
+    if (!side_campaign_known_ || key != side_campaign_key_) {
+        missions::CampaignFiles files{
+            &assets_,
+            asset_size,
+            asset_read,
+            asset_list,
+            oa::data::languages::installed_translation,
+            presence_message,
+            oa::data::languages::installed_word(),
+            asset_count,
+            asset_find
+        };
+        missions::campaign_sides_present(&files, &side_campaign_arm_, &side_campaign_core_);
+        side_campaign_key_ = key;
+        side_campaign_known_ = true;
+    }
+    return side == 0 ? side_campaign_arm_ : side_campaign_core_;
 }
 
 void Runtime::enter_new_game_panel(bool any_mission) {
@@ -1396,6 +1455,7 @@ void Runtime::show_mission_briefing() {
         "anims/commongui.gaf"
     };
     resources_ = renderer::load_screen(assets_, names);
+    set_menu_gui(names.layout);
     const auto& art = campaign::planet_art(
         campaign::briefing_planet_index(
             missions::campaign_planet(&state.file), static_cast<int32_t>(preferences_.side)
@@ -1404,6 +1464,7 @@ void Runtime::show_mission_briefing() {
     widget_sprites_.clear();
     widget_gaf_frames_.clear();
     widget_text_stages_.clear();
+    widget_caption_only_.clear();
     briefing_art_ = {};
     const oa::data::defs::Files files = asset_files(assets_);
     uint8_t* planet_gaf = nullptr;
@@ -1517,10 +1578,10 @@ void Runtime::show_in_game_briefing() {
         return;
     }
     renderer::Surface below;
-    ensure_screen_world();
-    compose_match_layers(below);
+    compose_shown_match(below);
     const bool over_match = below.width != 0 && below.height != 0;
     resources_ = std::move(loaded);
+    set_menu_gui(names.layout);
     briefing_parent_ = Screen::match;
     briefing_from_pause_ = true;
     // The briefing leaves the match palette on the display.

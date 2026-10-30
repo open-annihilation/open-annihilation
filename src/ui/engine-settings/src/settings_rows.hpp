@@ -57,12 +57,34 @@ inline constexpr oa::ui::kit::ActionId show_gallery_action = 8;
 /// What SHOW AGAIN, System's Welcome setup, asks for: the welcome setup at
 /// the next main menu, once OK is pressed. It follows SHOW.
 inline constexpr oa::ui::kit::ActionId show_welcome_action = 9;
+/// What EDIT KEYS…, Controls' Key layout, asks for: the key editor over
+/// Settings, on every action. It follows ROLL BACK (updates_page.hpp).
+/// CHECK NOW is 10.
+inline constexpr oa::ui::kit::ActionId edit_keys_action = 15;
+/// What CHOOSE…, Accessibility's Hold keys that latch, asks for: the key
+/// editor over Settings, on the Latchable filter. It follows EDIT KEYS….
+inline constexpr oa::ui::kit::ActionId choose_latch_action = 16;
+/// What ARRANGE…, Accessibility's Overlay places, asks for: the picture of
+/// the match where the overlays are placed. It follows CHOOSE….
+inline constexpr oa::ui::kit::ActionId arrange_overlays_action = 17;
+/// What Reset, User Interface's Reset window positions, asks for: every moved
+/// window back in its place (Dialog::window_reset_asked). It stands clear of
+/// the numbers the pages' own buttons take.
+inline constexpr oa::ui::kit::ActionId reset_windows_action = 40;
 
 /// Returns a setting's row spec.
 ///
 /// @param setting the setting
 /// @return its spec, in the table in Setting's order
 [[nodiscard]] const oa::ui::kit::RowSpec<SettingsModel>& row_spec(Setting setting) noexcept;
+
+/// Returns what a setting's row holds, as a text two models' rows can be
+/// told apart by: a switch's On or Off, the item, level or stop chosen.
+///
+/// @param setting the setting
+/// @param model the model the row reads
+/// @return the text; empty for a row that holds no value
+[[nodiscard]] std::string row_value_text(Setting setting, const SettingsModel& model);
 
 /// Returns what a setting's row is: its spec's kind.
 ///

@@ -34,11 +34,11 @@ namespace kit = oa::ui::kit;
 constexpr const kit::Metrics& metrics = kit::compact_metrics;
 
 /// The caption of CANCEL.
-constexpr std::string_view cancel_caption = "CANCEL";
+constexpr std::string_view cancel_caption = "Cancel";
 /// The caption of OPEN THE CHECK.
-constexpr std::string_view open_caption = "OPEN THE CHECK";
+constexpr std::string_view open_caption = "Open the check";
 /// The caption of TRY AGAIN.
-constexpr std::string_view try_again_caption = "TRY AGAIN";
+constexpr std::string_view try_again_caption = "Try again";
 
 /// Tells whether the body offers the check on this computer.
 ///

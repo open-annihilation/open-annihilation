@@ -168,44 +168,79 @@ std::size_t deepest_stack(const Program& program) {
         std::min<int64_t>(deepest, static_cast<int64_t>(limit::stack_slots))
     );
 }
-} // namespace
 
-Vm::Vm(Program program, int32_t time_scale)
-    : program_(std::move(program)), time_scale_(time_scale) {
+// Validates once. A refusal clears the code so nothing runs it, and records
+// the same stack a VM used to give an empty program.
+void prepare_in_place(Program& program) {
+    if (program.prepared)
+        return;
     const char* refusal = nullptr;
-    if (program_.code.empty() || program_.code.size() > limit::code_words ||
-        program_.entry_points.size() > limit::scripts || program_.static_count > limit::statics ||
-        program_.piece_count > limit::pieces)
+    if (program.code.empty() || program.code.size() > limit::code_words ||
+        program.entry_points.size() > limit::scripts || program.static_count > limit::statics ||
+        program.piece_count > limit::pieces)
         refusal = "script VM program exceeds its bounded representation";
-    for (const auto entry : program_.entry_points)
-        if (refusal == nullptr && entry >= program_.code.size())
+    for (const auto entry : program.entry_points)
+        if (refusal == nullptr && entry >= program.code.size())
             refusal = "script VM entry point is outside code";
     if (refusal != nullptr) {
-        program_error_ = make_error(ErrorCode::invalid_program, context_count, 0, 0, refusal);
-        program_ = {};
+        program = {};
+        program.refusal = refusal;
+        program.stack_slots = stack_capacity;
+        program.prepared = true;
+        return;
     }
-    statics_.resize(program_.static_count);
-    motions_.resize(program_.piece_count * piece_axis_count);
-    piece_active_.resize(program_.piece_count);
-    stack_slots_ = program_.code.empty() ? stack_capacity : deepest_stack(program_);
+    program.stack_slots = deepest_stack(program);
+    program.prepared = true;
+}
+
+std::shared_ptr<const Program> adopt_program(std::shared_ptr<const Program> program) {
+    if (program && program->prepared)
+        return program;
+    return prepare_program(program ? Program{*program} : Program{});
+}
+} // namespace
+
+std::shared_ptr<const Program> prepare_program(Program program) {
+    prepare_in_place(program);
+    return std::make_shared<const Program>(std::move(program));
+}
+
+Vm::Vm(std::shared_ptr<const Program> program, int32_t time_scale)
+    : program_(adopt_program(std::move(program))), time_scale_(time_scale) {
+    if (program_->refusal != nullptr) {
+        program_error_ =
+            make_error(ErrorCode::invalid_program, context_count, 0, 0, program_->refusal);
+    }
+    statics_.resize(program_->static_count);
+    motions_.resize(program_->piece_count * piece_axis_count);
+    piece_active_.resize(program_->piece_count);
+    stack_slots_ = program_->stack_slots;
     stack_block_ = std::make_unique<uint32_t[]>(stack_slots_ * context_count);
     for (std::size_t index = 0; index < contexts_.size(); ++index)
         contexts_[index].slots = {stack_block_.get() + index * stack_slots_, stack_slots_};
 }
 
-Vm::Vm(Program program, Host& host, int32_t time_scale) : Vm(std::move(program), time_scale) {
+Vm::Vm(Program program, int32_t time_scale) : Vm(prepare_program(std::move(program)), time_scale) {
+}
+
+Vm::Vm(std::shared_ptr<const Program> program, Host& host, int32_t time_scale)
+    : Vm(std::move(program), time_scale) {
     host_ = &host;
 }
 
+Vm::Vm(Program program, Host& host, int32_t time_scale)
+    : Vm(prepare_program(std::move(program)), host, time_scale) {
+}
+
 std::optional<std::size_t> Vm::allocate_context(uint32_t script_index) {
-    if (script_index >= program_.entry_points.size())
+    if (script_index >= program_->entry_points.size())
         return std::nullopt;
     for (std::size_t i = 0; i < contexts_.size(); ++i) {
         auto& context = contexts_[i];
         if (context.state != ContextState::stopped)
             continue;
         context.state = ContextState::active;
-        context.pc = program_.entry_points[script_index];
+        context.pc = program_->entry_points[script_index];
         context.sp = -1;
         context.signal_mask = 1;
         context.return_callback = {};
@@ -218,7 +253,7 @@ std::optional<std::size_t> Vm::allocate_context(uint32_t script_index) {
 StartResult Vm::start(
     uint32_t script_index, std::span<const int32_t> arguments, ReturnCallback return_callback
 ) {
-    if (script_index >= program_.entry_points.size()) {
+    if (script_index >= program_->entry_points.size()) {
         return {
             context_count,
             make_error(
@@ -283,7 +318,7 @@ StartResult Vm::start_parameterized(
 }
 
 QueryResult Vm::query(uint32_t script_index, const std::array<int32_t*, 4>& arguments) {
-    if (script_index >= program_.entry_points.size()) {
+    if (script_index >= program_->entry_points.size()) {
         return {
             false,
             make_error(
@@ -339,7 +374,7 @@ void Vm::advance_motions(uint32_t elapsed) {
     if (!host_ || !motions_active_ || elapsed == 0)
         return;
     bool any_active = false;
-    for (std::size_t piece = 0; piece < program_.piece_count; ++piece) {
+    for (std::size_t piece = 0; piece < program_->piece_count; ++piece) {
         if (piece_active_[piece] == 0)
             continue;
         piece_active_[piece] = 0;
@@ -426,7 +461,7 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
                 ErrorCode::instruction_limit, index, context.pc, 0, "instruction budget exhausted"
             );
         }
-        if (context.pc >= program_.code.size()) {
+        if (context.pc >= program_->code.size()) {
             return make_error(
                 ErrorCode::program_counter_out_of_range,
                 index,
@@ -437,19 +472,19 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
         }
 
         const uint32_t pc = context.pc;
-        const uint32_t raw = program_.code[pc];
+        const uint32_t raw = program_->code[pc];
         const uint32_t op = raw & opcode_dispatch_mask;
         auto fail = [&](ErrorCode code, std::string message) -> std::optional<Error> {
             return make_error(code, index, pc, raw, std::move(message));
         };
-        auto need_words = [&](std::size_t count) { return count <= program_.code.size() - pc; };
+        auto need_words = [&](std::size_t count) { return count <= program_->code.size() - pc; };
         auto need_stack = [&](int32_t count) { return context.sp + 1 >= count; };
         auto has_push_room = [&] {
             return context.sp + 1 < static_cast<int32_t>(context.slots.size());
         };
         auto valid_slot = [&](uint32_t slot) { return slot < context.slots.size(); };
         auto valid_static = [&](uint32_t slot) { return slot < statics_.size(); };
-        auto valid_piece = [&](uint32_t piece) { return piece < program_.piece_count; };
+        auto valid_piece = [&](uint32_t piece) { return piece < program_->piece_count; };
         auto valid_axis = [](uint32_t axis) { return axis < piece_axis_count; };
         auto motion_at = [&](uint32_t piece, uint32_t axis) -> AxisMotion& {
             return motions_[static_cast<std::size_t>(piece) * piece_axis_count + axis];
@@ -471,7 +506,7 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
             const auto second = top();
             const auto first = top(1);
             context.sp -= 2;
-            host_->ignored_piece_op(program_.code[pc + 1], first, second);
+            host_->ignored_piece_op(program_->code[pc + 1], first, second);
             context.pc += 2;
             break;
         }
@@ -482,7 +517,7 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
                 return fail(
                     ErrorCode::truncated_instruction, "opcode 0x1000A000 lacks its inline operand"
                 );
-            host_->dont_shadow(program_.code[pc + 1]);
+            host_->dont_shadow(program_->code[pc + 1]);
             context.pc += 2;
             break;
         }
@@ -522,8 +557,8 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
                 return fail(
                     ErrorCode::truncated_instruction, "piece transform lacks piece/axis operands"
                 );
-            const auto piece = program_.code[pc + 1];
-            const auto axis = program_.code[pc + 2];
+            const auto piece = program_->code[pc + 1];
+            const auto axis = program_->code[pc + 2];
             if (!valid_piece(piece))
                 return fail(ErrorCode::invalid_piece, "piece index is out of range");
             if (!valid_axis(axis))
@@ -621,8 +656,8 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
         case opcode::wait_move: {
             if (!need_words(3))
                 return fail(ErrorCode::truncated_instruction, "WAIT lacks piece/axis operands");
-            const auto piece = program_.code[pc + 1];
-            const auto axis = program_.code[pc + 2];
+            const auto piece = program_->code[pc + 1];
+            const auto axis = program_->code[pc + 2];
             if (!valid_piece(piece))
                 return fail(ErrorCode::invalid_piece, "WAIT piece index is out of range");
             if (!valid_axis(axis))
@@ -646,7 +681,7 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
                 return fail(
                     ErrorCode::truncated_instruction, "piece flag opcode lacks a piece operand"
                 );
-            const auto piece = program_.code[pc + 1];
+            const auto piece = program_->code[pc + 1];
             if (!valid_piece(piece))
                 return fail(ErrorCode::invalid_piece, "piece index is out of range");
             if (op == opcode::show || op == opcode::hide)
@@ -666,7 +701,7 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
                 return fail(ErrorCode::truncated_instruction, "piece effect lacks a piece operand");
             if (!need_stack(1))
                 return fail(ErrorCode::stack_underflow, "piece effect requires one value");
-            const auto piece = program_.code[pc + 1];
+            const auto piece = program_->code[pc + 1];
             if (!valid_piece(piece))
                 return fail(ErrorCode::invalid_piece, "piece index is out of range");
             const auto value = as_signed(top());
@@ -739,7 +774,7 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
             if (!has_push_room())
                 return fail(ErrorCode::stack_overflow, "PUSH exceeds the context's stack");
             const auto flag = raw & 7U;
-            const auto operand = program_.code[pc + 1];
+            const auto operand = program_->code[pc + 1];
             uint32_t value = 0;
             if (flag == 1U)
                 value = operand;
@@ -773,7 +808,7 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
             if (!need_stack(1))
                 return fail(ErrorCode::stack_underflow, "POP requires one value");
             const auto flag = raw & 7U;
-            const auto destination = program_.code[pc + 1];
+            const auto destination = program_->code[pc + 1];
             if (flag == 2U) {
                 if (!valid_slot(destination))
                     return fail(
@@ -896,8 +931,8 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
         case opcode::jump: {
             if (!need_words(2))
                 return fail(ErrorCode::truncated_instruction, "JUMP lacks its target");
-            const auto target = program_.code[pc + 1];
-            if (target >= program_.code.size())
+            const auto target = program_->code[pc + 1];
+            if (target >= program_->code.size())
                 return fail(ErrorCode::invalid_jump, "JUMP target is outside code");
             context.pc = target;
             break;
@@ -908,8 +943,8 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
             if (!need_stack(1))
                 return fail(ErrorCode::stack_underflow, "JUMP_IF_FALSE requires a condition");
             const auto condition = top();
-            const auto target = program_.code[pc + 1];
-            if (condition == 0 && target >= program_.code.size())
+            const auto target = program_->code[pc + 1];
+            if (condition == 0 && target >= program_->code.size())
                 return fail(ErrorCode::invalid_jump, "taken JUMP_IF_FALSE target is outside code");
             --context.sp;
             context.pc = condition == 0 ? target : pc + 2;
@@ -921,8 +956,8 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
                 return fail(
                     ErrorCode::truncated_instruction, "script launch lacks index/count operands"
                 );
-            const auto script = program_.code[pc + 1];
-            const auto argument_count = program_.code[pc + 2];
+            const auto script = program_->code[pc + 1];
+            const auto argument_count = program_->code[pc + 2];
             // An invalid index or a full pool claims no context: the arguments
             // stay on the caller's stack and CALL_SCRIPT waits on no child.
             const auto child = allocate_context(script);
@@ -954,7 +989,7 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
                 return fail(
                     ErrorCode::truncated_instruction, "opcode 0x10063000 lacks inline operands"
                 );
-            const auto argument_count = program_.code[pc + 2];
+            const auto argument_count = program_->code[pc + 2];
             if (argument_count > 4)
                 return fail(
                     ErrorCode::invalid_argument_count,
@@ -1078,7 +1113,7 @@ std::size_t Vm::active_count() const noexcept {
 }
 
 StateResult Vm::export_state(uint32_t script_identity_token) const {
-    if (program_.piece_count != 0 && host_ == nullptr) {
+    if (program_->piece_count != 0 && host_ == nullptr) {
         return {
             std::nullopt,
             make_error(
@@ -1117,7 +1152,7 @@ StateResult Vm::export_state(uint32_t script_identity_token) const {
         state.statics[index] = as_signed(statics_[index]);
     }
 
-    state.pieces.resize(program_.piece_count);
+    state.pieces.resize(program_->piece_count);
     for (std::size_t piece = 0; piece < state.pieces.size(); ++piece) {
         auto& destination = state.pieces[piece];
         // The three piece flags are read before the per-axis transforms;
@@ -1145,7 +1180,7 @@ StateResult Vm::export_state(uint32_t script_identity_token) const {
 }
 
 std::optional<Error> Vm::import_state(const sim::script_state::State& state) {
-    if (state.statics.size() != statics_.size() || state.pieces.size() != program_.piece_count) {
+    if (state.statics.size() != statics_.size() || state.pieces.size() != program_->piece_count) {
         return make_error(
             ErrorCode::invalid_state,
             context_count,
@@ -1154,7 +1189,7 @@ std::optional<Error> Vm::import_state(const sim::script_state::State& state) {
             "saved static or piece count does not match the loaded program"
         );
     }
-    if (program_.piece_count != 0 && host_ == nullptr) {
+    if (program_->piece_count != 0 && host_ == nullptr) {
         return make_error(
             ErrorCode::missing_host, context_count, 0, 0, "restoring piece state requires a Host"
         );
@@ -1191,7 +1226,8 @@ std::optional<Error> Vm::import_state(const sim::script_state::State& state) {
         }
         if ((execution_state == ContextState::waiting_for_turn ||
              execution_state == ContextState::waiting_for_move) &&
-            (context.wait_piece >= program_.piece_count || context.wait_axis >= piece_axis_count)) {
+            (context.wait_piece >= program_->piece_count ||
+             context.wait_axis >= piece_axis_count)) {
             return make_error(
                 ErrorCode::invalid_state,
                 index,
@@ -1298,7 +1334,7 @@ bool Vm::set_static(std::size_t index, int32_t value) noexcept {
 }
 
 int32_t Vm::turn_speed(uint32_t piece, uint32_t axis) const noexcept {
-    if (axis >= piece_axis_count || static_cast<std::size_t>(piece) >= program_.piece_count)
+    if (axis >= piece_axis_count || static_cast<std::size_t>(piece) >= program_->piece_count)
         return 0;
     return motions_[static_cast<std::size_t>(piece) * piece_axis_count + axis].turn_speed;
 }

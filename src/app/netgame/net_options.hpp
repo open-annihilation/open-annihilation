@@ -53,6 +53,10 @@ struct NetOptions {
     // The loopback host fixes the start positions, as the battle room's
     // option does.
     bool net_loopback_fixed_starts = false;
+    // The loopback host makes one finished unit of this type beside its
+    // commander, which fires at the ground beside the commander's aim point.
+    // Empty: the check makes none.
+    std::string net_loopback_shooter;
     // A join whose host is not found, played through the main loop (with
     // --frames and "-n1:<address>" naming an address where no game is
     // hosted): a launch counts as active until the game list begins to wait
@@ -63,7 +67,8 @@ struct NetOptions {
     // The DirectPlay enumeration port this game hosts on and asks for games
     // at, in place of the standard one; its stream and datagram ports are
     // then any the system has free. Checks that host or search give each run
-    // its own, so they can run side by side.
+    // its own, so they can run side by side; 0 is any free port, for a check
+    // that hosts alone.
     std::optional<uint16_t> dplay_port;
     // The DirectPlay application GUID this game hosts under and looks for,
     // in wire byte order (--dplay-guid). Unset: Total Annihilation's own GUID,

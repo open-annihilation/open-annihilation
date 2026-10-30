@@ -114,13 +114,23 @@ int Runtime::check_live_renderer() {
         require(!match_world_cpu_.rgb.empty(), "Skirmish produced an empty world picture");
         return match_world_cpu_;
     };
+    // A key goes in as the event loop takes it: with the place a keyboard
+    // sends, fed to the action dispatcher first, whose actions the live
+    // renderer answers, and then let go.
     const auto key = [&](SDL_Keycode code, SDL_Keymod modifiers = SDL_KMOD_NONE) {
         SDL_Event event{};
         event.type = SDL_EVENT_KEY_DOWN;
         event.key.key = code;
+        event.key.scancode = SDL_GetScancodeFromKey(code, nullptr);
         event.key.down = true;
         event.key.mod = modifiers;
-        return live_renderer_take_event(event);
+        std::ignore = feed_input_actions(event);
+        const bool taken = live_renderer_take_event(event);
+        SDL_Event release = event;
+        release.type = SDL_EVENT_KEY_UP;
+        release.key.down = false;
+        std::ignore = feed_input_actions(release);
+        return taken;
     };
     const auto orbit = [&](uint8_t button = SDL_BUTTON_MIDDLE, float travel = orbit_travel) {
         const float x = static_cast<float>(match_layout_.left) +
@@ -903,6 +913,48 @@ int Runtime::check_live_renderer() {
             snapshot();
             require(!live_renderer_failed(), "a valid zoom limit rejected live scene geometry");
         }
+    // The camera unlocked and as low as it goes, zoomed out as far as the
+    // wheel goes over the middle of the map: the frame is drawn from that
+    // camera, its angle, place and zoom, and the view never goes back, to
+    // classic or anywhere else.
+    {
+        constexpr float low_yaw = 30.0F;
+        constexpr float low_pitch = -53.0F;
+        match_layout_ = lay_out_match(wide_width, wide_height);
+        reset_live_renderer();
+        require(turn_live_camera(low_yaw, low_pitch), "the low unlocked camera did not turn");
+        SDL_Event out{};
+        out.type = SDL_EVENT_MOUSE_WHEEL;
+        out.wheel.y = -100.0F;
+        out.wheel.mouse_x =
+            static_cast<float>(match_layout_.left + match_layout_.battlefield_width() / 2);
+        out.wheel.mouse_y =
+            static_cast<float>(match_layout_.top + match_layout_.battlefield_height() / 2);
+        require(
+            live_renderer_take_event(out),
+            "the low unlocked camera did not take the zoom-out gesture"
+        );
+        const float low_zoom = match_zoom_;
+        place_match_view(
+            selected_tnt_->attribute_width * map_cell / 2 -
+                match_layout_.battlefield_width() / (2 * low_zoom),
+            selected_tnt_->attribute_height * map_cell / 2 -
+                match_layout_.battlefield_height() / (2 * low_zoom)
+        );
+        const auto low_view = match_view_place();
+        snapshot();
+        require(
+            live_renderer_active() && !live_renderer_failed(),
+            "the low view of the whole map went back to the classic view"
+        );
+        require(
+            std::abs(match_zoom_ - least_match_zoom()) < 0.001F && match_zoom_ == low_zoom &&
+                match_view_place() == low_view,
+            "the low view of the whole map did not draw where it was zoomed out to"
+        );
+        require(live_renderer_vertex_count() != 0, "the low view of the whole map drew nothing");
+        match_layout_ = recovery_layout;
+    }
     reset_live_renderer();
     match_zoom_ = recovery_zoom;
     match_zoom_target_ = recovery_target;
@@ -1804,6 +1856,9 @@ int Runtime::check_live_renderer() {
         const std::array<renderer_live_camera::State, 3> diagnostic_angles{
             {{}, {18, 12}, {38, -18}}
         };
+        // New unit shadows for the diagnostic draws; the aircraft's proof
+        // draws its shadow both ways.
+        bool diagnostic_new_shadows = true;
         const auto render_diagnostic = [&](WorldDrawList& draws,
                                            const renderer_live_camera::State& camera,
                                            float x,
@@ -1854,6 +1909,7 @@ int Runtime::check_live_renderer() {
             inputs.water.seconds = inputs.tick / 30.0F;
             inputs.water.reflections = reflections ? 1.0F : 0.0F;
             inputs.water.shimmer = shimmer;
+            inputs.new_unit_shadows = diagnostic_new_shadows;
             renderer_live_camera::TerrainBounds bounds{};
             require(
                 renderer_live_camera::visible_terrain_bounds(
@@ -2178,6 +2234,50 @@ int Runtime::check_live_renderer() {
                         "aircraft shadows do not keep their darkness as their edge widens"
                     );
                     previous_area = area;
+                    // With New unit shadows off the same aircraft casts the
+                    // game's silhouette where the game lays it, on the
+                    // ground or the sea bed under it, by the ground its plan
+                    // holds, here the ground where it is shown: over land as
+                    // dark, and with no soft edge smaller than the soft one;
+                    // the lower the aircraft flies, the more of either it
+                    // covers.
+                    draws.models.back().plan.model.ground =
+                        match_->map_height(x * 65536, z * 65536);
+                    diagnostic_new_shadows = false;
+                    const auto as_the_game = render_diagnostic(
+                        draws,
+                        diagnostic_angles[angle],
+                        static_cast<float>(x),
+                        static_cast<float>(receiver),
+                        static_cast<float>(z),
+                        false
+                    );
+                    diagnostic_new_shadows = true;
+                    std::size_t game_area{};
+                    int game_darkest{};
+                    for (std::size_t pixel = 0; pixel < plain.rgb.size() / 3; ++pixel) {
+                        if (!differs(plain, as_the_game, pixel))
+                            continue;
+                        ++game_area;
+                        for (std::size_t channel = 0; channel < 3; ++channel)
+                            game_darkest = std::max(
+                                game_darkest,
+                                static_cast<int>(plain.rgb[pixel * 3 + channel]) -
+                                    as_the_game.rgb[pixel * 3 + channel]
+                            );
+                    }
+                    std::cout << "aircraft shadow proof: water=" << water_receiver
+                              << " angle=" << angle << " altitude=" << altitude
+                              << " game shadow pixels=" << game_area
+                              << " maximum darkening=" << game_darkest << '\n';
+                    save_picture((prefix + "-game.png").c_str(), as_the_game);
+                    if (!water_receiver)
+                        require(
+                            game_area > 0 && game_area < area &&
+                                std::abs(game_darkest - first_darkness) <= darkness_tolerance,
+                            "an aircraft's game shadow is not its plain silhouette at the "
+                            "shadows' darkness"
+                        );
                 }
             }
         }

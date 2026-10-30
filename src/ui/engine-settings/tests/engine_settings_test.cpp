@@ -522,6 +522,7 @@ settings::EngineSettings changed_settings() {
     chosen.text_background = true;
     chosen.text_size = 150;
     chosen.language = "de";
+    chosen.look = settings::Look::modern;
     return chosen;
 }
 
@@ -534,7 +535,7 @@ void only_changed_settings_are_written() {
 
     const auto chosen = changed_settings();
     settings::write_settings(values, defaults, chosen, defaults, false);
-    CHECK(values.size() == 18);
+    CHECK(values.size() == 19);
     CHECK(values.at(std::string{settings::key::path_search_nodes}) == "5332");
     CHECK(values.at(std::string{settings::key::wheel_zoom}) == "0");
     CHECK(values.at(std::string{settings::key::middle_click_pan}) == "0");
@@ -552,6 +553,7 @@ void only_changed_settings_are_written() {
     CHECK(values.at(std::string{settings::key::text_background}) == "1");
     CHECK(values.at(std::string{settings::key::text_size}) == "150");
     CHECK(values.at(std::string{settings::key::language}) == "de");
+    CHECK(values.at(std::string{settings::key::look}) == "modern");
     CHECK(values.at("Total Annihilation|SwitchAlt") == "1");
     CHECK(settings::read_settings(values, {}, false) == chosen);
 
@@ -573,7 +575,8 @@ void file_type_switches_store_on_and_off() {
     const settings::EngineSettings defaults{};
     CHECK(
         defaults.file_type_oamod && defaults.file_type_oamap && defaults.file_type_oalang &&
-        defaults.file_type_oareg && defaults.file_type_oamut && defaults.file_type_oabrain
+        defaults.file_type_oareg && defaults.file_type_oamut && defaults.file_type_oabrain &&
+        defaults.file_type_oakeys
     );
 
     // Absent keys, "on", and any other text read as on. Only "off" turns one off.
@@ -581,7 +584,7 @@ void file_type_switches_store_on_and_off() {
     CHECK(
         from_absent.file_type_oamod && from_absent.file_type_oamap &&
         from_absent.file_type_oalang && from_absent.file_type_oareg &&
-        from_absent.file_type_oamut && from_absent.file_type_oabrain
+        from_absent.file_type_oamut && from_absent.file_type_oabrain && from_absent.file_type_oakeys
     );
     Values mixed;
     mixed[std::string{settings::key::file_type_oamod}] = "off";
@@ -590,6 +593,7 @@ void file_type_switches_store_on_and_off() {
     mixed[std::string{settings::key::file_type_oareg}] = "no";
     mixed[std::string{settings::key::file_type_oamut}] = "off";
     mixed[std::string{settings::key::file_type_oabrain}] = "off";
+    mixed[std::string{settings::key::file_type_oakeys}] = "off";
     const auto read = settings::read_settings(mixed, {}, false);
     CHECK(!read.file_type_oamod);
     CHECK(read.file_type_oamap);
@@ -597,8 +601,10 @@ void file_type_switches_store_on_and_off() {
     CHECK(read.file_type_oareg);
     CHECK(!read.file_type_oamut);
     CHECK(!read.file_type_oabrain);
+    CHECK(!read.file_type_oakeys);
     CHECK(settings::key::file_type_oamut == "open-annihilation.file-types.oamut");
     CHECK(settings::key::file_type_oabrain == "open-annihilation.file-types.oabrain");
+    CHECK(settings::key::file_type_oakeys == "open-annihilation.file-types.oakeys");
 
     // A switch moved off is stored as off. One left on writes nothing.
     auto chosen = defaults;
@@ -612,6 +618,7 @@ void file_type_switches_store_on_and_off() {
     CHECK(written.count(std::string{settings::key::file_type_oareg}) == 0);
     CHECK(written.count(std::string{settings::key::file_type_oamut}) == 0);
     CHECK(written.count(std::string{settings::key::file_type_oabrain}) == 0);
+    CHECK(written.count(std::string{settings::key::file_type_oakeys}) == 0);
     CHECK(settings::read_settings(written, {}, false).file_type_oamod == false);
     CHECK(settings::read_settings(written, {}, false).file_type_oalang);
 
@@ -644,6 +651,16 @@ void file_type_switches_store_on_and_off() {
     CHECK(brain_written.at(std::string{settings::key::file_type_oabrain}) == "off");
     CHECK(!settings::read_settings(brain_written, {}, false).file_type_oabrain);
     CHECK(settings::read_settings(brain_written, {}, false).file_type_oamut);
+    CHECK(settings::read_settings(brain_written, {}, false).file_type_oakeys);
+
+    // The key layout packages' switch moved off is stored as off, and reads back off.
+    auto keys_off = defaults;
+    keys_off.file_type_oakeys = false;
+    Values keys_written;
+    settings::write_settings(keys_written, defaults, keys_off, defaults, false);
+    CHECK(keys_written.at(std::string{settings::key::file_type_oakeys}) == "off");
+    CHECK(!settings::read_settings(keys_written, {}, false).file_type_oakeys);
+    CHECK(settings::read_settings(keys_written, {}, false).file_type_oabrain);
 }
 
 void the_launch_file_switch_round_trips() {
@@ -664,10 +681,10 @@ void the_launch_file_switch_round_trips() {
     CHECK(!off.file_type_oalaunch);
     CHECK(
         off.file_type_oamod && off.file_type_oamap && off.file_type_oalang && off.file_type_oareg &&
-        off.file_type_oamut && off.file_type_oabrain
+        off.file_type_oamut && off.file_type_oabrain && off.file_type_oakeys
     );
 
-    // Moved off, it alone is stored, as off, and reads back off with the other six on.
+    // Moved off, it alone is stored, as off, and reads back off with the other seven on.
     auto chosen = defaults;
     chosen.file_type_oalaunch = false;
     Values written;
@@ -679,13 +696,15 @@ void the_launch_file_switch_round_trips() {
           settings::key::file_type_oalang,
           settings::key::file_type_oareg,
           settings::key::file_type_oamut,
-          settings::key::file_type_oabrain})
+          settings::key::file_type_oabrain,
+          settings::key::file_type_oakeys})
         CHECK(written.count(std::string{other}) == 0);
     const auto read = settings::read_settings(written, {}, false);
     CHECK(!read.file_type_oalaunch);
     CHECK(
         read.file_type_oamod && read.file_type_oamap && read.file_type_oalang &&
-        read.file_type_oareg && read.file_type_oamut && read.file_type_oabrain
+        read.file_type_oareg && read.file_type_oamut && read.file_type_oabrain &&
+        read.file_type_oakeys
     );
 
     // Moved on again, it is stored as on and reads back on.
@@ -2316,6 +2335,45 @@ void the_window_edge_default_read_and_round_trip() {
     CHECK(settings::read_settings(values, players_own_on_linux, false) == defaults);
 }
 
+/// Group keys centre the view: On a double press everywhere by default, also
+/// for a file an earlier build wrote without the key; "double-press",
+/// "never" and "every-press" read their choices; any other text reads On a
+/// double press; writing Never or On every press writes that key alone, and
+/// Restore defaults then OK erases it.
+void the_group_keys_centre_default_read_and_round_trip() {
+    CHECK(settings::key::group_keys_centre == "open-annihilation.group-keys-centre");
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(defaults.group_keys_centre == settings::GroupKeysCentre::double_press);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    const auto centre = [](const char* text) {
+        return read_one(settings::key::group_keys_centre, text).group_keys_centre;
+    };
+    CHECK(centre("double-press") == settings::GroupKeysCentre::double_press);
+    CHECK(centre("never") == settings::GroupKeysCentre::never);
+    CHECK(centre("every-press") == settings::GroupKeysCentre::every_press);
+    for (const char* text : {"", "Never", "always", "every press", "1"})
+        CHECK(centre(text) == settings::GroupKeysCentre::double_press);
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    for (const auto way :
+         {settings::GroupKeysCentre::never, settings::GroupKeysCentre::every_press}) {
+        auto chosen = defaults;
+        chosen.group_keys_centre = way;
+        Values values;
+        settings::write_settings(values, defaults, chosen, defaults, false);
+        CHECK(values.size() == 1);
+        CHECK(
+            values.at(std::string{settings::key::group_keys_centre}) ==
+            (way == settings::GroupKeysCentre::never ? "never" : "every-press")
+        );
+        CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+        settings::write_settings(values, chosen, defaults, defaults, true);
+        CHECK(values.empty());
+    }
+}
+
 /// Edge stickiness: 1.0 everywhere by default and for a file without the
 /// key; a decimal reads to the nearest tenth, a half rounding up, held to
 /// 0.0 to 5.0; any other text reads 1.0; it is written with one decimal,
@@ -2397,6 +2455,72 @@ void the_window_frame_default_read_and_round_trip() {
     settings::write_settings(values, defaults, shown, defaults, false);
     CHECK(values.size() == 1);
     CHECK(values.at(std::string{settings::key::window_frame}) == "always-shown");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == shown);
+    settings::write_settings(values, shown, defaults, defaults, true);
+    CHECK(values.empty());
+}
+
+/// Window size: Auto everywhere by default, under the key the OA layer reads;
+/// its four words read back, any other text reads Auto; Large written alone
+/// and read back, and Restore defaults then OK erases the key.
+void the_window_size_default_read_and_round_trip() {
+    CHECK(settings::key::window_size == "open-annihilation.ui.window-size");
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(defaults.window_size == settings::WindowSize::automatic);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    const auto size = [](const char* text) {
+        return read_one(settings::key::window_size, text).window_size;
+    };
+    CHECK(size("auto") == settings::WindowSize::automatic);
+    CHECK(size("compact") == settings::WindowSize::compact);
+    CHECK(size("regular") == settings::WindowSize::regular);
+    CHECK(size("large") == settings::WindowSize::large);
+    for (const char* text : {"", "Large", "huge", "2", " large"})
+        CHECK(size(text) == settings::WindowSize::automatic);
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    auto shown = defaults;
+    shown.window_size = settings::WindowSize::large;
+    Values values;
+    settings::write_settings(values, defaults, shown, defaults, false);
+    CHECK(values.size() == 1);
+    CHECK(values.at(std::string{settings::key::window_size}) == "large");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == shown);
+    settings::write_settings(values, shown, defaults, defaults, true);
+    CHECK(values.empty());
+}
+
+/// Look: Modern with the player's own file, a file written before the key
+/// existed among them, and Classic, the game's own fonts, with a named one;
+/// the two words read back, any other text reads the default, and a choice
+/// round-trips through the file.
+void the_look_default_read_and_round_trip() {
+    CHECK(settings::key::look == "open-annihilation.ui.look");
+    CHECK(settings::default_settings(settings::Inputs{}).look == settings::Look::classic);
+    CHECK(settings::default_settings(players_own_on_linux).look == settings::Look::modern);
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux})
+        CHECK(settings::read_settings({}, inputs, false) == settings::default_settings(inputs));
+    const auto look = [](const char* text) { return read_one(settings::key::look, text).look; };
+    CHECK(look("modern") == settings::Look::modern);
+    CHECK(look("classic") == settings::Look::classic);
+    for (const char* text : {"", "Classic", "bitmap", "1", " classic"})
+        CHECK(look(text) == settings::default_settings(settings::Inputs{}).look);
+    // A file from before the key: the player's own reads Modern.
+    Values older;
+    older[std::string{settings::key::window_size}] = "large";
+    CHECK(
+        settings::read_settings(older, players_own_on_linux, false).look == settings::Look::modern
+    );
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    auto shown = defaults;
+    shown.look = settings::Look::classic;
+    Values values;
+    settings::write_settings(values, defaults, shown, defaults, false);
+    CHECK(values.size() == 1);
+    CHECK(values.at(std::string{settings::key::look}) == "classic");
     CHECK(settings::read_settings(values, players_own_on_linux, false) == shown);
     settings::write_settings(values, shown, defaults, defaults, true);
     CHECK(values.empty());
@@ -2792,6 +2916,60 @@ void the_smooth_motion_default_read_and_round_trip() {
     CHECK(alone.empty());
 }
 
+/// New unit shadows: On everywhere by default, a light machine and a Steam
+/// Deck included, so a file written before it reads On; a number above 0
+/// reads On, any other number Off and a text that is no number keeps the
+/// default; Off written alone as 0 and read back, On chosen again written as
+/// 1, and Restore defaults then OK erases the key. It leaves every other key
+/// as it was.
+void the_new_unit_shadows_default_read_and_round_trip() {
+    CHECK(settings::key::new_unit_shadows == "open-annihilation.new-unit-shadows");
+    settings::Inputs own_mac = players_own_on_linux;
+    own_mac.macos = true;
+    settings::Inputs light = players_own_on_linux;
+    light.light_machine = true;
+    settings::Inputs deck = players_own_on_linux;
+    deck.steam_deck_panel_hz = 90;
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux, own_mac, light, deck}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(defaults.new_unit_shadows);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    CHECK(read_one(settings::key::new_unit_shadows, "1").new_unit_shadows);
+    CHECK(read_one(settings::key::new_unit_shadows, "2").new_unit_shadows);
+    CHECK(!read_one(settings::key::new_unit_shadows, "0").new_unit_shadows);
+    CHECK(!read_one(settings::key::new_unit_shadows, "-1").new_unit_shadows);
+    CHECK(read_one(settings::key::new_unit_shadows, "off").new_unit_shadows);
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    auto off = defaults;
+    off.new_unit_shadows = false;
+    Values values;
+    values[std::string{settings::key::fog_of_war}] = "classic";
+    values["open-annihilation.not-a-setting"] = "kept";
+    const Values others = values;
+    const auto opened = settings::read_settings(values, players_own_on_linux, false);
+    auto chosen = opened;
+    chosen.new_unit_shadows = false;
+    settings::write_settings(values, opened, chosen, defaults, false);
+    CHECK(values.size() == others.size() + 1);
+    for (const auto& [key, value] : others)
+        CHECK(values.contains(key) && values.at(key) == value);
+    CHECK(values.at(std::string{settings::key::new_unit_shadows}) == "0");
+    CHECK(!settings::read_settings(values, players_own_on_linux, false).new_unit_shadows);
+    settings::write_settings(values, chosen, opened, defaults, false);
+    CHECK(values.at(std::string{settings::key::new_unit_shadows}) == "1");
+    CHECK(settings::read_settings(values, players_own_on_linux, false).new_unit_shadows);
+
+    Values alone;
+    settings::write_settings(alone, defaults, off, defaults, false);
+    CHECK(alone.size() == 1);
+    CHECK(alone.at(std::string{settings::key::new_unit_shadows}) == "0");
+    CHECK(settings::read_settings(alone, players_own_on_linux, false) == off);
+    settings::write_settings(alone, off, defaults, defaults, true);
+    CHECK(alone.empty());
+}
+
 /// Interface size: Auto everywhere by default, with the player's own file
 /// and with a named one, a file written before it included; each of its
 /// six words reads its size and round-trips alone, 150 while Use modern
@@ -3113,10 +3291,14 @@ int main() {
     fog_of_war_default_read_and_round_trip();
     the_zoomed_out_units_default_read_and_round_trip();
     the_window_edge_default_read_and_round_trip();
+    the_group_keys_centre_default_read_and_round_trip();
     the_edge_stickiness_default_read_and_round_trip();
     the_window_frame_default_read_and_round_trip();
+    the_window_size_default_read_and_round_trip();
+    the_look_default_read_and_round_trip();
     the_hud_scaling_default_read_and_round_trip();
     the_smooth_motion_default_read_and_round_trip();
+    the_new_unit_shadows_default_read_and_round_trip();
     visual_effect_switches_round_trip();
     water_effects_round_trip();
     the_interface_size_default_read_and_round_trip();

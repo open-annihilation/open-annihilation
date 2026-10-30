@@ -95,7 +95,7 @@ struct Metrics {
     float row_gap{};            ///< between a row's columns
     float switch_width{};       ///< an OFF/ON switch
     float switch_text{};        ///< its labels
-    float small_button_text{};  ///< WHY, SHOW, REMOVE
+    float small_button_text{};  ///< Why, Show, Remove
     float small_button_pad{};   ///< their side padding
     float totals_text{};        ///< S3's totals and check lines
     float note_text{};          ///< hints under a step
@@ -449,7 +449,7 @@ int add_step_banner(const Form& form, Block& block, int x, int y, int room) {
     BannerContent banner = detail::banner_content(model);
     if (!banner.shown)
         return 0;
-    // In the compact form the continue banner leaves CHOOSE FOLDER to the row just below it.
+    // In the compact form the continue banner leaves Choose folder to the row just below it.
     if (form.compact && model.step == Step::first_run && model.offers_pick_folder)
         banner.actions.erase(
             std::remove_if(
@@ -540,7 +540,7 @@ std::vector<Option> first_run_options(const Model& model) {
             "The folder that holds totala1.hpi: {places}.",
             {{"places", platform_word(model, detail::word_picker_places_short)}}
         );
-        option.action.label = tr("CHOOSE FOLDER");
+        option.action.label = tr("Choose folder");
         option.action.control = {ControlKind::choose_folder};
         option.action.command = Command::pick_game_folder;
         option.action.role = Role::button_main;
@@ -558,7 +558,7 @@ std::vector<Option> first_run_options(const Model& model) {
             "{steps}, named Total Annihilation.",
             {{"steps", platform_word(model, detail::word_copy_yourself_short)}}
         );
-        option.action.label = tr("I HAVE COPIED IT");
+        option.action.label = tr("I have copied it");
         option.action.control = {ControlKind::i_have_copied};
         option.action.command = Command::check_copied;
         option.action.role = options.empty() ? Role::button_main : Role::button;
@@ -577,7 +577,7 @@ std::vector<Option> first_run_options(const Model& model) {
             "The demo's installer: recognised, never run, {size} unpacked.",
             {{"size", std::string(detail::demo_data_size_text)}}
         );
-        option.action.label = tr("CHOOSE INSTALLER");
+        option.action.label = tr("Choose installer");
         option.action.control = {ControlKind::choose_installer};
         option.action.command = Command::pick_installer;
         options.push_back(std::move(option));
@@ -817,18 +817,18 @@ int add_part_row(
     std::optional<Action> button;
     if (choosing && row.kind == PartKind::mod && detail::part_refused(row) && index >= 0) {
         button = Action{};
-        button->label = tr("WHY");
+        button->label = tr("Why");
         button->control = {ControlKind::part_why, static_cast<uint16_t>(index)};
     } else if (choosing && row.kind == PartKind::left_out) {
         button = Action{};
-        button->label = tr("SHOW");
+        button->label = tr("Show");
         button->control = {ControlKind::show_left_out};
     } else if (
         managing && index >= 0 && row.kind != PartKind::game_archives &&
         (row.removable || row.kind == PartKind::demo_data)
     ) {
         button = Action{};
-        button->label = tr("REMOVE");
+        button->label = tr("Remove");
         button->control = {ControlKind::manage_remove, static_cast<uint16_t>(index)};
         button->role = Role::button_danger;
         button->enabled = !model.pending_replacement;
@@ -851,7 +851,7 @@ int add_part_row(
             kit::Item part{};
             part.role = Role::toggle;
             part.rect = {right - width, middle - control_height / 2, width, control_height};
-            part.lines = {tr("OFF"), tr("ON")};
+            part.lines = {tr("Off"), tr("On")};
             part.style = TextStyle::button;
             part.pixel_size = kit::canvas_font(form.type, metrics.switch_text);
             part.bold = true;
@@ -1231,7 +1231,7 @@ Column first_run_column(const Form& form, int x, int room) {
     return column;
 }
 
-/// Lays out S2 while the source is listed: the count growing, CANCEL and a busy bar.
+/// Lays out S2 while the source is listed: the count growing, Cancel and a busy bar.
 ///
 /// @param form the form laid out
 /// @param x the column's left, pixels
@@ -1254,7 +1254,7 @@ Column looking_column(const Form& form, int x, int room) {
     const int inner_x = x + pad;
     const int inner_room = room - 2 * pad;
     Action cancel{};
-    cancel.label = tr("CANCEL");
+    cancel.label = tr("Cancel");
     cancel.control = {ControlKind::cancel};
     cancel.command = Command::cancel_scan;
     const int cancel_width = std::min(
@@ -1380,7 +1380,7 @@ Column nested_column(const Form& form, int x, int room) {
     int at = 0;
     for (std::size_t index = 0; index < model.nested.size(); ++index) {
         Action use{};
-        use.label = tr("USE THAT FOLDER");
+        use.label = tr("Use that folder");
         use.control = {ControlKind::nested_choice, static_cast<uint16_t>(index)};
         use.command = Command::use_nested;
         use.role = index == 0 ? Role::button_main : Role::button;
@@ -1421,7 +1421,7 @@ Column nested_column(const Form& form, int x, int room) {
     body.height = at > 0 ? at - kit::canvas_pixels(form.type, 6.0f) : 0;
 
     Action other{};
-    other.label = tr("CHOOSE ANOTHER FOLDER");
+    other.label = tr("Choose another folder");
     other.control = {ControlKind::choose_folder};
     other.command = Command::pick_game_folder;
     column.bottom.height = button_row_of(form, column.bottom, x, 0, room, {other}, {});
@@ -1440,12 +1440,12 @@ Column already_there_column(const Form& form, int x, int room) {
         form, column.top, x, room, tr("This is already the game folder."), form.model.location
     );
     Action check{};
-    check.label = tr("CHECK IT");
+    check.label = tr("Check it");
     check.control = {ControlKind::check_it};
     check.command = Command::check_in_place;
     check.role = Role::button_main;
     Action other{};
-    other.label = tr("CHOOSE ANOTHER FOLDER");
+    other.label = tr("Choose another folder");
     other.control = {ControlKind::choose_folder};
     other.command = Command::pick_game_folder;
     column.body.height = button_row_of(form, column.body, x, 0, room, {check, other}, {});
@@ -1477,7 +1477,7 @@ std::string short_space_text(const Model& model) {
     return text;
 }
 
-/// Lays out S3: the parts, what is left out, the space and the check, and COPY.
+/// Lays out S3: the parts, what is left out, the space and the check, and Copy.
 ///
 /// @param form the form laid out
 /// @param x the column's left, pixels
@@ -1597,24 +1597,24 @@ Column ready_to_copy_column(const Form& form, int x, int room) {
     y += kit::canvas_pixels(form.type, metrics.block_gap / 2.0f);
     Action other{};
     if (model.demo) {
-        other.label = tr("CHOOSE ANOTHER FILE");
+        other.label = tr("Choose another file");
         other.control = {ControlKind::choose_installer};
         other.command = Command::pick_installer;
     } else {
-        other.label = tr("CHOOSE ANOTHER FOLDER");
+        other.label = tr("Choose another folder");
         other.control = {ControlKind::choose_folder};
         other.command = Command::pick_game_folder;
     }
     std::vector<Action> right;
     if (model.space_short) {
         Action again{};
-        again.label = tr("CHECK AGAIN");
+        again.label = tr("Check again");
         again.control = {ControlKind::check_space};
         again.command = Command::recheck_space;
         right.push_back(again);
     }
     Action copy{};
-    copy.label = model.replace ? tr("REPLACE GAME FILES") : tr("COPY");
+    copy.label = model.replace ? tr("Replace game files") : tr("Copy");
     copy.control = {ControlKind::copy};
     copy.command = Command::start_copy;
     copy.role = Role::button_main;
@@ -1625,7 +1625,7 @@ Column ready_to_copy_column(const Form& form, int x, int room) {
     return column;
 }
 
-/// Lays out S4: the progress, STOP, the parts ticking and the hint.
+/// Lays out S4: the progress, Stop, the parts ticking and the hint.
 ///
 /// @param form the form laid out
 /// @param x the column's left, pixels
@@ -1654,7 +1654,7 @@ Column copying_column(const Form& form, int x, int room) {
     const int inner_room = room - 2 * pad;
     const int button_height = kit::canvas_pixels(form.type, min_button_points);
     Action stop{};
-    stop.label = tr("STOP");
+    stop.label = tr("Stop");
     stop.control = {ControlKind::stop};
     stop.role = Role::button_danger;
     stop.glyph = Glyph::stop;
@@ -1790,7 +1790,7 @@ Column checking_column(const Form& form, int x, int room) {
 }
 
 /// Lays out S5's Ready to play: what the game will play, the space, the warnings, the backups
-/// line, the folder set aside, and PLAY.
+/// line, the folder set aside, and Play.
 ///
 /// @param form the form laid out
 /// @param x the column's left, pixels
@@ -1899,7 +1899,7 @@ Column ready_to_play_column(const Form& form, int x, int room) {
             {{"size", size_text(model.old_folder_bytes)}}
         );
         Action remove{};
-        remove.label = tr("REMOVE OLD FOLDER");
+        remove.label = tr("Remove old folder");
         remove.control = {ControlKind::remove_old};
         remove.glyph = Glyph::trash;
         old.actions.push_back(remove);
@@ -1910,12 +1910,12 @@ Column ready_to_play_column(const Form& form, int x, int room) {
     Action play{};
     play.role = Role::button_main;
     if (model.management) {
-        // CHECK AGAIN in the management state reports here; DONE goes back to the list.
-        play.label = tr("DONE");
+        // Check again in the management state reports here; Done goes back to the list.
+        play.label = tr("Done");
         play.control = {ControlKind::back};
         play.command = Command::back;
     } else {
-        play.label = tr("PLAY");
+        play.label = tr("Play");
         play.control = {ControlKind::play};
         play.command = Command::play;
         play.glyph = Glyph::play;
@@ -1972,8 +1972,8 @@ Column problem_column(const Form& form, int x, int room) {
     return column;
 }
 
-/// Lays out S8: the summary, CHECK AGAIN and ADD FILES…, the banner, the parts with REMOVE,
-/// and the foot's REPLACE, REMOVE ALL and DONE.
+/// Lays out S8: the summary, Check again and Add files…, the banner, the parts with Remove,
+/// and the foot's Replace the game files…, Remove all and Done.
 ///
 /// @param form the form laid out
 /// @param x the column's left, pixels
@@ -1986,12 +1986,12 @@ Column manage_column(const Form& form, int x, int room) {
     Column column;
     Block& top = column.top;
     Action check{};
-    check.label = tr("CHECK AGAIN");
+    check.label = tr("Check again");
     check.control = {ControlKind::manage_check};
     check.command = Command::manage_check;
     check.glyph = Glyph::refresh;
     Action add{};
-    add.label = tr("ADD FILES…");
+    add.label = tr("Add files…");
     add.control = {ControlKind::manage_add};
     add.role = Role::button_main;
     add.glyph = Glyph::plus;
@@ -2052,17 +2052,17 @@ Column manage_column(const Form& form, int x, int room) {
     column.body.height = add_rows_panel(form, column.body, x, 0, room);
 
     Action replace{};
-    replace.label = tr("REPLACE THE GAME FILES…");
+    replace.label = tr("Replace the game files…");
     replace.control = {ControlKind::manage_replace};
     replace.command = Command::manage_replace;
     replace.enabled = !model.pending_replacement;
     Action remove_all{};
-    remove_all.label = tr("REMOVE ALL GAME FILES…");
+    remove_all.label = tr("Remove all game files…");
     remove_all.control = {ControlKind::manage_remove_all};
     remove_all.role = Role::button_danger;
     remove_all.enabled = !model.pending_replacement;
     Action done{};
-    done.label = tr("DONE");
+    done.label = tr("Done");
     done.control = {ControlKind::manage_done};
     done.command = Command::done;
     done.role = Role::button_main;

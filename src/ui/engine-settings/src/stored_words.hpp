@@ -57,10 +57,24 @@ inline constexpr std::array<ChoiceWord<WindowEdge>, 3> window_edge_words{{
     {WindowEdge::sticky, "sticky"},
     {WindowEdge::free, "free"},
 }};
+/// Group keys centre the view's words, in group_keys_centre_choices' order.
+inline constexpr std::array<ChoiceWord<GroupKeysCentre>, 3> group_keys_centre_words{{
+    {GroupKeysCentre::double_press, "double-press"},
+    {GroupKeysCentre::never, "never"},
+    {GroupKeysCentre::every_press, "every-press"},
+}};
 /// Window frame's words, in window_frame_choices' order.
 inline constexpr std::array<ChoiceWord<WindowFrame>, 2> window_frame_words{{
     {WindowFrame::hidden_in_play, "hidden-in-play"},
     {WindowFrame::always_shown, "always-shown"},
+}};
+/// Window size's words, in window_size_choices' order: the words the OA
+/// layer reads the same key with.
+inline constexpr std::array<ChoiceWord<WindowSize>, 4> window_size_words{{
+    {WindowSize::automatic, "auto"},
+    {WindowSize::compact, "compact"},
+    {WindowSize::regular, "regular"},
+    {WindowSize::large, "large"},
 }};
 /// Maximum zoom out's words, in zoom_out_limits' order.
 inline constexpr std::array<ChoiceWord<ZoomOutLimit>, 7> zoom_out_words{{
@@ -134,6 +148,19 @@ inline constexpr std::array<ChoiceWord<pad_controls::Prompts>, 6> prompts_words{
     {pad_controls::Prompts::playstation, "playstation"},
     {pad_controls::Prompts::nintendo, "nintendo"},
     {pad_controls::Prompts::off, "off"},
+}};
+
+/// Look's words, in look_choices' order.
+inline constexpr std::array<ChoiceWord<Look>, 2> look_words{{
+    {Look::modern, "modern"},
+    {Look::classic, "classic"},
+}};
+
+/// Order wheel's words.
+inline constexpr std::array<ChoiceWord<OrderWheel>, 3> order_wheel_words{{
+    {OrderWheel::off, "off"},
+    {OrderWheel::hold_right, "hold-right"},
+    {OrderWheel::hold_middle, "hold-middle"},
 }};
 
 /// Returns the word the preferences keep a choice as.

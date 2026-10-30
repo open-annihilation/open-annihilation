@@ -332,6 +332,34 @@ void store_word(
     );
 }
 
+/// Returns a stored access timing, or the default when the key cannot be read.
+///
+/// Zero stays zero when it means the system's own timing. Any other number
+/// is held to the range.
+///
+/// @param values the preferences
+/// @param key the key
+/// @param absent the value used when the key is absent or not a whole number
+/// @param least the lowest value of the range
+/// @param most the highest value of the range
+/// @param zero_is_system true when zero means the system's own timing
+/// @return the timing, in the units the key stores
+uint32_t access_number(
+    const Values& values,
+    std::string_view key,
+    uint32_t absent,
+    uint32_t least,
+    uint32_t most,
+    bool zero_is_system
+) {
+    const auto number = stored_number(values, key);
+    if (!number)
+        return absent;
+    if (zero_is_system && *number <= 0)
+        return 0;
+    return clamped(*number, least, most);
+}
+
 /// Returns a stored number held to a setting's range and put on its nearest stop.
 ///
 /// @param number the stored number
@@ -374,6 +402,17 @@ constexpr std::array<ChoiceWord<ContentCheck>, 3> content_check_words{{
     {ContentCheck::when_library_opens, "library"},
     {ContentCheck::never, "never"},
 }};
+/// Check for updates' words, in the order the Updates page lists them.
+constexpr std::array<ChoiceWord<UpdateCheck>, 3> update_check_words{{
+    {UpdateCheck::automatically, "automatically"},
+    {UpdateCheck::when_asked, "when-asked"},
+    {UpdateCheck::never, "never"},
+}};
+/// Install updates' words, in the order the Updates page lists them.
+constexpr std::array<ChoiceWord<UpdateInstall>, 2> update_install_words{{
+    {UpdateInstall::ask, "ask"},
+    {UpdateInstall::when_i_quit, "when-i-quit"},
+}};
 
 } // namespace
 
@@ -387,8 +426,10 @@ EngineSettings default_settings(const Inputs& inputs) {
     for (const EffectSlider& slider : effect_sliders)
         settings.*slider.percent =
             default_effect_intensity(slider.percent, settings.hardware_acceleration);
-    // A named file draws game text in the game's own fonts.
+    // A named file draws game text in the game's own fonts, and OA's own
+    // screens in them too.
     settings.modern_fonts = inputs.players_own_profile;
+    settings.look = inputs.players_own_profile ? Look::modern : Look::classic;
     // A named file plays in English, as the game does without a language on
     // its command line; the player's own follows the operating system.
     settings.language = inputs.players_own_profile
@@ -647,6 +688,19 @@ EngineSettings read_settings(
             clamped(*number, base_path_search_nodes, highest_path_search_nodes);
     if (const auto number = stored_number(values, key::wheel_zoom))
         settings.wheel_zoom = *number > 0;
+    if (const auto number = stored_number(values, key::keys_show_on_buttons))
+        settings.show_keys_on_buttons = *number > 0;
+    if (const auto number = stored_number(values, key::sticky_modifiers))
+        settings.sticky_modifiers = *number > 0;
+    if (const auto number = stored_number(values, key::pointer_keys))
+        settings.pointer_keys = *number > 0;
+    if (const auto number = stored_number(values, key::hold_to_confirm))
+        settings.hold_to_confirm = *number > 0;
+    if (const auto number = stored_number(values, key::edge_scroll))
+        settings.edge_scroll = *number > 0;
+    if (const auto number = stored_number(values, key::move_overlays))
+        settings.move_overlays = *number > 0;
+    read_word(values, key::order_wheel, order_wheel_words, settings.order_wheel);
     read_word(values, key::max_zoom_out, zoom_out_words, settings.max_zoom_out);
     read_word(values, key::max_zoom_in, zoom_in_words, settings.max_zoom_in);
     read_word(
@@ -660,6 +714,7 @@ EngineSettings read_settings(
         settings.middle_click_pan = *number > 0;
     if (const auto number = stored_number(values, key::escape_opens_menu))
         settings.escape_opens_menu = *number > 0;
+    read_word(values, key::group_keys_centre, group_keys_centre_words, settings.group_keys_centre);
     if (const auto number = stored_number(values, key::unit_limit))
         settings.unit_limit = clamped(
             *number,
@@ -686,6 +741,8 @@ EngineSettings read_settings(
         settings.unlocked_camera = *number > 0;
     if (const auto number = stored_number(values, key::smooth_motion))
         settings.smooth_motion = *number > 0;
+    if (const auto number = stored_number(values, key::new_unit_shadows))
+        settings.new_unit_shadows = *number > 0;
     // An effect with no stored percent follows the stored acceleration.
     const auto unset_effect = [&](uint32_t EngineSettings::* percent) {
         return default_effect_intensity(percent, settings.hardware_acceleration);
@@ -720,6 +777,8 @@ EngineSettings read_settings(
     read_word(values, key::zoomed_out_units, zoomed_out_units_words, settings.zoomed_out_units);
     read_word(values, key::zoomed_out_after, zoomed_out_after_words, settings.zoomed_out_after);
     read_word(values, key::window_frame, window_frame_words, settings.window_frame);
+    read_word(values, key::window_size, window_size_words, settings.window_size);
+    read_word(values, key::look, look_words, settings.look);
     if (const auto number = stored_number(values, key::hud_scaling))
         settings.hud_scaling = *number > 0;
     if (const auto found = values.find(std::string{key::interface_size}); found != values.end())
@@ -786,13 +845,25 @@ EngineSettings read_settings(
             settings.hack_overrides = mod_profile::read_overrides(found->second);
     // Unknown text leaves the default read_settings started from.
     read_word(values, key::content_check, content_check_words, settings.content_check);
+    read_word(values, key::update_check, update_check_words, settings.update_check);
+    if (const auto number = stored_number(values, key::update_download))
+        settings.update_download = *number > 0;
+    read_word(values, key::update_install, update_install_words, settings.update_install);
     settings.file_type_oamod = file_type_on(values, key::file_type_oamod);
     settings.file_type_oamap = file_type_on(values, key::file_type_oamap);
     settings.file_type_oalang = file_type_on(values, key::file_type_oalang);
     settings.file_type_oareg = file_type_on(values, key::file_type_oareg);
     settings.file_type_oamut = file_type_on(values, key::file_type_oamut);
     settings.file_type_oabrain = file_type_on(values, key::file_type_oabrain);
+    settings.file_type_oakeys = file_type_on(values, key::file_type_oakeys);
     settings.file_type_oalaunch = file_type_on(values, key::file_type_oalaunch);
+    settings.slow_keys_ms = access_number(values, key::access_slow_keys, 0, 0, 1000, false);
+    settings.bounce_keys_ms = access_number(values, key::access_bounce_keys, 0, 0, 1000, false);
+    settings.double_press_ms = access_number(values, key::access_double_press, 0, 200, 1000, true);
+    settings.long_press_ms = access_number(values, key::access_long_press, 500, 200, 1000, false);
+    settings.repeat_delay_ms = access_number(values, key::access_repeat_delay, 0, 150, 1000, true);
+    settings.repeat_rate = access_number(values, key::access_repeat_rate, 0, 2, 30, true);
+    settings.drag_threshold = access_number(values, key::access_drag_threshold, 32, 32, 96, false);
     return settings;
 }
 
@@ -836,6 +907,78 @@ void write_settings(
         chosen.wheel_zoom == defaults.wheel_zoom,
         restored
     );
+    store(
+        values,
+        key::keys_show_on_buttons,
+        switch_text(chosen.show_keys_on_buttons),
+        chosen.show_keys_on_buttons != opened.show_keys_on_buttons,
+        chosen.show_keys_on_buttons == defaults.show_keys_on_buttons,
+        restored
+    );
+    // A mod's layout is kept under its id. The base game, and a dialog with
+    // no mod, leave that family of keys alone.
+    if (!profile_id.empty() && profile_id != mod_profile::base_game_id) {
+        const std::string layout_key =
+            std::string(key::keys_layout) + "." + std::string(profile_id);
+        const bool same = chosen.key_layout_for_mod.empty() || chosen.key_layout_for_mod == "same";
+        store(
+            values,
+            layout_key,
+            same ? std::string("same") : chosen.key_layout_for_mod,
+            chosen.key_layout_for_mod != opened.key_layout_for_mod,
+            same,
+            restored
+        );
+    }
+    store(
+        values,
+        key::sticky_modifiers,
+        switch_text(chosen.sticky_modifiers),
+        chosen.sticky_modifiers != opened.sticky_modifiers,
+        chosen.sticky_modifiers == defaults.sticky_modifiers,
+        restored
+    );
+    store(
+        values,
+        key::pointer_keys,
+        switch_text(chosen.pointer_keys),
+        chosen.pointer_keys != opened.pointer_keys,
+        chosen.pointer_keys == defaults.pointer_keys,
+        restored
+    );
+    store(
+        values,
+        key::hold_to_confirm,
+        switch_text(chosen.hold_to_confirm),
+        chosen.hold_to_confirm != opened.hold_to_confirm,
+        chosen.hold_to_confirm == defaults.hold_to_confirm,
+        restored
+    );
+    store(
+        values,
+        key::edge_scroll,
+        switch_text(chosen.edge_scroll),
+        chosen.edge_scroll != opened.edge_scroll,
+        chosen.edge_scroll == defaults.edge_scroll,
+        restored
+    );
+    store(
+        values,
+        key::move_overlays,
+        switch_text(chosen.move_overlays),
+        chosen.move_overlays != opened.move_overlays,
+        chosen.move_overlays == defaults.move_overlays,
+        restored
+    );
+    store_word(
+        values,
+        key::order_wheel,
+        order_wheel_words,
+        opened.order_wheel,
+        chosen.order_wheel,
+        defaults.order_wheel,
+        restored
+    );
     store_word(
         values,
         key::max_zoom_out,
@@ -877,6 +1020,15 @@ void write_settings(
         switch_text(chosen.escape_opens_menu),
         chosen.escape_opens_menu != opened.escape_opens_menu,
         chosen.escape_opens_menu == defaults.escape_opens_menu,
+        restored
+    );
+    store_word(
+        values,
+        key::group_keys_centre,
+        group_keys_centre_words,
+        opened.group_keys_centre,
+        chosen.group_keys_centre,
+        defaults.group_keys_centre,
         restored
     );
     store(
@@ -957,6 +1109,14 @@ void write_settings(
         switch_text(chosen.smooth_motion),
         chosen.smooth_motion != opened.smooth_motion,
         chosen.smooth_motion == defaults.smooth_motion,
+        restored
+    );
+    store(
+        values,
+        key::new_unit_shadows,
+        switch_text(chosen.new_unit_shadows),
+        chosen.new_unit_shadows != opened.new_unit_shadows,
+        chosen.new_unit_shadows == defaults.new_unit_shadows,
         restored
     );
     // Coloured weapon lighting, Nanolathe glow, Wreck glow and Heat
@@ -1119,6 +1279,16 @@ void write_settings(
         chosen.interface_size == defaults.interface_size,
         restored
     );
+    store_word(
+        values,
+        key::window_size,
+        window_size_words,
+        opened.window_size,
+        chosen.window_size,
+        defaults.window_size,
+        restored
+    );
+    store_word(values, key::look, look_words, opened.look, chosen.look, defaults.look, restored);
     for (const TextSwitch& entry : text_switches)
         store(
             values,
@@ -1167,6 +1337,52 @@ void write_settings(
         chosen.touch_hold_ms != opened.touch_hold_ms,
         chosen.touch_hold_ms == defaults.touch_hold_ms,
         restored
+    );
+    const auto store_access = [&](std::string_view access_key,
+                                  uint32_t chosen_value,
+                                  uint32_t opened_value,
+                                  uint32_t default_value) {
+        store(
+            values,
+            access_key,
+            std::to_string(chosen_value),
+            chosen_value != opened_value,
+            chosen_value == default_value,
+            restored
+        );
+    };
+    store_access(
+        key::access_slow_keys, chosen.slow_keys_ms, opened.slow_keys_ms, defaults.slow_keys_ms
+    );
+    store_access(
+        key::access_bounce_keys,
+        chosen.bounce_keys_ms,
+        opened.bounce_keys_ms,
+        defaults.bounce_keys_ms
+    );
+    store_access(
+        key::access_double_press,
+        chosen.double_press_ms,
+        opened.double_press_ms,
+        defaults.double_press_ms
+    );
+    store_access(
+        key::access_long_press, chosen.long_press_ms, opened.long_press_ms, defaults.long_press_ms
+    );
+    store_access(
+        key::access_repeat_delay,
+        chosen.repeat_delay_ms,
+        opened.repeat_delay_ms,
+        defaults.repeat_delay_ms
+    );
+    store_access(
+        key::access_repeat_rate, chosen.repeat_rate, opened.repeat_rate, defaults.repeat_rate
+    );
+    store_access(
+        key::access_drag_threshold,
+        chosen.drag_threshold,
+        opened.drag_threshold,
+        defaults.drag_threshold
     );
     store(
         values,
@@ -1291,6 +1507,32 @@ void write_settings(
         defaults.content_check,
         restored
     );
+    store_word(
+        values,
+        key::update_check,
+        update_check_words,
+        opened.update_check,
+        chosen.update_check,
+        defaults.update_check,
+        restored
+    );
+    store(
+        values,
+        key::update_download,
+        switch_text(chosen.update_download),
+        chosen.update_download != opened.update_download,
+        chosen.update_download == defaults.update_download,
+        restored
+    );
+    store_word(
+        values,
+        key::update_install,
+        update_install_words,
+        opened.update_install,
+        chosen.update_install,
+        defaults.update_install,
+        restored
+    );
     const auto store_file_type = [&](std::string_view key, bool EngineSettings::* member) {
         store(
             values,
@@ -1307,6 +1549,7 @@ void write_settings(
     store_file_type(key::file_type_oareg, &EngineSettings::file_type_oareg);
     store_file_type(key::file_type_oamut, &EngineSettings::file_type_oamut);
     store_file_type(key::file_type_oabrain, &EngineSettings::file_type_oabrain);
+    store_file_type(key::file_type_oakeys, &EngineSettings::file_type_oakeys);
     store_file_type(key::file_type_oalaunch, &EngineSettings::file_type_oalaunch);
     // Restore defaults keeps the overrides: Restore profile values clears them.
     if (!profile_id.empty() && chosen.hack_overrides != opened.hack_overrides) {

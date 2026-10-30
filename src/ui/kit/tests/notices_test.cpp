@@ -32,6 +32,7 @@
 #include <string_view>
 #include <tuple>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -304,11 +305,12 @@ struct QuestionAt {
 ///
 /// @param text the paragraph
 /// @param count how many lines
+/// @param width the line's width; 376 is a Compact notice
 /// @return the lines
-std::vector<LineAt> small_rows(std::string_view text, int32_t count) {
+std::vector<LineAt> small_rows(std::string_view text, int32_t count, int32_t width = 376) {
     std::vector<LineAt> lines;
     for (int32_t index = 0; index < count; ++index)
-        lines.push_back({text, false, false, {12, 38 + 18 * index, 376, 12}});
+        lines.push_back({text, false, false, {12, 38 + 18 * index, width, 12}});
     return lines;
 }
 
@@ -442,9 +444,10 @@ void notices_place_as_before() {
          {336, 414, 52, 17},
          small_rows("A line of the notice's text that takes a row.", 20)}
     );
+    // No open caption, so no open button.
     check_notice(
         kit::place_notice(kit::Notice{}, estimated, estimated),
-        {150, {38, 1, 350, 26}, 116, {235, 124, 96, 17}, {336, 124, 52, 17}, {}}
+        {150, {38, 1, 350, 26}, 116, {0, 0, 0, 0}, {336, 124, 52, 17}, {}}
     );
     // Without fonts, the estimated widths.
     check_notice(
@@ -475,24 +478,24 @@ void questions_place_as_before() {
     };
     check_question(
         kit::place_question(question_of({"OK"}), estimated, estimated),
-        {150, {38, 1, 350, 26}, false, {}, 116, {{336, 124, 52, 17}}, example}
+        {136, {38, 1, 350, 26}, false, {}, 98, {{336, 103, 52, 28}}, example}
     );
     check_question(
         kit::place_question(question_of({"CANCEL", "REPLACE"}), estimated, estimated),
-        {150, {38, 1, 350, 26}, false, {}, 116, {{260, 124, 58, 17}, {323, 124, 65, 17}}, example}
+        {136, {38, 1, 350, 26}, false, {}, 98, {{260, 103, 58, 28}, {323, 103, 65, 28}}, example}
     );
-    // The narrow measure keeps the path on one line; the buttons are placed
-    // at the estimated width whatever the measure.
+    // The narrow measure keeps the path on one line. The box stays as wide as
+    // the estimate of that path, and the buttons keep the estimate's widths.
     check_question(
         kit::place_question(
             question_of({"CANCEL", "INSTALL ALONGSIDE", "REPLACE"}), narrow_regular, narrow_small
         ),
-        {150,
+        {120,
          {38, 1, 350, 26},
          false,
          {},
-         116,
-         {{120, 124, 58, 17}, {183, 124, 135, 17}, {323, 124, 65, 17}},
+         82,
+         {{120, 87, 58, 28}, {183, 87, 135, 28}, {323, 87, 65, 28}},
          {
              {"Example Mod 1.0, revision 1, is installed.", false, false, {12, 38, 376, 12}},
              {"/Users/someone/Documents/Open Annihilation/Mods/example-mod",
@@ -503,30 +506,32 @@ void questions_place_as_before() {
     );
     check_question(
         kit::place_question(progress_question(), estimated, estimated),
-        {150, {38, 1, 350, 26}, false, {12, 94, 376, 8}, 116, {{330, 124, 58, 17}}, example}
+        {150, {38, 1, 350, 26}, false, {12, 94, 376, 8}, 112, {{330, 117, 58, 28}}, example}
     );
-    // Twenty rows fit; the bar under them does not, and is left out.
+    // Twenty rows fit; the bar under them does not, and is left out. The
+    // short lines size the box to half a Compact notice.
     check_question(
         kit::place_question(bar_cut_question(), estimated, estimated),
-        {440, {38, 1, 350, 26}, true, {}, 406, {{336, 414, 52, 17}}, small_rows("A row.", 20)}
+        {440, {38, 1, 150, 26}, true, {}, 402, {{136, 407, 52, 28}}, small_rows("A row.", 20, 176)}
     );
-    // Four buttons: the first three are placed.
+    // Four buttons: the first three are placed, and the long caption sizes
+    // the box to those buttons.
     check_question(
         kit::place_question(four_question(), estimated, estimated),
         {440,
-         {38, 1, 350, 26},
+         {38, 1, 334, 26},
          true,
          {},
-         406,
-         {{28, 414, 52, 17}, {85, 414, 58, 17}, {148, 414, 240, 17}},
-         small_rows("A line of the prompt's text that takes a row.", 20)}
+         402,
+         {{12, 407, 52, 28}, {69, 407, 58, 28}, {132, 407, 240, 28}},
+         small_rows("A line of the prompt's text that takes a row.", 20, 360)}
     );
     // The buttons alone, at a height of 200.
     const auto rects = kit::question_button_rects(question_of({"CANCEL", "REPLACE"}), 200);
     OA_CHECK(rects.size() == 2);
     if (rects.size() == 2) {
-        OA_CHECK(same_rect(rects[0], {260, 174, 58, 17}));
-        OA_CHECK(same_rect(rects[1], {323, 174, 65, 17}));
+        OA_CHECK(same_rect(rects[0], {260, 167, 58, 28}));
+        OA_CHECK(same_rect(rects[1], {323, 167, 65, 28}));
     }
 }
 
@@ -538,20 +543,21 @@ void question_buttons_fit_their_captions() {
     const auto measured = kit::question_button_rects(load, 200, wide_small);
     OA_CHECK(measured.size() == 2);
     if (measured.size() == 2) {
-        OA_CHECK(same_rect(measured[0], {216, 174, 52, 17}));
-        OA_CHECK(same_rect(measured[1], {273, 174, 115, 17}));
+        OA_CHECK(same_rect(measured[0], {216, 167, 52, 28}));
+        OA_CHECK(same_rect(measured[1], {273, 167, 115, 28}));
     }
     const auto estimated = kit::question_button_rects(load, 200);
     OA_CHECK(estimated.size() == 2);
     if (estimated.size() == 2) {
-        OA_CHECK(same_rect(estimated[0], {238, 174, 52, 17}));
-        OA_CHECK(same_rect(estimated[1], {295, 174, 93, 17}));
+        OA_CHECK(same_rect(estimated[0], {238, 167, 52, 28}));
+        OA_CHECK(same_rect(estimated[1], {295, 167, 93, 28}));
     }
-    // place_question places them with its small measure.
+    // place_question places them with its small measure. Nine points a
+    // character wraps the first line, so the footer sits under that extra row.
     const kit::PlacedQuestion placed = kit::place_question(load, kit::estimated_width, wide_small);
     OA_CHECK(placed.buttons.size() == 2);
     if (placed.buttons.size() == 2)
-        OA_CHECK(same_rect(placed.buttons[1], {273, 124, 115, 17}));
+        OA_CHECK(same_rect(placed.buttons[1], {273, 115, 115, 28}));
 
     // A row wider than the room between the paddings, 376 points at Compact,
     // is narrowed from its widest buttons: 268 and 205 come to 148 each, and
@@ -561,9 +567,9 @@ void question_buttons_fit_their_captions() {
     const auto narrowed = kit::question_button_rects(wide_row, 200, wide_small);
     OA_CHECK(narrowed.size() == 3);
     if (narrowed.size() == 3) {
-        OA_CHECK(same_rect(narrowed[0], {12, 174, 70, 17}));
-        OA_CHECK(same_rect(narrowed[1], {87, 174, 148, 17}));
-        OA_CHECK(same_rect(narrowed[2], {240, 174, 148, 17}));
+        OA_CHECK(same_rect(narrowed[0], {12, 167, 70, 28}));
+        OA_CHECK(same_rect(narrowed[1], {87, 167, 148, 28}));
+        OA_CHECK(same_rect(narrowed[2], {240, 167, 148, 28}));
     }
 
     // In fonts wider than the estimate the display list's buttons, the
@@ -901,12 +907,17 @@ void a_finger_lands_as_before() {
     // Two buttons, tried left to right: from the gap two columns from
     // CANCEL and three from REPLACE, CANCEL; a row further from REPLACE than
     // its reach, nothing.
+    // The word-sized box is 136 high and its buttons are the class's control
+    // height, so a press is tried where those buttons are drawn: CANCEL at
+    // 260, 103 and REPLACE at 323, 103, each 28 high. The finger press uses
+    // that same height.
     const kit::Question two = question_of({"CANCEL", "REPLACE"});
     const auto press_question = [](const kit::Question& question) {
-        return [question](const Landing& landing) {
+        const int32_t height = kit::place_question(question, nullptr).height;
+        return [question, height](const Landing& landing) {
             kit::Question pressed = question;
             static_cast<void>(
-                kit::question_finger_down(pressed, landing.finger, 150, landing.reach)
+                kit::question_finger_down(pressed, landing.finger, height, landing.reach)
             );
             return Press{pressed.pressed, {pressed.finger_shift_x, pressed.finger_shift_y}};
         };
@@ -914,25 +925,26 @@ void a_finger_lands_as_before() {
     check_landings(
         kit::question_list(two, nullptr),
         {
-            {{333, 132}, 6, 1, {333, 132}},
-            {{320, 132}, 6, 0, {317, 132}},
-            {{321, 132}, 6, 1, {323, 132}},
-            {{333, 146}, 6, 1, {333, 140}},
-            {{333, 147}, 6, kit::no_control, {333, 147}},
-            {{333, 148}, 6, kit::no_control, {333, 148}},
-            {{256, 120}, 6, 0, {260, 124}},
+            {{333, 120}, 6, 1, {333, 120}},
+            {{320, 120}, 6, 0, {317, 120}},
+            {{321, 120}, 6, 1, {323, 120}},
+            {{333, 136}, 6, 1, {333, 130}},
+            {{333, 137}, 6, kit::no_control, {333, 137}},
+            {{333, 138}, 6, kit::no_control, {333, 138}},
+            {{256, 99}, 6, 0, {260, 103}},
         },
         press_question(two)
     );
 
-    // Three buttons: from the gaps three columns from each side, the left one.
+    // Three buttons, on the same box: from the gaps three columns from each
+    // side, the left one.
     const kit::Question three = question_of({"CANCEL", "INSTALL ALONGSIDE", "REPLACE"});
     check_landings(
         kit::question_list(three, nullptr),
         {
-            {{203, 145}, 22, 1, {203, 140}},
-            {{320, 132}, 6, 1, {317, 132}},
-            {{180, 121}, 6, 0, {177, 124}},
+            {{203, 135}, 22, 1, {203, 130}},
+            {{320, 120}, 6, 1, {317, 120}},
+            {{180, 100}, 6, 0, {177, 103}},
             {{5, 5}, 22, kit::no_control, {5, 5}},
         },
         press_question(three)
@@ -1078,6 +1090,88 @@ void every_key_on_a_notice() {
             OA_CHECK(kit::notice_key(notice, key) == NoticeAction::none);
             OA_CHECK(notice.marked == mark);
         }
+}
+
+void a_notice_with_no_open_caption_offers_ok_alone() {
+    kit::Notice folder = short_notice();
+    const kit::PlacedNotice with_open = kit::place_notice(folder, nullptr);
+    OA_CHECK(with_open.open_button.width > 0 && with_open.open_button.height > 0);
+    const kit::DisplayList folder_list = kit::notice_list(folder, nullptr);
+    OA_CHECK(folder_list.controls.size() == 3);
+    check_control(folder_list, 1, kit::notice_open, "notice.open", "Open folder");
+
+    kit::Notice told = short_notice();
+    told.open_caption.clear();
+    told.word = "updated-notice";
+    const kit::PlacedNotice placed = kit::place_notice(told, nullptr);
+    OA_CHECK(placed.open_button.width == 0 && placed.open_button.height == 0);
+    OA_CHECK(same_rect(placed.ok_button, with_open.ok_button));
+    const kit::DisplayList list = kit::notice_list(told, nullptr);
+    OA_CHECK(list.controls.size() == 2);
+    check_control(list, 0, kit::notice_ok, "updated-notice.ok", "OK");
+    check_body(list, 1, "updated-notice.body", "SAVED\nThe game was saved.");
+    OA_CHECK((list.tab_order == std::vector<kit::ControlId>{kit::notice_ok}));
+    for (const kit::Control& control : list.controls)
+        OA_CHECK(control.name.find(".open") == std::string::npos);
+    int32_t buttons = 0;
+    for (const kit::Item& item : list.items)
+        if (item.role == kit::Role::button)
+            ++buttons;
+    OA_CHECK(buttons == 1);
+
+    const kit::Point on_open{
+        with_open.open_button.x + with_open.open_button.width / 2,
+        with_open.open_button.y + with_open.open_button.height / 2,
+    };
+    OA_CHECK(kit::notice_pointer_down(told, on_open, placed.height) == kit::NoticeAction::none);
+    OA_CHECK(told.pressed == kit::no_control);
+    OA_CHECK(kit::notice_pointer_up(told, on_open, placed.height) == kit::NoticeAction::none);
+
+    for (const kit::Key key : every_key) {
+        kit::Notice keyed = told;
+        keyed.marked = kit::notice_open;
+        const kit::NoticeAction action = kit::notice_key(keyed, key);
+        OA_CHECK(keyed.marked == kit::notice_ok);
+        if (key == kit::Key::enter || key == kit::Key::escape || key == kit::Key::space)
+            OA_CHECK(action == kit::NoticeAction::closed);
+        else
+            OA_CHECK(action == kit::NoticeAction::none);
+    }
+}
+
+void notes_keep_a_line_each() {
+    const std::array<std::string, 3> lines{
+        "New in 9.9.9:",
+        "• Wider bars",
+        "• A second English line",
+    };
+    const std::string notes = lines[0] + "\n" + lines[1] + "\n" + lines[2];
+    const int32_t width = kit::compact_metrics.notice_width - 2 * kit::compact_metrics.padding;
+    kit::Notice notice;
+    notice.open_caption.clear();
+    notice.paragraphs.push_back({notes, false});
+    const kit::PlacedNotice placed = kit::place_notice(notice, nullptr);
+    OA_CHECK(placed.lines.size() == 3);
+    for (int32_t index = 0; index < 3; ++index) {
+        OA_CHECK(
+            placed.lines[static_cast<std::size_t>(index)].text ==
+            lines[static_cast<std::size_t>(index)]
+        );
+        OA_CHECK(same_rect(
+            placed.lines[static_cast<std::size_t>(index)].rect,
+            {kit::compact_metrics.padding,
+             kit::compact_metrics.text_top + kit::compact_metrics.small_line * index,
+             width,
+             kit::compact_metrics.small_line}
+        ));
+    }
+
+    kit::Question question = question_of({"LATER"});
+    question.paragraphs = {{notes, false}};
+    const kit::PlacedQuestion asked = kit::place_question(question, nullptr);
+    OA_CHECK(asked.lines.size() == 3);
+    for (std::size_t index = 0; index < lines.size(); ++index)
+        OA_CHECK(asked.lines[index].text == lines[index]);
 }
 
 void every_key_on_a_question() {
@@ -1338,41 +1432,44 @@ void paint_draws_what_draw_question_draws() {
         }
 }
 
-/// Returns how many columns of a bar's inner row are filled in the accent.
+/// Returns how many columns of a bar's middle row are filled in a colour.
 ///
 /// @param surface the surface the bar was drawn on
 /// @param bar the bar
+/// @param fill the fill's colour
 /// @return the columns
-int32_t filled_columns(const renderer::Surface& surface, const kit::Rect& bar) {
+int32_t filled_columns(
+    const renderer::Surface& surface, const kit::Rect& bar, kit::Colour fill = kit::colour::accent
+) {
     int32_t filled = 0;
-    for (int32_t x = bar.x + 1; x < bar.x + bar.width - 1; ++x)
-        if (pixel(surface, x, bar.y + 1) == kit::colour::accent)
+    for (int32_t x = bar.x; x < bar.x + bar.width; ++x)
+        if (pixel(surface, x, bar.y + bar.height / 2) == fill)
             ++filled;
     return filled;
 }
 
 void the_progress_bar_fills_as_far_as_it_came() {
-    // The prompt's bar: 376 by 8, so 374 columns inside its border.
+    // The prompt's bar: 376 by 8, a rounded track filled from its left.
     const kit::Rect bar{2, 2, 376, 8};
     const std::array<std::pair<int32_t, int32_t>, 4> fills{{
         {0, 0},
         {1, 0},
-        {500, 187},
-        {1000, 374},
+        {500, 188},
+        {1000, 376},
     }};
     for (const auto& [done, columns] : fills) {
         renderer::Surface drawn = black(380, 12);
         const kit::Canvas canvas{&drawn, {0, 0, 1, {}}, &fonts(), {}};
         kit::draw_progress(canvas, bar, done, kit::question_progress_whole);
         OA_CHECK(filled_columns(drawn, bar) == columns);
-        // The border, the well past the fill, and the fill from the left.
-        OA_CHECK(pixel(drawn, bar.x, bar.y) == kit::colour::control_border);
-        OA_CHECK(pixel(drawn, bar.x + bar.width - 1, bar.y + 4) == kit::colour::control_border);
-        if (columns < 374)
-            OA_CHECK(pixel(drawn, bar.x + 1 + columns, bar.y + 4) == kit::colour::well);
+        // The rounded ends leave the corners clear; the track past the fill.
+        OA_CHECK(pixel(drawn, bar.x, bar.y) == (kit::Colour{0, 0, 0}));
+        OA_CHECK(pixel(drawn, bar.x + bar.width - 1, bar.y) == (kit::Colour{0, 0, 0}));
+        if (columns < 376)
+            OA_CHECK(pixel(drawn, bar.x + columns + 4, bar.y + 4) == kit::colour::list_selected);
         if (columns > 0) {
-            OA_CHECK(pixel(drawn, bar.x + 1, bar.y + 6) == kit::colour::accent);
-            OA_CHECK(pixel(drawn, bar.x + columns, bar.y + 6) == kit::colour::accent);
+            OA_CHECK(pixel(drawn, bar.x, bar.y + 4) == kit::colour::accent);
+            OA_CHECK(pixel(drawn, bar.x + columns - 1, bar.y + 4) == kit::colour::accent);
         }
         OA_CHECK(pixel(drawn, 0, 0) == (kit::Colour{0, 0, 0}));
         // A progress item paints the same.
@@ -1382,17 +1479,27 @@ void the_progress_bar_fills_as_far_as_it_came() {
         kit::paint({&painted, {0, 0, 1, {}}, &fonts(), {}}, list);
         same(drawn, painted, "progress");
     }
+    // Paused, the fill is amber, and a paused item paints the same.
+    renderer::Surface paused = black(380, 12);
+    kit::draw_progress({&paused, {0, 0, 1, {}}, &fonts(), {}}, bar, 500, 1000, true);
+    OA_CHECK(filled_columns(paused, bar, kit::colour::lock) == 188);
+    OA_CHECK(filled_columns(paused, bar) == 0);
+    renderer::Surface paused_item = black(380, 12);
+    kit::DisplayList paused_list;
+    kit::add_progress(paused_list, bar, 500, 1000, true);
+    kit::paint({&paused_item, {0, 0, 1, {}}, &fonts(), {}}, paused_list);
+    same(paused, paused_item, "paused progress");
     // Past the whole is full, under 0 is empty, and a whole of 0 fills nothing.
     renderer::Surface over = black(380, 12);
     kit::draw_progress({&over, {0, 0, 1, {}}, &fonts(), {}}, bar, 1500, 1000);
-    OA_CHECK(filled_columns(over, bar) == 374);
+    OA_CHECK(filled_columns(over, bar) == 376);
     renderer::Surface under = black(380, 12);
     kit::draw_progress({&under, {0, 0, 1, {}}, &fonts(), {}}, bar, -5, 1000);
     OA_CHECK(filled_columns(under, bar) == 0);
     renderer::Surface no_whole = black(380, 12);
     kit::draw_progress({&no_whole, {0, 0, 1, {}}, &fonts(), {}}, bar, 5, 0);
     OA_CHECK(filled_columns(no_whole, bar) == 0);
-    OA_CHECK(pixel(no_whole, bar.x + 4, bar.y + 4) == kit::colour::well);
+    OA_CHECK(pixel(no_whole, bar.x + 4, bar.y + 4) == kit::colour::list_selected);
     // An empty bar draws nothing.
     renderer::Surface empty = black(380, 12);
     kit::draw_progress({&empty, {0, 0, 1, {}}, &fonts(), {}}, {2, 2, 0, 8}, 500, 1000);
@@ -1499,6 +1606,219 @@ void the_work_dialog_has_no_buttons() {
 
 } // namespace
 
+/// A question like the recovery screen: a callout, a box of marked steps and
+/// a line under it, with a quiet button at the footer's left.
+///
+/// @return the question
+kit::Question parts_question() {
+    kit::Question asked = question_of({"Show the log", "Try again", "Continue"});
+    asked.title = "The update failed. 0.8.7 was put back.";
+    asked.paragraphs.clear();
+    asked.buttons[0].quiet = true;
+    kit::QuestionPart callout;
+    callout.kind = kit::PartKind::callout;
+    callout.tone = kit::CalloutTone::ok;
+    callout.text = "Your saved games, settings and mods stay as they are.";
+    kit::QuestionPart steps;
+    steps.kind = kit::PartKind::boxes;
+    kit::QuestionBox happened;
+    happened.heading = "What happened";
+    happened.lines.push_back({kit::LineMark::done, "Checked the package against the signed list"});
+    std::string reason = "Could not put the new files in place:";
+    for (int repeat = 0; repeat < 6; ++repeat)
+        reason += " open-annihilation.exe: another program had it open";
+    happened.lines.push_back({kit::LineMark::failed, reason});
+    happened.lines.push_back({kit::LineMark::done, "Put every changed file back"});
+    steps.boxes.push_back(std::move(happened));
+    kit::QuestionPart waits;
+    waits.kind = kit::PartKind::text;
+    waits.text = "0.8.8 waits until you choose to try again.";
+    asked.parts = {callout, steps, waits};
+    return asked;
+}
+
+/// A question's parts follow one another under its title, each whole: the
+/// callout with its mark, the box with its heading and its marked lines, a
+/// step too long for a line wrapping under itself, and the line under them.
+/// The quiet button stands alone at the footer's left.
+void question_parts_place_in_order() {
+    const kit::Question asked = parts_question();
+    const kit::PlacedQuestion placed = kit::place_question(asked, &fonts());
+    OA_CHECK(!placed.cut);
+    OA_CHECK(placed.parts.size() == 3);
+    if (placed.parts.size() != 3)
+        return;
+    for (std::size_t index = 1; index < placed.parts.size(); ++index)
+        OA_CHECK(
+            placed.parts[index - 1].rect.y + placed.parts[index - 1].rect.height <
+            placed.parts[index].rect.y
+        );
+    const kit::PlacedPart& callout = placed.parts[0];
+    OA_CHECK(callout.kind == kit::PartKind::callout);
+    OA_CHECK(callout.mark.width > 0);
+    OA_CHECK(callout.mark.y >= callout.rect.y);
+    OA_CHECK(callout.mark.y + callout.mark.height <= callout.rect.y + callout.rect.height);
+    const kit::PlacedPart& box = placed.parts[1];
+    OA_CHECK(box.boxes.size() == 1 && box.headings.size() == 1);
+    OA_CHECK(!box.headings.empty() && box.headings.front().first == "What happened");
+    // Four lines or more: the failed step wraps, its mark on its first line only.
+    OA_CHECK(box.lines.size() >= 4);
+    std::size_t failed = 0;
+    for (const kit::PlacedPartLine& line : box.lines) {
+        OA_CHECK(
+            line.rect.x >= box.rect.x &&
+            line.rect.x + line.rect.width <= box.rect.x + box.rect.width
+        );
+        if (line.mark == kit::LineMark::failed) {
+            ++failed;
+            OA_CHECK(line.mark_rect.width > 0 && line.mark_rect.x < line.rect.x);
+        }
+    }
+    OA_CHECK(failed == 1);
+    OA_CHECK(box.boxes.front().y + box.boxes.front().height > box.lines.back().rect.y);
+    // The parts take their room: the box is taller than the same question
+    // without them.
+    kit::Question bare = asked;
+    bare.parts.clear();
+    OA_CHECK(placed.height > kit::place_question(bare, &fonts()).height);
+    // The quiet button at the padding, the others at the right.
+    OA_CHECK(placed.buttons.size() == 3);
+    if (placed.buttons.size() == 3) {
+        OA_CHECK(placed.buttons[0].x == kit::compact_metrics.padding);
+        OA_CHECK(
+            placed.buttons[2].x + placed.buttons[2].width ==
+            kit::notice_width - kit::compact_metrics.padding
+        );
+        OA_CHECK(placed.buttons[0].x + placed.buttons[0].width < placed.buttons[1].x);
+    }
+    // The list names the parts' words in its text, its marks as icons and
+    // the box's heading as a heading; the buttons keep their looks.
+    const kit::DisplayList list = kit::question_list(asked, &fonts());
+    bool cross = false;
+    bool heading = false;
+    for (const kit::Item& item : list.items) {
+        if (item.role == kit::Role::icon && item.glyph == kit::Glyph::cross)
+            cross = true;
+        if (item.role == kit::Role::heading && item.text == "What happened")
+            heading = true;
+        if (item.role == kit::Role::button && item.control == 0)
+            if (const auto* look = std::get_if<kit::ButtonLook>(&item.look))
+                OA_CHECK(look->style == kit::ButtonStyle::quiet);
+    }
+    OA_CHECK(cross && heading);
+    for (const kit::Control& control : list.controls)
+        if (control.id == kit::notice_body) {
+            OA_CHECK(control.text.find("What happened") != std::string::npos);
+            OA_CHECK(control.text.find("Put every changed file back") != std::string::npos);
+            OA_CHECK(control.text.find("0.8.8 waits") != std::string::npos);
+        }
+}
+
+/// Two boxes stand side by side, as tall as each other; a danger button is
+/// drawn outlined in red; a part the height cuts is left out whole.
+void boxes_pair_and_parts_cut_whole() {
+    kit::Question asked = question_of({"Cancel", "Roll back and restart"});
+    asked.paragraphs.clear();
+    asked.buttons[1].accent = false;
+    asked.buttons[1].danger = true;
+    kit::QuestionPart scope;
+    scope.kind = kit::PartKind::boxes;
+    scope.boxes.push_back(
+        {"Comes back",
+         {{kit::LineMark::bullet, "Open Annihilation 0.8.6"},
+          {kit::LineMark::bullet, "Your settings from before you updated"}}}
+    );
+    scope.boxes.push_back({"Stays as it is", {{kit::LineMark::bullet, "Saved games and replays"}}});
+    asked.parts.push_back(scope);
+    const kit::PlacedQuestion placed = kit::place_question(asked, &fonts());
+    OA_CHECK(placed.parts.size() == 1);
+    if (placed.parts.size() == 1) {
+        const kit::PlacedPart& pair = placed.parts.front();
+        OA_CHECK(pair.boxes.size() == 2);
+        if (pair.boxes.size() == 2) {
+            OA_CHECK(pair.boxes[0].y == pair.boxes[1].y);
+            OA_CHECK(pair.boxes[0].height == pair.boxes[1].height);
+            OA_CHECK(pair.boxes[0].x + pair.boxes[0].width < pair.boxes[1].x);
+        }
+    }
+    const kit::DisplayList list = kit::question_list(asked, &fonts());
+    for (const kit::Item& item : list.items)
+        if (item.role == kit::Role::button && item.control == 1)
+            if (const auto* look = std::get_if<kit::ButtonLook>(&item.look))
+                OA_CHECK(look->style == kit::ButtonStyle::danger);
+
+    kit::Question long_one = four_question();
+    long_one.parts.push_back(scope);
+    const kit::PlacedQuestion cut = kit::place_question(long_one, &fonts());
+    OA_CHECK(cut.cut);
+    OA_CHECK(cut.parts.empty());
+}
+
+/// The update pill: the mark, the words and the bar, its button at the
+/// right, the button tested before the pill; a release over what the press
+/// held asks for it, and anywhere else asks nothing.
+void the_update_pill_takes_its_button_and_itself() {
+    kit::UpdatePill pill;
+    pill.icon = kit::UpdatePillIcon::download;
+    pill.text = "0.8.8 · 41%";
+    pill.percent = 41;
+    pill.caption = "Pause";
+    pill.button_id = "pause";
+    const kit::PlacedUpdatePill placed = kit::place_update_pill(pill, &fonts());
+    OA_CHECK(placed.width > 0 && placed.height > 0);
+    OA_CHECK(placed.icon.x < placed.text.x);
+    OA_CHECK(placed.bar.width > 0 && placed.bar.y > placed.text.y);
+    OA_CHECK(placed.button.x > placed.text.x + placed.text.width - 1);
+    OA_CHECK(placed.button.x + placed.button.width < placed.width);
+    const kit::DisplayList list = kit::update_pill_list(pill, &fonts());
+    OA_CHECK(list.controls.size() == 2);
+    if (list.controls.size() == 2) {
+        OA_CHECK(list.controls[0].name == "update-pill.pause");
+        OA_CHECK(list.controls[1].name == "update-pill.open");
+        OA_CHECK(list.controls[1].text == "0.8.8 · 41%");
+    }
+    const kit::Point on_button{
+        placed.button.x + placed.button.width / 2, placed.button.y + placed.button.height / 2
+    };
+    const kit::Point on_words{placed.text.x + 2, placed.height / 2};
+    kit::UpdatePill pressed = pill;
+    OA_CHECK(
+        kit::update_pill_pointer(pressed, kit::PillPointer::press, on_button, &fonts()) ==
+        kit::UpdatePillAction::redraw
+    );
+    OA_CHECK(
+        kit::update_pill_pointer(pressed, kit::PillPointer::release, on_button, &fonts()) ==
+        kit::UpdatePillAction::pressed
+    );
+    kit::UpdatePill opened = pill;
+    static_cast<void>(
+        kit::update_pill_pointer(opened, kit::PillPointer::press, on_words, &fonts())
+    );
+    OA_CHECK(
+        kit::update_pill_pointer(opened, kit::PillPointer::release, on_words, &fonts()) ==
+        kit::UpdatePillAction::opened
+    );
+    // A press on the button released over the words asks nothing.
+    kit::UpdatePill slid = pill;
+    static_cast<void>(kit::update_pill_pointer(slid, kit::PillPointer::press, on_button, &fonts()));
+    const kit::UpdatePillAction away =
+        kit::update_pill_pointer(slid, kit::PillPointer::release, on_words, &fonts());
+    OA_CHECK(away != kit::UpdatePillAction::pressed && away != kit::UpdatePillAction::opened);
+    // A pill with no button names only itself, and a paused bar is drawn paused.
+    kit::UpdatePill ready = pill;
+    ready.caption.clear();
+    ready.percent = -1;
+    OA_CHECK(kit::place_update_pill(ready, &fonts()).button.width == 0);
+    OA_CHECK(kit::update_pill_list(ready, &fonts()).controls.size() == 1);
+    kit::UpdatePill paused = pill;
+    paused.paused = true;
+    bool amber = false;
+    for (const kit::Item& item : kit::update_pill_list(paused, &fonts()).items)
+        if (const auto* look = std::get_if<kit::ProgressLook>(&item.look))
+            amber = look->paused;
+    OA_CHECK(amber);
+}
+
 int main() {
     notices_place_as_before();
     questions_place_as_before();
@@ -1510,11 +1830,16 @@ int main() {
     a_finger_lands_as_before();
     the_pointer_presses_buttons();
     every_key_on_a_notice();
+    a_notice_with_no_open_caption_offers_ok_alone();
+    notes_keep_a_line_each();
     every_key_on_a_question();
     paint_draws_what_draw_notice_draws();
     a_question_title_is_cut_to_its_header();
     paint_draws_what_draw_question_draws();
     the_progress_bar_fills_as_far_as_it_came();
     the_work_dialog_has_no_buttons();
+    question_parts_place_in_order();
+    boxes_pair_and_parts_cut_whole();
+    the_update_pill_takes_its_button_and_itself();
     return oa::test::check_exit_status();
 }

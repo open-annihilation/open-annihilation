@@ -3,6 +3,11 @@
 
 // Match chrome, side HUD, resource readout, fog and minimap.
 #include "oa/app/runtime.hpp"
+#include "gui_actions.hpp"
+#include "oa_layer.hpp"
+#include "oa/data/input_actions/actions.hpp"
+#include "oa/data/languages/interface_text.hpp"
+#include "oa/ui/key_editor/text.hpp"
 #include "oa/data/languages/unit_texts.hpp"
 #include "oa/app/view_rules.hpp"
 #include "oa/data/defs/layout.hpp"
@@ -12,7 +17,6 @@
 #include "oa/ui/hud/kill_board.hpp"
 #include "oa/ui/hud/status_panel.hpp"
 #include "oa/present/world_renderer/world_fog.hpp"
-#include "oa/sim/visibility_state.hpp"
 #include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/present/surface.hpp"
 #include "oa/present/game_text.hpp"
@@ -24,6 +28,7 @@
 #include "oa/ui/hud/unit_panel.hpp"
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/kit/canvas.hpp"
+#include "oa/ui/kit/keys.hpp"
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/controls.hpp"
 #include "oa/ui/kit/layout.hpp"
@@ -330,9 +335,8 @@ void Runtime::load_match_chrome() {
     match_hud_.reset();
     // The side column's art is read again for each match, from its own files.
     match_hud_art_.reset();
-    const auto prefix = match_side_prefix();
     try {
-        const auto path = "bitmaps/" + prefix + "guisidetile.pcx";
+        const auto path = match_side_tile();
         match_chrome_ = oa::ui::decoded::require(oa::decode_pcx(assets_.read(path).bytes), path);
     } catch (const std::exception& error) {
         std::cerr << "match chrome tile unavailable: " << error.what() << '\n';
@@ -647,6 +651,13 @@ void Runtime::paint_font_text(
 ) {
     if (text.empty() || scale < 1)
         return;
+    if (text_hold_.holding()) {
+        // Painted once every box of its group is laid (BackedText).
+        hold_painted_text([this, face = &font, x, y, line = std::string(text), color, scale] {
+            paint_font_text(*face, x, y, line, color, scale);
+        });
+        return;
+    }
     auto& dest = paint_target();
     // The glyphs are drawn into a buffer with room above the pen row for
     // the font's lift, and two rows of margin around them.
@@ -1174,6 +1185,8 @@ const char* Runtime::hovered_gadget_name() const {
 }
 
 void Runtime::draw_unit_panel() {
+    unit_panel_hover_name_.clear();
+    unit_panel_hover_description_.clear();
     if (!match_)
         return;
     auto& world = match_->state();
@@ -1196,13 +1209,62 @@ void Runtime::draw_unit_panel() {
             0
         );
     };
-    // A gadget under the pointer: a build button shows its unit's cost line
-    // and description, any other gadget nothing.
+    // A gadget under the pointer. An order button shows its action's name,
+    // and its description ending with the chord that fires it now. A build
+    // button shows its unit's cost line, ending with its cell's chord when
+    // that cell's key fires now, and the unit's description. Any other
+    // gadget shows nothing.
     if (const char* button = hovered_gadget_name()) {
+        // The lines are kept as the player reads them and drawn as game
+        // text, which the panel's font reads in the game's code page.
+        const bool utf8 = game_text_utf8();
+        const std::string pattern{
+            oa::data::languages::interface_text(oa::ui::key_editor::words::help_chord)
+        };
+        const std::string_view action = order_gadget_action(*hovered_);
+        if (const oa::data::input_actions::Action* entry =
+                action.empty() ? nullptr : oa::data::input_actions::find(action)) {
+            const std::string chord = active_key_chord(action);
+            // An action's words are Open Annihilation's, as the key editor
+            // shows them, not the game data's.
+            unit_panel_hover_name_ = oa::data::languages::interface_text(entry->words.name);
+            unit_panel_hover_description_ =
+                oa::data::languages::interface_text(entry->words.description);
+            if (!chord.empty())
+                unit_panel_hover_description_ = oa::ui::key_editor::fill(
+                    pattern, {{"description", unit_panel_hover_description_}, {"chord", chord}}
+                );
+            text_at(side_hud_.name, oa::present::encode_game_text(unit_panel_hover_name_, utf8));
+            text_at(
+                side_hud_.description,
+                oa::present::encode_game_text(unit_panel_hover_description_, utf8)
+            );
+            return;
+        }
         char line[hud::kPanelLineBytes];
         std::string_view description;
         if (hud::build_button_readout(world, button, line, sizeof line, &description)) {
-            text_at(side_hud_.name, line);
+            int32_t cell = 0;
+            const std::vector<std::size_t> cells = build_cell_gadgets();
+            for (std::size_t at = 0; at < cells.size() && at < 12; ++at) {
+                if (cells[at] == *hovered_)
+                    cell = static_cast<int32_t>(at) + 1;
+            }
+            const std::string chord = cell != 0 ? build_cell_chord(cell) : std::string{};
+            // The cost line is game text already; the words round it are not.
+            std::string drawn = line;
+            unit_panel_hover_name_ = oa::present::decode_game_text(line, utf8);
+            if (!chord.empty()) {
+                drawn = oa::ui::key_editor::fill(
+                    oa::present::encode_game_text(pattern, utf8),
+                    {{"description", line}, {"chord", oa::present::encode_game_text(chord, utf8)}}
+                );
+                unit_panel_hover_name_ = oa::ui::key_editor::fill(
+                    pattern, {{"description", unit_panel_hover_name_}, {"chord", chord}}
+                );
+            }
+            unit_panel_hover_description_ = oa::present::decode_game_text(description, utf8);
+            text_at(side_hud_.name, drawn);
             if (!description.empty())
                 text_at(side_hud_.description, description);
         }
@@ -1365,34 +1427,6 @@ oa::present::world_renderer::OverlayRaster Runtime::source_overlay_raster() {
     return raster;
 }
 
-void Runtime::absorb_radar_exploration() {
-    if (!match_ || !match_mapping_on())
-        return;
-    const auto& sight = match_->sight();
-    const auto cells = static_cast<std::size_t>(std::max(0, sight.width)) *
-                       static_cast<std::size_t>(std::max(0, sight.height));
-    if (cells == 0)
-        return;
-    if (radar_explored_.size() != cells)
-        radar_explored_.assign(cells, 0);
-    const uint8_t viewer = match_view_player();
-    const auto bit = static_cast<uint16_t>(1u << (viewer & 0x1fu));
-    // A viewer outside the player table has no live coverage.
-    const std::span<const uint16_t> coverage =
-        viewer < OA_PLAYER_COUNT ? match_->player_coverage(viewer) : std::span<const uint16_t>{};
-    for (std::size_t i = 0; i < cells; ++i) {
-        if (radar_explored_[i] != 0)
-            continue;
-        const bool mapped = i < sight.player_bits.size() && (sight.player_bits[i] & bit) != 0;
-        const bool live =
-            i < coverage.size() && oa::sim::visibility_state::count_in_sight(
-                                       coverage[i], oa::sim::visibility_state::SightReading::player
-                                   );
-        if (mapped || live)
-            radar_explored_[i] = 1;
-    }
-}
-
 void Runtime::blit_match_minimap() {
     auto& radar = radar_state_;
     if (!match_ || radar.built_for != &match_->state() || radar.well == nullptr)
@@ -1447,7 +1481,9 @@ void Runtime::draw_status_panel() {
     namespace hud = oa::ui::hud;
     if (!match_)
         return;
-    const bool held = control_key_down(oa::ui::gui_input::ControlKey::space) && !chat_composing_;
+    const bool held = (action_key_held("game.status-strip") ||
+                       action_latched("game.status-strip") || space_held_by_check_) &&
+                      !chat_composing_;
     auto& game = match_->state().game;
     // The strip sounds "Panel" as it leaves an end and "Options" as it
     // reaches one, as the kills board does.
@@ -1557,6 +1593,369 @@ void Runtime::draw_status_panel() {
         const auto at = pen(x);
         draw_match_label(at.x, at.y, line, hud::kPaletteWhite, scale);
     }
+}
+
+std::vector<std::size_t> Runtime::build_cell_gadgets() const {
+    std::vector<std::size_t> cells;
+    if (!match_hud_)
+        return cells;
+    constexpr auto build_buttons =
+        oa::ui::hud::kCommonUnitButton | oa::ui::hud::kCommonWeaponButton;
+
+    struct ShownButton {
+        std::size_t index;
+        int16_t x;
+        int16_t y;
+    };
+
+    std::vector<ShownButton> shown;
+    const auto& gadgets = match_hud_->layout.gadgets;
+    for (std::size_t index = 0; index < gadgets.size(); ++index) {
+        const auto& gadget = gadgets[index];
+        if (gadget.common.type != oa::ui::gui_layout::GadgetType::button)
+            continue;
+        if (gadget.common.active == 0 || gadget.common.width <= 0 || gadget.common.height <= 0)
+            continue;
+        const auto attributes = static_cast<uint8_t>(gadget.common.common_attributes);
+        if ((attributes & build_buttons) == 0)
+            continue;
+        shown.push_back(ShownButton{index, gadget.common.x, gadget.common.y});
+    }
+    std::stable_sort(
+        shown.begin(), shown.end(), [](const ShownButton& left, const ShownButton& right) {
+            if (left.y != right.y)
+                return left.y < right.y;
+            return left.x < right.x;
+        }
+    );
+    cells.reserve(shown.size());
+    for (const ShownButton& button : shown)
+        cells.push_back(button.index);
+    return cells;
+}
+
+std::string_view Runtime::order_gadget_action(std::size_t index) const {
+    if (!match_hud_ || index >= match_hud_->layout.gadgets.size() || pause_menu_shown())
+        return {};
+    const auto& common = match_hud_->layout.gadgets[index].common;
+    constexpr auto build_buttons =
+        oa::ui::hud::kCommonUnitButton | oa::ui::hud::kCommonWeaponButton;
+    if ((static_cast<uint8_t>(common.common_attributes) & build_buttons) != 0)
+        return {};
+    return order_action_id(common.name);
+}
+
+void Runtime::draw_key_badges() {
+    key_badges_drawn_.clear();
+    if (!engine_settings().show_keys_on_buttons || !match_hud_ || pause_menu_shown() ||
+        unit_info_panel_.has_value() || team_panel_open())
+        return;
+    const kit::Fonts* fonts = engine_settings_fonts();
+    if (fonts == nullptr)
+        return;
+    // The badge is the kit's small keycap: 9 points high in the HUD's source
+    // pixels, so it grows with the side column as the buttons do.
+    constexpr int32_t badge_height = 9;
+    const auto& gadgets = match_hud_->layout.gadgets;
+    std::vector<int32_t> cell_of(gadgets.size(), 0);
+    const std::vector<std::size_t> cells = build_cell_gadgets();
+    for (std::size_t at = 0; at < cells.size() && at < 12; ++at)
+        cell_of[cells[at]] = static_cast<int32_t>(at) + 1;
+    for (std::size_t index = 0; index < gadgets.size(); ++index) {
+        const auto& common = gadgets[index].common;
+        if (common.type != oa::ui::gui_layout::GadgetType::button || common.active == 0 ||
+            common.width < badge_height + 2 || common.height < badge_height + 2)
+            continue;
+        std::string action;
+        std::string chord;
+        bool top_right = true;
+        if (cell_of[index] != 0) {
+            // A cell's key presses it whether or not it is greyed.
+            action = "build.cell-" + std::to_string(cell_of[index]);
+            chord = build_cell_chord(cell_of[index]);
+            top_right = false;
+        } else if (
+            const std::string_view order = order_gadget_action(index);
+            order.starts_with("order.") &&
+            match_button_condition(index) != renderer::ButtonCondition::disabled
+        ) {
+            // A greyed order is one the selection cannot give: it wears no key.
+            action = std::string(order);
+            chord = active_key_chord(order);
+        }
+        if (chord.empty())
+            continue;
+        const auto corner = hud_canvas(common.x, common.y);
+        const auto far = hud_canvas(common.x + common.width, common.y + common.height);
+        const oa::ui::display_layout::Rect button{
+            corner.x, corner.y, far.x - corner.x, far.y - corner.y
+        };
+        kit::KeycapLook look;
+        look.small = true;
+        look.label = chord;
+        const int32_t badge_w = std::min(kit::keycap_width(*fonts, look), button.width - 2);
+        // An order's badge sits on its plate's top right corner, half over
+        // the plate's top edge, so it stays clear of the caption below it. A
+        // build cell's sits inside its picture's bottom left corner.
+        const int32_t lift = top_right ? badge_height / 2 : 0;
+        const int32_t x = top_right ? button.x + button.width - badge_w : button.x + 1;
+        const int32_t y = top_right ? button.y - lift : button.y + button.height - 1 - badge_height;
+        const oa::ui::display_layout::Rect room{
+            button.x, button.y - lift, button.width, button.height + lift
+        };
+        const kit::Canvas canvas = overlay_kit_canvas(paint_target(), fonts, {0, 0}, 1, room);
+        if (canvas.surface == nullptr)
+            continue;
+        kit::draw_keycap(canvas, {x, y, badge_w, badge_height}, look);
+        key_badges_drawn_.push_back(KeyBadgeDrawn{common.name, std::move(action), chord});
+    }
+}
+
+void Runtime::draw_key_latch_chips() {
+    key_latch_chips_drawn_.clear();
+    // While the keys overlay is open the chips sit in its On line.
+    if (oa_layer().find(oa::ui::key_editor::name_keys_overlay) != nullptr)
+        return;
+    if (screen_ != Screen::match || match_ == nullptr)
+        return;
+    std::vector<KeyLatchChip> chips;
+    gather_key_latch_chips(chips);
+    if (chips.empty())
+        return;
+
+    const auto area = overlay_area();
+    const auto corner = canvas_paint(area.x, area.y);
+    const int scale = std::max(1, hud_text_scale());
+    const kit::Canvas canvas = overlay_kit_canvas(
+        paint_target(),
+        engine_settings_fonts(),
+        corner,
+        scale,
+        {corner.x, corner.y, area.width, area.height}
+    );
+    const int32_t gap = 4;
+    const int32_t chip_height = kit::compact_metrics.chip_height;
+    const int32_t top = canvas.placement.clip.y + 6;
+    const int32_t span = canvas.placement.clip.width;
+
+    struct Placed {
+        std::string text;
+        bool filled;
+        int32_t width;
+    };
+
+    const auto width_of = [&](const std::string& text, bool filled) {
+        kit::ChipLook look;
+        look.text = text;
+        look.state = filled ? kit::ChipState::playing : kit::ChipState::installed;
+        if (canvas.fonts == nullptr)
+            return 2 * kit::compact_metrics.chip_padding;
+        return kit::chip_width(*canvas.fonts, look);
+    };
+    if (span <= 0 || canvas.surface == nullptr) {
+        for (const KeyLatchChip& chip : chips)
+            key_latch_chips_drawn_.push_back(chip.text);
+        return;
+    }
+
+    std::vector<Placed> row;
+    int32_t used_width = 0;
+    int dropped = 0;
+    for (const KeyLatchChip& chip : chips) {
+        const int32_t width = width_of(chip.text, chip.filled);
+        const int32_t next = used_width + (row.empty() ? 0 : gap) + width;
+        if (!row.empty() && next > span) {
+            ++dropped;
+            continue;
+        }
+        used_width = next;
+        row.push_back(Placed{chip.text, chip.filled, width});
+    }
+    if (dropped > 0) {
+        const auto more_width = [&](int count) {
+            return width_of("+" + std::to_string(count), true);
+        };
+        int extra = dropped;
+        while (!row.empty()) {
+            const int32_t width = more_width(extra);
+            const int32_t with_more = used_width + gap + width;
+            if (with_more <= span)
+                break;
+            used_width -= row.back().width;
+            if (row.size() > 1)
+                used_width -= gap;
+            row.pop_back();
+            ++extra;
+        }
+        row.push_back(Placed{"+" + std::to_string(extra), true, more_width(extra)});
+    }
+
+    int32_t total = 0;
+    for (std::size_t index = 0; index < row.size(); ++index)
+        total += row[index].width + (index == 0 ? int32_t{0} : gap);
+    int32_t origin = canvas.placement.clip.x;
+    if (total < span)
+        origin += (span - total) / 2;
+    // Centred under the area's top, or where the player put the chips
+    // (Arrange overlays), in the area's canvas pixels.
+    int32_t row_top = top;
+    {
+        const oa::ui::display_layout::Rect unplaced{
+            area.x + origin * scale, area.y + top * scale, total * scale, chip_height * scale
+        };
+        const oa::ui::display_layout::Rect shown =
+            oa_layer().overlay_shown(overlay_placement::latch_chips, unplaced);
+        origin += (shown.x - unplaced.x) / scale;
+        row_top += (shown.y - unplaced.y) / scale;
+    }
+    for (const Placed& item : row) {
+        key_latch_chips_drawn_.push_back(item.text);
+        kit::ChipLook look;
+        look.text = item.text;
+        look.state = item.filled ? kit::ChipState::playing : kit::ChipState::installed;
+        kit::draw_chip(canvas, {origin, row_top, item.width, chip_height}, look);
+        origin += item.width + gap;
+    }
+}
+
+namespace {
+
+/// The long-press time as the card says it, in seconds, from integer tenths.
+///
+/// 500 ms is "0.5". A whole second drops the fraction.
+///
+/// @param long_press_ms the long-press time, in milliseconds
+/// @return the seconds
+std::string hold_seconds_text(uint32_t long_press_ms) {
+    const uint32_t tenths = (long_press_ms + 50U) / 100U;
+    const uint32_t whole = tenths / 10U;
+    const uint32_t fraction = tenths % 10U;
+    if (fraction == 0)
+        return std::to_string(whole);
+    return std::to_string(whole) + "." + std::to_string(fraction);
+}
+
+/// The card's line, with the chord and the seconds filled in.
+///
+/// @param chord the chord, or the button
+/// @param long_press_ms the long-press time, in milliseconds
+/// @return the line
+std::string hold_card_line(std::string_view chord, uint32_t long_press_ms) {
+    const std::string pattern{oa::data::languages::interface_text(
+        "Keep holding {chord}: the ring fills in {seconds} s. Let go to cancel."
+    )};
+    std::string line = pattern;
+    const std::string seconds = hold_seconds_text(long_press_ms);
+    const auto chord_at = line.find("{chord}");
+    if (chord_at != std::string::npos)
+        line.replace(chord_at, std::string_view("{chord}").size(), chord);
+    const auto seconds_at = line.find("{seconds}");
+    if (seconds_at != std::string::npos)
+        line.replace(seconds_at, std::string_view("{seconds}").size(), seconds);
+    return line;
+}
+
+} // namespace
+
+void Runtime::draw_hold_ring() {
+    hold_ring_drawn_ = false;
+    hold_ring_side_ = 0;
+    const HoldConfirmDraw shown = hold_confirm_draw();
+    if (!shown.show || screen_ != Screen::match || match_ == nullptr)
+        return;
+
+    constexpr int32_t ring_points = 24;
+    const int point_scale = std::max(1, hud_text_scale());
+    kit::HoldRingLook look;
+    look.done = shown.progress;
+    look.whole = 1000;
+    look.reduced_motion = hold_confirm_reduced_motion_;
+    hold_ring_done_ = look.done;
+    hold_ring_whole_ = look.whole;
+    hold_ring_reduced_ = look.reduced_motion;
+
+    if (shown.button && match_hud_ && shown.gadget < match_hud_->layout.gadgets.size() &&
+        !match_hud_cpu_.rgb.empty()) {
+        const auto& common = match_hud_->layout.gadgets[shown.gadget].common;
+        const int centre_x = static_cast<int>(common.x) + static_cast<int>(common.width) / 2;
+        const int centre_y = static_cast<int>(common.y) + static_cast<int>(common.height) / 2;
+        kit::Canvas hud_canvas;
+        hud_canvas.surface = &match_hud_cpu_;
+        hud_canvas.placement.scale = 1;
+        hud_canvas.fonts = engine_settings_fonts();
+        hud_canvas.placement.clip = {
+            0,
+            0,
+            static_cast<int32_t>(match_hud_cpu_.width),
+            static_cast<int32_t>(match_hud_cpu_.height)
+        };
+        const kit::Rect ring{
+            centre_x - ring_points / 2, centre_y - ring_points / 2, ring_points, ring_points
+        };
+        kit::draw_hold_ring(hud_canvas, ring, look);
+    }
+
+    const auto area = overlay_area();
+    const auto corner = canvas_paint(area.x, area.y);
+    const kit::Canvas canvas = overlay_kit_canvas(
+        paint_target(),
+        engine_settings_fonts(),
+        corner,
+        point_scale,
+        {corner.x, corner.y, area.width, area.height}
+    );
+    if (canvas.surface == nullptr)
+        return;
+
+    const int32_t anchor_x = shown.button ? shown.x + shown.width / 2 : shown.x;
+    const int32_t anchor_y = shown.button ? shown.y + shown.height / 2 : shown.y;
+    int32_t point_x = static_cast<int32_t>((static_cast<int64_t>(anchor_x) - area.x) / point_scale);
+    int32_t point_y = static_cast<int32_t>((static_cast<int64_t>(anchor_y) - area.y) / point_scale);
+    if (!shown.button) {
+        // A pointer over the side column or the bottom bar would put the
+        // ring outside the battlefield, where it is not drawn: it stays at
+        // the battlefield's edge nearest the pointer, the card beside it.
+        const int32_t area_w = static_cast<int32_t>(area.width) / point_scale;
+        const int32_t area_h = static_cast<int32_t>(area.height) / point_scale;
+        if (area_w > ring_points && area_h > ring_points) {
+            point_x = std::clamp(point_x, ring_points / 2, area_w - ring_points / 2);
+            point_y = std::clamp(point_y, ring_points / 2, area_h - ring_points / 2);
+        }
+    }
+    if (!shown.button) {
+        const kit::Rect ring{
+            point_x - ring_points / 2, point_y - ring_points / 2, ring_points, ring_points
+        };
+        kit::draw_hold_ring(canvas, ring, look);
+        hold_ring_drawn_ = true;
+        hold_ring_x_ = canvas.placement.x + ring.x * point_scale;
+        hold_ring_y_ = canvas.placement.y + ring.y * point_scale;
+        hold_ring_side_ = ring_points * point_scale;
+    }
+    if (canvas.fonts == nullptr)
+        return;
+
+    const std::string title_text{oa::data::languages::interface_text(shown.title)};
+    const std::string button_text{oa::data::languages::interface_text("the button")};
+    const std::string chord_text = shown.click || shown.chord.empty() ? button_text : shown.chord;
+    kit::HoverCardLook card;
+    card.title = title_text;
+    card.block.push_back(hold_card_line(chord_text, shown.long_press_ms));
+    const kit::Point size = kit::hover_card_size(*canvas.fonts, card);
+    if (size.x <= 0 || size.y <= 0)
+        return;
+    const kit::Rect clip = canvas.placement.clip;
+    int32_t card_x = point_x + ring_points / 2 + 8;
+    int32_t card_y = point_y - size.y / 2;
+    if (card_x < clip.x)
+        card_x = clip.x;
+    if (card_x + size.x > clip.x + clip.width)
+        card_x = std::max(clip.x, point_x - 8 - size.x);
+    if (card_y < clip.y)
+        card_y = clip.y;
+    if (card_y + size.y > clip.y + clip.height)
+        card_y = std::max(clip.y, clip.y + clip.height - size.y);
+    kit::draw_hover_card(canvas, {card_x, card_y, size.x, size.y}, card);
 }
 
 } // namespace oa::app

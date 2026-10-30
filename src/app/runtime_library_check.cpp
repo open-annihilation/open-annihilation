@@ -15,7 +15,16 @@
 // PLAY NOW asks for a soft restart. The settings shortcut opens Settings over the Library, Settings ›
 // Language's MORE IN THE LIBRARY… the Library over Settings, and never two
 // of either; the shortcut and the in-match OA button open Settings. At
-// 640x480 and 1920x1080. Then, at 640x480, a stand-in controller: Y focuses
+// 640x480 and 1920x1080. The header reads OPEN ANNIHILATION LIBRARY and the
+// searches are a button high at 640x480, 1024x660, 1280x720 and 1920x1080.
+// At the same sizes, at 1000x630 and on a 2048x1320 window at 200%, each
+// Active map tile keeps clear rows between its title, its players line and
+// its description, and every action of the Mods, Maps, Mutators and Brains
+// tabs' details shows its words whole; with --snapshot, Settings' Controls
+// and Language & Text are pictured at each of those sizes beside them. The section list,
+// the heading and its search, the selected row's bar, the details' card and
+// the counts are read at those sizes too. Then, at 640x480, a
+// stand-in controller: Y focuses
 // the search, RB and LB change the tab and come back, X queues the selected
 // entry's UPDATE, the right stick scrolls the list, and B leaves Compact's
 // details and then closes the Library. The same buttons over Settings do
@@ -37,6 +46,8 @@
 #include "oa/app/package_install/oamod.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/app/user_folder.hpp"
+#include "oa/data/key_library/library.hpp"
+#include "oa/formats/oakeys/manifest.hpp"
 #include "oa/ui/display_layout.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/engine_settings/prompt.hpp"
@@ -55,12 +66,14 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <tuple>
+#include <variant>
 #include <vector>
 
 namespace oa::app {
@@ -71,6 +84,44 @@ namespace settings = oa::ui::engine_settings;
 namespace kit = oa::ui::kit;
 namespace layout = oa::ui::display_layout;
 namespace library = oa::ui::library;
+namespace oakeys = oa::formats::oakeys;
+
+/// A key layout the check writes into the player's Keys folder: one command
+/// on one key, over OA default.
+///
+/// @param id the layout's id
+/// @param name its name
+/// @param action the command it moves
+/// @param key the key it puts that command on
+/// @return the manifest
+oakeys::Manifest
+check_layout(std::string id, std::string name, std::string action, std::string key) {
+    oakeys::Manifest manifest;
+    manifest.format = oakeys::format_version;
+    manifest.id = std::move(id);
+    manifest.name = std::move(name);
+    manifest.version.major = 1;
+    manifest.version.parts = 1;
+    manifest.author.name = "Ada";
+    manifest.tags = {"grid"};
+    manifest.base = oakeys::Base::oa_default;
+    oakeys::BindingEntry binding;
+    binding.action = std::move(action);
+    binding.chords.push_back({std::move(key), 0, 0});
+    manifest.bindings.push_back(std::move(binding));
+    return manifest;
+}
+
+/// Reads a layout's manifest from the Keys folder.
+///
+/// @param file the manifest's file
+/// @return its text; empty when it is not there
+std::string manifest_text(const std::filesystem::path& file) {
+    std::ifstream in(file, std::ios::binary);
+    if (!in)
+        return {};
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
 
 /// The modifier the settings' shortcut takes on this platform.
 #ifdef SDL_PLATFORM_MACOS
@@ -442,6 +493,75 @@ library::Inputs fixture_inputs_of(const fs::path& mods, bool updates) {
     raider_facts.tags = {"rush"};
     raider_facts.works_with.push_back({"ridge", {}, "Ridge"});
     inputs.listings.push_back(brain_listing("ridge-raider", "Ridge Raider", "1.0", raider_facts));
+
+    // Three key layouts, so the tab reads "Keys (3)". OA default is left out
+    // of that count. Grid is the layout in use. Lefty is installed and is
+    // not. Column is only a listing. None of them is an added package, and
+    // none of them is an update, so the OA button's counts stay as they are.
+    library::KeyLayoutFacts grid_facts;
+    grid_facts.own_changes = 2;
+    grid_facts.tags = {"grid"};
+    library::Listing grid_listing;
+    grid_listing.registry = std::string(kBuiltIn);
+    grid_listing.kind = library::Kind::key_layout;
+    grid_listing.key = "grid-test";
+    grid_listing.name = "Grid Test";
+    grid_listing.version = "1.0";
+    grid_listing.release = 1;
+    grid_listing.author = "Ada";
+    grid_listing.summary = "A grid.";
+    grid_listing.size = 1024;
+    grid_listing.keys = grid_facts;
+    inputs.listings.push_back(std::move(grid_listing));
+    library::Installed grid_installed;
+    grid_installed.kind = library::Kind::key_layout;
+    grid_installed.key = "grid-test";
+    grid_installed.folder = "grid-test";
+    grid_installed.name = "Grid Test";
+    grid_installed.version = "1.0";
+    grid_installed.revision = 1;
+    grid_installed.registry = std::string(kBuiltIn);
+    grid_installed.release = 1;
+    grid_installed.keys = grid_facts;
+    inputs.installed.push_back(std::move(grid_installed));
+    library::KeyLayoutFacts lefty_facts;
+    lefty_facts.tags = {"left-hand"};
+    library::Listing lefty_listing;
+    lefty_listing.registry = std::string(kBuiltIn);
+    lefty_listing.kind = library::Kind::key_layout;
+    lefty_listing.key = "lefty-test";
+    lefty_listing.name = "Lefty Test";
+    lefty_listing.version = "1.0";
+    lefty_listing.release = 1;
+    lefty_listing.author = "Bo";
+    lefty_listing.summary = "For the left hand.";
+    lefty_listing.size = 1024;
+    lefty_listing.keys = lefty_facts;
+    inputs.listings.push_back(std::move(lefty_listing));
+    library::Installed lefty_installed;
+    lefty_installed.kind = library::Kind::key_layout;
+    lefty_installed.key = "lefty-test";
+    lefty_installed.folder = "lefty-test";
+    lefty_installed.name = "Lefty Test";
+    lefty_installed.version = "1.0";
+    lefty_installed.revision = 1;
+    lefty_installed.registry = std::string(kBuiltIn);
+    lefty_installed.release = 1;
+    lefty_installed.keys = lefty_facts;
+    inputs.installed.push_back(std::move(lefty_installed));
+    library::Listing column_listing;
+    column_listing.registry = std::string(kBuiltIn);
+    column_listing.kind = library::Kind::key_layout;
+    column_listing.key = "column-keys";
+    column_listing.name = "Column Keys";
+    column_listing.version = "1.0";
+    column_listing.release = 1;
+    column_listing.author = "Ada";
+    column_listing.summary = "A listed layout.";
+    column_listing.size = 1024;
+    column_listing.keys = library::KeyLayoutFacts{};
+    inputs.listings.push_back(std::move(column_listing));
+    inputs.keys_layout = "grid-test";
 
     if (updates) {
         for (const std::string_view key :
@@ -996,9 +1116,16 @@ void Runtime::check_library() {
         require(running, "a frame ended the run");
     };
     // Shows an entry's details: its row selected, and at Compact its page.
+    // A row below or above the list's view is paged to first.
     const auto show_entry = [&](std::string_view row) {
         if (named("oa.library.back"))
             click_named("oa.library.back");
+        for (const SDL_Keycode page : {SDLK_PAGEDOWN, SDLK_PAGEUP})
+            for (int step = 0; step < 8 && !named(row); ++step) {
+                tap(page);
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
         click_named(row);
     };
     // Presses one of the shown entry's actions: a button, or an item of
@@ -1132,6 +1259,15 @@ void Runtime::check_library() {
             ++fixture.generation;
             run_frame(running);
             require(running, "a frame ended the run");
+            // The page was paged down to the maps; the expansions can lie
+            // above the view by now, so it pages back up to them.
+            for (int step = 0; step < 8 && !(named("oa.library.active.expansion.cavedog-units") &&
+                                             named("oa.library.active.expansion.battle-tactics"));
+                 ++step) {
+                tap(SDLK_PAGEUP);
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
             const std::optional<AutomationControl> offered =
                 named("oa.library.active.expansion.cavedog-units");
             const std::optional<AutomationControl> tactics =
@@ -1142,8 +1278,8 @@ void Runtime::check_library() {
                 "the offered expansion's chip is not the download press" + on
             );
             require(
-                tactics.has_value() && tactics->text.find("ADD FROM") != std::string::npos,
-                "an expansion no registry offers does not read ADD FROM" + on
+                tactics.has_value() && tactics->text.find("Add from") != std::string::npos,
+                "an expansion no registry offers does not read Add from" + on
             );
             const std::size_t asked = fixture.enqueued.size();
             click_named("oa.library.active.expansion.cavedog-units");
@@ -1222,7 +1358,7 @@ void Runtime::check_library() {
                 named("oa.library.active.expansion.cavedog-units");
             require(
                 pill.has_value() && pill->checked &&
-                    pill->text.find("ADD FROM") == std::string::npos && host.model.content.edited &&
+                    pill->text.find("Add from") == std::string::npos && host.model.content.edited &&
                     !host.model.content.applied && !soft_restart_requested(),
                 "the expansion's pill did not turn on without mounting" + on
             );
@@ -1284,7 +1420,7 @@ void Runtime::check_library() {
             "automation does not list oa.library.tab.updates" + on
         );
         const auto show_tab = [&](std::string_view name) {
-            for (int step = 0; step < 8 && !named(name); ++step) {
+            for (int step = 0; step < 9 && !named(name); ++step) {
                 if (!named("oa.library.tab.scroll-right"))
                     break;
                 click_named("oa.library.tab.scroll-right");
@@ -1365,6 +1501,209 @@ void Runtime::check_library() {
                 "Ridge Raider is not listed with Made for Ridge and GET on" + on
             );
             std::cout << "library check: the Brains tab reads Brains (4) and the built-in row first"
+                      << on << '\n';
+        }
+        show_tab("oa.library.tab.keys");
+        click_named("oa.library.tab.keys");
+        run_frame(running);
+        require(running, "a frame ended the run");
+        {
+            const std::optional<AutomationControl> keys = named("oa.library.tab.keys");
+            const library::Entry* first = host.model.visible.empty()
+                                              ? nullptr
+                                              : &host.model.entries[host.model.visible.front()];
+            require(
+                host.model.tab == library::Tab::keys && keys.has_value() &&
+                    keys->text == "Keys (3)" && first != nullptr &&
+                    library::is_built_in_layout(first->id),
+                "the Keys tab does not read Keys (3) with OA default first" + on
+            );
+            const std::optional<AutomationControl> built_in_row =
+                named("oa.library.row.oa-default");
+            require(
+                built_in_row.has_value() &&
+                    built_in_row->text.find("OA default") != std::string::npos,
+                "OA default is not first on the Keys tab" + on
+            );
+            for (int step = 0; step < 8 && !named("oa.library.row.fixture-core.column-keys");
+                 ++step) {
+                tap(SDLK_PAGEDOWN);
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
+            const std::size_t enqueued = fixture.enqueued.size();
+            show_entry("oa.library.row.fixture-core.column-keys");
+            press_action("get");
+            require(
+                fixture.enqueued.size() == enqueued + 1 &&
+                    fixture.enqueued.back().registry == kBuiltIn &&
+                    fixture.enqueued.back().key == "column-keys" &&
+                    fixture.enqueued.back().reason == content::DownloadReason::install,
+                "GET did not reach the feed for fixture-core's column-keys" + on
+            );
+            // The Keys folder holds Grid Test (Attack on Z) with the
+            // player's own change (Patrol on J), and Lefty Test (Move on Z).
+            // Grid Test is the layout in use.
+            const fs::path keys_folder =
+                user_folder_ / std::string(data::key_library::keys_folder_name);
+            for (const std::string_view folder :
+                 {"grid-test", "lefty-test", "own-grid-test", "own-lefty-test"}) {
+                std::error_code removed;
+                fs::remove_all(keys_folder / std::string(folder), removed);
+            }
+            const auto write_layout = [&](const oakeys::Manifest& manifest) {
+                const fs::path folder = keys_folder / manifest.id;
+                std::error_code made;
+                fs::create_directories(folder, made);
+                std::ofstream out(
+                    folder / std::string(oakeys::manifest_file), std::ios::binary | std::ios::trunc
+                );
+                const std::string text = oakeys::write_manifest(manifest);
+                out.write(text.data(), static_cast<std::streamsize>(text.size()));
+                require(static_cast<bool>(out), "the check could not write " + manifest.id + on);
+            };
+            write_layout(check_layout("grid-test", "Grid Test", "order.attack", "Z"));
+            write_layout(check_layout("lefty-test", "Lefty Test", "order.move", "Z"));
+            std::string own_error;
+            require(
+                data::key_library::write_own(
+                    keys_folder,
+                    "grid-test",
+                    check_layout("own-grid-test", "Grid Test", "order.patrol", "J"),
+                    own_error
+                ),
+                "the check could not write the own changes on Grid Test: " + own_error + on
+            );
+            const fs::path grid_own =
+                keys_folder / "own-grid-test" / std::string(oakeys::manifest_file);
+            const fs::path lefty_own =
+                keys_folder / "own-lefty-test" / std::string(oakeys::manifest_file);
+            const std::string grid_own_before = manifest_text(grid_own);
+            preference_values_["open-annihilation.keys.layout"] = "grid-test";
+            // Compact keeps the own changes on top, the larger window starts clean.
+            const bool keep = width == kCanvasWidth;
+
+            show_entry("oa.library.row.fixture-core.lefty-test");
+            press_action("use");
+            require(
+                named("oa.prompt.use").has_value() && named("oa.prompt.cancel").has_value(),
+                "USE did not ask before using Lefty Test" + on
+            );
+            // Where comes first, then the own changes, then what moves.
+            const std::optional<AutomationControl> keep_choice = named("oa.library.use.keep");
+            const std::optional<AutomationControl> clean_choice = named("oa.library.use.aside");
+            const std::optional<AutomationControl> saved = named("oa.library.use.saved");
+            require(
+                keep_choice.has_value() && clean_choice.has_value() && saved.has_value() &&
+                    saved->text.find("stay saved with Grid Test") != std::string::npos,
+                "USE does not offer to keep the own changes or say where they stay" + on
+            );
+            if (!keep) {
+                click_named("oa.library.use.aside");
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
+            const std::optional<AutomationControl> moves = named("oa.library.use.moves");
+            require(
+                moves.has_value() && moves->text.starts_with("Move: M \u2192 Z"),
+                "What moves does not begin Move: M \u2192 Z" + on +
+                    (moves.has_value() ? ": " + moves->text : std::string{})
+            );
+            if (width != kCanvasWidth) {
+                const std::string patrol =
+                    keep ? "Patrol (yours): J \u2192 J" : "Patrol: J \u2192 P";
+                require(
+                    moves->text.find(patrol) != std::string::npos &&
+                        moves->text.find("Attack: Z \u2192 A") != std::string::npos,
+                    "What moves does not list " + patrol + " and Attack: Z \u2192 A" + on + ": " +
+                        moves->text
+                );
+            }
+            const std::optional<AutomationControl> use_button = named("oa.prompt.use");
+            require(
+                use_button.has_value() && use_button->text.starts_with("Use for "),
+                "USE's button does not name where the layout is used" + on
+            );
+            click_named("oa.prompt.use");
+            run_frame(running);
+            require(running, "a frame ended the run");
+            const auto preference = preference_values_.find("open-annihilation.keys.layout");
+            require(
+                preference != preference_values_.end() && preference->second == "lefty-test",
+                "USE did not write the layout preference" + on
+            );
+            // The own changes on Grid Test are never lost: they stay as they
+            // were, and Keep puts a copy of them on Lefty Test.
+            require(
+                !grid_own_before.empty() && manifest_text(grid_own) == grid_own_before,
+                "USE changed the own changes saved with Grid Test" + on
+            );
+            const std::string lefty_own_text = manifest_text(lefty_own);
+            if (keep)
+                require(
+                    lefty_own_text.find("order.patrol") != std::string::npos,
+                    "Keep them on top did not put the own changes on Lefty Test" + on
+                );
+            else
+                require(lefty_own_text.empty(), "Start clean put own changes on Lefty Test" + on);
+            // A notice says where the layout is used, with Undo. Undo puts
+            // the preference back and removes only the own folder USE made;
+            // OK keeps everything.
+            require(
+                named("oa.prompt.undo").has_value() && named("oa.prompt.ok").has_value(),
+                "USE did not offer Undo" + on
+            );
+            if (keep) {
+                click_named("oa.prompt.undo");
+                run_frame(running);
+                require(running, "a frame ended the run");
+                const auto undone = preference_values_.find("open-annihilation.keys.layout");
+                require(
+                    undone != preference_values_.end() && undone->second == "grid-test",
+                    "Undo did not put Grid Test back" + on
+                );
+                require(
+                    manifest_text(lefty_own).empty(),
+                    "Undo left the own changes USE copied onto Lefty Test" + on
+                );
+                require(
+                    manifest_text(grid_own) == grid_own_before,
+                    "Undo changed the own changes saved with Grid Test" + on
+                );
+                std::cout << "library check: Undo after USE puts Grid Test back" << on << '\n';
+            } else {
+                click_named("oa.prompt.ok");
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
+            // Compact's details page has no tab strip. Back returns to the
+            // list, whose tabs can then be scrolled to Active.
+            if (named("oa.library.back"))
+                click_named("oa.library.back");
+            for (int step = 0; step < 9 && !named("oa.library.tab.active"); ++step) {
+                if (!named("oa.library.tab.scroll-left"))
+                    break;
+                click_named("oa.library.tab.scroll-left");
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
+            click_named("oa.library.tab.active");
+            run_frame(running);
+            require(running, "a frame ended the run");
+            for (int step = 0; step < 8 && !named("oa.library.active.keys"); ++step) {
+                tap(SDLK_PAGEDOWN);
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
+            const std::optional<AutomationControl> tile = named("oa.library.active.keys");
+            const std::optional<AutomationControl> change = named("oa.library.active.keys.change");
+            require(
+                tile.has_value() && tile->text.find("Grid Test") != std::string::npos &&
+                    change.has_value(),
+                "the Active KEYS tile does not name Grid Test" + on
+            );
+            std::cout << "library check: the Keys tab reads Keys (3), USE asks where, lists what "
+                         "moves and writes the preference, and the own changes are kept"
                       << on << '\n';
         }
         show_tab("oa.library.tab.updates");
@@ -1539,6 +1878,469 @@ void Runtime::check_library() {
                   << on << '\n';
     }
 
+    // 8b. The header reads OPEN ANNIHILATION then LIBRARY in capitals, as
+    // Settings' does, or LIBRARY alone at Compact, and the Mods tab's search
+    // and the Active tab's maps search are a footer button high: the
+    // control height Settings' buttons have. Every window is pictured
+    // first, so a run with --snapshot keeps them all when a size is wrong.
+    {
+        const std::array<std::array<int, 2>, 4> sizes{
+            {{kCanvasWidth, kCanvasHeight}, {1024, 660}, {1280, 720}, {1920, 1080}}
+        };
+        std::string wrong;
+        const auto control_in = [](const kit::DisplayList& list,
+                                   std::string_view name) -> std::optional<kit::Rect> {
+            for (const kit::Control& control : list.controls)
+                if (control.name == name)
+                    return control.rect;
+            return std::nullopt;
+        };
+        for (const auto& [width, height] : sizes) {
+            const std::string size = std::to_string(width) + 'x' + std::to_string(height);
+            const std::string on = " on the " + size + " window";
+            window_of(width, height);
+            settle();
+            open_library(library::Tab::active);
+            run_frame(running);
+            require(running && top_is(library_screen_name), "the Library did not open" + on);
+            snapshot("header-active-" + size);
+            const LayerScreen* screen = oa_layer().find(library_screen_name);
+            require(screen != nullptr, "the Library is not on the layer" + on);
+            const kit::DisplayList active = screen->display_list();
+            click_named("oa.library.tab.mods");
+            run_frame(running);
+            require(running && host.model.tab == library::Tab::mods, "Mods did not open" + on);
+            snapshot("header-mods-" + size);
+            const kit::DisplayList mods_tab = screen->display_list();
+            click_named("oa.library.close");
+            require(oa_layer().top() == nullptr, "CLOSE did not go back to the main menu" + on);
+
+            const kit::HeaderLook* header = nullptr;
+            for (const kit::Item& item : mods_tab.items)
+                if (item.role == kit::Role::header)
+                    header = std::get_if<kit::HeaderLook>(&item.look);
+            const bool whole = header != nullptr && header->title == "OPEN ANNIHILATION" &&
+                               header->second == "LIBRARY";
+            const bool alone =
+                header != nullptr && header->title == "LIBRARY" && header->second.empty();
+            // The smallest windows may take Compact's header, LIBRARY alone.
+            if (!whole && !(width < 1280 && alone))
+                wrong += "the header does not read OPEN ANNIHILATION LIBRARY" + on + "; ";
+            const std::optional<kit::Rect> close = control_in(mods_tab, "library.close");
+            const std::optional<kit::Rect> search = control_in(mods_tab, "library.search");
+            const std::optional<kit::Rect> maps_search =
+                control_in(active, "library.active.search");
+            if (!close || !search || search->height != close->height)
+                wrong += "the Mods tab's search is not a button high" + on + "; ";
+            if (!close || !maps_search || maps_search->height != close->height)
+                wrong += "the Active tab's maps search is not a button high" + on + "; ";
+            if (search && maps_search && search->height != maps_search->height)
+                wrong += "the two searches differ in height" + on + "; ";
+        }
+        require(wrong.empty(), wrong);
+        std::cout << "library check: the header in capitals and the searches a button high at "
+                     "640x480, 1024x660, 1280x720 and 1920x1080\n";
+    }
+
+    // 8c. The Library's spacing at 640x480, 1000x630, 1024x660, 1280x720 and
+    // 1920x1080, and on a 2048x1320 window at 200%. Each Active map tile
+    // keeps a clear row between its title and its players line, and between
+    // that line and its description. On the Mods, Maps, Mutators and Brains
+    // tabs every action of the first row's details shows its words whole.
+    // With --snapshot, each of those tabs, and Settings' Controls and
+    // Language & Text at the same size.
+    {
+        library::Inputs described = fixture_inputs_of(mods, false);
+        constexpr std::string_view map_about = "A made-up map of the Library check.";
+        for (library::InstalledMaps& pack : described.map_packs)
+            for (library::MapLine& map : pack.maps)
+                map.description = std::string(map_about);
+        const auto shown_list = [&]() -> kit::DisplayList {
+            const LayerScreen* top = oa_layer().top();
+            require(top != nullptr, "no screen shows over the main menu");
+            return top->display_list();
+        };
+        const auto shown_tab = [&](std::string_view name) {
+            for (int step = 0; step < 9 && !named(name); ++step) {
+                if (!named("oa.library.tab.scroll-right"))
+                    break;
+                click_named("oa.library.tab.scroll-right");
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
+            click_named(name);
+            run_frame(running);
+            require(running, "a frame ended the run");
+        };
+        // Every action button's drawn words are its whole caption.
+        const auto actions_whole = [&](const std::string& where) {
+            const kit::DisplayList list = shown_list();
+            constexpr std::string_view prefix = "library.action.";
+            int checked = 0;
+            for (const kit::Control& control : list.controls) {
+                if (control.kind != kit::ControlKind::button ||
+                    control.name.compare(0, prefix.size(), prefix) != 0)
+                    continue;
+                for (const kit::Item& item : list.items) {
+                    if (item.role != kit::Role::button || item.control != control.id)
+                        continue;
+                    const auto* button_look = std::get_if<kit::ButtonLook>(&item.look);
+                    require(
+                        button_look != nullptr && button_look->caption == control.text,
+                        "the action \"" + control.text + "\" is cut to \"" +
+                            (button_look != nullptr ? button_look->caption : std::string{}) + "\"" +
+                            where
+                    );
+                    ++checked;
+                }
+            }
+            return checked;
+        };
+
+        // Compact, Regular (1000x630, the largest window Regular takes) and
+        // Large at Auto, then 2048x1320 at an Interface size of 200%: Large
+        // at 2x, the 1024x660 window's points drawn as a Retina display
+        // draws them.
+        struct SpacedWindow {
+            int width{};
+            int height{};
+            settings::InterfaceSize interface_size{};
+        };
+
+        const std::array<SpacedWindow, 6> spaced{{
+            {kCanvasWidth, kCanvasHeight, settings::InterfaceSize::automatic},
+            {1000, 630, settings::InterfaceSize::automatic},
+            {1024, 660, settings::InterfaceSize::automatic},
+            {1280, 720, settings::InterfaceSize::automatic},
+            {1920, 1080, settings::InterfaceSize::automatic},
+            {2048, 1320, settings::InterfaceSize::size_200},
+        }};
+        const settings::EngineSettings kept_size = engine_settings_state().current;
+        for (const auto& [width, height, interface_size] : spaced) {
+            const std::string size = std::to_string(width) + 'x' + std::to_string(height);
+            const std::string on = " on the " + size + " window";
+            settings::EngineSettings sized = kept_size;
+            sized.interface_size = interface_size;
+            apply_engine_settings(sized);
+            window_of(width, height);
+            settle();
+            fixture.inputs = described;
+            ++fixture.generation;
+            run_frame(running);
+            require(running, "a frame ended the run");
+            press_button();
+            run_frame(running);
+            require(
+                top_is(library_screen_name) && host.model.tab == library::Tab::active,
+                "the OA button did not open the Library on Active" + on
+            );
+            snapshot("spacing-active-" + size);
+            {
+                // The line over a description is its players line, and the
+                // line over that its title, in the same column.
+                const kit::DisplayList list = shown_list();
+                int tiles = 0;
+                for (const kit::Item& about_line : list.items) {
+                    if (about_line.role != kit::Role::text || about_line.text != map_about)
+                        continue;
+                    const kit::Item* players = nullptr;
+                    const kit::Item* title_line = nullptr;
+                    for (const kit::Item& item : list.items) {
+                        if (item.role != kit::Role::text || item.rect.x != about_line.rect.x ||
+                            item.rect.y >= about_line.rect.y)
+                            continue;
+                        if (players == nullptr || item.rect.y > players->rect.y) {
+                            title_line = players;
+                            players = &item;
+                        } else if (title_line == nullptr || item.rect.y > title_line->rect.y) {
+                            title_line = &item;
+                        }
+                    }
+                    require(
+                        players != nullptr && title_line != nullptr,
+                        "a map tile's description has no title and players line over it" + on
+                    );
+                    require(
+                        players->rect.y + players->rect.height < about_line.rect.y,
+                        "a map tile's players line \"" + players->text +
+                            "\" touches its description" + on
+                    );
+                    require(
+                        title_line->rect.y + title_line->rect.height < players->rect.y,
+                        "a map tile's title \"" + title_line->text + "\" touches its players line" +
+                            on
+                    );
+                    ++tiles;
+                }
+                require(
+                    width < 1280 || tiles > 0, "no map tile's description shows on Active" + on
+                );
+                std::cout << "library check: " << tiles << " map tiles keep their lines apart" << on
+                          << '\n';
+            }
+            int actions_checked = 0;
+            for (const std::string_view tab_word : {"mods", "maps", "mutators", "brains"}) {
+                const std::string tab_name = "oa.library.tab." + std::string(tab_word);
+                shown_tab(tab_name);
+                std::string first_row;
+                for (const kit::Control& control : shown_list().controls)
+                    if (control.kind == kit::ControlKind::list_item &&
+                        control.name.rfind("library.row.", 0) == 0) {
+                        first_row = "oa." + control.name;
+                        break;
+                    }
+                snapshot("spacing-" + std::string(tab_word) + "-" + size);
+                // The fixture's map pack is installed maps, not a package, so
+                // the Maps tab can list none.
+                if (first_row.empty())
+                    continue;
+                click_named(first_row);
+                run_frame(running);
+                require(running, "a frame ended the run");
+                snapshot("spacing-" + std::string(tab_word) + "-details-" + size);
+                actions_checked += actions_whole(" on the " + std::string(tab_word) + " tab" + on);
+                if (named("oa.library.back"))
+                    click_named("oa.library.back");
+            }
+            require(actions_checked > 0, "no tab's details show an action" + on);
+            click_named("oa.library.close");
+            require(oa_layer().top() == nullptr, "CLOSE did not close the Library" + on);
+            // Settings at the same size, whose rows, chips and buttons the
+            // Library's follow: Controls, with Change layout… and Edit keys…,
+            // and Language & Text. With --snapshot, both.
+            tap(SDLK_COMMA, kShortcutModifier);
+            require(
+                engine_settings_dialog() != nullptr && top_is("settings"),
+                "the shortcut did not open Settings" + on
+            );
+            click_named("oa.settings.nav.controls");
+            snapshot("spacing-settings-controls-" + size);
+            click_named("oa.settings.nav.language");
+            snapshot("spacing-settings-language-" + size);
+            tap(SDLK_ESCAPE);
+            require(oa_layer().top() == nullptr, "Escape did not close Settings" + on);
+            std::cout << "library check: map tiles and actions keep their room" << on << '\n';
+        }
+        apply_engine_settings(kept_size);
+        window_of(1920, 1080);
+        settle();
+        feed_changes(false);
+    }
+
+    // 8d. The section list, the heading row, the selected row, the details'
+    // card and the counts, at 640x480, 1024x660, 1280x720 and 1920x1080.
+    // Keys, Languages, Updates and Registries are pictured at 640x480 and
+    // 1024x660. Failures are gathered and reported after every size.
+    {
+        const std::array<std::array<int, 2>, 4> sizes{
+            {{kCanvasWidth, kCanvasHeight}, {1024, 660}, {1280, 720}, {1920, 1080}}
+        };
+        const std::array<std::string_view, 9> tab_words{
+            "active",
+            "mods",
+            "maps",
+            "mutators",
+            "brains",
+            "keys",
+            "languages",
+            "updates",
+            "registries"
+        };
+        std::string wrong;
+        const auto shown = [&]() -> kit::DisplayList {
+            const LayerScreen* top = oa_layer().top();
+            require(top != nullptr, "no screen shows over the main menu");
+            return top->display_list();
+        };
+        const auto control_named = [](const kit::DisplayList& list, std::string_view name) {
+            const kit::Control* found = nullptr;
+            for (const kit::Control& control : list.controls)
+                if (control.name == name)
+                    found = &control;
+            return found;
+        };
+        const auto entry_named = [&](const kit::DisplayList& list, std::string_view name) {
+            const kit::Control* control = control_named(list, name);
+            const kit::NavEntry* found = nullptr;
+            if (control == nullptr)
+                return found;
+            for (const kit::Item& item : list.items) {
+                const auto* look = std::get_if<kit::NavLook>(&item.look);
+                if (look == nullptr)
+                    continue;
+                for (const kit::NavEntry& entry : look->entries)
+                    if (entry.rect.x == control->rect.x && entry.rect.y == control->rect.y &&
+                        entry.rect.width == control->rect.width &&
+                        entry.rect.height == control->rect.height)
+                        found = &entry;
+            }
+            return found;
+        };
+        const auto inside = [](const kit::Rect& outer, const kit::Rect& inner) {
+            return inner.width > 0 && inner.height > 0 && inner.x >= outer.x &&
+                   inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width &&
+                   inner.y + inner.height <= outer.y + outer.height;
+        };
+        for (const auto& [width, height] : sizes) {
+            const std::string size = std::to_string(width) + 'x' + std::to_string(height);
+            const std::string on = " on the " + size + " window";
+            const bool compact = width < 768;
+            window_of(width, height);
+            settle();
+            open_library(library::Tab::mods);
+            run_frame(running);
+            require(
+                running && top_is(library_screen_name) && host.model.tab == library::Tab::mods,
+                "the Library did not open on Mods" + on
+            );
+            const kit::DisplayList shown_mods = shown();
+            const kit::Control* previous = nullptr;
+            for (const std::string_view word : tab_words) {
+                const std::string name = "library.tab." + std::string(word);
+                const kit::Control* tab = control_named(shown_mods, name);
+                if (tab == nullptr) {
+                    wrong += name + " is missing" + on + "; ";
+                    continue;
+                }
+                if (previous != nullptr && tab->rect.y <= previous->rect.y)
+                    wrong += name + " is not below the tab before it" + on + "; ";
+                previous = tab;
+            }
+            const kit::Control* mods_tab = control_named(shown_mods, "library.tab.mods");
+            const kit::NavEntry* mods_entry = entry_named(shown_mods, "library.tab.mods");
+            if (mods_tab == nullptr || mods_entry == nullptr || !mods_tab->checked ||
+                !mods_entry->selected)
+                wrong += "Mods is not the open entry" + on + "; ";
+            const bool digits =
+                mods_entry != nullptr && !mods_entry->count.empty() &&
+                mods_entry->count.find_first_not_of("0123456789") == std::string::npos;
+            if (mods_entry == nullptr || mods_tab == nullptr || mods_entry->caption != "Mods" ||
+                !digits || mods_tab->text != "Mods (" + mods_entry->count + ")")
+                wrong += "Mods' count is not the digits after the word" + on + "; ";
+            const kit::Control* filters = control_named(shown_mods, "library.filter.all");
+            if (filters == nullptr || mods_tab == nullptr || filters->rect.y <= mods_tab->rect.y)
+                wrong += "All is not under the tabs" + on + "; ";
+            const kit::NavEntry* all_entry = entry_named(shown_mods, "library.filter.all");
+            if (all_entry == nullptr || all_entry->caption != "All" || all_entry->count.empty() ||
+                filters == nullptr || filters->text != "All (" + all_entry->count + ")")
+                wrong += "All's count is not the digits after the word" + on + "; ";
+            const kit::Item* heading = nullptr;
+            for (const kit::Item& item : shown_mods.items) {
+                const auto* look = std::get_if<kit::HeadingLook>(&item.look);
+                if (item.role == kit::Role::heading && look != nullptr && look->text == "MODS" &&
+                    mods_tab != nullptr && item.rect.x > mods_tab->rect.x)
+                    heading = &item;
+            }
+            const kit::Control* search = control_named(shown_mods, "library.search");
+            const kit::Control* close = control_named(shown_mods, "library.close");
+            if (heading == nullptr)
+                wrong += "the heading does not read MODS" + on + "; ";
+            if (search == nullptr || close == nullptr || search->rect.height != close->rect.height)
+                wrong += "the search is not a button high" + on + "; ";
+            if (heading != nullptr && search != nullptr &&
+                (heading->rect.y < search->rect.y ||
+                 heading->rect.y + heading->rect.height > search->rect.y + search->rect.height ||
+                 search->rect.x <= heading->rect.x))
+                wrong += "the search is not on the heading's row" + on + "; ";
+            bool selected = false;
+            kit::Rect row{};
+            for (const kit::Item& item : shown_mods.items) {
+                const auto* look = std::get_if<kit::ListRowLook>(&item.look);
+                if (look == nullptr || !look->selected)
+                    continue;
+                selected = true;
+                row = item.rect;
+                if (!look->selection_bar)
+                    wrong += "the selected row has no bar" + on + "; ";
+            }
+            if (!selected)
+                wrong += "no row is selected" + on + "; ";
+            for (const kit::Item& item : shown_mods.items) {
+                if (item.role != kit::Role::focus_ring || !selected)
+                    continue;
+                const kit::Rect shared = kit::intersect(item.rect, row);
+                if (shared.width > 0 && shared.height > 0)
+                    wrong += "the selected row wears a focus outline" + on + "; ";
+            }
+            const auto card_holds_details = [&](const kit::DisplayList& list,
+                                                std::string_view where) {
+                std::optional<kit::Rect> card;
+                for (const kit::Item& item : list.items) {
+                    const auto* face = std::get_if<kit::ButtonLook>(&item.look);
+                    if (item.role != kit::Role::button || face == nullptr ||
+                        face->style != kit::ButtonStyle::inset)
+                        continue;
+                    if (!card || item.rect.width * item.rect.height > card->width * card->height)
+                        card = item.rect;
+                }
+                const kit::Control* status = control_named(list, "library.status");
+                if (!card || status == nullptr || !inside(*card, status->rect))
+                    wrong += std::string(where) + " are not inside a card" + on + "; ";
+            };
+            if (compact) {
+                std::string row_name;
+                for (const kit::Control& control : shown_mods.controls) {
+                    if (control.kind == kit::ControlKind::list_item &&
+                        control.name.rfind("library.row.", 0) == 0) {
+                        row_name = "oa." + control.name;
+                        break;
+                    }
+                }
+                if (row_name.empty())
+                    wrong += "Mods has no row to open" + on + "; ";
+                else {
+                    click_named(row_name);
+                    run_frame(running);
+                    require(running, "a frame ended the run");
+                    card_holds_details(shown(), "Compact's details");
+                    if (named("oa.library.back"))
+                        click_named("oa.library.back");
+                    run_frame(running);
+                    require(running, "a frame ended the run");
+                }
+            } else {
+                card_holds_details(shown_mods, "the details");
+            }
+            if (width == kCanvasWidth || width == 1024) {
+                for (const std::string_view word : {"keys", "languages", "updates", "registries"}) {
+                    click_named("oa.library.tab." + std::string(word));
+                    run_frame(running);
+                    require(running, "a frame ended the run");
+                    snapshot("shell-" + std::string(word) + "-" + size);
+                }
+            }
+            click_named("oa.library.tab.active");
+            run_frame(running);
+            require(running && host.model.tab == library::Tab::active, "Active did not open" + on);
+            const kit::DisplayList active = shown();
+            if (control_named(active, "library.search") != nullptr ||
+                control_named(active, "library.filter.all") != nullptr ||
+                control_named(active, "library.filter") != nullptr)
+                wrong += "Active shows a search or a filter" + on + "; ";
+            const kit::Control* active_tab = control_named(active, "library.tab.active");
+            const kit::NavEntry* active_entry = entry_named(active, "library.tab.active");
+            if (active_tab == nullptr || active_entry == nullptr || !active_tab->checked ||
+                !active_entry->selected || active_tab->text != "Active" ||
+                !active_entry->count.empty())
+                wrong += "Active is not the open entry" + on + "; ";
+            bool active_heading = false;
+            for (const kit::Item& item : active.items) {
+                const auto* look = std::get_if<kit::HeadingLook>(&item.look);
+                active_heading =
+                    active_heading ||
+                    (item.role == kit::Role::heading && look != nullptr && look->text == "ACTIVE" &&
+                     active_tab != nullptr && item.rect.x > active_tab->rect.x);
+            }
+            if (!active_heading)
+                wrong += "the heading does not read ACTIVE" + on + "; ";
+            click_named("oa.library.close");
+            require(oa_layer().top() == nullptr, "CLOSE did not close the Library" + on);
+        }
+        require(wrong.empty(), wrong);
+        std::cout << "library check: the section list, heading, selection, card and counts at "
+                     "640x480, 1024x660, 1280x720 and 1920x1080\n";
+    }
+
     // 9. In a skirmish the in-match OA button opens Settings, the Library
     // opens nowhere, and Language does not link to it.
     start_benchmark_skirmish();
@@ -1628,10 +2430,20 @@ void Runtime::check_library() {
         return std::nullopt;
     };
 
+    // Opening the Library puts the text focus in the tab's search.
+    const std::optional<AutomationControl> search_open = named("oa.library.search");
+    require(
+        search_open.has_value() && search_open->focused,
+        "opening the Library left its search without the focus"
+    );
+    std::cout << "library check: opening the Library focuses its search\n";
+    // Y gives it the focus again once the focus has gone.
+    host.state.interaction.focus_shown = false;
+    run_frame(running);
     const std::optional<AutomationControl> search_before = named("oa.library.search");
     require(
         search_before.has_value() && !search_before->focused,
-        "the search was missing or already focused"
+        "the search was missing or kept the focus"
     );
     tap_pad(SDL_GAMEPAD_BUTTON_NORTH);
     const std::optional<AutomationControl> search = named("oa.library.search");

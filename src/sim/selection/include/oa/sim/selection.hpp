@@ -148,6 +148,22 @@ void apply_type_mask_selection(
     World& world, const TypeMask& mask, bool additive, const Hooks& hooks
 );
 
+/// Selects selectable local units of a type mask that are on screen.
+///
+/// A unit counts as on screen when `unit_listed` says the last collection
+/// listed it. An additive call adds those units. Any other call also clears
+/// the local player's other selectable units. Another player's units, and
+/// units that cannot be selected, are left as they are.
+///
+/// @param[in,out] world units, players and game fields
+/// @param lists visible-unit list
+/// @param mask unit types to select
+/// @param additive true adds to the selection; false also deselects the other units
+/// @param hooks sight, sound and panel services
+void select_type_mask_on_screen(
+    World& world, const VisibleLists& lists, const TypeMask& mask, bool additive, const Hooks& hooks
+);
+
 /// Replaces the selection with the local player's selectable units in the visible list.
 ///
 /// @param[in,out] world units, players and game fields

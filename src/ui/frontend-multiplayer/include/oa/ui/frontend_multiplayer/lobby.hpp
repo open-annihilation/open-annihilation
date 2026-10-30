@@ -31,6 +31,7 @@
 #include <cstring>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace oa::ui::frontend_multiplayer {
 
@@ -474,6 +475,8 @@ struct Lobby {
     uint32_t refused_joiner{};
     /// The launch and its service.
     LaunchLink launch_link;
+    /// SIDEDATA names by side number. A side past the battle room's art shows its name.
+    std::vector<std::string> side_names;
     /// The mod profile's rules the battle room keeps; null keeps 3.1c's.
     const data::match_rules::MatchRules* rules{};
     /// Whether map-placed units are on (+spawnon, +spawnoff) while the
@@ -528,6 +531,12 @@ struct Lobby {
     /// The side last named for this slot in the line about a side this game
     /// does not have, or -1 when nothing was posted.
     int16_t side_past_table_posted[kSlotCount]{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    /// A catalogue line the game list shows once after this machine leaves a
+    /// room by itself. Empty when it did not.
+    const char* leave_line{};
+    /// Set once this host has posted the newer-build line for the player in
+    /// this slot. A later record from that player does not post it again.
+    bool limits_older_refused[kSlotCount]{};
 };
 
 // ---------------------------------------------------------------------------
@@ -599,11 +608,34 @@ struct FieldRef {
 
 /// Returns the first side the SIDE button offers at or after `side`: a side
 /// the mod's profile keeps out of the battle room is passed over.
+/// `also_hidden` passes over more sides the same way.
 ///
 /// @param game Game whose side count bounds the search.
 /// @param side The side to start from.
+/// @param also_hidden Extra sides to pass over, bit n for side n.
 /// @return the side offered; the side count when none is left after `side`
-[[nodiscard]] uint8_t lobby_offered_side(const Game& game, uint32_t side) noexcept;
+[[nodiscard]] uint8_t
+lobby_offered_side(const Game& game, uint32_t side, uint32_t also_hidden = 0) noexcept;
+
+/// Returns the nearest side the SIDE button offers below `side`.
+///
+/// A side the mod's profile keeps out of the battle room is passed over.
+/// `also_hidden` passes over more sides the same way.
+///
+/// @param game Game whose side count bounds the search.
+/// @param side The side to step back from.
+/// @param also_hidden Extra sides to pass over, bit n for side n.
+/// @return the side offered below `side`; the side count when none is
+uint8_t
+lobby_offered_side_before(const Game& game, uint32_t side, uint32_t also_hidden = 0) noexcept;
+
+/// Sides this machine's computer players may not take.
+///
+/// Bit n is set when side n is outside identity.computer-player-sides.
+/// 0 means every side, as when that key is absent or empty.
+///
+/// @return the mask, or 0 when computer players may take every side
+[[nodiscard]] uint32_t lobby_computer_hidden_sides() noexcept;
 
 // Game options copied from the host's option word when a game starts.
 struct StartedOptions {

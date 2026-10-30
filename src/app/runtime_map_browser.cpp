@@ -92,6 +92,15 @@ constexpr std::string_view more_maps_control_name = "more-maps";
 constexpr kit::ControlId more_maps_control = 1;
 /// MORE MAPS…'s words.
 constexpr std::string_view word_more_maps = "MORE MAPS…";
+/// MORE MAPS…'s sizes: the kit's compact buttons. It is a footer button's
+/// height, growing toward the compact control height where the rows under
+/// the list are clear, and its caption is in the small font those buttons
+/// use, with a button's padding.
+constexpr const kit::Metrics& more_maps_metrics = kit::compact_metrics;
+/// How far above the description box under the map list its drawn top
+/// border begins, a dark row over a metal bar, in frame pixels. MORE MAPS…
+/// grows only into the clear rows above it.
+constexpr int32_t description_border_rise = 11;
 /// The words for a download the queue would not start.
 constexpr std::string_view word_not_queued = "The download could not start: {reason}";
 /// The words for a download that failed.
@@ -1206,13 +1215,15 @@ struct Runtime::MapBrowserScreen final : LayerScreen {
 // ---------------------------------------------------------------------------------------------
 // MORE MAPS…
 
-/// MORE MAPS… as a screen of the OA layer: not modal, no backdrop, a kit
-/// button under the picker's map list, its right edge on the list's, or
-/// above the list where the place under it meets another gadget of the
-/// picker. It takes a press or a tap on its button, and the controller's
-/// Y and Cmd+F or Ctrl+F, which the pickers leave unused; everything else,
-/// a pointer move that only changes its hover included, goes on to the
-/// picker.
+/// MORE MAPS… as a screen of the OA layer: not modal, no backdrop, the
+/// kit's primary button, lime, under the picker's map list, its right edge
+/// on the list's, at a footer button's height, taller only where the rows
+/// down to the description box's border are clear, or above the list where
+/// the place under it meets another gadget of the picker. It takes a press
+/// or a tap on its button, and the controller's Y and the find action,
+/// which the pickers leave unused; a plain slash stays with the picker.
+/// Everything else, a pointer move that only changes its hover included,
+/// goes on to the picker.
 struct Runtime::MoreMapsScreen final : LayerScreen {
     /// Makes the button.
     ///
@@ -1308,19 +1319,18 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
         return LayerAnswer::pass;
     }
 
-    /// Takes Cmd+F on macOS and Ctrl+F elsewhere, which the pickers leave
-    /// unused, as a press on the button; every other key goes on.
+    /// Takes the find action, which the pickers leave unused, as a press on
+    /// the button. A plain slash stays with the picker, and so does every
+    /// other key.
     ///
-    /// @param sdl_key the key's SDL keycode
-    /// @param modifiers SDL_Keymod bits
-    /// @return none for the shortcut; pass otherwise
-    LayerAnswer shortcut(uint32_t sdl_key, uint16_t modifiers) override {
-#ifdef SDL_PLATFORM_MACOS
-        constexpr uint16_t command = SDL_KMOD_GUI;
-#else
-        constexpr uint16_t command = SDL_KMOD_CTRL;
-#endif
-        if (sdl_key != SDLK_F || (modifiers & command) == 0 || !place_of(view_))
+    /// @return none for the find action; pass otherwise
+    LayerAnswer shortcut(uint32_t /*sdl_key*/, uint16_t /*modifiers*/) override {
+        const auto* find = runtime_.fired_action("ui.screen-find");
+        if (find == nullptr || !place_of(view_))
+            return LayerAnswer::pass;
+        const bool typed_slash = find->chord.kind == oa::ui::key_bindings::TriggerKind::character &&
+                                 find->chord.character == U'/' && find->chord.modifiers == 0;
+        if (typed_slash)
             return LayerAnswer::pass;
         open_browser();
         return LayerAnswer::none;
@@ -1353,7 +1363,7 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
             return list;
         kit::ButtonLook look;
         look.caption = shown(word_more_maps);
-        look.style = kit::ButtonStyle::inset;
+        look.style = kit::ButtonStyle::accent;
         look.hovered = hovered_;
         look.held = pressed_ && hovered_;
         kit::add_button(
@@ -1515,9 +1525,11 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
     }
 
     /// Returns where the button lies, in the layer's points: under the map
-    /// list's frame, its right edge on the list's, or above the frame when
-    /// the place under it meets another gadget of the picker. The button
-    /// keeps its size.
+    /// list's frame, its right edge on the list's, at a footer button's
+    /// height, or taller, up to the compact control height, where the rows
+    /// down to the border of the first gadget under the list are clear; or at
+    /// a footer button's height above the frame when the place under it meets
+    /// another gadget of the picker.
     ///
     /// @param placed_on what the screen is placed on
     /// @return the place; none while it does not show
@@ -1529,7 +1541,7 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
         std::vector<kit::Rect> others;
         if (fonts == nullptr || !picker_rects(list_rect, others))
             return std::nullopt;
-        const kit::Metrics& metrics = kit::compact_metrics;
+        const kit::Metrics& metrics = more_maps_metrics;
         const int32_t width = std::max(
             metrics.button_width,
             kit::text_width(*fonts, kit::FontRole::small, shown(word_more_maps)) +
@@ -1546,17 +1558,34 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
         // The top is the first point that draws on or below the frame's outer
         // edge. The picture's scale rounds that edge outward, and a point
         // just inside it draws on the frame.
+        const int32_t top = point_on_or_below(frame_window_bottom(placed_on, framed), percent);
+        // Taller than a footer button only into the clear rows down to the
+        // drawn border of the first gadget under the list.
+        int32_t clear = metrics.control_height;
+        for (const kit::Rect& other : others) {
+            const bool under = other.y >= list_rect.y + list_rect.height &&
+                               other.x < list_rect.x + list_rect.width &&
+                               other.x + other.width > list_rect.x;
+            if (!under)
+                continue;
+            const kit::Rect bordered{
+                other.x, other.y - description_border_rise, other.width, other.height
+            };
+            clear = std::min(clear, frame_to_points(placed_on, bordered).y - top);
+        }
         kit::Rect place{
             list_points.x + list_points.width - width,
-            point_on_or_below(frame_window_bottom(placed_on, framed), percent),
+            top,
             width,
-            metrics.button_height
+            std::max(clear, metrics.button_height)
         };
         const bool blocked = std::any_of(others.begin(), others.end(), [&](const kit::Rect& other) {
             return meet(place, frame_to_points(placed_on, other));
         });
-        if (blocked)
+        if (blocked) {
+            place.height = metrics.button_height;
             place.y = frame_points.y - metrics.button_height;
+        }
         return place;
     }
 

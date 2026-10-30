@@ -100,7 +100,8 @@ void check_installed_weapons(const oa::AssetStore& assets) {
     // extras fill 198 of the 256 slots.
     check(installed == 198, "installed " + std::to_string(installed) + " weapons, not 198");
     check(table->rejected_ids == 0, "a stock weapon has an ID outside 0..255");
-    for (uint32_t slot = 0; slot < OA_WEAPON_DEF_COUNT; ++slot)
+    check(table->defs.size() == OA_WEAPON_DEF_COUNT, "the stock table is not 256 slots");
+    for (uint32_t slot = 0; slot < table->defs.size(); ++slot)
         if (table->defs[slot].key[0] != '\0')
             check_slot(registry, *table, static_cast<uint8_t>(slot));
 

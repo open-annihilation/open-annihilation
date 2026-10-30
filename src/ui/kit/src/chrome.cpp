@@ -47,6 +47,10 @@ bool drawable(const Canvas& canvas) noexcept {
 int32_t smooth_header_width(const Canvas& canvas, std::string_view text, int32_t tracking) {
     if (text.empty() || canvas.smooth.fonts == nullptr)
         return 0;
+    // The modern look measures in points at every scale, a tracked line in
+    // its tracked type.
+    if (canvas.fonts != nullptr && modern_look(*canvas.fonts))
+        return tracked_width(*canvas.fonts, FontRole::regular, text, tracking);
     if (tracking == 0)
         return measure_text(canvas, FontRole::regular, text);
     int32_t width = 0;
@@ -123,30 +127,36 @@ void draw_header(const Canvas& canvas, const HeaderLook& look) {
         return;
     const int32_t edge = compact_metrics.edge;
     const int32_t header_top = edge;
-    const int32_t header_height = compact_metrics.header_height;
+    const int32_t header_height = look.height > 0 ? look.height : compact_metrics.header_height;
     const int32_t inner = look.width - 2 * edge;
     fill_rect(canvas, {edge, header_top, inner, header_height}, colour::band);
     rule_rect(canvas, {edge, header_top + header_height, inner, 1}, colour::rule);
+    // A band of its own height keeps the mark in its middle.
     const Rect mark{
         compact_metrics.padding,
-        compact_metrics.mark_top,
+        look.height > 0 ? header_top + (header_height - compact_metrics.mark_side) / 2
+                        : compact_metrics.mark_top,
         compact_metrics.mark_side,
         compact_metrics.mark_side,
     };
     if (look.mark)
         draw_header_mark(canvas, mark);
     // On the smooth form the modern face is wider than the game font the
-    // columns were kept for. Measure that face, or the second word starts
-    // inside the title ("Open AnnihilationLibrary"). A crisp canvas keeps
-    // the columns it was given.
+    // columns were kept for, and in the modern look Barlow Condensed at a
+    // larger class's title size is too. Measure that face, or the second
+    // word starts inside the title ("Open AnnihilationLibrary"). A crisp
+    // canvas in the classic look keeps the columns it was given.
     const bool smooth = canvas.smooth.painter != nullptr;
+    const bool measured = smooth || (canvas.fonts != nullptr && modern_look(*canvas.fonts));
+    const auto drawn_width = [&canvas, &look](std::string_view text) {
+        if (canvas.fonts != nullptr && modern_look(*canvas.fonts))
+            return tracked_width(*canvas.fonts, FontRole::regular, text, look.tracking);
+        return smooth_header_width(canvas, text, look.tracking);
+    };
     const int32_t title_span =
-        smooth ? std::max(look.title_width, smooth_header_width(canvas, look.title, look.tracking))
-               : look.title_width;
+        measured ? std::max(look.title_width, drawn_width(look.title)) : look.title_width;
     const int32_t second_span =
-        smooth
-            ? std::max(look.second_width, smooth_header_width(canvas, look.second, look.tracking))
-            : look.second_width;
+        measured ? std::max(look.second_width, drawn_width(look.second)) : look.second_width;
     const int32_t title_left =
         look.mark ? mark.x + mark.width + compact_metrics.header_gap : compact_metrics.padding;
     const Rect title{
@@ -158,7 +168,7 @@ void draw_header(const Canvas& canvas, const HeaderLook& look) {
     draw_line(
         canvas, FontRole::regular, look.title, title, Align::left, colour::text, look.tracking
     );
-    const int32_t drawn_right = smooth ? title.x + title.width : title_right(canvas, title, look);
+    const int32_t drawn_right = measured ? title.x + title.width : title_right(canvas, title, look);
     // With no mark and no title the second word takes the title's place.
     const bool second_first = !look.mark && look.title.empty();
     const Rect second{
@@ -212,8 +222,9 @@ void draw_nav(const Canvas& canvas, const NavLook& look) {
         rule_rect(canvas, *look.divider, colour::rule);
     for (const NavEntry& entry : look.entries) {
         Colour ink = colour::list_text;
+        const int32_t radius = control_radius_for(entry.rect.height);
         if (entry.selected) {
-            fill_rect(canvas, entry.rect, colour::list_selected);
+            fill_corner_rect(canvas, entry.rect, radius, colour::list_selected);
             fill_rect(
                 canvas,
                 {entry.rect.x + kMarkerOffset,
@@ -224,16 +235,26 @@ void draw_nav(const Canvas& canvas, const NavLook& look) {
             );
             ink = colour::text;
         } else if (entry.hovered) {
-            fill_rect(canvas, entry.rect, colour::hover);
+            fill_corner_rect(canvas, entry.rect, radius, colour::hover);
             ink = colour::text;
         }
+        const bool placed = entry.text_column > 0 || entry.icon_side > 0;
+        const int32_t text_at = placed && entry.text_column > 0 ? entry.text_column : kTextOffset;
         Rect caption{
-            entry.rect.x + kTextOffset,
+            entry.rect.x + text_at,
             entry.rect.y,
-            entry.rect.width - kTextOffset - kTextMargin,
+            std::max(entry.rect.width - text_at - kTextMargin, int32_t{0}),
             entry.rect.height,
         };
-        if (entry.tag.has_value()) {
+        if (entry.tag.has_value() && placed && entry.icon_side > 0) {
+            const Rect icon{
+                entry.rect.x + entry.icon_column,
+                entry.rect.y + (entry.rect.height - entry.icon_side) / 2,
+                entry.icon_side,
+                entry.icon_side,
+            };
+            draw_tag_icon(canvas, icon, *entry.tag, ink);
+        } else if (entry.tag.has_value() && !placed) {
             const int32_t side = std::max(compact_metrics.regular_line - 4, int32_t{0});
             const Rect icon{
                 caption.x,
@@ -247,6 +268,23 @@ void draw_nav(const Canvas& canvas, const NavLook& look) {
             caption.width = std::max(caption.width - shift, int32_t{0});
         }
         draw_line(canvas, FontRole::regular, entry.caption, caption, Align::left, ink, 0);
+        if (!entry.count.empty()) {
+            const int32_t word = measure_text(canvas, FontRole::regular, entry.caption);
+            const int32_t gap = std::max(measure_text(canvas, FontRole::small, " "), int32_t{1});
+            const int32_t count_width = measure_text(canvas, FontRole::small, entry.count);
+            const int32_t count_x = caption.x + word + gap;
+            if (count_width > 0 && count_x + count_width <= caption.x + caption.width) {
+                draw_line(
+                    canvas,
+                    FontRole::small,
+                    entry.count,
+                    {count_x, caption.y, count_width, caption.height},
+                    Align::left,
+                    colour::hint,
+                    0
+                );
+            }
+        }
         if (entry.focused)
             draw_focus_ring(canvas, entry.rect, false);
     }

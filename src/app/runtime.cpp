@@ -3,6 +3,7 @@
 
 // Runtime construction, main loop and screen loading.
 #include "oa/app/runtime.hpp"
+#include "oa/app/netgame/launch_file.hpp"
 #include "renderer_effect_events.hpp"
 #include "oa/app/view_rules.hpp"
 #include "oa/data/defs/layout.hpp"
@@ -488,6 +489,11 @@ Runtime::Runtime(
     load_engine_settings();
     // The settings the profile's display rules let the player change.
     load_view_settings();
+    // The layout in use, after those settings, so a stored key is the one
+    // the player set. A layout --keys cannot read ends the run.
+    load_key_bindings();
+    if (!key_bindings_refusal_.empty())
+        throw netgame::LaunchRefusal(key_bindings_refusal_);
     // The registries and their catalogues, after the player's folder and
     // Developer mode are known. The registries check writes its own list
     // first.
@@ -749,6 +755,36 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_key_editor) {
+            check_key_editor();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_key_capture) {
+            check_key_capture();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_key_share) {
+            check_key_share();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_key_views) {
+            check_key_views();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_keys_overlay) {
+            check_keys_overlay();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_selection_keys) {
+            check_selection_keys();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_mutator_picker) {
             check_mutator_picker();
             flush_preferences();
@@ -879,6 +915,11 @@ int Runtime::run() {
             flush_preferences();
             return status;
         }
+        if (options_.check_dialog_backdrop) {
+            const int status = check_dialog_backdrop();
+            flush_preferences();
+            return status;
+        }
         if (options_.check_match_orders) {
             check_match_orders();
             flush_preferences();
@@ -889,8 +930,23 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_skirmish_sides) {
+            check_skirmish_sides();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_mod_limits) {
+            check_mod_limits();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_factory_orders) {
             check_factory_orders();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_factory_departure) {
+            check_factory_departure();
             flush_preferences();
             return 0;
         }
@@ -994,6 +1050,26 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_engine_feed) {
+            check_engine_feed();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_update_offer) {
+            check_update_offer();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_update_download) {
+            const int download_status = check_update_download();
+            flush_preferences();
+            return download_status;
+        }
+        if (options_.check_update_roll_back) {
+            const int roll_back_status = check_update_roll_back();
+            flush_preferences();
+            return roll_back_status;
+        }
         if (options_.check_text_fit) {
             check_text_fit();
             flush_preferences();
@@ -1001,6 +1077,21 @@ int Runtime::run() {
         }
         if (options_.check_kill_board) {
             check_kill_board();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_key_latches) {
+            check_key_latches();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_hold_confirm) {
+            check_hold_confirm();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_order_wheel) {
+            check_order_wheel();
             flush_preferences();
             return 0;
         }
@@ -1029,6 +1120,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_underwater_features) {
+            const int status = check_underwater_features();
+            flush_preferences();
+            return status;
+        }
         if (options_.check_click_snap) {
             check_click_snap();
             flush_preferences();
@@ -1039,8 +1135,28 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (!options_.check_key_table.empty()) {
+            check_key_table();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_key_timing) {
+            check_key_timing();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_pointer_keys) {
+            check_pointer_keys();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_megamap_clicks) {
             check_megamap_clicks();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_single_player_offers) {
+            check_single_player_offers();
             flush_preferences();
             return 0;
         }
@@ -1147,6 +1263,10 @@ void Runtime::run_frame(bool& running) {
     SDL_Event event{};
     while (SDL_PollEvent(&event))
         dispatch_event(event, running);
+    // Holds finish on the frame's clock, after this frame's events.
+    advance_input_actions(running);
+    // A hold to confirm fires while the press is still down, on this clock.
+    tick_hold_confirm();
     // Whatever showed or hid the system's pointer since the last frame, the
     // rule holds again before this frame is drawn; so does the window's
     // frame, for the screen the events left.
@@ -1212,8 +1332,17 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
     remap_keypad_enter(event);
     // Each key press, whichever screen takes it, forgets the quick key the
     // last one answered a panel with; the press records its own again.
-    if (event.type == SDL_EVENT_KEY_DOWN)
+    if (event.type == SDL_EVENT_KEY_DOWN) {
         answered_key_ = 0;
+        hold_key_scancode_ = static_cast<uint16_t>(event.key.scancode);
+    }
+    if (event.type == SDL_EVENT_KEY_UP)
+        release_hold_confirm_key(static_cast<uint16_t>(event.key.scancode));
+    if (event.type == SDL_EVENT_MOUSE_BUTTON_UP)
+        release_hold_confirm_button(static_cast<uint8_t>(event.button.button));
+    if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button >= 6 &&
+        event.button.button <= 8)
+        mouse_extra_buttons_ = true;
     // Shift let go after an order or a building was queued with it returns
     // to the default order before any event that follows acts: a click just
     // after the release gives the default order.
@@ -1234,18 +1363,66 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
     // While an input method composes, the keys it uses are its own.
     if (take_composition_event(event))
         return;
-    // Alt+Enter switches between full screen and a window on every screen,
-    // before the screen or a screen package sees the key; its repeats reach
-    // no screen either, so a held Alt+Enter never opens the chat line or
-    // presses a dialog's default button.
+
+    // The action events are kept. The sticky modifiers this event sees are the
+    // ones it began with. A key held back or dropped here does not reach the
+    // screen.
+    struct StickyEventGuard {
+        Runtime& runtime;
+
+        explicit StickyEventGuard(Runtime& runtime) : runtime(runtime) {
+            runtime.begin_sticky_event();
+        }
+
+        ~StickyEventGuard() { runtime.end_sticky_event(); }
+    } sticky_event{*this};
+
+    if (feed_input_actions(event)) {
+        // A click or a drag the order wheel held back reaches the game now,
+        // and not through another feed: that would hold the press back again.
+        replay_order_wheel(running);
+        return;
+    }
+    // The screen handlers run after the feed. A key they answer must not be
+    // fed again: that second down lets a latch go.
+    const bool key_event = event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP;
+
+    struct FedGuard {
+        bool& flag;
+
+        ~FedGuard() { flag = false; }
+    };
+
+    [[maybe_unused]] FedGuard fed_guard{match_key_already_fed_};
+    if (key_event || event.type == SDL_EVENT_MOUSE_WHEEL)
+        match_key_already_fed_ = true;
+    dispatch_after_actions(event, running);
+}
+
+void Runtime::dispatch_after_actions(SDL_Event& event, bool& running) {
+    // The full-screen action switches between full screen and a window on
+    // every screen, before the screen or a screen package sees the key; its
+    // repeats reach no screen either, so a held chord never opens the chat
+    // line or presses a dialog's default button.
     if (take_full_screen_event(event))
         return;
+    // The settings action opens Settings on every screen, as Alt+Enter
+    // switches full screen, and before a screen sees the key. The Library
+    // open over Settings is the exception: that screen goes back to Settings.
+    if (take_settings_action()) {
+        apply_screen_request();
+        return;
+    }
     // The macOS application menu's Settings… item asks for the settings on
     // whatever screen shows.
     if (take_engine_settings_request(event)) {
         apply_screen_request();
         return;
     }
+    // The keys overlay and the release of a captured pointer are global, and
+    // come before a display rule, so Primary+/ does not turn a building.
+    if (take_keys_overlay_action() || take_release_pointer_action())
+        return;
     // Keys the profile's display rules take on every screen come next.
     if (handle_view_rule_key(event)) {
         apply_screen_request();
@@ -1254,6 +1431,16 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
     if (!dispatch_screen_input(event))
         handle_sdl_event(event, running);
     apply_screen_request();
+}
+
+bool Runtime::take_keys_overlay_action() {
+    const auto* action = fired_action("ui.keys-overlay");
+    if (action == nullptr || action->phase != oa::ui::key_bindings::Phase::pressed)
+        return false;
+    if (keys_overlay_hook_ != nullptr)
+        keys_overlay_hook_(*this);
+    toggle_keys_overlay_screen();
+    return true;
 }
 
 void Runtime::idle_tick() {
@@ -1321,6 +1508,7 @@ void Runtime::idle_tick() {
     tell_found_install();
     tell_incomplete_mod();
     tick_content();
+    tick_update_check();
     tick_library();
     // A catalogue that moved on adds its language packs to the registry.
     note_catalogue_languages();
@@ -1562,6 +1750,11 @@ void Runtime::report_match_tick_error(std::string_view message) {
     console_post_message("Simulation error: " + line);
 }
 
+void Runtime::report_data_fault(const std::string& line) {
+    if (reported_data_faults_.insert(line).second)
+        std::cerr << line << '\n';
+}
+
 void Runtime::report_hook_error(const char* hook, const char* message) noexcept {
     try {
         std::string line = std::string(hook) + ": " + message;
@@ -1716,6 +1909,7 @@ void Runtime::load(Screen screen) {
     widget_gaf_frames_.clear();
     widget_text_stages_.clear();
     widget_sprites_.clear();
+    widget_caption_only_.clear();
     typed_key_hook_ = TypedKeyHook::none;
     typed_keys_.fill(0);
     const auto* desc = screen_find(&screens_, screen_id(screen));
@@ -1737,6 +1931,7 @@ void Runtime::load(Screen screen) {
             layout, "", desc->assets.palette, desc->assets.sprites, desc->assets.shared_sprites
         };
         resources_ = renderer::load_screen(assets_, names);
+        set_menu_gui(layout);
         // The panel's pictures in the shown language.
         caption_gaf_pictures(names.sprites, resources_.sprites);
         caption_gaf_pictures(names.shared_sprites, resources_.shared_sprites);
@@ -1750,6 +1945,8 @@ void Runtime::load(Screen screen) {
         // is not needed.
         if (background != nullptr)
             std::ignore = load_named_background(background, false, false, false);
+    } else {
+        set_menu_gui("");
     }
     if (desc->enter != nullptr)
         desc->enter(&context, desc->state);
@@ -1847,6 +2044,10 @@ void Runtime::rebuild_surface() {
         if (button != nullptr)
             presentation.back().quick_key = static_cast<char>(button->quick_key);
         presentation.back().focused = keyboard && static_cast<int32_t>(index) == focus;
+        if (widget_caption_only_.find(name) != widget_caption_only_.end()) {
+            presentation.back().caption_only = true;
+            presentation.back().game_text = true;
+        }
     }
     std::vector<renderer::ListPresentation> lists;
     if (screen_ == Screen::map_selection && !bound_map_names_.empty()) {

@@ -46,6 +46,11 @@ struct HeaderLook {
     /// The mark at the left. Off, the title, or the second word when there
     /// is no title, starts at the padding.
     bool mark{true};
+    /// The band's height under the top edge, in points: Kit 2's window header
+    /// (Metrics::window_header_height), say. The mark, the title, the second
+    /// word, the version and the note sit in its middle, and its rule under
+    /// it. 0 is Compact's header_height, with the mark at mark_top.
+    int32_t height{};
 };
 
 /// One entry of a nav list.
@@ -57,6 +62,16 @@ struct NavEntry {
     bool focused{};        ///< the keyboard focus outlines it
     /// A tag icon at the caption's left start. None leaves the caption where it was.
     std::optional<TagIcon> tag{};
+    /// Digits after the word, in the hint colour. Empty draws none. The word
+    /// stays `caption`; a caller that reads the control still has the brackets.
+    std::string count{};
+    /// The icon's column within the entry. With `icon_side` and `text_column`
+    /// all 0, the caption stays at its old column and a tag icon shifts it.
+    int32_t icon_column{0};
+    /// The icon's side. 0 draws no icon in this column.
+    int32_t icon_side{0};
+    /// The caption's column within the entry. 0 keeps the old column.
+    int32_t text_column{0};
 };
 
 /// A nav list: its face, the rule at its right, an optional divider and its entries.
@@ -98,8 +113,8 @@ struct HeadingLook {
 /// @param whole the window
 void draw_window_face(const Canvas& canvas, const Rect& whole);
 
-/// Draws the window's raised edge, light over dark. A screen draws it last,
-/// over the face.
+/// Draws the window's raised edge, the strong edge over dark. A screen
+/// draws it last, over the face.
 ///
 /// @param canvas where it is drawn
 /// @param whole the window
@@ -107,13 +122,16 @@ void draw_window_edge(const Canvas& canvas, const Rect& whole);
 
 /// Draws the header over the window's full inner width: the band and its
 /// rule, the header mark, the title, the second word, the version at the
-/// right and the note before it.
+/// right and the note before it. The band is HeaderLook::height high, or
+/// Compact's header_height when that is 0.
 ///
 /// The modern fonts, when they stand in for the game's font wholly, draw
 /// the title at its measured width when that is wider than title_width, and
 /// the second word follows. A smooth canvas does the same from the width
 /// the modern face actually draws, game glyphs or not, so the second word
-/// keeps a gap. An empty string draws nothing.
+/// keeps a gap, and so does the modern look, whose title type grows with
+/// its fonts' size class: each word takes its tracked width at that type
+/// where it is wider than its columns. An empty string draws nothing.
 ///
 /// @param canvas where it is drawn; its icon is the header mark's
 /// @param look the words and the columns kept for them
@@ -127,7 +145,10 @@ void draw_header(const Canvas& canvas, const HeaderLook& look);
 void draw_footer_band(const Canvas& canvas, int32_t width, int32_t rule_row);
 
 /// Draws a nav list: its face, the rule at its right, its divider, and each
-/// entry with its selection marker, its hover and its focus outline.
+/// entry with its selection marker, its hover and its focus outline. A count
+/// is drawn in the hint colour, in the small font, after the word when it
+/// fits the caption's box. An entry whose text column is set places its icon
+/// and its word there; the others keep the old columns.
 ///
 /// @param canvas where it is drawn
 /// @param look the list

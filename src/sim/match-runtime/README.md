@@ -49,6 +49,9 @@ to its model and world slot.
 
 ## The match
 
+`Match::bind_sides` copies the first five side records into `Game.sides` and
+keeps any further sides in a table the match owns.
+
 `Match` owns the slot pool and the unit instances, weapon slots,
 squads, spatial occupancy and buckets, sight grids, movement maps, projectile
 pool, effect world and map features. Its inputs carry the resolved runtime
@@ -456,6 +459,17 @@ build cost, build time, maximum health, armour and state flags, and the
 `Unit.economy` accumulator words; an accepted repair changes health and a
 positive resource gate changes the requested debit without accepting it.
 
+A repair order's step (`TickHost::nano_repair`) is paid by the repairer, as
+in 3.1c: the energy is requested in the repairing unit's own economy block,
+whose gate decides whether the step is afforded. A repair pad pays for the
+aircraft on it, and a builder pays for the unit it repairs, an ally's
+included, so its owner's economy carries the cost and the bottom bar shows
+it on the repairer. Up to 0.8.6 the step charged the repaired unit's block
+instead; games with a repair played with 0.8.6 or earlier, saved or
+recorded, do not play on exactly as they did. `missions_orders_test.cpp`
+(`repairs_charge_the_repairer`) and `missions_vtol_test.cpp` (the pad)
+check who pays and the short-energy gate.
+
 `update_player_economy` is the per-player economy tick: the activity gates,
 EnergyUse and make credits with the easy and medium computer scales, cloak
 upkeep with the cloak dropped when it goes unpaid, the merge of the unit
@@ -464,6 +478,18 @@ clamps with waste totals, and the scaling of every block for the next tick.
 `economy_test.cpp` asserts every player output field for human, easy, medium
 and hard computer players across inactive, storage-full, storage-free,
 negative-income, wind and tidal branches.
+
+`Match::settled_spending` is what each player's last settlement paid out,
+energy and metal: what the stores paid at once since the settlement before
+(shots, cloaks and gifts, which only lower a store between settlements; a
+store that rose paid nothing), and what the pool of store and income then
+paid toward the gated and accepted requests. The settlement writes it beside
+the game state for the player's computer seat to read; the simulation never
+reads it, and it is not saved, hashed, traced or shared. It is zero until a
+player's first settlement. That settlement has no stores left before it to
+measure from, and nor has the first after the load's pass puts the starting
+stores back: each counts as paid at once only the cloaks it paid itself.
+`sim-brains-economy` (`src/sim/brains`) checks it against the stores.
 
 A mod's rules change the tick in three places. Its income multipliers
 (`ai.income-multipliers`) scale a computer player's credit at every production

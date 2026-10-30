@@ -506,6 +506,9 @@ void Runtime::bind_match_speech() {
 
 void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     pause_content_for_match();
+    // A check still waiting is not a result: the load can outlast its idle
+    // limit, so the cancel is set before any of that work.
+    cancel_update_check();
     // A shared game whose mod cannot start one is refused before anything is
     // dropped or loaded; its warning shows once the main menu does, where
     // the abandoned launch returns.
@@ -580,23 +583,39 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     // campaign and a network start keep the side they were given.
     if (bootstrap.seat_roster && bootstrap.place_commanders && !bootstrap.multiplayer &&
         !campaign_mission_) {
+        const uint32_t skirmish_hidden = oa::data::defs::skirmish_hidden_sides();
+        const uint32_t allowed_sides = oa::data::defs::computer_player_sides();
+        const uint32_t computer_hidden = allowed_sides == 0 ? 0U : ~allowed_sides;
         for (std::size_t player_slot = 0; player_slot < skirmish_settings_.slots.size();
              ++player_slot) {
             auto& setup = skirmish_settings_.slots[player_slot];
             if (setup.controller == entry::controller::disabled)
                 continue;
-            if (setup.side < static_cast<int32_t>(side_table_.count))
+            const bool computer = setup.controller == entry::controller::computer;
+            const bool past = setup.side >= static_cast<int32_t>(side_table_.count);
+            const bool disallowed =
+                computer && setup.side >= 0 && setup.side < 32 &&
+                (computer_hidden & (1U << static_cast<uint32_t>(setup.side))) != 0;
+            if (!past && !disallowed)
                 continue;
             const int32_t chosen = setup.side;
             const int32_t played = skirmish::offered_side(
                 chosen,
                 static_cast<int32_t>(side_table_.count),
-                oa::data::defs::skirmish_hidden_sides()
+                skirmish_hidden | (computer ? computer_hidden : 0U)
             );
             setup.side = played;
-            std::cerr << "open-annihilation: side data: player " << player_slot << " chose side "
-                      << chosen << ", which this match's side data does not have; it plays side "
-                      << played << '\n';
+            if (!past) {
+                std::cerr << "open-annihilation: side data: computer player " << player_slot
+                          << " chose side " << chosen
+                          << ", which computer players cannot take in this game; it plays side "
+                          << played << '\n';
+            } else {
+                std::cerr << "open-annihilation: side data: player " << player_slot
+                          << " chose side " << chosen
+                          << ", which this match's side data does not have; it plays side "
+                          << played << '\n';
+            }
         }
     }
     // The weapons, every WEAPONS\*.TDF section into its ID's slot. A lava
@@ -610,27 +629,43 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
         const oa::data::defs::WeaponDataKeys weapon_keys =
             bound_weapon_keys(data_key_bindings(mod_profile()));
         const oa::data::defs::WeaponLoadOptions weapon_options{
-            nullptr, nullptr, integer("lavaworld", 0) != 0, false, &weapon_keys
+            nullptr,
+            nullptr,
+            integer("lavaworld", 0) != 0,
+            false,
+            &weapon_keys,
+            limits_.weapon_types.types
         };
         oa::data::defs::load_weapon_defs(&files, weapon_table.get(), &weapon_options);
+        if (weapon_table->past_limit != 0) {
+            const bool one = weapon_table->past_limit == 1u;
+            const std::string line =
+                "open-annihilation: weapons: " + std::to_string(weapon_table->past_limit) +
+                (one ? " weapon section has an ID" : " weapon sections have IDs") +
+                " past the limit of " + std::to_string(limits_.weapon_types.types) +
+                " weapon types and " + (one ? "is" : "are") + " left out; the highest ID is " +
+                std::to_string(weapon_table->highest_past_limit);
+            report_data_fault(line);
+        }
         installed_weapons =
             oa::sim::combat_state::install_weapon_table(weapon_registry_, *weapon_table);
-        // Each weapon's own rules, by weapon ID, when the profile binds a weapon key.
-        weapon_rules_.assign(weapon_keys.any() ? OA_WEAPON_DEF_COUNT : 0U, {});
+        // Each weapon's own rules, by slot, when the profile binds a weapon key.
+        weapon_rules_.assign(weapon_keys.any() ? weapon_table->defs.size() : 0U, {});
         for (std::size_t slot = 0; slot < weapon_rules_.size(); ++slot) {
             const WeaponDef& weapon = weapon_table->defs[slot];
             if (weapon.key[0] != '\0')
-                weapon_rules_[weapon.weapon_id] = weapon_table->rule_data[slot];
+                weapon_rules_[slot] = weapon_table->rule_data[slot];
         }
-        for (std::size_t slot = 0; slot < OA_WEAPON_DEF_COUNT; ++slot) {
+        for (std::size_t slot = 0; slot < weapon_table->defs.size(); ++slot) {
             const char* model = weapon_table->assets[slot].model;
             if (weapon_table->defs[slot].key[0] != '\0' && model[0] != '\0')
-                weapon_model_names_.emplace(static_cast<uint8_t>(slot), model);
+                weapon_model_names_.emplace(static_cast<uint16_t>(slot), model);
         }
         oa::data::defs::weapon_table_free(weapon_table.get());
     }
     if (installed_weapons == 0)
         throw std::runtime_error("no base weapon definitions were installed");
+    match_weapon_types_ = static_cast<uint32_t>(installed_weapons);
     set_load_progress(0, 100);
 
     // Mission state set-up: Terrain before Units.
@@ -699,7 +734,7 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     // numbers them.
     if (!oa::data::defs::load_move_classes(&files, &unit_table_.move_classes, nullptr, nullptr))
         throw std::runtime_error("Can't load MOVEINFO.TDF");
-    const auto& weapon_defs = weapon_registry_.records();
+    const auto weapon_defs = weapon_registry_.records();
     oa::data::defs::WeaponTdfSet weapon_files{};
     if (!oa::data::defs::load_weapon_tdf_set(&files, nullptr, false, &weapon_files))
         throw std::runtime_error("cannot list the weapon files");
@@ -777,7 +812,7 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     const oa::data::defs::UnitDefSources unit_sources{
         "",
         &unit_table_.move_classes,
-        weapon_defs.data(),
+        weapon_defs,
         &unit_table_.sound_categories,
         &unit_table.categories,
         &unit_table.blocks,
@@ -787,7 +822,7 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     };
     const oa::data::unit_definitions::UnitDefinitionSources definition_sources{
         &unit_table_.move_classes,
-        weapon_defs.data(),
+        weapon_defs,
         &unit_table_.sound_categories,
         &unit_table.categories
     };
@@ -1201,8 +1236,8 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     // match starts, so that the first of each explosion does not wait for
     // its file and a damaged one is reported now; their sequences are
     // decoded as explosions first ask for them.
-    for (std::size_t index = 0; index < oa::sim::combat_state::weapon_registry_capacity; ++index) {
-        const auto& weapon = weapon_registry_.definition(static_cast<uint8_t>(index));
+    for (std::size_t index = 0; index < weapon_registry_.capacity(); ++index) {
+        const auto& weapon = weapon_registry_.definition(static_cast<uint16_t>(index));
         for (const auto* name : {&weapon.explosion_gaf, &weapon.water_explosion_gaf})
             if (!name->empty())
                 load_explosion_gaf(*name);

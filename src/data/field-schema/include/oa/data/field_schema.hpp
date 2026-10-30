@@ -122,8 +122,12 @@ struct Check {
 /// @param record which record
 /// @param key field name
 /// @param text the value as written
+/// @param weapon_types the weapon types a weapon `id` is held to; 3.1c's 256
+///     unless the caller read a profile's limits.weapon-types
 /// @return the verdict and, unless it is ok, a sentence naming the key and the limit
-[[nodiscard]] Check check_text(RecordKind record, std::string_view key, std::string_view text);
+[[nodiscard]] Check check_text(
+    RecordKind record, std::string_view key, std::string_view text, uint32_t weapon_types = 256
+);
 
 /// Checks a number already parsed.
 ///
@@ -134,8 +138,11 @@ struct Check {
 /// @param record which record
 /// @param key field name
 /// @param value the number
+/// @param weapon_types the weapon types a weapon `id` is held to; 3.1c's 256
+///     unless the caller read a profile's limits.weapon-types
 /// @return the verdict and, unless it is ok, a sentence naming the key and the limit
-[[nodiscard]] Check check_number(RecordKind record, std::string_view key, double value);
+[[nodiscard]] Check
+check_number(RecordKind record, std::string_view key, double value, uint32_t weapon_types = 256);
 
 /// A value read from text, in the form a script sees.
 struct Value {

@@ -409,16 +409,14 @@ int getter_side_name(lua_State* lua) {
         push_nil(lua);
         return 1;
     }
-    const oa::PlayerSetupInfo* info = oa::world_player_info(&seat->match->state(), record);
-    if (info == nullptr || info->side >= 5) {
+    const oa::World& world = seat->match->state();
+    const oa::PlayerSetupInfo* info = oa::world_player_info(&world, record);
+    const oa::Side* side = info != nullptr ? oa::world_side(&world, info->side) : nullptr;
+    if (side == nullptr) {
         push_nil(lua);
         return 1;
     }
-    push_text(
-        lua,
-        seat->match->state().game.sides[info->side].name,
-        sizeof seat->match->state().game.sides[info->side].name
-    );
+    push_text(lua, side->name, sizeof side->name);
     return 1;
 }
 
@@ -536,6 +534,28 @@ int getter_metal_requested(lua_State* lua) {
     }
     script_host::push_f32(lua, record->metal_requested);
     return 1;
+}
+
+// What the seat's economy paid out at its last settlement. A seat with no
+// match has no settlement, so the field is nil.
+int push_spent(lua_State* lua, bool metal) {
+    charge_one(lua);
+    const Seat* seat = seat_of(lua);
+    if (seat == nullptr || seat->match == nullptr || seat->player >= OA_PLAYER_COUNT) {
+        push_nil(lua);
+        return 1;
+    }
+    const match_runtime::SettledSpending spending = seat->match->settled_spending(seat->player);
+    script_host::push_f32(lua, metal ? spending.metal : spending.energy);
+    return 1;
+}
+
+int getter_energy_spent(lua_State* lua) {
+    return push_spent(lua, false);
+}
+
+int getter_metal_spent(lua_State* lua) {
+    return push_spent(lua, true);
 }
 
 int getter_energy_surplus(lua_State* lua) {
@@ -1199,6 +1219,8 @@ void install_me(lua_State* lua, Seat& seat) {
     add_me_getter(lua, "metal_produced", getter_metal_produced);
     add_me_getter(lua, "energy_requested", getter_energy_requested);
     add_me_getter(lua, "metal_requested", getter_metal_requested);
+    add_me_getter(lua, "energy_spent", getter_energy_spent);
+    add_me_getter(lua, "metal_spent", getter_metal_spent);
     add_me_getter(lua, "energy_surplus", getter_energy_surplus);
     add_me_getter(lua, "metal_surplus", getter_metal_surplus);
     add_me_getter(lua, "tick", getter_tick);

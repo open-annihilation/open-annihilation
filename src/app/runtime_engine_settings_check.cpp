@@ -8,12 +8,18 @@
 #include "engine_settings_menu_host.hpp"
 #include "engine_settings_state.hpp"
 #include "oa_layer.hpp"
+#include "oa_layer_check.hpp"
+#include "pad_state.hpp"
 
 #include "oa/app/runtime.hpp"
+#include "oa/data/key_library/library.hpp"
+#include "oa/data/mod_profile.hpp"
+#include "oa/formats/oakeys/manifest.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/frontend_renderer/artless.hpp"
+#include "oa/ui/key_editor/screen.hpp"
 #include "oa/ui/kit/components.hpp"
 
 #include <SDL3/SDL.h>
@@ -21,7 +27,10 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -294,10 +303,28 @@ void Runtime::check_engine_settings() {
     check_engine_settings_in_menu();
     check_engine_settings_dialog();
     check_engine_settings_window_sizes();
+    check_engine_settings_controls();
     oa_layer().check_clear_screens();
     check_engine_settings_in_match();
     check_unsaved_unit_limit_ends_with_its_match();
     check_engine_settings_wiring();
+    // +switchalt still swaps groups and pages, and still saves SwitchAlt,
+    // after Controls stopped showing that row.
+    enter_console_check_line("+switchalt");
+    require(
+        engine_settings().switch_alt &&
+            (match_->state().game.graphics_flags & init::preference_flags::switch_alt) != 0 &&
+            saved_general_number("SwitchAlt") == 1,
+        "+switchalt did not swap groups and pages"
+    );
+    enter_console_check_line("+switchalt");
+    require(
+        !engine_settings().switch_alt &&
+            (match_->state().game.graphics_flags & init::preference_flags::switch_alt) == 0 &&
+            saved_general_number("SwitchAlt") == 0,
+        "+switchalt did not swap groups and pages back"
+    );
+    std::cout << "engine settings check: +switchalt swaps groups and pages\n";
     std::cout << "engine settings check: passed\n";
 }
 
@@ -766,15 +793,14 @@ void Runtime::check_engine_settings_in_menu() {
         "the dialog is not centred on the main menu at 80,78 at 1x"
     );
     {
-        auto expected = closed;
-        artless::blend_source_rect(
-            expected,
-            {0, 0, 1},
-            {0, 0, static_cast<int32_t>(expected.width), static_cast<int32_t>(expected.height)},
-            settings::backdrop_color,
-            settings::menu_backdrop_opacity
-        );
-        settings::draw_dialog(expected, {placement.x, placement.y, 1}, *dialog, *fonts, gears);
+        // The dialog's own drawing, its corners rounded and what lies outside
+        // them showing the darkened menu, as the layer shows it.
+        renderer::Surface drawing;
+        drawing.width = static_cast<uint32_t>(placement.width);
+        drawing.height = static_cast<uint32_t>(placement.height);
+        drawing.rgb.assign(static_cast<std::size_t>(drawing.width) * drawing.height * 3U, 0);
+        settings::draw_dialog(drawing, {0, 0, 1}, *dialog, *fonts, gears);
+        const auto expected = expected_layer_frame(closed, drawing, placed);
         const auto shown = frame();
         snapshot("engine-settings-menu-dialog", shown);
         require(
@@ -1099,6 +1125,323 @@ void Runtime::check_engine_settings_in_menu() {
               << settings_bottom.x << ',' << settings_bottom.y << " (" << settings_top.x << ','
               << settings_top.y << "), the dialog at " << placement.x << ',' << placement.y
               << " over the darkened main menu\n";
+}
+
+void Runtime::check_engine_settings_controls() {
+    namespace fs = std::filesystem;
+    namespace oakeys = oa::formats::oakeys;
+    namespace library = oa::data::key_library;
+    namespace editor = oa::ui::key_editor;
+    namespace profiles = oa::data::mod_profile;
+
+    require(sdl_.window != nullptr, "Controls needs the window");
+    require(!user_folder_.empty(), "Controls needs the player's folder");
+    if (engine_settings_dialog() != nullptr)
+        std::ignore = take_engine_settings_action(settings::DialogAction::cancelled);
+
+    int opened_width = 0;
+    int opened_height = 0;
+    SDL_GetWindowSize(sdl_.window, &opened_width, &opened_height);
+    auto& state = engine_settings_state();
+    const bool had_played = static_cast<bool>(state.played);
+    const profiles::ModProfile played_copy = had_played ? *state.played : profiles::ModProfile{};
+    const bool played_base = state.plays_base_rules;
+    const bool was_layered = state.layered;
+    const std::string profile_id = state.profile_id;
+    const auto saved_values = preference_values_;
+    const settings::EngineSettings saved_settings = engine_settings();
+
+    const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
+    const fs::path plain_folder = keys_folder / "plain-keys";
+    const fs::path ridge_folder = keys_folder / "ridge-keys";
+    const fs::path own_folder = keys_folder / library::own_folder_name("oa-default");
+
+    struct Restore {
+        Runtime& runtime;
+        int width{};
+        int height{};
+        bool had_played{};
+        profiles::ModProfile played{};
+        bool played_base{};
+        bool layered{};
+        std::string profile_id;
+        oa::platform::preferences::Values values;
+        settings::EngineSettings settings;
+        fs::path plain;
+        fs::path ridge;
+        fs::path own;
+
+        ~Restore() {
+            std::error_code ignored;
+            fs::remove_all(plain, ignored);
+            fs::remove_all(ridge, ignored);
+            fs::remove_all(own, ignored);
+            auto& live = runtime.engine_settings_state();
+            if (had_played && live.played)
+                *live.played = played;
+            else
+                live.played.reset();
+            live.plays_base_rules = played_base;
+            live.layered = layered;
+            live.profile_id = profile_id;
+            runtime.preference_values_ = values;
+            runtime.preferences_dirty_ = true;
+            try {
+                runtime.flush_preferences();
+                runtime.apply_engine_settings(settings);
+                runtime.load_key_bindings();
+            } catch (const std::exception& failure) {
+                std::cerr << "engine settings check: Controls could not restore: " << failure.what()
+                          << '\n';
+            }
+            if (runtime.sdl_.window != nullptr) {
+                std::ignore = SDL_SetWindowSize(runtime.sdl_.window, width, height);
+                std::ignore = SDL_SyncWindow(runtime.sdl_.window);
+                runtime.apply_output_mode();
+            }
+        }
+    } restore{
+        *this,
+        opened_width,
+        opened_height,
+        had_played,
+        played_copy,
+        played_base,
+        was_layered,
+        profile_id,
+        saved_values,
+        saved_settings,
+        plain_folder,
+        ridge_folder,
+        own_folder
+    };
+
+    const auto layout_of = [](std::string id, std::string name, bool for_ridge) {
+        oakeys::Manifest manifest;
+        manifest.format = oakeys::format_version;
+        manifest.id = std::move(id);
+        manifest.name = std::move(name);
+        manifest.version.major = 1;
+        manifest.version.parts = 1;
+        manifest.author.name = "Open Annihilation";
+        manifest.tags = {"orders"};
+        manifest.base = oakeys::Base::oa_default;
+        if (for_ridge)
+            manifest.works_with.push_back({"ridge", {}, {}});
+        return manifest;
+    };
+    const auto write_layout = [](const fs::path& folder, const oakeys::Manifest& manifest) {
+        std::error_code error;
+        fs::create_directories(folder, error);
+        require(!error, "the Keys folder was not made");
+        std::ofstream out(folder / std::string(oakeys::manifest_file), std::ios::binary);
+        const std::string text = oakeys::write_manifest(manifest);
+        out.write(text.data(), static_cast<std::streamsize>(text.size()));
+        require(static_cast<bool>(out), "a layout was not written");
+    };
+    write_layout(plain_folder, layout_of("plain-keys", "Plain keys", false));
+    write_layout(ridge_folder, layout_of("ridge-keys", "Ridge keys", true));
+
+    bool running = true;
+    const auto frames = [&](int32_t count) {
+        for (int32_t frame = 0; frame < count; ++frame) {
+            run_frame(running);
+            require(running, "a frame ended the run");
+        }
+    };
+    const auto named = [this](std::string_view name) -> std::optional<AutomationControl> {
+        std::vector<AutomationControl> controls;
+        oa_layer().automation_controls(controls);
+        for (const AutomationControl& control : controls)
+            if (control.name == name && control.visible && control.window_width > 0 &&
+                control.window_height > 0)
+                return control;
+        return std::nullopt;
+    };
+    const auto require_named = [&](std::string_view name, std::string_view why) {
+        const std::optional<AutomationControl> control = named(name);
+        require(control.has_value(), why);
+        return *control;
+    };
+    const auto pointer_at =
+        [&](oa::ui::display_layout::Point pixel, SDL_EventType type, uint8_t button) {
+            SDL_Event event = window_pointer_event(sdl_.window, sdl_.renderer, type, pixel, button);
+            dispatch_event(event, running);
+            require(running, "a pointer event ended the run");
+        };
+    const auto click_named = [&](std::string_view name) {
+        const AutomationControl control = require_named(name, std::string(name) + " is not shown");
+        const oa::ui::display_layout::Point pixel{
+            control.window_x + control.window_width / 2,
+            control.window_y + control.window_height / 2
+        };
+        pointer_at(pixel, SDL_EVENT_MOUSE_MOTION, 0);
+        pointer_at(pixel, SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT);
+        pointer_at(pixel, SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT);
+        frames(1);
+    };
+    const auto type_text = [&](std::string_view words) {
+        click_named("oa.key-editor.search");
+        for (const char letter : words) {
+            const char text[2] = {letter, '\0'};
+            SDL_Event typed{};
+            typed.type = SDL_EVENT_TEXT_INPUT;
+            typed.text.windowID = SDL_GetWindowID(sdl_.window);
+            typed.text.text = text;
+            dispatch_event(typed, running);
+            require(running, "typed text ended the run");
+        }
+        frames(1);
+    };
+    const auto show_row = [&](std::string_view name) {
+        for (int32_t step = 0; step < 30 && !named(name); ++step) {
+            require(named("oa.key-editor.list").has_value(), "the list is not shown");
+            if (step == 0)
+                click_named("oa.key-editor.list");
+            PadAccess::send_key(*this, SDLK_PAGEDOWN);
+            frames(1);
+        }
+        require(named(name).has_value(), std::string(name) + " is not shown");
+    };
+    const auto close_settings = [&] {
+        if (engine_settings_dialog() != nullptr)
+            std::ignore = take_engine_settings_action(settings::DialogAction::cancelled);
+        frames(1);
+        require(engine_settings_dialog() == nullptr, "Settings stayed open");
+    };
+    const auto open_controls = [&] {
+        if (screen_ != Screen::main_menu)
+            load(Screen::main_menu);
+        frames(2);
+        if (LayerScreen* welcome = oa_layer().find("first-run")) {
+            oa_layer().close(welcome);
+            frames(1);
+        }
+        PadAccess::send_key(*this, SDLK_COMMA, kShortcutModifier);
+        frames(2);
+        require(
+            engine_settings_dialog() != nullptr && oa_layer().find("settings") != nullptr,
+            "Settings did not open"
+        );
+        click_named("oa.settings.nav.controls");
+        require(
+            engine_settings_dialog()->page == settings::Page::controls, "Controls did not show"
+        );
+    };
+    const auto snapshot = [&](std::string_view size) {
+        if (options_.snapshot.empty())
+            return;
+        const std::string step = std::string("settings-controls-") + std::string(size);
+        oa_layer().read_whole_window(true);
+        renderer::Surface presented;
+        capture_frame_ = &presented;
+        render();
+        capture_frame_ = nullptr;
+        oa_layer().read_whole_window(false);
+        const fs::path path = step_snapshot(options_.snapshot, step);
+        write_ppm(path, presented);
+        std::cout << "engine settings check: " << path.string() << '\n';
+    };
+
+    const std::array<std::pair<int, int>, 3> windows{{{640, 480}, {1280, 720}, {1920, 1080}}};
+    for (const auto& [width, height] : windows) {
+        const std::string size = std::to_string(width) + 'x' + std::to_string(height);
+        require(
+            SDL_SetWindowSize(sdl_.window, width, height) && SDL_SyncWindow(sdl_.window),
+            size + " was not taken"
+        );
+        apply_output_mode();
+        open_controls();
+        require(named("oa.settings.key-layout.edit").has_value(), size + " hides Key layout");
+        require(
+            named("oa.settings.show-keys-on-buttons").has_value(),
+            size + " hides Show keys on buttons"
+        );
+        require(
+            !named("oa.settings.key-layout-for-mod").has_value(),
+            size + " shows Key layout with a mod while none is played"
+        );
+        std::cout
+            << "engine settings check: " << size
+            << " lists Key layout and Show keys on buttons, and hides Key layout with a mod\n";
+        snapshot(size);
+        close_settings();
+    }
+
+    profiles::ModProfile ridge;
+    ridge.id = "ridge";
+    ridge.name = "Ridge";
+    if (!state.played)
+        state.played = std::make_shared<profiles::ModProfile>();
+    *state.played = ridge;
+    state.layered = true;
+    state.plays_base_rules = false;
+    state.profile_id = "ridge";
+
+    require(
+        SDL_SetWindowSize(sdl_.window, 1280, 720) && SDL_SyncWindow(sdl_.window),
+        "1280x720 was not taken"
+    );
+    apply_output_mode();
+    open_controls();
+    require(
+        named("oa.settings.key-layout.edit").has_value() &&
+            named("oa.settings.key-layout-for-mod").has_value() &&
+            named("oa.settings.show-keys-on-buttons").has_value(),
+        "Ridge played does not list the three Controls rows"
+    );
+    std::cout << "engine settings check: Ridge lists Key layout, Key layout with Ridge and Show "
+                 "keys on buttons\n";
+
+    click_named("oa.settings.key-layout.edit");
+    require(
+        oa_layer().find(editor::screen_name) != nullptr && oa_layer().find("settings") != nullptr &&
+            oa_layer().top() != nullptr && oa_layer().top()->name() == editor::screen_name,
+        "EDIT KEYS did not open the key editor over Settings"
+    );
+    std::cout << "engine settings check: EDIT KEYS opens the key editor over Settings\n";
+    type_text("attack");
+    show_row("oa.key-editor.row.order.attack");
+    click_named("oa.key-editor.row.order.attack");
+    click_named("oa.key-editor.detail.chord.1.remove");
+    PadAccess::send_key(*this, SDLK_ESCAPE);
+    frames(1);
+    click_named("oa.key-editor.save");
+    require(oa_layer().find(editor::screen_name) == nullptr, "SAVE did not close the editor");
+    require(oa_layer().find("settings") != nullptr, "SAVE closed Settings under the editor");
+    require(
+        engine_settings_dialog() != nullptr &&
+            engine_settings_dialog()->key_layout_summary == "OA default · 1 change of your own",
+        "SAVE did not show OA default · 1 change of your own"
+    );
+    std::cout << "engine settings check: SAVE shows OA default · 1 change of your own\n";
+
+    click_named("oa.settings.key-layout-for-mod");
+    click_named("oa.settings.key-layout-for-mod.ridge-keys");
+    const auto layout_key = preference_values_.find("open-annihilation.keys.layout.ridge");
+    require(
+        layout_key != preference_values_.end() && layout_key->second == "ridge-keys",
+        "the Ridge layout was not saved under open-annihilation.keys.layout.ridge"
+    );
+    std::cout << "engine settings check: the Ridge layout is open-annihilation.keys.layout.ridge\n";
+
+    // Show keys on buttons is Off until the player turns it on.
+    require(
+        require_named("oa.settings.show-keys-on-buttons.off", "Show keys on buttons is not shown")
+            .checked,
+        "Show keys on buttons is not Off by default"
+    );
+    click_named("oa.settings.show-keys-on-buttons.on");
+    click_named("oa.settings.ok");
+    require(engine_settings_dialog() == nullptr, "OK did not close Settings");
+    const auto saved = oa::platform::preferences::load(preference_path_);
+    const auto shown = saved.find("open-annihilation.keys.show-on-buttons");
+    require(
+        shown != saved.end() && shown->second == "1",
+        "Show keys on buttons On did not write open-annihilation.keys.show-on-buttons 1"
+    );
+    std::cout << "engine settings check: Show keys on buttons is Off by default, and On writes "
+                 "open-annihilation.keys.show-on-buttons 1\n";
 }
 
 } // namespace oa::app

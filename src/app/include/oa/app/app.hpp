@@ -242,16 +242,16 @@ enum class MatchCommand {
 
 /// Where the Game files screen's check goes (--game-files-route).
 enum class GameFilesRoute : uint8_t {
-    folder,        ///< CHOOSE FOLDER: a folder copied in (default)
-    demo,          ///< CHOOSE INSTALLER: the demo's installer
-    copy_yourself, ///< I HAVE COPIED IT: files the player copied into the game folder's parent
+    folder,        ///< Choose folder: a folder copied in (default)
+    demo,          ///< Choose installer: the demo's installer
+    copy_yourself, ///< I have copied it: files the player copied into the game folder's parent
     manage,        ///< the management state over an installed folder
 };
 
 /// What the Game files screen's check expects (--game-files-expect).
 enum class GameFilesExpect : uint8_t {
     main_menu,    ///< the route ends at the main menu (default)
-    stopped_kept, ///< STOP, KEEP WHAT WAS COPIED, then quit (with --game-files-stop-after)
+    stopped_kept, ///< Stop, Keep what was copied, then quit (with --game-files-stop-after)
     resumed,      ///< the continue banner, the same folder chosen, files skipped, main menu
     not_a_game,   ///< the problem "This folder does not hold a Total Annihilation installation"
     short_space,  ///< the problem "Not enough space"
@@ -316,6 +316,13 @@ struct Options {
     /// The version a launch required of each entry of `mutators`. Empty when
     /// the file named none, and for an entry `--mutator` named.
     std::vector<std::string> mutator_versions{};
+    /// Uses this layout for one run (--keys ID|PATH): an installed id, a folder
+    /// holding oakeys.yaml, or an oakeys.yaml file. Empty uses the preferences.
+    /// Nothing is saved.
+    std::string keys{};
+    /// Plays oa-default with no own changes for one run (--keys-reset). Nothing
+    /// is saved. Refused together with `--keys`.
+    bool keys_reset = false;
     /// The base game and expansions for this run (--content
     /// GAME[:EXPANSION,...]). Empty when the run uses the remembered choice.
     /// It is not written to the preferences, and the mounted files change
@@ -415,6 +422,9 @@ struct Options {
     // (src/app/README.md).
     fs::path stage_file;
     bool reclaim_check = false;
+    // --weapon-fire-check TYPE: a headless skirmish places that unit type and
+    // checks its first weapon fires at a unit and a feature. Empty runs none.
+    std::string weapon_fire_check;
     // Headless camera placement: map pixel at the view's top-left.
     std::optional<std::pair<int, int>> camera;
     // Headless savegames: save once the tick reaches save_after (to save_file),
@@ -476,9 +486,19 @@ struct Options {
     // MOVE ORDERS, CLOAK, ON/OFF and MOVE buttons through the SDL presenter and
     // checks the units carry the orders out.
     bool check_side_orders = false;
+    // Clicks the skirmish Side button through every offered side, and back
+    // when the game has more than five, and checks the face each side shows.
+    bool check_skirmish_sides = false;
+    // Opens Settings on Engine Limits at the menu and in a two-slot skirmish
+    // and checks the weapon-type and side rows.
+    bool check_mod_limits = false;
     // Gives a Kbot Lab a move through the SDL presenter and checks the unit it
     // builds carries it out.
     bool check_factory_orders = false;
+    // Has a Vehicle Plant build a Construction Vehicle and checks that every
+    // frame of a small scroll draws the vehicle over the plant's platform
+    // while it drives off it.
+    bool check_factory_departure = false;
     // Selects the commander and sends it to open ground through the SDL
     // presenter, in two skirmishes one after the other, and checks the
     // select and order lines it says.
@@ -527,8 +547,22 @@ struct Options {
     // so that the game's tallest unit page ends on the window's last row;
     // empty for no check.
     std::string check_unit_pages;
+    // Drives every key, click and wheel the match answers and compares what
+    // each did with the named table; empty for no check.
+    std::string check_key_table;
+    // Checks slow keys, bounce keys, the double-press time, the player's
+    // repeat and the drag threshold on one skirmish.
+    bool check_key_timing = false;
+    // Drives the pointer from the numpad on the main menu and in one skirmish.
+    bool check_pointer_keys = false;
     // Presses F4 in a skirmish and checks the kills board at the top right.
     bool check_kill_board = false;
+    // Latches Shift and Space from a scratch layout, then sticky Ctrl and Alt.
+    bool check_key_latches = false;
+    // Holds self-destruct and the surrender question's Yes for the long-press time.
+    bool check_hold_confirm = false;
+    // Opens the order wheel from a held mouse button on a skirmish.
+    bool check_order_wheel = false;
     // Pauses a skirmish with the Pause key, saves it from the in-game menu,
     // loads the save and checks the loaded game runs, and that Pause and the
     // in-game menu still hold it and let it go.
@@ -585,6 +619,35 @@ struct Options {
     // Shows the progress dialog for a slow fixture, checks it animates and
     // closes with no input, writes pictures, and checks the four languages.
     bool check_progress = false;
+    /// The feed a self-check looks at instead of the published one.
+    /// Empty uses the published feed.
+    std::optional<std::string> update_feed;
+    /// Keys that may sign `update_feed`, each `ID=ed25519:KEY`.
+    std::vector<std::string> update_keys;
+    /// Serves a feed and checks the background check for a new release.
+    bool check_engine_feed = false;
+    /// Serves a feed and checks the question a new release asks.
+    bool check_update_offer = false;
+    /// The version this start replaced. The first settled main menu says so
+    /// once, when this build is newer.
+    std::optional<std::string> updated_from;
+    /// A folder the self-check installs into, which gives this build a route.
+    std::optional<fs::path> update_install_folder;
+    /// Checks, downloads and quits, with no prompt. Needs a feed.
+    bool update_and_quit = false;
+    /// Serves a package and checks the download, the ready prompt and the hand-off.
+    bool check_update_download = false;
+    /// Which part of --check-update-download to run. Empty runs the resume.
+    std::string update_download_case;
+    /// The version this start replaced by rolling back. Every build. The
+    /// settled main menu says it is back on this build.
+    std::optional<std::string> rolled_back_from;
+    /// Why that roll back happened: `failed-starts` or `player`.
+    std::string roll_back_reason;
+    /// Checks confirming, the prompt, Roll back… and that a check is not a start.
+    bool check_update_roll_back = false;
+    /// Which part of --check-update-roll-back to run.
+    std::string roll_back_case;
     // Holds one evicted archive's read, checks the window keeps drawing the
     // iCloud line, then continues the folder step.
     bool check_icloud_wait = false;
@@ -607,6 +670,12 @@ struct Options {
     // high ground through the SDL presenter and checks each is picked where
     // it is drawn.
     bool check_wreck_pick = false;
+    // Draws metal patches under the water, in open water, at a shore and at
+    // the edge of a unit's sight, in the Off, Basic and Full tiers and checks
+    // each against the processor's picture; skips (exit code 77) under 2 GiB
+    // of memory or on a renderer the probe finds not capable
+    // (<report dir>/native-underwater-features-*.png).
+    bool check_underwater_features = false;
     // Clicks RECLAIM beside a wreck and builds a metal extractor beside a
     // deposit through the SDL presenter, with ui.click-snap on or off, and
     // checks the cursor RECLAIM shows and where each click lands.
@@ -615,6 +684,11 @@ struct Options {
     // building drawn there (ui.build-preview): its pulse, the same at every
     // zoom and frame rate, and that it is drawn the right way up.
     bool check_build_preview = false;
+    // Opens the in-game briefing, the save dialog and the help dialog over a
+    // paused CORE mission in the standard, Basic and Full tiers at several
+    // zooms, and checks that each leaves the battlefield outside its panel
+    // as the match's frame showed it.
+    bool check_dialog_backdrop = false;
     // Drives both interface types' pointer buttons through the SDL presenter:
     // clicks and right presses, shift cancels, radar scrolls, mouse look and a
     // factory build button's right click.
@@ -622,6 +696,9 @@ struct Options {
     /// --check-megamap-clicks: the megamap's clicks (ui.megamap) against the
     /// battlefield's in both interface types, on a skirmish.
     bool check_megamap_clicks = false;
+    /// --check-single-player-offers: New Campaign and Any Mission on SINGLE.GUI
+    /// when a side has a campaign, and when neither side has one.
+    bool check_single_player_offers = false;
     /// --check-radar-orders: presses on the minimap (the radar) in both
     /// interface types, for every armed command and the default order, on a
     /// skirmish.
@@ -658,7 +735,7 @@ struct Options {
     std::optional<uint64_t> game_files_free_bytes{};
     /// --game-files-copy-rate BYTES: the bytes a second the check's copy is held to.
     std::optional<uint64_t> game_files_copy_rate{};
-    /// --game-files-stop-after BYTES: the check presses STOP once this much was copied.
+    /// --game-files-stop-after BYTES: the check presses Stop once this much was copied.
     std::optional<uint64_t> game_files_stop_after{};
     // Clicks MULTI on the main menu through the SDL presenter and checks
     // what it reaches: network play's check of the multiplayer screens (the
@@ -728,6 +805,29 @@ struct Options {
     // columns and window, its installed maps, its search, the clashing map
     // greyed with its reason, and Select moving SELMAP's selection.
     bool check_map_browser = false;
+    // Opens the key editor over Settings at 640x480, 1280x720 and 1920x1080,
+    // then the list's edits, the save, a paused skirmish and Developer Mode.
+    // A scratch folder holds the player's own layout.
+    bool check_key_editor = false;
+    // Captures a chord over a paused skirmish, settles a clash, and opens a
+    // draft clash on the Clashes filter. A scratch folder holds the layout.
+    bool check_key_capture = false;
+    // Shares, pastes and imports a layout, and installs a dropped .oakeys,
+    // at 640x480, 1280x720 and 1920x1080. A scratch folder holds the files.
+    bool check_key_share = false;
+    // The key editor's keyboard and mouse at 640x480, 1280x720 and 1920x1080,
+    // each modifier layer, the shape drop-down, a free key, the mouse's
+    // Forward and Left-click saved as Interface Type.
+    bool check_key_views = false;
+    // Opens the keys overlay in a skirmish: the playing and placing lists,
+    // the editor pausing the clock, order badges, help lines, the rotate
+    // hint and a latched QUEUE chip. A scratch folder holds the own layout.
+    bool check_keys_overlay = false;
+    // Presses 3.1c's Ctrl+letter keys in a skirmish as the system sends them,
+    // and Primary+/, and requires the selection each one makes, the minimap's
+    // radar rings after Ctrl+R, a stored group, when its key centres the view
+    // and the keys overlay.
+    bool check_selection_keys = false;
     // Opens the mutator picker over the main menu at four window sizes, on
     // a feed of made-up mutators, and requires the rows, a download, the
     // turn-off question, a drag, the handed set and the verdict chip.
@@ -745,7 +845,7 @@ struct Options {
     // and a loaded campaign save seat. A scratch preferences file holds
     // the seat.
     bool check_brain_campaign = false;
-    // A skirmish one made-up mutator stops, START WITHOUT IT and BACK, the
+    // A skirmish one made-up mutator stops, START WITHOUT IT and Back, the
     // question after a crash, and Get mutators over the picker.
     bool check_mutator_prompts = false;
     // On SKIRMISH and NEWGAME at 640x480 and 1280x720, requires MUTATORS…,
@@ -778,7 +878,7 @@ struct Options {
     // and none for the second.
     bool check_mod_warning = false;
     // --open FILE and --install-mod FILE, repeated, and the bare arguments
-    // that name a .oamod, .oalang, .oamap, .oamut, .oabrain or .oareg file, any case: files to
+    // that name a .oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys or .oareg file, any case: files to
     // open once the main menu shows; absolute, in the order given.
     std::vector<fs::path> open_files;
     // Installs made-up mod packages through each of the main menu's
@@ -805,8 +905,8 @@ struct Options {
     bool check_library = false;
     // Installs made-up mod packages posted as the download queue posts them,
     // from a built-in registry and two added ones, while the Library shows:
-    // the questions each registry asks, the refusals in its queue, ROLL BACK
-    // and PLAY NOW from it, and an update to the mod played held until the
+    // the questions each registry asks, the refusals in its queue, Roll back…
+    // and Play now from it, and an update to the mod played held until the
     // mod is switched, over soft restarts.
     bool check_library_install = false;
     // Opens the Library on Maps with three packs, one picture from a pack,
@@ -889,7 +989,8 @@ struct Options {
     /// Accepts the legacy 3D launch flag; Graphics settings now control camera access.
     bool experimental_3d{};
     // --force-capable, which only --check-render-tiers, --check-build-preview,
-    // --check-engine-settings and --check-kill-board take: the renderer
+    // --check-dialog-backdrop, --check-engine-settings and --check-kill-board
+    // take: the renderer
     // counts as one the graphics card could scale the frames on, so that the
     // accelerated tier runs on SDL's software renderer, and neither the
     // environment's render driver nor SDL's software renderer locks Hardware

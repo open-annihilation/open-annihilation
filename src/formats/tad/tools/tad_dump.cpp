@@ -94,6 +94,16 @@ bool dump(const std::filesystem::path& path) {
         std::printf("recorder        %s\n", std::string(tad::sector_text(*sector)).c_str());
     if (const auto* sector = tad::find_sector(demo, tad::SectorType::recording_date))
         std::printf("date            %s\n", std::string(tad::sector_text(*sector)).c_str());
+    tad::RecordForms record_forms = tad::RecordForms::narrow;
+    if (const auto* limits_sector = tad::find_sector(demo, tad::SectorType::limits)) {
+        if (const auto decoded = tad::decode_limits_sector(*limits_sector)) {
+            std::printf(
+                "limits          %u weapon types, %u sides\n", decoded->weapon_types, decoded->sides
+            );
+            if (decoded->weapon_types > tad::recorded_base_weapon_types)
+                record_forms = tad::RecordForms::wide;
+        }
+    }
     for (const auto& sector : demo.sectors)
         std::printf("sector          type %u, %zu bytes\n", sector.type, sector.data.size());
     for (const auto& player : demo.players) {
@@ -159,7 +169,7 @@ bool dump(const std::filesystem::path& path) {
                 );
             continue;
         }
-        const auto split = tad::split_records(decoded.bytes);
+        const auto split = tad::split_records(decoded.bytes, record_forms);
         if (split.error && !decoded.bytes.empty()) {
             if (++split_failures <= 5)
                 std::printf(

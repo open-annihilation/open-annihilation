@@ -752,6 +752,8 @@ expect(me.energy_produced:bits(), res_energy_produced, "energy produced")
 expect(me.metal_produced:bits(), res_metal_produced, "metal produced")
 expect(me.energy_requested:bits(), res_energy_requested, "energy requested")
 expect(me.metal_requested:bits(), res_metal_requested, "metal requested")
+expect(me.energy_spent:bits(), res_energy_spent, "energy spent")
+expect(me.metal_spent:bits(), res_metal_spent, "metal spent")
 if me.energy_surplus ~= surplus_energy then
     error("energy surplus")
 end
@@ -904,6 +906,9 @@ if me.energy ~= nil then
 end
 if me.metal_surplus ~= nil then
     error("surplus")
+end
+if me.energy_spent ~= nil or me.metal_spent ~= nil then
+    error("spent")
 end
 if me.tick ~= nil then
     error("tick")
@@ -1262,6 +1267,9 @@ void read_the_side(const std::string& script) {
     add_number(published, "res_metal_produced", bits_of(economy.metal_produced));
     add_number(published, "res_energy_requested", bits_of(economy.energy_requested));
     add_number(published, "res_metal_requested", bits_of(economy.metal_requested));
+    const auto spending = fixture.match->settled_spending(computer);
+    add_number(published, "res_energy_spent", bits_of(spending.energy));
+    add_number(published, "res_metal_spent", bits_of(spending.metal));
     add_double(published, "surplus_energy", energy_surplus);
     add_double(published, "surplus_metal", metal_surplus);
     add_number(published, "match_tick", world.game.tick);
@@ -1699,6 +1707,8 @@ void starts_are_nil_outside_a_match() {
         "if game.starts ~= nil then error(\"starts\") end\n"
         "if game.map == nil then error(\"map\") end\n"
         "if game.map:starts() ~= nil then error(\"map starts\") end\n"
+        "if me.energy == nil then error(\"energy\") end\n"
+        "if me.energy_spent ~= nil or me.metal_spent ~= nil then error(\"spent\") end\n"
         "local rows = me:players()\n"
         "if #rows ~= 2 then error(\"players\") end\n"
         "for _, row in ipairs(rows) do\n"
@@ -1762,6 +1772,34 @@ void random_starts_hide_the_other_rows() {
     run_chunk(*sandbox, read_random_starts);
 }
 
+void side_past_the_fifth_names_itself() {
+    Fixture fixture;
+    oa::World& world = fixture.match->state();
+    std::array<oa::Side, 7> table{};
+    const char* names[] = {"Arm", "Core", "Ridge2", "Ridge3", "Ridge4", "Ridge5", "Ridge6"};
+    for (uint32_t index = 0; index < table.size(); ++index) {
+        table[index].side_index = index;
+        copy_text(table[index].name, sizeof table[index].name, names[index]);
+    }
+    oa::Side first_five[OA_SIDE_COUNT];
+    std::memcpy(first_five, table.data(), sizeof first_five);
+    fixture.match->bind_sides(table, 7);
+    CHECK(world.game.side_count == 7);
+    CHECK(std::memcmp(world.game.sides, first_five, sizeof first_five) == 0);
+
+    oa::PlayerSetupInfo* info = oa::world_player_info(&world, &world.game.players[computer]);
+    CHECK(info != nullptr);
+    info->side = 6;
+    seat_reader(fixture, "return {}\n", computer);
+    host::Sandbox* sandbox = brains::seat_sandbox(*fixture.match, computer);
+    CHECK(sandbox != nullptr);
+    run_chunk(*sandbox, "if me.side_name ~= \"Ridge6\" then error(tostring(me.side_name)) end\n");
+    info->side = 7;
+    run_chunk(*sandbox, "if me.side_name ~= nil then error(\"side 7\") end\n");
+    info->side = 1;
+    run_chunk(*sandbox, "if me.side_name ~= \"Core\" then error(tostring(me.side_name)) end\n");
+}
+
 void starts_appear_when_the_match_places_players() {
     Fixture fixture;
     seat_reader(fixture, "return {}\n", computer);
@@ -1814,6 +1852,7 @@ int main() {
         fixed_starts_and_alliances();
         random_starts_hide_the_other_rows();
         starts_appear_when_the_match_places_players();
+        side_past_the_fifth_names_itself();
     } catch (const std::exception& ex) {
         std::fprintf(stderr, "sim-brains-me: %s\n", ex.what());
         return 1;

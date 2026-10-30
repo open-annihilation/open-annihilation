@@ -4,8 +4,22 @@
 // Writes the manual's pictures of the settings dialog: each section alone,
 // unlocked, at Compact and 2x (960 by 648), in the installed game's fonts,
 // and Controls, Graphics, Downloads and System scrolled to their ends.
+// Updates is the update centre's card: up to date (updates-1), a release
+// offered (updates-2), and the section's end with Previous version
+// (updates-3). An empty card heading would leave the older status row.
 //
-// Usage: oa-ui-engine-settings-pictures DIRECTORY
+// Usage: oa-ui-engine-settings-pictures DIRECTORY [--classes] [--modern FONTS]
+//
+// With --classes it writes, in place of the manual's pictures, every section
+// at each size class, Compact, Regular and Large, at 2x, named
+// <section>-<class>.png, and <section>-<class>-end.png for one scrolled to
+// its end: the key layout card naming four changes of the player's own, and
+// the practice pad with Sticky modifiers and Hold to confirm on and Shift
+// tapped.
+//
+// With --modern it draws in the modern look, Barlow from the fonts folder
+// FONTS (the build's staged fonts, or local/deps/text-fonts), and shows Look
+// at Modern; without it, in the classic look, the game's fonts.
 //
 // The data test ui-engine-settings-pictures runs this into a scratch folder.
 // Without OA_GAME_DIR it skips, as the other game-data tests do.
@@ -18,13 +32,17 @@
 #include "oa/ui/frontend_renderer.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <string>
 #include <string_view>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -37,7 +55,7 @@ using settings::Dialog;
 using settings::Page;
 
 constexpr int32_t kScale = 2;
-constexpr std::string_view kVersion = "v0.8.0";
+constexpr std::string_view kVersion = "v0.8.7";
 
 /// The app icon, cropped to the pixels that show, as the dialog's header
 /// draws it. The file is the plates the window icon is made from.
@@ -148,14 +166,36 @@ AppIcon load_app_icon() {
 std::string picture_name(Page page) {
     const std::string word(settings::page_word(page));
     if (word == "controls" || word == "language" || word == "graphics" || word == "downloads" ||
-        word == "system")
+        word == "system" || word == "updates" || word == "accessibility")
         return word + "-1.png";
     return word + ".png";
 }
 
+/// Adds one of the update card's actions, already as the manual shows it.
+///
+/// @param dialog the dialog
+/// @param id the button's word to automation
+/// @param caption the button's words
+void add_update_action(Dialog& dialog, std::string id, std::string caption) {
+    settings::UpdateCardAction action;
+    action.id = std::move(id);
+    action.caption = std::move(caption);
+    dialog.updates.actions.push_back(std::move(action));
+}
+
+/// Sets Look from the fonts: Modern while they hold Barlow, otherwise Classic.
+///
+/// @param dialog the dialog
+/// @param fonts the fonts the picture is drawn in
+void apply_look(Dialog& dialog, const settings::DialogFonts& fonts) {
+    dialog.chosen.look =
+        oa::ui::kit::modern_look(fonts) ? settings::Look::modern : settings::Look::classic;
+}
+
 /// Fills the rows a host supplies, at the defaults the manual shows.
+/// Updates is the card: Installed 0.8.7, Up to date, Check now.
 void dress(Dialog& dialog) {
-    // The main menu lists More in the Library… and REGISTRIES IN THE LIBRARY….
+    // The main menu lists More in the Library… and Registries in the Library….
     dialog.library_link = true;
     dialog.user_folder = "/Users/player/Documents/Open Annihilation";
     dialog.game_files_summary = "3.1c · Core Contingency · Battle Tactics · music";
@@ -183,6 +223,17 @@ void dress(Dialog& dialog) {
     dialog.game_content.push_back(bundle("cc", "Core Contingency", "42 MB"));
     dialog.game_content.push_back(bundle("bt", "Battle Tactics", "28 MB"));
     dialog.game_content.push_back(bundle("ta-music", "Total Annihilation Music", "61 MB"));
+
+    dialog.updates.version_line = "Open Annihilation 0.8.7";
+    dialog.updates.status = "Up to date";
+    dialog.updates.can_check = true;
+    dialog.updates.offered = false;
+    dialog.updates.mode = static_cast<int32_t>(settings::UpdateCheck::automatically);
+    dialog.updates.card_installed = "Installed 0.8.7";
+    dialog.updates.card_status = "Up to date";
+    add_update_action(dialog, "check", "Check now");
+    // Two of the registry's latchable actions are on, so the row reads "2 of 7".
+    dialog.latched_count = 2;
 }
 
 Dialog section_dialog(Page page) {
@@ -232,14 +283,18 @@ bool draw_section(
     const renderer::RgbaPicture& icon,
     const std::filesystem::path& path
 ) {
-    const int32_t width = settings::dialog_width * kScale;
-    const int32_t height = settings::dialog_height * kScale;
+    settings::DialogFonts drawn = fonts;
+    drawn.size_class = dialog.size_class;
+    const oa::ui::kit::Metrics& metrics = oa::ui::kit::metrics_of(dialog.size_class);
+    const int32_t width = metrics.dialog_width * kScale;
+    const int32_t height = metrics.dialog_height * kScale;
     renderer::Surface surface;
     surface.width = static_cast<uint32_t>(width);
     surface.height = static_cast<uint32_t>(height);
     surface.rgb.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3, 0);
-    settings::draw_dialog(surface, {0, 0, kScale}, dialog, fonts, icon);
-    if (surface.width != 960 || surface.height != 648) {
+    settings::draw_dialog(surface, {0, 0, kScale}, dialog, drawn, icon);
+    if (dialog.size_class == oa::ui::kit::SizeClass::compact &&
+        (surface.width != 960 || surface.height != 648)) {
         std::cerr << "pictures: " << path.filename().string() << " is " << surface.width << " by "
                   << surface.height << ", not 960 by 648\n";
         return false;
@@ -253,14 +308,87 @@ bool draw_section(
 
 } // namespace
 
+/// Writes every section at each size class, at its top and, where it
+/// scrolls, at its end.
+///
+/// @param fonts the dialog's fonts
+/// @param icon the app icon
+/// @param directory where the pictures go
+/// @return true when every picture was written
+bool draw_classes(
+    const settings::DialogFonts& fonts,
+    const renderer::RgbaPicture& icon,
+    const std::filesystem::path& directory
+) {
+    constexpr std::array<std::pair<oa::ui::kit::SizeClass, std::string_view>, 3> classes{{
+        {oa::ui::kit::SizeClass::compact, "compact"},
+        {oa::ui::kit::SizeClass::regular, "regular"},
+        {oa::ui::kit::SizeClass::large, "large"},
+    }};
+    bool ok = true;
+    for (const auto& [size_class, word] : classes) {
+        for (const Page page :
+             settings::dialog_pages(settings::DialogKind::engine, true, true, true)) {
+            Dialog dialog = section_dialog(page);
+            settings::set_dialog_size_class(dialog, size_class);
+            dialog.chosen.look =
+                oa::ui::kit::modern_look(fonts) ? settings::Look::modern : settings::Look::classic;
+            dialog.key_layout_name = "OA default";
+            dialog.key_layout_changes = 4;
+            dialog.chosen.sticky_modifiers = true;
+            dialog.chosen.hold_to_confirm = true;
+            if (page == Page::accessibility) {
+                settings::PracticeKey shift;
+                shift.modifier = settings::PracticeModifier::shift;
+                shift.label = "Shift";
+                std::ignore = settings::dialog_practice_key(dialog, shift, true, 1000);
+                std::ignore = settings::dialog_practice_key(dialog, shift, false, 1100);
+            }
+            const std::string name =
+                std::string(settings::page_word(page)) + "-" + std::string(word);
+            if (!draw_section(dialog, fonts, icon, directory / (name + ".png")))
+                ok = false;
+            if (settings::scroll_limit(dialog) > 0) {
+                dialog.scroll[static_cast<std::size_t>(page)] = settings::scroll_limit(dialog);
+                if (!draw_section(dialog, fonts, icon, directory / (name + "-end.png")))
+                    ok = false;
+            }
+        }
+    }
+    return ok;
+}
+
 int main(int argc, char** argv) {
-    if (argc != 2) {
-        std::cerr << "usage: oa-ui-engine-settings-pictures DIRECTORY\n";
+    bool classes = false;
+    std::filesystem::path modern_fonts;
+    bool usable = argc >= 2;
+    for (int index = 2; usable && index < argc; ++index) {
+        const std::string_view option(argv[index]);
+        if (option == "--classes")
+            classes = true;
+        else if (option == "--modern" && index + 1 < argc)
+            modern_fonts = argv[++index];
+        else
+            usable = false;
+    }
+    if (!usable) {
+        std::cerr
+            << "usage: oa-ui-engine-settings-pictures DIRECTORY [--classes] [--modern FONTS]\n";
         return 2;
     }
     const std::filesystem::path directory(argv[1]);
     oa::AssetStore assets = oa::test::require_game_assets("the settings pictures");
-    const settings::DialogFonts fonts = settings::load_dialog_fonts(assets);
+    settings::DialogFonts fonts = settings::load_dialog_fonts(assets);
+    // The modern look draws in Barlow from the folder named.
+    std::unique_ptr<oa::platform::text_font::FontStack> modern;
+    if (!modern_fonts.empty()) {
+        modern = oa::platform::text_font::FontStack::open(modern_fonts);
+        if (!modern) {
+            std::cerr << "pictures: cannot open the fonts in " << modern_fonts.string() << '\n';
+            return 1;
+        }
+        fonts.modern = modern.get();
+    }
     const AppIcon icon = load_app_icon();
     if (icon.pixels.empty())
         return 1;
@@ -272,17 +400,45 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    if (classes)
+        return draw_classes(fonts, icon.picture, directory) ? 0 : 1;
     bool ok = true;
     for (const Page page : settings::dialog_pages(settings::DialogKind::engine, true, true, true)) {
         Dialog dialog = section_dialog(page);
+        apply_look(dialog, fonts);
         if (!draw_section(dialog, fonts, icon.picture, directory / picture_name(page)))
             ok = false;
-        // Controls, Graphics, Downloads and System scrolled to their ends:
-        // Window edge and Edge stickiness, the water sliders down to Naval
-        // reflections, the downloads' last rows, and the file-type switches
-        // down to Launch files.
-        if (page == Page::controls || page == Page::graphics || page == Page::downloads ||
-            page == Page::system) {
+        // Updates again: the card while 0.8.8 is out. That picture is not
+        // the section scrolled to its end.
+        if (page == Page::updates) {
+            dialog.updates.offered = true;
+            dialog.updates.can_check = true;
+            dialog.updates.card_status = "0.8.8 is out";
+            dialog.updates.card_detail = "You have 0.8.7. The update is 24.5 MB.";
+            dialog.updates.card_note = "Your saved games, settings and mods stay as they are.";
+            dialog.updates.actions.clear();
+            add_update_action(dialog, "download", "Download update");
+            add_update_action(dialog, "skip", "Skip this version");
+            if (!draw_section(dialog, fonts, icon.picture, directory / "updates-2.png"))
+                ok = false;
+            // The end: Check for updates, Install updates, and Previous
+            // version · 0.8.6 with Roll back….
+            Dialog end = section_dialog(page);
+            apply_look(end, fonts);
+            end.updates.show_download = true;
+            end.updates.kept_version = "0.8.6";
+            end.scroll[static_cast<std::size_t>(page)] = settings::scroll_limit(end);
+            if (!draw_section(end, fonts, icon.picture, directory / "updates-3.png"))
+                ok = false;
+        }
+        // Controls, Engine Limits, Graphics, Downloads, System and
+        // Accessibility scrolled to their ends: Window edge and Edge
+        // stickiness, Weapon types and Sides under Set by the mod, the
+        // water sliders down to Naval reflections, the downloads' last
+        // rows, the file-type switches down to Launch files, and Edge
+        // scrolling.
+        if (page == Page::controls || page == Page::common_tweaks || page == Page::graphics ||
+            page == Page::downloads || page == Page::system || page == Page::accessibility) {
             dialog.scroll[static_cast<std::size_t>(page)] = settings::scroll_limit(dialog);
             const std::string end = std::string(settings::page_word(page)) + "-2.png";
             if (!draw_section(dialog, fonts, icon.picture, directory / end))

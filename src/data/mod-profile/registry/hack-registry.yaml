@@ -296,6 +296,28 @@ entries:
       types: {type: int, min: 512, max: 65536, multiple-of: 512, unit: type ids, baseline: 512, default: 512, adjustable: fixed, scope: sim}
     presets:
       baseline: {types: 512}
+  limits.weapon-types:
+    kind: limit
+    area: limits
+    summary: "Weapon ids a mod may number: 3.1c's 256, ids 0 to 255, up to 65,536. Raised, it plays only between Open Annihilation machines."
+    ownership: all-machines
+    scope: sim
+    shorthand: types
+    params:
+      types: {type: int, min: 256, max: 65536, unit: weapon types, baseline: 256, default: 4096, adjustable: fixed, scope: sim}
+    presets:
+      baseline: {types: 256}
+  limits.sides:
+    kind: limit
+    area: limits
+    summary: "SIDEDATA sides a mod may load: 3.1c's five, up to 32."
+    ownership: all-machines
+    scope: sim
+    shorthand: count
+    params:
+      count: {type: int, min: 5, max: 32, unit: sides, baseline: 5, default: 10, adjustable: fixed, scope: sim}
+    presets:
+      baseline: {count: 5}
 
   # ---- script extensions (profile block script-extensions)
   unit.kills-x100:
@@ -968,6 +990,8 @@ entries:
     ownership: owner-only
     scope: sim
     params: {}
+    actions:
+      - game.team-menu
   sharing.structure-gift-rate-limit:
     kind: hack
     title: Structure Gift Rate Limit
@@ -1072,6 +1096,9 @@ entries:
     ownership: all-machines
     scope: sim
     params: {}
+    actions:
+      - build.rotate
+      - build.rotate-wheel
   units.init-cloaked-after-build:
     kind: hack
     title: Cloak After Build
@@ -1122,6 +1149,9 @@ entries:
     ownership: local-view
     scope: sim
     params: {}
+    actions:
+      - game.repeat-command
+      - debug.keys
   console.game-speed-range:
     kind: hack
     title: Game Speed Range
@@ -1285,7 +1315,12 @@ entries:
       dither: {type: bool, baseline: false, default: false, adjustable: fixed, scope: view}
       feature-blobs: {type: bool, baseline: false, default: true, adjustable: fixed, scope: view}
       ring-minimums: {type: list<int>, min: 0, max: 65535, length: 5, unit: pixels, baseline: [0, 0, 0, 0, 512], default: [128, 128, 64, 64, 512], adjustable: fixed, scope: view}
-      icon-categories: {type: int, min: 0, max: 64, unit: categories, baseline: 0, default: 9, adjustable: fixed, scope: view}
+      icon-categories: {type: int, min: 0, max: 128, unit: categories, baseline: 0, default: 9, adjustable: fixed, scope: view}
+    actions:
+      - megamap.toggle
+      - megamap.open-wheel
+      - megamap.close-wheel
+      - megamap.jump
   ui.whiteboard:
     kind: hack
     title: Whiteboard
@@ -1296,6 +1331,15 @@ entries:
     ownership: local-view
     scope: view
     params: {}
+    actions:
+      - whiteboard.draw
+      - whiteboard.jump
+      - whiteboard.line
+      - whiteboard.dot
+      - whiteboard.text
+      - whiteboard.move
+      - whiteboard.wipe
+      - whiteboard.erase
   ui.resource-panel:
     kind: hack
     title: Resource Panel
@@ -1306,6 +1350,10 @@ entries:
     ownership: local-view
     scope: view
     params: {}
+    actions:
+      - game.resource-panel
+      - watch.player-view
+      - watch.lock-view
   ui.camera-sharing:
     kind: hack
     title: Camera Sharing
@@ -1337,6 +1385,15 @@ entries:
     scope: view
     params:
       same-type-bitset-fix: {type: bool, baseline: false, default: true, adjustable: fixed, scope: view}
+    actions:
+      - pointer.select-type-on-screen
+      - build.hundred-modifier
+      - select.idle-builders
+      - select.idle-factories
+      - select.armed-on-screen
+      - select.box-combat
+      - select.box-builders
+      - select.box-factories
   ui.build-tools:
     kind: hack
     title: Build Tools
@@ -1347,6 +1404,11 @@ entries:
     ownership: local-view
     scope: view
     params: {}
+    actions:
+      - build.line
+      - build.spacing-up
+      - build.spacing-down
+      - build.snap-override
   ui.click-snap:
     kind: hack
     title: Click Snap
@@ -1364,6 +1426,8 @@ entries:
     constraints: [mex-default <= mex-max, wreck-default <= wreck-max]
     presets:
       baseline: {mex-default: 0, mex-max: 0, wreck-default: 0, wreck-max: 0}
+    actions:
+      - build.snap-override
   ui.build-preview:
     kind: hack
     title: Build Preview
@@ -1375,6 +1439,8 @@ entries:
     scope: view
     params:
       fill: {type: bool, baseline: false, default: false, adjustable: fixed, scope: view}
+    actions:
+      - build.rotate
   ui.options-dialog:
     kind: hack
     title: Options Dialog
@@ -1385,6 +1451,9 @@ entries:
     ownership: local-view
     scope: view
     params: {}
+    actions:
+      - game.options-dialog
+      - game.chat-macro
   ui.share-dialog-and-lobby-buttons:
     kind: hack
     title: Share Dialog and Lobby Buttons
@@ -1529,6 +1598,8 @@ entries:
       dx-warning: {type: bool, baseline: true, default: true, adjustable: fixed, scope: view}
     presets:
       baseline: {min-height-768: false, dx-warning: true}
+    actions:
+      - game.screenshot
   ui.external-exports:
     kind: hack
     title: External Exports
@@ -1546,35 +1617,43 @@ entries:
   identity.side-names:
     kind: identity
     area: sides
-    summary: "Names of the side slots that the game itself uses for AI player names, elimination messages and side-button gadget names (SIDEDATA keeps its own copies for everything else): one a side, two to five; every side past the last name takes the last."
+    summary: "Names of the side slots that the game itself uses for AI player names, elimination messages and side-button gadget names (SIDEDATA keeps its own copies for everything else): one a side, two or more, and no more than the profile's limits.sides; every side past the last name takes the last."
     ownership: all-machines
     scope: sim
     key: side-names
-    value: {type: list<string>, length: [2, 5], max-length: 16, baseline: [Arm, Core], scope: sim}
+    value: {type: list<string>, length: [2, 32], max-length: 16, baseline: [Arm, Core], scope: sim}
   identity.watcher-side-frame:
     kind: identity
     area: sides
-    summary: "Frame of the battle room's SIDEx art that a watching player's side button shows. 3.1c draws frame 2, the art after Arm and Core; a mod whose SIDEDATA adds sides draws its watcher art further on."
+    summary: "Frame of the battle room's SIDEx art that a watching player's side button shows, 0 to 63. 3.1c draws frame 2, the art after Arm and Core; a mod whose SIDEDATA adds sides draws its watcher art further on."
     ownership: local-view
     scope: view
     key: watcher-side-frame
-    value: {type: int, min: 0, max: 15, baseline: 2, scope: view}
+    value: {type: int, min: 0, max: 63, baseline: 2, scope: view}
   identity.skirmish-hidden-sides:
     kind: identity
     area: sides
-    summary: "SIDEDATA sides, by number, that the skirmish Side button never offers: a mod's spare side kept only to line up its SIDEx art. The battle room and the side's own data are unchanged."
+    summary: "SIDEDATA sides, by number, that the skirmish Side button never offers: sides below the profile's limits.sides; at least one stays offered. A spare side kept only to line up its SIDEx art. The battle room and the side's own data are unchanged."
     ownership: local-view
     scope: view
     key: skirmish-hidden-sides
-    value: {type: list<int>, length: [0, 4], min: 0, max: 4, distinct: true, baseline: [], scope: view}
+    value: {type: list<int>, length: [0, 31], min: 0, max: 31, distinct: true, baseline: [], scope: view}
   identity.battle-room-hidden-sides:
     kind: identity
     area: sides
-    summary: "SIDEDATA sides, by number, that the battle room's SIDE button never offers: a mod's spare side kept only to line up its SIDEx art. The skirmish, launch files and the side's own data are unchanged."
+    summary: "SIDEDATA sides, by number, that the battle room's SIDE button never offers: sides below the profile's limits.sides; at least one stays offered. A spare side kept only to line up its SIDEx art. The skirmish, launch files and the side's own data are unchanged."
     ownership: local-view
     scope: view
     key: battle-room-hidden-sides
-    value: {type: list<int>, length: [0, 4], min: 0, max: 4, distinct: true, baseline: [], scope: view}
+    value: {type: list<int>, length: [0, 31], min: 0, max: 31, distinct: true, baseline: [], scope: view}
+  identity.computer-player-sides:
+    kind: identity
+    area: sides
+    summary: "SIDEDATA sides, by number, that computer players may take in the skirmish and the battle room; empty lets them take every side. Sides below the profile's limits.sides; a human player still chooses any side offered."
+    ownership: local-view
+    scope: view
+    key: computer-player-sides
+    value: {type: list<int>, length: [0, 31], min: 0, max: 31, distinct: true, baseline: [], scope: view}
   layout.archive-patterns.ccx:
     kind: layout
     area: paths
