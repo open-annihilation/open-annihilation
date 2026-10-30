@@ -6561,6 +6561,178 @@ void filter_pane_scrolls_and_tab_leaves_it() {
     }
 }
 
+/// Tells whether a control in a view that scrolls shows whole in that view.
+///
+/// @param control the control
+/// @return true when it does
+bool shown_whole(const kit::Control& control) {
+    return control.rect.y >= control.clip.y &&
+           control.rect.y + control.rect.height <= control.clip.y + control.clip.height;
+}
+
+/// Tells whether a control in a view that scrolls lies wholly below that view.
+///
+/// @param control the control
+/// @return true when it does
+bool below_view(const kit::Control& control) {
+    return control.rect.y >= control.clip.y + control.clip.height;
+}
+
+/// A click on an entry of the section list chooses it and takes the focus,
+/// and brings it into view once. The wheel, the scroll bar and a finger then
+/// scroll the list past it, and the list stays where they leave it however
+/// often it is laid out again. A key that moves the focus still brings the
+/// entry it reaches into view.
+void a_chosen_entry_scrolls_out_of_the_section_list() {
+    const kit::Frame large = fixture::frames()[2].frame;
+    lib::Library library = with_many_maps();
+    lib::ScreenState state;
+    kit::DisplayList list = laid_out(library, state, large);
+    // Opening the tab with a click shows the focus on its search, so a click
+    // on an entry then takes the focus to that entry.
+    static_cast<void>(click(library, state, list, "library.tab.maps"));
+    list = laid_out(library, state, large);
+    const kit::Control* search = fixture::named(list, "library.search");
+    OA_CHECK(search != nullptr && state.interaction.focused == search->id);
+    const kit::Control* all = fixture::named(list, "library.filter.all");
+    OA_CHECK(all != nullptr);
+    if (all == nullptr)
+        return;
+    const kit::Rect view = all->clip;
+    const kit::Point in_view{view.x + view.width / 4, view.y + view.height / 2};
+    // Each input is followed by frames that lay the screen out again.
+    const auto settle = [&]() {
+        for (int32_t frame = 0; frame < 3; ++frame)
+            list = laid_out(library, state, large);
+    };
+    const auto bar_of = [&]() -> const kit::Item* {
+        for (const kit::Item& item : list.items)
+            if (item.role == kit::Role::scroll_bar &&
+                kit::contains(view, {item.rect.x, item.rect.y}))
+                return &item;
+        return nullptr;
+    };
+    const auto press = [&](kit::Point at, int32_t finger_reach) {
+        static_cast<void>(
+            lib::library_pointer(library, state, list, lib::PointerKind::down, 1, at, finger_reach)
+        );
+        static_cast<void>(
+            lib::library_pointer(library, state, list, lib::PointerKind::up, 1, at, finger_reach)
+        );
+    };
+
+    // Shift+Tab from the search reaches the last tab's entry, scrolled out
+    // of view, and brings it into view.
+    OA_CHECK(lib::library_wheel(library, state, list, in_view, -40.0F).redraw);
+    const int32_t deepest = state.filters_scroll;
+    OA_CHECK(deepest > 0);
+    settle();
+    OA_CHECK(state.filters_scroll == deepest);
+    OA_CHECK(lib::library_key(library, state, list, kit::Key::back_tab).redraw);
+    settle();
+    const kit::Control* registries = fixture::named(list, "library.tab.registries");
+    OA_CHECK(registries != nullptr && state.interaction.focused == registries->id);
+    OA_CHECK(registries != nullptr && shown_whole(*registries));
+    OA_CHECK(state.filters_scroll < deepest);
+
+    // A click chooses a world shown at the list's foot.
+    OA_CHECK(lib::library_wheel(library, state, list, in_view, -40.0F).redraw);
+    settle();
+    OA_CHECK(state.filters_scroll == deepest);
+    std::string name;
+    for (const kit::Control* entry : filter_pane_controls(list))
+        if (name.empty() && entry->name.starts_with("library.tag.world-") && shown_whole(*entry))
+            name = entry->name;
+    OA_CHECK(!name.empty());
+    if (name.empty())
+        return;
+    static_cast<void>(click(library, state, list, name));
+    settle();
+    const kit::Control* chosen = fixture::named(list, name);
+    OA_CHECK(chosen != nullptr && chosen->checked && shown_whole(*chosen));
+    if (chosen == nullptr)
+        return;
+    const kit::ControlId chosen_id = chosen->id;
+    OA_CHECK(state.interaction.focus_shown && state.interaction.focused == chosen_id);
+    OA_CHECK(state.filters_scroll == deepest);
+
+    // The wheel scrolls back past it to the top, and the list stays there.
+    OA_CHECK(lib::library_wheel(library, state, list, in_view, 40.0F).redraw);
+    OA_CHECK(state.filters_scroll == 0);
+    settle();
+    OA_CHECK(state.filters_scroll == 0);
+    chosen = kit::control_of(list, chosen_id);
+    OA_CHECK(chosen != nullptr && below_view(*chosen));
+
+    // The scroll bar: a press at its well's foot takes the list to its foot,
+    // and one at its top back past the entry to the top.
+    const kit::Item* bar = bar_of();
+    OA_CHECK(bar != nullptr);
+    if (bar == nullptr)
+        return;
+    const int32_t well_x = bar->rect.x + bar->rect.width / 2;
+    const int32_t well_top = bar->rect.y + 1;
+    const int32_t well_foot = bar->rect.y + bar->rect.height - 2;
+    press({well_x, well_foot}, 0);
+    settle();
+    OA_CHECK(state.filters_scroll == deepest);
+    press({well_x, well_top}, 0);
+    OA_CHECK(state.filters_scroll == 0);
+    settle();
+    OA_CHECK(state.filters_scroll == 0);
+    chosen = kit::control_of(list, chosen_id);
+    OA_CHECK(chosen != nullptr && below_view(*chosen));
+
+    // A finger: from the foot, a drag down from the chosen world carries it
+    // out of the view's foot, and the list stays where the finger lets go.
+    press({well_x, well_foot}, 0);
+    settle();
+    OA_CHECK(state.filters_scroll == deepest);
+    chosen = kit::control_of(list, chosen_id);
+    OA_CHECK(chosen != nullptr && shown_whole(*chosen));
+    if (chosen == nullptr)
+        return;
+    const kit::Point from = centre_of(*chosen);
+    const kit::Point lifted{from.x, view.y + view.height + chosen->rect.height};
+    static_cast<void>(
+        lib::library_pointer(library, state, list, lib::PointerKind::down, 1, from, 12)
+    );
+    settle();
+    static_cast<void>(
+        lib::library_pointer(library, state, list, lib::PointerKind::move, 0, in_view, 12)
+    );
+    settle();
+    static_cast<void>(
+        lib::library_pointer(library, state, list, lib::PointerKind::move, 0, lifted, 12)
+    );
+    settle();
+    OA_CHECK(
+        !lib::library_pointer(library, state, list, lib::PointerKind::up, 1, lifted, 12).action
+    );
+    OA_CHECK(library.tag == name.substr(std::string_view("library.tag.").size()));
+    const int32_t dragged = state.filters_scroll;
+    OA_CHECK(dragged > 0 && dragged < deepest);
+    settle();
+    OA_CHECK(state.filters_scroll == dragged);
+    chosen = kit::control_of(list, chosen_id);
+    OA_CHECK(chosen != nullptr && below_view(*chosen));
+
+    // With the focus on the chosen world the wheel still scrolls past it;
+    // Up then moves the focus to the entry above it, out of view below, and
+    // brings that one into view.
+    press({well_x, well_foot}, 0);
+    settle();
+    OA_CHECK(state.filters_scroll == deepest && state.interaction.focused == chosen_id);
+    OA_CHECK(lib::library_wheel(library, state, list, in_view, 40.0F).redraw);
+    settle();
+    OA_CHECK(state.filters_scroll == 0);
+    OA_CHECK(lib::library_key(library, state, list, kit::Key::up).redraw);
+    settle();
+    const kit::Control* reached = kit::control_of(list, state.interaction.focused);
+    OA_CHECK(reached != nullptr && reached->id != chosen_id && shown_whole(*reached));
+    OA_CHECK(state.filters_scroll > 0);
+}
+
 /// A world tag shows its world's name wherever a tag shows. The section list
 /// puts the worlds under WORLD, and a search for the name or the whole tag
 /// finds the pack.
@@ -6716,6 +6888,7 @@ int main() {
     compact_back_returns_to_the_same_list();
     details_page_keeps_its_entry();
     filter_pane_scrolls_and_tab_leaves_it();
+    a_chosen_entry_scrolls_out_of_the_section_list();
     world_tags_show_their_name();
     opening_a_tab_focuses_its_search();
     return oa::test::check_exit_status();

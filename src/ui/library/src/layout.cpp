@@ -2290,13 +2290,18 @@ void add_section_nav(Building& building, const kit::Rect& column) {
         state.filters_chosen = choice;
         state.filters_stop = kit::no_control;
     }
+    // The focus brings its entry into view once, when it moves onto it. The
+    // wheel, the bar and a finger then scroll past it and the view stays.
     const kit::ControlId focused_id = state.interaction.focused;
-    for (const NavPart& part : parts) {
-        if (part.heading || part.id != focused_id)
-            continue;
-        state.filters_scroll =
-            shown_offset(state.filters_scroll, part.top, part.height, view.height, limit);
-        break;
+    if (focused_id != state.filters_focused) {
+        for (const NavPart& part : parts) {
+            if (part.heading || part.id != focused_id)
+                continue;
+            state.filters_scroll =
+                shown_offset(state.filters_scroll, part.top, part.height, view.height, limit);
+            break;
+        }
+        state.filters_focused = focused_id;
     }
     const int32_t offset = std::clamp(state.filters_scroll, int32_t{0}, limit);
     state.filters_scroll = offset;

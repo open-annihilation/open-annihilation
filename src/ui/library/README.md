@@ -638,8 +638,10 @@ app removes the folder (`Runtime::library_uninstall`,
     ALL, and the details take the rest in the same card. Every filter and
     tag is a stop, so Tab walks them and then the list, while Up, Down,
     Home, End and the page keys walk the section list and the view follows;
-    a newly chosen entry is brought into view (`ScreenState::filters_scroll`,
-    `filters_chosen`, `filters_stop`). Brains and Keys use the large row
+    a newly chosen or newly focused entry is brought into view once, and the
+    wheel, the scroll bar and a finger then scroll past it
+    (`ScreenState::filters_scroll`, `filters_chosen`, `filters_stop`,
+    `filters_focused`). Brains and Keys use the large row
     at Regular too.
 
   A key layout's row says what it does: its name and author, its summary,

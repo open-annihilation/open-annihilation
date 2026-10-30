@@ -88,7 +88,8 @@ struct ScreenState {
     kit::WheelCarry list_wheel{};    ///< the wheel's turn the list has not scrolled yet
     kit::WheelCarry details_wheel{}; ///< the wheel's turn the details have not scrolled yet
     /// How far Large's filter pane is scrolled, in points. The layout writes
-    /// it to bring the chosen entry into view when another is chosen.
+    /// it to bring the chosen entry into view when another is chosen, and
+    /// the focused entry when the focus moves onto it.
     mutable int32_t filters_scroll{};
     kit::WheelCarry filters_wheel{}; ///< the wheel's turn the filter pane has not scrolled yet
     /// The filter pane's chosen entry when it was last laid out: the tab, the
@@ -100,6 +101,11 @@ struct ScreenState {
     /// back to it. The layout writes it, and forgets it when another entry
     /// is chosen; none stops on the chosen entry.
     mutable kit::ControlId filters_stop{kit::no_control};
+    /// The control that had the focus when the section list was last laid
+    /// out. When the focus moves onto one of its entries the layout brings
+    /// that entry into view once, so the wheel, the scroll bar and a finger
+    /// can then scroll past it.
+    mutable kit::ControlId filters_focused{kit::no_control};
     /// The search field's text and caret. Its text is the model's query: the
     /// input keeps them the same.
     kit::TextField search{};
