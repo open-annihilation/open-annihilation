@@ -971,6 +971,7 @@ activate(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::
         state.prompt = Prompt::capture;
         state.pending_clash = {};
         state.outcome = 0;
+        state.outcomes.clear();
         state.capture.chord.reset();
         state.capture.state = CaptureState::waiting;
         state.capture.escape_down_ms = 0;
@@ -1285,6 +1286,7 @@ void close_prompt(ScreenState& state) {
     state.pending_clash = {};
     state.settling = false;
     state.outcome = 0;
+    state.outcomes.clear();
     state.capture_more = false;
     state.finding = Capture{};
     state.exchange_scroll = 0;
@@ -2079,6 +2081,7 @@ EditorResult press_ok(Editor& editor, ScreenState& state) {
         state.prompt = Prompt::clash;
         state.settling = false;
         state.outcome = 0;
+        state.outcomes = clash_outcomes(editor, state);
         focus_on(state, controls::clash_confirm);
         return redrawn();
     }
@@ -2122,6 +2125,7 @@ EditorResult open_settle(Editor& editor, ScreenState& state) {
     state.pending_clash = *clash;
     state.settling = true;
     state.outcome = 0;
+    state.outcomes = clash_outcomes(editor, state);
     focus_on(state, controls::clash_confirm);
     return redrawn();
 }

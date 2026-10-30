@@ -781,6 +781,116 @@ void outcomes_wait_for_confirm() {
     );
 }
 
+/// The clash question works out what each outcome leaves once, as it opens.
+/// Laying it out again, as a host does each time the pointer moves over it,
+/// resolves no draft. Opening it resolves each outcome's copy of the draft at
+/// most four times: what the other action keeps once the change starts, each
+/// action the change writes, and what both are left with.
+void question_works_out_once() {
+    constexpr uint64_t kEachOutcome = 4;
+    const kit::Frame frame = frame_for(1280, 720, 100);
+    const auto hover_each = [&](editor::Editor& model,
+                                editor::ScreenState& state,
+                                kit::DisplayList& list,
+                                const std::vector<std::string_view>& parts) {
+        for (int pass = 0; pass < 3; ++pass) {
+            for (const std::string_view part : parts) {
+                const std::optional<kit::Point> at = centre_named(list, part);
+                expect(at.has_value(), std::string(part) + " is not shown");
+                if (!at)
+                    continue;
+                editor::editor_pointer(model, state, list, editor::PointerKind::move, 0, *at, 0);
+                list = editor::editor_layout(model, state, frame, fonts());
+            }
+        }
+    };
+
+    editor::Editor model(editor_fixture());
+    expect(model.reset_action("select.all"), "Select all did not return to Ctrl+A");
+    editor::ScreenState state;
+    state.selected = "select.all";
+    state.prompt = editor::Prompt::capture;
+    state.capture = begin("select.all", 0);
+    editor::capture_key(
+        state.capture, model, key_event("KeyB", static_cast<uint32_t>('b'), keys::ctrl, 90, true)
+    );
+    kit::DisplayList list = editor::editor_layout(model, state, frame, fonts());
+    const uint64_t before = editor::draft_resolutions();
+    if (const std::optional<kit::Point> ok = centre_named(list, editor::name_capture_ok))
+        click_at(model, state, list, *ok);
+    expect(state.prompt == editor::Prompt::clash, "Choose what happens did not ask");
+    expect(state.outcomes.size() == 2, "the question did not keep Move it and Swap them");
+    if (state.outcomes.size() == 2)
+        expect(
+            state.outcomes[0].there.empty() && state.outcomes[1].there.size() == 1 &&
+                keys::display_text(
+                    state.outcomes[1].there.front(), model.keyboard(), model.platform()
+                ) == "Ctrl+A",
+            "the kept outcomes do not leave Select builders no key, then Ctrl+A"
+        );
+    const uint64_t opened = editor::draft_resolutions();
+    expect(
+        opened - before <= kEachOutcome * 2,
+        "opening the question resolved the draft " + std::to_string(opened - before) + " times"
+    );
+    list = editor::editor_layout(model, state, frame, fonts());
+    hover_each(
+        model,
+        state,
+        list,
+        {editor::name_clash_replace,
+         editor::name_clash_swap,
+         editor::name_clash_another,
+         editor::name_clash_cancel,
+         editor::name_clash_confirm}
+    );
+    expect(
+        editor::draft_resolutions() == opened,
+        "laying the question out again resolved the draft " +
+            std::to_string(editor::draft_resolutions() - opened) + " times"
+    );
+    const kit::Control* swap =
+        kit::control_of(list, kit::control_named(list, editor::name_clash_swap));
+    expect(
+        swap != nullptr && swap->text.find("Select builders: Ctrl+A") != std::string::npos,
+        "Swap them does not give Select builders Ctrl+A"
+    );
+
+    // Settle… asks the same question of a clash already in the draft.
+    editor::Editor settling(editor_fixture());
+    editor::ScreenState card;
+    card.selected = "select.all";
+    card.filter = editor::Filter::clashes;
+    card.category = "all";
+    list = editor::editor_layout(settling, card, frame, fonts());
+    const uint64_t asked = editor::draft_resolutions();
+    if (const std::optional<kit::Point> at = centre_named(list, editor::name_card_settle))
+        click_at(settling, card, list, *at);
+    expect(card.prompt == editor::Prompt::clash && card.settling, "Settle… did not ask");
+    expect(card.outcomes.size() == 2, "Settle… did not keep Keep it for each action");
+    const uint64_t settled = editor::draft_resolutions();
+    expect(
+        settled - asked <= kEachOutcome * 2,
+        "Settle… resolved the draft " + std::to_string(settled - asked) + " times"
+    );
+    list = editor::editor_layout(settling, card, frame, fonts());
+    hover_each(
+        settling,
+        card,
+        list,
+        {editor::name_card_here,
+         editor::name_card_there,
+         editor::name_clash_another,
+         editor::name_clash_cancel,
+         editor::name_clash_confirm}
+    );
+    expect(
+        editor::draft_resolutions() == settled,
+        "laying the settle question out again resolved the draft " +
+            std::to_string(editor::draft_resolutions() - settled) + " times"
+    );
+}
+
 /// + ADD KEY has no chord to give away, so SWAP writes nothing and the prompt has no SWAP.
 void no_swap_for_add() {
     editor::Editor model(editor_fixture());
@@ -1133,6 +1243,7 @@ int main() {
     capture_prompt_shape();
     clash_row_words();
     outcomes_wait_for_confirm();
+    question_works_out_once();
     no_swap_for_add();
     card_choices();
     find_by_key();

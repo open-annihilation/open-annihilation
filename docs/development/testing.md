@@ -1171,8 +1171,10 @@ unsaved edits are closed, with Save, Discard and Keep editing; with
 `--snapshot` it also writes `key-editor-draft.ppm` and
 `key-editor-close-question.ppm` at 1280x720. `native-key-capture`
 (`--check-key-capture`) captures a chord, swaps a clash only once the
-question's confirm button is pressed, hears Primary+ through Find by key,
-and settles a draft clash from Settle…. `native-library`
+question's confirm button is pressed, times Choose what happens… for P on
+Load, which Patrol uses, and each move of the pointer over the question
+(each under 250 ms), hears Primary+ through Find by key, and settles a
+draft clash from Settle…. `native-library`
 (`--check-library`) writes real layouts and the player's own changes into
 the check's Keys folder, presses USE and checks where it asks, What moves,
 Keep them on top and Start clean, that the own changes are never written

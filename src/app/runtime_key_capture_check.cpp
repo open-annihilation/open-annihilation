@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-key-capture: capturing a chord over a paused skirmish, a clash and
-// its swap after its confirm button, Escape held for a second, a refused
+// its swap after its confirm button, the clash question opening and
+// following the pointer in under 250 ms, Escape held for a second, a refused
 // Escape, Settings' chord, Find by key hearing Primary+, and a draft clash
 // settled from Settle…. With --snapshot it writes key-capture-<w>x<h>.ppm and
 // key-clash-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080, and
@@ -20,7 +21,9 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -407,6 +410,59 @@ void Runtime::check_key_capture() {
                 .text.find("Ctrl+A") != std::string::npos,
         "Select builders did not gain Ctrl+A"
     );
+
+    // The question works out what each outcome leaves as it opens. Pressing
+    // Choose what happens… and moving the pointer over the question each
+    // stay well inside a frame, in a match with the game's GUI keys and
+    // Category words listed.
+    note("P for Load names Patrol, and Choose what happens… opens at once");
+    clear_search();
+    type_search("order.load");
+    show_row("oa.key-editor.row.order.load");
+    click_named("oa.key-editor.row.order.load");
+    click_named("oa.key-editor.detail.chord.1");
+    key_event(SDL_EVENT_KEY_DOWN, SDLK_P, SDL_KMOD_NONE);
+    key_event(SDL_EVENT_KEY_UP, SDLK_P, SDL_KMOD_NONE);
+    frames(1);
+    require(
+        require_named("oa.key-editor.capture", "the capture for Load is not shown")
+                .text.find("Patrol") != std::string::npos,
+        "P for Load does not name Patrol"
+    );
+    const auto milliseconds_since = [](std::chrono::steady_clock::time_point start) {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now() - start
+        )
+            .count();
+    };
+    const auto opening = std::chrono::steady_clock::now();
+    click_named("oa.key-editor.capture.ok");
+    const auto open_ms = milliseconds_since(opening);
+    require(named("oa.key-editor.clash").has_value(), "Choose what happens… did not ask");
+    int64_t slowest_ms = 0;
+    for (const std::string_view part :
+         {"oa.key-editor.clash.replace",
+          "oa.key-editor.clash.swap",
+          "oa.key-editor.clash.another",
+          "oa.key-editor.clash.cancel",
+          "oa.key-editor.clash.confirm"}) {
+        const AutomationControl control = require_named(part, std::string(part) + " is not shown");
+        const layout::Point pixel{
+            control.window_x + control.window_width / 2,
+            control.window_y + control.window_height / 2
+        };
+        const auto moved = std::chrono::steady_clock::now();
+        pointer_at(pixel, SDL_EVENT_MOUSE_MOTION, 0);
+        frames(1);
+        slowest_ms = std::max<int64_t>(slowest_ms, milliseconds_since(moved));
+    }
+    std::cout << "key capture check: Choose what happens… took " << open_ms
+              << " ms, the slowest move over the question " << slowest_ms << " ms\n";
+    require(open_ms < 250, "Choose what happens… took " + std::to_string(open_ms) + " ms");
+    require(
+        slowest_ms < 250, "a move over the question took " + std::to_string(slowest_ms) + " ms"
+    );
+    cancel_prompt();
 
     note("Escape held 1100 ms for Attack offers the clash with Back");
     clear_search();

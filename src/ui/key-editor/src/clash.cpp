@@ -100,22 +100,6 @@ bool drop_for_replace(Editor& editor, std::string_view id, const keys::Chord& dr
     return editor.set_chords(id, remain);
 }
 
-/// Drops a chord the way the card does: an action left with no chord of its
-/// own returns to the layout under it.
-///
-/// @param[in,out] editor the draft
-/// @param id the action that loses the chord
-/// @param drop the chord
-/// @return true when the draft changed
-bool drop_for_card(Editor& editor, std::string_view id, const keys::Chord& drop) {
-    bool had_own = false;
-    bool own_remains = false;
-    const std::vector<keys::Chord> remain = without_chord(editor, id, drop, had_own, own_remains);
-    if (had_own && !own_remains)
-        return editor.clear_chords(id);
-    return editor.set_chords(id, remain);
-}
-
 /// The other action of a clash whose `a` is the action being bound.
 ///
 /// @param clash the clash
@@ -130,7 +114,8 @@ std::string other_of(const keys::Clash& clash, std::string_view action) {
 } // namespace
 
 ApplyResult apply_capture(Editor& editor, const Capture& capture, ClashChoice choice) {
-    const EditStep step(editor);
+    // What the change reads before its first write is read before its step
+    // opens, from the bindings the editor keeps for the draft as it stands.
     ApplyResult result;
     if (!capture.chord)
         return result;
@@ -186,6 +171,7 @@ ApplyResult apply_capture(Editor& editor, const Capture& capture, ClashChoice ch
         }
         if (!found || swapped.size() > kChordLimit)
             return result;
+        const EditStep step(editor);
         if (!editor.set_chords(partner, std::move(swapped)))
             return result;
         if (!editor.set_chords(capture.action, std::move(next)))
@@ -194,6 +180,7 @@ ApplyResult apply_capture(Editor& editor, const Capture& capture, ClashChoice ch
         result.select = capture.action;
         return result;
     }
+    const EditStep step(editor);
     for (const keys::Clash& partner : partners) {
         const std::string other = other_of(partner, capture.action);
         if (other == capture.action)
@@ -211,15 +198,24 @@ ApplyResult apply_capture(Editor& editor, const Capture& capture, ClashChoice ch
 }
 
 bool settle(Editor& editor, const keys::Clash& clash, Settle which) {
+    const std::string loser = which == Settle::keep_here ? clash.b : clash.a;
+    // What the loser keeps is read before the step opens, from the bindings
+    // the editor keeps for the draft as it stands.
+    bool had_own = false;
+    bool own_remains = false;
+    std::vector<keys::Chord> remain;
+    if (!loser.empty())
+        remain = without_chord(editor, loser, clash.chord, had_own, own_remains);
     const EditStep step(editor);
     if (editor.settle_paste_clash(clash, which))
         return true;
-    const std::string keeper = which == Settle::keep_here ? clash.a : clash.b;
-    const std::string loser = which == Settle::keep_here ? clash.b : clash.a;
-    static_cast<void>(keeper);
     if (loser.empty())
         return false;
-    return drop_for_card(editor, loser, clash.chord);
+    // The card drops the chord: an action left with no chord of its own
+    // returns to the layout under it.
+    if (had_own && !own_remains)
+        return editor.clear_chords(loser);
+    return editor.set_chords(loser, std::move(remain));
 }
 
 std::vector<ChordUse> find_by_chord(const Editor& editor, const keys::Chord& chord) {

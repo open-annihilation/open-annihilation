@@ -9,6 +9,7 @@
 #include "oa/ui/key_bindings/tags.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <memory>
 #include <optional>
 #include <string>
@@ -19,6 +20,9 @@ namespace {
 
 namespace keys = oa::ui::key_bindings;
 namespace acts = oa::data::input_actions;
+
+/// How many times a draft was resolved, by any editor or copy of one.
+std::atomic<uint64_t> resolutions{0};
 
 /// One area the nav can show, in list order.
 struct AreaRow {
@@ -1112,9 +1116,41 @@ std::vector<Listed> build_list(
     input.number_keys_select_groups = number_keys;
     input.platform = inputs.platform;
     input.keyboard = &inputs.keyboard;
+    resolutions.fetch_add(1, std::memory_order_relaxed);
     const keys::Resolved resolved = keys::resolve(input);
     const std::vector<keys::Clash> clashes = keys::find_clashes(resolved, input);
     return list_resolved(inputs, own, has_chosen, chosen, helpers, resolved, clashes);
+}
+
+/// The row one action lists as, made alone from bindings already resolved:
+/// the other rows are not made. Its mark is not set.
+///
+/// @param inputs the inputs
+/// @param own the draft
+/// @param effective the helpers in use
+/// @param resolved the bindings in use
+/// @param id the action id
+/// @return the row; nothing when the list does not show the action
+std::optional<Listed> listed_alone(
+    const EditorInputs& inputs,
+    const keys::Layout& own,
+    const oa::formats::oakeys::Helpers& effective,
+    const keys::Resolved& resolved,
+    std::string_view id
+) {
+    const std::vector<keys::Clash> no_clashes;
+    for (const keys::Bound& bound : resolved.actions) {
+        if (bound.id != id)
+            continue;
+        Listed listed = list_bound(bound, inputs, own, effective, no_clashes, inputs.keyboard);
+        if (!listed.category.empty())
+            return listed;
+    }
+    for (const keys::LayoutBinding& binding : resolved.unknown) {
+        if (binding.action == id)
+            return list_unknown(binding, inputs, own, no_clashes);
+    }
+    return std::nullopt;
 }
 
 /// The words a search matches, folded.
@@ -1688,6 +1724,7 @@ std::shared_ptr<const Editor::InUse> Editor::in_use() const {
         return in_use_;
     auto made = std::make_shared<InUse>();
     const keys::ResolveInput input = resolve_input();
+    resolutions.fetch_add(1, std::memory_order_relaxed);
     made->resolved = keys::resolve(input);
     made->clashes = keys::find_clashes(made->resolved, input);
     std::shared_ptr<const InUse> found = std::move(made);
@@ -1796,9 +1833,18 @@ Editor::rows(std::string_view category, Filter filter, std::string_view query) c
 
 Details Editor::details(std::string_view id) const {
     Details shown;
-    const std::shared_ptr<const Listing> listing_now = listing();
-    const std::vector<Listed>& listed = listing_now->listed;
-    const Listed* row = find_listed(listed, id);
+    // While the rows are kept the row is found among them. Otherwise it is
+    // made alone, so one action's details do not list every row.
+    const std::shared_ptr<const Listing> listing_now = listing_;
+    std::optional<Listed> alone;
+    const Listed* row = nullptr;
+    if (listing_now) {
+        row = find_listed(listing_now->listed, id);
+    } else {
+        alone = listed_alone(inputs_, own_, effective_helpers(), in_use()->resolved, id);
+        if (alone)
+            row = &*alone;
+    }
     // A hack's actions stay out of the list until the hack is on. An import
     // can still have written their chords, and those chords are what SAVE writes.
     if (row == nullptr) {
@@ -1874,10 +1920,9 @@ FilterCounts Editor::counts() const {
 
 bool Editor::remove_chord(std::string_view id, std::size_t index) {
     const EditStep step(*this);
-    const std::vector<Listed> listed =
-        listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
-    const Listed* row = find_listed(listed, id);
-    if (row == nullptr || row->read_only || index >= row->chords.size())
+    const std::optional<Listed> row =
+        listed_alone(inputs_, own_, effective_helpers(), in_use()->resolved, id);
+    if (!row || row->read_only || index >= row->chords.size())
         return false;
     if (fixed_escape(*row, row->chords[index], inputs_.keyboard))
         return false;
@@ -1892,10 +1937,9 @@ bool Editor::remove_chord(std::string_view id, std::size_t index) {
 
 bool Editor::reset_action(std::string_view id) {
     const EditStep step(*this);
-    const std::vector<Listed> listed =
-        listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
-    const Listed* row = find_listed(listed, id);
-    if (row == nullptr || row->read_only)
+    const std::optional<Listed> row =
+        listed_alone(inputs_, own_, effective_helpers(), in_use()->resolved, id);
+    if (!row || row->read_only)
         return false;
     bool changed = erase_binding(own_, id);
     if (helpers_.toggle && erase_id(*helpers_.toggle, id))
@@ -1917,10 +1961,9 @@ void Editor::restore_defaults() {
 
 bool Editor::set_latch(std::string_view id, bool on) {
     const EditStep step(*this);
-    const std::vector<Listed> listed =
-        listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
-    const Listed* row = find_listed(listed, id);
-    if (row == nullptr || row->read_only || !row->latchable)
+    const std::optional<Listed> row =
+        listed_alone(inputs_, own_, effective_helpers(), in_use()->resolved, id);
+    if (!row || row->read_only || !row->latchable)
         return false;
     if (latch_is_on(effective_helpers(), id) == on)
         return false;
@@ -1941,10 +1984,9 @@ bool Editor::set_latch(std::string_view id, bool on) {
 
 bool Editor::set_confirm(std::string_view id, bool on) {
     const EditStep step(*this);
-    const std::vector<Listed> listed =
-        listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
-    const Listed* row = find_listed(listed, id);
-    if (row == nullptr || row->read_only || !row->confirmable)
+    const std::optional<Listed> row =
+        listed_alone(inputs_, own_, effective_helpers(), in_use()->resolved, id);
+    if (!row || row->read_only || !row->confirmable)
         return false;
     if (confirm_is_on(effective_helpers(), id) == on)
         return false;
@@ -2303,11 +2345,10 @@ bool Editor::set_chords(std::string_view id, std::vector<keys::Chord> chords) {
     constexpr std::size_t chord_limit = 4;
     if (chords.size() > chord_limit)
         return false;
-    const std::vector<Listed> listed =
-        listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
-    const Listed* row = find_listed(listed, id);
+    const std::optional<Listed> row =
+        listed_alone(inputs_, own_, effective_helpers(), in_use()->resolved, id);
     // The same hack-hidden actions: the binding is kept for when the hack is on.
-    if (row == nullptr) {
+    if (!row) {
         if (acts::find(id) == nullptr)
             return false;
         put_binding(own_, std::string(id), std::move(chords));
@@ -2332,10 +2373,9 @@ bool Editor::set_chords(std::string_view id, std::vector<keys::Chord> chords) {
 
 bool Editor::clear_chords(std::string_view id) {
     const EditStep step(*this);
-    const std::vector<Listed> listed =
-        listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
-    const Listed* row = find_listed(listed, id);
-    if (row == nullptr || row->read_only)
+    const std::optional<Listed> row =
+        listed_alone(inputs_, own_, effective_helpers(), in_use()->resolved, id);
+    if (!row || row->read_only)
         return false;
     return erase_binding(own_, id);
 }
@@ -2494,6 +2534,10 @@ bool Editor::settle_paste_clash(const keys::Clash& clash, Settle which) {
         return true;
     }
     return false;
+}
+
+uint64_t draft_resolutions() noexcept {
+    return resolutions.load(std::memory_order_relaxed);
 }
 
 EditStep::EditStep(Editor& editor) : editor_(editor) {

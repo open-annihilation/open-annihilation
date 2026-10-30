@@ -361,6 +361,12 @@ struct ImportOffer {
     std::string file{};    ///< Ctrl+F2, or the file's name
 };
 
+/// What one outcome of the clash question leaves on both actions.
+struct ClashOutcome {
+    std::vector<oa::ui::key_bindings::Chord> here{};  ///< what the clash's `a` is left with
+    std::vector<oa::ui::key_bindings::Chord> there{}; ///< what its `b` is left with
+};
+
 /// What the editor's screen keeps between layouts, beside the model.
 struct ScreenState {
     kit::Interaction interaction{};  ///< the hover, the press and the focus
@@ -411,6 +417,10 @@ struct ScreenState {
     bool settling{false};
     /// The clash question's chosen outcome: 0 the first, 1 the second.
     uint8_t outcome{0};
+    /// What each of the clash question's outcomes leaves, in the order it
+    /// lists them, worked out as it opened. The draft holds still while it
+    /// is open.
+    std::vector<ClashOutcome> outcomes{};
     bool capture_more{false}; ///< the capture's More options are open
     bool details_more{false}; ///< the details' More options are open
     /// Find by key's capture. Its action is empty; a finished chord is listed.
@@ -488,6 +498,19 @@ struct ScreenState {
 [[nodiscard]] kit::DisplayList editor_layout(
     const Editor& editor, const ScreenState& state, const kit::Frame& frame, const kit::Fonts& fonts
 );
+
+/// Works out what each outcome of the clash question leaves on both
+/// actions, each on a copy of the draft, so that what an outcome lists is
+/// what its confirm button would leave: Move it to the action and, when a
+/// chord is being changed, Swap them; or, while a draft clash is settled,
+/// Keep it for each action. The input that opens the question keeps these in
+/// `outcomes`, and laying the question out again shows them as kept.
+///
+/// @param editor the draft
+/// @param state the question: its capture, or the clash it settles
+/// @return the outcomes, in the order the question lists them
+[[nodiscard]] std::vector<ClashOutcome>
+clash_outcomes(const Editor& editor, const ScreenState& state);
 
 /// Lays out Compact's details page: the header, the chosen action, and
 /// BACK, RESET and SAVE.

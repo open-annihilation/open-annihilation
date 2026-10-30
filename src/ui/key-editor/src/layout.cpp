@@ -4206,17 +4206,15 @@ kit::DisplayList prompt_layout(
         };
 
         std::vector<Outcome> outcomes;
-        // Each outcome is worked out on a copy of the draft, so what it lists
-        // is what its confirm button would leave on both actions.
-        const auto chords_after = [&](const Editor& changed, const std::string& id) {
-            std::vector<keys::Chord> chords;
-            for (const ChordDetail& one : changed.details(id).chords)
-                chords.push_back(one.chord);
-            return chords;
-        };
-        const auto outcome_of = [&](Outcome& outcome, const Editor& changed) {
-            outcome.here_after = chords_after(changed, here);
-            outcome.there_after = chords_after(changed, there);
+        // What each outcome leaves, as the question worked it out when it
+        // opened. A state that names the question without them has them
+        // worked out here.
+        const std::size_t listed = state.settling || state.capture.replacing ? 2 : 1;
+        const std::vector<ClashOutcome> worked =
+            state.outcomes.size() == listed ? state.outcomes : clash_outcomes(editor, state);
+        const auto outcome_of = [&](Outcome& outcome, std::size_t index) {
+            outcome.here_after = worked[index].here;
+            outcome.there_after = worked[index].there;
         };
         if (state.settling) {
             Outcome keep_here;
@@ -4225,9 +4223,7 @@ kit::DisplayList prompt_layout(
             keep_here.title =
                 fill(show(editor.text(), words::keep_it_for), {{"action", here_name}});
             keep_here.confirm = keep_here.title;
-            Editor kept_here = editor;
-            settle(kept_here, state.pending_clash, Settle::keep_here);
-            outcome_of(keep_here, kept_here);
+            outcome_of(keep_here, 0);
             outcomes.push_back(std::move(keep_here));
             Outcome keep_there;
             keep_there.id = controls::card_there;
@@ -4235,21 +4231,15 @@ kit::DisplayList prompt_layout(
             keep_there.title =
                 fill(show(editor.text(), words::keep_it_for), {{"action", there_name}});
             keep_there.confirm = keep_there.title;
-            Editor kept_there = editor;
-            settle(kept_there, state.pending_clash, Settle::keep_there);
-            outcome_of(keep_there, kept_there);
+            outcome_of(keep_there, 1);
             outcomes.push_back(std::move(keep_there));
         } else {
-            Capture heard = state.capture;
-            heard.chord = clash_chord;
             Outcome move;
             move.id = controls::clash_replace;
             move.name = std::string(name_clash_replace);
             move.title = fill(show(editor.text(), words::move_it_to), {{"action", here_name}});
             move.confirm = fill(show(editor.text(), words::move_to), {{"action", here_name}});
-            Editor moved = editor;
-            static_cast<void>(apply_capture(moved, heard, ClashChoice::replace));
-            outcome_of(move, moved);
+            outcome_of(move, 0);
             outcomes.push_back(std::move(move));
             if (state.capture.replacing) {
                 Outcome swap;
@@ -4257,9 +4247,7 @@ kit::DisplayList prompt_layout(
                 swap.name = std::string(name_clash_swap);
                 swap.title = show(editor.text(), words::swap_them);
                 swap.confirm = swap.title;
-                Editor swapped = editor;
-                static_cast<void>(apply_capture(swapped, heard, ClashChoice::swap));
-                outcome_of(swap, swapped);
+                outcome_of(swap, 1);
                 outcomes.push_back(std::move(swap));
             }
         }
@@ -6917,6 +6905,42 @@ kit::Point window_size(const kit::Frame& frame) noexcept {
     if (frame.area.height > 0)
         size.y = std::min(size.y, frame.area.height);
     return size;
+}
+
+std::vector<ClashOutcome> clash_outcomes(const Editor& editor, const ScreenState& state) {
+    // Each outcome is worked out on a copy of the draft, so what it lists is
+    // what its confirm button would leave on both actions.
+    const std::string& here = state.pending_clash.a;
+    const std::string& there = state.pending_clash.b;
+    const auto outcome_of = [&](const Editor& changed) {
+        ClashOutcome outcome;
+        for (const ChordDetail& one : changed.details(here).chords)
+            outcome.here.push_back(one.chord);
+        for (const ChordDetail& one : changed.details(there).chords)
+            outcome.there.push_back(one.chord);
+        return outcome;
+    };
+    std::vector<ClashOutcome> outcomes;
+    if (state.settling) {
+        Editor kept_here = editor;
+        settle(kept_here, state.pending_clash, Settle::keep_here);
+        outcomes.push_back(outcome_of(kept_here));
+        Editor kept_there = editor;
+        settle(kept_there, state.pending_clash, Settle::keep_there);
+        outcomes.push_back(outcome_of(kept_there));
+        return outcomes;
+    }
+    Capture heard = state.capture;
+    heard.chord = state.capture.chord ? *state.capture.chord : state.pending_clash.chord;
+    Editor moved = editor;
+    static_cast<void>(apply_capture(moved, heard, ClashChoice::replace));
+    outcomes.push_back(outcome_of(moved));
+    if (state.capture.replacing) {
+        Editor swapped = editor;
+        static_cast<void>(apply_capture(swapped, heard, ClashChoice::swap));
+        outcomes.push_back(outcome_of(swapped));
+    }
+    return outcomes;
 }
 
 kit::DisplayList editor_layout(

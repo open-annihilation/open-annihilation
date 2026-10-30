@@ -779,6 +779,13 @@ class Editor {
     friend void apply_import(Editor& editor, const ImportPreview& preview);
 };
 
+/// How many times an editor, or a copy of one, has resolved a draft to the
+/// bindings in use. A question answered from the bindings an editor keeps
+/// does not add to this. A check reads this.
+///
+/// @return the count, from 0
+[[nodiscard]] uint64_t draft_resolutions() noexcept;
+
 /// Folds a share name into a layout id.
 ///
 /// Letters fold to lower case. Digits stay. Any other run of characters
