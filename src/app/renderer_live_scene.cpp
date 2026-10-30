@@ -2043,14 +2043,14 @@ BasePiece base_piece(const ModelDraw& draw, float x, float z) {
 /// that no part of the base is hidden at any angle; it rises back to the
 /// terrain over one cell around. Ground decals share the split geometry and
 /// keep their small lift above the levelled ground.
+///
+/// The kept ground is cut once for each set of plots: a frame that takes
+/// it, with the plots the frame before cut into it, takes that cut ground
+/// and its revision, and cuts only its decals.
 void foundations(const Inputs& in, Scene& scene) {
     constexpr float blend_width = cell_edge;
     constexpr float ground_separation = 0.1F;
     constexpr float decal_lift = 0.05F;
-
-    struct Foundation {
-        float left{}, right{}, top{}, bottom{}, height{};
-    };
 
     std::vector<Foundation> plots;
     for (const auto& draw : in.draws->models) {
@@ -2160,11 +2160,26 @@ void foundations(const Inputs& in, Scene& scene) {
         plot_bottom = std::max(plot_bottom, plot.bottom + blend_width);
     }
     std::vector<std::array<std::size_t, 2>> affected_ranges;
-    scene.foundation_vertices.swap(scene.vertices);
+    const auto source = scene.ground_revision;
+    const bool kept = scene.ground_kept && source == scene.kept_ground_revision;
+    const bool cut_before = kept && scene.cut_source == source && scene.cut_plots == plots;
+    auto terrain_end = scene.terrain_vertex_count;
+    if (cut_before) {
+        // Only the decals after the ground are cut.
+        scene.foundation_vertices.assign(
+            scene.vertices.begin() + static_cast<std::ptrdiff_t>(terrain_end), scene.vertices.end()
+        );
+        scene.vertices.assign(scene.cut_ground.begin(), scene.cut_ground.end());
+        scene.terrain_vertex_count = scene.vertices.size();
+        scene.ground_revision = scene.cut_revision;
+        terrain_end = 0;
+    } else {
+        scene.foundation_vertices.swap(scene.vertices);
+        scene.vertices.clear();
+        scene.vertices.reserve(scene.foundation_vertices.size());
+    }
     const auto& previous = scene.foundation_vertices;
-    scene.vertices.clear();
-    scene.vertices.reserve(previous.size());
-    const auto terrain_end = scene.terrain_vertex_count;
+    bool ground_cut{};
     std::size_t pending_begin{};
     // Most geometry lies outside foundations. Copy each untouched run once,
     // retaining the precise terrain/decal boundary even when the run crosses it.
@@ -2241,9 +2256,7 @@ void foundations(const Inputs& in, Scene& scene) {
         }
         if (!affected)
             continue;
-        // A plot cut into the ground makes it new.
-        if (first < terrain_end)
-            scene.ground_revision = new_ground_revision();
+        ground_cut |= first < terrain_end;
         copy_pending(first);
         const auto output_begin = scene.vertices.size();
         if (pieces.empty())
@@ -2262,6 +2275,9 @@ void foundations(const Inputs& in, Scene& scene) {
             scene.terrain_vertex_count = scene.vertices.size();
     }
     copy_pending(previous.size());
+    // A plot cut into the ground makes it new.
+    if (ground_cut)
+        scene.ground_revision = new_ground_revision();
     // Blend once from the original terrain. An interior always wins over a
     // neighbouring skirt; tied skirts choose a stable height, not draw order.
     std::span<const std::size_t> candidates;
@@ -2320,6 +2336,15 @@ void foundations(const Inputs& in, Scene& scene) {
                 target += decal_lift;
             vertex.height = std::lerp(vertex.height, target, strongest);
         }
+    if (kept && !cut_before) {
+        scene.cut_ground.assign(
+            scene.vertices.begin(),
+            scene.vertices.begin() + static_cast<std::ptrdiff_t>(scene.terrain_vertex_count)
+        );
+        scene.cut_plots = std::move(plots);
+        scene.cut_source = source;
+        scene.cut_revision = scene.ground_revision;
+    }
 }
 
 /// Rejects the back of a model face, including opposite faces sharing one plane.

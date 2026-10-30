@@ -1746,6 +1746,76 @@ void building_foundations() {
         OA_CHECK(fixture.scene.vertices[i].height == 16);
 }
 
+/// The kept ground is cut once for a set of plots: a frame with the plots
+/// of the frame before takes the cut ground and its revision and cuts only
+/// its decals, and other plots cut it again. Every frame is the one a scene
+/// cutting the ground each frame builds.
+void foundations_cut_once() {
+    Fixture fixture;
+    fixture.map.attribute_width = fixture.map.attribute_height = 8;
+    fixture.map.tile_width = fixture.map.tile_height = 4;
+    fixture.map.tile_indices.assign(16, 0);
+    fixture.map.attributes.resize(64);
+    fixture.inputs.right = fixture.inputs.bottom = 128;
+    fixture.inputs.sight.mapping = fixture.inputs.sight.line_of_sight = false;
+    for (std::size_t i = 0; i < fixture.map.attributes.size(); ++i)
+        fixture.map.attributes[i].height = static_cast<uint8_t>((i % 8) * 4);
+    constexpr int32_t fixed = 65536;
+    oa::Unit unit{};
+    unit.flags = OA_UNIT_FLAG_BUILDING;
+    unit.footprint_x = unit.footprint_z = 2;
+    unit.position = {48 * fixed, 16 * fixed, 48 * fixed};
+    fixture.draws.models.resize(1);
+    fixture.draws.models[0].model.unit = &unit;
+    fixture.draws.models[0].plan.linked.drawn = true;
+    oa::formats::gaf::RenderedFrame decal{};
+    decal.width = decal.height = 8;
+    decal.pixels.assign(64, ground_index);
+    decal.coverage.assign(64, 1);
+    fixture.draws.sprites.push_back({&decal, {44, 44}, false, true, true});
+    live::Scene cutting{};
+    const auto build = [&] {
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        cutting.cut_source = 0;
+        OA_CHECK(live::build(fixture.inputs, cutting, fixture.error));
+        const auto& vertices = fixture.scene.vertices;
+        OA_CHECK(fixture.scene.terrain_vertex_count == cutting.terrain_vertex_count);
+        OA_CHECK(
+            vertices.size() == cutting.vertices.size() &&
+            std::memcmp(
+                vertices.data(), cutting.vertices.data(), vertices.size() * sizeof(vertices.front())
+            ) == 0
+        );
+        return fixture.scene.ground_revision;
+    };
+    build();
+    const auto first = build();
+    OA_CHECK(fixture.scene.ground_kept && fixture.scene.cut_source != 0);
+    OA_CHECK(first != fixture.scene.kept_ground_revision);
+    OA_CHECK(build() == first);
+    // A decal moves over the plot; the plots stay.
+    fixture.draws.sprites[0].place = {52, 40};
+    OA_CHECK(build() == first);
+    // The structure moves: its new plot is cut once.
+    unit.position.x = 64 * fixed;
+    const auto moved = build();
+    OA_CHECK(moved != first);
+    OA_CHECK(build() == moved);
+    // No plot leaves the kept ground as it is; the same plot again takes
+    // the ground cut for it.
+    unit.flags = 0;
+    OA_CHECK(build() == fixture.scene.kept_ground_revision);
+    unit.flags = OA_UNIT_FLAG_BUILDING;
+    OA_CHECK(build() == moved);
+    // Ground drawn again is cut again.
+    fixture.map.attributes[0].height = 2;
+    const auto drawn = build();
+    OA_CHECK(drawn != moved);
+    OA_CHECK(build() != drawn);
+    const auto kept = fixture.scene.ground_revision;
+    OA_CHECK(build() == kept);
+}
+
 /// Candidate bins retain structures across bin edges and bound oversized plot indexing.
 void foundation_candidates() {
     Fixture fixture;
@@ -3030,6 +3100,7 @@ int main() {
     sprite_material_lifetime();
     cropped_ground_sprites();
     building_foundations();
+    foundations_cut_once();
     foundation_candidates();
     structure_base_above_ground();
     cached_unit_shadows();

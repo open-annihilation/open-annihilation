@@ -65,6 +65,19 @@ struct GroundSource {
     [[nodiscard]] bool operator==(const GroundSource&) const = default;
 };
 
+/// A structure's plot, the ground levelled under it: the map rectangle it
+/// covers, in map pixels across and world rows down, and the height the
+/// ground lies at inside it.
+struct Foundation {
+    float left{};
+    float right{};
+    float top{};
+    float bottom{};
+    float height{};
+
+    [[nodiscard]] bool operator==(const Foundation&) const = default;
+};
+
 /// Emitted triangle range belonging to a visible canonical unit.
 struct UnitRange {
     uint16_t unit_id{};
@@ -168,6 +181,13 @@ struct Scene {
     /// vertices: a new one, never had by any scene before, whenever they may
     /// differ from the last frame's (renderer_live_gpu::KeptGround).
     uint64_t ground_revision{};
+    /// The kept ground with the plots cut into it, the ground a frame that
+    /// takes the kept ground of cut_source and has the same plots takes,
+    /// with its revision, rather than cutting them into it again.
+    std::vector<renderer_live_gpu::Vertex> cut_ground{};
+    std::vector<Foundation> cut_plots{}; ///< sorted, as foundations cuts them
+    uint64_t cut_source{};               ///< the kept ground's revision; 0 for none
+    uint64_t cut_revision{};
     uint32_t model_count{};
     uint32_t sprite_count{};
     uint32_t shadow_count{};
