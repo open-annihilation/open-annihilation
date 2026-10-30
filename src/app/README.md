@@ -5738,8 +5738,10 @@ is mounted. Once the installed packs list the map, the battle room's own
 selection of the host's map finds it (`maps_select` lists a pack map the
 source has gained since the list was read, and a pack map mounted again is
 read again, its hashes among it) and the map name stops flashing. Nothing
-readies the player. A download that fails says why on the line; one
-cancelled leaves GET MAP as it was. The log says what happened:
+readies the player. A download that fails says why on the line
+(`failure_reason`): a package the installer refused names the installer's
+own reason, such as a map that does not fit the game, not only that it was
+refused. One cancelled leaves GET MAP as it was. The log says what happened:
 
 ```
 open-annihilation: GET MAP: offering to add the registry <registry> for <pack>

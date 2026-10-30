@@ -472,14 +472,28 @@ void test_failure_messages() {
     view.failure = content::DownloadFailure::install_refused;
     view.detail = "The folder cavedog-evad-river-delta does not hold this map pack.";
     OA_CHECK(content::failure_message(view, bracketed) == view.detail);
+    OA_CHECK(content::failure_reason(view, bracketed) == view.detail);
+    // A reason the installer wrote with a small letter keeps it after a colon.
+    view.detail = "needs Open Annihilation >= 9.0.0; this is Open Annihilation 0.8.7";
+    OA_CHECK(content::failure_reason(view, nullptr) == view.detail);
+    OA_CHECK(
+        content::failure_message(view, nullptr) ==
+        "Needs Open Annihilation >= 9.0.0; this is Open Annihilation 0.8.7"
+    );
+    view.failure = content::DownloadFailure::install_failed;
+    OA_CHECK(content::failure_reason(view, nullptr) == view.detail);
+    view.failure = content::DownloadFailure::install_refused;
     view.detail.clear();
     OA_CHECK(content::failure_message(view, nullptr) == "The package was refused");
     OA_CHECK(content::failure_message(view, bracketed) == "[the package was refused]");
+    OA_CHECK(content::failure_reason(view, nullptr) == "the package was refused");
+    OA_CHECK(content::failure_reason(view, bracketed) == "[the package was refused]");
 
     // The registry's message follows the failure's text.
     view.failure = content::DownloadFailure::refused;
     view.detail = "no";
     OA_CHECK(content::failure_message(view, nullptr) == "The registry refused the download (no)");
+    OA_CHECK(content::failure_reason(view, nullptr) == "the registry refused the download (no)");
 
     // Whatever the detail holds, no failure's text is named twice.
     for (int value = 1; value <= static_cast<int>(content::DownloadFailure::server_check);

@@ -76,6 +76,11 @@ downloaded files, and keeps the packages' badge pictures the Library shows.
 - `set_match_running` holds the queue for a match. `set_install_id`
   remembers one registry's install ID. `report_install` records what the
   installer did with a file the queue handed over.
+- `failure_reason` is why a failed item failed, named once: the
+  installer's own reason when it gave one, else the failure's text and
+  the detail in brackets, as a line says it after a colon (GET MAP).
+  `failure_message` is the same with a capital first letter, as the
+  Library's queue shows it.
 
 The game does not read `GET <api>/counts`. An old
 `<data>/content/counts` file is left where it is: nothing reads it and

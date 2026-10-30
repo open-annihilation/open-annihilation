@@ -436,13 +436,14 @@ void Runtime::ModInstallState::report(
     std::string reason,
     const std::vector<std::string>& lines
 ) {
+    // A reason that ends in a colon is finished by its first diagnostic, so
+    // the queue's line says what was wrong.
+    if (!reason.empty() && reason.back() == ':' && !lines.empty())
+        reason += ' ' + lines.front();
     if (chosen) {
         LibraryNote note{origin.registry, origin.catalogue_id, {}, {}};
-        if (result == install::OutcomeResult::refused || result == install::OutcomeResult::failed) {
+        if (result == install::OutcomeResult::refused || result == install::OutcomeResult::failed)
             note.problem = reason;
-            if (!note.problem.empty() && note.problem.back() == ':' && !lines.empty())
-                note.problem += ' ' + lines.front();
-        }
         note_for_library(runtime, std::move(note));
     }
     install::report_package_outcome({.file = file, .result = result, .reason = std::move(reason)});

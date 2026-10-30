@@ -822,7 +822,8 @@ struct Runtime::GetMapScreen final : LayerScreen {
     }
 
     /// Follows GET MAP's own download: once it ends, its pack's maps may be
-    /// mounted again, and a failure is kept for the line. A cancelled
+    /// mounted again, and a failure is kept for the line with its reason,
+    /// the installer's own when it gave one, and logged. A cancelled
     /// download leaves GET MAP as it was before the press.
     ///
     /// @param items the download queue's items
@@ -837,8 +838,10 @@ struct Runtime::GetMapScreen final : LayerScreen {
             return;
         if (found != items.end() && found->state == content::DownloadState::failed) {
             failure_for_ = item_for_;
-            failure_ = std::string(
-                oa::data::languages::interface_text(content::failure_text(found->failure))
+            failure_ = content::failure_reason(*found, &oa::data::languages::interface_text);
+            log_line(
+                "couldn't get " + item_for_.substr(0, item_for_.find('\n')) + ": " +
+                content::failure_reason(*found, nullptr)
             );
         }
         if (found != items.end() && found->state == content::DownloadState::done)

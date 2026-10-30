@@ -2813,7 +2813,7 @@ std::vector<std::filesystem::path> Downloads::files_in_use() const {
     return paths;
 }
 
-std::string failure_message(const DownloadView& item, LookUp look_up) {
+std::string failure_reason(const DownloadView& item, LookUp look_up) {
     const auto words = [look_up](std::string_view english) {
         if (english.empty() || look_up == nullptr)
             return std::string(english);
@@ -2838,6 +2838,11 @@ std::string failure_message(const DownloadView& item, LookUp look_up) {
         if (!item.detail.empty() && message.find(item.detail) == std::string::npos)
             message += message.empty() ? item.detail : " (" + item.detail + ")";
     }
+    return message;
+}
+
+std::string failure_message(const DownloadView& item, LookUp look_up) {
+    std::string message = failure_reason(item, look_up);
     if (!message.empty() && message[0] >= 'a' && message[0] <= 'z')
         message[0] = static_cast<char>(message[0] - 'a' + 'A');
     return message;

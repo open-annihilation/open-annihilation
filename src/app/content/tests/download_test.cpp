@@ -2176,6 +2176,8 @@ void test_install_refusal_reason() {
         OA_CHECK(view->failure == content::DownloadFailure::install_refused);
         OA_CHECK(view->detail == reason);
         OA_CHECK(content::failure_message(*view, nullptr) == reason);
+        // The line GET MAP shows after a colon names the installer's reason too.
+        OA_CHECK(content::failure_reason(*view, nullptr) == reason);
         expect_reason_once(*view);
     }
     const std::string line = one_failure_line(session.logs);
@@ -2193,6 +2195,7 @@ void test_install_refusal_reason() {
     if (again) {
         OA_CHECK(again->detail.empty());
         OA_CHECK(content::failure_message(*again, nullptr) == "The package was refused");
+        OA_CHECK(content::failure_reason(*again, nullptr) == "the package was refused");
     }
 }
 

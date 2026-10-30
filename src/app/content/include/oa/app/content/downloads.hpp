@@ -216,13 +216,22 @@ struct DownloadView {
 /// @return the word to show
 using LookUp = std::string_view (*)(std::string_view english);
 
-/// Writes what the player is told of a failed item, naming its reason once.
+/// Writes why an item failed, naming its reason once, as a line says it
+/// after a colon.
 ///
 /// A check the server asked for names the registry and asks the player to
 /// try again later (server_check_words). An installer's refusal or failure
 /// with a reason of its own is that reason alone. Any other failure is its
-/// text, then the detail in brackets when there is one. The first letter is
-/// a capital.
+/// text, then the detail in brackets when there is one. The words are left
+/// as they are written: a failure's own text starts with a small letter.
+///
+/// @param item the item
+/// @param look_up looks the words up; null keeps them in English
+/// @return the reason; empty when the item has neither a failure nor a detail
+[[nodiscard]] std::string failure_reason(const DownloadView& item, LookUp look_up);
+
+/// Writes what the player is told of a failed item, naming its reason once:
+/// failure_reason, with a capital first letter.
 ///
 /// @param item the item
 /// @param look_up looks the words up; null keeps them in English

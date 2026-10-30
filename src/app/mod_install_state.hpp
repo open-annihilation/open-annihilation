@@ -167,8 +167,9 @@ struct Runtime::ModInstallState {
     /// @param runtime the runtime, whose Library shows the note
     /// @param result what became of it
     /// @param reason why it was refused or failed; empty otherwise
-    /// @param lines the diagnostics under the reason, the first of which the
-    ///     Library's queue shows after a reason that ends in a colon
+    /// @param lines the diagnostics under the reason, the first of which
+    ///     follows a reason that ends in a colon, for the queue and the
+    ///     Library's note alike
     void report(
         Runtime& runtime,
         package_install::OutcomeResult result,
