@@ -7669,10 +7669,10 @@ class Runtime final : public menu::Host,
     /// SKIRMISH at 640x480 and 1280x720, the focus hand-over, the brain menu,
     /// the hover card and the brains a start seats. On the 640x480 window it
     /// also times 120 frames before a computer seat and 120 with two, requires
-    /// that the seated frames do not read the game folder and stay under 5 ms
-    /// of CPU, and checks that copying and removing a bundle is followed by
-    /// the new choice. Writes brain-seats-skirmish-<w>x<h>.png in the working
-    /// folder.
+    /// that the seated frames do not read the game folder and take under twice
+    /// the CPU of the frames before the seat plus 1 ms, and checks that copying
+    /// and removing a bundle is followed by the new choice. Writes
+    /// brain-seats-skirmish-<w>x<h>.png in the working folder.
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_brain_seat_buttons();
