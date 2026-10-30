@@ -3190,10 +3190,14 @@ void particles(const Inputs& in, Scene& scene) {
     }
 }
 
-/// The frame's ground triangles listed by the square buckets their bounds
-/// touch, along two axes of the ground plane, so that a query of a point or
-/// of an area tests only the triangles that may reach it rather than every
-/// triangle of the ground. Listed once foundations has cut the ground, it
+/// The frame's ground triangles listed by place along two axes of the
+/// ground plane, so that a query of a point or of an area tests only the
+/// triangles that may reach it rather than every triangle of the ground.
+/// Each triangle is listed once, in the square bucket holding its least
+/// place along both axes, and a query looks as many buckets before its area
+/// as a listed triangle reaches past its own. The few triangles that reach
+/// further are tested by every query instead, so that one stray triangle
+/// cannot widen them all. Listed once foundations has cut the ground, it
 /// stays true while the frame adds its other geometry after the ground.
 class GroundIndex {
   public:
@@ -3211,7 +3215,7 @@ class GroundIndex {
     /// @param reach the greatest distance of a ground vertex from the world's
     ///        origin along x or z, in map pixels
     GroundIndex(const Axes& axes, GroundIndexMemory& memory, double reach)
-        : axes_(axes), memory_(&memory), reach_(reach), triangle_count_(memory.bounds.size()) {
+        : axes_(axes), memory_(&memory), reach_(reach) {
         const auto& bounds = memory.bounds;
         for (const auto& bound : bounds) {
             low_[0] = std::min(low_[0], double{bound[0]});
@@ -3219,6 +3223,8 @@ class GroundIndex {
             low_[1] = std::min(low_[1], double{bound[2]});
             high_[1] = std::max(high_[1], double{bound[3]});
         }
+        auto& oversized = memory.oversized;
+        oversized.clear();
         if (bounds.empty())
             return;
         const auto count = [&](std::size_t axis) {
@@ -3229,32 +3235,54 @@ class GroundIndex {
         inverse_edge_ = 1 / edge_;
         columns_ = static_cast<std::size_t>(count(0));
         rows_ = static_cast<std::size_t>(count(1));
-        auto& ranges = memory.buckets;
+        auto& listed = memory.buckets;
         auto& starts = memory.starts;
         auto& triangles = memory.triangles;
-        ranges.resize(bounds.size());
-        starts.assign(columns_ * rows_ + 1, 0);
+        listed.resize(bounds.size());
+        // The triangles by the most buckets they reach past their own along
+        // either axis; the last count holds those reaching further still.
+        std::array<std::size_t, listed_reach_limit + 2> reaches{};
+        const auto further = [](uint16_t last, uint16_t first) {
+            return static_cast<uint8_t>(std::min(last - first, 255));
+        };
         for (std::size_t triangle = 0; triangle < bounds.size(); ++triangle) {
             const auto& bound = bounds[triangle];
-            const auto& range = ranges[triangle] = {
-                bucket(bound[0], 0, columns_),
-                bucket(bound[1], 0, columns_),
-                bucket(bound[2], 1, rows_),
-                bucket(bound[3], 1, rows_)
+            const uint16_t column = bucket(bound[0], 0, columns_);
+            const uint16_t row = bucket(bound[2], 1, rows_);
+            const auto& entry = listed[triangle] = {
+                static_cast<uint16_t>(row * columns_ + column),
+                further(bucket(bound[1], 0, columns_), column),
+                further(bucket(bound[3], 1, rows_), row)
             };
-            for (std::size_t row = range[2]; row <= range[3]; ++row)
-                for (std::size_t column = range[0]; column <= range[1]; ++column)
-                    ++starts[row * columns_ + column + 1];
+            ++reaches[std::min<std::size_t>(
+                std::max(entry.columns, entry.rows), listed_reach_limit + 1
+            )];
+        }
+        // The least reach a listed triangle may have that leaves few enough
+        // for every query to test.
+        std::size_t reach_limit{};
+        std::size_t reaching_further = bounds.size() - reaches[0];
+        while (reach_limit < listed_reach_limit && reaching_further > oversized_limit)
+            reaching_further -= reaches[++reach_limit];
+        starts.assign(columns_ * rows_ + 1, 0);
+        for (std::size_t triangle = 0; triangle < bounds.size(); ++triangle) {
+            const auto& entry = listed[triangle];
+            if (std::max(entry.columns, entry.rows) > reach_limit) {
+                oversized.push_back(static_cast<uint32_t>(triangle));
+                continue;
+            }
+            listed_reach_[0] = std::max<std::size_t>(listed_reach_[0], entry.columns);
+            listed_reach_[1] = std::max<std::size_t>(listed_reach_[1], entry.rows);
+            ++starts[entry.bucket + 1];
         }
         for (std::size_t index = 1; index < starts.size(); ++index)
             starts[index] += starts[index - 1];
         triangles.resize(starts.back());
         // Each bucket's start moves on as it is filled, to the next one's.
         for (std::size_t triangle = 0; triangle < bounds.size(); ++triangle) {
-            const auto& range = ranges[triangle];
-            for (std::size_t row = range[2]; row <= range[3]; ++row)
-                for (std::size_t column = range[0]; column <= range[1]; ++column)
-                    triangles[starts[row * columns_ + column]++] = static_cast<uint32_t>(triangle);
+            const auto& entry = listed[triangle];
+            if (std::max(entry.columns, entry.rows) <= reach_limit)
+                triangles[starts[entry.bucket]++] = static_cast<uint32_t>(triangle);
         }
         for (std::size_t index = starts.size() - 1; index > 0; --index)
             starts[index] = starts[index - 1];
@@ -3278,8 +3306,7 @@ class GroundIndex {
     }
 
     /// Calls visit with the first vertex of each triangle whose bounds along
-    /// the axes may overlap an area, once each and in no set order: every
-    /// triangle whose bounds overlap it is among them.
+    /// the axes overlap an area, once each and in no set order.
     ///
     /// @param first_low the area's least place along the first axis
     /// @param first_high its greatest place along the first axis
@@ -3289,41 +3316,38 @@ class GroundIndex {
     template <typename Visit>
     void visit(
         double first_low, double first_high, double second_low, double second_high, Visit&& visit
-    ) {
+    ) const {
         if (columns_ == 0 || !(first_high >= low_[0] && first_low <= high_[0] &&
                                second_high >= low_[1] && second_low <= high_[1]))
             return;
-        const std::size_t first_column = bucket(first_low, 0, columns_);
+        // A triangle whose bounds overlap the area ends in a bucket at or
+        // after the area's first, as a larger place is never in an earlier
+        // bucket, and is listed at most its reach before that, at or before
+        // the area's last.
+        const std::size_t low_column = bucket(first_low, 0, columns_);
+        const std::size_t low_row = bucket(second_low, 1, rows_);
+        const std::size_t first_column = low_column - std::min(low_column, listed_reach_[0]);
+        const std::size_t first_row = low_row - std::min(low_row, listed_reach_[1]);
         const std::size_t last_column = bucket(first_high, 0, columns_);
-        const std::size_t first_row = bucket(second_low, 1, rows_);
         const std::size_t last_row = bucket(second_high, 1, rows_);
-        // A triangle listed in more than one bucket of the area is visited once.
-        const bool several = first_column != last_column || first_row != last_row;
-        auto& visited = memory_->visited;
-        if (several) {
-            if (visit_mark_ == 0)
-                visited.assign(triangle_count_, 0);
-            if (++visit_mark_ == 0) {
-                std::fill(visited.begin(), visited.end(), 0);
-                visit_mark_ = 1;
-            }
-        }
+        const auto& bounds = memory_->bounds;
+        const auto overlapping = [&](uint32_t triangle) {
+            const auto& bound = bounds[triangle];
+            if (bound[1] >= first_low && bound[0] <= first_high && bound[3] >= second_low &&
+                bound[2] <= second_high)
+                visit(std::size_t{triangle} * 3);
+        };
         const auto& starts = memory_->starts;
         const auto& triangles = memory_->triangles;
-        for (std::size_t row = first_row; row <= last_row; ++row)
-            for (std::size_t column = first_column; column <= last_column; ++column) {
-                const std::size_t bucket_index = row * columns_ + column;
-                for (std::size_t entry = starts[bucket_index]; entry < starts[bucket_index + 1];
-                     ++entry) {
-                    const uint32_t triangle = triangles[entry];
-                    if (several) {
-                        if (visited[triangle] == visit_mark_)
-                            continue;
-                        visited[triangle] = visit_mark_;
-                    }
-                    visit(std::size_t{triangle} * 3);
-                }
-            }
+        for (std::size_t row = first_row; row <= last_row; ++row) {
+            const std::size_t row_start = row * columns_;
+            for (std::size_t entry = starts[row_start + first_column];
+                 entry < starts[row_start + last_column + 1];
+                 ++entry)
+                overlapping(triangles[entry]);
+        }
+        for (const uint32_t triangle : memory_->oversized)
+            overlapping(triangle);
     }
 
   private:
@@ -3332,8 +3356,13 @@ class GroundIndex {
     static constexpr double first_edge = 32;
     /// The most buckets an index holds; a wider ground takes larger ones.
     static constexpr std::size_t maximum_buckets = std::size_t{1} << 16;
+    /// The most buckets past its own a listed triangle may reach.
+    static constexpr std::size_t listed_reach_limit = 15;
+    /// The most triangles every query tests rather than listing them, unless
+    /// more reach past listed_reach_limit.
+    static constexpr std::size_t oversized_limit = 32;
 
-    /// Finds the bucket that holds a place, never one before a larger place's.
+    /// Finds the bucket that holds a place, never one before a smaller place's.
     ///
     /// @param place a place along an axis
     /// @param axis 0 for the first axis, 1 for the second
@@ -3350,7 +3379,6 @@ class GroundIndex {
     Axes axes_{};
     GroundIndexMemory* memory_{};
     double reach_{};
-    std::size_t triangle_count_{};
     std::array<double, 2> low_{
         std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()
     };
@@ -3361,11 +3389,11 @@ class GroundIndex {
     double inverse_edge_{1 / first_edge};
     std::size_t columns_{};
     std::size_t rows_{};
-    /// The mark of the last visit of several buckets; 0 before the first,
-    /// which clears the triangles' marks. Buckets are counted row by row,
-    /// and each bucket's triangles are listed in drawing order, a triangle
+    /// The most buckets past its own a listed triangle reaches along the
+    /// first axis and along the second. Buckets are counted row by row, and
+    /// each bucket's triangles are listed in drawing order, a triangle
     /// numbering its first vertex divided by three.
-    uint32_t visit_mark_{};
+    std::array<std::size_t, 2> listed_reach_{};
 };
 
 /// The ground indices of a sprite pass, listed together when first needed.
@@ -3491,8 +3519,8 @@ std::optional<float> rendered_ground(const Scene& scene, GroundIndices& indices,
             result = height;
     };
     if (indices.world && std::isfinite(x) && std::isfinite(z)) {
-        // A triangle's bounds hold the point only when its buckets hold the
-        // point's bucket.
+        // A triangle holds the point only when its bounds, its corners'
+        // least and greatest x and z, hold it.
         const auto place = indices.world->along(x, z);
         indices.world->visit(place[0], place[0], place[1], place[1], test);
     } else {

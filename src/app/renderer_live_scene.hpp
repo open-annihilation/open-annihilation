@@ -85,6 +85,14 @@ struct UnitRange {
     std::size_t vertex_count{};
 };
 
+/// The bucket a ground triangle is listed in, the one holding its least
+/// place along both axes, and how many buckets further its bounds reach.
+struct GroundBucket {
+    uint16_t bucket{}; ///< counted row by row
+    uint8_t columns{}; ///< the further buckets along the first axis, at most 255
+    uint8_t rows{};    ///< the further buckets along the second axis, at most 255
+};
+
 /// The memory a frame lists its ground's triangles in by place, for the
 /// effect cards' ground queries; the scene keeps it so that each frame
 /// reuses it.
@@ -92,14 +100,14 @@ struct GroundIndexMemory {
     /// Each triangle's least and greatest place along the index's first
     /// axis, then along its second.
     std::vector<std::array<float, 4>> bounds{};
-    /// Each triangle's first and last bucket along the first axis, then
-    /// along the second.
-    std::vector<std::array<uint16_t, 4>> buckets{};
+    std::vector<GroundBucket> buckets{}; ///< each triangle's bucket
     /// Where each bucket's triangles begin in triangles, and after the last
     /// bucket the end of triangles.
     std::vector<uint32_t> starts{};
     std::vector<uint32_t> triangles{}; ///< the triangles of every bucket
-    std::vector<uint32_t> visited{};   ///< each triangle's last visit
+    /// The triangles reaching too many buckets to be listed in one, which
+    /// every query tests.
+    std::vector<uint32_t> oversized{};
 };
 
 /// Presentation geometry and cached pixels; no simulation state is retained.
