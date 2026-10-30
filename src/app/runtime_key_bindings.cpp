@@ -303,6 +303,17 @@ bool key_is_down(const void* context, uint16_t scancode) {
     return device_state::key_held(static_cast<SDL_Scancode>(scancode));
 }
 
+/// Tells whether any key is held, on the keyboard or by the automation
+/// endpoint.
+///
+/// @return true while either holds one
+bool any_key_held() {
+    for (int code = SDL_SCANCODE_UNKNOWN + 1; code < SDL_SCANCODE_COUNT; ++code)
+        if (device_state::key_held(static_cast<SDL_Scancode>(code)))
+            return true;
+    return false;
+}
+
 namespace fs = std::filesystem;
 namespace oakeys = oa::formats::oakeys;
 namespace library = oa::data::key_library;
@@ -2646,9 +2657,10 @@ void Runtime::tag_layout_ids(
 }
 
 bool Runtime::action_key_held(std::string_view action) {
-    // No key is down in a headless run that draws no picture, and resolving
-    // the bindings to answer that keeps the table beside the loaded units.
-    if (options_.headless_check && options_.snapshot.empty())
+    // No key is down in a headless run that draws no picture unless the
+    // run's own check holds one, and resolving the bindings only then keeps
+    // the table beside the loaded units.
+    if (options_.headless_check && options_.snapshot.empty() && !any_key_held())
         return false;
     ensure_key_bindings(false);
     if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
