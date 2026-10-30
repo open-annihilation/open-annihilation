@@ -1173,8 +1173,90 @@ clip_foundation(std::span<const Vertex> source, bool horizontal, float edge, boo
     return result;
 }
 
+/// How far below a structure's height, in map pixels, the ground under it
+/// goes to keep its base piece in view. A base piece reaching deeper is sunk
+/// into the ground by design, and the ground still covers what lies deeper.
+constexpr float deepest_base = 1;
+
+/// How far above a structure's height, in map pixels, its base piece's
+/// corners count as standing on the ground: the floor plates of the game's
+/// structures lie up to about a map pixel above it. Higher parts of the base
+/// may overhang the ground around without levelling it.
+constexpr float base_reach = 2;
+
+/// Where a structure's base piece, the root every other piece of its model
+/// hangs from, meets the ground.
+struct BasePiece {
+    float depth{}; ///< its lowest corner below the structure's height, 0 to deepest_base
+    /// The map rectangle its corners up to base_reach cover, in map pixels
+    /// across and world rows down; empty, left above right, when it has none.
+    float left{std::numeric_limits<float>::infinity()};
+    float right{-std::numeric_limits<float>::infinity()};
+    float top{std::numeric_limits<float>::infinity()};
+    float bottom{-std::numeric_limits<float>::infinity()};
+};
+
+/// Measures a structure's base piece as the models pass draws it: every face
+/// but the selection plate, at the piece's pose this frame. The other pieces
+/// move (guns, doors, hatches) and may sink below the ground by design, so
+/// they leave the ground as it is.
+///
+/// @param draw the structure's draw, with its model
+/// @param x the map column its model stands on, in map pixels
+/// @param z the world row its model stands on
+/// @return the base piece; at no depth and empty when the model draws none
+BasePiece base_piece(const ModelDraw& draw, float x, float z) {
+    BasePiece result;
+    const auto& reference = draw.model;
+    if (reference.instance == nullptr || reference.prepared == nullptr)
+        return result;
+    const auto pieces = reference.instance->pieces();
+    const auto root = reference.instance->root_piece();
+    if (root >= pieces.size())
+        return result;
+    const auto& piece = pieces[root];
+    const auto& objects = reference.instance->model().objects;
+    if ((piece.flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) == 0 ||
+        piece.object_index >= objects.size() ||
+        piece.object_index >= reference.prepared->objects.size())
+        return result;
+    const auto& points =
+        root < draw.shown_vertices.size() ? draw.shown_vertices[root] : piece.transformed_vertices;
+    const auto& object = objects[piece.object_index];
+    for (const auto& primitive : reference.prepared->objects[piece.object_index].primitives) {
+        if (static_cast<int32_t>(primitive.source_index) == object.selection_primitive ||
+            primitive.source_index >= object.primitives.size())
+            continue;
+        const auto& source = object.primitives[primitive.source_index];
+        if (source.vertex_indices.size() < 3)
+            continue;
+        for (const auto index : source.vertex_indices) {
+            if (index >= points.size())
+                continue;
+            const auto& point = points[index];
+            const float below = -(point.y / fixed_scale);
+            result.depth = std::max(result.depth, std::min(deepest_base, below));
+            if (-below > base_reach)
+                continue;
+            const float corner_x = x + point.x / fixed_scale;
+            const float corner_z = z - point.z / fixed_scale;
+            result.left = std::min(result.left, corner_x);
+            result.right = std::max(result.right, corner_x);
+            result.top = std::min(result.top, corner_z);
+            result.bottom = std::max(result.bottom, corner_z);
+        }
+    }
+    return result;
+}
+
 /// Levels only drawn ground structures' foundations, without changing map or unit records.
-/// Ground decals share the split geometry and keep their small lift above the terrain.
+///
+/// The ground under a structure's footprint, and under its base piece where
+/// that reaches past the footprint, lies flat a little below the structure's
+/// height, or below its base piece's lowest corner where that is lower, so
+/// that no part of the base is hidden at any angle; it rises back to the
+/// terrain over one cell around. Ground decals share the split geometry and
+/// keep their small lift above the levelled ground.
 void foundations(const Inputs& in, Scene& scene) {
     constexpr float blend_width = cell_edge;
     constexpr float ground_separation = 0.1F;
@@ -1213,11 +1295,14 @@ void foundations(const Inputs& in, Scene& scene) {
         // Canonical footprints already include the building's facing.
         const float half_width = unit->footprint_x * cell_edge * 0.5F;
         const float half_depth = unit->footprint_z * cell_edge * 0.5F;
-        const float left = centre_x - half_width;
-        const float right = centre_x + half_width;
-        const float top = centre_y - half_depth;
-        const float bottom = centre_y + half_depth;
-        plots.push_back({left, right, top, bottom, height});
+        // The base piece where the models pass draws the model.
+        const auto shown = draw.shown_position.value_or(unit->position);
+        const auto footing = base_piece(draw, shown.x / fixed_scale, shown.z / fixed_scale);
+        const float left = std::min(centre_x - half_width, footing.left);
+        const float right = std::max(centre_x + half_width, footing.right);
+        const float top = std::min(centre_y - half_depth, footing.top);
+        const float bottom = std::max(centre_y + half_depth, footing.bottom);
+        plots.push_back({left, right, top, bottom, height - footing.depth});
     }
     if (plots.empty())
         return;
