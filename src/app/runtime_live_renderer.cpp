@@ -936,16 +936,41 @@ void Runtime::live_scene_visibility(
                 band_reaches[filled[band]++] = reach;
     }
     platform::job_pool::run_bands(draw_pool_.get(), raster_bands, [&](uint32_t band) {
+        // The band's own copies of what each pixel reads, which the pixels'
+        // writes cannot change.
+        const auto& vertices = live.scene.vertices;
+        const std::size_t terrain_vertex_count = live.scene.terrain_vertex_count;
+        const uint32_t texture_width = live.scene.texture_width;
+        const uint32_t texture_height = live.scene.texture_height;
+        const uint8_t* const texture = live.scene.texture_rgba.data();
+        const std::size_t texture_size = live.scene.texture_rgba.size();
+        const uint8_t* const requested =
+            requested_pixels.empty() ? nullptr : requested_pixels.data();
+        float* const pixel_depths = depths.data();
+        uint8_t* const pixel_visibility = visibility.data();
         const int band_top = static_cast<int>(band * raster_band_rows);
         const int band_end = std::min(static_cast<int>(height), band_top + int(raster_band_rows));
         for (uint32_t slot = band_firsts[band]; slot < band_firsts[band + 1]; ++slot) {
-            const auto& [index, x0, x1, y0, y1] = reaches[band_reaches[slot]];
+            const auto [index, x0, x1, y0, y1] = reaches[band_reaches[slot]];
             const std::array triangle{
                 live.projected[index], live.projected[index + 1], live.projected[index + 2]
             };
-            renderer_live_camera::PreparedTriangle prepared;
-            if (!renderer_live_camera::prepare_triangle(triangle, prepared))
+            renderer_live_camera::PreparedTriangle preparing;
+            if (!renderer_live_camera::prepare_triangle(triangle, preparing))
                 continue;
+            // A copy of its own, as of the corners' attributes below.
+            const auto prepared = preparing;
+            // The corners' texture places, opacities and brightnesses.
+            std::array<float, 3> corner_u{}, corner_v{}, corner_opacity{}, corner_brightness{};
+            for (std::size_t corner = 0; corner < corner_u.size(); ++corner) {
+                const auto& vertex = vertices[index + corner];
+                corner_u[corner] = vertex.u;
+                corner_v[corner] = vertex.v;
+                corner_opacity[corner] = vertex.opacity;
+                corner_brightness[corner] = vertex.brightness;
+            }
+            // Unmapped black terrain must not reveal its contours.
+            const bool lit = !terrain_only || index < terrain_vertex_count;
             constexpr float pixel_centre = 0.5F;
             for (int y = std::max(y0, band_top); y < std::min(y1, band_end); ++y) {
                 int left_limit =
@@ -958,45 +983,41 @@ void Runtime::live_scene_visibility(
                 );
                 for (int x = left_limit; x < right_limit; ++x) {
                     const std::size_t pixel = static_cast<std::size_t>(y) * width + x;
-                    if (!requested_pixels.empty() && requested_pixels[pixel] == 0)
+                    if (requested != nullptr && requested[pixel] == 0)
                         continue;
                     std::array<float, 3> weights{};
                     float depth{};
                     if (!renderer_live_camera::triangle_hit_prepared(
                             prepared, x + pixel_centre, y + pixel_centre, weights, depth
                         ) ||
-                        depth <= depths[pixel])
+                        depth <= pixel_depths[pixel])
                         continue;
                     float u{}, v{}, opacity{}, brightness{};
                     for (std::size_t corner = 0; corner < weights.size(); ++corner) {
-                        const auto& vertex = live.scene.vertices[index + corner];
-                        u += vertex.u * weights[corner];
-                        v += vertex.v * weights[corner];
-                        opacity += vertex.opacity * weights[corner];
-                        brightness += vertex.brightness * weights[corner];
+                        u += corner_u[corner] * weights[corner];
+                        v += corner_v[corner] * weights[corner];
+                        opacity += corner_opacity[corner] * weights[corner];
+                        brightness += corner_brightness[corner] * weights[corner];
                     }
                     constexpr float opaque_alpha = 128;
                     constexpr float full_alpha = 255;
                     if (!std::isfinite(u) || !std::isfinite(v) || !std::isfinite(opacity) ||
                         opacity * full_alpha < opaque_alpha)
                         continue;
-                    const auto column = static_cast<uint32_t>(std::clamp(
-                        u * live.scene.texture_width, 0.0F, float(live.scene.texture_width - 1)
-                    ));
-                    const auto row = static_cast<uint32_t>(std::clamp(
-                        v * live.scene.texture_height, 0.0F, float(live.scene.texture_height - 1)
-                    ));
+                    const auto column = static_cast<uint32_t>(
+                        std::clamp(u * texture_width, 0.0F, float(texture_width - 1))
+                    );
+                    const auto row = static_cast<uint32_t>(
+                        std::clamp(v * texture_height, 0.0F, float(texture_height - 1))
+                    );
                     const auto alpha =
-                        (static_cast<std::size_t>(row) * live.scene.texture_width + column) * 4 + 3;
-                    if (alpha >= live.scene.texture_rgba.size() ||
-                        live.scene.texture_rgba[alpha] * opacity < opaque_alpha)
+                        (static_cast<std::size_t>(row) * texture_width + column) * 4 + 3;
+                    if (alpha >= texture_size || texture[alpha] * opacity < opaque_alpha)
                         continue;
-                    depths[pixel] = depth;
-                    // Unmapped black terrain must not reveal its contours. Known
-                    // terrain carries the same smooth fog attenuation as its draw.
-                    visibility[pixel] =
-                        (!terrain_only || index < live.scene.terrain_vertex_count) &&
-                                std::isfinite(brightness)
+                    pixel_depths[pixel] = depth;
+                    // Known terrain carries the same smooth fog attenuation as its draw.
+                    pixel_visibility[pixel] =
+                        lit && std::isfinite(brightness)
                             ? static_cast<uint8_t>(std::clamp(brightness, 0.0F, 1.0F) * full_alpha)
                             : 0;
                 }
