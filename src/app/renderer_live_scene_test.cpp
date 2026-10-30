@@ -15,10 +15,12 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace {
 namespace live = oa::app::renderer_live_scene;
@@ -909,6 +911,79 @@ void terrain_material_mutation() {
     fixture.mapped[0] = viewer_bit;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(triangle_color(fixture.scene, 0)[0] == alternate_color[0]);
+}
+
+/// The ground of a frame drawn from the same as the two before it is the
+/// one they drew; a change to the heights, the art, the fog or the picture
+/// in place draws it again.
+void ground_kept_while_unchanged() {
+    Fixture fixture;
+    fixture.inputs.clip_projection = {1, 0, 0, 0, 0, -0.5F, 1, 0, 0, 1, 0, 0};
+    fixture.inputs.clip_width = fixture.inputs.clip_height = 64;
+    const auto ground = [&] {
+        return std::vector<oa::app::renderer_live_gpu::Vertex>(
+            fixture.scene.vertices.begin(),
+            fixture.scene.vertices.begin() +
+                static_cast<std::ptrdiff_t>(fixture.scene.terrain_vertex_count)
+        );
+    };
+    const auto same = [](const auto& a, const auto& b) {
+        return a.size() == b.size() &&
+               std::memcmp(a.data(), b.data(), a.size() * sizeof(a.front())) == 0;
+    };
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(!fixture.scene.ground_kept);
+    const auto first = ground();
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.ground_kept);
+    OA_CHECK(same(ground(), first));
+    const auto revision = fixture.scene.texture_revision;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.ground_kept);
+    OA_CHECK(same(ground(), first));
+    OA_CHECK(fixture.scene.texture_revision == revision);
+    // A height changed in place.
+    fixture.map.attributes[3].height = 12;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(!fixture.scene.ground_kept);
+    OA_CHECK(
+        std::any_of(
+            fixture.scene.vertices.begin(),
+            fixture.scene.vertices.begin() +
+                static_cast<std::ptrdiff_t>(fixture.scene.terrain_vertex_count),
+            [](const auto& vertex) { return vertex.height == 12; }
+        )
+    );
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.ground_kept);
+    // The art changed in place: the tile is packed again, and the kept
+    // ground is not taken.
+    std::fill(
+        fixture.map.tile_palette_indices.begin(),
+        fixture.map.tile_palette_indices.end(),
+        alternate_index
+    );
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.texture_revision > revision);
+    OA_CHECK(triangle_color(fixture.scene, 0)[0] == alternate_color[0]);
+    // The cell never mapped.
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    fixture.mapped[0] = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(!fixture.scene.ground_kept);
+    OA_CHECK(triangle_color(fixture.scene, 0)[0] == 0);
+    // A count of sight stamps that leaves the fog as it is keeps the ground.
+    fixture.mapped[0] = viewer_bit;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.ground_kept);
+    fixture.coverage[0] = 2;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.ground_kept);
+    // Another picture.
+    fixture.inputs.clip_projection[3] = 1;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(!fixture.scene.ground_kept);
 }
 
 /// Atlas repacking replaces all rows while retaining the prior GPU revision.
@@ -2889,6 +2964,7 @@ int main() {
     particle_zoom_detail();
     atlas_reuse();
     terrain_material_mutation();
+    ground_kept_while_unchanged();
     atlas_repack_rows();
     terrain_material_repack();
     planned_model_visibility();

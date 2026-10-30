@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace oa::app::renderer_live_scene {
@@ -22,12 +23,46 @@ struct AtlasRect {
     uint32_t y{};
     uint32_t width{};
     uint32_t height{};
+
+    [[nodiscard]] bool operator==(const AtlasRect&) const = default;
 };
 
 /// Exact source bytes backing a reusable terrain atlas rectangle.
 struct TerrainMaterial {
     std::array<uint8_t, formats::tnt::layout::tile_bytes> pixels{};
     AtlasRect rectangle{};
+};
+
+/// What a frame's ground is drawn from, beside the tiles' art and their
+/// squares in the atlas: the map's heights and tiles, the crop, the
+/// picture, the detail and the fog. Two frames drawn from the same, with
+/// the same squares, draw the same ground.
+struct GroundSource {
+    const formats::tnt::Map* map{};
+    uint32_t map_width{};  ///< height cells across
+    uint32_t map_height{}; ///< height cells down
+    uint32_t tile_width{}; ///< tiles across
+    std::vector<uint8_t> heights{};
+    std::vector<uint16_t> tile_indices{};
+    /// The painted rectangle drawn, in map pixels.
+    std::array<int32_t, 4> crop{};
+    int32_t step{}; ///< height cells a side of each square of ground drawn
+    bool distant{}; ///< planar tiles are drawn whole
+    int32_t fog_divisions{};
+    std::array<float, 12> clip_projection{};
+    uint32_t clip_width{};
+    uint32_t clip_height{};
+    uint32_t texture_width{};
+    uint32_t texture_height{};
+    /// What the fog shows of each sight cell: in sight, out of sight or
+    /// never mapped, the ground's whole dependence on the sight.
+    std::vector<uint8_t> fog{};
+    int32_t sight_width{};
+    int32_t sight_height{};
+    bool mapping{}; ///< ground beyond the sight cells is never mapped
+    bool dithered{};
+
+    [[nodiscard]] bool operator==(const GroundSource&) const = default;
 };
 
 /// Emitted triangle range belonging to a visible canonical unit.
@@ -73,6 +108,15 @@ struct Scene {
     PaletteBytes terrain_palette{};
     PaletteBytes terrain_grey_palette{};
     std::size_t terrain_vertex_count{};
+    /// What the last frame's ground was drawn from.
+    GroundSource ground_source{};
+    /// The ground of the last frame drawn from the same as the frame before
+    /// it, while ground_kept: a frame drawn from the same again, whose tiles
+    /// keep their squares, takes it rather than drawing it again.
+    std::vector<renderer_live_gpu::Vertex> ground_vertices{};
+    /// The tile keys that ground draws, each with its square.
+    std::vector<std::pair<uint64_t, AtlasRect>> ground_tiles{};
+    bool ground_kept{};
     uint32_t model_count{};
     uint32_t sprite_count{};
     uint32_t shadow_count{};

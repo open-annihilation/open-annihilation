@@ -738,6 +738,111 @@ uint64_t planned_area(std::span<const TileDemand> demand, const TerrainPlan& pla
     return area;
 }
 
+/// Makes source what the frame's ground is drawn from (GroundSource).
+///
+/// @param[in,out] source what the last frame's ground was drawn from
+/// @param in the frame
+/// @param scene the atlas
+/// @param crop the painted rectangle the terrain pass draws
+/// @param step the height cells a side of each drawn square of ground
+/// @return true when it was already so
+bool note_ground_source(
+    GroundSource& source,
+    const Inputs& in,
+    const Scene& scene,
+    const TerrainCrop& crop,
+    int32_t step
+) {
+    const auto& map = *in.map;
+    bool same = true;
+    const auto note = [&same](auto& kept, const auto& now) {
+        if (!(kept == now)) {
+            kept = now;
+            same = false;
+        }
+    };
+    const auto note_values = [&same](auto& kept, const auto& now) {
+        if (!std::equal(kept.begin(), kept.end(), now.begin(), now.end())) {
+            kept.assign(now.begin(), now.end());
+            same = false;
+        }
+    };
+    note(source.map, in.map);
+    note(source.map_width, map.attribute_width);
+    note(source.map_height, map.attribute_height);
+    note(source.tile_width, map.tile_width);
+    const auto cells = static_cast<std::size_t>(map.attribute_width) * map.attribute_height;
+    bool heights_same = source.heights.size() == cells;
+    for (std::size_t cell = 0; cell < cells && heights_same; ++cell)
+        heights_same = source.heights[cell] == map.attributes[cell].height;
+    if (!heights_same) {
+        source.heights.resize(cells);
+        for (std::size_t cell = 0; cell < cells; ++cell)
+            source.heights[cell] = map.attributes[cell].height;
+        same = false;
+    }
+    note_values(source.tile_indices, map.tile_indices);
+    note(source.crop, std::array{crop.left, crop.top, crop.right, crop.bottom});
+    note(source.step, step);
+    note(
+        source.distant, std::isfinite(in.detail_scale) && in.detail_scale > 0 && in.detail_scale < 1
+    );
+    note(source.fog_divisions, fog_divisions(in));
+    note(source.clip_projection, in.clip_projection);
+    note(source.clip_width, in.clip_width);
+    note(source.clip_height, in.clip_height);
+    note(source.texture_width, scene.texture_width);
+    note(source.texture_height, scene.texture_height);
+    // The ground reads the sight only as fog_at reads each sight cell, so
+    // that a count of sight stamps changing in a cell still in sight
+    // changes nothing drawn.
+    note(source.sight_width, in.sight.width);
+    note(source.sight_height, in.sight.height);
+    note(source.mapping, in.sight.mapping);
+    note(source.dithered, in.sight.dithered);
+    constexpr int32_t fog_edge = present::world_renderer::fog_cell_pixels;
+    const auto sight_cells = static_cast<std::size_t>(std::max(in.sight.width, 0)) *
+                             static_cast<std::size_t>(std::max(in.sight.height, 0));
+    if (source.fog.size() != sight_cells) {
+        source.fog.assign(sight_cells, std::numeric_limits<uint8_t>::max());
+        same = false;
+    }
+    for (int32_t row = 0; row < in.sight.height; ++row)
+        for (int32_t column = 0; column < in.sight.width; ++column) {
+            const auto fog =
+                static_cast<uint8_t>(fog_at(in.sight, column * fog_edge, row * fog_edge));
+            auto& kept = source.fog[static_cast<std::size_t>(row) * in.sight.width + column];
+            if (kept != fog) {
+                kept = fog;
+                same = false;
+            }
+        }
+    return same;
+}
+
+/// Tells whether every tile the kept ground draws would come out of the
+/// atlas where it did: still packed in its square, at least as large as
+/// the plan gives it, from the map's art as it is now.
+///
+/// @param in the frame
+/// @param scene the kept ground and the atlas
+/// @param plan the square of each tile
+/// @return true when none of its tiles would be packed again
+bool ground_tiles_hold(const Inputs& in, const Scene& scene, const TerrainPlan& plan) {
+    constexpr std::size_t tile_bytes = formats::tnt::layout::tile_bytes;
+    const auto& art = in.map->tile_palette_indices;
+    for (const auto& [key, rectangle] : scene.ground_tiles) {
+        // A key is its tile's number by three, and its fog.
+        const auto start = static_cast<std::size_t>(key / 3) * tile_bytes;
+        const auto cached = scene.terrain_materials.find(key);
+        if (cached == scene.terrain_materials.end() || !(cached->second.rectangle == rectangle) ||
+            rectangle.width < plan.square(key) || start + tile_bytes > art.size() ||
+            std::memcmp(cached->second.pixels.data(), art.data() + start, tile_bytes) != 0)
+            return false;
+    }
+    return true;
+}
+
 /// Emits terrain cells with tile UVs and a separate fog material per cell,
 /// each tile packed into the square the plan gives it.
 ///
@@ -747,39 +852,25 @@ uint64_t planned_area(std::span<const TileDemand> demand, const TerrainPlan& pla
 /// @param step the height cells a side of each drawn square of ground: 1
 ///     for every cell, or 2, 4 or 8 for a frame whose ground would
 ///     otherwise take more triangles than the frame may hold
-void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t step) {
+/// @param[out] tiles each tile key drawn, with its square
+void draw_terrain(
+    const Inputs& in,
+    Scene& scene,
+    const TerrainPlan& plan,
+    int32_t step,
+    std::unordered_map<uint64_t, AtlasRect>& tiles
+) {
     const auto& map = *in.map;
     const auto crop = terrain_crop(in);
     const int32_t left = crop.left;
     const int32_t top = crop.top;
     const int32_t right = crop.right;
     const int32_t bottom = crop.bottom;
-    // Compare palette bytes once per pass and tile bytes once per visible key.
-    // The retained copies detect edits even when the same map object is reused.
-    if (scene.terrain_palette != *in.palette) {
-        scene.terrain_materials.clear();
-        scene.terrain_palette = *in.palette;
-        const auto entries = present::palette_from_bytes(*in.palette);
-        std::array<uint8_t, OA_PALETTE_COLORS> gray_levels{};
-        present::world_renderer::build_gray_levels(entries, gray_levels);
-        auto& grey_palette = scene.terrain_grey_palette;
-        grey_palette = *in.palette;
-        for (std::size_t index = 0; index < OA_PALETTE_COLORS; ++index) {
-            const auto& colour = entries.entries[index];
-            const auto level = (uint32_t(colour.r) + colour.g + colour.b) / 3;
-            const auto from = std::size_t(gray_levels[level]) * palette_entry_bytes;
-            std::copy_n(
-                in.palette->begin() + from,
-                palette_entry_bytes,
-                grey_palette.begin() + index * palette_entry_bytes
-            );
-        }
-    }
     // Room for every tile of the largest map at least once in full and once
     // black, so that a wide view of one does not empty the cache each frame.
     constexpr std::size_t maximum_cached_tiles = 32768;
-    // A tile's texels are reused by all four height cells and every repeated tile.
-    std::unordered_map<uint64_t, AtlasRect> tiles;
+    // A tile's texels are reused by all four height cells and every repeated
+    // tile: tiles holds each key's square once it is found.
     const auto tile_material = [&](int32_t tile_x, int32_t tile_y) {
         const auto tile = map.tile_indices.at(
             static_cast<std::size_t>(tile_y / tile_edge) * map.tile_width + tile_x / tile_edge
@@ -1143,6 +1234,54 @@ void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t st
         }
     }
     scene.terrain_vertex_count = scene.vertices.size();
+}
+
+/// Emits the frame's ground (draw_terrain), or the last frame's again when
+/// it was drawn from the same and its tiles keep their squares. The ground
+/// is kept once two frames running are drawn from the same, so that a
+/// camera on the move does not copy its ground every frame.
+///
+/// @param in the frame
+/// @param[in,out] scene the geometry, the atlas and the kept ground
+/// @param plan the square of each tile
+/// @param step the height cells a side of each drawn square of ground
+void terrain(const Inputs& in, Scene& scene, const TerrainPlan& plan, int32_t step) {
+    // Compare palette bytes once per pass and tile bytes once per visible key.
+    // The retained copies detect edits even when the same map object is reused.
+    if (scene.terrain_palette != *in.palette) {
+        scene.terrain_materials.clear();
+        scene.terrain_palette = *in.palette;
+        const auto entries = present::palette_from_bytes(*in.palette);
+        std::array<uint8_t, OA_PALETTE_COLORS> gray_levels{};
+        present::world_renderer::build_gray_levels(entries, gray_levels);
+        auto& grey_palette = scene.terrain_grey_palette;
+        grey_palette = *in.palette;
+        for (std::size_t index = 0; index < OA_PALETTE_COLORS; ++index) {
+            const auto& colour = entries.entries[index];
+            const auto level = (uint32_t(colour.r) + colour.g + colour.b) / 3;
+            const auto from = std::size_t(gray_levels[level]) * palette_entry_bytes;
+            std::copy_n(
+                in.palette->begin() + from,
+                palette_entry_bytes,
+                grey_palette.begin() + index * palette_entry_bytes
+            );
+        }
+    }
+    const bool same_source =
+        note_ground_source(scene.ground_source, in, scene, terrain_crop(in), step);
+    if (same_source && scene.ground_kept && ground_tiles_hold(in, scene, plan)) {
+        scene.vertices.assign(scene.ground_vertices.begin(), scene.ground_vertices.end());
+        scene.terrain_vertex_count = scene.vertices.size();
+        return;
+    }
+    scene.ground_kept = false;
+    std::unordered_map<uint64_t, AtlasRect> tiles;
+    draw_terrain(in, scene, plan, step, tiles);
+    if (same_source) {
+        scene.ground_vertices.assign(scene.vertices.begin(), scene.vertices.end());
+        scene.ground_tiles.assign(tiles.begin(), tiles.end());
+        scene.ground_kept = true;
+    }
 }
 
 /// Drapes a cutout over the exact terrain triangles, preserving its painted footprint.
