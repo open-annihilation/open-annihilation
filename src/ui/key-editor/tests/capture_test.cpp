@@ -3,7 +3,8 @@
 
 // Capturing a chord, settling a clash, and finding by key. The fixture's
 // own Ctrl+B on Select all clashes with Select builders. Physical Ctrl is
-// stored as Primary on this fixture, and it is drawn as Ctrl.
+// stored as Primary on this fixture, and it is drawn as Ctrl. A chord that
+// names Primary and Ctrl together is found and settled as the key pressed.
 //
 // oa-ui-key-editor-capture-test
 
@@ -28,6 +29,7 @@ namespace editor = oa::ui::key_editor;
 namespace keys = oa::ui::key_bindings;
 namespace kit = oa::ui::kit;
 namespace acts = oa::data::input_actions;
+using key_editor_fixture::binding_of;
 using key_editor_fixture::editor_fixture;
 using key_editor_fixture::fonts;
 using key_editor_fixture::frame_for;
@@ -987,6 +989,59 @@ void find_by_key() {
     expect(typing.prompt == editor::Prompt::none, "typing opened a prompt");
 }
 
+/// True when Find by key lists an action.
+///
+/// @param uses what Find by key found
+/// @param id the action
+/// @return true when it is listed
+bool lists_use(const std::vector<editor::ChordUse>& uses, std::string_view id) {
+    for (const editor::ChordUse& use : uses) {
+        if (use.id == id)
+            return true;
+    }
+    return false;
+}
+
+/// A chord that names Primary and Ctrl together is Ctrl+7 where Primary is
+/// Ctrl: Find by key lists it for Ctrl+7, and keeping Ctrl+7 for the group key
+/// takes it off. On a Mac it is Cmd+Ctrl+7, another key.
+void primary_with_ctrl() {
+    for (const bool mac : {false, true}) {
+        editor::EditorInputs inputs = editor_fixture();
+        inputs.own.bindings.push_back(binding_of("ui.keys-overlay", "Primary+Ctrl+@Digit7"));
+        inputs.platform.primary_is_meta = mac;
+        editor::Editor model(std::move(inputs));
+        const std::string where = mac ? " where Primary is Cmd" : " where Primary is Ctrl";
+        const std::vector<editor::ChordUse> uses =
+            editor::find_by_chord(model, parsed_chord("Ctrl+@Digit7"));
+        expect(lists_use(uses, "group.assign-7"), "Ctrl+7 did not list group 7" + where);
+        expect(
+            lists_use(uses, "ui.keys-overlay") == !mac,
+            "Ctrl+7 and the keys overlay's Primary+Ctrl+7 differ" + where
+        );
+        const std::optional<keys::Clash> clash = model.draft_clash("ui.keys-overlay");
+        expect(clash.has_value() == !mac, "the keys overlay's draft clash differs" + where);
+        if (!clash)
+            continue;
+        expect(
+            editor::settle(model, *clash, editor::Settle::keep_there),
+            "keeping Ctrl+7 for group 7 wrote nothing" + where
+        );
+        bool kept = false;
+        const editor::Details overlay = model.details("ui.keys-overlay");
+        for (const editor::ChordDetail& one : overlay.chords) {
+            if (one.chord == parsed_chord("Primary+Ctrl+@Digit7"))
+                kept = true;
+        }
+        expect(!kept, "the keys overlay kept " + chord_line(model, "ui.keys-overlay") + where);
+        expect(
+            shows_chord(model, "group.assign-7", "Ctrl+7"),
+            "group 7 was left with " + chord_line(model, "group.assign-7") + where
+        );
+        expect(model.can_save(), "the settled clash still holds Save back" + where);
+    }
+}
+
 /// A fifth chord is refused, and the fixed Escape cannot be dropped.
 void limits() {
     editor::Editor model(editor_fixture());
@@ -1081,6 +1136,7 @@ int main() {
     no_swap_for_add();
     card_choices();
     find_by_key();
+    primary_with_ctrl();
     limits();
     well_not_the_buttons();
     return oa::test::failed_checks() == 0 ? 0 : 1;

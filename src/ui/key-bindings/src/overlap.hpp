@@ -33,6 +33,17 @@ struct Side {
     oa::data::input_actions::Target target{oa::data::input_actions::Target::none};
 };
 
+/// How a comparison reads the modifiers of two chords.
+enum class ChordReading : uint8_t {
+    /// Primary, Ctrl and Meta are three modifiers, as a layout writes them.
+    /// Resolution reads chords this way, so the chords a key press finds stay
+    /// the ones the layouts wrote.
+    as_written,
+    /// Primary is the key it means on the input's platform, as a key press
+    /// reads it. Every clash check reads chords this way.
+    as_pressed,
+};
+
 /// The relation of two chords, and which side wins when one shadows the other.
 struct Relation {
     Overlap overlap{Overlap::none};
@@ -57,14 +68,16 @@ struct Relation {
 /// @param first_chord its chord
 /// @param second the other action
 /// @param second_chord its chord
-/// @param input the scheme and the keyboard
+/// @param input the scheme, the keyboard and the platform
+/// @param reading whether Primary is compared as written or as pressed
 /// @return the relation
 [[nodiscard]] Relation relate(
     const Side& first,
     const Chord& first_chord,
     const Side& second,
     const Chord& second_chord,
-    const ResolveInput& input
+    const ResolveInput& input,
+    ChordReading reading
 );
 
 } // namespace oa::ui::key_bindings

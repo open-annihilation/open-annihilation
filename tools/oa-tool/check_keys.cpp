@@ -2,22 +2,28 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Checks a key layout's files and gathers the facts a catalogue copies. The
-// picture marks the same triggers. Chords are parsed and not bound.
+// picture marks the same triggers. Chords are parsed and not bound. Not
+// knowing the player's platform, the check names the platforms a clash
+// between Primary and Ctrl or Meta holds on.
 
 #include "check_keys.hpp"
 
 #include "oa/app/package_install/oakeys.hpp"
+#include "oa/data/input_actions/actions.hpp"
 #include "oa/formats/oamod.hpp"
 #include "oa/formats/oamut/manifest.hpp"
 #include "oa/formats/png.hpp"
 #include "oa/ui/key_bindings/chord.hpp"
 #include "oa/ui/key_bindings/input.hpp"
 #include "oa/ui/key_bindings/key_codes.hpp"
+#include "oa/ui/key_bindings/layout.hpp"
 #include "oa/ui/key_bindings/layout_file.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <optional>
 #include <span>
 #include <string>
@@ -29,6 +35,7 @@ namespace oa::tool {
 namespace {
 
 namespace fs = std::filesystem;
+namespace actions = oa::data::input_actions;
 namespace install = oa::app::package_install;
 namespace json = oa::formats::json;
 namespace keys = oa::data::key_library;
@@ -465,6 +472,109 @@ bool load_manifest_file(
     return true;
 }
 
+/// Platforms that read Primary alike, named as a warning names them, since
+/// a check does not know which one the player uses.
+struct NamedPlatforms {
+    std::string_view names{};      ///< the platforms, as a warning names them
+    bindings::Platform platform{}; ///< which key Primary means on them
+};
+
+/// Where Primary is Ctrl, and where it is the command key.
+constexpr NamedPlatforms named_platforms[] = {
+    {"Windows, Linux and the Steam Deck", bindings::Platform{false, false}},
+    {"macOS", bindings::Platform{true, false}},
+};
+
+/// The platforms a warning names for a clash that holds on all of them.
+constexpr std::string_view every_platform = "Windows, Linux, the Steam Deck and macOS";
+
+/// One chord a layout writes, and the action it binds.
+struct WrittenChord {
+    bindings::Chord chord{}; ///< the chord
+    std::string action{};    ///< the action, as the layout writes it
+};
+
+/// Tells whether two actions can be live at once, so that one key on both is
+/// a clash.
+///
+/// Their contexts must meet and their conditions hold together, and two
+/// modifier roles share a modifier without a clash. An action the registry
+/// does not know, a mod's own made action among them, is taken to meet every
+/// other. The registry's contexts are read with no hack on.
+///
+/// @param first one action id
+/// @param second the other action id
+/// @return true when the two can be live together
+bool live_together(std::string_view first, std::string_view second) {
+    const actions::Action* one = actions::find(first);
+    const actions::Action* other = actions::find(second);
+    if (one == nullptr || other == nullptr)
+        return true;
+    if (one->kind == actions::Kind::modifier && other->kind == actions::Kind::modifier)
+        return false;
+    return bindings::layers_meet(one->context, other->context) &&
+           bindings::conditions_meet(one->when, other->when);
+}
+
+/// Warns of two actions whose chords are written apart but pressed as one
+/// key on some platforms, such as Primary+5 and Ctrl+5, naming those
+/// platforms.
+///
+/// Two chords written alike are layout_from_manifest's own warning, two
+/// chords of one action are not a clash, and neither are two actions that
+/// are never live together. A chord that does not parse is left to the
+/// errors. Each warning is at the later chord, as `<later> and <earlier> both
+/// bind <chord> on <platforms>`, the chord as it is pressed.
+///
+/// @param manifest the layout
+/// @param[in,out] found one warning appended for each such pair
+void add_platform_clashes(
+    const layouts::Manifest& manifest, std::vector<bindings::LayoutProblem>& found
+) {
+    std::vector<WrittenChord> seen;
+    for (const layouts::BindingEntry& binding : manifest.bindings) {
+        for (std::size_t chord_index = 0; chord_index < binding.chords.size(); ++chord_index) {
+            const layouts::ChordText& written = binding.chords[chord_index];
+            bindings::ChordError chord_error{};
+            const std::optional<bindings::Chord> parsed =
+                bindings::parse_chord(written.text, chord_error);
+            if (!parsed)
+                continue;
+            for (const WrittenChord& earlier : seen) {
+                if (earlier.action == binding.action || earlier.chord == *parsed)
+                    continue;
+                if (!live_together(earlier.action, binding.action))
+                    continue;
+                const NamedPlatforms* first = nullptr;
+                std::size_t held_on = 0;
+                for (const NamedPlatforms& group : named_platforms) {
+                    if (!bindings::same_key_on(earlier.chord, *parsed, nullptr, group.platform))
+                        continue;
+                    if (first == nullptr)
+                        first = &group;
+                    ++held_on;
+                }
+                if (first == nullptr)
+                    continue;
+                const std::string_view where =
+                    held_on == std::size(named_platforms) ? every_platform : first->names;
+                const std::string pressed =
+                    bindings::chord_text(bindings::pressed_chord(*parsed, first->platform));
+                bindings::LayoutProblem problem;
+                problem.line = written.line;
+                problem.column = written.column;
+                problem.key =
+                    "bindings." + binding.action + "[" + std::to_string(chord_index) + "]";
+                problem.message = binding.action + " and " + earlier.action + " both bind " +
+                                  pressed + " on " + std::string{where};
+                problem.warning = true;
+                found.push_back(std::move(problem));
+            }
+            seen.push_back(WrittenChord{*parsed, binding.action});
+        }
+    }
+}
+
 } // namespace
 
 KeyFolder inspect_key_folder(const fs::path& folder) {
@@ -522,6 +632,7 @@ void check_keys_files(
     bindings::Layout layout;
     std::vector<bindings::LayoutProblem> found;
     static_cast<void>(bindings::layout_from_manifest(manifest, nullptr, layout, found));
+    add_platform_clashes(manifest, found);
     for (const bindings::LayoutProblem& one : found) {
         if (!one.warning) {
             problems.push_back(layout_line(one));
