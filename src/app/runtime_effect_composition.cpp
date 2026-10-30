@@ -174,11 +174,12 @@ void Runtime::compose_match_effect_pixels(
     }
     if (projected.empty())
         return;
-    // Only pixels reached by an effect need visibility sampling.
+    // Only pixels reached by an effect need visibility sampling, and only
+    // the effects compose draws: the first max_sources of them.
     std::vector<uint32_t> row_left(height, width), row_right(height, 0);
     std::vector<std::array<uint32_t, 4>> regions;
-    std::size_t region_pixels = 0;
-    for (const auto& source : projected) {
+    for (const auto& source :
+         std::span(projected).first(std::min(projected.size(), renderer_effects::max_sources))) {
         constexpr float maximum_radius = 256;
         constexpr float heat_sample_margin = 4;
         const float radius = std::min(source.radius_pixels, maximum_radius) + heat_sample_margin;
@@ -200,7 +201,6 @@ void Runtime::compose_match_effect_pixels(
             std::clamp(std::ceil(source.screen_y + radius_y + 1), 0.0F, float(height))
         );
         regions.push_back({left, top, right, bottom});
-        region_pixels += static_cast<std::size_t>(right - left) * (bottom - top);
         for (auto y = top; y < bottom; ++y) {
             row_left[y] = std::min(row_left[y], left);
             row_right[y] = std::max(row_right[y], right);
@@ -209,28 +209,74 @@ void Runtime::compose_match_effect_pixels(
     std::vector<uint8_t> visibility;
     std::vector<float> depths;
     if (live) {
+        // renderer_effects::compose reads a light's pixels on the rows its
+        // ellipse crosses, to a column beyond the ellipse's width on either
+        // side, and heat moves a sample at most four columns along its row.
+        // Each light asks for those columns of each row, and one more on
+        // either side to spare, rather than its whole rectangle.
+        std::vector<uint32_t> reach_left(height, width), reach_right(height, 0);
+        std::vector<std::array<uint32_t, 3>> reaches;
+        std::size_t reach_pixels = 0;
+        std::size_t lights = 0;
+        for (const auto& source : std::span(projected).first(
+                 std::min(projected.size(), renderer_effects::max_sources)
+             )) {
+            const float radius = std::min(source.radius_pixels, renderer_effects::max_radius);
+            const float radius_y =
+                source.radius_y_pixels > 0
+                    ? std::min(source.radius_y_pixels, renderer_effects::max_radius)
+                    : radius;
+            if (!std::isfinite(source.screen_x) || !std::isfinite(source.screen_y) ||
+                !std::isfinite(radius) || radius <= 0 || !std::isfinite(radius_y) || radius_y <= 0)
+                continue;
+            ++lights;
+            const auto top = static_cast<uint32_t>(
+                std::clamp(std::floor(source.screen_y - radius_y), 0.0F, float(height))
+            );
+            const auto bottom = static_cast<uint32_t>(
+                std::clamp(std::ceil(source.screen_y + radius_y) + 1, 0.0F, float(height))
+            );
+            for (auto y = top; y < bottom; ++y) {
+                const float dy = (float(y) - source.screen_y) / radius_y;
+                constexpr float row_spare = 1.0F / 1024;
+                if (dy * dy >= 1 + row_spare)
+                    continue;
+                const float half_width = radius * std::sqrt(std::max(0.0F, 1 - dy * dy));
+                constexpr float column_spare = 6;
+                const auto left = static_cast<uint32_t>(std::clamp(
+                    std::floor(source.screen_x - half_width) - column_spare, 0.0F, float(width)
+                ));
+                const auto right = static_cast<uint32_t>(std::clamp(
+                    std::ceil(source.screen_x + half_width) + column_spare + 1, 0.0F, float(width)
+                ));
+                if (left >= right)
+                    continue;
+                reaches.push_back({y, left, right});
+                reach_pixels += right - left;
+                reach_left[y] = std::min(reach_left[y], left);
+                reach_right[y] = std::max(reach_right[y], right);
+            }
+        }
         std::size_t span_pixels = 0;
         for (uint32_t y = 0; y < height; ++y)
-            if (row_right[y] > row_left[y])
-                span_pixels += row_right[y] - row_left[y];
+            if (reach_right[y] > reach_left[y])
+                span_pixels += reach_right[y] - reach_left[y];
         std::vector<uint8_t> requested_pixels;
         // A row interval can bridge distant lights. Keep the simple row path
-        // when their rectangles overlap or leave little unused space.
+        // when their reaches overlap or leave little unused space.
         constexpr std::size_t sparse_region_margin = 4;
-        if (regions.size() > 1 &&
-            span_pixels > region_pixels + region_pixels / sparse_region_margin) {
+        if (lights > 1 && span_pixels > reach_pixels + reach_pixels / sparse_region_margin) {
             requested_pixels.resize(static_cast<std::size_t>(width) * height);
-            for (const auto& region : regions)
-                for (auto y = region[1]; y < region[3]; ++y) {
-                    const auto offset = static_cast<std::size_t>(y) * width;
-                    std::fill(
-                        requested_pixels.begin() + offset + region[0],
-                        requested_pixels.begin() + offset + region[2],
-                        1
-                    );
-                }
+            for (const auto& [y, left, right] : reaches) {
+                const auto offset = static_cast<std::size_t>(y) * width;
+                std::fill(
+                    requested_pixels.begin() + offset + left,
+                    requested_pixels.begin() + offset + right,
+                    1
+                );
+            }
         }
-        live_scene_visibility(visibility, depths, false, row_left, row_right, requested_pixels);
+        live_scene_visibility(visibility, depths, false, reach_left, reach_right, requested_pixels);
         if (visibility.size() != static_cast<std::size_t>(width) * height)
             return;
     } else {

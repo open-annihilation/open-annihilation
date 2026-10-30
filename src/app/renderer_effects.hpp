@@ -4,6 +4,7 @@
 
 #include "oa/platform/job_pool.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <array>
 #include <span>
@@ -51,6 +52,12 @@ struct Surface {
 /// @param zoom world-to-layout scale
 /// @return light and heat strength multipliers, respectively
 std::array<float, 2> detail_strength(float radius_pixels, float zoom) noexcept;
+
+/// The most sources compose() draws: the first this many it is given.
+inline constexpr std::size_t max_sources = 128;
+
+/// The widest a source reaches compose() draws, in pixels either way.
+inline constexpr float max_radius = 256;
 
 /// Composite at most 128 visible sources, with radii bounded to 256 pixels.
 /// Source visibility must be checked before projection. Visibility prevents both
