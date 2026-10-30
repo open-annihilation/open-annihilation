@@ -229,9 +229,14 @@ triangles as decals; standing sprites such as trees remain upright. Fog
 brightness blends across the mapped side of visibility boundaries, while
 unmapped cells remain black and hidden units stay excluded. Unit shadows
 use the existing cached silhouettes, projected onto the terrain.
-Ground structures level the rendered terrain beneath their gameplay footprint
-to their placement height, with a small separation beneath floor plates and
-a one-cell transition to surrounding terrain. Ground decals and shadows follow
+Ground structures level the rendered terrain beneath their gameplay footprint,
+and beneath their model's base piece where it reaches past the footprint, to
+their placement height, with a small separation beneath floor plates and
+a one-cell transition to surrounding terrain. A base piece whose floor plates
+lie below the placement height, as the Arm aircraft plants' do, takes the
+ground down below its lowest corner, by up to a map pixel, so that the
+terrain hides no part of the base at any angle; other pieces sunk into the
+ground stay covered. Ground decals and shadows follow
 that foundation. Placement previews show the same leveling; simulation terrain
 and model positions remain unchanged.
 The terrain crop follows the viewport across the full terrain height range.

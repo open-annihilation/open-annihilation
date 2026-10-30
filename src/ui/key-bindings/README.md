@@ -72,10 +72,16 @@ dispatcher times a double press and a hold from that time.
   files clash only when one is the order panel (play, without the panel
   bit) and the other is the build menu on screen (the panel bit is set).
   Two buttons of one file still clash. `clashes_with` answers what one more
-  chord on an action would clash with.
+  chord on an action would clash with. Both, and `shadows`, compare chords
+  as the input's platform presses them: Primary+5 clashes with Ctrl+5 where
+  Primary is Ctrl, and with Meta+5 where it is the command key. Resolution
+  keeps Primary apart from Ctrl and Meta as the layout wrote them, so it
+  drops no chord for it and a key press finds what it always found.
 - `layers_meet`, `conditions_meet` and `same_key` are that rule in pieces.
   `same_key` treats a letter and a place as one key when the keyboard map
-  prints that letter on that place.
+  prints that letter on that place. `pressed_chord` reads Primary as the key
+  a platform presses for it, and `same_key_on` is `same_key` on two chords
+  read that way.
 - `layout_from_manifest` parses each chord of a manifest. A chord that does
   not parse, and a modifier on its own on an action whose kind is not a
   modifier, are errors at that chord's own line and column. An action this
@@ -230,7 +236,13 @@ that share a key without clashing: modifiers, the left button, a stricter
 condition, chat's Enter, a hack's Tab, and a pointer aimed at a different
 place. Two buttons of one GUI file that share a letter clash. The same
 letter on two files does not, until one file is the order panel and the
-other is the build menu on screen.
+other is the build menu on screen. `oa-default` has no clash where Primary is
+Ctrl or where it is the command key. Primary+5 on the keys overlay and
+Primary+6 on Settings, beside Ctrl+5 and Ctrl+6 on two group keys, as a
+layout for the left hand might write them, are two clashes on Windows, Linux and the Steam Deck
+and none on a Mac, and Primary+5 against Meta+5 is one on a Mac only;
+resolution keeps every chord on each, and the chat line's Primary chord over
+a match's Ctrl chord is a shadow where they are one key.
 
 `ui-key-bindings-dispatcher` (`tests/dispatcher_test.cpp`) resolves
 `oa-default` and walks synthetic timelines: Attack on A, including with

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Which bindings share a layer, and which of those are clashes. A hack's
-// precedence, an overlay and a stricter set of conditions are shadows.
+// precedence, an overlay and a stricter set of conditions are shadows. Every
+// clash check reads Primary as the key the platform presses for it.
 
 #include "oa/ui/key_bindings/layout.hpp"
 
@@ -297,6 +298,22 @@ bool same_key(const Chord& first, const Chord& second, const KeyboardMap* keyboa
     return fold_ascii(printed) == fold_ascii(letter->character);
 }
 
+Chord pressed_chord(const Chord& chord, Platform platform) {
+    Chord pressed = chord;
+    if ((pressed.modifiers & Modifier::primary) == 0)
+        return pressed;
+    const uint8_t physical = platform.primary_is_meta ? Modifier::meta : Modifier::ctrl;
+    const auto others = static_cast<uint8_t>(pressed.modifiers & ~uint8_t{Modifier::primary});
+    pressed.modifiers = static_cast<uint8_t>(others | physical);
+    return pressed;
+}
+
+bool same_key_on(
+    const Chord& first, const Chord& second, const KeyboardMap* keyboard, Platform platform
+) {
+    return same_key(pressed_chord(first, platform), pressed_chord(second, platform), keyboard);
+}
+
 int action_precedence(const Action& action, const std::vector<std::string>& hacks_on) {
     bool permanent = false;
     bool from_hack = false;
@@ -320,10 +337,15 @@ Relation relate(
     const Chord& first_chord,
     const Side& second,
     const Chord& second_chord,
-    const ResolveInput& input
+    const ResolveInput& input,
+    ChordReading reading
 ) {
     Relation relation;
-    if (!same_key(first_chord, second_chord, input.keyboard))
+    const bool one_key =
+        reading == ChordReading::as_pressed
+            ? same_key_on(first_chord, second_chord, input.keyboard, input.platform)
+            : same_key(first_chord, second_chord, input.keyboard);
+    if (!one_key)
         return relation;
     if (first.target != second.target)
         return relation;
@@ -424,7 +446,12 @@ std::vector<Clash> find_clashes(const Resolved& resolved, const ResolveInput& in
             for (const BoundChord& first_chord : lower.chords) {
                 for (const BoundChord& second_chord : upper.chords) {
                     const Relation relation = relate(
-                        first_side, first_chord.chord, second_side, second_chord.chord, input
+                        first_side,
+                        first_chord.chord,
+                        second_side,
+                        second_chord.chord,
+                        input,
+                        ChordReading::as_pressed
                     );
                     if (relation.overlap != Overlap::clash)
                         continue;
@@ -469,7 +496,8 @@ std::vector<Clash> clashes_with(
             continue;
         const Side other = side_of(bound, precedence_of(bound, input.hacks_on));
         for (const BoundChord& held : bound.chords) {
-            const Relation relation = relate(mine, chord, other, held.chord, input);
+            const Relation relation =
+                relate(mine, chord, other, held.chord, input, ChordReading::as_pressed);
             if (relation.overlap != Overlap::clash)
                 continue;
             Clash clash;
@@ -494,7 +522,12 @@ std::vector<Shadow> shadows(const Resolved& resolved, const ResolveInput& input)
             for (const BoundChord& first_chord : lower.chords) {
                 for (const BoundChord& second_chord : upper.chords) {
                     const Relation relation = relate(
-                        first_side, first_chord.chord, second_side, second_chord.chord, input
+                        first_side,
+                        first_chord.chord,
+                        second_side,
+                        second_chord.chord,
+                        input,
+                        ChordReading::as_pressed
                     );
                     Shadow shadow;
                     if (!as_shadow(
