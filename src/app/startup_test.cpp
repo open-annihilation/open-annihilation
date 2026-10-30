@@ -430,6 +430,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-skirmish-sides", &Options::check_skirmish_sides, {}},
         {"--check-mod-limits", &Options::check_mod_limits, {}},
         {"--check-factory-orders", &Options::check_factory_orders, {}},
+        {"--check-factory-departure", &Options::check_factory_departure, {}},
         {"--check-unit-speech", &Options::check_unit_speech, {}},
         {"--check-mutator-layer", &Options::check_mutator_layer, {}},
         {"--check-mutator-verdicts", &Options::check_mutator_verdicts, {}},

@@ -747,6 +747,18 @@ a graphics card, run without `SDL_VIDEO_DRIVER=dummy`, on the card (Metal
 on a Mac), in a window. It writes the frames at zoom 1, and any that
 differ, to `local/reports` in its folder, and skips under 2 GiB.
 
+`native-factory-departure` (`--check-factory-departure`) places, in a
+skirmish of its own each, a finished vehicle plant, Kbot lab, hovercraft
+platform, aircraft plant and shipyard of each side, the shipyard on the
+water nearest the commander, and has it build its construction unit. On
+every tick from the unit's release until it has left the factory's
+footprint, it draws the frame at each of the sixteen camera rows of one
+plot's scroll, and every frame must draw the unit after the factory, so
+that the platform never covers it; an aircraft may stay over the platform
+instead. A factory the installed game lacks is passed over with a line
+saying so. With `--snapshot`, it writes the frames of each factory's first
+tick beside that path.
+
 ### Touch controls
 
 The touch controls ([docs/touch-controls.md](../touch-controls.md)) are

@@ -376,6 +376,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-side-data-per-match` | Plays skirmishes and checks each match reads side data again when `gamedata/sidedata.tdf` has changed. |
 | `--check-gadget-art-per-match` | Plays three skirmishes and checks a download button's picture appears only in the match whose mod folder holds it. |
 | `--check-factory-orders` | Gives a Kbot Lab a move and checks the unit it builds carries it out. |
+| `--check-factory-departure` | Has each factory with a platform build a unit and checks the unit is drawn over the platform as it leaves, at every row of a small scroll. |
 | `--check-unit-speech` | Selects and orders the commander and checks what it says. |
 | `--check-mutator-layer` | Plays skirmishes with the mutators `--mutator` named and checks the commanders, and that a mutator which does not apply leaves no layer. |
 | `--check-mutator-verdicts` | Writes four made-up mutators and checks their verdicts against the installed game, then again from the verdict file. |
