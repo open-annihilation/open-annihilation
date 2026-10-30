@@ -218,31 +218,41 @@ Result render(
         error = "Invalid live GPU water parameters";
         return Result::failed;
     }
-    // Ordered bounds also reject NaN and infinities.
-    const auto unit_range = [](float value) { return value >= 0 && value <= 1; };
-    bool vertices_valid = true;
+    // Ordered bounds also reject NaN and infinities. Each test gives 0 or 1,
+    // and a vertex's tests are combined with & rather than &&, so that a
+    // frame's million vertices are checked without a branch on each test.
+    const auto within = [](float value, float low, float high) -> uint32_t {
+        return static_cast<uint32_t>(value >= low) & static_cast<uint32_t>(value <= high);
+    };
+    const auto unit_range = [&](float value) { return within(value, 0, 1); };
+    const auto atlas_width = static_cast<float>(texture_width);
+    const auto atlas_height = static_cast<float>(texture_height);
+    uint32_t vertices_valid = 1;
     for (const auto& vertex : vertices) {
-        const bool known_terrain_size =
-            vertex.terrain_size == -7 || vertex.terrain_size == -6 || vertex.terrain_size == -5 ||
-            vertex.terrain_size == -4 || vertex.terrain_size == -3 || vertex.terrain_size == -2 ||
-            vertex.terrain_size == -1 || vertex.terrain_size == 0 || vertex.terrain_size == 32 ||
-            vertex.terrain_size == 16 || vertex.terrain_size == 8 || vertex.terrain_size == 4;
-        const bool valid =
-            std::abs(vertex.x) <= coordinate_limit && std::abs(vertex.height) <= coordinate_limit &&
-            std::abs(vertex.z) <= coordinate_limit && unit_range(vertex.u) &&
-            unit_range(vertex.v) && unit_range(vertex.brightness) && unit_range(vertex.opacity) &&
-            unit_range(vertex.red) && unit_range(vertex.green) && unit_range(vertex.blue) &&
-            unit_range(vertex.emission_r) && unit_range(vertex.emission_g) &&
-            unit_range(vertex.emission_b) && vertex.terrain_x >= 0 &&
-            vertex.terrain_x <= (vertex.terrain_size <= -2 ? coordinate_limit : texture_width) &&
-            vertex.terrain_y >= 0 && vertex.terrain_y <= texture_height && known_terrain_size &&
-            unit_range(vertex.terrain_grey) && unit_range(vertex.terrain_known) &&
-            (vertex.terrain_size <= 0 ||
-             (vertex.terrain_x + 2 * vertex.terrain_size <= texture_width &&
-              vertex.terrain_y + 2 * vertex.terrain_size <= texture_height));
-        vertices_valid = vertices_valid && valid;
+        const float size = vertex.terrain_size;
+        // A whole number from -7 to 0, or a terrain square of 32, 16, 8 or 4.
+        const uint32_t known_terrain_size =
+            (within(size, -7, 0) & static_cast<uint32_t>(size == std::trunc(size))) |
+            static_cast<uint32_t>(size == 32) | static_cast<uint32_t>(size == 16) |
+            static_cast<uint32_t>(size == 8) | static_cast<uint32_t>(size == 4);
+        const uint32_t square_in_atlas =
+            static_cast<uint32_t>(size <= 0) |
+            (static_cast<uint32_t>(vertex.terrain_x + 2 * size <= atlas_width) &
+             static_cast<uint32_t>(vertex.terrain_y + 2 * size <= atlas_height));
+        const uint32_t valid =
+            within(vertex.x, -coordinate_limit, coordinate_limit) &
+            within(vertex.height, -coordinate_limit, coordinate_limit) &
+            within(vertex.z, -coordinate_limit, coordinate_limit) & unit_range(vertex.u) &
+            unit_range(vertex.v) & unit_range(vertex.brightness) & unit_range(vertex.opacity) &
+            unit_range(vertex.red) & unit_range(vertex.green) & unit_range(vertex.blue) &
+            unit_range(vertex.emission_r) & unit_range(vertex.emission_g) &
+            unit_range(vertex.emission_b) &
+            within(vertex.terrain_x, 0, size <= -2 ? coordinate_limit : atlas_width) &
+            within(vertex.terrain_y, 0, atlas_height) & known_terrain_size &
+            unit_range(vertex.terrain_grey) & unit_range(vertex.terrain_known) & square_in_atlas;
+        vertices_valid &= valid;
     }
-    if (!vertices_valid) {
+    if (vertices_valid == 0) {
         error = "Invalid live GPU vertex coordinates";
         return Result::failed;
     }
