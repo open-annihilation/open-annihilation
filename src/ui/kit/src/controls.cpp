@@ -252,6 +252,9 @@ ChipColours chip_colours(const ChipLook& look) noexcept {
         else
             colours = {colour::chip_face, colour::chip_border, colour::text_secondary};
         break;
+    case ChipState::tag:
+        colours = {std::nullopt, colour::chip_border, colour::hint};
+        break;
     }
     if (look.hovered && !colours.face.has_value())
         colours.face = colour::hover;
@@ -286,6 +289,8 @@ Colour icon_ink(const ChipLook& look) noexcept {
         return colour::danger;
     case ChipState::filter:
         return look.selected ? colour::accent : colour::hint;
+    case ChipState::tag:
+        return colour::hint;
     }
     return colour::hint;
 }
@@ -652,6 +657,41 @@ std::string cut_to_width(const Fonts& fonts, FontRole role, std::string_view tex
 
 // ---- List rows ----
 
+namespace {
+
+/// Returns a tag's width in a row with a spacing: its state icon's side, or
+/// its words in the screen's fonts, the measure the screen laid the row out
+/// in, so the tags wrap where it counted them, and the spacing's padding
+/// either side. A drawn face a little wider stays inside that padding.
+///
+/// @param fonts the fonts; null measures in the canvas's form
+/// @param canvas where it is measured when there are no fonts
+/// @param chip the tag
+/// @param spacing the row's spacing
+/// @return the width, in points
+int32_t spaced_tag_width(
+    const Fonts* fonts, const Canvas* canvas, const ChipLook& chip, const RowSpacing& spacing
+) {
+    if (chip.icon.has_value())
+        return kMetrics.state_icon_side;
+    const int32_t words = fonts != nullptr    ? text_width(*fonts, FontRole::small, chip.text)
+                          : canvas != nullptr ? measured(*canvas, FontRole::small, chip.text)
+                                              : 0;
+    return words + 2 * spacing.tag_padding;
+}
+
+/// Returns a tag's width on a canvas in a row with a spacing.
+///
+/// @param canvas where it is drawn
+/// @param chip the tag
+/// @param spacing the row's spacing
+/// @return the width, in points
+int32_t spaced_tag_width(const Canvas& canvas, const ChipLook& chip, const RowSpacing& spacing) {
+    return spaced_tag_width(canvas.fonts, &canvas, chip, spacing);
+}
+
+} // namespace
+
 Rect list_row_chip_rect(const Fonts& fonts, const Rect& row, const ChipLook& chip) {
     return chip_in_row(row, chip_width(fonts, chip), chip_height_of(chip));
 }
@@ -661,6 +701,12 @@ Rect list_row_icon_rect(const Fonts& fonts, const Rect& row, const ListRowLook& 
         return {};
     if (maker_under_icon(row, look))
         return stacked_icon_rect(row);
+    if (look.spacing.has_value() && !look.chip->icon.has_value())
+        return chip_in_row(
+            row,
+            spaced_tag_width(&fonts, nullptr, *look.chip, *look.spacing),
+            look.spacing->tag_height
+        );
     return list_row_chip_rect(fonts, row, *look.chip);
 }
 
@@ -681,6 +727,198 @@ Rect list_row_maker_rect(const Rect& row, const ListRowLook& look) {
         side,
     };
 }
+
+namespace {
+
+/// Walks a row's tags as a spacing lays them: left to right, tag_gap apart,
+/// a tag that would pass the column starting a line tag_gap under the one
+/// before. A tag wider than the line ends the walk. Each placed tag is
+/// handed to place.
+///
+/// @param canvas where they are measured
+/// @param tags the tags
+/// @param at the first tag's top left
+/// @param right the column no tag may pass
+/// @param spacing the row's spacing
+/// @param place called with each tag and its rectangle
+/// @return the rows the tags take, gaps included; 0 for none
+template <typename Place>
+int32_t walk_spaced_tags(
+    const Canvas& canvas,
+    const std::vector<ChipLook>& tags,
+    Point at,
+    int32_t right,
+    const RowSpacing& spacing,
+    Place&& place
+) {
+    int32_t left = at.x;
+    int32_t y = at.y;
+    int32_t bottom = at.y;
+    for (const ChipLook& chip : tags) {
+        const int32_t width = spaced_tag_width(canvas, chip, spacing);
+        if (left > at.x && left + width > right) {
+            left = at.x;
+            y = bottom + spacing.tag_gap;
+        }
+        if (left + width > right)
+            break;
+        const int32_t height =
+            chip.icon.has_value() ? kMetrics.state_icon_side : spacing.tag_height;
+        place(chip, Rect{left, y, width, height});
+        bottom = std::max(bottom, y + height);
+        left += width + spacing.tag_gap;
+    }
+    return bottom - at.y;
+}
+
+/// Draws a list row's title, and its byline after it, on the title's line.
+///
+/// @param canvas where it is drawn
+/// @param look the row
+/// @param text_left the title's column
+/// @param text_right the column the title and byline end before
+/// @param title_row the line's top
+void draw_row_title(
+    const Canvas& canvas,
+    const ListRowLook& look,
+    int32_t text_left,
+    int32_t text_right,
+    int32_t title_row
+) {
+    const int32_t room = std::max(text_right - text_left, int32_t{0});
+    const Rect title_box{text_left, title_row, room, kMetrics.regular_line};
+    // Trim only what the row shows. The maker is placed from the width the
+    // title is drawn at (bold on the smooth form), plus list_row_gap, so a
+    // wider drawn face cannot eat the space before "by".
+    const std::string_view trimmed = trimmed_ends(look.title);
+    if (canvas.fonts != nullptr && !trimmed.empty()) {
+        const std::string title = cut_to_width(*canvas.fonts, FontRole::regular, trimmed, room);
+        const int32_t drawn = measure_text(canvas, FontRole::regular, title);
+        const int32_t title_width = std::min(drawn, room);
+        const Rect fitted{text_left, title_row, title_width, kMetrics.regular_line};
+        line(canvas, FontRole::regular, title, fitted, Align::left, colour::text);
+        const int32_t by_left = text_left + title_width + kMetrics.list_row_gap;
+        // The byline shows where at least "..." fits after the title; in a
+        // narrower gap it is left out rather than drawn past its box.
+        if (!look.by.empty() &&
+            text_right - by_left >= measure_text(canvas, FontRole::small, kEllipsis)) {
+            const Rect by_box{by_left, title_row, text_right - by_left, kMetrics.regular_line};
+            cut_line(
+                canvas,
+                FontRole::small,
+                look.by,
+                by_box,
+                Align::left,
+                look.by_colour.value_or(colour::hint)
+            );
+        }
+    } else if (canvas.fonts != nullptr && !look.by.empty()) {
+        cut_line(
+            canvas,
+            FontRole::small,
+            look.by,
+            title_box,
+            Align::left,
+            look.by_colour.value_or(colour::hint)
+        );
+    }
+}
+
+/// Draws the words and tags of a row that has a spacing: the title's line,
+/// the lines under it title_gap down and line_step apart, and the tags
+/// tags_gap under the last line, as one block centred down the row. The
+/// aside's lines stand line_step apart at the right, the first centred on
+/// the title's line.
+///
+/// @param canvas where it is drawn
+/// @param rect the row
+/// @param look the row's look, whose spacing is set
+/// @param text_left the title's column
+/// @param right the column the words end before: left of the chip or the mark
+void draw_spaced_row_text(
+    const Canvas& canvas,
+    const Rect& rect,
+    const ListRowLook& look,
+    int32_t text_left,
+    int32_t right
+) {
+    const RowSpacing& spacing = *look.spacing;
+    int32_t aside_width = 0;
+    if (!look.aside.empty()) {
+        for (const std::string& entry : look.aside)
+            aside_width = std::max(aside_width, whole_width(canvas, FontRole::small, entry));
+        aside_width = std::min(aside_width, std::max(right - text_left, int32_t{0}));
+    }
+    const int32_t text_right =
+        look.aside.empty() ? right : right - aside_width - kMetrics.list_row_gap;
+    const auto line_count = static_cast<int32_t>(look.lines.size());
+    const int32_t lines_height =
+        line_count > 0 ? (line_count - 1) * spacing.line_step + kMetrics.small_line : 0;
+    const int32_t tags_height = walk_spaced_tags(
+        canvas, look.tags, {text_left, 0}, text_right, spacing, [](const ChipLook&, const Rect&) {}
+    );
+    int32_t block = kMetrics.regular_line;
+    if (line_count > 0)
+        block += spacing.title_gap + lines_height;
+    if (tags_height > 0)
+        block += (line_count > 0 ? spacing.tags_gap : spacing.title_gap) + tags_height;
+    const int32_t title_row = rect.y + std::max((rect.height - block) / 2, int32_t{0});
+
+    if (!look.aside.empty()) {
+        // As wide as its widest entry in either measure, so that no entry,
+        // a version such as "1 · rev 3" among them, is cut on either form.
+        const int32_t aside_left = right - aside_width;
+        const int32_t aside_row = title_row + (kMetrics.regular_line - kMetrics.small_line) / 2;
+        for (std::size_t index = 0; index < look.aside.size(); ++index) {
+            const Rect box{
+                aside_left,
+                aside_row + static_cast<int32_t>(index) * spacing.line_step,
+                aside_width,
+                kMetrics.small_line,
+            };
+            cut_line(
+                canvas,
+                FontRole::small,
+                look.aside[index],
+                box,
+                Align::right,
+                colour::text_secondary
+            );
+        }
+    }
+
+    draw_row_title(canvas, look, text_left, text_right, title_row);
+    const int32_t room = std::max(text_right - text_left, int32_t{0});
+    int32_t line_row = title_row + kMetrics.regular_line + spacing.title_gap;
+    for (const std::string& text : look.lines) {
+        cut_line(
+            canvas,
+            FontRole::small,
+            text,
+            {text_left, line_row, room, kMetrics.small_line},
+            Align::left,
+            colour::list_text
+        );
+        line_row += spacing.line_step;
+    }
+    const int32_t tags_top =
+        line_count > 0 ? line_row - spacing.line_step + kMetrics.small_line + spacing.tags_gap
+                       : line_row;
+    const int32_t bottom = rect.y + rect.height;
+    static_cast<void>(walk_spaced_tags(
+        canvas,
+        look.tags,
+        {text_left, tags_top},
+        text_right,
+        spacing,
+        [&](const ChipLook& chip, const Rect& place) {
+            if (place.y + place.height <= bottom)
+                draw_chip(canvas, place, chip);
+        }
+    ));
+}
+
+} // namespace
 
 void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& look) {
     if (!drawable(canvas))
@@ -726,9 +964,16 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
 
     int32_t right = rect.x + rect.width - inset;
     if (look.chip.has_value()) {
+        // A row with a spacing sizes a worded chip as its tags.
+        const bool spaced_chip = look.spacing.has_value() && !look.chip->icon.has_value();
         const Rect chip =
-            maker_under_icon(rect, look)
-                ? stacked_icon_rect(rect)
+            maker_under_icon(rect, look) ? stacked_icon_rect(rect)
+            : spaced_chip
+                ? chip_in_row(
+                      rect,
+                      spaced_tag_width(canvas, *look.chip, *look.spacing),
+                      look.spacing->tag_height
+                  )
                 : chip_in_row(rect, chip_width_on(canvas, *look.chip), chip_height_of(*look.chip));
         draw_chip(canvas, chip, *look.chip);
         right = chip.x - kMetrics.list_row_gap;
@@ -738,6 +983,11 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
         draw_state_icon(canvas, mark, maker_icon(*look.maker), colour::text);
         if (!look.chip.has_value())
             right = mark.x - kMetrics.list_row_gap;
+    }
+
+    if (look.spacing.has_value()) {
+        draw_spaced_row_text(canvas, rect, look, text_left, right);
+        return;
     }
 
     // The text: the title's line, then each line, then the tags' lines,
@@ -805,42 +1055,7 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
     }
 
     const int32_t room = std::max(text_right - text_left, int32_t{0});
-    const Rect title_box{text_left, title_row, room, kMetrics.regular_line};
-    // Trim only what the row shows. The maker is placed from the width the
-    // title is drawn at (bold on the smooth form), plus list_row_gap, so a
-    // wider drawn face cannot eat the space before "by".
-    const std::string_view trimmed = trimmed_ends(look.title);
-    if (canvas.fonts != nullptr && !trimmed.empty()) {
-        const std::string title = cut_to_width(*canvas.fonts, FontRole::regular, trimmed, room);
-        const int32_t drawn = measure_text(canvas, FontRole::regular, title);
-        const int32_t title_width = std::min(drawn, room);
-        const Rect fitted{text_left, title_row, title_width, kMetrics.regular_line};
-        line(canvas, FontRole::regular, title, fitted, Align::left, colour::text);
-        const int32_t by_left = text_left + title_width + kMetrics.list_row_gap;
-        // The byline shows where at least "..." fits after the title; in a
-        // narrower gap it is left out rather than drawn past its box.
-        if (!look.by.empty() &&
-            text_right - by_left >= measure_text(canvas, FontRole::small, kEllipsis)) {
-            const Rect by_box{by_left, title_row, text_right - by_left, kMetrics.regular_line};
-            cut_line(
-                canvas,
-                FontRole::small,
-                look.by,
-                by_box,
-                Align::left,
-                look.by_colour.value_or(colour::hint)
-            );
-        }
-    } else if (canvas.fonts != nullptr && !look.by.empty()) {
-        cut_line(
-            canvas,
-            FontRole::small,
-            look.by,
-            title_box,
-            Align::left,
-            look.by_colour.value_or(colour::hint)
-        );
-    }
+    draw_row_title(canvas, look, text_left, text_right, title_row);
 
     int32_t line_row = top + (spaced ? kMetrics.list_row_title_top + kMetrics.regular_line +
                                            kMetrics.list_row_line_gap
@@ -917,13 +1132,14 @@ struct PillColours {
     Colour ground{};                 ///< the rounded ground
     Colour text{};                   ///< the words
     std::optional<Colour> outline{}; ///< the outline; none when the ground is the whole pill
+    bool ring{};                     ///< the outline alone: no ground, what is under it shows
 };
 
 /// Returns a pill's colours from its state alone: a badge's. Playing and
 /// active are the accent filled, with on_accent text. Neutral and inactive
 /// are the selected surface under the secondary text. Installed, update,
 /// problem, information and brand are their colour's tinted fill under
-/// words in that colour.
+/// words in that colour. A tag is a tag chip's outline round hint words.
 ///
 /// @param state the state
 /// @return its colours
@@ -945,6 +1161,8 @@ PillColours colours_for(PillState state) noexcept {
         return {colour::information_tint, colour::information, std::nullopt};
     case PillState::brand:
         return {colour::brand_tint, colour::brand_light, std::nullopt};
+    case PillState::tag:
+        return {colour::chip_face, colour::hint, colour::chip_border, true};
     }
     return {colour::list_selected, colour::text_secondary, std::nullopt};
 }
@@ -952,8 +1170,10 @@ PillColours colours_for(PillState state) noexcept {
 /// Returns a pill's colours, including hover and disabled.
 ///
 /// Hover lightens an accent ground and outlines any other in the hovered
-/// border's grey. Disabled is the hover surface under the idle colour and
-/// ignores hover. Focus is the focus ring, drawn round the pill.
+/// border's grey; a tag's outline turns the hovered secondary border's and
+/// its words the secondary text. Disabled is the hover surface under the
+/// idle colour and ignores hover. Focus is the focus ring, drawn round the
+/// pill.
 ///
 /// @param look the pill
 /// @return its colours
@@ -962,10 +1182,14 @@ PillColours pill_colours(const PillLook& look) noexcept {
         return {colour::hover, colour::switch_idle, std::nullopt};
     PillColours colours = colours_for(look.state);
     const bool accent_ground = look.state == PillState::playing || look.state == PillState::active;
-    if (look.hovered && accent_ground)
+    if (look.hovered && accent_ground) {
         colours.ground = colour::accent_light;
-    else if (look.hovered)
+    } else if (look.hovered && colours.ring) {
+        colours.outline = colour::raised_border_hover;
+        colours.text = colour::text_secondary;
+    } else if (look.hovered) {
         colours.outline = colour::control_hover;
+    }
     return colours;
 }
 
@@ -1038,7 +1262,10 @@ void draw_pill(const Canvas& canvas, const Rect& rect, const PillLook& look) {
         return;
     const int32_t radius = std::min(rect.width, rect.height) / 2;
     const PillColours colours = pill_colours(look);
-    if (colours.outline.has_value()) {
+    if (colours.ring && colours.outline.has_value()) {
+        // A tag: the outline alone, the ground under it left as it is.
+        outline_round_rect(canvas, rect, radius, *colours.outline);
+    } else if (colours.outline.has_value()) {
         // The outline is the whole capsule, and the ground is the capsule
         // one point in, so a partial pixel is one colour or the other.
         fill_round_rect(canvas, rect, radius, *colours.outline);
@@ -1050,9 +1277,13 @@ void draw_pill(const Canvas& canvas, const Rect& rect, const PillLook& look) {
         fill_round_rect(canvas, rect, radius, colours.ground);
     }
     Rect words = rect;
+    // An icon stands as far in from the pill's end as from its top, so a
+    // pill taller than chip_height keeps its icons inside the round ends.
+    const int32_t icon_side = std::min(pill_icon_side(), std::max(rect.height - 2, int32_t{0}));
+    const int32_t icon_inset = std::max((rect.height - icon_side) / 2, int32_t{1});
     if (look.tag.has_value()) {
-        const int32_t side = std::min(pill_icon_side(), std::max(rect.height - 2, int32_t{0}));
-        const int32_t icon_x = rect.x + 1;
+        const int32_t side = icon_side;
+        const int32_t icon_x = rect.x + icon_inset;
         const Rect icon{icon_x, rect.y + (rect.height - side) / 2, side, side};
         const int32_t words_x = icon_x + side + kPillIconGap;
         words.x = words_x;
@@ -1060,8 +1291,8 @@ void draw_pill(const Canvas& canvas, const Rect& rect, const PillLook& look) {
         draw_tag_icon(clipped(canvas, rect), icon, *look.tag, colours.text);
     }
     if (look.icon.has_value()) {
-        const int32_t side = std::min(pill_icon_side(), std::max(rect.height - 2, int32_t{0}));
-        const int32_t icon_x = rect.x + rect.width - 1 - side;
+        const int32_t side = icon_side;
+        const int32_t icon_x = rect.x + rect.width - icon_inset - side;
         const Rect icon{icon_x, rect.y + (rect.height - side) / 2, side, side};
         words.width = std::max(icon_x - kPillIconGap - words.x, int32_t{0});
         draw_state_icon(clipped(canvas, rect), icon, *look.icon, colours.text);

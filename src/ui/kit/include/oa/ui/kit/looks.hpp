@@ -259,6 +259,9 @@ enum class ChipState : uint8_t {
     online,    ///< is on the network: the online colour
     problem,   ///< something is wrong: the danger colour
     filter,    ///< a filter the player turns on and off: the list's selected face while on
+    /// a package's tag: quiet, so it never competes with the words over it,
+    /// an outline and its words in the hint colour, with no face
+    tag,
 };
 
 /// A state icon: a shape the kit draws at the canvas's own pixels, never
@@ -310,6 +313,7 @@ enum class PillState : uint8_t {
     inactive,    ///< not chosen, as neutral: a muted ground, text colour
     information, ///< the information blue's tint and words: a release offered
     brand,       ///< the brand gold's tint and words: a Core Prime badge
+    tag,         ///< a package's tag, as a tag chip: an outline and hint words, no ground
 };
 
 /// A pill: a short text on a fully rounded ground about chip_height high.
@@ -327,6 +331,20 @@ struct PillLook {
     /// A tag icon at the pill's left, inside the capsule, before the word,
     /// in the pill's text colour. None leaves the word where it was.
     std::optional<TagIcon> tag{};
+};
+
+/// How a list row spaces what is under its title, as Settings spaces a
+/// row's label and its hints: the first line hint_gap under the title's
+/// line, each line a step under the one before, and the tags a gap under
+/// the last line, each as tall as tag_height with tag_padding at its sides.
+/// The title, the lines and the tags are one block, centred down the row.
+struct RowSpacing {
+    int32_t title_gap{};   ///< the rows between the title's line and the first line
+    int32_t line_step{};   ///< the rows from one line's top to the next one's
+    int32_t tags_gap{};    ///< the rows between the last line and the tags
+    int32_t tag_height{};  ///< a tag's height
+    int32_t tag_padding{}; ///< the columns between a tag's edges and its words
+    int32_t tag_gap{};     ///< the columns between two tags, and the rows between their lines
 };
 
 /// A row of a list, in its full or its short form, which its rectangle's
@@ -363,6 +381,9 @@ struct ListRowLook {
     /// left inset, so a mark column can sit there and the names still line up.
     bool show_badge{true};
     int32_t lead{0}; ///< points kept before the title when show_badge is false
+    /// The spacing of the lines and the tags under the title. Unset keeps
+    /// the kit's own: packed, or list_row_line_gap apart where the row has room.
+    std::optional<RowSpacing> spacing{};
 };
 
 /// A text field: the plain one, or with the magnifier the search field.
