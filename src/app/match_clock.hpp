@@ -69,8 +69,8 @@ struct AwayFacts {
     /// included, or the match is shared with other machines
     bool network{};
     bool replay{}; ///< the match replays a recording (extension_state::replay)
-    /// the run is frame-limited, remote-controlled or a director's film,
-    /// which runs on without the focus
+    /// the run is frame-limited, remote-controlled, a director's film or a
+    /// bench, which runs on without the focus
     bool scripted{};
 };
 

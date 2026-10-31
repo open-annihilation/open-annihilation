@@ -137,8 +137,8 @@ AwayAction Runtime::away_action() const {
     facts.finished = match_finished_;
     facts.network = keeps_running_inactive() || (extension & extension_state::shared_match) != 0;
     facts.replay = (extension & extension_state::replay) != 0;
-    facts.scripted =
-        options_.frame_limit.has_value() || options_.remote_controlled || director_ != nullptr;
+    facts.scripted = options_.frame_limit.has_value() || options_.remote_controlled ||
+                     director_ != nullptr || !options_.bench_file.empty();
     return oa::app::away_action(facts);
 }
 

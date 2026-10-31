@@ -308,6 +308,7 @@ void game_files_options() {
         {{"--capture-video", "check.mp4"}, "--capture-video"},
         {{"--showcase", "arm-first-mission"}, "--showcase"},
         {{"--benchmark", "10"}, "--benchmark"},
+        {{"--bench", "low.bench"}, "--bench"},
         {{"--check-touch-controls"}, "--check-touch-controls"},
         {{"--check-pad-controls"}, "--check-pad-controls"},
         {{"--check-engine-settings"}, "--check-engine-settings"},
@@ -528,6 +529,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--install-mod", "a.oamod", {}},
         {"--frames", "10", {}},
         {"--benchmark", "10", {}},
+        {"--bench", "low.bench", {}},
         {"--max-fps", "60", {}},
         {"--display-modes", "none", {"--headless-check"}},
         {"--frame-rate", "30", {"--headless-check", "--match-ticks", "60"}},
@@ -2116,7 +2118,7 @@ int main() {
         {"--check-simulation-hash"}, {"--check-user-folder"},       {"--check-mod-switch"},
         {"--check-mod-warning"},     {"--check-renderer-ladder"},   {"--check-briefing-narration"},
         {"--check-render-tiers"},    {"--benchmark", "60"},         {"--frames", "120"},
-        {"--snapshot", "frame.ppm"},
+        {"--snapshot", "frame.ppm"}, {"--bench", "low.bench"},
     };
     for (auto scripted : scripted_runs) {
         expect(parse(scripted).unattended, scripted.front());
@@ -2453,6 +2455,7 @@ int main() {
         {"--capture-video", "game.mp4"},
         {"--showcase", "arm-first-mission"},
         {"--benchmark", "60"},
+        {"--bench", "low.bench"},
         {"--frames", "60"},
         {"--snapshot", "frame.ppm"},
         {"--match-ticks", "60"},
@@ -2535,6 +2538,38 @@ int main() {
         rejection({"--showcase", "arm-first-mission", "--check-navigation"}) ==
             "--showcase plays in a window; it is not a check or benchmark",
         "a showcase is not a check"
+    );
+    // A bench plays in the game's window, unattended and seeded as a
+    // showcase is, on the real clock.
+    const auto bench = parse({"--bench", "views/low.bench"});
+    expect(
+        bench.bench_file == oa::app::path_from_utf8("views/low.bench") && bench.unattended &&
+            bench.seed == oa::app::kFixedRandomSeed && !bench.fixed_clock &&
+            !bench.headless_check && bench.showcase == oa::app::Showcase::none,
+        "--bench plays its view file's run, unattended and seeded, on the real clock"
+    );
+    expect(parse({}).bench_file.empty(), "a run is no bench unless --bench names a file");
+    expect(
+        parse({"--bench", "low.bench", "--seed", "9"}).seed == 9u, "--seed chooses a bench's seed"
+    );
+    expect(
+        rejection({"--bench", "low.bench", "--headless-check"}) ==
+                "--bench plays in a window; it is not a check or benchmark" &&
+            rejection({"--bench", "low.bench", "--benchmark", "60"}) ==
+                "--bench plays in a window; it is not a check or benchmark" &&
+            rejection({"--check-navigation", "--bench", "low.bench"}) ==
+                "--bench plays in a window; it is not a check or benchmark",
+        "a bench is not a check, a headless run or a benchmark"
+    );
+    expect(
+        rejection({"--bench", "low.bench", "--showcase", "skirmish-battle"}) ==
+            "--bench cannot be used with --showcase",
+        "a bench is not a showcase"
+    );
+    expect(
+        rejection({"--bench", "low.bench", "--capture-video", "bench.mp4"}) ==
+            "--bench cannot be used with --capture-video, whose encoding it would time",
+        "a bench is not captured"
     );
     // --check-navigation runs every group, or the one whose name follows it.
     const auto navigation = parse({"--check-navigation"});

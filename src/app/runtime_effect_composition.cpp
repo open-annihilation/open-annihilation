@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/app/runtime.hpp"
+#include "bench_timers.hpp"
 #include "renderer_effect_sources.hpp"
 #include "renderer_effects.hpp"
 #include "renderer_water.hpp"
@@ -276,7 +277,9 @@ void Runtime::compose_match_effect_pixels(
                 );
             }
         }
+        bench_timers::Span testing(bench_timers::Stage::effect_visibility);
         live_scene_visibility(visibility, depths, false, reach_left, reach_right, requested_pixels);
+        testing.stop();
         if (visibility.size() != static_cast<std::size_t>(width) * height)
             return;
     } else {

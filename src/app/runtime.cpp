@@ -1206,9 +1206,11 @@ int Runtime::run() {
         start_menu_music();
     if (options_.showcase != Showcase::none)
         run_showcase();
+    else if (!options_.bench_file.empty())
+        run_bench();
     std::size_t frames = 0;
-    // A showcase has played the whole run; the loop does not start.
-    bool running = options_.showcase == Showcase::none;
+    // A showcase or a bench has played the whole run; the loop does not start.
+    bool running = options_.showcase == Showcase::none && options_.bench_file.empty();
     while (running && !exit_requested_ &&
            (!options_.frame_limit || frames < *options_.frame_limit)) {
         // The check holds the window inactive before the loop decides whether
@@ -1274,7 +1276,8 @@ void Runtime::run_frame(bool& running) {
     begin_loop_frame();
     SDL_Event event{};
     while (SDL_PollEvent(&event))
-        dispatch_event(event, running);
+        if (!bench_ignores_event(event))
+            dispatch_event(event, running);
     // Holds finish on the frame's clock, after this frame's events.
     advance_input_actions(running);
     // A hold to confirm fires while the press is still down, on this clock.

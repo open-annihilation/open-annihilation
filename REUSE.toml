@@ -43,7 +43,8 @@ SPDX-License-Identifier = "GPL-3.0-only"
 
 # Data that cannot hold a comment: the checks' baselines and tables, JSON
 # anywhere in the engine's directories, the macOS bundle's Info.plist
-# template and the Windows program's manifest. The settings picture pin is
+# template, the Windows program's manifest and the preferences the frame
+# bench starts from. The settings picture pin is
 # a table of hashes the pixel gate requires left unchanged, and the Game
 # files screen's and the folder chooser's layout digests tables of hashes of
 # their layouts.
@@ -61,6 +62,7 @@ path = [
     "tests/**.json",
     "tools/**.json",
     "tools/**.txt",
+    "tools/bench/preferences.conf",
     "tools/oa-update/oa-update.manifest",
 ]
 SPDX-FileCopyrightText = "The Open Annihilation Authors; see COPYRIGHT"

@@ -3495,6 +3495,24 @@ prompts, Settings › Updates and the headers name one state with one size.
   describes both. Benchmarks, `--frame-rate` runs, headless saved-game runs
   and the battle end with the memory report, its peaks the largest the
   system saw (`oa/platform/memory_status.hpp`).
+- `runtime_bench.cpp`, `bench.hpp`, `bench.cpp`, `bench_timers.hpp`: the
+  frame bench, `--bench FILE`
+  ([docs/command-line.md](../../docs/command-line.md#--bench)), which plays
+  the skirmish the preferences set up in the window, the view file's stage
+  played into it and the camera held where the file says, warms up to a
+  match tick and measures a span on the game's own loop, printing `bench:`
+  lines (`run_bench`). `bench.cpp` (the library `oa-app-bench`) reads the
+  view file, takes the spread of each time (the median, the 95th and 99th
+  percentiles and the mean of the slowest 1%) and lays out the MEASURE and
+  STAGE lines; `bench_timers.hpp` holds the stage timers the match frame
+  marks: spans around the parts of the turned view's scene, the graphics
+  card's frame, the picture's copy, the effects, the overlays and the
+  pointer's pick (`bench_timers::Span`), the parts of `draw_match_surface`
+  one after another (`bench_timers::mark`) and the atlas's and the scene's
+  counts. They are off in every run but a bench, where each mark costs one
+  test of a flag; the match frame is drawn on one thread, which alone
+  touches them. The stages' names stay the same from one release to the
+  next, so that runs compare. `app-bench` tests the parts without a game.
 - `screen_size.hpp`, `screen_size.cpp`: the settings read before the window
   opens (`start_settings`), with the defaults of a light machine
   (`oa/platform/machine.hpp`): the Screen size, the window opened at that

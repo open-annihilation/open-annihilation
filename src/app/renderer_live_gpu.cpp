@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 #include "renderer_live_gpu.hpp"
+#include "bench_timers.hpp"
 #include "renderer_water_appearance.hpp"
 
 #include <SDL3/SDL.h>
@@ -265,6 +266,7 @@ Result render(
     const auto atlas_width = static_cast<float>(texture_width);
     const auto atlas_height = static_cast<float>(texture_height);
     uint32_t vertices_valid = 1;
+    bench_timers::Span validating(bench_timers::Stage::gpu_validate);
     for (const auto& vertex : vertices.subspan(ground_held ? ground_count : 0)) {
         const float size = vertex.terrain_size;
         // A whole number from -7 to 0, or a terrain square of 32, 16, 8 or 4.
@@ -289,6 +291,7 @@ Result render(
             unit_range(vertex.terrain_grey) & unit_range(vertex.terrain_known) & square_in_atlas;
         vertices_valid &= valid;
     }
+    validating.stop();
     if (vertices_valid == 0) {
         error = "Invalid live GPU vertex coordinates";
         return Result::failed;
@@ -534,6 +537,10 @@ Result render(
         (upload_bytes != 0 && !resources.upload) || !resources.download || !resources.atlas ||
         !resources.colour || !resources.depth || !resources.resolved)
         return fail("Create live GPU frame resources");
+    bench_timers::count_atlas_upload(
+        upload_rows + frame_upload_rows, upload_rows == texture_height
+    );
+    bench_timers::Span uploading(bench_timers::Stage::gpu_upload);
     // The upload holds the frame's vertices, then the kept ground when it
     // has changed, then the atlas rows that have, then the frame's own rows,
     // then the rectangles.
@@ -575,6 +582,10 @@ Result render(
         }
         SDL_UnmapGPUTransferBuffer(resources.device, resources.upload);
     }
+    uploading.stop();
+    // The submission and the waits for the card, without the caller's work
+    // while it draws, which the caller times.
+    bench_timers::Span waiting(bench_timers::Stage::gpu_wait);
     // A frame whose caller's work threw while the card drew it is still
     // waiting: it is let go first.
     if (resources.fence) {
@@ -757,10 +768,14 @@ Result render(
         return fail("Submit live GPU render");
     // The caller's work runs while the card draws, rather than after the
     // picture comes back.
+    waiting.stop();
     if (while_drawing)
         while_drawing();
+    waiting.start();
     if (!SDL_WaitForGPUFences(resources.device, true, &resources.fence, 1))
         return fail("Complete live GPU render");
+    waiting.stop();
+    const bench_timers::Span downloading(bench_timers::Stage::gpu_download);
     const auto* download = static_cast<const uint8_t*>(
         SDL_MapGPUTransferBuffer(resources.device, resources.download, false)
     );

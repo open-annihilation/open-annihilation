@@ -1077,6 +1077,10 @@ struct Options {
     fs::path capture_video;
     // The scripted showcase the run plays in place of a player.
     Showcase showcase = Showcase::none;
+    // --bench FILE: the view file of a measured run of a staged skirmish in
+    // the game's window, played in place of a player (runtime_bench.cpp);
+    // empty for none.
+    fs::path bench_file;
     // The game switches: every argument that is not one of the options above.
     oa::app::command_line::Switches launch{};
 };

@@ -4,6 +4,7 @@
 // Live match camera and GPU battlefield composition.
 #include "oa/app/runtime.hpp"
 #include "oa/app/frame_coordinates.hpp"
+#include "bench_timers.hpp"
 #include "director_state.hpp"
 #include "match_models.hpp"
 #include "engine_settings_state.hpp"
@@ -381,6 +382,9 @@ bool Runtime::render_live_match_surface() {
     // A classic frame is the last camera drawn until a turned one draws.
     if (!live_renderer_active())
         live.drawn = {true, live.camera, live.view, place, zoom, view_hold_};
+    using bench_timers::Span;
+    using bench_timers::Stage;
+    const Span live_total(Stage::live_total);
     if (live_renderer_active() && !live.failed) {
         auto& models = match_models();
         renderer_live_scene::Inputs inputs{};
@@ -464,13 +468,32 @@ bool Runtime::render_live_match_surface() {
                 static_cast<int32_t>(std::clamp(std::ceil(visible.max_y), 0.0F, float(map_height)));
         }
         std::string error;
+        Span building(Stage::scene_build);
         const bool built = renderer_live_scene::build(inputs, live.scene, error);
+        building.stop();
+        bench_timers::note_scene(
+            {static_cast<double>(live.scene.vertices.size()),
+             static_cast<double>(live.scene.terrain_vertex_count),
+             static_cast<double>(live.scene.model_count),
+             static_cast<double>(live.scene.sprite_count),
+             static_cast<double>(live.scene.particle_count),
+             static_cast<double>(live.scene.nano_particle_count),
+             static_cast<double>(live.scene.shadow_count),
+             static_cast<double>(inputs.right - inputs.left) / terrain_cell_edge *
+                 static_cast<double>(inputs.bottom - inputs.top) / terrain_cell_edge,
+             bench_timers::timers.last.supersample},
+            live.scene.ground_revision
+        );
         // Picking reads only the frame's triangles, so a frame that draws
         // rebuilds it while the card draws them.
-        const auto rebuild_picking = [this] { rebuild_live_picking(); };
+        const auto rebuild_picking = [this] {
+            const Span picking(Stage::picking);
+            rebuild_live_picking();
+        };
         const renderer_live_gpu::KeptGround ground{
             live.scene.terrain_vertex_count, live.scene.ground_revision
         };
+        Span drawing(Stage::gpu_total);
         const auto result = built ? renderer_live_gpu::render(
                                         live.gpu,
                                         live.scene.vertices,
@@ -490,6 +513,8 @@ bool Runtime::render_live_match_surface() {
                                         rebuild_picking
                                     )
                                   : renderer_live_gpu::Result::failed;
+        drawing.stop();
+        bench_timers::note_supersample(live.gpu.actual_supersample);
         const auto& last = live.drawn;
         const bool at_last =
             live.went_back || (last.held && last.camera.yaw_degrees == live.camera.yaw_degrees &&
@@ -499,10 +524,13 @@ bool Runtime::render_live_match_surface() {
         if (result == renderer_live_gpu::Result::success) {
             live.drawn = {true, live.camera, live.view, place, zoom, view_hold_};
             live.out_of_room = false;
+            Span copying(Stage::rgb_copy);
             for (std::size_t pixel = 0; pixel < match_world_cpu_.rgb.size() / 3; ++pixel)
                 std::copy_n(
                     live.rgba.data() + pixel * 4, 3, match_world_cpu_.rgb.data() + pixel * 3
                 );
+            copying.stop();
+            const Span effects(Stage::effects);
             compose_match_effects(match_world_cpu_, true);
         } else if (
             !built && live.scene.out_of_room && last.held && director_ == nullptr &&
@@ -559,10 +587,16 @@ bool Runtime::render_live_match_surface() {
     const bool bare = director_ != nullptr && !director_->presentation.show_interface;
     if (!live.failed) {
         if (!bare) {
+            Span overlays(Stage::overlays);
             draw_live_overlays();
+            overlays.stop();
+            Span selection(Stage::selection);
             draw_live_selection();
+            selection.stop();
+            const Span unit_overlays(Stage::unit_overlays);
             draw_live_unit_overlays();
         }
+        const Span on_screen(Stage::on_screen_units);
         rebuild_on_screen_units();
     }
     return true;

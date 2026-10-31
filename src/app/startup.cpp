@@ -285,6 +285,7 @@ void check_game_files_options(Options& options) {
         {!options.capture_video.empty(), "--capture-video"},
         {options.showcase != Showcase::none, "--showcase"},
         {options.benchmark_frames.has_value(), "--benchmark"},
+        {!options.bench_file.empty(), "--bench"},
         {options.check_navigation, "--check-navigation"},
         {options.check_match_dialogs, "--check-match-dialogs"},
         {options.check_load_save, "--check-load-save"},
@@ -616,6 +617,7 @@ void check_director_options(Options& options) {
         {!options.capture_video.empty(), "--capture-video"},
         {options.showcase != Showcase::none, "--showcase"},
         {options.benchmark_frames.has_value(), "--benchmark"},
+        {!options.bench_file.empty(), "--bench"},
         {options.frame_limit.has_value(), "--frames"},
         {!options.snapshot.empty(), "--snapshot"},
         {options.match_ticks.has_value(), "--match-ticks"},
@@ -1227,6 +1229,10 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
     }
     if (argument == "--benchmark") {
         options.benchmark_frames = parse_count(option_value(cursor));
+        return true;
+    }
+    if (argument == "--bench") {
+        options.bench_file = path_from_utf8(option_value(cursor));
         return true;
     }
     if (argument == "--max-fps") {
@@ -1853,7 +1859,7 @@ void write_startup_line(std::string_view text) {
                      "[--max-fps N] "
                      "[--hardware-acceleration[=off|basic|full] | --no-hardware-acceleration] "
                      "[--experimental-3d] [--native-density] [--display-modes MODES] "
-                     "[--benchmark FRAMES] [--match-ticks N "
+                     "[--benchmark FRAMES] [--bench FILE] [--match-ticks N "
                      "[--frame-rate FPS [--frame-log FILE] [--scroll-camera] [--march] "
                      "[--follow] [--frame-clock MS]]] "
                      "[--campaign NAME --mission N [--past-outcome] [--restart-at TICK]] "
@@ -2199,6 +2205,20 @@ void write_startup_line(std::string_view text) {
         );
     if (result.showcase != Showcase::none && check_run)
         throw std::runtime_error("--showcase plays in a window; it is not a check or benchmark");
+    // A bench measures the application's own loop in its window, as a
+    // player's frames are drawn and presented.
+    if (!result.bench_file.empty()) {
+        if (check_run)
+            throw std::runtime_error("--bench plays in a window; it is not a check or benchmark");
+        if (result.showcase != Showcase::none)
+            throw std::runtime_error("--bench cannot be used with --showcase");
+        if (!result.capture_video.empty())
+            throw std::runtime_error(
+                "--bench cannot be used with --capture-video, whose encoding it would time"
+            );
+        if (!result.seed)
+            result.seed = kFixedRandomSeed;
+    }
     // A showcase plays its mission from the same random state on every run.
     if (result.showcase != Showcase::none && !result.seed)
         result.seed = kFixedRandomSeed;
@@ -2206,7 +2226,7 @@ void write_startup_line(std::string_view text) {
                         result.check_multiplayer_menu || result.check_briefing_narration ||
                         result.check_key_timing || result.check_pointer_keys ||
                         result.benchmark_frames || result.frame_limit || !result.snapshot.empty() ||
-                        result.showcase != Showcase::none;
+                        result.showcase != Showcase::none || !result.bench_file.empty();
     if ((extension_effects & option_effect::unattended) != 0)
         result.unattended = true;
     if (result.check_game_files)

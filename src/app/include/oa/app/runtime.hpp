@@ -10687,6 +10687,39 @@ class Runtime final : public menu::Host,
     /// presenting times, then the memory report.
     void run_battle_showcase();
 
+    /// Plays --bench (Options::bench_file): the main menu for the view file's
+    /// menu_seconds, then the skirmish the preferences set up, with the view
+    /// file's players and its stage played into it, and the +stats overlay
+    /// shown; the view held at the file's zoom and centre and turned to its
+    /// yaw and pitch, with the pointer over the battlefield's middle, until
+    /// the match reaches the file's warm-up tick; then the measured span,
+    /// turning at the file's rate, on the application loop's frames and
+    /// clock; the match plays on while the window is away. Prints "bench:"
+    /// lines: WARMUP, MEASURING, SEC once a second, SHOT when a screenshot is
+    /// due, then RESULT, AWAY when the window was away for some of the span,
+    /// the MEASURE spreads, the STAGE timers when the file leaves them on,
+    /// COUNTS, GROUND, ATLAS and, after hold_after seconds more, DONE
+    /// (docs/command-line.md#--bench).
+    /// A view file that cannot be read, a skirmish that does not start, a
+    /// match that ends in the warm-up, a closed window and any other error
+    /// end the bench with a "bench: FAILED" line saying why and exit status
+    /// 1, rather than a message box nobody is there to close.
+    void run_bench();
+
+    /// Plays the bench run_bench describes. Throws std::runtime_error for
+    /// each failure it names.
+    void play_bench();
+
+    /// Tests whether the application loop leaves an event out because a
+    /// bench is playing in place of a player: the keyboard's, the pointer's,
+    /// a finger's, a pad's or a pen's, so that a key pressed or a pointer
+    /// moved by mistake changes nothing the bench measures. The bench's own
+    /// pointer and clicks do not come through the loop.
+    ///
+    /// @param event an event the loop has taken from SDL
+    /// @return true when the loop leaves it out
+    [[nodiscard]] bool bench_ignores_event(const SDL_Event& event) const;
+
     /// Runs one pass of the application loop: the frame's time from the
     /// pacer, the pending SDL events, the idle tick, the sweep of finished
     /// sound streams when one is due and the log files' upkeep.

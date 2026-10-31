@@ -4,6 +4,7 @@
 // Composition of the match battlefield frame, and the groups of text it
 // lays over the backings painted with them (BackedText).
 #include "oa/app/runtime.hpp"
+#include "bench_timers.hpp"
 #include "gui_actions.hpp"
 #include "oa/app/far_view.hpp"
 #include "oa/ui/hud/command_buttons.hpp"
@@ -993,6 +994,10 @@ void Runtime::compose_match_hud() {
 }
 
 void Runtime::render_match_surface() {
+    // The bench's timers: the whole frame, and the parts of each draw marked
+    // one after another (bench_timers::mark), the last of them ended here.
+    const bench_timers::MarkedParts marked_parts;
+    const bench_timers::Span timed(bench_timers::Stage::frame);
     // A match frame draws every line of text it shows, so the layers kept of
     // the lines the frame before did not draw, such as a readout's earlier
     // numbers, go.
@@ -1011,6 +1016,9 @@ bool Runtime::draw_match_surface() {
     // The drawing rebuilds piece placements the match reads, so it rounds as
     // the ticks do.
     oa::base::float_precision::restore_program_float_control();
+    using bench_timers::mark;
+    using bench_timers::Stage;
+    mark(Stage::match_setup);
     mark_profile(OA_PROFILE_MISC);
     sync_match_wrecks();
     follow_shared_cameras();
@@ -1159,7 +1167,9 @@ bool Runtime::draw_match_surface() {
     // The sweep that has just opened the menu shows the sound page on this
     // frame, so the HUD drawn below is that page and not the tabs alone.
     advance_options_lightbar();
+    mark(Stage::match_hud);
     compose_match_hud();
+    mark(Stage::match_setup);
     // What the presentation and the picture-keeping readers learn of the frame.
     accelerated_.frame = scaling;
     accelerated_.frame_alpha = presentation_alpha();
@@ -1297,6 +1307,7 @@ bool Runtime::draw_match_surface() {
     // animations, the decoded particle frames, is done here, once, and every
     // band then draws the list.
     auto& draw_list = models.draws;
+    mark(Stage::match_plan);
     clear_world_draws(draw_list);
     draw_list.spatial_particles.clear();
     // The features are cut off where the map the view shows ends.
@@ -2294,6 +2305,7 @@ bool Runtime::draw_match_surface() {
     // draw nothing there.
     if (!card_world && !live_world)
         draw_world_bands(models, frame_draw, draw_pool_.get());
+    mark(Stage::match_post);
     oa::present::bind_display(bound_display);
     mark_profile(OA_PROFILE_RENDER_STUFF);
     const auto fog_pass = [&](FogPasses passes) {
@@ -2431,7 +2443,9 @@ bool Runtime::draw_match_surface() {
         // A turned director frame is the rotated view's picture, drawn here
         // as the frame with the interface draws it below; one the card
         // cannot draw ends the frame, as there.
+        mark(Stage::match_live);
         const bool drawn = !live_world || render_live_match_surface();
+        mark(Stage::match_after);
         overlay_target_ = nullptr;
         hud_source_space_ = false;
         paint_origin_ = {};
@@ -2518,7 +2532,10 @@ bool Runtime::draw_match_surface() {
     // before what lies over the battlefield: the megamap, the markers and
     // the commander placement. A rotated frame the card cannot draw ends the
     // frame here, before anything is drawn over the battlefield it left out.
-    if (!render_live_match_surface()) {
+    mark(Stage::match_live);
+    const bool live_drawn = render_live_match_surface();
+    mark(Stage::match_after);
+    if (!live_drawn) {
         overlay_target_ = nullptr;
         hud_source_space_ = false;
         paint_origin_ = {};

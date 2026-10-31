@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+# The battle seen low across the plateau, the camera turning 6 degrees a second, for 25 seconds.
+label turning
+stage battle.stage
+players 2
+warmup_ticks 600
+measure_seconds 25
+shot_at 12
+centre_x 1980
+centre_z 2080
+yaw 0
+pitch -53
+zoom 1
+turn_rate 6

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "renderer_live_scene.hpp"
+#include "bench_timers.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_effect_sources.hpp"
 #include "renderer_aircraft_shadow.hpp"
@@ -507,6 +508,7 @@ AtlasRect material(
     );
     if (const auto found = scene.materials.find(digest); found != scene.materials.end())
         return found->second;
+    bench_timers::count_packed_material(uint64_t{width} * height);
     if (width > scene.texture_width || height > scene.texture_height)
         throw std::runtime_error("experimental material is larger than its atlas");
     if (scene.next_x + width > scene.texture_width) {
@@ -638,6 +640,7 @@ AtlasRect frame_material(
         scene.packed_material_area = packed;
         return rect;
     }
+    bench_timers::count_packed_material(uint64_t{width} * height);
     scene.frame_next_x = x + width;
     scene.frame_next_y = y;
     scene.frame_row_height = std::max(row_height, height);
@@ -905,6 +908,7 @@ AtlasRect terrain_material(
     Fog fog,
     uint32_t edge = full_terrain_square
 ) {
+    bench_timers::count_terrain_square();
     const std::array cursor{scene.next_x, scene.next_y};
     const AtlasRect rect = terrain_square(scene, edge);
     const uint32_t detail = rect.width / 2;
@@ -4475,6 +4479,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         const uint64_t starting_room =
             atlas_area -
             std::min(atlas_area, std::max(least_material_room, scene.material_area / 2 * 3));
+        bench_timers::Span surveying(bench_timers::Stage::survey);
         const auto demand = terrain_demand(inputs, starting_room);
         // A view whose terrain last had to halve its room, surveying as many
         // tiles, starts in the room it fitted (Scene::terrain_room) rather
@@ -4483,6 +4488,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         if (!demand.empty() && demand.size() == scene.terrain_room_tiles)
             room = std::min(room, scene.terrain_room);
         auto plan = plan_terrain(demand, room, holding);
+        surveying.stop();
         // Far out over a large map, the ground is drawn from fewer height
         // samples, as few as keep its triangles within the frame's
         // geometry budget: fewer than the last frame that ran out found
@@ -4530,16 +4536,42 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             // How much of the geometry budget the ground took, once drawn.
             std::size_t ground_vertices = maximum_vertices;
             try {
-                terrain(inputs, scene, plan, step, camera_known && !camera_moved, widen);
+                using bench_timers::Span;
+                using bench_timers::Stage;
+                {
+                    const Span timed(Stage::terrain);
+                    terrain(inputs, scene, plan, step, camera_known && !camera_moved, widen);
+                }
                 ground_vertices = scene.terrain_vertex_count;
-                sprites(inputs, scene, true);
-                unit_shadows(inputs, scene);
-                foundations(inputs, scene);
-                models(inputs, scene);
-                projectiles(inputs, scene);
-                sprites(inputs, scene, false);
-                if (!inputs.draws->spatial_particles.empty())
+                {
+                    const Span timed(Stage::ground_sprites);
+                    sprites(inputs, scene, true);
+                }
+                {
+                    const Span timed(Stage::shadows);
+                    unit_shadows(inputs, scene);
+                }
+                {
+                    const Span timed(Stage::foundations);
+                    foundations(inputs, scene);
+                }
+                {
+                    const Span timed(Stage::models);
+                    models(inputs, scene);
+                }
+                {
+                    const Span timed(Stage::projectiles);
+                    projectiles(inputs, scene);
+                }
+                {
+                    const Span timed(Stage::sprites);
+                    sprites(inputs, scene, false);
+                }
+                if (!inputs.draws->spatial_particles.empty()) {
+                    const Span timed(Stage::particles);
                     particles(inputs, scene);
+                }
+                const Span water_and_rest(Stage::water);
                 // The half-transparent units over everything opaque, under
                 // the water's surface.
                 for (auto range : scene.translucent_ranges) {
@@ -4581,6 +4613,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 );
                 step *= 2;
             } catch (const AtlasFull&) {
+                bench_timers::count_atlas_emptied();
                 if (++attempt == attempts)
                     throw;
                 // The rows kept for the frame's own materials hold half as
