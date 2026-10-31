@@ -353,6 +353,63 @@ bool Runtime::run_stage_direction(
         std::printf("stage: attack-ground %s: %zu units at %d,%d\n", group.c_str(), ordered, x, z);
         return true;
     }
+    if (action == "queue") {
+        // The last unit placed, a factory, has the type added to its build
+        // queue, as a computer player's factory orders add it.
+        std::string name;
+        int32_t count = 0;
+        if (!(line >> name >> count) || count <= 0 || stage_->last_unit == 0)
+            throw std::runtime_error(where + ": queue takes TYPE COUNT after a factory");
+        const auto type = oa::sim::unit_spawn::find_type_index(spawn_type_names_, name);
+        if (type == 0)
+            throw std::runtime_error(where + ": the game has no type " + name);
+        match_->queue_factory_build(stage_->last_unit, type, count);
+        std::printf(
+            "stage: unit %u queues %d %s\n",
+            static_cast<unsigned>(stage_->last_unit),
+            count,
+            name.c_str()
+        );
+        return true;
+    }
+    if (action == "patrol-all") {
+        int32_t player = -1;
+        int32_t x = 0;
+        int32_t z = 0;
+        if (!(line >> player >> x >> z) || player < 0 || player >= OA_PLAYER_COUNT)
+            throw std::runtime_error(where + ": patrol-all takes PLAYER X Z [KEPT_GROUP]");
+        // The members of the kept group are left to their orders.
+        std::vector<uint16_t> kept;
+        if (std::string group; line >> group)
+            kept = live_members(group);
+        // Every live unit of the player that takes a move order, the
+        // factories among them, is ordered as a selection of them is: each
+        // keeps its place around the point, measured from the centre of all
+        // of them.
+        std::vector<uint16_t> members;
+        for (const auto& slot : match_->world().slots)
+            if (slot.unit != nullptr && slot.record.type_index != 0 &&
+                slot.record.owner_index == player && oa::unit_is_live_target(slot.record.flags) &&
+                std::find(kept.begin(), kept.end(), slot.unit_index) == kept.end() &&
+                match_->takes_move_order(slot.unit_index))
+                members.push_back(slot.unit_index);
+        const auto point = ground_point(*match_, x, z);
+        oa::sim::gameplay_input::GroupCentre centre{};
+        const auto& world = match_->state();
+        for (const auto unit : members)
+            if (const auto* member = oa::world_unit_at(&world, unit); member != nullptr)
+                oa::sim::gameplay_input::add_to_group_centre(centre, *member);
+        for (const auto unit : members)
+            match_->issue_patrol(
+                unit,
+                group_order_destination(
+                    centre, oa::sim::gameplay_input::OrderCommand::patrol, unit, 0, point
+                ),
+                false
+            );
+        std::printf("stage: patrol-all %d: %zu units to %d,%d\n", player, members.size(), x, z);
+        return true;
+    }
     if (action == "guard") {
         std::string group;
         std::string guarded;

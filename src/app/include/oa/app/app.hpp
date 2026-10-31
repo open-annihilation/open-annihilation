@@ -417,7 +417,9 @@ struct Options {
     // TYPE X Z [FACING]" places a finished unit at a map pixel, "group NAME"
     // gathers the units placed after it, "move GROUP X Z", "patrol GROUP X Z",
     // "attack GROUP TARGETS", "attack-ground GROUP X Z" and "guard GROUP
-    // GUARDED" order a group's live units, and "at TICK"
+    // GUARDED" order a group's live units, "patrol-all PLAYER X Z
+    // [KEPT_GROUP]" sends every live unit of a player on patrol, "queue TYPE
+    // COUNT" adds to the last placed factory's build queue, and "at TICK"
     // before any action runs it before that match tick instead
     // (src/app/README.md).
     fs::path stage_file;

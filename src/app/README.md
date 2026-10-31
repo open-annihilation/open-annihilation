@@ -2954,7 +2954,13 @@ prompts, Settings › Updates and the headers name one state with one size.
   `move GROUP X Z` and `patrol GROUP X Z` give a group's live units that
   order to map pixel X, Z as a player's order gives a selection of them
   (each unit near the group's centre keeps its place around the point, and
-  one far from it goes to the point itself); `attack GROUP TARGETS` sets
+  one far from it goes to the point itself); `patrol-all PLAYER X Z
+  [KEPT_GROUP]` gives the patrol to every live unit of a player that takes
+  a move order, its factories among them, but the live units of the group
+  named last, printing `stage: patrol-all PLAYER: N units to X,Z`;
+  `queue TYPE COUNT` adds COUNT of a type to the build queue of the last
+  unit placed, a factory, as a computer player's factory orders add them,
+  printing `stage: unit N queues COUNT TYPE`; `attack GROUP TARGETS` sets
   each of them on the nearest live unit of another group, `attack-ground
   GROUP X Z` commands them to attack the ground at map pixel X, Z, `guard
   GROUP GUARDED` sets them guarding the first live unit of another group,
