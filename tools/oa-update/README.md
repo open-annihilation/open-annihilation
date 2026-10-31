@@ -12,6 +12,11 @@ From a build tree, `build/oa-update` is the program. It is built beside
 ## Entry points
 
 - `oa-update --plan FILE` reads the plan and carries it out.
+- `oa-update --plan FILE --elevated-swap` is the copy a folder swap or a
+  macOS bundle swap starts with raised rights. It only moves files: on
+  Windows it swaps the folder; on macOS it moves the bundles of an install
+  or a roll back, and nothing else (see
+  [An administrator's rights on macOS](#an-administrators-rights-on-macos)).
 - `oa-update --recover --updates DIR` undoes a journal a killed run left.
 - `oa-update --version` prints the game's version line and exits 0.
 - `oa-update --help` prints the usage and exits 0.
@@ -65,6 +70,43 @@ only swaps a folder leaves the receipt to the run that started it. The
 game shows the receipt once (`src/app/update`, `receipt.hpp`). The staging folder
 and the journal are removed after the new version has started.
 
+## An administrator's rights on macOS
+
+The macOS bundle swap moves the installed bundle into `previous/` under
+the updates folder and the staged one into its place. A rename that moves a
+folder into another folder rewrites that folder's own entry for its parent,
+so the bundle itself must be writable, not only Applications. The bundle
+the installer package leaves belongs to the administrator, and an account
+that is not an administrator cannot change Applications at all. When the
+install's folder, the install or a kept bundle cannot be moved by the
+player (`macos_swap_access`), the run records the kept version as the
+player, then asks macOS for an administrator's password: `/usr/bin/osascript`
+runs one shell command `with administrator privileges`, the standard
+macOS prompt, with a sentence that names the version and the folder. The
+window says why it asks. That command is this program again, with
+`--elevated-swap` and the same plan.
+
+The copy with the administrator's rights acts as the player before it
+touches a file: it takes the user, group and groups of the updates folder's
+owner, refusing an updates folder the administrator owns or a plan another
+user owns. It writes no receipt, takes no lock of its own and starts
+nothing. It checks the bundles itself, from the plan and their signatures,
+never from a list it is handed: each must be valid, signed by the team that
+signed this program and this game, and the one moving in notarized. It then continues the run's
+journal with the moves, taking the administrator's rights for each rename
+and dropping them after. A bundle moved into the updates folder becomes the
+player's, and one moved into the install's place takes the owner the
+install had, so nothing in the player's Library is left to the
+administrator and the new bundle is owned as the installer package owned
+the old one. A failed move undoes every step of the journal, the player's
+too. A roll back of such an install asks the same way.
+
+When the player closes the prompt, the run undoes its record, writes
+cancelled with the step "the administrator's permission was not given",
+and starts the old version. When the prompt cannot be shown, as over a
+remote login, nothing moved and the receipt says not installed. The game
+is never started by a process with an administrator's rights.
+
 ## Invariants
 
 - The feed's signature is checked, and the package's name, size and
@@ -107,7 +149,12 @@ decisions, the move retries, the `WININIT.INI` text and a postponed rename,
 the Linux versions folder, a second Linux update while the first kept copy
 is still there, a failed Windows setup whose undo leaves the helper's own
 file alone, the macOS decision and operation list, and when a macOS launch
-counts as started. It also checks that a closed window can let go of font
+counts as started. It covers both spellings of a zip's top folder and the
+refusals around them; when a macOS swap needs an administrator, including
+a scratch bundle the test cannot write, which the rename itself refuses;
+the prompt's command and how its ending is read; whose a moved bundle
+becomes; a journal another copy continues through the rename hook; and how
+the game is started again. It also checks that a closed window can let go of font
 files, and, on Windows, that an open file keeps its folder from being
 renamed. No test signs a bundle or starts a program. `tools-oa-update-run`
 runs the program on a plain folder, in a self-check build. `app-update-plan`
@@ -118,10 +165,18 @@ a machine is given.
 
 - This build carries out `windows-installer` and `windows-folder`, the
   Linux versions folder and the macOS bundle, and `check-folder` only in a
-  self-check build. A signed bundle is swapped in place. A folder the player
-  cannot write opens the signed installer. An ad hoc signature is swapped
-  only when a self-check run was given a feed key, and only for another ad
-  hoc signature. `roll-back` is read and not carried out.
+  self-check build. A signed bundle is swapped in place, with an
+  administrator's rights for the moves when the player cannot make them.
+  A plan that names the macOS installer is still opened in Installer, but
+  the game no longer writes one. An ad hoc signature is swapped only when a
+  self-check run was given a feed key, and only for another ad hoc
+  signature; a roll back with an administrator's rights is not given the
+  feed key, so it takes team signatures only.
+- The administrator's moves are renames: a bundle on another volume than
+  the updates folder is not swapped with an administrator's rights. A run
+  killed while the administrator's copy was moving leaves a journal the
+  next run, as the player, may not be able to undo; it then says recovery
+  did not finish.
 - A rename the journal does itself stays on the volume the file is already
   on. The Windows folder route may copy across volumes, and a macOS bundle
   that would cross a volume is copied, in both directions, because the

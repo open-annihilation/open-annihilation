@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The macOS bundle route. The new bundle is checked against the one that is
-// running, then moved into its place. A folder the player cannot write is
-// opened in Installer instead. This file is built on Apple only.
+// running, then moved into its place. When the player cannot make those
+// moves, macOS asks for an administrator's password and a second copy of
+// this helper makes them, acting as the player for everything else. This
+// file is built on Apple only.
 
 #include "oa/update_helper/routes.hpp"
 
@@ -15,11 +17,17 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <dirent.h>
+#include <fcntl.h>
 #include <fstream>
+#include <grp.h>
+#include <mach-o/dyld.h>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <pwd.h>
 #include <spawn.h>
 #include <string>
 #include <sys/stat.h>
@@ -277,7 +285,351 @@ bool state_confirms(const fs::path& state_file, std::string_view version) {
     return state.has_value() && state->confirmed && state->installed_version == version;
 }
 
+/// The signing team of this process. Empty for an ad hoc signature.
+///
+/// @return the team
+std::string own_team() {
+    SecCodeRef own = nullptr;
+    if (SecCodeCopySelf(kSecCSDefaultFlags, &own) != errSecSuccess || own == nullptr)
+        return {};
+    SecStaticCodeRef disk_code = nullptr;
+    const OSStatus made = SecCodeCopyStaticCode(own, kSecCSDefaultFlags, &disk_code);
+    CFRelease(own);
+    if (made != errSecSuccess || disk_code == nullptr)
+        return {};
+    std::string team = team_of(disk_code);
+    CFRelease(disk_code);
+    return team;
+}
+
+/// The bundle identifier in a bundle's Info.plist. Empty when it names none.
+///
+/// @param bundle the bundle
+/// @return the identifier
+std::string identifier_of(const fs::path& bundle) {
+    @autoreleasepool {
+        NSString* const path = [NSString stringWithUTF8String:utf8_of(bundle).c_str()];
+        if (path == nil)
+            return {};
+        NSBundle* const loaded = [NSBundle bundleWithPath:path];
+        NSString* const identifier = loaded == nil ? nil : loaded.bundleIdentifier;
+        return identifier == nil ? std::string() : std::string(identifier.UTF8String);
+    }
+}
+
+/// Gives every entry under the folder `folder` names the owner `user` and
+/// group `group`, without following a link. A file with another name
+/// elsewhere is left as it is: its other name is not part of the tree.
+///
+/// @param folder an open folder; it is closed
+/// @param user the owner
+/// @param group the group
+/// @return true when every entry was given that owner
+bool own_entries(int folder, uid_t user, gid_t group) {
+    DIR* const listed = ::fdopendir(folder);
+    if (listed == nullptr) {
+        ::close(folder);
+        return false;
+    }
+    bool owned = true;
+    while (const dirent* const entry = ::readdir(listed)) {
+        const std::string_view name(entry->d_name);
+        if (name == "." || name == "..")
+            continue;
+        struct stat info{};
+        if (::fstatat(::dirfd(listed), entry->d_name, &info, AT_SYMLINK_NOFOLLOW) != 0) {
+            owned = false;
+            continue;
+        }
+        if (S_ISDIR(info.st_mode)) {
+            const int child = ::openat(
+                ::dirfd(listed), entry->d_name, O_RDONLY | O_NOFOLLOW | O_DIRECTORY | O_CLOEXEC
+            );
+            if (child < 0 || ::fchown(child, user, group) != 0) {
+                if (child >= 0)
+                    ::close(child);
+                owned = false;
+                continue;
+            }
+            owned = own_entries(child, user, group) && owned;
+            continue;
+        }
+        if (S_ISREG(info.st_mode) && info.st_nlink > 1)
+            continue;
+        if (::fchownat(::dirfd(listed), entry->d_name, user, group, AT_SYMLINK_NOFOLLOW) != 0)
+            owned = false;
+    }
+    ::closedir(listed);
+    return owned;
+}
+
+/// Gives the tree at `top` the owner `user` and group `group`, when `top`
+/// is still what `was` describes.
+///
+/// @param top the moved tree
+/// @param was what was at the tree's old place before the move
+/// @param user the owner
+/// @param group the group
+/// @return true when the whole tree has that owner
+bool own_tree(const fs::path& top, const struct stat& was, uid_t user, gid_t group) {
+    const int opened = ::open(top.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (opened < 0)
+        return false;
+    struct stat now{};
+    if (::fstat(opened, &now) != 0 || now.st_ino != was.st_ino || now.st_dev != was.st_dev ||
+        ::fchown(opened, user, group) != 0) {
+        ::close(opened);
+        return false;
+    }
+    if (!S_ISDIR(now.st_mode)) {
+        ::close(opened);
+        return true;
+    }
+    return own_entries(opened, user, group);
+}
+
 } // namespace
+
+std::vector<Operation>
+macos_checked_restore(const oa::app::update::Plan& plan, bool test_key, std::string* why) {
+    if (why != nullptr)
+        why->clear();
+    const fs::path install = path_from(plan.install);
+    const fs::path updates = path_from(plan.updates);
+    const fs::path kept = macos_kept_bundle(updates, install);
+    std::error_code io;
+    if (!fs::is_directory(install, io) || io || fs::is_symlink(fs::symlink_status(install))) {
+        set_why(why, "the installed bundle is missing");
+        return {};
+    }
+    if (!fs::is_directory(kept, io) || io || fs::is_symlink(fs::symlink_status(kept))) {
+        set_why(why, "the kept bundle is missing");
+        return {};
+    }
+    BundleSignature installed;
+    std::string failure;
+    if (!read_signature(install, installed, failure)) {
+        set_why(why, "the installed bundle's signature is not valid");
+        return {};
+    }
+    BundleSignature kept_signature;
+    if (!read_signature(kept, kept_signature, failure)) {
+        set_why(why, "the kept bundle's signature is not valid");
+        return {};
+    }
+    const MacosDecision decision = macos_may_swap(installed, kept_signature, test_key);
+    if (!decision.go) {
+        set_why(why, "the kept bundle may not replace the installed one: " + decision.why);
+        return {};
+    }
+    std::string volume_why;
+    if (volume_of(install, updates, &volume_why) != MacosVolume::same) {
+        set_why(why, volume_why.empty() ? "the kept bundle is on another volume" : volume_why);
+        return {};
+    }
+    Operation aside;
+    aside.kind = Operation::Kind::remove_tree;
+    aside.path = install;
+    Operation back;
+    back.kind = Operation::Kind::rename;
+    back.from = kept;
+    back.to = install;
+    return {std::move(aside), std::move(back)};
+}
+
+fs::path macos_helper_program() {
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::vector<char> buffer(static_cast<std::size_t>(size) + 1U, '\0');
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0)
+        return {};
+    char resolved[PATH_MAX];
+    if (::realpath(buffer.data(), resolved) == nullptr)
+        return path_from(buffer.data());
+    return path_from(resolved);
+}
+
+ElevatedRelaunch relaunch_elevated_macos(
+    std::string_view prompt,
+    const fs::path& helper,
+    const std::vector<std::string>& arguments,
+    void (*waiting)(void* context),
+    void* context
+) {
+    if (helper.empty())
+        return macos_elevation_outcome(false, 1, {}, {});
+    std::vector<std::string> command = macos_elevation_command(prompt, helper, arguments);
+    int output[2] = {-1, -1};
+    int errors[2] = {-1, -1};
+    if (::pipe(output) != 0)
+        return macos_elevation_outcome(false, 1, {}, {});
+    if (::pipe(errors) != 0) {
+        ::close(output[0]);
+        ::close(output[1]);
+        return macos_elevation_outcome(false, 1, {}, {});
+    }
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+    posix_spawn_file_actions_addclose(&actions, output[0]);
+    posix_spawn_file_actions_addclose(&actions, errors[0]);
+    posix_spawn_file_actions_adddup2(&actions, output[1], STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, errors[1], STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&actions, output[1]);
+    posix_spawn_file_actions_addclose(&actions, errors[1]);
+    std::vector<char*> argv;
+    argv.reserve(command.size() + 1);
+    for (std::string& word : command)
+        argv.push_back(word.data());
+    argv.push_back(nullptr);
+    pid_t pid = 0;
+    const int spawned = posix_spawn(&pid, argv[0], &actions, nullptr, argv.data(), environ);
+    posix_spawn_file_actions_destroy(&actions);
+    ::close(output[1]);
+    ::close(errors[1]);
+    if (spawned != 0) {
+        ::close(output[0]);
+        ::close(errors[0]);
+        return macos_elevation_outcome(false, 1, {}, {});
+    }
+    ::fcntl(output[0], F_SETFL, O_NONBLOCK);
+    ::fcntl(errors[0], F_SETFL, O_NONBLOCK);
+    std::string said;
+    std::string complained;
+    const auto drain = [](int from, std::string& into) {
+        char buffer[512];
+        for (;;) {
+            const ssize_t got = ::read(from, buffer, sizeof buffer);
+            if (got > 0) {
+                if (into.size() < 65536)
+                    into.append(buffer, static_cast<std::size_t>(got));
+                continue;
+            }
+            if (got < 0 && errno == EINTR)
+                continue;
+            return;
+        }
+    };
+    int status = 0;
+    for (;;) {
+        drain(output[0], said);
+        drain(errors[0], complained);
+        const pid_t ended = ::waitpid(pid, &status, WNOHANG);
+        if (ended == pid)
+            break;
+        if (ended < 0 && errno != EINTR) {
+            status = -1;
+            break;
+        }
+        if (waiting != nullptr)
+            waiting(context);
+        ::usleep(50000);
+    }
+    drain(output[0], said);
+    drain(errors[0], complained);
+    ::close(output[0]);
+    ::close(errors[0]);
+    const int code = status >= 0 && WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+    return macos_elevation_outcome(true, code, said, complained);
+}
+
+bool act_as_player(
+    const fs::path& updates, const fs::path& plan_file, ActingPlayer& player, std::string* why
+) {
+    player = {};
+    if (::getuid() != 0) {
+        player.user = static_cast<uint32_t>(::geteuid());
+        player.group = static_cast<uint32_t>(::getegid());
+        return true;
+    }
+    struct stat folder{};
+    if (::lstat(updates.c_str(), &folder) != 0 || !S_ISDIR(folder.st_mode)) {
+        set_why(why, "the updates folder could not be read");
+        return false;
+    }
+    if (folder.st_uid == 0) {
+        set_why(why, "the updates folder belongs to the administrator, not a player");
+        return false;
+    }
+    struct stat plan{};
+    if (::lstat(plan_file.c_str(), &plan) != 0 || !S_ISREG(plan.st_mode) ||
+        plan.st_uid != folder.st_uid) {
+        set_why(why, "the plan does not belong to the player who owns the updates folder");
+        return false;
+    }
+    const passwd* const entry = ::getpwuid(folder.st_uid);
+    const gid_t group = entry != nullptr ? entry->pw_gid : folder.st_gid;
+    if (entry != nullptr && ::initgroups(entry->pw_name, static_cast<int>(group)) != 0) {
+        set_why(why, "the player's groups could not be taken");
+        return false;
+    }
+    if (::setegid(group) != 0 || ::seteuid(folder.st_uid) != 0) {
+        set_why(why, "the player's user could not be taken");
+        return false;
+    }
+    player.user = static_cast<uint32_t>(folder.st_uid);
+    player.group = static_cast<uint32_t>(group);
+    player.can_raise = true;
+    return true;
+}
+
+bool read_install_owner(RaisedMoves& moves) {
+    struct stat info{};
+    if (::lstat(moves.install.c_str(), &info) != 0)
+        return false;
+    moves.install_user = static_cast<uint32_t>(info.st_uid);
+    moves.install_group = static_cast<uint32_t>(info.st_gid);
+    return true;
+}
+
+bool macos_bundle_is_ours(
+    const fs::path& bundle, const fs::path& identifier, bool test_key, std::string* why
+) {
+    BundleSignature signature;
+    std::string failure;
+    if (!read_signature(bundle, signature, failure) || !signature.valid) {
+        set_why(why, "a bundle's signature is not valid");
+        return false;
+    }
+    const std::string team = own_team();
+    const bool ad_hoc = team.empty() && signature.team.empty();
+    if (team.empty() ? !(test_key && ad_hoc) : signature.team != team) {
+        set_why(why, "a bundle is not signed by the team that signed this helper");
+        return false;
+    }
+    const std::string named = identifier_of(bundle);
+    if (named.empty() || named != identifier_of(identifier)) {
+        set_why(why, "a bundle is not this game");
+        return false;
+    }
+    return true;
+}
+
+bool raised_rename(void* context, const fs::path& from, const fs::path& to) {
+    auto* const moves = static_cast<RaisedMoves*>(context);
+    struct stat was{};
+    const bool known = ::lstat(from.c_str(), &was) == 0;
+    const bool raise = moves->player.can_raise;
+    if (raise && ::seteuid(0) != 0)
+        return false;
+    const bool moved = ::rename(from.c_str(), to.c_str()) == 0;
+    bool owned = true;
+    if (moved && raise && known) {
+        const MovedOwner owner = moved_tree_owner(moves->updates, moves->install, to);
+        if (owner == MovedOwner::player)
+            owned = own_tree(to, was, moves->player.user, moves->player.group);
+        else if (owner == MovedOwner::install)
+            owned = own_tree(to, was, moves->install_user, moves->install_group);
+    }
+    // Every other file this copy writes must be the player's. A copy that
+    // cannot act as the player again stops here; the journal it leaves is
+    // undone by the next run.
+    if (raise && ::seteuid(static_cast<uid_t>(moves->player.user)) != 0)
+        std::abort();
+    if (moves->log != nullptr && !owned)
+        moves->log->line("a moved bundle kept its owner: " + utf8_of(to));
+    return moved;
+}
 
 std::vector<Operation> macos_checked_operations(
     const oa::app::update::Plan& plan, const fs::path& staged, bool test_key, std::string* why

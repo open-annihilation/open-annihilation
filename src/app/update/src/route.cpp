@@ -284,21 +284,12 @@ constexpr std::string_view uninstall_key =
 #endif
 }
 
-/// True when this process may write `folder`.
-///
-/// @param folder the folder that holds the bundle
-/// @return true when access allows writing
-[[nodiscard]] bool directory_writable(const fs::path& folder) {
-    if (folder.empty())
-        return false;
-    return access(folder.c_str(), W_OK) == 0;
-}
 #endif
 
 /// The bundle around `executable`, when it sits in Contents/MacOS.
 ///
 /// @param executable the program file
-/// @param[out] facts the bundle, the protected place, the team and the folder
+/// @param[out] facts the bundle, the protected place and the team
 void read_bundle(const fs::path& executable, RouteFacts& facts) {
 #if defined(__APPLE__)
     const std::string spelling = oa::platform::path_to_generic_utf8(executable);
@@ -308,7 +299,6 @@ void read_bundle(const fs::path& executable, RouteFacts& facts) {
         return;
     facts.bundle = folder.parent_path().parent_path();
     facts.signing_team = signing_team();
-    facts.parent_writable = directory_writable(facts.bundle.parent_path());
 #else
     (void)executable;
     (void)facts;
@@ -334,10 +324,13 @@ void read_bundle(const fs::path& executable, RouteFacts& facts) {
         where.why = "an ad hoc signed build does not update in place";
         return where;
     }
+    // The zip replaces the bundle where it stands. When the player cannot
+    // move it, as when the installer package put it in Applications for the
+    // administrator, the helper has macOS ask for an administrator's
+    // password and makes only the moves with those rights.
     where.route = Route::macos_bundle;
     where.install = facts.bundle;
     where.program = facts.executable;
-    where.installer = !facts.parent_writable;
     return where;
 }
 

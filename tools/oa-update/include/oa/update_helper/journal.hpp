@@ -81,6 +81,13 @@ struct JournalHooks {
     ){};
     /// One line for the log. Null writes nothing.
     void (*note)(void* context, std::string_view line){};
+    /// Renames one file or folder of a step: a rename that `move` does not
+    /// take, a file moved aside or back, and an undone rename. Null uses the
+    /// real rename. The macOS copy that holds an administrator's rights
+    /// raises them here and nowhere else. Return false when it did not move.
+    bool (*rename)(
+        void* context, const std::filesystem::path& from, const std::filesystem::path& to
+    ){};
 };
 
 /// One rename a journal recorded as postponed.
@@ -101,6 +108,27 @@ struct PostponedRenameRecord {
 /// @param[out] error why a step failed; may be null
 /// @return how far the run got
 [[nodiscard]] JournalResult apply_journal(
+    const std::filesystem::path& updates,
+    const std::vector<Operation>& operations,
+    const JournalHooks& hooks,
+    std::string* error
+);
+
+/// Carries out `operations` after the steps a journal under `updates`
+/// already holds, recording each finished step in that journal.
+///
+/// The steps already there count first, so a step's number continues
+/// theirs. On a failure every finished step is undone in reverse, the
+/// earlier ones too, and the journal is removed; an undo that fails leaves
+/// the journal as apply_journal does. A missing journal starts empty. A
+/// journal that cannot be read changes nothing and fails.
+///
+/// @param updates the data folder's updates directory
+/// @param operations the steps to add, in order
+/// @param hooks test hooks; the real runner and no early failure when the hooks are null
+/// @param[out] error why a step failed; may be null
+/// @return how far the run got
+[[nodiscard]] JournalResult continue_journal(
     const std::filesystem::path& updates,
     const std::vector<Operation>& operations,
     const JournalHooks& hooks,

@@ -265,7 +265,6 @@ update::RouteFacts macos_bundle_facts() {
         fs::path("/Applications/Open Annihilation.app/Contents/MacOS/open-annihilation");
     facts.bundle = fs::path("/Applications/Open Annihilation.app");
     facts.signing_team = "TEAMID1234";
-    facts.parent_writable = true;
     facts.self_check = false;
     return facts;
 }
@@ -302,13 +301,16 @@ void a_team_is_not_compared_by_the_game() {
     OA_CHECK(where.why.empty());
 }
 
-void an_unwritable_folder_uses_the_installer() {
+/// A bundle the installer package put in Applications belongs to the
+/// administrator. It is still replaced from the zip where it stands; the
+/// helper asks for the administrator's password for the moves.
+void an_administrators_bundle_is_replaced_from_the_zip() {
     update::RouteFacts facts = macos_bundle_facts();
-    facts.parent_writable = false;
+    facts.folder_writable = false;
     const update::Where where = update::find_route(release_build(), facts);
     OA_CHECK(where.route.has_value());
     OA_CHECK(*where.route == update::Route::macos_bundle);
-    OA_CHECK(where.installer);
+    OA_CHECK(!where.installer);
     OA_CHECK(where.install == facts.bundle);
     OA_CHECK(where.why.empty());
 }
@@ -418,7 +420,7 @@ int main() {
     a_translocated_app_has_no_route();
     an_ad_hoc_app_has_no_route();
     a_team_is_not_compared_by_the_game();
-    an_unwritable_folder_uses_the_installer();
+    an_administrators_bundle_is_replaced_from_the_zip();
     a_writable_folder_uses_the_zip();
     a_self_check_ad_hoc_build_may_update();
     a_check_can_be_told_there_is_no_route();

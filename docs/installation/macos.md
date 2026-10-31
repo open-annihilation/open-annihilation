@@ -183,11 +183,12 @@ show you the app in Finder.
 
 ## Updating and removing
 
-- **To update:** start the app from a folder you can write, such as
-  Applications. When a newer release is ready, the new app takes its place
-  and the one you had is kept. A folder you cannot write opens the
-  signed installer, which puts the app in Applications. Start it from there
-  when Installer finishes. Your settings are kept.
+- **To update:** start the app from Applications or another folder.
+  When a newer release is ready, the new app takes its place and the one
+  you had is kept. When only an administrator can change the app, as after
+  the installer package, macOS asks for an administrator's password for the
+  swap and nothing else ([Updates](../updates.md#what-happens-when-you-update)).
+  Your settings are kept.
 - **To remove:** drag **Open Annihilation.app** to the Trash. To remove your
   settings and logs too, delete the Application Support folder above; your
   saved games, screenshots, films, recordings and mods are in the Open

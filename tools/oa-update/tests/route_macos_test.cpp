@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The macOS swap, decided from signatures a test fills in, and the
-// operations that follow. Nothing here signs a bundle or starts one.
+// operations that follow; when the moves need an administrator's rights,
+// how macOS is asked for them, and whose a moved bundle becomes; and how
+// the game is started again. Nothing here signs a bundle, asks for a
+// password or starts a program.
 
 #include "oa/update_helper/journal.hpp"
 #include "oa/update_helper/routes.hpp"
@@ -17,6 +20,11 @@
 #include <fstream>
 #include <string>
 #include <string_view>
+#include <vector>
+
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -367,6 +375,253 @@ void a_missing_bundle_is_refused() {
     OA_CHECK(why == "the installed bundle is missing");
 }
 
+void an_install_the_player_can_move_needs_no_administrator() {
+    helper::MacosSwapAccess access;
+    access.parent_writable = true;
+    access.install_movable = true;
+    OA_CHECK(!helper::macos_swap_needs_elevation(access));
+}
+
+void each_move_the_player_cannot_make_asks() {
+    helper::MacosSwapAccess folder;
+    folder.parent_writable = false;
+    folder.install_movable = true;
+    OA_CHECK(helper::macos_swap_needs_elevation(folder));
+
+    // The installer package's bundle: Applications takes the admin group's
+    // writes, but the bundle is the administrator's.
+    helper::MacosSwapAccess installed;
+    installed.parent_writable = true;
+    installed.install_movable = false;
+    OA_CHECK(helper::macos_swap_needs_elevation(installed));
+
+    helper::MacosSwapAccess kept;
+    kept.parent_writable = true;
+    kept.install_movable = true;
+    kept.kept_movable = false;
+    OA_CHECK(helper::macos_swap_needs_elevation(kept));
+}
+
+#if !defined(_WIN32)
+/// A bundle whose own folder cannot be written cannot move into another
+/// folder, even from a folder the player can write, as the installer
+/// package's bundle cannot. The access read says so before anything is
+/// tried, and the rename itself fails the same way.
+void a_bundle_the_player_cannot_write_asks_for_an_administrator() {
+    // The administrator may write every folder, so the refusal cannot be seen.
+    if (::geteuid() == 0)
+        return;
+    const Scratch scratch("locked-bundle");
+    const fs::path install = make_app(scratch.path / "Applications" / "Open Annihilation.app");
+    const fs::path updates = scratch.path / "updates";
+    fs::create_directories(updates / "previous");
+    const fs::path kept = helper::macos_kept_bundle(updates, install);
+    OA_CHECK(kept == updates / "previous" / "Open Annihilation.app");
+
+    const helper::MacosSwapAccess open = helper::macos_swap_access(install, kept);
+    OA_CHECK(open.parent_writable);
+    OA_CHECK(open.install_movable);
+    OA_CHECK(open.kept_movable);
+    OA_CHECK(!helper::macos_swap_needs_elevation(open));
+
+    std::error_code io;
+    fs::permissions(
+        install,
+        fs::perms::owner_write | fs::perms::group_write | fs::perms::others_write,
+        fs::perm_options::remove,
+        io
+    );
+    OA_CHECK(!io);
+    const helper::MacosSwapAccess locked = helper::macos_swap_access(install, kept);
+    OA_CHECK(locked.parent_writable);
+    OA_CHECK(!locked.install_movable);
+    OA_CHECK(helper::macos_swap_needs_elevation(locked));
+    fs::rename(install, kept, io);
+    OA_CHECK(io);
+    OA_CHECK(fs::is_directory(install));
+    OA_CHECK(!fs::exists(kept));
+    fs::permissions(install, fs::perms::owner_write, fs::perm_options::add, io);
+
+    // A kept bundle the player cannot write asks too.
+    make_app(kept);
+    fs::permissions(kept, fs::perms::owner_write, fs::perm_options::remove, io);
+    const helper::MacosSwapAccess old_kept = helper::macos_swap_access(install, kept);
+    OA_CHECK(old_kept.install_movable);
+    OA_CHECK(!old_kept.kept_movable);
+    OA_CHECK(helper::macos_swap_needs_elevation(old_kept));
+    fs::permissions(kept, fs::perms::owner_write, fs::perm_options::add, io);
+
+    // A folder the player cannot write asks.
+    fs::permissions(install.parent_path(), fs::perms::owner_write, fs::perm_options::remove, io);
+    const helper::MacosSwapAccess folder = helper::macos_swap_access(install, kept);
+    OA_CHECK(!folder.parent_writable);
+    OA_CHECK(helper::macos_swap_needs_elevation(folder));
+    fs::permissions(install.parent_path(), fs::perms::owner_write, fs::perm_options::add, io);
+}
+#endif
+
+void the_prompt_runs_one_quoted_command() {
+    const std::vector<std::string> command = helper::macos_elevation_command(
+        "Open Annihilation wants to put 0.8.9 in place of the copy in Applications.",
+        "/Applications/Open Annihilation.app/Contents/MacOS/oa-update",
+        {"--plan", "/Users/player/it's here/plan.json", "--elevated-swap"}
+    );
+    OA_CHECK(command.size() >= 6);
+    OA_CHECK(command.front() == "/usr/bin/osascript");
+    std::string script;
+    std::size_t at = 1;
+    while (at + 1 < command.size() && command[at] == "-e") {
+        script += command[at + 1];
+        script += '\n';
+        at += 2;
+    }
+    // The script quotes every value itself and runs one command with
+    // administrator privileges; the values follow, the prompt first.
+    OA_CHECK(script.find("quoted form of") != std::string::npos);
+    OA_CHECK(script.find("with administrator privileges") != std::string::npos);
+    OA_CHECK(script.find("with prompt (item 1 of argv)") != std::string::npos);
+    OA_CHECK(script.find("echo $?") != std::string::npos);
+    OA_CHECK(command.size() == at + 5);
+    OA_CHECK(command[at].starts_with("Open Annihilation wants to put 0.8.9"));
+    OA_CHECK(command[at + 1] == "/Applications/Open Annihilation.app/Contents/MacOS/oa-update");
+    OA_CHECK(command[at + 2] == "--plan");
+    OA_CHECK(command[at + 3] == "/Users/player/it's here/plan.json");
+    OA_CHECK(command[at + 4] == "--elevated-swap");
+}
+
+void the_prompts_ending_is_read() {
+    const helper::ElevatedRelaunch swapped = helper::macos_elevation_outcome(true, 0, "0\n", "");
+    OA_CHECK(swapped.ran);
+    OA_CHECK(!swapped.cancelled);
+    OA_CHECK(swapped.code == helper::exit_swapped);
+
+    const helper::ElevatedRelaunch undone = helper::macos_elevation_outcome(true, 0, "3", "");
+    OA_CHECK(undone.ran);
+    OA_CHECK(undone.code == helper::exit_undone);
+
+    // Cancel, in whatever language the system names it.
+    const helper::ElevatedRelaunch cancelled = helper::macos_elevation_outcome(
+        true, 1, "", "0:120: execution error: Abgebrochen. (-128)\n"
+    );
+    OA_CHECK(cancelled.cancelled);
+    OA_CHECK(!cancelled.ran);
+
+    const helper::ElevatedRelaunch no_session = helper::macos_elevation_outcome(
+        true, 1, "", "0:120: execution error: No user interaction allowed. (-60007)\n"
+    );
+    OA_CHECK(!no_session.ran);
+    OA_CHECK(!no_session.cancelled);
+    OA_CHECK(no_session.error.starts_with("the administrator's permission could not be asked"));
+    OA_CHECK(no_session.error.find("(-60007)") != std::string::npos);
+
+    const helper::ElevatedRelaunch not_started = helper::macos_elevation_outcome(false, 1, "", "");
+    OA_CHECK(!not_started.ran);
+    OA_CHECK(!not_started.cancelled);
+    OA_CHECK(!not_started.error.empty());
+
+    const helper::ElevatedRelaunch garbled = helper::macos_elevation_outcome(true, 0, "done", "");
+    OA_CHECK(!garbled.ran);
+    OA_CHECK(!garbled.error.empty());
+}
+
+void a_moved_bundle_belongs_where_it_lands() {
+    const fs::path updates = "/Users/player/Library/Application Support/oa/updates";
+    const fs::path install = "/Applications/Open Annihilation.app";
+    OA_CHECK(
+        helper::moved_tree_owner(
+            updates, install, updates / "previous" / "Open Annihilation.app"
+        ) == helper::MovedOwner::player
+    );
+    OA_CHECK(
+        helper::moved_tree_owner(updates, install, updates / "journal-held" / "3") ==
+        helper::MovedOwner::player
+    );
+    OA_CHECK(helper::moved_tree_owner(updates, install, install) == helper::MovedOwner::install);
+    OA_CHECK(
+        helper::moved_tree_owner(updates, install, "/Applications/Other.app") ==
+        helper::MovedOwner::unchanged
+    );
+    OA_CHECK(
+        helper::moved_tree_owner(updates, install, updates / ".." / "elsewhere") ==
+        helper::MovedOwner::unchanged
+    );
+    OA_CHECK(helper::moved_tree_owner(updates, install, updates) == helper::MovedOwner::unchanged);
+}
+
+struct CountedRenames {
+    int calls{0};
+};
+
+bool counted_rename(void* context, const fs::path& from, const fs::path& to) {
+    ++static_cast<CountedRenames*>(context)->calls;
+    std::error_code io;
+    fs::rename(from, to, io);
+    return !io;
+}
+
+/// The administrator's copy continues the journal the player's run began:
+/// its moves go through the rename hook, and a failure undoes every step,
+/// the player's too.
+void the_administrators_moves_continue_the_players_journal() {
+    const Scratch scratch("continued");
+    const fs::path updates = scratch.path / "updates";
+    fs::create_directories(updates);
+    const fs::path record = updates / "state.json";
+    std::ofstream(record) << "before";
+    helper::Operation write;
+    write.kind = helper::Operation::Kind::write_file;
+    write.path = record;
+    write.bytes = "after";
+    std::string error;
+    OA_CHECK(
+        helper::apply_journal(updates, {write}, helper::JournalHooks{}, &error) ==
+        helper::JournalResult::finished
+    );
+
+    const fs::path install = make_app(scratch.path / "Applications" / "Open Annihilation.app");
+    const fs::path kept = updates / "previous" / "Open Annihilation.app";
+    helper::Operation aside;
+    aside.kind = helper::Operation::Kind::rename;
+    aside.from = install;
+    aside.to = kept;
+    helper::Operation missing;
+    missing.kind = helper::Operation::Kind::rename;
+    missing.from = scratch.path / "stage" / "absent.app";
+    missing.to = install;
+    CountedRenames counted;
+    helper::JournalHooks hooks;
+    hooks.context = &counted;
+    hooks.rename = counted_rename;
+    OA_CHECK(
+        helper::continue_journal(updates, {aside, missing}, hooks, &error) ==
+        helper::JournalResult::failed
+    );
+    // The bundle moved aside, the missing one failed, the bundle moved back.
+    OA_CHECK(counted.calls == 3);
+    OA_CHECK(fs::is_directory(install));
+    OA_CHECK(!fs::exists(kept));
+    std::ifstream back(record);
+    std::string text;
+    std::getline(back, text);
+    OA_CHECK(text == "before");
+    OA_CHECK(!fs::exists(updates / "journal.json"));
+
+    // A journal that finishes holds both runs' steps, numbered on.
+    OA_CHECK(
+        helper::apply_journal(updates, {write}, helper::JournalHooks{}, &error) ==
+        helper::JournalResult::finished
+    );
+    OA_CHECK(
+        helper::continue_journal(updates, {aside}, hooks, &error) == helper::JournalResult::finished
+    );
+    OA_CHECK(fs::is_directory(kept));
+    OA_CHECK(helper::undo_journal(updates, hooks, &error));
+    OA_CHECK(fs::is_directory(install));
+    std::ifstream undone(record);
+    std::getline(undone, text);
+    OA_CHECK(text == "before");
+}
+
 void the_game_starts_as_the_finder_starts_it() {
     update::Plan plan;
     plan.route = update::Route::macos_bundle;
@@ -408,5 +663,14 @@ void test_macos_route() {
     a_failed_callback_is_a_failed_launch();
     a_launch_with_nothing_seen_is_still_waiting();
     a_callback_that_names_no_process_falls_through();
+    an_install_the_player_can_move_needs_no_administrator();
+    each_move_the_player_cannot_make_asks();
+#if !defined(_WIN32)
+    a_bundle_the_player_cannot_write_asks_for_an_administrator();
+#endif
+    the_prompt_runs_one_quoted_command();
+    the_prompts_ending_is_read();
+    a_moved_bundle_belongs_where_it_lands();
+    the_administrators_moves_continue_the_players_journal();
     the_game_starts_as_the_finder_starts_it();
 }

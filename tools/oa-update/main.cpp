@@ -126,7 +126,9 @@ int main(int argc, char** argv) {
             print_help();
             return oa::update_helper::exit_swapped;
         }
-        if (elevated && (recover || plan.empty() || !keys.empty())) {
+        // A self-check build's feed keys reach the elevated copy too: the
+        // macOS copy checks the bundles itself, by the same rules.
+        if (elevated && (recover || plan.empty())) {
             std::cerr << "oa-update: --elevated-swap needs --plan\n";
             return oa::update_helper::exit_usage;
         }

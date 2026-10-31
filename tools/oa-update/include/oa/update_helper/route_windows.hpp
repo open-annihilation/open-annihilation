@@ -9,6 +9,7 @@
 #include "oa/app/update/plan.hpp"
 #include "oa/update_helper/journal.hpp"
 #include "oa/update_helper/log.hpp"
+#include "oa/update_helper/routes.hpp"
 #include "oa/update_helper/verify.hpp"
 #include "oa/update_helper/window.hpp"
 
@@ -325,14 +326,6 @@ struct FolderPlan {
 /// @param install the install folder
 /// @return true when the caller should relaunch with `--elevated-swap`
 [[nodiscard]] bool windows_roll_back_elevate(const std::filesystem::path& install);
-
-/// What relaunching the helper elevated did.
-struct ElevatedRelaunch {
-    bool ran{false};       ///< the elevated copy started
-    bool cancelled{false}; ///< the player refused the prompt
-    int code{1};           ///< its exit status when `ran` is set
-    std::string error;     ///< why it did not start; empty on success
-};
 
 /// Starts this helper again with `--elevated-swap` and the same plan.
 ///

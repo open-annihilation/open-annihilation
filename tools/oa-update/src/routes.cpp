@@ -7,13 +7,75 @@
 #include "oa/update_helper/route_windows.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <string>
 #include <utility>
+
+#if !defined(_WIN32)
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 namespace oa::update_helper {
 namespace {
 
 namespace fs = std::filesystem;
+
+/// The script osascript runs: one shell command, with administrator
+/// privileges, from the values after the script. The first value is the
+/// prompt; the others are the program and its arguments, each quoted by
+/// the script. The command's output is the program's exit status.
+constexpr std::string_view elevation_script[] = {
+    "on run argv",
+    "set command to \"\"",
+    "repeat with i from 2 to count of argv",
+    "set command to command & quoted form of (item i of argv) & \" \"",
+    "end repeat",
+    "do shell script command & \"> /dev/null 2>&1; echo $?\" with prompt (item 1 of argv) "
+    "with administrator privileges",
+    "end run",
+};
+
+/// The text without the spaces and line ends around it.
+///
+/// @param text the text
+/// @return the trimmed text
+std::string_view trimmed(std::string_view text) {
+    const auto first = text.find_first_not_of(" \t\r\n");
+    if (first == std::string_view::npos)
+        return {};
+    const auto last = text.find_last_not_of(" \t\r\n");
+    return text.substr(first, last - first + 1);
+}
+
+#if !defined(_WIN32)
+/// True when this process may write `path`.
+///
+/// @param path the file or folder
+/// @return true when access allows writing
+bool writable(const fs::path& path) {
+    return !path.empty() && ::access(path.c_str(), W_OK) == 0;
+}
+
+/// True when `entry` may leave `folder`: a sticky folder lets only its own
+/// owner, or the entry's owner, move an entry out.
+///
+/// @param folder the folder that holds the entry
+/// @param entry the entry
+/// @return true when the folder's sticky rule allows the move
+bool may_leave(const fs::path& folder, const fs::path& entry) {
+    struct stat folder_info{};
+    if (::stat(folder.c_str(), &folder_info) != 0)
+        return false;
+    if ((folder_info.st_mode & S_ISVTX) == 0)
+        return true;
+    struct stat entry_info{};
+    if (::lstat(entry.c_str(), &entry_info) != 0)
+        return false;
+    const uid_t user = ::geteuid();
+    return folder_info.st_uid == user || entry_info.st_uid == user;
+}
+#endif
 
 void set_why(std::string* why, std::string message) {
     if (why != nullptr)
@@ -283,7 +345,7 @@ std::vector<Operation> macos_bundle_operations(
     if (!macos_staged_application(staged, application, why))
         return {};
 
-    const fs::path previous = path_from(plan.updates) / "previous" / install.filename();
+    const fs::path previous = macos_kept_bundle(path_from(plan.updates), install);
     std::vector<Operation> operations;
     if (fs::exists(previous, io) && !io) {
         Operation remove_kept;
@@ -321,7 +383,102 @@ std::vector<Operation> macos_bundle_operations(
     return operations;
 }
 
+bool macos_swap_needs_elevation(const MacosSwapAccess& access) noexcept {
+    return !access.parent_writable || !access.install_movable || !access.kept_movable;
+}
+
+MacosSwapAccess macos_swap_access(const fs::path& install, const fs::path& kept) {
+    MacosSwapAccess access;
+#if defined(_WIN32)
+    (void)install;
+    (void)kept;
+    access.parent_writable = true;
+    access.install_movable = true;
+#else
+    const fs::path parent = install.parent_path();
+    access.parent_writable = writable(parent) && may_leave(parent, install);
+    access.install_movable = writable(install);
+    struct stat kept_info{};
+    if (::lstat(kept.c_str(), &kept_info) == 0)
+        access.kept_movable = writable(kept) && may_leave(kept.parent_path(), kept);
+#endif
+    return access;
+}
+
+MovedOwner moved_tree_owner(const fs::path& updates, const fs::path& install, const fs::path& to) {
+    const fs::path normal = to.lexically_normal();
+    if (!install.empty() && normal == install.lexically_normal())
+        return MovedOwner::install;
+    if (updates.empty())
+        return MovedOwner::unchanged;
+    const fs::path inside = normal.lexically_relative(updates.lexically_normal());
+    if (inside.empty() || inside == "." || *inside.begin() == "..")
+        return MovedOwner::unchanged;
+    return MovedOwner::player;
+}
+
+fs::path macos_kept_bundle(const fs::path& updates, const fs::path& install) {
+    return updates / "previous" / install.filename();
+}
+
+std::vector<std::string> macos_elevation_command(
+    std::string_view prompt, const fs::path& helper, const std::vector<std::string>& arguments
+) {
+    std::vector<std::string> command{"/usr/bin/osascript"};
+    for (const std::string_view line : elevation_script) {
+        command.emplace_back("-e");
+        command.emplace_back(line);
+    }
+    // The prompt comes first: osascript reads options until the first value
+    // that is not one, and the helper's arguments begin with "--".
+    command.emplace_back(prompt);
+    command.push_back(utf8_of(helper));
+    command.insert(command.end(), arguments.begin(), arguments.end());
+    return command;
+}
+
+ElevatedRelaunch macos_elevation_outcome(
+    bool started, int status, std::string_view output, std::string_view errors
+) {
+    ElevatedRelaunch result;
+    if (!started) {
+        result.error = "the administrator's permission could not be asked";
+        return result;
+    }
+    if (status != 0) {
+        // -128 is the prompt's Cancel, whatever language the system shows.
+        if (errors.find("(-128)") != std::string_view::npos) {
+            result.cancelled = true;
+            return result;
+        }
+        result.error = "the administrator's permission could not be asked";
+        const std::string_view said = trimmed(errors);
+        if (!said.empty())
+            result.error += ": " + std::string(said.substr(0, said.find('\n')));
+        return result;
+    }
+    const std::string_view text = trimmed(output);
+    int code = 0;
+    const std::from_chars_result parsed =
+        std::from_chars(text.data(), text.data() + text.size(), code);
+    if (text.empty() || parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size()) {
+        result.error = "the copy with an administrator's rights did not say how it ended";
+        return result;
+    }
+    result.ran = true;
+    result.code = code;
+    return result;
+}
+
 #if !defined(__APPLE__)
+std::vector<Operation>
+macos_checked_restore(const oa::app::update::Plan& plan, bool test_key, std::string* why) {
+    (void)plan;
+    (void)test_key;
+    set_why(why, "this route is not carried out");
+    return {};
+}
+
 std::vector<Operation> macos_checked_operations(
     const oa::app::update::Plan& plan, const fs::path& staged, bool test_key, std::string* why
 ) {

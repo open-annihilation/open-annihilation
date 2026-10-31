@@ -398,6 +398,20 @@ bool copy_one(const fs::path& from, const fs::path& to, std::string* reason) {
 #endif
 }
 
+/// Renames `from` to `to`, through the rename hook when there is one.
+///
+/// @param hooks the hooks
+/// @param from what moves
+/// @param to where it goes
+/// @return true when it moved
+bool rename_entry(const JournalHooks& hooks, const fs::path& from, const fs::path& to) {
+    if (hooks.rename != nullptr)
+        return hooks.rename(hooks.context, from, to);
+    std::error_code io;
+    fs::rename(from, to, io);
+    return !io;
+}
+
 bool run_step(
     const std::filesystem::path& program,
     const std::vector<std::string>& arguments,
@@ -443,8 +457,7 @@ bool perform(
             drop_made(made);
             return false;
         }
-        fs::rename(operation.from, operation.to, io);
-        if (io) {
+        if (!rename_entry(hooks, operation.from, operation.to)) {
             drop_made(made);
             set_error(reason, "cannot rename " + utf8_of(operation.from));
             return false;
@@ -476,8 +489,7 @@ bool perform(
             set_error(reason, "the held file already exists");
             return false;
         }
-        fs::rename(operation.path, held, io);
-        if (io) {
+        if (!rename_entry(hooks, operation.path, held)) {
             set_error(reason, "cannot move " + utf8_of(operation.path));
             return false;
         }
@@ -614,8 +626,7 @@ bool undo_one(const Recorded& step, const JournalHooks& hooks, std::string* reas
             set_error(reason, "cannot undo a rename");
             return false;
         }
-        fs::rename(to, from, io);
-        if (io) {
+        if (!rename_entry(hooks, to, from)) {
             set_error(reason, "cannot undo a rename");
             return false;
         }
@@ -637,8 +648,7 @@ bool undo_one(const Recorded& step, const JournalHooks& hooks, std::string* reas
             set_error(reason, "cannot undo a move");
             return false;
         }
-        fs::rename(path_from(step.held), path, io);
-        if (io) {
+        if (!rename_entry(hooks, path_from(step.held), path)) {
             set_error(reason, "cannot undo a move");
             return false;
         }
@@ -729,17 +739,24 @@ bool undo_recorded(
     return true;
 }
 
-} // namespace
-
-JournalResult apply_journal(
+/// Carries out `operations` after the finished steps `done` holds.
+///
+/// @param updates the data folder's updates directory
+/// @param done the steps already finished; numbered first
+/// @param operations the steps to add
+/// @param hooks the hooks
+/// @param[out] error why a step failed; may be null
+/// @return how far the run got
+JournalResult carry_out_steps(
     const fs::path& updates,
+    std::vector<Recorded> done,
     const std::vector<Operation>& operations,
     const JournalHooks& hooks,
     std::string* error
 ) {
-    std::vector<Recorded> done;
+    const std::size_t earlier = done.size();
     for (std::size_t index = 0; index < operations.size(); ++index) {
-        const int step = static_cast<int>(index + 1);
+        const int step = static_cast<int>(earlier + index + 1);
         if (hooks.fail_before_step != nullptr && hooks.fail_before_step(hooks.context, step)) {
             set_error(error, "a step was not carried out");
             if (!undo_recorded(updates, std::move(done), hooks, error))
@@ -767,6 +784,29 @@ JournalResult apply_journal(
             return JournalResult::stopped;
     }
     return JournalResult::finished;
+}
+
+} // namespace
+
+JournalResult apply_journal(
+    const fs::path& updates,
+    const std::vector<Operation>& operations,
+    const JournalHooks& hooks,
+    std::string* error
+) {
+    return carry_out_steps(updates, {}, operations, hooks, error);
+}
+
+JournalResult continue_journal(
+    const fs::path& updates,
+    const std::vector<Operation>& operations,
+    const JournalHooks& hooks,
+    std::string* error
+) {
+    std::optional<std::vector<Recorded>> earlier = read_journal(updates, error);
+    if (!earlier)
+        return JournalResult::failed;
+    return carry_out_steps(updates, std::move(*earlier), operations, hooks, error);
 }
 
 bool undo_journal(const fs::path& updates, const JournalHooks& hooks, std::string* error) {

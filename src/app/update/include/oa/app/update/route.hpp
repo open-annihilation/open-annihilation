@@ -3,9 +3,8 @@
 
 // Which install layout this machine can use. The self-check folder, the
 // two Windows layouts and a Linux versions folder are answered here, and
-// macOS can replace a signed bundle, or open the installer when the folder
-// cannot be written. Nothing here starts a program. The writable check
-// creates and deletes one scratch file.
+// macOS replaces a signed bundle where it stands. Nothing here starts a
+// program. The writable check creates and deletes one scratch file.
 #pragma once
 
 #include "oa/app/update/build.hpp"
@@ -58,8 +57,6 @@ struct RouteFacts {
     /// The signing team of the running app. Empty for an ad hoc signature,
     /// and empty when this program is not a bundle.
     std::string signing_team;
-    /// The folder that holds the bundle can be written.
-    bool parent_writable{false};
     /// This build is a self-check build. A test sets it directly.
     bool self_check{false};
     /// A check that must be told there is no install route. A player run
@@ -72,8 +69,7 @@ struct Where {
     std::optional<Route> route;    ///< set when this install can be replaced
     std::filesystem::path install; ///< the folder or bundle the route replaces
     std::filesystem::path program; ///< the program to start afterwards
-    /// The feed's installer: on Windows for an installed copy, on macOS when
-    /// the bundle's folder cannot be written.
+    /// The feed's installer: on Windows for an installed copy.
     bool installer{false};
     std::string why; ///< why there is no route; empty when there is one
 };
@@ -87,9 +83,10 @@ struct Where {
 /// selects `windows-installer` when Uninstall.exe lies beside the program
 /// and the uninstall key names that folder, and `windows-folder` otherwise.
 /// On macOS, a bundle that is not running from a protected place and is
-/// signed with a team uses `macos-bundle`: the zip when its folder can be
-/// written, and the installer when it cannot. An ad hoc signature has no
-/// route, except a self-check run with a test feed. A Linux install in a
+/// signed with a team uses `macos-bundle` with the zip, wherever it is and
+/// whoever owns it: the helper asks for an administrator's password when
+/// the player cannot make the moves. An ad hoc signature has no route,
+/// except a self-check run with a test feed. A Linux install in a
 /// folder the player owns selects `linux-versions`, unless it lives under
 /// `/opt`, `/usr`, `/snap` or `/var/lib/flatpak`, or `APPIMAGE` or
 /// `FLATPAK_ID` is set: `why` is then the whole-system sentence. Every other
@@ -107,8 +104,7 @@ struct Where {
 /// passed in. Writable means a scratch file could be created there and
 /// deleted. On Windows, Uninstall.exe beside the program and the uninstall
 /// key's InstallLocation are filled in. On macOS the bundle, the
-/// protected-place flag, the signing team and whether the bundle's folder
-/// can be written are filled from this process. The install's owner,
+/// protected-place flag and the signing team are filled from this process. The install's owner,
 /// `APPIMAGE`, `FLATPAK_ID` and the versions-layout launcher are filled in
 /// for a Linux copy. The install folder, the test feed and the offer's way
 /// are left unset, for the caller to fill before `find_route`.

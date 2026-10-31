@@ -150,7 +150,7 @@ A check, a download or an install that fails says which way it failed:
 | The server did not answer | Could not connect. Try again later. |
 | The signature, or the downloaded file, was refused | The update could not be verified. There is no way past this check. |
 | Stopped before any file moved | Not installed. {version} is unchanged. |
-| You declined Windows's permission prompt | The update was cancelled. |
+| You declined the system's permission prompt | The update was cancelled. |
 | A step failed and every change was undone | The update failed. {version} was put back. |
 | Putting the files back did not finish | Recovery could not finish. |
 
@@ -365,10 +365,26 @@ version you had. The helper makes no request of its own.
 On a Mac, the helper checks that the new app is signed by the same team,
 that the signature is valid, and that Apple has notarized it. It then moves
 the app you were running aside and puts the new one in its place, and
-starts it. A folder you cannot write opens the signed installer instead,
-and the window says Installer will put the release in Applications. A copy
-macOS is running from a protected place asks you to move it to Applications
-first, and is not replaced where it stands.
+starts it the way the Finder does, so the game keeps its access to your
+Documents folder. The zip in the top folder the release names,
+`open-annihilation-v0.8.8-macos-universal` for 0.8.8, is the one it
+unpacks.
+
+When you cannot move the app yourself, as when the installer package put
+it in Applications for the administrator, or your account cannot change
+Applications, the window says "Only an administrator can replace this
+copy, so macOS asks for an administrator's password." and macOS shows its
+own prompt, which names the version and the folder. Only the two moves run
+with the administrator's rights: everything the helper writes in your
+Library, the receipt, the log, the copy of your preferences and the record
+of what was kept, stays yours, and the game never starts with those rights.
+The new app takes the owner the old one had, and the kept app becomes
+yours. If you close the prompt, nothing changes, the version you had starts
+again and says "The update was cancelled.", with **Try again**. Rolling
+back such a copy asks the same way.
+
+A copy macOS is running from a protected place asks you to move it to
+Applications first, and is not replaced where it stands.
 
 ## Linux and Steam Deck
 

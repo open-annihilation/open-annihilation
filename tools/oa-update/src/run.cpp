@@ -45,6 +45,20 @@ namespace {
 namespace fs = std::filesystem;
 namespace update = oa::app::update;
 
+/// The administrator prompt's sentence for an install. {version} and
+/// {folder} are filled; macOS adds its own request for the password.
+constexpr std::string_view install_prompt =
+    "Open Annihilation wants to put {version} in place of the copy in {folder}.";
+
+/// The administrator prompt's sentence for a roll back.
+constexpr std::string_view roll_back_prompt =
+    "Open Annihilation wants to put {version} back in place of the copy in {folder}.";
+
+/// The window line when an update stopped before anything changed for a
+/// reason the player can try again.
+constexpr std::string_view update_not_installed =
+    "The update was not installed. Nothing was changed.";
+
 struct Note {
     Log* log{};
 };
@@ -333,6 +347,140 @@ void forget_started(Started& started) {
     started.pid = 0;
 }
 
+/// Fills {version} and {folder} in an administrator prompt's sentence.
+///
+/// @param sentence install_prompt or roll_back_prompt
+/// @param version the version being put in place
+/// @param install the bundle it replaces
+/// @return the sentence
+std::string administrator_prompt(
+    std::string_view sentence, std::string_view version, std::string_view install
+) {
+    std::string text(sentence);
+    const auto fill = [&text](std::string_view token, std::string_view value) {
+        const std::string::size_type at = text.find(token);
+        if (at != std::string::npos)
+            text.replace(at, token.size(), value.data(), value.size());
+    };
+    const fs::path folder = path_from(install).parent_path();
+    const std::string name = utf8_of(folder.filename());
+    fill("{version}", version);
+    fill("{folder}", name.empty() ? utf8_of(folder) : name);
+    return text;
+}
+
+/// True when the bundle moves of this plan need an administrator's rights:
+/// a macOS bundle the player cannot move, in a folder the player cannot
+/// change, or beside a kept bundle the player cannot move.
+///
+/// @param plan the plan
+/// @return true when macOS must ask for an administrator's password
+bool swap_needs_administrator(const update::Plan& plan) {
+#if defined(__APPLE__)
+    if (plan.route != update::Route::macos_bundle || plan.installer)
+        return false;
+    const fs::path install = path_from(plan.install);
+    return macos_swap_needs_elevation(
+        macos_swap_access(install, macos_kept_bundle(path_from(plan.updates), install))
+    );
+#else
+    (void)plan;
+    return false;
+#endif
+}
+
+/// How the run with an administrator's rights ended, for the run that asked.
+struct AdministratorRun {
+    /// The four endings.
+    enum class Ending : uint8_t {
+        moved,     ///< the bundles were moved
+        cancelled, ///< the player closed the prompt; nothing ran
+        refused,   ///< nothing was moved: the prompt could not be shown, or the copy refused
+        failed,    ///< a move failed; the copy undid what it could
+    };
+
+    Ending ending{Ending::refused}; ///< how it ended
+    std::string detail;             ///< why it did not move, for the receipt
+};
+
+#if defined(__APPLE__)
+/// The window kept up while the prompt is shown.
+struct PromptWindow {
+    ProgressWindow* window{}; ///< the window
+    std::string_view title;   ///< its title
+};
+
+/// Draws the window again while the prompt waits.
+///
+/// @param context the PromptWindow
+void keep_prompt_window(void* context) {
+    auto* const shown = static_cast<PromptWindow*>(context);
+    shown->window->show(shown->title, macos_asks_permission, 700, true);
+}
+#endif
+
+/// Asks macOS for an administrator's password and runs this helper again
+/// with it, on `plan_file`, to move the bundles. The window says why it asks.
+///
+/// @param plan_file the plan the other copy reads
+/// @param keys the feed keys this run was given, passed on
+/// @param prompt the prompt's sentence
+/// @param title the window's title
+/// @param log the log
+/// @param window the window
+/// @return how it ended
+AdministratorRun run_as_administrator(
+    const fs::path& plan_file,
+    const std::vector<FeedKey>& keys,
+    std::string_view prompt,
+    std::string_view title,
+    Log& log,
+    ProgressWindow& window
+) {
+    AdministratorRun run;
+#if defined(__APPLE__)
+    window.show(title, macos_asks_permission, 700, true);
+    std::vector<std::string> arguments{"--plan", utf8_of(plan_file), "--elevated-swap"};
+    for (const FeedKey& key : keys) {
+        arguments.emplace_back("--feed-key");
+        arguments.push_back(key.id + "=" + key.text);
+    }
+    log.line("asking for an administrator's password");
+    PromptWindow shown{&window, title};
+    const ElevatedRelaunch ran = relaunch_elevated_macos(
+        prompt, macos_helper_program(), arguments, keep_prompt_window, &shown
+    );
+    if (ran.cancelled) {
+        run.ending = AdministratorRun::Ending::cancelled;
+        run.detail = std::string(permission_not_given);
+    } else if (!ran.ran) {
+        run.ending = AdministratorRun::Ending::refused;
+        run.detail = ran.error;
+    } else if (ran.code == exit_swapped) {
+        run.ending = AdministratorRun::Ending::moved;
+    } else if (ran.code == exit_refused || ran.code == exit_usage) {
+        run.ending = AdministratorRun::Ending::refused;
+        run.detail = "the copy with an administrator's rights refused the move (exit " +
+                     std::to_string(ran.code) + ")";
+    } else {
+        run.ending = AdministratorRun::Ending::failed;
+        run.detail = "the copy with an administrator's rights did not finish the move (exit " +
+                     std::to_string(ran.code) + ")";
+    }
+    if (!run.detail.empty())
+        log.line(run.detail);
+#else
+    (void)plan_file;
+    (void)keys;
+    (void)prompt;
+    (void)title;
+    (void)log;
+    (void)window;
+    run.detail = "this route is not carried out";
+#endif
+    return run;
+}
+
 } // namespace
 
 StartWay start_way(const update::Plan& plan, bool administrator) noexcept {
@@ -504,6 +652,9 @@ int restore_kept(
         return exit_refused;
     }
 
+    // The player's preferences and the record of what is installed. They are
+    // the player's files, written as the player in both ways below.
+    std::vector<Operation> record;
     const fs::path preferences = path_from(plan.preferences);
     const fs::path copy = path_from(state->preferences_copy);
     if (file_there(copy)) {
@@ -512,13 +663,13 @@ int restore_kept(
             Operation remove;
             remove.kind = Operation::Kind::remove_tree;
             remove.path = preferences;
-            operations.push_back(std::move(remove));
+            record.push_back(std::move(remove));
         }
         Operation write;
         write.kind = Operation::Kind::write_file;
         write.path = preferences;
         write.bytes = bytes;
-        operations.push_back(std::move(write));
+        record.push_back(std::move(write));
     } else {
         log.line("the preferences copy is missing");
     }
@@ -529,32 +680,94 @@ int restore_kept(
     restored.kept_route = state->kept_route;
     restored.confirmed = true;
     restored.failed_starts = 0;
-    Operation record;
-    record.kind = Operation::Kind::write_file;
-    record.path = updates / "state.json";
-    record.bytes = update::state_text(restored);
-    operations.push_back(std::move(record));
+    Operation recorded;
+    recorded.kind = Operation::Kind::write_file;
+    recorded.path = updates / "state.json";
+    recorded.bytes = update::state_text(restored);
+    record.push_back(std::move(recorded));
 
-    const JournalResult applied = apply_journal(updates, operations, hooks, &error);
-    if (applied != JournalResult::finished) {
-        log.line(error.empty() ? "a step failed" : error);
-        if (after_install) {
-            restore_failed(error.empty() ? "a step failed" : error);
-        } else {
-            log.step(
-                update::Step::restore,
-                update::StepResult::failed,
-                error.empty() ? "a step failed" : error
-            );
-            const bool undone = !journal_left(updates);
-            log.step(
-                update::Step::undo, undone ? update::StepResult::done : update::StepResult::failed
-            );
-            log.finish(update::failure_outcome(update::Action::roll_back, true, undone));
+    if (may_elevate && state->kept_route == update::Route::macos_bundle &&
+        swap_needs_administrator(plan)) {
+        // The player cannot move the bundles. This run writes the record as
+        // the player, and a copy with an administrator's rights moves the
+        // bundles, continuing the same journal.
+        if (plan_path == nullptr) {
+            log.line("the install could not be changed");
+            restore_failed("the install could not be changed");
+            start_old(plan, log, window, start_game);
+            return exit_refused;
         }
-        window.show(title, line_after_failed_roll_back(updates), 0, true);
-        start_old(plan, log, window, start_game);
-        return exit_undone;
+        if (apply_journal(updates, record, hooks, &error) != JournalResult::finished) {
+            log.line(error.empty() ? "a step failed" : error);
+            restore_failed(error.empty() ? "a step failed" : error);
+            window.show(title, line_after_failed_roll_back(updates), 0, true);
+            start_old(plan, log, window, start_game);
+            return exit_undone;
+        }
+        update::Plan again = plan;
+        again.action = update::Action::roll_back;
+        again.roll_back_reason = reason;
+        if (again.title.empty())
+            again.title = title;
+        const fs::path written = updates / "roll-back.json";
+        bool plan_written = false;
+        {
+            std::ofstream out(written, std::ios::binary | std::ios::trunc);
+            if (out)
+                out << update::plan_text(again);
+            plan_written = static_cast<bool>(out);
+        }
+        AdministratorRun asked;
+        asked.detail = "the roll-back plan could not be written";
+        if (plan_written) {
+            asked = run_as_administrator(
+                written,
+                {},
+                administrator_prompt(roll_back_prompt, state->kept_version, plan.install),
+                title,
+                log,
+                window
+            );
+        }
+        std::error_code removed;
+        fs::remove(written, removed);
+        if (asked.ending != AdministratorRun::Ending::moved) {
+            std::string undo_error;
+            if (!undo_journal(updates, hooks, &undo_error) && !undo_error.empty())
+                log.line(undo_error);
+            restore_failed(asked.detail);
+            window.show(title, line_after_failed_roll_back(updates), 0, true);
+            start_old(plan, log, window, start_game);
+            return asked.ending == AdministratorRun::Ending::failed ? exit_undone : exit_refused;
+        }
+    } else {
+        operations.insert(
+            operations.end(),
+            std::make_move_iterator(record.begin()),
+            std::make_move_iterator(record.end())
+        );
+        const JournalResult applied = apply_journal(updates, operations, hooks, &error);
+        if (applied != JournalResult::finished) {
+            log.line(error.empty() ? "a step failed" : error);
+            if (after_install) {
+                restore_failed(error.empty() ? "a step failed" : error);
+            } else {
+                log.step(
+                    update::Step::restore,
+                    update::StepResult::failed,
+                    error.empty() ? "a step failed" : error
+                );
+                const bool undone = !journal_left(updates);
+                log.step(
+                    update::Step::undo,
+                    undone ? update::StepResult::done : update::StepResult::failed
+                );
+                log.finish(update::failure_outcome(update::Action::roll_back, true, undone));
+            }
+            window.show(title, line_after_failed_roll_back(updates), 0, true);
+            start_old(plan, log, window, start_game);
+            return exit_undone;
+        }
     }
     drop_journal(updates);
     log.step(update::Step::restore, update::StepResult::done);
@@ -631,6 +844,171 @@ std::optional<int> step_aside_from_install(
     return exit_swapped;
 }
 
+#if defined(__APPLE__)
+/// Writes one line of the administrator's copy's journal to the log.
+///
+/// @param context the RaisedMoves
+/// @param line the line
+void raised_note(void* context, std::string_view line) {
+    const auto* const moves = static_cast<const RaisedMoves*>(context);
+    if (moves->log != nullptr)
+        moves->log->line(line);
+}
+#endif
+
+/// Moves the bundles for the run that asked for an administrator's rights.
+///
+/// This copy acts as the player, takes the administrator's rights only for
+/// each rename, writes no receipt and starts nothing. It checks the bundles
+/// itself, from the plan and their signatures: each must be signed by the
+/// team that signed this helper and be this game. The moves continue the
+/// journal the asking run began, and a failure undoes all of it.
+///
+/// @param plan the plan, an install or a roll back
+/// @param player who this copy acts for
+/// @param keys the feed keys this run was given
+/// @param log the log
+/// @param hooks the journal hooks; the note is replaced
+/// @return exit_swapped, exit_refused when nothing moved, or exit_undone
+int carry_out_as_administrator(
+    const update::Plan& plan,
+    const ActingPlayer& player,
+    const std::vector<FeedKey>& keys,
+    Log& log,
+    JournalHooks hooks
+) {
+#if defined(__APPLE__)
+    const fs::path updates = path_from(plan.updates);
+    const fs::path install = path_from(plan.install);
+    const bool test_key = !keys.empty();
+    if (plan.installer) {
+        log.line("this route is not carried out");
+        return exit_usage;
+    }
+    std::string why;
+    std::vector<Operation> operations;
+    fs::path incoming;
+    if (plan.action == update::Action::roll_back) {
+        operations = macos_checked_restore(plan, test_key, &why);
+        incoming = macos_kept_bundle(updates, install);
+    } else {
+        const fs::path stage = updates / std::to_string(plan.release) / "stage";
+        operations = macos_checked_operations(plan, stage, test_key, &why);
+        if (why.empty())
+            static_cast<void>(macos_staged_application(stage, incoming, &why));
+    }
+    // A copy with an administrator's rights moves only this game's bundles,
+    // signed by the team that signed it.
+    if (why.empty() && player.can_raise && macos_bundle_is_ours(install, install, test_key, &why))
+        static_cast<void>(macos_bundle_is_ours(incoming, install, test_key, &why));
+    RaisedMoves moves;
+    moves.player = player;
+    moves.updates = updates;
+    moves.install = install;
+    moves.log = &log;
+    if (why.empty() && !read_install_owner(moves))
+        why = "the installed bundle is missing";
+    if (!why.empty()) {
+        log.line(why);
+        return exit_refused;
+    }
+    hooks.context = &moves;
+    hooks.note = raised_note;
+    hooks.rename = raised_rename;
+    std::string error;
+    if (continue_journal(updates, operations, hooks, &error) != JournalResult::finished) {
+        log.line(error.empty() ? "a step failed" : error);
+        return exit_undone;
+    }
+    log.line("moved the bundles with an administrator's rights");
+    return exit_swapped;
+#else
+    (void)plan;
+    (void)player;
+    (void)keys;
+    (void)hooks;
+    log.line("this route is not carried out");
+    return exit_usage;
+#endif
+}
+
+/// Puts the new bundle in place with an administrator's rights.
+///
+/// This run records the kept version as the player, then macOS asks for an
+/// administrator's password and a second copy of the helper moves the
+/// bundles, continuing this run's journal. A closed prompt, a refusal and a
+/// failure undo the record and start the old version.
+///
+/// @param plan the plan
+/// @param plan_path the plan file the second copy reads
+/// @param keys the feed keys this run was given
+/// @param version the version being installed
+/// @param record the kept version's record, written as the player
+/// @param stage the staging folder, removed when the swap does not happen
+/// @param log the log
+/// @param window the window
+/// @param hooks the journal hooks
+/// @return nothing when the bundles are in place; the exit status otherwise
+std::optional<int> swap_with_administrator(
+    const update::Plan& plan,
+    const fs::path& plan_path,
+    const std::vector<FeedKey>& keys,
+    std::string_view version,
+    const std::vector<Operation>& record,
+    const fs::path& stage,
+    Log& log,
+    ProgressWindow& window,
+    JournalHooks& hooks
+) {
+    const fs::path updates = path_from(plan.updates);
+    std::string error;
+    if (apply_journal(updates, record, hooks, &error) != JournalResult::finished) {
+        const std::string detail = error.empty() ? "a step failed" : error;
+        log.line(detail);
+        record_failed_change(log, updates, update::Step::swap, detail);
+        remove_stage(stage);
+        window.show(plan.title, line_after_failed_change(updates), 0, true);
+        start_old(plan, log, window, true);
+        return exit_undone;
+    }
+    const AdministratorRun asked = run_as_administrator(
+        plan_path,
+        keys,
+        administrator_prompt(install_prompt, version, plan.install),
+        plan.title,
+        log,
+        window
+    );
+    if (asked.ending == AdministratorRun::Ending::moved)
+        return std::nullopt;
+    std::string undo_error;
+    if (!undo_journal(updates, hooks, &undo_error) && !undo_error.empty())
+        log.line(undo_error);
+    remove_stage(stage);
+    if (asked.ending == AdministratorRun::Ending::failed) {
+        record_failed_change(log, updates, update::Step::swap, asked.detail);
+        window.show(plan.title, line_after_failed_change(updates), 0, true);
+        start_old(plan, log, window, true);
+        return exit_undone;
+    }
+    // Nothing was moved, and this run's record was undone: the version that
+    // was running is unchanged.
+    log.step(update::Step::swap, update::StepResult::failed, asked.detail);
+    if (journal_left(updates)) {
+        log.step(update::Step::undo, update::StepResult::failed);
+        log.finish(update::Outcome::recovery_incomplete);
+        window.show(plan.title, line_after_failed_change(updates), 0, true);
+    } else if (asked.ending == AdministratorRun::Ending::cancelled) {
+        log.finish(update::Outcome::cancelled);
+        window.show(plan.title, update_was_cancelled, 0, true);
+    } else {
+        log.finish(update::Outcome::not_installed);
+        window.show(plan.title, update_not_installed, 0, true);
+    }
+    start_old(plan, log, window, true);
+    return exit_refused;
+}
+
 int carry_out(
     const update::Plan& plan,
     const fs::path& plan_path,
@@ -640,6 +1018,19 @@ int carry_out(
     int64_t helper_parent
 ) {
     const fs::path updates = path_from(plan.updates);
+    // A copy macOS runs with an administrator's rights acts as the player
+    // from here, before it touches a file, so every file it writes under the
+    // player's folder is the player's.
+    ActingPlayer player;
+#if defined(__APPLE__)
+    if (elevated_swap && plan.route == update::Route::macos_bundle) {
+        std::string refused;
+        if (!act_as_player(updates, plan_path, player, &refused)) {
+            std::cerr << "oa-update: " << refused << '\n';
+            return exit_usage;
+        }
+    }
+#endif
     std::error_code io;
     fs::create_directories(updates, io);
     if (io) {
@@ -697,6 +1088,14 @@ int carry_out(
         receipt.from_version = plan.from_version;
         receipt.release = plan.release;
         log.begin_receipt(updates, std::move(receipt));
+    }
+    // The macOS copy with an administrator's rights moves the bundles and
+    // nothing else; the run that asked for it keeps the journal's start, the
+    // receipt and the game.
+    if (elevated_swap && plan.route == update::Route::macos_bundle) {
+        const int moved = carry_out_as_administrator(plan, player, keys, log, hooks);
+        window.close();
+        return moved;
     }
 
     const UpdatesGateResult pending = take_pending(updates);
@@ -896,22 +1295,30 @@ int carry_out(
 
     std::vector<Operation> record =
         kept_record_operations(plan, verified.version, verified.release);
-    operations.insert(
-        operations.end(),
-        std::make_move_iterator(record.begin()),
-        std::make_move_iterator(record.end())
-    );
-
-    const JournalResult applied = apply_journal(updates, operations, hooks, &error);
-    if (applied != JournalResult::finished) {
-        log.line(error.empty() ? "a step failed" : error);
-        record_failed_change(
-            log, updates, update::Step::swap, error.empty() ? "a step failed" : error
+    if (bundle && swap_needs_administrator(plan)) {
+        // The player cannot move the bundles, as when the installer package
+        // put the game in Applications for the administrator.
+        if (const std::optional<int> stopped = swap_with_administrator(
+                plan, plan_path, keys, verified.version, record, stage, log, window, hooks
+            ))
+            return *stopped;
+    } else {
+        operations.insert(
+            operations.end(),
+            std::make_move_iterator(record.begin()),
+            std::make_move_iterator(record.end())
         );
-        remove_stage(stage);
-        window.show(plan.title, line_after_failed_change(updates), 0, true);
-        start_old(plan, log, window, !elevated_swap);
-        return exit_undone;
+        const JournalResult applied = apply_journal(updates, operations, hooks, &error);
+        if (applied != JournalResult::finished) {
+            log.line(error.empty() ? "a step failed" : error);
+            record_failed_change(
+                log, updates, update::Step::swap, error.empty() ? "a step failed" : error
+            );
+            remove_stage(stage);
+            window.show(plan.title, line_after_failed_change(updates), 0, true);
+            start_old(plan, log, window, !elevated_swap);
+            return exit_undone;
+        }
     }
     log.step(update::Step::swap, update::StepResult::done);
     window.show(plan.title, plan.line, oa::ui::kit::question_progress_whole, false);
