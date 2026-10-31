@@ -3002,7 +3002,9 @@ void passes_on_threads() {
         frame.pixels.assign(count, static_cast<uint8_t>(ground_index + card % 2));
         frame.coverage.assign(count, 1);
     }
-    for (int32_t card = 0; card < 40; ++card) {
+    // Enough cards for several bands of each card pass (64 cards a band),
+    // the bands of the cards standing up sharing their ground's indices.
+    for (int32_t card = 0; card < 200; ++card) {
         oa::app::SpriteDraw sprite{};
         sprite.frame = &cards[static_cast<std::size_t>(card) % cards.size()];
         sprite.place = {16 + card * 29 % 224, 16 + card * 41 % 224};
