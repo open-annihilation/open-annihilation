@@ -123,6 +123,97 @@ constexpr int32_t kVersionRoomBottom = 22;
     return digest;
 }
 
+/// Folds a frame's draw list into a frame run's draw list digest, as
+/// fold_frame folds words: each draw's kind and place in its kind's list;
+/// each model draw's plan (its regions, its level, whether and how it is
+/// drawn, the ground under it, the units it carries and the sizes of their
+/// images), the record it is drawn from, its draw state's image and
+/// silhouette sizes and the counts of its draws and of its image's builds
+/// as the plan left them, and the place and the pieces' vertices the live
+/// renderer draws it from; and each line's ends and colours. No address is
+/// folded, so that every run folds the same list alike.
+///
+/// @param digest the digest so far; kFramesDigestBasis before the first frame
+/// @param list the frame's draw list
+/// @return the digest with the list folded in
+[[nodiscard]] uint64_t fold_draw_list(uint64_t digest, const WorldDrawList& list) {
+    const auto fold = [&](uint64_t word) {
+        digest = std::rotl((digest ^ word) * kFramesDigestMultiplier, 29);
+    };
+    const auto fold_pair = [&](int64_t high, int64_t low) {
+        fold(
+            (static_cast<uint64_t>(static_cast<uint32_t>(high)) << 32) | static_cast<uint32_t>(low)
+        );
+    };
+    const auto fold_rect = [&](const oa::Rect32& rect) {
+        fold_pair(rect.x1, rect.y1);
+        fold_pair(rect.x2, rect.y2);
+    };
+    const auto fold_unit = [&](const oa::Unit& unit) {
+        fold_pair(unit.position.x, unit.position.y);
+        fold_pair(unit.position.z, unit.heading);
+        fold_pair(unit.pitch, unit.bank);
+    };
+    const auto fold_sprite = [&](const oa::Sprite& sprite) {
+        fold_pair(sprite.width, sprite.height);
+        fold_pair(sprite.origin_x, sprite.origin_y);
+        fold_pair(sprite.data != nullptr ? 1 : 0, sprite.aux != nullptr ? 1 : 0);
+    };
+    fold(list.draws.size());
+    for (const auto& draw : list.draws)
+        fold_pair(static_cast<int64_t>(draw.kind), draw.index);
+    fold(list.models.size());
+    for (const auto& drawn : list.models) {
+        const auto& plan = drawn.plan;
+        fold_pair(drawn.stand_in, drawn.on_map ? 1 : 0);
+        fold_rect(plan.region);
+        fold_rect(plan.covered);
+        fold_pair(static_cast<int64_t>(plan.level), plan.model.ground);
+        fold_pair(
+            (plan.linked.drawn ? 1 : 0) | (plan.linked.unlit ? 2 : 0) |
+                (plan.model.from_image ? 4 : 0),
+            static_cast<int64_t>(plan.model.carried.size())
+        );
+        for (const auto& carried : plan.model.carried) {
+            fold_pair(carried.built_in_composite ? 1 : 0, carried.unit != nullptr ? 1 : 0);
+            if (carried.unit != nullptr)
+                fold_unit(*carried.unit);
+            fold_sprite(carried.image.sprite);
+        }
+        if (drawn.model.unit != nullptr)
+            fold_unit(*drawn.model.unit);
+        else if (
+            drawn.stand_in >= 0 && static_cast<std::size_t>(drawn.stand_in) < list.stand_ins.size()
+        )
+            fold_unit(list.stand_ins[static_cast<std::size_t>(drawn.stand_in)]);
+        if (const auto* state = drawn.model.state; state != nullptr) {
+            fold_sprite(state->image.sprite);
+            fold_sprite(state->shadow.sprite);
+            fold_pair(state->cache.draws, state->image_builds);
+        }
+        fold(drawn.shown_position.has_value() ? 1 : 0);
+        if (drawn.shown_position) {
+            fold_pair(drawn.shown_position->x, drawn.shown_position->y);
+            fold(static_cast<uint32_t>(drawn.shown_position->z));
+        }
+        fold(drawn.shown_vertices.size());
+        for (const auto& piece : drawn.shown_vertices) {
+            fold(piece.size());
+            for (const auto& vertex : piece) {
+                fold_pair(vertex.x, vertex.y);
+                fold(static_cast<uint32_t>(vertex.z));
+            }
+        }
+    }
+    fold(list.lines.size());
+    for (const auto& line : list.lines) {
+        fold_pair(line.x0, line.y0);
+        fold_pair(line.x1, line.y1);
+        fold_pair((line.color[0] << 16) | (line.color[1] << 8) | line.color[2], line.palette_index);
+    }
+    return digest;
+}
+
 } // namespace
 
 void Runtime::step_match_simulation() {
@@ -928,8 +1019,10 @@ void Runtime::run_headless_frames(std::size_t ticks, uint32_t frames_per_second)
         2;
     std::size_t between_ticks = 0;
     uint64_t frame = 0;
-    // Every frame's drawn battlefield, which no count of drawing threads changes.
+    // Every frame's drawn battlefield, and every frame's draw list, which no
+    // count of drawing threads changes.
     uint64_t frames_digest = kFramesDigestBasis;
+    uint64_t draw_list_digest = kFramesDigestBasis;
     while (match_timing_.tick < ticks) {
         if (frame >= frame_limit)
             throw std::runtime_error("the frame run's match clock stopped stepping");
@@ -953,6 +1046,8 @@ void Runtime::run_headless_frames(std::size_t ticks, uint32_t frames_per_second)
         frame_draws_.probe_drawn = false;
         rebuild_surface();
         frames_digest = fold_frame(frames_digest, match_world_cpu_);
+        if (match_models_)
+            draw_list_digest = fold_draw_list(draw_list_digest, match_models_->draws);
         between_ticks += presentation_alpha_ < 1.0F ? 1 : 0;
         if (log != nullptr) {
             const auto* unit = probe != 0 ? match_->world().slots[probe].unit : nullptr;
@@ -997,7 +1092,8 @@ void Runtime::run_headless_frames(std::size_t ticks, uint32_t frames_per_second)
     }
     std::printf(
         "frame run: %u frames a second, %llu frames, %u ticks, %zu frames between ticks, "
-        "world digest %016llx, frames digest %016llx, drawing threads %u, drawing bands %d\n",
+        "world digest %016llx, frames digest %016llx, drawing threads %u, drawing bands %d, "
+        "draw list digest %016llx\n",
         frames_per_second,
         static_cast<unsigned long long>(frame),
         match_timing_.tick,
@@ -1005,7 +1101,8 @@ void Runtime::run_headless_frames(std::size_t ticks, uint32_t frames_per_second)
         static_cast<unsigned long long>(frame_run_digest()),
         static_cast<unsigned long long>(frames_digest),
         draw_pool_ ? draw_pool_->threads() : 1U,
-        match_models_ ? match_models_->most_bands : 0
+        match_models_ ? match_models_->most_bands : 0,
+        static_cast<unsigned long long>(draw_list_digest)
     );
     std::fflush(stdout);
     if (!options_.snapshot.empty())

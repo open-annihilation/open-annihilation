@@ -2920,8 +2920,12 @@ prompts, Settings › Updates and the headers name one state with one size.
   the same trace and digest, at 30 each frame running a tick but the first
   past the turn. The run
   ends with a line giving the world digest, a frames digest of every
-  frame's drawn battlefield, the drawing threads it drew on and the most
-  bands a frame's battlefield was drawn in. `--busy-combat` adds missile
+  frame's drawn battlefield, the drawing threads it drew on, the most
+  bands a frame's battlefield was drawn in and a draw list digest of every
+  frame's draw list (`fold_draw_list`: each draw's kind and place, each
+  model draw's plan, the record it is drawn from, its draw state's images
+  and counts as the plan left them, and its place and vertices for the live
+  renderer, and each line). `--busy-combat` adds missile
   trucks to both armies, and for the local player a kbot lab building
   peewees and an air transport loading one, and selects the local army
   with selection boxes shown, so that the frames reach every kind of
@@ -3058,10 +3062,11 @@ prompts, Settings › Updates and the headers name one state with one size.
   holding what was painted;
   `native-draw-threads` draws the seeded skirmish's fight frame by frame at
   zoom 1, 1.37 and 0.6, and a longer `--busy-combat` fight into its
-  explosions and debris with enhanced anti-aliasing off and at 4x, on 1, 2,
-  3, 4 and 7 drawing threads and checks that every count gives the same
-  frames digest and world digest, and draws in one band a thread at zoom 1
-  and in more than one elsewhere.
+  explosions and debris with enhanced anti-aliasing off (half its frames
+  between ticks) and at 4x, on 1, 2, 3, 4 and 7 drawing threads and checks
+  that every count gives the same frames digest, draw list digest and world
+  digest, and draws in one band a thread at zoom 1 and in more than one
+  elsewhere.
 - `full_screen.hpp`, `full_screen.cpp`: Alt+Enter (Return or keypad Enter,
   either Alt key; Option on macOS), which switches the window between full
   screen and a window on every screen, during the movies and while a match

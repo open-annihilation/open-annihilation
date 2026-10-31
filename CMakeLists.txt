@@ -4805,10 +4805,11 @@ endforeach()
         # camera's scroll held, at zoom 1, 1.37 and 0.6, and a longer busy
         # fight (--busy-combat: missiles, nano particles, a loaded transport,
         # selection boxes), into its explosions, debris and fragments, with
-        # enhanced anti-aliasing off and at 4x, on 1, 2, 3, 4 and 7 drawing
-        # threads, which draw the battlefield's units and effects in as many
-        # bands of rows: every count draws the same frames and reaches the
-        # same world.
+        # enhanced anti-aliasing off, half its frames between ticks, and at
+        # 4x, on 1, 2, 3, 4 and 7 drawing
+        # threads, which plan the units and draw the battlefield's units and
+        # effects in as many bands of rows: every count plans the same draw
+        # lists, draws the same frames and reaches the same world.
         add_test(NAME native-draw-threads COMMAND ${Python3_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_draw_threads.py"
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
