@@ -718,6 +718,7 @@ EngineSettings read_settings(
     read_word(
         values, key::double_click_selects, double_click_selects_words, settings.double_click_selects
     );
+    read_word(values, key::focus_lost, focus_lost_words, settings.focus_lost);
     if (const auto number = stored_number(values, key::unit_limit))
         settings.unit_limit = clamped(
             *number,
@@ -1041,6 +1042,15 @@ void write_settings(
         opened.double_click_selects,
         chosen.double_click_selects,
         defaults.double_click_selects,
+        restored
+    );
+    store_word(
+        values,
+        key::focus_lost,
+        focus_lost_words,
+        opened.focus_lost,
+        chosen.focus_lost,
+        defaults.focus_lost,
         restored
     );
     store(

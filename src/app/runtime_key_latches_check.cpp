@@ -345,6 +345,14 @@ void Runtime::check_key_latches() {
     }
 
     step("focus loss clears latches");
+    // The skirmish plays on without the focus, so the snapshots after it show
+    // no paused title.
+    const auto set_focus_lost = [&](oa::ui::engine_settings::FocusLost lost) {
+        auto chosen = engine_settings();
+        chosen.focus_lost = lost;
+        apply_engine_settings(chosen);
+    };
+    set_focus_lost(oa::ui::engine_settings::FocusLost::keep_playing);
     SDL_Event lost{};
     lost.type = SDL_EVENT_WINDOW_FOCUS_LOST;
     lost.window.windowID = SDL_GetWindowID(sdl_.window);
@@ -370,6 +378,7 @@ void Runtime::check_key_latches() {
     dispatch_event(gained, running);
     if (!running)
         fail("focus gain ended the run");
+    set_focus_lost(oa::ui::engine_settings::FocusLost::pause_single_player);
 
     // The snapshot shows the two latches alone. Sticky modifiers would add
     // a chip for the Shift tap that latches QUEUE.

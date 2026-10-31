@@ -808,8 +808,9 @@ placing where the finger is, a refused site staying armed, QUEUE keeping the
 placement for the next site, CANCEL, CLEAR and a two-finger tap ending
 it), the minimap, edge scrolling and auto-scroll, fingers of other
 devices, the Cmd keys, the modifiers with no latch, PAUSE and the
-lifecycle's pause through
-the in-game menu, taps against the same mouse clicks, the overlays kept
+lifecycle's hold through
+the in-game menu with When the window loses focus at Keep playing, taps
+against the same mouse clicks, the overlays kept
 clear of the controls, help on a long press, the groups' STORE and chips,
 SELECT ▾'s All, and the banner's title in English, German and Simplified
 Chinese: a Metal Extractor being placed named as the bottom bar names it,
@@ -979,6 +980,26 @@ window loses focus, the request is held, and the frame hook is called on
 three frames; the request is then released and the loop waits, the hook not
 called again, until the check wakes it. The line it prints starts
 `inactive loop check:`.
+
+### A game played alone while the window is away
+
+A campaign mission or a skirmish against computer players pauses while the
+window is away, as Settings › Controls › When the window loses focus says,
+and with Keep playing keeps the main loop running every frame there.
+`native-away-pause` runs `--check-away-pause` on a skirmish, in a window of
+the dummy video driver, sending the window's focus, minimise and restore
+events and the app lifecycle's background and foreground events, on a frame
+clock of its own: Pause single player sets the pause bit and shows the
+paused title while the window is away, holds the skirmish for the moment
+after it is back and lets it go then; the click that brings the focus back
+gives no order; the Pause key's pause and the game menu stay as they were;
+Pause in the moment keeps the skirmish paused and Resume on the game menu
+runs it; Keep playing ticks on while away, and in the background waits
+behind the game menu; and with the live-game bit set, as a multiplayer
+session sets it, nothing pauses. Its lines start `away pause:`. Each
+`native-net-loopback*` run also takes the focus from the host's window in
+the running network match: neither machine pauses. `app-match-clock`
+holds the rule for every kind of match, a replay among them.
 
 ### Opening a web address
 

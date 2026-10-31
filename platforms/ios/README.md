@@ -371,8 +371,9 @@ here: it needs a paid developer team.
   made in Manage take effect from the next start: the game reloads itself without ending for a
   switch of mod (the Library's Play now), but that reload does not take them up yet.
 
-- No resume after iOS ends the game in the background: a match played alone pauses with the
-  in-game menu when the game leaves the screen, and is lost if iOS then ends the process.
+- No resume after iOS ends the game in the background: a match played alone pauses when the
+  game leaves the screen (or waits behind the in-game menu with When the window loses focus at
+  Keep playing), and is lost if iOS then ends the process.
 - Device builds are built and linked here but have not been installed on a device, and no
   archive has been exported.
 - The on-screen keyboard follows the screen, not the game: on an iPad held portrait it is

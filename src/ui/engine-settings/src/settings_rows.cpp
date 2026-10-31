@@ -55,10 +55,11 @@ constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::look) + 
 /// zoom's limits right under the switch for the wheel, how far past the
 /// map's edges the view goes under them, middle-click panning, where a
 /// double-click selects a unit's type, whether a window keeps the pointer,
-/// and how firmly a sticky edge holds right under that, then whether a
-/// group's key moves the view. Select groups without Alt stays declared and
-/// is the editor's Number keys select groups, not a row here.
-constexpr std::array<Setting, 11> kControlsRows{
+/// how firmly a sticky edge holds right under that and whether a game played
+/// alone pauses while the window is away, then whether a group's key moves
+/// the view. Select groups without Alt stays declared and is the editor's
+/// Number keys select groups, not a row here.
+constexpr std::array<Setting, 12> kControlsRows{
     Setting::key_layout,
     Setting::show_keys_on_buttons,
     Setting::wheel_zoom,
@@ -69,10 +70,11 @@ constexpr std::array<Setting, 11> kControlsRows{
     Setting::double_click_selects,
     Setting::window_edge,
     Setting::window_edge_stickiness,
+    Setting::focus_lost,
     Setting::group_keys_centre,
 };
 /// Controls while a mod is played: Key layout with that mod under Key layout.
-constexpr std::array<Setting, 12> kControlsModRows{
+constexpr std::array<Setting, 13> kControlsModRows{
     Setting::key_layout,
     Setting::key_layout_for_mod,
     Setting::show_keys_on_buttons,
@@ -84,6 +86,7 @@ constexpr std::array<Setting, 12> kControlsModRows{
     Setting::double_click_selects,
     Setting::window_edge,
     Setting::window_edge_stickiness,
+    Setting::focus_lost,
     Setting::group_keys_centre,
 };
 /// Engine Limits' rows: the unit limit, pathfinding, then how many player
@@ -397,6 +400,12 @@ constexpr std::array<std::string_view, 2> kDoubleClickSelectsCaptions{"On screen
 static_assert(
     kDoubleClickSelectsCaptions.size() == double_click_selects_choices.size(),
     "every way of Double-click selects has its caption"
+);
+/// When the window loses focus's captions, in focus_lost_choices' order.
+constexpr std::array<std::string_view, 2> kFocusLostCaptions{"Pause single player", "Keep playing"};
+static_assert(
+    kFocusLostCaptions.size() == focus_lost_choices.size(),
+    "every way of When the window loses focus has its caption"
 );
 /// Window frame's captions, in window_frame_choices' order.
 constexpr std::array<std::string_view, 2> kWindowFrameCaptions{"Hidden in play", "Always shown"};
@@ -3077,6 +3086,11 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
                               DropDown<DoubleClickSelects, 2, double_click_selects_choices, &E::double_click_selects, kDoubleClickSelectsCaptions, &table_word<double_click_selects_words, DoubleClickSelects>>::stepper(),
                               {"Where a double-click on a unit selects its type."}),
                   wide_choice_width)},
+    {.setting = S::focus_lost,
+     .spec = wide(kit::choice("focus-lost", "When the window loses focus",
+                              DropDown<FocusLost, 2, focus_lost_choices, &E::focus_lost, kFocusLostCaptions, &table_word<focus_lost_words, FocusLost>>::stepper(),
+                              {"Whether a single-player game pauses while away."}),
+                  wide_choice_width)},
     {.setting = S::look,
      .spec = changing(kit::levels("look", "Look",
                                   LevelStrip<Look, 2, look_choices, &E::look, kLookCaptions, &table_word<look_words, Look>>::stepper(),
@@ -3211,6 +3225,7 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "reset-window-positions",
     "group-keys-centre",
     "double-click-selects",
+    "focus-lost",
     "look",
 };
 

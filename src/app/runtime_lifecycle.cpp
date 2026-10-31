@@ -5,13 +5,16 @@
 // it and running short of memory, acted on as the event arrives, and the
 // events kept from the screens (docs/touch-controls.md).
 //
-// Going to the background, a match played on this machine alone waits
-// behind its in-game menu, as F2 leaves it, and the settings are written;
-// back in the foreground the menu is open and the player resumes from it as
-// ever. A shared match keeps running until the system suspends the game.
+// Going to the background, a match played on this machine alone pauses
+// while When the window loses focus says Pause single player, and goes on a
+// moment after the game is back in the foreground (start_away_pause); with
+// Keep playing it waits behind its in-game menu, as F2 leaves it, and the
+// player resumes from the menu as ever. The settings are written either way.
+// A shared match keeps running until the system suspends the game.
 // Short of memory, the cached model images go; they are drawn again from
 // their pieces when next needed.
 #include "oa/app/runtime.hpp"
+#include "match_clock.hpp"
 #include <SDL3/SDL.h>
 #include <exception>
 #include <iostream>
@@ -77,12 +80,12 @@ struct LifecycleAccess {
         }
     }
 
-    /// Tells whether going to the background holds the match behind its in-game menu: the
-    /// match screen shows a running, unfinished match played on this machine alone
-    /// (keeps_running_inactive() is false) whose in-game menu is not already open
-    /// (match_paused_), or over which only the team menu or one of its panels is open,
-    /// which hold no match. The Pause key's pause is not looked at; the menu holds the
-    /// match whether it is set or not.
+    /// Tells whether going to the background holds the match behind its in-game menu, as it
+    /// does while When the window loses focus is Keep playing: the match screen shows a
+    /// running, unfinished match played on this machine alone (keeps_running_inactive() is
+    /// false) whose in-game menu is not already open (match_paused_), or over which only the
+    /// team menu or one of its panels is open, which hold no match. The Pause key's pause is
+    /// not looked at; the menu holds the match whether it is set or not.
     ///
     /// @param runtime the runtime
     /// @return true when show_match_pause_menu() is to hold the match
@@ -113,12 +116,22 @@ void Runtime::handle_lifecycle_event(const SDL_Event& event) {
     case SDL_EVENT_WILL_ENTER_BACKGROUND:
         // The system may suspend the game from here on, and also sends
         // this for a moment away (a pulled-down panel, a call): a match
-        // played alone waits behind its in-game menu, which the player
-        // resumes from, and the settings are written in case the game does
-        // not come back.
-        if (LifecycleAccess::holds_match_for_background(*this))
+        // played alone pauses until a moment after the game is back, or
+        // with Keep playing waits behind its in-game menu, which the player
+        // resumes from; the settings are written in case the game does not
+        // come back.
+        away_pause_.background = true;
+        if (away_action() == AwayAction::pause)
+            LifecycleAccess::attempt("the pause", [this] { start_away_pause(); });
+        else if (LifecycleAccess::holds_match_for_background(*this))
             LifecycleAccess::attempt("the in-game menu", [this] { show_match_pause_menu(); });
         LifecycleAccess::attempt("the preferences", [this] { flush_preferences(); });
+        return;
+    case SDL_EVENT_DID_ENTER_FOREGROUND:
+        // Back in the foreground, a paused match goes on a moment later
+        // (settle_away_pause); the in-game menu Keep playing opened is still
+        // open over the held match, and its Resume resumes it as ever.
+        away_pause_.background = false;
         return;
     case SDL_EVENT_DID_ENTER_BACKGROUND:
     case SDL_EVENT_TERMINATING:
@@ -130,8 +143,6 @@ void Runtime::handle_lifecycle_event(const SDL_Event& event) {
         LifecycleAccess::attempt("the model images", [this] { release_model_images(); });
         return;
     default:
-        // Back in the foreground the in-game menu is already open over the
-        // held match, and its Resume resumes it as ever.
         return;
     }
 }

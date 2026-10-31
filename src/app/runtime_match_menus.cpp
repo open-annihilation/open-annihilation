@@ -2101,12 +2101,17 @@ void Runtime::resume_match_pause() {
     if (match_finished_)
         return;
     // Resume on the local game's menu releases an explicit Pause as well
-    // as the menu's hold. Dismissing another dialog does not change Pause,
-    // and a shared match keeps its separate, synchronized pause control.
+    // as the menu's hold, and the pause the window's absence holds without
+    // waiting for it to end. Dismissing another dialog does not change
+    // Pause, and a shared match keeps its separate, synchronized pause
+    // control.
     if (match_ && match_hud_panel_ == oa::data::defs::gui_path("ARMOPT.GUI") &&
         (current_extension_state() & extension_state::shared_match) == 0 &&
         (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0) {
-        run_console_hotkey(oa::ui::console::hotkey::pause);
+        if (away_pause_holds())
+            release_away_pause();
+        else
+            run_console_hotkey(oa::ui::console::hotkey::pause);
     }
     // Resuming over the preferences keeps what they set, as leaving them does.
     if (match_preferences_open())

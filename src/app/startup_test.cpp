@@ -446,6 +446,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-key-latches", &Options::check_key_latches, {}},
         {"--check-hold-confirm", &Options::check_hold_confirm, {}},
         {"--check-order-wheel", &Options::check_order_wheel, {}},
+        {"--check-away-pause", &Options::check_away_pause, {}},
         {"--check-kill-board", &Options::check_kill_board, {}},
         {"--check-paused-save", &Options::check_paused_save, {}},
         {"--check-saved-brains", &Options::check_saved_brains, {}},

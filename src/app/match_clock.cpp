@@ -23,4 +23,10 @@ bool clock_reading_behind(uint32_t reading, uint32_t previous_clock) noexcept {
     return oa::base::game_loop::scaled_clock_before(reading, previous_clock);
 }
 
+AwayAction away_action(const AwayFacts& facts) noexcept {
+    if (!facts.match_shown || facts.finished || facts.network || facts.replay || facts.scripted)
+        return AwayAction::none;
+    return facts.pause_chosen ? AwayAction::pause : AwayAction::keep_playing;
+}
+
 } // namespace oa::app

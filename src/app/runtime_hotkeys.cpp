@@ -266,9 +266,13 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     }
     // Pause flips the pause bit and opens no menu; a finished match keeps it
     // as it is. Pause is a console hotkey and a match is running, so it is
-    // always taken.
+    // always taken. Pressed while the pause the window's absence holds has
+    // yet to end, it keeps the match paused, now as the player's own pause.
     if (id == "game.pause") {
-        if (!match_finished_)
+        if (away_pause_holds()) {
+            away_pause_.held = false;
+            away_pause_.resume_ns.reset();
+        } else if (!match_finished_)
             run_console_hotkey(oa::ui::console::hotkey::pause);
         return true;
     }

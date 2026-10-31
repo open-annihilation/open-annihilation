@@ -1054,7 +1054,8 @@ if(BUILD_TESTING)
     oa-test-support oa-options)
   add_test(NAME app-acceleration-status COMMAND oa-app-acceleration-status-test)
   # When the match clock steps: menus, the outcome, the pause bit, a frame
-  # behind the last step and frames across the turn of the clock's reading.
+  # behind the last step and frames across the turn of the clock's reading;
+  # and what a match does while the window is away.
   add_executable(oa-app-match-clock-test src/app/match_clock_test.cpp src/app/match_clock.cpp)
   target_link_libraries(oa-app-match-clock-test PRIVATE oa-base-game-loop oa-ui-console oa-options)
   add_test(NAME app-match-clock COMMAND oa-app-match-clock-test)
@@ -1415,6 +1416,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_key_latches_check.cpp
   src/app/runtime_hold_confirm_check.cpp
   src/app/runtime_order_wheel_check.cpp
+  src/app/runtime_away_pause_check.cpp
   src/app/runtime_key_timing_check.cpp
   src/app/runtime_pointer_keys_check.cpp
   src/app/runtime_dgun_check.cpp
@@ -4256,6 +4258,19 @@ endforeach()
         --preferences-file "${oa_order_wheel_dir}/order-wheel.conf")
       set_tests_properties(native-order-wheel PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_order_wheel_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # When the window loses focus on a skirmish: Pause single player holds
+      # it while the window is away, minimised or in the background and lets
+      # it go a moment after it is back, the player's own pause stays, the
+      # focusing click gives no order, Keep playing plays on, and a game a
+      # multiplayer session is open for never pauses.
+      set(oa_away_pause_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/away-pause")
+      file(MAKE_DIRECTORY "${oa_away_pause_dir}")
+      add_test(NAME native-away-pause COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-away-pause
+        --preferences-file "${oa_away_pause_dir}/away-pause.conf")
+      set_tests_properties(native-away-pause PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_away_pause_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # With the request held, the frame hook keeps being called while the
       # window is inactive; released, the loop waits for an event.

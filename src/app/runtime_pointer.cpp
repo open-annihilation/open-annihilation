@@ -788,7 +788,10 @@ bool Runtime::battlefield_in_play() {
         return false;
     if (engine_settings_dialog() != nullptr || oa::ui::frontend_dialogs::dialog_count() != 0)
         return false;
-    return (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) == 0;
+    // The pause the window's absence holds leaves the battlefield in play,
+    // so the click that brings the focus back is still only that.
+    return (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) == 0 ||
+           away_pause_holds();
 }
 
 bool Runtime::window_edge_battlefield(bool require_mouse) {

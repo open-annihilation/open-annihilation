@@ -2,10 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Host services behind the application loop: held-key queries, window
-// activation, closing the application and the developer memory report.
+// activation, the pause of a game played alone while the window is away,
+// closing the application and the developer memory report.
 #include "oa/app/runtime.hpp"
 #include "device_state.hpp"
+#include "engine_settings_state.hpp"
+#include "match_clock.hpp"
 #include "oa/platform/memory_status.hpp"
+#include "oa/ui/console/game_fields.hpp"
 #include <SDL3/SDL.h>
 #include <cstdint>
 #include <cstdio>
@@ -120,6 +124,108 @@ bool Runtime::keeps_running_inactive() const {
 
 void keep_running_while_inactive(Runtime& runtime, bool hold) {
     runtime.keep_running_while_inactive_ = hold;
+}
+
+AwayAction Runtime::away_action() const {
+    using oa::ui::engine_settings::FocusLost;
+    const uint32_t extension = current_extension_state();
+    const bool keep_playing = engine_settings_ != nullptr &&
+                              engine_settings_->current.focus_lost == FocusLost::keep_playing;
+    AwayFacts facts;
+    facts.pause_chosen = !keep_playing;
+    facts.match_shown = match_running();
+    facts.finished = match_finished_;
+    facts.network = keeps_running_inactive() || (extension & extension_state::shared_match) != 0;
+    facts.replay = (extension & extension_state::replay) != 0;
+    facts.scripted =
+        options_.frame_limit.has_value() || options_.remote_controlled || director_ != nullptr;
+    return oa::app::away_action(facts);
+}
+
+bool Runtime::window_away() const {
+    return !application_active_ || away_pause_.minimised || away_pause_.background;
+}
+
+void Runtime::note_window_away(const SDL_Event& event) {
+    switch (event.type) {
+    case SDL_EVENT_WINDOW_MINIMIZED:
+        away_pause_.minimised = true;
+        start_away_pause();
+        return;
+    case SDL_EVENT_WINDOW_RESTORED:
+    case SDL_EVENT_WINDOW_MAXIMIZED:
+        away_pause_.minimised = false;
+        return;
+    case SDL_EVENT_WINDOW_FOCUS_LOST:
+        start_away_pause();
+        return;
+    case SDL_EVENT_WINDOW_FOCUS_GAINED:
+        // A window with the focus is back, whatever else said it was away.
+        away_pause_.minimised = false;
+        away_pause_.background = false;
+        return;
+    default:
+        return;
+    }
+}
+
+void Runtime::start_away_pause() {
+    if (away_action() != AwayAction::pause)
+        return;
+    // Away again before the pause ended: it waits for the window again.
+    if (away_pause_holds()) {
+        away_pause_.resume_ns.reset();
+        return;
+    }
+    // A pause the player chose stays the player's: the pause bit set by the
+    // Pause key or anything else, or an in-game menu or dialog holding the
+    // match. The team menu and its panels hold none.
+    auto& game = match_->state().game;
+    if ((game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0 ||
+        (match_paused_ && !team_panel_open()))
+        return;
+    game.sim_run_flags = static_cast<uint16_t>(game.sim_run_flags | oa::ui::console::kSimRunPaused);
+    away_pause_.held = true;
+    away_pause_.resume_ns.reset();
+}
+
+void Runtime::settle_away_pause() {
+    if (!away_pause_.held)
+        return;
+    if (!away_pause_holds()) {
+        away_pause_.held = false;
+        away_pause_.resume_ns.reset();
+        return;
+    }
+    if (window_away()) {
+        away_pause_.resume_ns.reset();
+        return;
+    }
+    if (!away_pause_.resume_ns) {
+        away_pause_.resume_ns = frame_time_ns_ + away_resume_ms * 1'000'000ULL;
+        return;
+    }
+    if (frame_time_ns_ >= *away_pause_.resume_ns)
+        release_away_pause();
+}
+
+bool Runtime::away_pause_holds() const {
+    return away_pause_.held && match_ &&
+           (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0;
+}
+
+void Runtime::release_away_pause() {
+    if (away_pause_holds()) {
+        auto& game = match_->state().game;
+        game.sim_run_flags =
+            static_cast<uint16_t>(game.sim_run_flags & ~oa::ui::console::kSimRunPaused);
+    }
+    away_pause_.held = false;
+    away_pause_.resume_ns.reset();
+}
+
+bool Runtime::keeps_playing_away() const {
+    return !away_pause_.background && away_action() == AwayAction::keep_playing;
 }
 
 void Runtime::quit_application(const char* message) {

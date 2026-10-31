@@ -2754,9 +2754,11 @@ prompts, Settings › Updates and the headers name one state with one size.
   set the clock past the frame's time) holds its step; the reading turns
   over to 0 about every 39.8 hours, and a reading more than half a turn
   behind has turned over: the frame steps and runs no tick, and the frames
-  after it step as before, as in 3.1c. `app-match-clock` tests all of
-  these, with frames across the turn from a clock just before 2^32
-  milliseconds.
+  after it step as before, as in 3.1c. `away_action` says what a match does
+  while the window is away: a game played alone pauses or plays on, as When
+  the window loses focus says, and nothing else changes. `app-match-clock`
+  tests all of these, with frames across the turn from a clock just before
+  2^32 milliseconds.
 - `memory_guard.hpp`, `memory_guard.cpp` (part of `oa-app-render-policy`):
   the memory guard of the accelerated tier, as a pure state machine with no
   clock, which the tier's watch acts on (above). Handed a sample of the system's
@@ -3999,11 +4001,36 @@ left as the variable says.
 
 `runtime_lifecycle.cpp` watches the app lifecycle events with an SDL event
 watch, so they are acted on as they happen rather than when the loop next
-polls: going to the background opens the in-game menu over a running game
-played on this machine alone, which holds it (the Pause key's bit is left
-alone), and saves the preferences; the system's low-memory warning lets the
-cached model images go. `take_lifecycle_event` keeps every lifecycle event
-from reaching a screen.
+polls: going to the background pauses a running game played on this machine
+alone while When the window loses focus is Pause single player (the away
+pause, below), or with Keep playing opens the in-game menu over it, which
+holds it (the Pause key's bit is left alone), and saves the preferences;
+the system's low-memory warning lets the cached model images go.
+`take_lifecycle_event` keeps every lifecycle event from reaching a screen.
+
+The away pause (`runtime_platform.cpp`): while the window is away, without
+the focus, minimised or with the application in the background, a
+campaign mission or a skirmish against computer players on screen pauses
+when Settings › Controls › When the window loses focus is Pause single
+player (`away_action`, the rule in `match_clock.hpp`). It sets the pause bit
+of `Game.sim_run_flags`, the bit the Pause key flips, so the simulation
+stops, the paused title shows and a save stores the match paused; no other
+machine hears of it, and the extension's `pause_changed` is not called. A
+match the player already paused, by the Pause key or an in-game menu or
+dialog that holds it, is left alone. `settle_away_pause`, once a frame
+before the match clock steps, lets the bit go `away_resume_ms` (500 ms, as
+long as `focus_click_ms`) after the first frame the window is back; Pause
+pressed in that moment keeps the match paused as the player's own pause,
+and Resume on the game menu lets it go at once. The battlefield counts as
+in play under the away pause, so the click that brings the focus back is
+still only that. A multiplayer game (`keeps_running_inactive`, or a match
+shared with other machines, hosting with only computer players included),
+a replay, a finished match, the menus and a frame-limited,
+remote-controlled or director's run are never paused. With Keep playing a
+game played alone keeps the main loop running every frame while the
+window is away (`keeps_playing_away`), as a multiplayer game does, except
+while the system has the application in the background.
+`--check-away-pause` (`runtime_away_pause_check.cpp`) checks it.
 
 ## Gamepads
 

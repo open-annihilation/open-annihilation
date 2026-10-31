@@ -3676,6 +3676,16 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
         event.key.down = true;
         require(host_keys.dispatch(host_keys.context, &event), "a key ended the host's run");
     };
+    // The host's window losing or gaining the focus, as the window system
+    // sends it.
+    const auto host_window_event = [&](SDL_EventType type) {
+        SDL_Event event{};
+        event.type = type;
+        event.window.windowID = host_keys.window_id(host_keys.context);
+        require(
+            host_keys.dispatch(host_keys.context, &event), "a window event ended the host's run"
+        );
+    };
     // The build page a world's copy of the host commander shows; 0 for its
     // order page.
     const auto commander_page = [host_commander](const World& world) {
@@ -3689,6 +3699,9 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     uint32_t client_tick_before_menu = 0;
     uint32_t held_host_tick = 0;
     uint32_t held_client_tick = 0;
+    uint32_t pauses_before_focus = 0;
+    uint32_t host_tick_before_focus = 0;
+    uint32_t client_tick_before_focus = 0;
     uint32_t netstats_tick = 0;
     // One exchange of both machines: each steps, the host commander's pose is
     // kept, and both machines' new shots are counted.
@@ -3875,6 +3888,31 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
                 count_shots(client_world, client_shots);
                 pump_both(1);
             }
+        }
+        // The host's window losing the focus pauses nothing in a network
+        // match, though When the window loses focus pauses a game played
+        // alone: both machines keep ticking and the joiner hears no 0x19.
+        if (tick == 192) {
+            auto chosen = runtime_.engine_settings();
+            chosen.focus_lost = oa::ui::engine_settings::FocusLost::pause_single_player;
+            runtime_.apply_engine_settings(chosen);
+            pauses_before_focus = pauses_received();
+            host_tick_before_focus = host_world.game.tick;
+            client_tick_before_focus = client_world.game.tick;
+            host_window_event(SDL_EVENT_WINDOW_FOCUS_LOST);
+        }
+        if (tick == 198) {
+            require(
+                pauses_received() == pauses_before_focus &&
+                    (host_world.game.sim_run_flags & nm::run_flag_paused) == 0 &&
+                    (client_world.game.sim_run_flags & nm::run_flag_paused) == 0 &&
+                    host_world.game.tick > host_tick_before_focus &&
+                    client_world.game.tick > client_tick_before_focus,
+                "losing the host window's focus paused the network match"
+            );
+            host_window_event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+            std::cout << "net loopback check: the host's window lost the focus and both machines "
+                      << "ran on\n";
         }
         if (tick == kLoopbackFireFrom) {
             const auto& unit = host_world.units[host_commander];

@@ -72,6 +72,11 @@ static_assert(group_keys_centre.find('\\') == std::string_view::npos);
 inline constexpr std::string_view double_click_selects = "open-annihilation.double-click-selects";
 static_assert(double_click_selects.find('|') == std::string_view::npos);
 static_assert(double_click_selects.find('\\') == std::string_view::npos);
+/// "pause" or "keep-playing" (EngineSettings::focus_lost). Absent means
+/// pause.
+inline constexpr std::string_view focus_lost = "open-annihilation.focus-lost";
+static_assert(focus_lost.find('|') == std::string_view::npos);
+static_assert(focus_lost.find('\\') == std::string_view::npos);
 /// Units per player, decimal (EngineSettings::unit_limit).
 inline constexpr std::string_view unit_limit = "open-annihilation.unit-limit";
 /// Frames a second, decimal (EngineSettings::max_frame_rate).
@@ -881,6 +886,23 @@ inline constexpr std::array<DoubleClickSelects, 2> double_click_selects_choices{
     DoubleClickSelects::on_map,
 };
 
+/// When the window loses focus: what a game played alone on this machine, a
+/// campaign mission or a skirmish against computer players, does while the
+/// window does not have the focus.
+enum class FocusLost : uint8_t {
+    /// it pauses, and goes on a moment after the window has the focus again
+    pause_single_player,
+    /// it plays on while the window is away
+    keep_playing,
+};
+
+/// The ways of When the window loses focus, in the order the dialog offers
+/// them.
+inline constexpr std::array<FocusLost, 2> focus_lost_choices{
+    FocusLost::pause_single_player,
+    FocusLost::keep_playing,
+};
+
 /// Edge stickiness's lowest value, in tenths: 0.0, a sticky edge that never
 /// holds.
 inline constexpr uint32_t lowest_edge_stickiness = 0;
@@ -1283,6 +1305,9 @@ struct EngineSettings {
     /// Which units of its type a double-click on a unit selects: those on
     /// screen or those on the whole map. Applies at once.
     DoubleClickSelects double_click_selects{DoubleClickSelects::on_screen};
+    /// What a game played alone does while the window does not have the
+    /// focus: it pauses, or plays on. Applies at once.
+    FocusLost focus_lost{FocusLost::pause_single_player};
     /// The layout chosen for the mod being played: `same`, or an installed
     /// layout's id. The dialog's host writes it under
     /// open-annihilation.keys.layout.<mod id> as the choice moves. With no

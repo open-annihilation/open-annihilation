@@ -563,6 +563,9 @@ struct Options {
     bool check_hold_confirm = false;
     // Opens the order wheel from a held mouse button on a skirmish.
     bool check_order_wheel = false;
+    // Takes the window's focus away from a skirmish and gives it back under
+    // each way of When the window loses focus.
+    bool check_away_pause = false;
     // Pauses a skirmish with the Pause key, saves it from the in-game menu,
     // loads the save and checks the loaded game runs, and that Pause and the
     // in-game menu still hold it and let it go.

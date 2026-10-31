@@ -69,6 +69,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -364,6 +365,8 @@ std::string_view label_of(settings::Setting setting) {
         return "Group keys centre the view";
     case settings::Setting::double_click_selects:
         return "Double-click selects";
+    case settings::Setting::focus_lost:
+        return "When the window loses focus";
     case settings::Setting::switch_alt:
         return "Select groups without Alt";
     case settings::Setting::window_edge:
@@ -1057,12 +1060,18 @@ void Runtime::check_engine_settings_dialog() {
             engine_settings_dialog()->chosen.window_edge == settings::WindowEdge::capture,
             "Window edge did not open on Capture"
         );
-        // Both rows at the section's end, scrolled into view.
+        // Both rows in view: the strip where the focus brought it, the
+        // slider at the section's end, where When the window loses focus and
+        // Group keys centre the view follow it. The scroll is left as it was.
         const auto shows = [&](std::string_view text) {
             auto* shown = engine_settings_dialog();
-            shown->scroll[static_cast<std::size_t>(settings::Page::controls)] =
-                std::numeric_limits<int32_t>::max();
-            return shows_text(settings::dialog_layout(*shown), text);
+            int32_t& scroll = shown->scroll[static_cast<std::size_t>(settings::Page::controls)];
+            const int32_t kept = scroll;
+            const bool here = shows_text(settings::dialog_layout(*shown), text);
+            scroll = std::numeric_limits<int32_t>::max();
+            const bool at_end = shows_text(settings::dialog_layout(*shown), text);
+            scroll = kept;
+            return here || at_end;
         };
         focus(window_edge, "Window edge");
         require(
@@ -3396,6 +3405,13 @@ void Runtime::check_window_edge_rows_fit() {
         "How firmly Sticky holds the pointer at the edge.",
         "Needs Sticky",
     };
+    // Window edge's control: its row's place among Controls' rows.
+    const auto controls_rows = settings::page_settings(settings::Page::controls);
+    const auto window_edge_row =
+        std::find(controls_rows.begin(), controls_rows.end(), settings::Setting::window_edge);
+    require(window_edge_row != controls_rows.end(), "Controls shows no Window edge");
+    const auto window_edge =
+        settings::first_row_control + static_cast<int32_t>(window_edge_row - controls_rows.begin());
     for (const std::string_view tag : {std::string_view{"en"}, std::string_view{"de"}}) {
         set_language_choice(tag);
         require(
@@ -3408,8 +3424,21 @@ void Runtime::check_window_edge_rows_fit() {
             require(dialog != nullptr, "Settings did not open on the 640x480 window");
             dialog->page = settings::Page::controls;
             dialog->chosen.window_edge = way;
+            // From the section's end, Shift+Tab back to Window edge brings it
+            // to the view's top, with Edge stickiness under it.
             dialog->scroll[static_cast<std::size_t>(settings::Page::controls)] =
                 std::numeric_limits<int32_t>::max();
+            dialog->focused = settings::restore_control;
+            for (int presses = 0; presses < 4 && dialog->focused != window_edge; ++presses)
+                std::ignore = settings::dialog_key(*dialog, settings::DialogKey::back_tab);
+            require(dialog->focused == window_edge, "Shift+Tab did not reach Window edge");
+            require(
+                shows_text(
+                    settings::dialog_layout(*dialog),
+                    oa::data::languages::interface_text("Window edge")
+                ),
+                "Window edge is not in view in " + std::string(tag)
+            );
             const std::string screen = std::string("settings/controls/") +
                                        (way == settings::WindowEdge::capture  ? "capture"
                                         : way == settings::WindowEdge::sticky ? "sticky"

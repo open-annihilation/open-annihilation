@@ -2976,8 +2976,10 @@ struct TouchCheckAccess {
         SDL_SetModState(SDL_KMOD_NONE);
     }
 
-    /// 16. PAUSE sets and clears the pause bit alone; going to the background opens the in-game
-    /// menu over the match; coming back changes nothing; Resume runs the match again.
+    /// 16. PAUSE sets and clears the pause bit alone; with When the window loses focus at Keep
+    /// playing, going to the background opens the in-game menu over the match; coming back
+    /// changes nothing; Resume runs the match again. Pause single player's pause there is
+    /// --check-away-pause's.
     static void case_pause_and_lifecycle(Runtime& runtime, TouchRun& run) {
         auto& game = runtime.match_->state().game;
         const auto paused = [&] { return (game.sim_run_flags & console::kSimRunPaused) != 0; };
@@ -2997,7 +2999,13 @@ struct TouchCheckAccess {
             Lane::dispatch,
             "PAUSE again did not clear the pause bit and HudState::paused"
         );
-        // To the background: the watch runs as the event is pushed.
+        // To the background with Keep playing: the watch runs as the event is pushed.
+        const auto focus_lost = [&](settings::FocusLost lost) {
+            auto chosen = runtime.engine_settings();
+            chosen.focus_lost = lost;
+            runtime.apply_engine_settings(chosen);
+        };
+        focus_lost(settings::FocusLost::keep_playing);
         SDL_Event background{};
         background.type = SDL_EVENT_WILL_ENTER_BACKGROUND;
         background.common.timestamp = SDL_GetTicksNS();
@@ -3028,6 +3036,7 @@ struct TouchCheckAccess {
         );
         runtime.resume_match_pause();
         step(runtime, run, kFrameMs);
+        focus_lost(settings::FocusLost::pause_single_player);
         require(
             !runtime.match_paused_ && !paused() && runtime.match_clock_steps(),
             Lane::platform,

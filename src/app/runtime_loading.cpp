@@ -270,6 +270,10 @@ void Runtime::teardown_match() {
     live_renderer_.reset();
     reset_match_effect_sources();
     match_.reset();
+    // A pause the window's absence held goes with its match; whether the
+    // window is away stays.
+    away_pause_.held = false;
+    away_pause_.resume_ns.reset();
     // The brains this match seated go with it. A list held for the next
     // start stays: a new start tears the previous match down before it
     // configures the players that list is for.

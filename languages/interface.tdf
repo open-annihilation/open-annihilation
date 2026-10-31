@@ -6146,6 +6146,14 @@
 	it=Tieni premuto {chord}: l'anello si riempie in {seconds} s. Lascia per annullare.;
 	}
 
+[Keep playing]
+	{
+	de=Weiterspielen;
+	fr=Continuer à jouer;
+	es=Seguir jugando;
+	it=Continua a giocare;
+	}
+
 [Keep your 1 change on top of {layout}?]
 	{
 	de=Deine 1 Änderung über {layout} behalten?;
@@ -8840,6 +8848,14 @@
 	fr=En patrouille;
 	es=Patrullando;
 	it=In pattuglia;
+	}
+
+[Pause single player]
+	{
+	de=Einzelspieler pausieren;
+	fr=Pause en solo;
+	es=Pausar en solitario;
+	it=Pausa in solitario;
 	}
 
 [Paused during the game]
@@ -13074,6 +13090,14 @@
 	it=Zoom con la rotella;
 	}
 
+[When the window loses focus]
+	{
+	de=Wenn das Fenster den Fokus verliert;
+	fr=Quand la fenêtre perd le focus;
+	es=Cuando la ventana pierde el foco;
+	it=Quando la finestra perde il focus;
+	}
+
 [Where a double-click on a unit selects its type.]
 	{
 	de=Wo ein Doppelklick auf eine Einheit ihren Typ auswählt.;
@@ -13096,6 +13120,14 @@
 	fr=Si la touche d'un groupe amène aussi la vue sur le groupe.;
 	es=Si la tecla de un grupo también lleva la vista al grupo.;
 	it=Se il tasto di un gruppo porta anche la vista sul gruppo.;
+	}
+
+[Whether a single-player game pauses while away.]
+	{
+	de=Ob ein Einzelspielerspiel pausiert, während du weg bist.;
+	fr=Si une partie en solo se met en pause pendant ton absence.;
+	es=Si una partida en solitario se pausa mientras no estás.;
+	it=Se una partita in solitario va in pausa mentre sei via.;
 	}
 
 [While the right pad is touched]

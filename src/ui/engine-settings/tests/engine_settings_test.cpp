@@ -2411,6 +2411,44 @@ void the_double_click_selects_default_read_and_round_trip() {
     CHECK(values.empty());
 }
 
+/// When the window loses focus: Pause single player everywhere by default,
+/// also for a file an earlier build wrote without the key; "pause" and
+/// "keep-playing" read their choices; any other text reads Pause single
+/// player; writing Keep playing writes that key alone, and Restore defaults
+/// then OK erases it.
+void the_focus_lost_default_read_and_round_trip() {
+    CHECK(settings::key::focus_lost == "open-annihilation.focus-lost");
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(defaults.focus_lost == settings::FocusLost::pause_single_player);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    const auto lost = [](const char* text) {
+        return read_one(settings::key::focus_lost, text).focus_lost;
+    };
+    CHECK(lost("pause") == settings::FocusLost::pause_single_player);
+    CHECK(lost("keep-playing") == settings::FocusLost::keep_playing);
+    for (const char* text : {"", "Keep playing", "keep", "play", "0", "1"})
+        CHECK(lost(text) == settings::FocusLost::pause_single_player);
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    auto chosen = defaults;
+    chosen.focus_lost = settings::FocusLost::keep_playing;
+    Values values;
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    CHECK(values.size() == 1);
+    CHECK(values.at(std::string{settings::key::focus_lost}) == "keep-playing");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+    // Pause single player chosen again after Keep playing is written as such.
+    settings::write_settings(values, chosen, defaults, defaults, false);
+    CHECK(values.at(std::string{settings::key::focus_lost}) == "pause");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == defaults);
+    values.clear();
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    settings::write_settings(values, chosen, defaults, defaults, true);
+    CHECK(values.empty());
+}
+
 /// Edge stickiness: 1.0 everywhere by default and for a file without the
 /// key; a decimal reads to the nearest tenth, a half rounding up, held to
 /// 0.0 to 5.0; any other text reads 1.0; it is written with one decimal,
@@ -3330,6 +3368,7 @@ int main() {
     the_window_edge_default_read_and_round_trip();
     the_group_keys_centre_default_read_and_round_trip();
     the_double_click_selects_default_read_and_round_trip();
+    the_focus_lost_default_read_and_round_trip();
     the_edge_stickiness_default_read_and_round_trip();
     the_window_frame_default_read_and_round_trip();
     the_window_size_default_read_and_round_trip();

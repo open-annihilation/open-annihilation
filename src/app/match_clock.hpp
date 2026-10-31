@@ -3,8 +3,9 @@
 
 // When the running match's clock steps: the rules that hold a match on
 // this machine alone for its menus and its outcome, the pause bit of
-// Game.sim_run_flags that holds every match, whoever set it, and a frame
-// whose clock reading lies behind the clock's last step.
+// Game.sim_run_flags that holds every match, whoever set it, a frame whose
+// clock reading lies behind the clock's last step, and what a match does
+// while the window is away.
 #pragma once
 
 #include <cstdint>
@@ -54,5 +55,47 @@ clock_flags_with_pause(uint16_t clock_flags, uint16_t sim_run_flags) noexcept;
 ///        (base::game_loop::Timing::previous_clock)
 /// @return true when the frame holds its step
 [[nodiscard]] bool clock_reading_behind(uint32_t reading, uint32_t previous_clock) noexcept;
+
+/// What decides what a match does while the window is away: without the
+/// focus, minimised, or with the application in the background.
+struct AwayFacts {
+    /// Settings › Controls › When the window loses focus is Pause single
+    /// player; Keep playing otherwise
+    bool pause_chosen{};
+    bool match_shown{}; ///< the match screen shows a running match
+    bool finished{};    ///< the match shows its victory or defeat
+    /// a multiplayer session is open (extension_state::multiplayer or the
+    /// Game block's live-game bit), hosting with only computer players
+    /// included, or the match is shared with other machines
+    bool network{};
+    bool replay{}; ///< the match replays a recording (extension_state::replay)
+    /// the run is frame-limited, remote-controlled or a director's film,
+    /// which runs on without the focus
+    bool scripted{};
+};
+
+/// What a match does while the window is away.
+enum class AwayAction : uint8_t {
+    /// nothing changes: the menus, a finished match, a multiplayer game, a
+    /// replay or a scripted run
+    none,
+    /// a game played alone pauses, and goes on a moment after the window
+    /// is back
+    pause,
+    /// a game played alone plays on, the main loop running every frame
+    keep_playing,
+};
+
+/// Tells what a match does while the window is away.
+///
+/// Only a game played on this machine alone, a campaign mission or a
+/// skirmish against computer players, answers to When the window loses
+/// focus. A multiplayer game never pauses for it, nor does a replay, and
+/// the menus have no match to pause.
+///
+/// @param facts the match and the setting
+/// @return pause or keep_playing for a running game played alone, as the
+///         setting says; none for anything else
+[[nodiscard]] AwayAction away_action(const AwayFacts& facts) noexcept;
 
 } // namespace oa::app

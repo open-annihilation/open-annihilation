@@ -1095,6 +1095,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_away_pause) {
+            check_away_pause();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_paused_save) {
             check_paused_save();
             flush_preferences();
@@ -1219,8 +1224,10 @@ int Runtime::run() {
         // A frame-limited run is scripted and must finish without focus. A
         // remote-controlled run is served from the frame hooks every frame,
         // and so is a run an extension has asked to keep running while the
-        // window is inactive (keep_running_while_inactive).
-        const bool live = keeps_running_inactive() || options_.remote_controlled;
+        // window is inactive (keep_running_while_inactive). A game played
+        // alone runs on with When the window loses focus at Keep playing.
+        const bool live =
+            keeps_running_inactive() || options_.remote_controlled || keeps_playing_away();
         if (!options_.frame_limit && oa::platform::application_waits_for_events(
                                          application_active_, live, keep_running_while_inactive_
                                      )) {
@@ -1325,6 +1332,8 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
             return;
         }
     note_window_activation(event);
+    // A game played alone pauses as the window goes away.
+    note_window_away(event);
     note_input_activity(event);
     // A hardware keyboard's Cmd alternates stand for their keys while touch
     // controls are on. On desktop Macs, Cmd+P also supplies Pause in a match.
@@ -1496,6 +1505,9 @@ void Runtime::idle_tick() {
         pick_cursor_unit(false);
     // A held scroll bar or arrow moves its knob in the frame's update.
     tick_scroll_bars();
+    // The pause the window's absence holds ends a moment after it is back,
+    // before the match clock steps.
+    settle_away_pause();
     step_match_frame();
     if (screen_ == Screen::match && match_)
         present_match_outcome();

@@ -68,6 +68,11 @@ inline constexpr std::array<ChoiceWord<DoubleClickSelects>, 2> double_click_sele
     {DoubleClickSelects::on_screen, "on-screen"},
     {DoubleClickSelects::on_map, "on-map"},
 }};
+/// When the window loses focus's words, in focus_lost_choices' order.
+inline constexpr std::array<ChoiceWord<FocusLost>, 2> focus_lost_words{{
+    {FocusLost::pause_single_player, "pause"},
+    {FocusLost::keep_playing, "keep-playing"},
+}};
 /// Window frame's words, in window_frame_choices' order.
 inline constexpr std::array<ChoiceWord<WindowFrame>, 2> window_frame_words{{
     {WindowFrame::hidden_in_play, "hidden-in-play"},

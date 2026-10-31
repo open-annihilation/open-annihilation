@@ -240,6 +240,7 @@ struct RecordSample;
 namespace oa::app {
 
 struct PresenceFacts;
+enum class AwayAction : uint8_t;
 
 /// Loads the session palette, PALETTE.PAL, through the palette file loader.
 ///
@@ -1484,6 +1485,72 @@ class Runtime final : public menu::Host,
     ///     state, or the Game block's live-game bit
     [[nodiscard]] bool keeps_running_inactive() const;
 
+    /// Tells what the running match does while the window is away (the
+    /// rule in match_clock.hpp's away_action).
+    ///
+    /// @return pause or keep_playing, as Settings › Controls › When the
+    ///     window loses focus says, for a campaign mission or a skirmish
+    ///     against computer players on screen; none in the menus, for a
+    ///     finished match, a multiplayer game (keeps_running_inactive, or a
+    ///     match shared with other machines), a replay, and a frame-limited,
+    ///     remote-controlled or director's run
+    [[nodiscard]] AwayAction away_action() const;
+
+    /// Tests whether the window is away: without the focus
+    /// (application_active_), minimised, or with the application in the
+    /// background.
+    ///
+    /// @return true while the window is away
+    [[nodiscard]] bool window_away() const;
+
+    /// Notes what an event says of the window being away, and pauses a game
+    /// played alone as the window loses the focus or is minimised
+    /// (start_away_pause).
+    ///
+    /// A minimised window is away until it is restored, and an application in
+    /// the background until it is back in the foreground; a focus gain ends
+    /// both. The pause itself ends a moment after the window is back
+    /// (settle_away_pause).
+    ///
+    /// @param event event just received, after note_window_activation
+    void note_window_away(const SDL_Event& event);
+
+    /// Pauses a game played alone while the window is away, when
+    /// away_action() says pause.
+    ///
+    /// It sets the pause bit of Game.sim_run_flags, the pause the Pause key
+    /// sets, so the simulation stops, the game's paused title shows and a
+    /// save stores the match paused; no other machine hears of it. A match
+    /// already paused, by the Pause key or anything else that set the bit, or
+    /// held by an in-game menu or dialog, is left as it is. Started again
+    /// while it holds, it waits again for the window to come back.
+    void start_away_pause();
+
+    /// Ends the away pause a moment after the window is back; run once a
+    /// frame, before the match clock steps.
+    ///
+    /// The moment, away_resume_ms, counts on the frame's time
+    /// (frame_time_ns_) from the first frame the window is back, and starts
+    /// again if the window goes away before it ends. A pause bit cleared by
+    /// anything else, such as Resume on the game menu, ends the pause's hold.
+    void settle_away_pause();
+
+    /// Tests whether the running match's pause bit is the away pause's.
+    ///
+    /// @return true while the away pause holds the bit
+    [[nodiscard]] bool away_pause_holds() const;
+
+    /// Clears the away pause's pause bit, when it holds it, and forgets the
+    /// pause.
+    void release_away_pause();
+
+    /// Tests whether the main loop keeps running every frame while the
+    /// window is away because Keep playing plays a game played alone on.
+    ///
+    /// @return true for away_action() keep_playing, unless the system has
+    ///     the application in the background, where nothing may draw
+    [[nodiscard]] bool keeps_playing_away() const;
+
     /// Holds or releases the request that the loop keep running while the
     /// window is inactive (keep_running_while_inactive in extension.hpp).
     ///
@@ -1884,6 +1951,15 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error on a failure. [runtime_order_wheel_check.cpp]
     void check_order_wheel();
+
+    /// Checks When the window loses focus on a skirmish, driven by window
+    /// and app lifecycle events: Pause single player pauses while the window
+    /// is away and goes on a moment after it is back, a pause the player
+    /// chose stays, Keep playing never pauses, and neither pauses a game a
+    /// multiplayer session is open for.
+    ///
+    /// Throws std::runtime_error on a failure. [runtime_away_pause_check.cpp]
+    void check_away_pause();
 
     /// Checks MULTI on the main menu.
     ///
@@ -20335,6 +20411,20 @@ class Runtime final : public menu::Host,
     // The status run() returns after the application loop (ScreenServices::quit).
     int exit_status_{};
     bool application_active_ = true;
+
+    /// What the window being away holds: the away pause, and the ways other
+    /// than the focus that the window is away (start_away_pause,
+    /// settle_away_pause).
+    struct AwayPause {
+        bool held = false;       ///< the running match's pause bit is the away pause's
+        bool minimised = false;  ///< the window is minimised
+        bool background = false; ///< the system has the application in the background
+        /// The frame time the away pause ends at, set on the first frame the
+        /// window is back; none while it is away.
+        std::optional<uint64_t> resume_ns;
+    };
+
+    AwayPause away_pause_{};
     // The Game files screen, which the system's pointer drives, is open over
     // the game (system_pointer_wanted).
     bool system_pointer_screen_open_ = false;
@@ -21034,6 +21124,10 @@ class Runtime final : public menu::Host,
     /// How long after the focus comes back a click is still the one that
     /// brought it, in milliseconds. A window system sends the two together.
     static constexpr uint64_t focus_click_ms = 500;
+    /// How long after the window is back a game the away pause holds goes
+    /// on, in milliseconds: as long as a click is still the one that brought
+    /// the focus back, so that the game is still paused when it comes.
+    static constexpr uint64_t away_resume_ms = focus_click_ms;
     /// The button of the focusing click Capture took, whose release it takes
     /// too; 0 for none.
     uint8_t capture_swallowed_button_ = 0;

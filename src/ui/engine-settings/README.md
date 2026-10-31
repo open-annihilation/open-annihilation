@@ -30,6 +30,7 @@ the locks a running game puts on them (`settings_locks`).
 | | Number keys select groups is the key editor's switch, not a row of this section | Off, On | Off | 3.1c's SwitchAlt |
 | | Window edge, a strip: what a window does with the pointer while a match's battlefield shows. Capture keeps it in the window until the game menu, the pause screen, Settings, Escape or a lost focus, and a click on the battlefield captures it again. Sticky holds it on the edges so the view edge-scrolls, until a firm push or a flick lets it leave. Free leaves it free. Full screen holds the pointer either way | Capture, Sticky, Free | Capture | `open-annihilation.window-edge` (`capture`, `sticky` or `free`) |
 | | Edge stickiness, a slider: how firmly Sticky holds, the push and the flick growing with it; 0.0 never holds. Locked Needs Sticky (`Lock::needs_sticky`, which the dialog sets itself in `shown_locks`) while Window edge shows Capture or Free, when it keeps its value | 0.0 to 5.0 in steps of 0.1 | 1.0 | `open-annihilation.window-edge-stickiness` (a decimal, `1.0`) |
+| | When the window loses focus, a drop-down: what a game played alone on this machine, a campaign mission or a skirmish against computer players, does while the window does not have the focus or is minimised, or the application is in the background. Pause single player pauses it, with the game's paused title, and it goes on half a second after the window is back; a pause the player chose (the Pause key, the game menu, a dialog) stays as it was. Keep playing plays on. A multiplayer game, hosting one with only computer players included, and a replay are never paused. It applies at once | Pause single player, Keep playing | Pause single player | `open-annihilation.focus-lost` (`pause` or `keep-playing`) |
 | | Group keys centre the view, a drop-down: whether a group's key, which selects the group, also moves the view to the group's centre. On a double press moves it on the second of two presses of the same group's key within the double-press time with no other key between; Never never moves it; On every press moves it when the group is already exactly the selection, however long after. It applies at once | On a double press, Never, On every press | On a double press | `open-annihilation.group-keys-centre` (`double-press`, `never` or `every-press`) |
 | Engine Limits | Unit limit | 50 to 1500 per player, steps of 50, or on to a mod's higher maximum | the installation's `totala.ini` UnitLimit, else 250 or a mod's default | `open-annihilation.unit-limit` |
 | | Pathfinding cycles | 1× to 8× of 1333 path nodes a tick, or of a mod's budget | 1× | `open-annihilation.path-search-nodes` |
@@ -1412,7 +1413,9 @@ thumb further and put the water sliders at the end, and again when New
 unit shadows joined them at the end; no other scene changed. The Controls
 scenes were recorded again when Group keys centre the view joined its rows,
 and again when Double-click selects joined them under Middle-click pans,
-which shortened the scroll bar's thumb; no other scene changed.
+which shortened the scroll bar's thumb, and again when When the window
+loses focus joined them under Edge stickiness, which shortened it further;
+no other scene changed.
 
 `ui-engine-settings-dialog` also holds UI kit gallery's row: its label,
 its hint in two lines at Compact and one at Regular and Large, and SHOW,

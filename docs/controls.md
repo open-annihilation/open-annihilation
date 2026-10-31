@@ -338,6 +338,15 @@ captures the pointer and acts as any click does. Closing the game menu with
 Resume, or the game going on after a pause, captures the pointer again
 while it is over the window.
 
+While the window is away, a campaign mission or a skirmish against
+computer players also pauses, with the game's paused title: **When the
+window loses focus**, under Settings > Controls, is Pause single player by
+default. The game goes on by itself half a second after the window has the
+focus again, so the click that brings it back finds the game still paused;
+a pause you chose yourself, with the Pause key or the game menu, stays.
+Choose Keep playing to let the game play on while you are away. A
+multiplayer game never pauses. See [the setting](settings.md#controls).
+
 **Sticky** keeps the pointer on the window's edges, as firmly as **Edge
 stickiness**, the slider under Window edge, says. It rests on the last
 pixel and the view scrolls. A firm push outward, or arriving at the edge

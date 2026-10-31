@@ -280,6 +280,21 @@ Each of these takes effect at once.
   level, so 5.0 holds five times as firmly. At 0.0 the edge never holds.
   Only Sticky uses it: with Capture or Free it is greyed, says Needs
   Sticky, and keeps its value.
+- **When the window loses focus**, Pause single player or Keep playing,
+  Pause single player by default. What a campaign mission or a skirmish
+  against computer players does while you are away from the window: when
+  you switch to another program (Alt+Tab, Command+Tab, a click on another
+  window), a dialog of the system's comes up, you minimise the window, or
+  on an iPhone, an iPad or a Steam Deck the game goes to the background.
+  Pause single player pauses the game, with the game's own paused title,
+  and it goes on by itself half a second after the window is back, so the
+  click that brings it back lands on a paused game. A game you paused
+  yourself, with the Pause key, the game menu or a dialog, stays as you
+  left it, and Pause pressed in that half second keeps it paused. Keep
+  playing lets the game play on while you are away; on an iPhone or an
+  iPad, which stop a game in the background, it waits behind the game menu
+  instead. A multiplayer game is never paused, nor is one you host with
+  only computer players, and nor is a replay. It applies at once.
 - **Group keys centre the view**, On a double press, Never or On every
   press, On a double press by default. A group's key always selects the
   group. On a double press, a second press of the same group's key within

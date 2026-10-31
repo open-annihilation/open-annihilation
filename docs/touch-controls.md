@@ -295,8 +295,11 @@ that report the Pencil's hover, and a touch of its tip is a click.
 ## Leaving the game
 
 When the game goes to the background (the home screen, another app, a
-call) during a game played on this device alone, the in-game menu opens and
-holds the game, and the settings are saved; Resume carries on. A
+call) during a game played on this device alone, the game pauses, with its
+paused title, and the settings are saved; back in the game it goes on by
+itself half a second later. With **When the window loses focus**, in
+[Settings › Controls](settings.md#controls), at Keep playing, the in-game
+menu opens and holds the game instead, and Resume carries on. A
 multiplayer game keeps running until the system stops the app.
 
 ## Not yet

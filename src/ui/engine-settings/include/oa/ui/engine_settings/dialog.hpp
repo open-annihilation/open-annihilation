@@ -394,6 +394,9 @@ enum class Setting : uint8_t {
     /// Double-click selects: a drop-down of On screen and On the map, on
     /// Controls under Middle-click pans
     double_click_selects,
+    /// When the window loses focus: a drop-down of Pause single player and
+    /// Keep playing, on Controls under Edge stickiness
+    focus_lost,
     /// Look: a strip of Modern and Classic, User Interface's last row
     look,
 };

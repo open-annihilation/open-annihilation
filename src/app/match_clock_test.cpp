@@ -5,7 +5,8 @@
 // menu and a finished match, the pause bit of Game.sim_run_flags taken
 // into the clock's run flags, whose clock then offers no step, and frames
 // whose reading lies behind the clock's last step, or has turned over to 0
-// on a clock just before 2^32 milliseconds, where the match keeps stepping.
+// on a clock just before 2^32 milliseconds, where the match keeps stepping;
+// and what a match does while the window is away, for every kind of match.
 #include "match_clock.hpp"
 
 #include "oa/base/game_loop.hpp"
@@ -208,6 +209,41 @@ void test_match_steps_across_the_turn() {
     }
 }
 
+void test_away_answers_only_a_game_played_alone() {
+    using oa::app::away_action;
+    using oa::app::AwayAction;
+    using oa::app::AwayFacts;
+    // A running campaign mission or skirmish against computer players
+    // pauses or plays on, as the setting says.
+    AwayFacts alone;
+    alone.match_shown = true;
+    alone.pause_chosen = true;
+    CHECK(away_action(alone) == AwayAction::pause);
+    alone.pause_chosen = false;
+    CHECK(away_action(alone) == AwayAction::keep_playing);
+    // Anything else is left alone under either choice: the menus, a finished
+    // match, a multiplayer game (hosting with only computer players
+    // included), a replay and a scripted run.
+    for (const bool pause_chosen : {true, false}) {
+        AwayFacts facts;
+        facts.pause_chosen = pause_chosen;
+        CHECK(away_action(facts) == AwayAction::none);
+        facts.match_shown = true;
+        AwayFacts finished = facts;
+        finished.finished = true;
+        CHECK(away_action(finished) == AwayAction::none);
+        AwayFacts network = facts;
+        network.network = true;
+        CHECK(away_action(network) == AwayAction::none);
+        AwayFacts replay = facts;
+        replay.replay = true;
+        CHECK(away_action(replay) == AwayAction::none);
+        AwayFacts scripted = facts;
+        scripted.scripted = true;
+        CHECK(away_action(scripted) == AwayAction::none);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -218,6 +254,7 @@ int main() {
     test_reading_behind_the_last_step();
     test_clock_set_past_the_frame_holds_one_frame();
     test_match_steps_across_the_turn();
+    test_away_answers_only_a_game_played_alone();
     if (failures != 0) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;
