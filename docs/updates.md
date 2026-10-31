@@ -162,9 +162,18 @@ header leaves them out.
 
 ## The prompt
 
+Every update screen has the header Settings and the Library have: "OPEN
+ANNIHILATION" in the header's first colour, then the screen's name in its
+second, and Settings' buttons in its footer, the main one lime. The offer
+reads "OPEN ANNIHILATION VERSION {version} AVAILABLE", the ready prompt
+"OPEN ANNIHILATION VERSION {version} READY", and the update centre, the
+receipt, the roll back and the notices after a start "OPEN ANNIHILATION
+UPDATES", with the state they tell of (as "Downloading {version}") as the
+first line under the header.
+
 When a check has verified a release this build has not skipped, the main
-menu asks: "Open Annihilation {version} is out", then "You have {current}.
-The update is {size}." The size is the file this copy would download: the
+menu asks: "OPEN ANNIHILATION VERSION {version} AVAILABLE", then "You have
+{current}. The update is {size}." The size is the file this copy would download: the
 installer where this copy installs from one, the zip otherwise. It is the
 Library's size, in binary KB and MB, and the pill, the update centre and
 Settings › Updates name the same figure. The release's notes stand in a
@@ -212,7 +221,7 @@ While it is on, a release that can be installed here starts downloading by
 itself at the settled main menu, and the ready prompt is the first
 question.
 
-The prompt is titled "Open Annihilation {version} is ready", over a line
+The prompt reads "OPEN ANNIHILATION VERSION {version} READY", over a line
 that says it was downloaded and checked, with its size, and a box, When
 should it go in?, that lists the three answers with what each does. The
 buttons are those answers, in the update centre's words, Install when I
@@ -242,7 +251,7 @@ Install updates at When I quit (`open-annihilation.update-install` set to
 `when-i-quit`), a ready release is scheduled for the quit without asking.
 
 The first settled main menu of a start that names `--updated-from` with an
-older version shows "Updated to {version}" once. When the saved feed has
+older version shows "Updated to {version}" once, with OK. When the saved feed has
 notes for that version, they are listed under "New in {version}:", one
 note a line with its bullet. While a version is kept, that notice also
 says so, and that Settings › Updates takes you back to it.
@@ -257,8 +266,8 @@ what it had done. The first settled main menu of the next start reads it
 and shows it once.
 
 An install that did not put the release in place shows a recovery screen
-titled with its outcome, in its own words (see
-[Where an update stands](#where-an-update-stands)). A line under the title
+that leads with its outcome, in its own words (see
+[Where an update stands](#where-an-update-stands)). A line under that
 says your saved games, settings and mods stay as they are where the
 version you had was put back, or, in red, that some files were left
 half-moved where recovery did not finish. What happened lists each step

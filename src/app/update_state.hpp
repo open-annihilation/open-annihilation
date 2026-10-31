@@ -24,6 +24,16 @@
 
 namespace oa::app {
 
+/// Gives an update screen the header Settings' window has: "OPEN
+/// ANNIHILATION" in the header's first colour and a second word in its
+/// second, looked up in the language shown, and a lead that says what the
+/// screen is about when the second word does not.
+///
+/// @param[in,out] asked the screen's question
+/// @param second the second word, already looked up and filled
+/// @param lead the lead, already looked up; empty for none
+void update_header(oa::ui::kit::Question& asked, std::string second, std::string lead = {});
+
 struct Runtime::UpdateState {
     /// The worker. Empty until a check has somewhere to keep the feed.
     std::unique_ptr<update::Checker> checker;

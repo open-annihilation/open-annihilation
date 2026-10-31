@@ -864,7 +864,10 @@ oa::ui::kit::Question roll_back_question(std::string_view kept, std::string_view
     namespace kit = oa::ui::kit;
     kit::Question asked;
     asked.word = "update-previous";
-    asked.title = geometry::filled("Roll back to {version}?", {{"version", kept}});
+    // The header Settings' window has, and the question as its lead.
+    asked.title = std::string(geometry::shown_text("OPEN ANNIHILATION"));
+    asked.second = std::string(geometry::shown_text("UPDATES"));
+    asked.lead = geometry::filled("Roll back to {version}?", {{"version", kept}});
     // What the roll back puts back, and what it leaves as it is: the
     // preferences come back from the copy taken at the update; the player's
     // folder, with its saves, replays, mods, maps and key layouts, is not touched.

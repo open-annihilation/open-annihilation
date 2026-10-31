@@ -379,6 +379,13 @@ int Runtime::check_update_download() {
         update::CentreInputs paused = downloading;
         paused.download = update::DownloadState::paused_by_player;
         paused.bytes_per_second = 0;
+        update::CentreInputs stopped = downloading;
+        stopped.download = update::DownloadState::failed;
+        stopped.download_failure = update::DownloadFailure::storage;
+        stopped.download_reason = "the disk is full";
+        stopped.bytes_per_second = 0;
+        update::CentreInputs page_only = offered;
+        page_only.way = update::InstallWay::page_only;
         update::CentreInputs ready = downloading;
         ready.download = update::DownloadState::ready;
         ready.received = ready.total;
@@ -516,6 +523,23 @@ int Runtime::check_update_download() {
                 capture("update-offer-offered-" + size + ".png");
                 clear_screens();
             }
+            // The offer a copy that cannot take the package asks: the page.
+            update_->pictured = page_only;
+            update_->held.offer.way = feed::Way::page_only;
+            update_->offered_release.reset();
+            {
+                const auto deadline = deadline_from(std::chrono::seconds{10});
+                while (!is_update_question(oa_layer().find(QuestionScreen::screen_name))) {
+                    require(
+                        std::chrono::steady_clock::now() < deadline,
+                        "the page offer did not show on " + size
+                    );
+                    idle_tick();
+                }
+                capture("update-offer-page-" + size + ".png");
+                clear_screens();
+            }
+            update_->pictured = offered;
             update_->held = {};
             settings_picture("offered");
 
@@ -533,6 +557,11 @@ int Runtime::check_update_download() {
             click_named("oa.update-pill.open");
             screen_picture("update-centre", "paused");
             settings_picture("paused");
+
+            update_->pictured = stopped;
+            menu_picture("stopped");
+            click_named("oa.update-pill.open");
+            screen_picture("update-centre", "stopped");
 
             update_->pictured = ready;
             update_->ready_prompt_release.reset();
@@ -562,6 +591,21 @@ int Runtime::check_update_download() {
             take_update_action(update::Act::roll_back);
             screen_picture("update-previous", "roll-back");
             settings_picture("up-to-date");
+
+            // The notices after a start that updated, and after one that
+            // went back, as the next start shows them.
+            options_.updated_from = "0.8.7";
+            update_->updated_notice_shown = false;
+            offer_updated_notice();
+            screen_picture("updated-notice", "updated");
+            options_.updated_from.reset();
+            options_.rolled_back_from = "0.8.9";
+            options_.roll_back_reason = "player";
+            update_->roll_back_prompted = false;
+            offer_roll_back_prompt();
+            screen_picture("roll-back", "back-on");
+            options_.rolled_back_from.reset();
+            options_.roll_back_reason.clear();
         }
         update_->pictured.reset();
         say("pictures done");

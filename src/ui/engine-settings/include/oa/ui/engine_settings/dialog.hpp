@@ -959,7 +959,9 @@ struct UpdatesOffer {
 
 namespace updates {
 
-/// The question ROLL BACK asks. {version} is the kept one, {current} this build.
+/// The question ROLL BACK asks, under the header OPEN ANNIHILATION UPDATES
+/// with "Roll back to {version}?" as its lead. {version} is the kept one,
+/// {current} this build.
 ///
 /// @param kept the version that would be put back
 /// @param current the version that is running

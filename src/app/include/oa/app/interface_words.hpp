@@ -213,7 +213,6 @@ inline constexpr std::string_view interface_words[] = {
     "One-finger drag",
     "Open Annihilation",
     "Open Annihilation {version} is out",
-    "Open Annihilation {version} is ready",
     "Open Annihilation opens a launch file's battle room from the main menu. Go back to the main "
     "menu, then open the file again.",
     "Open Annihilation remembers it for later starts; start it with --choose-game-dir to choose "

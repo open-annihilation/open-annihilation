@@ -144,7 +144,21 @@ bool offered_package_downloaded(const Options& options, const feed::Offer& offer
 }
 #endif
 
+/// The header's second word on an offer: "VERSION 0.8.8 AVAILABLE".
+///
+/// @param version the release's version
+/// @return the word, looked up and filled
+std::string available_header(const std::string& version) {
+    return library::filled(text_hooks(), update::words::header_available, {{"version", version}});
+}
+
 } // namespace
+
+void update_header(kit::Question& asked, std::string second, std::string lead) {
+    asked.title = std::string(oa::data::languages::interface_text(update::words::header_title));
+    asked.second = std::move(second);
+    asked.lead = std::move(lead);
+}
 
 void Runtime::offer_update() {
     if (update_ == nullptr)
@@ -209,9 +223,7 @@ void Runtime::offer_update() {
             const std::string offered_version = held.offer.release->version_text;
             kit::Question asked;
             asked.word = "system-install";
-            asked.title = library::filled(
-                text_hooks(), update::version_is_out, {{"version", offered_version}}
-            );
+            update_header(asked, available_header(offered_version));
             asked.paragraphs.push_back(
                 {std::string(oa::data::languages::interface_text(update::whole_system_copy)), false}
             );
@@ -252,7 +264,7 @@ void Runtime::offer_update() {
         );
         kit::Question asked;
         asked.word = std::string(kPackagerNotice);
-        asked.title = notice.title;
+        update_header(asked, available_header(offered_version));
         for (const std::string& paragraph : notice.paragraphs)
             asked.paragraphs.push_back({paragraph, false});
         const std::string open_page{oa::data::languages::interface_text("Open the page")};
@@ -319,7 +331,7 @@ void Runtime::offer_update() {
     }
 
     kit::Question asked;
-    asked.title = told.title;
+    update_header(asked, available_header(held.offer.release->version_text));
     asked.paragraphs.push_back(
         {about_offer && !words.detail.empty() ? words.detail : told.paragraphs[0], false}
     );
@@ -399,7 +411,9 @@ void Runtime::open_release_page() {
     }
     const library::TextHooks hooks = text_hooks();
     kit::Question asked;
-    asked.title = std::string(oa::data::languages::interface_text("Open Annihilation"));
+    update_header(
+        asked, std::string(oa::data::languages::interface_text(update::words::header_updates))
+    );
     asked.paragraphs.push_back(
         {library::filled(hooks, update::words::game_mode, {{"page", page}}), false}
     );

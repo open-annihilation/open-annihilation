@@ -39,6 +39,17 @@ inline constexpr std::string_view update = "Update";
 inline constexpr std::string_view game_mode =
     "Open {page} in a browser on another computer, or in Desktop Mode.";
 
+/// The header's first words on every update screen, as Settings' header
+/// has them.
+inline constexpr std::string_view header_title = "OPEN ANNIHILATION";
+/// The header's second word on the update centre, a receipt, a roll back
+/// and the notices after an update, as Settings names its Updates section.
+inline constexpr std::string_view header_updates = "UPDATES";
+/// The header's second word on an offer. `{version}` is the release's version.
+inline constexpr std::string_view header_available = "VERSION {version} AVAILABLE";
+/// The header's second word on the ready prompt. `{version}` is the release's version.
+inline constexpr std::string_view header_ready = "VERSION {version} READY";
+
 /// The page a release uses when it names none.
 inline constexpr std::string_view releases_page =
     "https://github.com/open-annihilation/open-annihilation/releases";

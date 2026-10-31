@@ -207,8 +207,8 @@ int Runtime::check_update_roll_back() {
             }
             const kit::Question& asked = static_cast<const QuestionScreen*>(screen)->question();
             require(
-                asked.title == "The update failed. " + version + " was put back.",
-                "the receipt's title was " + asked.title
+                asked.lead == "The update failed. " + version + " was put back.",
+                "the receipt's lead was " + asked.lead
             );
             // What happened lists each step, the failed one marked failed.
             bool listed = false;
@@ -262,7 +262,7 @@ int Runtime::check_update_roll_back() {
                 screen = oa_layer().waiting("roll-back");
         }
         const kit::Question& asked = static_cast<const QuestionScreen*>(screen)->question();
-        require(asked.title.find("Back on") != std::string::npos, "the title is not Back on");
+        require(asked.lead.find("Back on") != std::string::npos, "the lead is not Back on");
         say("back on");
         click_named("oa.roll-back.show-the-log");
         const fs::path logs = *options_.data_dir / "logs";

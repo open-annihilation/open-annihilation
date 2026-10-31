@@ -9315,7 +9315,8 @@ void previous_version_offers_roll_back_and_locks_in_a_game() {
     // stays, then Cancel, marked, and the roll back in the danger look.
     const oa::ui::kit::Question asked = settings::updates::roll_back_question("0.8.6", "0.8.7");
     CHECK(asked.word == "update-previous");
-    CHECK(asked.title == "Roll back to 0.8.6?");
+    CHECK(asked.title == "OPEN ANNIHILATION" && asked.second == "UPDATES");
+    CHECK(asked.lead == "Roll back to 0.8.6?");
     CHECK(asked.paragraphs.empty());
     CHECK(asked.parts.size() == 3);
     if (asked.parts.size() == 3) {

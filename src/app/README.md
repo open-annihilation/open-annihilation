@@ -1674,10 +1674,17 @@ prompts, Settings › Updates and the headers name one state with one size.
   folder; What's new and Open the release page open the release's page;
   Roll back… asks the roll back question; Keep it ready and Later change
   nothing. Each preference written is flushed at once.
+- **The update screens' header** (`update_header`): every update question
+  reads "OPEN ANNIHILATION" then its second word, as Settings' header does:
+  "VERSION {version} AVAILABLE" on the offer, the system-wide copy's notice
+  and the packager's, "VERSION {version} READY" on the ready prompt, and
+  "UPDATES" on the update centre, the recovery screen, the roll back's
+  question, Back on, the Updated notice, the move to Applications and the
+  page a Steam Deck names, whose state's words are their lead.
 - **The offer** (`runtime_update_offer.cpp`, the question `prompt`, its
   buttons `skip`, `later` and `update`) asks at the settled main menu, and
-  waits through a match, Settings and a message box: "Open Annihilation
-  {version} is out", the size, the release's notes in a What's new box and
+  waits through a match, Settings and a message box: the header OPEN
+  ANNIHILATION VERSION {version} AVAILABLE, the size, the release's notes in a What's new box and
   the reassurance; Skip this version (quiet, at the left), Later (Escape)
   and Download update. A release held after it failed to install, and one
   already downloaded, do not ask.
@@ -1689,8 +1696,8 @@ prompts, Settings › Updates and the headers name one state with one size.
   and Pause), is paused (its bar amber and Resume), is being checked, is
   ready (Install…, which asks the ready prompt again), is scheduled
   (Change) or stopped (Try again). A press on the pill opens the update
-  centre, a question (`update-centre`) with the state's heading, its
-  detail, the bar, its note and its actions as buttons, the first in the
+  centre, a question (`update-centre`) with the state's heading as its
+  lead, its detail, the bar, its note and its actions as buttons, the first in the
   accent, then Close; it follows the state while it shows, Pause turning
   into Resume.
 - **The ready prompt** (`ready-update`) asks once a download is ready: a
@@ -1703,12 +1710,13 @@ prompts, Settings › Updates and the headers name one state with one size.
   (`Runtime::hand_off_requested`); quitting otherwise never installs.
 - **The recovery screen** (`update-receipt`) shows a receipt the helper
   left that did not end well, once, at the first settled menu: the
-  outcome's words as its title, a callout, What happened with each step
+  outcome's words as its lead, a callout, What happened with each step
   marked done or failed, To put the game right where recovery did not
   finish, and Show the log, Try again where the release can be tried again,
   and Continue (`ok`). It marks the receipt shown, holds the release and
-  takes back its schedule. The Updated notice says once that this start
-  replaced an older version.
+  takes back its schedule. The Updated notice (`updated-notice`, a
+  question with OK alone, `ok`) says once that this start replaced an
+  older version.
 - **The roll back's question** (`update-previous`,
   `settings::updates::roll_back_question`) shows what comes back and what
   stays as it is, a caution, and Cancel (marked) and Roll back and restart

@@ -289,7 +289,7 @@ void Runtime::check_update_offer() {
             "the German question showed the English notes"
         );
         require(
-            paragraph_has(german, "9.9.9") || german.title.find("9.9.9") != std::string::npos,
+            paragraph_has(german, "9.9.9") || german.second.find("9.9.9") != std::string::npos,
             "the question did not name the release"
         );
         require(

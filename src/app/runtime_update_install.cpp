@@ -125,8 +125,6 @@ constexpr int64_t kReceiptCutShortSeconds = 600;
 /// The Updated notice's name on the layer.
 constexpr std::string_view kUpdatedNotice = "updated-notice";
 
-/// The title of the ready prompt.
-[[maybe_unused]] constexpr std::string_view kReadyTitle = "Open Annihilation {version} is ready";
 /// The helper's window title. {version} is the release being installed.
 [[maybe_unused]] constexpr std::string_view kInstalling = "Installing {version}";
 /// The helper's window line. {version} is the version that is running.
@@ -195,6 +193,14 @@ std::string_view english_word(void* /*context*/, std::string_view english) {
 /// @return the hooks
 library::TextHooks shown_hooks() {
     return library::TextHooks{nullptr, shown_word};
+}
+
+/// The header's second word on the update centre, a receipt, a roll back and
+/// the notices after an update: "UPDATES", looked up.
+///
+/// @return the word
+std::string updates_header() {
+    return std::string(languages::interface_text(update::words::header_updates));
 }
 
 /// The hooks the helper's title and line are looked up through.
@@ -309,7 +315,7 @@ kit::Question receipt_question(
     const update::CentreWords words = update::centre_words(centre, hooks);
     kit::Question asked;
     asked.word = std::string(kReceiptWord);
-    asked.title = words.status;
+    update_header(asked, updates_header(), words.status);
     kit::QuestionPart callout;
     callout.kind = kit::PartKind::callout;
     callout.tone = kit::CalloutTone::ok;
@@ -506,9 +512,9 @@ std::optional<kit::UpdatePill> pill_of(const update::Centre& centre) {
 }
 
 /// The update centre as a question, which the update pill opens: the
-/// state's heading as the title, its detail, the bar while a download is
-/// under way, its note, and its actions as buttons, the first in the accent,
-/// then Close where there is room.
+/// header OPEN ANNIHILATION UPDATES, the state's heading as the lead, its
+/// detail, the bar while a download is under way, its note, and its actions
+/// as buttons, the first in the accent, then Close where there is room.
 ///
 /// @param centre the update centre's state
 /// @param[out] acts the action of each button, from the left; Close has none
@@ -517,7 +523,7 @@ kit::Question centre_question(const update::Centre& centre, std::vector<update::
     const update::CentreWords words = update::centre_words(centre, shown_hooks());
     kit::Question asked;
     asked.word = std::string(kCentreWord);
-    asked.title = words.status;
+    update_header(asked, updates_header(), words.status);
     if (!words.detail.empty())
         asked.paragraphs.push_back({words.detail, false});
     if (centre.percent >= 0 && (centre.stage == update::Stage::downloading ||
@@ -980,7 +986,7 @@ void Runtime::offer_move_to_applications() {
     )};
     kit::Question asked;
     asked.word = "move-to-applications";
-    asked.title = title;
+    update_header(asked, updates_header(), title);
     asked.paragraphs.push_back({body, false});
     asked.buttons.push_back({later, false, "later"});
     asked.buttons.push_back({finder, true, "finder"});
@@ -1567,7 +1573,9 @@ void Runtime::offer_ready() {
     }
     kit::Question asked;
     asked.word = std::string(kReadyWord);
-    asked.title = library::filled(shown_hooks(), kReadyTitle, {{"version", version}});
+    update_header(
+        asked, library::filled(shown_hooks(), update::words::header_ready, {{"version", version}})
+    );
     if (!words.detail.empty()) {
         kit::QuestionPart checked;
         checked.kind = kit::PartKind::callout;
@@ -1669,10 +1677,18 @@ void Runtime::offer_updated_notice() {
     const update::ThisBuild built = running_build();
     if (!previous.has_value() || !(built.version > *previous))
         return;
-    kit::Notice told;
+    // A question with OK alone, so it reads as the other update screens do.
+    kit::Question told;
     told.word = std::string(kUpdatedNotice);
-    told.title = library::filled(shown_hooks(), kUpdatedTo, {{"version", built.version_text}});
-    told.ok_caption = std::string(languages::interface_text("OK"));
+    update_header(
+        told,
+        updates_header(),
+        library::filled(shown_hooks(), kUpdatedTo, {{"version", built.version_text}})
+    );
+    told.buttons.push_back({std::string(languages::interface_text("OK")), true, "ok"});
+    told.cancel_button = 0;
+    told.primary_button = 0;
+    told.marked = 0;
     std::string failure;
     const std::optional<fs::path> folder = updates_folder(options_, failure);
     if (folder) {
@@ -1708,15 +1724,16 @@ void Runtime::offer_updated_notice() {
             );
         }
     }
-    NoticeScreen::Host host;
-    host.ok = []() {};
+    QuestionScreen::Host host;
+    host.answer = [](int32_t) { return true; };
     Runtime* runtime = this;
     host.tick = [runtime]() {
         return runtime->match_ != nullptr || runtime->screen_ == Screen::match;
     };
     OaLayer& layer = oa_layer();
-    auto notice =
-        std::make_unique<NoticeScreen>(layer, Screen::main_menu, std::move(told), std::move(host));
+    auto notice = std::make_unique<QuestionScreen>(
+        layer, Screen::main_menu, std::move(told), std::move(host)
+    );
     notice->show_on_any_menu();
     layer.show_when_free(std::move(notice));
 }
@@ -1973,7 +1990,7 @@ void Runtime::take_update_action(update::Act action) {
             // line the check or the download wrote, in English.
             const update::CentreWords words = update::centre_words(centre, shown_hooks());
             asked.word = std::string(kReceiptWord);
-            asked.title = words.status;
+            update_header(asked, updates_header(), words.status);
             if (!words.detail.empty())
                 asked.paragraphs.push_back({words.detail, false});
             std::string line = centre.reason;
@@ -2441,7 +2458,11 @@ void Runtime::offer_roll_back_prompt() {
     const bool player = options_.roll_back_reason == "player";
     kit::Question asked;
     asked.word = "roll-back";
-    asked.title = library::filled(shown_hooks(), kBackOn, {{"version", built.version_text}});
+    update_header(
+        asked,
+        updates_header(),
+        library::filled(shown_hooks(), kBackOn, {{"version", built.version_text}})
+    );
     if (player) {
         asked.paragraphs.push_back(
             {library::filled(shown_hooks(), kYouWentBack, {{"old", built.version_text}}), false}
@@ -2552,7 +2573,7 @@ void Runtime::tick_update_install() {
                     std::vector<update::Act> now_acts;
                     kit::Question next = centre_question(now, now_acts);
                     kit::Question& held = shown->question();
-                    if (next.title == held.title &&
+                    if (next.lead == held.lead &&
                         next.paragraphs.size() == held.paragraphs.size() &&
                         (next.paragraphs.empty() ||
                          next.paragraphs.front().text == held.paragraphs.front().text) &&

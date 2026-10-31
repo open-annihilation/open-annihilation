@@ -8514,14 +8514,6 @@
 	it=Open Annihilation {version} è uscito;
 	}
 
-[Open Annihilation {version} is ready]
-	{
-	de=Open Annihilation {version} ist bereit;
-	fr=Open Annihilation {version} est prêt;
-	es=Open Annihilation {version} está listo;
-	it=Open Annihilation {version} è pronto;
-	}
-
 [Open Annihilation's own settings: controls, graphics, the interface's size, downloads and your files.]
 	{
 	de=Die eigenen Einstellungen von Open Annihilation: Steuerung, Grafik, Größe der Oberfläche, Downloads und deine Dateien.;
@@ -12728,6 +12720,22 @@
 	fr=V;
 	es=V;
 	it=V;
+	}
+
+[VERSION {version} AVAILABLE]
+	{
+	de=VERSION {version} VERFÜGBAR;
+	fr=VERSION {version} DISPONIBLE;
+	es=VERSIÓN {version} DISPONIBLE;
+	it=VERSIONE {version} DISPONIBILE;
+	}
+
+[VERSION {version} READY]
+	{
+	de=VERSION {version} BEREIT;
+	fr=VERSION {version} PRÊTE;
+	es=VERSIÓN {version} LISTA;
+	it=VERSIONE {version} PRONTA;
 	}
 
 [VIEW…]
