@@ -102,8 +102,8 @@ bool append_error_log(const char* directory, const char* text) noexcept;
 /// runs on, and the folders it holds — the log, the fonts, the catalogues —
 /// are wanted there as much as anywhere.
 ///
-/// @return the folder, ending in a separator; empty when the system will not
-///         say where the program is
+/// @return the folder in UTF-8, ending in a separator; empty when the system
+///         will not say where the program is
 [[nodiscard]] std::string program_directory();
 
 } // namespace oa::platform

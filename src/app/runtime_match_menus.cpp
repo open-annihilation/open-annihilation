@@ -1696,7 +1696,7 @@ bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::Side
         match_hud_->background.palette.reset();
     const auto& icon_palette =
         match_hud_->background.palette ? *match_hud_->background.palette : match_hud_->gui_palette;
-    const auto stem = fs::path(layout).stem().string();
+    const auto stem = oa::data::defs::file_stem(layout);
     // The page's own GAF comes before commongui's art: a button it names
     // (a commander's BLAST, say) takes the page's art.
     {
@@ -2971,7 +2971,7 @@ void Runtime::open_match_options_page(ui::OptionsPanel which) {
     }
     // The sub-panel's own art, as PREFS.GAF is the panel's:
     // MUSICRT.GAF gives CDPREV/CDSTOP/CDPLAY/CDNEXT their frames.
-    append_gaf_file(match_hud_->sprites, "anims/" + fs::path(file).stem().string() + ".GAF");
+    append_gaf_file(match_hud_->sprites, "anims/" + oa::data::defs::file_stem(file) + ".GAF");
     // Its buttons take the size of the frames they draw, keeping their
     // colours, so each is hit where it is drawn.
     renderer::fit_buttons_to_frames(*match_hud_, first);
@@ -2980,7 +2980,7 @@ void Runtime::open_match_options_page(ui::OptionsPanel which) {
     oa::formats::gaf::Archive panel_art;
     append_gaf_file(
         panel_art,
-        "anims/" + fs::path(oa::data::defs::gui_path(kPreferencesLayout)).stem().string() + ".GAF"
+        "anims/" + oa::data::defs::file_stem(oa::data::defs::gui_path(kPreferencesLayout)) + ".GAF"
     );
     const auto& palette =
         match_hud_->background.palette ? *match_hud_->background.palette : match_hud_->gui_palette;
@@ -4528,7 +4528,7 @@ void Runtime::activate_options_gadget() {
             // GUI GAF leaves them on its fallback frame. Only the music panels
             // ship one (MUSIC.GAF), and a missing file is remembered and
             // skipped.
-            append_gaf_file(resources_.sprites, "anims/" + fs::path(sub).stem().string() + ".GAF");
+            append_gaf_file(resources_.sprites, "anims/" + oa::data::defs::file_stem(sub) + ".GAF");
             // Its buttons take the size of the frames they draw, so each is
             // hit where it is drawn (MUSIC.GUI authors the transport buttons
             // 16x16; MUSIC.GAF draws them 30x15).

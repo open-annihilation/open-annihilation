@@ -10,6 +10,7 @@
 #include "oa/app/brain_match.hpp"
 #include "oa/core/player.h"
 #include "oa/data/script_host/script_host.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/sim/brains/chat.hpp"
 #include "oa/sim/brains/seat.hpp"
@@ -236,7 +237,7 @@ void Runtime::seat_chosen_brains() {
         std::string id = choice->id;
         if (!choice->folder.empty()) {
             brains_folder = choice->folder.parent_path();
-            const std::string named = choice->folder.filename().string();
+            const std::string named = oa::platform::path_to_utf8(choice->folder.filename());
             if (!named.empty())
                 id = named;
         }
@@ -305,9 +306,9 @@ void Runtime::seat_shadow_brains() {
     std::filesystem::path brains_folder = user_folder() / std::string(brains_folder_name);
     std::string id = options_.brain_shadow;
     if (brain_match_folder(options_.brain_shadow)) {
-        const std::filesystem::path folder{options_.brain_shadow};
+        const std::filesystem::path folder = oa::platform::path_from_utf8(options_.brain_shadow);
         brains_folder = folder.parent_path();
-        const std::string named = folder.filename().string();
+        const std::string named = oa::platform::path_to_utf8(folder.filename());
         if (!named.empty())
             id = named;
     }
@@ -365,7 +366,7 @@ void Runtime::print_shadow_reports() {
     const bool write_logs = !options_.brain_shadow_log.empty();
     std::filesystem::path directory;
     if (write_logs) {
-        directory = std::filesystem::path(options_.brain_shadow_log);
+        directory = oa::platform::path_from_utf8(options_.brain_shadow_log);
         std::error_code error;
         std::filesystem::create_directories(directory, error);
         if (error)

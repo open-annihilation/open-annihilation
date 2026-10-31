@@ -35,6 +35,7 @@
 #include "oa/app/frame_pacing.hpp"
 #include "oa/app/renderer_state.hpp"
 #include "oa/base/float_precision.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/platform/render_probe.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
@@ -209,7 +210,9 @@ void write_text(const fs::path& file, std::string_view text) {
     std::ofstream output(file, std::ios::binary | std::ios::trunc);
     output << text;
     if (!output)
-        throw std::runtime_error("renderer ladder check: cannot write " + file.string());
+        throw std::runtime_error(
+            "renderer ladder check: cannot write " + oa::platform::path_to_utf8(file)
+        );
 }
 
 } // namespace

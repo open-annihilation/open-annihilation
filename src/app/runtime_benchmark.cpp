@@ -194,7 +194,8 @@ void Runtime::benchmark_scene(std::string_view label, std::size_t frames, bool s
         base.replace_extension();
         renderer::Surface frame;
         compose_match_frame(frame);
-        write_ppm(base.string() + "-" + tag + ".ppm", frame);
+        base += "-" + tag + ".ppm";
+        write_ppm(base, frame);
     }
 }
 
@@ -337,7 +338,9 @@ void Runtime::spawn_combat_armies(std::size_t per_side) {
 void Runtime::apply_stage() {
     std::ifstream file(options_.stage_file);
     if (!file)
-        throw std::runtime_error("cannot read the stage file " + options_.stage_file.string());
+        throw std::runtime_error(
+            "cannot read the stage file " + oa::platform::path_to_utf8(options_.stage_file)
+        );
     // Each player's first unit, where it stands when the stage begins: the
     // point a placement is measured from.
     begin_stage_state();
@@ -352,7 +355,8 @@ void Runtime::run_stage_lines(std::span<const StageLine> lines) {
     const auto& commanders = stage_->origins;
     uint16_t& last = stage_->last_unit;
     for (const auto& source : lines) {
-        const auto where = options_.stage_file.string() + ":" + std::to_string(source.number);
+        const auto where =
+            oa::platform::path_to_utf8(options_.stage_file) + ":" + std::to_string(source.number);
         std::istringstream line(source.text);
         std::string action;
         if (!(line >> action) || action[0] == '#')
@@ -885,7 +889,9 @@ void Runtime::run_headless_frames(std::size_t ticks, uint32_t frames_per_second)
     if (!options_.frame_log.empty()) {
         log = run_end.log = oa::platform::open_file(options_.frame_log, "w");
         if (log == nullptr)
-            throw std::runtime_error("cannot create the frame log " + options_.frame_log.string());
+            throw std::runtime_error(
+                "cannot create the frame log " + oa::platform::path_to_utf8(options_.frame_log)
+            );
         std::fprintf(
             log, "frame,time_ms,tick,alpha,camera_x,camera_z,zoom,unit_x,unit_z,drawn_x,drawn_z\n"
         );
@@ -1094,7 +1100,8 @@ void Runtime::write_stage_snapshot(std::string_view stage) {
     auto path = options_.snapshot;
     path.replace_extension();
     rebuild_surface();
-    write_ppm(path.string() + "-" + std::string(stage) + ".ppm", surface_);
+    path += "-" + std::string(stage) + ".ppm";
+    write_ppm(path, surface_);
 }
 
 std::string Runtime::start_headless_campaign_mission() {

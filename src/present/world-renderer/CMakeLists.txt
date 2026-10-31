@@ -10,10 +10,10 @@ target_link_libraries(oa-present-world-renderer PUBLIC oa-formats-hpi oa-formats
   oa-core-types oa-present oa-sim-visibility-state oa-platform-job-pool)
 
 add_executable(oa-render-terrain EXCLUDE_FROM_ALL tools/render_crop.cpp)
-target_link_libraries(oa-render-terrain PRIVATE oa-present-world-renderer)
+target_link_libraries(oa-render-terrain PRIVATE oa-present-world-renderer oa-platform-shims)
 
 add_executable(oa-render-unit EXCLUDE_FROM_ALL tools/render_unit.cpp)
-target_link_libraries(oa-render-unit PRIVATE oa-present-world-renderer)
+target_link_libraries(oa-render-unit PRIVATE oa-present-world-renderer oa-platform-shims)
 
 if(BUILD_TESTING)
   add_executable(oa-world-renderer-test tests/world_renderer_test.cpp)

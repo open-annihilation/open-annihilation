@@ -160,10 +160,9 @@ void step_snapshot(
 ) {
     if (snapshot.empty())
         return;
-    write_ppm(
-        snapshot.parent_path() / (snapshot.stem().string() + '-' + std::string(step) + ".ppm"),
-        frame
-    );
+    fs::path file = snapshot.parent_path() / snapshot.stem();
+    file += '-' + std::string(step) + ".ppm";
+    write_ppm(file, frame);
 }
 
 /// Shows nothing and tells that the file manager failed, as a system

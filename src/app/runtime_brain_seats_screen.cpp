@@ -1541,7 +1541,7 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
         const oa::data::content_bundles::ContentChoice content = runtime_.content_choice();
         stamp.base_game = content.base_game;
         stamp.expansions = content.expansions;
-        stamp.game_folder = runtime_.options_.game_dir.generic_string();
+        stamp.game_folder = path_to_generic_utf8(runtime_.options_.game_dir);
         const library::PlayedMod played = played_mod(runtime_.engine_settings_state());
         stamp.played_id = played.id;
         stamp.played_name = played.name;

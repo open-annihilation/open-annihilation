@@ -14,6 +14,7 @@
 #include "render_run.hpp"
 
 #include "oa/app/view_rules.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/present/model/model_draw.hpp"
 #include "oa/formats/png.hpp"
 #include "oa/sim/unit_spawn/spawn_runtime.hpp"
@@ -92,13 +93,13 @@ void write_png(const fs::path& path, const Pixels& rgb, const Crop& crop) {
         {}
     };
     if (!oa::formats::png::write(oa::formats::png::Image{header, {}, rgb}, &file))
-        fail("cannot encode " + path.string());
+        fail("cannot encode " + oa::platform::path_to_utf8(path));
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     output.write(
         reinterpret_cast<const char*>(file.data()), static_cast<std::streamsize>(file.size())
     );
     if (!output)
-        fail("cannot write " + path.string());
+        fail("cannot write " + oa::platform::path_to_utf8(path));
 }
 
 /// The pixels of one picture that differ from another's, as a mask, with
@@ -530,7 +531,7 @@ int Runtime::check_build_preview() {
               << period
               << " ticks the same at every redraw, is drawn over the site the game "
                  "accepts alone, and lies over the finished tower; pictures in "
-              << report_directory.string() << '\n';
+              << oa::platform::path_to_utf8(report_directory) << '\n';
     return 0;
 }
 

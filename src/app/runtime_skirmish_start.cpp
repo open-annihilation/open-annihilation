@@ -3,6 +3,7 @@
 
 // Skirmish match bootstrap from the selected map and players.
 #include "oa/app/runtime.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/ui/hud/unit_labels.hpp"
 #include "engine_settings_state.hpp"
 #include "oa/app/asset_files.hpp"
@@ -1588,10 +1589,12 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     set_load_progress(4, 100);
     set_load_progress(5, 100);
     if (!options_.trace_digest.empty() &&
-        !match_->record_trace(options_.trace_digest.string(), options_.trace_units.string()))
+        !match_->record_trace(options_.trace_digest, options_.trace_units))
         throw std::runtime_error(
-            "cannot create the trace stream " + options_.trace_digest.string() +
-            (options_.trace_units.empty() ? "" : " or " + options_.trace_units.string())
+            "cannot create the trace stream " + oa::platform::path_to_utf8(options_.trace_digest) +
+            (options_.trace_units.empty()
+                 ? ""
+                 : " or " + oa::platform::path_to_utf8(options_.trace_units))
         );
     // The path search's credit: the setting's in a game played alone; a
     // shared game or a replay plays at the base credit on every machine.

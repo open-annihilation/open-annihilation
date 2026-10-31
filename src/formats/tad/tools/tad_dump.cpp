@@ -5,6 +5,7 @@
 // histogram of record type bytes across all packet payloads.
 
 #include "oa/formats/tad.hpp"
+#include "oa/platform/files.hpp"
 
 #include <algorithm>
 #include <array>
@@ -69,7 +70,9 @@ bool dump(const std::filesystem::path& path) {
     std::vector<uint8_t> bytes;
     if (!read_file(path, bytes)) {
         std::fprintf(
-            stderr, "%s: cannot read (missing or over the size limit)\n", path.string().c_str()
+            stderr,
+            "%s: cannot read (missing or over the size limit)\n",
+            oa::platform::path_to_utf8(path).c_str()
         );
         return false;
     }
@@ -78,7 +81,7 @@ bool dump(const std::filesystem::path& path) {
         std::fprintf(
             stderr,
             "%s: offset %zu: %s\n",
-            path.string().c_str(),
+            oa::platform::path_to_utf8(path).c_str(),
             result.error->offset,
             result.error->message.c_str()
         );
@@ -86,7 +89,7 @@ bool dump(const std::filesystem::path& path) {
     }
     const tad::Demo& demo = *result.demo;
 
-    std::printf("file            %s\n", path.string().c_str());
+    std::printf("file            %s\n", oa::platform::path_to_utf8(path).c_str());
     std::printf("version         %u\n", demo.version);
     std::printf("map             %s\n", std::string(until_nul(demo.map_name)).c_str());
     std::printf("unit limit      %u\n", demo.max_units);

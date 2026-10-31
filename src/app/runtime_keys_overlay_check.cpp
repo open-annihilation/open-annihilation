@@ -42,6 +42,7 @@
 #include "oa/data/key_library/library.hpp"
 #include "oa/data/mod_profile.hpp"
 #include "oa/formats/oakeys/manifest.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/first_run/first_run.hpp"
 #include "oa/ui/gui_layout.hpp"
@@ -500,7 +501,7 @@ void Runtime::check_keys_overlay() {
             options_.snapshot.parent_path() / (std::string(stem) + '-' + std::to_string(width) +
                                                'x' + std::to_string(height) + ".ppm");
         write_ppm(path, presented);
-        require(fs::is_regular_file(path), "did not write " + path.string());
+        require(fs::is_regular_file(path), "did not write " + oa::platform::path_to_utf8(path));
     };
     const auto set_badges = [&](bool on) {
         auto chosen = engine_settings();

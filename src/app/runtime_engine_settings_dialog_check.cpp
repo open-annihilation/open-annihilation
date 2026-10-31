@@ -709,9 +709,10 @@ std::size_t letterbox_differences(
 /// @param step the step's name
 /// @return the step's snapshot path
 fs::path step_snapshot(const fs::path& snapshot, std::string_view step) {
-    auto stem = snapshot;
-    stem.replace_extension();
-    return fs::path(stem.string() + "-" + std::string(step) + ".ppm");
+    auto file = snapshot;
+    file.replace_extension();
+    file += "-" + std::string(step) + ".ppm";
+    return file;
 }
 
 } // namespace

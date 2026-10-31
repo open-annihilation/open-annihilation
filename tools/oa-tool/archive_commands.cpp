@@ -5,6 +5,7 @@
 #include "files.hpp"
 
 #include "oa/formats/hpi.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/ui/decoded.hpp"
 
 #include <ostream>
@@ -31,8 +32,9 @@ int run_asset_extract(std::span<const std::string> arguments, Output& output) {
         store.mount(arguments[index]);
     const auto asset = store.read(arguments[1]);
     write_file(arguments[2], asset.bytes);
-    output.out << (asset.archived ? "archive: " : "loose: ") << asset.source.string() << " ("
-               << asset.bytes.size() << " bytes)\n";
+    output.out << (asset.archived ? "archive: " : "loose: ")
+               << oa::platform::path_to_utf8(asset.source) << " (" << asset.bytes.size()
+               << " bytes)\n";
     return exit_done;
 }
 

@@ -10,7 +10,7 @@ target_compile_features(oa-formats-tad PUBLIC cxx_std_20)
 target_link_libraries(oa-formats-tad PUBLIC oa-formats-sqsh oa-options PRIVATE oa-base-bytes)
 
 add_executable(oa-formats-tad-dump tools/tad_dump.cpp)
-target_link_libraries(oa-formats-tad-dump PRIVATE oa-formats-tad)
+target_link_libraries(oa-formats-tad-dump PRIVATE oa-formats-tad oa-platform-shims)
 
 if(BUILD_TESTING)
   add_executable(oa-formats-tad-test tests/tad_test.cpp)

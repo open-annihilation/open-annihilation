@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include "oa/platform/files.hpp"
 #include "oa/present/world_renderer.hpp"
 
 #include <cstdint>
@@ -17,7 +18,7 @@ std::vector<uint8_t> read_file(const std::filesystem::path& path) {
     if (!input.read(
             reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size())
         )) {
-        throw std::runtime_error("cannot read " + path.string());
+        throw std::runtime_error("cannot read " + oa::platform::path_to_utf8(path));
     }
     return bytes;
 }

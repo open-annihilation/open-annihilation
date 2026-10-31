@@ -4,6 +4,7 @@
 // Emits HPI listings and effective-file winners for comparison with an
 // independent HPI reader. A format cross-check only.
 #include "oa/formats/hpi.hpp"
+#include "oa/platform/files.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -60,7 +61,8 @@ int list(const char* path) {
 int winners(const char* root, const char* version) {
     oa::AssetStore store(root);
     for (const auto& outcome : store.discover(version))
-        std::cerr << (outcome.mounted ? "mounted " : "skipped ") << outcome.path.filename().string()
+        std::cerr << (outcome.mounted ? "mounted " : "skipped ")
+                  << oa::platform::path_to_utf8(outcome.path.filename())
                   << (outcome.error.empty() ? "" : " (" + outcome.error + ")") << '\n';
     std::map<std::string, std::string> result;
     for (std::size_t mount = 0; mount < store.mount_paths().size(); ++mount)
@@ -71,7 +73,7 @@ int winners(const char* root, const char* version) {
             for (std::size_t m = 0; m < store.mount_paths().size(); ++m) {
                 const auto node = store.mounted(m).lookup(entry.path);
                 if (node && !store.mounted(m).nodes()[*node].directory()) {
-                    result[key] = store.mount_paths()[m].filename().string();
+                    result[key] = oa::platform::path_to_utf8(store.mount_paths()[m].filename());
                     break;
                 }
             }

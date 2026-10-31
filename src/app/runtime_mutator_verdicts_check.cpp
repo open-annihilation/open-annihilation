@@ -38,10 +38,10 @@ void write_text(const fs::path& path, std::string_view text) {
     fs::create_directories(path.parent_path());
     std::ofstream out(path, std::ios::binary);
     if (!out)
-        fail("could not write " + path.string());
+        fail("could not write " + oa::platform::path_to_utf8(path));
     out.write(text.data(), static_cast<std::streamsize>(text.size()));
     if (!out)
-        fail("could not write " + path.string());
+        fail("could not write " + oa::platform::path_to_utf8(path));
 }
 
 void write_package(
@@ -67,7 +67,7 @@ void write_package(
 }
 
 mutators::ResolvedMutator resolve_package(const fs::path& folder, std::string_view options) {
-    std::string text = folder.string();
+    std::string text = oa::platform::path_to_utf8(folder);
     if (!options.empty()) {
         text.push_back(':');
         text.append(options);

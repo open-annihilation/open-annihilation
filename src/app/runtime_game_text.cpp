@@ -13,6 +13,7 @@
 #include "oa/app/view_rules.hpp"
 #include "language_packs.hpp"
 
+#include "oa/platform/files.hpp"
 #include "oa/platform/log_files.hpp"
 #include "oa/platform/system.hpp"
 #include "oa/platform/text_font.hpp"
@@ -159,7 +160,7 @@ void apply_preview_faces(
             std::fprintf(
                 stderr,
                 "open-annihilation: the language font %s did not open\n",
-                font.file.string().c_str()
+                oa::platform::path_to_utf8(font.file).c_str()
             );
     }
     if (ideographs && fonts.least_cjk_size < text_font::least_cjk_language_pixel_size)

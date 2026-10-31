@@ -25,6 +25,7 @@
 #include "oa/data/registry/player_registries.hpp"
 #include "oa/data/registry/trust.hpp"
 #include "oa/formats/url.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/ui/engine_settings/add_registry.hpp"
 #include "oa/ui/kit/input.hpp"
@@ -129,7 +130,7 @@ void write_text(const std::filesystem::path& file, const std::string& text) {
     std::filesystem::create_directories(file.parent_path(), error);
     std::ofstream out(file, std::ios::binary | std::ios::trunc);
     out << text;
-    require(static_cast<bool>(out), "could not write " + file.string());
+    require(static_cast<bool>(out), "could not write " + oa::platform::path_to_utf8(file));
 }
 
 /// Reads a file's bytes whole.
@@ -174,7 +175,9 @@ added_of(const registry::PlayerRegistries& list, std::string_view id) {
 /// @param step the step's name
 /// @return the step's snapshot path
 std::filesystem::path step_snapshot(const std::filesystem::path& snapshot, std::string_view step) {
-    return snapshot.parent_path() / (snapshot.stem().string() + '-' + std::string(step) + ".ppm");
+    std::filesystem::path file = snapshot.parent_path() / snapshot.stem();
+    file += '-' + std::string(step) + ".ppm";
+    return file;
 }
 
 /// Returns the text of a control of a display list.

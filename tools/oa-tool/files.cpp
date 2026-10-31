@@ -4,6 +4,7 @@
 #include "files.hpp"
 
 #include "oa/formats/png.hpp"
+#include "oa/platform/files.hpp"
 
 #include <fstream>
 
@@ -16,7 +17,7 @@ std::vector<uint8_t> read_file(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
     std::vector<uint8_t> bytes(static_cast<std::size_t>(size));
     if (!in.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(size)))
-        throw Failure("cannot read input: " + path.string());
+        throw Failure("cannot read input: " + oa::platform::path_to_utf8(path));
     return bytes;
 }
 
@@ -25,10 +26,10 @@ void write_file(const std::filesystem::path& path, std::span<const uint8_t> byte
     if (!out.write(
             reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size())
         ))
-        throw Failure("cannot write output: " + path.string());
+        throw Failure("cannot write output: " + oa::platform::path_to_utf8(path));
     out.close();
     if (!out)
-        throw Failure("cannot finish output: " + path.string());
+        throw Failure("cannot finish output: " + oa::platform::path_to_utf8(path));
 }
 
 void write_image(const std::filesystem::path& path, const oa::Image& image, Output& output) {
@@ -38,7 +39,7 @@ void write_image(const std::filesystem::path& path, const oa::Image& image, Outp
             image.width, image.height, 8, oa::formats::png::ColorType::rgb
         };
         if (!oa::formats::png::write(oa::formats::png::Image{header, {}, image.rgb}, &png))
-            throw Failure("cannot encode image: " + path.string());
+            throw Failure("cannot encode image: " + oa::platform::path_to_utf8(path));
         write_file(path, png);
     } else {
         std::ofstream out(path, std::ios::binary);
@@ -49,9 +50,10 @@ void write_image(const std::filesystem::path& path, const oa::Image& image, Outp
         );
         out.close();
         if (!out)
-            throw Failure("cannot write image: " + path.string());
+            throw Failure("cannot write image: " + oa::platform::path_to_utf8(path));
     }
-    output.out << image.width << 'x' << image.height << " RGB -> " << path.string() << '\n';
+    output.out << image.width << 'x' << image.height << " RGB -> "
+               << oa::platform::path_to_utf8(path) << '\n';
 }
 
 } // namespace oa::tool

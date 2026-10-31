@@ -14,7 +14,8 @@
 include_guard(GLOBAL)
 
 add_executable(oa-steam-artwork "${PROJECT_SOURCE_DIR}/tools/steam-artwork/steam_artwork.cpp")
-target_link_libraries(oa-steam-artwork PRIVATE oa-formats-png oa-platform-text-font oa-ui-game-files oa-options)
+target_link_libraries(oa-steam-artwork PRIVATE oa-formats-png oa-platform-shims oa-platform-text-font
+  oa-ui-game-files oa-options)
 
 set(oa_steam_deck_folder "${CMAKE_BINARY_DIR}/steam-deck")
 set(oa_steam_deck_sources "${PROJECT_SOURCE_DIR}/platforms/linux/steam-deck")

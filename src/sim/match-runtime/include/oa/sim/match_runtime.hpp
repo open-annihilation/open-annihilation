@@ -40,6 +40,7 @@
 #include "oa/data/persist/save_orders.hpp"
 #include "oa/sim/weapon_execution/weapon_launch.hpp"
 #include <array>
+#include <filesystem>
 #include <optional>
 #include <span>
 #include <string>
@@ -704,7 +705,8 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param path File of the trace stream.
     /// @param unit_path File of the per-unit text dump; empty writes none.
     /// @return False when a file cannot be created.
-    bool record_trace(const std::string& path, const std::string& unit_path = {});
+    bool
+    record_trace(const std::filesystem::path& path, const std::filesystem::path& unit_path = {});
 
     /// Sets the computer players' difficulty.
     ///

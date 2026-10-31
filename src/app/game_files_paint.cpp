@@ -12,6 +12,7 @@
 
 #include "oa/app/window_icon.hpp"
 #include "oa/formats/png.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/kit/text.hpp"
 
@@ -1027,7 +1028,7 @@ bool write_game_files_png(
     output.close();
     if (!output) {
         if (error != nullptr)
-            *error = "the picture " + file.string() + " could not be written";
+            *error = "the picture " + oa::platform::path_to_utf8(file) + " could not be written";
         return false;
     }
     return true;

@@ -740,7 +740,7 @@ int Runtime::check_update_download() {
             idle_tick();
         }
         require(!fs::exists(package_file), "a bad package was kept");
-        require(!fs::exists(fs::path(package_file.string() + ".part")), "a bad part was kept");
+        require(!fs::exists(fs::path(package_file) += ".part"), "a bad part was kept");
         require(!ready_visible(), "a bad package queued the ready prompt");
         say("corrupt package deleted");
         say("queued nothing");
@@ -816,7 +816,7 @@ int Runtime::check_update_download() {
         for (int frame = 0; frame < 8; ++frame)
             idle_tick();
         require(
-            !fs::exists(package_file) && !fs::exists(fs::path(package_file.string() + ".part")),
+            !fs::exists(package_file) && !fs::exists(fs::path(package_file) += ".part"),
             "Cancel download kept a file"
         );
         require(

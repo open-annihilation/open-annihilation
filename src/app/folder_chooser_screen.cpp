@@ -1441,11 +1441,12 @@ bool run_folder_chooser_key_check(
     fs::path deck;
     fs::path phone;
     if (!picture.empty()) {
-        const std::string name = picture.stem().string() + "-deck" + picture.extension().string();
-        deck = picture.parent_path() / name;
-        const std::string phone_name =
-            picture.stem().string() + "-phone" + picture.extension().string();
-        phone = picture.parent_path() / phone_name;
+        deck = picture.parent_path() / picture.stem();
+        deck += "-deck";
+        deck += picture.extension();
+        phone = picture.parent_path() / picture.stem();
+        phone += "-phone";
+        phone += picture.extension();
     }
     ChooserScreen screen(options, host, window, renderer, GameFilesNeeded{});
     return screen.drive(picture, deck, phone);

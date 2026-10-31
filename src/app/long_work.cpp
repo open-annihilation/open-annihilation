@@ -13,6 +13,7 @@
 #include "oa/app/window_icon.hpp"
 #include "oa/data/languages.hpp"
 #include "oa/data/languages/interface_text.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/platform/log_files.hpp"
 #include "oa/platform/system.hpp"
 #include "oa/platform/text_font.hpp"
@@ -425,7 +426,8 @@ void require_icloud_download_lines() {
     // The catalogue is read with the archives, after this look. The check
     // reads the file the game ships so the four languages are required here.
     const std::filesystem::path file =
-        std::filesystem::path(oa::platform::program_directory()) / "languages" / "interface.tdf";
+        oa::platform::path_from_utf8(oa::platform::program_directory()) / "languages" /
+        "interface.tdf";
     std::ifstream input(file, std::ios::binary);
     const std::string bytes(
         std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>{}

@@ -60,7 +60,9 @@ trace::TickDigest match_tick_digest(const Match& match, std::span<trace::UnitSid
     );
 }
 
-bool TraceRecorder::open(const std::string& path, const std::string& unit_path, uint32_t seed) {
+bool TraceRecorder::open(
+    const std::filesystem::path& path, const std::filesystem::path& unit_path, uint32_t seed
+) {
     close();
     stream_.open(path, std::ios::binary);
     if (stream_.is_open() && !unit_path.empty())
@@ -109,7 +111,9 @@ void TraceRecorder::sample(const Match& match) {
     units_.flush();
 }
 
-bool Match::record_trace(const std::string& path, const std::string& unit_path) {
+bool Match::record_trace(
+    const std::filesystem::path& path, const std::filesystem::path& unit_path
+) {
     auto recorder = std::make_unique<TraceRecorder>();
     if (!recorder->open(path, unit_path, input_.random_seed))
         return false;

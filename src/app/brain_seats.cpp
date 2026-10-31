@@ -11,6 +11,7 @@
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/data/script_host/script_host.hpp"
 #include "oa/formats/oamod.hpp"
+#include "oa/platform/files.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -102,7 +103,7 @@ bool listed_paths(const fs::path& folder, std::vector<std::string>& paths, std::
                 error = "the package folder could not be read";
                 return false;
             }
-            const std::string generic = relative.generic_string();
+            const std::string generic = oa::platform::path_to_generic_utf8(relative);
             if (generic.empty() || generic == ".." || generic.starts_with("../") ||
                 generic.find(':') != std::string::npos) {
                 error = "the package holds a path outside its folder";
@@ -283,7 +284,7 @@ read_installed_brain(const fs::path& brains_folder, std::string_view id, std::st
         error = "the brain id is not a folder name";
         return std::nullopt;
     }
-    const fs::path folder = brains_folder / std::string(id);
+    const fs::path folder = brains_folder / oa::platform::path_from_utf8(id);
     std::vector<std::string> paths;
     if (!listed_paths(folder, paths, error))
         return std::nullopt;
@@ -295,7 +296,7 @@ read_installed_brain(const fs::path& brains_folder, std::string_view id, std::st
         return std::nullopt;
     }
     std::vector<uint8_t> manifest_bytes;
-    if (!read_exact(folder / fs::path(*manifest_at), manifest_bytes, error))
+    if (!read_exact(folder / oa::platform::path_from_utf8(*manifest_at), manifest_bytes, error))
         return std::nullopt;
     std::vector<oabrain::Problem> problems;
     oabrain::Manifest manifest;
@@ -321,7 +322,7 @@ read_installed_brain(const fs::path& brains_folder, std::string_view id, std::st
             return std::nullopt;
         }
         std::vector<uint8_t> bytes;
-        if (!read_exact(folder / fs::path(path), bytes, error))
+        if (!read_exact(folder / oa::platform::path_from_utf8(path), bytes, error))
             return std::nullopt;
         installed.files.emplace_back(path, std::move(bytes));
     }

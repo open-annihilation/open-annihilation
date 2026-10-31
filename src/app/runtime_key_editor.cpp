@@ -1434,15 +1434,15 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         std::error_code error;
         if (!fs::is_regular_file(path, error) || error)
             return;
-        const std::string place = path.string();
+        const std::string place = path_to_utf8(path);
         for (const editor::ImportOffer& offer : state_.import_offers)
             if (offer.path == place)
                 return;
         editor::ImportOffer offer;
-        offer.id = path.filename().string();
+        offer.id = path_to_utf8(path.filename());
         offer.path = place;
         offer.tool = std::move(tool);
-        offer.file = path.filename().string();
+        offer.file = path_to_utf8(path.filename());
         offer.caption = offer.file;
         state_.import_offers.push_back(std::move(offer));
     }
@@ -1479,7 +1479,7 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         for (const editor::ImportOffer& offer : state_.import_offers) {
             const bool match = ddraw ? offer.tool == "cnc-ddraw" : offer.tool == "tdraw";
             if (match && !offer.path.empty())
-                return fs::path(offer.path);
+                return path_from_utf8(offer.path);
         }
         return runtime_.played_mod_folder() / leaf;
     }
@@ -1552,7 +1552,7 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
                 tell_write_failed(picked.error);
                 return;
             }
-            const std::string leaf = picked.path.filename().string();
+            const std::string leaf = path_to_utf8(picked.path.filename());
             std::string lowered = leaf;
             for (char& character : lowered) {
                 if (character >= 'A' && character <= 'Z')
@@ -1574,7 +1574,7 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         show_import(
             ddraw ? keys::read_cnc_ddraw(bytes) : keys::read_tdraw_settings(bytes),
             ddraw ? "cnc-ddraw" : "tdraw",
-            path.filename().string()
+            path_to_utf8(path.filename())
         );
     }
 

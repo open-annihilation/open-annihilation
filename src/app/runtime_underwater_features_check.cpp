@@ -25,6 +25,7 @@
 
 #include "oa/core/map_plot.h"
 #include "oa/formats/png.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/platform/machine.hpp"
 #include "oa/present/world_renderer/world_draw_order.hpp"
 #include "oa/present/world_renderer/world_fog.hpp"
@@ -158,13 +159,13 @@ void write_part(
         {}
     };
     if (!oa::formats::png::write(oa::formats::png::Image{header, {}, rgb}, &file))
-        fail("cannot encode " + path.string());
+        fail("cannot encode " + oa::platform::path_to_utf8(path));
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     output.write(
         reinterpret_cast<const char*>(file.data()), static_cast<std::streamsize>(file.size())
     );
     if (!output)
-        fail("cannot write " + path.string());
+        fail("cannot write " + oa::platform::path_to_utf8(path));
 }
 
 /// A metal patch on the sea bed the check draws.

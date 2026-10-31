@@ -8,6 +8,7 @@
 #include "oa/data/mutator_library/library.hpp"
 #include "oa/formats/oamod.hpp"
 #include "oa/formats/oamut/manifest.hpp"
+#include "oa/platform/files.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -152,7 +153,7 @@ std::size_t options_colon(std::string_view text) {
 /// @return true when that path is a directory or a regular file
 bool existing_entry(std::string_view target) {
     std::error_code failure;
-    const fs::file_status found = fs::status(std::string(target), failure);
+    const fs::file_status found = fs::status(oa::platform::path_from_utf8(target), failure);
     return !failure && (fs::is_directory(found) || fs::is_regular_file(found));
 }
 
@@ -681,7 +682,7 @@ std::optional<ResolvedMutator> resolve_choice(
     if (choice.by_path) {
         ResolvedMutator resolved;
         resolved.choice = choice;
-        resolved.package_folder = choice.target;
+        resolved.package_folder = oa::platform::path_from_utf8(choice.target);
         if (!read_package(resolved.package_folder, choice.target, resolved.manifest, error))
             return std::nullopt;
         std::string digest_error;

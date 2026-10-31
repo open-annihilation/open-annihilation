@@ -104,12 +104,12 @@ bool append_error_log(const char* directory, const char* text) noexcept {
 
 namespace {
 
-/// A path as the folder holding it, ending in a separator, which is how the
-/// folder SDL names is written.
+/// A path as the folder holding it, in UTF-8 and ending in a separator, which
+/// is how the folder SDL names is written.
 std::string as_folder(const std::filesystem::path& path) {
     if (path.empty())
         return {};
-    std::string text = path.string();
+    std::string text = path_to_utf8(path);
     if (!text.empty() && text.back() != '/' && text.back() != '\\')
         text += '/';
     return text;

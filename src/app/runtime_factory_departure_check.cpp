@@ -280,7 +280,7 @@ void Runtime::check_factory_departure() {
                         std::string(factory_name).c_str(),
                         static_cast<int>(row)
                     );
-                    write_ppm(snapshot_stem.string() + file, match_world_cpu_);
+                    write_ppm(fs::path(snapshot_stem) += file, match_world_cpu_);
                 }
             }
             if (departure_ticks % 10 == 0 || row_marks.find('-') != std::string::npos)

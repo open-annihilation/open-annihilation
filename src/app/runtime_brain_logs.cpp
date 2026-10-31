@@ -8,6 +8,7 @@
 
 #include "oa/app/brain_match.hpp"
 #include "oa/core/game_state.h"
+#include "oa/platform/files.hpp"
 #include "oa/sim/brains/logs.hpp"
 
 #include <array>
@@ -358,7 +359,9 @@ void Runtime::open_brain_log_files() {
         return;
     BrainTraceFiles& files = *brain_trace_files_;
     if (!options_.brain_trace.empty()) {
-        files.log.open(fs::path(options_.brain_trace), std::ios::binary | std::ios::trunc);
+        files.log.open(
+            oa::platform::path_from_utf8(options_.brain_trace), std::ios::binary | std::ios::trunc
+        );
         if (!files.log)
             throw std::runtime_error("cannot create the brain log " + options_.brain_trace);
         files.log_ready = true;
@@ -370,7 +373,9 @@ void Runtime::open_brain_log_files() {
     }
     if (options_.brain_record.empty())
         return;
-    files.record.open(fs::path(options_.brain_record), std::ios::binary | std::ios::trunc);
+    files.record.open(
+        oa::platform::path_from_utf8(options_.brain_record), std::ios::binary | std::ios::trunc
+    );
     if (!files.record)
         throw std::runtime_error("cannot create the brain record " + options_.brain_record);
     files.record_ready = true;
@@ -398,7 +403,7 @@ void Runtime::open_brain_log_files() {
         std::string id = choice.id;
         if (!choice.folder.empty()) {
             brains_folder = choice.folder.parent_path();
-            const std::string file_name = choice.folder.filename().string();
+            const std::string file_name = oa::platform::path_to_utf8(choice.folder.filename());
             if (!file_name.empty())
                 id = file_name;
         }

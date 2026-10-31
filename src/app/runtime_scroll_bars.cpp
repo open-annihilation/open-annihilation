@@ -5,6 +5,7 @@
 // panel: bound as a panel's first draw binds them, drawn over the panel,
 // driven by the pointer and kept in step with the lists they scroll.
 #include "oa/app/runtime.hpp"
+#include "oa/data/defs/layout.hpp"
 #include "oa/formats/fnt.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -77,8 +78,7 @@ void Runtime::bind_hud_scrolls(std::size_t first) {
         hud_gray_table_.clear();
         hud_own_art_ = {};
         append_gaf_file(
-            hud_own_art_,
-            "anims/" + std::filesystem::path(match_hud_panel_).stem().string() + ".GAF"
+            hud_own_art_, "anims/" + oa::data::defs::file_stem(match_hud_panel_) + ".GAF"
         );
         hud_scrolls_ = {};
     }

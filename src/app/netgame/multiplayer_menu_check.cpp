@@ -167,7 +167,9 @@ constexpr int32_t kPointerSlack = 1;
 /// @param step Step name.
 /// @return The step's frame path.
 fs::path step_snapshot(const fs::path& snapshot, std::string_view step) {
-    return snapshot.parent_path() / (snapshot.stem().string() + '-' + std::string(step) + ".ppm");
+    fs::path file = snapshot.parent_path() / snapshot.stem();
+    file += '-' + std::string(step) + ".ppm";
+    return file;
 }
 
 } // namespace

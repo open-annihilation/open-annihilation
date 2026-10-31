@@ -439,12 +439,16 @@ int move_file_win(void*, const fs::path& from, const fs::path& to) {
     DWORD code = GetLastError();
     if (!not_implemented(code))
         return static_cast<int>(code);
-    if (MoveFileExA(from.string().c_str(), to.string().c_str(), MOVEFILE_COPY_ALLOWED))
+    // The A forms take the system code page; a name it cannot hold becomes
+    // the code page's default character, and the call fails on it.
+    const std::string from_ansi = acp_from_wide(from.wstring());
+    const std::string to_ansi = acp_from_wide(to.wstring());
+    if (MoveFileExA(from_ansi.c_str(), to_ansi.c_str(), MOVEFILE_COPY_ALLOWED))
         return 0;
     code = GetLastError();
     if (!not_implemented(code))
         return static_cast<int>(code);
-    if (MoveFileA(from.string().c_str(), to.string().c_str()))
+    if (MoveFileA(from_ansi.c_str(), to_ansi.c_str()))
         return 0;
     return static_cast<int>(GetLastError());
 }
@@ -612,7 +616,7 @@ std::string short_ansi(const fs::path& path) {
     DWORD length = GetShortPathNameW(wide.c_str(), buffer, MAX_PATH);
     if (length > 0 && length < MAX_PATH)
         return acp_from_wide_z(buffer);
-    const std::string narrow = path.string();
+    const std::string narrow = acp_from_wide(wide);
     char ansi[MAX_PATH];
     length = GetShortPathNameA(narrow.c_str(), ansi, MAX_PATH);
     if (length > 0 && length < MAX_PATH)
@@ -632,7 +636,7 @@ std::string short_or_parent(const fs::path& path) {
     std::string joined = parent;
     if (joined.back() != '\\')
         joined.push_back('\\');
-    joined += path.filename().string();
+    joined += acp_from_wide(path.filename().wstring());
     return joined;
 }
 

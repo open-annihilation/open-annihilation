@@ -9,6 +9,7 @@
 
 #include "oa/data/mutators/choice.hpp"
 #include "oa/data/mutators/pipeline.hpp"
+#include "oa/platform/files.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -35,10 +36,10 @@ void write_text(const fs::path& path, std::string_view text) {
     fs::create_directories(path.parent_path());
     std::ofstream out(path, std::ios::binary);
     if (!out)
-        fail("could not write " + path.string());
+        fail("could not write " + oa::platform::path_to_utf8(path));
     out.write(text.data(), static_cast<std::streamsize>(text.size()));
     if (!out)
-        fail("could not write " + path.string());
+        fail("could not write " + oa::platform::path_to_utf8(path));
 }
 
 void write_package(const fs::path& folder, std::string_view id) {
@@ -64,7 +65,7 @@ void write_package(const fs::path& folder, std::string_view id) {
 mutators::ResolvedMutator resolve_package(const fs::path& folder) {
     std::string error;
     const std::optional<mutators::MutatorChoice> choice =
-        mutators::parse_choice(folder.string(), &error);
+        mutators::parse_choice(oa::platform::path_to_utf8(folder), &error);
     if (!choice)
         fail(error.empty() ? "could not read a package choice" : error);
     const std::optional<mutators::ResolvedMutator> resolved =

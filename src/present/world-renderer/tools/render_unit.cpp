@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/formats/objects3d.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/sim/model_runtime/instance.hpp"
 #include "oa/formats/hpi.hpp"
 #include "oa/formats/tnt.hpp"
@@ -23,7 +24,7 @@ std::vector<uint8_t> read(const std::filesystem::path& path) {
     if (!stream.read(
             reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size())
         ))
-        throw std::runtime_error("cannot read " + path.string());
+        throw std::runtime_error("cannot read " + oa::platform::path_to_utf8(path));
     return bytes;
 }
 } // namespace

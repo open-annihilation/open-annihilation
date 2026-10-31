@@ -526,6 +526,54 @@ void check_locator_places() {
     OA_CHECK(installs::locator_places({}).empty());
 }
 
+/// A home folder, a prefix and a game folder named in scripts no one code page holds are
+/// searched and shown in UTF-8: the game is found, and the words for where it lies, the volume
+/// labels and the microSD card's name are its names' UTF-8 spellings.
+///
+/// @param temporary a folder this check owns
+void check_names_outside_code_page(const fs::path& temporary) {
+    // "Игрок 玩家 🎮", "Префикс" and "Тотал 全面戰爭".
+    const std::string player = "\xd0\x98\xd0\xb3\xd1\x80\xd0\xbe\xd0\xba \xe7\x8e\xa9\xe5\xae\xb6 "
+                               "\xf0\x9f\x8e\xae";
+    const std::string prefix = "\xd0\x9f\xd1\x80\xd0\xb5\xd1\x84\xd0\xb8\xd0\xba\xd1\x81";
+    const std::string game = "\xd0\xa2\xd0\xbe\xd1\x82\xd0\xb0\xd0\xbb "
+                             "\xe5\x85\xa8\xe9\x9d\xa2\xe6\x88\xb0\xe7\x88\xad";
+    const auto named = [](const std::string& text) {
+        return fs::path(std::u8string(text.begin(), text.end()));
+    };
+    const fs::path home = temporary / named(player);
+    const fs::path folder = home / "Games" / named(prefix) / "drive_c" / named(game);
+    make_game_folder(folder);
+    installs::SearchRoots roots;
+    roots.prefix_parents = {home / "Games"};
+    roots.prefix_sources = {installs::Source::lutris};
+    const std::vector<installs::Candidate> found = installs::find_candidates(roots);
+    OA_CHECK(found.size() == 1);
+    if (found.size() == 1) {
+        OA_CHECK(utf8(found[0].folder.filename()) == game);
+        OA_CHECK(
+            installs::path_under_home(canonical_of(home), found[0].folder) ==
+            "~/Games/" + prefix + "/drive_c/" + game
+        );
+        const std::u8string shown = found[0].folder.lexically_normal().generic_u8string();
+        OA_CHECK(
+            installs::path_under_home({}, found[0].folder) ==
+            std::string(shown.begin(), shown.end())
+        );
+    }
+
+    installs::LocatorFacts facts;
+    facts.volumes = {temporary / named(game)};
+    const std::vector<installs::LocatorPlace> places = installs::locator_places(facts);
+    OA_CHECK(places.size() == 1 && places[0].label == game);
+    installs::LocatorFacts deck;
+    deck.deck = true;
+    deck.sd_cards = {temporary / named(prefix), temporary / named(player)};
+    const std::vector<installs::LocatorPlace> cards = installs::locator_places(deck);
+    OA_CHECK(cards.size() == 2 && cards[0].label == "microSD card " + prefix);
+    OA_CHECK(cards.size() == 2 && cards[1].label == "microSD card " + player);
+}
+
 /// A Downloads folder of loose game files and two installers lists the installers, and the
 /// fuller one is the place to preselect.
 ///
@@ -648,6 +696,7 @@ int main() {
         check_search(temporary);
         check_skipped_folders(temporary);
         check_setup_sources(temporary);
+        check_names_outside_code_page(temporary);
     } catch (const std::exception& error) {
         std::fprintf(stderr, "check failed: %s\n", error.what());
         ++oa::test::failed_checks();

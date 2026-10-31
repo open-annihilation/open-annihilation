@@ -15,6 +15,7 @@
 #include "oa/data/key_library/library.hpp"
 #include "oa/data/mod_profile.hpp"
 #include "oa/formats/oakeys/manifest.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
@@ -116,7 +117,9 @@ std::size_t differing_pixels(
 /// @param step the step's name
 /// @return the step's snapshot path
 fs::path step_snapshot(const fs::path& snapshot, std::string_view step) {
-    return snapshot.parent_path() / (snapshot.stem().string() + '-' + std::string(step) + ".ppm");
+    fs::path file = snapshot.parent_path() / snapshot.stem();
+    file += '-' + std::string(step) + ".ppm";
+    return file;
 }
 
 /// What reached one of the check's screens of the OA layer.
@@ -1340,7 +1343,7 @@ void Runtime::check_engine_settings_controls() {
         oa_layer().read_whole_window(false);
         const fs::path path = step_snapshot(options_.snapshot, step);
         write_ppm(path, presented);
-        std::cout << "engine settings check: " << path.string() << '\n';
+        std::cout << "engine settings check: " << oa::platform::path_to_utf8(path) << '\n';
     };
 
     const std::array<std::pair<int, int>, 3> windows{{{640, 480}, {1280, 720}, {1920, 1080}}};

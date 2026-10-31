@@ -14,6 +14,7 @@
 #include "oa/app/runtime.hpp"
 
 #include "oa/formats/png.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/present/model/model_draw.hpp"
 #include "oa/sim/unit_spawn/spawn_runtime.hpp"
 
@@ -93,13 +94,13 @@ void write_png(const fs::path& path, const renderer::Surface& frame) {
         frame.width, frame.height, 8, oa::formats::png::ColorType::rgb, {}
     };
     if (!oa::formats::png::write(oa::formats::png::Image{header, {}, frame.rgb}, &file))
-        fail("cannot encode " + path.string());
+        fail("cannot encode " + oa::platform::path_to_utf8(path));
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     output.write(
         reinterpret_cast<const char*>(file.data()), static_cast<std::streamsize>(file.size())
     );
     if (!output)
-        fail("cannot write " + path.string());
+        fail("cannot write " + oa::platform::path_to_utf8(path));
 }
 
 /// Returns the colour of a frame's pixel, black outside it.

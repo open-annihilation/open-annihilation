@@ -7,6 +7,8 @@
 // entries; a place that cannot be read is passed over.
 #include "oa/platform/game_installs.hpp"
 
+#include "oa/platform/files.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -549,7 +551,7 @@ std::vector<fs::path> drive_folders() {
 #elif defined(_WIN32)
     // The drive letters Windows has, without touching the drives themselves.
     const DWORD letters = GetLogicalDrives();
-    const std::string system = environment_path("SystemDrive").string();
+    const std::string system = path_to_utf8(environment_path("SystemDrive"));
     for (char letter = first_listed_drive; letter <= last_drive; ++letter) {
         if ((letters & (DWORD{1} << static_cast<unsigned>(letter - 'A'))) == 0)
             continue;
@@ -594,10 +596,10 @@ fs::path existing_folder(const fs::path& folder) {
 std::string volume_label(const fs::path& volume) {
     if (volume == "/")
         return "System";
-    const std::string name = volume.filename().string();
+    const std::string name = name_of(volume);
     if (!name.empty())
         return name;
-    return volume.string();
+    return path_to_utf8(volume);
 }
 
 /// Adds a place when its folder is not empty.
@@ -632,7 +634,7 @@ std::vector<LocatorPlace> locator_places(const LocatorFacts& facts) {
         for (std::size_t index = 0; index < facts.sd_cards.size(); ++index) {
             std::string label = "microSD card";
             if (facts.sd_cards.size() > 1) {
-                const std::string name = facts.sd_cards[index].filename().string();
+                const std::string name = name_of(facts.sd_cards[index]);
                 if (!name.empty())
                     label += " " + name;
             }
@@ -705,13 +707,13 @@ std::string path_under_home(const fs::path& home, const fs::path& folder) {
         return {};
     const fs::path shown = folder.lexically_normal();
     if (home.empty())
-        return shown.generic_string();
+        return path_to_generic_utf8(shown);
     const fs::path relative = shown.lexically_relative(home.lexically_normal());
-    const std::string tail = relative.generic_string();
+    const std::string tail = path_to_generic_utf8(relative);
     if (tail == ".")
         return "~";
     if (tail.empty() || tail.starts_with(".."))
-        return shown.generic_string();
+        return path_to_generic_utf8(shown);
     return "~/" + tail;
 }
 

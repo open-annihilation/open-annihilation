@@ -21,5 +21,5 @@ if(BUILD_TESTING)
   add_test(NAME map-format COMMAND oa-map-format-test)
 
   add_executable(oa-map-format-inspect EXCLUDE_FROM_ALL tools/inspect.cpp)
-  target_link_libraries(oa-map-format-inspect PRIVATE oa-formats-tnt)
+  target_link_libraries(oa-map-format-inspect PRIVATE oa-formats-tnt oa-platform-shims)
 endif()

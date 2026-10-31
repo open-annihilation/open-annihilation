@@ -29,6 +29,32 @@ void set_error(std::string* reason, std::string message) {
         *reason = std::move(message);
 }
 
+#if defined(_WIN32)
+/// Returns a path in the system code page, for the A form of a call.
+///
+/// A character the code page lacks becomes its default character, so the
+/// call fails on that name rather than the conversion throwing.
+///
+/// @param path the path
+/// @return its spelling in the system code page
+std::string ansi_path(const std::filesystem::path& path) {
+    const std::wstring& wide = path.native();
+    if (wide.empty())
+        return {};
+    const int size = static_cast<int>(wide.size());
+    const int needed =
+        WideCharToMultiByte(CP_ACP, 0, wide.data(), size, nullptr, 0, nullptr, nullptr);
+    if (needed <= 0)
+        return {};
+    std::string narrow(static_cast<std::size_t>(needed), '\0');
+    if (WideCharToMultiByte(
+            CP_ACP, 0, wide.data(), size, narrow.data(), needed, nullptr, nullptr
+        ) <= 0)
+        return {};
+    return narrow;
+}
+#endif
+
 } // namespace
 
 UpdateLock::~UpdateLock() {
@@ -49,7 +75,7 @@ bool UpdateLock::try_lock(const std::filesystem::path& updates, std::string* err
         nullptr
     );
     if (handle == INVALID_HANDLE_VALUE && GetLastError() == ERROR_CALL_NOT_IMPLEMENTED) {
-        const std::string narrow = path.string();
+        const std::string narrow = ansi_path(path);
         handle = CreateFileA(
             narrow.c_str(),
             GENERIC_READ | GENERIC_WRITE,

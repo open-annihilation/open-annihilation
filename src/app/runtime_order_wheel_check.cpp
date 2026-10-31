@@ -33,7 +33,9 @@ namespace hud = oa::ui::touch_hud;
 /// @param size the window, such as 640x480
 /// @return the snapshot's path
 fs::path size_snapshot(const fs::path& snapshot, std::string_view size) {
-    return snapshot.parent_path() / (snapshot.stem().string() + "-" + std::string(size) + ".ppm");
+    fs::path file = snapshot.parent_path() / snapshot.stem();
+    file += "-" + std::string(size) + ".ppm";
+    return file;
 }
 
 [[noreturn]] void fail(const std::string& what) {

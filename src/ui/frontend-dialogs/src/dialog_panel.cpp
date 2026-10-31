@@ -5,6 +5,7 @@
 #include "dialog_internal.hpp"
 
 #include "oa/base/text/line_break.hpp"
+#include "oa/data/defs/layout.hpp"
 #include "oa/formats/fnt.hpp"
 
 #include <algorithm>
@@ -322,7 +323,7 @@ Dialog* dialog_push(
     dialog.stages.assign(dialog.resources.layout.gadgets.size(), 0);
     dialog.authored_x = dialog.resources.layout.gadgets.front().common.x;
     dialog.authored_y = dialog.resources.layout.gadgets.front().common.y;
-    dialog.name = std::filesystem::path(layout).stem().string();
+    dialog.name = oa::data::defs::file_stem(layout);
     build_backdrop(dialog, dialog.resources.background);
     dialog.resources.background = {};
     ++stack.count;

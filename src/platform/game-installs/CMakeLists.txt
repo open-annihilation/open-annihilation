@@ -8,7 +8,7 @@ add_library(oa-platform-game-installs src/game_installs.cpp src/library_files.cp
 add_library(oa::platform::game_installs ALIAS oa-platform-game-installs)
 target_include_directories(oa-platform-game-installs PUBLIC include)
 target_compile_features(oa-platform-game-installs PUBLIC cxx_std_20)
-target_link_libraries(oa-platform-game-installs PRIVATE oa-options)
+target_link_libraries(oa-platform-game-installs PRIVATE oa-platform-shims oa-options)
 
 if(BUILD_TESTING)
   # Synthetic home folders built in a temporary folder, and the readers of

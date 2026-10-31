@@ -40,6 +40,7 @@
 #include "xrgb_conversion.hpp"
 
 #include "oa/formats/png.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/platform/machine.hpp"
 #include "oa/platform/render_probe.hpp"
 #include "oa/present/game_text.hpp"
@@ -489,13 +490,17 @@ void write_png(const fs::path& path, const renderer::Surface& frame) {
         frame.width, frame.height, 8, oa::formats::png::ColorType::rgb, {}
     };
     if (!oa::formats::png::write(oa::formats::png::Image{header, {}, frame.rgb}, &file))
-        throw std::runtime_error("render tiers check: cannot encode " + path.string());
+        throw std::runtime_error(
+            "render tiers check: cannot encode " + oa::platform::path_to_utf8(path)
+        );
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     output.write(
         reinterpret_cast<const char*>(file.data()), static_cast<std::streamsize>(file.size())
     );
     if (!output)
-        throw std::runtime_error("render tiers check: cannot write " + path.string());
+        throw std::runtime_error(
+            "render tiers check: cannot write " + oa::platform::path_to_utf8(path)
+        );
 }
 
 /// Returns a frame enlarged by nearest replication: each pixel a square
@@ -2219,7 +2224,8 @@ int Runtime::check_render_tiers() {
     std::cout << "render tiers check: the accelerated presentation draws within its references at "
                  "every zoom, with "
               << counts.textures_created << " textures made and " << counts.prescale_draws
-              << " prescale draws; pictures in " << report_directory.string() << '\n';
+              << " prescale draws; pictures in " << oa::platform::path_to_utf8(report_directory)
+              << '\n';
     return 0;
 }
 
@@ -4178,7 +4184,7 @@ void Runtime::check_full_render_tier(
     std::cout
         << "render tiers check: the full tier drew the battlefield on the card at every zoom, "
         << full_->frames << " frames, with the box filter never run; pictures in "
-        << report_directory.string() << '\n';
+        << oa::platform::path_to_utf8(report_directory) << '\n';
 
     // The fog, the overlay canvas, the kill board and the +stats panel.
     check_full_overlays(set_level, at_zoom, presented, composed, report_directory);

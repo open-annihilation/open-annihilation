@@ -432,9 +432,10 @@ void Runtime::check_mod_install() {
         capture_frame_ = &presented;
         render();
         capture_frame_ = nullptr;
-        auto stem = options_.snapshot;
-        stem.replace_extension();
-        write_ppm(fs::path(stem.string() + "-" + std::string(step) + ".ppm"), presented);
+        auto file = options_.snapshot;
+        file.replace_extension();
+        file += "-" + std::string(step) + ".ppm";
+        write_ppm(file, presented);
     };
     // Frames over the main menu until a prompt that asks or tells shows.
     const auto until_prompt = [&](std::string_view what) {

@@ -58,14 +58,14 @@
    "tier-heap-container": 11
   },
   "src/sim/match-runtime/include/oa/sim/match_runtime.hpp": {
-   "tier-heap-container": 28,
+   "tier-heap-container": 26,
    "tier-virtual": 4
   },
   "src/sim/match-runtime/include/oa/sim/match_runtime/attack_orders.hpp": {
    "tier-virtual": 13
   },
   "src/sim/match-runtime/include/oa/sim/match_runtime/match_trace.hpp": {
-   "tier-heap-container": 3
+   "tier-heap-container": 1
   },
   "src/sim/match-runtime/include/oa/sim/match_runtime/mission_unit_binding.hpp": {
    "tier-heap-container": 1
@@ -97,9 +97,6 @@
   },
   "src/sim/match-runtime/src/tick_projectiles.cpp": {
    "tier-heap-container": 1
-  },
-  "src/sim/match-runtime/src/trace.cpp": {
-   "tier-heap-container": 4
   },
   "src/sim/match-runtime/src/unit.cpp": {
    "tier-heap-container": 1

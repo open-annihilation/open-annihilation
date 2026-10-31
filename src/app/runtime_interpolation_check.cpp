@@ -424,10 +424,10 @@ void Runtime::check_interpolation() {
                 char file[64];
                 draw_at(between(frame));
                 std::snprintf(file, sizeof file, "-fight-between-ticks-%04u.ppm", written);
-                write_ppm(stem.string() + file, surface_);
+                write_ppm(fs::path(stem) += file, surface_);
                 draw_at(1.0F);
                 std::snprintf(file, sizeof file, "-fight-whole-ticks-%04u.ppm", written);
-                write_ppm(stem.string() + file, surface_);
+                write_ppm(fs::path(stem) += file, surface_);
             }
         }
     }
@@ -634,7 +634,7 @@ void Runtime::check_interpolation() {
                 if (!options_.snapshot.empty()) {
                     char file[64];
                     std::snprintf(file, sizeof file, "-%s-%04u.ppm", name, written++);
-                    write_ppm(stem.string() + file, surface_);
+                    write_ppm(fs::path(stem) += file, surface_);
                 }
             }
         }

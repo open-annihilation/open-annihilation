@@ -89,7 +89,9 @@ void require(bool ok, std::string_view what) {
 
 /// Names a step's frame: <stem>-<step>.ppm beside --snapshot.
 fs::path step_snapshot(const fs::path& snapshot, std::string_view step) {
-    return snapshot.parent_path() / (snapshot.stem().string() + '-' + std::string(step) + ".ppm");
+    fs::path file = snapshot.parent_path() / snapshot.stem();
+    file += '-' + std::string(step) + ".ppm";
+    return file;
 }
 
 /// What a click left behind: the selection, the armed command and the

@@ -6,6 +6,7 @@
 #include "oa/app/update/route.hpp"
 
 #include "oa/app/version_line.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/platform/system.hpp"
 
 #include <cstdint>
@@ -218,7 +219,9 @@ constexpr std::string_view uninstall_key =
     }
     if (cleaned.empty())
         return {};
-    std::string normal = fs::path(cleaned).lexically_normal().generic_string();
+    std::string normal = oa::platform::path_to_generic_utf8(
+        oa::platform::path_from_utf8(cleaned).lexically_normal()
+    );
     const bool drive_root = normal.size() == 3 && normal[1] == ':' && normal[2] == '/';
     if (normal.size() > 1 && normal.back() == '/' && !drive_root)
         normal.pop_back();
@@ -298,7 +301,7 @@ constexpr std::string_view uninstall_key =
 /// @param[out] facts the bundle, the protected place, the team and the folder
 void read_bundle(const fs::path& executable, RouteFacts& facts) {
 #if defined(__APPLE__)
-    const std::string spelling = executable.generic_string();
+    const std::string spelling = oa::platform::path_to_generic_utf8(executable);
     facts.translocated = spelling.find("/AppTranslocation/") != std::string::npos;
     const fs::path folder = executable.parent_path();
     if (folder.filename() != "MacOS" || folder.parent_path().filename() != "Contents")

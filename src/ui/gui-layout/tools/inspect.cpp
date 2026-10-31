@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include "oa/platform/files.hpp"
 #include "oa/ui/gui_layout.hpp"
 
 #include <cstdint>
@@ -19,7 +20,7 @@ int main(int argc, char** argv) {
         const std::filesystem::path path(argv[index]);
         std::ifstream input(path, std::ios::binary);
         if (!input) {
-            std::cerr << path.string() << ": cannot open\n";
+            std::cerr << oa::platform::path_to_utf8(path) << ": cannot open\n";
             failed = true;
             continue;
         }
@@ -28,14 +29,14 @@ int main(int argc, char** argv) {
         );
         const auto result = oa::ui::gui_layout::parse(bytes);
         if (!result.ok()) {
-            std::cerr << path.string() << ": " << result.error->message << " (offset "
-                      << result.error->offset << ")\n";
+            std::cerr << oa::platform::path_to_utf8(path) << ": " << result.error->message
+                      << " (offset " << result.error->offset << ")\n";
             failed = true;
             continue;
         }
         const auto& root = result.layout->gadgets.front();
-        std::cout << path.string() << '\t' << result.layout->gadgets.size() << '\t'
-                  << root.common.name << '\n';
+        std::cout << oa::platform::path_to_utf8(path) << '\t' << result.layout->gadgets.size()
+                  << '\t' << root.common.name << '\n';
     }
     return failed ? 1 : 0;
 }

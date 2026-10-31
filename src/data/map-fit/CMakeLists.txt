@@ -10,7 +10,7 @@ target_include_directories(oa-data-map-fit PUBLIC include)
 target_compile_features(oa-data-map-fit PUBLIC cxx_std_20)
 target_link_libraries(oa-data-map-fit
   PUBLIC oa-formats-hpi oa-formats-tdf oa-data-defs oa-data-map-pack
-  PRIVATE oa-formats-tnt oa-options)
+  PRIVATE oa-formats-tnt oa-platform-shims oa-options)
 
 if(BUILD_TESTING)
   # A fixture game and, with --data, the installed game.

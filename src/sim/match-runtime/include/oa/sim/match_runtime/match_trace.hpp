@@ -9,9 +9,9 @@
 
 #include "oa/sim/trace.hpp"
 
+#include <filesystem>
 #include <fstream>
 #include <span>
-#include <string>
 #include <vector>
 
 namespace oa::sim::match_runtime {
@@ -57,7 +57,8 @@ class TraceRecorder {
     /// @param unit_path File of the per-unit text dump; empty writes none.
     /// @param seed Match random seed written in the header.
     /// @return False when either file cannot be created.
-    bool open(const std::string& path, const std::string& unit_path, uint32_t seed);
+    bool
+    open(const std::filesystem::path& path, const std::filesystem::path& unit_path, uint32_t seed);
     /// Appends one tick: the tick record, then the section records.
     ///
     /// @param match Match sampled at the head of its tick.

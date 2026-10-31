@@ -44,7 +44,7 @@ endif()
 # The frame commands: condenser frames decoded, re-encoded, stored and
 # encoded.
 add_executable(oa-netgame-tool tools/net_tool.cpp)
-target_link_libraries(oa-netgame-tool PRIVATE oa-netgame oa-options)
+target_link_libraries(oa-netgame-tool PRIVATE oa-netgame oa-platform-shims oa-options)
 # A DirectPlay peer run by hand: hosts or joins a session and prints what it
 # receives.
 add_executable(oa-netgame-dplay-peer tools/dplay_peer.cpp)

@@ -32,6 +32,7 @@
 #include "oa/formats/soft_mutator.hpp"
 #include "oa/formats/tdf/edit.hpp"
 #include "oa/formats/tdf/write.hpp"
+#include "oa/platform/files.hpp"
 
 #include "lua.hpp"
 
@@ -593,7 +594,7 @@ Listing list_package(const std::filesystem::path& root) {
                 return listing;
             }
             const std::filesystem::path relative = std::filesystem::relative(entry.path(), root);
-            const std::string generic = relative.generic_string();
+            const std::string generic = oa::platform::path_to_generic_utf8(relative);
             if (generic.empty() || generic == ".." || generic.starts_with("../") ||
                 generic.find(':') != std::string::npos) {
                 listing.error = "the package holds a path outside its folder";
@@ -618,7 +619,7 @@ bool read_listed(const Listing& listing, std::string_view path, std::vector<uint
         const auto found = std::lower_bound(listing.paths.begin(), listing.paths.end(), path);
         if (found == listing.paths.end() || *found != path)
             return false;
-        const std::filesystem::path on_disk = listing.root / std::filesystem::path{*found};
+        const std::filesystem::path on_disk = listing.root / oa::platform::path_from_utf8(*found);
         std::ifstream in(on_disk, std::ios::binary);
         if (!in)
             return false;

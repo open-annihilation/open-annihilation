@@ -103,7 +103,7 @@ std::vector<Piece> tree_of(const fs::path& root) {
          at.increment(error)) {
         if (!at->is_regular_file(error))
             continue;
-        const std::string name = fs::relative(at->path(), root, error).generic_string();
+        const std::string name = path_to_generic_utf8(fs::relative(at->path(), root, error));
         if (error || name.empty())
             continue;
         pieces.push_back({name, read_bytes(at->path())});

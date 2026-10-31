@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/formats/gaf.hpp"
+#include "oa/platform/files.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -55,14 +56,15 @@ int main(int argc, char** argv) {
             std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()
         };
         if (!stream.good() && !stream.eof()) {
-            std::cerr << path.string() << "\tread_error\n";
+            std::cerr << oa::platform::path_to_utf8(path) << "\tread_error\n";
             failed = true;
             continue;
         }
         const auto parsed = oa::formats::gaf::parse(bytes);
         if (!parsed.ok()) {
-            std::cerr << path.string() << "\tparse_error\t" << static_cast<int>(parsed.error->code)
-                      << '\t' << parsed.error->offset << '\t' << parsed.error->message << '\n';
+            std::cerr << oa::platform::path_to_utf8(path) << "\tparse_error\t"
+                      << static_cast<int>(parsed.error->code) << '\t' << parsed.error->offset
+                      << '\t' << parsed.error->message << '\n';
             failed = true;
             continue;
         }
@@ -85,8 +87,8 @@ int main(int argc, char** argv) {
                                           oa::formats::gaf::ErrorCode::unsupported_special_render) {
                     ++render_unsupported;
                 } else if (!rendered.ok()) {
-                    std::cerr << path.string() << "\trender_error\t" << rendered.error->message
-                              << '\n';
+                    std::cerr << oa::platform::path_to_utf8(path) << "\trender_error\t"
+                              << rendered.error->message << '\n';
                     failed = true;
                 } else {
                     hash_word(hash, frame.width);
@@ -100,10 +102,10 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        std::cout << path.string() << '\t' << parsed.archive->sequences.size() << '\t' << records
-                  << '\t' << simple << '\t' << special << '\t' << render_unsupported << '\t'
-                  << top_frames << '\t' << std::hex << std::setw(16) << std::setfill('0') << hash
-                  << std::dec << '\n';
+        std::cout << oa::platform::path_to_utf8(path) << '\t' << parsed.archive->sequences.size()
+                  << '\t' << records << '\t' << simple << '\t' << special << '\t'
+                  << render_unsupported << '\t' << top_frames << '\t' << std::hex << std::setw(16)
+                  << std::setfill('0') << hash << std::dec << '\n';
     }
     return failed ? 1 : 0;
 }

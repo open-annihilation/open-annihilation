@@ -31,5 +31,5 @@ if(BUILD_TESTING)
   endif()
 
   add_executable(oa-gui-layout-inspect EXCLUDE_FROM_ALL tools/inspect.cpp)
-  target_link_libraries(oa-gui-layout-inspect PRIVATE oa-ui-gui-layout)
+  target_link_libraries(oa-gui-layout-inspect PRIVATE oa-ui-gui-layout oa-platform-shims)
 endif()

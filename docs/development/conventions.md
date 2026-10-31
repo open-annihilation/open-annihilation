@@ -822,12 +822,12 @@ baseline in the same change, for the style rules with
 
 Every style rule but two is down to zero findings. What remains are the
 virtual functions (`tier-virtual`, 220) and heap containers
-(`tier-heap-container`, 185) of the core, base and simulation tiers, all of
+(`tier-heap-container`, 168) of the core, base and simulation tiers, all of
 them in code that predates the rule:
 
 | Area | `tier-virtual` | `tier-heap-container` | What they are |
 |---|---|---|---|
-| `src/sim/match-runtime` | 42 | 60 | the match's service, spawn, script and attack-order interfaces; the match's own unit, order, trace and ground-mission tables |
+| `src/sim/match-runtime` | 42 | 47 | the match's service, spawn, script and attack-order interfaces; the match's own unit, order, trace and ground-mission tables |
 | `src/sim/unit-spawn` | 30 | 14 | the spawn and runtime-type hosts; the loaded types and legacy views |
 | `src/sim/combat-state` | 16 | 17 | the spawn-geometry, target-search, intelligence and attack hosts; the weapon registry and projectile tables |
 | `src/sim/script-vm`, `src/sim/script-state` | 22 | 16 | the script machine's host; script stacks and threads |

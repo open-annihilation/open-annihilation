@@ -9,6 +9,7 @@
 
 #include "oa/app/brain_match.hpp"
 #include "oa/core/game_state.h"
+#include "oa/platform/files.hpp"
 #include "oa/sim/ai.hpp"
 #include "oa/sim/brains/seat.hpp"
 
@@ -109,7 +110,7 @@ int Runtime::run_headless_brain_match(std::size_t ticks) {
             continue;
         BrainSeatChoice choice;
         if (brain_match_folder(seats[player].spec)) {
-            choice.folder = fs::path(std::string(seats[player].spec));
+            choice.folder = oa::platform::path_from_utf8(seats[player].spec);
             choice.id = folder_id(seats[player].spec);
         } else {
             choice.id = seats[player].spec;

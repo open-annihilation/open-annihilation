@@ -1322,8 +1322,8 @@ void library_worker(void* argument) {
 /// @return the key
 std::string installed_picture_key(const PackMap& map) {
     if (!map.preview.empty())
-        return "png:" + map.preview.generic_string();
-    return "tnt:" + map.folder.generic_string() + "/" + map.stem;
+        return "png:" + path_to_generic_utf8(map.preview);
+    return "tnt:" + path_to_generic_utf8(map.folder) + "/" + map.stem;
 }
 
 /// Returns the terrain file an installed map's minimap is read from.
@@ -1336,14 +1336,14 @@ std::string installed_picture_key(const PackMap& map) {
 std::filesystem::path terrain_file(const PackMap& map) {
     const std::string wanted = ascii_lowered(map.stem + ".tnt");
     for (const std::string& listed : map.files) {
-        const std::filesystem::path path{listed};
-        if (ascii_lowered(path.filename().string()) != wanted)
+        const std::filesystem::path path = path_from_utf8(listed);
+        if (ascii_lowered(path_to_utf8(path.filename())) != wanted)
             continue;
         if (path.is_absolute())
             return path;
         return map.folder / path;
     }
-    return map.folder / "maps" / (map.stem + ".tnt");
+    return map.folder / "maps" / path_from_utf8(map.stem + ".tnt");
 }
 
 } // namespace

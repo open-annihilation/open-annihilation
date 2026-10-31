@@ -12,6 +12,7 @@
 #include "render_run.hpp"
 
 #include "oa/formats/png.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/sim/unit_movement/terrain.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/hud/resource_bar.hpp"
@@ -144,13 +145,13 @@ void write_png(const fs::path& path, const renderer::Surface& frame) {
         frame.width, frame.height, 8, oa::formats::png::ColorType::rgb, {}
     };
     if (!oa::formats::png::write(oa::formats::png::Image{header, {}, frame.rgb}, &file))
-        fail("cannot encode " + path.string());
+        fail("cannot encode " + oa::platform::path_to_utf8(path));
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     output.write(
         reinterpret_cast<const char*>(file.data()), static_cast<std::streamsize>(file.size())
     );
     if (!output)
-        fail("cannot write " + path.string());
+        fail("cannot write " + oa::platform::path_to_utf8(path));
 }
 
 /// Returns a zoom's text for the check's report and file names: "0.5", "1", "1.5", "2".
@@ -492,7 +493,8 @@ int Runtime::check_dialog_backdrop() {
     if (failures != 0)
         fail(
             first_failure + " (" + std::to_string(failures) +
-            " cases in all; the pictures are in " + report_directory.string() + ")"
+            " cases in all; the pictures are in " + oa::platform::path_to_utf8(report_directory) +
+            ")"
         );
     std::cout << "dialog backdrop check: every dialog left the battlefield as the match drew it\n";
     return 0;

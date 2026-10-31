@@ -2863,12 +2863,14 @@ int32_t write_loose_file(const std::filesystem::path& path, std::span<const uint
 }
 
 void create_directory_path(const std::filesystem::path& path) {
-    const std::string text = path.string();
+    // The path's own spelling, UTF-16 on Windows, so that no name is read in
+    // a code page.
+    const std::filesystem::path::string_type& text = path.native();
     std::error_code ignored;
     for (std::size_t i = 0; i < text.size(); ++i)
         if (text[i] == '\\' || text[i] == '/')
-            std::filesystem::create_directory(text.substr(0, i), ignored);
-    std::filesystem::create_directory(text, ignored);
+            std::filesystem::create_directory(std::filesystem::path(text.substr(0, i)), ignored);
+    std::filesystem::create_directory(path, ignored);
 }
 
 std::vector<std::string> AssetStore::list_effective(

@@ -5,6 +5,7 @@
 // (oa/app/content/settings.hpp).
 #include "oa/app/content/settings.hpp"
 
+#include "oa/platform/files.hpp"
 #include "oa/platform/random.hpp"
 
 #include <array>
@@ -96,7 +97,7 @@ bool is_download_file(const std::filesystem::path& folder, const std::filesystem
         return false;
     if (file.parent_path().lexically_normal() != folder.lexically_normal())
         return false;
-    return is_download_name(file.filename().string());
+    return is_download_name(oa::platform::path_to_utf8(file.filename()));
 }
 
 /// Reports whether `named` is `file`, absolutely or as a name inside `folder`.

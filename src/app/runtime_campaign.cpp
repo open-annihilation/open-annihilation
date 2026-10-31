@@ -12,6 +12,7 @@
 #include "oa/ui/decoded.hpp"
 #include "oa/app/asset_files.hpp"
 
+#include "oa/platform/files.hpp"
 #include "oa/sim/ai.hpp"
 #include "oa/sim/brains/seat.hpp"
 #include "oa/data/campaign/campaign_assets.hpp"
@@ -590,7 +591,7 @@ std::string Runtime::side_campaign_mount_key() const {
     const auto append = [&key](const auto& paths) {
         for (const auto& path : paths) {
             key.push_back('\n');
-            key.append(path.string());
+            key.append(oa::platform::path_to_utf8(path));
         }
     };
     append(assets_.loose_roots());

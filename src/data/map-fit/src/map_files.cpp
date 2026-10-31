@@ -7,6 +7,7 @@
 #include "oa/data/map_fit/map_fit.hpp"
 
 #include "oa/data/map_pack/map_name.hpp"
+#include "oa/platform/files.hpp"
 
 #include <cstdint>
 #include <exception>
@@ -61,8 +62,7 @@ std::string fold_path(std::string_view path) {
 /// @param path the path
 /// @return its UTF-8 spelling
 std::string utf8_text(const fs::path& path) {
-    const auto text = path.u8string();
-    return {text.begin(), text.end()};
+    return oa::platform::path_to_utf8(path);
 }
 
 /// Tells whether a file, every link followed, stays inside a folder.
@@ -78,8 +78,8 @@ bool stays_inside(const fs::path& root, const fs::path& file) {
     const auto filed = fs::weakly_canonical(file, error);
     if (error)
         return false;
-    auto root_text = rooted.generic_string();
-    const auto file_text = filed.generic_string();
+    auto root_text = oa::platform::path_to_generic_utf8(rooted);
+    const auto file_text = oa::platform::path_to_generic_utf8(filed);
     if (file_text == root_text)
         return false;
     if (!root_text.empty() && root_text.back() != '/')

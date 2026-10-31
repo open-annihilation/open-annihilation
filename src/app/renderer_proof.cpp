@@ -4,11 +4,13 @@
 #include "renderer_proof_backend.hpp"
 #include "renderer_proof_scene.hpp"
 #include "oa/formats/png.hpp"
+#include "oa/platform/files.hpp"
 
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <chrono>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -58,7 +60,7 @@ void save(
         reinterpret_cast<const char*>(encoded.data()), static_cast<std::streamsize>(encoded.size())
     );
     if (!out)
-        throw std::runtime_error("could not write " + path.string());
+        throw std::runtime_error("could not write " + oa::platform::path_to_utf8(path));
 }
 
 /// Summarises RGB differences, keeping the alpha channel opaque in the difference image.
@@ -195,7 +197,9 @@ int run(const std::filesystem::path& game_dir, const std::filesystem::path& snap
         out << report.str();
         if (!out)
             throw std::runtime_error("could not write proof report");
-        std::cout << report.str() << "Captures: " << std::filesystem::absolute(output) << '\n';
+        std::cout << report.str() << "Captures: "
+                  << std::quoted(oa::platform::path_to_utf8(std::filesystem::absolute(output)))
+                  << '\n';
         return terrain_changed ? 1 : 0;
     } catch (const std::exception& e) {
         std::cerr << "renderer proof: " << e.what() << '\n';

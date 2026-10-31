@@ -107,9 +107,10 @@ std::filesystem::path gallery_snapshot(
     const std::filesystem::path& snapshot, const GalleryWindow& window, settings::Look look
 ) {
     const std::string modern = look == settings::Look::modern ? "modern-" : "";
-    return snapshot.parent_path() /
-           (snapshot.stem().string() + "-kit-gallery-" + modern + std::to_string(window.width) +
-            "x" + std::to_string(window.height) + ".ppm");
+    std::filesystem::path file = snapshot.parent_path() / snapshot.stem();
+    file += "-kit-gallery-" + modern + std::to_string(window.width) + "x" +
+            std::to_string(window.height) + ".ppm";
+    return file;
 }
 
 /// Returns the first part of the dialog's layout that shows a text.
@@ -329,7 +330,7 @@ void Runtime::check_kit_gallery() {
                 const auto stem = options_.snapshot.parent_path() / options_.snapshot.stem();
                 const std::string modern = look == settings::Look::modern ? "modern-" : "";
                 write_ppm(
-                    stem.string() + "-kit-gallery-expected-" + modern + size + ".ppm", expected
+                    fs::path(stem) += "-kit-gallery-expected-" + modern + size + ".ppm", expected
                 );
             }
             // The snapshot of the gallery as the window shows it.

@@ -32,7 +32,7 @@ target_link_libraries(
   PUBLIC oa-base-sha256 oa-base-threads oa-data-defs oa-data-mod-profile oa-data-mutation-rules
          oa-data-script-host oa-formats-hpi oa-formats-oamut
   PRIVATE oa-data-defs-assets oa-data-field-schema oa-data-languages oa-data-mutator-library
-          oa-formats-json oa-formats-tdf oa-options
+          oa-formats-json oa-formats-tdf oa-platform-shims oa-options
 )
 if(BUILD_TESTING)
   add_executable(oa-data-mutators-allow-list-test tests/allow_list_test.cpp)

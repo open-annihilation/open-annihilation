@@ -3,6 +3,7 @@
 
 #include "oa/formats/tnt.hpp"
 #include "oa/formats/ota.hpp"
+#include "oa/platform/files.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -36,7 +37,7 @@ int main(int argc, char** argv) {
         const std::vector<uint8_t> bytes{
             std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()
         };
-        auto extension = path.extension().string();
+        auto extension = oa::platform::path_to_utf8(path.extension());
         std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) {
             return static_cast<char>(std::tolower(c));
         });
@@ -44,22 +45,24 @@ int main(int argc, char** argv) {
             const std::string text(bytes.begin(), bytes.end());
             const auto result = oa::formats::ota::parse(text);
             if (!result.ok()) {
-                std::cerr << path.string() << '\t' << static_cast<int>(result.error->code) << '\t'
-                          << result.error->offset << '\t' << result.error->message << '\n';
+                std::cerr << oa::platform::path_to_utf8(path) << '\t'
+                          << static_cast<int>(result.error->code) << '\t' << result.error->offset
+                          << '\t' << result.error->message << '\n';
                 failed = true;
                 continue;
             }
             std::size_t starts = 0;
             for (const auto& schema : result.metadata->schemas)
                 starts += schema.start_positions.size();
-            std::cout << path.string() << '\t' << result.metadata->schemas.size() << '\t' << starts
-                      << '\t' << result.metadata->mission_name << '\n';
+            std::cout << oa::platform::path_to_utf8(path) << '\t' << result.metadata->schemas.size()
+                      << '\t' << starts << '\t' << result.metadata->mission_name << '\n';
             continue;
         }
         const auto result = oa::formats::tnt::parse(bytes);
         if (!result.ok()) {
-            std::cerr << path.string() << '\t' << static_cast<int>(result.error->code) << '\t'
-                      << result.error->offset << '\t' << result.error->message << '\n';
+            std::cerr << oa::platform::path_to_utf8(path) << '\t'
+                      << static_cast<int>(result.error->code) << '\t' << result.error->offset
+                      << '\t' << result.error->message << '\n';
             failed = true;
             continue;
         }
@@ -73,7 +76,7 @@ int main(int argc, char** argv) {
         }
         for (const auto pixel : result.map->tile_palette_indices)
             hash_byte(hash, pixel);
-        std::cout << path.string() << '\t' << result.map->attribute_width << '\t'
+        std::cout << oa::platform::path_to_utf8(path) << '\t' << result.map->attribute_width << '\t'
                   << result.map->attribute_height << '\t' << result.map->tile_count << '\t'
                   << result.map->features.size() << '\t'
                   << (result.map->minimap ? result.map->minimap->palette_indices.size() : 0U)

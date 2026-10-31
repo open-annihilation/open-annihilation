@@ -210,11 +210,9 @@ void Runtime::check_dgun_order() {
                 set_camera_position(look_x, look_z, 0);
                 render_match_surface();
                 const auto& snapshot = options_.snapshot;
-                write_ppm(
-                    snapshot.parent_path() / (snapshot.stem().string() + "-dgun-" + label + '-' +
-                                              std::to_string(step) + ".ppm"),
-                    surface_
-                );
+                fs::path file = snapshot.parent_path() / snapshot.stem();
+                file += std::string("-dgun-") + label + '-' + std::to_string(step) + ".ppm";
+                write_ppm(file, surface_);
             }
             return trail;
         };

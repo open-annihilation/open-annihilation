@@ -108,9 +108,8 @@ void write_endpoint_file(const fs::path& file, std::string_view text) {
     }
 #else
     constexpr mode_t kOwnerReadWrite = S_IRUSR | S_IWUSR;
-    const std::string partial_text = partial.string();
     const int out =
-        ::open(partial_text.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, kOwnerReadWrite);
+        ::open(partial.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, kOwnerReadWrite);
     if (out >= 0) {
         size_t done = 0;
         while (done < text.size()) {

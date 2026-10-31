@@ -515,9 +515,7 @@ void Runtime::check_match_overlays(
     extension_.draw_match_overlay = draw_overlay_probe;
     frame_of(frame);
     extension_.draw_match_overlay = saved_overlay;
-    write_ppm(
-        fs::path(snapshot).replace_filename(snapshot.stem().string() + "-overlay.ppm"), frame
-    );
+    write_ppm(fs::path(snapshot).replace_filename(snapshot.stem() += "-overlay.ppm"), frame);
     if (probe.calls != 1 || probe.side_panel_height != side_height ||
         probe.message_log_height != message_height || side_height == 0)
         throw std::runtime_error(

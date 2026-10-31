@@ -16,6 +16,7 @@
 // with the name "OPEN ANNIHILATION" in the bundled bold font on the two
 // capsules. Nothing of Total Annihilation is drawn.
 #include "oa/formats/png.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/platform/text_font.hpp"
 #include "oa/ui/game_files.hpp"
 
@@ -184,14 +185,14 @@ Picture filled(int32_t width, int32_t height, game_files::Colour colour) {
 std::optional<Picture> read_png(const std::filesystem::path& path, std::string* error) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
-        *error = "cannot open " + path.string();
+        *error = "cannot open " + oa::platform::path_to_utf8(path);
         return std::nullopt;
     }
     std::vector<uint8_t> file;
     char byte{};
     while (in.get(byte)) {
         if (file.size() >= max_icon_bytes) {
-            *error = path.string() + " is larger than the icon limit";
+            *error = oa::platform::path_to_utf8(path) + " is larger than the icon limit";
             return std::nullopt;
         }
         file.push_back(static_cast<uint8_t>(byte));
@@ -204,20 +205,20 @@ std::optional<Picture> read_png(const std::filesystem::path& path, std::string* 
     };
     png::Info info{};
     if (!png::read_info(file, messages, &info)) {
-        *error = path.string() + ": " + fault;
+        *error = oa::platform::path_to_utf8(path) + ": " + fault;
         return std::nullopt;
     }
     const png::Header header = png::header_of(info, messages);
     if (header.width == 0 || header.height == 0 || header.width > max_icon_side ||
         header.height > max_icon_side) {
-        *error = path.string() + ": the picture's size is out of range";
+        *error = oa::platform::path_to_utf8(path) + ": the picture's size is out of range";
         return std::nullopt;
     }
     const png::Transforms transforms{true, true};
     const std::size_t row = png::row_bytes(header, transforms);
     std::vector<uint8_t> rows(row * header.height);
     if (png::read_image(file, info, transforms, messages, rows) == png::Progress::none) {
-        *error = path.string() + ": " +
+        *error = oa::platform::path_to_utf8(path) + ": " +
                  (fault.empty() ? std::string("its image data ends early") : fault);
         return std::nullopt;
     }
@@ -761,7 +762,7 @@ bool write_png(const Picture& picture, const std::filesystem::path& path, std::s
     image.rows = picture.rgba;
     std::vector<uint8_t> file;
     if (!png::write(image, &file)) {
-        *error = "cannot encode " + path.string();
+        *error = "cannot encode " + oa::platform::path_to_utf8(path);
         return false;
     }
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
@@ -769,7 +770,7 @@ bool write_png(const Picture& picture, const std::filesystem::path& path, std::s
         reinterpret_cast<const char*>(file.data()), static_cast<std::streamsize>(file.size())
     );
     if (!out) {
-        *error = "cannot write " + path.string();
+        *error = "cannot write " + oa::platform::path_to_utf8(path);
         return false;
     }
     return true;
@@ -839,15 +840,15 @@ int main(int argc, char** argv) {
         options.fonts.empty() ? text_font::bundled_font_directory() : options.fonts;
     std::unique_ptr<text_font::FontStack> stack = text_font::FontStack::open(fonts);
     if (!stack) {
-        std::cerr << "oa-steam-artwork: cannot open the bundled fonts in " << fonts.string()
-                  << "\n";
+        std::cerr << "oa-steam-artwork: cannot open the bundled fonts in "
+                  << oa::platform::path_to_utf8(fonts) << "\n";
         return exit_failed;
     }
     std::error_code made;
     std::filesystem::create_directories(options.output, made);
     if (made) {
-        std::cerr << "oa-steam-artwork: cannot make " << options.output.string() << ": "
-                  << made.message() << "\n";
+        std::cerr << "oa-steam-artwork: cannot make " << oa::platform::path_to_utf8(options.output)
+                  << ": " << made.message() << "\n";
         return exit_failed;
     }
     std::optional<Picture> portrait = make_portrait(*icon, *stack);
@@ -877,6 +878,6 @@ int main(int argc, char** argv) {
     }
     std::cout
         << "oa-steam-artwork: wrote portrait.png, wide.png, hero.png, logo.png and icon.png in "
-        << options.output.string() << "\n";
+        << oa::platform::path_to_utf8(options.output) << "\n";
     return exit_done;
 }

@@ -20,5 +20,5 @@ if(BUILD_TESTING)
   add_test(NAME sprite-format COMMAND oa-sprite-format-test)
 
   add_executable(oa-sprite-format-inspect EXCLUDE_FROM_ALL tools/inspect.cpp)
-  target_link_libraries(oa-sprite-format-inspect PRIVATE oa-formats-gaf)
+  target_link_libraries(oa-sprite-format-inspect PRIVATE oa-formats-gaf oa-platform-shims)
 endif()

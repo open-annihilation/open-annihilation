@@ -10,7 +10,7 @@ target_link_libraries(oa-formats-hpi PUBLIC oa-base-bytes oa-formats-sqsh ZLIB::
 target_link_libraries(oa-formats-hpi PRIVATE oa-base-threads oa-formats-zip)
 
 add_executable(oa-hpi-inspect tools/inspect.cpp)
-target_link_libraries(oa-hpi-inspect PRIVATE oa-formats-hpi oa-options)
+target_link_libraries(oa-hpi-inspect PRIVATE oa-formats-hpi oa-platform-shims oa-options)
 
 if(BUILD_TESTING)
   add_executable(oa-hpi-test tests/hpi_test.cpp)

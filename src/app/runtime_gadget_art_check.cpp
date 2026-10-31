@@ -7,6 +7,7 @@
 #include "oa/app/runtime.hpp"
 
 #include "oa/data/defs/layout.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/hud/order_panel.hpp"
 
@@ -41,14 +42,14 @@ void write_bytes(const fs::path& path, const uint8_t* bytes, std::size_t size) {
     std::error_code io_error;
     fs::create_directories(path.parent_path(), io_error);
     if (io_error)
-        fail("could not make " + path.parent_path().generic_string());
+        fail("could not make " + oa::platform::path_to_generic_utf8(path.parent_path()));
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     if (!out)
-        fail("could not write " + path.generic_string());
+        fail("could not write " + oa::platform::path_to_generic_utf8(path));
     if (size != 0)
         out.write(reinterpret_cast<const char*>(bytes), static_cast<std::streamsize>(size));
     if (!out)
-        fail("could not write " + path.generic_string());
+        fail("could not write " + oa::platform::path_to_generic_utf8(path));
 }
 
 /// Removes the download file and the button art the check wrote, and the

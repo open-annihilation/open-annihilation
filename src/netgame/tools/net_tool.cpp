@@ -4,6 +4,7 @@
 // The network frame workbench: condenser frames decoded, re-encoded, stored
 // and encoded.
 #include "oa/netgame/network.hpp"
+#include "oa/platform/files.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -22,7 +23,7 @@ std::vector<uint8_t> read_file(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
     std::vector<uint8_t> bytes(static_cast<std::size_t>(size));
     if (!in.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(size)))
-        throw std::runtime_error("cannot read input: " + path.string());
+        throw std::runtime_error("cannot read input: " + oa::platform::path_to_utf8(path));
     return bytes;
 }
 
@@ -31,10 +32,10 @@ void write_file(const std::filesystem::path& path, std::span<const uint8_t> byte
     if (!out.write(
             reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size())
         ))
-        throw std::runtime_error("cannot write output: " + path.string());
+        throw std::runtime_error("cannot write output: " + oa::platform::path_to_utf8(path));
     out.close();
     if (!out)
-        throw std::runtime_error("cannot finish output: " + path.string());
+        throw std::runtime_error("cannot finish output: " + oa::platform::path_to_utf8(path));
 }
 
 void usage() {

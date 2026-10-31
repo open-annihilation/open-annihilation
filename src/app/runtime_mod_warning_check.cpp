@@ -274,9 +274,10 @@ void Runtime::check_mod_warning() {
         capture_frame_ = &presented;
         render();
         capture_frame_ = nullptr;
-        auto stem = options_.snapshot;
-        stem.replace_extension();
-        write_ppm(fs::path(stem.string() + "-" + std::string(step) + ".ppm"), presented);
+        auto file = options_.snapshot;
+        file.replace_extension();
+        file += "-" + std::string(step) + ".ppm";
+        write_ppm(file, presented);
     };
     const auto key = [this](SDL_EventType type, SDL_Keycode code) {
         SDL_Event event{};
