@@ -54,6 +54,10 @@ struct PieceState {
     uint32_t next_sibling{kNoPiece};
     uint32_t first_child{kNoPiece};
     uint32_t parent{kNoPiece};
+    /// The translation and rotation the instance's last rebuild_transforms
+    /// worked this piece's transforms out from; only the instance writes them.
+    oa::formats::objects3d::FixedVector3 built_translation{};
+    RotationWords built_rotation{};
 };
 
 /// A box in a model's space, inclusive at both corners.
@@ -157,11 +161,31 @@ class Instance {
     /// the pieces under the instance root through their ancestors, the root turned
     /// by root_rotation, then clears transforms_dirty.
     ///
+    /// A piece is worked out again only when its transforms could differ from
+    /// those the last rebuild left: when root_rotation, or the translation or
+    /// rotation of the piece or of an ancestor, differs from what that rebuild
+    /// worked from. Any other piece keeps its transforms, which the same
+    /// arithmetic would give again; the transform markers are cleared either
+    /// way. A copy of the instance keeps what its transforms were worked out
+    /// from, so the copy rebuilds as the original would.
+    ///
     /// Coordinates wrap at 32 bits, as in attachment_position.
     ///
     /// @param root_rotation angle words added to the root piece's rotation
     /// @quirk Root-level siblings of the root piece are reset but not transformed, as in 3.1c.
     void rebuild_transforms(RotationWords root_rotation = {});
+
+    /// Takes another instance's pose, as a copy of it would: its model, its
+    /// pieces with their translations, rotations, flags and transform
+    /// markers, and its owner association. Where both instances hold the same
+    /// model's pieces in the same order and with the same links, this one
+    /// keeps its own transforms and what they were worked out from, so that
+    /// the next rebuild_transforms works out again only the pieces whose
+    /// pose differs from them; otherwise it takes the other's transforms
+    /// too. Either way the transforms are marked dirty.
+    ///
+    /// @param from the instance whose pose to take; must not be this one
+    void take_pose(const Instance& from);
 
   private:
 
@@ -172,6 +196,9 @@ class Instance {
     /// Tells whether a piece hangs under the instance root, which the
     /// transforms walk; a root-level sibling does not.
     [[nodiscard]] bool under_root(uint32_t piece_index) const;
+    /// Tells whether a piece and its ancestors have the translations and
+    /// rotations the last rebuild_transforms worked from.
+    [[nodiscard]] bool posed_as_built(uint32_t piece_index) const;
 
     friend class ModelHost;
     /// Makes a model's instance; declared below.
@@ -186,6 +213,12 @@ class Instance {
     uint32_t root_piece_{kNoPiece};
     uintptr_t owner_token_{};
     bool transforms_dirty_{true};
+    /// The transforms have been rebuilt, so that each piece's built
+    /// translation and rotation and built_root_ say what they were worked
+    /// out from.
+    bool transforms_built_{};
+    /// The root rotation the last rebuild_transforms turned the root by.
+    RotationWords built_root_{};
 };
 
 /// Counts a model object, its first_child subtree and its next_sibling chain.

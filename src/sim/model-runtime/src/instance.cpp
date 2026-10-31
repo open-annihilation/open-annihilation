@@ -318,16 +318,45 @@ Instance::piece_box(uint32_t piece_index, RotationWords root_rotation, PieceBox 
     return box;
 }
 
+namespace {
+bool same_words(RotationWords a, RotationWords b) noexcept {
+    return a.xy == b.xy && a.xz == b.xz && a.yz == b.yz;
+}
+
+bool same_vector(
+    const oa::formats::objects3d::FixedVector3& a, const oa::formats::objects3d::FixedVector3& b
+) noexcept {
+    return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+} // namespace
+
+bool Instance::posed_as_built(uint32_t piece_index) const {
+    for (auto current = piece_index; current != kNoPiece; current = pieces_[current].parent) {
+        const auto& piece = pieces_[current];
+        if (!same_vector(piece.translation, piece.built_translation) ||
+            !same_words(piece.rotation, piece.built_rotation))
+            return false;
+    }
+    return true;
+}
+
 void Instance::rebuild_transforms(RotationWords root_rotation) {
+    // The transforms are a function of the root rotation and of the
+    // translations and rotations from each piece up to the root alone, so a
+    // piece whose inputs are those of the last rebuild keeps what it left. A
+    // root-level sibling's reset vertices depend on none of them.
+    const bool built = transforms_built_ && same_words(built_root_, root_rotation);
     for (uint32_t index = 0; index < pieces_.size(); ++index) {
         auto& piece = pieces_[index];
+        piece.transform_marker = 0;
+        if (built && (!under_root(index) || posed_as_built(index)))
+            continue;
         const auto& object = model_->objects[piece.object_index];
         piece.transformed_vertices.clear();
         piece.transformed_vertices.reserve(object.vertices.size());
         for (const auto& vertex : object.vertices)
             piece.transformed_vertices.push_back({negate(vertex.x), vertex.y, negate(vertex.z)});
         piece.transformed_origin = {};
-        piece.transform_marker = 0;
         // The transform walk starts at the instance root. Root-level siblings
         // are reset but are outside that traversal.
         if (!under_root(index))
@@ -342,7 +371,41 @@ void Instance::rebuild_transforms(RotationWords root_rotation) {
                 place_in_parent(vertex, turn, source, state);
         }
     }
+    for (auto& piece : pieces_) {
+        piece.built_translation = piece.translation;
+        piece.built_rotation = piece.rotation;
+    }
+    transforms_built_ = true;
+    built_root_ = root_rotation;
     transforms_dirty_ = false;
+}
+
+void Instance::take_pose(const Instance& from) {
+    bool same_pieces = model_ == from.model_ && root_piece_ == from.root_piece_ &&
+                       pieces_.size() == from.pieces_.size();
+    for (std::size_t index = 0; same_pieces && index < pieces_.size(); ++index) {
+        const auto& mine = pieces_[index];
+        const auto& theirs = from.pieces_[index];
+        same_pieces = mine.object_index == theirs.object_index && mine.parent == theirs.parent &&
+                      mine.first_child == theirs.first_child &&
+                      mine.next_sibling == theirs.next_sibling;
+    }
+    if (!same_pieces) {
+        *this = from;
+        transforms_dirty_ = true;
+        return;
+    }
+    for (std::size_t index = 0; index < pieces_.size(); ++index) {
+        auto& mine = pieces_[index];
+        const auto& theirs = from.pieces_[index];
+        mine.translation = theirs.translation;
+        mine.rotation = theirs.rotation;
+        mine.transform_marker = theirs.transform_marker;
+        mine.flags = theirs.flags;
+    }
+    spare_piece_ = from.spare_piece_;
+    owner_token_ = from.owner_token_;
+    transforms_dirty_ = true;
 }
 
 } // namespace oa::sim::model_runtime
