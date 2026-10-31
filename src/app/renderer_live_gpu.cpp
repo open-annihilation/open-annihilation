@@ -1388,6 +1388,27 @@ bool ensure_table(
     return true;
 }
 
+/// Lets go of a fence the card has signalled, and of the command buffer it
+/// was submitted with.
+///
+/// SDL's Metal driver lets a submitted command buffer go, with what it holds
+/// (the cycled copies of a transfer buffer it read, its uniform buffers),
+/// only when a later submission finds the buffer's fence signalled. A fence
+/// let go before then goes back to SDL's pool and the next submission takes
+/// it again, so the old command buffer looks busy for ever: a picture read
+/// back every frame kept a copy of the frame's upload each frame, about
+/// 110 MB on the bench's battle. Waiting for the device to be idle, once the
+/// fence has signalled, waits for nothing and lets every finished command
+/// buffer go.
+///
+/// @param device the device the fence belongs to
+/// @param fence the signalled fence; null once let go
+void let_go_of_fence(SDL_GPUDevice* device, SDL_GPUFence*& fence) {
+    SDL_ReleaseGPUFence(device, fence);
+    fence = nullptr;
+    SDL_WaitForGPUIdle(device);
+}
+
 /// Downloads a texture of the picture's size into the download buffer and
 /// waits for the card to finish everything before it.
 ///
@@ -1422,12 +1443,12 @@ bool download_texture(
         error = std::string("Submit live GPU readback: ") + SDL_GetError();
         return false;
     }
-    const bool waited = SDL_WaitForGPUFences(device, true, &fence, 1);
-    SDL_ReleaseGPUFence(device, fence);
-    if (!waited) {
+    if (!SDL_WaitForGPUFences(device, true, &fence, 1)) {
         error = std::string("Complete live GPU readback: ") + SDL_GetError();
+        SDL_ReleaseGPUFence(device, fence);
         return false;
     }
+    let_go_of_fence(device, fence);
     const auto* mapped =
         static_cast<const uint8_t*>(SDL_MapGPUTransferBuffer(device, download, false));
     if (!mapped) {
@@ -2116,8 +2137,7 @@ Result render(
     // waiting: it is let go first.
     if (resources.fence) {
         SDL_WaitForGPUFences(resources.device, true, &resources.fence, 1);
-        SDL_ReleaseGPUFence(resources.device, resources.fence);
-        resources.fence = nullptr;
+        let_go_of_fence(resources.device, resources.fence);
     }
     resources.command = SDL_AcquireGPUCommandBuffer(resources.device);
     if (!resources.command)
@@ -2427,8 +2447,7 @@ Result render(
         return fail("Map live GPU download");
     output_rgba.assign(download, download + output_bytes);
     SDL_UnmapGPUTransferBuffer(resources.device, resources.download);
-    SDL_ReleaseGPUFence(resources.device, resources.fence);
-    resources.fence = nullptr;
+    let_go_of_fence(resources.device, resources.fence);
     return succeed();
 }
 
