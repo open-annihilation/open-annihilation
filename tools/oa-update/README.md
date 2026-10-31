@@ -85,6 +85,10 @@ and the journal are removed after the new version has started.
   On macOS the helper treats the new application as started when it is
   already running or when `state.json` confirms that version, and does not
   wait out the launch report.
+- On macOS the game, the new version or the old one after a refusal or a
+  failure, is opened through Launch Services, as the Finder opens it, never
+  started as a plain program: macOS refuses a program started that way the
+  player's Documents folder.
 - The progress window lets go of the font files before a Windows folder is
   renamed and before a setup runs, then opens them again afterwards. An
   open font file keeps its folder from moving. The game starts the helper

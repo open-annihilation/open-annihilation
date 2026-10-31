@@ -6,6 +6,7 @@
 
 #include "oa/update_helper/journal.hpp"
 #include "oa/update_helper/routes.hpp"
+#include "oa/update_helper/run.hpp"
 
 #include "oa/app/update/plan.hpp"
 #include "oa/test/check.hpp"
@@ -366,6 +367,20 @@ void a_missing_bundle_is_refused() {
     OA_CHECK(why == "the installed bundle is missing");
 }
 
+void the_game_starts_as_the_finder_starts_it() {
+    update::Plan plan;
+    plan.route = update::Route::macos_bundle;
+    OA_CHECK(helper::start_way(plan, false) == helper::StartWay::open_bundle);
+    // The game never starts with an administrator's rights.
+    OA_CHECK(helper::start_way(plan, true) == helper::StartWay::refused);
+    plan.route = update::Route::windows_folder;
+    OA_CHECK(helper::start_way(plan, false) == helper::StartWay::program);
+    plan.route = update::Route::linux_versions;
+    OA_CHECK(helper::start_way(plan, false) == helper::StartWay::program);
+    plan.route = update::Route::check_folder;
+    OA_CHECK(helper::start_way(plan, false) == helper::StartWay::program);
+}
+
 } // namespace
 
 void test_macos_route() {
@@ -393,4 +408,5 @@ void test_macos_route() {
     a_failed_callback_is_a_failed_launch();
     a_launch_with_nothing_seen_is_still_waiting();
     a_callback_that_names_no_process_falls_through();
+    the_game_starts_as_the_finder_starts_it();
 }

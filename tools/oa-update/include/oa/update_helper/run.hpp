@@ -80,6 +80,26 @@ line_after_failed_roll_back(const std::filesystem::path& updates) {
     return roll_back_failed_kept;
 }
 
+/// How the helper starts a version of the game.
+enum class StartWay : uint8_t {
+    program,     ///< the plan's program, started directly
+    open_bundle, ///< the macOS bundle, opened through Launch Services as the Finder opens it
+    refused,     ///< nothing: the game never starts with an administrator's rights
+};
+
+/// How the helper starts the game for `plan`, the new version or the one
+/// that was running.
+///
+/// A macOS bundle is opened through Launch Services: a program macOS starts
+/// directly is refused the player's Documents folder, and the game would
+/// take the player's copy for missing. A process that holds an
+/// administrator's rights starts nothing.
+///
+/// @param plan the plan
+/// @param administrator this process holds an administrator's rights
+/// @return the way
+[[nodiscard]] StartWay start_way(const oa::app::update::Plan& plan, bool administrator) noexcept;
+
 /// Replaces the kept preferences copy and records the kept version.
 ///
 /// An existing `updates/previous/preferences.conf` is moved aside before the

@@ -35,6 +35,10 @@
 #include <utility>
 #include <vector>
 
+#if defined(__APPLE__)
+#include <unistd.h>
+#endif
+
 namespace oa::update_helper {
 namespace {
 
@@ -99,6 +103,51 @@ void record_failed_change(
     log.finish(update::failure_outcome(log.receipt_action(), true, undone));
 }
 
+/// True when this process holds an administrator's rights on macOS, where
+/// the game must never start with them.
+///
+/// @return true when the real or the effective user is the administrator
+bool holds_administrator_rights() {
+#if defined(__APPLE__)
+    return ::getuid() == 0 || ::geteuid() == 0;
+#else
+    return false;
+#endif
+}
+
+/// Starts the version that is in place, without the update flag.
+///
+/// A macOS bundle is opened through Launch Services, as the player opens
+/// it from the Finder: a program started directly is refused the player's
+/// Documents folder, and would take the player's copy of the game for
+/// missing. The other routes start the program directly. A process with an
+/// administrator's rights starts nothing on macOS.
+///
+/// @param plan the plan
+/// @param[out] error why it did not start; may be null
+/// @return true when the game started
+bool start_again(const update::Plan& plan, std::string* error) {
+    switch (start_way(plan, holds_administrator_rights())) {
+    case StartWay::refused:
+        if (error != nullptr)
+            *error = "the game is not started with an administrator's rights";
+        return false;
+    case StartWay::open_bundle:
+#if defined(__APPLE__)
+        return start_macos_bundle(
+            path_from(plan.install), plan.arguments, {}, {}, {}, error, nullptr
+        );
+#else
+        if (error != nullptr)
+            *error = "this route is not carried out";
+        return false;
+#endif
+    case StartWay::program:
+        break;
+    }
+    return start_detached(path_from(plan.program), plan.arguments, false, {}, error);
+}
+
 /// Starts the version that was running, after a refusal or a failure.
 ///
 /// A receipt that has no outcome yet stopped before any file moved, and says
@@ -108,7 +157,7 @@ int start_old(const update::Plan& plan, Log& log, ProgressWindow& window, bool s
         log.finish(update::failure_outcome(log.receipt_action(), false, true));
     if (start) {
         std::string error;
-        if (!start_detached(path_from(plan.program), plan.arguments, false, {}, &error))
+        if (!start_again(plan, &error))
             log.line(std::string("could not start the game: ") + error);
     }
     window.close();
@@ -244,6 +293,10 @@ Started start_version(
     std::string& error
 ) {
     Started started;
+    if (start_way(plan, holds_administrator_rights()) == StartWay::refused) {
+        error = "the game is not started with an administrator's rights";
+        return started;
+    }
     const bool bundle = plan.route == update::Route::macos_bundle;
     const bool linux = plan.route == update::Route::linux_versions;
     if (bundle) {
@@ -281,6 +334,14 @@ void forget_started(Started& started) {
 }
 
 } // namespace
+
+StartWay start_way(const update::Plan& plan, bool administrator) noexcept {
+    if (administrator)
+        return StartWay::refused;
+    if (plan.route == update::Route::macos_bundle)
+        return StartWay::open_bundle;
+    return StartWay::program;
+}
 
 std::vector<Operation> kept_record_operations(
     const update::Plan& plan, std::string_view installed_version, int64_t installed_release
@@ -585,9 +646,7 @@ int carry_out(
         std::cerr << "oa-update: the updates folder could not be made\n";
         if (!elevated_swap) {
             std::string error;
-            static_cast<void>(
-                start_detached(path_from(plan.program), plan.arguments, false, {}, &error)
-            );
+            static_cast<void>(start_again(plan, &error));
         }
         return exit_usage;
     }
