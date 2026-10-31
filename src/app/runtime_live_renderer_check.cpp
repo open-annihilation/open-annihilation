@@ -239,6 +239,11 @@ int Runtime::check_live_renderer() {
     save_picture("classic.png", classic);
     require(snapshot().rgb == classic.rgb, "a stationary classic frame changed without a tick");
     orbit(SDL_BUTTON_LEFT);
+    // The first turned frame makes the card ready to draw the units from
+    // their models, so it lists them in its vertices and lays their shadows
+    // from their pictures; from the next the card draws them and casts their
+    // shadows, whose edges may fall a texel from the laid ones'.
+    snapshot();
     const auto rotated = snapshot();
     if (live_renderer_unavailable()) {
         std::cout << "live renderer check: skipped: no supported GPU device is available\n";
@@ -667,6 +672,11 @@ int Runtime::check_live_renderer() {
                     );
             return found;
         };
+        // The shadows the card casts are its own; the rest of the picture
+        // is compared without them, and they are checked apart below.
+        auto& graphics = match_->state().game.graphics_flags;
+        const auto graphics_kept = graphics;
+        graphics = static_cast<uint16_t>(graphics & ~oa::present::model::graphics_shadows);
         const auto on_card = snapshot();
         const std::size_t card_models = live_renderer_card_model_count();
         require(card_models != 0, "the card drew no model from its types' models");
@@ -691,6 +701,32 @@ int Runtime::check_live_renderer() {
         std::cout << "live renderer check: " << card_models
                   << " models drawn on the card give the picture, picks and bounds of the "
                      "frame's vertices\n";
+        // The shadows the card casts darken the picture, and darken only;
+        // neither they nor the decals laid with the models in the vertices
+        // change a pick or a unit's bounds.
+        graphics = static_cast<uint16_t>(
+            graphics | oa::present::model::graphics_shadows |
+            oa::present::model::graphics_vehicle_shadows
+        );
+        const auto shadowed = snapshot();
+        const auto shadowed_picks = picks();
+        set_live_models_on_card(false);
+        snapshot();
+        const auto decal_picks = picks();
+        set_live_models_on_card(true);
+        graphics = graphics_kept;
+        require(
+            shadowed_picks == card_picks && decal_picks == card_picks,
+            "the units' shadows changed a pick or a unit's bounds"
+        );
+        std::size_t darkened = 0;
+        bool lighter = false;
+        for (std::size_t at = 0; at < shadowed.rgb.size(); ++at) {
+            darkened += shadowed.rgb[at] < on_card.rgb[at] ? 1 : 0;
+            lighter = lighter || shadowed.rgb[at] > on_card.rgb[at];
+        }
+        require(darkened != 0, "the shadows cast on the card darkened nothing");
+        require(!lighter, "the shadows cast on the card lightened the picture");
     }
     std::optional<oa::sim::ground_orders::Point> destination;
     std::optional<oa::sim::ground_orders::Point> destination_hit;

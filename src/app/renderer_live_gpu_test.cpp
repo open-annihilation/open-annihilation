@@ -1985,10 +1985,31 @@ struct ModelFrame {
     std::vector<float> textures{};
     std::vector<uint32_t> indices{};
     std::vector<ModelRun> runs{};
+    std::vector<ShadowCast> casts{};
+    std::vector<uint32_t> cast_indices{};
+    std::vector<ModelRun> cast_runs{};
+    ShadowMap shadow_map{};
+    std::size_t shadow_vertex{};
+    std::size_t shadow_ground{};
 
     /// The draws, borrowing the frame.
     [[nodiscard]] ModelDraws draws(uint64_t revision) const {
-        return {corners, revision, instances, positions, piece_frames, textures, indices, runs};
+        return {
+            corners,
+            revision,
+            instances,
+            positions,
+            piece_frames,
+            textures,
+            indices,
+            runs,
+            casts,
+            cast_indices,
+            cast_runs,
+            shadow_map,
+            shadow_vertex,
+            shadow_ground
+        };
     }
 
     /// The vertex a corner of an instance gives: its place, the atlas place
@@ -2379,6 +2400,376 @@ void card_models() {
     OA_CHECK(both(1, nullptr, nullptr, models, 5));
 }
 
+/// The light the shadows' map leaves at each texel's centre, as the card
+/// casts it: each cast's triangles laid as its kind lays them from their
+/// corners' whole pixels from the model's place, a texel taking a cast's
+/// light once, where no cast at its depth or nearer took it, and not where
+/// the corners' height above the base does not pass the cast's.
+std::vector<float> expected_shadow_map(const ModelFrame& models, const ShadowMap& map) {
+    std::vector<float> light(std::size_t{map.width} * map.height, 1.0F);
+    std::vector<float> depth(light.size(), 1.0F);
+    const auto add = [&](const ShadowCast& cast, std::span<const uint32_t> corners) {
+        const auto& instance = models.instances[cast.instance];
+        std::array<std::array<float, 3>, 3> laid{};
+        for (std::size_t corner = 0; corner < 3; ++corner) {
+            const uint32_t place = models.corners[2 * (instance.corners + corners[corner])];
+            const float* point =
+                models.positions.data() + 3 * (instance.positions + (place & 0xffffU));
+            // The whole pixels from the model's place.
+            const float whole_x = std::floor(point[0] - cast.across);
+            const float whole_y = std::floor(point[1] - cast.base);
+            const float whole_z = std::floor(point[2] - cast.down);
+            const float across =
+                cast.across + (cast.kind == shadow_cast_cut ? whole_x : whole_x + 5);
+            const float down = cast.down - cast.ground_half + whole_z;
+            const float lean = std::floor(whole_y * 0.25F);
+            laid[corner] = cast.kind == shadow_cast_sheared
+                               ? std::array{across + lean, down - lean, whole_y}
+                               : std::array{across, down - std::floor(whole_y * 0.5F), whole_y};
+        }
+        for (uint32_t y = 0; y < map.height; ++y)
+            for (uint32_t x = 0; x < map.width; ++x) {
+                const float px = map.left + (float(x) + 0.5F) * map.scale;
+                const float py = map.top + (float(y) + 0.5F) * map.scale;
+                const auto& [a, b, c] = laid;
+                // Rows run down: a triangle whose corners run anticlockwise
+                // casts nothing.
+                const float area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+                if (!(area > 0))
+                    continue;
+                const float wb = ((px - a[0]) * (c[1] - a[1]) - (py - a[1]) * (c[0] - a[0])) / area;
+                const float wc = ((b[0] - a[0]) * (py - a[1]) - (b[1] - a[1]) * (px - a[0])) / area;
+                const float wa = 1 - wb - wc;
+                if (wa < 0 || wb < 0 || wc < 0 ||
+                    wa * a[2] + wb * b[2] + wc * c[2] <= cast.least_height)
+                    continue;
+                const std::size_t at = std::size_t{y} * map.width + x;
+                if (!(cast.depth < depth[at]))
+                    continue;
+                depth[at] = cast.depth;
+                light[at] *= cast.light;
+            }
+    };
+    for (const auto& run : models.cast_runs)
+        for (uint32_t first = 0; first + 2 < run.index_count; first += 3) {
+            const uint32_t index = models.cast_indices[run.first_index + first];
+            const auto& cast = models.casts[run.first_instance + (index >> model_corner_bits)];
+            std::array<uint32_t, 3> corners{};
+            for (uint32_t corner = 0; corner < 3; ++corner)
+                corners[corner] = models.cast_indices[run.first_index + first + corner] & 0xffffU;
+            add(cast, corners);
+        }
+    return light;
+}
+
+/// A unit's shadow cast on the card darkens the ground under it as the
+/// game lays its picture: shadow_offset_x right of it and at the ground's
+/// height, by its light; another overlapping it darkens the overlap again,
+/// a building's sheared silhouette darkens none of the building's own
+/// picture where it stands, a cast whose corners do not pass its height
+/// darkens nothing, and nothing but the ground under the shadows changes,
+/// with one sample and multisampled. A map an earlier frame made larger
+/// lays the same shadows. A face whose corners run anticlockwise as laid
+/// casts nothing. Casts that do not hold together are refused.
+void card_shadows() {
+    constexpr uint32_t size = 48;
+    const std::vector<uint8_t> atlas{200, 160, 120, 255, 90, 180, 60, 255};
+    std::vector<Vertex> frame;
+    const auto quad = [&](float left, float right, float front, float back, float u) {
+        Vertex a{left, 0, front, u, 0.5F};
+        Vertex b = a, c = a, d = a;
+        b.x = c.x = right;
+        c.z = d.z = back;
+        frame.insert(frame.end(), {a, b, d, b, c, d});
+    };
+    // The ground, then a card standing on it, which no shadow darkens.
+    quad(0, 48, 0, 48, 0.25F);
+    const std::size_t ground = frame.size();
+    Vertex standing{40, 0, 40, 0.75F, 0.5F};
+    Vertex top = standing;
+    top.height = 6;
+    Vertex side = standing;
+    side.x = 46;
+    frame.insert(frame.end(), {standing, side, top});
+    ModelFrame models;
+    add_box_type(models);
+    // Each box's place, from which its corners' whole pixels are counted.
+    std::vector<std::array<float, 2>> places;
+    const auto box = [&](float x, float z, float side_length, float height) {
+        places.push_back({x, z});
+        ModelInstance instance;
+        instance.corners = 0;
+        instance.corner_count = 36;
+        instance.positions = uint32_t(models.positions.size() / 3);
+        instance.position_count = 8;
+        instance.pieces = uint32_t(models.piece_frames.size());
+        instance.piece_count = 2;
+        instance.textures = uint32_t(models.textures.size() / 4);
+        instance.texture_count = 3;
+        for (const float level : {0.0F, height})
+            for (const auto& [dx, dz] :
+                 {std::pair{0.0F, 0.0F},
+                  std::pair{side_length, 0.0F},
+                  std::pair{side_length, side_length},
+                  std::pair{0.0F, side_length}})
+                models.positions.insert(models.positions.end(), {x + dx, level, z + dz});
+        models.piece_frames.insert(models.piece_frames.end(), {0, 0});
+        models.textures.insert(models.textures.end(), 12, 0.5F);
+        models.instances.push_back(instance);
+    };
+    box(4.3F, 6.2F, 7.4F, 6.1F);
+    box(9.1F, 9.7F, 6.6F, 3.3F);
+    box(20.6F, 24.4F, 8.2F, 9.7F);
+    box(30.2F, 4.9F, 5.3F, 4.4F);
+    const auto cast = [&](uint32_t instance, uint32_t kind, float light, float least, float depth) {
+        const auto at = uint32_t(models.casts.size());
+        models.casts.push_back(
+            {instance,
+             kind,
+             0.0F,
+             0.0F,
+             least,
+             light,
+             depth,
+             places[instance][0],
+             places[instance][1]}
+        );
+        if (models.cast_runs.empty())
+            models.cast_runs.push_back({0, 0, 0, 0});
+        for (uint32_t corner = 0; corner < 36; ++corner)
+            models.cast_indices.push_back(at << model_corner_bits | corner);
+        models.cast_runs.back().index_count += 36;
+    };
+    constexpr float every = -1e30F;
+    cast(0, shadow_cast_picture, 0.5F, every, 0.9F);
+    cast(1, shadow_cast_picture, 0.5F, every, 0.8F);
+    cast(2, shadow_cast_cut, 1.0F, every, 0.7F);
+    cast(2, shadow_cast_sheared, 0.5F, every, 0.7F);
+    // Its corners never pass this height.
+    cast(3, shadow_cast_picture, 0.5F, 100.0F, 0.6F);
+    models.shadow_map = {0, -8, 1, 64, 64};
+    models.shadow_vertex = ground;
+    models.shadow_ground = ground;
+    const auto expected_light = expected_shadow_map(models, models.shadow_map);
+    Context context;
+    Context plain_context;
+    std::vector<uint8_t> shadowed;
+    std::vector<uint8_t> plain;
+    std::vector<uint8_t> single;
+    std::string error;
+    const auto draws = models.draws(9);
+    for (const uint32_t supersample : {1U, 2U}) {
+        OA_CHECK(
+            render(
+                context,
+                frame,
+                atlas,
+                2,
+                1,
+                1,
+                size,
+                size,
+                classic_projection,
+                shadowed,
+                error,
+                supersample,
+                nullptr,
+                nullptr,
+                nullptr,
+                {},
+                nullptr,
+                &draws
+            ) == Result::success
+        );
+        OA_CHECK(
+            render(
+                plain_context,
+                frame,
+                atlas,
+                2,
+                1,
+                1,
+                size,
+                size,
+                classic_projection,
+                plain,
+                error,
+                supersample
+            ) == Result::success
+        );
+        std::size_t darkened = 0;
+        std::size_t wrong = 0;
+        for (uint32_t y = 0; y < size; ++y)
+            for (uint32_t x = 0; x < size; ++x) {
+                const std::size_t at = (std::size_t{y} * size + x) * channels;
+                // The ground under the pixel's centre, as the shadows' map
+                // spans it (the decals' lift is a fortieth of a row).
+                const auto texel_x = uint32_t(float(x) + 0.5F - models.shadow_map.left);
+                const auto texel_y = uint32_t(float(y) + 0.525F - models.shadow_map.top);
+                const float light = expected_light[std::size_t{texel_y} * 64 + texel_x];
+                const bool standing_card = x >= 40 && y >= 37 && y < 40;
+                bool close = true;
+                for (std::size_t channel = 0; channel < 3; ++channel) {
+                    const float want =
+                        standing_card ? plain[at + channel] : plain[at + channel] * light;
+                    close = close && std::abs(float(shadowed[at + channel]) - want) <=
+                                         (supersample == 1 && light == 1 ? 0.0F : 2.5F);
+                }
+                darkened += light < 1 && !standing_card;
+                // A pixel on a shadow's edge may take the texel on either
+                // side of it; multisampled, a mean of both.
+                wrong += close ? 0 : 1;
+            }
+        OA_CHECK(darkened > 150);
+        OA_CHECK(wrong <= (supersample == 1 ? 6U : 60U));
+        if (supersample == 1)
+            single = shadowed;
+    }
+    // A frame whose map needs more texels makes the texture larger; the
+    // next frame's shadows fall on the texels they fell on before.
+    auto larger = models;
+    larger.shadow_map = {0, -8, 1, 1500, 1100};
+    const auto larger_draws = larger.draws(9);
+    for (const auto* drawn : {&larger_draws, &draws})
+        OA_CHECK(
+            render(
+                context,
+                frame,
+                atlas,
+                2,
+                1,
+                1,
+                size,
+                size,
+                classic_projection,
+                shadowed,
+                error,
+                1,
+                nullptr,
+                nullptr,
+                nullptr,
+                {},
+                nullptr,
+                drawn
+            ) == Result::success
+        );
+    OA_CHECK(shadowed == single);
+    // A face whose corners run anticlockwise as laid, as a model's
+    // underside does, casts nothing; one whose corners run clockwise
+    // darkens the ground under it. The box's first face, its bottom, runs
+    // clockwise as laid, and its second, its top, anticlockwise.
+    for (const bool clockwise : {true, false}) {
+        auto facing = models;
+        facing.casts.assign(1, models.casts[0]);
+        facing.cast_indices.clear();
+        for (uint32_t corner = 0; corner < 6; ++corner)
+            facing.cast_indices.push_back(clockwise ? corner : 6 + corner);
+        facing.cast_runs = {{0, 0, 6, 0}};
+        const auto facing_light = expected_shadow_map(facing, facing.shadow_map);
+        const bool casts = std::any_of(facing_light.begin(), facing_light.end(), [](float light) {
+            return light < 1;
+        });
+        OA_CHECK(casts == clockwise);
+        const auto facing_draws = facing.draws(9);
+        OA_CHECK(
+            render(
+                context,
+                frame,
+                atlas,
+                2,
+                1,
+                1,
+                size,
+                size,
+                classic_projection,
+                shadowed,
+                error,
+                1,
+                nullptr,
+                nullptr,
+                nullptr,
+                {},
+                nullptr,
+                &facing_draws
+            ) == Result::success
+        );
+        OA_CHECK(
+            render(
+                plain_context,
+                frame,
+                atlas,
+                2,
+                1,
+                1,
+                size,
+                size,
+                classic_projection,
+                plain,
+                error,
+                1
+            ) == Result::success
+        );
+        // Under the middle of the face.
+        const std::size_t middle = (std::size_t{9} * size + 12) * channels;
+        OA_CHECK((shadowed[middle] < plain[middle]) == clockwise);
+        if (!clockwise)
+            OA_CHECK(shadowed == plain);
+    }
+    // The overlap is darker than either shadow alone, the building's own
+    // picture is not darkened where it stands, the clipped cast darkens
+    // nothing.
+    const auto light_at = [&](float x, float y) {
+        return expected_light[std::size_t(y - models.shadow_map.top) * 64 + std::size_t(x)];
+    };
+    OA_CHECK(std::abs(light_at(15.5F, 12.5F) - 0.25F) < 0.01F);
+    OA_CHECK(light_at(23.5F, 25.5F) == 1.0F);
+    OA_CHECK(light_at(32.5F, 6.5F) == 1.0F);
+    // Casts that do not hold together are refused.
+    const auto refused = [&](const ModelFrame& broken) {
+        const auto broken_draws = broken.draws(9);
+        shadowed.assign(1, 1);
+        return render(
+                   context,
+                   frame,
+                   atlas,
+                   2,
+                   1,
+                   1,
+                   size,
+                   size,
+                   classic_projection,
+                   shadowed,
+                   error,
+                   1,
+                   nullptr,
+                   nullptr,
+                   nullptr,
+                   {},
+                   nullptr,
+                   &broken_draws
+               ) == Result::failed &&
+               shadowed.empty();
+    };
+    auto broken = models;
+    broken.casts[1].instance = 9;
+    OA_CHECK(refused(broken));
+    broken = models;
+    broken.casts[2].kind = 3;
+    OA_CHECK(refused(broken));
+    broken = models;
+    broken.casts[0].light = 1.5F;
+    OA_CHECK(refused(broken));
+    broken = models;
+    broken.cast_indices[0] = 5U << model_corner_bits;
+    OA_CHECK(refused(broken));
+    broken = models;
+    broken.shadow_map.scale = 3;
+    OA_CHECK(refused(broken));
+    broken = models;
+    broken.shadow_vertex = frame.size() + 1;
+    OA_CHECK(refused(broken));
+}
+
 } // namespace
 
 /// Run validation on every platform and skip real rendering only when no device is available.
@@ -2404,6 +2795,7 @@ int main() {
         card_lights();
         picture_on_card();
         card_models();
+        card_shadows();
     }
     SDL_Quit();
     return result != 0 ? result : oa::test::check_exit_status();

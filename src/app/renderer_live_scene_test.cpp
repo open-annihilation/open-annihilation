@@ -3589,6 +3589,180 @@ void models_on_card() {
     OA_CHECK(scenes[1].card_types.revision == revision);
 }
 
+/// With its models on the card, a battle's units cast their shadows on the
+/// card rather than as decals: a vehicle its picture's pieces, cached and
+/// visible, without its walls of the image key; a building its cached
+/// pieces sheared, walls and all, its picture taken out at the
+/// silhouette's depth; a unit under the water and a digger only above the
+/// water and the ground, where their pictures have a depth plane; each
+/// cast nearer than the one before, at the frame's shadow level. An
+/// aircraft's soft shadow stays a decal; a floater and a type that casts
+/// none cast nothing. Everything but the decals the card casts is the same
+/// as the frame drawn with its models in the vertices.
+void shadows_on_card() {
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    namespace runtime = oa::sim::model_runtime;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    Fixture battle;
+    auto& map = battle.map;
+    map.attribute_width = map.attribute_height = 16;
+    map.tile_width = map.tile_height = 8;
+    map.tile_indices.assign(64, 0);
+    map.attributes.resize(256);
+    for (auto& attribute : map.attributes)
+        attribute.height = 20;
+    map.sea_level = 0;
+    auto& in = battle.inputs;
+    in.right = in.bottom = 256;
+    in.sight.mapping = in.sight.line_of_sight = false;
+    in.graphics_flags = drawing::graphics_shadows | drawing::graphics_vehicle_shadows;
+    in.sea_level = 30;
+    // A body and a turret, the turret moving and so out of the cached picture.
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(2);
+    auto& body = source->objects[0];
+    body.first_child = 1;
+    body.vertices = {{0, 0, 0}, {6 * fixed, 0, 0}, {6 * fixed, 4 * fixed, 0}, {0, 4 * fixed, 0}};
+    body.primitives.resize(2);
+    body.primitives[0].vertex_indices = {0, 1, 2, 3};
+    body.primitives[1].vertex_indices = {0, 1, 2};
+    auto& turret = source->objects[1];
+    turret.parent = 0;
+    turret.offset_from_parent = {2 * fixed, 4 * fixed, 0};
+    turret.vertices = {{0, 0, 0}, {fixed, 0, 0}, {0, fixed, 0}};
+    turret.primitives.resize(1);
+    turret.primitives[0].vertex_indices = {0, 1, 2};
+    drawing::PreparedModel prepared;
+    prepared.objects.resize(2);
+    const auto colour = [](uint32_t index, uint8_t color) {
+        drawing::PreparedPrimitive primitive;
+        primitive.source_index = index;
+        primitive.flags = drawing::primitive_colored;
+        primitive.color = color;
+        return primitive;
+    };
+    prepared.objects[0].primitives = {colour(0, 40), colour(1, drawing::image_key)};
+    prepared.objects[1].primitives = {colour(0, 41)};
+
+    enum Kind : std::size_t {
+        vehicle,
+        building,
+        under_water,
+        digger,
+        aircraft,
+        floater,
+        none,
+        kinds
+    };
+
+    std::array<runtime::Instance, kinds> instances{};
+    std::array<oa::Unit, kinds> units{};
+    std::array<oa::UnitDef, kinds> definitions{};
+    std::array<drawing::ModelState, kinds> states{};
+    battle.draws.models.resize(kinds);
+    for (std::size_t kind = 0; kind < kinds; ++kind) {
+        auto& instance = instances[kind] = runtime::make_instance(source);
+        instance.pieces()[1].flags &=
+            static_cast<uint16_t>(~static_cast<uint16_t>(runtime::PieceFlag::cached));
+        instance.rebuild_transforms();
+        auto& unit = units[kind];
+        unit.id = static_cast<uint16_t>(kind + 1);
+        unit.type_index = 1;
+        unit.position = {static_cast<int32_t>(30 + kind * 28) * fixed, 20 * fixed, 60 * fixed};
+        auto& state = states[kind];
+        state.image = oa::present::create_sprite(8, 8);
+        state.shadow = oa::present::create_sprite(8, 8);
+        auto& draw = battle.draws.models[kind];
+        draw.model.unit = &unit;
+        draw.model.instance = &instance;
+        draw.model.prepared = &prepared;
+        draw.model.state = &state;
+        draw.model.def = &definitions[kind];
+        draw.plan.linked.drawn = true;
+        draw.plan.model.from_image = true;
+        draw.plan.model.ground = 20;
+    }
+    units[building].flags = OA_UNIT_FLAG_BUILDING;
+    units[under_water].position.y = 26 * fixed;
+    drawing::allocate_depth_image(states[under_water].image, 8, 8);
+    definitions[digger].flags = OA_UNIT_DEF_FLAG_DIGGER;
+    drawing::allocate_depth_image(states[digger].image, 8, 8);
+    definitions[aircraft].flags = OA_UNIT_DEF_FLAG_CAN_FLY;
+    units[aircraft].position.y = 90 * fixed;
+    definitions[floater].flags = OA_UNIT_DEF_FLAG_FLOATER;
+    definitions[none].flags = OA_UNIT_DEF_FLAG_NO_SHADOW;
+    // The frame's own materials, the decals' shadows, in rows of their own.
+    live::Scene vertices_scene;
+    live::Scene card_scene;
+    for (auto* scene : {&vertices_scene, &card_scene}) {
+        scene->texture_width = scene->texture_height = 4096;
+        scene->frame_rows = 64;
+    }
+    in.models_on_card = false;
+    OA_CHECK(live::build(in, vertices_scene, battle.error));
+    in.models_on_card = true;
+    OA_CHECK(live::build(in, card_scene, battle.error));
+    const auto& cards = card_scene.cards;
+    // A vehicle, a building's two, the unit under the water and the digger.
+    OA_CHECK(cards.casts.size() == 5);
+    OA_CHECK(cards.cast_depths == 4);
+    OA_CHECK(vertices_scene.shadow_count == 5 && card_scene.shadow_count == 5);
+    using oa::app::renderer_live_gpu::shadow_cast_cut;
+    using oa::app::renderer_live_gpu::shadow_cast_picture;
+    using oa::app::renderer_live_gpu::shadow_cast_sheared;
+    const auto& casts = cards.casts;
+    OA_CHECK(casts[0].kind == shadow_cast_picture && casts[0].light == 0.5F);
+    OA_CHECK(casts[1].kind == shadow_cast_cut && casts[1].light == 1.0F);
+    OA_CHECK(casts[2].kind == shadow_cast_sheared && casts[2].light == 0.5F);
+    OA_CHECK(casts[1].depth == casts[2].depth);
+    OA_CHECK(casts[0].depth > casts[1].depth && casts[2].depth > casts[3].depth);
+    OA_CHECK(casts[3].depth > casts[4].depth);
+    OA_CHECK(casts[0].base == 20 && casts[0].ground_half == 10);
+    OA_CHECK(casts[0].least_height < -1e30F);
+    OA_CHECK(casts[3].least_height == 4.0F);
+    OA_CHECK(casts[4].least_height == 0.0F);
+    // The picture: the body's quad alone (its triangle is a wall of the
+    // image key, the turret not cached); the silhouette: the body's quad
+    // and triangle.
+    std::vector<uint32_t> per_cast(casts.size(), 0);
+    for (const auto& run : cards.cast_runs)
+        for (uint32_t at = 0; at < run.index_count; ++at)
+            ++per_cast
+                [run.first_instance + (cards.cast_indices[run.first_index + at] >>
+                                       oa::app::renderer_live_gpu::model_corner_bits)];
+    OA_CHECK(per_cast == (std::vector<uint32_t>{6, 6, 9, 6, 6}));
+    // The aircraft's soft shadow stays a decal.
+    OA_CHECK(card_scene.vertices.size() > cards.shadow_vertex);
+    // Without the aircraft, the frame is the other's less its decals.
+    units[aircraft].position.y = 20 * fixed;
+    definitions[aircraft].flags = OA_UNIT_DEF_FLAG_NO_SHADOW;
+    in.models_on_card = false;
+    OA_CHECK(live::build(in, vertices_scene, battle.error));
+    in.models_on_card = true;
+    OA_CHECK(live::build(in, card_scene, battle.error));
+    const auto card = card_frame(card_scene).vertices;
+    const auto& all = vertices_scene.vertices;
+    const std::size_t first = card_scene.cards.shadow_vertex;
+    OA_CHECK(first == card_scene.terrain_vertex_count);
+    OA_CHECK(all.size() > card.size() && card.size() > first);
+    const auto same = [](const auto* a, const auto* b, std::size_t count) {
+        return std::memcmp(a, b, count * sizeof(oa::app::renderer_live_gpu::Vertex)) == 0;
+    };
+    OA_CHECK(same(card.data(), all.data(), first));
+    OA_CHECK(same(
+        card.data() + first, all.data() + all.size() - (card.size() - first), card.size() - first
+    ));
+    // The shadows' map spans the part of the map the frame shows.
+    const auto& shadow_map = card_scene.cards.shadow_map;
+    OA_CHECK(shadow_map.left == in.left && shadow_map.top == in.top && shadow_map.scale == 1);
+    OA_CHECK(shadow_map.width == uint32_t(in.right - in.left));
+    // Shadows off, none is cast.
+    in.graphics_flags = 0;
+    OA_CHECK(live::build(in, card_scene, battle.error));
+    OA_CHECK(card_scene.cards.casts.empty() && card_scene.shadow_count == 0);
+}
+
 /// Aircraft shadows keep their silhouette at full alpha at every altitude,
 /// soften only their edge, a pixel more high up, and receive on water at
 /// the vehicles' own shadow opacity.
@@ -4408,6 +4582,7 @@ int main() {
     ground_drawn_ahead_on_threads();
     moving_camera_comes_back_to_its_picture();
     models_on_card();
+    shadows_on_card();
     aircraft_shadow_altitude();
     aircraft_shadow_as_the_game_casts_it();
     flash_masks_and_effect_altitude();
