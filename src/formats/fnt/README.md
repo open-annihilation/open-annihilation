@@ -12,7 +12,9 @@ frame `0x49` plus two. While loading, the game also subtracts frame `0x49`'s
 height from every glyph's signed Y origin; `hattfont12` consequently changes
 from raw origin 11 to runtime origin -1. Drawing ignores control bytes,
 advances but does not draw byte `0x20`, and draws the remaining bytes as GAF
-frames, origin-aware and drawn normally.
+frames, origin-aware and drawn normally. A font `parse_gaf` reads is marked
+`gaf_backed`: its letters sit in the GUI fonts' slots, not an FNT font's, and
+the slot of a character it lacks holds the picture of frame 0, its box.
 
 Disk fonts load from `fonts\<name>.FNT`. When the language string is nonempty,
 `fonts-<language>\<name>.FNT` is kept if that file opens. The last dotted

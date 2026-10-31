@@ -119,6 +119,7 @@ Decoded<Font> parse_gaf(std::span<const uint8_t> b) {
             DecodeCode::limit_exceeded, 0, "GAF font has more than 256 glyph frames"
         };
     Font out;
+    out.gaf_backed = true;
     for (std::size_t c = 0; c < frames.size(); ++c) {
         const auto rendered = formats::gaf::render_normal(frames[c]);
         if (!rendered.ok())

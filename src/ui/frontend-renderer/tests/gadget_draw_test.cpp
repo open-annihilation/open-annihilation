@@ -162,6 +162,66 @@ void test_forget_gui_font_characters() {
     );
 }
 
+// A GUI font read as an FNT font, as the 3.1c screens read hattfont12 and
+// hattfont11, holds its box, the picture of glyph 0, in the code page slots
+// of letters it lacks. A caption with such a letter is drawn whole in the
+// modern fonts, and a letter whose slot holds the box but which the font
+// holds in the DOS code page's slot is drawn from there.
+void test_gaf_backed_fnt_font_characters() {
+    namespace draw = oa::ui::frontend_renderer;
+    constexpr char32_t c_cedilla = 0x00C7;
+    constexpr char32_t a_tilde_capital = 0x00C3;
+    constexpr char32_t a_tilde = 0x00E3;
+    constexpr char32_t o_tilde = 0x00F5;
+    constexpr char32_t a_circumflex = 0x00E2;
+    constexpr uint8_t dos_c_cedilla = 0x80;
+    // A Latin-1 letter's slot in the game's code page is its own number.
+    const auto slot = [](char32_t letter) { return static_cast<std::size_t>(letter); };
+    // A box with its last pixel clear, and a letter of another picture.
+    const oa::formats::fnt::Glyph box{2, 2, 0, -1, {6, 6, 6, 0}, {1, 1, 1, 0}};
+    const oa::formats::fnt::Glyph letter{2, 2, 0, -1, {7, 0, 7, 7}, {1, 0, 1, 1}};
+    oa::formats::fnt::Font font;
+    font.gaf_backed = true;
+    font.glyphs[0] = box;
+    for (const char32_t lacked : {c_cedilla, a_tilde, o_tilde})
+        font.glyphs[slot(lacked)] = box;
+    // The box again, with another value under its clear pixel.
+    font.glyphs[slot(a_tilde_capital)] = box;
+    font.glyphs[slot(a_tilde_capital)]->pixels[3] = 9;
+    font.glyphs[dos_c_cedilla] = letter;
+    font.glyphs[slot(a_circumflex)] = letter;
+    const auto characters = draw::fnt_font_characters(font);
+    require(
+        characters.byte_for(c_cedilla) == dos_c_cedilla,
+        "gaf-backed font characters: Ç is drawn from the DOS slot, not its box"
+    );
+    require(
+        !characters.byte_for(a_tilde) && !characters.byte_for(o_tilde),
+        "gaf-backed font characters: a letter whose slot holds the box is not the font's"
+    );
+    require(
+        !characters.byte_for(a_tilde_capital),
+        "gaf-backed font characters: what lies under the box's clear pixels does not matter"
+    );
+    require(
+        characters.byte_for(a_circumflex) == slot(a_circumflex),
+        "gaf-backed font characters: a letter of its own picture is drawn by its glyph"
+    );
+    const std::string_view options = "Op\xC3\xA7\xC3\xB5"
+                                     "es"; // Opções
+    const auto runs = oa::present::split_text(options, characters);
+    require(
+        runs.size() == 1 && runs.front().modern && runs.front().text == options,
+        "gaf-backed font characters: a caption with a letter the font lacks is drawn whole in "
+        "the modern fonts"
+    );
+    font.gaf_backed = false;
+    require(
+        draw::fnt_font_characters(font).byte_for(o_tilde) == slot(o_tilde),
+        "fnt font characters: an FNT font's glyph is its letter, whatever it shows"
+    );
+}
+
 void test_gadget_text() {
     namespace draw = oa::ui::frontend_renderer;
     TestFont font;
@@ -627,5 +687,6 @@ int main() {
     test_fnt_caption_rows();
     test_gui_font();
     test_forget_gui_font_characters();
+    test_gaf_backed_fnt_font_characters();
     return failures == 0 ? 0 : 1;
 }

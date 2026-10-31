@@ -101,6 +101,7 @@ void test_parse_fnt() {
         return;
     const auto& f = *parsed.value;
     CHECK(f.word_after_height == 0x1201);
+    CHECK(!f.gaf_backed);
     // The lift is the second word's low byte, signed.
     CHECK(oa::formats::fnt::row_lift(f) == 1);
     oa::formats::fnt::Font lowered;
@@ -206,7 +207,8 @@ void test_parse_gaf() {
     CHECK(!parsed.ok() && parsed.error.code == DecodeCode::malformed);
     CHECK(!oa::formats::fnt::parse_gaf({}).ok());
     // A glyph over 128 pixels is refused before it is decoded.
-    CHECK(oa::formats::fnt::parse_gaf(one_glyph_gaf(128)).ok());
+    const auto widest = oa::formats::fnt::parse_gaf(one_glyph_gaf(128));
+    CHECK(widest.ok() && widest.value->gaf_backed);
     const auto wide = oa::formats::fnt::parse_gaf(one_glyph_gaf(129));
     CHECK(!wide.ok() && wide.error.code == DecodeCode::out_of_range && wide.error.offset == 64);
 }

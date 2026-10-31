@@ -10,6 +10,7 @@
 #include "oa/base/text/line_break.hpp"
 #include "oa/formats/fnt.hpp"
 #include "oa/ui/decoded.hpp"
+#include "oa/ui/frontend_renderer/game_text.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -182,22 +183,6 @@ constexpr std::array<StandIn, 3> stand_ins{{
     {U'\u203a', "\xE2\x80\xBA", ">"},
     {U'\u00a0', "\xC2\xA0", " "},
 }};
-
-/// Returns the characters a GUI font draws: every glyph that is not the
-/// picture of glyph 0, the font's box for a missing character.
-///
-/// @param font the font
-/// @return the characters
-present::FontCharacters gui_characters(const oa::formats::fnt::Font& font) {
-    const auto& box = font.glyphs[0];
-    return present::FontCharacters::gui_font([&font, &box](uint8_t byte) {
-        const auto& glyph = font.glyphs[byte];
-        if (!glyph || glyph->width == 0 || glyph->height == 0)
-            return false;
-        return byte == 0 || !box || box->width != glyph->width || box->height != glyph->height ||
-               box->pixels != glyph->pixels;
-    });
-}
 
 /// The game's palette, which the GUI fonts' glyph pixels index.
 constexpr std::string_view game_palette_path = "palettes/palette.pal";
@@ -639,8 +624,8 @@ Fonts load_game_fonts(oa::AssetStore& assets) {
         oa::ui::decoded::require(oa::formats::fnt::load_gaf(assets, small_font), small_font),
         palette
     );
-    fonts.regular_characters = gui_characters(fonts.regular.font);
-    fonts.small_characters = gui_characters(fonts.small.font);
+    fonts.regular_characters = renderer::fnt_font_characters(fonts.regular.font);
+    fonts.small_characters = renderer::fnt_font_characters(fonts.small.font);
     return fonts;
 }
 

@@ -63,6 +63,20 @@ std::optional<int32_t> glyph_bottom(const formats::fnt::Font& font, unsigned cha
     return -glyph->origin_y - formats::fnt::row_lift(font) + last + 1;
 }
 
+/// Tells whether two glyphs draw the same picture: the same size, hotspot
+/// and coverage, and the same pixel wherever one is drawn.
+bool same_picture(const formats::fnt::Glyph& glyph, const formats::fnt::Glyph& other) {
+    if (glyph.width != other.width || glyph.height != other.height ||
+        glyph.origin_x != other.origin_x || glyph.origin_y != other.origin_y ||
+        glyph.coverage != other.coverage || glyph.pixels.size() != other.pixels.size())
+        return false;
+    const std::size_t drawn = std::min(glyph.coverage.size(), glyph.pixels.size());
+    for (std::size_t at = 0; at < drawn; ++at)
+        if (glyph.coverage[at] != 0 && glyph.pixels[at] != other.pixels[at])
+            return false;
+    return true;
+}
+
 } // namespace
 
 present::FontCharacters gui_font_characters(const present::GafSprites& font) {
@@ -101,6 +115,14 @@ present::TextFace gui_font_face(const present::GafSprites& font) {
 }
 
 present::FontCharacters fnt_font_characters(const formats::fnt::Font& font) {
+    if (font.gaf_backed) {
+        const auto& box = font.glyphs[0];
+        return present::FontCharacters::gui_font([&font, &box](uint8_t byte) {
+            const auto& glyph = font.glyphs[byte];
+            return glyph && glyph->width != 0 && glyph->height != 0 &&
+                   !(box && same_picture(*glyph, *box));
+        });
+    }
     return present::FontCharacters::fnt_font([&font](uint8_t byte) {
         return font.glyphs[byte].has_value() && font.glyphs[byte]->width != 0;
     });

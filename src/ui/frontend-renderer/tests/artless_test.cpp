@@ -7,6 +7,7 @@
 // placement's clip, pixel by pixel.
 
 #include "oa/ui/frontend_renderer/artless.hpp"
+#include "oa/ui/frontend_renderer/game_text.hpp"
 
 #include "oa/test/game_assets.hpp"
 #include "oa/test/game_data.hpp"
@@ -579,6 +580,26 @@ void installed_fonts_draw_as_the_game_draws_them(oa::AssetStore& assets) {
     }
 }
 
+// The installed GUI fonts, read as the 3.1c screens read them, hold their
+// box in the code page slots of ã, õ, Ã, Õ, Â, Ê, Ô, À and Ç. None of those
+// is theirs, but for Ç, which they hold in the DOS code page's slot.
+void installed_gui_fonts_lack_the_letters_they_box(oa::AssetStore& assets) {
+    constexpr std::array<char32_t, 8> boxed{
+        0x00E3, 0x00F5, 0x00C3, 0x00D5, 0x00C2, 0x00CA, 0x00D4, 0x00C0
+    };
+    constexpr char32_t c_cedilla = 0x00C7;
+    constexpr uint8_t dos_c_cedilla = 0x80;
+    constexpr char32_t a_circumflex = 0x00E2;
+    for (const std::string_view name : {"anims/hattfont12.gaf", "anims/hattfont11.gaf"}) {
+        const auto characters =
+            renderer::fnt_font_characters(fnt::load_gaf(assets, name).value.value());
+        for (const char32_t letter : boxed)
+            CHECK(!characters.byte_for(letter));
+        CHECK(characters.byte_for(c_cedilla) == dos_c_cedilla);
+        CHECK(characters.byte_for(a_circumflex) == a_circumflex);
+    }
+}
+
 } // namespace
 
 /// Returns an opaque pixel's four bytes.
@@ -690,6 +711,7 @@ int main(int argc, char** argv) {
     if (oa::test::game_data_requested(argc, argv)) {
         auto assets = oa::test::require_game_assets("the installed fonts' artless text");
         installed_fonts_draw_as_the_game_draws_them(assets);
+        installed_gui_fonts_lack_the_letters_they_box(assets);
         if (failures != 0)
             return 1;
         std::cout << "artless drawing in the installed fonts: ok\n";

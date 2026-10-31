@@ -48,7 +48,10 @@ void forget_gui_font_characters();
 /// @return the face
 [[nodiscard]] present::TextFace gui_font_face(const present::GafSprites& font);
 
-/// Gives the characters an FNT font draws: the bytes it has glyphs for.
+/// Gives the characters an FNT font draws: the bytes it has glyphs for. A
+/// GUI font read as one (formats::fnt::Font::gaf_backed) draws its GUI
+/// font's characters: every glyph that is not the picture of glyph 0, its
+/// box for a missing character.
 ///
 /// @param font the font
 /// @return the characters

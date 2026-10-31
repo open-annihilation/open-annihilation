@@ -27,7 +27,8 @@ if(BUILD_TESTING)
 
   # Drawing without the game's art: fills, blends, bevels, outlines, text
   # and marks, placed and scaled from source pixels; with --data, text in the
-  # installed game's fonts against the fonts' own drawing.
+  # installed game's fonts against the fonts' own drawing, and the letters
+  # whose slots those fonts fill with their box.
   add_executable(oa-artless-draw-test tests/artless_test.cpp)
   target_link_libraries(oa-artless-draw-test PRIVATE oa-ui-frontend-renderer oa-options oa-test-game-data)
   add_test(NAME frontend-artless-draw COMMAND oa-artless-draw-test)

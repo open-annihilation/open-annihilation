@@ -40,6 +40,10 @@ struct Font {
     // fonts hold 1, 2 or 3 in it. Zero for a GAF-backed font.
     uint16_t word_after_height = 0;
     uint16_t nominal_height = 0;
+    // True for a GUI font parse_gaf read. Its glyphs sit in the GUI fonts'
+    // slots, not an FNT font's, and a slot whose character it lacks holds
+    // the picture of glyph 0, its box.
+    bool gaf_backed = false;
     std::array<std::optional<Glyph>, limit::glyph_count> glyphs;
 };
 
@@ -60,11 +64,11 @@ struct Font {
 /// GUI font.
 ///
 /// @param bytes the whole GAF file
-/// @return the font; or an input over the size limit, an unparsable GAF (its
-///         own error code in detail), no sequence, more than 256 frames, a
-///         frame or layer over 128 pixels, refused before it is decoded, or
-///         a glyph that cannot be rendered or is over 128 pixels (the glyph
-///         number in detail)
+/// @return the font, marked gaf_backed; or an input over the size limit, an
+///         unparsable GAF (its own error code in detail), no sequence, more
+///         than 256 frames, a frame or layer over 128 pixels, refused before
+///         it is decoded, or a glyph that cannot be rendered or is over 128
+///         pixels (the glyph number in detail)
 [[nodiscard]] base::bytes::Decoded<Font> parse_gaf(std::span<const uint8_t> bytes);
 /// Reads and parses an FNT font from the game's assets.
 ///

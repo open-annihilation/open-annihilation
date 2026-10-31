@@ -209,7 +209,9 @@ text as the player's Language settings choose
 
 - `gui_font_characters` and `fnt_font_characters` give the characters a GUI
   or FNT font draws, with the byte of each glyph (a GUI font's glyph that is
-  the picture of glyph 0, its box, is none); `gui_font_baseline` and
+  the picture of glyph 0, its box, is none, in either form: the 3.1c
+  screens draw the GUI fonts as FNT fonts read from their GAF, and
+  `fnt_font_characters` reads those as GUI fonts); `gui_font_baseline` and
   `fnt_font_baseline` the rows from the pen down to the font's baseline;
   `gui_font_face` and `fnt_font_face` the modern face that stands for it.
 - `split_game_text` reads the bytes as the settings say and splits them into
