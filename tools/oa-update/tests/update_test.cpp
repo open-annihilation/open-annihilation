@@ -415,17 +415,107 @@ std::vector<uint8_t> unsafe_archive(std::string_view name, std::span<const uint8
     return out;
 }
 
-void expect_unpack_refused(const fs::path& archive, std::string_view top, const fs::path& stage) {
+void expect_unpack_refused(
+    const fs::path& archive, std::span<const std::string> tops, const fs::path& stage
+) {
     std::string error;
-    OA_CHECK(!helper::unpack_package(archive, stage, top, &error));
+    OA_CHECK(!helper::unpack_package(archive, stage, tops, &error));
     OA_CHECK(!error.empty());
     std::error_code io;
     OA_CHECK(!fs::exists(stage, io));
 }
 
+/// Writes a zip of `names`, each holding a few bytes, and returns its path.
+fs::path
+zip_of(const fs::path& folder, std::string_view file, const std::vector<std::string>& names) {
+    const std::vector<uint8_t> bytes = bytes_of("hello");
+    std::vector<zip::NewEntry> entries;
+    entries.reserve(names.size());
+    for (const std::string& name : names)
+        entries.push_back({name, bytes});
+    std::vector<uint8_t> archive;
+    zip::ZipError zip_error;
+    OA_CHECK(zip::write_archive(entries, archive, zip_error));
+    const fs::path path = folder / helper::path_from(file);
+    write_bytes(path, archive);
+    return path;
+}
+
+void the_release_spelling_of_the_top_folder_unpacks() {
+    const Scratch scratch("unpack-v");
+    const std::vector<std::string> tops = helper::top_folder_names("0.8.8", "macos-universal");
+    OA_CHECK(tops.size() == 2);
+    OA_CHECK(tops[0] == "open-annihilation-0.8.8-macos-universal");
+    OA_CHECK(tops[1] == "open-annihilation-v0.8.8-macos-universal");
+    const fs::path stage = scratch.path / "stage";
+
+    // The zips the release publishes: the version follows a v.
+    const fs::path release = zip_of(
+        scratch.path,
+        "release.zip",
+        {"open-annihilation-v0.8.8-macos-universal/LICENSE",
+         "open-annihilation-v0.8.8-macos-universal/Open Annihilation.app/Contents/Info.plist"}
+    );
+    std::string error;
+    OA_CHECK(helper::unpack_package(release, stage, tops, &error));
+    OA_CHECK(error.empty());
+    OA_CHECK(fs::is_regular_file(stage / "open-annihilation-v0.8.8-macos-universal" / "LICENSE"));
+    std::error_code removed;
+    fs::remove_all(stage, removed);
+
+    // The spelling without the v still unpacks.
+    const fs::path plain =
+        zip_of(scratch.path, "plain.zip", {"open-annihilation-0.8.8-macos-universal/LICENSE"});
+    OA_CHECK(helper::unpack_package(plain, stage, tops, &error));
+    OA_CHECK(fs::is_regular_file(stage / "open-annihilation-0.8.8-macos-universal" / "LICENSE"));
+    fs::remove_all(stage, removed);
+
+    // Both spellings in one zip are two top folders.
+    expect_unpack_refused(
+        zip_of(
+            scratch.path,
+            "both.zip",
+            {"open-annihilation-v0.8.8-macos-universal/LICENSE",
+             "open-annihilation-0.8.8-macos-universal/LICENSE"}
+        ),
+        tops,
+        stage
+    );
+    // Another version, another package, a capital V, a doubled v, a longer
+    // name that starts with the top folder's, and a file outside any folder
+    // are refused.
+    const std::vector<std::string> refused = {
+        "open-annihilation-v0.8.9-macos-universal/LICENSE",
+        "open-annihilation-v0.8.8-linux-x86_64/LICENSE",
+        "open-annihilation-V0.8.8-macos-universal/LICENSE",
+        "open-annihilation-vv0.8.8-macos-universal/LICENSE",
+        "open-annihilation-v0.8.8-macos-universal-extra/LICENSE",
+        "LICENSE",
+    };
+    for (const std::string& name : refused)
+        expect_unpack_refused(zip_of(scratch.path, "refused.zip", {name}), tops, stage);
+    expect_unpack_refused(
+        zip_of(
+            scratch.path,
+            "beside.zip",
+            {"open-annihilation-v0.8.8-macos-universal/LICENSE", "README.md"}
+        ),
+        tops,
+        stage
+    );
+    // A name that leaves the folder through `..` is still refused.
+    const fs::path link_archive = scratch.path / "link.zip";
+    write_bytes(
+        link_archive,
+        unsafe_archive("open-annihilation-v0.8.8-macos-universal/../escape", bytes_of("x"))
+    );
+    expect_unpack_refused(link_archive, tops, stage);
+}
+
 void unpacking() {
     const Scratch scratch("unpack");
     constexpr std::string_view top = "open-annihilation-0.0.2-linux-x86_64";
+    const std::vector<std::string> tops = helper::top_folder_names("0.0.2", "linux-x86_64");
     const fs::path stage = scratch.path / "stage";
     const std::vector<uint8_t> hello = bytes_of("hello");
     const std::vector<uint8_t> program = bytes_of("program");
@@ -442,7 +532,7 @@ void unpacking() {
     const fs::path good_path = scratch.path / "good.zip";
     write_bytes(good_path, good);
     std::string error;
-    OA_CHECK(helper::unpack_package(good_path, stage, top, &error));
+    OA_CHECK(helper::unpack_package(good_path, stage, tops, &error));
     const fs::path hello_path = stage / helper::path_from(std::string(top) + "/hello.txt");
     // The reader is closed before the stage is removed. Windows will not
     // remove a folder while a file in it is open, and a later refusal would
@@ -470,7 +560,7 @@ void unpacking() {
     const fs::path outside_path = scratch.path / "outside.zip";
     write_bytes(outside_path, outside);
     std::string outside_error;
-    OA_CHECK(!helper::unpack_package(outside_path, stage, top, &outside_error));
+    OA_CHECK(!helper::unpack_package(outside_path, stage, tops, &outside_error));
     OA_CHECK(outside_error.find("top folder") != std::string::npos);
     OA_CHECK(!fs::exists(stage));
 
@@ -483,12 +573,12 @@ void unpacking() {
     for (const std::string& name : slipped) {
         const fs::path archive = scratch.path / "slipped.zip";
         write_bytes(archive, unsafe_archive(name, hello));
-        expect_unpack_refused(archive, top, stage);
+        expect_unpack_refused(archive, tops, stage);
     }
     const fs::path slash_archive = scratch.path / "slash.zip";
     write_bytes(slash_archive, unsafe_archive(std::string(top) + "\\hello.txt", hello));
     std::string slash_error;
-    OA_CHECK(!helper::unpack_package(slash_archive, stage, top, &slash_error));
+    OA_CHECK(!helper::unpack_package(slash_archive, stage, tops, &slash_error));
     OA_CHECK(slash_error.find("top folder") != std::string::npos);
     OA_CHECK(!fs::exists(stage));
 }
@@ -766,6 +856,7 @@ int main() {
     plan_and_state();
     verification();
     unpacking();
+    the_release_spelling_of_the_top_folder_unpacks();
     journal();
     waiting();
     window();

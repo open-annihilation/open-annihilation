@@ -41,6 +41,14 @@ A Windows folder swap copies this program, and the libraries beside it, to
 `oa-update-running.exe` and continues from there, so the install's own
 `oa-update.exe` can be renamed.
 
+A release zip holds one top folder, named for the release and its package:
+`open-annihilation-v0.8.8-macos-universal`, as the releases spell it, or
+the same name without the `v`. The first name in the zip picks which, and
+every other name must lie in that folder. Another version, another
+package, two top folders, a link or an unsafe name refuses the zip before
+anything is unpacked. The Linux versions folder is named for the version
+without the `v`.
+
 ## The receipt
 
 `receipt.json` is begun with the outcome running as soon as the helper

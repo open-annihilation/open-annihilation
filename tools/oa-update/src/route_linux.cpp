@@ -74,11 +74,12 @@ bool real_directory(const fs::path& path) {
     return !io && fs::is_directory(status);
 }
 
-/// The version in `open-annihilation-<version>-<package>`.
+/// The version in `open-annihilation-<version>-<package>`, or in the
+/// release's own spelling, `open-annihilation-v<version>-<package>`.
 ///
 /// @param top the staged top folder's name
 /// @param package the plan's package id
-/// @return the version, or empty when the name is not that shape
+/// @return the version, without the `v`, or empty when the name is not that shape
 std::string version_from_top(std::string_view top, std::string_view package) {
     constexpr std::string_view prefix = "open-annihilation-";
     if (!top.starts_with(prefix) || !single_component(package))
@@ -86,8 +87,12 @@ std::string version_from_top(std::string_view top, std::string_view package) {
     const std::string suffix = std::string("-") + std::string(package);
     if (top.size() <= prefix.size() + suffix.size() || !top.ends_with(suffix))
         return {};
-    const std::string_view version =
+    std::string_view version =
         top.substr(prefix.size(), top.size() - prefix.size() - suffix.size());
+    // The versions folder is named as the feed names the version, so the
+    // next update finds it under that name.
+    if (version.size() > 1 && version.front() == 'v' && version[1] >= '0' && version[1] <= '9')
+        version.remove_prefix(1);
     if (!single_component(version))
         return {};
     return std::string(version);

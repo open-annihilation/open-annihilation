@@ -429,6 +429,27 @@ void a_second_update_replaces_what_the_first_kept(const fs::path& root) {
     OA_CHECK(read_text(install / "notes.txt") == "player");
 }
 
+/// The release's own zips spell the top folder with a `v`. The version's
+/// folder is still named as the feed names the version.
+void the_release_spelling_names_the_version_folder(const fs::path& root) {
+    const fs::path install = root / "install";
+    const fs::path stage = root / "stage";
+    const fs::path updates = root / "updates";
+    write_text(install / "open-annihilation", "old-game");
+    write_text(install / "LICENSE", "old-license");
+    const fs::path top = stage / "open-annihilation-v0.8.8-linux-x86_64";
+    write_text(top / "open-annihilation", "new-game");
+    write_text(top / "LICENSE", "new-license");
+
+    const update::Plan plan = linux_plan(install, "linux-x86_64", "0.8.7");
+    if (!apply_plan(plan, stage, updates))
+        return;
+    OA_CHECK(read_text(install / "versions/0.8.7/open-annihilation") == "old-game");
+    OA_CHECK(read_text(install / "versions/0.8.8/open-annihilation") == "new-game");
+    OA_CHECK(!fs::exists(install / "versions/v0.8.8"));
+    OA_CHECK(helper::utf8_of(fs::read_symlink(install / "next")) == "versions/0.8.8");
+}
+
 } // namespace
 
 void test_linux_versions_route() {
@@ -450,6 +471,10 @@ void test_linux_versions_route() {
     {
         Scratch second("linux-second");
         a_second_update_replaces_what_the_first_kept(second.path);
+    }
+    {
+        Scratch spelled("linux-v");
+        the_release_spelling_names_the_version_folder(spelled.path);
     }
 }
 

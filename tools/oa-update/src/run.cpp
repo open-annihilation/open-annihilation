@@ -782,9 +782,10 @@ int carry_out(
     if (windows_route) {
         fs::path stage;
         if (plan.route == update::Route::windows_folder) {
-            const std::string top = top_folder_name(verified.version, verified.package);
+            const std::vector<std::string> tops =
+                top_folder_names(verified.version, verified.package);
             stage = updates / std::to_string(verified.release) / "stage";
-            if (!unpack_package(request.file, stage, top, &error)) {
+            if (!unpack_package(request.file, stage, tops, &error)) {
                 log.line(error);
                 log.step(update::Step::unpack, update::StepResult::failed, error);
                 window.show(plan.title, could_not_check, 0, true);
@@ -800,9 +801,9 @@ int carry_out(
         );
     }
 
-    const std::string top = top_folder_name(verified.version, verified.package);
+    const std::vector<std::string> tops = top_folder_names(verified.version, verified.package);
     const fs::path stage = updates / std::to_string(verified.release) / "stage";
-    if (!unpack_package(request.file, stage, top, &error)) {
+    if (!unpack_package(request.file, stage, tops, &error)) {
         log.line(error);
         log.step(update::Step::unpack, update::StepResult::failed, error);
         window.show(plan.title, could_not_check, 0, true);

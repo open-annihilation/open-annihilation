@@ -7,11 +7,13 @@
 #include "oa/formats/zip/stream.hpp"
 #include "oa/update_helper/paths.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <limits>
 #include <span>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace oa::update_helper {
 namespace {
@@ -63,6 +65,16 @@ bool inside_top(std::string_view name, std::string_view top) {
     return name == top || name == prefix || name.starts_with(prefix);
 }
 
+/// The folder a zip name starts with: the text before its first slash, or
+/// the whole name when it has none.
+///
+/// @param name the entry's name
+/// @return the first part
+std::string_view first_part(std::string_view name) {
+    const std::string_view::size_type slash = name.find('/');
+    return slash == std::string_view::npos ? name : name.substr(0, slash);
+}
+
 bool recorded_refused(const zip::StreamEntry& entry) {
     if (entry.recorded_name.empty())
         return false;
@@ -93,12 +105,16 @@ void remove_stage(const fs::path& stage) {
 
 } // namespace
 
-std::string top_folder_name(std::string_view version, std::string_view package) {
-    return std::string("open-annihilation-") + std::string(version) + "-" + std::string(package);
+std::vector<std::string> top_folder_names(std::string_view version, std::string_view package) {
+    const std::string tail = std::string(version) + "-" + std::string(package);
+    return {"open-annihilation-" + tail, "open-annihilation-v" + tail};
 }
 
 bool unpack_package(
-    const fs::path& archive, const fs::path& stage, std::string_view top, std::string* error
+    const fs::path& archive,
+    const fs::path& stage,
+    std::span<const std::string> tops,
+    std::string* error
 ) {
     std::error_code size_io;
     const auto size = fs::file_size(archive, size_io);
@@ -127,7 +143,16 @@ bool unpack_package(
         return false;
     }
 
+    // The first name picks which spelling of the top folder this zip uses;
+    // every name must then lie in that one folder.
+    std::string_view top;
     for (const zip::StreamEntry& entry : directory.entries) {
+        if (top.empty()) {
+            const std::string_view first = first_part(entry.name);
+            const auto named = std::find(tops.begin(), tops.end(), first);
+            if (named != tops.end())
+                top = *named;
+        }
         if (entry.symbolic_link || entry.special_file || recorded_refused(entry) ||
             !inside_top(entry.name, top)) {
             set_error(error, "the package holds a name that is not under its top folder");

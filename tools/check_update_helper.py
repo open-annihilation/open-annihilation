@@ -32,7 +32,9 @@ NEW = {
     "two.txt": b"new-two\n",
     "three.txt": b"new-three\n",
 }
-TOP = "open-annihilation-0.0.2-linux-x86_64"
+# The release's own spelling: the version follows a v, in the zip's name and
+# in its one top folder, as every published zip has it.
+TOP = "open-annihilation-v0.0.2-linux-x86_64"
 ZIP_NAME = TOP + ".zip"
 
 
