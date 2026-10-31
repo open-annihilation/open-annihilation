@@ -342,6 +342,12 @@ struct Scene {
     /// them. None (no tiles) once a frame fits in the room it starts with.
     uint64_t terrain_room{};
     std::size_t terrain_room_tiles{};
+    /// A moving camera (Inputs::tiles_hold_while_moving) has packed the
+    /// atlas since it was last emptied: a material that finds no room left
+    /// in the rows takes a spare terrain square, or one the frame's ground
+    /// does not draw, rather than the atlas being emptied for it. A camera
+    /// that has not moved packs the atlas as it always has.
+    bool moving_packing{};
     /// The camera of the last frame built: its clip_projection and picture
     /// size, none before a frame with a picture.
     std::array<float, 12> camera_projection{};

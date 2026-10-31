@@ -25,6 +25,7 @@
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace oa::app::renderer_live_scene {
 namespace {
@@ -558,9 +559,12 @@ uint64_t material_digest(
     return digest;
 }
 
+std::optional<AtlasRect> material_square(Scene& scene, uint32_t width, uint32_t height);
+
 /// Packs palette pixels with coverage and fog, sharing identical materials
-/// (material_digest). A pass that may not pack (Pass::packing) only finds
-/// them.
+/// (material_digest), in the rows, or in a terrain square where a moving
+/// camera's frame finds the rows full (Scene::moving_packing). A pass that
+/// may not pack (Pass::packing) only finds them.
 AtlasRect material(
     Pass& pass,
     const PaletteBytes& palette,
@@ -603,14 +607,23 @@ AtlasRect material(
     pass.list.texels_packed += uint64_t{width} * height;
     if (width > scene.texture_width || height > scene.texture_height)
         throw std::runtime_error("experimental material is larger than its atlas");
-    if (scene.next_x + width > scene.texture_width) {
-        scene.next_x = 0;
-        scene.next_y += scene.row_height;
-        scene.row_height = 0;
+    uint32_t row_x = scene.next_x;
+    uint32_t row_y = scene.next_y;
+    uint32_t row_height = scene.row_height;
+    if (row_x + width > scene.texture_width) {
+        row_x = 0;
+        row_y += row_height;
+        row_height = 0;
     }
-    if (scene.next_y + height > kept_rows(scene))
-        throw AtlasFull();
-    const AtlasRect rect{scene.next_x, scene.next_y, width, height};
+    // Past the rows, a moving camera's material takes a terrain square.
+    std::optional<AtlasRect> square;
+    if (row_y + height > kept_rows(scene)) {
+        if (scene.moving_packing)
+            square = material_square(scene, width, height);
+        if (!square)
+            throw AtlasFull();
+    }
+    const AtlasRect rect{square ? square->x : row_x, square ? square->y : row_y, width, height};
     if (black)
         write_black(scene, rect, pixels, coverage, transparent, alpha_coverage);
     for (uint32_t y = 0; y < height && !black; ++y) {
@@ -653,11 +666,16 @@ AtlasRect material(
             }
         }
     }
-    scene.next_x += width;
-    scene.row_height = std::max(scene.row_height, height);
     scene.materials.emplace(digest, rect);
     scene.packed_material_area += uint64_t{width} * height;
     ++scene.texture_revision;
+    if (square) {
+        scene.atlas_update.regions.push_back({rect.x, rect.y, rect.width, rect.height});
+        return rect;
+    }
+    scene.next_x = row_x + width;
+    scene.next_y = row_y;
+    scene.row_height = std::max(row_height, height);
     note_rows(scene, scene.atlas_update.first_row, scene.atlas_update.end_row, rect);
     return rect;
 }
@@ -840,6 +858,43 @@ clip_ground_fixed(const GroundPolygon& source, bool horizontal, float edge, bool
     return result;
 }
 
+/// The squares a frame packs its terrain tiles into: full squares, unless
+/// the tiles it draws need more room than the atlas has.
+struct TerrainPlan {
+    /// Each tile key's square where any is smaller than full.
+    std::unordered_map<uint64_t, uint32_t> squares{};
+    /// The square of a tile the survey did not foresee.
+    uint32_t fallback{full_terrain_square};
+    /// The larger of the two sizes, the nearest tiles' square: full where
+    /// every tile fits.
+    uint32_t larger{full_terrain_square};
+    /// The camera is moving, or has not yet settled
+    /// (Inputs::tiles_hold_while_moving): each tile keeps any square no
+    /// more than one size smaller than its own, and a tile packed takes the
+    /// size below the larger, which it keeps however near it comes.
+    bool holding{};
+
+    /// @param key a tile key, as the terrain pass makes it
+    /// @return the edge of the square the plan gives it
+    [[nodiscard]] uint32_t square(uint64_t key) const {
+        const auto found = squares.find(key);
+        return found == squares.end() ? fallback : found->second;
+    }
+
+    /// @param key a tile key, as the terrain pass makes it
+    /// @return the edge of the least square it may keep
+    [[nodiscard]] uint32_t least(uint64_t key) const {
+        const uint32_t edge = square(key);
+        return holding ? std::max(edge / 2, smallest_terrain_square) : edge;
+    }
+
+    /// @param key a tile key, as the terrain pass makes it
+    /// @return the edge of the square to pack it into
+    [[nodiscard]] uint32_t packed(uint64_t key) const {
+        return holding ? std::max(larger / 2, smallest_terrain_square) : square(key);
+    }
+};
+
 /// @return the spare squares of a terrain square's edge
 ///     (Scene::spare_terrain_squares)
 std::vector<AtlasRect>& spare_terrain_squares(Scene& scene, uint32_t edge) {
@@ -887,8 +942,11 @@ split_parent(Scene& scene, const AtlasRect& square) {
 ///     down to smallest_terrain_square
 /// @param rows whether a full square may be taken from the rows; otherwise
 ///     only spare squares are
+/// @param left_rows the rows a square from the rows leaves the other
+///     materials at least
 /// @return the square, or none when there is no room left for it
-std::optional<AtlasRect> take_terrain_square(Scene& scene, uint32_t edge, bool rows) {
+std::optional<AtlasRect>
+take_terrain_square(Scene& scene, uint32_t edge, bool rows, uint32_t left_rows = 0) {
     auto& spare = spare_terrain_squares(scene, edge);
     if (!spare.empty()) {
         const auto square = spare.back();
@@ -911,14 +969,14 @@ std::optional<AtlasRect> take_terrain_square(Scene& scene, uint32_t edge, bool r
             y += row_height;
             row_height = 0;
         }
-        if (y + full_terrain_square > kept_rows(scene))
+        if (y + full_terrain_square + left_rows > kept_rows(scene))
             return std::nullopt;
         scene.next_x = x + full_terrain_square;
         scene.next_y = y;
         scene.row_height = std::max(row_height, full_terrain_square);
         return AtlasRect{x, y, full_terrain_square, full_terrain_square};
     }
-    const auto parent = take_terrain_square(scene, edge * 2, rows);
+    const auto parent = take_terrain_square(scene, edge * 2, rows, left_rows);
     if (!parent)
         return std::nullopt;
     // Every quarter but the first is spare.
@@ -990,6 +1048,108 @@ bool drop_terrain_materials(Scene& scene, uint64_t since) {
     return dropped;
 }
 
+/// How a moving camera's ground finds room for its tiles in the atlas
+/// (terrain_square), when it replaces the kept ground: every tile it draws
+/// is marked drawn by it before any is packed, so that any other tile may
+/// give its square back; then tiles held in larger squares than the moving
+/// camera packs them into give theirs back, to be packed again at that
+/// size, before the terrain takes rows, which it leaves the other
+/// materials while it can.
+struct MovingRoom {
+    const TerrainPlan& plan;
+    std::span<const uint64_t> tiles; ///< the ground's tile keys, in the order it draws them
+    std::size_t next_tile{};         ///< the next of them that may give its square back
+    /// The tiles that gave their squares back, to be packed again.
+    std::vector<uint64_t> unpacked{};
+    uint32_t material_rows{}; ///< the atlas rows left to the other materials
+};
+
+/// Gives back the square of the next tile of a moving camera's ground held
+/// in a larger square than the moving camera packs it into, for it to be
+/// packed again at that size (MovingRoom::unpacked).
+///
+/// @param[in,out] scene the terrain materials and spare squares
+/// @param[in,out] room the ground's tiles
+/// @return true when a tile gave its square back
+bool unpack_larger_tile(Scene& scene, MovingRoom& room) {
+    while (room.next_tile < room.tiles.size()) {
+        const uint64_t key = room.tiles[room.next_tile++];
+        const auto cached = scene.terrain_materials.find(key);
+        if (cached == scene.terrain_materials.end() ||
+            cached->second.rectangle.width <= room.plan.packed(key))
+            continue;
+        give_back_terrain_square(scene, cached->second.rectangle);
+        scene.terrain_materials.erase(cached);
+        room.unpacked.push_back(key);
+        return true;
+    }
+    return false;
+}
+
+/// Takes whole spare terrain squares side by side, a block of them, from
+/// the first spare square that is the block's top left corner.
+///
+/// @param[in,out] scene the spare squares
+/// @param across the squares across
+/// @param down the squares down
+/// @return the block, or none
+std::optional<AtlasRect> take_spare_block(Scene& scene, uint32_t across, uint32_t down) {
+    auto& spare = spare_terrain_squares(scene, full_terrain_square);
+    const auto place = [](uint32_t x, uint32_t y) { return (uint64_t{x} << 32) | y; };
+    std::unordered_set<uint64_t> spare_places;
+    for (const auto& square : spare)
+        spare_places.insert(place(square.x, square.y));
+    for (const auto& corner : spare) {
+        bool whole = true;
+        for (uint32_t row = 0; row < down && whole; ++row)
+            for (uint32_t column = 0; column < across && whole; ++column)
+                whole = spare_places.contains(place(
+                    corner.x + column * full_terrain_square, corner.y + row * full_terrain_square
+                ));
+        if (!whole)
+            continue;
+        const AtlasRect block{
+            corner.x, corner.y, across * full_terrain_square, down * full_terrain_square
+        };
+        std::erase_if(spare, [&](const AtlasRect& square) {
+            return square.x >= block.x && square.x < block.x + block.width && square.y >= block.y &&
+                   square.y < block.y + block.height;
+        });
+        return block;
+    }
+    return std::nullopt;
+}
+
+/// Takes terrain squares for a material that finds the rows full while the
+/// camera moves (Scene::moving_packing): a spare square large enough, or a
+/// block of whole spare squares side by side for a larger material, or the
+/// same given back by the tiles the frame's ground, the last terrain pass,
+/// does not draw. They hold the material until the atlas is emptied.
+///
+/// @param[in,out] scene the spare squares and terrain materials
+/// @param width the material's width
+/// @param height its height
+/// @return the square or block, or none when there is none for it
+std::optional<AtlasRect> material_square(Scene& scene, uint32_t width, uint32_t height) {
+    const uint32_t size = std::max(width, height);
+    const auto take = [&]() -> std::optional<AtlasRect> {
+        if (size > full_terrain_square)
+            return take_spare_block(
+                scene,
+                (width + full_terrain_square - 1) / full_terrain_square,
+                (height + full_terrain_square - 1) / full_terrain_square
+            );
+        uint32_t edge = smallest_terrain_square;
+        while (edge < size)
+            edge *= 2;
+        return take_terrain_square(scene, edge, false);
+    };
+    auto square = take();
+    if (!square && drop_terrain_materials(scene, scene.terrain_passes))
+        square = take();
+    return square;
+}
+
 /// Takes a square of the atlas for a terrain material (take_terrain_square),
 /// keeping the rows for the other materials while the terrain can make room
 /// of its own: a spare square; else one given back by the tiles neither this
@@ -997,23 +1157,34 @@ bool drop_terrain_materials(Scene& scene, uint64_t since) {
 /// given back by the tiles this pass has not drawn yet. The frame draws none
 /// of the tiles that give their squares back, nor does the kept ground,
 /// which this pass draws again; none gives its square back while a kept
-/// ground may still be taken (Scene::ground_kept).
+/// ground may still be taken (Scene::ground_kept). A moving camera's
+/// ground (MovingRoom) drops every tile it does not draw, then makes room
+/// by packing its tiles held in larger squares again at the moving
+/// camera's size, before it takes rows, and leaves the other materials
+/// rows while it can.
 ///
 /// @param[in,out] scene the atlas, its spare squares and the terrain
 ///     materials
 /// @param edge the square's edge
+/// @param moving how a moving camera's ground finds room; none for a
+///     settled camera's
 /// @return the square
 /// @throws AtlasFull when the atlas has no room left for it
-AtlasRect terrain_square(Scene& scene, uint32_t edge) {
+AtlasRect terrain_square(Scene& scene, uint32_t edge, MovingRoom* moving) {
     const uint64_t pass = scene.terrain_passes;
     auto square = take_terrain_square(scene, edge, false);
-    // Tiles drawn by neither pass cannot be drawn by this one until it ends.
+    // Tiles drawn by neither pass cannot be drawn by this one until it ends;
+    // a moving camera's ground has marked every tile it draws.
     if (!square && !scene.ground_kept && scene.stale_terrain_dropped != pass) {
         scene.stale_terrain_dropped = pass;
-        if (drop_terrain_materials(scene, pass - 1))
+        if (drop_terrain_materials(scene, moving ? pass : pass - 1))
             square = take_terrain_square(scene, edge, false);
     }
+    while (!square && moving && unpack_larger_tile(scene, *moving))
+        square = take_terrain_square(scene, edge, false);
     if (!square)
+        square = take_terrain_square(scene, edge, true, moving ? moving->material_rows : 0);
+    if (!square && moving)
         square = take_terrain_square(scene, edge, true);
     if (!square && !scene.ground_kept && drop_terrain_materials(scene, pass))
         square = take_terrain_square(scene, edge, true);
@@ -1033,6 +1204,7 @@ AtlasRect terrain_square(Scene& scene, uint32_t edge) {
 /// @param pixels the tile's palette indices
 /// @param fog black for undiscovered ground
 /// @param edge the square's edge, full_terrain_square or smaller
+/// @param moving how a moving camera's ground finds room (terrain_square)
 /// @return the square, whose top left levels are edge / 2 pixels wide
 AtlasRect terrain_material(
     Scene& scene,
@@ -1040,11 +1212,12 @@ AtlasRect terrain_material(
     const PaletteBytes& grey,
     std::span<const uint8_t> pixels,
     Fog fog,
-    uint32_t edge = full_terrain_square
+    uint32_t edge = full_terrain_square,
+    MovingRoom* moving = nullptr
 ) {
     bench_timers::count_terrain_square();
     const std::array cursor{scene.next_x, scene.next_y};
-    const AtlasRect rect = terrain_square(scene, edge);
+    const AtlasRect rect = terrain_square(scene, edge, moving);
     const uint32_t detail = rect.width / 2;
     const auto pixel_at = [&](uint32_t x, uint32_t y) {
         return scene.texture_rgba.data() +
@@ -1115,43 +1288,6 @@ AtlasRect terrain_material(
     note_rows(scene, scene.atlas_update.first_row, scene.atlas_update.end_row, rect);
     return rect;
 }
-
-/// The squares a frame packs its terrain tiles into: full squares, unless
-/// the tiles it draws need more room than the atlas has.
-struct TerrainPlan {
-    /// Each tile key's square where any is smaller than full.
-    std::unordered_map<uint64_t, uint32_t> squares{};
-    /// The square of a tile the survey did not foresee.
-    uint32_t fallback{full_terrain_square};
-    /// The larger of the two sizes, the nearest tiles' square: full where
-    /// every tile fits.
-    uint32_t larger{full_terrain_square};
-    /// The camera is moving, or has not yet settled
-    /// (Inputs::tiles_hold_while_moving): each tile keeps any square no
-    /// more than one size smaller than its own, and a tile packed takes the
-    /// size below the larger, which it keeps however near it comes.
-    bool holding{};
-
-    /// @param key a tile key, as the terrain pass makes it
-    /// @return the edge of the square the plan gives it
-    [[nodiscard]] uint32_t square(uint64_t key) const {
-        const auto found = squares.find(key);
-        return found == squares.end() ? fallback : found->second;
-    }
-
-    /// @param key a tile key, as the terrain pass makes it
-    /// @return the edge of the least square it may keep
-    [[nodiscard]] uint32_t least(uint64_t key) const {
-        const uint32_t edge = square(key);
-        return holding ? std::max(edge / 2, smallest_terrain_square) : edge;
-    }
-
-    /// @param key a tile key, as the terrain pass makes it
-    /// @return the edge of the square to pack it into
-    [[nodiscard]] uint32_t packed(uint64_t key) const {
-        return holding ? std::max(larger / 2, smallest_terrain_square) : square(key);
-    }
-};
 
 /// One terrain tile a frame draws, and how near the camera it comes.
 struct TileDemand {
@@ -2302,13 +2438,15 @@ void draw_ground_band(const GroundDraw& draw, GroundBand& band, bool timing) {
 ///
 /// The tiles are taken in the order the ground first draws them, each as
 /// PackingTiles::tile takes it: still packed in a large enough square from
-/// the same art, or packed now. The atlas then holds what drawing the
-/// ground row after row leaves it holding.
+/// the same art, or packed now. For a settled camera the atlas then holds
+/// what drawing the ground row after row leaves it holding. A moving
+/// camera's ground (MovingRoom) marks its tiles drawn first.
 ///
 /// @param in the frame
 /// @param[in,out] scene the atlas and terrain materials
 /// @param plan the square of each tile
 /// @param[in,out] bands the ground's bands, drawn
+/// @param moving the ground is a moving camera's, which replaces the kept ground
 /// @param[out] vertices the ground's vertices; what it held before is
 ///     overwritten in place
 /// @return each tile key drawn, with its square
@@ -2317,6 +2455,7 @@ std::vector<std::pair<uint64_t, AtlasRect>> pack_ground_tiles(
     Scene& scene,
     const TerrainPlan& plan,
     std::span<GroundBand> bands,
+    bool moving,
     std::vector<Vertex>& vertices
 ) {
     const auto& art = in.map->tile_palette_indices;
@@ -2328,6 +2467,15 @@ std::vector<std::pair<uint64_t, AtlasRect>> pack_ground_tiles(
         for (const uint64_t key : band.tiles)
             if (squares.emplace(key, AtlasRect{}).second)
                 order.push_back(key);
+    std::optional<MovingRoom> room;
+    if (moving) {
+        room.emplace(MovingRoom{plan, order});
+        room->material_rows = static_cast<uint32_t>(least_material_room / scene.texture_width);
+        for (const uint64_t key : order)
+            if (const auto cached = scene.terrain_materials.find(key);
+                cached != scene.terrain_materials.end())
+                cached->second.drawn = scene.terrain_passes;
+    }
     const auto pack = [&](uint64_t key) {
         const auto pixels =
             std::span(art).subspan(static_cast<std::size_t>(key / 3) * tile_bytes, tile_bytes);
@@ -2341,7 +2489,13 @@ std::vector<std::pair<uint64_t, AtlasRect>> pack_ground_tiles(
                 scene.terrain_materials.erase(cached);
             }
             const auto rectangle = terrain_material(
-                scene, *in.palette, scene.terrain_grey_palette, pixels, fog, plan.packed(key)
+                scene,
+                *in.palette,
+                scene.terrain_grey_palette,
+                pixels,
+                fog,
+                plan.packed(key),
+                room ? &*room : nullptr
             );
             if (scene.terrain_materials.size() >= maximum_cached_tiles && !scene.ground_kept)
                 drop_terrain_materials(scene, scene.terrain_passes);
@@ -2356,6 +2510,11 @@ std::vector<std::pair<uint64_t, AtlasRect>> pack_ground_tiles(
     };
     for (const uint64_t key : order)
         pack(key);
+    // Tiles that gave their squares back after they were packed are packed
+    // again, at the size a moving camera packs them.
+    for (std::size_t index = 0; room && index < room->unpacked.size(); ++index)
+        if (!scene.terrain_materials.contains(room->unpacked[index]))
+            pack(room->unpacked[index]);
     // Every vertex placed in its tile's square and listed, each band on a
     // drawing thread of its own.
     const auto atlas_width = scene.texture_width;
@@ -2405,13 +2564,15 @@ std::vector<std::pair<uint64_t, AtlasRect>> pack_ground_tiles(
 /// @param draw what the ground is drawn from, with the crop, the picture and
 ///     the margin it is drawn for
 /// @param[out] vertices where the ground is listed
+/// @param moving the ground is a moving camera's (pack_ground_tiles)
 /// @return each tile key drawn, with its square
 std::vector<std::pair<uint64_t, AtlasRect>> draw_ground(
     const Inputs& in,
     Scene& scene,
     const TerrainPlan& plan,
     const GroundDraw& draw,
-    std::vector<Vertex>& vertices
+    std::vector<Vertex>& vertices,
+    bool moving
 ) {
     ++scene.terrain_passes;
     auto& bands = scene.ground_bands;
@@ -2435,7 +2596,7 @@ std::vector<std::pair<uint64_t, AtlasRect>> draw_ground(
         );
         return {tiles.tiles().begin(), tiles.tiles().end()};
     }
-    return pack_ground_tiles(in, scene, plan, bands, vertices);
+    return pack_ground_tiles(in, scene, plan, bands, moving, vertices);
 }
 
 /// The frames the ground drawn ahead of a moving camera (GroundAhead) is
@@ -2550,7 +2711,7 @@ void take_ground_ahead(const Inputs& in, Scene& scene, const TerrainPlan& plan) 
     ++scene.terrain_passes;
     scene.ground_kept = false;
     scene.ground_revision = new_ground_revision();
-    auto drawn = pack_ground_tiles(in, scene, plan, ahead.bands, scene.ground_vertices);
+    auto drawn = pack_ground_tiles(in, scene, plan, ahead.bands, true, scene.ground_vertices);
     source.crop = ahead.source.crop;
     source.clip_projection = ahead.source.clip_projection;
     source.clip_width = ahead.source.clip_width;
@@ -2675,11 +2836,12 @@ bool terrain(
     source.clip_height = in.clip_height;
     source.picture_margin = margin;
     if (margin == 0 && !(same_source && (drawn_before || camera_still))) {
-        draw_ground(in, scene, plan, ground_draw(source), scene.vertices);
+        draw_ground(in, scene, plan, ground_draw(source), scene.vertices, moving);
         scene.terrain_vertex_count = scene.vertices.size();
         return false;
     }
-    scene.ground_tiles = draw_ground(in, scene, plan, ground_draw(source), scene.ground_vertices);
+    scene.ground_tiles =
+        draw_ground(in, scene, plan, ground_draw(source), scene.ground_vertices, moving);
     scene.ground_kept = true;
     scene.kept_ground_revision = scene.ground_revision;
     scene.terrain_vertex_count = scene.ground_vertices.size();
@@ -6066,6 +6228,9 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         scene.camera_width = inputs.clip_width;
         scene.camera_height = inputs.clip_height;
         const bool holding = inputs.tiles_hold_while_moving && scene.camera_settling_frames != 0;
+        // Once a moving camera has packed the atlas, it holds what no
+        // settled camera's would until it is next emptied.
+        scene.moving_packing = scene.moving_packing || holding;
         // The terrain takes the atlas at its largest, less room for the other
         // materials: in full squares while every tile it draws fits so, and
         // otherwise the tiles nearest the camera in the larger squares that fit.
@@ -6194,6 +6359,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 step *= 2;
             } catch (const AtlasFull&) {
                 scene.ground_ahead.active = false;
+                scene.moving_packing = holding;
                 bench_timers::count_atlas_emptied();
                 if (++attempt == attempts)
                     throw;
