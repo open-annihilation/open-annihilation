@@ -693,6 +693,10 @@ void Runtime::destroy_match_layer_textures() {
         match_hud_tex_ = nullptr;
     }
     match_world_tex_.reset();
+    if (turned_world_tex_ != nullptr)
+        SDL_DestroyTexture(turned_world_tex_);
+    turned_world_tex_ = nullptr;
+    turned_world_source_ = nullptr;
     if (match_cursor_tex_ != nullptr) {
         SDL_DestroyTexture(match_cursor_tex_);
         match_cursor_tex_ = nullptr;
@@ -930,21 +934,26 @@ void Runtime::present_match_layers() {
         match_hud_tex_w_,
         match_hud_tex_h_
     );
-    match_world_tex_.ensure(
-        sdl_.renderer,
-        frame_format,
-        static_cast<int>(match_world_cpu_.width),
-        static_cast<int>(match_world_cpu_.height),
-        render_texture_limit(),
-        SDL_BLENDMODE_NONE
-    );
     const auto upload_start = std::chrono::steady_clock::now();
+    // A turned frame the card keeps is drawn from the card, with what was
+    // painted over it added there; any other battlefield is uploaded.
+    SDL_Texture* const card_world = compose_turned_overlay();
+    if (card_world == nullptr)
+        match_world_tex_.ensure(
+            sdl_.renderer,
+            frame_format,
+            static_cast<int>(match_world_cpu_.width),
+            static_cast<int>(match_world_cpu_.height),
+            render_texture_limit(),
+            SDL_BLENDMODE_NONE
+        );
     upload_rgb24_frame(
         match_hud_tex_, match_hud_cpu_, accelerated_.hud_revision, &spare_match_hud_
     );
-    upload_rgb24_tiles(
-        match_world_tex_, match_world_cpu_, gamma_identity_ ? nullptr : &gamma_table_
-    );
+    if (card_world == nullptr)
+        upload_rgb24_tiles(
+            match_world_tex_, match_world_cpu_, gamma_identity_ ? nullptr : &gamma_table_
+        );
     const auto present_start = std::chrono::steady_clock::now();
     phase_times_.upload += elapsed_since(upload_start);
     // The clear is the blank fill for strip area beyond the chrome's largest
@@ -955,8 +964,12 @@ void Runtime::present_match_layers() {
     // refuses leaves it NEAREST.
     if (!SDL_SetTextureScaleMode(match_hud_tex_, scaled_frame_mode_))
         std::ignore = SDL_SetTextureScaleMode(match_hud_tex_, SDL_SCALEMODE_NEAREST);
-    if (!match_world_tex_.set_scale_mode(scaled_frame_mode_))
+    if (card_world != nullptr) {
+        if (!SDL_SetTextureScaleMode(card_world, scaled_frame_mode_))
+            std::ignore = SDL_SetTextureScaleMode(card_world, SDL_SCALEMODE_NEAREST);
+    } else if (!match_world_tex_.set_scale_mode(scaled_frame_mode_)) {
         std::ignore = match_world_tex_.set_scale_mode(SDL_SCALEMODE_NEAREST);
+    }
     // In placed mode the HUD's pieces are drawn after the world
     // (finish_match_layers).
     if (!oa::ui::display_layout::placed_mode(match_layout_))
@@ -984,7 +997,10 @@ void Runtime::present_match_layers() {
         static_cast<float>(match_world_cpu_.width),
         static_cast<float>(match_world_cpu_.height)
     };
-    match_world_tex_.draw(sdl_.renderer, nullptr, &world);
+    if (card_world == nullptr)
+        match_world_tex_.draw(sdl_.renderer, nullptr, &world);
+    else if (!SDL_RenderTexture(sdl_.renderer, card_world, nullptr, &world))
+        throw_present_error("SDL_RenderTexture");
     finish_match_layers(frame_format, dialogs, upload_start, present_start);
     // Once the frame is presented the textures go back to NEAREST, as the
     // accelerated tier draws them.
@@ -1358,8 +1374,24 @@ void Runtime::render() {
     // before the frame is composed; the memory guard may drop it first.
     update_render_tier();
     watch_accelerated_memory();
+    // The window presents a turned view through the card's device.
+    follow_card_presentation();
     const auto compose_start = std::chrono::steady_clock::now();
-    rebuild_surface();
+    {
+        // What this frame draws is drawn to be presented.
+        struct Presenting {
+            bool& flag;
+
+            explicit Presenting(bool& presenting) : flag(presenting) { flag = true; }
+
+            Presenting(const Presenting&) = delete;
+            Presenting& operator=(const Presenting&) = delete;
+
+            ~Presenting() { flag = false; }
+        } presenting{presenting_frame_};
+
+        rebuild_surface();
+    }
     const auto composed = elapsed_since(compose_start);
     phase_times_.compose += composed;
     frame_pacing::note_frame_measure(

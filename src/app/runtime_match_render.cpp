@@ -2999,6 +2999,18 @@ bool Runtime::draw_match_surface() {
 }
 
 void Runtime::compose_shown_match(renderer::Surface& frame) {
+    // A turned frame the card kept: its picture read back with what was
+    // painted over it added on the processor, as the processor's frame
+    // would have held it.
+    if (turned_overlay_painted()) {
+        renderer::Surface world;
+        if (turned_picture(world)) {
+            std::swap(match_world_cpu_, world);
+            compose_match_layers(frame);
+            std::swap(match_world_cpu_, world);
+            return;
+        }
+    }
     // The card drew the battlefield, or magnified the processor's scene,
     // into a picture the world layer does not hold: that picture is read
     // back. Any other frame presented the world layer as it stands, the

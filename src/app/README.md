@@ -3035,7 +3035,30 @@ prompts, Settings › Updates and the headers name one state with one size.
   layer is the overlay canvas, cleared to a key colour, the lowest
   0xRRGGBB not in the palette (`overlay_key_colour`), and
   `convert_rgb24_keyed_overlay_argb` makes the overlay of it by that key,
-  opaque exactly where the painters painted, in the same bands. The
+  opaque exactly where the painters painted, in the same bands. The turned
+  3D view in the game's window keeps its picture on the graphics card
+  (`renderer_live_gpu::Context::keep_on_card`): the processor waits for
+  nothing and reads nothing back; the world layer is an overlay canvas
+  cleared to the same key, and where the painters would have read the
+  picture under it, a blend (`paint_world_blend`) or a line of text's
+  shadow, outline and letters (`match_text_canvas`), they record what they
+  would have done to it (`renderer_live_overlay.hpp`). At presentation the
+  card adds the canvas and the recorded operations to its picture, each
+  pixel in whole levels as the painters paint it, a line of text reduced to
+  the palette once its operations are made, then the display gamma
+  (`renderer_live_gpu::compose_overlay`, `live_overlay_fragment.glsl`), and
+  the window draws the result where it drew the uploaded world layer. A
+  painter that reads the picture otherwise, the kill board's shade levels,
+  a faded paint and the terrain debug views, takes the picture back first
+  (`take_turned_picture`): read back and composed with what was painted so
+  far on the processor (`renderer_live_overlay::compose`), the rest of the
+  frame is the processor's, as is a screenshot's or a film frame's
+  (`compose_shown_match`). `app-renderer-live-overlay` holds the canvas and
+  the operations to `blend_rect` and `lay_text` painting on the picture
+  itself, `app-renderer-live-gpu` the card's composition to the
+  processor's, and `native-live-renderer` draws every turned frame it checks
+  both ways and finds them the same through the display gamma
+  (`draw_turned_frame_both_ways`). The
   Runtime keeps a [job pool](../platform/job-pool/README.md)
   (`draw_pool_`) that this conversion, the terrain fill, the fog, the
   battlefield's draws (`world_draws.hpp`), the effects' light and heat
@@ -3650,6 +3673,14 @@ prompts, Settings › Updates and the headers name one state with one size.
   records cleanly at every exit through `main` (`finish_records`).
   `walk_rebuild_drivers` and `RendererHost::rebuild` make the renderer
   again after a failure, striking it against the driver that failed;
+  `RendererHost::card_device` is the graphics device the turned 3D view
+  draws on (SDL 3.4 and later, behind a Metal, Direct3D 11 or 12 or Vulkan
+  renderer), and while the view shows the window presents through it
+  (`present_on_card`, `present_walked`, `Runtime::follow_card_presentation`):
+  SDL's GPU renderer made on that device in place of the walked driver's,
+  whose facts, tier and records stay as they were, so that the card's
+  picture reaches the window with nothing read back; every texture made on
+  the renderer goes at each change, as after a device reset;
   `RenderFaultHooks` are what `--check-renderer-ladder` forces, among them
   the machine's memory, how a left-over trial counts and the name the
   records keep the renderer under.

@@ -267,7 +267,7 @@ void Runtime::teardown_match() {
     offline_services_.clear_match();
     offline_services_.set_on_screen_test(nullptr, nullptr);
     effect_boundary_.clock = nullptr;
-    live_renderer_.reset();
+    release_live_renderer();
     reset_match_effect_sources();
     match_.reset();
     // A pause the window's absence held goes with its match; whether the

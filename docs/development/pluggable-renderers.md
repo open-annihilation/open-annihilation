@@ -317,9 +317,18 @@ Windows the preview needs a Vulkan driver. On a Mac, Vulkan through a translatio
 MoltenVK runs the SPIR-V for testing:
 `SDL_GPU_DRIVER=vulkan SDL_VULKAN_LIBRARY=/opt/homebrew/lib/libvulkan.1.dylib`.
 It reuses its device,
-pipeline, atlas and frame buffers, but each frame waits for GPU readback and
-uploads the result through the existing presentation path. Performance is
-provisional. The live path omits the unused classic battlefield raster, and
+pipeline, atlas and frame buffers. In the game's window the picture stays on
+the card: while the view shows, the window presents through SDL's GPU
+renderer made on the device the view draws on (SDL 3.4 and later, where the
+window's own renderer is Metal, Direct3D 11 or 12 or Vulkan), the processor
+paints the selection, health bars, text and the rest over the battlefield on
+an overlay canvas, and the card adds the canvas, and what the painters would
+have done to the picture under it, before the window draws it. Nothing is
+read back and the processor does not wait for the card. A check, a director,
+a screenshot, a film frame and a painter that reads the picture in a way the
+card does not make read the frame back as before; so does a window whose
+renderer is OpenGL or SDL's software renderer, or an SDL before 3.4.
+Performance is provisional. The live path omits the unused classic battlefield raster, and
 adds its lights on the card; where the card cannot, the processor's
 visibility raster visits only the rows and columns the effects reach.
 Zooming out reduces fog subdivision, merges planar terrain cells, and fades

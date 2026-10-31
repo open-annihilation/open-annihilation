@@ -24,6 +24,9 @@ void Runtime::draw_live_overlays() {
     const bool debug = game.debug_overlay != oa::present::world_renderer::debug_view::off ||
                        (console_ && console_->state.contour_values[0] != 0);
     if (debug) {
+        // The annotations are dimmed against what they cover: a frame left
+        // on the card comes back first.
+        take_turned_picture();
         auto& models = match_models();
         const int32_t width = static_cast<int32_t>(match_world_cpu_.width);
         const int32_t height = static_cast<int32_t>(match_world_cpu_.height);

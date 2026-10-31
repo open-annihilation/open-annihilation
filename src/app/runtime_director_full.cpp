@@ -126,7 +126,7 @@ void Runtime::close_director_card(DirectorState& state) noexcept {
     // The live renderer that drew turned frames holds a device of its own
     // on SDL's video, which goes before the video stops.
     if (state.live_turned)
-        live_renderer_.reset();
+        release_live_renderer();
     state.live_turned = false;
     if (card.renderer != nullptr) {
         if (full_)

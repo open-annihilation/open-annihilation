@@ -9,10 +9,16 @@
 #include "match_models.hpp"
 #include "engine_settings_state.hpp"
 #include "renderer_effects.hpp"
+#include "graphics_report.hpp"
+#include "render_host.hpp"
+#include "render_run.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_live_gpu.hpp"
+#include "renderer_live_overlay.hpp"
 #include "renderer_live_scene.hpp"
 #include "renderer_water_surface.hpp"
+#include "xrgb_conversion.hpp"
+#include "oa/platform/job_pool.hpp"
 #include "oa/sim/unit_movement/terrain.hpp"
 
 #include <algorithm>
@@ -49,6 +55,7 @@ struct Runtime::LiveRenderer {
     renderer_live_camera::View view{};
     bool pivot_held{};
     renderer_live_scene::Scene scene{};
+    bool scene_built{}; ///< the last frame's scene was built
     renderer_live_gpu::Context gpu{};
     std::vector<uint8_t> rgba{};
     std::vector<std::array<float, 3>> projected{};
@@ -97,10 +104,326 @@ struct Runtime::LiveRenderer {
     };
 
     VisibilityLists visibility_lists{};
+
+    /// What the processor paints over a turned frame the card keeps
+    /// (renderer_live_overlay.hpp): the battlefield layer is the overlay
+    /// canvas, cleared to the key, and over it the operations the painters
+    /// would have made on the picture.
+    struct Overlay {
+        /// The frame drawn last left its picture on the card, and the
+        /// battlefield layer holds its canvas; until the next frame's
+        /// drawing, for what reads the frame in memory after it shows.
+        bool painted{};
+        std::array<uint8_t, 3> key{};
+        std::vector<renderer_live_overlay::Operation> operations{};
+        uint32_t lines{}; ///< lines of text laid on the canvas
+        /// What the card is given, kept so that once grown a frame
+        /// allocates nothing.
+        renderer_live_overlay::Packed packed{};
+        std::vector<uint8_t> words{};
+        std::vector<uint8_t> bands{};
+    };
+
+    Overlay overlay{};
 };
 
 void Runtime::destroy_live_renderer(LiveRenderer* renderer) noexcept {
     delete renderer;
+}
+
+Runtime::LiveRenderer& Runtime::ensure_live_renderer() {
+    if (!live_renderer_) {
+        live_renderer_.reset(new LiveRenderer{});
+        // A turned view in the game's window draws on the device the window
+        // can present through; a check, a director or a headless run draws
+        // on a device of its own and reads its pictures back.
+        if (render_run_ && render_run_->host != nullptr && sdl_.window != nullptr &&
+            director_ == nullptr && !options_.headless_check)
+            live_renderer_->gpu.shared_device = render_run_->host->card_device();
+    }
+    return *live_renderer_;
+}
+
+void Runtime::release_live_renderer() noexcept {
+    // The window's texture shows the card's, which goes with the renderer.
+    if (turned_world_tex_ != nullptr)
+        SDL_DestroyTexture(turned_world_tex_);
+    turned_world_tex_ = nullptr;
+    turned_world_source_ = nullptr;
+    live_renderer_.reset();
+}
+
+void Runtime::follow_card_presentation() {
+    if (!render_run_ || render_run_->host == nullptr || sdl_.window == nullptr ||
+        render_run_->device_lost)
+        return;
+    auto& host = *render_run_->host;
+    const bool wanted =
+        !card_presentation_refused_ && director_ == nullptr && !options_.headless_check &&
+        screen_ == Screen::match && match_ && live_renderer_active() && !live_renderer_failed() &&
+        live_renderer_->gpu.shared_device != nullptr && !live_renderer_->gpu.device_unavailable;
+    if (wanted == host.presenting_on_card())
+        return;
+    // Every texture made on the renderer goes with it, and each is made
+    // again as it is drawn, as after a device reset.
+    forget_render_textures();
+    sdl_.renderer = nullptr;
+    std::string error;
+    if (!wanted) {
+        host.present_walked();
+    } else if (!host.present_on_card(error)) {
+        card_presentation_refused_ = true;
+        std::cout << graphics_log_prefix << "the 3D view's pictures are read back: " << error
+                  << '\n'
+                  << std::flush;
+    }
+    sdl_.renderer = host.renderer();
+    // A new renderer waits for the display only once it is asked to.
+    vertical_sync_in_effect_ = false;
+    apply_vertical_sync();
+    apply_output_mode();
+}
+
+bool Runtime::turned_overlay_painted() const noexcept {
+    return live_renderer_ && live_renderer_->overlay.painted;
+}
+
+bool Runtime::paints_turned_overlay() {
+    return turned_overlay_painted() && &paint_target() == &match_world_cpu_;
+}
+
+std::size_t Runtime::turned_overlay_operation_count() const noexcept {
+    return live_renderer_ ? live_renderer_->overlay.operations.size() : 0;
+}
+
+std::array<uint8_t, 3> Runtime::turned_overlay_key() const noexcept {
+    return live_renderer_ ? live_renderer_->overlay.key : std::array<uint8_t, 3>{};
+}
+
+void Runtime::note_turned_operation(const renderer_live_overlay::Operation& operation) {
+    if (turned_overlay_painted())
+        live_renderer_->overlay.operations.push_back(operation);
+}
+
+void Runtime::begin_turned_text_line() noexcept {
+    if (turned_overlay_painted())
+        ++live_renderer_->overlay.lines;
+}
+
+void Runtime::note_turned_text_run(const oa::present::TextWorldRun& run) {
+    if (!turned_overlay_painted())
+        return;
+    namespace overlay = renderer_live_overlay;
+    const overlay::Kind kind =
+        run.layer == oa::present::TextWorldLayer::shadow    ? overlay::Kind::shadow
+        : run.layer == oa::present::TextWorldLayer::outline ? overlay::Kind::outline
+                                                            : overlay::Kind::letter;
+    auto& held = live_renderer_->overlay;
+    held.operations.push_back(
+        {run.x, run.y, run.width, 1, kind, run.color, run.coverage, held.lines}
+    );
+}
+
+bool Runtime::turned_picture(renderer::Surface& world) {
+    if (!turned_overlay_painted())
+        return false;
+    auto& live = *live_renderer_;
+    std::string error;
+    if (renderer_live_gpu::read_picture(live.gpu, live.rgba, error) !=
+        renderer_live_gpu::Result::success) {
+        std::cerr << "3D view: " << error << '\n';
+        return false;
+    }
+    const uint32_t width = match_world_cpu_.width;
+    const uint32_t height = match_world_cpu_.height;
+    if (live.rgba.size() != std::size_t{width} * height * 4 ||
+        match_world_cpu_.rgb.size() != std::size_t{width} * height * 3)
+        return false;
+    world.width = width;
+    world.height = height;
+    world.rgb.resize(std::size_t{width} * height * 3);
+    for (std::size_t pixel = 0; pixel < world.rgb.size() / 3; ++pixel)
+        std::copy_n(live.rgba.data() + pixel * 4, 3, world.rgb.data() + pixel * 3);
+    const bool palette = match_palette_ != oa::PaletteBytes{};
+    renderer_live_overlay::compose(
+        world.rgb,
+        width,
+        height,
+        match_world_cpu_.rgb,
+        live.overlay.key,
+        live.overlay.operations,
+        palette ? std::span<const uint8_t>(match_palette_) : std::span<const uint8_t>{}
+    );
+    return true;
+}
+
+void Runtime::take_turned_picture() {
+    if (!turned_overlay_painted())
+        return;
+    renderer::Surface world;
+    const bool read = turned_picture(world);
+    live_renderer_->overlay.painted = false;
+    if (read) {
+        match_world_cpu_.rgb = std::move(world.rgb);
+        return;
+    }
+    // A picture that cannot be read back leaves the frame's battlefield as
+    // the painters left it, the key where they painted nothing.
+}
+
+bool Runtime::send_turned_overlay(std::string& error) {
+    auto& live = *live_renderer_;
+    auto& held = live.overlay;
+    const uint32_t width = match_world_cpu_.width;
+    const uint32_t height = match_world_cpu_.height;
+    held.words.resize(std::size_t{width} * height * 4);
+    held.bands.assign(platform::job_pool::bands_of_rows(height, xrgb_band_rows), 0);
+    convert_rgb24_keyed_overlay_argb(
+        match_world_cpu_.rgb.data(),
+        held.key,
+        width,
+        height,
+        held.words.data(),
+        std::size_t{width} * 4,
+        nullptr,
+        held.bands,
+        draw_pool_.get()
+    );
+    renderer_live_overlay::pack(held.operations, width, height, held.packed);
+    const bool palette = match_palette_ != oa::PaletteBytes{};
+    const renderer_live_gpu::Overlay painted{
+        held.words,
+        held.bands,
+        xrgb_band_rows,
+        &held.packed,
+        palette ? std::span<const uint8_t>(match_palette_) : std::span<const uint8_t>{},
+        gamma_identity_ ? nullptr : &gamma_table_
+    };
+    return renderer_live_gpu::compose_overlay(live.gpu, painted, error) ==
+           renderer_live_gpu::Result::success;
+}
+
+SDL_Texture* Runtime::compose_turned_overlay() {
+    if (!turned_overlay_painted() || sdl_.renderer == nullptr)
+        return nullptr;
+    auto& live = *live_renderer_;
+    using bench_timers::Span;
+    using bench_timers::Stage;
+    const Span timed(Stage::card_overlay);
+    const uint32_t width = match_world_cpu_.width;
+    const uint32_t height = match_world_cpu_.height;
+    std::string error;
+    SDL_GPUTexture* composed =
+        send_turned_overlay(error) ? renderer_live_gpu::composed(live.gpu) : nullptr;
+#if SDL_VERSION_ATLEAST(3, 4, 0)
+    if (composed != nullptr && (turned_world_tex_ == nullptr || turned_world_source_ != composed ||
+                                turned_world_tex_->w != static_cast<int>(width) ||
+                                turned_world_tex_->h != static_cast<int>(height))) {
+        if (turned_world_tex_ != nullptr)
+            SDL_DestroyTexture(turned_world_tex_);
+        turned_world_source_ = nullptr;
+        // The card's own texture, drawn by the window's renderer on the
+        // device it was made on: RGBA8, opaque, one texel a pixel.
+        const SDL_PropertiesID properties = SDL_CreateProperties();
+        SDL_SetNumberProperty(
+            properties, SDL_PROP_TEXTURE_CREATE_FORMAT_NUMBER, SDL_PIXELFORMAT_RGBA32
+        );
+        SDL_SetNumberProperty(
+            properties, SDL_PROP_TEXTURE_CREATE_ACCESS_NUMBER, SDL_TEXTUREACCESS_STATIC
+        );
+        SDL_SetNumberProperty(properties, SDL_PROP_TEXTURE_CREATE_WIDTH_NUMBER, width);
+        SDL_SetNumberProperty(properties, SDL_PROP_TEXTURE_CREATE_HEIGHT_NUMBER, height);
+        SDL_SetPointerProperty(properties, SDL_PROP_TEXTURE_CREATE_GPU_TEXTURE_POINTER, composed);
+        turned_world_tex_ = SDL_CreateTextureWithProperties(sdl_.renderer, properties);
+        SDL_DestroyProperties(properties);
+        if (turned_world_tex_ != nullptr &&
+            (!SDL_SetTextureBlendMode(turned_world_tex_, SDL_BLENDMODE_NONE) ||
+             !SDL_SetTextureScaleMode(turned_world_tex_, SDL_SCALEMODE_NEAREST))) {
+            SDL_DestroyTexture(turned_world_tex_);
+            turned_world_tex_ = nullptr;
+        }
+        if (turned_world_tex_ == nullptr)
+            error = std::string("the window cannot draw the card's picture: ") + SDL_GetError();
+        else
+            turned_world_source_ = composed;
+    }
+#else
+    composed = nullptr;
+    error = "the window draws the card's pictures with SDL 3.4 or later";
+#endif
+    if (composed != nullptr && turned_world_tex_ != nullptr)
+        return turned_world_tex_;
+    std::cout << graphics_log_prefix << "the 3D view's pictures are read back: " << error << '\n'
+              << std::flush;
+    // The frame is presented as the processor's, read back, and so is
+    // every frame after it: the window goes back to the walked renderer.
+    card_presentation_refused_ = true;
+    take_turned_picture();
+    return nullptr;
+}
+
+std::string Runtime::draw_turned_frame_both_ways() {
+    // What a frame counts as it draws, which the frame's +stats show, and
+    // the resource readout's easing are counted afresh for the second
+    // drawing.
+    const auto counted = frame_draws_;
+    const auto eases = readout_eases_;
+    render_match_surface();
+    if (!live_renderer_active() || live_renderer_failed() || !live_renderer_->scene_built)
+        return {};
+    const renderer::Surface expected = match_world_cpu_;
+    frame_draws_ = counted;
+    readout_eases_ = eases;
+    turned_overlay_checked_ = true;
+    try {
+        render_match_surface();
+    } catch (...) {
+        turned_overlay_checked_ = false;
+        throw;
+    }
+    turned_overlay_checked_ = false;
+    auto& live = *live_renderer_;
+    // What the window shows of the frame: the card's picture with the
+    // overlay, or, where a painter took the picture back, the battlefield
+    // layer; each through the display gamma.
+    std::vector<uint8_t> shown;
+    const bool on_card = live.overlay.painted;
+    std::string error;
+    if (on_card &&
+        (!send_turned_overlay(error) || renderer_live_gpu::read_composed(live.gpu, shown, error) !=
+                                            renderer_live_gpu::Result::success)) {
+        live.overlay.painted = false;
+        match_world_cpu_ = expected;
+        return "the card did not add the overlay: " + error;
+    }
+    const auto shade = [&](uint8_t level) { return gamma_identity_ ? level : gamma_table_[level]; };
+    const std::size_t pixels = std::size_t{expected.width} * expected.height;
+    std::size_t differing = 0;
+    std::size_t first = 0;
+    if ((on_card && shown.size() != pixels * 4) ||
+        (!on_card && match_world_cpu_.rgb.size() != expected.rgb.size()))
+        differing = pixels;
+    else
+        for (std::size_t pixel = 0; pixel < pixels; ++pixel)
+            for (std::size_t channel = 0; channel < 3; ++channel) {
+                const uint8_t want = shade(expected.rgb[pixel * 3 + channel]);
+                const uint8_t got = on_card ? shown[pixel * 4 + channel]
+                                            : shade(match_world_cpu_.rgb[pixel * 3 + channel]);
+                if (want != got) {
+                    if (differing == 0)
+                        first = pixel;
+                    ++differing;
+                    break;
+                }
+            }
+    live.overlay.painted = false;
+    match_world_cpu_ = expected;
+    if (differing == 0)
+        return {};
+    return std::to_string(differing) + " of " + std::to_string(pixels) +
+           " pixels differ, the first at " + std::to_string(first % expected.width) + "," +
+           std::to_string(first / expected.width) +
+           (on_card ? " on the card" : " in the picture taken back");
 }
 
 bool Runtime::live_renderer_active() const noexcept {
@@ -113,8 +436,7 @@ bool Runtime::live_renderer_active() const noexcept {
 }
 
 bool Runtime::turn_live_camera(float yaw_degrees, float pitch_degrees) {
-    if (!live_renderer_)
-        live_renderer_.reset(new LiveRenderer{});
+    ensure_live_renderer();
     auto& live = *live_renderer_;
     live.camera.yaw_degrees = yaw_degrees;
     live.camera.pitch_degrees = pitch_degrees;
@@ -195,8 +517,7 @@ bool Runtime::answer_live_view_key(std::string_view action) {
     // keys.
     if (match_question_open() || chat_composing_ || whiteboard_input_.editing || match_paused_)
         return false;
-    if (!live_renderer_)
-        live_renderer_.reset(new LiveRenderer{});
+    ensure_live_renderer();
     if (action == "camera.classic-view") {
         reset_live_renderer();
         return true;
@@ -228,8 +549,7 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         }
         return false;
     }
-    if (!live_renderer_)
-        live_renderer_.reset(new LiveRenderer{});
+    ensure_live_renderer();
     auto& live = *live_renderer_;
     if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
         live.dragging = false;
@@ -361,11 +681,13 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
 }
 
 bool Runtime::render_live_match_surface() {
+    // The overlay the last frame painted goes with it.
+    if (live_renderer_)
+        live_renderer_->overlay.painted = false;
     if ((!engine_settings().allow_full_3d && !director_draws_on_card()) || !match_ ||
         !selected_tnt_)
         return true;
-    if (!live_renderer_)
-        live_renderer_.reset(new LiveRenderer{});
+    ensure_live_renderer();
     auto& live = *live_renderer_;
     if (live.match != match_.get()) {
         live.scene = {};
@@ -413,6 +735,16 @@ bool Runtime::render_live_match_surface() {
     using bench_timers::Span;
     using bench_timers::Stage;
     const Span live_total(Stage::live_total);
+    // The picture the last frame drew, read back, which a frame left on the
+    // card leaves on the card: a frame that needs more room than the
+    // renderer has shows it again.
+    const auto last_picture_read = [&] {
+        std::string unread;
+        if (renderer_live_gpu::read_picture(live.gpu, live.rgba, unread) !=
+            renderer_live_gpu::Result::success)
+            live.rgba.clear();
+        return live.rgba.size() == match_world_cpu_.rgb.size() / 3 * 4;
+    };
     if (live_renderer_active() && !live.failed) {
         auto& models = match_models();
         renderer_live_scene::Inputs inputs{};
@@ -498,7 +830,12 @@ bool Runtime::render_live_match_surface() {
         }
         std::string error;
         Span building(Stage::scene_build);
-        const bool built = renderer_live_scene::build(inputs, live.scene, error);
+        // A frame a check draws again on the card takes the scene drawn
+        // last, unchanged, so that the frames after it are as they would be.
+        const bool built = turned_overlay_checked_
+                               ? live.scene_built
+                               : renderer_live_scene::build(inputs, live.scene, error);
+        live.scene_built = built;
         building.stop();
         bench_timers::note_scene(
             {static_cast<double>(live.scene.vertices.size()),
@@ -533,6 +870,16 @@ bool Runtime::render_live_match_surface() {
             lights, match_effect_settings(), static_cast<double>(match_->simulation().tick) / 30.0
         };
         lighting.stop();
+        // A frame drawn to be presented, in a window that presents through
+        // the device the card draws on, stays on the card: the painters
+        // paint the overlay canvas and the card adds it as the window
+        // presents the frame. Any other frame is read back.
+        live.gpu.keep_on_card =
+            (presenting_frame_ && match_use_layers_ && director_ == nullptr &&
+             !options_.headless_check && render_run_ && render_run_->host != nullptr &&
+             render_run_->host->presenting_on_card() &&
+             sdl_.renderer == render_run_->host->renderer()) ||
+            turned_overlay_checked_;
         Span drawing(Stage::gpu_total);
         const auto result = built ? renderer_live_gpu::render(
                                         live.gpu,
@@ -562,7 +909,18 @@ bool Runtime::render_live_match_surface() {
                                last.camera.pitch_degrees == live.camera.pitch_degrees &&
                                last.place == place && last.zoom == zoom);
         live.went_back = false;
-        if (result == renderer_live_gpu::Result::success) {
+        if (result == renderer_live_gpu::Result::success && live.gpu.kept_on_card) {
+            live.drawn = {true, live.camera, live.view, place, zoom, view_hold_};
+            live.out_of_room = false;
+            // The battlefield layer is the overlay canvas, cleared to the key
+            // colour; the card holds the picture with its lights.
+            auto& overlay = live.overlay;
+            overlay.painted = true;
+            overlay.key = full_overlay_key();
+            overlay.operations.clear();
+            overlay.lines = 0;
+            fill_rgb24(match_world_cpu_.rgb.data(), match_world_cpu_.rgb.size() / 3, overlay.key);
+        } else if (result == renderer_live_gpu::Result::success) {
             live.drawn = {true, live.camera, live.view, place, zoom, view_hold_};
             live.out_of_room = false;
             Span copying(Stage::rgb_copy);
@@ -589,7 +947,7 @@ bool Runtime::render_live_match_surface() {
             }
         } else if (
             !built && live.scene.out_of_room && last.held && director_ == nullptr &&
-            (!at_last || live.rgba.size() == match_world_cpu_.rgb.size() / 3 * 4)
+            (!at_last || last_picture_read())
         ) {
             // A frame that needs more room than the renderer has is no
             // failure of the card: the view goes back to the last camera

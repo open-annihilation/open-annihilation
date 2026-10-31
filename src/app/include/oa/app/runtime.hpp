@@ -143,6 +143,10 @@ namespace oa::app::renderer_effect_events {
 class Capture;
 } // namespace oa::app::renderer_effect_events
 
+namespace oa::app::renderer_live_overlay {
+struct Operation;
+} // namespace oa::app::renderer_live_overlay
+
 namespace oa::present::model {
 struct RgbBridge;
 struct RgbFrame;
@@ -8261,6 +8265,88 @@ class Runtime final : public menu::Host,
     ///         battlefield the classic raster left out; the view is then
     ///         classic again, and the frame must be drawn again
     [[nodiscard]] bool render_live_match_surface();
+    /// Makes the live renderer where there is none, drawing on the device
+    /// the window can present through (RendererHost::card_device) where
+    /// there is one, so that its pictures need not be read back.
+    /// @return the live renderer
+    LiveRenderer& ensure_live_renderer();
+    /// Releases the live renderer, its device's textures with it, and the
+    /// window's texture of its picture.
+    void release_live_renderer() noexcept;
+    /// Makes the window present through the card's device while the turned
+    /// 3D view shows in a window, and through the renderer the walk made
+    /// otherwise (RendererHost::present_on_card, present_walked), at the
+    /// start of a frame: every texture made on the renderer goes first and
+    /// each is made again as it is drawn. Where the window cannot present
+    /// through the device the turned view reads its pictures back, as it
+    /// always has, for the rest of the run.
+    void follow_card_presentation();
+    /// Tells whether the frame being drawn left its turned picture on the
+    /// card, its world layer the overlay canvas the painters paint
+    /// (renderer_live_overlay.hpp), which the card adds to the picture as it
+    /// presents it.
+    /// @return true from the turned frame's drawing until the next frame's
+    [[nodiscard]] bool turned_overlay_painted() const noexcept;
+    /// Tells whether the paint target is the overlay canvas of a turned
+    /// frame on the card (turned_overlay_painted): the battlefield layer.
+    /// Over it a painter that would blend the picture under it records the
+    /// blend (paint_world_blend) and text records what it would do to the
+    /// picture (match_text_canvas); a painter that would read the picture
+    /// otherwise takes it back first (take_turned_picture).
+    /// @return true while painting that canvas
+    [[nodiscard]] bool paints_turned_overlay();
+    /// Returns the colour the turned frame's overlay canvas is cleared to.
+    /// @return the key colour, red, green and blue
+    [[nodiscard]] std::array<uint8_t, 3> turned_overlay_key() const noexcept;
+    /// Notes an operation on the turned frame's picture under the overlay
+    /// canvas, for the card to make where the canvas holds its key.
+    /// @param operation the operation, in the canvas's pixels
+    void note_turned_operation(const renderer_live_overlay::Operation& operation);
+    /// Starts a line of text laid on the turned frame's overlay canvas:
+    /// the runs noted after it are the line's (note_turned_text_run).
+    void begin_turned_text_line() noexcept;
+    /// Notes a run of see-through pixels of a line of text laid on the
+    /// turned frame's overlay canvas, for the card to make on the picture.
+    /// @param run the run, in the canvas's pixels
+    void note_turned_text_run(const oa::present::TextWorldRun& run);
+    /// Reads the turned frame's picture back from the card and adds what
+    /// has been painted over it so far, as the painters would have painted
+    /// it there (renderer_live_overlay::compose), into the battlefield
+    /// layer, which the rest of the frame paints and presents as the
+    /// processor's: for a painter that reads the picture under it in ways
+    /// the card does not make. Nothing where the frame is not on the card.
+    void take_turned_picture();
+    /// Gives the battlefield the turned frame on the card shows, the
+    /// picture read back with the overlay added on the processor, for what
+    /// needs the frame in memory, as a screenshot does.
+    /// @param[out] world the battlefield's pixels, before the display gamma
+    /// @return false where the last frame was not on the card or cannot be read
+    [[nodiscard]] bool turned_picture(renderer::Surface& world);
+    /// Sends the turned frame's overlay to the card, which adds it to the
+    /// picture it keeps (renderer_live_gpu::compose_overlay).
+    /// @param[out] error why it could not
+    /// @return true when the card took it
+    bool send_turned_overlay(std::string& error);
+    /// Draws the match's frame (render_match_surface) and, where it is
+    /// turned, draws it again from the same scene, left on the card with its
+    /// overlay, and compares the two, pixel by pixel, through the display
+    /// gamma: what the window shows of a turned frame on the card must be
+    /// what it showed of the processor's frame. Leaves the battlefield layer
+    /// the processor's frame. For the checks.
+    /// @return the differences found; empty for none
+    [[nodiscard]] std::string draw_turned_frame_both_ways();
+    /// Returns the operations on the picture the last turned frame on the
+    /// card's painters made, for the checks.
+    /// @return the operations
+    [[nodiscard]] std::size_t turned_overlay_operation_count() const noexcept;
+    /// Has the card add the overlay to the turned frame's picture it keeps
+    /// (renderer_live_gpu::compose_overlay), for the window's renderer, made
+    /// on the same device, to draw at the battlefield's place. Where the card
+    /// or the window cannot, the picture is taken back (take_turned_picture),
+    /// for the battlefield layer to be presented as the processor's.
+    /// @return the window's texture of the frame; null where the picture was
+    ///     taken back, or the frame is not on the card
+    SDL_Texture* compose_turned_overlay();
     /// Presentation-only effect history, independent of the active renderer.
     struct MatchEffects;
     /// Observes transient events after a simulation tick without changing the match.
@@ -20842,6 +20928,21 @@ class Runtime final : public menu::Host,
     std::vector<oa::ui::hud::HealthBar> drawn_health_bars_{};
     SDL_Texture* match_hud_tex_ = nullptr;
     TiledTexture match_world_tex_;
+    /// The window's texture of the turned frame the card composed
+    /// (renderer_live_gpu::composed), made on the device it was drawn on;
+    /// null until a turned frame on the card is presented.
+    SDL_Texture* turned_world_tex_ = nullptr;
+    /// The card's texture the window's texture shows.
+    const void* turned_world_source_ = nullptr;
+    /// The frame being drawn is drawn to be presented (render), not for a
+    /// check, a poster or a picture in memory.
+    bool presenting_frame_ = false;
+    /// The window cannot present through the card's device in this run, so
+    /// the turned view reads its pictures back.
+    bool card_presentation_refused_ = false;
+    /// A check draws the turned frame on the card without a window to
+    /// present it (draw_turned_frame_both_ways).
+    bool turned_overlay_checked_ = false;
     SDL_Texture* match_cursor_tex_ = nullptr;
     int match_hud_tex_w_ = 0, match_hud_tex_h_ = 0;
     SDL_Texture* match_dialog_side_tex_ = nullptr; // match_dialog_side_

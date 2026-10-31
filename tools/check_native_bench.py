@@ -61,7 +61,7 @@ STAGES = (
     "overlays(draw_live_overlays)", "ds_setup", "ds_hud(compose_match_hud)",
     "ds_plan(draw list)", "ds_post(fog,bars)", "ds_live(render_live_match_surface)",
     "ds_after(megamap,hud text)", "ov_selection", "ov_unit_overlays", "ov_on_screen_units",
-    "cursor_pick", "  effect_visibility",
+    "cursor_pick", "  effect_visibility", "overlay_on_card",
 )
 MEASURES = ("frame", "work", "sim(per frame)", "draw", "present")
 NUMBER = r"(\d+(?:\.\d+)?)"

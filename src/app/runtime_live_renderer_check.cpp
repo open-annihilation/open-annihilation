@@ -112,9 +112,16 @@ int Runtime::check_live_renderer() {
         // Console echoes are transient interface messages, not battlefield
         // changes; keep them out of frozen-frame comparisons.
         oa::sim::messages::clear_messages(match_->state().game);
-        render_match_surface();
+        // Every turned frame is drawn again on the card, its overlay added
+        // there, and shows what the processor's frame shows.
+        const auto differences = draw_turned_frame_both_ways();
         require(match_->fault() == nullptr, "rendering raised a simulation fault");
         require(!match_world_cpu_.rgb.empty(), "Skirmish produced an empty world picture");
+        if (!differences.empty())
+            throw std::runtime_error(
+                "live renderer check: the turned frame on the card is not the processor's: " +
+                differences
+            );
         return match_world_cpu_;
     };
     // A key goes in as the event loop takes it: with the place a keyboard
@@ -238,6 +245,28 @@ int Runtime::check_live_renderer() {
         return unavailable_exit;
     }
     require(!live_renderer_failed(), "the live GPU frame failed");
+    // Text over the turned battlefield in the modern fonts, a message's
+    // line and the frame statistics' panel over its shaded backdrop: their
+    // letters' edges, outlines and shadows and the backdrop's blend reach the
+    // picture under the overlay canvas, which the card makes as the
+    // painters would have made them on the picture.
+    {
+        auto& text = engine_settings_->current;
+        const bool modern = text.modern_fonts;
+        text.modern_fonts = true;
+        frame_stats_shown_ = true;
+        post_match_message("Fusion Reactor: Under Attack", oa::sim::messages::kind_status);
+        const auto differences = draw_turned_frame_both_ways();
+        const auto operations = turned_overlay_operation_count();
+        frame_stats_shown_ = false;
+        text.modern_fonts = modern;
+        oa::sim::messages::clear_messages(match_->state().game);
+        if (!differences.empty())
+            throw std::runtime_error(
+                "live renderer check: text on the card is not the processor's: " + differences
+            );
+        require(operations > 0, "no text or blend over the turned battlefield reached its picture");
+    }
     require(live_renderer_vertex_count() != 0, "the live frame contained no world geometry");
     save_picture("rotated.png", rotated);
     require(

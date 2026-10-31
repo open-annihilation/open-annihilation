@@ -55,6 +55,7 @@ enum class Stage : uint8_t {
     on_screen_units,   ///< rebuild_on_screen_units
     cursor_pick,       ///< the pointer's pick of the unit under it
     effect_visibility, ///< the depth the effects test their lights against, on the processor
+    card_overlay,      ///< the overlay of a turned frame on the card, sent for the card to add
     count
 };
 
@@ -103,7 +104,8 @@ inline constexpr std::array<StageName, stage_count> stage_names{
      {"ov_unit_overlays", false},
      {"ov_on_screen_units", false},
      {"cursor_pick", false},
-     {"effect_visibility", true}}
+     {"effect_visibility", true},
+     {"overlay_on_card", false}}
 };
 
 /// What the timers have summed since they were last cleared.
