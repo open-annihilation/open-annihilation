@@ -8115,7 +8115,11 @@ class Runtime final : public menu::Host,
     /// Picks the ground beneath a frame point in the rotated view as orders
     /// and placement take it, as a classic pick gives it: the whole map
     /// pixel the drawn terrain is hit in (live_ground_hit), at the
-    /// simulation's terrain height there, never below the sea.
+    /// simulation's terrain height there, never below the sea. The rotated
+    /// view draws the ground past the map's shown edges too; a point there
+    /// takes the ground the classic pick sees at the nearest shown map pixel
+    /// (gameplay_input::ground_point_on_shown_map), as ground_point_under
+    /// holds a point in a view past the map's edges.
     /// @param x frame column in pixels
     /// @param y frame row in pixels
     /// @return fixed-point world position, or no terrain intersection

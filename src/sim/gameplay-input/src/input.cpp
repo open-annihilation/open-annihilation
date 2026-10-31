@@ -147,6 +147,29 @@ formats::objects3d::FixedVector3 drag_box_corner(
     return {fixed(map_x), 0, fixed(projected_z)};
 }
 
+formats::objects3d::FixedVector3 ground_point_on_shown_map(
+    const sim::unit_movement::Terrain& terrain,
+    const formats::objects3d::FixedVector3& point,
+    int32_t shown_width,
+    int32_t shown_height,
+    int32_t map_width,
+    int32_t map_height
+) {
+    if (shown_width <= 0 || shown_height <= 0)
+        return point;
+    const int32_t column = point.x >> 16;
+    const int32_t row = (point.z >> 16) - ((point.y >> 16) >> 1);
+    if (column >= 0 && column < shown_width && row >= 0 && row < shown_height)
+        return point;
+    return terrain_intersection(
+        terrain,
+        std::clamp(column, 0, shown_width - 1),
+        std::clamp(row, 0, shown_height - 1),
+        map_width,
+        map_height
+    );
+}
+
 bool footprint_within_shown_map(
     int32_t cell_x,
     int32_t cell_z,

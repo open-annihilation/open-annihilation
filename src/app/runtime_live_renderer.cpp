@@ -676,9 +676,18 @@ std::optional<oa::sim::ground_orders::Point> Runtime::live_ground_point(float x,
     const int32_t map_z = whole((*hit)[2]);
     const oa::sim::unit_movement::Terrain terrain(*selected_tnt_);
     const int32_t height = std::max<int32_t>(terrain.sea_level(), terrain.height(map_x, map_z));
-    return oa::sim::ground_orders::Point{
-        map_x, std::bit_cast<int32_t>(static_cast<uint32_t>(height) << 16U), map_z
-    };
+    // The pick reaches no further past the map's shown edges than the
+    // classic one: the turned view draws the ground there, 3.1c's view never.
+    const auto [shown_width, shown_height] = shown_map_size();
+    const auto held = oa::sim::gameplay_input::ground_point_on_shown_map(
+        terrain,
+        {map_x, std::bit_cast<int32_t>(static_cast<uint32_t>(height) << 16U), map_z},
+        shown_width,
+        shown_height,
+        static_cast<int32_t>(selected_tnt_->attribute_width * 16U),
+        static_cast<int32_t>(selected_tnt_->attribute_height * 16U)
+    );
+    return oa::sim::ground_orders::Point{held.x, held.y, held.z};
 }
 
 std::optional<oa::sim::ground_orders::Point> Runtime::live_ground_hit(float x, float y) const {

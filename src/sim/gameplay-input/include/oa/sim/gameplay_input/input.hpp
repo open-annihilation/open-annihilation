@@ -118,6 +118,30 @@ hit_candidates(std::span<const PickUnit> units, const Camera& camera, ScreenPoin
     int32_t map_height,
     bool past_edges
 );
+/// Holds a ground point a turned view's pick found to the map the view
+/// shows, as the classic pick holds its point: a point drawn within the
+/// shown map stands; one drawn past it takes the terrain point seen at the
+/// nearest shown map pixel (terrain_intersection). A point is drawn at its
+/// column, and at its row less half its height, rounded down. So a pick
+/// reaches no further past the map's edges than 3.1c's, whose view never
+/// shows past them.
+///
+/// @param terrain height and sea level queries
+/// @param point the ground point the pick found, 16.16 world coordinates
+/// @param shown_width the shown map's width, whole units; 0 or less, with
+///        no shown map known, holds nothing
+/// @param shown_height the shown map's height, whole units; likewise
+/// @param map_width map width, whole units
+/// @param map_height map height, whole units
+/// @return the point, 16.16 world coordinates
+[[nodiscard]] formats::objects3d::FixedVector3 ground_point_on_shown_map(
+    const sim::unit_movement::Terrain& terrain,
+    const formats::objects3d::FixedVector3& point,
+    int32_t shown_width,
+    int32_t shown_height,
+    int32_t map_width,
+    int32_t map_height
+);
 /// Tells whether a building's footprint lies within the map the view shows,
 /// as the local player's build cursor requires of a site.
 ///

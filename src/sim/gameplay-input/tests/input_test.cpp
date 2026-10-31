@@ -78,6 +78,39 @@ int main() {
     const auto sizeless = drag_box_corner(terrain, -40, 60, 0, 128, true);
     OA_CHECK(sizeless.x == 0 && sizeless.y == 0 && sizeless.z == 0);
 
+    // A turned view's pick held to a shown map of 32 by 64 map pixels: a
+    // point drawn within it stands, its row less half its height (here 10).
+    const auto same = [](const oa::formats::objects3d::FixedVector3& a,
+                         const oa::formats::objects3d::FixedVector3& b) {
+        return a.x == b.x && a.y == b.y && a.z == b.z;
+    };
+    const auto point = [](int32_t x, int32_t height, int32_t z) {
+        return oa::formats::objects3d::FixedVector3{x * 65536, height * 65536, z * 65536};
+    };
+    const auto on_shown = [&](const oa::formats::objects3d::FixedVector3& found) {
+        return ground_point_on_shown_map(terrain, found, 32, 64, 64, 128);
+    };
+    OA_CHECK(same(on_shown(point(10, 20, 50)), point(10, 20, 50)));
+    // Drawn on the last shown row, row 63, it stands; drawn a row past it,
+    // or further, it takes the ground the classic pick sees on that row.
+    OA_CHECK(same(on_shown(point(10, 20, 73)), point(10, 20, 73)));
+    const auto last_row = terrain_intersection(terrain, 10, 63, 64, 128);
+    OA_CHECK(same(last_row, point(10, 20, 73)));
+    OA_CHECK(same(on_shown(point(10, 20, 74)), last_row));
+    OA_CHECK(same(on_shown(point(10, 20, 120)), last_row));
+    // Its height counts: drawn 50 rows up, ground at row 100 is shown.
+    OA_CHECK(same(on_shown(point(10, 100, 100)), point(10, 100, 100)));
+    // Past the right edge it takes the last shown column, and above or left
+    // of the map the first shown pixel.
+    OA_CHECK(same(on_shown(point(40, 20, 50)), terrain_intersection(terrain, 31, 40, 64, 128)));
+    OA_CHECK(same(on_shown(point(32, 20, 50)), terrain_intersection(terrain, 31, 40, 64, 128)));
+    OA_CHECK(same(on_shown(point(31, 20, 50)), point(31, 20, 50)));
+    OA_CHECK(same(on_shown(point(-5, 20, 5)), terrain_intersection(terrain, 0, 0, 64, 128)));
+    // With no shown map known the point stands.
+    OA_CHECK(same(
+        ground_point_on_shown_map(terrain, point(40, 20, 120), 0, 64, 64, 128), point(40, 20, 120)
+    ));
+
     // Footprints against a shown map of 6368 by 6272 map pixels, a 400-cell
     // square map's less its hidden edges. A 4-cell building at height 42 is
     // drawn 21 rows up: over rows 388 to 391 it lies within the map, over
