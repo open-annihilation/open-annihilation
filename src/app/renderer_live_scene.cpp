@@ -63,10 +63,6 @@ constexpr uint8_t all_quarters = 0b1111;
 /// it, and a battle brings more into view.
 constexpr uint64_t least_material_room = uint64_t{maximum_atlas_edge} * maximum_atlas_edge / 16;
 
-/// The share of the atlas's rows a moving camera's terrain leaves the
-/// other materials while it can make room of its own (MovingRoom): they
-/// keep coming as the battle goes on, and the rows are theirs alone.
-constexpr uint32_t moving_material_row_share = 4;
 /// A moving camera's ground packed in the frame that takes it that finds
 /// the atlas pressed, or that takes a ground that could not be packed
 /// ahead, leaves at least this share of its tiles' count in spare squares
@@ -1085,6 +1081,22 @@ bool drop_terrain_materials(Scene& scene, uint64_t since) {
     return dropped;
 }
 
+/// The atlas rows a moving camera's terrain leaves the other materials
+/// while it can make room of its own (MovingRoom): the room the terrain's
+/// plan leaves them (least_material_room, or half again what they took
+/// when last measured), in whole rows.
+///
+/// @param scene the atlas
+/// @return the rows
+uint32_t moving_material_rows(const Scene& scene) {
+    if (scene.texture_width == 0)
+        return scene.texture_height;
+    const uint64_t room = std::max(least_material_room, scene.material_area / 2 * 3);
+    return static_cast<uint32_t>(std::min<uint64_t>(
+        scene.texture_height, (room + scene.texture_width - 1) / scene.texture_width
+    ));
+}
+
 /// How a moving camera's ground finds room for its tiles in the atlas
 /// (terrain_square), when it replaces the kept ground: every tile it draws
 /// is marked drawn by it before any is packed, so that any other tile may
@@ -1252,6 +1264,11 @@ AtlasRect terrain_square(Scene& scene, uint32_t edge, MovingRoom* moving) {
         square = take_terrain_square(scene, edge, false);
     if (!square && moving && !moving->ahead)
         square = take_terrain_square(scene, edge, true);
+    // One packed ahead, last, from all but a quarter of the rows left to
+    // the other materials, which take spare terrain squares once the rows
+    // are full (material_square).
+    if (!square && moving && moving->ahead)
+        square = take_terrain_square(scene, edge, true, moving->material_rows / 4);
     if (!square && !scene.ground_kept && drop_terrain_materials(scene, pass))
         square = take_terrain_square(scene, edge, true);
     if (!square && moving && moving->ahead)
@@ -1261,35 +1278,42 @@ AtlasRect terrain_square(Scene& scene, uint32_t edge, MovingRoom* moving) {
     return *square;
 }
 
-/// Packs colour and classic grey palettes with independently clamped mip
-/// chains. A full square holds the tile's 32 pixels; a smaller one starts
-/// its chain at a smaller level, each level averaged from the whole tile
-/// as a full square's same level is.
+/// A terrain tile packed into a square whose texels are written after the
+/// tiles before it are packed (write_terrain_fills).
+struct TerrainFill {
+    uint64_t key{};   ///< the tile's key
+    AtlasRect rect{}; ///< its square
+    std::span<const uint8_t> pixels{};
+    Fog fog{};
+};
+
+/// Writes a terrain tile's colour and classic grey palettes with
+/// independently clamped mip chains into its square of the atlas, and
+/// nothing else, so that tiles in squares apart may be written at once.
+/// A full square holds the tile's 32 pixels; a smaller one starts its chain
+/// at a smaller level, each level averaged from the whole tile as a full
+/// square's same level is.
 ///
-/// @param[in,out] scene the atlas
+/// @param[out] texture the atlas's texels
+/// @param texture_width the atlas's width
 /// @param palette the tile's colours
 /// @param grey the colours of ground out of sight
 /// @param pixels the tile's palette indices
 /// @param fog black for undiscovered ground
-/// @param edge the square's edge, full_terrain_square or smaller
-/// @param moving how a moving camera's ground finds room (terrain_square)
-/// @return the square, whose top left levels are edge / 2 pixels wide
-AtlasRect terrain_material(
-    Scene& scene,
+/// @param rect the square, whose top left levels are its edge / 2 pixels wide
+void terrain_texels(
+    uint8_t* texture,
+    uint32_t texture_width,
     const PaletteBytes& palette,
     const PaletteBytes& grey,
     std::span<const uint8_t> pixels,
     Fog fog,
-    uint32_t edge = full_terrain_square,
-    MovingRoom* moving = nullptr
+    AtlasRect rect
 ) {
-    bench_timers::count_terrain_square();
-    const std::array cursor{scene.next_x, scene.next_y};
-    const AtlasRect rect = terrain_square(scene, edge, moving);
     const uint32_t detail = rect.width / 2;
     const auto pixel_at = [&](uint32_t x, uint32_t y) {
-        return scene.texture_rgba.data() +
-               (static_cast<std::size_t>(rect.y + y) * scene.texture_width + rect.x + x) * channels;
+        return texture +
+               (static_cast<std::size_t>(rect.y + y) * texture_width + rect.x + x) * channels;
     };
     // The sums of each block of the tile's pixels, a channel at a time: a
     // level's blocks are made of four of the level above's, so each level
@@ -1346,6 +1370,43 @@ AtlasRect terrain_material(
             row += level;
         }
     }
+}
+
+/// Packs a terrain tile into a square of the atlas (terrain_square) and
+/// writes its texels (terrain_texels), or leaves them to be written with
+/// the tiles packed after it.
+///
+/// @param[in,out] scene the atlas
+/// @param palette the tile's colours
+/// @param grey the colours of ground out of sight
+/// @param pixels the tile's palette indices
+/// @param fog black for undiscovered ground
+/// @param edge the square's edge, full_terrain_square or smaller
+/// @param moving how a moving camera's ground finds room (terrain_square)
+/// @param[out] fills where the tile's texels are left to be written, with
+///     its key; none writes them now
+/// @param key the tile's key
+/// @return the square, whose top left levels are edge / 2 pixels wide
+AtlasRect terrain_material(
+    Scene& scene,
+    const PaletteBytes& palette,
+    const PaletteBytes& grey,
+    std::span<const uint8_t> pixels,
+    Fog fog,
+    uint32_t edge = full_terrain_square,
+    MovingRoom* moving = nullptr,
+    std::vector<TerrainFill>* fills = nullptr,
+    uint64_t key = 0
+) {
+    bench_timers::count_terrain_square();
+    const std::array cursor{scene.next_x, scene.next_y};
+    const AtlasRect rect = terrain_square(scene, edge, moving);
+    if (fills)
+        fills->push_back({key, rect, pixels, fog});
+    else
+        terrain_texels(
+            scene.texture_rgba.data(), scene.texture_width, palette, grey, pixels, fog, rect
+        );
     ++scene.texture_revision;
     // A spare square, anywhere in the atlas, is uploaded alone; one cut from
     // the rows with the rows packed this frame.
@@ -2511,6 +2572,8 @@ void draw_ground_band(const GroundDraw& draw, GroundBand& band, bool timing) {
 /// @param room how a moving camera's ground finds room; none for a settled
 ///     camera's
 /// @param pass the terrain pass that draws it
+/// @param[out] fills where a tile packed now leaves its texels to be
+///     written (terrain_material); none writes them now
 /// @return its square
 AtlasRect pack_ground_tile(
     const Inputs& in,
@@ -2518,7 +2581,8 @@ AtlasRect pack_ground_tile(
     const TerrainPlan& plan,
     uint64_t key,
     MovingRoom* room,
-    uint64_t pass
+    uint64_t pass,
+    std::vector<TerrainFill>* fills = nullptr
 ) {
     constexpr std::size_t tile_bytes = formats::tnt::layout::tile_bytes;
     constexpr std::size_t maximum_cached_tiles = 32768;
@@ -2534,7 +2598,15 @@ AtlasRect pack_ground_tile(
             scene.terrain_materials.erase(cached);
         }
         const auto rectangle = terrain_material(
-            scene, *in.palette, scene.terrain_grey_palette, pixels, fog, plan.packed(key), room
+            scene,
+            *in.palette,
+            scene.terrain_grey_palette,
+            pixels,
+            fog,
+            plan.packed(key),
+            room,
+            fills,
+            key
         );
         if (scene.terrain_materials.size() >= maximum_cached_tiles && !scene.ground_kept)
             drop_terrain_materials(scene, scene.terrain_passes);
@@ -2546,6 +2618,42 @@ AtlasRect pack_ground_tile(
     }
     cached->second.drawn = pass;
     return cached->second.rectangle;
+}
+
+/// The tiles whose texels each band of write_terrain_fills writes.
+constexpr std::size_t terrain_fill_band_tiles = 32;
+
+/// Writes the texels of the terrain tiles packed with their texels left to
+/// be written (TerrainFill), those still holding the squares they were
+/// packed into, in bands on the drawing threads: their squares lie apart,
+/// so the atlas holds the same on any number of threads.
+///
+/// @param in the frame
+/// @param[in,out] scene the atlas
+/// @param[in,out] fills the tiles, emptied
+void write_terrain_fills(const Inputs& in, Scene& scene, std::vector<TerrainFill>& fills) {
+    std::erase_if(fills, [&](const TerrainFill& fill) {
+        const auto held = scene.terrain_materials.find(fill.key);
+        return held == scene.terrain_materials.end() || !(held->second.rectangle == fill.rect);
+    });
+    const auto bands = (fills.size() + terrain_fill_band_tiles - 1) / terrain_fill_band_tiles;
+    platform::job_pool::run_bands(in.pool, static_cast<uint32_t>(bands), [&](uint32_t band) {
+        const std::size_t first = band * terrain_fill_band_tiles;
+        const std::size_t end = std::min(fills.size(), first + terrain_fill_band_tiles);
+        for (std::size_t index = first; index < end; ++index) {
+            const auto& fill = fills[index];
+            terrain_texels(
+                scene.texture_rgba.data(),
+                scene.texture_width,
+                *in.palette,
+                scene.terrain_grey_palette,
+                fill.pixels,
+                fill.fog,
+                fill.rect
+            );
+        }
+    });
+    fills.clear();
 }
 
 /// Places every vertex of a ground's bands in its tile's square and lists
@@ -2657,38 +2765,60 @@ std::vector<std::pair<uint64_t, AtlasRect>> pack_ground_tiles(
     std::optional<MovingRoom> room;
     if (moving) {
         room.emplace(MovingRoom{plan, order});
-        room->material_rows = scene.texture_height / moving_material_row_share;
+        room->material_rows = moving_material_rows(scene);
         for (const uint64_t key : order)
             if (const auto cached = scene.terrain_materials.find(key);
                 cached != scene.terrain_materials.end())
                 cached->second.drawn = scene.terrain_passes;
     }
     MovingRoom* moving_room = room ? &*room : nullptr;
-    for (const uint64_t key : order)
-        squares[key] = pack_ground_tile(in, scene, plan, key, moving_room, scene.terrain_passes);
-    // Tiles that gave their squares back after they were packed are packed
-    // again, at the size a moving camera packs them.
-    for (std::size_t index = 0; room && index < room->unpacked.size(); ++index)
-        if (!scene.terrain_materials.contains(room->unpacked[index]))
-            pack_ground_tile(
-                in, scene, plan, room->unpacked[index], moving_room, scene.terrain_passes
-            );
-    if (room &&
-        (leave_room || room->dropped_unseen == scene.terrain_passes || !room->unpacked.empty())) {
-        const uint32_t edge = std::max(plan.larger / 2, smallest_terrain_square);
-        const auto spare = [&] {
-            std::size_t count = spare_terrain_squares(scene, edge).size();
-            for (uint32_t larger = edge * 2; larger <= full_terrain_square; larger *= 2)
-                count +=
-                    spare_terrain_squares(scene, larger).size() * (larger / edge) * (larger / edge);
-            const std::size_t quarters = full_terrain_square / edge;
-            return count + terrain_row_squares(scene, room->material_rows) * quarters * quarters;
-        };
-        while (spare() < order.size() / ahead_room_share && unpack_larger_tile(scene, *room))
-            pack_ground_tile(
-                in, scene, plan, room->unpacked.back(), moving_room, scene.terrain_passes
-            );
+    // The tiles' texels are written once every tile is packed, on the
+    // drawing threads, and before an exception leaves the atlas.
+    std::vector<TerrainFill> fills;
+    try {
+        for (const uint64_t key : order)
+            pack_ground_tile(in, scene, plan, key, moving_room, scene.terrain_passes, &fills);
+        // Tiles that gave their squares back after they were packed are
+        // packed again, at the size a moving camera packs them.
+        for (std::size_t index = 0; room && index < room->unpacked.size(); ++index)
+            if (!scene.terrain_materials.contains(room->unpacked[index]))
+                pack_ground_tile(
+                    in,
+                    scene,
+                    plan,
+                    room->unpacked[index],
+                    moving_room,
+                    scene.terrain_passes,
+                    &fills
+                );
+        if (room && (leave_room || room->dropped_unseen == scene.terrain_passes ||
+                     !room->unpacked.empty())) {
+            const uint32_t edge = std::max(plan.larger / 2, smallest_terrain_square);
+            const auto spare = [&] {
+                std::size_t count = spare_terrain_squares(scene, edge).size();
+                for (uint32_t larger = edge * 2; larger <= full_terrain_square; larger *= 2)
+                    count += spare_terrain_squares(scene, larger).size() * (larger / edge) *
+                             (larger / edge);
+                const std::size_t quarters = full_terrain_square / edge;
+                return count +
+                       terrain_row_squares(scene, room->material_rows) * quarters * quarters;
+            };
+            while (spare() < order.size() / ahead_room_share && unpack_larger_tile(scene, *room))
+                pack_ground_tile(
+                    in,
+                    scene,
+                    plan,
+                    room->unpacked.back(),
+                    moving_room,
+                    scene.terrain_passes,
+                    &fills
+                );
+        }
+    } catch (...) {
+        write_terrain_fills(in, scene, fills);
+        throw;
     }
+    write_terrain_fills(in, scene, fills);
     for (const uint64_t key : order)
         squares[key] = scene.terrain_materials.at(key).rectangle;
     place_ground_bands(in, scene, bands, squares, vertices);
@@ -2709,6 +2839,8 @@ std::vector<std::pair<uint64_t, AtlasRect>> pack_ground_tiles(
 ///     the margin it is drawn for
 /// @param[out] vertices where the ground is listed
 /// @param moving the ground is a moving camera's (pack_ground_tiles)
+/// @param leave_room a moving camera's ground leaves room for the grounds
+///     packed ahead of it however much room it found (pack_ground_tiles)
 /// @return each tile key drawn, with its square
 std::vector<std::pair<uint64_t, AtlasRect>> draw_ground(
     const Inputs& in,
@@ -2716,7 +2848,8 @@ std::vector<std::pair<uint64_t, AtlasRect>> draw_ground(
     const TerrainPlan& plan,
     const GroundDraw& draw,
     std::vector<Vertex>& vertices,
-    bool moving
+    bool moving,
+    bool leave_room = false
 ) {
     scene.ground_pass = ++scene.terrain_passes;
     auto& bands = scene.ground_bands;
@@ -2740,14 +2873,17 @@ std::vector<std::pair<uint64_t, AtlasRect>> draw_ground(
         );
         return {tiles.tiles().begin(), tiles.tiles().end()};
     }
-    return pack_ground_tiles(in, scene, plan, bands, moving, false, vertices);
+    return pack_ground_tiles(in, scene, plan, bands, moving, leave_room, vertices);
 }
 
 /// The frames the ground drawn ahead of a moving camera (GroundAhead) is
 /// drawn over, a share of its bands each.
 constexpr std::size_t ground_ahead_frames = 4;
-/// The most of its tiles a frame packs (pack_ground_ahead).
-constexpr std::size_t ground_ahead_packs = 64;
+/// The most of its tiles a frame packs (pack_ground_ahead), their texels
+/// written on the drawing threads.
+constexpr std::size_t ground_ahead_packs = 256;
+/// The ground's triangles each band of the plots' cut into it takes.
+constexpr std::size_t ground_band_triangles = 8192;
 /// The frames its plots are cut over, from the frame after the one that
 /// places its vertices, a share of its bands each.
 constexpr std::size_t ground_cut_frames = 4;
@@ -2831,7 +2967,8 @@ void plan_ground_ahead(const Inputs& in, Scene& scene, const std::array<float, 1
     ahead.unpacked.clear();
     ahead.next_unpack = 0;
     ahead.placed = ahead.packed_late = ahead.cut = ahead.cut_waits = false;
-    ahead.cut_bands_done = 0;
+    ahead.cut_begun = false;
+    ahead.cut_queue.clear();
     ahead.sent = 0;
     ahead.send_rest = false;
     ahead.active = !ahead.bands.empty();
@@ -2904,19 +3041,22 @@ void pack_ground_ahead(const Inputs& in, Scene& scene, const TerrainPlan& plan) 
                     cached->second.drawn = ahead.pass;
             }
     MovingRoom room{plan, ahead.order};
-    room.material_rows = scene.texture_height / moving_material_row_share;
+    room.material_rows = moving_material_rows(scene);
     room.ahead = true;
     room.kept_tiles = &ahead.kept_tiles;
     room.next_tile = ahead.next_unpack;
     const auto& art = in.map->tile_palette_indices;
     std::size_t packs = 0;
+    // The tiles' texels are written once this frame's are packed, on the
+    // drawing threads.
+    std::vector<TerrainFill> fills;
     try {
         while (packs < ground_ahead_packs) {
             if (!ahead.unpacked.empty()) {
                 const uint64_t key = ahead.unpacked.back();
                 ahead.unpacked.pop_back();
                 if (!scene.terrain_materials.contains(key)) {
-                    pack_ground_tile(in, scene, plan, key, &room, ahead.pass);
+                    pack_ground_tile(in, scene, plan, key, &room, ahead.pass, &fills);
                     ++packs;
                 }
             } else if (ahead.tiles_packed < ahead.order.size()) {
@@ -2936,7 +3076,7 @@ void pack_ground_ahead(const Inputs& in, Scene& scene, const TerrainPlan& plan) 
                     give_back_terrain_square(scene, cached->second.rectangle);
                     scene.terrain_materials.erase(cached);
                 }
-                pack_ground_tile(in, scene, plan, key, &room, ahead.pass);
+                pack_ground_tile(in, scene, plan, key, &room, ahead.pass, &fills);
                 ++ahead.tiles_packed;
                 ++packs;
             } else {
@@ -2946,9 +3086,14 @@ void pack_ground_ahead(const Inputs& in, Scene& scene, const TerrainPlan& plan) 
             room.unpacked.clear();
         }
     } catch (const AheadFull&) {
+        write_terrain_fills(in, scene, fills);
         ahead.packed_late = true;
         return;
+    } catch (...) {
+        write_terrain_fills(in, scene, fills);
+        throw;
     }
+    write_terrain_fills(in, scene, fills);
     ahead.next_unpack = room.next_tile;
     if (ahead.bands_drawn < ahead.bands.size() || ahead.tiles_packed < ahead.order.size() ||
         !ahead.unpacked.empty())
@@ -3037,11 +3182,27 @@ void take_ground_ahead(const Inputs& in, Scene& scene, const TerrainPlan& plan) 
         scene.terrain_vertex_count = scene.ground_vertices.size();
         // The cut, kept as the foundations keep theirs (run_passes), which
         // take it when the frame's plots are the same.
+        // Its bands too, so that a frame whose plots changed since cuts
+        // again only the bands a changed plot reaches.
         if (ahead.cut && !ahead.cut_plots.empty()) {
             std::swap(scene.cut_ground, ahead.cut_vertices);
             std::swap(scene.cut_plots, ahead.cut_plots);
             scene.cut_source = ahead.revision;
             scene.cut_revision = ahead.cut_revision;
+            auto& passes = scene.passes;
+            const std::size_t bands =
+                (scene.ground_vertices.size() / 3 + ground_band_triangles - 1) /
+                ground_band_triangles;
+            if (passes.ground.size() < bands)
+                passes.ground.resize(bands);
+            for (std::size_t band = 0; band < bands; ++band) {
+                auto& list = passes.ground[band];
+                std::swap(list.vertices, ahead.cut_bands[band].vertices);
+                list.cut = ahead.cut_bands[band].cut;
+                list.failure = nullptr;
+            }
+            passes.ground_plots = scene.cut_plots;
+            passes.ground_source = ahead.revision;
         }
         return;
     }
@@ -3162,6 +3323,11 @@ bool terrain(
         return true;
     }
     ahead.active = false;
+    // A move's first ground, replacing a settled camera's, leaves room for
+    // the grounds drawn ahead of it: the settled camera's tiles hold
+    // squares larger than a moving camera packs, which those grounds draw
+    // too and so cannot give back.
+    const bool first_of_move = moving && scene.ground_kept && source.picture_margin == 0;
     scene.ground_kept = false;
     scene.ground_revision = new_ground_revision();
     float margin = 0;
@@ -3186,8 +3352,9 @@ bool terrain(
         scene.terrain_vertex_count = scene.vertices.size();
         return false;
     }
-    scene.ground_tiles =
-        draw_ground(in, scene, plan, ground_draw(source), scene.ground_vertices, moving);
+    scene.ground_tiles = draw_ground(
+        in, scene, plan, ground_draw(source), scene.ground_vertices, moving, first_of_move
+    );
     scene.ground_kept = true;
     scene.kept_ground_revision = scene.ground_revision;
     scene.terrain_vertex_count = scene.ground_vertices.size();
@@ -3518,6 +3685,8 @@ bool shadow_on_card(
 
 /// The models' draws each band of the shadow pass reads and draws.
 constexpr std::size_t shadow_band_draws = 32;
+/// The cards' draws in each band of the effect cards laid on the ground.
+constexpr std::size_t ground_card_band_draws = 64;
 
 /// Reads the shadows a band of the models' draws casts from their units'
 /// pictures, restoring each picture's real silhouette without synthesising
@@ -3908,6 +4077,12 @@ uint64_t plot_bin_key(int32_t x, int32_t y) {
     return (uint64_t{static_cast<uint32_t>(y)} << 32) | static_cast<uint32_t>(x);
 }
 
+/// @return whether one plot comes before another in a frame's plots
+bool plot_before(const Foundation& a, const Foundation& b) {
+    return std::array{a.left, a.right, a.top, a.bottom, a.height} <
+           std::array{b.left, b.right, b.top, b.bottom, b.height};
+}
+
 /// Lists the plots of the frame's drawn structures on the ground
 /// (foundations), without changing map or unit records.
 ///
@@ -3956,10 +4131,7 @@ void plan_plots(const Inputs& in, Plots& plots) {
     auto& sorted = plots.plots;
     if (sorted.empty())
         return;
-    std::sort(sorted.begin(), sorted.end(), [](const Foundation& a, const Foundation& b) {
-        return std::array{a.left, a.right, a.top, a.bottom, a.height} <
-               std::array{b.left, b.right, b.top, b.bottom, b.height};
-    });
+    std::sort(sorted.begin(), sorted.end(), plot_before);
     std::size_t references{};
     for (std::size_t index = 0; index < sorted.size(); ++index) {
         const auto& plot = sorted[index];
@@ -6508,9 +6680,6 @@ void water_surface(const Inputs& in, Scene& scene) {
     }
 }
 
-/// The ground's triangles each band of the plots' cut into it takes.
-constexpr std::size_t ground_band_triangles = 8192;
-
 /// The deferred frame materials each band of their writing takes.
 constexpr std::size_t frame_write_band = 16;
 
@@ -6572,45 +6741,120 @@ uint64_t pass_clock(bool timing) {
     return timing ? bench_timers::now_ns() : 0;
 }
 
-/// The bands of the cut of the ground drawn ahead a frame cuts.
+/// Tells whether any of some plots reaches any of some triangles, with the
+/// ground blended around it, as cut_plots finds the plots that reach a
+/// triangle: a band of triangles no changed plot reaches is cut by the
+/// plots it was cut by before, in the same order, into the same triangles.
+///
+/// @param plots the plots
+/// @param triangles the triangles
+/// @return true when one does
+bool plots_reach(std::span<const Foundation> plots, std::span<const Vertex> triangles) {
+    constexpr float blend_width = plot_blend_width;
+    if (plots.empty())
+        return false;
+    for (std::size_t first = 0; first + 2 < triangles.size(); first += 3) {
+        const auto triangle = triangles.subspan(first, 3);
+        float min_x = triangle[0].x, max_x = min_x;
+        float min_y = triangle[0].z, max_y = min_y;
+        for (const auto& vertex : triangle) {
+            min_x = std::min(min_x, vertex.x);
+            max_x = std::max(max_x, vertex.x);
+            min_y = std::min(min_y, vertex.z);
+            max_y = std::max(max_y, vertex.z);
+        }
+        for (const auto& plot : plots)
+            if (!(max_x <= plot.left - blend_width || min_x >= plot.right + blend_width ||
+                  max_y <= plot.top - blend_width || min_y >= plot.bottom + blend_width))
+                return true;
+    }
+    return false;
+}
+
+/// @return the bands of the cut of the ground drawn ahead a frame cuts at
+///     most: its bands over ground_cut_frames frames
+std::size_t cut_share(const GroundAhead& ahead) {
+    const std::size_t bands =
+        (ahead.vertices.size() / 3 + ground_band_triangles - 1) / ground_band_triangles;
+    return (bands + ground_cut_frames - 1) / ground_cut_frames;
+}
+
+/// The bands of the cut of the ground drawn ahead a frame cuts: the first
+/// of GroundAhead::cut_queue.
 struct AheadCut {
-    std::size_t first{}; ///< the first of them
     std::size_t count{}; ///< how many
 };
 
 /// Plans the frame's share of the cut of the ground drawn ahead of a moving
 /// camera, once it is placed (GroundAhead::cut_bands): bands of the
 /// triangles the terrain's cut takes (ground_band_triangles), a share of
-/// them a frame over ground_cut_frames frames, with the frame's plots; a
-/// change of plots starts it again, and no plots leave the ground uncut.
+/// them a frame over ground_cut_frames frames, with the frame's plots. When
+/// the plots change, the bands already cut that a changed plot reaches
+/// (plots_reach) join those still to cut, and a cut that was done is done
+/// again and sent to the card again; no plots leave the ground uncut.
 ///
 /// @param[in,out] ahead the ground ahead
 /// @param plots the frame's plots
 /// @return the bands to cut this frame
 AheadCut plan_ground_ahead_cut(GroundAhead& ahead, const Plots& plots) {
-    if (!ahead.active || !ahead.placed || ahead.cut)
+    if (!ahead.active || !ahead.placed)
         return {};
     if (ahead.cut_waits) {
         ahead.cut_waits = false;
         return {};
     }
-    if (plots.plots.empty()) {
-        ahead.cut_plots.clear();
-        ahead.cut_vertices.clear();
-        ahead.cut_revision = ahead.revision;
-        ahead.cut = true;
-        return {};
-    }
-    if (ahead.cut_bands_done != 0 && ahead.cut_plots != plots.plots)
-        ahead.cut_bands_done = 0;
-    if (ahead.cut_bands_done == 0)
-        ahead.cut_plots = plots.plots;
+    if (ahead.cut_begun && ahead.cut_plots == plots.plots)
+        return {ahead.cut ? 0 : std::min(ahead.cut_queue.size(), cut_share(ahead))};
     const std::size_t bands =
         (ahead.vertices.size() / 3 + ground_band_triangles - 1) / ground_band_triangles;
     if (ahead.cut_bands.size() < bands)
         ahead.cut_bands.resize(bands);
-    const std::size_t share = (bands + ground_cut_frames - 1) / ground_cut_frames;
-    return {ahead.cut_bands_done, std::min(share, bands - ahead.cut_bands_done)};
+    const bool was_cut = ahead.cut;
+    const bool had_plots = ahead.cut_begun && !ahead.cut_plots.empty();
+    if (plots.plots.empty()) {
+        ahead.cut_queue.clear();
+        ahead.cut_vertices.clear();
+        ahead.cut_revision = ahead.revision;
+        ahead.cut = true;
+    } else if (!had_plots) {
+        ahead.cut_queue.resize(bands);
+        for (std::size_t band = 0; band < bands; ++band)
+            ahead.cut_queue[band] = band;
+        ahead.cut = false;
+    } else {
+        std::vector<Foundation> changed;
+        std::set_symmetric_difference(
+            ahead.cut_plots.begin(),
+            ahead.cut_plots.end(),
+            plots.plots.begin(),
+            plots.plots.end(),
+            std::back_inserter(changed),
+            plot_before
+        );
+        std::vector<bool> queued(bands);
+        for (const auto band : ahead.cut_queue)
+            queued[band] = true;
+        for (std::size_t band = 0; band < bands; ++band) {
+            const std::size_t first = band * ground_band_triangles * 3;
+            const auto triangles =
+                std::span<const Vertex>(ahead.vertices)
+                    .subspan(
+                        first, std::min(ground_band_triangles * 3, ahead.vertices.size() - first)
+                    );
+            if (!queued[band] && plots_reach(changed, triangles))
+                ahead.cut_queue.push_back(band);
+        }
+        // A cut done, which no changed plot reaches, stands.
+        ahead.cut = was_cut && ahead.cut_queue.empty();
+    }
+    ahead.cut_plots = plots.plots;
+    // What the card takes changed: it is sent again.
+    if (was_cut && (!ahead.cut || plots.plots.empty() == had_plots))
+        ahead.sent = 0;
+    ahead.cut_begun = true;
+    if (ahead.cut)
+        return {};
+    return {std::min(ahead.cut_queue.size(), cut_share(ahead))};
 }
 
 /// Cuts the frame's plots into a band of the ground drawn ahead, on any
@@ -6650,13 +6894,15 @@ uint64_t finish_ground_ahead_cut(const Inputs& in, GroundAhead& ahead, const Ahe
     uint64_t nanoseconds = 0;
     if (share.count == 0)
         return nanoseconds;
-    for (std::size_t index = share.first; index < share.first + share.count; ++index)
-        nanoseconds += ahead.cut_bands[index].nanoseconds;
-    ahead.cut_bands_done += share.count;
+    for (std::size_t index = 0; index < share.count; ++index)
+        nanoseconds += ahead.cut_bands[ahead.cut_queue[index]].nanoseconds;
+    ahead.cut_queue.erase(
+        ahead.cut_queue.begin(), ahead.cut_queue.begin() + static_cast<std::ptrdiff_t>(share.count)
+    );
+    if (!ahead.cut_queue.empty())
+        return nanoseconds;
     const std::size_t bands =
         (ahead.vertices.size() / 3 + ground_band_triangles - 1) / ground_band_triangles;
-    if (ahead.cut_bands_done < bands)
-        return nanoseconds;
     const auto cut_bands = std::span(ahead.cut_bands).first(bands);
     bool reached = false;
     for (const auto& band : cut_bands) {
@@ -6770,7 +7016,12 @@ class PassTimes {
             bench_timers::add_nanoseconds(stage, list.nanoseconds);
             bench_timers::count_packed_materials(stage, list.materials_packed, list.texels_packed);
         };
-        add(Stage::ground_sprites, passes.ground_cards);
+        for (std::size_t band = 0; band < ground_card_bands; ++band) {
+            add(Stage::ground_sprites, passes.ground_cards[band]);
+            bench_timers::add_nanoseconds(
+                Stage::foundations, passes.ground_cards[band].cut_nanoseconds
+            );
+        }
         add(Stage::shadows, passes.shadow_packing);
         for (std::size_t band = 0; band < shadow_bands; ++band) {
             add(Stage::shadows, passes.shadows[band]);
@@ -6779,7 +7030,6 @@ class PassTimes {
         }
         for (std::size_t band = 0; band < ground_bands; ++band)
             bench_timers::add_nanoseconds(Stage::foundations, passes.ground[band].nanoseconds);
-        bench_timers::add_nanoseconds(Stage::foundations, passes.ground_cards.cut_nanoseconds);
         bench_timers::add_nanoseconds(Stage::foundations, foundations + ground_listing);
         add(Stage::models, passes.models);
         add(Stage::projectiles, passes.projectiles);
@@ -6790,13 +7040,14 @@ class PassTimes {
         bench_timers::add_nanoseconds(Stage::foundations, ahead_cut);
     }
 
-    std::size_t ground_bands{}; ///< the ground's bands cut this frame
-    std::size_t shadow_bands{}; ///< the shadows' bands read this frame
-    uint64_t foundations{};     ///< the plots' planning and the cut ground's taking
-    uint64_t ground_listing{};  ///< the kept ground's listing beside the passes
-    uint64_t joining{};         ///< the lists' joining
-    uint64_t ground_ahead{};    ///< the bands of the ground drawn ahead of a moving camera
-    uint64_t ahead_cut{};       ///< the plots' cut of the ground drawn ahead
+    std::size_t ground_bands{};      ///< the ground's bands cut this frame
+    std::size_t shadow_bands{};      ///< the shadows' bands read this frame
+    std::size_t ground_card_bands{}; ///< the bands of the cards laid on the ground
+    uint64_t foundations{};          ///< the plots' planning and the cut ground's taking
+    uint64_t ground_listing{};       ///< the kept ground's listing beside the passes
+    uint64_t joining{};              ///< the lists' joining
+    uint64_t ground_ahead{};         ///< the bands of the ground drawn ahead of a moving camera
+    uint64_t ahead_cut{};            ///< the plots' cut of the ground drawn ahead
 
   private:
 
@@ -6878,14 +7129,25 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     trim_card_types(scene.card_types);
     find_card_types(in, scene.card_types);
     for (auto* list :
-         {&passes.ground_cards,
-          &passes.shadow_packing,
+         {&passes.shadow_packing,
           &passes.models,
           &passes.projectiles,
           &passes.cards,
           &passes.particles})
         clear_list(*list, 0);
     PassTimes times(scene, timing);
+    // The cards laid on the ground, in bands of their draws.
+    const std::size_t cards = draws.sprites.size();
+    const std::size_t card_bands =
+        std::max<std::size_t>(1, (cards + ground_card_band_draws - 1) / ground_card_band_draws);
+    if (passes.ground_cards.size() < card_bands)
+        passes.ground_cards.resize(card_bands);
+    for (std::size_t band = 0; band < card_bands; ++band)
+        clear_list(passes.ground_cards[band], 0);
+    times.ground_card_bands = card_bands;
+    const auto card_band_end = [&](std::size_t band) {
+        return std::min(cards, (band + 1) * ground_card_band_draws);
+    };
     uint64_t start = pass_clock(timing);
     // The structures' plots, and the ground they are cut into: the cut kept
     // from the frame before when it has the same plots in the same kept
@@ -6913,6 +7175,21 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     }
     for (std::size_t band = 0; band < shadow_bands; ++band)
         clear_list(passes.shadows[band], 0);
+    // The kept ground's bands cut before with other plots: only those a
+    // changed plot reaches are cut again.
+    std::vector<Foundation> changed_plots;
+    const bool recut = ground_bands != 0 && kept && passes.ground_source == source;
+    if (recut)
+        std::set_symmetric_difference(
+            passes.ground_plots.begin(),
+            passes.ground_plots.end(),
+            plots.plots.begin(),
+            plots.plots.end(),
+            std::back_inserter(changed_plots),
+            plot_before
+        );
+    if (ground_bands != 0)
+        passes.ground_source = 0;
     const auto ahead_cut = plan_ground_ahead_cut(scene.ground_ahead, plots);
     times.foundations += pass_clock(timing) - start;
     // The terrain's cut, the shadows read from the units' pictures, and the
@@ -6925,19 +7202,23 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
                 cut_ground_ahead_band(
                     scene.ground_ahead,
                     plots,
-                    ahead_cut.first + band - ground_bands - shadow_bands,
+                    scene.ground_ahead.cut_queue[band - ground_bands - shadow_bands],
                     timing
                 );
                 return;
             }
             if (band < ground_bands) {
                 auto& list = passes.ground[band];
-                clear_list(list, 0);
                 const uint64_t began = pass_clock(timing);
                 const std::size_t first = band * ground_band_triangles * 3;
                 const auto triangles = std::span<const Vertex>(ground).subspan(
                     first, std::min(ground_band_triangles * 3, terrain_count - first)
                 );
+                if (recut && !plots_reach(changed_plots, triangles)) {
+                    list.nanoseconds = pass_clock(timing) - began;
+                    return;
+                }
+                clear_list(list, 0);
                 try {
                     list.cut = cut_plots(plots, triangles, false, list.vertices);
                 } catch (...) {
@@ -7035,9 +7316,12 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
                                    : 0;
     };
     constexpr uint32_t first_shadow_band = 4;
-    const auto pass_bands = static_cast<uint32_t>(first_shadow_band + shadow_bands + 2);
+    // The cards laid on the ground's first band runs third, the rest after
+    // the particles.
+    const auto pass_bands =
+        static_cast<uint32_t>(first_shadow_band + shadow_bands + 2 + card_bands - 1);
+    const auto first_card_band = static_cast<uint32_t>(first_shadow_band + shadow_bands + 2);
     const auto bands = static_cast<uint32_t>(pass_bands + ahead_bands);
-    const std::size_t cards = draws.sprites.size();
     auto& ahead = scene.ground_ahead;
     const auto ahead_draw = ground_draw(ahead.source);
     const std::size_t first_ahead = ahead.bands_drawn;
@@ -7059,10 +7343,12 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
             const uint64_t began = pass_clock(timing);
             scene.vertices.assign(cut_ground.begin(), cut_ground.end());
             times.ground_listing = pass_clock(timing) - began;
-        } else if (band == 2) {
-            auto& list = passes.ground_cards;
-            run_beside(scene, list, cards, timing, [&](Pass& pass) {
-                sprites(in, pass, true, 0, cards);
+        } else if (band == 2 || band >= first_card_band) {
+            const std::size_t index = band == 2 ? 0 : band - first_card_band + 1;
+            auto& list = passes.ground_cards[index];
+            const std::size_t end = card_band_end(index);
+            run_beside(scene, list, end, timing, [&](Pass& pass) {
+                sprites(in, pass, true, index * ground_card_band_draws, end);
             });
             if (plotted && !list.failure)
                 cut_list(plots, list, timing);
@@ -7093,11 +7379,15 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     // The lists taken in the passes' order, from the terrain's end as the
     // passes before the foundations found it.
     std::size_t listed = terrain_count;
-    take_list(scene, passes.ground_cards, cards, listed, timing, [&](Pass& pass, std::size_t from) {
-        sprites(in, pass, true, from, cards);
-    });
-    if (plotted && passes.ground_cards.cut_from < passes.ground_cards.vertices.size())
-        cut_list(plots, passes.ground_cards, timing);
+    for (std::size_t band = 0; band < card_bands; ++band) {
+        auto& list = passes.ground_cards[band];
+        const std::size_t end = card_band_end(band);
+        take_list(scene, list, end, listed, timing, [&](Pass& pass, std::size_t from) {
+            sprites(in, pass, true, from, end);
+        });
+        if (plotted && list.cut_from < list.vertices.size())
+            cut_list(plots, list, timing);
+    }
     // The shadows: their bands as drawn, then the frame's own materials as
     // packed, then the shadows from the one that stopped the packing.
     std::size_t shadows_listed = listed;
@@ -7150,7 +7440,9 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         for (std::size_t band = 0; band < ground_bands; ++band)
             if (passes.ground[band].failure)
                 std::rethrow_exception(passes.ground[band].failure);
-        listed = scene.terrain_vertex_count + passes.ground_cards.cut_vertices.size();
+        listed = scene.terrain_vertex_count;
+        for (std::size_t band = 0; band < card_bands; ++band)
+            listed += passes.ground_cards[band].cut_vertices.size();
         for (std::size_t band = 0; band < shadow_bands; ++band)
             listed += passes.shadows[band].cut_vertices.size();
         if (listed > maximum_vertices)
@@ -7166,6 +7458,10 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
                     scene.vertices.begin(),
                     scene.vertices.begin() + static_cast<std::ptrdiff_t>(scene.terrain_vertex_count)
                 );
+            if (cut_now) {
+                passes.ground_plots = plots.plots;
+                passes.ground_source = source;
+            }
             scene.cut_plots = std::move(plots.plots);
             scene.cut_source = source;
             scene.cut_revision = scene.ground_revision;
@@ -7213,7 +7509,11 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     const auto join = [&scene](const std::vector<Vertex>& vertices) {
         scene.vertices.insert(scene.vertices.end(), vertices.begin(), vertices.end());
     };
-    join(laid(passes.ground_cards));
+    uint32_t ground_cards{};
+    for (std::size_t band = 0; band < card_bands; ++band) {
+        join(laid(passes.ground_cards[band]));
+        ground_cards += passes.ground_cards[band].drawn;
+    }
     const std::size_t shadows_first = scene.vertices.size();
     uint32_t shadows{};
     for (std::size_t band = 0; band < shadow_bands; ++band) {
@@ -7244,7 +7544,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     join(passes.particles.vertices);
     scene.shadow_count = shadows + scene.cards.cast_depths;
     scene.model_count = passes.models.drawn;
-    scene.sprite_count = passes.ground_cards.drawn + passes.cards.drawn;
+    scene.sprite_count = ground_cards + passes.cards.drawn;
     scene.particle_count = passes.particles.drawn;
     scene.nano_particle_count = passes.particles.nano_particles;
     times.joining += pass_clock(timing) - start;

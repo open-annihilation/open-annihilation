@@ -170,10 +170,14 @@ struct GroundAhead {
     std::vector<std::pair<uint64_t, AtlasRect>>
         tiles{}; ///< each tile key it draws, with its square
     /// The structures' plots cut into it, a share of its bands a frame, with
-    /// the plots of the frame that cuts them: the cut ground, its bands, the
-    /// plots, and the revision the cut takes. No plots leave it uncut.
+    /// the plots of the frame that cuts them: the cut ground, its bands,
+    /// whether its cut began, the bands still to cut, the plots, and the
+    /// revision the cut takes. No plots leave it uncut. When the plots
+    /// change, the bands cut already that a changed plot reaches are cut
+    /// again, and a cut sent to the card is sent again.
     bool cut{};
-    std::size_t cut_bands_done{};
+    bool cut_begun{};
+    std::vector<std::size_t> cut_queue{};
     std::vector<GroundCutBand> cut_bands{};
     std::vector<Foundation> cut_plots{};
     std::vector<renderer_live_gpu::Vertex> cut_vertices{};
@@ -329,7 +333,13 @@ struct PassList {
 struct PassLists {
     /// The ground with the plots cut into it, by band of its triangles.
     std::vector<PassList> ground{};
-    PassList ground_cards{}; ///< the effect cards laid on the ground
+    /// The kept ground those bands were cut from, by revision, zero for
+    /// none, and the plots they were cut with: when the plots change, only
+    /// the bands a changed plot reaches are cut again.
+    uint64_t ground_source{};
+    std::vector<Foundation> ground_plots{};
+    /// The effect cards laid on the ground, by band of the cards' draws.
+    std::vector<PassList> ground_cards{};
     /// The units' shadows read from their pictures, and drawn, by band of
     /// the models' draws.
     std::vector<ShadowBand> shadow_bands{};

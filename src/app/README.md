@@ -3081,8 +3081,10 @@ prompts, Settings › Updates and the headers name one state with one size.
   joined afterwards in the passes' order, with only the drawing thread
   packing materials, in that order, so every count draws the same frames.
   Its ground is drawn a row of tiles a band, each band noting the tiles it
-  meets, which the drawing thread packs in the order the rows meet them
-  before the bands are placed in the atlas and joined; a moving camera's
+  meets, which the drawing thread packs in the order the rows meet them,
+  the tiles' texels written afterwards in bands on the pool (each tile's
+  square apart from every other's), before the bands are placed in the
+  atlas and joined; a moving camera's
   next ground is drawn ahead of it among the scene passes, a fixed share of
   its bands a frame, its tiles packed by the drawing thread a fixed number
   a frame as its bands come in, the structures' plots cut into it a fixed
@@ -3090,7 +3092,11 @@ prompts, Settings › Updates and the headers name one state with one size.
   sent to the graphics card a fixed share a frame into a buffer of their
   own (`renderer_live_gpu::KeptGround::next`), which the card takes,
   checked as it came in, in the frame that takes the ground, so it changes
-  at the same frame on every count.
+  at the same frame on every count. When the structures' plots change,
+  only the bands of the kept ground or of the ground ahead that a changed
+  plot reaches are cut again, so every count cuts the same bands. The
+  effect cards laid on the ground are listed in bands of 64 cards, joined
+  in their order.
   `app-xrgb-conversion` checks each pixel's packing and gamma for rows of
   any width, that pools of 2, 3, 4 and 8 threads convert the same bytes,
   the key colour as the lowest outside a palette and the keyed overlay
