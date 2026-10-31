@@ -2174,9 +2174,10 @@ void building_foundations() {
 }
 
 /// The kept ground is cut once for a set of plots: a frame with the plots
-/// of the frame before takes the cut ground and its revision and cuts only
-/// its decals, and other plots cut it again. Every frame is the one a scene
-/// cutting the ground each frame builds.
+/// of the frame before takes the cut ground and its revision, keeps it
+/// listed at the head of its vertices, and cuts only its decals, and other
+/// plots cut it again. Every frame is the one a scene cutting the ground
+/// each frame builds.
 void foundations_cut_once() {
     Fixture fixture;
     fixture.map.attribute_width = fixture.map.attribute_height = 8;
@@ -2221,6 +2222,9 @@ void foundations_cut_once() {
     OA_CHECK(fixture.scene.ground_kept && fixture.scene.cut_source != 0);
     OA_CHECK(first != fixture.scene.kept_ground_revision);
     OA_CHECK(build() == first);
+    // The frame lists the ground the frame before listed by keeping it at
+    // the head of its vertices, and draws what a full cut draws.
+    OA_CHECK(fixture.scene.listed_ground_revision == first);
     // A decal moves over the plot; the plots stay.
     fixture.draws.sprites[0].place = {52, 40};
     OA_CHECK(build() == first);
