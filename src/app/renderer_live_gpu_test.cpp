@@ -3,6 +3,8 @@
 
 // Exercise persistent GPU resources, atlas revisions, resizing and invalid input without a window.
 #include "renderer_live_gpu.hpp"
+#include "renderer_effects.hpp"
+#include "renderer_live_camera.hpp"
 #include "renderer_water_appearance.hpp"
 #include "oa/test/check.hpp"
 
@@ -1312,6 +1314,290 @@ void underwater_billboard_depth() {
             }
 }
 
+/// The light scene's atlas: four texels of ground in two colours, a wall's,
+/// a clear one, a face's and white.
+constexpr uint32_t light_atlas_width = 8;
+
+/// A light scene's quad: x from left to right and z from near to far at a
+/// height, or upright at z from the ground to a height; its atlas columns
+/// run from first_texel at its left to last_texel at its right.
+struct LightQuad {
+    float left{};
+    float right{};
+    float near{};
+    float far{};
+    float height{};
+    bool upright{};
+    float first_texel{};
+    float last_texel{};
+    float brightness{1};
+    float opacity{1};
+};
+
+/// The light scene's triangles: striped ground with a fogged strip and an
+/// unseen one, a wall standing on it, and faces just above it that are
+/// translucent, half opaque (opaque to the lights) and keyed clear.
+std::vector<Vertex> light_scene() {
+    const std::array<LightQuad, 7> quads{
+        {{0, 48, 0, 36, 0, false, 0, 4},
+         {0, 48, 36, 42, 0, false, 0, 4, 0.35F},
+         {0, 48, 42, 48, 0, false, 0, 4, 0},
+         {10, 22, 24, 24, 12, true, 4.5F, 4.5F},
+         {28, 40, 6, 18, 2, false, 6.5F, 6.5F, 1, 0.4F},
+         {4, 8, 30, 36, 2, false, 6.5F, 6.5F, 0.5F, 0.6F},
+         {28, 40, 26, 34, 2, false, 5.5F, 5.5F}}
+    };
+    std::vector<Vertex> vertices;
+    for (const auto& quad : quads) {
+        const auto corner = [&](float x, float along) {
+            Vertex vertex{};
+            vertex.x = x;
+            vertex.height = quad.upright ? along : quad.height;
+            vertex.z = quad.upright ? quad.near : along;
+            vertex.u = (quad.first_texel + (x - quad.left) / (quad.right - quad.left) *
+                                               (quad.last_texel - quad.first_texel)) /
+                       float(light_atlas_width);
+            vertex.v = 0.5F;
+            vertex.brightness = quad.brightness;
+            vertex.opacity = quad.opacity;
+            return vertex;
+        };
+        const float low = quad.upright ? 0 : quad.near;
+        const float high = quad.upright ? quad.height : quad.far;
+        const Vertex a = corner(quad.left, low), b = corner(quad.right, low);
+        const Vertex c = corner(quad.right, high), d = corner(quad.left, high);
+        vertices.insert(vertices.end(), {a, b, d, b, c, d});
+    }
+    return vertices;
+}
+
+/// The surface the processor's raster finds under each pixel's centre: the
+/// nearest face whose opacity, and its texel's alpha times that, reach one
+/// half, with its depth and visibility, as renderer_effects::Surface takes
+/// them.
+void reference_surfaces(
+    std::span<const Vertex> vertices,
+    std::span<const uint8_t> atlas,
+    uint32_t atlas_width,
+    uint32_t size,
+    const std::array<float, 12>& m,
+    std::vector<uint8_t>& visibility,
+    std::vector<float>& depths
+) {
+    visibility.assign(std::size_t(size) * size, 0);
+    depths.assign(std::size_t(size) * size, -std::numeric_limits<float>::infinity());
+    for (std::size_t first = 0; first + 2 < vertices.size(); first += 3) {
+        std::array<std::array<float, 3>, 3> triangle{};
+        for (std::size_t corner = 0; corner < 3; ++corner) {
+            const auto& v = vertices[first + corner];
+            triangle[corner] = {
+                m[0] * v.x + m[1] * v.height + m[2] * v.z + m[3],
+                m[4] * v.x + m[5] * v.height + m[6] * v.z + m[7],
+                m[8] * v.x + m[9] * v.height + m[10] * v.z + m[11]
+            };
+        }
+        for (uint32_t y = 0; y < size; ++y)
+            for (uint32_t x = 0; x < size; ++x) {
+                std::array<float, 3> weights{};
+                float depth{};
+                const auto pixel = std::size_t(y) * size + x;
+                if (!oa::app::renderer_live_camera::triangle_hit(
+                        triangle, float(x) + 0.5F, float(y) + 0.5F, weights, depth
+                    ) ||
+                    depth <= depths[pixel])
+                    continue;
+                float u{}, opacity{}, brightness{};
+                for (std::size_t corner = 0; corner < 3; ++corner) {
+                    u += vertices[first + corner].u * weights[corner];
+                    opacity += vertices[first + corner].opacity * weights[corner];
+                    brightness += vertices[first + corner].brightness * weights[corner];
+                }
+                const auto column =
+                    uint32_t(std::clamp(u * float(atlas_width), 0.0F, float(atlas_width - 1)));
+                const float alpha = atlas[column * channels + 3];
+                if (opacity * 255 < 128 || alpha * opacity < 128)
+                    continue;
+                depths[pixel] = depth;
+                visibility[pixel] = uint8_t(std::clamp(brightness, 0.0F, 1.0F) * 255);
+            }
+    }
+}
+
+/// The card adds lights as renderer_effects::compose() adds them to the
+/// picture the card drew without them, each pixel's surface the processor's
+/// raster would find: light falls off with depth, stops at what stands in
+/// front, passes translucent and keyed faces, lights a half-opaque face and
+/// is lessened by fog; heat moves pixels within a surface. So drawn with one
+/// sample a pixel, multisampled, supersampled, and multisampled on a
+/// supersampled target, whose surfaces' edges here lie between pixels. The
+/// first 128 lights alone are drawn, and a card not allowed leaves them to
+/// the caller.
+void card_lights() {
+    constexpr uint32_t size = 48;
+    constexpr uint32_t atlas_width = light_atlas_width;
+    const std::vector<uint8_t> atlas{90,  80,  70,  255, 150, 120, 80,  255, 90,  80,  70,
+                                     255, 150, 120, 80,  255, 60,  90,  120, 255, 200, 200,
+                                     200, 0,   150, 60,  60,  255, 255, 255, 255, 255};
+    const auto vertices = light_scene();
+    std::vector<uint8_t> visibility;
+    std::vector<float> depths;
+    reference_surfaces(vertices, atlas, atlas_width, size, classic_projection, visibility, depths);
+    using oa::app::renderer_effects::Source;
+    std::vector<Source> sources{
+        // At the wall's foot, its depth the ground's there.
+        {16, 22, 11, 14, 8, 1, 0.6F, 0.2F, 1.5F, 1, 0, 0},
+        // Over the translucent face.
+        {34, 12, 6, 10, 6, 0.3F, 0.6F, 1, 2, 0, 0, 0},
+        // Over the fogged and unseen ground and the keyed face.
+        {24, 38, 19, 12, 8, 1, 1, 0.5F, 1, 1, 0, 0},
+        // On the half-opaque face, and past the picture's corner.
+        {6, 33, 18, 7, 6, 0.5F, 1, 0.5F, 2, 2, 0, 0},
+        {46, 4, 2, 9, 8, 1, 0.2F, 0.2F, 2, 0, 0, 0, 12}
+    };
+    Context context;
+    std::vector<uint8_t> pixels;
+    std::string error;
+    const auto frame = [&](const Lights* lights, uint32_t supersample) {
+        OA_CHECK(
+            render(
+                context,
+                vertices,
+                atlas,
+                atlas_width,
+                1,
+                1,
+                size,
+                size,
+                classic_projection,
+                pixels,
+                error,
+                supersample,
+                nullptr,
+                nullptr,
+                nullptr,
+                {},
+                lights
+            ) == Result::success
+        );
+        return pixels;
+    };
+    // The pixels whose channels differ by more than some steps: the card's
+    // arithmetic may round each light's step the other way.
+    const auto beyond_steps = [](const std::vector<uint8_t>& a,
+                                 const std::vector<uint8_t>& b,
+                                 int steps) {
+        if (a.size() != b.size())
+            return std::size_t(a.size() + b.size());
+        std::size_t count = 0;
+        for (std::size_t offset = 0; offset < a.size(); offset += channels) {
+            bool far_off = false;
+            for (std::size_t channel = 0; channel < channels; ++channel)
+                far_off |= std::abs(int(a[offset + channel]) - int(b[offset + channel])) > steps;
+            count += far_off ? 1 : 0;
+        }
+        return count;
+    };
+    const auto beyond_a_step = [&](const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
+        return beyond_steps(a, b, 1);
+    };
+    const auto composed = [&](const std::vector<uint8_t>& plain,
+                              const Lights& lights,
+                              std::span<const uint8_t> pixel_visibility,
+                              std::span<const float> pixel_depths) {
+        auto expected = plain;
+        oa::app::renderer_effects::compose(
+            {expected,
+             int(size),
+             int(size),
+             int(size * channels),
+             int(channels),
+             pixel_visibility,
+             pixel_depths},
+            lights.sources,
+            lights.settings,
+            lights.simulation_seconds
+        );
+        return expected;
+    };
+
+    struct Sampling {
+        uint32_t requested{};
+        bool multisampling{};
+        uint32_t supersample{}; ///< drawn
+        uint32_t multisample{}; ///< drawn
+    };
+
+    for (const auto& sampling :
+         {Sampling{1, true, 1, 1},
+          Sampling{2, true, 1, 4},
+          Sampling{2, false, 2, 1},
+          Sampling{4, true, 2, 4}}) {
+        context.multisampling_allowed = sampling.multisampling;
+        const uint32_t supersample = sampling.requested;
+        const auto plain = frame(nullptr, supersample);
+        OA_CHECK(!context.lights_drawn);
+        const Lights lights{sources, {true, true, false}, 2.5};
+        const auto lit = frame(&lights, supersample);
+        OA_CHECK(context.lights_drawn);
+        // A card without multisampling supersamples instead.
+        OA_CHECK(
+            context.actual_supersample == sampling.supersample || context.actual_multisample == 1
+        );
+        OA_CHECK(
+            context.actual_multisample == sampling.multisample || context.actual_multisample == 1
+        );
+        const auto expected = composed(plain, lights, visibility, depths);
+        OA_CHECK(expected != plain);
+        OA_CHECK(beyond_a_step(lit, expected) == 0);
+        // The ground before the wall lit, the wall's top, nearer than the
+        // light's depth reach, left alone, the ground under the translucent
+        // face lit, the fogged ground lit less and the unseen not at all.
+        const auto at = [&](uint32_t x, uint32_t y) {
+            return std::size_t(y * size + x) * channels;
+        };
+        OA_CHECK(lit[at(16, 26)] > plain[at(16, 26)] + 20);
+        OA_CHECK(lit[at(16, 18)] == plain[at(16, 18)]);
+        OA_CHECK(lit[at(34, 12) + 2] > plain[at(34, 12) + 2] + 20);
+        OA_CHECK(lit[at(24, 39)] > plain[at(24, 39)]);
+        OA_CHECK(lit[at(24, 45)] == plain[at(24, 45)]);
+        // Heat moves the picture's pixels along their rows, as the processor's.
+        auto heated_sources = sources;
+        heated_sources[0].heat = 1;
+        heated_sources[3].heat = 2;
+        heated_sources[3].phase = 1.25F;
+        const Lights heated{heated_sources, {true, true, true}, 7.75};
+        const auto shimmer = frame(&heated, supersample);
+        const auto expected_shimmer = composed(plain, heated, visibility, depths);
+        OA_CHECK(expected_shimmer != expected);
+        OA_CHECK(beyond_a_step(shimmer, expected_shimmer) <= 2);
+    }
+    context.multisampling_allowed = true;
+    // The first 128 lights alone are drawn; a pixel takes up to a dozen of
+    // them, each of whose steps may round the other way.
+    std::vector<Source> many;
+    for (uint32_t light = 0; light < oa::app::renderer_effects::max_sources + 2; ++light)
+        many.push_back(
+            {float(light % 40) + 4, float(light / 40) * 6 + 4, 2, 3, 6, 1, 1, 1, 1, 0, 0, 0}
+        );
+    many.back() = {30, 30, 15.25F, 4, 6, 1, 1, 1, 2, 0, 0, 0};
+    const auto plain = frame(nullptr, 1);
+    const Lights crowded{many, {true, false, false}, 0};
+    const auto crowded_frame = frame(&crowded, 1);
+    OA_CHECK(beyond_steps(crowded_frame, composed(plain, crowded, visibility, depths), 12) == 0);
+    const auto beyond_the_first = std::size_t(30 * size + 30) * channels;
+    OA_CHECK(crowded_frame[beyond_the_first] == plain[beyond_the_first]);
+    // Lights that reach no pixel leave the picture as drawn.
+    const std::vector<Source> away{{-30, 10, 0, 5, 5, 1, 1, 1, 1, 1, 1, 0}};
+    const Lights none_in_view{away, {true, true, true}, 0};
+    OA_CHECK(frame(&none_in_view, 1) == plain);
+    OA_CHECK(context.lights_drawn);
+    // A card not allowed to add them leaves them to the caller.
+    context.lights_allowed = false;
+    const Lights lights{sources, {true, true, false}, 2.5};
+    OA_CHECK(frame(&lights, 1) == plain);
+    OA_CHECK(!context.lights_drawn);
+}
+
 } // namespace
 
 /// Run validation on every platform and skip real rendering only when no device is available.
@@ -1334,6 +1620,7 @@ int main() {
         terrain_shimmer_contrast();
         ripple_art_motion();
         coastal_foam_strength();
+        card_lights();
     }
     SDL_Quit();
     return result != 0 ? result : oa::test::check_exit_status();

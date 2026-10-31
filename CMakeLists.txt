@@ -607,7 +607,7 @@ if(OA_BUILD_PLATFORM)
     oa-app-renderer-effects
     PRIVATE oa-sim-visibility-state oa-options)
   if(BUILD_TESTING)
-    foreach(oa_live_part camera scene gpu)
+    foreach(oa_live_part camera scene gpu lights)
       add_executable(oa-app-renderer-live-${oa_live_part}-test
         src/app/renderer_live_${oa_live_part}_test.cpp)
       target_link_libraries(oa-app-renderer-live-${oa_live_part}-test PRIVATE
