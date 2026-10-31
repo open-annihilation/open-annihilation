@@ -3356,6 +3356,7 @@ bool terrain(
     source.clip_height = in.clip_height;
     source.picture_margin = margin;
     if (margin == 0 && !(same_source && (drawn_before || camera_still))) {
+        scene.listed_ground_revision = 0;
         draw_ground(in, scene, plan, ground_draw(source), scene.vertices, moving);
         scene.terrain_vertex_count = scene.vertices.size();
         return false;
@@ -7296,6 +7297,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
             ground_cut |= passes.ground[band].cut;
         cut_ground = scene.cut_ground;
     } else if (ground_bands != 0) {
+        scene.listed_ground_revision = 0;
         scene.vertices.clear();
         for (std::size_t band = 0; band < ground_bands; ++band) {
             const auto& cut = passes.ground[band];
@@ -7382,7 +7384,19 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
             if (!list_ground_beside)
                 return;
             const uint64_t began = pass_clock(timing);
-            scene.vertices.assign(cut_ground.begin(), cut_ground.end());
+            // The ground the last frame listed, when it is this one: a cut
+            // kept, or a kept ground no plot cuts. One cut now is new.
+            const uint64_t listing = cut_before ? scene.cut_revision
+                                     : cut_now  ? 0
+                                                : scene.ground_revision;
+            if (listing == 0 || listing != scene.listed_ground_revision ||
+                scene.listed_ground_count != cut_ground.size() ||
+                scene.vertices.size() < cut_ground.size())
+                scene.vertices.assign(cut_ground.begin(), cut_ground.end());
+            else
+                scene.vertices.resize(cut_ground.size());
+            scene.listed_ground_revision = listing;
+            scene.listed_ground_count = cut_ground.size();
             times.ground_listing = pass_clock(timing) - began;
         } else if (band == 2 || band >= first_card_band) {
             const std::size_t index = band == 2 ? 0 : band - first_card_band + 1;
@@ -7502,6 +7516,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
             if (cut_now) {
                 passes.ground_plots = plots.plots;
                 passes.ground_source = source;
+                scene.listed_ground_revision = scene.ground_revision;
             }
             scene.cut_plots = std::move(plots.plots);
             scene.cut_source = source;
@@ -7746,7 +7761,12 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         // until its triangles do not fit.
         bool widen = true;
         for (uint32_t attempt = 0; attempt < attempts;) {
-            scene.vertices.clear();
+            // The ground listed from a kept ground stays at the head of the
+            // vertices for a frame that lists the same (run_passes).
+            if (scene.listed_ground_revision != 0)
+                scene.vertices.resize(std::min(scene.vertices.size(), scene.listed_ground_count));
+            else
+                scene.vertices.clear();
             scene.unit_ranges.clear();
             scene.translucent_vertices.clear();
             scene.translucent_ranges.clear();
@@ -7907,6 +7927,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         scene.frame_palette = nullptr;
         scene.card_ground = {};
         scene.out_of_room = dynamic_cast<const OutOfRoom*>(&exception) != nullptr;
+        scene.listed_ground_revision = 0;
         scene.vertices.clear();
         scene.unit_ranges.clear();
         clear_cards(scene.cards);

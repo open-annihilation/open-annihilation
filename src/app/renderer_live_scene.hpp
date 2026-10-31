@@ -461,6 +461,11 @@ struct Scene {
     /// The frame's kept ground for the card, with the next kept ground's
     /// slice to send ahead (renderer_live_gpu::KeptGround).
     renderer_live_gpu::KeptGround card_ground{};
+    /// The revision of the ground the frame's vertices begin with, listed
+    /// from a kept ground, and its vertices: a frame listing the same keeps
+    /// them rather than copying them again. Zero for none.
+    uint64_t listed_ground_revision{};
+    std::size_t listed_ground_count{};
     /// The revision of the kept ground, which a frame that takes it takes too.
     uint64_t kept_ground_revision{};
     /// The revision of the frame's ground, its first terrain_vertex_count
