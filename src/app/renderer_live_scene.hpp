@@ -44,9 +44,12 @@ struct TerrainMaterial {
 /// by no more than the margin the ground was drawn with.
 struct GroundSource {
     const formats::tnt::Map* map{};
-    uint32_t map_width{};  ///< height cells across
-    uint32_t map_height{}; ///< height cells down
-    uint32_t tile_width{}; ///< tiles across
+    uint32_t map_width{};   ///< height cells across
+    uint32_t map_height{};  ///< height cells down
+    uint32_t tile_width{};  ///< tiles across
+    uint32_t tile_height{}; ///< tiles down
+    /// The bytes of the tiles' art, which every tile drawn lies within.
+    std::size_t tile_art_bytes{};
     std::vector<uint8_t> heights{};
     uint8_t lowest{};  ///< the least of heights
     uint8_t highest{}; ///< the greatest of heights
@@ -75,6 +78,44 @@ struct GroundSource {
     bool dithered{};
 
     [[nodiscard]] bool operator==(const GroundSource&) const = default;
+};
+
+/// One band of a frame's ground, rows of it drawn apart from the others on
+/// a drawing thread, into a list of its own: a row of tiles, or a row of
+/// the squares drawn far out. Until its tiles are packed and the band is
+/// placed in the atlas, each vertex holds in place of its atlas coordinates
+/// its tile's left edge (u), its painted row (v), its tile's top edge
+/// (terrain_x) and its tile's place in tiles (terrain_size), each a whole
+/// number below 2^24 but the row, so that a float holds every one exactly.
+struct GroundBand {
+    int32_t top{};    ///< the first painted row of the band's cells
+    int32_t bottom{}; ///< the row after its last
+    std::vector<renderer_live_gpu::Vertex> vertices{};
+    /// The tile keys the band draws, each once, in the order it first draws them.
+    std::vector<uint64_t> tiles{};
+    std::unordered_map<uint64_t, uint32_t> places{}; ///< each key's place in tiles
+    std::vector<AtlasRect> squares{};                ///< each tile's square, once packed
+    /// The band's height samples and their fog, reused from frame to frame.
+    std::vector<std::array<float, 2>> samples{};
+    std::vector<bool> merged_columns{}; ///< the columns of tiles drawn whole
+    std::exception_ptr failure{};       ///< a failure, raised in the bands' order
+    bool overflow{};                    ///< it held more vertices than a frame may
+    uint64_t nanoseconds{};             ///< for the bench: the time drawing it took
+};
+
+/// The ground of a moving camera drawn ahead of it: band by band on the
+/// drawing threads, over the frames before the kept ground's margin runs
+/// out, for the picture the camera is expected to show by then, from the
+/// same as the kept ground. Once every band is drawn it is taken as the
+/// kept ground, as soon as it covers the frame's picture.
+struct GroundAhead {
+    bool active{}; ///< a ground is being drawn ahead
+    /// What it is drawn from, with the crop, the picture and the margin it
+    /// is drawn for.
+    GroundSource source{};
+    std::vector<GroundBand> bands{};
+    std::size_t bands_drawn{};   ///< the bands drawn so far, from the first
+    std::size_t bands_a_frame{}; ///< the bands each frame draws
 };
 
 /// A structure's plot, the ground levelled under it: the map rectangle it
@@ -334,6 +375,11 @@ struct Scene {
     /// The tile keys that ground draws, each with its square.
     std::vector<std::pair<uint64_t, AtlasRect>> ground_tiles{};
     bool ground_kept{};
+    /// The bands of a ground drawn within the frame, reused from frame to frame.
+    std::vector<GroundBand> ground_bands{};
+    /// The ground drawn ahead of a moving camera, to take over from the
+    /// kept ground before its margin runs out.
+    GroundAhead ground_ahead{};
     /// The revision of the kept ground, which a frame that takes it takes too.
     uint64_t kept_ground_revision{};
     /// The revision of the frame's ground, its first terrain_vertex_count

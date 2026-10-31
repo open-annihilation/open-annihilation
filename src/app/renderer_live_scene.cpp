@@ -296,15 +296,24 @@ float height_at(const formats::tnt::Map& map, int32_t x, int32_t y) {
     return map.attributes[static_cast<std::size_t>(row) * map.attribute_width + column].height;
 }
 
+/// Samples the heights a frame's ground is drawn from as height_at samples
+/// the map's.
+float height_at(const GroundSource& source, int32_t x, int32_t y) {
+    const auto column = std::clamp(x / cell_edge, 0, static_cast<int32_t>(source.map_width) - 1);
+    const auto row = std::clamp(y / cell_edge, 0, static_cast<int32_t>(source.map_height) - 1);
+    return source.heights[static_cast<std::size_t>(row) * source.map_width + column];
+}
+
 /// Returns the height the simulation gives the middle of a height cell, as
 /// unit_movement::Terrain::height interpolates between the cell's corners,
 /// in whole steps.
 ///
-/// @param map the map
+/// @param map the map, or the heights a frame's ground is drawn from
 /// @param x the cell's left edge, in map pixels
 /// @param y the cell's top edge
 /// @return the height
-float cell_middle_height(const formats::tnt::Map& map, int32_t x, int32_t y) {
+template <typename Heights>
+float cell_middle_height(const Heights& map, int32_t x, int32_t y) {
     constexpr int32_t half = cell_edge / 2;
     const auto corner = [&](int32_t dx, int32_t dy) {
         return static_cast<int32_t>(height_at(map, x + dx, y + dy));
@@ -329,6 +338,18 @@ float cell_middle_height(const formats::tnt::Map& map, int32_t x, int32_t y) {
 /// @return true when the corners do not lie in one plane
 bool twisted_cell(float top_left, float top_right, float bottom_right, float bottom_left) {
     return top_left - top_right + bottom_right - bottom_left != 0.0F;
+}
+
+/// Makes room in a list for count items: a quarter more when it must
+/// grow, so that a list that grows a little from frame to frame is not
+/// moved each frame.
+///
+/// @param[in,out] list the list
+/// @param count the items it is to hold
+template <typename Item>
+void reserve_room(std::vector<Item>& list, std::size_t count) {
+    if (list.capacity() < count)
+        list.reserve(count + count / 4);
 }
 
 /// Adds a triangle fan after checking the frame's memory budget.
@@ -1196,7 +1217,9 @@ constexpr float moving_ground_margin_share = 0.1F;
 /// draws in the box lies inside it, so none of them would show. Without the
 /// picture's size (clip_width or clip_height zero) no ground is left out.
 ///
-/// @param in the frame
+/// @param m the picture's projection
+/// @param clip_width the picture's width
+/// @param clip_height its height
 /// @param left the box's least map x
 /// @param top its least map z (row)
 /// @param right its greatest map x
@@ -1206,18 +1229,19 @@ constexpr float moving_ground_margin_share = 0.1F;
 /// @param margin the pixels beyond the picture's edges still drawn
 /// @return true when the box lies wholly beyond the picture
 bool ground_off_screen(
-    const Inputs& in,
+    const std::array<float, 12>& m,
+    uint32_t clip_width,
+    uint32_t clip_height,
     float left,
     float top,
     float right,
     float bottom,
     float low,
     float high,
-    float margin = screen_ground_margin
+    float margin
 ) {
-    if (in.clip_width == 0 || in.clip_height == 0)
+    if (clip_width == 0 || clip_height == 0)
         return false;
-    const auto& m = in.clip_projection;
     // An affine row's least and greatest value over the box.
     const auto span = [&](std::size_t row) {
         const float x0 = m[row] * left, x1 = m[row] * right;
@@ -1231,44 +1255,90 @@ bool ground_off_screen(
     const auto across = span(0);
     const auto down = span(4);
     // A bound that is not a number fails every test, and its box is kept.
-    return across[1] < -margin || across[0] > static_cast<float>(in.clip_width) + margin ||
-           down[1] < -margin || down[0] > static_cast<float>(in.clip_height) + margin;
+    return across[1] < -margin || across[0] > static_cast<float>(clip_width) + margin ||
+           down[1] < -margin || down[0] > static_cast<float>(clip_height) + margin;
+}
+
+/// ground_off_screen for the frame's own picture.
+bool ground_off_screen(
+    const Inputs& in,
+    float left,
+    float top,
+    float right,
+    float bottom,
+    float low,
+    float high,
+    float margin = screen_ground_margin
+) {
+    return ground_off_screen(
+        in.clip_projection,
+        in.clip_width,
+        in.clip_height,
+        left,
+        top,
+        right,
+        bottom,
+        low,
+        high,
+        margin
+    );
 }
 
 /// The crop of a picture widened by margin pixels beyond its edges, past
 /// screen_ground_margin: the painted rectangle in which any ground drawn
-/// within that margin lies, as the runtime crops the picture itself, and
-/// at least the frame's own crop.
+/// within that margin lies, as the runtime crops the picture itself.
 ///
-/// @param in the frame and its picture
+/// @param map the map
+/// @param projection the picture's projection
+/// @param clip_width the picture's width
+/// @param clip_height its height
 /// @param margin the pixels the picture is widened by
 /// @return the widened crop, or none when the picture cannot be bounded
-std::optional<TerrainCrop> widened_crop(const Inputs& in, float margin) {
+std::optional<TerrainCrop> widened_bounds(
+    const formats::tnt::Map& map,
+    const std::array<float, 12>& projection,
+    uint32_t clip_width,
+    uint32_t clip_height,
+    float margin
+) {
     const float widening = screen_ground_margin + margin;
     // The picture widened: its origin moved up and left by the widening.
-    auto widened = in.clip_projection;
+    auto widened = projection;
     widened[3] += widening;
     widened[7] += widening;
     renderer_live_camera::TerrainBounds bounds{};
     constexpr float crop_margin = 2 * cell_edge;
     if (!renderer_live_camera::visible_terrain_bounds(
             widened,
-            static_cast<float>(in.clip_width) + 2 * widening,
-            static_cast<float>(in.clip_height) + 2 * widening,
+            static_cast<float>(clip_width) + 2 * widening,
+            static_cast<float>(clip_height) + 2 * widening,
             crop_margin,
             bounds
         ))
         return std::nullopt;
-    const auto& map = *in.map;
     const auto width = static_cast<float>(map.attribute_width * cell_edge);
     const auto height = static_cast<float>(map.attribute_height * cell_edge);
-    const auto wide = terrain_crop(
+    return terrain_crop(
         map,
         static_cast<int32_t>(std::clamp(std::floor(bounds.min_x), 0.0F, width)),
         static_cast<int32_t>(std::clamp(std::floor(bounds.min_y), 0.0F, height)),
         static_cast<int32_t>(std::clamp(std::ceil(bounds.max_x), 0.0F, width)),
         static_cast<int32_t>(std::clamp(std::ceil(bounds.max_y), 0.0F, height))
     );
+}
+
+/// The crop of the frame's picture widened by margin pixels
+/// (widened_bounds), and at least the frame's own crop.
+///
+/// @param in the frame and its picture
+/// @param margin the pixels the picture is widened by
+/// @return the widened crop, or none when the picture cannot be bounded
+std::optional<TerrainCrop> widened_crop(const Inputs& in, float margin) {
+    const auto bounds =
+        widened_bounds(*in.map, in.clip_projection, in.clip_width, in.clip_height, margin);
+    if (!bounds)
+        return std::nullopt;
+    const auto& wide = *bounds;
     const auto crop = terrain_crop(in);
     return TerrainCrop{
         std::min(crop.left, wide.left),
@@ -1421,6 +1491,8 @@ bool note_ground_source(GroundSource& source, const Inputs& in, const Scene& sce
     note(source.map_width, map.attribute_width);
     note(source.map_height, map.attribute_height);
     note(source.tile_width, map.tile_width);
+    note(source.tile_height, map.tile_height);
+    note(source.tile_art_bytes, map.tile_palette_indices.size());
     const auto cells = static_cast<std::size_t>(map.attribute_width) * map.attribute_height;
     bool heights_same = source.heights.size() == cells;
     for (std::size_t cell = 0; cell < cells && heights_same; ++cell)
@@ -1470,10 +1542,60 @@ bool note_ground_source(GroundSource& source, const Inputs& in, const Scene& sce
     return same;
 }
 
+/// The furthest, in a picture's pixels, that any ground the picture shows
+/// within screen_ground_margin has moved since a picture of the same size
+/// drawn by another projection.
+///
+/// A box of ground the picture shows within screen_ground_margin holds a
+/// point that lies, at its height, under the picture so widened. The
+/// projection is affine, so such ground has moved furthest at one of the
+/// widened picture's corners at the map's lowest or highest ground.
+///
+/// @param from the other picture's projection
+/// @param to the picture's projection
+/// @param clip_width the pictures' width
+/// @param clip_height their height
+/// @param lowest the map's lowest ground
+/// @param highest its highest
+/// @return the distance; infinity where it is not a number
+float picture_shift(
+    const std::array<float, 12>& from,
+    const std::array<float, 12>& to,
+    uint32_t clip_width,
+    uint32_t clip_height,
+    uint8_t lowest,
+    uint8_t highest
+) {
+    constexpr float unbounded = std::numeric_limits<float>::infinity();
+    const float right = static_cast<float>(clip_width) + screen_ground_margin;
+    const float bottom = static_cast<float>(clip_height) + screen_ground_margin;
+    float furthest = 0;
+    for (const float height : {float(lowest), float(highest)})
+        for (const float screen_y : {-screen_ground_margin, bottom})
+            for (const float screen_x : {-screen_ground_margin, right}) {
+                float x{}, z{};
+                if (!renderer_live_camera::world_at_height(to, screen_x, screen_y, height, x, z))
+                    return unbounded;
+                const std::array point{x, height, z, 1.0F};
+                for (const std::size_t row : {std::size_t{0}, std::size_t{4}}) {
+                    float shift = 0;
+                    for (std::size_t column = 0; column < point.size(); ++column)
+                        shift += (to[row + column] - from[row + column]) * point[column];
+                    // A shift that is not a number is unbounded.
+                    if (!(std::abs(shift) <= furthest))
+                        furthest = std::isnan(shift) ? unbounded : std::abs(shift);
+                }
+            }
+    return furthest;
+}
+
 /// Tells whether the ground drawn from source holds every cell the frame's
 /// picture shows: it was drawn for the same picture, or for one of the
 /// same size whose margin (GroundSource::picture_margin) is wider than any
-/// ground the frame's picture shows has moved in the picture since.
+/// ground the frame's picture shows has moved in the picture since
+/// (picture_shift). Moved no further than the margin, a box of ground the
+/// frame shows was shown within the margin more by the kept ground's
+/// picture, lies in its crop (widened_bounds), and was drawn.
 ///
 /// @param source what the kept ground was drawn from
 /// @param in the frame
@@ -1485,36 +1607,14 @@ bool ground_covers(const GroundSource& source, const Inputs& in, const TerrainCr
     if (source.picture_margin == 0)
         return source.clip_projection == in.clip_projection &&
                source.crop == std::array{crop.left, crop.top, crop.right, crop.bottom};
-    // A box of ground the frame's picture shows within screen_ground_margin
-    // holds a point that lies, at its height, under the picture so widened.
-    // The projection is affine, so such ground has moved furthest since the
-    // kept ground's picture at one of the widened picture's corners at the
-    // map's lowest or highest ground. Moved no further than the margin, the
-    // box was shown within the margin more by the kept ground's picture,
-    // lies in its crop (widened_crop), and was drawn.
-    const float right = static_cast<float>(in.clip_width) + screen_ground_margin;
-    const float bottom = static_cast<float>(in.clip_height) + screen_ground_margin;
-    for (const float height : {float(source.lowest), float(source.highest)})
-        for (const float screen_y : {-screen_ground_margin, bottom})
-            for (const float screen_x : {-screen_ground_margin, right}) {
-                float x{}, z{};
-                if (!renderer_live_camera::world_at_height(
-                        in.clip_projection, screen_x, screen_y, height, x, z
-                    ))
-                    return false;
-                const std::array point{x, height, z, 1.0F};
-                for (const std::size_t row : {std::size_t{0}, std::size_t{4}}) {
-                    float shift = 0;
-                    for (std::size_t column = 0; column < point.size(); ++column)
-                        shift += (in.clip_projection[row + column] -
-                                  source.clip_projection[row + column]) *
-                                 point[column];
-                    // A shift that is not a number fails the test.
-                    if (!(std::abs(shift) <= source.picture_margin))
-                        return false;
-                }
-            }
-    return true;
+    return picture_shift(
+               source.clip_projection,
+               in.clip_projection,
+               in.clip_width,
+               in.clip_height,
+               source.lowest,
+               source.highest
+           ) <= source.picture_margin;
 }
 
 /// A ground revision no scene has had before.
@@ -1546,86 +1646,109 @@ bool ground_tiles_hold(const Inputs& in, const Scene& scene, const TerrainPlan& 
     return true;
 }
 
-/// Emits terrain cells with tile UVs and a separate fog material per cell,
-/// each tile packed into the square the plan packs it into
-/// (TerrainPlan::packed).
+/// What a ground's rows are drawn from: its source, with the crop, the
+/// picture and the margin it is drawn for (GroundSource), the fog of each
+/// sight cell as the source holds it, and the pixels beyond the picture's
+/// edges drawn.
+struct GroundDraw {
+    const GroundSource& source;
+    FogCells cells{};
+    float margin{};
+};
+
+/// @return what a ground drawn from source is drawn from
+GroundDraw ground_draw(const GroundSource& source) {
+    return {
+        source,
+        {source.fog, source.sight_width, source.sight_height, source.mapping, source.dithered},
+        screen_ground_margin + source.picture_margin
+    };
+}
+
+/// Fills in a terrain vertex's place in its tile's square of the atlas.
 ///
-/// @param in the frame
-/// @param[in,out] scene the geometry and atlas
-/// @param plan the square of each tile
-/// @param step the height cells a side of each drawn square of ground: 1
-///     for every cell, or 2, 4 or 8 for a frame whose ground would
-///     otherwise take more triangles than the frame may hold
-/// @param[out] tiles each tile key drawn, with its square
-/// @param crop the painted rectangle drawn: the frame's crop, or a moving
-///     camera's widened one (widened_crop)
-/// @param margin the pixels beyond the picture's edges drawn
-void draw_terrain(
-    const Inputs& in,
-    Scene& scene,
-    const TerrainPlan& plan,
-    int32_t step,
-    const FogCells& cells,
-    std::unordered_map<uint64_t, AtlasRect>& tiles,
-    const TerrainCrop& crop,
-    float margin
+/// @param[in,out] vertex the vertex
+/// @param rect the tile's square
+/// @param x the vertex's map x
+/// @param painted_y its painted row
+/// @param tile_x the tile's left edge
+/// @param tile_y its top edge
+/// @param atlas_width the atlas's width
+/// @param atlas_height its height
+void place_in_square(
+    Vertex& vertex,
+    const AtlasRect& rect,
+    float x,
+    float painted_y,
+    int32_t tile_x,
+    int32_t tile_y,
+    uint32_t atlas_width,
+    uint32_t atlas_height
 ) {
-    const auto& map = *in.map;
-    const int32_t left = crop.left;
-    const int32_t top = crop.top;
-    const int32_t right = crop.right;
-    const int32_t bottom = crop.bottom;
-    ++scene.terrain_passes;
-    // Room for every tile of the largest map at least once in full and once
-    // black, so that a wide view of one does not empty the cache each frame.
-    constexpr std::size_t maximum_cached_tiles = 32768;
-    // A tile's texels are reused by all four height cells and every repeated
-    // tile: tiles holds each key's square once it is found.
-    const auto tile_material = [&](int32_t tile_x, int32_t tile_y) {
-        const auto tile = map.tile_indices.at(
-            static_cast<std::size_t>(tile_y / tile_edge) * map.tile_width + tile_x / tile_edge
+    // A smaller square holds the tile at a fraction of its pixels.
+    const bool full = rect.width == full_terrain_square;
+    const float scale = static_cast<float>(rect.width) / full_terrain_square;
+    vertex.u = (full ? rect.x + x - tile_x : rect.x + (x - tile_x) * scale) / atlas_width;
+    vertex.v =
+        (full ? rect.y + painted_y - tile_y : rect.y + (painted_y - tile_y) * scale) / atlas_height;
+    vertex.terrain_x = static_cast<float>(rect.x);
+    vertex.terrain_y = static_cast<float>(rect.y);
+    vertex.terrain_size = static_cast<float>(rect.width / 2);
+}
+
+/// Emits a ground's terrain cells from its first painted row to before its
+/// end, with tile UVs and a separate fog material per cell, as the rows of
+/// the whole crop are drawn one after another: rows of whole tiles, or of
+/// the squares drawn far out, list the same triangles alone as among the
+/// others.
+///
+/// @param draw what the ground is drawn from
+/// @param first the first row: the crop's top, or the top of a row of tiles
+///     (of squares far out) within it
+/// @param end the row after the last, at most the crop's bottom
+/// @param[in,out] samples the rows' height samples and their fog, held while
+///     they are drawn
+/// @param[in,out] merged_columns the columns of tiles drawn whole
+/// @param tiles finds each tile drawn (tile(x, y)), places each vertex in it
+///     (place(vertex, point, x, y, tile)) and lists each triangle
+///     (triangle(triangle))
+template <typename Tiles>
+void draw_ground_rows(
+    const GroundDraw& draw,
+    int32_t first,
+    int32_t end,
+    std::vector<std::array<float, 2>>& samples,
+    std::vector<bool>& merged_columns,
+    Tiles& tiles
+) {
+    const auto& source = draw.source;
+    const auto& cells = draw.cells;
+    const int32_t left = source.crop[0];
+    const int32_t right = source.crop[2];
+    const int32_t bottom = source.crop[3];
+    const float margin = draw.margin;
+    // Whether a box of ground lies wholly beyond the picture.
+    const auto off_screen = [&](float x0, float y0, float x1, float y1, float low, float high) {
+        return ground_off_screen(
+            source.clip_projection,
+            source.clip_width,
+            source.clip_height,
+            x0,
+            y0,
+            x1,
+            y1,
+            low,
+            high,
+            margin
         );
-        const auto fog = cells.at(tile_x, tile_y) == Fog::black ? Fog::black : Fog::seen;
-        const uint64_t key = static_cast<uint64_t>(tile) * 3 + static_cast<uint64_t>(fog);
-        auto found = tiles.find(key);
-        if (found == tiles.end()) {
-            const auto start = static_cast<std::size_t>(tile) * formats::tnt::layout::tile_bytes;
-            if (start + formats::tnt::layout::tile_bytes > map.tile_palette_indices.size())
-                throw std::runtime_error("experimental terrain tile is out of bounds");
-            const auto pixels = std::span(map.tile_palette_indices)
-                                    .subspan(start, formats::tnt::layout::tile_bytes);
-            // A tile packed larger in an earlier frame keeps its detail.
-            auto cached = scene.terrain_materials.find(key);
-            if (cached == scene.terrain_materials.end() ||
-                cached->second.rectangle.width < plan.least(key) ||
-                std::memcmp(cached->second.pixels.data(), pixels.data(), pixels.size()) != 0) {
-                // The square it leaves is given back: nothing this pass has
-                // drawn samples it, and the kept ground is drawn again.
-                if (cached != scene.terrain_materials.end() && !scene.ground_kept) {
-                    give_back_terrain_square(scene, cached->second.rectangle);
-                    scene.terrain_materials.erase(cached);
-                }
-                const auto rectangle = terrain_material(
-                    scene, *in.palette, scene.terrain_grey_palette, pixels, fog, plan.packed(key)
-                );
-                if (scene.terrain_materials.size() >= maximum_cached_tiles && !scene.ground_kept)
-                    drop_terrain_materials(scene, scene.terrain_passes);
-                scene.frame.aircraft_shadows.clear();
-                auto& entry = scene.terrain_materials[key];
-                std::copy(pixels.begin(), pixels.end(), entry.pixels.begin());
-                entry.rectangle = rectangle;
-                cached = scene.terrain_materials.find(key);
-            }
-            cached->second.drawn = scene.terrain_passes;
-            found = tiles.emplace(key, cached->second.rectangle).first;
-        }
-        return found->second;
     };
     // Geometry follows world X/Z. Artwork is indexed by its classic projected
     // position and can cross several source tiles on one steep terrain face.
-    const auto emit = [&](std::span<const Vertex> source) {
-        for (std::size_t corner = 1; corner + 1 < source.size(); ++corner) {
-            const std::array vertices{source[0], source[corner], source[corner + 1]};
+    const auto emit = [&](std::span<const Vertex> polygon_corners) {
+        for (std::size_t corner = 1; corner + 1 < polygon_corners.size(); ++corner) {
+            const std::array vertices{
+                polygon_corners[0], polygon_corners[corner], polygon_corners[corner + 1]
+            };
             GroundPolygon points{};
             points.count = 3;
             float min_x = vertices[0].x, max_x = min_x;
@@ -1643,11 +1766,11 @@ void draw_terrain(
             const int32_t first_y =
                 std::max(0, static_cast<int32_t>(std::floor(min_y / tile_edge)) * tile_edge);
             const int32_t last_x = std::min(
-                static_cast<int32_t>(map.tile_width) * tile_edge,
+                static_cast<int32_t>(source.tile_width) * tile_edge,
                 static_cast<int32_t>(std::ceil(max_x / tile_edge)) * tile_edge
             );
             const int32_t last_y = std::min(
-                static_cast<int32_t>(map.tile_height) * tile_edge,
+                static_cast<int32_t>(source.tile_height) * tile_edge,
                 std::max(
                     first_y + tile_edge,
                     static_cast<int32_t>(std::ceil(max_y / tile_edge)) * tile_edge
@@ -1656,10 +1779,7 @@ void draw_terrain(
             const auto emit_tile = [&](const GroundPolygon& clipped, int32_t tx, int32_t ty) {
                 if (clipped.count < 3)
                     return;
-                const auto rect = tile_material(tx, ty);
-                // A smaller square holds the tile at a fraction of its pixels.
-                const bool full = rect.width == full_terrain_square;
-                const float scale = static_cast<float>(rect.width) / full_terrain_square;
+                const auto tile = tiles.tile(tx, ty);
                 std::array<Vertex, 8> output{};
                 for (std::size_t index = 0; index < clipped.count; ++index) {
                     const auto& point = clipped.points[index];
@@ -1667,16 +1787,12 @@ void draw_terrain(
                         point.x,
                         point.height,
                         point.y + point.height * height_lift,
-                        (full ? rect.x + point.x - tx : rect.x + (point.x - tx) * scale) /
-                            scene.texture_width,
-                        (full ? rect.y + point.y - ty : rect.y + (point.y - ty) * scale) /
-                            scene.texture_height,
+                        0,
+                        0,
                         point.brightness
                     };
                     auto& vertex = output[index];
-                    vertex.terrain_x = static_cast<float>(rect.x);
-                    vertex.terrain_y = static_cast<float>(rect.y);
-                    vertex.terrain_size = static_cast<float>(rect.width / 2);
+                    tiles.place(vertex, point, tx, ty, tile);
                     const auto ground =
                         fog_of_ground(cells, cells.dithered, point.x, point.y, point.brightness);
                     vertex.terrain_known = ground.known;
@@ -1688,7 +1804,7 @@ void draw_terrain(
                     const auto& c = output[index + 1];
                     const float area = (b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z);
                     if (std::abs(area) > 0.000001F)
-                        polygon(scene, std::array{a, b, c});
+                        tiles.triangle(std::array{a, b, c});
                 }
             };
             if (min_x >= first_x && min_y >= first_y && max_x <= first_x + tile_edge &&
@@ -1706,16 +1822,16 @@ void draw_terrain(
                 }
         }
     };
-    if (step > 1) {
+    if (source.step > 1) {
         // Seen from this far out, a cell is a pixel or two: the ground is
         // drawn from every step-th height sample, each square as four
         // triangles about its middle sample, or two where all five lie
         // level and in even fog. Each still samples its own tiles' art.
-        const int32_t edge = cell_edge * step;
-        const int32_t map_width = static_cast<int32_t>(map.attribute_width) * cell_edge;
-        const int32_t map_height = static_cast<int32_t>(map.attribute_height) * cell_edge;
+        const int32_t edge = cell_edge * source.step;
+        const int32_t map_width = static_cast<int32_t>(source.map_width) * cell_edge;
+        const int32_t map_height = static_cast<int32_t>(source.map_height) * cell_edge;
         const auto ground = [&](int32_t x, int32_t y) {
-            const float h = height_at(map, x, y);
+            const float h = height_at(source, x, y);
             return Vertex{
                 static_cast<float>(x),
                 h,
@@ -1725,21 +1841,19 @@ void draw_terrain(
                 brightness_at(cells, float(x), y - h * height_lift)
             };
         };
-        for (int32_t y = top / edge * edge; y < bottom; y += edge)
+        for (int32_t y = first / edge * edge; y < end; y += edge)
             for (int32_t x = left / edge * edge; x < right; x += edge) {
                 const int32_t far_x = std::min(x + edge, map_width);
                 const int32_t far_y = std::min(y + edge, map_height);
                 const std::array heights{
-                    height_at(map, x, y),
-                    height_at(map, far_x, y),
-                    height_at(map, far_x, far_y),
-                    height_at(map, x, far_y),
-                    height_at(map, (x + far_x) / 2, (y + far_y) / 2)
+                    height_at(source, x, y),
+                    height_at(source, far_x, y),
+                    height_at(source, far_x, far_y),
+                    height_at(source, x, far_y),
+                    height_at(source, (x + far_x) / 2, (y + far_y) / 2)
                 };
                 const auto [low, high] = std::minmax_element(heights.begin(), heights.end());
-                if (ground_off_screen(
-                        in, float(x), float(y), float(far_x), float(far_y), *low, *high, margin
-                    ))
+                if (off_screen(float(x), float(y), float(far_x), float(far_y), *low, *high))
                     continue;
                 const std::array corners{
                     ground(x, y), ground(far_x, y), ground(far_x, far_y), ground(x, far_y)
@@ -1761,28 +1875,28 @@ void draw_terrain(
                     emit(fan);
                 }
             }
-        scene.terrain_vertex_count = scene.vertices.size();
         return;
     }
+    // The height samples of the rows and of a tile's further down, which a
+    // tile drawn whole reads.
     const int32_t columns = (right - left + cell_edge - 1) / cell_edge + 1;
-    const int32_t rows = (bottom - top + cell_edge - 1) / cell_edge + 1;
-    const auto count = static_cast<std::size_t>(columns) * rows;
-    std::vector<std::array<float, 2>> corner_samples;
-    if (count <= maximum_vertices)
-        corner_samples.assign(count, {0, -1});
+    const int32_t rows = (end - first + tile_edge + cell_edge - 1) / cell_edge + 1;
+    samples.assign(static_cast<std::size_t>(columns) * rows, {0, -1});
     const auto sample = [&](int32_t x, int32_t y) {
+        const int32_t row = (y - first) / cell_edge;
+        const int32_t column = (x - left) / cell_edge;
+        const bool held = y >= first && x >= left && row < rows && column < columns;
         const auto index =
-            static_cast<std::size_t>((y - top) / cell_edge) * columns + (x - left) / cell_edge;
-        if (!corner_samples.empty() && corner_samples[index][1] >= 0)
-            return corner_samples[index];
-        const float height = height_at(map, x, y);
+            static_cast<std::size_t>(row) * columns + static_cast<std::size_t>(column);
+        if (held && samples[index][1] >= 0)
+            return samples[index];
+        const float height = height_at(source, x, y);
         const std::array result{height, brightness_at(cells, float(x), y - height * height_lift)};
-        if (!corner_samples.empty())
-            corner_samples[index] = result;
+        if (held)
+            samples[index] = result;
         return result;
     };
-    const bool distant =
-        std::isfinite(in.detail_scale) && in.detail_scale > 0 && in.detail_scale < 1;
+    const bool distant = source.distant;
     // Whether the square of ground at x, y, edge pixels a side, lies wholly
     // beyond the picture, by the heights at every height sample in it.
     const auto square_off_screen = [&](int32_t x, int32_t y, int32_t edge) {
@@ -1790,16 +1904,14 @@ void draw_terrain(
         float high = -low;
         for (int32_t dy = 0; dy <= edge; dy += cell_edge)
             for (int32_t dx = 0; dx <= edge; dx += cell_edge) {
-                const float height = height_at(map, x + dx, y + dy);
+                const float height = height_at(source, x + dx, y + dy);
                 low = std::min(low, height);
                 high = std::max(high, height);
             }
-        return ground_off_screen(
-            in, float(x), float(y), float(x + edge), float(y + edge), low, high, margin
-        );
+        return off_screen(float(x), float(y), float(x + edge), float(y + edge), low, high);
     };
-    std::vector<bool> merged_columns(static_cast<std::size_t>(columns));
-    for (int32_t y = top; y < bottom; y += cell_edge) {
+    merged_columns.assign(static_cast<std::size_t>(columns), false);
+    for (int32_t y = first; y < end; y += cell_edge) {
         if (y % tile_edge == 0)
             std::fill(merged_columns.begin(), merged_columns.end(), false);
         for (int32_t x = left; x < right; x += cell_edge) {
@@ -1861,7 +1973,7 @@ void draw_terrain(
             if (twisted_cell(
                     corners[0].height, corners[1].height, corners[2].height, corners[3].height
                 )) {
-                const float h = cell_middle_height(map, x, y);
+                const float h = cell_middle_height(source, x, y);
                 const float middle_x = static_cast<float>(x + cell_edge / 2);
                 const float middle_y = static_cast<float>(y + cell_edge / 2);
                 middle = Vertex{
@@ -1896,7 +2008,7 @@ void draw_terrain(
             }
             // Refine only sight transitions, retaining each original terrain plane.
             constexpr int32_t maximum_divisions = 4;
-            const int32_t divisions = fog_divisions(in);
+            const int32_t divisions = source.fog_divisions;
             const auto triangle = [&](const Vertex& a, const Vertex& b, const Vertex& c) {
                 const auto make_point = [&](int32_t column, int32_t row) {
                     const float u = static_cast<float>(column) / divisions;
@@ -1925,10 +2037,10 @@ void draw_terrain(
                 };
                 for (int32_t row = 0; row < divisions; ++row)
                     for (int32_t column = 0; column < divisions - row; ++column) {
-                        const std::array first{
+                        const std::array first_triangle{
                             point(column, row), point(column + 1, row), point(column, row + 1)
                         };
-                        emit(first);
+                        emit(first_triangle);
                         if (column + row + 1 < divisions) {
                             const std::array second{
                                 point(column + 1, row),
@@ -1948,16 +2060,518 @@ void draw_terrain(
             }
         }
     }
-    scene.terrain_vertex_count = scene.vertices.size();
 }
 
-/// Emits the frame's ground (draw_terrain), or takes the kept ground again
-/// when it was drawn from the same, covers the frame's picture and its
-/// tiles keep their squares: that it leaves in Scene::ground_vertices, for
-/// the passes after it to list as the foundations leave it
-/// (run_passes). While the camera moves (TerrainPlan::holding) the
-/// ground is drawn beyond the picture by a margin and kept, so that the
-/// frames after it take it until their pictures move past the margin;
+/// Lists a ground's triangles straight into the frame, packing each tile
+/// as the ground first draws it: the ground drawn row after row on the
+/// thread that builds the frame, which gives up where the frame's geometry
+/// budget runs out (GeometryFull) or a tile cannot be drawn, with the tiles
+/// met before then packed.
+class PackingTiles {
+  public:
+
+    /// @param in the frame
+    /// @param[in,out] scene the atlas and terrain materials
+    /// @param plan the square of each tile
+    /// @param draw what the ground is drawn from
+    /// @param[out] vertices where the triangles are listed, empty
+    PackingTiles(
+        const Inputs& in,
+        Scene& scene,
+        const TerrainPlan& plan,
+        const GroundDraw& draw,
+        std::vector<Vertex>& vertices
+    )
+        : in_(in), scene_(scene), plan_(plan), draw_(draw), vertices_(vertices) {}
+
+    /// @return the square of the tile at a painted tile position, packed
+    ///     now when this ground meets it first and has no square for it
+    AtlasRect tile(int32_t tile_x, int32_t tile_y) {
+        const auto& map = *in_.map;
+        // Room for every tile of the largest map at least once in full and
+        // once black, so that a wide view of one does not empty the cache
+        // each frame.
+        constexpr std::size_t maximum_cached_tiles = 32768;
+        const auto tile = draw_.source.tile_indices.at(
+            static_cast<std::size_t>(tile_y / tile_edge) * draw_.source.tile_width +
+            tile_x / tile_edge
+        );
+        const auto fog = draw_.cells.at(tile_x, tile_y) == Fog::black ? Fog::black : Fog::seen;
+        const uint64_t key = static_cast<uint64_t>(tile) * 3 + static_cast<uint64_t>(fog);
+        // A tile's texels are reused by all four height cells and every
+        // repeated tile: tiles_ holds each key's square once it is found.
+        auto found = tiles_.find(key);
+        if (found != tiles_.end())
+            return found->second;
+        const auto start = static_cast<std::size_t>(tile) * formats::tnt::layout::tile_bytes;
+        if (start + formats::tnt::layout::tile_bytes > map.tile_palette_indices.size())
+            throw std::runtime_error("experimental terrain tile is out of bounds");
+        const auto pixels =
+            std::span(map.tile_palette_indices).subspan(start, formats::tnt::layout::tile_bytes);
+        // A tile packed larger in an earlier frame keeps its detail.
+        auto& scene = scene_;
+        auto cached = scene.terrain_materials.find(key);
+        if (cached == scene.terrain_materials.end() ||
+            cached->second.rectangle.width < plan_.least(key) ||
+            std::memcmp(cached->second.pixels.data(), pixels.data(), pixels.size()) != 0) {
+            // The square it leaves is given back: nothing this pass has
+            // drawn samples it, and the kept ground is drawn again.
+            if (cached != scene.terrain_materials.end() && !scene.ground_kept) {
+                give_back_terrain_square(scene, cached->second.rectangle);
+                scene.terrain_materials.erase(cached);
+            }
+            const auto rectangle = terrain_material(
+                scene, *in_.palette, scene.terrain_grey_palette, pixels, fog, plan_.packed(key)
+            );
+            if (scene.terrain_materials.size() >= maximum_cached_tiles && !scene.ground_kept)
+                drop_terrain_materials(scene, scene.terrain_passes);
+            scene.frame.aircraft_shadows.clear();
+            auto& entry = scene.terrain_materials[key];
+            std::copy(pixels.begin(), pixels.end(), entry.pixels.begin());
+            entry.rectangle = rectangle;
+            cached = scene.terrain_materials.find(key);
+        }
+        cached->second.drawn = scene.terrain_passes;
+        found = tiles_.emplace(key, cached->second.rectangle).first;
+        return found->second;
+    }
+
+    /// Places a vertex in its tile's square.
+    void place(
+        Vertex& vertex, const GroundPoint& point, int32_t tile_x, int32_t tile_y, AtlasRect square
+    ) const {
+        place_in_square(
+            vertex,
+            square,
+            point.x,
+            point.y,
+            tile_x,
+            tile_y,
+            scene_.texture_width,
+            scene_.texture_height
+        );
+    }
+
+    /// Lists a triangle after checking the frame's geometry budget.
+    void triangle(const std::array<Vertex, 3>& triangle) {
+        if (vertices_.size() + triangle.size() > maximum_vertices)
+            throw GeometryFull();
+        vertices_.insert(vertices_.end(), triangle.begin(), triangle.end());
+    }
+
+    /// @return each tile key drawn, with its square
+    [[nodiscard]] const std::unordered_map<uint64_t, AtlasRect>& tiles() const { return tiles_; }
+
+  private:
+
+    const Inputs& in_;
+    Scene& scene_;
+    const TerrainPlan& plan_;
+    const GroundDraw& draw_;
+    std::vector<Vertex>& vertices_;
+    std::unordered_map<uint64_t, AtlasRect> tiles_;
+};
+
+/// A band of ground that holds more vertices than the frame may.
+class BandFull : public std::exception {
+  public:
+
+    [[nodiscard]] const char* what() const noexcept override {
+        return "experimental ground band exceeds the geometry budget";
+    }
+};
+
+/// Lists a band of ground's triangles into the band, noting each tile it
+/// draws for the thread that builds the frame to pack, and each vertex's
+/// place in its tile for it to place (GroundBand).
+class BandTiles {
+  public:
+
+    /// @param draw what the ground is drawn from
+    /// @param[in,out] band the band, empty
+    BandTiles(const GroundDraw& draw, GroundBand& band) : draw_(draw), band_(band) {}
+
+    /// @return the place among the band's tiles of the tile at a painted
+    ///     tile position
+    uint32_t tile(int32_t tile_x, int32_t tile_y) {
+        const auto& source = draw_.source;
+        const auto tile = source.tile_indices.at(
+            static_cast<std::size_t>(tile_y / tile_edge) * source.tile_width + tile_x / tile_edge
+        );
+        const auto fog = draw_.cells.at(tile_x, tile_y) == Fog::black ? Fog::black : Fog::seen;
+        const uint64_t key = static_cast<uint64_t>(tile) * 3 + static_cast<uint64_t>(fog);
+        // The cells of a row meet the same tile one after another.
+        if (key == last_key_ && !band_.tiles.empty())
+            return last_place_;
+        const auto [entry, added] =
+            band_.places.try_emplace(key, static_cast<uint32_t>(band_.tiles.size()));
+        if (added) {
+            if (static_cast<std::size_t>(tile) * formats::tnt::layout::tile_bytes +
+                    formats::tnt::layout::tile_bytes >
+                source.tile_art_bytes) {
+                band_.places.erase(entry);
+                throw std::runtime_error("experimental terrain tile is out of bounds");
+            }
+            band_.tiles.push_back(key);
+        }
+        last_key_ = key;
+        last_place_ = entry->second;
+        return entry->second;
+    }
+
+    /// Notes a vertex's place in its tile, to be placed in its square.
+    static void
+    place(Vertex& vertex, const GroundPoint& point, int32_t tile_x, int32_t tile_y, uint32_t tile) {
+        vertex.u = static_cast<float>(tile_x);
+        vertex.v = point.y;
+        vertex.terrain_x = static_cast<float>(tile_y);
+        vertex.terrain_size = static_cast<float>(tile);
+    }
+
+    /// Lists a triangle, unless the band would hold more than the frame may.
+    void triangle(const std::array<Vertex, 3>& triangle) {
+        auto& vertices = band_.vertices;
+        if (vertices.size() + triangle.size() > maximum_vertices)
+            throw BandFull();
+        vertices.insert(vertices.end(), triangle.begin(), triangle.end());
+    }
+
+  private:
+
+    const GroundDraw& draw_;
+    GroundBand& band_;
+    uint64_t last_key_{};
+    uint32_t last_place_{};
+};
+
+/// Splits the rows of a ground's crop into its bands (GroundBand): a row of
+/// tiles each, or a row of the squares drawn far out.
+///
+/// @param source what the ground is drawn from, with its crop
+/// @param[in,out] bands the bands, as many as there are rows
+void plan_ground_bands(const GroundSource& source, std::vector<GroundBand>& bands) {
+    const int32_t top = source.crop[1];
+    const int32_t bottom = source.crop[3];
+    std::size_t count = 0;
+    const auto add = [&](int32_t first, int32_t end) {
+        if (bands.size() <= count)
+            bands.resize(count + 1);
+        bands[count].top = first;
+        bands[count].bottom = std::min(end, bottom);
+        ++count;
+    };
+    if (source.step > 1) {
+        const int32_t edge = cell_edge * source.step;
+        for (int32_t y = top / edge * edge; y < bottom; y += edge)
+            add(y, y + edge);
+    } else {
+        for (int32_t y = top; y < bottom; y = (y / tile_edge + 1) * tile_edge)
+            add(y, (y / tile_edge + 1) * tile_edge);
+    }
+    bands.resize(count);
+}
+
+/// Draws a band of ground into its list (GroundBand), on any thread: it
+/// reads only what the ground is drawn from.
+///
+/// @param draw what the ground is drawn from
+/// @param[in,out] band the band, its rows planned (plan_ground_bands)
+/// @param timing the stage timers measure
+void draw_ground_band(const GroundDraw& draw, GroundBand& band, bool timing) {
+    const uint64_t start = timing ? bench_timers::now_ns() : 0;
+    band.vertices.clear();
+    band.tiles.clear();
+    band.places.clear();
+    band.squares.clear();
+    band.failure = nullptr;
+    band.overflow = false;
+    BandTiles tiles(draw, band);
+    try {
+        draw_ground_rows(draw, band.top, band.bottom, band.samples, band.merged_columns, tiles);
+    } catch (const BandFull&) {
+        band.overflow = true;
+    } catch (...) {
+        band.failure = std::current_exception();
+    }
+    band.nanoseconds = timing ? bench_timers::now_ns() - start : 0;
+}
+
+/// Packs the tiles a ground's bands draw, as drawing them row after row
+/// packs them, and lists the bands' vertices, each placed in its tile's
+/// square.
+///
+/// The tiles are taken in the order the ground first draws them, each as
+/// PackingTiles::tile takes it: still packed in a large enough square from
+/// the same art, or packed now. The atlas then holds what drawing the
+/// ground row after row leaves it holding.
+///
+/// @param in the frame
+/// @param[in,out] scene the atlas and terrain materials
+/// @param plan the square of each tile
+/// @param[in,out] bands the ground's bands, drawn
+/// @param[out] vertices the ground's vertices; what it held before is
+///     overwritten in place
+/// @return each tile key drawn, with its square
+std::vector<std::pair<uint64_t, AtlasRect>> pack_ground_tiles(
+    const Inputs& in,
+    Scene& scene,
+    const TerrainPlan& plan,
+    std::span<GroundBand> bands,
+    std::vector<Vertex>& vertices
+) {
+    const auto& art = in.map->tile_palette_indices;
+    constexpr std::size_t tile_bytes = formats::tnt::layout::tile_bytes;
+    constexpr std::size_t maximum_cached_tiles = 32768;
+    std::unordered_map<uint64_t, AtlasRect> squares;
+    std::vector<uint64_t> order;
+    for (const auto& band : bands)
+        for (const uint64_t key : band.tiles)
+            if (squares.emplace(key, AtlasRect{}).second)
+                order.push_back(key);
+    const auto pack = [&](uint64_t key) {
+        const auto pixels =
+            std::span(art).subspan(static_cast<std::size_t>(key / 3) * tile_bytes, tile_bytes);
+        const auto fog = static_cast<Fog>(key % 3);
+        auto cached = scene.terrain_materials.find(key);
+        if (cached == scene.terrain_materials.end() ||
+            cached->second.rectangle.width < plan.least(key) ||
+            std::memcmp(cached->second.pixels.data(), pixels.data(), pixels.size()) != 0) {
+            if (cached != scene.terrain_materials.end() && !scene.ground_kept) {
+                give_back_terrain_square(scene, cached->second.rectangle);
+                scene.terrain_materials.erase(cached);
+            }
+            const auto rectangle = terrain_material(
+                scene, *in.palette, scene.terrain_grey_palette, pixels, fog, plan.packed(key)
+            );
+            if (scene.terrain_materials.size() >= maximum_cached_tiles && !scene.ground_kept)
+                drop_terrain_materials(scene, scene.terrain_passes);
+            scene.frame.aircraft_shadows.clear();
+            auto& entry = scene.terrain_materials[key];
+            std::copy(pixels.begin(), pixels.end(), entry.pixels.begin());
+            entry.rectangle = rectangle;
+            cached = scene.terrain_materials.find(key);
+        }
+        cached->second.drawn = scene.terrain_passes;
+        squares[key] = cached->second.rectangle;
+    };
+    for (const uint64_t key : order)
+        pack(key);
+    // Every vertex placed in its tile's square and listed, each band on a
+    // drawing thread of its own.
+    const auto atlas_width = scene.texture_width;
+    const auto atlas_height = scene.texture_height;
+    std::vector<std::size_t> starts(bands.size() + 1);
+    for (std::size_t index = 0; index < bands.size(); ++index) {
+        auto& band = bands[index];
+        band.squares.resize(band.tiles.size());
+        for (std::size_t tile = 0; tile < band.tiles.size(); ++tile)
+            band.squares[tile] = squares.at(band.tiles[tile]);
+        starts[index + 1] = starts[index] + band.vertices.size();
+    }
+    reserve_room(vertices, starts.back());
+    vertices.resize(starts.back());
+    platform::job_pool::run_bands(
+        in.pool, static_cast<uint32_t>(bands.size()), [&](uint32_t index) {
+            const auto& band = bands[index];
+            auto listed = vertices.begin() + static_cast<std::ptrdiff_t>(starts[index]);
+            for (auto vertex : band.vertices) {
+                place_in_square(
+                    vertex,
+                    band.squares[static_cast<std::size_t>(vertex.terrain_size)],
+                    vertex.x,
+                    vertex.v,
+                    static_cast<int32_t>(vertex.u),
+                    static_cast<int32_t>(vertex.terrain_x),
+                    atlas_width,
+                    atlas_height
+                );
+                *listed++ = vertex;
+            }
+        }
+    );
+    return {squares.begin(), squares.end()};
+}
+
+/// Draws a frame's ground (draw_ground_rows) in bands on the drawing
+/// threads at once, packs their tiles and lists them in order: the same
+/// triangles and the same atlas as drawing it row after row on the calling
+/// thread, with any number of threads. A ground the frame's geometry budget
+/// cannot hold, or that cannot be drawn, is drawn row after row instead, to
+/// give up where that gives up.
+///
+/// @param in the frame
+/// @param[in,out] scene the atlas, the terrain materials and the bands
+/// @param plan the square of each tile
+/// @param draw what the ground is drawn from, with the crop, the picture and
+///     the margin it is drawn for
+/// @param[out] vertices where the ground is listed
+/// @return each tile key drawn, with its square
+std::vector<std::pair<uint64_t, AtlasRect>> draw_ground(
+    const Inputs& in,
+    Scene& scene,
+    const TerrainPlan& plan,
+    const GroundDraw& draw,
+    std::vector<Vertex>& vertices
+) {
+    ++scene.terrain_passes;
+    auto& bands = scene.ground_bands;
+    plan_ground_bands(draw.source, bands);
+    platform::job_pool::run_bands(in.pool, static_cast<uint32_t>(bands.size()), [&](uint32_t band) {
+        draw_ground_band(draw, bands[band], false);
+    });
+    std::size_t listed = 0;
+    bool whole = true;
+    for (const auto& band : bands) {
+        listed += band.vertices.size();
+        whole = whole && !band.overflow && !band.failure;
+    }
+    if (!whole || listed > maximum_vertices) {
+        vertices.clear();
+        PackingTiles tiles(in, scene, plan, draw, vertices);
+        std::vector<std::array<float, 2>> samples;
+        std::vector<bool> merged_columns;
+        draw_ground_rows(
+            draw, draw.source.crop[1], draw.source.crop[3], samples, merged_columns, tiles
+        );
+        return {tiles.tiles().begin(), tiles.tiles().end()};
+    }
+    return pack_ground_tiles(in, scene, plan, bands, vertices);
+}
+
+/// The frames the ground drawn ahead of a moving camera (GroundAhead) is
+/// drawn over, a share of its bands each.
+constexpr std::size_t ground_ahead_frames = 4;
+
+/// Tells whether two grounds' sources draw the same ground for the same
+/// crop and picture: all but the crop and the picture alike.
+///
+/// @param a one ground's source
+/// @param b the other's
+/// @return true when they are drawn alike
+bool drawn_alike(const GroundSource& a, const GroundSource& b) {
+    return a.map == b.map && a.map_width == b.map_width && a.map_height == b.map_height &&
+           a.tile_width == b.tile_width && a.tile_height == b.tile_height &&
+           a.tile_art_bytes == b.tile_art_bytes && a.heights == b.heights &&
+           a.tile_indices == b.tile_indices && a.step == b.step && a.distant == b.distant &&
+           a.fog_divisions == b.fog_divisions && a.fog == b.fog && a.sight_width == b.sight_width &&
+           a.sight_height == b.sight_height && a.mapping == b.mapping && a.dithered == b.dithered;
+}
+
+/// Starts drawing the ground ahead of a moving camera (GroundAhead) once
+/// the kept ground would not cover the picture the camera is expected to
+/// show after the frames that takes, and one more, moving on as it moved
+/// since the last frame: for the picture expected half a margin further on
+/// than that, from what the kept ground is drawn from, so that the camera
+/// comes to it with half its margin behind it.
+///
+/// @param in the frame, which takes the kept ground
+/// @param[in,out] scene the kept ground and the ground ahead
+/// @param motion the frame's projection less the last frame's
+void plan_ground_ahead(const Inputs& in, Scene& scene, const std::array<float, 12>& motion) {
+    auto& ahead = scene.ground_ahead;
+    const auto& source = scene.ground_source;
+    const float margin = source.picture_margin;
+    if (ahead.active || margin == 0)
+        return;
+    // The picture expected so many frames on.
+    const auto expected = [&](float frames) {
+        std::array<float, 12> picture{};
+        for (std::size_t index = 0; index < picture.size(); ++index)
+            picture[index] = in.clip_projection[index] + frames * motion[index];
+        return picture;
+    };
+    const auto shift = [&](const std::array<float, 12>& from, const std::array<float, 12>& to) {
+        return picture_shift(
+            from, to, in.clip_width, in.clip_height, source.lowest, source.highest
+        );
+    };
+    constexpr auto drawing_frames = static_cast<float>(ground_ahead_frames);
+    if (shift(source.clip_projection, expected(drawing_frames + 1)) <= margin)
+        return;
+    const float pace = shift(expected(-1), in.clip_projection);
+    if (!(pace > 0) || !std::isfinite(pace))
+        return;
+    const auto picture = expected(drawing_frames + margin / (2 * pace));
+    if (!std::all_of(picture.begin(), picture.end(), [](float value) {
+            return std::isfinite(value);
+        }))
+        return;
+    const auto crop = widened_bounds(*in.map, picture, in.clip_width, in.clip_height, margin);
+    if (!crop)
+        return;
+    ahead.source = source;
+    ahead.source.crop = {crop->left, crop->top, crop->right, crop->bottom};
+    ahead.source.clip_projection = picture;
+    plan_ground_bands(ahead.source, ahead.bands);
+    ahead.bands_drawn = 0;
+    ahead.bands_a_frame = (ahead.bands.size() + ground_ahead_frames - 1) / ground_ahead_frames;
+    ahead.active = !ahead.bands.empty();
+}
+
+/// Draws bands of the ground ahead of a moving camera, on the drawing
+/// threads at once, from the first not yet drawn.
+///
+/// @param in the frame
+/// @param[in,out] ahead the ground ahead
+/// @param count the bands to draw
+/// @param timing the stage timers measure
+void draw_ground_ahead(const Inputs& in, GroundAhead& ahead, std::size_t count, bool timing) {
+    const auto draw = ground_draw(ahead.source);
+    const std::size_t first = ahead.bands_drawn;
+    platform::job_pool::run_bands(in.pool, static_cast<uint32_t>(count), [&](uint32_t band) {
+        draw_ground_band(draw, ahead.bands[first + band], timing);
+    });
+    ahead.bands_drawn += count;
+}
+
+/// @return whether every band of the ground ahead was drawn whole, within
+///     the frame's geometry budget
+bool ground_ahead_whole(const GroundAhead& ahead) {
+    std::size_t listed = 0;
+    for (const auto& band : ahead.bands) {
+        if (band.overflow || band.failure)
+            return false;
+        listed += band.vertices.size();
+    }
+    return listed <= maximum_vertices;
+}
+
+/// Takes the ground drawn ahead of a moving camera as the kept ground: its
+/// tiles packed (pack_ground_tiles), its bands listed, its crop and picture
+/// the kept ground's.
+///
+/// @param in the frame
+/// @param[in,out] scene the kept ground and the ground ahead
+/// @param plan the square of each tile
+void take_ground_ahead(const Inputs& in, Scene& scene, const TerrainPlan& plan) {
+    auto& ahead = scene.ground_ahead;
+    auto& source = scene.ground_source;
+    ahead.active = false;
+    ++scene.terrain_passes;
+    scene.ground_kept = false;
+    scene.ground_revision = new_ground_revision();
+    auto drawn = pack_ground_tiles(in, scene, plan, ahead.bands, scene.ground_vertices);
+    source.crop = ahead.source.crop;
+    source.clip_projection = ahead.source.clip_projection;
+    source.clip_width = ahead.source.clip_width;
+    source.clip_height = ahead.source.clip_height;
+    source.picture_margin = ahead.source.picture_margin;
+    scene.ground_tiles = std::move(drawn);
+    scene.ground_kept = true;
+    scene.kept_ground_revision = scene.ground_revision;
+    scene.terrain_vertex_count = scene.ground_vertices.size();
+}
+
+/// Emits the frame's ground (draw_ground), or takes a kept ground: the kept
+/// ground again when it was drawn from the same, covers the frame's picture
+/// and its tiles keep their squares, or the ground drawn ahead of a moving
+/// camera once it covers the picture. A kept ground it leaves in
+/// Scene::ground_vertices, for the passes after it to list as the
+/// foundations leave it (run_passes). While the camera moves
+/// (TerrainPlan::holding) the ground is drawn beyond the picture by a
+/// margin and kept, so that the frames after it take it until their
+/// pictures move past the margin, and the next is drawn ahead of the camera
+/// on the drawing threads (plan_ground_ahead) to take over before then;
 /// otherwise it is kept once two frames running are drawn from the same,
 /// so that a recording's moving camera does not copy its ground every
 /// frame.
@@ -1969,7 +2583,8 @@ void draw_terrain(
 /// @param camera_still the frame has a picture, which the camera drew the
 ///     last frame from too
 /// @param widen the ground may be drawn beyond the picture's margin
-/// @return true when the frame's ground is the kept ground, not yet listed
+/// @param motion the frame's projection less the last frame's
+/// @return true when the frame's ground is a kept ground, not yet listed
 ///     in Scene::vertices; its vertices are counted in
 ///     Scene::terrain_vertex_count either way
 bool terrain(
@@ -1978,7 +2593,8 @@ bool terrain(
     const TerrainPlan& plan,
     int32_t step,
     bool camera_still,
-    bool widen
+    bool widen,
+    const std::array<float, 12>& motion
 ) {
     // Compare palette bytes once per pass and tile bytes once per visible key.
     // The retained copies detect edits even when the same map object is reused.
@@ -2007,20 +2623,43 @@ bool terrain(
     const auto crop = terrain_crop(in);
     const bool same_source = note_ground_source(source, in, scene, step);
     const bool same_picture = ground_covers(source, in, crop);
-    // A settled camera's ground reaches no further than its picture's.
-    if (same_source && same_picture && scene.ground_kept && ground_tiles_hold(in, scene, plan) &&
-        (source.picture_margin == 0 || (plan.holding && widen))) {
-        scene.terrain_vertex_count = scene.ground_vertices.size();
-        scene.ground_revision = scene.kept_ground_revision;
-        return true;
-    }
-    scene.ground_kept = false;
-    scene.ground_revision = new_ground_revision();
     // A moving camera's ground reaches beyond the picture for the frames
     // after it.
+    const bool moving = plan.holding && widen && in.clip_width != 0 && in.clip_height != 0;
+    // The ground ahead is the kept ground's successor, drawn from the same.
+    auto& ahead = scene.ground_ahead;
+    if (ahead.active && (!moving || !drawn_alike(ahead.source, source)))
+        ahead.active = false;
+    // A settled camera's ground reaches no further than its picture's.
+    const bool kept = same_source && same_picture && scene.ground_kept &&
+                      ground_tiles_hold(in, scene, plan) &&
+                      (source.picture_margin == 0 || (plan.holding && widen));
+    // Past the kept ground's margin before the ground ahead is done, the
+    // rest of it is drawn now.
+    if (ahead.active && !kept && ahead.bands_drawn < ahead.bands.size())
+        draw_ground_ahead(in, ahead, ahead.bands.size() - ahead.bands_drawn, false);
+    if (ahead.active && ahead.bands_drawn == ahead.bands.size()) {
+        const bool whole = ground_ahead_whole(ahead);
+        if (whole && ground_covers(ahead.source, in, crop)) {
+            take_ground_ahead(in, scene, plan);
+            return true;
+        }
+        if (!whole || !kept)
+            ahead.active = false;
+    }
+    if (kept) {
+        scene.terrain_vertex_count = scene.ground_vertices.size();
+        scene.ground_revision = scene.kept_ground_revision;
+        if (moving)
+            plan_ground_ahead(in, scene, motion);
+        return true;
+    }
+    ahead.active = false;
+    scene.ground_kept = false;
+    scene.ground_revision = new_ground_revision();
     float margin = 0;
     std::optional<TerrainCrop> widened;
-    if (plan.holding && widen && in.clip_width != 0 && in.clip_height != 0) {
+    if (moving) {
         margin = static_cast<float>(std::max(in.clip_width, in.clip_height)) *
                  moving_ground_margin_share;
         widened = widened_crop(in, margin);
@@ -2035,19 +2674,16 @@ bool terrain(
     source.clip_width = in.clip_width;
     source.clip_height = in.clip_height;
     source.picture_margin = margin;
-    // The fog of each sight cell, as note_ground_source has just read it.
-    const FogCells cells{
-        source.fog, source.sight_width, source.sight_height, source.mapping, source.dithered
-    };
-    std::unordered_map<uint64_t, AtlasRect> tiles;
-    draw_terrain(in, scene, plan, step, cells, tiles, drawn, screen_ground_margin + margin);
-    if (margin != 0 || (same_source && (drawn_before || camera_still))) {
-        scene.ground_vertices.assign(scene.vertices.begin(), scene.vertices.end());
-        scene.ground_tiles.assign(tiles.begin(), tiles.end());
-        scene.ground_kept = true;
-        scene.kept_ground_revision = scene.ground_revision;
+    if (margin == 0 && !(same_source && (drawn_before || camera_still))) {
+        draw_ground(in, scene, plan, ground_draw(source), scene.vertices);
+        scene.terrain_vertex_count = scene.vertices.size();
+        return false;
     }
-    return false;
+    scene.ground_tiles = draw_ground(in, scene, plan, ground_draw(source), scene.ground_vertices);
+    scene.ground_kept = true;
+    scene.kept_ground_revision = scene.ground_revision;
+    scene.terrain_vertex_count = scene.ground_vertices.size();
+    return true;
 }
 
 /// Drapes a cutout over the exact terrain triangles, preserving its painted footprint.
@@ -4754,6 +5390,29 @@ constexpr std::size_t ground_band_triangles = 8192;
 /// The deferred frame materials each band of their writing takes.
 constexpr std::size_t frame_write_band = 16;
 
+/// Lists bands' vertices one after another, each band copied on a drawing
+/// thread of its own.
+///
+/// @param in the frame
+/// @param bands the bands, each with its vertices
+/// @param[out] vertices the bands' vertices, in order; what it held before
+///     is overwritten in place
+template <typename Band>
+void list_bands(const Inputs& in, std::span<Band> bands, std::vector<Vertex>& vertices) {
+    std::vector<std::size_t> starts(bands.size() + 1);
+    for (std::size_t band = 0; band < bands.size(); ++band)
+        starts[band + 1] = starts[band] + bands[band].vertices.size();
+    reserve_room(vertices, starts.back());
+    vertices.resize(starts.back());
+    platform::job_pool::run_bands(in.pool, static_cast<uint32_t>(bands.size()), [&](uint32_t band) {
+        std::copy(
+            bands[band].vertices.begin(),
+            bands[band].vertices.end(),
+            vertices.begin() + static_cast<std::ptrdiff_t>(starts[band])
+        );
+    });
+}
+
 /// Empties a pass's list for the frame, keeping its memory.
 ///
 /// @param[out] list the list
@@ -4898,6 +5557,7 @@ class PassTimes {
         add(Stage::sprites, passes.cards);
         add(Stage::particles, passes.particles);
         bench_timers::add_nanoseconds(Stage::water, joining);
+        bench_timers::add_nanoseconds(Stage::terrain, ground_ahead);
     }
 
     std::size_t ground_bands{}; ///< the ground's bands cut this frame
@@ -4905,6 +5565,7 @@ class PassTimes {
     uint64_t foundations{};     ///< the plots' planning and the cut ground's taking
     uint64_t ground_listing{};  ///< the kept ground's listing beside the passes
     uint64_t joining{};         ///< the lists' joining
+    uint64_t ground_ahead{};    ///< the bands of the ground drawn ahead of a moving camera
 
   private:
 
@@ -4970,11 +5631,15 @@ void write_frame_materials(const Inputs& in, Scene& scene) {
 /// make one after another, and an exception leaves the scene where they
 /// would have left it.
 ///
+/// The bands of the ground drawn ahead of a moving camera (GroundAhead)
+/// due this frame run among the passes, after them.
+///
 /// @param in the frame
 /// @param[in,out] scene the frame, its terrain listed (Scene::vertices)
 /// @param ground_kept the frame's terrain is the kept ground, not yet
 ///     listed (terrain)
-void run_passes(const Inputs& in, Scene& scene, bool ground_kept) {
+/// @param ahead_bands the bands of the ground ahead to draw
+void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ahead_bands) {
     auto& passes = scene.passes;
     const auto& draws = *in.draws;
     const bool timing = bench_timers::timers.on;
@@ -5051,12 +5716,22 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept) {
             shadow.nanoseconds = pass_clock(timing) - began;
         }
     );
-    // The ground as the foundations leave it: the cut kept, or the ground
-    // kept, is listed beside the passes, which find it where it is kept.
+    // The ground as the foundations leave it: the cut kept, the kept ground
+    // cut now, which is kept, or the ground kept, is listed beside the
+    // passes, which find it where it is kept.
     start = pass_clock(timing);
     bool ground_cut{};
     std::span<const Vertex> cut_ground = ground;
+    const bool cut_now = kept && ground_bands != 0;
     if (cut_before) {
+        cut_ground = scene.cut_ground;
+    } else if (cut_now) {
+        // The cut is kept for the frames after; until the passes are in it
+        // is kept for none.
+        scene.cut_source = 0;
+        list_bands(in, std::span(passes.ground).first(ground_bands), scene.cut_ground);
+        for (std::size_t band = 0; band < ground_bands; ++band)
+            ground_cut |= passes.ground[band].cut;
         cut_ground = scene.cut_ground;
     } else if (ground_bands != 0) {
         scene.vertices.clear();
@@ -5068,7 +5743,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept) {
         cut_ground = scene.vertices;
     }
     scene.terrain_vertex_count = cut_ground.size();
-    const bool list_ground_beside = cut_before || (ground_kept && ground_bands == 0);
+    const bool list_ground_beside = cut_before || cut_now || (ground_kept && ground_bands == 0);
     times.foundations += pass_clock(timing) - start;
     // The shadows' materials packed among the frame's own, as far as one
     // that goes with the other materials.
@@ -5105,17 +5780,23 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept) {
         }
     }
     passes.shadow_packing.nanoseconds += pass_clock(timing) - start;
-    // Every pass at once, the longest first.
+    // Every pass at once, the longest first, then the ground ahead.
     const auto shadows_drawn = [&](std::size_t band) {
         return band < stop_band    ? passes.shadow_bands[band].pictures.size()
                : band == stop_band ? stop_shadow
                                    : 0;
     };
     constexpr uint32_t first_shadow_band = 4;
-    const auto bands = static_cast<uint32_t>(first_shadow_band + shadow_bands + 2);
+    const auto pass_bands = static_cast<uint32_t>(first_shadow_band + shadow_bands + 2);
+    const auto bands = static_cast<uint32_t>(pass_bands + ahead_bands);
     const std::size_t cards = draws.sprites.size();
+    auto& ahead = scene.ground_ahead;
+    const auto ahead_draw = ground_draw(ahead.source);
+    const std::size_t first_ahead = ahead.bands_drawn;
     platform::job_pool::run_bands(in.pool, bands, [&](uint32_t band) {
-        if (band == 0) {
+        if (band >= pass_bands) {
+            draw_ground_band(ahead_draw, ahead.bands[first_ahead + band - pass_bands], timing);
+        } else if (band == 0) {
             run_beside(scene, passes.models, draws.models.size(), timing, [&](Pass& pass) {
                 models(in, pass, 0, draws.models.size());
             });
@@ -5158,6 +5839,9 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept) {
             });
         }
     });
+    for (std::size_t band = 0; band < ahead_bands; ++band)
+        times.ground_ahead += ahead.bands[first_ahead + band].nanoseconds;
+    ahead.bands_drawn += ahead_bands;
     // The lists taken in the passes' order, from the terrain's end as the
     // passes before the foundations found it.
     std::size_t listed = terrain_count;
@@ -5229,10 +5913,11 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept) {
         else if (ground_cut)
             scene.ground_revision = new_ground_revision();
         if (kept && !cut_before) {
-            scene.cut_ground.assign(
-                scene.vertices.begin(),
-                scene.vertices.begin() + static_cast<std::ptrdiff_t>(scene.terrain_vertex_count)
-            );
+            if (!cut_now)
+                scene.cut_ground.assign(
+                    scene.vertices.begin(),
+                    scene.vertices.begin() + static_cast<std::ptrdiff_t>(scene.terrain_vertex_count)
+                );
             scene.cut_plots = std::move(plots.plots);
             scene.cut_source = source;
             scene.cut_revision = scene.ground_revision;
@@ -5275,7 +5960,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept) {
     const auto laid = [plotted](const PassList& list) -> const std::vector<Vertex>& {
         return plotted ? list.cut_vertices : list.vertices;
     };
-    scene.vertices.reserve(listed);
+    reserve_room(scene.vertices, listed);
     const auto join = [&scene](const std::vector<Vertex>& vertices) {
         scene.vertices.insert(scene.vertices.end(), vertices.begin(), vertices.end());
     };
@@ -5370,6 +6055,13 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             scene.camera_settling_frames = camera_settle_frames;
         else if (scene.camera_settling_frames != 0)
             --scene.camera_settling_frames;
+        // How the picture moved since the last frame, which the ground drawn
+        // ahead of a moving camera expects it to go on moving by.
+        std::array<float, 12> motion{};
+        if (camera_moved && scene.camera_width == inputs.clip_width &&
+            scene.camera_height == inputs.clip_height)
+            for (std::size_t index = 0; index < motion.size(); ++index)
+                motion[index] = inputs.clip_projection[index] - scene.camera_projection[index];
         scene.camera_projection = inputs.clip_projection;
         scene.camera_width = inputs.clip_width;
         scene.camera_height = inputs.clip_height;
@@ -5443,11 +6135,20 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 bool ground_kept{};
                 {
                     const Span timed(Stage::terrain);
-                    ground_kept =
-                        terrain(inputs, scene, plan, step, camera_known && !camera_moved, widen);
+                    ground_kept = terrain(
+                        inputs, scene, plan, step, camera_known && !camera_moved, widen, motion
+                    );
                 }
                 ground_vertices = scene.terrain_vertex_count;
-                run_passes(inputs, scene, ground_kept);
+                const auto& ahead = scene.ground_ahead;
+                run_passes(
+                    inputs,
+                    scene,
+                    ground_kept,
+                    ahead.active
+                        ? std::min(ahead.bands_a_frame, ahead.bands.size() - ahead.bands_drawn)
+                        : 0
+                );
                 const Span water_and_rest(Stage::water);
                 // The half-transparent units over everything opaque, under
                 // the water's surface.
@@ -5475,6 +6176,8 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 }
                 break;
             } catch (const GeometryFull&) {
+                // A frame tried again draws its ground afresh.
+                scene.ground_ahead.active = false;
                 // The ground beyond a moving camera's picture goes first.
                 if (widen && scene.ground_source.picture_margin != 0) {
                     widen = false;
@@ -5490,6 +6193,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 );
                 step *= 2;
             } catch (const AtlasFull&) {
+                scene.ground_ahead.active = false;
                 bench_timers::count_atlas_emptied();
                 if (++attempt == attempts)
                     throw;

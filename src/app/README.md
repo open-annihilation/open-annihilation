@@ -3064,8 +3064,8 @@ prompts, Settings › Updates and the headers name one state with one size.
   battlefield's draws (`world_draws.hpp`), the effects' light and heat
   (`renderer_effects::compose`), the 3D view's depth under them where the
   graphics card cannot add its lights itself (`live_scene_visibility`) and
-  the 3D view's scene passes (`renderer_live_scene::build`) run their bands
-  on:
+  the 3D view's ground and scene passes (`renderer_live_scene::build`) run
+  their bands on:
   `--draw-threads N` (1 to 32), else the `OA_DRAW_THREADS`
   environment variable, else the pool's default, one thread on a machine of
   one or two logical processors and otherwise one fewer than the
@@ -3080,6 +3080,12 @@ prompts, Settings › Updates and the headers name one state with one size.
   frames; the 3D view's scene passes each list their triangles apart,
   joined afterwards in the passes' order, with only the drawing thread
   packing materials, in that order, so every count draws the same frames.
+  Its ground is drawn a row of tiles a band, each band noting the tiles it
+  meets, which the drawing thread packs in the order the rows meet them
+  before the bands are placed in the atlas and joined; a moving camera's
+  next ground is drawn ahead of it among the scene passes, a fixed share of
+  its bands a frame, and taken as the kept ground once done, so it changes
+  at the same frame on every count.
   `app-xrgb-conversion` checks each pixel's packing and gamma for rows of
   any width, that pools of 2, 3, 4 and 8 threads convert the same bytes,
   the key colour as the lowest outside a palette and the keyed overlay
@@ -3554,8 +3560,8 @@ prompts, Settings › Updates and the headers name one state with one size.
   match tick and measures a span on the game's own loop, printing `bench:`
   lines (`run_bench`). `bench.cpp` (the library `oa-app-bench`) reads the
   view file, takes the spread of each time (the median, the 95th and 99th
-  percentiles and the mean of the slowest 1%) and lays out the MEASURE and
-  STAGE lines; `bench_timers.hpp` holds the stage timers the match frame
+  percentiles and the mean of the slowest 1%), finds the slowest 1% of
+  frames and lays out the MEASURE, STAGE and SLOW STAGE lines; `bench_timers.hpp` holds the stage timers the match frame
   marks: spans around the parts of the turned view's scene, the graphics
   card's frame, the picture's copy, the effects, the overlays and the
   pointer's pick (`bench_timers::Span`), the parts of `draw_match_surface`
