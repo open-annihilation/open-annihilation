@@ -148,6 +148,34 @@ user_folder_beside(const std::filesystem::path& preferences_file);
     std::string& note
 );
 
+/// Whether the player's own folder can be read.
+enum class UserFolderAccess : uint8_t {
+    missing,  ///< there is no folder yet: a first start
+    readable, ///< the folder is there and can be listed
+    refused,  ///< the system refuses to let this process look at the folder
+};
+
+/// Tells whether the player's own folder can be read.
+///
+/// A folder the system will not let this process look at or list, for want
+/// of permission, is refused, not missing: macOS refuses the Documents
+/// folder to a copy of the game that was not opened from the Finder or
+/// Applications until the player allows it. A folder that is not there is
+/// missing. A folder that can be looked at but fails to list for another
+/// reason counts as readable, and the start reports that failure itself.
+///
+/// @param folder the player's own folder
+/// @return what the start may take it for
+[[nodiscard]] UserFolderAccess user_folder_access(const std::filesystem::path& folder);
+
+/// Returns the message a start shows, and stops with, when the player's own
+/// folder is refused: the folder, that the player's files are still there,
+/// and how to let the game read it.
+///
+/// @param folder the player's own folder
+/// @return the message, in English
+[[nodiscard]] std::string refused_user_folder_message(const std::filesystem::path& folder);
+
 /// Returns the name of the folder of Saves, Screenshots, Films and
 /// Recordings that holds the files of games played with a mod, or without
 /// one.

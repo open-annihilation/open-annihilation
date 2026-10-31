@@ -142,7 +142,9 @@ neither save games and screenshots there nor list your mods; to change your
 mind, turn Open Annihilation on under System Settings › Privacy & Security ›
 Files and Folders, or put the folder elsewhere (below). Started from
 Terminal, as `run.sh` does, the game has the access Terminal has, and macOS
-asks on Terminal's behalf.
+asks on Terminal's behalf. A start that is refused the folder says so and
+stops, rather than asking for the game again as on a first start: open the
+game from Applications or the Finder, or allow it there.
 
 Your settings, the log files (in `logs`) and the unpacked demo stay in
 `~/Library/Application Support/net.coreprime.open-annihilation`.

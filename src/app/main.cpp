@@ -1815,6 +1815,14 @@ int run_once(
     // Captured before game_dir is filled with the folder this start plays:
     // the second compose, after a copy made on this start, still runs.
     const bool mount_copy = mount_managed_copy(options);
+    // A player's folder the system will not show is not a first start: the
+    // setup would ask for the game again and copy it beside the one that is
+    // there. The start says so and stops instead.
+    if (mount_copy) {
+        const fs::path user = resolved_user_folder(options);
+        if (!user.empty() && user_folder_access(user) == UserFolderAccess::refused)
+            throw std::runtime_error(refused_user_folder_message(user));
+    }
     // A soft restart reads the settings the switch saved: the mod the Game
     // files screen would play and the backups setting.
     if (options.restarts > 0 && game_files.installed &&

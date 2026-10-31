@@ -22,6 +22,10 @@
 #include <system_error>
 #include <vector>
 
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
+
 namespace {
 
 namespace fs = std::filesystem;
@@ -555,6 +559,42 @@ void a_folder_has_a_file_uri() {
 
 } // namespace
 
+/// A folder that is not there is a first start; one the system refuses to
+/// show is not, whether the folder itself or the folder above it refuses.
+///
+/// @param scratch a folder the test may write
+void a_refused_folder_is_not_taken_for_a_missing_one(const fs::path& scratch) {
+    using oa::app::UserFolderAccess;
+    const fs::path base = scratch / "access";
+    OA_CHECK(oa::app::user_folder_access(base / "Open Annihilation") == UserFolderAccess::missing);
+    const fs::path player = base / "Documents" / "Open Annihilation";
+    write(player / "Games" / "record.txt", "copied");
+    OA_CHECK(oa::app::user_folder_access(player) == UserFolderAccess::readable);
+#if !defined(_WIN32)
+    // The administrator reads every folder, so the refusals cannot be seen.
+    if (::geteuid() == 0)
+        return;
+    std::error_code error;
+    fs::permissions(player, fs::perms::none, fs::perm_options::replace, error);
+    OA_CHECK(!error);
+    OA_CHECK(oa::app::user_folder_access(player) == UserFolderAccess::refused);
+    fs::permissions(player, fs::perms::owner_all, fs::perm_options::replace, error);
+    fs::permissions(player.parent_path(), fs::perms::none, fs::perm_options::replace, error);
+    OA_CHECK(oa::app::user_folder_access(player) == UserFolderAccess::refused);
+    fs::permissions(player.parent_path(), fs::perms::owner_all, fs::perm_options::replace, error);
+    OA_CHECK(oa::app::user_folder_access(player) == UserFolderAccess::readable);
+    const std::string message = oa::app::refused_user_folder_message(player);
+    OA_CHECK(message.find(player.generic_string()) != std::string::npos);
+    OA_CHECK(message.find("Your files are still there.") != std::string::npos);
+#if defined(__APPLE__)
+    OA_CHECK(
+        message.find("System Settings › Privacy & Security › Files and Folders") !=
+        std::string::npos
+    );
+#endif
+#endif
+}
+
 int main() {
     const fs::path scratch = oa::test::make_scratch_directory("oa-user-folder");
     the_folder_is_chosen_in_order();
@@ -570,6 +610,7 @@ int main() {
     a_mod_without_its_units_cannot_start();
     folders_open_through_the_hooks(scratch);
     a_folder_has_a_file_uri();
+    a_refused_folder_is_not_taken_for_a_missing_one(scratch);
     std::error_code ignored;
     fs::remove_all(scratch, ignored);
     return oa::test::check_exit_status();
