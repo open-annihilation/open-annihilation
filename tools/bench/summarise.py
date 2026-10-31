@@ -37,8 +37,8 @@ STAGE = re.compile(PREFIX + rf" STAGE (.+?)\s+{NUMBER}$")
 COUNTS = PREFIX + " COUNTS "
 FIELDS = ("least", "mean", "p50", "p95", "p99", "low1", "most")
 SCENE_COUNTS = ("units", "drawn", "vertices", "terrain", "models", "sprites", "particles", "nano",
-                "shadows", "crop_cells", "projectiles", "supersample", "atlas_rows",
-                "full_atlas_uploads")
+                "shadows", "crop_cells", "projectiles", "supersample", "multisample",
+                "atlas_rows", "full_atlas_uploads")
 
 
 def read_run(path):

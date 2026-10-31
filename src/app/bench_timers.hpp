@@ -140,6 +140,7 @@ struct Timers {
     bool on{};                   ///< only --bench turns the timers on
     Totals totals{};             ///< sums since the last clear()
     SceneCounts last{};          ///< the last frame's scene
+    double multisample{};        ///< the card's samples a pixel the last frame, as drawn
     uint64_t ground_revision{};  ///< the kept ground's revision last frame
     Stage open = Stage::count;   ///< the innermost Span running, which packing charges
     Stage marked = Stage::count; ///< the part of draw_match_surface under way
@@ -329,17 +330,28 @@ inline void note_supersample(uint32_t supersample) noexcept {
         timers.last.supersample = supersample;
 }
 
+/// Keeps the samples a pixel the card's multisampling took the last frame.
+///
+/// @param samples 4 multisampled, or 1
+inline void note_multisample(uint32_t samples) noexcept {
+    if (timers.on)
+        timers.multisample = samples;
+}
+
 /// Turns the timers on or off and clears what they have summed.
 ///
 /// @param on whether the timers measure from now on
 inline void reset(bool on) noexcept {
     const uint64_t ground_revision = timers.ground_revision;
     const SceneCounts last = timers.last;
+    const double multisample = timers.multisample;
     timers = {};
     timers.on = on;
-    // The scene and the ground's revision carry on from the frames before.
+    // The scene, its samples and the ground's revision carry on from the
+    // frames before.
     timers.ground_revision = ground_revision;
     timers.last = last;
+    timers.multisample = multisample;
 }
 
 } // namespace oa::app::bench_timers

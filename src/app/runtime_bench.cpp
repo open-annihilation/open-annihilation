@@ -357,8 +357,8 @@ void Runtime::play_bench() {
     std::printf(
         "bench: COUNTS units %d (player0 %d, others %d) drawn %u vertices %.0f terrain %.0f "
         "models %.0f sprites %.0f particles %.0f nano %.0f shadows %.0f crop_cells %.0f "
-        "projectiles %zu tick %u supersample %.0f battlefield %dx%d atlas_rows %.0f "
-        "full_atlas_uploads %.0f\n",
+        "projectiles %zu tick %u supersample %.0f multisample %.0f battlefield %dx%d "
+        "atlas_rows %.0f full_atlas_uploads %.0f\n",
         units[0] + units[1],
         units[0],
         units[1],
@@ -374,6 +374,7 @@ void Runtime::play_bench() {
         match_->projectiles().size(),
         match_timing_.tick,
         scene.supersample,
+        bench_timers::timers.multisample,
         match_layout_.battlefield_width(),
         match_layout_.battlefield_height(),
         per_frame(totals.atlas_rows_uploaded),

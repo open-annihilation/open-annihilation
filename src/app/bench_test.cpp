@@ -284,13 +284,16 @@ void timers_sum_only_while_on() {
     timers::note_scene({100, 50, 3, 4, 5, 6, 7, 8, 0}, 7);
     timers::note_scene({100, 50, 3, 4, 5, 6, 7, 8, 0}, 8);
     timers::note_supersample(2);
+    timers::note_multisample(4);
     OA_CHECK(totals.ground_revisions == 2);
     OA_CHECK(timers::timers.last.vertices == 100 && timers::timers.last.supersample == 2);
+    OA_CHECK(timers::timers.multisample == 4);
 
     timers::reset(true);
     OA_CHECK(timers::timers.totals.ground_revisions == 0);
     OA_CHECK(timers::timers.totals.materials_packed[index(Stage::shadows)] == 0);
     OA_CHECK(timers::timers.last.vertices == 100 && timers::timers.ground_revision == 8);
+    OA_CHECK(timers::timers.multisample == 4);
     timers::note_scene({100, 50, 3, 4, 5, 6, 7, 8, 0}, 8);
     OA_CHECK(timers::timers.totals.ground_revisions == 0);
     timers::reset(false);
