@@ -3190,6 +3190,359 @@ void moving_camera_comes_back_to_its_picture() {
     OA_CHECK(same == found);
 }
 
+/// The vertices a frame with models on the card draws: its own, with each
+/// card draw's triangles where it is drawn among them, as the card gives
+/// them to the fragment stage; and each vertex's unit, by the scene's
+/// ranges and the card draws.
+struct CardFrame {
+    std::vector<oa::app::renderer_live_gpu::Vertex> vertices{};
+    std::vector<uint16_t> units{};
+};
+
+/// Returns the frame a scene with models on the card draws (CardFrame).
+CardFrame card_frame(const live::Scene& scene) {
+    std::vector<uint16_t> units(scene.vertices.size(), 0);
+    for (const auto& range : scene.unit_ranges)
+        std::fill_n(
+            units.begin() + static_cast<std::ptrdiff_t>(range.first_vertex),
+            range.vertex_count,
+            range.unit_id
+        );
+    CardFrame frame;
+    std::size_t next = 0;
+    const auto take_to = [&](std::size_t end) {
+        for (; next < end; ++next) {
+            frame.vertices.push_back(scene.vertices[next]);
+            frame.units.push_back(units[next]);
+        }
+    };
+    for (const auto& drawn : scene.cards.units) {
+        take_to(drawn.vertex);
+        for (uint32_t at = 0; at < drawn.index_count; ++at) {
+            frame.vertices.push_back(
+                live::card_vertex(
+                    scene.card_types,
+                    scene.cards,
+                    drawn,
+                    scene.cards.indices[drawn.first_index + at]
+                )
+            );
+            frame.units.push_back(drawn.unit_id);
+        }
+    }
+    take_to(scene.vertices.size());
+    return frame;
+}
+
+/// Whether a scene with models on the card draws what one without them
+/// draws (same_frame): the same vertices, unit by unit, once its card
+/// draws are in their places, and the same atlas; and whether each card
+/// draw's bounds are its corners' through the frame's camera.
+bool same_on_card(const live::Scene& on_card, const live::Scene& vertices, const live::Inputs& in) {
+    const auto frame = card_frame(on_card);
+    std::vector<uint16_t> units(vertices.vertices.size(), 0);
+    for (const auto& range : vertices.unit_ranges)
+        std::fill_n(
+            units.begin() + static_cast<std::ptrdiff_t>(range.first_vertex),
+            range.vertex_count,
+            range.unit_id
+        );
+    bool bounds = true;
+    const auto& m = in.clip_projection;
+    for (const auto& drawn : on_card.cards.units) {
+        float left = std::numeric_limits<float>::infinity();
+        float top = left;
+        float right = -left;
+        float bottom = -left;
+        for (uint32_t at = 0; at < drawn.index_count; ++at) {
+            const auto corner = live::card_corner(
+                on_card.card_types,
+                on_card.cards,
+                drawn,
+                on_card.cards.indices[drawn.first_index + at]
+            );
+            const float x = m[0] * corner.x + m[1] * corner.height + m[2] * corner.z + m[3];
+            const float y = m[4] * corner.x + m[5] * corner.height + m[6] * corner.z + m[7];
+            left = std::min(left, x);
+            top = std::min(top, y);
+            right = std::max(right, x);
+            bottom = std::max(bottom, y);
+        }
+        bounds =
+            bounds && (drawn.index_count == 0 ? drawn.left > drawn.right
+                                              : drawn.left == left && drawn.top == top &&
+                                                    drawn.right == right && drawn.bottom == bottom);
+    }
+    return bounds && frame.vertices.size() == vertices.vertices.size() &&
+           (frame.vertices.empty() || std::memcmp(
+                                          frame.vertices.data(),
+                                          vertices.vertices.data(),
+                                          frame.vertices.size() * sizeof(frame.vertices[0])
+                                      ) == 0) &&
+           frame.units == units && on_card.model_count == vertices.model_count &&
+           on_card.terrain_vertex_count == vertices.terrain_vertex_count &&
+           on_card.texture_rgba == vertices.texture_rgba &&
+           on_card.texture_revision == vertices.texture_revision &&
+           on_card.materials.size() == vertices.materials.size();
+}
+
+/// A battle with its models on the card draws what its vertices draw,
+/// frame after frame, on any number of drawing threads: each card draw's
+/// triangles, where they fall among the frame's vertices, are the
+/// vertices its model would have listed, in their order, with the same
+/// atlas places, and the atlas is packed alike. The models show textures
+/// by team, animated textures on their first and running frames, colours,
+/// walls of the image key, faces turned away and pieces hidden and moving;
+/// a model under construction, cloaked, shaded as a building or lit by a
+/// nanolathe particle stays in the vertices, and a feature is drawn on the
+/// card for no unit. New colours and frames stop the models pass for the
+/// thread building the frame to finish.
+void models_on_card() {
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    namespace runtime = oa::sim::model_runtime;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    Fixture battle;
+    auto& map = battle.map;
+    map.attribute_width = map.attribute_height = 16;
+    map.tile_width = map.tile_height = 8;
+    map.tile_indices.assign(64, 0);
+    map.attributes.resize(256);
+    for (std::size_t i = 0; i < map.attributes.size(); ++i)
+        map.attributes[i].height = static_cast<uint8_t>((i * 5 % 11) * 2);
+    auto& in = battle.inputs;
+    in.right = in.bottom = 256;
+    in.sight.mapping = in.sight.line_of_sight = false;
+    in.view_direction = {0.25F, 1, 0.5F};
+    in.clip_projection = {1, 0, 0.1F, 0, 0, -0.5F, 1, 0, 0, 1, 0.5F, 0};
+    in.clip_width = in.clip_height = 256;
+    std::vector<uint8_t> shades(32 * 256);
+    for (std::size_t at = 0; at < shades.size(); ++at)
+        shades[at] = static_cast<uint8_t>(at % 256);
+    in.shade_table = shades;
+    in.light = {0, -1, 0.5F};
+    in.light_scale = 16;
+    in.graphics_flags = drawing::graphics_shading;
+    in.team_colors[1] = 1;
+    // A body with a turret on it and a hidden piece: a team texture, an
+    // animated texture and a fixed frame on four corners, colours on three
+    // to six, a wall of the image key, a face turned away, a selection
+    // primitive, a line and a textured triangle that draws nothing.
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(3);
+    auto& body = source->objects[0];
+    body.first_child = 1;
+    body.selection_primitive = 5;
+    body.vertices = {
+        {0, 0, 0},
+        {6 * fixed, 0, 0},
+        {6 * fixed, 0, 4 * fixed},
+        {0, 0, 4 * fixed},
+        {0, 3 * fixed, 0},
+        {6 * fixed, 3 * fixed, 0},
+        {3 * fixed, 5 * fixed, 2 * fixed}
+    };
+    body.primitives.resize(8);
+    body.primitives[0].vertex_indices = {4, 5, 1, 0};
+    body.primitives[1].vertex_indices = {0, 1, 2};
+    body.primitives[2].vertex_indices = {4, 6, 5, 1, 0};
+    body.primitives[3].vertex_indices = {3, 2, 1, 0};
+    body.primitives[4].vertex_indices = {0, 1, 6};
+    body.primitives[5].vertex_indices = {0, 2, 4};
+    body.primitives[6].vertex_indices = {0, 1};
+    body.primitives[7].vertex_indices = {1, 5, 6};
+    auto& turret = source->objects[1];
+    turret.parent = 0;
+    turret.next_sibling = 2;
+    turret.offset_from_parent = {2 * fixed, 3 * fixed, fixed};
+    turret.vertices = {
+        {0, 0, 0},
+        {2 * fixed, 0, 0},
+        {2 * fixed, 2 * fixed, 0},
+        {0, 2 * fixed, 0},
+        {fixed, 3 * fixed, fixed},
+        {-fixed, fixed, 2 * fixed}
+    };
+    turret.primitives.resize(3);
+    turret.primitives[0].vertex_indices = {0, 1, 2, 3};
+    turret.primitives[1].vertex_indices = {3, 2, 1, 0};
+    turret.primitives[2].vertex_indices = {0, 3, 4, 5, 2, 1};
+    auto& hidden = source->objects[2];
+    hidden.parent = 0;
+    hidden.vertices = {{0, 0, 0}, {fixed, 0, 0}, {0, fixed, 0}};
+    hidden.primitives.resize(1);
+    hidden.primitives[0].vertex_indices = {0, 1, 2};
+    std::array<uint8_t, 32> pixels{};
+    for (std::size_t at = 0; at < pixels.size(); ++at)
+        pixels[at] = static_cast<uint8_t>(at % 3 == 0 ? ground_index : alternate_index + at % 2);
+    drawing::TextureSequence team_frames;
+    drawing::TextureSequence animated;
+    for (auto* frames : {&team_frames, &animated}) {
+        frames->frames.resize(3);
+        for (std::size_t frame = 0; frame < frames->frames.size(); ++frame) {
+            auto& sprite = frames->frames[frame];
+            sprite.width = static_cast<uint16_t>(2 + frame);
+            sprite.height = 2;
+            sprite.encoding = OA_SPRITE_RAW;
+            sprite.data = pixels.data() + frame * 4 + (frames == &animated ? 12 : 0);
+        }
+    }
+    drawing::TextureSequence fixed_frames;
+    fixed_frames.frames.resize(1);
+    auto& fixed_frame = fixed_frames.frames[0];
+    fixed_frame.width = 3;
+    fixed_frame.height = 3;
+    fixed_frame.encoding = OA_SPRITE_RAW;
+    fixed_frame.data = pixels.data() + 1;
+    const oa::formats::gaf::Sequence sequence{};
+    drawing::PreparedModel prepared;
+    prepared.objects.resize(3);
+    const auto colour = [](uint32_t index, uint8_t color) {
+        drawing::PreparedPrimitive primitive;
+        primitive.source_index = index;
+        primitive.flags = drawing::primitive_colored;
+        primitive.color = color;
+        return primitive;
+    };
+    auto& body_primitives = prepared.objects[0].primitives;
+    body_primitives.resize(1);
+    body_primitives[0].source_index = 0;
+    body_primitives[0].flags = drawing::primitive_animated | drawing::primitive_team;
+    body_primitives[0].texture = &team_frames;
+    body_primitives.push_back(colour(1, 40));
+    body_primitives.push_back(colour(2, 41));
+    body_primitives.push_back(colour(3, 42));
+    body_primitives.push_back(colour(4, drawing::image_key));
+    body_primitives.push_back(colour(5, 43));
+    body_primitives.push_back(colour(6, 44));
+    drawing::PreparedPrimitive triangle;
+    triangle.source_index = 7;
+    triangle.frame = &fixed_frame;
+    body_primitives.push_back(triangle);
+    auto& turret_primitives = prepared.objects[1].primitives;
+    turret_primitives.resize(2);
+    turret_primitives[0].source_index = 0;
+    turret_primitives[0].flags = drawing::primitive_animated;
+    turret_primitives[0].texture = &animated;
+    turret_primitives[0].cursor.sequence = &sequence;
+    turret_primitives[0].cursor.frame_index = 1;
+    turret_primitives[1].source_index = 1;
+    turret_primitives[1].frame = &fixed_frame;
+    turret_primitives.push_back(colour(2, 45));
+    prepared.objects[2].primitives.push_back(colour(0, 46));
+    // A small craft of one coloured triangle.
+    auto craft_source = std::make_shared<models::Model>();
+    craft_source->objects.resize(1);
+    craft_source->objects[0].vertices = {{0, 0, 0}, {3 * fixed, 0, 0}, {0, 0, 3 * fixed}};
+    craft_source->objects[0].primitives.resize(1);
+    craft_source->objects[0].primitives[0].vertex_indices = {0, 1, 2};
+    drawing::PreparedModel craft_prepared;
+    craft_prepared.objects.resize(1);
+    craft_prepared.objects[0].primitives.push_back(colour(0, 47));
+    constexpr std::size_t unit_count = 40;
+    std::vector<runtime::Instance> instances;
+    for (std::size_t index = 0; index < unit_count; ++index)
+        instances.push_back(runtime::make_instance(index % 5 == 4 ? craft_source : source));
+    drawing::ModelState pictured{};
+    pictured.image = oa::present::create_sprite(8, 8);
+    std::vector<oa::Unit> units(unit_count);
+    battle.draws.models.resize(unit_count);
+    battle.draws.stand_ins.resize(1);
+    for (std::size_t index = 0; index < unit_count; ++index) {
+        auto& unit = units[index];
+        unit.id = static_cast<uint16_t>(index + 1);
+        unit.owner_index = static_cast<uint8_t>(index % 2);
+        unit.position = {
+            static_cast<int32_t>(16 + index * 37 % 220) * fixed,
+            static_cast<int32_t>(index % 3) * fixed,
+            static_cast<int32_t>(20 + index * 53 % 210) * fixed
+        };
+        auto& instance = instances[index];
+        if (index % 5 != 4) {
+            auto& piece = instance.pieces()[1];
+            piece.rotation.xz = static_cast<int16_t>(index * 2300);
+            if (index % 3 == 0)
+                piece.flags &=
+                    static_cast<uint16_t>(~static_cast<uint16_t>(runtime::PieceFlag::cached));
+            instance.pieces()[2].flags &=
+                static_cast<uint16_t>(~static_cast<uint16_t>(runtime::PieceFlag::visible));
+        }
+        instance.rebuild_transforms({0, static_cast<int16_t>(index * 4100), 0});
+        auto& draw = battle.draws.models[index];
+        draw.model.unit = &unit;
+        draw.model.instance = &instance;
+        draw.model.prepared = index % 5 == 4 ? &craft_prepared : &prepared;
+        draw.plan.linked.drawn = true;
+        if (index % 2 == 0) {
+            draw.model.state = &pictured;
+            draw.plan.model.from_image = true;
+        }
+        switch (index % 8) {
+        case 1:
+            unit.state_flags = OA_UNIT_STATE_CLOAKED;
+            break;
+        case 3:
+            unit.build_remaining = 0.4F;
+            break;
+        case 6:
+            unit.flags = OA_UNIT_FLAG_BUILDING;
+            break;
+        default:
+            break;
+        }
+    }
+    // A 3D feature, drawn for no unit.
+    battle.draws.stand_ins[0] = units[10];
+    battle.draws.stand_ins[0].id = 0;
+    battle.draws.models[10].stand_in = 0;
+    battle.draws.models[10].on_map = true;
+    oa::platform::job_pool::Pool pool(4);
+    std::array<live::Scene, 3> scenes{};
+    for (int32_t frame = 0; frame < 5; ++frame) {
+        // A new colour, the running frame stepped, units on the move, a
+        // nanolathe particle beside one of them.
+        if (frame == 2)
+            battle.palette[41 * oa::palette_entry_bytes] = 200;
+        turret_primitives[0].cursor.frame_index = static_cast<uint16_t>(frame % 3);
+        for (auto& unit : units)
+            unit.position.x += fixed / 3;
+        battle.draws.spatial_particles.clear();
+        battle.draws.spatial_particles.push_back(
+            {{units[frame + 12].position.x + fixed, 4 * fixed, units[frame + 12].position.z},
+             {90, 255, 90},
+             true}
+        );
+        in.models_on_card = false;
+        in.pool = nullptr;
+        OA_CHECK(live::build(in, scenes[0], battle.error));
+        in.models_on_card = true;
+        OA_CHECK(live::build(in, scenes[1], battle.error));
+        in.pool = &pool;
+        OA_CHECK(live::build(in, scenes[2], battle.error));
+        OA_CHECK(scenes[0].cards.units.empty());
+        OA_CHECK(scenes[1].cards.units.size() > unit_count / 3);
+        OA_CHECK(!scenes[1].unit_ranges.empty());
+        OA_CHECK(!scenes[1].translucent_ranges.empty());
+        OA_CHECK(
+            std::any_of(
+                scenes[1].cards.units.begin(),
+                scenes[1].cards.units.end(),
+                [](const live::CardUnit& drawn) {
+                    return drawn.unit_id == 0 && drawn.index_count != 0;
+                }
+            )
+        );
+        for (std::size_t scene = 1; scene < scenes.size(); ++scene)
+            OA_CHECK(same_on_card(scenes[scene], scenes[0], in));
+    }
+    // The types are kept from frame to frame, the frame's draws are not.
+    OA_CHECK(scenes[1].card_types.types.size() == 2);
+    const auto revision = scenes[1].card_types.revision;
+    OA_CHECK(revision != 0 && revision != scenes[2].card_types.revision);
+    OA_CHECK(live::build(in, scenes[1], battle.error));
+    OA_CHECK(scenes[1].card_types.revision == revision);
+}
+
 /// Aircraft shadows keep their silhouette at full alpha at every altitude,
 /// soften only their edge, a pixel more high up, and receive on water at
 /// the vehicles' own shadow opacity.
@@ -4008,6 +4361,7 @@ int main() {
     passes_on_threads();
     ground_drawn_ahead_on_threads();
     moving_camera_comes_back_to_its_picture();
+    models_on_card();
     aircraft_shadow_altitude();
     aircraft_shadow_as_the_game_casts_it();
     flash_masks_and_effect_altitude();

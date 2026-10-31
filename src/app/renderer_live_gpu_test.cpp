@@ -17,6 +17,8 @@
 #include <functional>
 #include <limits>
 #include <span>
+#include <vector>
+#include <utility>
 
 namespace {
 using namespace oa::app::renderer_live_gpu;
@@ -1823,6 +1825,410 @@ void picture_on_card() {
     OA_CHECK(frame(false, &lights, 1) == own);
 }
 
+/// A frame of model draws on the card (ModelDraws), and the vertices its
+/// triangles give the scene's fragment stage, as the frame's own.
+struct ModelFrame {
+    std::vector<uint32_t> corners{};
+    std::vector<ModelInstance> instances{};
+    std::vector<float> positions{};
+    std::vector<uint32_t> piece_frames{};
+    std::vector<float> textures{};
+    std::vector<uint32_t> indices{};
+    std::vector<ModelRun> runs{};
+
+    /// The draws, borrowing the frame.
+    [[nodiscard]] ModelDraws draws(uint64_t revision) const {
+        return {corners, revision, instances, positions, piece_frames, textures, indices, runs};
+    }
+
+    /// The vertex a corner of an instance gives: its place, the atlas place
+    /// its piece's frame and its corner take, and the instance's brightness.
+    [[nodiscard]] Vertex vertex(uint32_t instance, uint32_t corner) const {
+        const auto& drawn = instances[instance];
+        const uint32_t place = corners[2 * (drawn.corners + corner)];
+        const uint32_t texture = corners[2 * (drawn.corners + corner) + 1];
+        const uint32_t at = 3 * (drawn.positions + (place & 0xffffU));
+        const bool first = piece_frames[drawn.pieces + (place >> model_piece_shift)] != 0;
+        const uint32_t slot = first ? texture & 0x3fffU : (texture >> model_texture_bits) & 0x3fffU;
+        const uint32_t polygon_corner = (texture >> model_polygon_corner_shift) & 3U;
+        const float* places = textures.data() + 4 * (drawn.textures + slot);
+        Vertex made{};
+        made.x = positions[at];
+        made.height = positions[at + 1];
+        made.z = positions[at + 2];
+        made.u = places[polygon_corner == 1 || polygon_corner == 2 ? 2 : 0];
+        made.v = places[polygon_corner >= 2 ? 3 : 1];
+        made.brightness = drawn.brightness;
+        return made;
+    }
+
+    /// The frame's vertices with each run's triangles in their place.
+    [[nodiscard]] std::vector<Vertex> expanded(std::span<const Vertex> frame) const {
+        std::vector<Vertex> out;
+        std::size_t next = 0;
+        for (const auto& run : runs) {
+            out.insert(
+                out.end(),
+                frame.begin() + std::ptrdiff_t(next),
+                frame.begin() + std::ptrdiff_t(run.vertex)
+            );
+            next = run.vertex;
+            for (uint32_t at = 0; at < run.index_count; ++at) {
+                const uint32_t index = indices[run.first_index + at];
+                out.push_back(
+                    vertex(run.first_instance + (index >> model_corner_bits), index & 0xffffU)
+                );
+            }
+        }
+        out.insert(out.end(), frame.begin() + std::ptrdiff_t(next), frame.end());
+        return out;
+    }
+};
+
+/// Adds a box of six faces, two pieces of three faces each, as a type's
+/// triangle corners: every face a fan of two triangles from its first
+/// corner, its first and running textures two of three.
+void add_box_type(ModelFrame& frame) {
+    constexpr std::array<std::array<uint32_t, 4>, 6> faces{
+        {{0, 1, 2, 3}, {7, 6, 5, 4}, {0, 4, 5, 1}, {1, 5, 6, 2}, {2, 6, 7, 3}, {3, 7, 4, 0}}
+    };
+    for (uint32_t face = 0; face < faces.size(); ++face)
+        for (const uint32_t corner : {0U, 1U, 2U, 0U, 2U, 3U}) {
+            frame.corners.push_back(faces[face][corner] | (face / 3) << model_piece_shift);
+            frame.corners.push_back(
+                face % 3 | ((face + 1) % 3) << model_texture_bits |
+                corner << model_polygon_corner_shift
+            );
+        }
+}
+
+/// Model draws render() draws on the card give the picture their triangles
+/// give as the frame's own vertices, to the byte: in the frame's order
+/// among its vertices, before and after a half transparent face and a kept
+/// ground, with one sample, multisampled and supersampled, and in the
+/// surface the lights reach. Corners added under the same revision are
+/// added to those the card keeps; a new revision replaces them. Draws that
+/// do not hold together are refused, as are any where the card may not
+/// draw them.
+void card_models() {
+    constexpr uint32_t size = 40;
+    constexpr uint32_t atlas_width = 4;
+    constexpr uint32_t atlas_height = 2;
+    const std::vector<uint8_t> atlas{200, 40,  40,  255, 40,  200, 40,  255, 40,  40,  200,
+                                     255, 200, 200, 40,  255, 40,  200, 200, 255, 200, 40,
+                                     200, 255, 120, 120, 120, 255, 250, 250, 250, 255};
+    ModelFrame models;
+    add_box_type(models);
+    // Boxes of two sizes about the frame, turned and lifted, each with its
+    // own textures: a texel, two across or two down.
+    constexpr uint32_t box_count = 600;
+    constexpr uint32_t corners_a_box = 36;
+    for (uint32_t box = 0; box < box_count; ++box) {
+        const float x = 3.25F + float(box * 7 % 33);
+        const float z = 4.5F + float(box * 13 % 31);
+        const float h = float(box % 5) * 0.75F;
+        const float side = box % 2 == 0 ? 2.5F : 4.125F;
+        const float turn = float(box) * 0.37F;
+        const float across = std::cos(turn) * side;
+        const float down = std::sin(turn) * side;
+        ModelInstance instance;
+        instance.corners = 0;
+        instance.corner_count = corners_a_box;
+        instance.positions = uint32_t(models.positions.size() / 3);
+        instance.position_count = 8;
+        instance.pieces = uint32_t(models.piece_frames.size());
+        instance.piece_count = 2;
+        instance.textures = uint32_t(models.textures.size() / 4);
+        instance.texture_count = 3;
+        instance.brightness = box % 3 == 0 ? 1.0F : 0.55F + float(box % 7) * 0.05F;
+        for (const float top : {h, h + side})
+            for (const auto& [dx, dz] :
+                 {std::pair{0.0F, 0.0F},
+                  std::pair{across, down},
+                  std::pair{across - down, down + across},
+                  std::pair{-down, across}})
+                models.positions.insert(models.positions.end(), {x + dx, top, z + dz});
+        models.piece_frames.insert(models.piece_frames.end(), {box % 2, (box / 2) % 2});
+        for (uint32_t slot = 0; slot < 3; ++slot) {
+            const uint32_t texel = (box + slot) % 8;
+            const float u0 = (float(texel % atlas_width) + 0.5F) / atlas_width;
+            const float v0 = (float(texel / atlas_width) + 0.5F) / atlas_height;
+            const bool wide = slot == 1 && texel % atlas_width < atlas_width - 1;
+            const bool tall = slot == 2 && texel / atlas_width == 0;
+            models.textures.insert(
+                models.textures.end(),
+                {u0, v0, wide ? u0 + 1.0F / atlas_width : u0, tall ? v0 + 1.0F / atlas_height : v0}
+            );
+        }
+        models.instances.push_back(instance);
+    }
+    // The frame: ground, then boxes, a half transparent face over them, and
+    // the rest of the boxes over that.
+    std::vector<Vertex> frame;
+    const auto quad =
+        [&](
+            float left, float right, float front, float back, float height, float u, float opacity
+        ) {
+            Vertex a{left, height, front, u, 0.25F};
+            a.opacity = opacity;
+            Vertex b = a, c = a, d = a;
+            b.x = c.x = right;
+            c.z = d.z = back;
+            frame.insert(frame.end(), {a, b, d, b, c, d});
+        };
+    quad(0, 40, 0, 48, 0, 0.875F, 1);
+    quad(0, 40, 0, 48, 0.25F, 0.625F, 1);
+    const std::size_t ground = frame.size();
+    // The faces drawn: every face but one in five.
+    const auto add_run = [&](uint32_t first, uint32_t last, std::size_t vertex) {
+        ModelRun run{vertex, uint32_t(models.indices.size()), 0, first};
+        for (uint32_t box = first; box < last; ++box)
+            for (uint32_t corner = 0; corner < corners_a_box; ++corner)
+                if ((box + corner / 6) % 5 != 0)
+                    models.indices.push_back((box - first) << model_corner_bits | corner);
+        run.index_count = uint32_t(models.indices.size()) - run.first_index;
+        models.runs.push_back(run);
+    };
+    add_run(0, 150, ground);
+    quad(6, 30, 8, 36, 3, 0.375F, 0.5F);
+    add_run(150, 150 + model_run_instances, frame.size());
+    add_run(150 + model_run_instances, box_count, frame.size());
+    quad(20, 36, 2, 20, 1, 0.125F, 0.6F);
+    const auto expanded = models.expanded(frame);
+    OA_CHECK(expanded.size() > frame.size() + 3 * 2000);
+    Context context;
+    Context reference;
+    std::vector<uint8_t> drawn;
+    std::vector<uint8_t> expected;
+    std::string error;
+    const auto both = [&](uint32_t supersample,
+                          const KeptGround* kept,
+                          const Lights* lights,
+                          const ModelFrame& drawn_models,
+                          uint64_t revision) {
+        const auto draws = drawn_models.draws(revision);
+        const auto vertices = drawn_models.expanded(frame);
+        const bool on_card = render(
+                                 context,
+                                 frame,
+                                 atlas,
+                                 atlas_width,
+                                 atlas_height,
+                                 1,
+                                 size,
+                                 size,
+                                 classic_projection,
+                                 drawn,
+                                 error,
+                                 supersample,
+                                 nullptr,
+                                 nullptr,
+                                 kept,
+                                 {},
+                                 lights,
+                                 &draws
+                             ) == Result::success;
+        const KeptGround reference_kept{kept ? kept->vertex_count : 0, kept ? kept->revision : 0};
+        const bool from_vertices = render(
+                                       reference,
+                                       vertices,
+                                       atlas,
+                                       atlas_width,
+                                       atlas_height,
+                                       1,
+                                       size,
+                                       size,
+                                       classic_projection,
+                                       expected,
+                                       error,
+                                       supersample,
+                                       nullptr,
+                                       nullptr,
+                                       &reference_kept,
+                                       {},
+                                       lights
+                                   ) == Result::success;
+        return on_card && from_vertices && !drawn.empty() && drawn == expected;
+    };
+    using oa::app::renderer_effects::Source;
+    const std::vector<Source> sources{
+        {12, 20, 9, 10, 8, 1, 0.6F, 0.2F, 1.5F, 1, 0, 0},
+        {28, 14, 6, 9, 6, 0.3F, 0.6F, 1, 2, 0, 0, 0}
+    };
+    const Lights lights{sources, {true, true, false}, 1.5};
+    for (const bool multisampling : {true, false})
+        for (const uint32_t supersample : {1U, 2U, 4U}) {
+            context.multisampling_allowed = reference.multisampling_allowed = multisampling;
+            OA_CHECK(both(supersample, nullptr, nullptr, models, 5));
+            const KeptGround kept{ground, 3};
+            OA_CHECK(both(supersample, &kept, nullptr, models, 5));
+            OA_CHECK(both(supersample, &kept, &lights, models, 5));
+            OA_CHECK(context.lights_drawn == reference.lights_drawn);
+        }
+    context.multisampling_allowed = reference.multisampling_allowed = true;
+    // The models change the picture.
+    std::vector<uint8_t> bare;
+    OA_CHECK(
+        render(
+            reference,
+            frame,
+            atlas,
+            atlas_width,
+            atlas_height,
+            1,
+            size,
+            size,
+            classic_projection,
+            bare,
+            error,
+            2
+        ) == Result::success
+    );
+    OA_CHECK(bare != expected);
+    // A second type, a triangle, added under the same revision: the boxes'
+    // corners stay on the card, the triangle's go up.
+    auto grown = models;
+    const auto triangle_corners = uint32_t(grown.corners.size() / 2);
+    for (const uint32_t corner : {0U, 1U, 2U}) {
+        grown.corners.push_back(corner);
+        grown.corners.push_back(1 | 1 << model_texture_bits | corner << model_polygon_corner_shift);
+    }
+    ModelInstance triangle = grown.instances[3];
+    triangle.corners = triangle_corners;
+    triangle.corner_count = 3;
+    grown.instances.push_back(triangle);
+    grown.runs.back().index_count += 3;
+    grown.indices.insert(
+        grown.indices.end(),
+        {(box_count - 150 - model_run_instances) << model_corner_bits | 0U,
+         (box_count - 150 - model_run_instances) << model_corner_bits | 1U,
+         (box_count - 150 - model_run_instances) << model_corner_bits | 2U}
+    );
+    {
+        const auto grown_expanded = grown.expanded(frame);
+        const auto grown_draws = grown.draws(5);
+        OA_CHECK(
+            render(
+                context,
+                frame,
+                atlas,
+                atlas_width,
+                atlas_height,
+                1,
+                size,
+                size,
+                classic_projection,
+                drawn,
+                error,
+                2,
+                nullptr,
+                nullptr,
+                nullptr,
+                {},
+                nullptr,
+                &grown_draws
+            ) == Result::success
+        );
+        OA_CHECK(
+            render(
+                reference,
+                grown_expanded,
+                atlas,
+                atlas_width,
+                atlas_height,
+                1,
+                size,
+                size,
+                classic_projection,
+                expected,
+                error,
+                2
+            ) == Result::success
+        );
+        OA_CHECK(drawn == expected);
+    }
+    // Other corners under a new revision replace them.
+    auto turned = models;
+    for (std::size_t at = 1; at < turned.corners.size(); at += 2) {
+        const uint32_t first = turned.corners[at] & 0x3fffU;
+        turned.corners[at] = (turned.corners[at] & ~0x3fffU) | (first + 1) % 3;
+    }
+    OA_CHECK(both(2, nullptr, nullptr, turned, 6));
+    const auto turned_picture = drawn;
+    OA_CHECK(both(2, nullptr, nullptr, models, 5));
+    OA_CHECK(drawn != turned_picture);
+
+    // Draws that do not hold together, each refused with the frame.
+    const auto refused = [&](const ModelFrame& broken) {
+        const auto broken_draws = broken.draws(5);
+        drawn.assign(1, 1);
+        return render(
+                   context,
+                   frame,
+                   atlas,
+                   atlas_width,
+                   atlas_height,
+                   1,
+                   size,
+                   size,
+                   classic_projection,
+                   drawn,
+                   error,
+                   1,
+                   nullptr,
+                   nullptr,
+                   nullptr,
+                   {},
+                   nullptr,
+                   &broken_draws
+               ) == Result::failed &&
+               drawn.empty() && !error.empty();
+    };
+    auto broken = models;
+    broken.indices[4] = 35U | 1U << model_corner_bits;
+    broken.indices[5] = 36U;
+    OA_CHECK(refused(broken));
+    broken = models;
+    broken.indices[0] = model_run_instances << model_corner_bits;
+    OA_CHECK(refused(broken));
+    broken = models;
+    broken.runs[0].vertex = frame.size() + 1;
+    OA_CHECK(refused(broken));
+    broken = models;
+    std::swap(broken.runs[0], broken.runs[1]);
+    OA_CHECK(refused(broken));
+    broken = models;
+    broken.positions[7] = std::numeric_limits<float>::quiet_NaN();
+    OA_CHECK(refused(broken));
+    broken = models;
+    broken.textures[2] = 1.5F;
+    OA_CHECK(refused(broken));
+    broken = models;
+    broken.instances[2].position_count = 7;
+    OA_CHECK(refused(broken));
+    broken = models;
+    broken.instances[2].texture_count = 2;
+    OA_CHECK(refused(broken));
+    broken = models;
+    broken.instances[9].positions = uint32_t(broken.positions.size() / 3);
+    OA_CHECK(refused(broken));
+    broken = models;
+    broken.piece_frames[1] = 2;
+    OA_CHECK(refused(broken));
+    broken = models;
+    broken.instances[1].brightness = 1.25F;
+    OA_CHECK(refused(broken));
+    broken = models;
+    broken.runs[0].index_count -= 1;
+    OA_CHECK(refused(broken));
+    context.models_allowed = false;
+    OA_CHECK(!draws_models(context));
+    OA_CHECK(refused(models));
+    context.models_allowed = true;
+    OA_CHECK(draws_models(context));
+    OA_CHECK(both(1, nullptr, nullptr, models, 5));
+}
+
 } // namespace
 
 /// Run validation on every platform and skip real rendering only when no device is available.
@@ -1847,6 +2253,7 @@ int main() {
         coastal_foam_strength();
         card_lights();
         picture_on_card();
+        card_models();
     }
     SDL_Quit();
     return result != 0 ? result : oa::test::check_exit_status();

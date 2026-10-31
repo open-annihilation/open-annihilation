@@ -485,6 +485,21 @@ std::size_t Runtime::live_renderer_emissive_vertex_count() const noexcept {
     ));
 }
 
+std::size_t Runtime::live_renderer_card_model_count() const noexcept {
+    return live_renderer_ ? live_renderer_->scene.cards.units.size() : 0;
+}
+
+bool Runtime::live_models_on_card() const noexcept {
+    return live_renderer_ && renderer_live_gpu::draws_models(live_renderer_->gpu) &&
+           renderer_live_gpu::draws_lights(live_renderer_->gpu);
+}
+
+void Runtime::set_live_models_on_card(bool allowed) noexcept {
+    if (!live_renderer_)
+        live_renderer_.reset(new LiveRenderer{});
+    live_renderer_->gpu.models_allowed = allowed;
+}
+
 std::size_t Runtime::live_renderer_nano_particle_count() const noexcept {
     return live_renderer_ ? live_renderer_->scene.nano_particle_count : 0;
 }
@@ -792,8 +807,7 @@ bool Runtime::render_live_match_surface() {
         // The card draws the models it can from their types' models where
         // it adds the lights too: the processor's lights find their
         // surfaces among the frame's own triangles.
-        inputs.models_on_card =
-            renderer_live_gpu::draws_models(live.gpu) && renderer_live_gpu::draws_lights(live.gpu);
+        inputs.models_on_card = live_models_on_card();
         inputs.view_direction = {live.projection[8], live.projection[9], live.projection[10]};
         inputs.clip_projection = live.projection;
         inputs.clip_width = match_world_cpu_.width;

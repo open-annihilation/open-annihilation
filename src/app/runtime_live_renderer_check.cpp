@@ -639,6 +639,59 @@ int Runtime::check_live_renderer() {
         select_match_unit((*commander_pixel)[0], (*commander_pixel)[1], 1);
         require(selected_match_unit_ == commander, "the commander could not be selected again");
     }
+    // The models the card draws from their types' models give the picture,
+    // the bounds and the picks the frame's own vertices give them: over the
+    // battlefield, and at every pixel about the commander. A card that adds
+    // no lights draws every model from the vertices.
+    if (live_models_on_card()) {
+        const auto picks = [&] {
+            std::vector<uint16_t> found;
+            const int32_t left = match_layout_.left;
+            const int32_t top = match_layout_.top;
+            for (int32_t y = top; y < top + match_layout_.battlefield_height(); y += 7)
+                for (int32_t x = left; x < left + match_layout_.battlefield_width(); x += 7)
+                    found.push_back(live_unit_under(static_cast<float>(x), static_cast<float>(y)));
+            for (int32_t y = commander_bounds->y1 - 2; y <= commander_bounds->y2 + 2; ++y)
+                for (int32_t x = commander_bounds->x1 - 2; x <= commander_bounds->x2 + 2; ++x)
+                    for (const float half : {0.0F, 0.5F})
+                        found.push_back(live_unit_under(float(x) + half, float(y) + half));
+            for (const auto& slot : match_->world().slots)
+                if (const auto bounds = live_unit_bounds(slot.unit_index))
+                    found.insert(
+                        found.end(),
+                        {slot.unit_index,
+                         static_cast<uint16_t>(bounds->x1),
+                         static_cast<uint16_t>(bounds->y1),
+                         static_cast<uint16_t>(bounds->x2),
+                         static_cast<uint16_t>(bounds->y2)}
+                    );
+            return found;
+        };
+        const auto on_card = snapshot();
+        const std::size_t card_models = live_renderer_card_model_count();
+        require(card_models != 0, "the card drew no model from its types' models");
+        const auto card_picks = picks();
+        const auto card_commander = live_unit_under((*commander_pixel)[0], (*commander_pixel)[1]);
+        set_live_models_on_card(false);
+        const auto from_vertices = snapshot();
+        require(
+            live_renderer_card_model_count() == 0, "a card not allowed to draw models drew them"
+        );
+        const auto vertex_picks = picks();
+        set_live_models_on_card(true);
+        require(
+            from_vertices.rgb == on_card.rgb,
+            "the models drawn on the card differ from the frame's vertices"
+        );
+        require(
+            card_picks == vertex_picks,
+            "the models drawn on the card are picked otherwise than the frame's vertices"
+        );
+        require(card_commander == commander, "the commander drawn on the card could not be picked");
+        std::cout << "live renderer check: " << card_models
+                  << " models drawn on the card give the picture, picks and bounds of the "
+                     "frame's vertices\n";
+    }
     std::optional<oa::sim::ground_orders::Point> destination;
     std::optional<oa::sim::ground_orders::Point> destination_hit;
     std::array<float, 2> destination_pixel{};

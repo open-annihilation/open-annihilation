@@ -8186,6 +8186,17 @@ class Runtime final : public menu::Host,
     [[nodiscard]] std::size_t live_renderer_emissive_vertex_count() const noexcept;
     /// Returns the number of sight-gated construction particles in the last live frame.
     [[nodiscard]] std::size_t live_renderer_nano_particle_count() const noexcept;
+    /// Returns how many models the graphics card drew from their types' models
+    /// in the last live frame, the frame's vertices holding none of them.
+    [[nodiscard]] std::size_t live_renderer_card_model_count() const noexcept;
+    /// Returns whether the live frames draw the models the card can from
+    /// their types' models: once the card has drawn a frame and adds the
+    /// lights itself, unless set_live_models_on_card(false) said not to.
+    [[nodiscard]] bool live_models_on_card() const noexcept;
+    /// Lets the live frames draw models from their types' models on the card,
+    /// or keeps every model in the frame's vertices, for the checks.
+    /// @param allowed whether the card may draw them
+    void set_live_models_on_card(bool allowed) noexcept;
     /// Marks terrain pixels visible through the live geometry for debug painting.
     /// @return one byte per battlefield pixel, nonzero where terrain is frontmost
     [[nodiscard]] std::vector<uint8_t> live_terrain_visibility_mask() const;
