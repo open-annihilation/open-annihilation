@@ -8,6 +8,7 @@
 #include "renderer_water_appearance.hpp"
 #include "oa/test/check.hpp"
 #include "oa/present/rle.hpp"
+#include "oa/platform/job_pool.hpp"
 #include "oa/sim/unit_movement/terrain.hpp"
 
 #include <array>
@@ -2763,6 +2764,221 @@ void frame_rows_grow_for_spilled_shadows() {
     OA_CHECK(scene.frame_rows == 32);
 }
 
+/// Tells whether two scenes built the same frame: the same vertices in the
+/// same order, unit ranges, counts and atlas.
+///
+/// @param a one scene
+/// @param b the other
+/// @return true when they are the same
+bool same_frame(const live::Scene& a, const live::Scene& b) {
+    const auto same_vertices = [](const std::vector<oa::app::renderer_live_gpu::Vertex>& x,
+                                  const std::vector<oa::app::renderer_live_gpu::Vertex>& y) {
+        return x.size() == y.size() &&
+               (x.empty() || std::memcmp(x.data(), y.data(), x.size() * sizeof(x[0])) == 0);
+    };
+    const auto same_ranges = [](const std::vector<live::UnitRange>& x,
+                                const std::vector<live::UnitRange>& y) {
+        return std::equal(
+            x.begin(), x.end(), y.begin(), y.end(), [](const auto& left, const auto& right) {
+                return left.unit_id == right.unit_id && left.first_vertex == right.first_vertex &&
+                       left.vertex_count == right.vertex_count;
+            }
+        );
+    };
+    const auto& update = a.atlas_update;
+    const auto& other = b.atlas_update;
+    return same_vertices(a.vertices, b.vertices) && same_ranges(a.unit_ranges, b.unit_ranges) &&
+           same_vertices(a.translucent_vertices, b.translucent_vertices) &&
+           same_ranges(a.translucent_ranges, b.translucent_ranges) &&
+           a.terrain_vertex_count == b.terrain_vertex_count && a.model_count == b.model_count &&
+           a.sprite_count == b.sprite_count && a.shadow_count == b.shadow_count &&
+           a.particle_count == b.particle_count && a.nano_particle_count == b.nano_particle_count &&
+           a.texture_rgba == b.texture_rgba && a.texture_width == b.texture_width &&
+           a.texture_height == b.texture_height && a.texture_revision == b.texture_revision &&
+           update.previous_revision == other.previous_revision &&
+           update.first_row == other.first_row && update.end_row == other.end_row &&
+           update.frame_first_row == other.frame_first_row &&
+           update.frame_end_row == other.frame_end_row &&
+           update.regions.size() == other.regions.size() && a.frame_rows == b.frame_rows &&
+           a.frame.order == b.frame.order && a.materials.size() == b.materials.size();
+}
+
+/// A battle's passes build the same frames on any number of drawing threads
+/// as on none, frame after frame: the same vertices in the same order, unit
+/// ranges, counts and atlas. Each frame brings new materials to the cards
+/// on the ground, the models, the standing cards and the particles, which
+/// stop those passes for the thread building the frame to finish; units
+/// cast shadows, a few too tall for the rows kept for them, aircraft soft
+/// ones; structures level the ground under cards and shadows, and an
+/// explosion near the ground stands clear of the levelled ground.
+void passes_on_threads() {
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    constexpr std::size_t unit_count = 72;
+    constexpr std::size_t colour_count = 12;
+    constexpr int32_t frames = 8;
+    Fixture battle;
+    auto& map = battle.map;
+    map.attribute_width = map.attribute_height = 16;
+    map.tile_width = map.tile_height = 8;
+    map.tile_indices.assign(64, 0);
+    map.attributes.resize(256);
+    for (std::size_t i = 0; i < map.attributes.size(); ++i)
+        map.attributes[i].height = static_cast<uint8_t>((i * 7 % 13) * 3);
+    battle.inputs.right = battle.inputs.bottom = 256;
+    battle.inputs.sight.mapping = battle.inputs.sight.line_of_sight = false;
+    battle.inputs.graphics_flags = drawing::graphics_shadows | drawing::graphics_vehicle_shadows;
+    // Every unit is one triangle, in a colour of its own each frame.
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    source->objects[0].vertices = {{0, 0, 0}, {4 * fixed, 0, 0}, {0, 4 * fixed, 0}};
+    source->objects[0].primitives.resize(1);
+    source->objects[0].primitives[0].vertex_indices = {0, 1, 2};
+    auto instance = oa::sim::model_runtime::make_instance(source);
+    instance.rebuild_transforms();
+    std::array<drawing::PreparedModel, colour_count> colours{};
+    for (std::size_t colour = 0; colour < colours.size(); ++colour) {
+        colours[colour].objects.resize(1);
+        colours[colour].objects[0].primitives.resize(1);
+        colours[colour].objects[0].primitives[0].flags = drawing::primitive_colored;
+        colours[colour].objects[0].primitives[0].color = static_cast<uint8_t>(100 + colour);
+    }
+    // Pictures of several sizes, the last two taller than the rows kept.
+    std::array<drawing::ModelState, 6> pictures{};
+    for (std::size_t picture = 0; picture < pictures.size(); ++picture) {
+        auto& image = pictures[picture].image;
+        image = oa::present::create_sprite(
+            static_cast<int32_t>(6 + 3 * picture), static_cast<int32_t>(5 + 4 * picture)
+        );
+        image.sprite.key = 1;
+        for (std::size_t pixel = 0; pixel < image.pixels.size(); ++pixel)
+            image.pixels[pixel] = (pixel + picture) % 5 == 0 ? 1 : 0;
+    }
+    std::array<oa::UnitDef, 3> definitions{};
+    definitions[1].flags = OA_UNIT_DEF_FLAG_CAN_FLY;
+    std::vector<oa::Unit> units(unit_count);
+    battle.draws.models.resize(unit_count);
+    for (std::size_t index = 0; index < unit_count; ++index) {
+        auto& unit = units[index];
+        unit.id = static_cast<uint16_t>(index + 1);
+        unit.position = {
+            static_cast<int32_t>(8 + index * 37 % 236) * fixed,
+            0,
+            static_cast<int32_t>(12 + index * 53 % 232) * fixed
+        };
+        auto& draw = battle.draws.models[index];
+        draw.model.unit = &unit;
+        draw.model.instance = &instance;
+        draw.model.state = &pictures[index % pictures.size()];
+        draw.model.def = &definitions[0];
+        draw.plan.linked.drawn = true;
+        draw.plan.model.from_image = true;
+        if (index % 9 == 4) {
+            // A structure, levelling the ground.
+            unit.flags = OA_UNIT_FLAG_BUILDING;
+            unit.footprint_x = unit.footprint_z = 2;
+            unit.position.y = 20 * fixed;
+        } else if (index % 11 == 5) {
+            // An aircraft, its shadow soft on the ground far below.
+            draw.model.def = &definitions[1];
+            unit.position.y = 120 * fixed;
+        } else if (index % 13 == 6) {
+            unit.state_flags = OA_UNIT_STATE_CLOAKED;
+        }
+    }
+    // Cards: on the ground, a feature's shadow, standing effects, and
+    // explosions near the ground.
+    std::array<oa::formats::gaf::RenderedFrame, 8> cards{};
+    for (std::size_t card = 0; card < cards.size(); ++card) {
+        auto& frame = cards[card];
+        frame.width = static_cast<int32_t>(6 + card * 2);
+        frame.height = static_cast<int32_t>(4 + card * 3);
+        frame.origin_x = frame.width / 2;
+        frame.origin_y = frame.height / 2;
+        const auto count = static_cast<std::size_t>(frame.width) * frame.height;
+        frame.pixels.assign(count, static_cast<uint8_t>(ground_index + card % 2));
+        frame.coverage.assign(count, 1);
+    }
+    for (int32_t card = 0; card < 40; ++card) {
+        oa::app::SpriteDraw sprite{};
+        sprite.frame = &cards[static_cast<std::size_t>(card) % cards.size()];
+        sprite.place = {16 + card * 29 % 224, 16 + card * 41 % 224};
+        switch (card % 4) {
+        case 0:
+            sprite.terrain_decal = true;
+            sprite.on_map = true;
+            break;
+        case 1:
+            sprite.shadow = true;
+            sprite.terrain_decal = true;
+            break;
+        case 2:
+            sprite.world_position =
+                oa::FixedVec3{sprite.place.x * fixed, 30 * fixed, sprite.place.y * fixed};
+            break;
+        default:
+            sprite.world_position =
+                oa::FixedVec3{sprite.place.x * fixed, 2 * fixed, sprite.place.y * fixed};
+            sprite.surface_effect = true;
+            break;
+        }
+        battle.draws.sprites.push_back(sprite);
+    }
+    oa::app::ProjectileDraw shot{};
+    shot.object = &source->objects[0];
+    shot.prepared = &colours[0].objects[0];
+    shot.position = {120 * fixed, 30 * fixed, 120 * fixed};
+    battle.draws.projectiles.push_back(shot);
+    // The scenes: none, two, three and eight drawing threads.
+    std::array<std::unique_ptr<oa::platform::job_pool::Pool>, 4> pools{};
+    pools[1] = std::make_unique<oa::platform::job_pool::Pool>(2);
+    pools[2] = std::make_unique<oa::platform::job_pool::Pool>(3);
+    pools[3] = std::make_unique<oa::platform::job_pool::Pool>(8);
+    std::array<live::Scene, 4> scenes{};
+    for (auto& scene : scenes) {
+        scene.texture_width = scene.texture_height = 4096;
+        scene.frame_rows = 16;
+    }
+    for (int32_t frame = 0; frame < frames; ++frame) {
+        // New colours, new pictures, new cards and new particles.
+        for (std::size_t index = 0; index < unit_count; ++index) {
+            battle.draws.models[index].model.prepared =
+                &colours[(index + static_cast<std::size_t>(frame)) % colours.size()];
+            units[index].position.x += fixed / 2;
+        }
+        pictures[static_cast<std::size_t>(frame) % pictures.size()].image.pixels[1] ^= 1;
+        cards[static_cast<std::size_t>(frame) % cards.size()].pixels[0] =
+            static_cast<uint8_t>(frame + 3);
+        if (frame == 5)
+            units[4].position.x += 8 * fixed;
+        battle.draws.spatial_particles.clear();
+        for (int32_t particle = 0; particle < 30; ++particle)
+            battle.draws.spatial_particles.push_back(
+                {{(20 + particle * 7) * fixed, 10 * fixed, (30 + particle * 5) * fixed},
+                 {static_cast<uint8_t>(frame * 20 + particle), 90, 40},
+                 particle % 3 == 0}
+            );
+        for (std::size_t scene = 0; scene < scenes.size(); ++scene) {
+            battle.inputs.pool = pools[scene].get();
+            OA_CHECK(live::build(battle.inputs, scenes[scene], battle.error));
+        }
+        const auto& alone = scenes[0];
+        OA_CHECK(alone.shadow_count > 0);
+        OA_CHECK(alone.model_count > unit_count / 2);
+        OA_CHECK(alone.sprite_count > 0);
+        OA_CHECK(alone.particle_count == 30);
+        OA_CHECK(!alone.translucent_vertices.empty());
+        OA_CHECK(!alone.unit_ranges.empty());
+        OA_CHECK(!alone.frame.aircraft_shadows.empty());
+        for (std::size_t scene = 1; scene < scenes.size(); ++scene)
+            OA_CHECK(same_frame(alone, scenes[scene]));
+    }
+    // A shadow too tall for the rows kept went with the other materials,
+    // and the rows grew for it.
+    OA_CHECK(scenes[0].frame_rows > 16);
+}
+
 /// Aircraft shadows keep their silhouette at full alpha at every altitude,
 /// soften only their edge, a pixel more high up, and receive on water at
 /// the vehicles' own shadow opacity.
@@ -3578,6 +3794,7 @@ int main() {
     cached_unit_shadows();
     frame_rows_hold_unit_shadows();
     frame_rows_grow_for_spilled_shadows();
+    passes_on_threads();
     aircraft_shadow_altitude();
     aircraft_shadow_as_the_game_casts_it();
     flash_masks_and_effect_altitude();
