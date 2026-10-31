@@ -3095,8 +3095,9 @@ prompts, Settings › Updates and the headers name one state with one size.
   at the same frame on every count. When the structures' plots change,
   only the bands of the kept ground or of the ground ahead that a changed
   plot reaches are cut again, so every count cuts the same bands. The
-  effect cards laid on the ground are listed in bands of 64 cards, joined
-  in their order.
+  effect cards, laid on the ground and standing up, are listed in bands of
+  64 cards, joined in their order; the standing cards' bands share the
+  ground's indices, listed once by the first band that needs them.
   `app-xrgb-conversion` checks each pixel's packing and gamma for rows of
   any width, that pools of 2, 3, 4 and 8 threads convert the same bytes,
   the key colour as the lowest outside a palette and the keyed overlay

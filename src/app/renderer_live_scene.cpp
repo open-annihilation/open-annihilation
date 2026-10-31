@@ -21,6 +21,7 @@
 #include <exception>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <cmath>
 #include <optional>
 #include <span>
@@ -397,6 +398,8 @@ class Unpacked : public std::exception {
 
 /// A scene pass at work: where it lists its triangles, and what it may do
 /// with the atlas.
+struct GroundIndices;
+
 struct Pass {
     Scene& scene;   ///< the atlas and the frame's ground
     PassList& list; ///< where the pass lists its triangles
@@ -411,6 +414,11 @@ struct Pass {
     /// The frame's ground triangles as the foundations leave them, which
     /// the cards standing up are lifted clear of.
     std::span<const Vertex> ground{};
+    /// The ground's indices the bands of the cards standing up share, and
+    /// the lock the first to need them lists them under; none for a pass
+    /// that lists its own.
+    GroundIndices* shared_ground{};
+    std::mutex* ground_lock{};
 };
 
 /// Makes room in a pass's list for more vertices within the frame's
@@ -6154,7 +6162,8 @@ rendered_ground(std::span<const Vertex> ground, GroundIndices& indices, float x,
 float surface_effect_lift(
     Scene& scene,
     std::span<const Vertex> ground_triangles,
-    GroundIndices& indices,
+    GroundIndices& listed,
+    std::mutex* lock,
     const formats::gaf::RenderedFrame& frame,
     float x,
     float height,
@@ -6172,8 +6181,26 @@ float surface_effect_lift(
     const GroundIndex::Axes axes{
         up[2] * inverse, -up[0] * inverse, -right[2] * inverse, right[0] * inverse
     };
-    if (!indices.listed || (facing && indices.card_axes != axes))
-        list_ground(scene, ground_triangles, facing ? &axes : nullptr, indices);
+    // Indices shared by a pass's bands are listed once, by the first band
+    // that needs them, and only read after; a card whose axes they were not
+    // listed along tests every triangle instead, which finds the same.
+    GroundIndices* used = &listed;
+    std::optional<GroundIndices> unlisted_axes;
+    if (lock != nullptr) {
+        {
+            const std::lock_guard guard(*lock);
+            if (!listed.listed)
+                list_ground(scene, ground_triangles, facing ? &axes : nullptr, listed);
+        }
+        if (facing && listed.card_axes != axes) {
+            unlisted_axes = listed;
+            unlisted_axes->card.reset();
+            used = &*unlisted_axes;
+        }
+    } else if (!listed.listed || (facing && listed.card_axes != axes)) {
+        list_ground(scene, ground_triangles, facing ? &axes : nullptr, listed);
+    }
+    auto& indices = *used;
     const auto ground = rendered_ground(ground_triangles, indices, x, z);
     if (!ground || height > *ground + ground_near_distance)
         return 0;
@@ -6276,7 +6303,8 @@ void sprites(const Inputs& in, Pass& pass, bool ground_pass, std::size_t first, 
         prepared;
     std::unordered_map<const formats::gaf::RenderedFrame*, std::optional<AtlasRect>> grey_frames;
     // The ground is cut and stays as it is for the whole pass.
-    GroundIndices ground_indices;
+    GroundIndices own_ground;
+    GroundIndices& ground_indices = pass.shared_ground ? *pass.shared_ground : own_ground;
     std::vector<bool> light_masks(in.draws->sprites.size());
     std::vector<bool> blended_sprites(in.draws->sprites.size());
     for (const auto& draw : in.draws->draws) {
@@ -6435,6 +6463,7 @@ void sprites(const Inputs& in, Pass& pass, bool ground_pass, std::size_t first, 
                       scene,
                       pass.ground,
                       ground_indices,
+                      pass.ground_lock,
                       frame,
                       origin_x,
                       origin_h,
@@ -7033,7 +7062,8 @@ class PassTimes {
         bench_timers::add_nanoseconds(Stage::foundations, foundations + ground_listing);
         add(Stage::models, passes.models);
         add(Stage::projectiles, passes.projectiles);
-        add(Stage::sprites, passes.cards);
+        for (std::size_t band = 0; band < ground_card_bands; ++band)
+            add(Stage::sprites, passes.cards[band]);
         add(Stage::particles, passes.particles);
         bench_timers::add_nanoseconds(Stage::water, joining);
         bench_timers::add_nanoseconds(Stage::terrain, ground_ahead);
@@ -7129,11 +7159,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     trim_card_types(scene.card_types);
     find_card_types(in, scene.card_types);
     for (auto* list :
-         {&passes.shadow_packing,
-          &passes.models,
-          &passes.projectiles,
-          &passes.cards,
-          &passes.particles})
+         {&passes.shadow_packing, &passes.models, &passes.projectiles, &passes.particles})
         clear_list(*list, 0);
     PassTimes times(scene, timing);
     // The cards laid on the ground, in bands of their draws.
@@ -7142,8 +7168,15 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         std::max<std::size_t>(1, (cards + ground_card_band_draws - 1) / ground_card_band_draws);
     if (passes.ground_cards.size() < card_bands)
         passes.ground_cards.resize(card_bands);
-    for (std::size_t band = 0; band < card_bands; ++band)
+    if (passes.cards.size() < card_bands)
+        passes.cards.resize(card_bands);
+    for (std::size_t band = 0; band < card_bands; ++band) {
         clear_list(passes.ground_cards[band], 0);
+        clear_list(passes.cards[band], 0);
+    }
+    // The ground's indices the bands of the cards standing up share.
+    GroundIndices standing_ground;
+    std::mutex standing_ground_lock;
     times.ground_card_bands = card_bands;
     const auto card_band_end = [&](std::size_t band) {
         return std::min(cards, (band + 1) * ground_card_band_draws);
@@ -7316,11 +7349,17 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
                                    : 0;
     };
     constexpr uint32_t first_shadow_band = 4;
-    // The cards laid on the ground's first band runs third, the rest after
-    // the particles.
+    // The cards standing up's first band runs second and the cards laid on
+    // the ground's third; the rest of each after the particles.
     const auto pass_bands =
-        static_cast<uint32_t>(first_shadow_band + shadow_bands + 2 + card_bands - 1);
+        static_cast<uint32_t>(first_shadow_band + shadow_bands + 2 + 2 * (card_bands - 1));
     const auto first_card_band = static_cast<uint32_t>(first_shadow_band + shadow_bands + 2);
+    const auto first_standing_band = static_cast<uint32_t>(first_card_band + card_bands - 1);
+    const auto standing = [&](Pass& pass) {
+        pass.ground = cut_ground;
+        pass.shared_ground = &standing_ground;
+        pass.ground_lock = &standing_ground_lock;
+    };
     const auto bands = static_cast<uint32_t>(pass_bands + ahead_bands);
     auto& ahead = scene.ground_ahead;
     const auto ahead_draw = ground_draw(ahead.source);
@@ -7332,10 +7371,12 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
             run_beside(scene, passes.models, draws.models.size(), timing, [&](Pass& pass) {
                 models(in, pass, 0, draws.models.size());
             });
-        } else if (band == 1) {
-            run_beside(scene, passes.cards, cards, timing, [&](Pass& pass) {
-                pass.ground = cut_ground;
-                sprites(in, pass, false, 0, cards);
+        } else if (band == 1 || band >= first_standing_band) {
+            const std::size_t index = band == 1 ? 0 : band - first_standing_band + 1;
+            const std::size_t end = card_band_end(index);
+            run_beside(scene, passes.cards[index], end, timing, [&](Pass& pass) {
+                standing(pass);
+                sprites(in, pass, false, index * ground_card_band_draws, end);
             });
         } else if (band == 3) {
             if (!list_ground_beside)
@@ -7486,10 +7527,15 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         timing,
         [&](Pass& pass, std::size_t from) { projectiles(in, pass, from, draws.projectiles.size()); }
     );
-    take_list(scene, passes.cards, cards, listed, timing, [&](Pass& pass, std::size_t from) {
-        pass.ground = cut_ground;
-        sprites(in, pass, false, from, cards);
-    });
+    for (std::size_t band = 0; band < card_bands; ++band) {
+        const std::size_t end = card_band_end(band);
+        take_list(
+            scene, passes.cards[band], end, listed, timing, [&](Pass& pass, std::size_t from) {
+                standing(pass);
+                sprites(in, pass, false, from, end);
+            }
+        );
+    }
     take_list(
         scene,
         passes.particles,
@@ -7540,11 +7586,15 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     std::swap(scene.translucent_vertices, passes.models.translucent_vertices);
     std::swap(scene.translucent_ranges, passes.models.translucent_ranges);
     join(passes.projectiles.vertices);
-    join(passes.cards.vertices);
+    uint32_t standing_cards{};
+    for (std::size_t band = 0; band < card_bands; ++band) {
+        join(passes.cards[band].vertices);
+        standing_cards += passes.cards[band].drawn;
+    }
     join(passes.particles.vertices);
     scene.shadow_count = shadows + scene.cards.cast_depths;
     scene.model_count = passes.models.drawn;
-    scene.sprite_count = ground_cards + passes.cards.drawn;
+    scene.sprite_count = ground_cards + standing_cards;
     scene.particle_count = passes.particles.drawn;
     scene.nano_particle_count = passes.particles.nano_particles;
     times.joining += pass_clock(timing) - start;

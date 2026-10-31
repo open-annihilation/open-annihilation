@@ -352,7 +352,8 @@ struct PassLists {
     PassList shadow_packing{};
     PassList models{};
     PassList projectiles{};
-    PassList cards{}; ///< the effect cards standing up
+    /// The effect cards standing up, by band of the cards' draws.
+    std::vector<PassList> cards{};
     PassList particles{};
 };
 
