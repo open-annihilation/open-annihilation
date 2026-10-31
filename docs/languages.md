@@ -518,8 +518,18 @@ A language the engine knows a pack exists for, but which is not installed,
 is offered only as a download, while a registry offers its pack.
 
 A language whose letters are all in the game's 8-bit code page
-(Windows-1252), as Portuguese's or Dutch's are, needs nothing more. Others
-need drawing the game has in part or not yet:
+(Windows-1252), as Portuguese's or Dutch's are, can be drawn in the game's
+own fonts, with two things to know:
+
+- A pack's tables are UTF-8, and the game reads them so only while the
+  pack sets `unicode: true` or its text needs the modern fonts. A pack in
+  the game's fonts without `unicode: true` shows each accented letter as
+  two wrong characters.
+- 3.1c's menu fonts (`anims/hattfont11.GAF`, `anims/hattfont12.GAF`) hold
+  their box, not a letter, for ã, õ, Ã, Õ, Â, Ê, Ô and À, so a caption
+  holding one of them is drawn whole in the modern fonts.
+
+Others need drawing the game has in part or not yet:
 
 - **Traditional Chinese and Japanese** need their own faces: a Simplified
   Chinese face draws their characters in Chinese forms.
