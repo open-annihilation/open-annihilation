@@ -60,6 +60,14 @@ struct Context {
     struct State;
     std::unique_ptr<State> state{};
     uint32_t actual_supersample{}; ///< successful last frame axis factor; zero before success
+    /// The samples a pixel of the last frame that succeeded, before its
+    /// supersampling: 4 where the card's multisampling took a 2x2 of them,
+    /// else 1; zero before success.
+    uint32_t actual_multisample{};
+    /// Whether render() may take a 2x2 of the samples it is asked for as
+    /// the card's 4x multisampling; false supersamples them all, as on a
+    /// card without it.
+    bool multisampling_allowed{true};
     /// SDL made no graphics device the renderer can draw with: none on
     /// Metal or Vulkan. render() answers unavailable from then on without
     /// trying again.
@@ -127,7 +135,12 @@ struct KeptGround {
 /// @param[out] output_rgba packed target pixels; background is opaque black
 /// @param[out] error failure or unavailable reason
 /// @param requested_supersample axis sample factor 1,2,4,8 or16; halved until the
-///        enlarged target fits 4096 pixels per axis, then GPU box-filtered before readback
+///        enlarged target fits 4096 pixels per axis. Above 1, where the card multisamples
+///        the formats 4 times (and Context::multisampling_allowed), a 2x2 of it is the
+///        card's multisampling, which needs no enlarged target: the factor drawn is then
+///        half that, at least 1, while the samples drawn fit 4096 by 4096. Multisampled
+///        pixels are averaged by the card and an enlarged target GPU box-filtered before
+///        readback
 /// @param atlas_update optional changed rows and rectangles; ignored after creation, resizing
 ///        or a revision gap
 /// @param water optional water animation, sea level and distance attenuation

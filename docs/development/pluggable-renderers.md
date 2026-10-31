@@ -285,7 +285,7 @@ over units. Order markers remain overlays, as in the classic view.
 
 | Setting | Live 3D behaviour |
 | --- | --- |
-| Enhanced anti-aliasing | Supersamples the whole 3D battlefield, then box-filters it on the GPU before readback. The requested factor is lowered when needed to fit a 4096-pixel target edge. This differs from classic per-unit supersampling. |
+| Enhanced anti-aliasing | Takes the level's samples across each pixel of the whole 3D battlefield, then averages them on the GPU before readback: a 2x2 of them by the card's 4x multisampling, where it multisamples the colour and depth formats 4 times, and the rest by drawing the battlefield larger and box-filtering it. The factor drawn larger is lowered when needed to fit a 4096-pixel target edge; multisampling needs no larger target, so a frame too wide for 2x2 supersampling is still multisampled while its samples fit the largest supersampled target's 4096 by 4096. Each multisampled sample takes the atlas at its own place for sprites, models, effects, map features and ground texels larger than a pixel, so keyed and texel edges are smoothed as a supersampled frame's are. A card without 4x multisampling supersamples the whole factor. This differs from classic per-unit supersampling. |
 | Unit, vehicle and feature shadows | Uses the existing graphics flags and shadow level. |
 | Mapping and line of sight | Uses the match's visibility data, with a smooth visual boundary. |
 | Dithered fog | Uses the classic grey palette for mapped-but-unseen terrain; live boundaries remain smoothly interpolated. |
@@ -325,6 +325,11 @@ back.
 Terrain minification blends averaged texture levels, with each tile clamped to
 its own texels. Level selection uses output pixels independently of the
 anti-aliasing factor; sprites retain nearest sampling.
+Multisampled, a fragment is shaded once a pixel: the atlas is taken at each
+covered sample's place (found from the pixel's centre and the coordinates'
+change from pixel to pixel, which the camera's affine projection makes
+exact), the sample mask leaves out samples a keyed texel leaves clear, and
+the light and colours are taken at a point the triangle covers.
 Terrain vertices use the gameplay world height grid. Their artwork is sampled
 at the original projected map coordinates, splitting triangles at texture tile
 edges. Ground features retain their canonical world anchors. Effect sprites

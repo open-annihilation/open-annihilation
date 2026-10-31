@@ -439,7 +439,10 @@ the game draws its text and how the modern fonts draw it.
   processor. While the graphics card draws it (Full), the card draws the
   whole battlefield with that many samples across each pixel, as far as
   the window's size and the card's memory allow, and the hint says when it
-  draws fewer. Raise it for smoother edges if the frame rate holds.
+  draws fewer. In the turned 3D view the card takes four samples of each
+  pixel by its own multisampling, which costs less than drawing the
+  battlefield larger, and draws larger only for the rest. Raise it for
+  smoother edges if the frame rate holds.
 - **Screen size**, Desktop or any size the display offers from 640x480
   up, such as 2560x1440 or 3840x2160 on a 4K monitor and 3440x1440 on an
   ultrawide, Desktop by default. It applies when you press OK, on the menus

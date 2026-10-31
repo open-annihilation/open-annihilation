@@ -571,9 +571,13 @@ int persistent_frames() {
     OA_CHECK(scene.frame(2) == Result::success);
     OA_CHECK(scene.pixels.size() > 1 && scene.pixels[1] >= 63 && scene.pixels[1] <= 64);
     scene.vertices = opaque_triangle;
+    // Supersampling alone, as on a card without multisampling; the card's
+    // own is multisampled_frames'.
+    scene.context.multisampling_allowed = false;
     for (const uint32_t factor : {2u, 4u, 8u, 16u}) {
         OA_CHECK(scene.frame(2, small_target, factor) == Result::success);
         OA_CHECK(scene.context.actual_supersample == factor);
+        OA_CHECK(scene.context.actual_multisample == 1);
         OA_CHECK(scene.pixels.size() == small_target * small_target * channels);
         OA_CHECK(scene.pixel(0, 0, small_target, 0, full_channel));
         bool partial_coverage = false;
@@ -665,6 +669,190 @@ int persistent_frames() {
     OA_CHECK(scene.frame(5) == Result::success);
     OA_CHECK(scene.pixel(0, 0, small_target, 0, 0));
     return oa::test::check_exit_status();
+}
+
+/// Where a multisampled pixel's four samples lie in it, in eighths of the
+/// pixel: the standard places, in the order of the coverage mask's bits.
+constexpr std::array<std::array<uint32_t, 2>, 4> sample_eighths{{{3, 1}, {7, 3}, {1, 5}, {5, 7}}};
+
+/// Compares a multisampled frame with the same vertices drawn without
+/// anti-aliasing at eight times the size for each supersampled pixel and
+/// half a pixel over, so that its pixels' centres fall on the samples: each
+/// output channel must be the mean of its samples there, within tolerance.
+/// @return whether the frames compare
+bool matches_samples(
+    Context& context,
+    std::span<const Vertex> vertices,
+    std::span<const uint8_t> atlas,
+    uint32_t atlas_width,
+    const std::array<float, 12>& projection,
+    std::span<const uint8_t> multisampled,
+    uint32_t supersample,
+    int tolerance
+) {
+    const uint32_t enlargement = 8 * supersample;
+    auto enlarged_projection = projection;
+    constexpr size_t screen_rows = 8;
+    for (size_t component = 0; component < screen_rows; ++component)
+        enlarged_projection[component] *= float(enlargement);
+    enlarged_projection[3] += 0.5f;
+    enlarged_projection[7] += 0.5f;
+    const uint32_t enlarged_size = small_target * enlargement;
+    std::vector<uint8_t> enlarged;
+    std::string error;
+    if (render(
+            context,
+            vertices,
+            atlas,
+            atlas_width,
+            1,
+            7,
+            enlarged_size,
+            enlarged_size,
+            enlarged_projection,
+            enlarged,
+            error
+        ) != Result::success ||
+        multisampled.size() != small_target * small_target * channels ||
+        enlarged.size() != size_t(enlarged_size) * enlarged_size * channels)
+        return false;
+    bool matches = true;
+    const uint32_t samples = supersample * supersample * uint32_t(sample_eighths.size());
+    for (uint32_t y = 0; y < small_target; ++y) {
+        for (uint32_t x = 0; x < small_target; ++x) {
+            for (uint32_t channel = 0; channel < channels; ++channel) {
+                uint32_t sum = 0;
+                for (uint32_t row = 0; row < supersample; ++row)
+                    for (uint32_t column = 0; column < supersample; ++column)
+                        for (const auto& [across, down] : sample_eighths) {
+                            const uint32_t enlarged_x = x * enlargement + column * 8 + across;
+                            const uint32_t enlarged_y = y * enlargement + row * 8 + down;
+                            sum += enlarged
+                                [(size_t(enlarged_y) * enlarged_size + enlarged_x) * channels +
+                                 channel];
+                        }
+                const int expected = int((sum + samples / 2) / samples);
+                const int actual = multisampled[(y * small_target + x) * channels + channel];
+                matches &= actual >= expected - tolerance && actual <= expected + tolerance;
+            }
+        }
+    }
+    return matches;
+}
+
+/// Take a 2x2 of the samples asked for as the card's 4x multisampling where
+/// the card has it: a triangle's edges and a keyed edge across a triangle
+/// are smoothed at the standard sample places, a frame supersampled beyond
+/// that is reduced from the averaged samples, and a frame too wide to
+/// supersample is still multisampled.
+void multisampled_frames() {
+    Scene scene;
+    scene.atlas = {173, 91, 47, full_channel};
+    scene.projection[3] = 0.37f;
+    scene.projection[7] = 0.61f;
+    OA_CHECK(scene.frame(1, small_target, 2) == Result::success);
+    if (scene.context.actual_multisample != 4) {
+        // A card without it supersamples, as multisampling_allowed false does.
+        std::printf("live GPU: this card does not multisample 4 times; supersampled instead\n");
+        OA_CHECK(scene.context.actual_multisample == 1 && scene.context.actual_supersample == 2);
+        return;
+    }
+    OA_CHECK(scene.context.actual_supersample == 1);
+    bool partial_coverage = false;
+    for (size_t offset = 0; offset < scene.pixels.size(); offset += channels)
+        partial_coverage |= scene.pixels[offset] > 0 && scene.pixels[offset] < 173;
+    OA_CHECK(partial_coverage);
+    OA_CHECK(matches_samples(
+        scene.context, scene.vertices, scene.atlas, 1, scene.projection, scene.pixels, 1, 1
+    ));
+    // Asked for 4x4, the card multisamples a supersampled frame of half that.
+    OA_CHECK(scene.frame(1, small_target, 4) == Result::success);
+    OA_CHECK(scene.context.actual_multisample == 4 && scene.context.actual_supersample == 2);
+    OA_CHECK(matches_samples(
+        scene.context, scene.vertices, scene.atlas, 1, scene.projection, scene.pixels, 2, 2
+    ));
+
+    // A square across the frame whose texture is keyed clear past its middle
+    // along a diagonal, inside both triangles: its edge is smoothed as a
+    // triangle's is.
+    const std::vector<uint8_t> keyed_atlas{0, full_channel, 0, full_channel, 0, 0, 0, 0};
+    std::vector<Vertex> square{
+        {0, 0, 0, 0, 0.5f},
+        {8, 0, 0, 0.5f, 0.5f},
+        {8, 0, 8, 1, 0.5f},
+        {0, 0, 0, 0, 0.5f},
+        {8, 0, 8, 1, 0.5f},
+        {0, 0, 8, 0.5f, 0.5f}
+    };
+    std::vector<uint8_t> keyed;
+    OA_CHECK(
+        render(
+            scene.context,
+            square,
+            keyed_atlas,
+            2,
+            1,
+            2,
+            small_target,
+            small_target,
+            scene.projection,
+            keyed,
+            scene.error,
+            2
+        ) == Result::success
+    );
+    bool keyed_partial = false;
+    for (size_t offset = 1; offset < keyed.size(); offset += channels)
+        keyed_partial |= keyed[offset] > 0 && keyed[offset] < full_channel;
+    OA_CHECK(keyed_partial);
+    OA_CHECK(matches_samples(scene.context, square, keyed_atlas, 2, scene.projection, keyed, 1, 1));
+
+    // Too wide to draw at twice its size, a frame is still multisampled.
+    constexpr uint32_t widest = 4096;
+    OA_CHECK(
+        render(
+            scene.context,
+            scene.vertices,
+            scene.atlas,
+            1,
+            1,
+            1,
+            widest,
+            1,
+            scene.projection,
+            scene.pixels,
+            scene.error,
+            2
+        ) == Result::success
+    );
+    OA_CHECK(scene.context.actual_multisample == 4 && scene.context.actual_supersample == 1);
+    OA_CHECK(scene.pixels.size() == widest * channels);
+    // One with more pixels than a fourth of the largest supersampled target
+    // is not, as it is not supersampled.
+    OA_CHECK(
+        render(
+            scene.context,
+            scene.vertices,
+            scene.atlas,
+            1,
+            1,
+            1,
+            widest,
+            widest / 4 + 1,
+            scene.projection,
+            scene.pixels,
+            scene.error,
+            2
+        ) == Result::success
+    );
+    OA_CHECK(scene.context.actual_multisample == 1 && scene.context.actual_supersample == 1);
+    scene.context.multisampling_allowed = false;
+    OA_CHECK(scene.frame(1, small_target, 2) == Result::success);
+    OA_CHECK(scene.context.actual_multisample == 1 && scene.context.actual_supersample == 2);
+    // Off draws one sample a pixel whatever the card can.
+    scene.context.multisampling_allowed = true;
+    OA_CHECK(scene.frame(1, small_target, 1) == Result::success);
+    OA_CHECK(scene.context.actual_multisample == 1 && scene.context.actual_supersample == 1);
 }
 
 /// Water animation remains deterministic, optional and unable to illuminate unknown ground.
@@ -1137,6 +1325,7 @@ int main() {
     }
     const int result = persistent_frames();
     if (result == 0) {
+        multisampled_frames();
         material_modulation();
         water_frames();
         submerged_faces();

@@ -21,6 +21,9 @@ constexpr float coordinate_limit = 32768.0f;
 constexpr float projection_limit = 131072.0f;
 constexpr uint32_t vertices_per_triangle = 3;
 constexpr uint32_t max_supersample = 16;
+/// The samples a pixel the card's multisampling takes: a 2x2 of
+/// supersampling's.
+constexpr uint32_t multisample_count = 4;
 
 /// Check dimensions before calculating the byte size of a bounded RGBA image.
 bool valid_dimensions(uint32_t width, uint32_t height) {
@@ -39,6 +42,9 @@ struct Resources {
     SDL_GPUTexture* atlas{};
     SDL_GPUTexture* colour{};
     SDL_GPUTexture* depth{};
+    /// The multisampled colour as the card averages it, at the drawn size,
+    /// for the supersampling resolve to reduce: only with both.
+    SDL_GPUTexture* multisample_resolved{};
     SDL_GPUTexture* resolved{};
     SDL_GPUShader* resolve_vertex{};
     SDL_GPUShader* resolve_fragment{};
@@ -69,6 +75,8 @@ struct Resources {
             SDL_ReleaseGPUShader(device, resolve_fragment);
         if (resolved)
             SDL_ReleaseGPUTexture(device, resolved);
+        if (multisample_resolved)
+            SDL_ReleaseGPUTexture(device, multisample_resolved);
         if (pipeline)
             SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
         if (vertex_shader)
@@ -97,13 +105,15 @@ struct Resources {
     }
 };
 
-/// Create a single-level two-dimensional texture.
+/// Create a single-level two-dimensional texture, of one sample a pixel
+/// unless the multisampling count says more.
 SDL_GPUTexture* create_texture(
     SDL_GPUDevice* device,
     uint32_t width,
     uint32_t height,
     SDL_GPUTextureFormat format,
-    SDL_GPUTextureUsageFlags usage
+    SDL_GPUTextureUsageFlags usage,
+    SDL_GPUSampleCount sample_count = SDL_GPU_SAMPLECOUNT_1
 ) {
     SDL_GPUTextureCreateInfo info{};
     info.type = SDL_GPU_TEXTURETYPE_2D;
@@ -113,6 +123,7 @@ SDL_GPUTexture* create_texture(
     info.height = height;
     info.layer_count_or_depth = 1;
     info.num_levels = 1;
+    info.sample_count = sample_count;
     return SDL_CreateGPUTexture(device, &info);
 }
 
@@ -161,6 +172,12 @@ struct Context::State {
     uint32_t texture_height{};
     uint32_t output_width{};
     uint32_t output_height{};
+    uint32_t samples{};          ///< the samples a pixel of the drawn colour and depth
+    uint32_t pipeline_samples{}; ///< the samples a pixel the pipeline draws
+    /// Whether the card draws the colour and depth formats with
+    /// multisample_count samples a pixel, asked once its device is made.
+    bool multisample_known{};
+    bool multisample_supported{};
     uint32_t resolved_width{};
     uint32_t resolved_height{};
     uint32_t vertex_capacity{};
@@ -296,12 +313,6 @@ Result render(
         error = "Invalid live GPU vertex coordinates";
         return Result::failed;
     }
-    uint32_t supersample = requested_supersample;
-    while (output_width > max_dimension / supersample ||
-           output_height > max_dimension / supersample)
-        supersample /= 2;
-    const uint32_t render_width = output_width * supersample;
-    const uint32_t render_height = output_height * supersample;
     auto& state = *context.state;
     auto& resources = state.resources;
     if (context.device_unavailable) {
@@ -318,13 +329,51 @@ Result render(
             return Result::unavailable;
         }
     }
+    if (!state.multisample_known) {
+        state.multisample_supported =
+            SDL_GPUTextureSupportsSampleCount(
+                resources.device, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_SAMPLECOUNT_4
+            ) &&
+            SDL_GPUTextureSupportsSampleCount(
+                resources.device, SDL_GPU_TEXTUREFORMAT_D32_FLOAT, SDL_GPU_SAMPLECOUNT_4
+            );
+        state.multisample_known = true;
+    }
+    uint32_t supersample = requested_supersample;
+    while (output_width > max_dimension / supersample ||
+           output_height > max_dimension / supersample)
+        supersample /= 2;
+    // The card's multisampling takes a 2x2 of the samples asked for where it
+    // can: every triangle's edge keeps its samples while the card shades a
+    // quarter of the pixels. It needs no larger target, so a frame too wide
+    // to supersample still takes it, as long as the card holds no more
+    // samples than the largest supersampled target.
+    uint32_t samples = 1;
+    if (context.multisampling_allowed && state.multisample_supported &&
+        requested_supersample >= 2) {
+        const uint32_t drawn = std::max<uint32_t>(1, supersample / 2);
+        if (uint64_t{output_width} * drawn * output_height * drawn * multisample_count <=
+            uint64_t{max_dimension} * max_dimension) {
+            samples = multisample_count;
+            supersample = drawn;
+        }
+    }
+    const uint32_t render_width = output_width * supersample;
+    const uint32_t render_height = output_height * supersample;
+    // Multisampled and supersampled, the card averages the samples at the
+    // drawn size and the resolve reduces that.
+    const bool resolves_twice = samples > 1 && supersample > 1;
     /// Drop incomplete resources so another frame can retry safely.
     const auto fail = [&](const char* operation) {
         error = std::string(operation) + ": " + SDL_GetError();
         context.state = std::make_unique<Context::State>();
         return Result::failed;
     };
-    if (!resources.pipeline) {
+    if (resources.pipeline && state.pipeline_samples != samples) {
+        SDL_ReleaseGPUGraphicsPipeline(resources.device, resources.pipeline);
+        resources.pipeline = nullptr;
+    }
+    if (!resources.vertex_shader) {
         resources.vertex_shader = create_shader(resources.device, true);
         resources.fragment_shader = create_shader(resources.device, false);
         if (!resources.vertex_shader || !resources.fragment_shader)
@@ -339,7 +388,8 @@ Result render(
         resources.linear_sampler = SDL_CreateGPUSampler(resources.device, &sampler_info);
         if (!resources.sampler || !resources.linear_sampler)
             return fail("Create live GPU textures and sampler");
-
+    }
+    if (!resources.pipeline) {
         SDL_GPUVertexBufferDescription vertex_description{};
         vertex_description.pitch = sizeof(Vertex);
         SDL_GPUVertexAttribute attributes[7]{};
@@ -384,9 +434,12 @@ Result render(
         pipeline_info.target_info.num_color_targets = 1;
         pipeline_info.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
         pipeline_info.target_info.has_depth_stencil_target = true;
+        pipeline_info.multisample_state.sample_count =
+            samples > 1 ? SDL_GPU_SAMPLECOUNT_4 : SDL_GPU_SAMPLECOUNT_1;
         resources.pipeline = SDL_CreateGPUGraphicsPipeline(resources.device, &pipeline_info);
         if (!resources.pipeline)
             return fail("Create live GPU pipeline");
+        state.pipeline_samples = samples;
     }
     const auto frame_vertices = vertices.subspan(ground_count);
     const auto vertex_bytes = uint32_t(frame_vertices.size_bytes());
@@ -423,27 +476,45 @@ Result render(
         state.texture_height = texture_height;
         state.atlas_uploaded = false;
     }
-    if (render_width != state.output_width || render_height != state.output_height) {
+    if (render_width != state.output_width || render_height != state.output_height ||
+        samples != state.samples || resolves_twice != (resources.multisample_resolved != nullptr)) {
         if (resources.colour)
             SDL_ReleaseGPUTexture(resources.device, resources.colour);
         if (resources.depth)
             SDL_ReleaseGPUTexture(resources.device, resources.depth);
+        if (resources.multisample_resolved)
+            SDL_ReleaseGPUTexture(resources.device, resources.multisample_resolved);
+        resources.multisample_resolved = nullptr;
+        // A multisampled target is drawn and averaged, never read.
+        const auto sample_count = samples > 1 ? SDL_GPU_SAMPLECOUNT_4 : SDL_GPU_SAMPLECOUNT_1;
         resources.colour = create_texture(
             resources.device,
             render_width,
             render_height,
             SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
-            SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER
+            samples > 1 ? SDL_GPU_TEXTUREUSAGE_COLOR_TARGET
+                        : SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,
+            sample_count
         );
         resources.depth = create_texture(
             resources.device,
             render_width,
             render_height,
             SDL_GPU_TEXTUREFORMAT_D32_FLOAT,
-            SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET
+            SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
+            sample_count
         );
+        if (resolves_twice)
+            resources.multisample_resolved = create_texture(
+                resources.device,
+                render_width,
+                render_height,
+                SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+                SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER
+            );
         state.output_width = render_width;
         state.output_height = render_height;
+        state.samples = samples;
     }
     if (output_width != state.resolved_width || output_height != state.resolved_height) {
         if (resources.resolved)
@@ -535,7 +606,8 @@ Result render(
     }
     if ((vertex_bytes != 0 && !resources.vertices) || (ground_count != 0 && !resources.ground) ||
         (upload_bytes != 0 && !resources.upload) || !resources.download || !resources.atlas ||
-        !resources.colour || !resources.depth || !resources.resolved)
+        !resources.colour || !resources.depth || !resources.resolved ||
+        (resolves_twice && !resources.multisample_resolved))
         return fail("Create live GPU frame resources");
     bench_timers::count_atlas_upload(
         upload_rows + frame_upload_rows, upload_rows == texture_height
@@ -647,6 +719,13 @@ Result render(
     colour_target.clear_color.a = 1;
     colour_target.load_op = SDL_GPU_LOADOP_CLEAR;
     colour_target.store_op = SDL_GPU_STOREOP_STORE;
+    if (samples > 1) {
+        // The card averages each pixel's samples as the pass ends, into the
+        // picture, or into the drawn size's for the supersampling resolve.
+        colour_target.store_op = SDL_GPU_STOREOP_RESOLVE;
+        colour_target.resolve_texture =
+            resolves_twice ? resources.multisample_resolved : resources.resolved;
+    }
     SDL_GPUDepthStencilTargetInfo depth_target{};
     depth_target.texture = resources.depth;
     depth_target.clear_depth = 1;
@@ -687,6 +766,7 @@ Result render(
     camera[12] = float(output_width);
     camera[13] = float(output_height);
     camera[14] = float(supersample);
+    camera[15] = float(samples);
     if (water) {
         camera[16] = std::clamp(water->ripples, 0.0F, 2.0F);
         camera[17] = std::clamp(water->coastal_waves, 0.0F, 2.0F);
@@ -738,7 +818,9 @@ Result render(
         if (!pass)
             return fail("Begin live GPU resolve");
         SDL_BindGPUGraphicsPipeline(pass, resources.resolve_pipeline);
-        const SDL_GPUTextureSamplerBinding source{resources.colour, resources.sampler};
+        const SDL_GPUTextureSamplerBinding source{
+            resolves_twice ? resources.multisample_resolved : resources.colour, resources.sampler
+        };
         SDL_BindGPUFragmentSamplers(pass, 0, &source, 1);
         SDL_DrawGPUPrimitives(pass, vertices_per_triangle, 1, 0, 0);
         SDL_EndGPURenderPass(pass);
@@ -747,7 +829,7 @@ Result render(
     if (!copy)
         return fail("Begin live GPU download");
     const SDL_GPUTextureRegion colour_region{
-        supersample > 1 ? resources.resolved : resources.colour,
+        supersample > 1 || samples > 1 ? resources.resolved : resources.colour,
         0,
         0,
         0,
@@ -786,6 +868,8 @@ Result render(
     SDL_ReleaseGPUFence(resources.device, resources.fence);
     resources.fence = nullptr;
     context.actual_supersample = supersample;
+    context.actual_multisample = samples;
+    bench_timers::note_multisample(samples);
     state.atlas_revision = atlas_revision;
     state.atlas_uploaded = true;
     if (ground_bytes != 0) {
