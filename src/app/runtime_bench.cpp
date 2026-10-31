@@ -55,6 +55,9 @@ struct FrameSample {
     double present{}; ///< uploading and presenting it
 };
 
+/// Room for one stage's milliseconds in a FRAME line.
+constexpr std::size_t kStageValueBytes = 24;
+
 /// Returns a measure's values, one a frame.
 ///
 /// @param samples the frames
@@ -67,6 +70,56 @@ measure_values(const std::vector<FrameSample>& samples, double FrameSample::* fi
     for (const auto& sample : samples)
         values.push_back(sample.*field);
     return values;
+}
+
+/// Prints the SLOW lines: what the slowest 1% of the span's frames, those
+/// the 1% low frame rate is taken from, were made of.
+///
+/// @param samples the span's frames
+/// @param frame_totals what the stage timers summed over each of them
+void print_slowest_frames(
+    const std::vector<FrameSample>& samples, const std::vector<bench_timers::Totals>& frame_totals
+) {
+    const auto slowest = bench::slowest_frames(measure_values(samples, &FrameSample::frame));
+    bench_timers::Totals sum{};
+    double frame_total = 0;
+    for (const std::size_t index : slowest) {
+        bench_timers::add_totals(sum, frame_totals[index]);
+        frame_total += samples[index].frame;
+    }
+    const auto count = static_cast<double>(slowest.size());
+    std::printf(
+        "bench: SLOW frames %zu of %zu, the slowest 1%%: frame avg %.2f ground_revisions %.0f "
+        "terrain_packs %.1f a frame atlas_resets %.0f atlas_rows %.0f a frame "
+        "full_atlas_uploads %.0f\n",
+        slowest.size(),
+        samples.size(),
+        frame_total / count,
+        sum.ground_revisions,
+        sum.terrain_squares_packed / count,
+        sum.atlas_emptied,
+        sum.atlas_rows_uploaded / count,
+        sum.whole_atlas_uploads
+    );
+    for (std::size_t stage = 0; stage < bench_timers::stage_count; ++stage)
+        std::printf(
+            "%s\n",
+            bench::slow_stage_line(
+                static_cast<bench_timers::Stage>(stage), sum.milliseconds[stage], slowest.size()
+            )
+                .c_str()
+        );
+    for (std::size_t stage = 0; stage < bench_timers::stage_count; ++stage)
+        if (sum.materials_packed[stage] > 0) {
+            const auto& name = bench_timers::stage_names[stage];
+            const std::string shown = (name.nested ? "  " : "") + std::string(name.name);
+            std::printf(
+                "bench: SLOW ATLAS packed by %-34s %8.1f materials %10.0f texels a frame\n",
+                shown.c_str(),
+                sum.materials_packed[stage] / count,
+                sum.texels_packed[stage] / count
+            );
+        }
 }
 
 } // namespace
@@ -224,6 +277,10 @@ void Runtime::play_bench() {
     };
     std::vector<FrameSample> samples;
     samples.reserve(kExpectedFrames);
+    // What the stage timers summed over each frame, for the slowest frames'
+    // lines and the frame log.
+    std::vector<bench_timers::Totals> frame_totals;
+    frame_totals.reserve(kExpectedFrames);
     bench_timers::reset(view.stage_timers);
     const uint32_t first_tick = match_timing_.tick;
     std::printf(
@@ -245,8 +302,12 @@ void Runtime::play_bench() {
             break;
         aim(view.yaw + view.turn_rate * elapsed);
         const auto phases = phase_times_;
+        const auto totals_before = bench_timers::timers.totals;
         frame();
         const double finished = now();
+        frame_totals.push_back(
+            bench_timers::totals_since(bench_timers::timers.totals, totals_before)
+        );
         const auto ms = [](int64_t ns) {
             return static_cast<double>(ns) * kMillisecondsPerSecond / kBenchNanosecondsPerSecond;
         };
@@ -396,6 +457,35 @@ void Runtime::play_bench() {
                 shown.c_str(),
                 per_frame(totals.materials_packed[stage]),
                 per_frame(totals.texels_packed[stage])
+            );
+        }
+    if (view.stage_timers && frames != 0)
+        print_slowest_frames(samples, frame_totals);
+    if (view.frame_log)
+        for (std::size_t index = 0; index < frames; ++index) {
+            const auto& sample = frame_totals[index];
+            double materials = 0;
+            for (const double packed : sample.materials_packed)
+                materials += packed;
+            std::string stages;
+            for (const double milliseconds : sample.milliseconds) {
+                char value[kStageValueBytes];
+                std::snprintf(value, sizeof value, " %.2f", milliseconds);
+                stages += value;
+            }
+            std::printf(
+                "bench: FRAME %zu frame %.2f work %.2f draw %.2f ground %.0f terrain_packs %.0f "
+                "atlas_resets %.0f atlas_rows %.0f materials %.0f stages%s\n",
+                index,
+                samples[index].frame,
+                samples[index].work,
+                samples[index].draw,
+                sample.ground_revisions,
+                sample.terrain_squares_packed,
+                sample.atlas_emptied,
+                sample.atlas_rows_uploaded,
+                materials,
+                stages.c_str()
             );
         }
     std::fflush(stdout);

@@ -11,13 +11,16 @@ warm-up of WARMUP_TICKS ticks and a measured span of MEASURE_SECONDS
 seconds, the camera turned. The run must print, in order, WARMUP,
 MEASURING, a SEC line for each second, SHOT, RESULT, the five MEASURE
 spreads with the tick's mean, a STAGE line for every stage timer under its
-name, COUNTS, GROUND, ATLAS and DONE; every spread must be in order (least,
-median, 95th and 99th percentiles, slowest 1%, most), the frame rates must
-agree with the frames and seconds, and the stage must have placed its
-armies and queued its factories. tools/bench/summarise.py must read the
-run. A second run with the stage timers off prints no STAGE line, and a
-view file with a key the bench does not know stops the bench with a FAILED
-line naming the file's line, and the game with status 1.
+name, COUNTS, GROUND, ATLAS, the SLOW lines of the slowest 1% of frames, a
+FRAME line for every frame (the view asks for the frame log) and DONE;
+every spread must be in order (least, median, 95th and 99th percentiles,
+slowest 1%, most), the frame rates must agree with the frames and seconds,
+the slowest 1% must be as many frames as the span's 1% and as slow as its
+1% low, the frame log's frames must be the span's, and the stage must have
+placed its armies and queued its factories. tools/bench/summarise.py must
+read the run. A second run with the stage timers off prints no STAGE or
+SLOW line, and a view file with a key the bench does not know stops the
+bench with a FAILED line naming the file's line, and the game with status 1.
 """
 import argparse
 import os
@@ -50,6 +53,7 @@ yaw 20
 pitch -53
 zoom 1
 stage_timers {timers}
+frame_log {timers}
 """
 # The stage timers' names, in the order the STAGE lines give them: the names
 # stay the same from one release to the next, so that runs compare.
@@ -80,6 +84,17 @@ COUNTS = re.compile(r"^bench: COUNTS units (\d+) \(player0 (\d+), others (\d+)\)
 AWAY = re.compile(r"^bench: AWAY label=check frames (\d+) of (\d+): the window was away, .+$")
 GROUND = re.compile(r"^bench: GROUND revisions (\d+) in (\d+) frames$")
 ATLAS = re.compile(r"^bench: ATLAS terrain_packs [\d.]+ a frame, atlas_resets (\d+) in (\d+) frames$")
+SLOW = re.compile(
+    rf"^bench: SLOW frames (\d+) of (\d+), the slowest 1%: frame avg {NUMBER} ground_revisions "
+    rf"(\d+) terrain_packs {NUMBER} a frame atlas_resets (\d+) atlas_rows (\d+) a frame "
+    rf"full_atlas_uploads (\d+)$")
+SLOW_STAGE = re.compile(rf"^bench: SLOW STAGE (.+?)\s+{NUMBER}$")
+SLOW_ATLAS = re.compile(
+    rf"^bench: SLOW ATLAS packed by (.+?)\s+{NUMBER} materials\s+(\d+) texels a frame$")
+FRAME = re.compile(
+    rf"^bench: FRAME (\d+) frame {NUMBER} work {NUMBER} draw {NUMBER} ground ([01]) "
+    rf"terrain_packs (\d+) atlas_resets (\d+) atlas_rows (\d+) materials (\d+) "
+    rf"stages((?: {NUMBER}){{{len(STAGES)}}})$")
 QUEUED = re.compile(r"^stage: unit \d+ queues (\d+) (\S+)$", re.M)
 # The battle's armies, factories, builders and economies, placed at its
 # start: at least this many live units once it has begun.
@@ -127,12 +142,13 @@ def check_lines(result, timers):
         fail(result, f"the AWAY line does not read: {away[0]}")
     lines = [line for line in lines if not line.startswith("bench: AWAY")]
     kinds = [line.split()[1] for line in lines]
-    # The lines come in their order, each kind once but SEC, MEASURE, STAGE
-    # and ATLAS.
+    # The lines come in their order, each kind once but SEC, MEASURE, STAGE,
+    # ATLAS, SLOW and FRAME.
     order = ["WARMUP", "MEASURING", "SEC", "SHOT", "RESULT", "MEASURE", "STAGE", "COUNTS",
-             "GROUND", "ATLAS", "DONE"]
+             "GROUND", "ATLAS", "SLOW", "FRAME", "DONE"]
     if not timers:
-        order.remove("STAGE")
+        for kind in ("STAGE", "SLOW", "FRAME"):
+            order.remove(kind)
     runs = [kind for index, kind in enumerate(kinds) if index == 0 or kinds[index - 1] != kind]
     # SHOT falls within the seconds.
     runs = [kind for kind in runs if kind != "SEC"]
@@ -180,7 +196,38 @@ def check_lines(result, timers):
     if int(counts.group(1)) < LEAST_UNITS or int(ground.group(2)) != frames or \
             int(atlas.group(2)) != frames:
         fail(result, f"the bench counted {counts.group(1)} units and other frames than {frames:.0f}")
+    if timers:
+        check_slow_and_frame_lines(result, lines, int(frames), measured["frame"])
     return lines
+
+
+def check_slow_and_frame_lines(result, lines, frames, frame_spread):
+    """Checks the SLOW lines of the slowest 1% of frames and the FRAME lines of every frame."""
+    slow = next((SLOW.match(line) for line in lines if SLOW.match(line)), None)
+    if not slow:
+        fail(result, "the SLOW line does not read")
+    slowest, span, slow_mean = int(slow.group(1)), int(slow.group(2)), float(slow.group(3))
+    if span != frames or slowest != (frames + 99) // 100:
+        fail(result, f"the slowest 1% are {slowest} of {span} frames, not of {frames}")
+    # The slowest 1% are the frames the 1% low is the mean of.
+    if abs(slow_mean - frame_spread[1]) > 0.01 + 0.001 * frame_spread[1]:
+        fail(result, f"the slowest frames' mean {slow_mean} is not the 1% low {frame_spread[1]}")
+    slow_stages = [SLOW_STAGE.match(line) for line in lines if line.startswith("bench: SLOW STAGE")]
+    names = tuple(match.group(1).rstrip() if match else "" for match in slow_stages)
+    if names != STAGES:
+        fail(result, f"the slowest frames' stage timers are {names}, not {STAGES}")
+    for line in lines:
+        if line.startswith("bench: SLOW ATLAS") and not SLOW_ATLAS.match(line):
+            fail(result, f"a SLOW ATLAS line does not read: {line}")
+    logged = [FRAME.match(line) for line in lines if line.startswith("bench: FRAME")]
+    if len(logged) != frames or not all(logged) or \
+            [int(match.group(1)) for match in logged] != list(range(frames)):
+        fail(result, f"the frame log does not hold the span's {frames} frames in order")
+    # The frame log's times are the frames the spread is taken from; they
+    # are printed to two places.
+    mean = sum(float(match.group(2)) for match in logged) / frames
+    if abs(mean - frame_spread[0]) > 0.02:
+        fail(result, f"the frame log's mean frame {mean:.3f} is not the span's {frame_spread[0]}")
 
 
 def main():
@@ -215,7 +262,8 @@ def main():
                 raise BenchFailure("tools/bench/summarise.py did not read the run")
             untimed = run_bench(arguments.native, arguments.game_dir, workdir, "untimed",
                                 VIEW.format(stage=stage, warmup=WARMUP_TICKS, seconds=1, timers=0))
-            if any(line.startswith("bench: STAGE") for line in untimed.stdout.splitlines()):
+            if any(line.startswith(("bench: STAGE", "bench: SLOW", "bench: FRAME"))
+                   for line in untimed.stdout.splitlines()):
                 fail(untimed, "the bench printed its stage timers with them off")
             if untimed.returncode != 0 or "bench: DONE label=check" not in untimed.stdout:
                 fail(untimed, "the bench with its timers off did not finish")

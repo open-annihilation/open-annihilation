@@ -124,6 +124,44 @@ struct Totals {
     double ground_revisions{};       ///< frames whose kept ground changed
 };
 
+/// Returns what the timers summed between two readings of their totals.
+///
+/// @param now the later reading
+/// @param before the earlier one
+/// @return each sum's growth from before to now
+[[nodiscard]] inline Totals totals_since(const Totals& now, const Totals& before) noexcept {
+    Totals growth{};
+    for (std::size_t stage = 0; stage < stage_count; ++stage) {
+        growth.milliseconds[stage] = now.milliseconds[stage] - before.milliseconds[stage];
+        growth.materials_packed[stage] =
+            now.materials_packed[stage] - before.materials_packed[stage];
+        growth.texels_packed[stage] = now.texels_packed[stage] - before.texels_packed[stage];
+    }
+    growth.terrain_squares_packed = now.terrain_squares_packed - before.terrain_squares_packed;
+    growth.atlas_emptied = now.atlas_emptied - before.atlas_emptied;
+    growth.atlas_rows_uploaded = now.atlas_rows_uploaded - before.atlas_rows_uploaded;
+    growth.whole_atlas_uploads = now.whole_atlas_uploads - before.whole_atlas_uploads;
+    growth.ground_revisions = now.ground_revisions - before.ground_revisions;
+    return growth;
+}
+
+/// Adds one set of sums to another.
+///
+/// @param[in,out] sum the sums added to
+/// @param more the sums added
+inline void add_totals(Totals& sum, const Totals& more) noexcept {
+    for (std::size_t stage = 0; stage < stage_count; ++stage) {
+        sum.milliseconds[stage] += more.milliseconds[stage];
+        sum.materials_packed[stage] += more.materials_packed[stage];
+        sum.texels_packed[stage] += more.texels_packed[stage];
+    }
+    sum.terrain_squares_packed += more.terrain_squares_packed;
+    sum.atlas_emptied += more.atlas_emptied;
+    sum.atlas_rows_uploaded += more.atlas_rows_uploaded;
+    sum.whole_atlas_uploads += more.whole_atlas_uploads;
+    sum.ground_revisions += more.ground_revisions;
+}
+
 /// The scene of the last frame the turned view drew.
 struct SceneCounts {
     double vertices{};         ///< every vertex of the frame

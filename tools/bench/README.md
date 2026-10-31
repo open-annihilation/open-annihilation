@@ -52,7 +52,9 @@ tools/bench/summarise.py --stages --counts runs
 The bench's lines are described with [the option](../../docs/command-line.md#--bench).
 In short: the frame rate and the 1% low frame rate (the frame rate of the
 slowest 1% of the frames), the frame's time at its median, 95th and 99th
-percentiles, and how long each part of the frame took (the stage timers).
+percentiles, how long each part of the frame took (the stage timers), and
+what the slowest 1% of the frames were made of (the `SLOW` lines); a view
+with `frame_log 1` adds every frame's stage times.
 The low, far-out, close and idle views measure the same 750 match ticks of
 the battle on every build, however long they take; the turning view
 measures 25 seconds. The stage timers' names stay the same from one release

@@ -4,8 +4,9 @@
 // The parts of --bench that hold no game: a view file's keys and defaults,
 // the keys and values it refuses, a stage taken from the file's folder and
 // the label from its name; the spread of a measure, its percentiles and its
-// slowest 1%; the MEASURE and STAGE lines; and the stage timers, which sum
-// nothing while off, and time stages, parts and the atlas's counts while on.
+// slowest 1% and which frames those are; the MEASURE, STAGE and SLOW STAGE
+// lines; and the stage timers, which sum nothing while off, and time stages,
+// parts and the atlas's counts while on, frame by frame.
 #include "bench.hpp"
 #include "bench_timers.hpp"
 
@@ -78,7 +79,8 @@ void view_reads_every_key() {
                        "zoom 0\n"
                        "turn_rate 6\n"
                        "hold_after 2\n"
-                       "stage_timers 0";
+                       "stage_timers 0\n"
+                       "frame_log 1";
     OA_CHECK(bench::parse_view(text, view, error));
     OA_CHECK(view.label == "low-across");
     OA_CHECK(oa::platform::path_to_generic_utf8(view.stage) == "battle.stage");
@@ -88,6 +90,7 @@ void view_reads_every_key() {
     OA_CHECK(near(view.centre_x, 1980) && near(view.centre_z, 2080));
     OA_CHECK(near(view.yaw, 20) && near(view.pitch, -53) && near(view.zoom, 0));
     OA_CHECK(near(view.turn_rate, 6) && near(view.hold_after, 2) && !view.stage_timers);
+    OA_CHECK(view.frame_log && !defaults.frame_log);
 }
 
 /// A key the bench does not know, a value that does not read or is out of
@@ -104,6 +107,7 @@ void view_refuses_what_it_cannot_read() {
     OA_CHECK(refusal("players 11") == "line 1: players takes 2 to 10");
     OA_CHECK(refusal("zoom -1") == "line 1: zoom takes 0 for the farthest out, or a zoom above 0");
     OA_CHECK(refusal("stage_timers yes") == "line 1: stage_timers takes 0 or 1");
+    OA_CHECK(refusal("frame_log 2") == "line 1: frame_log takes 0 or 1");
     OA_CHECK(refusal("\n\nlabel") == "line 3: label has no value");
     OA_CHECK(refusal("yaw 1\nyaw 2") == "line 2: yaw is given twice");
 }
@@ -181,6 +185,28 @@ void spread_takes_percentiles_and_the_slowest() {
     OA_CHECK(near(bench::frames_per_second(50), 20) && near(bench::frames_per_second(0), 0));
 }
 
+/// The slowest 1% of frames are the ones Spread::low1 takes the mean of,
+/// in the order the frames came; of equal times the later frames'.
+void slowest_frames_are_the_slowest_one_percent() {
+    OA_CHECK(bench::slowest_frames({}).empty());
+    const std::array<double, 1> one{40};
+    OA_CHECK(bench::slowest_frames(one) == std::vector<std::size_t>{0});
+    // 201 frames: ceil(201 / 100) = 3 slowest, frames 7, 50 and 120.
+    std::vector<double> frames(201, 20.0);
+    frames[120] = 61;
+    frames[7] = 45;
+    frames[50] = 45;
+    frames[90] = 44;
+    OA_CHECK((bench::slowest_frames(frames) == std::vector<std::size_t>{7, 50, 120}));
+    double total = 0;
+    for (const std::size_t index : bench::slowest_frames(frames))
+        total += frames[index];
+    OA_CHECK(near(total / 3, bench::spread(frames).low1));
+    // Of equal times, the later frames are taken.
+    const std::vector<double> level(150, 30.0);
+    OA_CHECK((bench::slowest_frames(level) == std::vector<std::size_t>{148, 149}));
+}
+
 /// The MEASURE and STAGE lines keep the old bench's layout, with the median,
 /// the 99th percentile and the slowest 1% added.
 void lines_keep_their_layout() {
@@ -201,6 +227,10 @@ void lines_keep_their_layout() {
     OA_CHECK(
         bench::stage_line(Stage::match_plan, 5.0, 0) ==
         "bench: STAGE ds_plan(draw list)                       0.00"
+    );
+    OA_CHECK(
+        bench::slow_stage_line(Stage::terrain, 137.0, 10) ==
+        "bench: SLOW STAGE   terrain                               13.70"
     );
     // Every stage has a name, and the names are told apart.
     for (std::size_t first = 0; first < timers::stage_count; ++first) {
@@ -300,6 +330,38 @@ void timers_sum_only_while_on() {
     OA_CHECK(!timers::timers.on);
 }
 
+/// What the timers summed over a frame is the growth of their totals, and
+/// the sums of several frames add up.
+void totals_of_a_frame_add_up() {
+    const auto index = [](Stage stage) { return static_cast<std::size_t>(stage); };
+    timers::Totals before{};
+    before.milliseconds[index(Stage::terrain)] = 2;
+    before.materials_packed[index(Stage::models)] = 3;
+    before.ground_revisions = 4;
+    timers::Totals now = before;
+    now.milliseconds[index(Stage::terrain)] = 7.5;
+    now.texels_packed[index(Stage::models)] = 64;
+    now.terrain_squares_packed = 12;
+    now.atlas_emptied = 1;
+    now.atlas_rows_uploaded = 600;
+    now.whole_atlas_uploads = 1;
+    now.ground_revisions = 5;
+    const auto frame = timers::totals_since(now, before);
+    OA_CHECK(near(frame.milliseconds[index(Stage::terrain)], 5.5));
+    OA_CHECK(near(frame.materials_packed[index(Stage::models)], 0));
+    OA_CHECK(near(frame.texels_packed[index(Stage::models)], 64));
+    OA_CHECK(near(frame.terrain_squares_packed, 12) && near(frame.atlas_emptied, 1));
+    OA_CHECK(near(frame.atlas_rows_uploaded, 600) && near(frame.whole_atlas_uploads, 1));
+    OA_CHECK(near(frame.ground_revisions, 1));
+    timers::Totals sum{};
+    timers::add_totals(sum, frame);
+    timers::add_totals(sum, frame);
+    OA_CHECK(near(sum.milliseconds[index(Stage::terrain)], 11));
+    OA_CHECK(near(sum.texels_packed[index(Stage::models)], 128));
+    OA_CHECK(near(sum.terrain_squares_packed, 24) && near(sum.ground_revisions, 2));
+    OA_CHECK(near(sum.atlas_rows_uploaded, 1200) && near(sum.whole_atlas_uploads, 2));
+}
+
 } // namespace
 
 int main() {
@@ -307,8 +369,10 @@ int main() {
     view_refuses_what_it_cannot_read();
     view_file_takes_its_folder();
     spread_takes_percentiles_and_the_slowest();
+    slowest_frames_are_the_slowest_one_percent();
     lines_keep_their_layout();
     timers_sum_only_while_on();
+    totals_of_a_frame_add_up();
     if (oa::test::check_exit_status() != 0)
         return 1;
     std::puts(

@@ -164,12 +164,12 @@ bool parse_view(std::string_view text, View& view, std::string& error) {
             read = number(view.turn_rate);
         } else if (key == "hold_after") {
             read = seconds(view.hold_after);
-        } else if (key == "stage_timers") {
+        } else if (key == "stage_timers" || key == "frame_log") {
             if (value != "0" && value != "1") {
-                error = where + "stage_timers takes 0 or 1";
+                error = where + std::string(key) + " takes 0 or 1";
                 return false;
             }
-            view.stage_timers = value == "1";
+            (key == "stage_timers" ? view.stage_timers : view.frame_log) = value == "1";
         } else {
             error = where + "the bench has no key " + std::string(key);
             return false;
@@ -226,6 +226,19 @@ Spread spread(std::span<const double> values) {
     return result;
 }
 
+std::vector<std::size_t> slowest_frames(std::span<const double> values) {
+    std::vector<std::size_t> frames(values.size());
+    for (std::size_t index = 0; index < frames.size(); ++index)
+        frames[index] = index;
+    std::sort(frames.begin(), frames.end(), [&](std::size_t left, std::size_t right) {
+        return values[left] != values[right] ? values[left] < values[right] : left < right;
+    });
+    const std::size_t slowest = (frames.size() + 99) / 100;
+    frames.erase(frames.begin(), frames.end() - static_cast<std::ptrdiff_t>(slowest));
+    std::sort(frames.begin(), frames.end());
+    return frames;
+}
+
 double frames_per_second(double milliseconds) {
     return milliseconds > 0 ? 1000.0 / milliseconds : 0.0;
 }
@@ -250,18 +263,41 @@ std::string measure_line(std::string_view name, const Spread& values) {
     return line;
 }
 
-std::string stage_line(bench_timers::Stage stage, double milliseconds, std::size_t frames) {
+namespace {
+
+/// Returns a line of a stage's mean milliseconds a frame, its name
+/// indented two spaces when it is part of the stage before it.
+///
+/// @param kind the line's kind after "bench: ", such as STAGE
+/// @param stage the stage
+/// @param milliseconds its time over the frames
+/// @param frames how many they are
+/// @return the line, with no newline
+[[nodiscard]] std::string stage_mean_line(
+    const char* kind, bench_timers::Stage stage, double milliseconds, std::size_t frames
+) {
     const auto& name = bench_timers::stage_names[static_cast<std::size_t>(stage)];
     const std::string shown = (name.nested ? "  " : "") + std::string(name.name);
     char line[kLineBytes];
     std::snprintf(
         line,
         sizeof line,
-        "bench: STAGE %-36s %8.2f",
+        "bench: %s %-36s %8.2f",
+        kind,
         shown.c_str(),
         frames == 0 ? 0.0 : milliseconds / static_cast<double>(frames)
     );
     return line;
+}
+
+} // namespace
+
+std::string stage_line(bench_timers::Stage stage, double milliseconds, std::size_t frames) {
+    return stage_mean_line("STAGE", stage, milliseconds, frames);
+}
+
+std::string slow_stage_line(bench_timers::Stage stage, double milliseconds, std::size_t frames) {
+    return stage_mean_line("SLOW STAGE", stage, milliseconds, frames);
 }
 
 } // namespace oa::app::bench

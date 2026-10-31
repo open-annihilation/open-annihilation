@@ -601,6 +601,7 @@ a comment. Every key may be left out:
 | `turn_rate D` | Degrees of yaw a second through the span. | 0 |
 | `hold_after S` | Seconds the match plays on after the span, before the game closes. | 0 |
 | `stage_timers 0` | Measures the frames with the stage timers off. | 1, on |
+| `frame_log 1` | Prints a `FRAME` line for each frame of the span once it ends. | 0, off |
 
 A key the bench does not know, a value that does not read and a key given
 twice stop the bench with the file and line, and so do a skirmish that
@@ -624,6 +625,8 @@ its log (or into the folder `--log-dir` names), each beginning `bench:`:
 | `COUNTS units N (player0 A, others B) drawn N vertices N terrain N ...` | The live units at the end and the last frame's scene: the units drawn, the turned view's vertices, the ground's, its models, cards, particles and shadows, the terrain cells it surveyed, the projectiles, the match tick, the card's supersampling and its samples a pixel before it (4 multisampled, else 1), the battlefield's size, the atlas rows sent a frame and the frames that sent the whole atlas. |
 | `GROUND revisions N in F frames` | The frames whose kept ground changed. |
 | `ATLAS terrain_packs N a frame, atlas_resets N in F frames` | The terrain tiles packed into the atlas a frame and the frames whose atlas was emptied to fit, then `ATLAS packed by STAGE N materials T texels a frame` for each stage that packed materials afresh. |
+| `SLOW frames N of F, the slowest 1%: frame avg MS ground_revisions G terrain_packs T a frame atlas_resets R atlas_rows A a frame full_atlas_uploads U` | What the slowest 1% of the span's frames were made of, those the 1% low frame rate is taken from: their mean frame time, the frames among them whose kept ground changed, the terrain tiles they packed a frame, the frames among them whose atlas was emptied, the atlas rows they sent a frame and the frames among them that sent the whole atlas; then `SLOW STAGE NAME MS`, each stage timer's mean milliseconds over those frames in the order of the `STAGE` lines, and `SLOW ATLAS packed by STAGE N materials T texels a frame`. Left out with `stage_timers 0`. |
+| `FRAME N frame MS work MS draw MS ground G terrain_packs T atlas_resets R atlas_rows A materials M stages MS...` | With `frame_log 1`, each frame of the span from 0: its frame, work and drawing times, whether its kept ground changed, the terrain tiles it packed, whether its atlas was emptied, the atlas rows it sent, the materials it packed, and each stage timer's milliseconds in the order of the `STAGE` lines. |
 | `DONE label=NAME` | The bench has finished; the game closes. |
 | `FAILED WHAT` | The bench stopped before it finished, and why; the game ends with status 1. |
 

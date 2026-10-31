@@ -15,6 +15,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace oa::app::bench {
 
@@ -41,6 +42,7 @@ struct View {
     double turn_rate{};       ///< degrees of yaw a second through the span
     double hold_after{};      ///< seconds the match plays on after the span
     bool stage_timers = true; ///< whether the stage timers measure
+    bool frame_log{};         ///< whether a FRAME line is printed for each frame of the span
 };
 
 /// Reads a view file's text: one "KEY VALUE" a line; blank lines and lines
@@ -88,6 +90,13 @@ struct Spread {
 /// @return the spread; all zero when there are no values
 [[nodiscard]] Spread spread(std::span<const double> values);
 
+/// Returns the frames whose values are a spread's slowest 1% (Spread::low1):
+/// the largest ceil(N / 100) values, of equal values the later frames'.
+///
+/// @param values the values, one a frame
+/// @return the frames' positions in values, in order
+[[nodiscard]] std::vector<std::size_t> slowest_frames(std::span<const double> values);
+
 /// Returns a frame rate for a frame time.
 ///
 /// @param milliseconds the frame's time
@@ -112,5 +121,15 @@ struct Spread {
 /// @return the line, with no newline
 [[nodiscard]] std::string
 stage_line(bench_timers::Stage stage, double milliseconds, std::size_t frames);
+
+/// Returns a SLOW STAGE line: "bench: SLOW STAGE NAME MS", laid out as a
+/// STAGE line, the stage's mean milliseconds over the slowest 1% of frames.
+///
+/// @param stage the stage
+/// @param milliseconds its time over those frames
+/// @param frames how many they are
+/// @return the line, with no newline
+[[nodiscard]] std::string
+slow_stage_line(bench_timers::Stage stage, double milliseconds, std::size_t frames);
 
 } // namespace oa::app::bench
