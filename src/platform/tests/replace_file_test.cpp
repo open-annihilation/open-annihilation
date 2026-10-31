@@ -55,7 +55,8 @@ bool temporary_left(const std::filesystem::path& folder) {
     for (std::filesystem::directory_iterator cursor(folder, failure), end;
          !failure && cursor != end;
          cursor.increment(failure)) {
-        if (cursor->path().filename().string().find(".tmp-") != std::string::npos)
+        if (oa::platform::path_to_utf8(cursor->path().filename()).find(".tmp-") !=
+            std::string::npos)
             return true;
     }
     return false;

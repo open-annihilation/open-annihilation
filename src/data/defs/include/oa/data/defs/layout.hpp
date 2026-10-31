@@ -105,6 +105,17 @@ void use_data_layout(const DataLayout& layout);
 /// @return "<guis>/<file>"
 [[nodiscard]] std::string gui_path(std::string_view file);
 
+/// Returns the last name of a path in the game data without its extension.
+///
+/// The name after the last '/' or '\\', up to its last '.', byte for byte,
+/// as std::filesystem::path::stem() spells it but without reading the bytes
+/// in any code page: a name whose last '.' is its first character, and "."
+/// and "..", are kept whole.
+///
+/// @param path the path, such as "guis/mainmenu.gui"
+/// @return the name without its extension, such as "mainmenu"
+[[nodiscard]] std::string file_stem(std::string_view path);
+
 /// Returns the extension of unit definition files.
 ///
 /// @return the extension without the dot, NUL-terminated, such as "FBI"

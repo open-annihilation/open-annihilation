@@ -17,6 +17,7 @@
 #include "oa/app/demo_installer.hpp"
 #include "oa/app/mod_profile_loader.hpp"
 #include "oa/data/content_bundles/content_choice.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/platform/game_installs.hpp"
 #include "oa/platform/preferences.hpp"
 #include <cstdint>
@@ -47,25 +48,12 @@ static_assert(
     kGameDirectoryPreference.find('\\') == std::string_view::npos
 );
 
-/// Converts UTF-8 text to a path.
-///
-/// SDL, argv on Windows and the preferences file carry UTF-8; a narrow
-/// fs::path would decode it in the Windows ANSI code page.
-///
-/// @param text UTF-8 path
-/// @return the path
-[[nodiscard]] inline fs::path path_from_utf8(std::string_view text) {
-    return fs::path(std::u8string(text.begin(), text.end()));
-}
-
-/// Converts a path to UTF-8 text.
-///
-/// @param path path to convert
-/// @return its UTF-8 spelling
-[[nodiscard]] inline std::string path_to_utf8(const fs::path& path) {
-    const auto text = path.u8string();
-    return {text.begin(), text.end()};
-}
+// SDL, argv on Windows and the preferences file carry UTF-8; a narrow
+// fs::path would read it in the Windows code page, and path::string() would
+// write a name back in that code page and throw on a character it lacks.
+using oa::platform::path_from_utf8;
+using oa::platform::path_to_generic_utf8;
+using oa::platform::path_to_utf8;
 
 /// An archive the discovery found but could not mount, and why.
 struct SkippedArchive {

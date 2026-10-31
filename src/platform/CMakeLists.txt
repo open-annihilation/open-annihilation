@@ -35,6 +35,13 @@ if(BUILD_TESTING)
   target_link_libraries(oa-platform-replace-file-test PRIVATE oa-platform-shims oa-test-support)
   add_test(NAME platform-replace-file COMMAND oa-platform-replace-file-test)
   set_tests_properties(platform-replace-file PROPERTIES TIMEOUT 30)
+  # A path's UTF-8 spelling and the path a spelling names: UTF-16 and UTF-8
+  # both ways, text that is not UTF-8, and a folder whose names no one code
+  # page holds, listed, opened and replaced.
+  add_executable(oa-platform-path-text-test tests/path_text_test.cpp)
+  target_link_libraries(oa-platform-path-text-test PRIVATE oa-platform-shims oa-test-support)
+  add_test(NAME platform-path-text COMMAND oa-platform-path-text-test)
+  set_tests_properties(platform-path-text PROPERTIES TIMEOUT 30)
   add_executable(oa-platform-log-files-test tests/log_files_test.cpp)
   target_link_libraries(oa-platform-log-files-test PRIVATE oa-platform-shims oa-test-support)
   add_test(NAME platform-log-files COMMAND oa-platform-log-files-test)

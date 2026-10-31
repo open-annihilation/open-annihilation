@@ -39,6 +39,16 @@ std::string gui_path(std::string_view file) {
     return data_path(DataDirectory::guis, file);
 }
 
+std::string file_stem(std::string_view path) {
+    const std::size_t separator = path.find_last_of("/\\");
+    const std::string_view name =
+        separator == std::string_view::npos ? path : path.substr(separator + 1);
+    if (name == "." || name == "..")
+        return std::string(name);
+    const std::size_t dot = name.rfind('.');
+    return std::string(dot == std::string_view::npos || dot == 0 ? name : name.substr(0, dot));
+}
+
 const char* unit_extension() noexcept {
     return current_layout().unit_extension.c_str();
 }

@@ -254,9 +254,27 @@ void side_names_name_each_side() {
     check(std::string_view(defs::side_name(4)) == "East", "three names: side 4 takes the last");
 }
 
+void file_stems_keep_their_bytes() {
+    check(defs::file_stem("guis/mainmenu.gui") == "mainmenu", "a GUI layout's stem");
+    check(defs::file_stem("guis\\PREFS.GUI") == "PREFS", "a backslash separates names too");
+    check(defs::file_stem("musicrt.gui") == "musicrt", "a name without a folder");
+    check(
+        defs::file_stem("anims/archive.tar.gaf") == "archive.tar", "only the last extension goes"
+    );
+    check(defs::file_stem("guis/.hidden") == ".hidden", "a name starting with its dot is kept");
+    check(defs::file_stem("guis/..") == "..", "the parent folder's name is kept");
+    check(defs::file_stem("guis/") == "", "a folder has no stem");
+    // Bytes outside ASCII come back as they were, read in no code page.
+    check(defs::file_stem("guis/men\xfc.gui") == "men\xfc", "a Latin-1 byte is kept");
+    check(
+        defs::file_stem("guis/\xd0\x9a\xd0\xb0.gui") == "\xd0\x9a\xd0\xb0", "UTF-8 bytes are kept"
+    );
+}
+
 int main() {
     try {
         base_layout_is_the_games();
+        file_stems_keep_their_bytes();
         side_names_name_each_side();
         base_layout_is_the_games();
         renamed_directories_replace_the_base_ones();

@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <exception>
 #include <string>
+#include <string_view>
 #include <system_error>
 
 #if defined(_WIN32)
@@ -119,6 +120,179 @@ std::FILE* open_file(const std::filesystem::path& path, const char* mode) noexce
 #endif
 }
 
+namespace {
+
+/// The character a conversion puts where the text holds none it can carry.
+constexpr char32_t replacement_character = 0xFFFD;
+constexpr char32_t first_high_surrogate = 0xD800;
+constexpr char32_t first_low_surrogate = 0xDC00;
+constexpr char32_t last_surrogate = 0xDFFF;
+constexpr char32_t first_supplementary = 0x10000;
+constexpr char32_t last_code_point = 0x10FFFF;
+/// The bits a UTF-16 surrogate and a UTF-8 continuation byte carry.
+constexpr uint32_t surrogate_bits = 10;
+constexpr uint32_t continuation_bits = 6;
+constexpr uint32_t continuation_mask = 0x3F;
+
+/// Appends a character's UTF-8 encoding.
+///
+/// @param[in,out] text the UTF-8 the character is added to
+/// @param character the character; at most last_code_point, not a surrogate
+void append_utf8(std::string& text, char32_t character) {
+    const auto byte = [](uint32_t value) { return static_cast<char>(static_cast<uint8_t>(value)); };
+    const auto value = static_cast<uint32_t>(character);
+    if (value < 0x80) {
+        text += byte(value);
+    } else if (value < 0x800) {
+        text += byte(0xC0 | (value >> continuation_bits));
+        text += byte(0x80 | (value & continuation_mask));
+    } else if (value < first_supplementary) {
+        text += byte(0xE0 | (value >> (2 * continuation_bits)));
+        text += byte(0x80 | ((value >> continuation_bits) & continuation_mask));
+        text += byte(0x80 | (value & continuation_mask));
+    } else {
+        text += byte(0xF0 | (value >> (3 * continuation_bits)));
+        text += byte(0x80 | ((value >> (2 * continuation_bits)) & continuation_mask));
+        text += byte(0x80 | ((value >> continuation_bits) & continuation_mask));
+        text += byte(0x80 | (value & continuation_mask));
+    }
+}
+
+/// Converts UTF-16 code units, of either 16-bit type, to UTF-8.
+///
+/// @param text the UTF-16; a lone surrogate becomes replacement_character
+/// @return the UTF-8
+template <class Unit>
+std::string utf8_from_units(std::basic_string_view<Unit> text) {
+    std::string converted;
+    converted.reserve(text.size());
+    for (std::size_t index = 0; index < text.size(); ++index) {
+        const auto unit = static_cast<char32_t>(static_cast<uint16_t>(text[index]));
+        if (unit < first_high_surrogate || unit > last_surrogate) {
+            append_utf8(converted, unit);
+            continue;
+        }
+        const char32_t next = index + 1 < text.size()
+                                  ? static_cast<char32_t>(static_cast<uint16_t>(text[index + 1]))
+                                  : 0;
+        if (unit < first_low_surrogate && next >= first_low_surrogate && next <= last_surrogate) {
+            append_utf8(
+                converted,
+                first_supplementary + ((unit - first_high_surrogate) << surrogate_bits) +
+                    (next - first_low_surrogate)
+            );
+            ++index;
+        } else {
+            append_utf8(converted, replacement_character);
+        }
+    }
+    return converted;
+}
+
+/// Decodes the UTF-8 sequence that starts a text.
+///
+/// @param text the UTF-8, not empty
+/// @param[out] length the bytes the character took: 1 for a byte that does
+///             not begin a well-formed sequence
+/// @return the character, or the first byte's own value when the sequence is
+///         not well formed: overlong, a surrogate, above last_code_point or cut short
+char32_t decode_utf8(std::string_view text, std::size_t& length) {
+    const auto lead = static_cast<uint8_t>(text[0]);
+    length = 1;
+    std::size_t expected = 0;
+    char32_t value = 0;
+    char32_t least = 0;
+    if (lead < 0x80)
+        return lead;
+    if ((lead & 0xE0) == 0xC0) {
+        expected = 2;
+        value = lead & 0x1Fu;
+        least = 0x80;
+    } else if ((lead & 0xF0) == 0xE0) {
+        expected = 3;
+        value = lead & 0x0Fu;
+        least = 0x800;
+    } else if ((lead & 0xF8) == 0xF0) {
+        expected = 4;
+        value = lead & 0x07u;
+        least = first_supplementary;
+    } else {
+        return lead;
+    }
+    if (text.size() < expected)
+        return lead;
+    for (std::size_t next = 1; next < expected; ++next) {
+        const auto byte = static_cast<uint8_t>(text[next]);
+        if ((byte & 0xC0) != 0x80)
+            return lead;
+        value = (value << continuation_bits) | (byte & continuation_mask);
+    }
+    if (value < least || value > last_code_point ||
+        (value >= first_high_surrogate && value <= last_surrogate))
+        return lead;
+    length = expected;
+    return value;
+}
+
+/// Converts UTF-8 to UTF-16 code units of either 16-bit type.
+///
+/// @param text the UTF-8; a byte that does not begin a well-formed sequence
+///        stands for the character of the same value
+/// @return the UTF-16
+template <class Unit>
+std::basic_string<Unit> units_from_utf8(std::string_view text) {
+    std::basic_string<Unit> converted;
+    converted.reserve(text.size());
+    while (!text.empty()) {
+        std::size_t length = 0;
+        const char32_t character = decode_utf8(text, length);
+        text.remove_prefix(length);
+        if (character < first_supplementary) {
+            converted += static_cast<Unit>(character);
+            continue;
+        }
+        const char32_t offset = character - first_supplementary;
+        converted += static_cast<Unit>(first_high_surrogate + (offset >> surrogate_bits));
+        converted +=
+            static_cast<Unit>(first_low_surrogate + (offset & ((1u << surrogate_bits) - 1)));
+    }
+    return converted;
+}
+
+} // namespace
+
+std::string path_to_utf8(const std::filesystem::path& path) {
+#if defined(_WIN32)
+    return utf8_from_units(std::wstring_view(path.native()));
+#else
+    return path.native();
+#endif
+}
+
+std::string path_to_generic_utf8(const std::filesystem::path& path) {
+    std::string text = path_to_utf8(path);
+#if defined(_WIN32)
+    std::replace(text.begin(), text.end(), '\\', '/');
+#endif
+    return text;
+}
+
+std::filesystem::path path_from_utf8(std::string_view text) {
+#if defined(_WIN32)
+    return std::filesystem::path(units_from_utf8<wchar_t>(text));
+#else
+    return std::filesystem::path(std::string(text));
+#endif
+}
+
+std::string utf8_from_utf16(std::u16string_view text) {
+    return utf8_from_units(text);
+}
+
+std::u16string utf16_from_utf8(std::string_view text) {
+    return units_from_utf8<char16_t>(text);
+}
+
 bool long_paths_turned_off() noexcept {
 #if defined(_WIN32)
     // Windows 10, version 1607, and later say whether this program may open
@@ -170,8 +344,7 @@ std::atomic<unsigned long> temporary_sequence{0};
 /// @param path the path
 /// @return its UTF-8 spelling
 std::string path_text(const std::filesystem::path& path) {
-    const auto text = path.u8string();
-    return {text.begin(), text.end()};
+    return path_to_utf8(path);
 }
 
 /// The code the last file call left, taken before another call replaces it.

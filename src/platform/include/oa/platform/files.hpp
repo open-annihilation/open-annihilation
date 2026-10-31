@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <span>
 #include <string>
+#include <string_view>
 
 namespace oa::platform {
 
@@ -61,6 +62,56 @@ struct Files {
 /// @param mode the mode in fopen's spelling, such as "rb" or "ab"
 /// @return the stream, or null when the file cannot be opened
 [[nodiscard]] std::FILE* open_file(const std::filesystem::path& path, const char* mode) noexcept;
+
+/// Returns a path's UTF-8 spelling.
+///
+/// On Windows the path's UTF-16 is converted to UTF-8 directly, never
+/// through the system's code page, so that every name converts whatever
+/// characters it holds and whatever the code page; a lone surrogate, which
+/// UTF-8 cannot hold, becomes U+FFFD. Elsewhere the path's own bytes are
+/// returned as they are. Use it, never std::filesystem::path::string(),
+/// generic_string() or operator<<, which convert through the code page on
+/// Windows and throw on a character it lacks.
+///
+/// @param path the path
+/// @return its UTF-8 spelling
+[[nodiscard]] std::string path_to_utf8(const std::filesystem::path& path);
+
+/// Returns a path's UTF-8 spelling with forward slashes between its names.
+///
+/// path_to_utf8() with each of Windows' backslashes written as a slash, as
+/// std::filesystem::path::generic_string() spells it; elsewhere it is the
+/// same as path_to_utf8().
+///
+/// @param path the path
+/// @return its UTF-8 spelling, with forward slashes
+[[nodiscard]] std::string path_to_generic_utf8(const std::filesystem::path& path);
+
+/// Returns the path a UTF-8 spelling names.
+///
+/// On Windows the text is converted to UTF-16 directly, never through the
+/// system's code page. A byte that does not begin a well-formed UTF-8
+/// sequence stands for the character of the same value (Latin-1), so that
+/// no text is refused. Elsewhere the bytes are the path's as they are. Use
+/// it, never a path made from a std::string or a const char*, which Windows
+/// reads in the code page.
+///
+/// @param text the path, UTF-8
+/// @return the path
+[[nodiscard]] std::filesystem::path path_from_utf8(std::string_view text);
+
+/// Converts UTF-16 to UTF-8, as path_to_utf8() does on Windows.
+///
+/// @param text the UTF-16; a lone surrogate becomes U+FFFD
+/// @return the UTF-8
+[[nodiscard]] std::string utf8_from_utf16(std::u16string_view text);
+
+/// Converts UTF-8 to UTF-16, as path_from_utf8() does on Windows.
+///
+/// @param text the UTF-8; a byte that does not begin a well-formed sequence
+///        stands for the character of the same value
+/// @return the UTF-16
+[[nodiscard]] std::u16string utf16_from_utf8(std::string_view text);
 
 /// Returns the most characters a path may have for the system to open it.
 ///
