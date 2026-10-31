@@ -264,7 +264,12 @@ order; `live_model_vertex.glsl` gives the scene's fragment stage, and the
 lights' surface, what those vertices would have given it. The frame's other
 vertices are drawn in their order with the models' runs among them, so the
 picture is the one the processor's vertices draw, to the byte, and the pick
-tests a model's triangles where they would have lain among the frame's. A
+tests a model's triangles where they would have lain among the frame's. The
+pick projects the frame's vertices on the drawing threads while the card
+draws, keeping the kept ground's from the frame before while it and the
+camera stay, and passes over each block of 32 triangles, and each model drawn on
+the card, whose bounds cannot hold its point; a sliver, which its test may
+take past its own bounds, is always tested. A
 model under construction, cloaked or under the debug overlay, reflected in
 the water, shaded as a building or lit by nanolathe particles, and every model
 where the card leaves the lights to the processor or has none of this yet,

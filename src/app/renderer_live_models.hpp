@@ -102,6 +102,11 @@ struct CardUnit {
     float top{1};
     float right{};
     float bottom{};
+    /// Whether the pick finds every point of its triangles within those
+    /// bounds widened as renderer_live_camera::triangle_hit widens a
+    /// triangle's; false where one is a sliver, which the pick tests
+    /// wherever the pointer is.
+    bool bounded{true};
 };
 
 /// The sizes of a frame's model draws as a draw began, which a draw that

@@ -40,6 +40,30 @@ constexpr float orbit_degrees_per_pixel = 0.25F;
 constexpr int terrain_cell_edge = 16;
 constexpr float height_lift = 0.5F;
 
+/// The frame's triangles the pick passes over at once where its point lies
+/// outside their bounds (LiveRenderer::pick_blocks).
+constexpr std::size_t pick_block_triangles = 32;
+/// The blocks of triangles a drawing thread projects at a time.
+constexpr std::size_t pick_band_blocks = 512;
+
+/// Whether bounds of triangles, in the picture's pixels, can hold a point
+/// renderer_live_camera::triangle_hit accepts on one of them: the point lies
+/// within them widened as triangle_hit widens a triangle's, by a share of a
+/// width and a height no triangle among them exceeds.
+///
+/// @param bounds least across, least down, most across and most down
+/// @param x the point across
+/// @param y the point down
+/// @return false where none of the triangles takes the point
+bool pick_bounds_hold(const std::array<float, 4>& bounds, float x, float y) {
+    const double margin_x =
+        (double(bounds[2]) - bounds[0]) * renderer_live_camera::triangle_bounds_tolerance;
+    const double margin_y =
+        (double(bounds[3]) - bounds[1]) * renderer_live_camera::triangle_bounds_tolerance;
+    return x >= bounds[0] - margin_x && x <= bounds[2] + margin_x && y >= bounds[1] - margin_y &&
+           y <= bounds[3] + margin_y;
+}
+
 /// A scene triangle that can reach the pixels the lights' visibility asks
 /// for, with the pixels its bounds cover.
 struct VisibilityReach {
@@ -64,9 +88,20 @@ struct Runtime::LiveRenderer {
     std::vector<uint16_t> triangle_units{};
     std::unordered_map<uint16_t, oa::Rect32> unit_bounds{};
     /// The bounds of each model the card draws (Scene::cards), in the
-    /// window's pixels, as a unit's are: the pick tests the triangles of
-    /// those its pointer lies in.
+    /// window's pixels, as a unit's are.
     std::vector<oa::Rect32> card_bounds{};
+    /// The bounds of each block of pick_block_triangles of the frame's
+    /// triangles, in the picture's pixels, which the pick passes over where
+    /// its point lies outside them (pick_bounds_hold): least across, least
+    /// down, most across and most down of their finite corners. Unbounded
+    /// where a sliver among them may take a point past its own bounds.
+    std::vector<std::array<float, 4>> pick_blocks{};
+    /// The kept ground whose corners projected and blocks the pick holds:
+    /// its revision (Scene::ground_revision, none for no kept ground), its
+    /// vertices and the camera they were projected through.
+    uint64_t picked_ground_revision{};
+    std::size_t picked_ground_vertices{};
+    renderer_live_camera::Matrix picked_projection{};
     bool dragging{};
     uint8_t drag_button{};
     bool orbiting{};
@@ -1066,15 +1101,67 @@ bool Runtime::scroll_live_match_view(double screen_dx, double screen_dy) {
 
 void Runtime::rebuild_live_picking() {
     auto& live = *live_renderer_;
-    live.projected.clear();
-    live.projected.reserve(live.scene.vertices.size());
+    // Every vertex through the camera, and each block of triangles' bounds,
+    // in bands on the drawing threads, which are idle while the card draws.
+    // The kept ground, the same vertices while its revision is, keeps its
+    // corners and its whole blocks from the frame before through the same
+    // camera.
+    const auto& vertices = live.scene.vertices;
+    const std::size_t ground = live.scene.terrain_vertex_count;
+    const bool ground_held = live.scene.ground_revision != 0 &&
+                             live.picked_ground_revision == live.scene.ground_revision &&
+                             live.picked_ground_vertices == ground &&
+                             live.picked_projection == live.projection &&
+                             live.projected.size() >= ground;
+    live.projected.resize(vertices.size());
+    const std::size_t triangles = vertices.size() / 3;
+    const std::size_t blocks = (triangles + pick_block_triangles - 1) / pick_block_triangles;
+    live.pick_blocks.resize(blocks);
+    const std::size_t first_projected = ground_held ? ground / 3 / pick_block_triangles : 0;
     const auto& m = live.projection;
-    for (const auto& vertex : live.scene.vertices)
-        live.projected.push_back(
-            {m[0] * vertex.x + m[1] * vertex.height + m[2] * vertex.z + m[3],
-             m[4] * vertex.x + m[5] * vertex.height + m[6] * vertex.z + m[7],
-             m[8] * vertex.x + m[9] * vertex.height + m[10] * vertex.z + m[11]}
-        );
+    oa::platform::job_pool::run_bands(
+        draw_pool_.get(),
+        static_cast<uint32_t>(
+            (blocks - std::min(blocks, first_projected) + pick_band_blocks - 1) / pick_band_blocks
+        ),
+        [&](uint32_t band) {
+            const std::size_t first_block = first_projected + std::size_t{band} * pick_band_blocks;
+            const std::size_t end_block = std::min(blocks, first_block + pick_band_blocks);
+            for (std::size_t block = first_block; block < end_block; ++block) {
+                constexpr float none = std::numeric_limits<float>::infinity();
+                std::array<float, 4> bounds{none, none, -none, -none};
+                bool bounded = true;
+                const std::size_t first = block * pick_block_triangles * 3;
+                const std::size_t end = std::min(triangles * 3, first + pick_block_triangles * 3);
+                for (std::size_t index = first; index < end; ++index) {
+                    const auto& vertex = vertices[index];
+                    auto& point = live.projected[index];
+                    point = {
+                        m[0] * vertex.x + m[1] * vertex.height + m[2] * vertex.z + m[3],
+                        m[4] * vertex.x + m[5] * vertex.height + m[6] * vertex.z + m[7],
+                        m[8] * vertex.x + m[9] * vertex.height + m[10] * vertex.z + m[11]
+                    };
+                    // A corner not finite makes no hit; it is left out.
+                    if (point[0] < bounds[0])
+                        bounds[0] = point[0];
+                    if (point[1] < bounds[1])
+                        bounds[1] = point[1];
+                    if (point[0] > bounds[2])
+                        bounds[2] = point[0];
+                    if (point[1] > bounds[3])
+                        bounds[3] = point[1];
+                    if (index % 3 == 2 && bounded)
+                        bounded = renderer_live_camera::triangle_hit_bounded(
+                            {live.projected[index - 2], live.projected[index - 1], point}
+                        );
+                }
+                live.pick_blocks[block] = bounded ? bounds : std::array{-none, -none, none, none};
+            }
+        }
+    );
+    live.picked_ground_revision = live.scene.ground_revision;
+    live.picked_ground_vertices = ground;
+    live.picked_projection = live.projection;
     live.triangle_units.assign(live.scene.vertices.size() / 3, 0);
     live.unit_bounds.clear();
     for (const auto& range : live.scene.unit_ranges) {
@@ -1201,15 +1288,24 @@ std::optional<oa::sim::ground_orders::Point> Runtime::live_ground_hit(float x, f
     float best_depth = -std::numeric_limits<float>::infinity();
     std::optional<oa::sim::ground_orders::Point> result;
     constexpr float fixed_scale = 65536;
+    const float picture_x = x - match_layout_.left;
+    const float picture_y = y - match_layout_.top;
+    const std::size_t block_vertices = pick_block_triangles * 3;
     for (std::size_t index = 0;
          index + 2 < live.scene.terrain_vertex_count && index + 2 < live.projected.size();
          index += 3) {
+        // A block none of whose triangles can hold the point is passed over.
+        if (index % block_vertices == 0 && index / block_vertices < live.pick_blocks.size() &&
+            !pick_bounds_hold(live.pick_blocks[index / block_vertices], picture_x, picture_y)) {
+            index += block_vertices - 3;
+            continue;
+        }
         std::array<float, 3> weights{};
         float depth{};
         if (!renderer_live_camera::triangle_hit(
                 {live.projected[index], live.projected[index + 1], live.projected[index + 2]},
-                x - match_layout_.left,
-                y - match_layout_.top,
+                picture_x,
+                picture_y,
                 weights,
                 depth
             ) ||
@@ -1243,15 +1339,20 @@ uint16_t Runtime::live_unit_under(float x, float y) const {
     const auto& live = *live_renderer_;
     uint16_t picked{};
     float best_depth = -std::numeric_limits<float>::infinity();
-    // The models the card draws whose bounds hold the pointer, a pixel
-    // wider, are tested where their triangles fall among the frame's, as
-    // their vertices would have been.
+    const float picture_x = x - match_layout_.left;
+    const float picture_y = y - match_layout_.top;
+    // The models the card draws whose triangles can hold the pointer are
+    // tested where their triangles fall among the frame's, as their
+    // vertices would have been.
     const auto& cards = live.scene.cards;
     std::vector<std::size_t> held;
-    for (std::size_t at = 0; at < cards.units.size() && at < live.card_bounds.size(); ++at) {
-        const auto& bounds = live.card_bounds[at];
-        if (bounds.x1 <= bounds.x2 && x >= float(bounds.x1 - 1) && x <= float(bounds.x2 + 1) &&
-            y >= float(bounds.y1 - 1) && y <= float(bounds.y2 + 1))
+    for (std::size_t at = 0; at < cards.units.size(); ++at) {
+        const auto& drawn = cards.units[at];
+        if (drawn.index_count != 0 &&
+            (!drawn.bounded ||
+             pick_bounds_hold(
+                 {drawn.left, drawn.top, drawn.right, drawn.bottom}, picture_x, picture_y
+             )))
             held.push_back(at);
     }
     std::size_t next_held = 0;
@@ -1278,7 +1379,7 @@ uint16_t Runtime::live_unit_under(float x, float y) const {
                 std::array<float, 3> weights{};
                 float depth{};
                 if (!renderer_live_camera::triangle_hit(
-                        points, x - match_layout_.left, y - match_layout_.top, weights, depth
+                        points, picture_x, picture_y, weights, depth
                     ) ||
                     depth <= best_depth)
                     continue;
@@ -1311,15 +1412,23 @@ uint16_t Runtime::live_unit_under(float x, float y) const {
             }
         }
     };
+    const std::size_t block_vertices = pick_block_triangles * 3;
     for (std::size_t index = 0; index + 2 < live.projected.size(); index += 3) {
         if (next_held < held.size())
             test_held(index);
+        // A block none of whose triangles can hold the pointer is passed
+        // over; the models among its triangles are tested before the next.
+        if (index % block_vertices == 0 && index / block_vertices < live.pick_blocks.size() &&
+            !pick_bounds_hold(live.pick_blocks[index / block_vertices], picture_x, picture_y)) {
+            index += block_vertices - 3;
+            continue;
+        }
         std::array<float, 3> weights{};
         float depth{};
         if (!renderer_live_camera::triangle_hit(
                 {live.projected[index], live.projected[index + 1], live.projected[index + 2]},
-                x - match_layout_.left,
-                y - match_layout_.top,
+                picture_x,
+                picture_y,
                 weights,
                 depth
             ) ||

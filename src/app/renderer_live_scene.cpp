@@ -4240,6 +4240,7 @@ void find_card_slot(
 /// @param image it draws from its picture
 /// @param lights the nanolathe particles that light units' vertices
 /// @param[in,out] corners room for a polygon's corners
+/// @param[in,out] points room for its corners through the camera
 /// @return false where the card cannot draw it, having added nothing
 bool draw_on_card(
     const Inputs& in,
@@ -4251,7 +4252,8 @@ bool draw_on_card(
     float brightness,
     bool image,
     std::span<const std::array<float, 3>> lights,
-    std::vector<CardCorner>& corners
+    std::vector<CardCorner>& corners,
+    std::vector<std::array<float, 3>>& points
 ) {
     auto& cards = pass.list.cards;
     const auto& reference = draw.model;
@@ -4352,6 +4354,7 @@ bool draw_on_card(
         -std::numeric_limits<float>::infinity(),
         -std::numeric_limits<float>::infinity()
     };
+    bool bounded = true;
     for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
         if ((pieces[piece].flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) ==
             0)
@@ -4381,6 +4384,7 @@ bool draw_on_card(
             count_on_card(pass, count);
             for (uint32_t corner = 0; corner < count; ++corner)
                 cards.indices.push_back(named | (polygon.record + corner));
+            points.clear();
             for (const auto& corner : corners) {
                 const float across = camera[0] * corner.x + camera[1] * corner.height +
                                      camera[2] * corner.z + camera[3];
@@ -4392,7 +4396,12 @@ bool draw_on_card(
                     std::max(bounds[2], across),
                     std::max(bounds[3], down)
                 };
+                points.push_back({across, down, 0});
             }
+            for (std::size_t fan = 1; bounded && fan + 1 < points.size(); ++fan)
+                bounded = renderer_live_camera::triangle_hit_bounded(
+                    {points[0], points[fan], points[fan + 1]}
+                );
         }
     }
     const auto index_count = static_cast<uint32_t>(cards.indices.size() - first_index);
@@ -4410,6 +4419,7 @@ bool draw_on_card(
         drawn.top = bounds[1];
         drawn.right = bounds[2];
         drawn.bottom = bounds[3];
+        drawn.bounded = bounded;
     }
     return true;
 }
@@ -4427,6 +4437,7 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
     std::unordered_map<const Sprite*, AtlasRect> textures;
     ModelMaterials materials{colors, textures};
     std::vector<CardCorner> card_corners;
+    std::vector<std::array<float, 3>> card_points;
     std::unordered_map<const Sprite*, AtlasRect> bright_textures;
     PaletteBytes bright_palette = *in.palette;
     for (auto& channel : bright_palette)
@@ -4601,7 +4612,8 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
                                brightness,
                                image,
                                nanolathe_lights,
-                               card_corners
+                               card_corners,
+                               card_points
                            )) {
                 ++list.drawn;
                 continue;

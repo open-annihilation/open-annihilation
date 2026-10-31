@@ -238,6 +238,18 @@ inline void narrow_row(
     narrow_row(prepare_narrowing(triangle), screen_y, centre, first, last);
 }
 
+/// How far past a triangle's bounds triangle_hit accepts a point, as a share
+/// of the triangle's width across and of its height down.
+inline constexpr double triangle_bounds_tolerance = 4e-6;
+
+/// Whether triangle_hit accepts no point past a triangle's bounds widened by
+/// triangle_bounds_tolerance: false for a sliver, whose own query
+/// triangle_hit takes even there, and for a triangle not wholly finite.
+/// @param triangle three screen x, screen y, depth vertices
+/// @return true where the widened bounds hold every point triangle_hit accepts
+[[nodiscard]] bool
+triangle_hit_bounded(const std::array<std::array<float, 3>, 3>& triangle) noexcept;
+
 /// Intersect a screen point with a projected triangle and interpolate its depth.
 /// @param triangle three screen x, screen y, depth vertices
 /// @param screen_x pointer column in pixels
