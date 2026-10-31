@@ -20,6 +20,7 @@
 #include "oa/core/weapon_def.h"
 #include "oa/sim/messages.hpp"
 #include "oa/ui/hud/health_bar.hpp"
+#include "oa/platform/job_pool.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -29,10 +30,12 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -434,6 +437,44 @@ int Runtime::check_live_renderer() {
                 sparse_visibility[pixel] == 0 &&
                     sparse_depth[pixel] == -std::numeric_limits<float>::infinity(),
                 "sparse visibility painted an unrequested pixel"
+            );
+        }
+    }
+
+    // The visibility and depth come out byte for byte the same with any
+    // number of draw threads, and with none, for every kind of request.
+    {
+        std::vector<uint8_t> terrain_visibility;
+        std::vector<float> terrain_depth;
+        live_scene_visibility(terrain_visibility, terrain_depth, true);
+        const auto same = [](const std::vector<uint8_t>& visibility,
+                             const std::vector<float>& depth,
+                             const std::vector<uint8_t>& expected_visibility,
+                             const std::vector<float>& expected_depth) {
+            return visibility == expected_visibility && depth.size() == expected_depth.size() &&
+                   std::memcmp(depth.data(), expected_depth.data(), depth.size() * sizeof(float)) ==
+                       0;
+        };
+        constexpr std::array<uint32_t, 6> thread_counts{0, 1, 2, 3, 5, 8};
+        for (const uint32_t threads : thread_counts) {
+            std::unique_ptr<oa::platform::job_pool::Pool> pool;
+            if (threads != 0)
+                pool = std::make_unique<oa::platform::job_pool::Pool>(threads);
+            std::swap(draw_pool_, pool);
+            std::vector<uint8_t> visibility;
+            std::vector<float> depth;
+            live_scene_visibility(visibility, depth);
+            const bool full_same = same(visibility, depth, full_visibility, full_depth);
+            live_scene_visibility(visibility, depth, false, row_left, row_right);
+            const bool clipped_same = same(visibility, depth, clipped_visibility, clipped_depth);
+            live_scene_visibility(visibility, depth, false, row_left, row_right, requested_pixels);
+            const bool sparse_same = same(visibility, depth, sparse_visibility, sparse_depth);
+            live_scene_visibility(visibility, depth, true);
+            const bool terrain_same = same(visibility, depth, terrain_visibility, terrain_depth);
+            std::swap(draw_pool_, pool);
+            require(
+                full_same && clipped_same && sparse_same && terrain_same,
+                "the scene's visibility changed with the number of draw threads"
             );
         }
     }
