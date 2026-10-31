@@ -753,6 +753,38 @@ MapListVerdict map_list_verdict(
     return verdict;
 }
 
+MapListVerdict catalogue_map_verdict(
+    std::span<const std::string> supported_games,
+    std::span<const std::string> required_expansions,
+    std::span<const std::pair<std::string, bool>> compatible,
+    std::string_view base_game,
+    std::span<const std::string> expansions_on,
+    std::string_view mod_key,
+    bool unkeyed
+) {
+    // The flags are views of the rows, which outlive the verdict's reading.
+    std::vector<CompatibleFlag> flags;
+    ListedFit listed = ListedFit::unchecked;
+    if (!unkeyed) {
+        flags.reserve(compatible.size());
+        for (const auto& [key, fits] : compatible)
+            flags.push_back(CompatibleFlag{key, fits});
+        if (const std::optional<bool> answer =
+                compatible_answer(flags, base_game, expansions_on, mod_key))
+            listed = *answer ? ListedFit::fits : ListedFit::unfit;
+    }
+    return map_list_verdict(
+        supported_games,
+        required_expansions,
+        base_game,
+        expansions_on,
+        unkeyed ? std::string_view{} : mod_key,
+        listed,
+        flags,
+        {}
+    );
+}
+
 std::string map_list_row_reason(const MapListVerdict& verdict) {
     if (verdict.block == MapListBlock::other_game && verdict.demo)
         return "for the TA demo";

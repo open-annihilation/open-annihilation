@@ -39,6 +39,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -807,6 +808,74 @@ void test_list_rules() {
     );
 }
 
+/// A map a catalogue lists, judged before its pack is fetched, as GET MAP
+/// asks: a pack that needs Core Contingency, published with rows for the
+/// base game alone and with Core Contingency, as 10 to 1 (fixed) is.
+void test_catalogue_verdict() {
+    const std::vector<std::string> totala{"totala"};
+    const std::vector<std::string> contingency{"core-contingency"};
+    const std::vector<std::pair<std::string, bool>> rows{
+        {"totala", false},
+        {"totala+core-contingency", true},
+        {"totala+core-contingency+ridge@28", false},
+        {"ta-3.1c", true},
+    };
+    const std::vector<std::string> all_on{
+        "campaign", "core-contingency", "battle-tactics", "music"
+    };
+
+    // It fits: Core Contingency is on.
+    const oa::app::MapListVerdict fits =
+        oa::app::catalogue_map_verdict(totala, contingency, rows, "totala", all_on, "", false);
+    OA_CHECK(fits.block == oa::app::MapListBlock::playable);
+
+    // Core Contingency is off, or not there at all: the map list's sentence
+    // tells the player to turn it on.
+    const std::vector<std::string> campaign_only{"campaign"};
+    const oa::app::MapListVerdict off = oa::app::catalogue_map_verdict(
+        totala, contingency, rows, "totala", campaign_only, "", false
+    );
+    OA_CHECK(off.block == oa::app::MapListBlock::needs_expansion);
+    OA_CHECK(
+        oa::app::map_list_explanation(off, "No Mod") ==
+        "Needs Core Contingency, which is off. Turn it on in the Library."
+    );
+    // A required expansion is told even with no rows.
+    const oa::app::MapListVerdict off_unlisted =
+        oa::app::catalogue_map_verdict(totala, contingency, {}, "totala", {}, "", false);
+    OA_CHECK(off_unlisted.block == oa::app::MapListBlock::needs_expansion);
+
+    // The rows say it does not fit the mod played.
+    const oa::app::MapListVerdict mod_miss = oa::app::catalogue_map_verdict(
+        totala, contingency, rows, "totala", all_on, "ridge@28", false
+    );
+    OA_CHECK(mod_miss.block == oa::app::MapListBlock::unfit && mod_miss.final_note);
+    OA_CHECK(
+        oa::app::map_list_explanation(mod_miss, "Ridge") ==
+        "Doesn't fit Ridge: Its catalogue says it does not fit Ridge."
+    );
+    // A base game the pack does not support.
+    const oa::app::MapListVerdict demo =
+        oa::app::catalogue_map_verdict(totala, {}, rows, "totala-demo", {}, "", false);
+    OA_CHECK(demo.block == oa::app::MapListBlock::other_game);
+    OA_CHECK(
+        oa::app::map_list_explanation(demo, "No Mod") == "This map is for Total Annihilation."
+    );
+
+    // No fit data: no rows, rows that name neither this game nor its mod, or
+    // a mod with no catalogue key. The pack is fetched and its files decide.
+    const oa::app::MapListVerdict no_rows =
+        oa::app::catalogue_map_verdict(totala, {}, {}, "totala", all_on, "", false);
+    OA_CHECK(no_rows.block == oa::app::MapListBlock::ask_files);
+    const std::vector<std::pair<std::string, bool>> other_mod_only{{"totala+ridge@28", false}};
+    const oa::app::MapListVerdict unnamed =
+        oa::app::catalogue_map_verdict(totala, {}, other_mod_only, "totala", {}, "dunes@3", false);
+    OA_CHECK(unnamed.block == oa::app::MapListBlock::ask_files);
+    const oa::app::MapListVerdict unkeyed =
+        oa::app::catalogue_map_verdict(totala, contingency, rows, "totala", all_on, "", true);
+    OA_CHECK(unkeyed.block == oa::app::MapListBlock::ask_files);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -814,6 +883,7 @@ int main(int argc, char** argv) {
         test_base_fit();
     else {
         test_list_rules();
+        test_catalogue_verdict();
         const Scratch scratch;
         test_index(scratch);
         test_fit_folders(scratch);

@@ -172,10 +172,15 @@ GetMap get_map_state(
             return GetMap::downloading;
         if (!offer.listed || offer.sha256 != host->sha256)
             return GetMap::gone;
+        // The catalogue says this game cannot play the host's map: the pack
+        // is not fetched only for the installer to refuse it.
+        if (!offer.unplayable.empty())
+            return GetMap::unplayable;
         return GetMap::get;
     }
-    return offers_host_release(*host, offer) ? GetMap::other_release_get
-                                             : GetMap::other_release_gone;
+    if (!offers_host_release(*host, offer))
+        return GetMap::other_release_gone;
+    return offer.unplayable.empty() ? GetMap::other_release_get : GetMap::unplayable;
 }
 
 std::string get_map_text(
@@ -209,6 +214,8 @@ std::string get_map_text(
     }
     case GetMap::gone:
         return filled(kGoneText, {{"pack", pack}, {"registry", registry}});
+    case GetMap::unplayable:
+        return offer.unplayable;
     case GetMap::downloads_off:
         return filled(kDownloadsOffText, {{"registry", registry}});
     case GetMap::downloading: {

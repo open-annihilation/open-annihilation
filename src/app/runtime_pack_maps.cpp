@@ -320,6 +320,22 @@ std::string ready_sentence(std::string_view reason) {
     return {};
 }
 
+/// What choosing a refused map says: a ready sentence, translated, or a fit
+/// detail in "Doesn't fit {game}: {reason}".
+///
+/// @param reason the stored reason
+/// @param game the game being played, as the player sees it
+/// @return the words
+std::string refused_words(std::string_view reason, std::string_view game) {
+    std::string ready = ready_sentence(reason);
+    if (!ready.empty())
+        return ready;
+    return filled(
+        std::string(oa::data::languages::interface_text(kRefusedText)),
+        {{"game", game}, {"reason", reason}}
+    );
+}
+
 /// A decision stored without naming the runtime's private type.
 struct StoredDecision {
     std::string row{};
@@ -739,17 +755,34 @@ void Runtime::show_refused_map(std::string_view name, std::string_view reason) {
     );
     // A map whose files could not be loaded says so in the game's own words.
     const std::string_view terrain = entry::message_text(entry::Message::missing_terrain);
-    const std::string ready = reason == terrain ? translate_ui(terrain) : ready_sentence(reason);
     set_modal_text(
-        "DESCRIPTION",
-        ready.empty() ? filled(
-                            std::string(oa::data::languages::interface_text(kRefusedText)),
-                            {{"game", game}, {"reason", reason}}
-                        )
-                      : ready,
-        0
+        "DESCRIPTION", reason == terrain ? translate_ui(terrain) : refused_words(reason, game), 0
     );
     invalidate_menu();
+}
+
+std::string Runtime::catalogue_map_refusal(
+    std::span<const std::string> supported_games,
+    std::span<const std::string> required_expansions,
+    std::span<const std::pair<std::string, bool>> compatible
+) const {
+    const PlayedMapTarget target = played_map_target();
+    const MapListVerdict verdict = catalogue_map_verdict(
+        supported_games,
+        required_expansions,
+        compatible,
+        target.base_game,
+        target.expansions,
+        target.mod_key,
+        target.unkeyed
+    );
+    if (verdict.block == MapListBlock::playable || verdict.block == MapListBlock::ask_files)
+        return {};
+    const std::string game = game_label(
+        options_.mod_profile && !options_.mod_profile->name.empty() ? options_.mod_profile->name
+                                                                    : std::string_view{}
+    );
+    return refused_words(store_decision(verdict, game).refusal, game);
 }
 
 Runtime::PlayedMapTarget Runtime::played_map_target() const {

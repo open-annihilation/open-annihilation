@@ -5705,9 +5705,22 @@ effect and their merged catalogue, and the download queue:
 | other_release_get | "You have release {mine} of {pack}; the host plays release {theirs}." | GET MAP |
 | other_release_gone | the same line | none |
 | gone | "The host's release of {pack} is no longer offered by {registry}." | none |
+| unplayable | the map list's sentence for a greyed map, such as "Needs Core Contingency, which is off. Turn it on in the Library." | none |
 | downloads_off | "Downloads from {registry} are off (Settings › Downloads)." | none |
 | downloading | "Downloading {pack} · {done} of {size}" | the download's bar |
 | failed | "Couldn't get {pack}: {reason}" | GET MAP, to try again |
+
+Before it offers the button, GET MAP asks the release's catalogue entry
+whether this game can play the host's map (`catalogue_map_verdict`, read
+as the map list reads an installed pack: the base games it supports, the
+expansions it requires and the map's compatible rows, for the base game,
+the expansions that are on and the mod played). When the entry says no,
+the line is the sentence choosing that greyed map in the list would show
+(`Runtime::catalogue_map_refusal`), unplayable, and nothing is fetched: a
+joiner whose copy of Core Contingency is off, or who has none, is told it
+is needed rather than downloading a pack the installer would refuse. When
+the rows do not answer for this game, GET MAP fetches the pack as before
+and the installer's check decides.
 
 The words come from the interface's catalogue. The line stands under the
 map name's box and the button, or the bar in its place, above it at its

@@ -6776,6 +6776,23 @@ class Runtime final : public menu::Host,
     /// @return the decision
     [[nodiscard]] PackMapDecision decide_pack_map(const PackMap& map);
 
+    /// Says why a map a catalogue lists cannot be played in the game being
+    /// played, before its pack is fetched (catalogue_map_verdict), in the
+    /// words choosing a greyed map in the list shows (show_refused_map):
+    /// "Needs Core Contingency, which is off. Turn it on in the Library.",
+    /// for one. Reads no file and starts nothing.
+    ///
+    /// @param supported_games base games the pack supports, as its catalogue entry names them
+    /// @param required_expansions expansions its catalogue entry says must be on
+    /// @param compatible the map's compatible rows; empty when the entry gives none
+    /// @return the sentence, translated; empty when the map can be played, or
+    ///         when the catalogue does not say and the pack's files decide
+    [[nodiscard]] std::string catalogue_map_refusal(
+        std::span<const std::string> supported_games,
+        std::span<const std::string> required_expansions,
+        std::span<const std::pair<std::string, bool>> compatible
+    ) const;
+
     /// Returns the short reason a listed pack map is greyed with.
     ///
     /// The words are English: "for the TA demo", "for {name}", "needs {name}"

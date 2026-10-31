@@ -7,10 +7,14 @@
 // OaLayer::tick). When the host's presence record names the map pack of the
 // map it plays and this machine lacks that release, it draws one line by the
 // battle room's map name saying what GET MAP fetches, and the button, or the
-// download's bar while it downloads. The press offers to add the pack's
-// registry first (the Add registry window, which adds only on the player's
-// ADD), then queues the host's release, which the queue checks against the
-// catalogue's SHA-256, the record's, and the installer puts in place. The
+// download's bar while it downloads. When the release's catalogue entry
+// says this game cannot play the map (its base games, required expansions
+// and compatible rows, read as the map list reads them for an installed
+// pack), the line says why in the map list's words and nothing is fetched.
+// The press offers to add the pack's registry first (the Add registry
+// window, which adds only on the player's ADD), then queues the host's
+// release, which the queue checks against the catalogue's SHA-256, the
+// record's, and the installer puts in place. The
 // pack's maps are not mounted until the install ends; the battle room then
 // finds the map itself. Nothing readies the player. In a run nobody watches
 // the installer takes a catalogue map pack while GET MAP shows
@@ -27,6 +31,7 @@
 #include "oa/base/sha256.hpp"
 #include "oa/data/catalogue/catalogue.hpp"
 #include "oa/data/languages/interface_text.hpp"
+#include "oa/data/map_pack/map_name.hpp"
 #include "oa/data/registry/descriptor.hpp"
 #include "oa/data/registry/trust.hpp"
 #include "oa/ui/frontend_multiplayer/get_map.hpp"
@@ -50,6 +55,7 @@
 #include <memory>
 #include <optional>
 #include <ostream>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -189,6 +195,25 @@ listed_pack(const content::Snapshot& snapshot, const mp::HostPack& host) {
             same_key(entry.package->id, host.id))
             return entry.package;
     return nullptr;
+}
+
+/// Returns the map of a catalogue entry that the host plays: the one of the
+/// host's map name, else the one of its stem.
+///
+/// @param package the entry
+/// @param host_map the host's map name
+/// @return the map; null when the entry names neither
+const oa::data::catalogue::MapEntry*
+listed_map(const oa::data::catalogue::Package& package, std::string_view host_map) {
+    const auto split = oa::data::map_pack::split_pack_map_name(host_map);
+    const oa::data::catalogue::MapEntry* by_stem = nullptr;
+    for (const oa::data::catalogue::MapEntry& map : package.maps) {
+        if (map.map == host_map)
+            return &map;
+        if (by_stem == nullptr && split && map.stem == split->stem)
+            by_stem = &map;
+    }
+    return by_stem;
 }
 
 /// A pack's id and release, which GET MAP's state is kept for.
@@ -525,7 +550,7 @@ struct Runtime::GetMapScreen final : LayerScreen {
         uint64_t done = 0;
         bool downloading = false;
         bool refreshing = false;
-        read_offer(offer, refreshing);
+        read_offer(room.host_map, offer, refreshing);
         // A download of the pack that has not ended: GET MAP's, or the Library's.
         for (const content::DownloadView& item : items) {
             if (ended(item.state) || item.target.registry != host_.registry_id ||
@@ -569,11 +594,16 @@ struct Runtime::GetMapScreen final : LayerScreen {
         return lay_out_shown(room, stage, local, offer, done, fonts);
     }
 
-    /// Reads what the host pack's registry offers.
+    /// Reads what the host pack's registry offers, and whether its catalogue
+    /// says this game can play the host's map, as the map list would say it
+    /// of the installed pack (Runtime::catalogue_map_refusal). That answer
+    /// is kept for the map, the release and the catalogue it was read from:
+    /// the game played does not change in the battle room.
     ///
+    /// @param host_map the host's map name
     /// @param[out] offer the offer
     /// @param[out] refreshing the registry's catalogue is being fetched
-    void read_offer(mp::Offer& offer, bool& refreshing) {
+    void read_offer(std::string_view host_map, mp::Offer& offer, bool& refreshing) {
         content::Service& service = runtime_.content_service();
         const std::shared_ptr<const content::Snapshot> snapshot = service.snapshot();
         if (snapshot == nullptr)
@@ -598,6 +628,19 @@ struct Runtime::GetMapScreen final : LayerScreen {
             offer.version = listed->version;
             offer.release = listed->release;
             offer.bytes = listed->size;
+            const std::string read_for = pack_key(host_) + "\n" + std::string(host_map) + "\n" +
+                                         std::to_string(snapshot->generation);
+            if (read_for != unplayable_for_) {
+                const oa::data::catalogue::MapEntry* map = listed_map(*listed, host_map);
+                unplayable_ = runtime_.catalogue_map_refusal(
+                    listed->supported_games,
+                    listed->required_expansions,
+                    map != nullptr ? std::span<const std::pair<std::string, bool>>(map->compatible)
+                                   : std::span<const std::pair<std::string, bool>>{}
+                );
+                unplayable_for_ = read_for;
+            }
+            offer.unplayable = unplayable_;
         }
     }
 
@@ -626,6 +669,7 @@ struct Runtime::GetMapScreen final : LayerScreen {
         next.line = mp::get_map_text(stage, host_, local, offer, done, why);
         const bool warning = stage == mp::GetMap::other_release_get ||
                              stage == mp::GetMap::other_release_gone || stage == mp::GetMap::gone ||
+                             stage == mp::GetMap::unplayable ||
                              stage == mp::GetMap::downloads_off || stage == mp::GetMap::failed;
         next.colour = warning ? kit::colour::lock : kit::colour::hint;
         next.button_shown = mp::get_map_button_shown(stage);
@@ -761,6 +805,7 @@ struct Runtime::GetMapScreen final : LayerScreen {
         case mp::GetMap::none:
         case mp::GetMap::other_release_gone:
         case mp::GetMap::gone:
+        case mp::GetMap::unplayable:
         case mp::GetMap::downloads_off:
         case mp::GetMap::downloading:
             break;
@@ -865,7 +910,9 @@ struct Runtime::GetMapScreen final : LayerScreen {
     std::string item_for_{};         ///< the pack and release it fetches
     std::string failure_{};          ///< why the last fetch failed, in the language shown
     std::string failure_for_{};      ///< the pack and release it failed for
-    uint64_t revision_{};            ///< counts the changes to what it shows
+    std::string unplayable_{};     ///< why the catalogue says this game cannot play the host's map
+    std::string unplayable_for_{}; ///< the release, map and catalogue that answer was read for
+    uint64_t revision_{};          ///< counts the changes to what it shows
 };
 
 void Runtime::keep_get_map_screen() {

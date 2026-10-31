@@ -306,6 +306,32 @@ struct MapListVerdict {
     FileFit files
 );
 
+/// Decides whether a map a catalogue lists can be played in the game being
+/// played, before its pack is fetched, as map_list_verdict decides an
+/// installed one: the pack must support the base game, every required
+/// expansion must be on, and the map's compatible rows answer for the game
+/// as compatible_answer reads them. A mod with no catalogue key reads no
+/// rows. When the rows do not answer, the verdict is ask_files: the pack's
+/// files decide once it is fetched.
+///
+/// @param supported_games base games the pack supports; empty means Total Annihilation
+/// @param required_expansions expansions that must be on
+/// @param compatible the map's compatible rows; empty when the catalogue gives none
+/// @param base_game the base game being played; empty means Total Annihilation
+/// @param expansions_on the expansions that are on
+/// @param mod_key `<id>@<release>` of the mod being played; empty when none is
+/// @param unkeyed a mod with no catalogue key is played, so the rows are not read
+/// @return the verdict
+[[nodiscard]] MapListVerdict catalogue_map_verdict(
+    std::span<const std::string> supported_games,
+    std::span<const std::string> required_expansions,
+    std::span<const std::pair<std::string, bool>> compatible,
+    std::string_view base_game,
+    std::span<const std::string> expansions_on,
+    std::string_view mod_key,
+    bool unkeyed
+);
+
 /// The short reason a greyed row shows, in English.
 ///
 /// A playable map has none. The words are "for the TA demo", "for {name}",

@@ -215,6 +215,67 @@ void every_state() {
     );
 }
 
+/// The catalogue's word on whether this game can play the host's map.
+void the_catalogue_decides_what_can_be_fetched() {
+    const std::optional<mp::HostPack> host = mp::host_pack_of(record_pack());
+    const mp::LocalPack missing{};
+    // It fits, or the catalogue does not say: fetched as before, and the
+    // installer decides.
+    const mp::Offer fits = offering();
+    expect(
+        state_of(host, missing, fits) == GetMap::get,
+        "a release the catalogue lets this game play, or says nothing of: get"
+    );
+    expect(
+        state_of(host, other_release(), fits) == GetMap::other_release_get,
+        "another release installed, the host's playable here: other_release_get"
+    );
+
+    mp::Offer needs = offering();
+    needs.unplayable = "Needs Core Contingency, which is off. Turn it on in the Library.";
+    expect(
+        state_of(host, missing, needs) == GetMap::unplayable,
+        "a release this game cannot play: unplayable, nothing to fetch"
+    );
+    expect(
+        state_of(host, other_release(), needs) == GetMap::unplayable,
+        "another release installed, the host's not playable here: unplayable"
+    );
+    expect(
+        state_of(host, missing, needs, kPackMap, true) == GetMap::downloading,
+        "a download under way still shows its bar"
+    );
+    expect(
+        state_of(host, missing, needs, kPackMap, false, true) == GetMap::failed,
+        "a try that failed still says why"
+    );
+    mp::LocalPack same = other_release();
+    same.sha256 = kHostSha;
+    expect(state_of(host, same, needs) == GetMap::none, "the host's release installed: none");
+    mp::Offer gone = needs;
+    gone.sha256 = kOtherSha;
+    expect(
+        state_of(host, missing, gone) == GetMap::gone,
+        "a release no longer offered is gone, whatever its catalogue says"
+    );
+    expect(
+        state_of(host, other_release(), gone) == GetMap::other_release_gone,
+        "another release installed, the host's no longer offered: other_release_gone"
+    );
+    mp::Offer off = needs;
+    off.downloads_on = false;
+    expect(
+        state_of(host, missing, off) == GetMap::downloads_off,
+        "downloads off come first: downloads_off"
+    );
+
+    expect(
+        mp::get_map_text(GetMap::unplayable, *host, missing, needs, 0, {}) == needs.unplayable,
+        "unplayable: the map list's own sentence"
+    );
+    expect(!mp::get_map_button_shown(GetMap::unplayable), "unplayable shows no button");
+}
+
 void every_line() {
     const mp::HostPack host = mp::host_pack_of(record_pack());
     const mp::LocalPack missing{};
@@ -300,6 +361,7 @@ void every_line() {
             mp::get_map_button_shown(GetMap::failed) && !mp::get_map_button_shown(GetMap::none) &&
             !mp::get_map_button_shown(GetMap::other_release_gone) &&
             !mp::get_map_button_shown(GetMap::gone) &&
+            !mp::get_map_button_shown(GetMap::unplayable) &&
             !mp::get_map_button_shown(GetMap::downloads_off) &&
             !mp::get_map_button_shown(GetMap::downloading),
         "the button shows for get, add_registry_first, other_release_get and failed only"
@@ -821,6 +883,7 @@ int main(int argc, char** argv) {
     if (!oa::test::game_data_requested(argc, argv)) {
         the_host_pack_from_its_record();
         every_state();
+        the_catalogue_decides_what_can_be_fetched();
         every_line();
         a_point_inside_the_map_name_is_the_map_names();
     } else {

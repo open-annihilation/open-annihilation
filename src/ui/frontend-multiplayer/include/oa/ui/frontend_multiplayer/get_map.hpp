@@ -59,6 +59,12 @@ struct Offer {
     std::string registry_name; ///< the registry's name, as its descriptor gives it
     int64_t release{};         ///< the listed release
     uint64_t bytes{};          ///< the listed release's size, in bytes
+    /// Why the listed release's map cannot be played in this machine's game,
+    /// as its catalogue entry says (its base games, required expansions and
+    /// compatible rows), in the words the map list uses for a greyed map, in
+    /// the language shown. Empty when it can be played, and when the
+    /// catalogue does not say, so the pack's files decide once it is fetched.
+    std::string unplayable;
 };
 
 /// What GET MAP shows a joiner.
@@ -69,9 +75,10 @@ enum class GetMap : uint8_t {
     other_release_get,  ///< the button: another release is installed; the host's can be fetched
     other_release_gone, ///< another release is installed; the host's is no longer offered
     gone,               ///< the host's release is not offered by a registry the player can use
-    downloads_off,      ///< the registry is off, or downloads from it are
-    downloading,        ///< the bar: the host's release is on its way
-    failed,             ///< the button: the last try failed, and says why
+    unplayable,    ///< the host's release is offered; its catalogue says this game cannot play it
+    downloads_off, ///< the registry is off, or downloads from it are
+    downloading,   ///< the bar: the host's release is on its way
+    failed,        ///< the button: the last try failed, and says why
 };
 
 /// Decides what GET MAP shows a joiner.
@@ -83,9 +90,11 @@ enum class GetMap : uint8_t {
 /// record has its address (gone without one); downloads_off when the
 /// registry or its downloads are off; downloading while a registry has no
 /// catalogue read yet, as one just added; gone when its catalogue does not
-/// list the id at the host's SHA-256; else get. For another release
-/// installed: other_release_get when the registry offers the host's
-/// SHA-256, else other_release_gone.
+/// list the id at the host's SHA-256; unplayable when the offer says why
+/// this game cannot play it; else get. For another release installed:
+/// unplayable when the registry offers the host's SHA-256 and says why this
+/// game cannot play it, other_release_get when it offers it, else
+/// other_release_gone.
 ///
 /// @param host_map the host's map name, as its setup block carries it
 /// @param host the host's map pack from its presence record; none without one
@@ -108,7 +117,7 @@ enum class GetMap : uint8_t {
 /// The pack is named as the catalogue names it, else as the record does,
 /// else by its id; the registry by its name, else by its id. The words come
 /// from the interface's catalogue; a field left empty drops with the space
-/// before it.
+/// before it. Unplayable is the offer's own sentence, as it is.
 ///
 /// @param state the state
 /// @param host the host's map pack
