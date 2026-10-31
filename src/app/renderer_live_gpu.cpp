@@ -4,6 +4,7 @@
 #include "bench_timers.hpp"
 #include "renderer_live_lights.hpp"
 #include "renderer_water_appearance.hpp"
+#include "oa/present/game_text.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -38,6 +39,8 @@ bool valid_dimensions(uint32_t width, uint32_t height) {
 /// Release all resources, including an unsubmitted command buffer after an error.
 struct Resources {
     SDL_GPUDevice* device{};
+    /// The device is Context::shared_device, which another owns.
+    bool device_shared{};
     SDL_GPUShader* vertex_shader{};
     SDL_GPUShader* fragment_shader{};
     SDL_GPUTexture* atlas{};
@@ -102,7 +105,8 @@ struct Resources {
             SDL_ReleaseGPUTexture(device, colour);
         if (depth)
             SDL_ReleaseGPUTexture(device, depth);
-        SDL_DestroyGPUDevice(device);
+        if (!device_shared)
+            SDL_DestroyGPUDevice(device);
     }
 };
 
@@ -519,6 +523,158 @@ bool draw_lights(
     return true;
 }
 
+/// The overlay's texels: the canvas's colours as ARGB8888 words, the
+/// operations' and the lists' words, and the palette and the gamma.
+constexpr SDL_GPUTextureFormat overlay_canvas_format = SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM;
+constexpr SDL_GPUTextureFormat overlay_operations_format = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_UINT;
+constexpr SDL_GPUTextureFormat overlay_words_format = SDL_GPU_TEXTUREFORMAT_R32_UINT;
+/// The palette's and the gamma's texels a row, and their rows.
+constexpr uint32_t overlay_colour_entries = 256;
+constexpr uint32_t overlay_colour_rows = 2;
+
+/// The card's part of the overlay (renderer_live_overlay.hpp): the canvas,
+/// the operations and their tiles' lists, the palette and the gamma, and the
+/// picture with the overlay added, which the window presents.
+struct OverlayResources {
+    SDL_GPUDevice* device{};        ///< the device they are made on
+    SDL_GPUShader* vertex_shader{}; ///< the resolve's triangle
+    SDL_GPUShader* fragment_shader{};
+    SDL_GPUGraphicsPipeline* pipeline{};
+    SDL_GPUTexture* canvas{};
+    SDL_GPUTexture* operations{};
+    SDL_GPUTexture* lists{};
+    SDL_GPUTexture* colours{};
+    SDL_GPUTexture* composed{};
+    SDL_GPUTransferBuffer* upload{};
+    uint32_t upload_capacity{};
+    uint32_t width{}; ///< the canvas's and the composed picture's size
+    uint32_t height{};
+    uint32_t operation_rows{}; ///< rows of the operations' table
+    uint32_t list_rows{};      ///< rows of the lists' table
+    /// For each band of the canvas, whether the texture holds an opaque
+    /// pixel there from an earlier overlay; empty until the whole canvas has
+    /// been sent once.
+    std::vector<uint8_t> held_bands{};
+    /// Whether the card has the formats the overlay takes, asked once.
+    bool formats_known{};
+    bool formats_supported{};
+
+    OverlayResources() = default;
+    OverlayResources(const OverlayResources&) = delete;
+    OverlayResources& operator=(const OverlayResources&) = delete;
+
+    /// Release the handles before the device they were made on.
+    ~OverlayResources() {
+        if (!device)
+            return;
+        if (pipeline)
+            SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
+        for (SDL_GPUShader* made : {vertex_shader, fragment_shader})
+            if (made)
+                SDL_ReleaseGPUShader(device, made);
+        for (SDL_GPUTexture* made : {canvas, operations, lists, colours, composed})
+            if (made)
+                SDL_ReleaseGPUTexture(device, made);
+        if (upload)
+            SDL_ReleaseGPUTransferBuffer(device, upload);
+    }
+};
+
+/// Whether the card has the formats the overlay takes: its canvas, its
+/// tables' words to read, and the composed picture to draw and read.
+bool overlay_formats(OverlayResources& overlay, SDL_GPUDevice* device) {
+    if (!overlay.formats_known) {
+        const auto sampled = [&](SDL_GPUTextureFormat format, SDL_GPUTextureUsageFlags usage) {
+            return SDL_GPUTextureSupportsFormat(device, format, SDL_GPU_TEXTURETYPE_2D, usage);
+        };
+        overlay.formats_supported =
+            sampled(overlay_canvas_format, SDL_GPU_TEXTUREUSAGE_SAMPLER) &&
+            sampled(overlay_operations_format, SDL_GPU_TEXTUREUSAGE_SAMPLER) &&
+            sampled(overlay_words_format, SDL_GPU_TEXTUREUSAGE_SAMPLER) &&
+            sampled(
+                SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+                SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER
+            );
+        overlay.formats_known = true;
+    }
+    return overlay.formats_supported;
+}
+
+/// Makes a table texture of words afresh, where the one held has fewer rows.
+///
+/// @return false where it cannot be made
+bool ensure_table(
+    SDL_GPUDevice* device,
+    SDL_GPUTexture*& table,
+    uint32_t& rows_held,
+    SDL_GPUTextureFormat format,
+    uint32_t width,
+    uint32_t rows
+) {
+    rows = std::max<uint32_t>(rows, 1);
+    if (table && rows <= rows_held)
+        return true;
+    if (table)
+        SDL_ReleaseGPUTexture(device, table);
+    rows_held = 0;
+    table = create_texture(device, width, rows, format, SDL_GPU_TEXTUREUSAGE_SAMPLER);
+    if (!table)
+        return false;
+    rows_held = rows;
+    return true;
+}
+
+/// Downloads a texture of the picture's size into the download buffer and
+/// waits for the card to finish everything before it.
+///
+/// @param[out] output_rgba packed RGBA8 pixels
+/// @return false with the reason where a GPU call fails
+bool download_texture(
+    SDL_GPUDevice* device,
+    SDL_GPUTransferBuffer* download,
+    SDL_GPUTexture* texture,
+    uint32_t width,
+    uint32_t height,
+    std::vector<uint8_t>& output_rgba,
+    std::string& error
+) {
+    SDL_GPUCommandBuffer* command = SDL_AcquireGPUCommandBuffer(device);
+    if (!command) {
+        error = std::string("Acquire live GPU readback: ") + SDL_GetError();
+        return false;
+    }
+    SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(command);
+    if (!copy) {
+        error = std::string("Begin live GPU readback: ") + SDL_GetError();
+        SDL_CancelGPUCommandBuffer(command);
+        return false;
+    }
+    const SDL_GPUTextureRegion region{texture, 0, 0, 0, 0, 0, width, height, 1};
+    const SDL_GPUTextureTransferInfo destination{download, 0, width, height};
+    SDL_DownloadFromGPUTexture(copy, &region, &destination);
+    SDL_EndGPUCopyPass(copy);
+    SDL_GPUFence* fence = SDL_SubmitGPUCommandBufferAndAcquireFence(command);
+    if (!fence) {
+        error = std::string("Submit live GPU readback: ") + SDL_GetError();
+        return false;
+    }
+    const bool waited = SDL_WaitForGPUFences(device, true, &fence, 1);
+    SDL_ReleaseGPUFence(device, fence);
+    if (!waited) {
+        error = std::string("Complete live GPU readback: ") + SDL_GetError();
+        return false;
+    }
+    const auto* mapped =
+        static_cast<const uint8_t*>(SDL_MapGPUTransferBuffer(device, download, false));
+    if (!mapped) {
+        error = std::string("Map live GPU readback: ") + SDL_GetError();
+        return false;
+    }
+    output_rgba.assign(mapped, mapped + std::size_t{width} * height * channels);
+    SDL_UnmapGPUTransferBuffer(device, download);
+    return true;
+}
+
 } // namespace
 
 struct Context::State {
@@ -548,12 +704,54 @@ struct Context::State {
     uint32_t ground_atlas_height{};
     /// The lights' resources, released before the device in resources.
     LightResources lights;
+    /// The overlay's resources, released before the device in resources.
+    OverlayResources overlay;
+    /// The picture the last frame that succeeded drew, which it left on the
+    /// card or read back; null before one.
+    SDL_GPUTexture* picture{};
 };
 
 Context::Context() : state(std::make_unique<State>()) {
 }
 
 Context::~Context() = default;
+
+namespace {
+
+/// Opens the context's device where it is not yet open: the shared device
+/// where there is one, else one of its own.
+///
+/// @return false with the reason where SDL makes none
+bool open_device(Context& context, std::string& error) {
+    auto& resources = context.state->resources;
+    if (resources.device)
+        return true;
+    if (context.device_unavailable) {
+        error = "Live GPU unavailable on this system";
+        return false;
+    }
+    if (context.shared_device) {
+        resources.device = context.shared_device;
+        resources.device_shared = true;
+        return true;
+    }
+    // SDL picks the graphics interface: Metal on Apple systems, Vulkan
+    // elsewhere, or SDL_GPU_DRIVER's.
+    resources.device = SDL_CreateGPUDevice(shader_formats, false, nullptr);
+    if (!resources.device) {
+        error = std::string("Live GPU unavailable: ") + SDL_GetError();
+        context.device_unavailable = true;
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
+SDL_GPUDevice* device(Context& context) {
+    std::string error;
+    return open_device(context, error) ? context.state->resources.device : nullptr;
+}
 
 Result render(
     Context& context,
@@ -576,6 +774,8 @@ Result render(
 ) {
     output_rgba.clear();
     error.clear();
+    context.kept_on_card = false;
+    context.state->picture = nullptr;
     if (!valid_dimensions(texture_width, texture_height) ||
         !valid_dimensions(output_width, output_height) || vertices.empty() ||
         vertices.size() > max_vertices || vertices.size() % vertices_per_triangle != 0 ||
@@ -671,22 +871,10 @@ Result render(
         error = "Invalid live GPU vertex coordinates";
         return Result::failed;
     }
+    if (!open_device(context, error))
+        return Result::unavailable;
     auto& state = *context.state;
     auto& resources = state.resources;
-    if (context.device_unavailable) {
-        error = "Live GPU unavailable on this system";
-        return Result::unavailable;
-    }
-    if (!resources.device) {
-        // SDL picks the graphics interface: Metal on Apple systems, Vulkan
-        // elsewhere, or SDL_GPU_DRIVER's.
-        resources.device = SDL_CreateGPUDevice(shader_formats, false, nullptr);
-        if (!resources.device) {
-            error = std::string("Live GPU unavailable: ") + SDL_GetError();
-            context.device_unavailable = true;
-            return Result::unavailable;
-        }
-    }
     if (!state.multisample_known) {
         state.multisample_supported =
             SDL_GPUTextureSupportsSampleCount(
@@ -984,6 +1172,9 @@ Result render(
                          prepare_lights(lights_held, output_width, output_height);
     }
     const bool lit = lights_on_card && lights_held.packed.count != 0;
+    // The picture stays on the card unless its lights are the caller's to
+    // add, which takes it back.
+    const bool keep = context.keep_on_card && (lights == nullptr || lights_on_card);
     bench_timers::count_atlas_upload(
         upload_rows + frame_upload_rows, upload_rows == texture_height
     );
@@ -992,8 +1183,10 @@ Result render(
     // has changed, then the atlas rows that have, then the frame's own rows,
     // then the rectangles.
     if (upload_bytes != 0) {
+        // Cycled, since a frame left on the card may still be reading the
+        // upload of the frame before.
         auto* upload = static_cast<uint8_t*>(
-            SDL_MapGPUTransferBuffer(resources.device, resources.upload, false)
+            SDL_MapGPUTransferBuffer(resources.device, resources.upload, true)
         );
         if (!upload)
             return fail("Map live GPU upload");
@@ -1223,6 +1416,35 @@ Result render(
             lights_held, resources.command, picture, resources.sampler, output_width, output_height
         ))
         return fail("Begin live GPU lights");
+    const auto succeed = [&] {
+        state.picture = lit ? lights_held.lit : picture;
+        context.actual_supersample = supersample;
+        context.actual_multisample = samples;
+        bench_timers::note_multisample(samples);
+        context.lights_drawn = lights_on_card;
+        state.atlas_revision = atlas_revision;
+        state.atlas_uploaded = true;
+        if (ground_bytes != 0) {
+            state.ground_revision = ground->revision;
+            state.ground_vertex_count = ground_count;
+            state.ground_atlas_width = texture_width;
+            state.ground_atlas_height = texture_height;
+        }
+        return Result::success;
+    };
+    if (keep) {
+        // Submitted with nothing waited for: what presents the picture is
+        // submitted after it, and the card draws them in that order.
+        const bool submitted = SDL_SubmitGPUCommandBuffer(resources.command);
+        resources.command = nullptr;
+        if (!submitted)
+            return fail("Submit live GPU render");
+        waiting.stop();
+        if (while_drawing)
+            while_drawing();
+        context.kept_on_card = true;
+        return succeed();
+    }
     copy = SDL_BeginGPUCopyPass(resources.command);
     if (!copy)
         return fail("Begin live GPU download");
@@ -1257,19 +1479,339 @@ Result render(
     SDL_UnmapGPUTransferBuffer(resources.device, resources.download);
     SDL_ReleaseGPUFence(resources.device, resources.fence);
     resources.fence = nullptr;
-    context.actual_supersample = supersample;
-    context.actual_multisample = samples;
-    bench_timers::note_multisample(samples);
-    context.lights_drawn = lights_on_card;
-    state.atlas_revision = atlas_revision;
-    state.atlas_uploaded = true;
-    if (ground_bytes != 0) {
-        state.ground_revision = ground->revision;
-        state.ground_vertex_count = ground_count;
-        state.ground_atlas_width = texture_width;
-        state.ground_atlas_height = texture_height;
+    return succeed();
+}
+
+Result compose_overlay(Context& context, const Overlay& overlay, std::string& error) {
+    error.clear();
+    auto& state = *context.state;
+    auto& resources = state.resources;
+    auto& held = state.overlay;
+    const uint32_t width = state.resolved_width;
+    const uint32_t height = state.resolved_height;
+    const auto* packed = overlay.operations;
+    const uint32_t band_rows = std::max<uint32_t>(overlay.band_rows, 1);
+    const uint32_t bands = (height + band_rows - 1) / band_rows;
+    if (!resources.device || !state.picture || !context.kept_on_card) {
+        error = "No live GPU picture on the card to add the overlay to";
+        return Result::failed;
     }
+    if (overlay.canvas.size() != std::size_t{width} * height * channels ||
+        overlay.opaque_bands.size() < bands || packed == nullptr ||
+        packed->tiles_across !=
+            (width + renderer_live_overlay::tile_edge - 1) / renderer_live_overlay::tile_edge ||
+        packed->tiles_down !=
+            (height + renderer_live_overlay::tile_edge - 1) / renderer_live_overlay::tile_edge ||
+        packed->operations.size() !=
+            std::size_t{packed->count} * renderer_live_overlay::texels_per_operation * 4 ||
+        packed->lists.size() <= std::size_t{packed->tiles_across} * packed->tiles_down ||
+        (!overlay.palette.empty() &&
+         overlay.palette.size() < renderer_live_overlay::palette_entry_bytes)) {
+        error = "Invalid live GPU overlay";
+        return Result::failed;
+    }
+    SDL_GPUDevice* const device = resources.device;
+    held.device = device;
+    if (!overlay_formats(held, device)) {
+        error = "The graphics card lacks a format the overlay takes";
+        return Result::failed;
+    }
+    if (!held.pipeline) {
+        held.vertex_shader = create_shader(device, true, true);
+        SDL_GPUShaderCreateInfo info{};
+        stage_code(device, info, live_overlay_fragment_spirv, live_overlay_fragment_msl);
+        info.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
+        info.num_samplers = 5;
+        info.num_uniform_buffers = 1;
+        held.fragment_shader = SDL_CreateGPUShader(device, &info);
+        if (!held.vertex_shader || !held.fragment_shader) {
+            error = std::string("Compile live GPU overlay shaders: ") + SDL_GetError();
+            return Result::failed;
+        }
+        SDL_GPUColorTargetDescription target{};
+        target.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+        SDL_GPUGraphicsPipelineCreateInfo pipeline_info{};
+        pipeline_info.vertex_shader = held.vertex_shader;
+        pipeline_info.fragment_shader = held.fragment_shader;
+        pipeline_info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        pipeline_info.target_info.color_target_descriptions = &target;
+        pipeline_info.target_info.num_color_targets = 1;
+        held.pipeline = SDL_CreateGPUGraphicsPipeline(device, &pipeline_info);
+        if (!held.pipeline) {
+            error = std::string("Create live GPU overlay pipeline: ") + SDL_GetError();
+            return Result::failed;
+        }
+    }
+    if (width != held.width || height != held.height) {
+        for (SDL_GPUTexture** made : {&held.canvas, &held.composed}) {
+            if (*made)
+                SDL_ReleaseGPUTexture(device, *made);
+            *made = nullptr;
+        }
+        held.width = held.height = 0;
+        held.held_bands.clear();
+        held.canvas = create_texture(
+            device, width, height, overlay_canvas_format, SDL_GPU_TEXTUREUSAGE_SAMPLER
+        );
+        // Drawn here and sampled by whatever presents it.
+        held.composed = create_texture(
+            device,
+            width,
+            height,
+            SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+            SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER
+        );
+        if (!held.canvas || !held.composed) {
+            error = std::string("Create live GPU overlay textures: ") + SDL_GetError();
+            return Result::failed;
+        }
+        held.width = width;
+        held.height = height;
+    }
+    namespace overlay_layout = renderer_live_overlay;
+    const uint32_t operation_rows = (packed->count + overlay_layout::operations_per_row - 1) /
+                                    overlay_layout::operations_per_row;
+    const auto list_words = static_cast<uint32_t>(packed->lists.size());
+    const uint32_t list_rows =
+        (list_words + overlay_layout::list_words_per_row - 1) / overlay_layout::list_words_per_row;
+    uint32_t colour_rows_held = held.colours ? overlay_colour_rows : 0;
+    if (!ensure_table(
+            device,
+            held.operations,
+            held.operation_rows,
+            overlay_operations_format,
+            overlay_layout::operations_per_row * overlay_layout::texels_per_operation,
+            operation_rows
+        ) ||
+        !ensure_table(
+            device,
+            held.lists,
+            held.list_rows,
+            overlay_words_format,
+            overlay_layout::list_words_per_row,
+            list_rows
+        ) ||
+        !ensure_table(
+            device,
+            held.colours,
+            colour_rows_held,
+            overlay_words_format,
+            overlay_colour_entries,
+            overlay_colour_rows
+        )) {
+        error = std::string("Create live GPU overlay tables: ") + SDL_GetError();
+        return Result::failed;
+    }
+    // The canvas's bands sent: each that holds an opaque pixel now or held
+    // one at the last overlay, so that the texture holds this canvas; every
+    // band once after the texture is made.
+    const bool whole = held.held_bands.size() != bands;
+    const auto sent = [&](uint32_t band) {
+        return whole || overlay.opaque_bands[band] != 0 || held.held_bands[band] != 0;
+    };
+    const uint32_t row_bytes = width * channels;
+    uint32_t canvas_bytes = 0;
+    for (uint32_t band = 0; band < bands; ++band)
+        if (sent(band))
+            canvas_bytes +=
+                (std::min(height, (band + 1) * band_rows) - band * band_rows) * row_bytes;
+    constexpr uint32_t word_bytes = sizeof(uint32_t);
+    const uint32_t operation_bytes = operation_rows * overlay_layout::operations_per_row *
+                                     overlay_layout::texels_per_operation * 4 * word_bytes;
+    const uint32_t list_bytes = list_rows * overlay_layout::list_words_per_row * word_bytes;
+    const uint32_t colour_bytes = overlay_colour_entries * overlay_colour_rows * word_bytes;
+    const uint32_t upload_bytes = canvas_bytes + operation_bytes + list_bytes + colour_bytes;
+    if (upload_bytes > held.upload_capacity) {
+        if (held.upload)
+            SDL_ReleaseGPUTransferBuffer(device, held.upload);
+        held.upload_capacity = 0;
+        SDL_GPUTransferBufferCreateInfo info{};
+        info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        info.size = upload_bytes;
+        held.upload = SDL_CreateGPUTransferBuffer(device, &info);
+        if (!held.upload) {
+            error = std::string("Create live GPU overlay upload: ") + SDL_GetError();
+            return Result::failed;
+        }
+        held.upload_capacity = upload_bytes;
+    }
+    // Cycled, since the card may still be reading the last overlay's.
+    auto* upload = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device, held.upload, true));
+    if (!upload) {
+        error = std::string("Map live GPU overlay upload: ") + SDL_GetError();
+        return Result::failed;
+    }
+    // The canvas's bands, then the operations, the lists, the palette and
+    // the gamma; the tables' last rows past their words are left as they are.
+    uint32_t offset = 0;
+    for (uint32_t band = 0; band < bands; ++band) {
+        if (!sent(band))
+            continue;
+        const uint32_t first = band * band_rows;
+        const uint32_t bytes = (std::min(height, first + band_rows) - first) * row_bytes;
+        std::memcpy(upload + offset, overlay.canvas.data() + std::size_t{first} * row_bytes, bytes);
+        offset += bytes;
+    }
+    std::memcpy(upload + offset, packed->operations.data(), packed->operations.size() * word_bytes);
+    offset += operation_bytes;
+    std::memcpy(upload + offset, packed->lists.data(), packed->lists.size() * word_bytes);
+    offset += list_bytes;
+    std::array<uint32_t, overlay_colour_entries * overlay_colour_rows> colours{};
+    const std::size_t entries = std::min<std::size_t>(
+        overlay.palette.size() / overlay_layout::palette_entry_bytes, overlay_colour_entries
+    );
+    for (std::size_t entry = 0; entry < entries; ++entry) {
+        const auto* at = overlay.palette.data() + entry * overlay_layout::palette_entry_bytes;
+        colours[entry] = uint32_t{at[0]} | uint32_t{at[1]} << 8 | uint32_t{at[2]} << 16;
+    }
+    for (uint32_t level = 0; level < overlay_colour_entries; ++level)
+        colours[overlay_colour_entries + level] = overlay.gamma ? (*overlay.gamma)[level] : level;
+    std::memcpy(upload + offset, colours.data(), colour_bytes);
+    SDL_UnmapGPUTransferBuffer(device, held.upload);
+
+    SDL_GPUCommandBuffer* command = SDL_AcquireGPUCommandBuffer(device);
+    if (!command) {
+        error = std::string("Acquire live GPU overlay: ") + SDL_GetError();
+        return Result::failed;
+    }
+    SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(command);
+    if (!copy) {
+        error = std::string("Begin live GPU overlay upload: ") + SDL_GetError();
+        SDL_CancelGPUCommandBuffer(command);
+        return Result::failed;
+    }
+    // A run of neighbouring bands goes up at once.
+    offset = 0;
+    for (uint32_t band = 0; band < bands;) {
+        if (!sent(band)) {
+            ++band;
+            continue;
+        }
+        uint32_t end = band + 1;
+        while (end < bands && sent(end))
+            ++end;
+        const uint32_t first = band * band_rows;
+        const uint32_t rows = std::min(height, end * band_rows) - first;
+        const SDL_GPUTextureTransferInfo source{held.upload, offset, width, rows};
+        const SDL_GPUTextureRegion region{held.canvas, 0, 0, 0, first, 0, width, rows, 1};
+        SDL_UploadToGPUTexture(copy, &source, &region, false);
+        offset += rows * row_bytes;
+        band = end;
+    }
+    const auto upload_table =
+        [&](SDL_GPUTexture* table, uint32_t texels, uint32_t rows, uint32_t bytes) {
+            if (rows != 0) {
+                const SDL_GPUTextureTransferInfo source{held.upload, offset, texels, rows};
+                const SDL_GPUTextureRegion region{table, 0, 0, 0, 0, 0, texels, rows, 1};
+                SDL_UploadToGPUTexture(copy, &source, &region, false);
+            }
+            offset += bytes;
+        };
+    upload_table(
+        held.operations,
+        overlay_layout::operations_per_row * overlay_layout::texels_per_operation,
+        operation_rows,
+        operation_bytes
+    );
+    upload_table(held.lists, overlay_layout::list_words_per_row, list_rows, list_bytes);
+    upload_table(held.colours, overlay_colour_entries, overlay_colour_rows, colour_bytes);
+    SDL_EndGPUCopyPass(copy);
+    namespace text = oa::present;
+    const std::array<uint32_t, 16> parameters{
+        packed->tiles_across,
+        overlay_layout::tile_edge,
+        static_cast<uint32_t>(entries),
+        overlay_layout::operations_per_row,
+        text::text_shade_color[0],
+        text::text_shade_color[1],
+        text::text_shade_color[2],
+        text::text_shadow_alpha,
+        text::text_outline_color[0],
+        text::text_outline_color[1],
+        text::text_outline_color[2],
+        0,
+        text::text_dark_outline_color[0],
+        text::text_dark_outline_color[1],
+        text::text_dark_outline_color[2],
+        0
+    };
+    SDL_PushGPUFragmentUniformData(command, 0, parameters.data(), sizeof(parameters));
+    SDL_GPUColorTargetInfo target{};
+    target.texture = held.composed;
+    target.load_op = SDL_GPU_LOADOP_DONT_CARE;
+    target.store_op = SDL_GPU_STOREOP_STORE;
+    SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(command, &target, 1, nullptr);
+    if (!pass) {
+        error = std::string("Begin live GPU overlay: ") + SDL_GetError();
+        SDL_CancelGPUCommandBuffer(command);
+        return Result::failed;
+    }
+    SDL_BindGPUGraphicsPipeline(pass, held.pipeline);
+    const std::array<SDL_GPUTextureSamplerBinding, 5> sources{
+        {{state.picture, resources.sampler},
+         {held.canvas, resources.sampler},
+         {held.operations, resources.sampler},
+         {held.lists, resources.sampler},
+         {held.colours, resources.sampler}}
+    };
+    SDL_BindGPUFragmentSamplers(pass, 0, sources.data(), static_cast<Uint32>(sources.size()));
+    SDL_DrawGPUPrimitives(pass, vertices_per_triangle, 1, 0, 0);
+    SDL_EndGPURenderPass(pass);
+    if (!SDL_SubmitGPUCommandBuffer(command)) {
+        error = std::string("Submit live GPU overlay: ") + SDL_GetError();
+        return Result::failed;
+    }
+    held.held_bands.assign(overlay.opaque_bands.begin(), overlay.opaque_bands.begin() + bands);
     return Result::success;
+}
+
+SDL_GPUTexture* composed(const Context& context) {
+    const auto& held = context.state->overlay;
+    return held.width != 0 ? held.composed : nullptr;
+}
+
+Result read_picture(Context& context, std::vector<uint8_t>& output_rgba, std::string& error) {
+    output_rgba.clear();
+    error.clear();
+    auto& state = *context.state;
+    if (!state.resources.device || !state.picture || !state.resources.download) {
+        error = "No live GPU picture to read back";
+        return Result::failed;
+    }
+    return download_texture(
+               state.resources.device,
+               state.resources.download,
+               state.picture,
+               state.resolved_width,
+               state.resolved_height,
+               output_rgba,
+               error
+           )
+               ? Result::success
+               : Result::failed;
+}
+
+Result read_composed(Context& context, std::vector<uint8_t>& output_rgba, std::string& error) {
+    output_rgba.clear();
+    error.clear();
+    auto& state = *context.state;
+    const auto& held = state.overlay;
+    if (!state.resources.device || !held.composed || held.width != state.resolved_width ||
+        held.height != state.resolved_height || !state.resources.download) {
+        error = "No live GPU overlay to read back";
+        return Result::failed;
+    }
+    return download_texture(
+               state.resources.device,
+               state.resources.download,
+               held.composed,
+               held.width,
+               held.height,
+               output_rgba,
+               error
+           )
+               ? Result::success
+               : Result::failed;
 }
 
 } // namespace oa::app::renderer_live_gpu

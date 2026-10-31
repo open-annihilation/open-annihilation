@@ -17,6 +17,9 @@ runs on. Each stage is written once, in Vulkan's GLSL, in src/app/shaders/:
                               pixel, drawn after the scene's vertex stage
   live_lights_fragment.glsl   the lights' light, glow and heat over the
                               picture
+  live_overlay_fragment.glsl  what the processor painted over the turned
+                              view added to the picture, and the display
+                              gamma
 
 and this makes, for each, the forms the renderer embeds, in
 src/app/renderer_live_shaders.inc:
@@ -60,6 +63,7 @@ STAGES = (
     ("live_resolve_fragment", "frag"),
     ("live_surface_fragment", "frag"),
     ("live_lights_fragment", "frag"),
+    ("live_overlay_fragment", "frag"),
 )
 TOOLS = ("glslangValidator", "spirv-val", "spirv-cross")
 # The Metal shading language version spirv-cross writes, as it takes it:

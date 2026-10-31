@@ -599,15 +599,16 @@ if(OA_BUILD_PLATFORM)
     add_test(NAME app-full-effects COMMAND oa-app-full-effects-test)
   endif()
   add_library(oa-app-renderer-live src/app/renderer_live_camera.cpp
-    src/app/renderer_live_gpu.cpp src/app/renderer_live_lights.cpp src/app/renderer_live_scene.cpp)
+    src/app/renderer_live_gpu.cpp src/app/renderer_live_lights.cpp src/app/renderer_live_overlay.cpp
+    src/app/renderer_live_scene.cpp)
   add_library(oa::app::renderer_live ALIAS oa-app-renderer-live)
   target_include_directories(oa-app-renderer-live PUBLIC src/app)
   target_link_libraries(oa-app-renderer-live PUBLIC SDL3::SDL3 oa-app-headers
     oa-app-full-models oa-formats-tnt oa-app-renderer-water oa-platform-job-pool
     oa-app-renderer-effects
-    PRIVATE oa-sim-visibility-state oa-options)
+    PRIVATE oa-present oa-sim-visibility-state oa-options)
   if(BUILD_TESTING)
-    foreach(oa_live_part camera scene gpu lights)
+    foreach(oa_live_part camera scene gpu lights overlay)
       add_executable(oa-app-renderer-live-${oa_live_part}-test
         src/app/renderer_live_${oa_live_part}_test.cpp)
       target_link_libraries(oa-app-renderer-live-${oa_live_part}-test PRIVATE
@@ -619,6 +620,9 @@ if(OA_BUILD_PLATFORM)
     set_tests_properties(app-renderer-live-gpu PROPERTIES SKIP_RETURN_CODE 77)
     # The scene's terrain is held to the simulation's own ground.
     target_link_libraries(oa-app-renderer-live-scene-test PRIVATE oa-sim-unit-movement)
+    # The overlay is held to the painters' own blends and text.
+    target_link_libraries(oa-app-renderer-live-overlay-test PRIVATE oa-present
+      oa-ui-frontend-renderer)
   endif()
 endif()
 if(OA_BUILD_PLATFORM AND OA_SELF_CHECKS)

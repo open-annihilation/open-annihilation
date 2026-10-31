@@ -3,6 +3,7 @@
 #pragma once
 
 #include "renderer_effects.hpp"
+#include "renderer_live_overlay.hpp"
 #include "renderer_proof_gpu.hpp"
 #include "renderer_water.hpp"
 
@@ -10,6 +11,12 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <span>
+#include <string>
+#include <vector>
+
+struct SDL_GPUDevice;
+struct SDL_GPUTexture;
 
 namespace oa::app::renderer_live_gpu {
 
@@ -91,6 +98,18 @@ struct Context {
     /// added on the card; false when it was given none, or left them to the
     /// caller, which adds them to the picture itself.
     bool lights_drawn{};
+    /// A graphics device to draw on in place of one of the context's own,
+    /// such as the one the game's window presents through; the context
+    /// never destroys it. Set before the first frame; null opens one.
+    SDL_GPUDevice* shared_device{};
+    /// Whether render() leaves its picture on the card, for compose_overlay()
+    /// and whatever presents it, in place of reading it back and waiting for
+    /// the card to draw it. A frame whose lights the card cannot add is read
+    /// back all the same, for the caller to add them.
+    bool keep_on_card{};
+    /// Whether the last frame that succeeded left its picture on the card,
+    /// with nothing read back.
+    bool kept_on_card{};
     /// Allocate the state without opening a device or window.
     Context();
     /// Release pending commands and GPU resources before the device.
@@ -171,7 +190,10 @@ struct KeptGround {
 ///        the formats they need and Context::lights_allowed; Context::lights_drawn says
 ///        whether they were
 /// @return success; unavailable where SDL makes no device on Metal or Vulkan; or failed for
-///         invalid input or GPU errors
+///         invalid input or GPU errors. With Context::keep_on_card, and lights the card adds
+///         or none, the picture stays on the card: output_rgba is left empty, render()
+///         returns once the frame is submitted and while_drawing has run, and
+///         Context::kept_on_card says so
 Result render(
     Context& context,
     std::span<const Vertex> vertices,
@@ -191,5 +213,70 @@ Result render(
     const std::function<void()>& while_drawing = {},
     const Lights* lights = nullptr
 );
+
+/// Opens the graphics device render() draws on, where it is not yet open:
+/// Context::shared_device where it is set.
+///
+/// @param[in,out] context the persistent GPU resources
+/// @return the device; null where SDL makes none (Context::device_unavailable)
+SDL_GPUDevice* device(Context& context);
+
+/// What the processor painted over the turned view, for compose_overlay().
+struct Overlay {
+    /// The overlay canvas as ARGB8888 words, as convert_rgb24_keyed_overlay_argb
+    /// writes it: 0 where the canvas holds its key, else its colour, opaque,
+    /// before the display gamma. The picture's size, `width` * 4 bytes a row.
+    std::span<const uint8_t> canvas{};
+    /// For each band of band_rows rows, 1 where the canvas holds an opaque
+    /// pixel; a band clear now and at the last overlay is not sent again.
+    std::span<const uint8_t> opaque_bands{};
+    uint32_t band_rows{1};
+    /// The operations on the picture under the canvas, laid out for the card.
+    const renderer_live_overlay::Packed* operations{};
+    /// The palette lines of text are reduced to,
+    /// renderer_live_overlay::palette_entry_bytes an entry; empty for none.
+    std::span<const uint8_t> palette{};
+    /// The display gamma's table; null for a gamma of 1.
+    const std::array<uint8_t, 256>* gamma{};
+};
+
+/// Adds what the processor painted over the turned view to the picture the
+/// last frame left on the card, as renderer_live_overlay::compose adds it on
+/// the processor, then the display gamma, into the composed texture
+/// (composed()), on the card: submitted with nothing waited for, so that
+/// whatever presents the texture next draws it after.
+///
+/// @param[in,out] context the persistent GPU resources, whose last frame left
+///        its picture on the card (Context::kept_on_card)
+/// @param overlay what was painted over it
+/// @param[out] error the failure's reason
+/// @return success; failed where no picture is on the card, the card lacks a
+///         format the overlay takes, or a GPU call fails
+Result compose_overlay(Context& context, const Overlay& overlay, std::string& error);
+
+/// Returns the texture compose_overlay() drew: RGBA8, the picture's size,
+/// opaque, sampled; null before it drew one. The context keeps it, made
+/// again only when the picture's size changes.
+///
+/// @param context the persistent GPU resources
+/// @return the texture, owned by the context
+[[nodiscard]] SDL_GPUTexture* composed(const Context& context);
+
+/// Reads back the picture the last frame left on the card, as render() reads
+/// it back otherwise, waiting for the card to finish it.
+///
+/// @param[in,out] context the persistent GPU resources
+/// @param[out] output_rgba packed RGBA8 pixels, the picture's size; empty on failure
+/// @param[out] error the failure's reason
+/// @return success; failed where no picture is on the card or a GPU call fails
+Result read_picture(Context& context, std::vector<uint8_t>& output_rgba, std::string& error);
+
+/// Reads back the texture compose_overlay() last drew, waiting for the card.
+///
+/// @param[in,out] context the persistent GPU resources
+/// @param[out] output_rgba packed RGBA8 pixels; empty on failure
+/// @param[out] error the failure's reason
+/// @return success; failed before compose_overlay() drew one or where a GPU call fails
+Result read_composed(Context& context, std::vector<uint8_t>& output_rgba, std::string& error);
 
 } // namespace oa::app::renderer_live_gpu

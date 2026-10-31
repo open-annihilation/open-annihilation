@@ -1598,6 +1598,231 @@ void card_lights() {
     OA_CHECK(!context.lights_drawn);
 }
 
+/// An overlay canvas's colours as compose_overlay() takes them, ARGB8888
+/// words, 0 where the canvas holds its key, and its bands with an opaque
+/// pixel.
+void overlay_words(
+    const std::vector<uint8_t>& canvas,
+    const std::array<uint8_t, 3>& key,
+    uint32_t band_rows,
+    uint32_t width,
+    std::vector<uint8_t>& words,
+    std::vector<uint8_t>& bands
+) {
+    const std::size_t pixels = canvas.size() / 3;
+    const uint32_t height = uint32_t(pixels / width);
+    words.assign(pixels * channels, 0);
+    bands.assign((height + band_rows - 1) / band_rows, 0);
+    for (std::size_t pixel = 0; pixel < pixels; ++pixel) {
+        const uint8_t* at = canvas.data() + pixel * 3;
+        if (std::equal(key.begin(), key.end(), at))
+            continue;
+        words[pixel * channels] = at[2];
+        words[pixel * channels + 1] = at[1];
+        words[pixel * channels + 2] = at[0];
+        words[pixel * channels + 3] = full_channel;
+        bands[pixel / width / band_rows] = 1;
+    }
+}
+
+/// A picture left on the card is the picture read back, and the overlay the
+/// card adds to it, then the display gamma, is what the processor adds
+/// (renderer_live_overlay::compose): the canvas's own pixels, blends and
+/// lines of text reduced to the palette, at every way of drawing, with and
+/// without the lights. Frames left on the card one after another, nothing
+/// waited for, each hold their own picture; a band the canvas painted and no
+/// longer paints shows the picture again. A frame whose lights the caller
+/// adds is read back; a context drawing on another's device leaves the
+/// device to it.
+void picture_on_card() {
+    namespace overlay = oa::app::renderer_live_overlay;
+    constexpr uint32_t size = 48;
+    constexpr uint32_t band_rows = 4;
+    const std::vector<uint8_t> atlas{90,  80,  70,  255, 150, 120, 80,  255, 90,  80,  70,
+                                     255, 150, 120, 80,  255, 60,  90,  120, 255, 200, 200,
+                                     200, 0,   150, 60,  60,  255, 255, 255, 255, 255};
+    auto vertices = light_scene();
+    using oa::app::renderer_effects::Source;
+    const std::vector<Source> sources{
+        {16, 22, 11, 14, 8, 1, 0.6F, 0.2F, 1.5F, 1, 0, 0},
+        {24, 38, 19, 12, 8, 1, 1, 0.5F, 1, 1, 0, 0}
+    };
+    const Lights lights{sources, {true, true, false}, 2.5};
+    Context context;
+    std::vector<uint8_t> pixels;
+    std::string error;
+    const auto frame = [&](bool keep, const Lights* given, uint32_t supersample) {
+        context.keep_on_card = keep;
+        const auto result = render(
+            context,
+            vertices,
+            atlas,
+            light_atlas_width,
+            1,
+            1,
+            size,
+            size,
+            classic_projection,
+            pixels,
+            error,
+            supersample,
+            nullptr,
+            nullptr,
+            nullptr,
+            {},
+            given
+        );
+        OA_CHECK(result == Result::success);
+        return pixels;
+    };
+    // A palette of grey steps and a few colours, and a gamma that lifts the
+    // darks.
+    std::vector<uint8_t> palette(256 * overlay::palette_entry_bytes);
+    for (uint32_t entry = 0; entry < 256; ++entry)
+        for (uint32_t channel = 0; channel < 3; ++channel)
+            palette[entry * 4 + channel] = entry < 200 ? uint8_t(entry * 255 / 199)
+                                                       : uint8_t((entry * 37 + channel * 91) % 256);
+    std::array<uint8_t, 256> gamma{};
+    for (uint32_t level = 0; level < 256; ++level)
+        gamma[level] = uint8_t(std::lround(std::pow(level / 255.0, 0.8) * 255));
+    const std::array<uint8_t, 3> key{1, 0, 0};
+    std::vector<uint8_t> canvas(std::size_t(size) * size * 3);
+    const auto clear = [&] {
+        for (std::size_t at = 0; at < canvas.size(); at += 3)
+            std::copy(key.begin(), key.end(), canvas.begin() + std::ptrdiff_t(at));
+    };
+    const auto paint = [&](uint32_t left, uint32_t top, uint32_t w, uint32_t h, uint8_t level) {
+        for (uint32_t y = top; y < top + h; ++y)
+            for (uint32_t x = left; x < left + w; ++x)
+                std::fill_n(canvas.begin() + std::ptrdiff_t((y * size + x) * 3), 3, level);
+    };
+    std::vector<overlay::Operation> operations{
+        {4, 4, 30, 12, overlay::Kind::blend, {0, 0, 0}, 96, 0},
+        {6, 6, 20, 1, overlay::Kind::shadow, {}, 0, 1},
+        {6, 7, 20, 1, overlay::Kind::outline, {}, 0, 1},
+        {8, 7, 9, 1, overlay::Kind::letter, {250, 240, 10}, 170, 1},
+        {10, 20, 12, 3, overlay::Kind::outline, {}, 0, 2},
+        {11, 21, 10, 1, overlay::Kind::letter, {20, 200, 250}, 60, 2},
+        {-5, 40, 70, 30, overlay::Kind::blend, {200, 30, 30}, 300, 0},
+        {30, 18, 14, 14, overlay::Kind::blend, {255, 255, 255}, 40, 0},
+        {32, 25, 8, 1, overlay::Kind::letter, {0, 0, 0}, 254, 3}
+    };
+    const auto expected_overlay = [&](const std::vector<uint8_t>& rgba) {
+        std::vector<uint8_t> rgb(std::size_t(size) * size * 3);
+        for (std::size_t pixel = 0; pixel < rgb.size() / 3; ++pixel)
+            std::copy_n(
+                rgba.begin() + std::ptrdiff_t(pixel * 4), 3, rgb.begin() + std::ptrdiff_t(pixel * 3)
+            );
+        overlay::compose(rgb, size, size, canvas, key, operations, palette);
+        std::vector<uint8_t> shown(rgba.size());
+        for (std::size_t pixel = 0; pixel < rgb.size() / 3; ++pixel) {
+            for (std::size_t channel = 0; channel < 3; ++channel)
+                shown[pixel * 4 + channel] = gamma[rgb[pixel * 3 + channel]];
+            shown[pixel * 4 + 3] = full_channel;
+        }
+        return shown;
+    };
+    overlay::Packed packed;
+    std::vector<uint8_t> words;
+    std::vector<uint8_t> bands;
+    const auto add_overlay = [&]() {
+        overlay::pack(operations, size, size, packed);
+        overlay_words(canvas, key, band_rows, size, words, bands);
+        const Overlay painted{words, bands, band_rows, &packed, palette, &gamma};
+        OA_CHECK(compose_overlay(context, painted, error) == Result::success);
+        OA_CHECK(composed(context) != nullptr);
+        std::vector<uint8_t> shown;
+        OA_CHECK(read_composed(context, shown, error) == Result::success);
+        return shown;
+    };
+    // Nothing on the card yet: no overlay.
+    {
+        overlay::pack(operations, size, size, packed);
+        clear();
+        overlay_words(canvas, key, band_rows, size, words, bands);
+        const Overlay painted{words, bands, band_rows, &packed, palette, &gamma};
+        OA_CHECK(compose_overlay(context, painted, error) == Result::failed);
+    }
+    for (const uint32_t supersample : {1U, 2U, 4U})
+        for (const Lights* given : {static_cast<const Lights*>(nullptr), &lights}) {
+            const auto read = frame(false, given, supersample);
+            OA_CHECK(!context.kept_on_card && !read.empty());
+            OA_CHECK(frame(true, given, supersample).empty());
+            OA_CHECK(context.kept_on_card);
+            std::vector<uint8_t> picture;
+            OA_CHECK(read_picture(context, picture, error) == Result::success);
+            OA_CHECK(picture == read);
+            clear();
+            paint(0, 0, 3, 3, 120);
+            paint(20, 6, 4, 2, 30);
+            paint(40, 30, 6, 6, 250);
+            const auto expected = expected_overlay(read);
+            OA_CHECK(add_overlay() == expected);
+            // The bands painted at the last overlay and clear now show the
+            // picture again.
+            clear();
+            paint(10, 44, 5, 2, 60);
+            OA_CHECK(add_overlay() == expected_overlay(read));
+        }
+    // Frames left on the card one after another, nothing waited for between
+    // them, each overlaid on its own picture.
+    std::vector<std::vector<uint8_t>> pictures;
+    for (int shift = 0; shift < 3; ++shift) {
+        for (auto& vertex : vertices)
+            vertex.x += 1;
+        pictures.push_back(frame(false, &lights, 2));
+    }
+    for (auto& vertex : vertices)
+        vertex.x -= 3;
+    clear();
+    paint(5, 5, 2, 2, 90);
+    for (int shift = 0; shift < 3; ++shift) {
+        for (auto& vertex : vertices)
+            vertex.x += 1;
+        OA_CHECK(frame(true, &lights, 2).empty());
+        OA_CHECK(add_overlay() == expected_overlay(pictures[std::size_t(shift)]));
+    }
+    // Lights the caller adds take the picture back.
+    context.lights_allowed = false;
+    OA_CHECK(!frame(true, &lights, 1).empty());
+    OA_CHECK(!context.kept_on_card);
+    context.lights_allowed = true;
+    // A context on another's device draws the same picture and leaves the
+    // device to it.
+    SDL_GPUDevice* const shared = device(context);
+    OA_CHECK(shared != nullptr);
+    const auto own = frame(false, &lights, 1);
+    {
+        Context borrowing;
+        borrowing.shared_device = shared;
+        OA_CHECK(device(borrowing) == shared);
+        std::vector<uint8_t> borrowed;
+        OA_CHECK(
+            render(
+                borrowing,
+                vertices,
+                atlas,
+                light_atlas_width,
+                1,
+                1,
+                size,
+                size,
+                classic_projection,
+                borrowed,
+                error,
+                1,
+                nullptr,
+                nullptr,
+                nullptr,
+                {},
+                &lights
+            ) == Result::success
+        );
+        OA_CHECK(borrowed == own);
+    }
+    OA_CHECK(frame(false, &lights, 1) == own);
+}
+
 } // namespace
 
 /// Run validation on every platform and skip real rendering only when no device is available.
@@ -1621,6 +1846,7 @@ int main() {
         ripple_art_motion();
         coastal_foam_strength();
         card_lights();
+        picture_on_card();
     }
     SDL_Quit();
     return result != 0 ? result : oa::test::check_exit_status();
