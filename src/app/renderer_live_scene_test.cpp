@@ -2204,6 +2204,7 @@ void foundations_cut_once() {
     const auto build = [&] {
         OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
         cutting.cut_source = 0;
+        cutting.passes.ground_source = 0;
         OA_CHECK(live::build(fixture.inputs, cutting, fixture.error));
         const auto& vertices = fixture.scene.vertices;
         OA_CHECK(fixture.scene.terrain_vertex_count == cutting.terrain_vertex_count);
@@ -2241,6 +2242,95 @@ void foundations_cut_once() {
     OA_CHECK(build() != drawn);
     const auto kept = fixture.scene.ground_revision;
     OA_CHECK(build() == kept);
+}
+
+/// A kept ground whose plots change is cut again only where a changed plot
+/// reaches it: two structures far apart, one moving, give every frame the
+/// ground a scene cutting all of it each frame gives, on any number of
+/// threads, and a band the moving one never reaches keeps its cut (marked
+/// in a scene of its own, the mark stays) until a plot reaches it.
+void foundations_recut_where_plots_change() {
+    constexpr uint32_t attributes = 128;
+    constexpr int32_t fixed = 65536;
+    const auto make = [&](Fixture& fixture) {
+        fixture.map.attribute_width = fixture.map.attribute_height = attributes;
+        fixture.map.tile_width = fixture.map.tile_height = attributes / 2;
+        fixture.map.tile_indices.assign(
+            static_cast<std::size_t>(attributes / 2) * (attributes / 2), 0
+        );
+        fixture.map.attributes.resize(static_cast<std::size_t>(attributes) * attributes);
+        for (std::size_t i = 0; i < fixture.map.attributes.size(); ++i)
+            fixture.map.attributes[i].height =
+                static_cast<uint8_t>((i * 7 + i / attributes * 3) % 40);
+        fixture.inputs.right = fixture.inputs.bottom = static_cast<int32_t>(attributes) * 16;
+        fixture.inputs.sight.mapping = fixture.inputs.sight.line_of_sight = false;
+    };
+    std::array<oa::Unit, 2> units{};
+    for (auto& unit : units) {
+        unit.flags = OA_UNIT_FLAG_BUILDING;
+        unit.footprint_x = unit.footprint_z = 2;
+    }
+    units[0].position = {200 * fixed, 16 * fixed, 200 * fixed};
+    units[1].position = {1800 * fixed, 16 * fixed, 1800 * fixed};
+    Fixture reference;
+    make(reference);
+    reference.draws.models.resize(units.size());
+    for (std::size_t index = 0; index < units.size(); ++index) {
+        reference.draws.models[index].model.unit = &units[index];
+        reference.draws.models[index].plan.linked.drawn = true;
+    }
+    std::vector<std::unique_ptr<oa::platform::job_pool::Pool>> pools;
+    pools.push_back(nullptr);
+    for (const uint32_t threads : {2U, 3U})
+        pools.push_back(std::make_unique<oa::platform::job_pool::Pool>(threads));
+    std::vector<live::Scene> scenes(pools.size());
+    live::Scene cutting{};
+    live::Scene marked{};
+    const auto build = [&] {
+        for (std::size_t scene = 0; scene < scenes.size(); ++scene) {
+            reference.inputs.pool = pools[scene].get();
+            OA_CHECK(live::build(reference.inputs, scenes[scene], reference.error));
+        }
+        reference.inputs.pool = nullptr;
+        cutting.cut_source = 0;
+        cutting.passes.ground_source = 0;
+        OA_CHECK(live::build(reference.inputs, cutting, reference.error));
+        for (const auto& scene : scenes) {
+            OA_CHECK(scene.terrain_vertex_count == cutting.terrain_vertex_count);
+            OA_CHECK(
+                scene.vertices.size() == cutting.vertices.size() &&
+                std::memcmp(
+                    scene.vertices.data(),
+                    cutting.vertices.data(),
+                    scene.vertices.size() * sizeof(scene.vertices.front())
+                ) == 0
+            );
+        }
+        OA_CHECK(live::build(reference.inputs, marked, reference.error));
+    };
+    // The first vertex of the marked scene's first band of cut ground, as
+    // listed in its frame.
+    const auto first_height = [&] { return marked.vertices.front().height; };
+    build();
+    build();
+    OA_CHECK(scenes[0].ground_kept && scenes[0].cut_source != 0);
+    OA_CHECK(marked.passes.ground.size() > 2);
+    const float height = first_height();
+    marked.passes.ground.front().vertices.front().height = height + 1000;
+    for (int step = 1; step <= 4; ++step) {
+        units[1].position.x = (1800 - 40 * step) * fixed;
+        build();
+        OA_CHECK(first_height() == height + 1000);
+    }
+    // The first structure moves: its band is cut again.
+    units[0].position.x = 240 * fixed;
+    build();
+    OA_CHECK(first_height() == cutting.vertices.front().height);
+    // The structure goes; the frames are still those of a full cut.
+    units[1].flags = 0;
+    build();
+    units[1].flags = OA_UNIT_FLAG_BUILDING;
+    build();
 }
 
 /// Candidate bins retain structures across bin edges and bound oversized plot indexing.
@@ -4573,6 +4663,7 @@ int main() {
     cropped_ground_sprites();
     building_foundations();
     foundations_cut_once();
+    foundations_recut_where_plots_change();
     foundation_candidates();
     structure_base_above_ground();
     cached_unit_shadows();
