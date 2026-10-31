@@ -27,8 +27,10 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <span>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace oa::app {
 namespace {
@@ -61,6 +63,10 @@ struct Runtime::LiveRenderer {
     std::vector<std::array<float, 3>> projected{};
     std::vector<uint16_t> triangle_units{};
     std::unordered_map<uint16_t, oa::Rect32> unit_bounds{};
+    /// The bounds of each model the card draws (Scene::cards), in the
+    /// window's pixels, as a unit's are: the pick tests the triangles of
+    /// those its pointer lies in.
+    std::vector<oa::Rect32> card_bounds{};
     bool dragging{};
     uint8_t drag_button{};
     bool orbiting{};
@@ -783,6 +789,11 @@ bool Runtime::render_live_match_surface() {
         // A recording draws each frame at the plan's detail.
         inputs.tiles_hold_while_moving = director_ == nullptr;
         inputs.pool = draw_pool_.get();
+        // The card draws the models it can from their types' models where
+        // it adds the lights too: the processor's lights find their
+        // surfaces among the frame's own triangles.
+        inputs.models_on_card =
+            renderer_live_gpu::draws_models(live.gpu) && renderer_live_gpu::draws_lights(live.gpu);
         inputs.view_direction = {live.projection[8], live.projection[9], live.projection[10]};
         inputs.clip_projection = live.projection;
         inputs.clip_width = match_world_cpu_.width;
@@ -847,7 +858,8 @@ bool Runtime::render_live_match_surface() {
              static_cast<double>(live.scene.shadow_count),
              static_cast<double>(inputs.right - inputs.left) / terrain_cell_edge *
                  static_cast<double>(inputs.bottom - inputs.top) / terrain_cell_edge,
-             bench_timers::timers.last.supersample},
+             bench_timers::timers.last.supersample,
+             static_cast<double>(live.scene.cards.units.size())},
             live.scene.ground_revision
         );
         // Picking reads only the frame's triangles, so a frame that draws
@@ -880,6 +892,8 @@ bool Runtime::render_live_match_surface() {
              render_run_->host->presenting_on_card() &&
              sdl_.renderer == render_run_->host->renderer()) ||
             turned_overlay_checked_;
+        const auto model_draws =
+            renderer_live_scene::card_draws(live.scene.card_types, live.scene.cards);
         Span drawing(Stage::gpu_total);
         const auto result = built ? renderer_live_gpu::render(
                                         live.gpu,
@@ -898,7 +912,8 @@ bool Runtime::render_live_match_surface() {
                                         &inputs.water,
                                         &ground,
                                         rebuild_picking,
-                                        &card_lights
+                                        &card_lights,
+                                        &model_draws
                                     )
                                   : renderer_live_gpu::Result::failed;
         drawing.stop();
@@ -1079,6 +1094,33 @@ void Runtime::rebuild_live_picking() {
             live.triangle_units[index / 3] = range.unit_id;
         }
     }
+    // The models the card draws: each one's bounds over the corners it
+    // draws, which the scene worked out through the same camera as these
+    // vertices.
+    const auto& cards = live.scene.cards;
+    live.card_bounds.assign(cards.units.size(), oa::Rect32{1, 1, 0, 0});
+    for (std::size_t at = 0; at < cards.units.size(); ++at) {
+        const auto& drawn = cards.units[at];
+        if (drawn.index_count == 0)
+            continue;
+        const oa::Rect32 bounds{
+            static_cast<int32_t>(std::floor(drawn.left)) + match_layout_.left,
+            static_cast<int32_t>(std::floor(drawn.top)) + match_layout_.top,
+            static_cast<int32_t>(std::ceil(drawn.right)) + match_layout_.left,
+            static_cast<int32_t>(std::ceil(drawn.bottom)) + match_layout_.top
+        };
+        live.card_bounds[at] = bounds;
+        if (drawn.unit_id == 0 || !match_->unit_shown(match_view_player(), drawn.unit_id))
+            continue;
+        const auto [entry, inserted] = live.unit_bounds.try_emplace(drawn.unit_id, bounds);
+        if (inserted)
+            continue;
+        auto& merged = entry->second;
+        merged.x1 = std::min(merged.x1, bounds.x1);
+        merged.y1 = std::min(merged.y1, bounds.y1);
+        merged.x2 = std::max(merged.x2, bounds.x2);
+        merged.y2 = std::max(merged.y2, bounds.y2);
+    }
 }
 
 std::optional<oa::Rect32> Runtime::live_unit_bounds(uint16_t id) const {
@@ -1187,7 +1229,77 @@ uint16_t Runtime::live_unit_under(float x, float y) const {
     const auto& live = *live_renderer_;
     uint16_t picked{};
     float best_depth = -std::numeric_limits<float>::infinity();
+    // The models the card draws whose bounds hold the pointer, a pixel
+    // wider, are tested where their triangles fall among the frame's, as
+    // their vertices would have been.
+    const auto& cards = live.scene.cards;
+    std::vector<std::size_t> held;
+    for (std::size_t at = 0; at < cards.units.size() && at < live.card_bounds.size(); ++at) {
+        const auto& bounds = live.card_bounds[at];
+        if (bounds.x1 <= bounds.x2 && x >= float(bounds.x1 - 1) && x <= float(bounds.x2 + 1) &&
+            y >= float(bounds.y1 - 1) && y <= float(bounds.y2 + 1))
+            held.push_back(at);
+    }
+    std::size_t next_held = 0;
+    const auto& m = live.projection;
+    const auto test_held = [&](std::size_t before) {
+        for (; next_held < held.size() && cards.units[held[next_held]].vertex <= before;
+             ++next_held) {
+            const auto& drawn = cards.units[held[next_held]];
+            const auto indices = std::span<const uint32_t>(cards.indices)
+                                     .subspan(drawn.first_index, drawn.index_count);
+            for (std::size_t first = 0; first + 2 < indices.size(); first += 3) {
+                std::array<renderer_live_scene::CardCorner, 3> corners{};
+                std::array<std::array<float, 3>, 3> points{};
+                for (std::size_t corner = 0; corner < corners.size(); ++corner) {
+                    const auto& made = corners[corner] = renderer_live_scene::card_corner(
+                        live.scene.card_types, cards, drawn, indices[first + corner]
+                    );
+                    points[corner] = {
+                        m[0] * made.x + m[1] * made.height + m[2] * made.z + m[3],
+                        m[4] * made.x + m[5] * made.height + m[6] * made.z + m[7],
+                        m[8] * made.x + m[9] * made.height + m[10] * made.z + m[11]
+                    };
+                }
+                std::array<float, 3> weights{};
+                float depth{};
+                if (!renderer_live_camera::triangle_hit(
+                        points, x - match_layout_.left, y - match_layout_.top, weights, depth
+                    ) ||
+                    depth <= best_depth)
+                    continue;
+                float u{}, v{}, opacity{};
+                for (std::size_t corner = 0; corner < weights.size(); ++corner) {
+                    u += corners[corner].u * weights[corner];
+                    v += corners[corner].v * weights[corner];
+                    opacity += 1.0F * weights[corner];
+                }
+                const auto column = std::clamp(
+                    static_cast<int32_t>(u * live.scene.texture_width),
+                    0,
+                    static_cast<int32_t>(live.scene.texture_width) - 1
+                );
+                const auto row = std::clamp(
+                    static_cast<int32_t>(v * live.scene.texture_height),
+                    0,
+                    static_cast<int32_t>(live.scene.texture_height) - 1
+                );
+                const auto alpha_index =
+                    (static_cast<std::size_t>(row) * live.scene.texture_width + column) * 4 + 3;
+                const auto id = drawn.unit_id;
+                if (alpha_index >= live.scene.texture_rgba.size() ||
+                    live.scene.texture_rgba[alpha_index] * (id != 0 ? 1.0F : opacity) < 128)
+                    continue;
+                if (id != 0 && !live_unit_bounds(id))
+                    continue;
+                best_depth = depth;
+                picked = id;
+            }
+        }
+    };
     for (std::size_t index = 0; index + 2 < live.projected.size(); index += 3) {
+        if (next_held < held.size())
+            test_held(index);
         std::array<float, 3> weights{};
         float depth{};
         if (!renderer_live_camera::triangle_hit(
@@ -1229,6 +1341,7 @@ uint16_t Runtime::live_unit_under(float x, float y) const {
         best_depth = depth;
         picked = id;
     }
+    test_held(std::numeric_limits<std::size_t>::max());
     return picked;
 }
 

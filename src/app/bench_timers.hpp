@@ -173,6 +173,7 @@ struct SceneCounts {
     double shadows{};
     double crop_cells{}; ///< terrain cells of the map part the frame surveys
     double supersample{};
+    double card_models{}; ///< the models drawn on the card from their types' models
 };
 
 /// The timers' state.

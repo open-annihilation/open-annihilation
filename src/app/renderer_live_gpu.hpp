@@ -9,6 +9,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <span>
@@ -110,6 +111,10 @@ struct Context {
     /// Whether the last frame that succeeded left its picture on the card,
     /// with nothing read back.
     bool kept_on_card{};
+    /// Whether render() may draw the model draws it is given from the
+    /// models it keeps on the card (draws_models); false leaves every model
+    /// to the frame's vertices, as on a card that has none of them yet.
+    bool models_allowed{true};
     /// Allocate the state without opening a device or window.
     Context();
     /// Release pending commands and GPU resources before the device.
@@ -152,6 +157,103 @@ struct KeptGround {
     uint64_t revision{};
 };
 
+/// A unit or feature render() draws from its type's model on the card
+/// (ModelDraws): where its type's triangle corners, its vertices, its
+/// pieces' frames and its textures lie, and its light.
+struct ModelInstance {
+    uint32_t corners{};        ///< its type's first triangle corner in ModelDraws::corners
+    uint32_t corner_count{};   ///< its type's triangle corners
+    uint32_t positions{};      ///< its first vertex in ModelDraws::positions
+    uint32_t position_count{}; ///< its vertices
+    uint32_t pieces{};         ///< its first piece in ModelDraws::piece_frames
+    uint32_t piece_count{};    ///< its pieces
+    uint32_t textures{};       ///< its first texture in ModelDraws::textures
+    uint32_t texture_count{};  ///< its textures
+    float brightness{1};       ///< RGB multiplier in [0,1], each corner's
+};
+
+/// Model draws render() draws together, before one of the frame's vertices:
+/// a range of ModelDraws::indices, each naming an instance from the run's
+/// first.
+struct ModelRun {
+    std::size_t vertex{};      ///< the frame's vertex the run is drawn before
+    uint32_t first_index{};    ///< its first index in ModelDraws::indices
+    uint32_t index_count{};    ///< its indices, three a triangle
+    uint32_t first_instance{}; ///< the instance its indices count from
+};
+
+/// The low bits of a ModelDraws index that name a triangle corner of its
+/// instance's type; the bits above name the instance, from its run's first.
+inline constexpr uint32_t model_corner_bits = 16;
+
+/// The fields of a ModelDraws triangle corner's two words: the vertex below
+/// model_piece_shift in the first and the piece above it; in the second, the
+/// first frame's texture in the low model_texture_bits, the running frame's
+/// in the next and the polygon's corner from model_polygon_corner_shift.
+inline constexpr uint32_t model_piece_shift = 16;
+inline constexpr uint32_t model_texture_bits = 14;
+inline constexpr uint32_t model_polygon_corner_shift = 28;
+
+/// The most instances one run's indices name: a run's largest index stays
+/// below 2^24, which every graphics interface draws.
+inline constexpr uint32_t model_run_instances = 256;
+
+/// The most instances render() draws in a frame.
+inline constexpr std::size_t largest_model_instance_count = 32767;
+
+/// The units and features render() draws from their types' models, which
+/// stay on the card, rather than from the frame's vertices. Each triangle
+/// corner a frame draws is an index into its instance's type's corners, and
+/// the card takes from them its vertex, placed by the processor, and its
+/// texture's atlas place; every other attribute is a model's in the frame's
+/// vertices: the instance's brightness, full opacity, no emission or terrain
+/// and no colour modulation.
+struct ModelDraws {
+    /// Every type's triangle corners, two words each: the vertex (its low 16
+    /// bits) and the piece (its high 16 bits); the texture the corner's
+    /// piece draws on its first frame (bits 0 to 13), the one it draws
+    /// otherwise (bits 14 to 27) and the corner of its polygon (bits 28 and
+    /// 29), which takes the texture's first or second place across (corners
+    /// 1 and 2) and down (corners 2 and 3). The card keeps them: corners
+    /// added after those of an earlier frame of the same revision are
+    /// uploaded alone.
+    std::span<const uint32_t> corners{};
+    /// Changes whenever corners already given may have changed, and is never
+    /// the same for two different lists of corners; zero for none.
+    uint64_t corners_revision{};
+    std::span<const ModelInstance> instances{};
+    /// Each instance's vertices in world x, height and z, within +/-32768.
+    std::span<const float> positions{};
+    /// Each instance's pieces: 1 where the piece draws its first frame, 0
+    /// where it draws its running one.
+    std::span<const uint32_t> piece_frames{};
+    /// Each instance's textures, four values each in [0,1]: the atlas place
+    /// across and down of a polygon's first corner, then of its third.
+    std::span<const float> textures{};
+    /// The triangles drawn, three corners each: a corner's instance less its
+    /// run's first, above model_corner_bits, and its corner below.
+    std::span<const uint32_t> indices{};
+    /// The runs, in the frame's order: their vertices never go back.
+    std::span<const ModelRun> runs{};
+};
+
+/// Whether render() draws model draws on the card: once a frame has made
+/// its device, unless Context::models_allowed is false. A caller asks before
+/// it builds a frame, and gives model draws only then.
+///
+/// @param context the renderer's resources
+/// @return true where render() takes ModelDraws
+[[nodiscard]] bool draws_models(const Context& context) noexcept;
+
+/// Whether render() adds the lights it is given on the card: once a frame has
+/// made its device and found the formats the lights take, unless
+/// Context::lights_allowed is false. Otherwise the caller adds them to the
+/// picture read back, from the frame's own triangles.
+///
+/// @param context the renderer's resources
+/// @return true where render() adds the lights itself
+[[nodiscard]] bool draws_lights(const Context& context) noexcept;
+
 /// Render world triangles through a pixel-space affine projection without a window.
 /// Reuse shaders and buffers across frames, uploading the atlas only when its revision
 /// or dimensions change. Readback waits for completion before returning RGBA8 pixels.
@@ -189,6 +291,9 @@ struct KeptGround {
 /// @param lights optional lights added to the picture before readback where the card has
 ///        the formats they need and Context::lights_allowed; Context::lights_drawn says
 ///        whether they were
+/// @param models optional units and features drawn from their types' models on the card,
+///        each run before its vertex of the frame, the lights' surface included; only
+///        where draws_models() says so
 /// @return success; unavailable where SDL makes no device on Metal or Vulkan; or failed for
 ///         invalid input or GPU errors. With Context::keep_on_card, and lights the card adds
 ///         or none, the picture stays on the card: output_rgba is left empty, render()
@@ -211,7 +316,8 @@ Result render(
     const WaterEffects* water = nullptr,
     const KeptGround* ground = nullptr,
     const std::function<void()>& while_drawing = {},
-    const Lights* lights = nullptr
+    const Lights* lights = nullptr,
+    const ModelDraws* models = nullptr
 );
 
 /// Opens the graphics device render() draws on, where it is not yet open:

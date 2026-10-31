@@ -406,7 +406,9 @@ struct Pass {
 /// @return the list's vertices
 std::vector<Vertex>& listing(Pass& pass, std::size_t count) {
     auto& list = pass.list;
-    const std::size_t held = list.vertices.size() + count;
+    // The models the pass draws on the card count as the vertices they
+    // would have listed.
+    const std::size_t held = list.vertices.size() + list.cards.vertices + count;
     list.peak = std::max(list.peak, held);
     if (held > maximum_vertices - std::min(maximum_vertices, pass.listed_before))
         throw GeometryFull();
@@ -433,6 +435,7 @@ void begin_draw(Pass& pass, std::size_t draw) {
     list.draw_vertices = list.vertices.size();
     list.draw_translucent = list.translucent_vertices.size();
     list.draw_ranges = list.unit_ranges.size();
+    mark_cards(list.cards);
 }
 
 /// Mixes eight bytes into a digest at once: every bit of the word reaches
@@ -3852,8 +3855,10 @@ bool cut_plots(
     return reached;
 }
 
-/// Rejects the back of a model face, including opposite faces sharing one plane.
-bool back_facing(std::span<const Vertex> corners, const std::array<float, 3>& view) {
+/// Rejects the back of a model face, including opposite faces sharing one
+/// plane, from its corners' x, height and z.
+template <typename Corner>
+bool back_facing_corners(std::span<const Corner> corners, const std::array<float, 3>& view) {
     if (view == std::array<float, 3>{})
         return false;
     std::array<float, 3> normal{};
@@ -3866,6 +3871,11 @@ bool back_facing(std::span<const Vertex> corners, const std::array<float, 3>& vi
     }
     // Source faces wind clockwise when seen from outside in world coordinates.
     return normal[0] * view[0] + normal[1] * view[1] + normal[2] * view[2] >= 0;
+}
+
+/// Rejects the back of a model face, including opposite faces sharing one plane.
+bool back_facing(std::span<const Vertex> corners, const std::array<float, 3>& view) {
+    return back_facing_corners(corners, view);
 }
 
 /// Draws each source polygon edge as a narrow camera-facing nanoframe ribbon.
@@ -4106,6 +4116,304 @@ bool shows_first_frame(
     return !depth_image && draw.plan.linked.unlit;
 }
 
+/// The atlas places of the colours and frames the models pass has found
+/// this frame, which its draws on the card and in the vertices share.
+struct ModelMaterials {
+    std::array<std::optional<AtlasRect>, 256>& colors;
+    std::unordered_map<const Sprite*, AtlasRect>& textures;
+};
+
+/// Counts the vertices a model drawn on the card would have listed against
+/// the frame's geometry budget, as listing() counts them.
+///
+/// @param[in,out] pass the models pass
+/// @param count the vertices
+void count_on_card(Pass& pass, std::size_t count) {
+    auto& list = pass.list;
+    const std::size_t held = list.vertices.size() + list.cards.vertices + count;
+    list.peak = std::max(list.peak, held);
+    if (held > maximum_vertices - std::min(maximum_vertices, pass.listed_before))
+        throw GeometryFull();
+    list.cards.vertices += count;
+}
+
+/// Returns where a type's textures for a team start in the frame's model
+/// draws, made unfound the first time the frame draws the type for it.
+///
+/// @param[in,out] cards the frame's model draws
+/// @param type the type's place in the types kept
+/// @param slots its textures
+/// @param team the team colour it draws with
+/// @return the first texture's place
+uint32_t card_table(ModelCards& cards, uint32_t type, std::size_t slots, uint8_t team) {
+    for (auto table = cards.tables.rbegin(); table != cards.tables.rend(); ++table)
+        if (table->type == type && table->team == team)
+            return table->first;
+    const auto first = static_cast<uint32_t>(cards.slot_states.size());
+    cards.slot_states.resize(cards.slot_states.size() + slots, 0);
+    cards.textures.resize(cards.textures.size() + 4 * slots);
+    cards.tables.push_back({type, team, first});
+    return first;
+}
+
+/// Finds a texture of a type in the atlas for a team, as the models pass
+/// finds a polygon's: its colour's material, or its frame's, which a frame
+/// that is not drawn leaves drawn nowhere. A pass that may not pack stops
+/// at a material not yet packed (Unpacked).
+///
+/// @param in the frame
+/// @param[in,out] pass the models pass
+/// @param[in,out] materials the places the pass has found
+/// @param slot the texture
+/// @param at its place in the frame's model draws
+/// @param team the team colour it draws with
+void find_card_slot(
+    const Inputs& in,
+    Pass& pass,
+    ModelMaterials& materials,
+    const CardSlot& slot,
+    uint32_t at,
+    uint8_t team
+) {
+    auto& cards = pass.list.cards;
+    const bool colored = slot.primitive == nullptr;
+    AtlasRect rect{};
+    if (colored) {
+        auto& cached = materials.colors[slot.color];
+        if (!cached) {
+            const std::array pixel{slot.color};
+            cached = material(pass, *in.palette, 1, 1, pixel, {}, -1, Fog::seen);
+        }
+        rect = *cached;
+    } else {
+        const auto* frame = model::primitive_texture(*slot.primitive, slot.first_frame, team);
+        if (frame == nullptr || frame->data == nullptr || frame->encoding != OA_SPRITE_RAW) {
+            cards.slot_states[at] = 2;
+            return;
+        }
+        auto found = materials.textures.find(frame);
+        if (found == materials.textures.end())
+            found = materials.textures
+                        .emplace(
+                            frame,
+                            material(
+                                pass,
+                                *in.palette,
+                                frame->width,
+                                frame->height,
+                                {static_cast<const uint8_t*>(frame->data),
+                                 static_cast<std::size_t>(frame->width) * frame->height},
+                                {},
+                                -1,
+                                Fog::seen
+                            )
+                        )
+                        .first;
+        rect = found->second;
+    }
+    // A polygon's first and third corners' places, as the vertices take them.
+    constexpr std::array<float, 4> u{0, 1, 1, 0};
+    constexpr std::array<float, 4> v{0, 0, 1, 1};
+    float* place = cards.textures.data() + std::size_t{at} * 4;
+    for (const std::size_t index : {std::size_t{0}, std::size_t{2}}) {
+        *place++ = (rect.x + 0.5F + (colored ? 0 : u[index] * (rect.width - 1))) /
+                   pass.scene.texture_width;
+        *place++ = (rect.y + 0.5F + (colored ? 0 : v[index] * (rect.height - 1))) /
+                   pass.scene.texture_height;
+    }
+    cards.slot_states[at] = 1;
+}
+
+/// Draws a model on the card where it can (Inputs::models_on_card): its
+/// type's triangles that its vertices would have listed, in their order,
+/// with the textures they would have taken, from its vertices placed as
+/// they would have been. The caller has found it drawn whole, unlit by its
+/// build, uncloaked, unreflected and unshaded.
+///
+/// @param in the frame
+/// @param[in,out] pass the models pass
+/// @param[in,out] materials the places the pass has found
+/// @param draw the model's draw
+/// @param unit the unit or stand-in it draws
+/// @param place its world place: x, height and z
+/// @param brightness its light from the fog
+/// @param image it draws from its picture
+/// @param lights the nanolathe particles that light units' vertices
+/// @param[in,out] corners room for a polygon's corners
+/// @return false where the card cannot draw it, having added nothing
+bool draw_on_card(
+    const Inputs& in,
+    Pass& pass,
+    ModelMaterials& materials,
+    const ModelDraw& draw,
+    const Unit& unit,
+    const std::array<float, 3>& place,
+    float brightness,
+    bool image,
+    std::span<const std::array<float, 3>> lights,
+    std::vector<CardCorner>& corners
+) {
+    auto& cards = pass.list.cards;
+    const auto& reference = draw.model;
+    if (cards.instances.size() >= renderer_live_gpu::largest_model_instance_count)
+        return false;
+    const int32_t found =
+        card_type(pass.scene.card_types, *reference.instance, *reference.prepared);
+    if (found < 0)
+        return false;
+    const auto type_index = static_cast<uint32_t>(found);
+    const auto& type = pass.scene.card_types.types[type_index];
+    const auto pieces = reference.instance->pieces();
+    // Its vertices, placed as its vertices would be.
+    const auto [x, h, z] = place;
+    const std::size_t first_position = cards.positions.size();
+    std::array<float, 3> low{x, h, z};
+    std::array<float, 3> high{x, h, z};
+    for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+        const auto& points = piece < draw.shown_vertices.size()
+                                 ? draw.shown_vertices[piece]
+                                 : pieces[piece].transformed_vertices;
+        if (points.size() != type.piece_vertices[piece + 1] - type.piece_vertices[piece]) {
+            cards.positions.resize(first_position);
+            return false;
+        }
+        for (const auto& point : points) {
+            const std::array world{
+                x + point.x / fixed_scale, h + point.y / fixed_scale, z - point.z / fixed_scale
+            };
+            for (std::size_t axis = 0; axis < world.size(); ++axis) {
+                low[axis] = std::min(low[axis], world[axis]);
+                high[axis] = std::max(high[axis], world[axis]);
+            }
+            cards.positions.insert(cards.positions.end(), world.begin(), world.end());
+        }
+    }
+    // A nanolathe particle within a light's reach of a vertex would light
+    // it; such a model stays in the vertices. A particle that far from the
+    // box around the vertices reaches none of them, as the vertices'
+    // distances are worked out.
+    constexpr float light_radius = 32.0F;
+    for (const auto& light : lights) {
+        std::array<float, 3> gap{};
+        for (std::size_t axis = 0; axis < gap.size(); ++axis)
+            gap[axis] = std::max({0.0F, low[axis] - light[axis], light[axis] - high[axis]});
+        if (gap[0] * gap[0] + gap[1] * gap[1] + gap[2] * gap[2] >= light_radius * light_radius)
+            continue;
+        for (std::size_t at = first_position; at < cards.positions.size(); at += 3) {
+            const float dx = cards.positions[at] - light[0];
+            const float dy = cards.positions[at + 1] - light[1];
+            const float dz = cards.positions[at + 2] - light[2];
+            if (dx * dx + dy * dy + dz * dz < light_radius * light_radius) {
+                cards.positions.resize(first_position);
+                return false;
+            }
+        }
+    }
+    // Each piece's first frame or its running one.
+    const bool first_cached = shows_first_frame(draw, unit, true, in.moving_pieces_once_built);
+    const bool first_moving = shows_first_frame(draw, unit, false, in.moving_pieces_once_built);
+    const auto first_piece = static_cast<uint32_t>(cards.piece_frames.size());
+    for (const auto& piece : pieces)
+        cards.piece_frames.push_back(
+            (piece.flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::cached)) != 0
+                ? first_cached
+                : first_moving
+        );
+    const uint8_t team = in.team_colors[unit.owner_index % in.team_colors.size()];
+    const uint32_t table = card_table(cards, type_index, type.slots.size(), team);
+    const auto instance = static_cast<uint32_t>(cards.instances.size());
+    cards.instances.push_back(
+        {type.first_record,
+         type.record_count,
+         static_cast<uint32_t>(first_position / 3),
+         type.piece_vertices.back(),
+         first_piece,
+         static_cast<uint32_t>(pieces.size()),
+         table,
+         static_cast<uint32_t>(type.slots.size()),
+         brightness}
+    );
+    // A run takes the models drawn one after another among the vertices,
+    // as many as its indices can name.
+    const std::size_t vertex = pass.list.vertices.size();
+    if (cards.runs.empty() || cards.runs.back().vertex != vertex ||
+        instance - cards.runs.back().first_instance >= renderer_live_gpu::model_run_instances)
+        cards.runs.push_back({vertex, static_cast<uint32_t>(cards.indices.size()), 0, instance});
+    auto& run = cards.runs.back();
+    const uint32_t named = (instance - run.first_instance) << renderer_live_gpu::model_corner_bits;
+    const auto first_index = static_cast<uint32_t>(cards.indices.size());
+    const auto& source = reference.instance->model();
+    const float* positions = cards.positions.data() + first_position;
+    // The bounds the pick takes, through the camera as it projects vertices.
+    const auto& camera = in.clip_projection;
+    std::array<float, 4> bounds{
+        std::numeric_limits<float>::infinity(),
+        std::numeric_limits<float>::infinity(),
+        -std::numeric_limits<float>::infinity(),
+        -std::numeric_limits<float>::infinity()
+    };
+    for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+        if ((pieces[piece].flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) ==
+            0)
+            continue;
+        const auto& object = source.objects[type.objects[piece]];
+        const float* piece_positions = positions + std::size_t{type.piece_vertices[piece]} * 3;
+        const bool first = cards.piece_frames[first_piece + piece] != 0;
+        for (uint32_t at = type.piece_polygons[piece]; at < type.piece_polygons[piece + 1]; ++at) {
+            const auto& polygon = type.polygons[at];
+            // A polygon of the image key is clear in a unit's picture.
+            if (polygon.colored && image && polygon.color == model::image_key)
+                continue;
+            const uint32_t slot = table + (first ? polygon.first_slot : polygon.running_slot);
+            if (cards.slot_states[slot] == 0)
+                find_card_slot(in, pass, materials, type.slots[slot - table], slot, team);
+            if (cards.slot_states[slot] != 1)
+                continue;
+            const auto& indices = object.primitives[polygon.primitive].vertex_indices;
+            corners.clear();
+            for (const uint16_t index : indices) {
+                const float* point = piece_positions + std::size_t{index} * 3;
+                corners.push_back({point[0], point[1], point[2]});
+            }
+            if (back_facing_corners(std::span<const CardCorner>(corners), in.view_direction))
+                continue;
+            const std::size_t count = (polygon.corners - 2) * 3;
+            count_on_card(pass, count);
+            for (uint32_t corner = 0; corner < count; ++corner)
+                cards.indices.push_back(named | (polygon.record + corner));
+            for (const auto& corner : corners) {
+                const float across = camera[0] * corner.x + camera[1] * corner.height +
+                                     camera[2] * corner.z + camera[3];
+                const float down = camera[4] * corner.x + camera[5] * corner.height +
+                                   camera[6] * corner.z + camera[7];
+                bounds = {
+                    std::min(bounds[0], across),
+                    std::min(bounds[1], down),
+                    std::max(bounds[2], across),
+                    std::max(bounds[3], down)
+                };
+            }
+        }
+    }
+    const auto index_count = static_cast<uint32_t>(cards.indices.size() - first_index);
+    run.index_count += index_count;
+    const bool picked = !draw.on_map && unit.id != 0;
+    auto& drawn = cards.units.emplace_back();
+    drawn.unit_id = picked ? unit.id : uint16_t{0};
+    drawn.vertex = vertex;
+    drawn.instance = instance;
+    drawn.type = type_index;
+    drawn.first_index = first_index;
+    drawn.index_count = index_count;
+    if (index_count != 0) {
+        drawn.left = bounds[0];
+        drawn.top = bounds[1];
+        drawn.right = bounds[2];
+        drawn.bottom = bounds[3];
+    }
+    return true;
+}
+
 /// Uses the actual animated, rotated model vertices prepared for this frame.
 ///
 /// @param in the frame
@@ -4117,6 +4425,8 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
     std::size_t reflection_budget = 24576;
     std::array<std::optional<AtlasRect>, 256> colors;
     std::unordered_map<const Sprite*, AtlasRect> textures;
+    ModelMaterials materials{colors, textures};
+    std::vector<CardCorner> card_corners;
     std::unordered_map<const Sprite*, AtlasRect> bright_textures;
     PaletteBytes bright_palette = *in.palette;
     for (auto& channel : bright_palette)
@@ -4272,6 +4582,31 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
                         max_y + margin_y < top || min_y - margin_y > bottom))
             continue;
         const float brightness = brightness_at(in.sight, x, z - h * height_lift);
+        // The card draws a model whose vertices would all be drawn whole,
+        // unlit by its build and unshaded, from its type's model.
+        if (in.models_on_card && !translucent && !reflects &&
+            std::clamp(unit->build_remaining, 0.0F, 1.0F) == 0) {
+            const bool image =
+                draw.plan.model.from_image && reference.state && reference.state->image.sprite.data;
+            const bool shaded = shade_ready && image &&
+                                (unit->flags & OA_UNIT_FLAG_BUILDING) != 0 &&
+                                (in.graphics_flags & model::graphics_shading) != 0;
+            if (!shaded && draw_on_card(
+                               in,
+                               pass,
+                               materials,
+                               draw,
+                               *unit,
+                               {x, h, z},
+                               brightness,
+                               image,
+                               nanolathe_lights,
+                               card_corners
+                           )) {
+                ++list.drawn;
+                continue;
+            }
+        }
         const std::array reflected_view{
             in.view_direction[0], -in.view_direction[1], in.view_direction[2]
         };
@@ -5620,6 +5955,7 @@ void clear_list(PassList& list, std::size_t end) {
     list.draw_vertices = 0;
     list.draw_translucent = 0;
     list.draw_ranges = 0;
+    clear_cards(list.cards);
     list.failure = nullptr;
     list.nanoseconds = 0;
     list.materials_packed = 0;
@@ -5656,6 +5992,7 @@ void run_beside(Scene& scene, PassList& list, std::size_t end, bool timing, Draw
         list.vertices.resize(list.draw_vertices);
         list.translucent_vertices.resize(list.draw_translucent);
         list.unit_ranges.resize(list.draw_ranges);
+        unmark_cards(list.cards);
     } catch (...) {
         list.failure = std::current_exception();
     }
@@ -5830,6 +6167,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     auto& passes = scene.passes;
     const auto& draws = *in.draws;
     const bool timing = bench_timers::timers.on;
+    trim_card_types(scene.card_types);
     for (auto* list :
          {&passes.ground_cards,
           &passes.shadow_packing,
@@ -6120,6 +6458,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         timing,
         [&](Pass& pass, std::size_t from) { models(in, pass, from, draws.models.size()); }
     );
+    listed += passes.models.cards.vertices;
     take_list(
         scene,
         passes.projectiles,
@@ -6162,6 +6501,13 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         range.first_vertex += models_first;
         scene.unit_ranges.push_back(range);
     }
+    // The models drawn on the card, among the models' vertices.
+    auto& on_card = passes.models.cards;
+    for (auto& run : on_card.runs)
+        run.vertex += models_first;
+    for (auto& unit : on_card.units)
+        unit.vertex += models_first;
+    std::swap(scene.cards, on_card);
     std::swap(scene.translucent_vertices, passes.models.translucent_vertices);
     std::swap(scene.translucent_ranges, passes.models.translucent_ranges);
     join(passes.projectiles.vertices);
@@ -6301,6 +6647,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             scene.unit_ranges.clear();
             scene.translucent_vertices.clear();
             scene.translucent_ranges.clear();
+            clear_cards(scene.cards);
             scene.shadow_count = 0;
             scene.model_count = 0;
             scene.sprite_count = 0;
@@ -6457,6 +6804,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         scene.out_of_room = dynamic_cast<const OutOfRoom*>(&exception) != nullptr;
         scene.vertices.clear();
         scene.unit_ranges.clear();
+        clear_cards(scene.cards);
         scene.shadow_count = 0;
         scene.terrain_vertex_count = 0;
         scene.model_count = 0;

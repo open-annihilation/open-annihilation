@@ -4,6 +4,7 @@
 #pragma once
 
 #include "renderer_live_gpu.hpp"
+#include "renderer_live_models.hpp"
 #include "renderer_water.hpp"
 #include "runtime_full.hpp"
 #include "oa/formats/tnt.hpp"
@@ -259,6 +260,9 @@ struct PassList {
     std::size_t draw_translucent{};
     std::size_t draw_ranges{};
     std::exception_ptr failure{}; ///< a failure, raised in the passes' order
+    /// The models the pass draws on the card (Inputs::models_on_card), whose
+    /// sizes go back with the list's when a draw stops.
+    ModelCards cards{};
     /// For the bench: the time the pass took on the threads it ran on, and
     /// the materials it packed and their texels.
     uint64_t nanoseconds{};
@@ -413,6 +417,11 @@ struct Scene {
     std::vector<UnitRange> translucent_ranges{};
     /// The lists of the passes after the terrain.
     PassLists passes{};
+    /// The model types the card keeps (Inputs::models_on_card), and the
+    /// frame's models drawn from them: each run among the vertices before
+    /// its ModelRun::vertex, which the pick takes too.
+    CardTypes card_types{};
+    ModelCards cards{};
 };
 
 /// Read-only frame inputs. The planner owns all model and sprite references.
@@ -475,6 +484,14 @@ struct Inputs {
     /// none runs them one after another on the calling thread. Either way
     /// the frame is the same.
     platform::job_pool::Pool* pool{};
+    /// The card draws units and features from their types' models
+    /// (renderer_live_gpu::draws_models): each model draw it can serve goes
+    /// to Scene::cards rather than to the vertices, drawing what its
+    /// vertices would have, in their place. A model under construction,
+    /// cloaked or under the debug overlay, reflected in the water, shaded as
+    /// a building, lit by nanolathe particles, or of a model the card cannot
+    /// hold stays in the vertices.
+    bool models_on_card{};
 };
 
 /// Rebuilds live terrain, visible models and GAF cutouts from a frame's plan.

@@ -9,9 +9,12 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
+#include <vector>
 
 namespace oa::app::renderer_live_gpu {
 namespace {
@@ -437,11 +440,425 @@ void upload_lights(const LightResources& lights, SDL_GPUCopyPass* copy) {
     SDL_UploadToGPUTexture(copy, &tile_source, &tile_region, true);
 }
 
+/// The card's part of the model draws (ModelDraws): the models' vertex
+/// stage and its pipelines into the scene and into the lights' surface, the
+/// types' corners it keeps, and each frame's instances, vertices, textures
+/// and indices.
+struct ModelResources {
+    SDL_GPUDevice* device{}; ///< the device they are made on
+    SDL_GPUShader* vertex_shader{};
+    /// The models' vertex stage and the scene's fragment stage, drawn as the
+    /// scene's pipeline draws.
+    SDL_GPUGraphicsPipeline* pipeline{};
+    /// The models' vertex stage and the surface's fragment stage, drawn as
+    /// the surface's pipeline draws; null where the card draws no surface.
+    SDL_GPUGraphicsPipeline* surface_pipeline{};
+    SDL_GPUBuffer* corners{}; ///< every type's triangle corners
+    SDL_GPUBuffer* frame{};   ///< the camera's rows, then the frame's draws
+    SDL_GPUBuffer* indices{}; ///< the frame's triangle corners drawn
+    SDL_GPUTransferBuffer* upload{};
+    uint32_t corner_capacity{}; ///< bytes
+    uint32_t frame_capacity{};
+    uint32_t index_capacity{};
+    uint32_t upload_capacity{};
+    /// The corners on the card: their revision and how many words of them;
+    /// no revision before any are.
+    uint64_t corners_revision{};
+    std::size_t corner_words{};
+    /// This frame's upload: the corners from corner_from, the frame's draws
+    /// and its indices, one after another.
+    std::size_t corner_from{};
+    uint32_t corner_bytes{};
+    uint32_t frame_bytes{};
+    uint32_t index_bytes{};
+
+    ModelResources() = default;
+    ModelResources(const ModelResources&) = delete;
+    ModelResources& operator=(const ModelResources&) = delete;
+
+    /// Release the handles before the device they were made on.
+    ~ModelResources() {
+        if (!device)
+            return;
+        for (SDL_GPUGraphicsPipeline* made : {pipeline, surface_pipeline})
+            if (made)
+                SDL_ReleaseGPUGraphicsPipeline(device, made);
+        if (vertex_shader)
+            SDL_ReleaseGPUShader(device, vertex_shader);
+        for (SDL_GPUBuffer* made : {corners, frame, indices})
+            if (made)
+                SDL_ReleaseGPUBuffer(device, made);
+        if (upload)
+            SDL_ReleaseGPUTransferBuffer(device, upload);
+    }
+};
+
+/// The words before the frame's draws in ModelResources::frame: the scene
+/// camera's first four rows, then where each part of the draws begins.
+constexpr uint32_t model_frame_header_words = 20;
+/// The words of an instance in ModelResources::frame: its type's corners,
+/// its vertices, pieces and textures, its brightness, and room.
+constexpr uint32_t model_instance_words = 8;
+/// A triangle corner's vertex, and a texture, in ModelDraws::corners; an
+/// index's corner in ModelDraws::indices.
+constexpr uint32_t model_vertex_mask = (1U << model_piece_shift) - 1;
+constexpr uint32_t model_texture_mask = (1U << model_texture_bits) - 1;
+static_assert(model_corner_bits == model_piece_shift);
+/// The most corners, vertices and pieces an instance's type has, and
+/// textures it draws with.
+constexpr uint32_t model_field_limit = 1U << 16;
+constexpr uint32_t model_texture_limit = 1U << model_texture_bits;
+
+/// Whether a frame's model draws hold together: every instance's ranges in
+/// their lists and within the fields' limits, every corner of its type
+/// naming a vertex, piece and texture it has, every index an instance of
+/// its run and a corner of its type, the runs in the frame's order among
+/// its vertices after the kept ground, and every value within its range.
+///
+/// @param models the model draws
+/// @param ground_count the frame's first vertices, the kept ground
+/// @param vertex_count the frame's vertices
+/// @return true where render() may draw them
+bool valid_model_draws(
+    const ModelDraws& models, std::size_t ground_count, std::size_t vertex_count
+) {
+    if (models.corners.size() % 2 != 0 || models.positions.size() % 3 != 0 ||
+        models.textures.size() % 4 != 0 || models.instances.size() > largest_model_instance_count ||
+        models.indices.size() > max_vertices || (models.corners.empty() && !models.runs.empty()))
+        return false;
+    const std::size_t corner_count = models.corners.size() / 2;
+    const std::size_t position_count = models.positions.size() / 3;
+    const std::size_t texture_count = models.textures.size() / 4;
+    const auto within = [](std::size_t first, std::size_t count, std::size_t size) {
+        return first <= size && count <= size - first;
+    };
+
+    // Each type's corners are read once, for the most each names.
+    struct TypeReach {
+        uint32_t corners{};
+        uint32_t corner_count{};
+        uint32_t vertices{};
+        uint32_t pieces{};
+        uint32_t textures{};
+    };
+
+    std::vector<TypeReach> types;
+    for (const auto& instance : models.instances) {
+        if (!within(instance.corners, instance.corner_count, corner_count) ||
+            !within(instance.positions, instance.position_count, position_count) ||
+            !within(instance.pieces, instance.piece_count, models.piece_frames.size()) ||
+            !within(instance.textures, instance.texture_count, texture_count) ||
+            instance.corner_count > model_field_limit ||
+            instance.position_count > model_field_limit ||
+            instance.piece_count > model_field_limit ||
+            instance.texture_count > model_texture_limit ||
+            !(instance.brightness >= 0 && instance.brightness <= 1))
+            return false;
+        auto type = std::find_if(types.begin(), types.end(), [&](const TypeReach& reach) {
+            return reach.corners == instance.corners && reach.corner_count == instance.corner_count;
+        });
+        if (type == types.end()) {
+            TypeReach reach{instance.corners, instance.corner_count};
+            for (uint32_t corner = 0; corner < instance.corner_count; ++corner) {
+                const uint32_t place = models.corners[2 * (size_t{instance.corners} + corner)];
+                const uint32_t drawn = models.corners[2 * (size_t{instance.corners} + corner) + 1];
+                reach.vertices = std::max(reach.vertices, (place & model_vertex_mask) + 1);
+                reach.pieces = std::max(reach.pieces, (place >> model_piece_shift) + 1);
+                reach.textures = std::max(
+                    {reach.textures,
+                     (drawn & model_texture_mask) + 1,
+                     ((drawn >> model_texture_bits) & model_texture_mask) + 1}
+                );
+            }
+            type = types.insert(types.end(), reach);
+        }
+        if (type->vertices > instance.position_count || type->pieces > instance.piece_count ||
+            type->textures > instance.texture_count)
+            return false;
+    }
+    // Branch-free tests, as the frame's vertices are checked.
+    const auto inside = [](float value, float low, float high) -> uint32_t {
+        return static_cast<uint32_t>(value >= low) & static_cast<uint32_t>(value <= high);
+    };
+    uint32_t valid = 1;
+    for (const float value : models.positions)
+        valid &= inside(value, -coordinate_limit, coordinate_limit);
+    for (const float value : models.textures)
+        valid &= inside(value, 0, 1);
+    for (const uint32_t frame : models.piece_frames)
+        valid &= static_cast<uint32_t>(frame <= 1);
+    std::size_t vertex = ground_count;
+    for (const auto& run : models.runs) {
+        if (run.vertex < vertex || run.vertex > vertex_count ||
+            !within(run.first_index, run.index_count, models.indices.size()) ||
+            run.index_count % vertices_per_triangle != 0 ||
+            (run.index_count != 0 && run.first_instance >= models.instances.size()))
+            return false;
+        vertex = run.vertex;
+        const std::size_t instances = models.instances.size() - run.first_instance;
+        for (const uint32_t index : models.indices.subspan(run.first_index, run.index_count)) {
+            const std::size_t instance = index >> model_corner_bits;
+            if (instance >= std::min<std::size_t>(instances, model_run_instances))
+                return false;
+            valid &= static_cast<uint32_t>(
+                (index & model_vertex_mask) <
+                models.instances[run.first_instance + instance].corner_count
+            );
+        }
+    }
+    return valid != 0;
+}
+
+/// Makes the models' pipelines from the scene's and the surface's, in place
+/// of any made before: the models' vertex stage with no vertex buffer,
+/// everything else as theirs; none into the surface where it has none.
+///
+/// @param scene the scene's pipeline, as made
+/// @param surface_shader the surface's fragment stage; null for no surface
+/// @return false where the models' vertex stage or pipeline cannot be made
+bool make_model_pipelines(
+    ModelResources& models,
+    SDL_GPUDevice* device,
+    const SDL_GPUGraphicsPipelineCreateInfo& scene,
+    SDL_GPUShader* surface_shader
+) {
+    models.device = device;
+    for (SDL_GPUGraphicsPipeline** made : {&models.pipeline, &models.surface_pipeline}) {
+        if (*made)
+            SDL_ReleaseGPUGraphicsPipeline(device, *made);
+        *made = nullptr;
+    }
+    if (!models.vertex_shader) {
+        SDL_GPUShaderCreateInfo info{};
+        stage_code(device, info, live_model_vertex_spirv, live_model_vertex_msl);
+        info.stage = SDL_GPU_SHADERSTAGE_VERTEX;
+        info.num_storage_buffers = 2;
+        models.vertex_shader = SDL_CreateGPUShader(device, &info);
+        if (!models.vertex_shader)
+            return false;
+    }
+    auto info = scene;
+    info.vertex_shader = models.vertex_shader;
+    info.vertex_input_state = SDL_GPUVertexInputState{};
+    models.pipeline = SDL_CreateGPUGraphicsPipeline(device, &info);
+    if (!models.pipeline)
+        return false;
+    if (surface_shader) {
+        // As make_light_surface_pipeline makes the surface's.
+        SDL_GPUColorTargetDescription target{};
+        target.format = light_surface_format;
+        info.fragment_shader = surface_shader;
+        info.target_info.color_target_descriptions = &target;
+        info.target_info.num_color_targets = 1;
+        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
+        info.multisample_state = SDL_GPUMultisampleState{};
+        models.surface_pipeline = SDL_CreateGPUGraphicsPipeline(device, &info);
+        if (!models.surface_pipeline)
+            return false;
+    }
+    return true;
+}
+
+/// Makes the buffers a frame's model draws need and copies into the upload
+/// the corners the card lacks, the camera's rows and the draws, and the
+/// indices.
+///
+/// @param camera the scene's uniform block, whose first rows the models'
+///     vertex stage reads from the frame's draws
+/// @return false where any of it cannot be made
+bool prepare_models(
+    ModelResources& models, const ModelDraws& draws, std::span<const float> camera
+) {
+    SDL_GPUDevice* const device = models.device;
+    const auto grown = [&](SDL_GPUBuffer*& buffer,
+                           uint32_t& capacity,
+                           uint32_t bytes,
+                           SDL_GPUBufferUsageFlags usage) {
+        if (bytes <= capacity)
+            return true;
+        if (buffer)
+            SDL_ReleaseGPUBuffer(device, buffer);
+        capacity = 0;
+        SDL_GPUBufferCreateInfo info{};
+        info.usage = usage;
+        info.size = bytes;
+        buffer = SDL_CreateGPUBuffer(device, &info);
+        if (!buffer)
+            return false;
+        capacity = bytes;
+        return true;
+    };
+    // The corners already on the card stay while their revision does, and
+    // their buffer holds them; others go up whole.
+    const auto corners_bytes = uint32_t(draws.corners.size_bytes());
+    if (corners_bytes > models.corner_capacity)
+        models.corner_words = 0;
+    if (!grown(
+            models.corners,
+            models.corner_capacity,
+            corners_bytes,
+            SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ
+        ))
+        return false;
+    const bool kept = models.corners_revision == draws.corners_revision &&
+                      models.corner_words != 0 && models.corner_words <= draws.corners.size();
+    models.corner_from = kept ? models.corner_words : 0;
+    models.corner_bytes = uint32_t((draws.corners.size() - models.corner_from) * sizeof(uint32_t));
+    const auto words = [](std::size_t count) { return uint32_t(count * sizeof(uint32_t)); };
+    const uint32_t instance_words = uint32_t(draws.instances.size()) * model_instance_words;
+    models.frame_bytes = words(
+        model_frame_header_words + instance_words + draws.positions.size() +
+        draws.piece_frames.size() + draws.textures.size()
+    );
+    models.index_bytes = uint32_t(draws.indices.size_bytes());
+    if (!grown(
+            models.frame,
+            models.frame_capacity,
+            models.frame_bytes,
+            SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ
+        ) ||
+        !grown(
+            models.indices, models.index_capacity, models.index_bytes, SDL_GPU_BUFFERUSAGE_INDEX
+        ))
+        return false;
+    const uint32_t upload_bytes = models.corner_bytes + models.frame_bytes + models.index_bytes;
+    if (upload_bytes > models.upload_capacity) {
+        if (models.upload)
+            SDL_ReleaseGPUTransferBuffer(device, models.upload);
+        models.upload_capacity = 0;
+        SDL_GPUTransferBufferCreateInfo info{};
+        info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        info.size = upload_bytes;
+        models.upload = SDL_CreateGPUTransferBuffer(device, &info);
+        if (!models.upload)
+            return false;
+        models.upload_capacity = upload_bytes;
+    }
+    auto* upload = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device, models.upload, true));
+    if (!upload)
+        return false;
+    std::memcpy(upload, draws.corners.data() + models.corner_from, models.corner_bytes);
+    auto* frame = reinterpret_cast<uint32_t*>(upload + models.corner_bytes);
+    // The camera's horizontal, vertical, depth and viewport rows.
+    constexpr std::size_t camera_rows = 16;
+    std::memcpy(frame, camera.data(), camera_rows * sizeof(float));
+    const uint32_t positions = instance_words;
+    const uint32_t piece_frames = positions + uint32_t(draws.positions.size());
+    const uint32_t textures = piece_frames + uint32_t(draws.piece_frames.size());
+    frame[camera_rows] = 0;
+    frame[camera_rows + 1] = positions;
+    frame[camera_rows + 2] = piece_frames;
+    frame[camera_rows + 3] = textures;
+    uint32_t* at = frame + model_frame_header_words;
+    for (const auto& instance : draws.instances) {
+        const std::array<uint32_t, model_instance_words> record{
+            instance.corners,
+            instance.positions,
+            instance.pieces,
+            instance.textures,
+            std::bit_cast<uint32_t>(instance.brightness)
+        };
+        at = std::copy(record.begin(), record.end(), at);
+    }
+    std::memcpy(at, draws.positions.data(), draws.positions.size_bytes());
+    at += draws.positions.size();
+    std::memcpy(at, draws.piece_frames.data(), draws.piece_frames.size_bytes());
+    at += draws.piece_frames.size();
+    std::memcpy(at, draws.textures.data(), draws.textures.size_bytes());
+    std::memcpy(
+        upload + models.corner_bytes + models.frame_bytes, draws.indices.data(), models.index_bytes
+    );
+    SDL_UnmapGPUTransferBuffer(device, models.upload);
+    return true;
+}
+
+/// Uploads what prepare_models() copied, in the frame's copy pass, and notes
+/// the corners the card then holds.
+void upload_models(ModelResources& models, const ModelDraws& draws, SDL_GPUCopyPass* copy) {
+    if (models.corner_bytes != 0) {
+        const SDL_GPUTransferBufferLocation source{models.upload, 0};
+        const SDL_GPUBufferRegion destination{
+            models.corners, uint32_t(models.corner_from * sizeof(uint32_t)), models.corner_bytes
+        };
+        SDL_UploadToGPUBuffer(copy, &source, &destination, false);
+    }
+    // The frame's draws and indices are written whole: cycled, since a
+    // frame left on the card may still be reading the frame before's. The
+    // corners above are added to, and stay.
+    const SDL_GPUTransferBufferLocation frame_source{models.upload, models.corner_bytes};
+    const SDL_GPUBufferRegion frame_destination{models.frame, 0, models.frame_bytes};
+    SDL_UploadToGPUBuffer(copy, &frame_source, &frame_destination, true);
+    if (models.index_bytes != 0) {
+        const SDL_GPUTransferBufferLocation index_source{
+            models.upload, models.corner_bytes + models.frame_bytes
+        };
+        const SDL_GPUBufferRegion index_destination{models.indices, 0, models.index_bytes};
+        SDL_UploadToGPUBuffer(copy, &index_source, &index_destination, true);
+    }
+    models.corners_revision = draws.corners_revision;
+    models.corner_words = draws.corners.size();
+}
+
+/// Draws the frame's vertices after the kept ground, in their order, with
+/// each run of model draws before its vertex.
+///
+/// @param pass the render pass, its fragment samplers and uniforms bound
+/// @param pipeline the frame's vertices' pipeline
+/// @param frame_vertices the buffer of the frame's vertices after the ground
+/// @param frame_count those vertices
+/// @param ground_count the kept ground's vertices before them
+/// @param models the models' resources, uploaded; null for no model draws
+/// @param model_pipeline the models' pipeline into the same pass
+/// @param runs the model draws' runs
+void draw_frame_and_models(
+    SDL_GPURenderPass* pass,
+    SDL_GPUGraphicsPipeline* pipeline,
+    SDL_GPUBuffer* frame_vertices,
+    std::size_t frame_count,
+    std::size_t ground_count,
+    const ModelResources* models,
+    SDL_GPUGraphicsPipeline* model_pipeline,
+    std::span<const ModelRun> runs
+) {
+    const SDL_GPUBufferBinding binding{frame_vertices, 0};
+    std::size_t drawn = 0;
+    const auto draw_vertices = [&](std::size_t end) {
+        if (end <= drawn)
+            return;
+        SDL_BindGPUGraphicsPipeline(pass, pipeline);
+        SDL_BindGPUVertexBuffers(pass, 0, &binding, 1);
+        SDL_DrawGPUPrimitives(pass, uint32_t(end - drawn), 1, uint32_t(drawn), 0);
+        drawn = end;
+    };
+    for (const auto& run : runs) {
+        if (!models || run.index_count == 0)
+            continue;
+        draw_vertices(run.vertex - ground_count);
+        SDL_BindGPUGraphicsPipeline(pass, model_pipeline);
+        const std::array<SDL_GPUBuffer*, 2> storage{models->corners, models->frame};
+        SDL_BindGPUVertexStorageBuffers(pass, 0, storage.data(), uint32_t(storage.size()));
+        const SDL_GPUBufferBinding indices{models->indices, 0};
+        SDL_BindGPUIndexBuffer(pass, &indices, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+        SDL_DrawGPUIndexedPrimitives(
+            pass,
+            run.index_count,
+            1,
+            run.first_index,
+            int32_t(run.first_instance << model_corner_bits),
+            0
+        );
+    }
+    draw_vertices(frame_count);
+}
+
 /// Draws the surface the lights reach: the frame's triangles again, the
-/// kept ground and then the rest, one sample a pixel whatever the scene's
-/// samples, so that each pixel holds the face under its centre.
+/// kept ground and then the rest with the model draws among them, one
+/// sample a pixel whatever the scene's samples, so that each pixel holds
+/// the face under its centre.
 ///
 /// @param camera the scene's uniform block
+/// @param models the models' resources, uploaded; null for no model draws
+/// @param runs the model draws' runs
 /// @return false where the pass cannot begin
 bool draw_light_surface(
     const LightResources& lights,
@@ -452,7 +869,9 @@ bool draw_light_surface(
     SDL_GPUBuffer* ground,
     std::size_t ground_count,
     SDL_GPUBuffer* frame_vertices,
-    std::size_t frame_count
+    std::size_t frame_count,
+    const ModelResources* models,
+    std::span<const ModelRun> runs
 ) {
     SDL_GPUColorTargetInfo target{};
     target.texture = lights.surface;
@@ -479,11 +898,16 @@ bool draw_light_surface(
         SDL_BindGPUVertexBuffers(pass, 0, &binding, 1);
         SDL_DrawGPUPrimitives(pass, uint32_t(ground_count), 1, 0, 0);
     }
-    if (frame_count != 0) {
-        const SDL_GPUBufferBinding binding{frame_vertices, 0};
-        SDL_BindGPUVertexBuffers(pass, 0, &binding, 1);
-        SDL_DrawGPUPrimitives(pass, uint32_t(frame_count), 1, 0, 0);
-    }
+    draw_frame_and_models(
+        pass,
+        lights.surface_pipeline,
+        frame_vertices,
+        frame_count,
+        ground_count,
+        models && models->surface_pipeline ? models : nullptr,
+        models ? models->surface_pipeline : nullptr,
+        runs
+    );
     SDL_EndGPURenderPass(pass);
     return true;
 }
@@ -709,6 +1133,8 @@ struct Context::State {
     /// The picture the last frame that succeeded drew, which it left on the
     /// card or read back; null before one.
     SDL_GPUTexture* picture{};
+    /// The models' resources, released before the device in resources.
+    ModelResources models;
 };
 
 Context::Context() : state(std::make_unique<State>()) {
@@ -753,6 +1179,16 @@ SDL_GPUDevice* device(Context& context) {
     return open_device(context, error) ? context.state->resources.device : nullptr;
 }
 
+bool draws_models(const Context& context) noexcept {
+    return context.models_allowed && !context.device_unavailable && context.state &&
+           context.state->resources.device != nullptr;
+}
+
+bool draws_lights(const Context& context) noexcept {
+    return context.lights_allowed && context.state && context.state->resources.device != nullptr &&
+           context.state->lights.surface_pipeline != nullptr;
+}
+
 Result render(
     Context& context,
     std::span<const Vertex> vertices,
@@ -770,7 +1206,8 @@ Result render(
     const WaterEffects* water,
     const KeptGround* ground,
     const std::function<void()>& while_drawing,
-    const Lights* lights
+    const Lights* lights,
+    const ModelDraws* models
 ) {
     output_rgba.clear();
     error.clear();
@@ -865,6 +1302,15 @@ Result render(
             within(vertex.terrain_y, 0, atlas_height) & known_terrain_size &
             unit_range(vertex.terrain_grey) & unit_range(vertex.terrain_known) & square_in_atlas;
         vertices_valid &= valid;
+    }
+    // The model draws, where there are any, and only where the card may
+    // draw them.
+    const bool modelled = models && !models->runs.empty();
+    if (modelled &&
+        (!context.models_allowed || !valid_model_draws(*models, ground_count, vertices.size()))) {
+        validating.stop();
+        error = "Invalid live GPU model draws";
+        return Result::failed;
     }
     validating.stop();
     if (vertices_valid == 0) {
@@ -987,6 +1433,10 @@ Result render(
             return fail("Create live GPU pipeline");
         state.pipeline_samples = samples;
         make_light_surface_pipeline(state.lights, resources.device, pipeline_info);
+        if (!make_model_pipelines(
+                state.models, resources.device, pipeline_info, state.lights.surface_shader
+            ))
+            return fail("Create live GPU model pipelines");
     }
     const auto frame_vertices = vertices.subspan(ground_count);
     const auto vertex_bytes = uint32_t(frame_vertices.size_bytes());
@@ -1179,6 +1629,30 @@ Result render(
         upload_rows + frame_upload_rows, upload_rows == texture_height
     );
     bench_timers::Span uploading(bench_timers::Stage::gpu_upload);
+    // The model draws, which read the camera's rows from their own buffer.
+    auto& models_held = state.models;
+    if (modelled) {
+        const std::array camera_rows{
+            projection[0],
+            projection[1],
+            projection[2],
+            projection[3],
+            projection[4],
+            projection[5],
+            projection[6],
+            projection[7],
+            projection[8],
+            projection[9],
+            projection[10],
+            projection[11],
+            float(output_width),
+            float(output_height),
+            float(supersample),
+            float(samples)
+        };
+        if (!models_held.pipeline || !prepare_models(models_held, *models, camera_rows))
+            return fail("Create live GPU model resources");
+    }
     // The upload holds the frame's vertices, then the kept ground when it
     // has changed, then the atlas rows that have, then the frame's own rows,
     // then the rectangles.
@@ -1283,6 +1757,8 @@ Result render(
     }
     if (lit)
         upload_lights(lights_held, copy);
+    if (modelled)
+        upload_models(models_held, *models, copy);
     SDL_EndGPUCopyPass(copy);
     SDL_GPUColorTargetInfo colour_target{};
     colour_target.texture = resources.colour;
@@ -1365,17 +1841,24 @@ Result render(
     SDL_BindGPUFragmentSamplers(
         pass, 0, sampler_bindings.data(), static_cast<Uint32>(sampler_bindings.size())
     );
-    // The ground first and then the rest, in the frame's order.
+    // The ground first and then the rest, in the frame's order, the model
+    // draws among them.
     if (ground_count != 0) {
         const SDL_GPUBufferBinding binding{resources.ground, 0};
         SDL_BindGPUVertexBuffers(pass, 0, &binding, 1);
         SDL_DrawGPUPrimitives(pass, uint32_t(ground_count), 1, 0, 0);
     }
-    if (!frame_vertices.empty()) {
-        const SDL_GPUBufferBinding binding{resources.vertices, 0};
-        SDL_BindGPUVertexBuffers(pass, 0, &binding, 1);
-        SDL_DrawGPUPrimitives(pass, uint32_t(frame_vertices.size()), 1, 0, 0);
-    }
+    const std::span<const ModelRun> runs = modelled ? models->runs : std::span<const ModelRun>{};
+    draw_frame_and_models(
+        pass,
+        resources.pipeline,
+        resources.vertices,
+        frame_vertices.size(),
+        ground_count,
+        modelled ? &models_held : nullptr,
+        models_held.pipeline,
+        runs
+    );
     SDL_EndGPURenderPass(pass);
     // The surface the lights reach, from the same vertices.
     if (lit && !draw_light_surface(
@@ -1387,7 +1870,9 @@ Result render(
                    resources.ground,
                    ground_count,
                    resources.vertices,
-                   frame_vertices.size()
+                   frame_vertices.size(),
+                   modelled ? &models_held : nullptr,
+                   runs
                ))
         return fail("Begin live GPU lights' surface");
     if (supersample > 1) {

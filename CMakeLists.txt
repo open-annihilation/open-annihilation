@@ -599,7 +599,8 @@ if(OA_BUILD_PLATFORM)
     add_test(NAME app-full-effects COMMAND oa-app-full-effects-test)
   endif()
   add_library(oa-app-renderer-live src/app/renderer_live_camera.cpp
-    src/app/renderer_live_gpu.cpp src/app/renderer_live_lights.cpp src/app/renderer_live_overlay.cpp
+    src/app/renderer_live_gpu.cpp src/app/renderer_live_lights.cpp src/app/renderer_live_models.cpp
+    src/app/renderer_live_overlay.cpp
     src/app/renderer_live_scene.cpp)
   add_library(oa::app::renderer_live ALIAS oa-app-renderer-live)
   target_include_directories(oa-app-renderer-live PUBLIC src/app)

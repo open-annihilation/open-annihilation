@@ -253,6 +253,23 @@ Construction emission and glow gently pulse by 15 percent over two simulation
 seconds, freezing when paused. The glow fades as the unit finishes and obeys
 the Nanolathe glow intensity in both views.
 
+Most units and 3D features are drawn on the graphics card from their types'
+models (`renderer_live_models.hpp`). Each type's polygons, its pieces in a
+unit's order, are made once into triangle corners that stay on the card; each
+frame the processor sends every model drawn on the card its vertices as it
+places them (the game's piece turns round at every turn and level, so no
+matrix gives them exactly), each piece's first or running texture frame, the
+atlas places of the textures its team draws, and the faces it shows, in their
+order; `live_model_vertex.glsl` gives the scene's fragment stage, and the
+lights' surface, what those vertices would have given it. The frame's other
+vertices are drawn in their order with the models' runs among them, so the
+picture is the one the processor's vertices draw, to the byte, and the pick
+tests a model's triangles where they would have lain among the frame's. A
+model under construction, cloaked or under the debug overlay, reflected in
+the water, shaded as a building or lit by nanolathe particles, and every model
+where the card leaves the lights to the processor or has none of this yet,
+stays in the frame's vertices.
+
 Visible shots produce coloured muzzle, projectile and impact lights. Shot
 events are captured before retirement, including shots that last less than
 one tick; explosions without a weapon event use warm splash lighting.
