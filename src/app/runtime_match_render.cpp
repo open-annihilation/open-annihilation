@@ -219,7 +219,9 @@ void place_unit_copies(
     const std::optional<unit_playout::UnitPose>& pose
 ) {
     motion.record = record;
-    motion.instance = instance;
+    // The copies keep their transforms from their last draw, which the
+    // rebuild before this draw works out again only where the pose differs.
+    motion.instance.take_pose(instance);
     if (motion.moved)
         blend_unit_pose(
             motion.previous,
@@ -681,11 +683,13 @@ void plan_unit_model(
     if (model.instance == nullptr)
         return;
     if (plan.from_copies) {
-        // The match reads the piece transforms a draw rebuilds, so they
-        // are rebuilt as a draw of the whole tick rebuilds them, and the
-        // unit draws from its copies placed between the ticks. The image
-        // cache of the unit's own draw state waits for a draw of a whole
-        // tick, which leaves it as it would have been.
+        // The unit's own transforms are rebuilt as a draw of the whole tick
+        // rebuilds them, so that the next such draw measures the region it
+        // may touch from them as before, and the unit draws from its copies
+        // placed between the ticks, which take its pieces' poses but keep
+        // their own transforms. The image cache of the unit's own draw
+        // state waits for a draw of a whole tick, which leaves it as it
+        // would have been.
         // A carried unit is drawn, and its transforms rebuilt, by its
         // carrier (draw_linked_model).
         const bool carried = model.unit->attach_parent != 0;

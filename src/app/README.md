@@ -3761,7 +3761,10 @@ prompts, Settings › Updates and the headers name one state with one size.
   tick as it is, below 1 each moved unit from copies of its record and
   model instance placed part of the way from the tick before, with a draw
   state of their own, while the match's own pieces are rebuilt as a whole
-  tick's draw rebuilds them; projectiles, debris, fragments, particles,
+  tick's draw rebuilds them. The copies take the pieces' poses from the
+  match's instance and keep their own transforms from one draw to the next
+  (`Instance::take_pose`), so that their rebuild works out again only the
+  pieces whose pose changed; projectiles, debris, fragments, particles,
   health bars, order lines and a tracking camera follow. With Smooth
   motion Off the loop draws every frame at 1, so each shows its tick as
   it is, a mirrored unit where its playout has it at the tick. The
