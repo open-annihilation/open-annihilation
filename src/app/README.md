@@ -1954,12 +1954,29 @@ prompts, Settings › Updates and the headers name one state with one size.
   the battlefield at the tick is not drawn
   (`projectile_lens_on_battlefield`), and every projectile after it is
   drawn as without it. The Full tier draws no lens. Everything drawing builds or
-  changes on the way is done then, once, on the drawing thread: the piece
-  transforms and the presented copies, the units' and features' cached
-  images and silhouettes and those of the units they carry
-  (`plan_unit_supersampled`), the texture animations, the projectiles'
-  models, the GAF frames decoded for the particles (each once, kept from
-  frame to frame), the selection boxes' lines and the frame's statistics.
+  changes on the way is done then, once: the piece transforms and the
+  presented copies, the units' and features' cached images and silhouettes
+  and those of the units they carry (`plan_unit_supersampled`), the texture
+  animations, the projectiles' models, the GAF frames decoded for the
+  particles (each once, kept from frame to frame), the selection boxes'
+  lines and the frame's statistics. The units are planned first, on the
+  drawing threads (`plan_unit_draws`), the ground units' just before the
+  list reaches them and the raised units' likewise: the drawing thread finds
+  in the draw order what each unit is drawn as (its model, its pose on the
+  playout, whether it stands still and whether it draws from copies placed
+  between the ticks), the threads then ready each unit's model or copies and
+  work out its model draw (`plan_unit_model`, a `UnitPlan` in `MatchModels`),
+  and the list takes each unit's statistics, selection box and draws at its
+  place in the order. A unit's plan changes only its own instance, draw
+  state and copies, so the units that carry or are carried, whose plans reach
+  each other's models, are planned one after another in their order by one
+  thread, and the others four at a time by whichever thread is free, each
+  thread with a renderer of its own (the bands' after the first), binding
+  the models' display and rounding as the ticks do; a plan builds in its
+  renderer's composite only over a part it has cleared, so any number of
+  threads plans the units as one does, and the list and the frames are
+  those one thread gives. A frame of dots plans none. The model draws keep
+  their vertex buffers from one frame's list to the next.
   Before them the frame's shadows are set from the zoom (`set_frame_shadows`, `shadow_fade.hpp` of
   the model module): at zoom 1 and closer the game's own; zoomed out
   lighter, easing down to none at a quarter, the models' silhouettes and

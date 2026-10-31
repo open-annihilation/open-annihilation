@@ -128,6 +128,15 @@ alone:
 The display a draw reads its tables from (`bind_display`) is bound per
 thread, so that each thread drawing a band binds the frame's display.
 
+A plan (`plan_model_draw`, `plan_unit_supersampled`) changes the draw state
+and transforms of its model and of the units the model carries, which it
+reaches through the renderer's `model_of`, and nothing else; it builds in
+the renderer's composite only over a part it has cleared first, and in
+scratch of the calling thread. So models that carry none and are carried by
+none of them can be planned at once on several threads, each with a
+renderer of its own (`copy_renderer_settings`) and the display bound, and
+each plan comes out as planned on one thread.
+
 ## Tests
 
 `tests/` holds one ctest per file (`model-render-*`). `rgb_bridge_test.cpp`

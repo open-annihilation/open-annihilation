@@ -12,6 +12,8 @@ conversion of each frame to the window's pixel format before it is shown,
 the effects' light and heat (`renderer_effects::compose`), the 3D view's
 depth under them (`live_scene_visibility`) and the 3D view's scene passes
 (`renderer_live_scene::build`) ([src/app](../../app/README.md)).
+The battlefield's units are planned on it too, before the frame's draw list
+takes them (`plan_unit_draws`).
 
 ## Results do not depend on the threads
 
@@ -36,7 +38,12 @@ split alike (`bridge_split` in
 every draw of the frame with its own rows alone, each draw over a band's
 edge worked out as over the whole frame. Any number of those bands gives
 the frame one band gives, so these results do not depend on the threads
-either.
+either. The units' plans also take one band for each thread, each band
+planning the units it takes from a shared count until none is left: the
+units that carry or are carried, whose plans reach each other, together
+and in their order first, the others four at a time. Each unit's plan
+changes only its own models and is worked out alone, with the band's own
+renderer, so whichever band plans a unit, it plans it as one thread does.
 
 The 3D view's scene passes after the terrain run as bands of two jobs: the
 first cuts the structures' plots into the ground, 8192 triangles a band,
