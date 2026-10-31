@@ -607,6 +607,38 @@ void test_named_software() {
     close_window(window);
 }
 
+/// SDL's software renderer draws on no graphics device: the window never
+/// presents through the card's device behind it, asking leaves the renderer
+/// as it is, going back to the walked driver changes nothing, and closing
+/// the host destroys the renderer.
+void test_no_card_presentation_on_software() {
+    SDL_Window* window = open_window();
+    if (window == nullptr) {
+        close_window(window);
+        return;
+    }
+    OA_CHECK(SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software"));
+    RendererHost host;
+    try {
+        host.create(window);
+    } catch (const std::exception& error) {
+        std::fprintf(stderr, "create: %s\n", error.what());
+    }
+    SDL_Renderer* const made = host.renderer();
+    OA_CHECK(made != nullptr);
+    OA_CHECK(host.card_device() == nullptr);
+    std::string error;
+    OA_CHECK(!host.present_on_card(error));
+    OA_CHECK(!error.empty());
+    OA_CHECK(!host.presenting_on_card());
+    OA_CHECK(host.renderer() == made);
+    host.present_walked();
+    OA_CHECK(host.renderer() == made && !host.presenting_on_card());
+    host.close();
+    OA_CHECK(host.renderer() == nullptr);
+    close_window(window);
+}
+
 /// Refuses every render driver.
 ///
 /// @return true
@@ -1186,6 +1218,7 @@ int main(int argc, char** argv) {
     test_named_list_rebuild();
     test_named_missing(true);
     test_named_software();
+    test_no_card_presentation_on_software();
     test_function_test_on_software();
     test_function_test_fails_wrong_draws();
     test_start_tier_on_dummy();

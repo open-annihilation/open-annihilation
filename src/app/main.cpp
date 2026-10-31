@@ -574,7 +574,7 @@ struct HostDisplay {
         set_window_place_watcher(nullptr);
         release_pointer(window);
         renderer_host.finish_records();
-        renderer_host.destroy();
+        renderer_host.close();
         if (window != nullptr)
             SDL_DestroyWindow(window);
         window = nullptr;

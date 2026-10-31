@@ -908,7 +908,7 @@ uint64_t steady_clock_ns() noexcept {
 } // namespace
 
 RendererHost::~RendererHost() {
-    destroy();
+    close();
 }
 
 void RendererHost::create(
@@ -997,6 +997,10 @@ void RendererHost::rebuild(std::string_view reason, const renderer_state::Strike
     end_path_stage();
     std::ignore = records_.erase_trial();
     life_.trial = false;
+    // A renderer that failed while the window presented through the card's
+    // device is not made on it again: the 3D view reads its pictures back.
+    if (presenting_on_card_)
+        card_device_refused_ = true;
     destroy();
     lost_noted_ = false;
     make_renderer(failed, true);
@@ -1067,8 +1071,113 @@ void RendererHost::destroy() noexcept {
     if (renderer_ != nullptr)
         SDL_DestroyRenderer(renderer_);
     renderer_ = nullptr;
+    presenting_on_card_ = false;
     facts_ = {};
     tier_.renderer = false;
+}
+
+void RendererHost::close() noexcept {
+    destroy();
+    if (card_device_ != nullptr)
+        SDL_DestroyGPUDevice(card_device_);
+    card_device_ = nullptr;
+}
+
+namespace {
+
+/// Says whether SDL's GPU renderer can take the window from a walked driver
+/// and give it back with neither made again: the drivers that draw on the
+/// interfaces SDL's GPU devices draw on. An OpenGL renderer's window is made
+/// again for Vulkan and back, SDL's software renderer draws on none.
+///
+/// @param driver SDL's name for the walked driver
+/// @return true for Metal, Direct3D 11 and 12, Vulkan and SDL's GPU renderer
+bool card_presentation_driver(std::string_view driver) noexcept {
+    return driver == "metal" || driver == "direct3d11" || driver == "direct3d12" ||
+           driver == "vulkan" || driver == "gpu";
+}
+
+} // namespace
+
+SDL_GPUDevice* RendererHost::card_device() {
+#if SDL_VERSION_ATLEAST(3, 4, 0)
+    if (card_device_refused_)
+        return nullptr;
+    if (card_device_ != nullptr)
+        return card_device_;
+    if (window_ == nullptr || renderer_ == nullptr || SDL_GetVersion() < SDL_VERSIONNUM(3, 4, 0) ||
+        !card_presentation_driver(facts_.renderer)) {
+        card_device_refused_ = true;
+        return nullptr;
+    }
+    // The live renderer's stages come as SPIR-V and Metal shading language:
+    // SDL picks Metal on Apple systems and Vulkan elsewhere, or
+    // SDL_GPU_DRIVER's.
+    card_device_ =
+        SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, false, nullptr);
+    oa::base::float_precision::restore_program_float_control();
+    if (card_device_ == nullptr) {
+        card_device_refused_ = true;
+        std::cout << graphics_log_prefix
+                  << "no graphics device to present the 3D view through: " << SDL_GetError() << '\n'
+                  << std::flush;
+    }
+    return card_device_;
+#else
+    return nullptr;
+#endif
+}
+
+bool RendererHost::present_on_card(std::string& error) {
+    error.clear();
+    if (presenting_on_card_)
+        return true;
+#if SDL_VERSION_ATLEAST(3, 4, 0)
+    SDL_GPUDevice* const device = card_device();
+    if (device == nullptr) {
+        error = "no graphics device to present through";
+        return false;
+    }
+    SDL_DestroyRenderer(renderer_);
+    renderer_ = SDL_CreateGPURenderer(device, window_);
+    oa::base::float_precision::restore_program_float_control();
+    if (renderer_ != nullptr) {
+        presenting_on_card_ = true;
+        return true;
+    }
+    error = std::string("SDL_CreateGPURenderer: ") + SDL_GetError();
+    // A device the window cannot present through is not asked again.
+    card_device_refused_ = true;
+    renderer_ = SDL_CreateRenderer(window_, facts_.renderer.c_str());
+    oa::base::float_precision::restore_program_float_control();
+    if (renderer_ == nullptr)
+        throw std::runtime_error(
+            std::string(renderer_creation_error) + facts_.renderer +
+            " made again: " + SDL_GetError()
+        );
+    return false;
+#else
+    error = "presenting through the card's device needs SDL 3.4 or later";
+    return false;
+#endif
+}
+
+void RendererHost::present_walked() {
+    if (!presenting_on_card_)
+        return;
+    SDL_DestroyRenderer(renderer_);
+    presenting_on_card_ = false;
+    renderer_ = SDL_CreateRenderer(window_, facts_.renderer.c_str());
+    oa::base::float_precision::restore_program_float_control();
+    if (renderer_ == nullptr)
+        throw std::runtime_error(
+            std::string(renderer_creation_error) + facts_.renderer +
+            " made again: " + SDL_GetError()
+        );
+}
+
+bool RendererHost::presenting_on_card() const noexcept {
+    return presenting_on_card_;
 }
 
 SDL_Renderer* RendererHost::renderer() const noexcept {
