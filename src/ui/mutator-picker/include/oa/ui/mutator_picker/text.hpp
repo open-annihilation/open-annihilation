@@ -101,8 +101,10 @@ inline constexpr std::string_view cancel = "Cancel";
 /// The question's button that switches the prerequisite and its dependants off.
 inline constexpr std::string_view turn_off = "Turn off";
 
-/// The window's title.
-inline constexpr std::string_view title_mutators = "Mutators";
+/// The window's title's first words, as Settings' and the Library's headers have them.
+inline constexpr std::string_view title_open_annihilation = "OPEN ANNIHILATION";
+/// The window's title's last word, drawn in the header's second colour.
+inline constexpr std::string_view title_mutators_header = "MUTATORS";
 /// The skirmish setup, in the header's context.
 inline constexpr std::string_view setup_skirmish = "Skirmish";
 /// The battle room setup, in the header's context.

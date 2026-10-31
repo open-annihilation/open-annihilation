@@ -6850,6 +6850,14 @@
 	it=MUTATORE AGGIORNATO;
 	}
 
+[MUTATORS]
+	{
+	de=MUTATOREN;
+	fr=MUTATEURS;
+	es=MUTADORES;
+	it=MUTATORI;
+	}
+
 [Made for the {layout} interface; yours is {yours}.]
 	{
 	de=Für die Oberfläche {layout} gemacht. Deine ist {yours}.;

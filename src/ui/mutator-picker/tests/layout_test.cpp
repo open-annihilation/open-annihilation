@@ -14,7 +14,10 @@
 // lookup and with long German. A drag draws its row, its well and its line,
 // and a refused drop draws no line. Read-only locks the switches, disables
 // the grips and shows CLOSE alone. Both empty lists are drawn. waiting
-// disables USE THESE and is the summary.
+// disables USE THESE and is the summary. The window takes Settings' sizes:
+// Kit 2's header and footer, the buttons at the control height in the
+// regular font, the filter pills at Kit 2's filter chip height, and Tags,
+// the search and the details' controls at the control height.
 //
 // The synthetic font is picker_fixture::fonts.
 
@@ -36,6 +39,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -168,10 +172,10 @@ std::string_view french_shown(void* /*context*/, std::string_view english) {
     using picker::words::setup_skirmish;
     using picker::words::switch_off;
     using picker::words::switch_on;
-    using picker::words::title_mutators;
+    using picker::words::title_mutators_header;
     using picker::words::use_these;
-    if (english == title_mutators)
-        return "Mutateurs";
+    if (english == title_mutators_header)
+        return "MUTATEURS";
     if (english == setup_skirmish)
         return "Escarmouche";
     if (english == no_mod)
@@ -536,7 +540,8 @@ void check_frame(
         OA_CHECK(headings[1] == picker::words::heading_off);
     }
 
-    const int32_t content = window.x - metrics.edge - 2 * metrics.padding;
+    const int32_t left = metrics.edge + metrics.window_padding;
+    const int32_t content = window.x - 2 * left;
     const int32_t list_width = compact ? content
                                : frame.size_class == kit::SizeClass::large
                                    ? picker::large_list_width
@@ -544,8 +549,7 @@ void check_frame(
     bool pane = false;
     for (const kit::Item& item : list.items) {
         if (item.role == kit::Role::fill && item.colour == kit::colour::list &&
-            item.rect.x == metrics.padding && item.rect.width == list_width &&
-            item.rect.height > row_height)
+            item.rect.x == left && item.rect.width == list_width && item.rect.height > row_height)
             pane = true;
     }
     OA_CHECK(pane);
@@ -553,7 +557,7 @@ void check_frame(
     OA_CHECK(search != nullptr);
     if (search != nullptr) {
         const int32_t search_width =
-            compact ? content - picker::compact_filter_width - metrics.button_gap
+            compact ? content - picker::compact_filter_width - 2 * metrics.space
             : frame.size_class == kit::SizeClass::large ? picker::large_search_width
                                                         : picker::regular_search_width;
         OA_CHECK(search->rect.width == search_width);
@@ -798,9 +802,11 @@ void check_one_drag(
             continue;
         if (control.name == "mutators.row.scout-post")
             continue;
+        // A row scrolled partly out of the list shows only inside the list.
+        const kit::Rect shown = press_area(control);
         for (std::size_t index = 0; index < moving.items.size(); ++index) {
             const kit::Item& item = moving.items[index];
-            if (!has_room(kit::intersect(item.rect, control.rect)))
+            if (!has_room(kit::intersect(item.rect, shown)))
                 continue;
             if (static_cast<int>(index) >= float_at && kit::wholly_in(item.rect, floating))
                 continue;
@@ -1036,7 +1042,7 @@ void check_language(const kit::Frame& frame, kit::Point window, const std::strin
     bool switched = false;
     for (const kit::Item& item : french_list.items) {
         if (const auto* look = std::get_if<kit::HeaderLook>(&item.look))
-            title = look->title == "Mutateurs" &&
+            title = look->title == "OPEN ANNIHILATION" && look->second == "MUTATEURS" &&
                     look->version.find("Escarmouche") != std::string::npos;
         if (const auto* look = std::get_if<kit::HeadingLook>(&item.look)) {
             if (look->text == "Actifs · appliqués de haut en bas")
@@ -1323,6 +1329,68 @@ void check_off_hidden(const picker::Picker& model, const kit::Frame& frame) {
 ///
 /// @param model the picker
 /// @param frame a Regular frame
+/// At a frame the window takes Settings' sizes: Kit 2's window header
+/// (Compact's band at Compact) with the close mark in its middle, Kit 2's
+/// window footer, Cancel and Use these at the control height, at least
+/// twice as wide as they are tall, two spaces apart in the regular font, and
+/// the filters, Tags, the search, ▲ Up, ▼ Down and the clash strip at the
+/// control height, the pills at Kit 2's filter chip height.
+///
+/// @param model the picker
+/// @param frame the frame
+/// @param window the window
+void check_settings_sizes(const picker::Picker& model, const kit::Frame& frame, kit::Point window) {
+    const kit::Metrics& metrics = kit::metrics_of(frame.size_class);
+    const bool compact = frame.size_class == kit::SizeClass::compact;
+    const kit::DisplayList list = laid_out(model, {}, frame);
+    const int32_t band = compact ? metrics.header_height : metrics.window_header_height;
+    bool header = false;
+    bool footer = false;
+    bool regular_font = false;
+    const kit::ControlId use_id = kit::control_named(list, picker::name_use);
+    for (const kit::Item& item : list.items) {
+        if (const auto* look = std::get_if<kit::HeaderLook>(&item.look))
+            header = look->height == band && item.rect.height == metrics.edge + band + 1;
+        if (item.role == kit::Role::footer_band)
+            footer = item.rect.y == window.y - metrics.edge - metrics.window_footer_height - 1;
+        if (const auto* look = std::get_if<kit::ButtonLook>(&item.look);
+            look != nullptr && item.control == use_id)
+            regular_font =
+                look->font == kit::FontRole::regular && look->style == kit::ButtonStyle::accent;
+    }
+    OA_CHECK(header);
+    OA_CHECK(footer);
+    OA_CHECK(regular_font);
+    const kit::Control* cancel = find_named(list, picker::name_cancel);
+    const kit::Control* use = find_named(list, picker::name_use);
+    const kit::Control* close = find_named(list, picker::name_close);
+    OA_CHECK(cancel != nullptr && use != nullptr && close != nullptr);
+    if (cancel == nullptr || use == nullptr || close == nullptr)
+        return;
+    for (const kit::Control* button : {cancel, use}) {
+        OA_CHECK(button->rect.height == metrics.control_height);
+        OA_CHECK(button->rect.width >= 2 * metrics.control_height);
+    }
+    OA_CHECK(use->rect.x - (cancel->rect.x + cancel->rect.width) == 2 * metrics.space);
+    OA_CHECK(use->rect.x + use->rect.width == window.x - metrics.edge - metrics.window_padding);
+    OA_CHECK(std::abs(close->rect.y + close->rect.height / 2 - (metrics.edge + band / 2)) <= 1);
+    const kit::Control* search = find_named(list, picker::name_search);
+    OA_CHECK(search != nullptr && search->rect.height == metrics.control_height);
+    if (compact) {
+        const kit::Control* filter = find_named(list, picker::name_filter);
+        OA_CHECK(filter != nullptr && filter->rect.height == metrics.control_height);
+        return;
+    }
+    const kit::Control* all = find_named(list, picker::name_filter_all);
+    OA_CHECK(all != nullptr && all->rect.height == metrics.filter_chip_height);
+    const kit::Control* tags = find_named(list, picker::name_tags);
+    OA_CHECK(tags != nullptr && tags->rect.height == metrics.control_height);
+    for (const std::string_view name : {picker::name_up, picker::name_down}) {
+        const kit::Control* order = find_named(list, name);
+        OA_CHECK(order != nullptr && order->rect.height == metrics.control_height);
+    }
+}
+
 void check_no_clash(const picker::Picker& model, const kit::Frame& frame) {
     for (const char* id : {"gatehouse", "grounded"}) {
         picker::Picker picked = model;
@@ -1363,8 +1431,10 @@ int main() {
         OA_CHECK(shown[5].id == "ridge-walls" && shown[5].locked);
     }
 
-    for (const FrameCase& one : cases)
+    for (const FrameCase& one : cases) {
         check_frame(model, one.name, one.frame, one.window);
+        check_settings_sizes(model, one.frame, one.window);
+    }
 
     const kit::Frame regular = cases[1].frame;
     check_band(model, "fast-builders", false, true, regular);

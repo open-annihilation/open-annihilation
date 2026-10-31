@@ -59,11 +59,18 @@ layout names, and acts on what the screen returns.
   (`isle_of_ashes@archipelago` gives `isle-of-ashes-archipelago`).
 - `browser_layout(browser, state, frame, fonts, previews)`: the window, the
   size class's dialog size (480×324 at Compact, 720×486 at Regular, 960×600
-  at Large), with the kit's header ("Maps", a close mark at the right, and
-  beside the title "Skirmish · playing <mod>", "Battle room · playing
-  <mod>", or "Skirmish · No Mod" with no mod), the filter bar (one line at
-  Regular and Large when the search keeps 120 points; at Compact two: the
-  source pills and the search, then PLAYERS and SIZE), a scrolled grid of
+  at Large), in the sizes Settings gives its window: Kit 2's window header
+  (Compact's band at Compact), window padding and window footer. The kit's
+  header reads "OPEN ANNIHILATION" then "MAPS" in its second colour, as
+  Settings' and the Library's do, with a close mark at the right and
+  beside it "Skirmish · playing <mod>", "Battle room · playing <mod>", or
+  "Skirmish · No Mod" with no mod. The filter bar is a row of Kit 2's
+  control height (one line at Regular and Large when the search keeps 120
+  points; else two: the source pills and the search, then PLAYERS and
+  SIZE): the source pills are Kit 2's filter chips, PLAYERS and SIZE
+  Settings' segmented strips at the control height, each segment a
+  button's room round its widest word (a chip's where the line is short),
+  and the search, at most 240 points wide, sits at the right. Then a scrolled grid of
   cards in 3, 4 or 6 columns (`kit::card_cells`, each card with
   `kit::add_card`: its picture or "Loading preview", a chip naming where
   the map comes from, its title cut to one line and the most players it is
@@ -75,10 +82,12 @@ layout names, and acts on what the screen returns.
   with <mod> is checked when it's installed"…) and, for a map that does not
   fit or a download that failed, the reason under them, a progress bar in
   their place while a download runs, and Cancel and the primary button at
-  the right, in the kit's plain and accent styles. At Compact the chips and
-  the reason take a second line of the footer. The source pills are the
-  kit's pills. PLAYERS and SIZE are one segmented strip each, Any first.
-  The close mark is the kit's quiet close button.
+  the right, Settings' buttons: the plain and the accent look at the
+  control height, their words in the regular font, each at least twice as
+  wide as it is tall, two spaces apart. At Compact the buttons sit at the
+  footer's top beside the title, and the byline, the chips and the reason
+  take the line under them. PLAYERS and SIZE are one segmented strip each,
+  Any first. The close mark is the kit's quiet close button.
 - `cards_in_view(...)`: the cards whose cells meet the grid's view and the
   row after them, which alone the layout asks pictures for
   (`PreviewHooks::ask`).

@@ -515,23 +515,24 @@ const kit::Item* levels_item(const kit::DisplayList& list, kit::ControlId id) {
     return nullptr;
 }
 
-/// A point on one level of a strip.
+/// A point on one level of a strip, halfway down the part of it that shows.
 ///
 /// @param session the session
 /// @param name the control
 /// @param level the level, from 0
-/// @return the point; the control's centre when the strip is not drawn
+/// @return the point; the shown part's centre when the strip is not drawn
 kit::Point level_point(const Session& session, std::string_view name, std::size_t level) {
     const kit::Control* control = find_named(session.list, name);
     if (control == nullptr)
         return {};
     const kit::Item* item = levels_item(session.list, control->id);
     const auto* look = item == nullptr ? nullptr : std::get_if<kit::LevelsLook>(&item->look);
+    const kit::Rect shown = picker_fixture::press_area(*control);
     if (look == nullptr || look->level_width <= 0)
-        return centre_of(control->rect);
+        return centre_of(shown);
     const int32_t column =
         item->rect.x + 1 + look->level_width / 2 + look->level_width * static_cast<int32_t>(level);
-    return {column, item->rect.y + item->rect.height / 2};
+    return {column, shown.y + shown.height / 2};
 }
 
 /// Tells whether the frame is Compact.

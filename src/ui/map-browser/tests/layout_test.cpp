@@ -3,7 +3,9 @@
 
 // The map browser's screen in a synthetic font: 3, 4 and 6 columns at
 // Compact, Regular and Large; nothing outside the window; the footer's
-// buttons; every automation name, sound and unique, two maps whose names
+// buttons; Settings' sizes for the header, the footer, the buttons, the
+// pills, the strips and the search; every automation name, sound and
+// unique, two maps whose names
 // give one word told apart; the pictures asked for only for the cards in
 // view and the row after; focus by geometry and Tab in the declared order;
 // and what a press, a tap, the keys, typing, the wheel and the scroll bar
@@ -885,7 +887,8 @@ void header_and_footer_words() {
     std::vector<std::string> chips;
     for (const kit::Item& item : list.items) {
         if (const auto* look = std::get_if<kit::HeaderLook>(&item.look))
-            header = look->title == "Maps" && look->version == "Skirmish · playing Ridge";
+            header = look->title == "OPEN ANNIHILATION" && look->second == "MAPS" &&
+                     look->version == "Skirmish · playing Ridge";
         if (item.role == kit::Role::text &&
             item.text == "Archipelago Pack 1.2 · Example Maps · 4 players · 16×16 · 2.3 MB")
             details = true;
@@ -905,6 +908,68 @@ void header_and_footer_words() {
         select_button != nullptr && select_button->enabled &&
         select_button->text == "Download and select"
     );
+}
+
+/// At every class the window takes Settings' sizes: Kit 2's window header
+/// (Compact's band at Compact) with the close mark in its middle, Kit 2's
+/// window footer, Cancel and Select at the control height, at least twice
+/// as wide as they are tall, two spaces apart in the regular font, the
+/// source pills at Kit 2's filter chip height, and the players and size
+/// strips and the search at the control height.
+void shell_takes_settings_sizes() {
+    for (const ClassFrame& each : frames()) {
+        const kit::Metrics& metrics = kit::metrics_of(each.frame.size_class);
+        mb::Browser browser = many_maps();
+        browser.selected = browser.shown.front();
+        const kit::DisplayList list = laid_out(browser, {}, each.frame);
+        const int32_t band = each.frame.size_class == kit::SizeClass::compact
+                                 ? metrics.header_height
+                                 : metrics.window_header_height;
+        bool header = false;
+        bool footer = false;
+        const kit::ButtonLook* cancel_look = nullptr;
+        for (const kit::Item& item : list.items) {
+            if (const auto* look = std::get_if<kit::HeaderLook>(&item.look))
+                header = look->height == band && item.rect.height == metrics.edge + band + 1;
+            if (item.role == kit::Role::footer_band)
+                footer =
+                    item.rect.y == each.window.y - metrics.edge - metrics.window_footer_height - 1;
+            if (const auto* look = std::get_if<kit::ButtonLook>(&item.look);
+                look != nullptr && item.control == kit::control_named(list, mb::name_cancel))
+                cancel_look = look;
+        }
+        OA_CHECK(header);
+        OA_CHECK(footer);
+        OA_CHECK(cancel_look != nullptr && cancel_look->font == kit::FontRole::regular);
+        const kit::Control* cancel = named(list, mb::name_cancel);
+        const kit::Control* select = named(list, mb::name_select);
+        const kit::Control* close = named(list, mb::name_close);
+        OA_CHECK(cancel != nullptr && select != nullptr && close != nullptr);
+        if (cancel == nullptr || select == nullptr || close == nullptr)
+            continue;
+        for (const kit::Control* button : {cancel, select}) {
+            OA_CHECK(button->rect.height == metrics.control_height);
+            OA_CHECK(button->rect.width >= 2 * metrics.control_height);
+        }
+        OA_CHECK(select->rect.x - (cancel->rect.x + cancel->rect.width) == 2 * metrics.space);
+        OA_CHECK(
+            select->rect.x + select->rect.width ==
+            each.window.x - metrics.edge - metrics.window_padding
+        );
+        OA_CHECK(std::abs(close->rect.y + close->rect.height / 2 - (metrics.edge + band / 2)) <= 1);
+        for (const std::string_view name :
+             {mb::name_filter_all,
+              mb::name_filter_game,
+              mb::name_filter_mod,
+              mb::name_filter_downloads}) {
+            const kit::Control* pill = named(list, name);
+            OA_CHECK(pill != nullptr && pill->rect.height == metrics.filter_chip_height);
+        }
+        for (const std::string_view name : {mb::name_players, mb::name_sizes, mb::name_search}) {
+            const kit::Control* control = named(list, name);
+            OA_CHECK(control != nullptr && control->rect.height == metrics.control_height);
+        }
+    }
 }
 
 /// The chip on a card of this title, or empty when that card is not drawn.
@@ -945,7 +1010,8 @@ void battle_room_map_rows() {
     bool header = false;
     for (const kit::Item& item : list.items)
         if (const auto* look = std::get_if<kit::HeaderLook>(&item.look))
-            header = look->title == "Maps" && look->version == "Battle room · No Mod";
+            header = look->title == "OPEN ANNIHILATION" && look->second == "MAPS" &&
+                     look->version == "Battle room · No Mod";
     OA_CHECK(header);
     OA_CHECK(card_chip(list, "Dune") == "Downloaded");
     OA_CHECK(card_chip(list, "Tidewater") == "Available");
@@ -1174,6 +1240,7 @@ void layout_tests() {
     scroll_bar_drags();
     card_reads_the_largest_count();
     header_and_footer_words();
+    shell_takes_settings_sizes();
     compact_byline_and_chips_fit();
     battle_room_map_rows();
 }

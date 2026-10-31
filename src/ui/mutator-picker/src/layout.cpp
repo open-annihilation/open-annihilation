@@ -47,16 +47,20 @@ enum class RowPaint : uint8_t {
 
 /// The window's rows and columns at a size class.
 struct Window {
-    int32_t width{};       ///< the window's width, in points
-    int32_t height{};      ///< the window's height, in points
-    int32_t padding{};     ///< the class's padding
-    int32_t left{};        ///< the content's left column
-    int32_t right{};       ///< the column after the content's last
-    int32_t body_top{};    ///< the first row under the header's rule
-    int32_t footer_rule{}; ///< the row of the line over the footer
-    int32_t footer_top{};  ///< the footer's first row
-    int32_t button_top{};  ///< the footer's buttons' top row
-    int32_t gap{};         ///< the rows between stacked parts
+    int32_t width{};          ///< the window's width, in points
+    int32_t height{};         ///< the window's height, in points
+    int32_t padding{};        ///< Kit 2's window padding, as Settings keeps it
+    int32_t left{};           ///< the content's left column
+    int32_t right{};          ///< the column after the content's last
+    int32_t header_height{};  ///< the header's band: Kit 2's window header, Compact's at Compact
+    int32_t body_top{};       ///< the first row under the header's rule
+    int32_t footer_rule{};    ///< the row of the line over the footer
+    int32_t footer_top{};     ///< the footer's first row
+    int32_t footer_height{};  ///< the footer's rows under its line: Kit 2's window footer
+    int32_t button_top{};     ///< the footer's buttons' top row
+    int32_t control_height{}; ///< Kit 2's control height: the buttons, the fields and the strips
+    int32_t gap{};            ///< the rows between stacked parts
+    int32_t bottom_gap{};     ///< the rows between the panes and the footer's rule: a space
 };
 
 /// One item of an open drop-down.
@@ -96,24 +100,34 @@ struct Building {
     int32_t row_switch_width{0};              ///< every row switch, one column
 };
 
-/// Returns the window's rows and columns for a frame.
+/// Returns the window's rows and columns for a frame, in the sizes Settings
+/// gives its window: Kit 2's window header at Regular and Large and
+/// Compact's band at Compact, Kit 2's window padding, and Kit 2's window
+/// footer with its controls in the middle. Stacked parts sit a space apart
+/// at Compact and Kit 2's row gap apart at Regular and Large, as the
+/// Library's do.
 ///
 /// @param frame the frame
 /// @return the window
 Window window_of(const kit::Frame& frame) {
     const kit::Metrics& metrics = kit::metrics_of(frame.size_class);
+    const bool compact = frame.size_class == kit::SizeClass::compact;
     const kit::Point size = window_size(frame);
     Window window;
     window.width = size.x;
     window.height = size.y;
-    window.padding = metrics.padding;
-    window.left = metrics.padding;
-    window.right = size.x - metrics.edge - metrics.padding;
-    window.body_top = metrics.edge + metrics.header_height + 1;
-    window.footer_rule = size.y - metrics.edge - metrics.footer_height - 1;
+    window.padding = metrics.window_padding;
+    window.left = metrics.edge + window.padding;
+    window.right = size.x - metrics.edge - window.padding;
+    window.header_height = compact ? metrics.header_height : metrics.window_header_height;
+    window.body_top = metrics.edge + window.header_height + 1;
+    window.control_height = metrics.control_height;
+    window.footer_height = metrics.window_footer_height;
+    window.footer_rule = size.y - metrics.edge - window.footer_height - 1;
     window.footer_top = window.footer_rule + 1;
-    window.button_top = window.footer_top + (metrics.footer_height - metrics.button_height) / 2;
-    window.gap = metrics.paragraph_gap;
+    window.button_top = window.footer_top + (window.footer_height - window.control_height) / 2;
+    window.gap = compact ? metrics.space : metrics.row_gap;
+    window.bottom_gap = metrics.space;
     return window;
 }
 
@@ -358,16 +372,37 @@ void add_mutator_badge(
         building.list.items.back().clip = clip;
 }
 
-/// Returns a button's width: the class's button, or its words plus the padding.
+/// Returns a button's width as Settings sizes its buttons (Cancel, OK):
+/// its caption in the regular font with two spaces either side, and at
+/// least twice the control height.
 ///
 /// @param building the layout
 /// @param caption the words, already looked up
 /// @return the width, in points
 int32_t button_span(const Building& building, std::string_view caption) {
-    const int32_t words = kit::text_width(*building.fonts, kit::FontRole::small, caption);
-    return std::max(
-        building.metrics->button_width, words + building.metrics->prompt_button_padding
-    );
+    const kit::Metrics& metrics = *building.metrics;
+    const int32_t words = kit::text_width(*building.fonts, kit::FontRole::regular, caption);
+    return std::max(words + 4 * metrics.space, 2 * metrics.control_height);
+}
+
+/// The columns Settings keeps between two buttons side by side: two spaces.
+/// The filter row keeps them between its controls too.
+///
+/// @param metrics the class's metrics
+/// @return the columns, in points
+int32_t button_spacing(const kit::Metrics& metrics) {
+    return 2 * metrics.space;
+}
+
+/// Returns a strip's segment width: its widest caption in the small font
+/// and the room a Settings button keeps round its words, two spaces either
+/// side.
+///
+/// @param building the layout
+/// @param widest the widest caption, in points
+/// @return the width, in points
+int32_t segment_width(const Building& building, int32_t widest) {
+    return widest + 4 * building.metrics->space;
 }
 
 /// Returns the setup's word, already looked up.
@@ -582,9 +617,13 @@ kit::Control* find_control(Building& building, kit::ControlId id) {
     return nullptr;
 }
 
-/// Appends the header: "Mutators", the setup and the mod, and room for the close mark.
+/// Appends the header as Settings and the Library draw theirs: "OPEN
+/// ANNIHILATION" then "MUTATORS" in the header's second colour, the setup
+/// and the mod at the right, and room for the close mark. The title is cut
+/// first when the window is too narrow for both words.
 ///
-/// The kit's header keeps Compact's places from the window's edges at every class.
+/// The kit's header keeps Compact's places from the window's edges at every
+/// class; its band is the window's header height.
 ///
 /// @param[in,out] building the layout
 /// @param window the window
@@ -595,15 +634,29 @@ void add_header(Building& building, const Window& window) {
     const int32_t right_inset = compact.button_height + compact.header_gap;
     const int32_t title_left = compact.padding + compact.mark_side + compact.header_gap;
     const int32_t right_edge = window.width - compact.edge - compact.padding - right_inset;
-    const int32_t most_for_title =
-        std::max(right_edge - title_left - compact.header_gap, int32_t{0});
 
-    std::string title(library::shown(hooks, words::title_mutators));
+    std::string second(library::shown(hooks, words::title_mutators_header));
+    second = cut_tracked(
+        building,
+        kit::FontRole::regular,
+        second,
+        std::max(right_edge - title_left, int32_t{0}),
+        tracking
+    );
+    const int32_t second_width =
+        kit::tracked_width(*building.fonts, kit::FontRole::regular, second, tracking);
+    const int32_t most_for_title = std::max(
+        right_edge - title_left - compact.header_gap - second_width - compact.header_gap, int32_t{0}
+    );
+    std::string title(library::shown(hooks, words::title_open_annihilation));
     title = cut_tracked(building, kit::FontRole::regular, title, most_for_title, tracking);
     const int32_t title_width =
         kit::tracked_width(*building.fonts, kit::FontRole::regular, title, tracking);
-    const int32_t version_room =
-        std::max(right_edge - (title_left + title_width + compact.header_gap), int32_t{0});
+    const int32_t version_room = std::max(
+        right_edge -
+            (title_left + title_width + compact.header_gap + second_width + compact.header_gap),
+        int32_t{0}
+    );
     const std::string setup = setup_word(hooks, building.picker->inputs.setup);
     const std::string mod = building.picker->inputs.mod_name.empty()
                                 ? std::string(library::shown(hooks, words::no_mod))
@@ -614,19 +667,23 @@ void add_header(Building& building, const Window& window) {
 
     kit::HeaderLook look;
     look.width = window.width;
+    look.height = window.header_height;
     look.tracking = tracking;
     look.right_inset = right_inset;
     look.mark = true;
     look.title = std::move(title);
     look.title_width = title_width;
+    look.second = std::move(second);
+    look.second_width = second_width;
     look.version = std::move(context);
     look.version_width = kit::text_width(*building.fonts, kit::FontRole::small, look.version);
-    const int32_t header_rule = compact.edge + compact.header_height;
+    const int32_t header_rule = compact.edge + window.header_height;
     add_item(building.list, kit::Role::header, {0, 0, window.width, header_rule + 1}, {}).look =
         std::move(look);
 }
 
-/// Appends the header's close mark. Tab's order gains it last.
+/// Appends the header's close mark, in the middle of the header's band, where
+/// Settings and the Library keep theirs. Tab's order gains it last.
 ///
 /// @param[in,out] building the layout
 /// @param window the window
@@ -635,7 +692,7 @@ void add_close_mark(Building& building, const Window& window) {
     const int32_t side = compact.button_height;
     const kit::Rect rect{
         window.width - compact.edge - compact.padding - side,
-        compact.edge + (compact.header_height - side) / 2,
+        compact.edge + (window.header_height - side) / 2,
         side,
         side,
     };
@@ -653,6 +710,28 @@ void add_close_mark(Building& building, const Window& window) {
     move_controls(building.list, before, building.top);
     building.top.back().text =
         std::string(library::shown(building.picker->inputs.text, words::close_button));
+}
+
+/// Returns a filter pill's width at Kit 2's filter chip height: the kit's
+/// pill widened by the height it gains, as the key editor's are, so its
+/// words stay clear of the rounder ends. A pill with a tag icon is widened
+/// only by how much further in the taller pill sets its icon, so the icon
+/// stands as far in from the round end as from the top and the words keep
+/// the kit's room beside it.
+///
+/// @param building the layout
+/// @param look the pill
+/// @return the width, in points
+int32_t filter_pill_width(const Building& building, const kit::PillLook& look) {
+    const int32_t height = building.metrics->filter_chip_height;
+    const int32_t taller = std::max(height - kit::pill_height(), int32_t{0});
+    if (!look.tag.has_value())
+        return kit::pill_width(*building.fonts, look) + taller;
+    const auto icon_inset = [](int32_t pill) {
+        return std::max((pill - (kit::pill_height() - 2)) / 2, int32_t{1});
+    };
+    return kit::pill_width(*building.fonts, look) + icon_inset(height) -
+           icon_inset(kit::pill_height());
 }
 
 /// Appends one filter pill.
@@ -683,10 +762,13 @@ void add_filter_pill(
     move_controls(building.list, before, building.top);
 }
 
-/// Appends the filters and the search.
+/// Appends the filters and the search on a row of Kit 2's control height,
+/// a gap under the header.
 ///
-/// Regular and Large: the three pills, the tags that fit, TAGS, and the search
-/// pinned at the right. Compact: the drop-down and the search across the rest.
+/// Regular and Large: the three pills and the tags that fit, Kit 2's filter
+/// chips as the key editor has them, then Tags, Settings' drop-down, and the
+/// search pinned at the right, both at the control height. Compact: the
+/// drop-down and the search across the rest.
 ///
 /// @param[in,out] building the layout
 /// @param window the window
@@ -695,13 +777,14 @@ void add_filters(Building& building, const Window& window, const std::vector<std
     const kit::Metrics& metrics = *building.metrics;
     const library::TextHooks& hooks = building.picker->inputs.text;
     const bool compact = building.size_class == kit::SizeClass::compact;
-    const int32_t row = window.body_top;
-    const int32_t gap = metrics.button_gap;
+    const int32_t row = window.body_top + window.gap;
+    const int32_t row_height = window.control_height;
+    const int32_t gap = button_spacing(metrics);
     const Picker& picker = *building.picker;
 
     if (compact) {
         const int32_t field_w = compact_filter_width;
-        const kit::Rect field{window.left, row, field_w, metrics.field_height};
+        const kit::Rect field{window.left, row, field_w, row_height};
         const int32_t search_x = window.left + field_w + gap;
         const int32_t search_w = std::max(window.right - search_x, int32_t{0});
         int32_t chosen = 0;
@@ -759,7 +842,7 @@ void add_filters(Building& building, const Window& window, const std::vector<std
         search.field = building.state->search;
         search.focused = focused_on(building, controls::search);
         search.hovered = hovered(building, controls::search, true);
-        const kit::Rect search_rect{search_x, row, search_w, metrics.field_height};
+        const kit::Rect search_rect{search_x, row, search_w, row_height};
         const std::string placeholder(library::shown(hooks, words::search_mutators));
         const int32_t placeholder_room = kit::field_text_rect(search_rect, search).width;
         search.placeholder = cut(building, kit::FontRole::regular, placeholder, placeholder_room);
@@ -778,11 +861,17 @@ void add_filters(Building& building, const Window& window, const std::vector<std
         search_w = content;
     const int32_t search_x = window.right - search_w;
     const std::string tags_word(library::shown(hooks, words::tags_menu));
-    const int32_t tags_w = kit::text_width(*building.fonts, kit::FontRole::regular, tags_word) +
-                           metrics.choice_text_inset + metrics.choice_arrow_room;
+    // Tags is at least as wide as Settings' narrowest button, twice its height.
+    const int32_t tags_w = std::max(
+        kit::text_width(*building.fonts, kit::FontRole::regular, tags_word) +
+            metrics.choice_text_inset + metrics.choice_arrow_room,
+        2 * row_height
+    );
     const int32_t tags_x = search_x - gap - tags_w;
     const int32_t pill_limit = tags_x - gap;
-    const int32_t pill_y = row + (metrics.field_height - kit::pill_height()) / 2;
+    const int32_t pill_h = metrics.filter_chip_height;
+    const int32_t pill_gap = metrics.chip_gap;
+    const int32_t pill_y = row + (row_height - pill_h) / 2;
 
     int32_t cursor = window.left;
     const Filter filters[] = {Filter::all, Filter::installed, Filter::downloads};
@@ -797,16 +886,16 @@ void add_filters(Building& building, const Window& window, const std::vector<std
     for (int32_t place = 0; place < 3; ++place) {
         kit::PillLook measure;
         measure.text = filter_caption(building, filters[place]);
-        const int32_t width = kit::pill_width(*building.fonts, measure);
+        const int32_t width = filter_pill_width(building, measure);
         add_filter_pill(
             building,
             filter_ids[place],
             filter_names[place],
-            {cursor, pill_y, width, kit::pill_height()},
+            {cursor, pill_y, width, pill_h},
             measure.text,
             picker.filter == filters[place]
         );
-        cursor += width + gap;
+        cursor += width + pill_gap;
     }
 
     std::vector<std::string> used_words;
@@ -819,7 +908,7 @@ void add_filters(Building& building, const Window& window, const std::vector<std
         kit::PillLook measure;
         measure.text = std::string(library::tag_label(tags[place], hooks));
         measure.tag = kit::tag_icon_of(tags[place]);
-        const int32_t width = kit::pill_width(*building.fonts, measure);
+        const int32_t width = filter_pill_width(building, measure);
         const bool fits = !stopped && cursor + width <= pill_limit;
         if (fits) {
             const kit::ControlId id =
@@ -832,12 +921,10 @@ void add_filters(Building& building, const Window& window, const std::vector<std
             const std::string name = std::string(name_tags) + "." + word;
             const std::size_t before = building.list.controls.size();
             keep_name(building, name);
-            kit::add_pill(
-                building.list, {cursor, pill_y, width, kit::pill_height()}, measure, id, name
-            );
+            kit::add_pill(building.list, {cursor, pill_y, width, pill_h}, measure, id, name);
             move_controls(building.list, before, building.top);
             building.tag_pills.push_back(id);
-            cursor += width + gap;
+            cursor += width + pill_gap;
         } else {
             stopped = true;
             MenuEntry entry;
@@ -851,7 +938,7 @@ void add_filters(Building& building, const Window& window, const std::vector<std
     }
 
     const bool tags_on = !overflow.empty();
-    const kit::Rect tags_rect{tags_x, row, std::max(tags_w, int32_t{0}), metrics.field_height};
+    const kit::Rect tags_rect{tags_x, row, std::max(tags_w, int32_t{0}), row_height};
     kit::ChoiceLook tags_look;
     tags_look.text =
         cut(building,
@@ -885,7 +972,7 @@ void add_filters(Building& building, const Window& window, const std::vector<std
     search.field = building.state->search;
     search.focused = focused_on(building, controls::search);
     search.hovered = hovered(building, controls::search, true);
-    const kit::Rect search_rect{search_x, row, search_w, metrics.field_height};
+    const kit::Rect search_rect{search_x, row, search_w, row_height};
     const std::string placeholder(library::shown(hooks, words::search_mutators));
     search.placeholder =
         cut(building,
@@ -1233,11 +1320,14 @@ void add_row(
             std::string(library::shown(picker.inputs.text, words::switch_off));
         switch_look.on_caption = std::string(library::shown(picker.inputs.text, words::switch_on));
         switch_look.hovered = hovered(building, switch_id, !switch_locked);
+        // Settings' switch: its track as tall as the kit's switch, where the
+        // row has the room.
+        const int32_t switch_h = std::min(metrics.switch_height, rect.height);
         const kit::Rect switch_rect{
             switch_x,
-            rect.y + (rect.height - metrics.button_height) / 2,
+            rect.y + (rect.height - switch_h) / 2,
             switch_w,
-            metrics.button_height,
+            switch_h,
         };
         const std::string switch_name =
             named ? row_name + std::string(name_switch_suffix) : std::string("switch");
@@ -1722,7 +1812,7 @@ DetailsPlan plan_details(
             }
             if (spec.type == OptionSpec::Type::toggle) {
                 option.form = OptionForm::toggle;
-                option.control_h = metrics.button_height;
+                option.control_h = metrics.control_height;
                 option.on = spec.values.size() > 1 && value == spec.values[1];
                 option.off_caption = caption_at(spec, 0);
                 option.on_caption = caption_at(spec, 1);
@@ -1765,7 +1855,7 @@ DetailsPlan plan_details(
                 option.value_text = cut(building, kit::FontRole::small, value, option.value_w);
             } else if (spec.values.size() >= 1 && spec.values.size() <= 4) {
                 option.form = OptionForm::levels;
-                option.control_h = metrics.button_height;
+                option.control_h = metrics.control_height;
                 option.chosen = chosen_place;
                 std::vector<std::string> used;
                 int32_t widest = 0;
@@ -1777,7 +1867,7 @@ DetailsPlan plan_details(
                     option.parts.push_back(unique_word(used, controls::name_word(caption)));
                     option.captions.push_back(std::move(caption));
                 }
-                option.level_width = widest + 2 * metrics.chip_padding;
+                option.level_width = segment_width(building, widest);
                 const int32_t count = static_cast<int32_t>(option.captions.size());
                 int32_t strip = 2 + count * option.level_width;
                 if (count > 0 && strip > plan.width) {
@@ -1790,8 +1880,10 @@ DetailsPlan plan_details(
                 }
                 option.control_w = std::min(strip, std::max(plan.width, int32_t{0}));
             } else {
+                // Settings' drop-down: as tall as a control, choice_width wide,
+                // or as wide as its widest choice up to the details' width.
                 option.form = OptionForm::choice;
-                option.control_h = metrics.field_height;
+                option.control_h = metrics.control_height;
                 option.control_w = plan.width;
                 option.chosen = chosen_place;
                 option.locked = read_only || spec.values.empty();
@@ -1804,11 +1896,21 @@ DetailsPlan plan_details(
                             option.control_w - metrics.choice_text_inset -
                                 metrics.choice_arrow_room);
                 }
+                int32_t widest = 0;
                 for (std::size_t slot = 0; slot < spec.values.size(); ++slot) {
                     std::string caption = caption_at(spec, slot);
+                    widest = std::max(
+                        widest, kit::text_width(*building.fonts, kit::FontRole::regular, caption)
+                    );
                     option.parts.push_back(unique_word(used, controls::name_word(caption)));
                     option.captions.push_back(std::move(caption));
                 }
+                if (!option.captions.empty())
+                    option.control_w = std::clamp(
+                        widest + metrics.choice_text_inset + metrics.choice_arrow_room,
+                        std::min(metrics.choice_width, std::max(plan.width, int32_t{0})),
+                        std::max(plan.width, int32_t{0})
+                    );
                 if (!option.captions.empty()) {
                     const std::string& shown_choice = option.chosen < option.captions.size()
                                                           ? option.captions[option.chosen]
@@ -1845,7 +1947,7 @@ DetailsPlan plan_details(
                     widest, kit::text_width(*building.fonts, kit::FontRole::small, caption)
                 );
             }
-            plan.clash_level_width = widest + 2 * metrics.chip_padding;
+            plan.clash_level_width = segment_width(building, widest);
             constexpr int32_t count = 2;
             int32_t strip = 2 + count * plan.clash_level_width;
             if (strip > plan.width) {
@@ -1857,7 +1959,7 @@ DetailsPlan plan_details(
                     caption = cut(building, kit::FontRole::small, caption, caption_room);
             }
             plan.clash_w = std::min(strip, std::max(plan.width, int32_t{0}));
-            y += metrics.button_height;
+            y += metrics.control_height;
         }
     }
 
@@ -1868,8 +1970,8 @@ DetailsPlan plan_details(
     plan.up_w = button_span(building, plan.up_caption);
     plan.down_w = button_span(building, plan.down_caption);
     plan.down_x = std::max(plan.width - plan.down_w, int32_t{0});
-    plan.up_x = std::max(plan.down_x - metrics.button_gap - plan.up_w, int32_t{0});
-    plan.order_w = std::max(plan.up_x - metrics.button_gap, int32_t{0});
+    plan.up_x = std::max(plan.down_x - button_spacing(metrics) - plan.up_w, int32_t{0});
+    plan.order_w = std::max(plan.up_x - button_spacing(metrics), int32_t{0});
     plan.order = cut(
         building, kit::FontRole::regular, library::shown(hooks, words::order_label), plan.order_w
     );
@@ -1877,7 +1979,7 @@ DetailsPlan plan_details(
     const bool may_move = on && !read_only && band.first <= band.last;
     plan.up_enabled = may_move && on_index > band.first;
     plan.down_enabled = may_move && on_index < band.last;
-    y += metrics.button_height;
+    y += metrics.control_height;
 
     y += metrics.paragraph_gap;
     const std::string checked_label(library::shown(hooks, library::words::fact_checked));
@@ -2113,7 +2215,7 @@ void emit_details(
         const std::size_t before = building.list.controls.size();
         kit::add_levels(
             building.list,
-            at(0, plan.clash_y, plan.clash_w, metrics.button_height),
+            at(0, plan.clash_y, plan.clash_w, metrics.control_height),
             look,
             controls::clash,
             clash_name
@@ -2135,7 +2237,7 @@ void emit_details(
         building,
         kit::FontRole::regular,
         plan.order,
-        at(0, plan.order_y, plan.order_w, metrics.button_height),
+        at(0, plan.order_y, plan.order_w, metrics.control_height),
         kit::Align::left,
         kit::colour::text,
         port
@@ -2153,11 +2255,12 @@ void emit_details(
         look.enabled = enabled;
         look.hovered = hovered(building, id, enabled);
         look.held = held(building, id, enabled);
+        look.font = kit::FontRole::regular;
         const std::size_t before = building.list.controls.size();
         keep_name(building, std::string(control_name));
         kit::add_button(
             building.list,
-            at(x, plan.order_y, width, metrics.button_height),
+            at(x, plan.order_y, width, metrics.control_height),
             look,
             id,
             std::string(control_name)
@@ -2257,7 +2360,9 @@ void add_details(Building& building, const kit::Rect& pane) {
     building.detail.push_back(std::move(bar));
 }
 
-/// Appends one footer button, placed from a column that moves left.
+/// Appends one footer button, one of Settings' buttons: at the control
+/// height, its words in the regular font, placed from a column that moves
+/// left, two spaces apart.
 ///
 /// @param[in,out] building the layout
 /// @param[in,out] cursor the column the button's right edge ends at
@@ -2286,8 +2391,9 @@ void add_footer_button(
     look.enabled = enabled;
     look.hovered = hovered(building, id, enabled);
     look.held = held(building, id, enabled);
-    const kit::Rect rect{cursor, window.button_top, width, metrics.button_height};
-    cursor -= metrics.button_gap;
+    look.font = kit::FontRole::regular;
+    const kit::Rect rect{cursor, window.button_top, width, window.control_height};
+    cursor -= button_spacing(metrics);
     const std::size_t before = building.list.controls.size();
     keep_name(building, std::string(name));
     kit::add_button(building.list, rect, look, id, std::string(name));
@@ -2320,6 +2426,18 @@ void add_footer(Building& building, const Window& window, const Footer& foot, bo
         {}
     )
         .look = band;
+    // The kit's band is Compact's footer high; Kit 2's footer is taller.
+    if (window.footer_height > metrics.footer_height)
+        add_item(
+            building.list,
+            kit::Role::fill,
+            {metrics.edge,
+             window.footer_top + metrics.footer_height,
+             window.width - 2 * metrics.edge,
+             window.footer_height - metrics.footer_height},
+            {}
+        )
+            .colour = kit::colour::band;
 
     int32_t cursor = window.right;
     if (read_only) {
@@ -2433,15 +2551,14 @@ void add_footer(Building& building, const Window& window, const Footer& foot, bo
             look.text.clear();
             width = std::min(kit::chip_width(*building.fonts, look), room);
         }
-        const int32_t chip_y =
-            window.footer_top + (metrics.footer_height - metrics.chip_height) / 2;
+        const int32_t chip_y = window.footer_top + (window.footer_height - metrics.chip_height) / 2;
         const kit::Rect rect{left, chip_y, std::max(width, int32_t{0}), metrics.chip_height};
         if (rect.width > 0) {
             kit::add_chip(building.list, rect, look, kit::no_control, {});
             const std::string name(name_verdict);
             keep_name(building, name);
             add_label(building.footer, controls::verdict_label, rect, name, look.text, {}, -1);
-            left += width + metrics.button_gap;
+            left += width + button_spacing(metrics);
         }
     }
     const int32_t summary_w = std::max(limit - left, int32_t{0});
@@ -2450,7 +2567,7 @@ void add_footer(Building& building, const Window& window, const Footer& foot, bo
             building.state->waiting.empty() ? foot.summary : building.state->waiting;
         const std::string drawn = cut(building, kit::FontRole::small, source, summary_w);
         const int32_t summary_y =
-            window.footer_top + (metrics.footer_height - metrics.small_line) / 2;
+            window.footer_top + (window.footer_height - metrics.small_line) / 2;
         const kit::Rect rect{left, summary_y, summary_w, metrics.small_line};
         add_text(
             building, kit::FontRole::small, drawn, rect, kit::Align::left, kit::colour::hint, {}
@@ -2670,10 +2787,12 @@ lay(const Picker& picker,
         add_filters(building, window, tags);
 
     const int32_t content_w = std::max(window.right - window.left, int32_t{0});
-    int32_t body = window.body_top;
+    // The panes start a gap under the filter row, or under the header on
+    // Compact's details page, and stop a space short of the footer's rule.
+    int32_t body = window.body_top + window.gap;
     if (!page)
-        body += building.metrics->field_height + building.metrics->paragraph_gap;
-    const int32_t body_h = std::max(window.footer_rule - body, int32_t{0});
+        body += window.control_height + window.gap;
+    const int32_t body_h = std::max(window.footer_rule - window.bottom_gap - body, int32_t{0});
     if (page) {
         add_details(building, {window.left, body, content_w, body_h});
     } else if (compact) {
@@ -2683,7 +2802,7 @@ lay(const Picker& picker,
             frame.size_class == kit::SizeClass::large ? large_list_width : regular_list_width;
         if (list_w > content_w)
             list_w = content_w;
-        const int32_t gap = building.metrics->padding;
+        const int32_t gap = window.padding;
         int32_t details_x = window.left + list_w + gap;
         int32_t details_w = std::max(window.right - details_x, int32_t{0});
         if (details_x > window.right) {
