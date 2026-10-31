@@ -1,0 +1,930 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+# The bench's battle on Lava Highground's central plateau, which is level at
+# height 150 from x 1504 to 2368 and z 1600 to 2560, so that no ballistic
+# weapon fires down a cliff. Arm (player 0, the local player) holds the west
+# half and Core (player 1, the computer player) the east half; the line
+# between them is x 1980. Each side has an army of 150 mixed units and 20
+# more every five seconds to tick 1500, patrolling into the other half and
+# sent again every ten seconds with the factories' new units; a kbot lab, a
+# vehicle plant and an aircraft plant, each with a long build queue; 16
+# construction units building towers, fusion reactors and radars, left out
+# of the patrols; 20 aircraft patrolling over the battle; and its economy in
+# its own corner, far from the battle. About 550 units fight by tick 600.
+group eco0
+place 0 ARMFUS 420 700
+place 0 ARMFUS 516 700
+place 0 ARMFUS 612 700
+place 0 ARMFUS 708 700
+place 0 ARMFUS 420 796
+place 0 ARMFUS 516 796
+place 0 ARMFUS 612 796
+place 0 ARMFUS 708 796
+place 0 ARMFUS 420 892
+place 0 ARMFUS 516 892
+place 0 ARMFUS 612 892
+place 0 ARMFUS 708 892
+place 0 ARMMMKR 820 700
+place 0 ARMMMKR 892 700
+place 0 ARMMMKR 964 700
+place 0 ARMMMKR 1036 700
+place 0 ARMMMKR 820 772
+place 0 ARMMMKR 892 772
+place 0 ARMMMKR 964 772
+place 0 ARMMMKR 1036 772
+place 0 ARMMMKR 820 844
+place 0 ARMMMKR 892 844
+place 0 ARMMMKR 964 844
+place 0 ARMMMKR 1036 844
+place 0 ARMMSTOR 420 1020
+place 0 ARMESTOR 620 1020
+place 0 ARMMSTOR 516 1020
+place 0 ARMESTOR 716 1020
+group eco1
+place 1 CORFUS 3300 3150
+place 1 CORFUS 3396 3150
+place 1 CORFUS 3492 3150
+place 1 CORFUS 3588 3150
+place 1 CORFUS 3300 3246
+place 1 CORFUS 3396 3246
+place 1 CORFUS 3492 3246
+place 1 CORFUS 3588 3246
+place 1 CORFUS 3300 3342
+place 1 CORFUS 3396 3342
+place 1 CORFUS 3492 3342
+place 1 CORFUS 3588 3342
+place 1 CORMMKR 3700 3150
+place 1 CORMMKR 3772 3150
+place 1 CORMMKR 3844 3150
+place 1 CORMMKR 3916 3150
+place 1 CORMMKR 3700 3222
+place 1 CORMMKR 3772 3222
+place 1 CORMMKR 3844 3222
+place 1 CORMMKR 3916 3222
+place 1 CORMMKR 3700 3294
+place 1 CORMMKR 3772 3294
+place 1 CORMMKR 3844 3294
+place 1 CORMMKR 3916 3294
+place 1 CORMSTOR 3300 3470
+place 1 CORESTOR 3500 3470
+place 1 CORMSTOR 3396 3470
+place 1 CORESTOR 3596 3470
+group army0
+place 0 ARMWAR 1870 1760 east
+place 0 ARMWAR 1870 1792 east
+place 0 ARMWAR 1870 1824 east
+place 0 ARMWAR 1870 1856 east
+place 0 ARMWAR 1870 1888 east
+place 0 ARMWAR 1870 1920 east
+place 0 ARMWAR 1870 1952 east
+place 0 ARMWAR 1870 1984 east
+place 0 ARMWAR 1870 2016 east
+place 0 ARMWAR 1870 2048 east
+place 0 ARMWAR 1870 2080 east
+place 0 ARMWAR 1870 2112 east
+place 0 ARMWAR 1870 2144 east
+place 0 ARMWAR 1870 2176 east
+place 0 ARMWAR 1870 2208 east
+place 0 ARMWAR 1870 2240 east
+place 0 ARMWAR 1870 2272 east
+place 0 ARMWAR 1870 2304 east
+place 0 ARMWAR 1870 2336 east
+place 0 ARMWAR 1870 2368 east
+place 0 ARMWAR 1870 2400 east
+place 0 ARMWAR 1836 1776 east
+place 0 ARMWAR 1836 1808 east
+place 0 ARMWAR 1836 1840 east
+place 0 ARMWAR 1836 1872 east
+place 0 ARMWAR 1836 1904 east
+place 0 ARMWAR 1836 1936 east
+place 0 ARMWAR 1836 1968 east
+place 0 ARMWAR 1836 2000 east
+place 0 ARMWAR 1836 2032 east
+place 0 ARMHAM 1836 2064 east
+place 0 ARMHAM 1836 2096 east
+place 0 ARMHAM 1836 2128 east
+place 0 ARMHAM 1836 2160 east
+place 0 ARMHAM 1836 2192 east
+place 0 ARMHAM 1836 2224 east
+place 0 ARMHAM 1836 2256 east
+place 0 ARMHAM 1836 2288 east
+place 0 ARMHAM 1836 2320 east
+place 0 ARMHAM 1836 2352 east
+place 0 ARMHAM 1836 2384 east
+place 0 ARMHAM 1836 2416 east
+place 0 ARMHAM 1802 1760 east
+place 0 ARMHAM 1802 1792 east
+place 0 ARMHAM 1802 1824 east
+place 0 ARMHAM 1802 1856 east
+place 0 ARMHAM 1802 1888 east
+place 0 ARMHAM 1802 1920 east
+place 0 ARMHAM 1802 1952 east
+place 0 ARMHAM 1802 1984 east
+place 0 ARMHAM 1802 2016 east
+place 0 ARMHAM 1802 2048 east
+place 0 ARMHAM 1802 2080 east
+place 0 ARMHAM 1802 2112 east
+place 0 ARMHAM 1802 2144 east
+place 0 ARMHAM 1802 2176 east
+place 0 ARMHAM 1802 2208 east
+place 0 ARMHAM 1802 2240 east
+place 0 ARMHAM 1802 2272 east
+place 0 ARMHAM 1802 2304 east
+place 0 ARMROCK 1802 2336 east
+place 0 ARMROCK 1802 2368 east
+place 0 ARMROCK 1802 2400 east
+place 0 ARMROCK 1768 1776 east
+place 0 ARMROCK 1768 1808 east
+place 0 ARMROCK 1768 1840 east
+place 0 ARMROCK 1768 1872 east
+place 0 ARMROCK 1768 1904 east
+place 0 ARMROCK 1768 1936 east
+place 0 ARMROCK 1768 1968 east
+place 0 ARMROCK 1768 2000 east
+place 0 ARMROCK 1768 2032 east
+place 0 ARMROCK 1768 2064 east
+place 0 ARMROCK 1768 2096 east
+place 0 ARMROCK 1768 2128 east
+place 0 ARMROCK 1768 2160 east
+place 0 ARMROCK 1768 2192 east
+place 0 ARMROCK 1768 2224 east
+place 0 ARMROCK 1768 2256 east
+place 0 ARMROCK 1768 2288 east
+place 0 ARMROCK 1768 2320 east
+place 0 ARMROCK 1768 2352 east
+place 0 ARMROCK 1768 2384 east
+place 0 ARMROCK 1768 2416 east
+place 0 ARMROCK 1734 1760 east
+place 0 ARMSTUMP 1734 1792 east
+place 0 ARMSTUMP 1734 1824 east
+place 0 ARMSTUMP 1734 1856 east
+place 0 ARMSTUMP 1734 1888 east
+place 0 ARMSTUMP 1734 1920 east
+place 0 ARMSTUMP 1734 1952 east
+place 0 ARMSTUMP 1734 1984 east
+place 0 ARMSTUMP 1734 2016 east
+place 0 ARMSTUMP 1734 2048 east
+place 0 ARMSTUMP 1734 2080 east
+place 0 ARMSTUMP 1734 2112 east
+place 0 ARMSTUMP 1734 2144 east
+place 0 ARMSTUMP 1734 2176 east
+place 0 ARMSTUMP 1734 2208 east
+place 0 ARMSTUMP 1734 2240 east
+place 0 ARMSTUMP 1734 2272 east
+place 0 ARMSTUMP 1734 2304 east
+place 0 ARMSTUMP 1734 2336 east
+place 0 ARMSTUMP 1734 2368 east
+place 0 ARMSTUMP 1734 2400 east
+place 0 ARMBULL 1700 1776 east
+place 0 ARMBULL 1700 1808 east
+place 0 ARMBULL 1700 1840 east
+place 0 ARMBULL 1700 1872 east
+place 0 ARMBULL 1700 1904 east
+place 0 ARMBULL 1700 1936 east
+place 0 ARMBULL 1700 1968 east
+place 0 ARMBULL 1700 2000 east
+place 0 ARMBULL 1700 2032 east
+place 0 ARMBULL 1700 2064 east
+place 0 ARMBULL 1700 2096 east
+place 0 ARMBULL 1700 2128 east
+place 0 ARMBULL 1700 2160 east
+place 0 ARMBULL 1700 2192 east
+place 0 ARMBULL 1700 2224 east
+place 0 ARMMART 1700 2256 east
+place 0 ARMMART 1700 2288 east
+place 0 ARMMART 1700 2320 east
+place 0 ARMMART 1700 2352 east
+place 0 ARMMART 1700 2384 east
+place 0 ARMMART 1700 2416 east
+place 0 ARMMART 1666 1760 east
+place 0 ARMMART 1666 1792 east
+place 0 ARMMART 1666 1824 east
+place 0 ARMMART 1666 1856 east
+place 0 ARMJETH 1666 1888 east
+place 0 ARMJETH 1666 1920 east
+place 0 ARMJETH 1666 1952 east
+place 0 ARMJETH 1666 1984 east
+place 0 ARMJETH 1666 2016 east
+place 0 ARMJETH 1666 2048 east
+place 0 ARMJETH 1666 2080 east
+place 0 ARMJETH 1666 2112 east
+place 0 ARMJETH 1666 2144 east
+place 0 ARMJETH 1666 2176 east
+place 0 ARMSAM 1666 2208 east
+place 0 ARMSAM 1666 2240 east
+place 0 ARMSAM 1666 2272 east
+place 0 ARMSAM 1666 2304 east
+place 0 ARMSAM 1666 2336 east
+place 0 ARMSAM 1666 2368 east
+place 0 ARMSAM 1666 2400 east
+place 0 ARMSAM 1632 1776 east
+place 0 ARMSAM 1632 1808 east
+place 0 ARMSAM 1632 1840 east
+group army1
+place 1 CORAK 2090 1760 west
+place 1 CORAK 2090 1792 west
+place 1 CORAK 2090 1824 west
+place 1 CORAK 2090 1856 west
+place 1 CORAK 2090 1888 west
+place 1 CORAK 2090 1920 west
+place 1 CORAK 2090 1952 west
+place 1 CORAK 2090 1984 west
+place 1 CORAK 2090 2016 west
+place 1 CORAK 2090 2048 west
+place 1 CORAK 2090 2080 west
+place 1 CORAK 2090 2112 west
+place 1 CORAK 2090 2144 west
+place 1 CORAK 2090 2176 west
+place 1 CORAK 2090 2208 west
+place 1 CORAK 2090 2240 west
+place 1 CORAK 2090 2272 west
+place 1 CORAK 2090 2304 west
+place 1 CORAK 2090 2336 west
+place 1 CORAK 2090 2368 west
+place 1 CORAK 2090 2400 west
+place 1 CORAK 2124 1776 west
+place 1 CORAK 2124 1808 west
+place 1 CORAK 2124 1840 west
+place 1 CORAK 2124 1872 west
+place 1 CORAK 2124 1904 west
+place 1 CORAK 2124 1936 west
+place 1 CORAK 2124 1968 west
+place 1 CORAK 2124 2000 west
+place 1 CORAK 2124 2032 west
+place 1 CORTHUD 2124 2064 west
+place 1 CORTHUD 2124 2096 west
+place 1 CORTHUD 2124 2128 west
+place 1 CORTHUD 2124 2160 west
+place 1 CORTHUD 2124 2192 west
+place 1 CORTHUD 2124 2224 west
+place 1 CORTHUD 2124 2256 west
+place 1 CORTHUD 2124 2288 west
+place 1 CORTHUD 2124 2320 west
+place 1 CORTHUD 2124 2352 west
+place 1 CORTHUD 2124 2384 west
+place 1 CORTHUD 2124 2416 west
+place 1 CORTHUD 2158 1760 west
+place 1 CORTHUD 2158 1792 west
+place 1 CORTHUD 2158 1824 west
+place 1 CORTHUD 2158 1856 west
+place 1 CORTHUD 2158 1888 west
+place 1 CORTHUD 2158 1920 west
+place 1 CORTHUD 2158 1952 west
+place 1 CORTHUD 2158 1984 west
+place 1 CORTHUD 2158 2016 west
+place 1 CORTHUD 2158 2048 west
+place 1 CORTHUD 2158 2080 west
+place 1 CORTHUD 2158 2112 west
+place 1 CORTHUD 2158 2144 west
+place 1 CORPYRO 2158 2176 west
+place 1 CORPYRO 2158 2208 west
+place 1 CORPYRO 2158 2240 west
+place 1 CORPYRO 2158 2272 west
+place 1 CORPYRO 2158 2304 west
+place 1 CORPYRO 2158 2336 west
+place 1 CORPYRO 2158 2368 west
+place 1 CORPYRO 2158 2400 west
+place 1 CORPYRO 2192 1776 west
+place 1 CORPYRO 2192 1808 west
+place 1 CORSTORM 2192 1840 west
+place 1 CORSTORM 2192 1872 west
+place 1 CORSTORM 2192 1904 west
+place 1 CORSTORM 2192 1936 west
+place 1 CORSTORM 2192 1968 west
+place 1 CORSTORM 2192 2000 west
+place 1 CORSTORM 2192 2032 west
+place 1 CORSTORM 2192 2064 west
+place 1 CORSTORM 2192 2096 west
+place 1 CORSTORM 2192 2128 west
+place 1 CORSTORM 2192 2160 west
+place 1 CORSTORM 2192 2192 west
+place 1 CORSTORM 2192 2224 west
+place 1 CORSTORM 2192 2256 west
+place 1 CORSTORM 2192 2288 west
+place 1 CORSTORM 2192 2320 west
+place 1 CORSTORM 2192 2352 west
+place 1 CORSTORM 2192 2384 west
+place 1 CORSTORM 2192 2416 west
+place 1 CORSTORM 2226 1760 west
+place 1 CORRAID 2226 1792 west
+place 1 CORRAID 2226 1824 west
+place 1 CORRAID 2226 1856 west
+place 1 CORRAID 2226 1888 west
+place 1 CORRAID 2226 1920 west
+place 1 CORRAID 2226 1952 west
+place 1 CORRAID 2226 1984 west
+place 1 CORRAID 2226 2016 west
+place 1 CORRAID 2226 2048 west
+place 1 CORRAID 2226 2080 west
+place 1 CORRAID 2226 2112 west
+place 1 CORRAID 2226 2144 west
+place 1 CORRAID 2226 2176 west
+place 1 CORRAID 2226 2208 west
+place 1 CORRAID 2226 2240 west
+place 1 CORRAID 2226 2272 west
+place 1 CORRAID 2226 2304 west
+place 1 CORRAID 2226 2336 west
+place 1 CORRAID 2226 2368 west
+place 1 CORRAID 2226 2400 west
+place 1 CORREAP 2260 1776 west
+place 1 CORREAP 2260 1808 west
+place 1 CORREAP 2260 1840 west
+place 1 CORREAP 2260 1872 west
+place 1 CORREAP 2260 1904 west
+place 1 CORREAP 2260 1936 west
+place 1 CORREAP 2260 1968 west
+place 1 CORREAP 2260 2000 west
+place 1 CORREAP 2260 2032 west
+place 1 CORREAP 2260 2064 west
+place 1 CORREAP 2260 2096 west
+place 1 CORREAP 2260 2128 west
+place 1 CORREAP 2260 2160 west
+place 1 CORREAP 2260 2192 west
+place 1 CORREAP 2260 2224 west
+place 1 CORMART 2260 2256 west
+place 1 CORMART 2260 2288 west
+place 1 CORMART 2260 2320 west
+place 1 CORMART 2260 2352 west
+place 1 CORMART 2260 2384 west
+place 1 CORMART 2260 2416 west
+place 1 CORMART 2294 1760 west
+place 1 CORMART 2294 1792 west
+place 1 CORMART 2294 1824 west
+place 1 CORMART 2294 1856 west
+place 1 CORCRASH 2294 1888 west
+place 1 CORCRASH 2294 1920 west
+place 1 CORCRASH 2294 1952 west
+place 1 CORCRASH 2294 1984 west
+place 1 CORCRASH 2294 2016 west
+place 1 CORCRASH 2294 2048 west
+place 1 CORCRASH 2294 2080 west
+place 1 CORCRASH 2294 2112 west
+place 1 CORCRASH 2294 2144 west
+place 1 CORCRASH 2294 2176 west
+place 1 CORMIST 2294 2208 west
+place 1 CORMIST 2294 2240 west
+place 1 CORMIST 2294 2272 west
+place 1 CORMIST 2294 2304 west
+place 1 CORMIST 2294 2336 west
+place 1 CORMIST 2294 2368 west
+place 1 CORMIST 2294 2400 west
+place 1 CORMIST 2328 1776 west
+place 1 CORMIST 2328 1808 west
+place 1 CORMIST 2328 1840 west
+group fact0
+place 0 ARMLAB 1580 1660 east
+queue ARMWAR 60
+queue ARMHAM 60
+place 0 ARMVP 1580 2480 east
+queue ARMSTUMP 60
+queue ARMSAM 30
+place 0 ARMAP 1460 2080 east
+queue ARMTHUND 30
+queue ARMFIG 30
+group fact1
+place 1 CORLAB 2340 1660 west
+queue CORAK 60
+queue CORTHUD 60
+place 1 CORVP 2340 2480 west
+queue CORRAID 60
+queue CORMIST 30
+place 1 CORAP 2470 2080 west
+queue CORSHAD 30
+queue CORVENG 30
+group build0
+place 0 ARMCK 1550 1720
+build ARMHLT 230 -24
+place 0 ARMCV 1550 1766
+build ARMGUARD 230 0
+place 0 ARMCK 1550 1812
+build ARMFUS 120 24
+place 0 ARMCV 1550 1858
+build ARMHLT 230 -24
+place 0 ARMCK 1550 1904
+build ARMRAD 120 0
+place 0 ARMCV 1550 1950
+build ARMGUARD 230 24
+place 0 ARMCK 1550 1996
+build ARMFUS 120 -24
+place 0 ARMCV 1550 2042
+build ARMHLT 230 0
+place 0 ARMCK 1550 2088
+build ARMHLT 230 24
+place 0 ARMCV 1550 2134
+build ARMGUARD 230 -24
+place 0 ARMCK 1550 2180
+build ARMFUS 120 0
+place 0 ARMCV 1550 2226
+build ARMHLT 230 24
+place 0 ARMCK 1550 2272
+build ARMRAD 120 -24
+place 0 ARMCV 1550 2318
+build ARMGUARD 230 0
+place 0 ARMCK 1550 2364
+build ARMFUS 120 24
+place 0 ARMCV 1550 2410
+build ARMHLT 230 -24
+group build1
+place 1 CORCK 2385 1720
+build CORHLT -230 -24
+place 1 CORCV 2385 1766
+build CORPUN -230 0
+place 1 CORCK 2385 1812
+build CORFUS -120 24
+place 1 CORCV 2385 1858
+build CORHLT -230 -24
+place 1 CORCK 2385 1904
+build CORRAD -120 0
+place 1 CORCV 2385 1950
+build CORPUN -230 24
+place 1 CORCK 2385 1996
+build CORFUS -120 -24
+place 1 CORCV 2385 2042
+build CORHLT -230 0
+place 1 CORCK 2385 2088
+build CORHLT -230 24
+place 1 CORCV 2385 2134
+build CORPUN -230 -24
+place 1 CORCK 2385 2180
+build CORFUS -120 0
+place 1 CORCV 2385 2226
+build CORHLT -230 24
+place 1 CORCK 2385 2272
+build CORRAD -120 -24
+place 1 CORCV 2385 2318
+build CORPUN -230 0
+place 1 CORCK 2385 2364
+build CORFUS -120 24
+place 1 CORCV 2385 2410
+build CORHLT -230 -24
+group air0
+place 0 ARMFIG 1530 1600
+place 0 ARMTHUND 1570 1600
+place 0 ARMFIG 1610 1600
+place 0 ARMTHUND 1650 1600
+place 0 ARMFIG 1530 1640
+place 0 ARMTHUND 1570 1640
+place 0 ARMFIG 1610 1640
+place 0 ARMTHUND 1650 1640
+place 0 ARMFIG 1530 1680
+place 0 ARMTHUND 1570 1680
+place 0 ARMFIG 1610 1680
+place 0 ARMTHUND 1650 1680
+place 0 ARMFIG 1530 1720
+place 0 ARMTHUND 1570 1720
+place 0 ARMFIG 1610 1720
+place 0 ARMTHUND 1650 1720
+place 0 ARMFIG 1530 1760
+place 0 ARMTHUND 1570 1760
+place 0 ARMFIG 1610 1760
+place 0 ARMTHUND 1650 1760
+group air1
+place 1 CORVENG 2300 2520
+place 1 CORSHAD 2340 2520
+place 1 CORVENG 2380 2520
+place 1 CORSHAD 2420 2520
+place 1 CORVENG 2300 2550
+place 1 CORSHAD 2340 2550
+place 1 CORVENG 2380 2550
+place 1 CORSHAD 2420 2550
+place 1 CORVENG 2300 2580
+place 1 CORSHAD 2340 2580
+place 1 CORVENG 2380 2580
+place 1 CORSHAD 2420 2580
+place 1 CORVENG 2300 2610
+place 1 CORSHAD 2340 2610
+place 1 CORVENG 2380 2610
+place 1 CORSHAD 2420 2610
+place 1 CORVENG 2300 2640
+place 1 CORSHAD 2340 2640
+place 1 CORVENG 2380 2640
+place 1 CORSHAD 2420 2640
+at 150 place 0 ARMWAR 1690 1780 east
+at 150 place 1 CORAK 2270 1780 west
+at 150 place 0 ARMHAM 1660 1810 east
+at 150 place 1 CORTHUD 2300 1810 west
+at 150 place 0 ARMSTUMP 1690 1840 east
+at 150 place 1 CORRAID 2270 1840 west
+at 150 place 0 ARMROCK 1660 1870 east
+at 150 place 1 CORSTORM 2300 1870 west
+at 150 place 0 ARMBULL 1690 1900 east
+at 150 place 1 CORREAP 2270 1900 west
+at 150 place 0 ARMWAR 1660 1930 east
+at 150 place 1 CORAK 2300 1930 west
+at 150 place 0 ARMHAM 1690 1960 east
+at 150 place 1 CORTHUD 2270 1960 west
+at 150 place 0 ARMSTUMP 1660 1990 east
+at 150 place 1 CORRAID 2300 1990 west
+at 150 place 0 ARMROCK 1690 2020 east
+at 150 place 1 CORSTORM 2270 2020 west
+at 150 place 0 ARMBULL 1660 2050 east
+at 150 place 1 CORREAP 2300 2050 west
+at 150 place 0 ARMWAR 1690 2080 east
+at 150 place 1 CORAK 2270 2080 west
+at 150 place 0 ARMHAM 1660 2110 east
+at 150 place 1 CORTHUD 2300 2110 west
+at 150 place 0 ARMSTUMP 1690 2140 east
+at 150 place 1 CORRAID 2270 2140 west
+at 150 place 0 ARMROCK 1660 2170 east
+at 150 place 1 CORSTORM 2300 2170 west
+at 150 place 0 ARMBULL 1690 2200 east
+at 150 place 1 CORREAP 2270 2200 west
+at 150 place 0 ARMWAR 1660 2230 east
+at 150 place 1 CORAK 2300 2230 west
+at 150 place 0 ARMHAM 1690 2260 east
+at 150 place 1 CORTHUD 2270 2260 west
+at 150 place 0 ARMSTUMP 1660 2290 east
+at 150 place 1 CORRAID 2300 2290 west
+at 150 place 0 ARMROCK 1690 2320 east
+at 150 place 1 CORSTORM 2270 2320 west
+at 150 place 0 ARMBULL 1660 2350 east
+at 150 place 1 CORREAP 2300 2350 west
+at 300 place 0 ARMWAR 1690 1780 east
+at 300 place 1 CORAK 2270 1780 west
+at 300 place 0 ARMHAM 1660 1810 east
+at 300 place 1 CORTHUD 2300 1810 west
+at 300 place 0 ARMSTUMP 1690 1840 east
+at 300 place 1 CORRAID 2270 1840 west
+at 300 place 0 ARMROCK 1660 1870 east
+at 300 place 1 CORSTORM 2300 1870 west
+at 300 place 0 ARMBULL 1690 1900 east
+at 300 place 1 CORREAP 2270 1900 west
+at 300 place 0 ARMWAR 1660 1930 east
+at 300 place 1 CORAK 2300 1930 west
+at 300 place 0 ARMHAM 1690 1960 east
+at 300 place 1 CORTHUD 2270 1960 west
+at 300 place 0 ARMSTUMP 1660 1990 east
+at 300 place 1 CORRAID 2300 1990 west
+at 300 place 0 ARMROCK 1690 2020 east
+at 300 place 1 CORSTORM 2270 2020 west
+at 300 place 0 ARMBULL 1660 2050 east
+at 300 place 1 CORREAP 2300 2050 west
+at 300 place 0 ARMWAR 1690 2080 east
+at 300 place 1 CORAK 2270 2080 west
+at 300 place 0 ARMHAM 1660 2110 east
+at 300 place 1 CORTHUD 2300 2110 west
+at 300 place 0 ARMSTUMP 1690 2140 east
+at 300 place 1 CORRAID 2270 2140 west
+at 300 place 0 ARMROCK 1660 2170 east
+at 300 place 1 CORSTORM 2300 2170 west
+at 300 place 0 ARMBULL 1690 2200 east
+at 300 place 1 CORREAP 2270 2200 west
+at 300 place 0 ARMWAR 1660 2230 east
+at 300 place 1 CORAK 2300 2230 west
+at 300 place 0 ARMHAM 1690 2260 east
+at 300 place 1 CORTHUD 2270 2260 west
+at 300 place 0 ARMSTUMP 1660 2290 east
+at 300 place 1 CORRAID 2300 2290 west
+at 300 place 0 ARMROCK 1690 2320 east
+at 300 place 1 CORSTORM 2270 2320 west
+at 300 place 0 ARMBULL 1660 2350 east
+at 300 place 1 CORREAP 2300 2350 west
+at 450 place 0 ARMWAR 1690 1780 east
+at 450 place 1 CORAK 2270 1780 west
+at 450 place 0 ARMHAM 1660 1810 east
+at 450 place 1 CORTHUD 2300 1810 west
+at 450 place 0 ARMSTUMP 1690 1840 east
+at 450 place 1 CORRAID 2270 1840 west
+at 450 place 0 ARMROCK 1660 1870 east
+at 450 place 1 CORSTORM 2300 1870 west
+at 450 place 0 ARMBULL 1690 1900 east
+at 450 place 1 CORREAP 2270 1900 west
+at 450 place 0 ARMWAR 1660 1930 east
+at 450 place 1 CORAK 2300 1930 west
+at 450 place 0 ARMHAM 1690 1960 east
+at 450 place 1 CORTHUD 2270 1960 west
+at 450 place 0 ARMSTUMP 1660 1990 east
+at 450 place 1 CORRAID 2300 1990 west
+at 450 place 0 ARMROCK 1690 2020 east
+at 450 place 1 CORSTORM 2270 2020 west
+at 450 place 0 ARMBULL 1660 2050 east
+at 450 place 1 CORREAP 2300 2050 west
+at 450 place 0 ARMWAR 1690 2080 east
+at 450 place 1 CORAK 2270 2080 west
+at 450 place 0 ARMHAM 1660 2110 east
+at 450 place 1 CORTHUD 2300 2110 west
+at 450 place 0 ARMSTUMP 1690 2140 east
+at 450 place 1 CORRAID 2270 2140 west
+at 450 place 0 ARMROCK 1660 2170 east
+at 450 place 1 CORSTORM 2300 2170 west
+at 450 place 0 ARMBULL 1690 2200 east
+at 450 place 1 CORREAP 2270 2200 west
+at 450 place 0 ARMWAR 1660 2230 east
+at 450 place 1 CORAK 2300 2230 west
+at 450 place 0 ARMHAM 1690 2260 east
+at 450 place 1 CORTHUD 2270 2260 west
+at 450 place 0 ARMSTUMP 1660 2290 east
+at 450 place 1 CORRAID 2300 2290 west
+at 450 place 0 ARMROCK 1690 2320 east
+at 450 place 1 CORSTORM 2270 2320 west
+at 450 place 0 ARMBULL 1660 2350 east
+at 450 place 1 CORREAP 2300 2350 west
+at 600 place 0 ARMWAR 1690 1780 east
+at 600 place 1 CORAK 2270 1780 west
+at 600 place 0 ARMHAM 1660 1810 east
+at 600 place 1 CORTHUD 2300 1810 west
+at 600 place 0 ARMSTUMP 1690 1840 east
+at 600 place 1 CORRAID 2270 1840 west
+at 600 place 0 ARMROCK 1660 1870 east
+at 600 place 1 CORSTORM 2300 1870 west
+at 600 place 0 ARMBULL 1690 1900 east
+at 600 place 1 CORREAP 2270 1900 west
+at 600 place 0 ARMWAR 1660 1930 east
+at 600 place 1 CORAK 2300 1930 west
+at 600 place 0 ARMHAM 1690 1960 east
+at 600 place 1 CORTHUD 2270 1960 west
+at 600 place 0 ARMSTUMP 1660 1990 east
+at 600 place 1 CORRAID 2300 1990 west
+at 600 place 0 ARMROCK 1690 2020 east
+at 600 place 1 CORSTORM 2270 2020 west
+at 600 place 0 ARMBULL 1660 2050 east
+at 600 place 1 CORREAP 2300 2050 west
+at 600 place 0 ARMWAR 1690 2080 east
+at 600 place 1 CORAK 2270 2080 west
+at 600 place 0 ARMHAM 1660 2110 east
+at 600 place 1 CORTHUD 2300 2110 west
+at 600 place 0 ARMSTUMP 1690 2140 east
+at 600 place 1 CORRAID 2270 2140 west
+at 600 place 0 ARMROCK 1660 2170 east
+at 600 place 1 CORSTORM 2300 2170 west
+at 600 place 0 ARMBULL 1690 2200 east
+at 600 place 1 CORREAP 2270 2200 west
+at 600 place 0 ARMWAR 1660 2230 east
+at 600 place 1 CORAK 2300 2230 west
+at 600 place 0 ARMHAM 1690 2260 east
+at 600 place 1 CORTHUD 2270 2260 west
+at 600 place 0 ARMSTUMP 1660 2290 east
+at 600 place 1 CORRAID 2300 2290 west
+at 600 place 0 ARMROCK 1690 2320 east
+at 600 place 1 CORSTORM 2270 2320 west
+at 600 place 0 ARMBULL 1660 2350 east
+at 600 place 1 CORREAP 2300 2350 west
+at 750 place 0 ARMWAR 1690 1780 east
+at 750 place 1 CORAK 2270 1780 west
+at 750 place 0 ARMHAM 1660 1810 east
+at 750 place 1 CORTHUD 2300 1810 west
+at 750 place 0 ARMSTUMP 1690 1840 east
+at 750 place 1 CORRAID 2270 1840 west
+at 750 place 0 ARMROCK 1660 1870 east
+at 750 place 1 CORSTORM 2300 1870 west
+at 750 place 0 ARMBULL 1690 1900 east
+at 750 place 1 CORREAP 2270 1900 west
+at 750 place 0 ARMWAR 1660 1930 east
+at 750 place 1 CORAK 2300 1930 west
+at 750 place 0 ARMHAM 1690 1960 east
+at 750 place 1 CORTHUD 2270 1960 west
+at 750 place 0 ARMSTUMP 1660 1990 east
+at 750 place 1 CORRAID 2300 1990 west
+at 750 place 0 ARMROCK 1690 2020 east
+at 750 place 1 CORSTORM 2270 2020 west
+at 750 place 0 ARMBULL 1660 2050 east
+at 750 place 1 CORREAP 2300 2050 west
+at 750 place 0 ARMWAR 1690 2080 east
+at 750 place 1 CORAK 2270 2080 west
+at 750 place 0 ARMHAM 1660 2110 east
+at 750 place 1 CORTHUD 2300 2110 west
+at 750 place 0 ARMSTUMP 1690 2140 east
+at 750 place 1 CORRAID 2270 2140 west
+at 750 place 0 ARMROCK 1660 2170 east
+at 750 place 1 CORSTORM 2300 2170 west
+at 750 place 0 ARMBULL 1690 2200 east
+at 750 place 1 CORREAP 2270 2200 west
+at 750 place 0 ARMWAR 1660 2230 east
+at 750 place 1 CORAK 2300 2230 west
+at 750 place 0 ARMHAM 1690 2260 east
+at 750 place 1 CORTHUD 2270 2260 west
+at 750 place 0 ARMSTUMP 1660 2290 east
+at 750 place 1 CORRAID 2300 2290 west
+at 750 place 0 ARMROCK 1690 2320 east
+at 750 place 1 CORSTORM 2270 2320 west
+at 750 place 0 ARMBULL 1660 2350 east
+at 750 place 1 CORREAP 2300 2350 west
+at 900 place 0 ARMWAR 1690 1780 east
+at 900 place 1 CORAK 2270 1780 west
+at 900 place 0 ARMHAM 1660 1810 east
+at 900 place 1 CORTHUD 2300 1810 west
+at 900 place 0 ARMSTUMP 1690 1840 east
+at 900 place 1 CORRAID 2270 1840 west
+at 900 place 0 ARMROCK 1660 1870 east
+at 900 place 1 CORSTORM 2300 1870 west
+at 900 place 0 ARMBULL 1690 1900 east
+at 900 place 1 CORREAP 2270 1900 west
+at 900 place 0 ARMWAR 1660 1930 east
+at 900 place 1 CORAK 2300 1930 west
+at 900 place 0 ARMHAM 1690 1960 east
+at 900 place 1 CORTHUD 2270 1960 west
+at 900 place 0 ARMSTUMP 1660 1990 east
+at 900 place 1 CORRAID 2300 1990 west
+at 900 place 0 ARMROCK 1690 2020 east
+at 900 place 1 CORSTORM 2270 2020 west
+at 900 place 0 ARMBULL 1660 2050 east
+at 900 place 1 CORREAP 2300 2050 west
+at 900 place 0 ARMWAR 1690 2080 east
+at 900 place 1 CORAK 2270 2080 west
+at 900 place 0 ARMHAM 1660 2110 east
+at 900 place 1 CORTHUD 2300 2110 west
+at 900 place 0 ARMSTUMP 1690 2140 east
+at 900 place 1 CORRAID 2270 2140 west
+at 900 place 0 ARMROCK 1660 2170 east
+at 900 place 1 CORSTORM 2300 2170 west
+at 900 place 0 ARMBULL 1690 2200 east
+at 900 place 1 CORREAP 2270 2200 west
+at 900 place 0 ARMWAR 1660 2230 east
+at 900 place 1 CORAK 2300 2230 west
+at 900 place 0 ARMHAM 1690 2260 east
+at 900 place 1 CORTHUD 2270 2260 west
+at 900 place 0 ARMSTUMP 1660 2290 east
+at 900 place 1 CORRAID 2300 2290 west
+at 900 place 0 ARMROCK 1690 2320 east
+at 900 place 1 CORSTORM 2270 2320 west
+at 900 place 0 ARMBULL 1660 2350 east
+at 900 place 1 CORREAP 2300 2350 west
+at 1050 place 0 ARMWAR 1690 1780 east
+at 1050 place 1 CORAK 2270 1780 west
+at 1050 place 0 ARMHAM 1660 1810 east
+at 1050 place 1 CORTHUD 2300 1810 west
+at 1050 place 0 ARMSTUMP 1690 1840 east
+at 1050 place 1 CORRAID 2270 1840 west
+at 1050 place 0 ARMROCK 1660 1870 east
+at 1050 place 1 CORSTORM 2300 1870 west
+at 1050 place 0 ARMBULL 1690 1900 east
+at 1050 place 1 CORREAP 2270 1900 west
+at 1050 place 0 ARMWAR 1660 1930 east
+at 1050 place 1 CORAK 2300 1930 west
+at 1050 place 0 ARMHAM 1690 1960 east
+at 1050 place 1 CORTHUD 2270 1960 west
+at 1050 place 0 ARMSTUMP 1660 1990 east
+at 1050 place 1 CORRAID 2300 1990 west
+at 1050 place 0 ARMROCK 1690 2020 east
+at 1050 place 1 CORSTORM 2270 2020 west
+at 1050 place 0 ARMBULL 1660 2050 east
+at 1050 place 1 CORREAP 2300 2050 west
+at 1050 place 0 ARMWAR 1690 2080 east
+at 1050 place 1 CORAK 2270 2080 west
+at 1050 place 0 ARMHAM 1660 2110 east
+at 1050 place 1 CORTHUD 2300 2110 west
+at 1050 place 0 ARMSTUMP 1690 2140 east
+at 1050 place 1 CORRAID 2270 2140 west
+at 1050 place 0 ARMROCK 1660 2170 east
+at 1050 place 1 CORSTORM 2300 2170 west
+at 1050 place 0 ARMBULL 1690 2200 east
+at 1050 place 1 CORREAP 2270 2200 west
+at 1050 place 0 ARMWAR 1660 2230 east
+at 1050 place 1 CORAK 2300 2230 west
+at 1050 place 0 ARMHAM 1690 2260 east
+at 1050 place 1 CORTHUD 2270 2260 west
+at 1050 place 0 ARMSTUMP 1660 2290 east
+at 1050 place 1 CORRAID 2300 2290 west
+at 1050 place 0 ARMROCK 1690 2320 east
+at 1050 place 1 CORSTORM 2270 2320 west
+at 1050 place 0 ARMBULL 1660 2350 east
+at 1050 place 1 CORREAP 2300 2350 west
+at 1200 place 0 ARMWAR 1690 1780 east
+at 1200 place 1 CORAK 2270 1780 west
+at 1200 place 0 ARMHAM 1660 1810 east
+at 1200 place 1 CORTHUD 2300 1810 west
+at 1200 place 0 ARMSTUMP 1690 1840 east
+at 1200 place 1 CORRAID 2270 1840 west
+at 1200 place 0 ARMROCK 1660 1870 east
+at 1200 place 1 CORSTORM 2300 1870 west
+at 1200 place 0 ARMBULL 1690 1900 east
+at 1200 place 1 CORREAP 2270 1900 west
+at 1200 place 0 ARMWAR 1660 1930 east
+at 1200 place 1 CORAK 2300 1930 west
+at 1200 place 0 ARMHAM 1690 1960 east
+at 1200 place 1 CORTHUD 2270 1960 west
+at 1200 place 0 ARMSTUMP 1660 1990 east
+at 1200 place 1 CORRAID 2300 1990 west
+at 1200 place 0 ARMROCK 1690 2020 east
+at 1200 place 1 CORSTORM 2270 2020 west
+at 1200 place 0 ARMBULL 1660 2050 east
+at 1200 place 1 CORREAP 2300 2050 west
+at 1200 place 0 ARMWAR 1690 2080 east
+at 1200 place 1 CORAK 2270 2080 west
+at 1200 place 0 ARMHAM 1660 2110 east
+at 1200 place 1 CORTHUD 2300 2110 west
+at 1200 place 0 ARMSTUMP 1690 2140 east
+at 1200 place 1 CORRAID 2270 2140 west
+at 1200 place 0 ARMROCK 1660 2170 east
+at 1200 place 1 CORSTORM 2300 2170 west
+at 1200 place 0 ARMBULL 1690 2200 east
+at 1200 place 1 CORREAP 2270 2200 west
+at 1200 place 0 ARMWAR 1660 2230 east
+at 1200 place 1 CORAK 2300 2230 west
+at 1200 place 0 ARMHAM 1690 2260 east
+at 1200 place 1 CORTHUD 2270 2260 west
+at 1200 place 0 ARMSTUMP 1660 2290 east
+at 1200 place 1 CORRAID 2300 2290 west
+at 1200 place 0 ARMROCK 1690 2320 east
+at 1200 place 1 CORSTORM 2270 2320 west
+at 1200 place 0 ARMBULL 1660 2350 east
+at 1200 place 1 CORREAP 2300 2350 west
+at 1350 place 0 ARMWAR 1690 1780 east
+at 1350 place 1 CORAK 2270 1780 west
+at 1350 place 0 ARMHAM 1660 1810 east
+at 1350 place 1 CORTHUD 2300 1810 west
+at 1350 place 0 ARMSTUMP 1690 1840 east
+at 1350 place 1 CORRAID 2270 1840 west
+at 1350 place 0 ARMROCK 1660 1870 east
+at 1350 place 1 CORSTORM 2300 1870 west
+at 1350 place 0 ARMBULL 1690 1900 east
+at 1350 place 1 CORREAP 2270 1900 west
+at 1350 place 0 ARMWAR 1660 1930 east
+at 1350 place 1 CORAK 2300 1930 west
+at 1350 place 0 ARMHAM 1690 1960 east
+at 1350 place 1 CORTHUD 2270 1960 west
+at 1350 place 0 ARMSTUMP 1660 1990 east
+at 1350 place 1 CORRAID 2300 1990 west
+at 1350 place 0 ARMROCK 1690 2020 east
+at 1350 place 1 CORSTORM 2270 2020 west
+at 1350 place 0 ARMBULL 1660 2050 east
+at 1350 place 1 CORREAP 2300 2050 west
+at 1350 place 0 ARMWAR 1690 2080 east
+at 1350 place 1 CORAK 2270 2080 west
+at 1350 place 0 ARMHAM 1660 2110 east
+at 1350 place 1 CORTHUD 2300 2110 west
+at 1350 place 0 ARMSTUMP 1690 2140 east
+at 1350 place 1 CORRAID 2270 2140 west
+at 1350 place 0 ARMROCK 1660 2170 east
+at 1350 place 1 CORSTORM 2300 2170 west
+at 1350 place 0 ARMBULL 1690 2200 east
+at 1350 place 1 CORREAP 2270 2200 west
+at 1350 place 0 ARMWAR 1660 2230 east
+at 1350 place 1 CORAK 2300 2230 west
+at 1350 place 0 ARMHAM 1690 2260 east
+at 1350 place 1 CORTHUD 2270 2260 west
+at 1350 place 0 ARMSTUMP 1660 2290 east
+at 1350 place 1 CORRAID 2300 2290 west
+at 1350 place 0 ARMROCK 1690 2320 east
+at 1350 place 1 CORSTORM 2270 2320 west
+at 1350 place 0 ARMBULL 1660 2350 east
+at 1350 place 1 CORREAP 2300 2350 west
+at 1500 place 0 ARMWAR 1690 1780 east
+at 1500 place 1 CORAK 2270 1780 west
+at 1500 place 0 ARMHAM 1660 1810 east
+at 1500 place 1 CORTHUD 2300 1810 west
+at 1500 place 0 ARMSTUMP 1690 1840 east
+at 1500 place 1 CORRAID 2270 1840 west
+at 1500 place 0 ARMROCK 1660 1870 east
+at 1500 place 1 CORSTORM 2300 1870 west
+at 1500 place 0 ARMBULL 1690 1900 east
+at 1500 place 1 CORREAP 2270 1900 west
+at 1500 place 0 ARMWAR 1660 1930 east
+at 1500 place 1 CORAK 2300 1930 west
+at 1500 place 0 ARMHAM 1690 1960 east
+at 1500 place 1 CORTHUD 2270 1960 west
+at 1500 place 0 ARMSTUMP 1660 1990 east
+at 1500 place 1 CORRAID 2300 1990 west
+at 1500 place 0 ARMROCK 1690 2020 east
+at 1500 place 1 CORSTORM 2270 2020 west
+at 1500 place 0 ARMBULL 1660 2050 east
+at 1500 place 1 CORREAP 2300 2050 west
+at 1500 place 0 ARMWAR 1690 2080 east
+at 1500 place 1 CORAK 2270 2080 west
+at 1500 place 0 ARMHAM 1660 2110 east
+at 1500 place 1 CORTHUD 2300 2110 west
+at 1500 place 0 ARMSTUMP 1690 2140 east
+at 1500 place 1 CORRAID 2270 2140 west
+at 1500 place 0 ARMROCK 1660 2170 east
+at 1500 place 1 CORSTORM 2300 2170 west
+at 1500 place 0 ARMBULL 1690 2200 east
+at 1500 place 1 CORREAP 2270 2200 west
+at 1500 place 0 ARMWAR 1660 2230 east
+at 1500 place 1 CORAK 2300 2230 west
+at 1500 place 0 ARMHAM 1690 2260 east
+at 1500 place 1 CORTHUD 2270 2260 west
+at 1500 place 0 ARMSTUMP 1660 2290 east
+at 1500 place 1 CORRAID 2300 2290 west
+at 1500 place 0 ARMROCK 1690 2320 east
+at 1500 place 1 CORSTORM 2270 2320 west
+at 1500 place 0 ARMBULL 1660 2350 east
+at 1500 place 1 CORREAP 2300 2350 west
+patrol army0 2240 2080
+patrol army1 1720 2080
+patrol air0 2300 2080
+patrol air1 1650 2080
+at 300 patrol-all 0 2240 2080 build0
+at 300 patrol-all 1 1720 2080 build1
+at 600 patrol-all 0 2240 2080 build0
+at 600 patrol-all 1 1720 2080 build1
+at 900 patrol-all 0 2240 2080 build0
+at 900 patrol-all 1 1720 2080 build1
+at 1200 patrol-all 0 2240 2080 build0
+at 1200 patrol-all 1 1720 2080 build1
+at 1500 patrol-all 0 2240 2080 build0
+at 1500 patrol-all 1 1720 2080 build1
+at 1800 patrol-all 0 2240 2080 build0
+at 1800 patrol-all 1 1720 2080 build1
+at 2100 patrol-all 0 2240 2080 build0
+at 2100 patrol-all 1 1720 2080 build1
+at 2400 patrol-all 0 2240 2080 build0
+at 2400 patrol-all 1 1720 2080 build1
+at 2700 patrol-all 0 2240 2080 build0
+at 2700 patrol-all 1 1720 2080 build1
+at 3000 patrol-all 0 2240 2080 build0
+at 3000 patrol-all 1 1720 2080 build1
+at 3300 patrol-all 0 2240 2080 build0
+at 3300 patrol-all 1 1720 2080 build1
+at 3600 patrol-all 0 2240 2080 build0
+at 3600 patrol-all 1 1720 2080 build1

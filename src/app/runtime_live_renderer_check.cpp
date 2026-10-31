@@ -20,6 +20,7 @@
 #include "oa/core/weapon_def.h"
 #include "oa/sim/messages.hpp"
 #include "oa/ui/hud/health_bar.hpp"
+#include "oa/platform/job_pool.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -29,10 +30,12 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -109,9 +112,16 @@ int Runtime::check_live_renderer() {
         // Console echoes are transient interface messages, not battlefield
         // changes; keep them out of frozen-frame comparisons.
         oa::sim::messages::clear_messages(match_->state().game);
-        render_match_surface();
+        // Every turned frame is drawn again on the card, its overlay added
+        // there, and shows what the processor's frame shows.
+        const auto differences = draw_turned_frame_both_ways();
         require(match_->fault() == nullptr, "rendering raised a simulation fault");
         require(!match_world_cpu_.rgb.empty(), "Skirmish produced an empty world picture");
+        if (!differences.empty())
+            throw std::runtime_error(
+                "live renderer check: the turned frame on the card is not the processor's: " +
+                differences
+            );
         return match_world_cpu_;
     };
     // A key goes in as the event loop takes it: with the place a keyboard
@@ -229,12 +239,39 @@ int Runtime::check_live_renderer() {
     save_picture("classic.png", classic);
     require(snapshot().rgb == classic.rgb, "a stationary classic frame changed without a tick");
     orbit(SDL_BUTTON_LEFT);
+    // The first turned frame makes the card ready to draw the units from
+    // their models, so it lists them in its vertices and lays their shadows
+    // from their pictures; from the next the card draws them and casts their
+    // shadows, whose edges may fall a texel from the laid ones'.
+    snapshot();
     const auto rotated = snapshot();
     if (live_renderer_unavailable()) {
         std::cout << "live renderer check: skipped: no supported GPU device is available\n";
         return unavailable_exit;
     }
     require(!live_renderer_failed(), "the live GPU frame failed");
+    // Text over the turned battlefield in the modern fonts, a message's
+    // line and the frame statistics' panel over its shaded backdrop: their
+    // letters' edges, outlines and shadows and the backdrop's blend reach the
+    // picture under the overlay canvas, which the card makes as the
+    // painters would have made them on the picture.
+    {
+        auto& text = engine_settings_->current;
+        const bool modern = text.modern_fonts;
+        text.modern_fonts = true;
+        frame_stats_shown_ = true;
+        post_match_message("Fusion Reactor: Under Attack", oa::sim::messages::kind_status);
+        const auto differences = draw_turned_frame_both_ways();
+        const auto operations = turned_overlay_operation_count();
+        frame_stats_shown_ = false;
+        text.modern_fonts = modern;
+        oa::sim::messages::clear_messages(match_->state().game);
+        if (!differences.empty())
+            throw std::runtime_error(
+                "live renderer check: text on the card is not the processor's: " + differences
+            );
+        require(operations > 0, "no text or blend over the turned battlefield reached its picture");
+    }
     require(live_renderer_vertex_count() != 0, "the live frame contained no world geometry");
     save_picture("rotated.png", rotated);
     require(
@@ -438,6 +475,44 @@ int Runtime::check_live_renderer() {
         }
     }
 
+    // The visibility and depth come out byte for byte the same with any
+    // number of draw threads, and with none, for every kind of request.
+    {
+        std::vector<uint8_t> terrain_visibility;
+        std::vector<float> terrain_depth;
+        live_scene_visibility(terrain_visibility, terrain_depth, true);
+        const auto same = [](const std::vector<uint8_t>& visibility,
+                             const std::vector<float>& depth,
+                             const std::vector<uint8_t>& expected_visibility,
+                             const std::vector<float>& expected_depth) {
+            return visibility == expected_visibility && depth.size() == expected_depth.size() &&
+                   std::memcmp(depth.data(), expected_depth.data(), depth.size() * sizeof(float)) ==
+                       0;
+        };
+        constexpr std::array<uint32_t, 6> thread_counts{0, 1, 2, 3, 5, 8};
+        for (const uint32_t threads : thread_counts) {
+            std::unique_ptr<oa::platform::job_pool::Pool> pool;
+            if (threads != 0)
+                pool = std::make_unique<oa::platform::job_pool::Pool>(threads);
+            std::swap(draw_pool_, pool);
+            std::vector<uint8_t> visibility;
+            std::vector<float> depth;
+            live_scene_visibility(visibility, depth);
+            const bool full_same = same(visibility, depth, full_visibility, full_depth);
+            live_scene_visibility(visibility, depth, false, row_left, row_right);
+            const bool clipped_same = same(visibility, depth, clipped_visibility, clipped_depth);
+            live_scene_visibility(visibility, depth, false, row_left, row_right, requested_pixels);
+            const bool sparse_same = same(visibility, depth, sparse_visibility, sparse_depth);
+            live_scene_visibility(visibility, depth, true);
+            const bool terrain_same = same(visibility, depth, terrain_visibility, terrain_depth);
+            std::swap(draw_pool_, pool);
+            require(
+                full_same && clipped_same && sparse_same && terrain_same,
+                "the scene's visibility changed with the number of draw threads"
+            );
+        }
+    }
+
     // The physical key below Escape toggles projected bars through the gameplay dispatcher.
     const auto saved_graphics = match_->state().game.graphics_flags;
     match_->state().game.graphics_flags &= ~oa::ui::hud::kGraphicsDamageBars;
@@ -568,6 +643,90 @@ int Runtime::check_live_renderer() {
         require(!outside, "cloaking a unit changed the picture away from it");
         select_match_unit((*commander_pixel)[0], (*commander_pixel)[1], 1);
         require(selected_match_unit_ == commander, "the commander could not be selected again");
+    }
+    // The models the card draws from their types' models give the picture,
+    // the bounds and the picks the frame's own vertices give them: over the
+    // battlefield, and at every pixel about the commander. A card that adds
+    // no lights draws every model from the vertices.
+    if (live_models_on_card()) {
+        const auto picks = [&] {
+            std::vector<uint16_t> found;
+            const int32_t left = match_layout_.left;
+            const int32_t top = match_layout_.top;
+            for (int32_t y = top; y < top + match_layout_.battlefield_height(); y += 7)
+                for (int32_t x = left; x < left + match_layout_.battlefield_width(); x += 7)
+                    found.push_back(live_unit_under(static_cast<float>(x), static_cast<float>(y)));
+            for (int32_t y = commander_bounds->y1 - 2; y <= commander_bounds->y2 + 2; ++y)
+                for (int32_t x = commander_bounds->x1 - 2; x <= commander_bounds->x2 + 2; ++x)
+                    for (const float half : {0.0F, 0.5F})
+                        found.push_back(live_unit_under(float(x) + half, float(y) + half));
+            for (const auto& slot : match_->world().slots)
+                if (const auto bounds = live_unit_bounds(slot.unit_index))
+                    found.insert(
+                        found.end(),
+                        {slot.unit_index,
+                         static_cast<uint16_t>(bounds->x1),
+                         static_cast<uint16_t>(bounds->y1),
+                         static_cast<uint16_t>(bounds->x2),
+                         static_cast<uint16_t>(bounds->y2)}
+                    );
+            return found;
+        };
+        // The shadows the card casts are its own; the rest of the picture
+        // is compared without them, and they are checked apart below.
+        auto& graphics = match_->state().game.graphics_flags;
+        const auto graphics_kept = graphics;
+        graphics = static_cast<uint16_t>(graphics & ~oa::present::model::graphics_shadows);
+        const auto on_card = snapshot();
+        const std::size_t card_models = live_renderer_card_model_count();
+        require(card_models != 0, "the card drew no model from its types' models");
+        const auto card_picks = picks();
+        const auto card_commander = live_unit_under((*commander_pixel)[0], (*commander_pixel)[1]);
+        set_live_models_on_card(false);
+        const auto from_vertices = snapshot();
+        require(
+            live_renderer_card_model_count() == 0, "a card not allowed to draw models drew them"
+        );
+        const auto vertex_picks = picks();
+        set_live_models_on_card(true);
+        require(
+            from_vertices.rgb == on_card.rgb,
+            "the models drawn on the card differ from the frame's vertices"
+        );
+        require(
+            card_picks == vertex_picks,
+            "the models drawn on the card are picked otherwise than the frame's vertices"
+        );
+        require(card_commander == commander, "the commander drawn on the card could not be picked");
+        std::cout << "live renderer check: " << card_models
+                  << " models drawn on the card give the picture, picks and bounds of the "
+                     "frame's vertices\n";
+        // The shadows the card casts darken the picture, and darken only;
+        // neither they nor the decals laid with the models in the vertices
+        // change a pick or a unit's bounds.
+        graphics = static_cast<uint16_t>(
+            graphics | oa::present::model::graphics_shadows |
+            oa::present::model::graphics_vehicle_shadows
+        );
+        const auto shadowed = snapshot();
+        const auto shadowed_picks = picks();
+        set_live_models_on_card(false);
+        snapshot();
+        const auto decal_picks = picks();
+        set_live_models_on_card(true);
+        graphics = graphics_kept;
+        require(
+            shadowed_picks == card_picks && decal_picks == card_picks,
+            "the units' shadows changed a pick or a unit's bounds"
+        );
+        std::size_t darkened = 0;
+        bool lighter = false;
+        for (std::size_t at = 0; at < shadowed.rgb.size(); ++at) {
+            darkened += shadowed.rgb[at] < on_card.rgb[at] ? 1 : 0;
+            lighter = lighter || shadowed.rgb[at] > on_card.rgb[at];
+        }
+        require(darkened != 0, "the shadows cast on the card darkened nothing");
+        require(!lighter, "the shadows cast on the card lightened the picture");
     }
     std::optional<oa::sim::ground_orders::Point> destination;
     std::optional<oa::sim::ground_orders::Point> destination_hit;

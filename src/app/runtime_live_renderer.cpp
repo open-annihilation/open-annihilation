@@ -4,13 +4,21 @@
 // Live match camera and GPU battlefield composition.
 #include "oa/app/runtime.hpp"
 #include "oa/app/frame_coordinates.hpp"
+#include "bench_timers.hpp"
 #include "director_state.hpp"
 #include "match_models.hpp"
 #include "engine_settings_state.hpp"
+#include "renderer_effects.hpp"
+#include "graphics_report.hpp"
+#include "render_host.hpp"
+#include "render_run.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_live_gpu.hpp"
+#include "renderer_live_overlay.hpp"
 #include "renderer_live_scene.hpp"
 #include "renderer_water_surface.hpp"
+#include "xrgb_conversion.hpp"
+#include "oa/platform/job_pool.hpp"
 #include "oa/sim/unit_movement/terrain.hpp"
 
 #include <algorithm>
@@ -19,8 +27,10 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <span>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace oa::app {
 namespace {
@@ -29,6 +39,40 @@ constexpr float orbit_degrees_per_pixel = 0.25F;
 /// Painted height cell edge and the classic projection's height lift.
 constexpr int terrain_cell_edge = 16;
 constexpr float height_lift = 0.5F;
+
+/// The frame's triangles the pick passes over at once where its point lies
+/// outside their bounds (LiveRenderer::pick_blocks).
+constexpr std::size_t pick_block_triangles = 32;
+/// The blocks of triangles a drawing thread projects at a time.
+constexpr std::size_t pick_band_blocks = 512;
+
+/// Whether bounds of triangles, in the picture's pixels, can hold a point
+/// renderer_live_camera::triangle_hit accepts on one of them: the point lies
+/// within them widened as triangle_hit widens a triangle's, by a share of a
+/// width and a height no triangle among them exceeds.
+///
+/// @param bounds least across, least down, most across and most down
+/// @param x the point across
+/// @param y the point down
+/// @return false where none of the triangles takes the point
+bool pick_bounds_hold(const std::array<float, 4>& bounds, float x, float y) {
+    const double margin_x =
+        (double(bounds[2]) - bounds[0]) * renderer_live_camera::triangle_bounds_tolerance;
+    const double margin_y =
+        (double(bounds[3]) - bounds[1]) * renderer_live_camera::triangle_bounds_tolerance;
+    return x >= bounds[0] - margin_x && x <= bounds[2] + margin_x && y >= bounds[1] - margin_y &&
+           y <= bounds[3] + margin_y;
+}
+
+/// A scene triangle that can reach the pixels the lights' visibility asks
+/// for, with the pixels its bounds cover.
+struct VisibilityReach {
+    std::size_t index{}; ///< the triangle's first vertex
+    int x0{};
+    int x1{};
+    int y0{};
+    int y1{};
+};
 } // namespace
 
 struct Runtime::LiveRenderer {
@@ -37,11 +81,27 @@ struct Runtime::LiveRenderer {
     renderer_live_camera::View view{};
     bool pivot_held{};
     renderer_live_scene::Scene scene{};
+    bool scene_built{}; ///< the last frame's scene was built
     renderer_live_gpu::Context gpu{};
     std::vector<uint8_t> rgba{};
     std::vector<std::array<float, 3>> projected{};
     std::vector<uint16_t> triangle_units{};
     std::unordered_map<uint16_t, oa::Rect32> unit_bounds{};
+    /// The bounds of each model the card draws (Scene::cards), in the
+    /// window's pixels, as a unit's are.
+    std::vector<oa::Rect32> card_bounds{};
+    /// The bounds of each block of pick_block_triangles of the frame's
+    /// triangles, in the picture's pixels, which the pick passes over where
+    /// its point lies outside them (pick_bounds_hold): least across, least
+    /// down, most across and most down of their finite corners. Unbounded
+    /// where a sliver among them may take a point past its own bounds.
+    std::vector<std::array<float, 4>> pick_blocks{};
+    /// The kept ground whose corners projected and blocks the pick holds:
+    /// its revision (Scene::ground_revision, none for no kept ground), its
+    /// vertices and the camera they were projected through.
+    uint64_t picked_ground_revision{};
+    std::size_t picked_ground_vertices{};
+    renderer_live_camera::Matrix picked_projection{};
     bool dragging{};
     uint8_t drag_button{};
     bool orbiting{};
@@ -68,10 +128,343 @@ struct Runtime::LiveRenderer {
     bool out_of_room{};
     /// The frame being drawn again is drawn from the camera last drawn.
     bool went_back{};
+
+    /// The lists the lights' visibility keeps from one frame to the next,
+    /// so that once they have grown a frame allocates nothing.
+    struct VisibilityLists {
+        /// Each run's triangles, in their order.
+        std::vector<std::vector<VisibilityReach>> found;
+        /// Each run's triangles by band: their places in the run's list.
+        std::vector<std::vector<uint32_t>> by_band;
+        /// Where each band's places start in each run's by_band, a run's
+        /// bands one after another with the end after its last.
+        std::vector<uint32_t> band_starts;
+        /// The columns each band of rows asks for.
+        std::vector<uint32_t> band_left;
+        std::vector<uint32_t> band_right;
+    };
+
+    VisibilityLists visibility_lists{};
+
+    /// What the processor paints over a turned frame the card keeps
+    /// (renderer_live_overlay.hpp): the battlefield layer is the overlay
+    /// canvas, cleared to the key, and over it the operations the painters
+    /// would have made on the picture.
+    struct Overlay {
+        /// The frame drawn last left its picture on the card, and the
+        /// battlefield layer holds its canvas; until the next frame's
+        /// drawing, for what reads the frame in memory after it shows.
+        bool painted{};
+        std::array<uint8_t, 3> key{};
+        std::vector<renderer_live_overlay::Operation> operations{};
+        uint32_t lines{}; ///< lines of text laid on the canvas
+        /// What the card is given, kept so that once grown a frame
+        /// allocates nothing.
+        renderer_live_overlay::Packed packed{};
+        std::vector<uint8_t> words{};
+        std::vector<uint8_t> bands{};
+    };
+
+    Overlay overlay{};
 };
 
 void Runtime::destroy_live_renderer(LiveRenderer* renderer) noexcept {
     delete renderer;
+}
+
+Runtime::LiveRenderer& Runtime::ensure_live_renderer() {
+    if (!live_renderer_) {
+        live_renderer_.reset(new LiveRenderer{});
+        // A turned view in the game's window draws on the device the window
+        // can present through; a check, a director or a headless run draws
+        // on a device of its own and reads its pictures back.
+        if (render_run_ && render_run_->host != nullptr && sdl_.window != nullptr &&
+            director_ == nullptr && !options_.headless_check)
+            live_renderer_->gpu.shared_device = render_run_->host->card_device();
+    }
+    return *live_renderer_;
+}
+
+void Runtime::release_live_renderer() noexcept {
+    // The window's texture shows the card's, which goes with the renderer.
+    if (turned_world_tex_ != nullptr)
+        SDL_DestroyTexture(turned_world_tex_);
+    turned_world_tex_ = nullptr;
+    turned_world_source_ = nullptr;
+    live_renderer_.reset();
+}
+
+void Runtime::follow_card_presentation() {
+    if (!render_run_ || render_run_->host == nullptr || sdl_.window == nullptr ||
+        render_run_->device_lost)
+        return;
+    auto& host = *render_run_->host;
+    const bool wanted =
+        !card_presentation_refused_ && director_ == nullptr && !options_.headless_check &&
+        screen_ == Screen::match && match_ && live_renderer_active() && !live_renderer_failed() &&
+        live_renderer_->gpu.shared_device != nullptr && !live_renderer_->gpu.device_unavailable;
+    if (wanted == host.presenting_on_card())
+        return;
+    // Every texture made on the renderer goes with it, and each is made
+    // again as it is drawn, as after a device reset.
+    forget_render_textures();
+    sdl_.renderer = nullptr;
+    std::string error;
+    if (!wanted) {
+        host.present_walked();
+    } else if (!host.present_on_card(error)) {
+        card_presentation_refused_ = true;
+        std::cout << graphics_log_prefix << "the 3D view's pictures are read back: " << error
+                  << '\n'
+                  << std::flush;
+    }
+    sdl_.renderer = host.renderer();
+    // A new renderer waits for the display only once it is asked to.
+    vertical_sync_in_effect_ = false;
+    apply_vertical_sync();
+    apply_output_mode();
+}
+
+bool Runtime::turned_overlay_painted() const noexcept {
+    return live_renderer_ && live_renderer_->overlay.painted;
+}
+
+bool Runtime::paints_turned_overlay() {
+    return turned_overlay_painted() && &paint_target() == &match_world_cpu_;
+}
+
+std::size_t Runtime::turned_overlay_operation_count() const noexcept {
+    return live_renderer_ ? live_renderer_->overlay.operations.size() : 0;
+}
+
+std::array<uint8_t, 3> Runtime::turned_overlay_key() const noexcept {
+    return live_renderer_ ? live_renderer_->overlay.key : std::array<uint8_t, 3>{};
+}
+
+void Runtime::note_turned_operation(const renderer_live_overlay::Operation& operation) {
+    if (turned_overlay_painted())
+        live_renderer_->overlay.operations.push_back(operation);
+}
+
+void Runtime::begin_turned_text_line() noexcept {
+    if (turned_overlay_painted())
+        ++live_renderer_->overlay.lines;
+}
+
+void Runtime::note_turned_text_run(const oa::present::TextWorldRun& run) {
+    if (!turned_overlay_painted())
+        return;
+    namespace overlay = renderer_live_overlay;
+    const overlay::Kind kind =
+        run.layer == oa::present::TextWorldLayer::shadow    ? overlay::Kind::shadow
+        : run.layer == oa::present::TextWorldLayer::outline ? overlay::Kind::outline
+                                                            : overlay::Kind::letter;
+    auto& held = live_renderer_->overlay;
+    held.operations.push_back(
+        {run.x, run.y, run.width, 1, kind, run.color, run.coverage, held.lines}
+    );
+}
+
+bool Runtime::turned_picture(renderer::Surface& world) {
+    if (!turned_overlay_painted())
+        return false;
+    auto& live = *live_renderer_;
+    std::string error;
+    if (renderer_live_gpu::read_picture(live.gpu, live.rgba, error) !=
+        renderer_live_gpu::Result::success) {
+        std::cerr << "3D view: " << error << '\n';
+        return false;
+    }
+    const uint32_t width = match_world_cpu_.width;
+    const uint32_t height = match_world_cpu_.height;
+    if (live.rgba.size() != std::size_t{width} * height * 4 ||
+        match_world_cpu_.rgb.size() != std::size_t{width} * height * 3)
+        return false;
+    world.width = width;
+    world.height = height;
+    world.rgb.resize(std::size_t{width} * height * 3);
+    for (std::size_t pixel = 0; pixel < world.rgb.size() / 3; ++pixel)
+        std::copy_n(live.rgba.data() + pixel * 4, 3, world.rgb.data() + pixel * 3);
+    const bool palette = match_palette_ != oa::PaletteBytes{};
+    renderer_live_overlay::compose(
+        world.rgb,
+        width,
+        height,
+        match_world_cpu_.rgb,
+        live.overlay.key,
+        live.overlay.operations,
+        palette ? std::span<const uint8_t>(match_palette_) : std::span<const uint8_t>{}
+    );
+    return true;
+}
+
+void Runtime::take_turned_picture() {
+    if (!turned_overlay_painted())
+        return;
+    renderer::Surface world;
+    const bool read = turned_picture(world);
+    live_renderer_->overlay.painted = false;
+    if (read) {
+        match_world_cpu_.rgb = std::move(world.rgb);
+        return;
+    }
+    // A picture that cannot be read back leaves the frame's battlefield as
+    // the painters left it, the key where they painted nothing.
+}
+
+bool Runtime::send_turned_overlay(std::string& error) {
+    auto& live = *live_renderer_;
+    auto& held = live.overlay;
+    const uint32_t width = match_world_cpu_.width;
+    const uint32_t height = match_world_cpu_.height;
+    held.words.resize(std::size_t{width} * height * 4);
+    held.bands.assign(platform::job_pool::bands_of_rows(height, xrgb_band_rows), 0);
+    convert_rgb24_keyed_overlay_argb(
+        match_world_cpu_.rgb.data(),
+        held.key,
+        width,
+        height,
+        held.words.data(),
+        std::size_t{width} * 4,
+        nullptr,
+        held.bands,
+        draw_pool_.get()
+    );
+    renderer_live_overlay::pack(held.operations, width, height, held.packed);
+    const bool palette = match_palette_ != oa::PaletteBytes{};
+    const renderer_live_gpu::Overlay painted{
+        held.words,
+        held.bands,
+        xrgb_band_rows,
+        &held.packed,
+        palette ? std::span<const uint8_t>(match_palette_) : std::span<const uint8_t>{},
+        gamma_identity_ ? nullptr : &gamma_table_
+    };
+    return renderer_live_gpu::compose_overlay(live.gpu, painted, error) ==
+           renderer_live_gpu::Result::success;
+}
+
+SDL_Texture* Runtime::compose_turned_overlay() {
+    if (!turned_overlay_painted() || sdl_.renderer == nullptr)
+        return nullptr;
+    auto& live = *live_renderer_;
+    using bench_timers::Span;
+    using bench_timers::Stage;
+    const Span timed(Stage::card_overlay);
+    const uint32_t width = match_world_cpu_.width;
+    const uint32_t height = match_world_cpu_.height;
+    std::string error;
+    SDL_GPUTexture* composed =
+        send_turned_overlay(error) ? renderer_live_gpu::composed(live.gpu) : nullptr;
+#if SDL_VERSION_ATLEAST(3, 4, 0)
+    if (composed != nullptr && (turned_world_tex_ == nullptr || turned_world_source_ != composed ||
+                                turned_world_tex_->w != static_cast<int>(width) ||
+                                turned_world_tex_->h != static_cast<int>(height))) {
+        if (turned_world_tex_ != nullptr)
+            SDL_DestroyTexture(turned_world_tex_);
+        turned_world_source_ = nullptr;
+        // The card's own texture, drawn by the window's renderer on the
+        // device it was made on: RGBA8, opaque, one texel a pixel.
+        const SDL_PropertiesID properties = SDL_CreateProperties();
+        SDL_SetNumberProperty(
+            properties, SDL_PROP_TEXTURE_CREATE_FORMAT_NUMBER, SDL_PIXELFORMAT_RGBA32
+        );
+        SDL_SetNumberProperty(
+            properties, SDL_PROP_TEXTURE_CREATE_ACCESS_NUMBER, SDL_TEXTUREACCESS_STATIC
+        );
+        SDL_SetNumberProperty(properties, SDL_PROP_TEXTURE_CREATE_WIDTH_NUMBER, width);
+        SDL_SetNumberProperty(properties, SDL_PROP_TEXTURE_CREATE_HEIGHT_NUMBER, height);
+        SDL_SetPointerProperty(properties, SDL_PROP_TEXTURE_CREATE_GPU_TEXTURE_POINTER, composed);
+        turned_world_tex_ = SDL_CreateTextureWithProperties(sdl_.renderer, properties);
+        SDL_DestroyProperties(properties);
+        if (turned_world_tex_ != nullptr &&
+            (!SDL_SetTextureBlendMode(turned_world_tex_, SDL_BLENDMODE_NONE) ||
+             !SDL_SetTextureScaleMode(turned_world_tex_, SDL_SCALEMODE_NEAREST))) {
+            SDL_DestroyTexture(turned_world_tex_);
+            turned_world_tex_ = nullptr;
+        }
+        if (turned_world_tex_ == nullptr)
+            error = std::string("the window cannot draw the card's picture: ") + SDL_GetError();
+        else
+            turned_world_source_ = composed;
+    }
+#else
+    composed = nullptr;
+    error = "the window draws the card's pictures with SDL 3.4 or later";
+#endif
+    if (composed != nullptr && turned_world_tex_ != nullptr)
+        return turned_world_tex_;
+    std::cout << graphics_log_prefix << "the 3D view's pictures are read back: " << error << '\n'
+              << std::flush;
+    // The frame is presented as the processor's, read back, and so is
+    // every frame after it: the window goes back to the walked renderer.
+    card_presentation_refused_ = true;
+    take_turned_picture();
+    return nullptr;
+}
+
+std::string Runtime::draw_turned_frame_both_ways() {
+    // What a frame counts as it draws, which the frame's +stats show, and
+    // the resource readout's easing are counted afresh for the second
+    // drawing.
+    const auto counted = frame_draws_;
+    const auto eases = readout_eases_;
+    render_match_surface();
+    if (!live_renderer_active() || live_renderer_failed() || !live_renderer_->scene_built)
+        return {};
+    const renderer::Surface expected = match_world_cpu_;
+    frame_draws_ = counted;
+    readout_eases_ = eases;
+    turned_overlay_checked_ = true;
+    try {
+        render_match_surface();
+    } catch (...) {
+        turned_overlay_checked_ = false;
+        throw;
+    }
+    turned_overlay_checked_ = false;
+    auto& live = *live_renderer_;
+    // What the window shows of the frame: the card's picture with the
+    // overlay, or, where a painter took the picture back, the battlefield
+    // layer; each through the display gamma.
+    std::vector<uint8_t> shown;
+    const bool on_card = live.overlay.painted;
+    std::string error;
+    if (on_card &&
+        (!send_turned_overlay(error) || renderer_live_gpu::read_composed(live.gpu, shown, error) !=
+                                            renderer_live_gpu::Result::success)) {
+        live.overlay.painted = false;
+        match_world_cpu_ = expected;
+        return "the card did not add the overlay: " + error;
+    }
+    const auto shade = [&](uint8_t level) { return gamma_identity_ ? level : gamma_table_[level]; };
+    const std::size_t pixels = std::size_t{expected.width} * expected.height;
+    std::size_t differing = 0;
+    std::size_t first = 0;
+    if ((on_card && shown.size() != pixels * 4) ||
+        (!on_card && match_world_cpu_.rgb.size() != expected.rgb.size()))
+        differing = pixels;
+    else
+        for (std::size_t pixel = 0; pixel < pixels; ++pixel)
+            for (std::size_t channel = 0; channel < 3; ++channel) {
+                const uint8_t want = shade(expected.rgb[pixel * 3 + channel]);
+                const uint8_t got = on_card ? shown[pixel * 4 + channel]
+                                            : shade(match_world_cpu_.rgb[pixel * 3 + channel]);
+                if (want != got) {
+                    if (differing == 0)
+                        first = pixel;
+                    ++differing;
+                    break;
+                }
+            }
+    live.overlay.painted = false;
+    match_world_cpu_ = expected;
+    if (differing == 0)
+        return {};
+    return std::to_string(differing) + " of " + std::to_string(pixels) +
+           " pixels differ, the first at " + std::to_string(first % expected.width) + "," +
+           std::to_string(first / expected.width) +
+           (on_card ? " on the card" : " in the picture taken back");
 }
 
 bool Runtime::live_renderer_active() const noexcept {
@@ -84,8 +477,7 @@ bool Runtime::live_renderer_active() const noexcept {
 }
 
 bool Runtime::turn_live_camera(float yaw_degrees, float pitch_degrees) {
-    if (!live_renderer_)
-        live_renderer_.reset(new LiveRenderer{});
+    ensure_live_renderer();
     auto& live = *live_renderer_;
     live.camera.yaw_degrees = yaw_degrees;
     live.camera.pitch_degrees = pitch_degrees;
@@ -128,6 +520,21 @@ std::size_t Runtime::live_renderer_emissive_vertex_count() const noexcept {
     ));
 }
 
+std::size_t Runtime::live_renderer_card_model_count() const noexcept {
+    return live_renderer_ ? live_renderer_->scene.cards.units.size() : 0;
+}
+
+bool Runtime::live_models_on_card() const noexcept {
+    return live_renderer_ && renderer_live_gpu::draws_models(live_renderer_->gpu) &&
+           renderer_live_gpu::draws_lights(live_renderer_->gpu);
+}
+
+void Runtime::set_live_models_on_card(bool allowed) noexcept {
+    if (!live_renderer_)
+        live_renderer_.reset(new LiveRenderer{});
+    live_renderer_->gpu.models_allowed = allowed;
+}
+
 std::size_t Runtime::live_renderer_nano_particle_count() const noexcept {
     return live_renderer_ ? live_renderer_->scene.nano_particle_count : 0;
 }
@@ -166,8 +573,7 @@ bool Runtime::answer_live_view_key(std::string_view action) {
     // keys.
     if (match_question_open() || chat_composing_ || whiteboard_input_.editing || match_paused_)
         return false;
-    if (!live_renderer_)
-        live_renderer_.reset(new LiveRenderer{});
+    ensure_live_renderer();
     if (action == "camera.classic-view") {
         reset_live_renderer();
         return true;
@@ -199,8 +605,7 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         }
         return false;
     }
-    if (!live_renderer_)
-        live_renderer_.reset(new LiveRenderer{});
+    ensure_live_renderer();
     auto& live = *live_renderer_;
     if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
         live.dragging = false;
@@ -332,11 +737,13 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
 }
 
 bool Runtime::render_live_match_surface() {
+    // The overlay the last frame painted goes with it.
+    if (live_renderer_)
+        live_renderer_->overlay.painted = false;
     if ((!engine_settings().allow_full_3d && !director_draws_on_card()) || !match_ ||
         !selected_tnt_)
         return true;
-    if (!live_renderer_)
-        live_renderer_.reset(new LiveRenderer{});
+    ensure_live_renderer();
     auto& live = *live_renderer_;
     if (live.match != match_.get()) {
         live.scene = {};
@@ -381,6 +788,19 @@ bool Runtime::render_live_match_surface() {
     // A classic frame is the last camera drawn until a turned one draws.
     if (!live_renderer_active())
         live.drawn = {true, live.camera, live.view, place, zoom, view_hold_};
+    using bench_timers::Span;
+    using bench_timers::Stage;
+    const Span live_total(Stage::live_total);
+    // The picture the last frame drew, read back, which a frame left on the
+    // card leaves on the card: a frame that needs more room than the
+    // renderer has shows it again.
+    const auto last_picture_read = [&] {
+        std::string unread;
+        if (renderer_live_gpu::read_picture(live.gpu, live.rgba, unread) !=
+            renderer_live_gpu::Result::success)
+            live.rgba.clear();
+        return live.rgba.size() == match_world_cpu_.rgb.size() / 3 * 4;
+    };
     if (live_renderer_active() && !live.failed) {
         auto& models = match_models();
         renderer_live_scene::Inputs inputs{};
@@ -418,6 +838,11 @@ bool Runtime::render_live_match_surface() {
         inputs.new_unit_shadows = engine_settings().new_unit_shadows;
         // A recording draws each frame at the plan's detail.
         inputs.tiles_hold_while_moving = director_ == nullptr;
+        inputs.pool = draw_pool_.get();
+        // The card draws the models it can from their types' models where
+        // it adds the lights too: the processor's lights find their
+        // surfaces among the frame's own triangles.
+        inputs.models_on_card = live_models_on_card();
         inputs.view_direction = {live.projection[8], live.projection[9], live.projection[10]};
         inputs.clip_projection = live.projection;
         inputs.clip_width = match_world_cpu_.width;
@@ -464,13 +889,60 @@ bool Runtime::render_live_match_surface() {
                 static_cast<int32_t>(std::clamp(std::ceil(visible.max_y), 0.0F, float(map_height)));
         }
         std::string error;
-        const bool built = renderer_live_scene::build(inputs, live.scene, error);
+        Span building(Stage::scene_build);
+        // A frame a check draws again on the card takes the scene drawn
+        // last, unchanged, so that the frames after it are as they would be.
+        const bool built = turned_overlay_checked_
+                               ? live.scene_built
+                               : renderer_live_scene::build(inputs, live.scene, error);
+        live.scene_built = built;
+        building.stop();
+        bench_timers::note_scene(
+            {static_cast<double>(live.scene.vertices.size()),
+             static_cast<double>(live.scene.terrain_vertex_count),
+             static_cast<double>(live.scene.model_count),
+             static_cast<double>(live.scene.sprite_count),
+             static_cast<double>(live.scene.particle_count),
+             static_cast<double>(live.scene.nano_particle_count),
+             static_cast<double>(live.scene.shadow_count),
+             static_cast<double>(inputs.right - inputs.left) / terrain_cell_edge *
+                 static_cast<double>(inputs.bottom - inputs.top) / terrain_cell_edge,
+             bench_timers::timers.last.supersample,
+             static_cast<double>(live.scene.cards.units.size())},
+            live.scene.ground_revision
+        );
         // Picking reads only the frame's triangles, so a frame that draws
         // rebuilds it while the card draws them.
-        const auto rebuild_picking = [this] { rebuild_live_picking(); };
-        const renderer_live_gpu::KeptGround ground{
-            live.scene.terrain_vertex_count, live.scene.ground_revision
+        const auto rebuild_picking = [this] {
+            const Span picking(Stage::picking);
+            rebuild_live_picking();
         };
+        // The kept ground, and the next one's share sent to the card ahead.
+        const auto& ground = live.scene.card_ground;
+        // The lights and heat over the frame, found before the card draws it
+        // so that it adds them; a card that cannot leaves them to the
+        // processor, which adds them to the picture read back.
+        Span lighting(Stage::effects);
+        const auto lights = project_match_effects(
+            match_world_cpu_.width, match_world_cpu_.height, 0, 0, 1, 1, true
+        );
+        const renderer_live_gpu::Lights card_lights{
+            lights, match_effect_settings(), static_cast<double>(match_->simulation().tick) / 30.0
+        };
+        lighting.stop();
+        // A frame drawn to be presented, in a window that presents through
+        // the device the card draws on, stays on the card: the painters
+        // paint the overlay canvas and the card adds it as the window
+        // presents the frame. Any other frame is read back.
+        live.gpu.keep_on_card =
+            (presenting_frame_ && match_use_layers_ && director_ == nullptr &&
+             !options_.headless_check && render_run_ && render_run_->host != nullptr &&
+             render_run_->host->presenting_on_card() &&
+             sdl_.renderer == render_run_->host->renderer()) ||
+            turned_overlay_checked_;
+        const auto model_draws =
+            renderer_live_scene::card_draws(live.scene.card_types, live.scene.cards);
+        Span drawing(Stage::gpu_total);
         const auto result = built ? renderer_live_gpu::render(
                                         live.gpu,
                                         live.scene.vertices,
@@ -487,26 +959,58 @@ bool Runtime::render_live_match_surface() {
                                         &live.scene.atlas_update,
                                         &inputs.water,
                                         &ground,
-                                        rebuild_picking
+                                        rebuild_picking,
+                                        &card_lights,
+                                        &model_draws
                                     )
                                   : renderer_live_gpu::Result::failed;
+        drawing.stop();
+        bench_timers::note_supersample(live.gpu.actual_supersample);
         const auto& last = live.drawn;
         const bool at_last =
             live.went_back || (last.held && last.camera.yaw_degrees == live.camera.yaw_degrees &&
                                last.camera.pitch_degrees == live.camera.pitch_degrees &&
                                last.place == place && last.zoom == zoom);
         live.went_back = false;
-        if (result == renderer_live_gpu::Result::success) {
+        if (result == renderer_live_gpu::Result::success && live.gpu.kept_on_card) {
             live.drawn = {true, live.camera, live.view, place, zoom, view_hold_};
             live.out_of_room = false;
+            // The battlefield layer is the overlay canvas, cleared to the key
+            // colour; the card holds the picture with its lights.
+            auto& overlay = live.overlay;
+            overlay.painted = true;
+            overlay.key = full_overlay_key();
+            overlay.operations.clear();
+            overlay.lines = 0;
+            fill_rgb24(match_world_cpu_.rgb.data(), match_world_cpu_.rgb.size() / 3, overlay.key);
+        } else if (result == renderer_live_gpu::Result::success) {
+            live.drawn = {true, live.camera, live.view, place, zoom, view_hold_};
+            live.out_of_room = false;
+            Span copying(Stage::rgb_copy);
             for (std::size_t pixel = 0; pixel < match_world_cpu_.rgb.size() / 3; ++pixel)
                 std::copy_n(
                     live.rgba.data() + pixel * 4, 3, match_world_cpu_.rgb.data() + pixel * 3
                 );
-            compose_match_effects(match_world_cpu_, true);
+            copying.stop();
+            if (!live.gpu.lights_drawn) {
+                const Span effects(Stage::effects);
+                compose_projected_match_effects(
+                    match_world_cpu_.rgb,
+                    match_world_cpu_.width,
+                    match_world_cpu_.height,
+                    match_world_cpu_.width * 3,
+                    3,
+                    0,
+                    0,
+                    1,
+                    1,
+                    true,
+                    lights
+                );
+            }
         } else if (
             !built && live.scene.out_of_room && last.held && director_ == nullptr &&
-            (!at_last || live.rgba.size() == match_world_cpu_.rgb.size() / 3 * 4)
+            (!at_last || last_picture_read())
         ) {
             // A frame that needs more room than the renderer has is no
             // failure of the card: the view goes back to the last camera
@@ -519,13 +1023,14 @@ bool Runtime::render_live_match_surface() {
             if (at_last) {
                 // The camera last drawn no longer fits either, as when more
                 // comes into view: its last picture stays, with nothing to
-                // pick in it.
+                // pick in it, and the lights the card added to it.
                 rebuild_live_picking();
                 for (std::size_t pixel = 0; pixel < match_world_cpu_.rgb.size() / 3; ++pixel)
                     std::copy_n(
                         live.rgba.data() + pixel * 4, 3, match_world_cpu_.rgb.data() + pixel * 3
                     );
-                compose_match_effects(match_world_cpu_, true);
+                if (!live.gpu.lights_drawn)
+                    compose_match_effects(match_world_cpu_, true);
             } else {
                 const auto back = last;
                 live.camera = back.camera;
@@ -559,10 +1064,16 @@ bool Runtime::render_live_match_surface() {
     const bool bare = director_ != nullptr && !director_->presentation.show_interface;
     if (!live.failed) {
         if (!bare) {
+            Span overlays(Stage::overlays);
             draw_live_overlays();
+            overlays.stop();
+            Span selection(Stage::selection);
             draw_live_selection();
+            selection.stop();
+            const Span unit_overlays(Stage::unit_overlays);
             draw_live_unit_overlays();
         }
+        const Span on_screen(Stage::on_screen_units);
         rebuild_on_screen_units();
     }
     return true;
@@ -589,15 +1100,67 @@ bool Runtime::scroll_live_match_view(double screen_dx, double screen_dy) {
 
 void Runtime::rebuild_live_picking() {
     auto& live = *live_renderer_;
-    live.projected.clear();
-    live.projected.reserve(live.scene.vertices.size());
+    // Every vertex through the camera, and each block of triangles' bounds,
+    // in bands on the drawing threads, which are idle while the card draws.
+    // The kept ground, the same vertices while its revision is, keeps its
+    // corners and its whole blocks from the frame before through the same
+    // camera.
+    const auto& vertices = live.scene.vertices;
+    const std::size_t ground = live.scene.terrain_vertex_count;
+    const bool ground_held = live.scene.ground_revision != 0 &&
+                             live.picked_ground_revision == live.scene.ground_revision &&
+                             live.picked_ground_vertices == ground &&
+                             live.picked_projection == live.projection &&
+                             live.projected.size() >= ground;
+    live.projected.resize(vertices.size());
+    const std::size_t triangles = vertices.size() / 3;
+    const std::size_t blocks = (triangles + pick_block_triangles - 1) / pick_block_triangles;
+    live.pick_blocks.resize(blocks);
+    const std::size_t first_projected = ground_held ? ground / 3 / pick_block_triangles : 0;
     const auto& m = live.projection;
-    for (const auto& vertex : live.scene.vertices)
-        live.projected.push_back(
-            {m[0] * vertex.x + m[1] * vertex.height + m[2] * vertex.z + m[3],
-             m[4] * vertex.x + m[5] * vertex.height + m[6] * vertex.z + m[7],
-             m[8] * vertex.x + m[9] * vertex.height + m[10] * vertex.z + m[11]}
-        );
+    oa::platform::job_pool::run_bands(
+        draw_pool_.get(),
+        static_cast<uint32_t>(
+            (blocks - std::min(blocks, first_projected) + pick_band_blocks - 1) / pick_band_blocks
+        ),
+        [&](uint32_t band) {
+            const std::size_t first_block = first_projected + std::size_t{band} * pick_band_blocks;
+            const std::size_t end_block = std::min(blocks, first_block + pick_band_blocks);
+            for (std::size_t block = first_block; block < end_block; ++block) {
+                constexpr float none = std::numeric_limits<float>::infinity();
+                std::array<float, 4> bounds{none, none, -none, -none};
+                bool bounded = true;
+                const std::size_t first = block * pick_block_triangles * 3;
+                const std::size_t end = std::min(triangles * 3, first + pick_block_triangles * 3);
+                for (std::size_t index = first; index < end; ++index) {
+                    const auto& vertex = vertices[index];
+                    auto& point = live.projected[index];
+                    point = {
+                        m[0] * vertex.x + m[1] * vertex.height + m[2] * vertex.z + m[3],
+                        m[4] * vertex.x + m[5] * vertex.height + m[6] * vertex.z + m[7],
+                        m[8] * vertex.x + m[9] * vertex.height + m[10] * vertex.z + m[11]
+                    };
+                    // A corner not finite makes no hit; it is left out.
+                    if (point[0] < bounds[0])
+                        bounds[0] = point[0];
+                    if (point[1] < bounds[1])
+                        bounds[1] = point[1];
+                    if (point[0] > bounds[2])
+                        bounds[2] = point[0];
+                    if (point[1] > bounds[3])
+                        bounds[3] = point[1];
+                    if (index % 3 == 2 && bounded)
+                        bounded = renderer_live_camera::triangle_hit_bounded(
+                            {live.projected[index - 2], live.projected[index - 1], point}
+                        );
+                }
+                live.pick_blocks[block] = bounded ? bounds : std::array{-none, -none, none, none};
+            }
+        }
+    );
+    live.picked_ground_revision = live.scene.ground_revision;
+    live.picked_ground_vertices = ground;
+    live.picked_projection = live.projection;
     live.triangle_units.assign(live.scene.vertices.size() / 3, 0);
     live.unit_bounds.clear();
     for (const auto& range : live.scene.unit_ranges) {
@@ -630,6 +1193,33 @@ void Runtime::rebuild_live_picking() {
                 std::max(bounds.y2, static_cast<int32_t>(std::ceil(point[1])) + match_layout_.top);
             live.triangle_units[index / 3] = range.unit_id;
         }
+    }
+    // The models the card draws: each one's bounds over the corners it
+    // draws, which the scene worked out through the same camera as these
+    // vertices.
+    const auto& cards = live.scene.cards;
+    live.card_bounds.assign(cards.units.size(), oa::Rect32{1, 1, 0, 0});
+    for (std::size_t at = 0; at < cards.units.size(); ++at) {
+        const auto& drawn = cards.units[at];
+        if (drawn.index_count == 0)
+            continue;
+        const oa::Rect32 bounds{
+            static_cast<int32_t>(std::floor(drawn.left)) + match_layout_.left,
+            static_cast<int32_t>(std::floor(drawn.top)) + match_layout_.top,
+            static_cast<int32_t>(std::ceil(drawn.right)) + match_layout_.left,
+            static_cast<int32_t>(std::ceil(drawn.bottom)) + match_layout_.top
+        };
+        live.card_bounds[at] = bounds;
+        if (drawn.unit_id == 0 || !match_->unit_shown(match_view_player(), drawn.unit_id))
+            continue;
+        const auto [entry, inserted] = live.unit_bounds.try_emplace(drawn.unit_id, bounds);
+        if (inserted)
+            continue;
+        auto& merged = entry->second;
+        merged.x1 = std::min(merged.x1, bounds.x1);
+        merged.y1 = std::min(merged.y1, bounds.y1);
+        merged.x2 = std::max(merged.x2, bounds.x2);
+        merged.y2 = std::max(merged.y2, bounds.y2);
     }
 }
 
@@ -697,15 +1287,24 @@ std::optional<oa::sim::ground_orders::Point> Runtime::live_ground_hit(float x, f
     float best_depth = -std::numeric_limits<float>::infinity();
     std::optional<oa::sim::ground_orders::Point> result;
     constexpr float fixed_scale = 65536;
+    const float picture_x = x - match_layout_.left;
+    const float picture_y = y - match_layout_.top;
+    const std::size_t block_vertices = pick_block_triangles * 3;
     for (std::size_t index = 0;
          index + 2 < live.scene.terrain_vertex_count && index + 2 < live.projected.size();
          index += 3) {
+        // A block none of whose triangles can hold the point is passed over.
+        if (index % block_vertices == 0 && index / block_vertices < live.pick_blocks.size() &&
+            !pick_bounds_hold(live.pick_blocks[index / block_vertices], picture_x, picture_y)) {
+            index += block_vertices - 3;
+            continue;
+        }
         std::array<float, 3> weights{};
         float depth{};
         if (!renderer_live_camera::triangle_hit(
                 {live.projected[index], live.projected[index + 1], live.projected[index + 2]},
-                x - match_layout_.left,
-                y - match_layout_.top,
+                picture_x,
+                picture_y,
                 weights,
                 depth
             ) ||
@@ -739,13 +1338,96 @@ uint16_t Runtime::live_unit_under(float x, float y) const {
     const auto& live = *live_renderer_;
     uint16_t picked{};
     float best_depth = -std::numeric_limits<float>::infinity();
+    const float picture_x = x - match_layout_.left;
+    const float picture_y = y - match_layout_.top;
+    // The models the card draws whose triangles can hold the pointer are
+    // tested where their triangles fall among the frame's, as their
+    // vertices would have been.
+    const auto& cards = live.scene.cards;
+    std::vector<std::size_t> held;
+    for (std::size_t at = 0; at < cards.units.size(); ++at) {
+        const auto& drawn = cards.units[at];
+        if (drawn.index_count != 0 &&
+            (!drawn.bounded ||
+             pick_bounds_hold(
+                 {drawn.left, drawn.top, drawn.right, drawn.bottom}, picture_x, picture_y
+             )))
+            held.push_back(at);
+    }
+    std::size_t next_held = 0;
+    const auto& m = live.projection;
+    const auto test_held = [&](std::size_t before) {
+        for (; next_held < held.size() && cards.units[held[next_held]].vertex <= before;
+             ++next_held) {
+            const auto& drawn = cards.units[held[next_held]];
+            const auto indices = std::span<const uint32_t>(cards.indices)
+                                     .subspan(drawn.first_index, drawn.index_count);
+            for (std::size_t first = 0; first + 2 < indices.size(); first += 3) {
+                std::array<renderer_live_scene::CardCorner, 3> corners{};
+                std::array<std::array<float, 3>, 3> points{};
+                for (std::size_t corner = 0; corner < corners.size(); ++corner) {
+                    const auto& made = corners[corner] = renderer_live_scene::card_corner(
+                        live.scene.card_types, cards, drawn, indices[first + corner]
+                    );
+                    points[corner] = {
+                        m[0] * made.x + m[1] * made.height + m[2] * made.z + m[3],
+                        m[4] * made.x + m[5] * made.height + m[6] * made.z + m[7],
+                        m[8] * made.x + m[9] * made.height + m[10] * made.z + m[11]
+                    };
+                }
+                std::array<float, 3> weights{};
+                float depth{};
+                if (!renderer_live_camera::triangle_hit(
+                        points, picture_x, picture_y, weights, depth
+                    ) ||
+                    depth <= best_depth)
+                    continue;
+                float u{}, v{}, opacity{};
+                for (std::size_t corner = 0; corner < weights.size(); ++corner) {
+                    u += corners[corner].u * weights[corner];
+                    v += corners[corner].v * weights[corner];
+                    opacity += 1.0F * weights[corner];
+                }
+                const auto column = std::clamp(
+                    static_cast<int32_t>(u * live.scene.texture_width),
+                    0,
+                    static_cast<int32_t>(live.scene.texture_width) - 1
+                );
+                const auto row = std::clamp(
+                    static_cast<int32_t>(v * live.scene.texture_height),
+                    0,
+                    static_cast<int32_t>(live.scene.texture_height) - 1
+                );
+                const auto alpha_index =
+                    (static_cast<std::size_t>(row) * live.scene.texture_width + column) * 4 + 3;
+                const auto id = drawn.unit_id;
+                if (alpha_index >= live.scene.texture_rgba.size() ||
+                    live.scene.texture_rgba[alpha_index] * (id != 0 ? 1.0F : opacity) < 128)
+                    continue;
+                if (id != 0 && !live_unit_bounds(id))
+                    continue;
+                best_depth = depth;
+                picked = id;
+            }
+        }
+    };
+    const std::size_t block_vertices = pick_block_triangles * 3;
     for (std::size_t index = 0; index + 2 < live.projected.size(); index += 3) {
+        if (next_held < held.size())
+            test_held(index);
+        // A block none of whose triangles can hold the pointer is passed
+        // over; the models among its triangles are tested before the next.
+        if (index % block_vertices == 0 && index / block_vertices < live.pick_blocks.size() &&
+            !pick_bounds_hold(live.pick_blocks[index / block_vertices], picture_x, picture_y)) {
+            index += block_vertices - 3;
+            continue;
+        }
         std::array<float, 3> weights{};
         float depth{};
         if (!renderer_live_camera::triangle_hit(
                 {live.projected[index], live.projected[index + 1], live.projected[index + 2]},
-                x - match_layout_.left,
-                y - match_layout_.top,
+                picture_x,
+                picture_y,
                 weights,
                 depth
             ) ||
@@ -781,6 +1463,7 @@ uint16_t Runtime::live_unit_under(float x, float y) const {
         best_depth = depth;
         picked = id;
     }
+    test_held(std::numeric_limits<std::size_t>::max());
     return picked;
 }
 
@@ -831,7 +1514,9 @@ void Runtime::live_scene_visibility(
     // Reject against short row bands before preparing barycentric coefficients.
     constexpr uint32_t rows_per_band = 16;
     const uint32_t band_count = (height + rows_per_band - 1) / rows_per_band;
-    std::vector<uint32_t> band_left, band_right;
+    auto& lists = live_renderer_->visibility_lists;
+    auto& band_left = lists.band_left;
+    auto& band_right = lists.band_right;
     uint32_t requested_left = width, requested_right = 0;
     uint32_t requested_top = height, requested_bottom = 0;
     if (bounded) {
@@ -854,26 +1539,31 @@ void Runtime::live_scene_visibility(
             return;
     }
 
-    // The triangles that can reach the requested pixels, in their order,
-    // each with the pixels its bounds cover.
-    struct Reach {
-        std::size_t index{}; ///< the triangle's first vertex
-        int x0{};
-        int x1{};
-        int y0{};
-        int y1{};
-    };
+    // Each band of rows takes the triangles that reach it in their order and
+    // writes its own rows alone, so each pixel takes the triangles in the
+    // same order whatever the bands and threads. One thread takes the rows
+    // as one band.
+    const uint32_t raster_band_rows =
+        draw_pool_ && draw_pool_->threads() > 1 ? rows_per_band : height;
+    const uint32_t raster_bands = platform::job_pool::bands_of_rows(height, raster_band_rows);
 
     // Runs of triangles are bounded on the pool, each run into its own list,
-    // and the lists joined in the runs' order.
+    // which the run then sorts by the bands its triangles reach, keeping
+    // their order within each band.
     const auto vertex_count = std::min(live.projected.size(), live.scene.vertices.size());
     constexpr std::size_t triangles_per_run = 4096;
     const std::size_t triangle_count = vertex_count / 3;
     const auto runs =
         static_cast<uint32_t>((triangle_count + triangles_per_run - 1) / triangles_per_run);
-    std::vector<std::vector<Reach>> run_reaches(runs);
+    if (lists.found.size() < runs) {
+        lists.found.resize(runs);
+        lists.by_band.resize(runs);
+    }
+    const std::size_t starts_per_run = static_cast<std::size_t>(raster_bands) + 1;
+    lists.band_starts.resize(runs * starts_per_run);
     platform::job_pool::run_bands(draw_pool_.get(), runs, [&](uint32_t run) {
-        auto& found = run_reaches[run];
+        auto& found = lists.found[run];
+        found.clear();
         const std::size_t run_end =
             std::min(triangle_count, (static_cast<std::size_t>(run) + 1) * triangles_per_run) * 3;
         for (std::size_t index = static_cast<std::size_t>(run) * triangles_per_run * 3;
@@ -914,38 +1604,27 @@ void Runtime::live_scene_visibility(
             }
             found.push_back({index, x0, x1, y0, y1});
         }
-    });
-    std::size_t reach_count = 0;
-    for (const auto& found : run_reaches)
-        reach_count += found.size();
-    std::vector<Reach> reaches;
-    reaches.reserve(reach_count);
-    for (const auto& found : run_reaches)
-        reaches.insert(reaches.end(), found.begin(), found.end());
-    // Each band of rows takes the triangles that reach it in their order and
-    // writes its own rows alone, so each pixel takes the triangles in the
-    // same order whatever the bands and threads. One thread takes the rows
-    // as one band, preparing each triangle once.
-    const uint32_t raster_band_rows =
-        draw_pool_ && draw_pool_->threads() > 1 ? rows_per_band : height;
-    const uint32_t raster_bands = platform::job_pool::bands_of_rows(height, raster_band_rows);
-    std::vector<uint32_t> band_firsts(raster_bands + 1, 0);
-    for (const auto& reach : reaches)
-        for (auto band = static_cast<uint32_t>(reach.y0) / raster_band_rows;
-             band <= static_cast<uint32_t>(reach.y1 - 1) / raster_band_rows;
-             ++band)
-            ++band_firsts[band + 1];
-    for (uint32_t band = 0; band < raster_bands; ++band)
-        band_firsts[band + 1] += band_firsts[band];
-    std::vector<uint32_t> band_reaches(band_firsts[raster_bands]);
-    {
-        std::vector<uint32_t> filled(band_firsts.begin(), band_firsts.end() - 1);
-        for (uint32_t reach = 0; reach < reaches.size(); ++reach)
-            for (auto band = static_cast<uint32_t>(reaches[reach].y0) / raster_band_rows;
-                 band <= static_cast<uint32_t>(reaches[reach].y1 - 1) / raster_band_rows;
+        // The run's places in each band, counted, then filled in order.
+        uint32_t* const starts = lists.band_starts.data() + run * starts_per_run;
+        std::fill(starts, starts + starts_per_run, 0U);
+        for (const auto& reach : found)
+            for (auto band = static_cast<uint32_t>(reach.y0) / raster_band_rows;
+                 band <= static_cast<uint32_t>(reach.y1 - 1) / raster_band_rows;
                  ++band)
-                band_reaches[filled[band]++] = reach;
-    }
+                ++starts[band + 1];
+        for (uint32_t band = 0; band < raster_bands; ++band)
+            starts[band + 1] += starts[band];
+        auto& by_band = lists.by_band[run];
+        by_band.resize(starts[raster_bands]);
+        for (uint32_t place = 0; place < found.size(); ++place)
+            for (auto band = static_cast<uint32_t>(found[place].y0) / raster_band_rows;
+                 band <= static_cast<uint32_t>(found[place].y1 - 1) / raster_band_rows;
+                 ++band)
+                by_band[starts[band]++] = place;
+        // Each band's start has moved on to the next band's: move them back.
+        std::copy_backward(starts, starts + raster_bands, starts + starts_per_run);
+        starts[0] = 0;
+    });
     platform::job_pool::run_bands(draw_pool_.get(), raster_bands, [&](uint32_t band) {
         // The band's own copies of what each pixel reads, which the pixels'
         // writes cannot change.
@@ -961,77 +1640,141 @@ void Runtime::live_scene_visibility(
         uint8_t* const pixel_visibility = visibility.data();
         const int band_top = static_cast<int>(band * raster_band_rows);
         const int band_end = std::min(static_cast<int>(height), band_top + int(raster_band_rows));
-        for (uint32_t slot = band_firsts[band]; slot < band_firsts[band + 1]; ++slot) {
-            const auto [index, x0, x1, y0, y1] = reaches[band_reaches[slot]];
-            const std::array triangle{
-                live.projected[index], live.projected[index + 1], live.projected[index + 2]
-            };
-            renderer_live_camera::PreparedTriangle preparing;
-            if (!renderer_live_camera::prepare_triangle(triangle, preparing))
-                continue;
-            // A copy of its own, as of the corners' attributes below.
-            const auto prepared = preparing;
-            // The corners' texture places, opacities and brightnesses.
-            std::array<float, 3> corner_u{}, corner_v{}, corner_opacity{}, corner_brightness{};
-            for (std::size_t corner = 0; corner < corner_u.size(); ++corner) {
-                const auto& vertex = vertices[index + corner];
-                corner_u[corner] = vertex.u;
-                corner_v[corner] = vertex.v;
-                corner_opacity[corner] = vertex.opacity;
-                corner_brightness[corner] = vertex.brightness;
-            }
-            // Unmapped black terrain must not reveal its contours.
-            const bool lit = !terrain_only || index < terrain_vertex_count;
-            constexpr float pixel_centre = 0.5F;
-            for (int y = std::max(y0, band_top); y < std::min(y1, band_end); ++y) {
-                int left_limit =
-                    bounded ? std::max(x0, static_cast<int>(std::min(row_left[y], width))) : x0;
-                int right_limit =
-                    bounded ? std::min(x1, static_cast<int>(std::min(row_right[y], width))) : x1;
-                // Only the columns the triangle can cover on this row are tested.
-                renderer_live_camera::narrow_row(
-                    prepared, y + pixel_centre, pixel_centre, left_limit, right_limit
-                );
-                for (int x = left_limit; x < right_limit; ++x) {
-                    const std::size_t pixel = static_cast<std::size_t>(y) * width + x;
-                    if (requested != nullptr && requested[pixel] == 0)
-                        continue;
-                    std::array<float, 3> weights{};
-                    float depth{};
-                    if (!renderer_live_camera::triangle_hit_prepared(
-                            prepared, x + pixel_centre, y + pixel_centre, weights, depth
-                        ) ||
-                        depth <= pixel_depths[pixel])
-                        continue;
-                    float u{}, v{}, opacity{}, brightness{};
-                    for (std::size_t corner = 0; corner < weights.size(); ++corner) {
-                        u += corner_u[corner] * weights[corner];
-                        v += corner_v[corner] * weights[corner];
-                        opacity += corner_opacity[corner] * weights[corner];
-                        brightness += corner_brightness[corner] * weights[corner];
-                    }
-                    constexpr float opaque_alpha = 128;
-                    constexpr float full_alpha = 255;
-                    if (!std::isfinite(u) || !std::isfinite(v) || !std::isfinite(opacity) ||
-                        opacity * full_alpha < opaque_alpha)
-                        continue;
-                    const auto column = static_cast<uint32_t>(
-                        std::clamp(u * texture_width, 0.0F, float(texture_width - 1))
-                    );
-                    const auto row = static_cast<uint32_t>(
-                        std::clamp(v * texture_height, 0.0F, float(texture_height - 1))
-                    );
-                    const auto alpha =
-                        (static_cast<std::size_t>(row) * texture_width + column) * 4 + 3;
-                    if (alpha >= texture_size || texture[alpha] * opacity < opaque_alpha)
-                        continue;
-                    pixel_depths[pixel] = depth;
-                    // Known terrain carries the same smooth fog attenuation as its draw.
-                    pixel_visibility[pixel] =
-                        lit && std::isfinite(brightness)
-                            ? static_cast<uint8_t>(std::clamp(brightness, 0.0F, 1.0F) * full_alpha)
-                            : 0;
+        // The pixels a triangle hits, each weighed before any is drawn, so
+        // that no pixel waits for the answer of the one before.
+        constexpr int most_hits = 128;
+        std::array<uint32_t, most_hits> hit_pixels;
+        std::array<renderer_live_camera::PreparedHit, most_hits> hits;
+        // A triangle's rows in the band, a few at a time: each row's first
+        // column and the column past its last, and one place more for the
+        // first column after the last row.
+        constexpr int most_spans = 16;
+        std::array<int, most_spans + 1> span_rows{}, span_firsts{}, span_ends{};
+        constexpr float pixel_centre = 0.5F;
+        for (uint32_t run = 0; run < runs; ++run) {
+            const uint32_t* const starts = lists.band_starts.data() + run * starts_per_run;
+            const uint32_t* const places = lists.by_band[run].data();
+            const VisibilityReach* const found = lists.found[run].data();
+            for (uint32_t slot = starts[band]; slot < starts[band + 1]; ++slot) {
+                const auto [index, x0, x1, y0, y1] = found[places[slot]];
+                const std::array triangle{
+                    live.projected[index], live.projected[index + 1], live.projected[index + 2]
+                };
+                renderer_live_camera::PreparedTriangle preparing;
+                if (!renderer_live_camera::prepare_triangle(triangle, preparing))
+                    continue;
+                // A copy of its own, as of the corners' attributes below.
+                const auto prepared = preparing;
+                // A triangle a few columns wide has no row to narrow.
+                const auto narrowing = x1 - x0 > renderer_live_camera::most_columns_left_whole
+                                           ? renderer_live_camera::prepare_narrowing(prepared)
+                                           : renderer_live_camera::RowNarrowing{};
+                // The corners' texture places, opacities and brightnesses.
+                std::array<float, 3> corner_u{}, corner_v{}, corner_opacity{}, corner_brightness{};
+                for (std::size_t corner = 0; corner < corner_u.size(); ++corner) {
+                    const auto& vertex = vertices[index + corner];
+                    corner_u[corner] = vertex.u;
+                    corner_v[corner] = vertex.v;
+                    corner_opacity[corner] = vertex.opacity;
+                    corner_brightness[corner] = vertex.brightness;
                 }
+                // Unmapped black terrain must not reveal its contours.
+                const bool lit = !terrain_only || index < terrain_vertex_count;
+                // Draws the first pixels hit, in order.
+                const auto draw = [&](int hit_count) {
+                    for (int at = 0; at < hit_count; ++at) {
+                        const uint32_t pixel = hit_pixels[at];
+                        if (requested != nullptr && requested[pixel] == 0)
+                            continue;
+                        const auto& weights = hits[at].weights;
+                        const float depth = hits[at].depth;
+                        if (depth <= pixel_depths[pixel])
+                            continue;
+                        float u{}, v{}, opacity{}, brightness{};
+                        for (std::size_t corner = 0; corner < weights.size(); ++corner) {
+                            u += corner_u[corner] * weights[corner];
+                            v += corner_v[corner] * weights[corner];
+                            opacity += corner_opacity[corner] * weights[corner];
+                            brightness += corner_brightness[corner] * weights[corner];
+                        }
+                        constexpr float opaque_alpha = 128;
+                        constexpr float full_alpha = 255;
+                        if (!std::isfinite(u) || !std::isfinite(v) || !std::isfinite(opacity) ||
+                            opacity * full_alpha < opaque_alpha)
+                            continue;
+                        const auto column = static_cast<uint32_t>(
+                            std::clamp(u * texture_width, 0.0F, float(texture_width - 1))
+                        );
+                        const auto row = static_cast<uint32_t>(
+                            std::clamp(v * texture_height, 0.0F, float(texture_height - 1))
+                        );
+                        const auto alpha =
+                            (static_cast<std::size_t>(row) * texture_width + column) * 4 + 3;
+                        if (alpha >= texture_size || texture[alpha] * opacity < opaque_alpha)
+                            continue;
+                        pixel_depths[pixel] = depth;
+                        // Known terrain carries the same smooth fog attenuation as its draw.
+                        pixel_visibility[pixel] =
+                            lit && std::isfinite(brightness)
+                                ? static_cast<uint8_t>(
+                                      std::clamp(brightness, 0.0F, 1.0F) * full_alpha
+                                  )
+                                : 0;
+                    }
+                };
+                int hit_count = 0;
+                int y = std::max(y0, band_top);
+                const int rows_end = std::min(y1, band_end);
+                while (y < rows_end) {
+                    // The columns the triangle can cover on its next rows,
+                    // rows it cannot cover left out.
+                    int spans = 0;
+                    int columns = 0;
+                    for (const int spans_end = std::min(rows_end, y + most_spans); y < spans_end;
+                         ++y) {
+                        int left_limit =
+                            bounded ? std::max(x0, static_cast<int>(std::min(row_left[y], width)))
+                                    : x0;
+                        int right_limit =
+                            bounded ? std::min(x1, static_cast<int>(std::min(row_right[y], width)))
+                                    : x1;
+                        renderer_live_camera::narrow_row(
+                            narrowing, y + pixel_centre, pixel_centre, left_limit, right_limit
+                        );
+                        const int span_columns = std::max(0, right_limit - left_limit);
+                        span_rows[spans] = y;
+                        span_firsts[spans] = left_limit;
+                        span_ends[spans] = right_limit;
+                        columns += span_columns;
+                        spans += span_columns > 0 ? 1 : 0;
+                    }
+                    // Their pixels in one run, row after row: the next row is
+                    // taken up by choosing values, not by a loop of its own,
+                    // so the weighing does not stall at the end of each row.
+                    int span = 0;
+                    int x = span_firsts[0];
+                    for (int column = 0; column < columns; ++column) {
+                        if (hit_count == most_hits) {
+                            draw(hit_count);
+                            hit_count = 0;
+                        }
+                        const int row = span_rows[span];
+                        hit_pixels[hit_count] =
+                            static_cast<uint32_t>(row) * width + static_cast<uint32_t>(x);
+                        hits[hit_count] = renderer_live_camera::weigh_prepared(
+                            prepared, x + pixel_centre, row + pixel_centre
+                        );
+                        // Each place is written whether or not the triangle
+                        // hits it; only a hit moves on to the next.
+                        hit_count += hits[hit_count].hit;
+                        ++x;
+                        const bool row_done = x == span_ends[span];
+                        span += row_done ? 1 : 0;
+                        x = row_done ? span_firsts[span] : x;
+                    }
+                }
+                if (hit_count > 0)
+                    draw(hit_count);
             }
         }
     });

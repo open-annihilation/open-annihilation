@@ -3891,11 +3891,9 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
         }
         // The host's window losing the focus pauses nothing in a network
         // match, though When the window loses focus pauses a game played
-        // alone: both machines keep ticking and the joiner hears no 0x19.
+        // alone by default (the check's fresh preferences keep the default):
+        // both machines keep ticking and the joiner hears no 0x19.
         if (tick == 192) {
-            auto chosen = runtime_.engine_settings();
-            chosen.focus_lost = oa::ui::engine_settings::FocusLost::pause_single_player;
-            runtime_.apply_engine_settings(chosen);
             pauses_before_focus = pauses_received();
             host_tick_before_focus = host_world.game.tick;
             client_tick_before_focus = client_world.game.tick;

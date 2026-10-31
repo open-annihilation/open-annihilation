@@ -500,6 +500,22 @@ add_library(oa-app-window-icon src/app/window_icon.cpp "${oa_window_icon_source}
   "${oa_settings_icon_512_source}" "${oa_mods_icon_512_source}")
 add_library(oa::app::window_icon ALIAS oa-app-window-icon)
 target_link_libraries(oa-app-window-icon PUBLIC oa-app-headers PRIVATE oa-formats-png oa-options)
+# The parts of --bench that hold no game (bench.hpp): its view file, the
+# spread of the times it measures and the lines it prints, with the stage
+# timers the match frame marks (bench_timers.hpp), off outside a bench.
+add_library(oa-app-bench src/app/bench.cpp)
+add_library(oa::app::bench ALIAS oa-app-bench)
+target_include_directories(oa-app-bench PUBLIC src/app)
+target_link_libraries(oa-app-bench PRIVATE oa-platform-shims oa-options)
+if(BUILD_TESTING)
+  # A view file's keys, its refusals and its stage taken from its folder;
+  # the spread of a measure, its percentiles and slowest 1%; the MEASURE
+  # and STAGE lines; and the stage timers, which sum nothing while off.
+  add_executable(oa-app-bench-test src/app/bench_test.cpp)
+  target_link_libraries(oa-app-bench-test PRIVATE oa-app-bench oa-platform-shims oa-test-support
+    oa-options)
+  add_test(NAME app-bench COMMAND oa-app-bench-test)
+endif()
 # The Full tier's fog of war on the card (full_fog.hpp): the fog grid's
 # tiles as passes of quads with corner alphas, the greyed terrain pass from
 # the greyed pages, its dithered form and the black pass, and the Classic
@@ -583,13 +599,17 @@ if(OA_BUILD_PLATFORM)
     add_test(NAME app-full-effects COMMAND oa-app-full-effects-test)
   endif()
   add_library(oa-app-renderer-live src/app/renderer_live_camera.cpp
-    src/app/renderer_live_gpu.cpp src/app/renderer_live_scene.cpp)
+    src/app/renderer_live_gpu.cpp src/app/renderer_live_lights.cpp src/app/renderer_live_models.cpp
+    src/app/renderer_live_overlay.cpp
+    src/app/renderer_live_scene.cpp)
   add_library(oa::app::renderer_live ALIAS oa-app-renderer-live)
   target_include_directories(oa-app-renderer-live PUBLIC src/app)
   target_link_libraries(oa-app-renderer-live PUBLIC SDL3::SDL3 oa-app-headers
-    oa-app-full-models oa-formats-tnt oa-app-renderer-water PRIVATE oa-sim-visibility-state oa-options)
+    oa-app-full-models oa-formats-tnt oa-app-renderer-water oa-platform-job-pool
+    oa-app-renderer-effects
+    PRIVATE oa-present oa-sim-visibility-state oa-options)
   if(BUILD_TESTING)
-    foreach(oa_live_part camera scene gpu)
+    foreach(oa_live_part camera scene gpu lights overlay)
       add_executable(oa-app-renderer-live-${oa_live_part}-test
         src/app/renderer_live_${oa_live_part}_test.cpp)
       target_link_libraries(oa-app-renderer-live-${oa_live_part}-test PRIVATE
@@ -601,6 +621,9 @@ if(OA_BUILD_PLATFORM)
     set_tests_properties(app-renderer-live-gpu PROPERTIES SKIP_RETURN_CODE 77)
     # The scene's terrain is held to the simulation's own ground.
     target_link_libraries(oa-app-renderer-live-scene-test PRIVATE oa-sim-unit-movement)
+    # The overlay is held to the painters' own blends and text.
+    target_link_libraries(oa-app-renderer-live-overlay-test PRIVATE oa-present
+      oa-ui-frontend-renderer)
   endif()
 endif()
 if(OA_BUILD_PLATFORM AND OA_SELF_CHECKS)
@@ -1336,7 +1359,8 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_room_mutators.cpp
   src/app/mod_install_watch.cpp
   src/app/user_folder_open.cpp
-  src/app/runtime_mission_orders.cpp src/app/runtime_showcase.cpp src/app/match_clock.cpp
+  src/app/runtime_mission_orders.cpp src/app/runtime_showcase.cpp src/app/runtime_bench.cpp
+  src/app/match_clock.cpp
   src/app/world_scaling.cpp src/app/far_view.cpp
   src/app/frame_pacing.cpp src/app/frame_stats_panel.cpp src/app/runtime_frame_stats.cpp
   src/app/runtime_team_panels.cpp
@@ -1567,7 +1591,8 @@ else()
 endif()
 if(OA_BUILD_PLATFORM)
   add_executable(oa-game ${oa_game_sources})
-  target_link_libraries(oa-game PRIVATE oa-app-renderer-live oa-app-renderer-effects oa-app-water-classic)
+  target_link_libraries(oa-game PRIVATE oa-app-renderer-live oa-app-renderer-effects oa-app-water-classic
+    oa-app-bench)
   if(OA_SELF_CHECKS)
     target_link_libraries(oa-game PRIVATE oa-app-renderer-proof)
   endif()
@@ -4612,6 +4637,15 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-stage PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # --bench plays the frame bench's battle (tools/bench) in the window
+        # for a few seconds and prints its lines, each well formed and in
+        # order, with every stage timer under its name; with its timers off
+        # it prints none, and a view file it cannot read stops it at the line.
+        add_test(NAME native-bench COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_bench.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-bench PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # Buildings created by name on the chat line stand on their build
         # grid at their yard's height: a shipyard floats its waterline below
         # the sea, a solar collector on a hill stands on its lowest corner.
@@ -4777,10 +4811,11 @@ endforeach()
         # camera's scroll held, at zoom 1, 1.37 and 0.6, and a longer busy
         # fight (--busy-combat: missiles, nano particles, a loaded transport,
         # selection boxes), into its explosions, debris and fragments, with
-        # enhanced anti-aliasing off and at 4x, on 1, 2, 3, 4 and 7 drawing
-        # threads, which draw the battlefield's units and effects in as many
-        # bands of rows: every count draws the same frames and reaches the
-        # same world.
+        # enhanced anti-aliasing off, half its frames between ticks, and at
+        # 4x, on 1, 2, 3, 4 and 7 drawing
+        # threads, which plan the units and draw the battlefield's units and
+        # effects in as many bands of rows: every count plans the same draw
+        # lists, draws the same frames and reaches the same world.
         add_test(NAME native-draw-threads COMMAND ${Python3_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_draw_threads.py"
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"

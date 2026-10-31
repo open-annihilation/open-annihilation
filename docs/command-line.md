@@ -515,6 +515,7 @@ one, for the engine's developers.
 | Option | What it does |
 |---|---|
 | `--benchmark FRAMES` | Draws a skirmish and a campaign mission, each still and scrolling, for `FRAMES` frames each, at the zoom `--zoom` gives, and reports the zoom, the frame times and the memory in use. |
+| `--bench FILE` | Plays a staged skirmish in the game's window, the camera where the view file `FILE` says, and reports its frame rate, its frame times and how long each part of the frame took. [Below](#--bench). |
 | `--match-ticks N` | With `--headless-check`, plays a skirmish, a campaign mission or a recording for `N` ticks. |
 | `--campaign NAME` | The campaign of the mission a headless run plays. It needs `--mission`. |
 | `--mission N` | The mission of `--campaign` a headless run plays. |
@@ -550,6 +551,87 @@ one, for the engine's developers.
 | `--trace-input` | Prints each press of the pointer's buttons, and where it lands, each move of the pointer over a match, the game's window, its display and the pointer as a match begins and at each change of the window or a display, and each action event, on standard error. [Below](#--trace-input). |
 | `--debug-order-lines` | Draws each construction beam as a plain line, to debug it. |
 | `--draw-threads N` | The threads that draw, from 1 through 32. |
+
+#### `--bench`
+
+```sh
+open-annihilation --skip-intro --mute --hardware-acceleration=full --resolution 1512x917 --bench tools/bench/turning.bench
+```
+
+The frame bench measures the game drawing a battle the same way on every
+build. It plays in the game's window, on the application's own loop, its
+frames paced and presented as a player's are, in place of a player: the main
+menu, SINGLE, SKIRMISH and START, so the skirmish is the one the
+preferences set up (its map, sides and rules), with the view file's
+players. The file's stage is played into the match as `--stage` plays one
+([the stage's lines](../src/app/README.md)), the +stats overlay is shown,
+the view is held at the file's zoom and centre and turned to its yaw and
+pitch, and the pointer rests over the battlefield's middle. The bench
+takes no input from the keyboard, the pointer, a finger, a pad or a pen,
+so that a key pressed by mistake changes nothing it measures; closing the
+window still ends it. The match plays
+on to the warm-up tick, and then the bench measures: for `measure_ticks`
+match ticks, however long they take, so that every build measures the same
+part of the battle, or for `measure_seconds`. The match plays on while the
+window is away, whatever Settings › Controls › When the window loses focus
+says. A bench is seeded as a showcase is, so every run plays the same
+battle; `--seed` changes it. The
+bench cannot be used with the checks, `--headless-check`, `--benchmark`,
+`--showcase` or `--capture-video`.
+[tools/bench](../tools/bench/README.md) holds the engine's battle, its views
+and preferences, a script for one run in a fresh folder and one that runs
+builds back to back.
+
+The view file holds one `KEY VALUE` a line; a line that begins with `#` is
+a comment. Every key may be left out:
+
+| Key | What it sets | Left out |
+|---|---|---|
+| `label NAME` | The run's name in its lines. | the file's name without its extension |
+| `stage FILE` | A stage played into the match once it starts; a path that is not absolute is taken from the view file's folder. | none |
+| `players N` | The skirmish's players, from 2 to 10. | 2 |
+| `menu_seconds S` | Seconds on the main menu first. | 1 |
+| `warmup_ticks N` | The match tick the measured span starts at. | 600 |
+| `measure_seconds S` | The longest the span lasts. | 25 |
+| `measure_ticks N` | The span's match ticks, within `measure_seconds`; 0 measures for `measure_seconds`. | 0 |
+| `shot_at S`, `shot_ticks N` | When in the span the SHOT line is printed, in seconds, or in ticks when `shot_ticks` is above 0. | 12 seconds |
+| `centre_x X`, `centre_z Z` | The map pixel the view is centred on. | 2048, 2048 |
+| `yaw D`, `pitch D` | The camera's turn and tilt from the classic view, in degrees; both 0 keep the classic view. | 0, 0 |
+| `zoom Z` | The battlefield's zoom, within the view's limits; 0 is the farthest out. | 1 |
+| `turn_rate D` | Degrees of yaw a second through the span. | 0 |
+| `hold_after S` | Seconds the match plays on after the span, before the game closes. | 0 |
+| `stage_timers 0` | Measures the frames with the stage timers off. | 1, on |
+| `frame_log 1` | Prints a `FRAME` line for each frame of the span once it ends. | 0, off |
+
+A key the bench does not know, a value that does not read and a key given
+twice stop the bench with the file and line, and so do a skirmish that
+does not start, a match that ends in the warm-up and a closed window: the
+bench prints `bench: FAILED` and what went wrong, and the game ends with
+status 1.
+
+The bench prints its lines on standard output, which the game writes into
+its log (or into the folder `--log-dir` names), each beginning `bench:`:
+
+| Line | What it says |
+|---|---|
+| `WARMUP label=NAME to tick N` | The warm-up has begun. |
+| `MEASURING label=NAME tick=N seconds=S` | The span begins at match tick N. |
+| `SEC N frames F frame MS sim MS draw MS units A+B vertices V tick T` | Each second of the span: its frames, their mean frame, simulation and drawing times, the live units of the local player and of the others, the turned view's vertices in the last frame and the match tick. |
+| `SHOT label=NAME` | The moment for a screenshot of the window, which `tools/bench/run.sh` takes. |
+| `RESULT label=NAME seconds S frames F fps R low1_fps L ticks T (R/s) game speed A of B` | The span: its length, its frames, its frame rate, the frame rate of its slowest 1% of frames, its match ticks and their rate, and the game speed it ended at. |
+| `AWAY label=NAME frames N of F: ...` | Printed only when the window was away (without the focus, minimised or in the background) for N of the span's frames: another window may have covered it, or the system slowed it, so the run may not measure what a player sees. |
+| `MEASURE NAME min M avg A p50 P p95 P p99 P low1 L max X` | The spread of a time over the span's frames, in milliseconds: the least, the mean, the median, the 95th and 99th percentiles, the mean of the slowest 1% of frames (at least one) and the most. `frame` is from the end of one frame to the end of the next, `work` the loop's pass without its wait, `sim(per frame)` the match ticks the frame ran, `draw` composing the frame and `present` uploading and presenting it. `MEASURE tick(per tick) avg MS` is the mean time of a match tick. |
+| `STAGE NAME MS` | Each stage timer's mean milliseconds a frame, in a fixed order, the parts of a stage indented under it: the match frame (`frame(render_match_surface)`), the turned view (`live_total`) and its scene (`scene_build`: the terrain's survey and plan, the terrain, the effect cards on the ground, the units' shadows, the foundations, the models, the projectiles, the effect cards, the particles, and the water and the rest; the passes after the terrain run at once on the drawing threads, so each of their lines is the time the pass took on the threads it ran on, and together they come to more than `scene_build`), the graphics card's frame (`gpu_total`: the vertices' check, the upload, the submission and the waits, the download), the picture's copy, the pick's triangles, the effects with the depth they test against (the processor's part: where the graphics card adds the lights, which its frame then includes, the lights' projection alone, and no depth), the overlays, the parts of the match frame one after another (`ds_setup`, `ds_hud`, `ds_plan`, `ds_post`, `ds_live`, `ds_after`), the pointer's pick, and the overlay of a turned frame the graphics card keeps, sent for the card to add (`overlay_on_card`; the card's frame is then submitted and not waited for, so `submit+wait` holds no wait and nothing is downloaded or copied). Left out with `stage_timers 0`. The names stay the same from one release to the next, so that runs of different builds compare. |
+| `COUNTS units N (player0 A, others B) drawn N vertices N terrain N ...` | The live units at the end and the last frame's scene: the units drawn, the turned view's vertices, the ground's, its models, cards, particles and shadows, the terrain cells it surveyed, the projectiles, the match tick, the card's supersampling and its samples a pixel before it (4 multisampled, else 1), the battlefield's size, the atlas rows sent a frame, the frames that sent the whole atlas, and the models the graphics card drew from the models it keeps (`card_models`; the frame's other models are among its vertices). |
+| `GROUND revisions N in F frames` | The frames whose kept ground changed. |
+| `ATLAS terrain_packs N a frame, atlas_resets N in F frames` | The terrain tiles packed into the atlas a frame and the frames whose atlas was emptied to fit, then `ATLAS packed by STAGE N materials T texels a frame` for each stage that packed materials afresh. |
+| `SLOW frames N of F, the slowest 1%: frame avg MS ground_revisions G terrain_packs T a frame atlas_resets R atlas_rows A a frame full_atlas_uploads U` | What the slowest 1% of the span's frames were made of, those the 1% low frame rate is taken from: their mean frame time, the frames among them whose kept ground changed, the terrain tiles they packed a frame, the frames among them whose atlas was emptied, the atlas rows they sent a frame and the frames among them that sent the whole atlas; then `SLOW STAGE NAME MS`, each stage timer's mean milliseconds over those frames in the order of the `STAGE` lines, and `SLOW ATLAS packed by STAGE N materials T texels a frame`. Left out with `stage_timers 0`. |
+| `FRAME N frame MS work MS draw MS ground G terrain_packs T atlas_resets R atlas_rows A materials M stages MS...` | With `frame_log 1`, each frame of the span from 0: its frame, work and drawing times, whether its kept ground changed, the terrain tiles it packed, whether its atlas was emptied, the atlas rows it sent, the materials it packed, and each stage timer's milliseconds in the order of the `STAGE` lines. |
+| `DONE label=NAME` | The bench has finished; the game closes. |
+| `FAILED WHAT` | The bench stopped before it finished, and why; the game ends with status 1. |
+
+The stage timers measure only in a bench: in any other run each costs one
+test of a flag.
 
 #### `--trace-input`
 

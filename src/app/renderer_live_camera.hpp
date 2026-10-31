@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 
 namespace oa::app::renderer_live_camera {
@@ -52,8 +53,47 @@ struct PreparedTriangle {
     const std::array<std::array<float, 3>, 3>& triangle, PreparedTriangle& prepared
 ) noexcept;
 
+/// A point's weights and depth on a prepared triangle, and whether it hits it.
+struct PreparedHit {
+    std::array<float, 3> weights{}; ///< barycentric weights, meaningful on a hit
+    float depth{};                  ///< interpolated depth, meaningful on a hit
+    bool hit{};                     ///< whether triangle_hit_prepared accepts the point
+};
+
+/// Weigh a finite point on a valid prepared triangle without branching on
+/// the result. triangle_hit_prepared is this after its own checks, so the
+/// two give the same weights, depth and answer for every such point; a
+/// caller testing many points works them all out before testing any, so
+/// that one point's divisions need not wait for the last point's answer.
+/// Inline for that reason.
+/// @param triangle coefficients for which prepare_triangle succeeded
+/// @param screen_x finite pointer column in pixels
+/// @param screen_y finite pointer row in pixels
+/// @return the weights and depth, with whether the point hits
+[[nodiscard]] inline PreparedHit
+weigh_prepared(const PreparedTriangle& triangle, float screen_x, float screen_y) noexcept {
+    const double first = (triangle.first_x * (double(screen_x) - triangle.origin_x) +
+                          triangle.first_y * (double(screen_y) - triangle.origin_y)) /
+                         triangle.determinant;
+    const double second = (triangle.second_x * (double(screen_x) - triangle.origin_x) +
+                           triangle.second_y * (double(screen_y) - triangle.origin_y)) /
+                          triangle.determinant;
+    const double third = 1 - first - second;
+    constexpr double edge_tolerance = 1e-6;
+    const float hit_depth = static_cast<float>(
+        first * triangle.depths[0] + second * triangle.depths[1] + third * triangle.depths[2]
+    );
+    // Each test once, joined without short cuts.
+    const bool hit = !(first < -edge_tolerance) & !(second < -edge_tolerance) &
+                     !(third < -edge_tolerance) & std::isfinite(hit_depth);
+    return {
+        {static_cast<float>(first), static_cast<float>(second), static_cast<float>(third)},
+        hit_depth,
+        hit
+    };
+}
+
 /// Intersect a point using prepared coefficients, preserving triangle_hit rounding.
-/// Inline, as the lights' visibility calls it for every pixel it tests.
 /// @param triangle coefficients returned by prepare_triangle
 /// @param screen_x pointer column in pixels
 /// @param screen_y pointer row in pixels
@@ -69,32 +109,124 @@ struct PreparedTriangle {
 ) noexcept {
     if (!triangle.valid || !std::isfinite(screen_x) || !std::isfinite(screen_y))
         return false;
-    const double first = (triangle.first_x * (double(screen_x) - triangle.origin_x) +
-                          triangle.first_y * (double(screen_y) - triangle.origin_y)) /
-                         triangle.determinant;
-    const double second = (triangle.second_x * (double(screen_x) - triangle.origin_x) +
-                           triangle.second_y * (double(screen_y) - triangle.origin_y)) /
-                          triangle.determinant;
-    const double third = 1 - first - second;
-    constexpr double edge_tolerance = 1e-6;
-    if (first < -edge_tolerance || second < -edge_tolerance || third < -edge_tolerance)
+    const auto point = weigh_prepared(triangle, screen_x, screen_y);
+    if (!point.hit)
         return false;
-    const float hit_depth = static_cast<float>(
-        first * triangle.depths[0] + second * triangle.depths[1] + third * triangle.depths[2]
-    );
-    if (!std::isfinite(hit_depth))
-        return false;
-    weights = {static_cast<float>(first), static_cast<float>(second), static_cast<float>(third)};
-    depth = hit_depth;
+    weights = point.weights;
+    depth = point.depth;
     return true;
+}
+
+/// The most columns of a row narrow_row leaves whole: too few to repay narrowing.
+inline constexpr int most_columns_left_whole = 4;
+
+/// What narrow_row works out from a prepared triangle alone, once for all
+/// the rows a caller narrows.
+struct RowNarrowing {
+    /// Each weight's numerator's change a row, before the determinant's sign.
+    std::array<double, 3> row_terms{};
+    /// One over each weight's numerator's change a column, the sign taken out.
+    std::array<double, 3> inverse_slopes{};
+    /// Whether each weight bounds a row's columns, and from which side.
+    std::array<int8_t, 3> sides{}; ///< 1 from the left, -1 from the right, 0 not at all
+    double sign{};                 ///< the determinant's sign
+    double size{};                 ///< the determinant's magnitude
+    double limit{};                ///< the least numerator a column can keep
+    float origin_x{};
+    float origin_y{};
+    bool valid{};
+};
+
+/// Work out the row-independent terms of narrow_row for a prepared triangle.
+/// @param triangle coefficients returned by prepare_triangle
+/// @return the terms; invalid for an invalid triangle
+[[nodiscard]] inline RowNarrowing prepare_narrowing(const PreparedTriangle& triangle) noexcept {
+    RowNarrowing narrowing;
+    if (!triangle.valid)
+        return narrowing;
+    // Each weight's numerator along the row is slope * (x - origin_x) + offset,
+    // here with the determinant's sign taken out, and the weight is at least
+    // its tolerance where the numerator is at least -limit. The third weight
+    // is one less the other two. The limit is twice the hit's tolerance and
+    // each bound has half a column to spare: far more than the rounding of
+    // either test, so no column the hit accepts is left out.
+    narrowing.sign = triangle.determinant < 0 ? -1.0 : 1.0;
+    narrowing.size = std::abs(triangle.determinant);
+    const std::array<double, 3> slopes{
+        triangle.first_x * narrowing.sign,
+        triangle.second_x * narrowing.sign,
+        -(triangle.first_x + triangle.second_x) * narrowing.sign
+    };
+    narrowing.row_terms = {
+        triangle.first_y, triangle.second_y, triangle.first_y + triangle.second_y
+    };
+    constexpr double limit_tolerance = 2e-6;
+    // A weight that changes by less than this share of the determinant a
+    // column leaves the row whole: its bound would rest on rounding.
+    constexpr double minimum_slope = 1e-9;
+    narrowing.limit = narrowing.size * limit_tolerance;
+    for (std::size_t edge = 0; edge < slopes.size(); ++edge) {
+        if (std::abs(slopes[edge]) <= narrowing.size * minimum_slope)
+            continue;
+        narrowing.inverse_slopes[edge] = 1 / slopes[edge];
+        narrowing.sides[edge] = slopes[edge] > 0 ? 1 : -1;
+    }
+    narrowing.origin_x = triangle.origin_x;
+    narrowing.origin_y = triangle.origin_y;
+    narrowing.valid = true;
+    return narrowing;
 }
 
 /// Narrow a row's pixel columns to those whose centres a prepared triangle can hit.
 /// Every column in [first, last) whose centre triangle_hit_prepared accepts stays
 /// in the range, with at most a column more on either side; the range may come
 /// back empty, and a range of a few columns is left whole. Columns keep their
-/// order, so a caller's results do not change. Inline, so that a caller
-/// narrowing a triangle's rows works out its row-independent terms once.
+/// order, so a caller's results do not change. Inline, as the lights'
+/// visibility narrows every row of every triangle it draws.
+/// @param narrowing the triangle's terms from prepare_narrowing
+/// @param screen_y the row's centre in pixels
+/// @param centre where a column's centre lies past its left edge, in pixels
+/// @param[in,out] first the row's first column, raised to the triangle's
+/// @param[in,out] last one past the row's last column, lowered to the triangle's
+inline void narrow_row(
+    const RowNarrowing& narrowing, float screen_y, float centre, int& first, int& last
+) noexcept {
+    if (!narrowing.valid || !std::isfinite(screen_y) || !std::isfinite(centre) ||
+        last - first <= most_columns_left_whole)
+        return;
+    const double row = double(screen_y) - narrowing.origin_y;
+    const std::array<double, 3> offsets{
+        narrowing.row_terms[0] * row * narrowing.sign,
+        narrowing.row_terms[1] * row * narrowing.sign,
+        narrowing.size - narrowing.row_terms[2] * row * narrowing.sign
+    };
+    constexpr double spare = 0.5;
+    double low = -std::numeric_limits<double>::infinity();
+    double high = std::numeric_limits<double>::infinity();
+    for (std::size_t edge = 0; edge < offsets.size(); ++edge) {
+        if (narrowing.sides[edge] == 0)
+            continue;
+        const double bound = (-narrowing.limit - offsets[edge]) * narrowing.inverse_slopes[edge];
+        if (!std::isfinite(bound))
+            continue;
+        if (narrowing.sides[edge] > 0)
+            low = std::max(low, bound - spare);
+        else
+            high = std::min(high, bound + spare);
+    }
+    // Back to columns: those whose centres lie within [low, high].
+    const double left = std::max(double(first), std::ceil(low + narrowing.origin_x - centre));
+    const double right = std::min(double(last), std::floor(high + narrowing.origin_x - centre) + 1);
+    if (!(left < right)) {
+        last = first;
+        return;
+    }
+    first = static_cast<int>(left);
+    last = static_cast<int>(right);
+}
+
+/// Narrow a row's pixel columns to those whose centres a prepared triangle can
+/// hit, as narrow_row with the triangle's prepare_narrowing terms.
 /// @param triangle coefficients returned by prepare_triangle
 /// @param screen_y the row's centre in pixels
 /// @param centre where a column's centre lies past its left edge, in pixels
@@ -103,59 +235,20 @@ struct PreparedTriangle {
 inline void narrow_row(
     const PreparedTriangle& triangle, float screen_y, float centre, int& first, int& last
 ) noexcept {
-    // A few columns have too little to leave out to repay the narrowing.
-    constexpr int fewest_columns = 4;
-    if (!triangle.valid || !std::isfinite(screen_y) || !std::isfinite(centre) ||
-        last - first <= fewest_columns)
-        return;
-    // Each weight's numerator along the row is slope * (x - origin_x) + offset,
-    // here with the determinant's sign taken out, and the weight is at least
-    // its tolerance where the numerator is at least -limit. The third weight
-    // is one less the other two. The limit is twice the hit's tolerance and
-    // each bound has half a column to spare: far more than the rounding of
-    // either test, so no column the hit accepts is left out.
-    const double sign = triangle.determinant < 0 ? -1.0 : 1.0;
-    const double size = std::abs(triangle.determinant);
-    const double row = double(screen_y) - triangle.origin_y;
-    const std::array<double, 3> slopes{
-        triangle.first_x * sign,
-        triangle.second_x * sign,
-        -(triangle.first_x + triangle.second_x) * sign
-    };
-    const std::array<double, 3> offsets{
-        triangle.first_y * row * sign,
-        triangle.second_y * row * sign,
-        size - (triangle.first_y + triangle.second_y) * row * sign
-    };
-    constexpr double limit_tolerance = 2e-6;
-    // A weight that changes by less than this share of the determinant a
-    // column leaves the row whole: its bound would rest on rounding.
-    constexpr double minimum_slope = 1e-9;
-    constexpr double spare = 0.5;
-    const double limit = size * limit_tolerance;
-    double low = -std::numeric_limits<double>::infinity();
-    double high = std::numeric_limits<double>::infinity();
-    for (std::size_t edge = 0; edge < slopes.size(); ++edge) {
-        if (std::abs(slopes[edge]) <= size * minimum_slope)
-            continue;
-        const double bound = (-limit - offsets[edge]) * (1 / slopes[edge]);
-        if (!std::isfinite(bound))
-            continue;
-        if (slopes[edge] > 0)
-            low = std::max(low, bound - spare);
-        else
-            high = std::min(high, bound + spare);
-    }
-    // Back to columns: those whose centres lie within [low, high].
-    const double left = std::max(double(first), std::ceil(low + triangle.origin_x - centre));
-    const double right = std::min(double(last), std::floor(high + triangle.origin_x - centre) + 1);
-    if (!(left < right)) {
-        last = first;
-        return;
-    }
-    first = static_cast<int>(left);
-    last = static_cast<int>(right);
+    narrow_row(prepare_narrowing(triangle), screen_y, centre, first, last);
 }
+
+/// How far past a triangle's bounds triangle_hit accepts a point, as a share
+/// of the triangle's width across and of its height down.
+inline constexpr double triangle_bounds_tolerance = 4e-6;
+
+/// Whether triangle_hit accepts no point past a triangle's bounds widened by
+/// triangle_bounds_tolerance: false for a sliver, whose own query
+/// triangle_hit takes even there, and for a triangle not wholly finite.
+/// @param triangle three screen x, screen y, depth vertices
+/// @return true where the widened bounds hold every point triangle_hit accepts
+[[nodiscard]] bool
+triangle_hit_bounded(const std::array<std::array<float, 3>, 3>& triangle) noexcept;
 
 /// Intersect a screen point with a projected triangle and interpolate its depth.
 /// @param triangle three screen x, screen y, depth vertices

@@ -600,9 +600,13 @@ void the_administrators_moves_continue_the_players_journal() {
     OA_CHECK(counted.calls == 3);
     OA_CHECK(fs::is_directory(install));
     OA_CHECK(!fs::exists(kept));
-    std::ifstream back(record);
     std::string text;
-    std::getline(back, text);
+    {
+        // Closed before the next journal writes the record, which Windows
+        // refuses while the file is open.
+        std::ifstream back(record);
+        std::getline(back, text);
+    }
     OA_CHECK(text == "before");
     OA_CHECK(!fs::exists(updates / "journal.json"));
 

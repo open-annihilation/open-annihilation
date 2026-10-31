@@ -409,6 +409,19 @@ oa::present::TextCanvas Runtime::match_text_canvas() {
         static_cast<int32_t>(dest.height),
         has_palette ? std::span<const uint8_t>(match_palette_) : std::span<const uint8_t>{}
     );
+    // A turned frame's overlay canvas holds no picture: what a line would
+    // do to the picture under its see-through pixels, its shadow, outline
+    // and letters, each line's own, is made on the picture by the card as
+    // lay_text would make it.
+    if (paints_turned_overlay()) {
+        begin_turned_text_line();
+        canvas.see_through = turned_overlay_key();
+        canvas.world_user = this;
+        canvas.world_run = [](void* user, const oa::present::TextWorldRun& run) {
+            static_cast<Runtime*>(user)->note_turned_text_run(run);
+        };
+        return canvas;
+    }
     // The Full tier's overlay canvas holds no world: over it the card
     // darkens the world under the shadow at the shadow's alpha, holds it to
     // the outline grey at the most under the outline, which is black over

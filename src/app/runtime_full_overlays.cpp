@@ -12,6 +12,7 @@
 
 #include "full_fog.hpp"
 #include "full_presentation.hpp"
+#include "renderer_live_overlay.hpp"
 #include "xrgb_conversion.hpp"
 
 #include <algorithm>
@@ -187,6 +188,10 @@ bool Runtime::paints_full_canvas() {
 }
 
 bool Runtime::paint_world_level(int x, int y, int width, int height, int32_t level) {
+    // The card makes no shade level on a turned frame's picture: the
+    // picture comes back, and the painter shades it itself.
+    if (paints_turned_overlay())
+        take_turned_picture();
     if (!paints_full_canvas() || width <= 0 || height <= 0)
         return false;
     const full_fog::LevelQuad quad = full_fog::level_quad(level);
@@ -207,6 +212,46 @@ bool Runtime::paint_world_level(int x, int y, int width, int height, int32_t lev
 bool Runtime::paint_world_blend(
     int x, int y, int width, int height, std::array<uint8_t, 3> colour, uint32_t opacity
 ) {
+    if (paints_turned_overlay() && width > 0 && height > 0) {
+        // On a turned frame's overlay canvas the card blends the picture
+        // under the key as blend_rect would, and the canvas's own pixels are
+        // blended here. A pixel of the canvas's own blended to the key
+        // colour itself would read as the picture's: the picture comes back
+        // first then, and the painter blends it all itself.
+        const renderer_live_overlay::Operation blend{
+            x, y, width, height, renderer_live_overlay::Kind::blend, colour, opacity
+        };
+        auto& canvas = match_world_cpu_;
+        const auto key = turned_overlay_key();
+        const auto columns = static_cast<int64_t>(canvas.width);
+        const int64_t left = std::max<int64_t>(x, 0);
+        const int64_t top = std::max<int64_t>(y, 0);
+        const int64_t right = std::min<int64_t>(int64_t{x} + width, columns);
+        const int64_t bottom = std::min<int64_t>(int64_t{y} + height, int64_t{canvas.height});
+        const auto blended = [&](bool write) {
+            for (int64_t row = top; row < bottom; ++row)
+                for (int64_t column = left; column < right; ++column) {
+                    uint8_t* pixel =
+                        canvas.rgb.data() + static_cast<std::size_t>(row * columns + column) * 3U;
+                    if (std::equal(key.begin(), key.end(), pixel))
+                        continue;
+                    const auto made =
+                        renderer_live_overlay::apply(blend, {pixel[0], pixel[1], pixel[2]});
+                    if (!write && made == key)
+                        return false;
+                    if (write)
+                        std::copy(made.begin(), made.end(), pixel);
+                }
+            return true;
+        };
+        if (!blended(false)) {
+            take_turned_picture();
+            return false;
+        }
+        std::ignore = blended(true);
+        note_turned_operation(blend);
+        return true;
+    }
     if (!paints_full_canvas() || width <= 0 || height <= 0)
         return false;
     if (opacity == 0)
@@ -221,6 +266,10 @@ bool Runtime::paint_world_blend(
 bool Runtime::paint_world_minimum(
     int x, int y, int width, int height, std::array<uint8_t, 3> colour
 ) {
+    // The card makes no other hold on a turned frame's picture than text's
+    // outline: the picture comes back, and the painter holds it itself.
+    if (paints_turned_overlay())
+        take_turned_picture();
     if (!paints_full_canvas() || width <= 0 || height <= 0)
         return false;
     const card::Colour shown = full::flat_colour(colour, gamma_identity_ ? nullptr : &gamma_table_);
@@ -239,6 +288,10 @@ void Runtime::paint_faded(
         paint();
         return;
     }
+    // A faded paint reads the picture under it as it paints: a turned
+    // frame's picture comes back first.
+    if (paints_turned_overlay())
+        take_turned_picture();
     auto& target = paint_target();
     const int left = std::max(x, 0);
     const int top = std::max(y, 0);

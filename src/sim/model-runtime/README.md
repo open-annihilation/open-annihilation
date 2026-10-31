@@ -26,14 +26,18 @@ piece so, never from a draw's transforms. Angle words are 16-bit turns
 conversion uses the X/Z-negated model-runtime convention of the 3DO loader. The radians multiplier is the game's stored double rather
 than a recomputed approximation.
 
-`rebuild_transforms` deliberately performs an unconditional bounded reset and
-full root-subtree rebuild; it keeps no transform cache between rebuilds.
+`rebuild_transforms` leaves every piece the transforms of a bounded reset and
+full root-subtree rebuild. It works a piece out again only when those could
+differ from what the last rebuild left: the root rotation, or the translation
+or rotation of the piece or of an ancestor, differs from what that rebuild
+worked from (the instance keeps those, and a copy of the instance keeps them
+with its transforms). Any other piece keeps its transforms, which the same
+integer arithmetic would give again, so the result is the full rebuild's.
 Whether 3.1c ever keeps a previous transform where this rebuilds it is not
 established, nor what two further words of the 3DO instance hold: this
 component keeps neither, and the match keeps one with the unit's slot, clears
-it at spawn and never reads it. This component always rebuilds. Root-level
-siblings are reset but are not included in the root transform traversal, as
-in 3.1c.
+it at spawn and never reads it. Root-level siblings are reset but are not
+included in the root transform traversal, as in 3.1c.
 
 The piece callbacks read flag bits and normalize setter inputs through their
 low bit. Position and angle changes clear the piece transform marker and

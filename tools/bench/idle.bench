@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+# The low view of the plateau with nothing staged, the camera still, for 750 ticks.
+label low-across-idle
+stage idle.stage
+players 2
+warmup_ticks 600
+measure_seconds 150
+measure_ticks 750
+shot_at 12
+shot_ticks 360
+centre_x 1980
+centre_z 2080
+yaw 20
+pitch -53
+zoom 1
+turn_rate 0

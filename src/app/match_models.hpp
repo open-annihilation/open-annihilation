@@ -57,7 +57,9 @@ struct MatchPresentation {
     /// picks a mirrored unit where that frame drew it.
     oa::present::unit_playout::FrameTime drawn_moment{};
     /// Set while a unit draws from its copies: a carried unit then draws from
-    /// its own copies too (the renderer's model_of).
+    /// its own copies too (the renderer's model_of). Only units that carry or
+    /// are carried set it, on the one thread that plans them
+    /// (plan_unit_draws); no other unit reaches a carried unit's model.
     bool blending{};
     std::vector<UnitMotion> units; ///< by unit slot
     /// A slot's model instance did not fit its unit (instance_fits_unit) and
@@ -67,6 +69,60 @@ struct MatchPresentation {
     /// Each live projectile's pose for the frame being drawn, by pool index.
     std::vector<ShotPose> presented_shots;
     DebrisFall debris{};
+};
+
+/// One unit of a frame's draw list, planned before the list takes its draws
+/// in their order (plan_unit_draws in runtime_match_render.cpp): what the
+/// drawing thread finds of it first, in the order, then what its plan works
+/// out on whichever drawing thread takes it, which the list takes at the
+/// unit's place in the order.
+struct UnitPlan {
+    uint16_t unit_index{};
+    /// The unit's model (unit_model); a null instance draws nothing.
+    oa::present::model::ModelRef model{};
+    /// Where its owner's playout has it (mirrored_pose); nothing for a unit
+    /// drawn where its ticks place it.
+    std::optional<oa::present::unit_playout::UnitPose> pose{};
+    /// Its movement state stands still: its animated textures show their
+    /// first frame.
+    bool idle{};
+    /// It is drawn from its copies (presented_unit): between two ticks once
+    /// it or a unit it carries moved, and on every frame on its playout.
+    bool from_copies{};
+    /// It carries units or is carried, so that its plan reaches the models
+    /// of other units: such units are planned one after another, in their
+    /// order, on one thread.
+    bool linked{};
+    /// What it is drawn as: its own model, or its copies'.
+    oa::present::model::ModelRef shown{};
+    /// It adds a model draw to the list: false for a carried unit drawn from
+    /// its copies, which its carrier draws.
+    bool adds_draw{};
+    ModelDraw draw{};
+    /// A record of each unit it carries, which the live renderer draws from
+    /// (ModelDraw), listed after its own.
+    std::vector<ModelDraw> carried;
+};
+
+/// The frame's units to draw, planned before the draw list takes them
+/// (plan_unit_draws), and the buffers the planning keeps from frame to frame.
+struct UnitPlans {
+    /// By the unit's place among the frame's units to draw.
+    std::vector<UnitPlan> plans;
+    /// The places of a run of units in the draw order, the units of the
+    /// ground or those off it.
+    std::vector<uint32_t> run;
+    /// The run's places in the order they are planned: those that carry or
+    /// are carried first, in the run's order, then the others.
+    std::vector<uint32_t> order;
+    /// By unit slot: the run whose carrier last found the slot's unit among
+    /// those it carries.
+    std::vector<uint32_t> carried_in_run;
+    /// Counts the runs planned, for carried_in_run.
+    uint32_t runs{};
+    /// The vertex buffers of the last frame's model draws
+    /// (ModelDraw::shown_vertices), which this frame's take over.
+    std::vector<std::vector<std::vector<oa::formats::objects3d::FixedVector3>>> spare_vertices;
 };
 
 /// 3DO renderer state of one match: prepared models and textures, the draw
@@ -91,8 +147,12 @@ struct MatchModels {
     // thread; one band covers the whole frame on one thread.
     std::vector<oa::present::model::BridgeBand> bands;
     // The buffers of the bands after the first, which draws with the
-    // renderer and supersampling buffers above; none on one thread.
+    // renderer and supersampling buffers above; none on one thread. Their
+    // renderers plan the frame's units on the drawing threads after the
+    // first too (plan_unit_draws).
     std::vector<WorldBandScratch> band_scratch;
+    // The frame's units, planned before the draws are worked out in order.
+    UnitPlans unit_plans;
     // The first band's buffer of turned debris points.
     std::vector<oa::formats::objects3d::FixedVector3> debris_points;
     // The most bands a frame of the match was drawn in, which a frame run

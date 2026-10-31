@@ -1954,12 +1954,29 @@ prompts, Settings › Updates and the headers name one state with one size.
   the battlefield at the tick is not drawn
   (`projectile_lens_on_battlefield`), and every projectile after it is
   drawn as without it. The Full tier draws no lens. Everything drawing builds or
-  changes on the way is done then, once, on the drawing thread: the piece
-  transforms and the presented copies, the units' and features' cached
-  images and silhouettes and those of the units they carry
-  (`plan_unit_supersampled`), the texture animations, the projectiles'
-  models, the GAF frames decoded for the particles (each once, kept from
-  frame to frame), the selection boxes' lines and the frame's statistics.
+  changes on the way is done then, once: the piece transforms and the
+  presented copies, the units' and features' cached images and silhouettes
+  and those of the units they carry (`plan_unit_supersampled`), the texture
+  animations, the projectiles' models, the GAF frames decoded for the
+  particles (each once, kept from frame to frame), the selection boxes'
+  lines and the frame's statistics. The units are planned first, on the
+  drawing threads (`plan_unit_draws`), the ground units' just before the
+  list reaches them and the raised units' likewise: the drawing thread finds
+  in the draw order what each unit is drawn as (its model, its pose on the
+  playout, whether it stands still and whether it draws from copies placed
+  between the ticks), the threads then ready each unit's model or copies and
+  work out its model draw (`plan_unit_model`, a `UnitPlan` in `MatchModels`),
+  and the list takes each unit's statistics, selection box and draws at its
+  place in the order. A unit's plan changes only its own instance, draw
+  state and copies, so the units that carry or are carried, whose plans reach
+  each other's models, are planned one after another in their order by one
+  thread, and the others four at a time by whichever thread is free, each
+  thread with a renderer of its own (the bands' after the first), binding
+  the models' display and rounding as the ticks do; a plan builds in its
+  renderer's composite only over a part it has cleared, so any number of
+  threads plans the units as one does, and the list and the frames are
+  those one thread gives. A frame of dots plans none. The model draws keep
+  their vertex buffers from one frame's list to the next.
   Before them the frame's shadows are set from the zoom (`set_frame_shadows`, `shadow_fade.hpp` of
   the model module): at zoom 1 and closer the game's own; zoomed out
   lighter, easing down to none at a quarter, the models' silhouettes and
@@ -2903,8 +2920,12 @@ prompts, Settings › Updates and the headers name one state with one size.
   the same trace and digest, at 30 each frame running a tick but the first
   past the turn. The run
   ends with a line giving the world digest, a frames digest of every
-  frame's drawn battlefield, the drawing threads it drew on and the most
-  bands a frame's battlefield was drawn in. `--busy-combat` adds missile
+  frame's drawn battlefield, the drawing threads it drew on, the most
+  bands a frame's battlefield was drawn in and a draw list digest of every
+  frame's draw list (`fold_draw_list`: each draw's kind and place, each
+  model draw's plan, the record it is drawn from, its draw state's images
+  and counts as the plan left them, and its place and vertices for the live
+  renderer, and each line). `--busy-combat` adds missile
   trucks to both armies, and for the local player a kbot lab building
   peewees and an air transport loading one, and selects the local army
   with selection boxes shown, so that the frames reach every kind of
@@ -2954,7 +2975,13 @@ prompts, Settings › Updates and the headers name one state with one size.
   `move GROUP X Z` and `patrol GROUP X Z` give a group's live units that
   order to map pixel X, Z as a player's order gives a selection of them
   (each unit near the group's centre keeps its place around the point, and
-  one far from it goes to the point itself); `attack GROUP TARGETS` sets
+  one far from it goes to the point itself); `patrol-all PLAYER X Z
+  [KEPT_GROUP]` gives the patrol to every live unit of a player that takes
+  a move order, its factories among them, but the live units of the group
+  named last, printing `stage: patrol-all PLAYER: N units to X,Z`;
+  `queue TYPE COUNT` adds COUNT of a type to the build queue of the last
+  unit placed, a factory, as a computer player's factory orders add them,
+  printing `stage: unit N queues COUNT TYPE`; `attack GROUP TARGETS` sets
   each of them on the nearest live unit of another group, `attack-ground
   GROUP X Z` commands them to attack the ground at map pixel X, Z, `guard
   GROUP GUARDED` sets them guarding the first live unit of another group,
@@ -3008,12 +3035,37 @@ prompts, Settings › Updates and the headers name one state with one size.
   layer is the overlay canvas, cleared to a key colour, the lowest
   0xRRGGBB not in the palette (`overlay_key_colour`), and
   `convert_rgb24_keyed_overlay_argb` makes the overlay of it by that key,
-  opaque exactly where the painters painted, in the same bands. The
+  opaque exactly where the painters painted, in the same bands. The turned
+  3D view in the game's window keeps its picture on the graphics card
+  (`renderer_live_gpu::Context::keep_on_card`): the processor waits for
+  nothing and reads nothing back; the world layer is an overlay canvas
+  cleared to the same key, and where the painters would have read the
+  picture under it, a blend (`paint_world_blend`) or a line of text's
+  shadow, outline and letters (`match_text_canvas`), they record what they
+  would have done to it (`renderer_live_overlay.hpp`). At presentation the
+  card adds the canvas and the recorded operations to its picture, each
+  pixel in whole levels as the painters paint it, a line of text reduced to
+  the palette once its operations are made, then the display gamma
+  (`renderer_live_gpu::compose_overlay`, `live_overlay_fragment.glsl`), and
+  the window draws the result where it drew the uploaded world layer. A
+  painter that reads the picture otherwise, the kill board's shade levels,
+  a faded paint and the terrain debug views, takes the picture back first
+  (`take_turned_picture`): read back and composed with what was painted so
+  far on the processor (`renderer_live_overlay::compose`), the rest of the
+  frame is the processor's, as is a screenshot's or a film frame's
+  (`compose_shown_match`). `app-renderer-live-overlay` holds the canvas and
+  the operations to `blend_rect` and `lay_text` painting on the picture
+  itself, `app-renderer-live-gpu` the card's composition to the
+  processor's, and `native-live-renderer` draws every turned frame it checks
+  both ways and finds them the same through the display gamma
+  (`draw_turned_frame_both_ways`). The
   Runtime keeps a [job pool](../platform/job-pool/README.md)
   (`draw_pool_`) that this conversion, the terrain fill, the fog, the
   battlefield's draws (`world_draws.hpp`), the effects' light and heat
-  (`renderer_effects::compose`) and the 3D view's depth under them
-  (`live_scene_visibility`) run their bands on:
+  (`renderer_effects::compose`), the 3D view's depth under them where the
+  graphics card cannot add its lights itself (`live_scene_visibility`) and
+  the 3D view's ground and scene passes (`renderer_live_scene::build`) run
+  their bands on:
   `--draw-threads N` (1 to 32), else the `OA_DRAW_THREADS`
   environment variable, else the pool's default, one thread on a machine of
   one or two logical processors and otherwise one fewer than the
@@ -3021,19 +3073,41 @@ prompts, Settings › Updates and the headers name one state with one size.
   band runs on the drawing thread. The conversion's, the terrain's, the
   fog's and the effects' bands are fixed by the rows, and the 3D view's
   depth is worked out in bands of 16 rows, or in one band with no pool,
-  each band taking the triangles that reach it in their order; the
+  each band taking the triangles that reach it in their order, which runs
+  of 4096 triangles find and sort by band on the pool into lists the live
+  renderer keeps from frame to frame; the
   battlefield's are one a thread, and any number of them draws the same
-  frames, so every count draws the same frames.
+  frames; the 3D view's scene passes each list their triangles apart,
+  joined afterwards in the passes' order, with only the drawing thread
+  packing materials, in that order, so every count draws the same frames.
+  Its ground is drawn a row of tiles a band, each band noting the tiles it
+  meets, which the drawing thread packs in the order the rows meet them,
+  the tiles' texels written afterwards in bands on the pool (each tile's
+  square apart from every other's), before the bands are placed in the
+  atlas and joined; a moving camera's
+  next ground is drawn ahead of it among the scene passes, a fixed share of
+  its bands a frame, its tiles packed by the drawing thread a fixed number
+  a frame as its bands come in, the structures' plots cut into it a fixed
+  share of its bands a frame beside the other passes, and its vertices
+  sent to the graphics card a fixed share a frame into a buffer of their
+  own (`renderer_live_gpu::KeptGround::next`), which the card takes,
+  checked as it came in, in the frame that takes the ground, so it changes
+  at the same frame on every count. When the structures' plots change,
+  only the bands of the kept ground or of the ground ahead that a changed
+  plot reaches are cut again, so every count cuts the same bands. The
+  effect cards laid on the ground are listed in bands of 64 cards, joined
+  in their order.
   `app-xrgb-conversion` checks each pixel's packing and gamma for rows of
   any width, that pools of 2, 3, 4 and 8 threads convert the same bytes,
   the key colour as the lowest outside a palette and the keyed overlay
   holding what was painted;
   `native-draw-threads` draws the seeded skirmish's fight frame by frame at
   zoom 1, 1.37 and 0.6, and a longer `--busy-combat` fight into its
-  explosions and debris with enhanced anti-aliasing off and at 4x, on 1, 2,
-  3, 4 and 7 drawing threads and checks that every count gives the same
-  frames digest and world digest, and draws in one band a thread at zoom 1
-  and in more than one elsewhere.
+  explosions and debris with enhanced anti-aliasing off (half its frames
+  between ticks) and at 4x, on 1, 2, 3, 4 and 7 drawing threads and checks
+  that every count gives the same frames digest, draw list digest and world
+  digest, and draws in one band a thread at zoom 1 and in more than one
+  elsewhere.
 - `full_screen.hpp`, `full_screen.cpp`: Alt+Enter (Return or keypad Enter,
   either Alt key; Option on macOS), which switches the window between full
   screen and a window on every screen, during the movies and while a match
@@ -3489,6 +3563,26 @@ prompts, Settings › Updates and the headers name one state with one size.
   describes both. Benchmarks, `--frame-rate` runs, headless saved-game runs
   and the battle end with the memory report, its peaks the largest the
   system saw (`oa/platform/memory_status.hpp`).
+- `runtime_bench.cpp`, `bench.hpp`, `bench.cpp`, `bench_timers.hpp`: the
+  frame bench, `--bench FILE`
+  ([docs/command-line.md](../../docs/command-line.md#--bench)), which plays
+  the skirmish the preferences set up in the window, the view file's stage
+  played into it and the camera held where the file says, warms up to a
+  match tick and measures a span on the game's own loop, printing `bench:`
+  lines (`run_bench`). `bench.cpp` (the library `oa-app-bench`) reads the
+  view file, takes the spread of each time (the median, the 95th and 99th
+  percentiles and the mean of the slowest 1%), finds the slowest 1% of
+  frames and lays out the MEASURE, STAGE and SLOW STAGE lines; `bench_timers.hpp` holds the stage timers the match frame
+  marks: spans around the parts of the turned view's scene, the graphics
+  card's frame, the picture's copy, the effects, the overlays and the
+  pointer's pick (`bench_timers::Span`), the parts of `draw_match_surface`
+  one after another (`bench_timers::mark`) and the atlas's and the scene's
+  counts. They are off in every run but a bench, where each mark costs one
+  test of a flag; the match frame is drawn on one thread, which alone
+  touches them. The stages' names stay the same from one release to the
+  next, so that runs compare. `app-bench` tests the parts without a game,
+  and `native-bench` plays the engine's battle (`tools/bench`) for a few
+  seconds on the dummy driver and checks every line.
 - `screen_size.hpp`, `screen_size.cpp`: the settings read before the window
   opens (`start_settings`), with the defaults of a light machine
   (`oa/platform/machine.hpp`): the Screen size, the window opened at that
@@ -3596,6 +3690,14 @@ prompts, Settings › Updates and the headers name one state with one size.
   records cleanly at every exit through `main` (`finish_records`).
   `walk_rebuild_drivers` and `RendererHost::rebuild` make the renderer
   again after a failure, striking it against the driver that failed;
+  `RendererHost::card_device` is the graphics device the turned 3D view
+  draws on (SDL 3.4 and later, behind a Metal, D3D11, D3D12 or Vulkan
+  renderer), and while the view shows the window presents through it
+  (`present_on_card`, `present_walked`, `Runtime::follow_card_presentation`):
+  SDL's GPU renderer made on that device in place of the walked driver's,
+  whose facts, tier and records stay as they were, so that the card's
+  picture reaches the window with nothing read back; every texture made on
+  the renderer goes at each change, as after a device reset;
   `RenderFaultHooks` are what `--check-renderer-ladder` forces, among them
   the machine's memory, how a left-over trial counts and the name the
   records keep the renderer under.
@@ -3707,7 +3809,10 @@ prompts, Settings › Updates and the headers name one state with one size.
   tick as it is, below 1 each moved unit from copies of its record and
   model instance placed part of the way from the tick before, with a draw
   state of their own, while the match's own pieces are rebuilt as a whole
-  tick's draw rebuilds them; projectiles, debris, fragments, particles,
+  tick's draw rebuilds them. The copies take the pieces' poses from the
+  match's instance and keep their own transforms from one draw to the next
+  (`Instance::take_pose`), so that their rebuild works out again only the
+  pieces whose pose changed; projectiles, debris, fragments, particles,
   health bars, order lines and a tracking camera follow. With Smooth
   motion Off the loop draws every frame at 1, so each shows its tick as
   it is, a mirrored unit where its playout has it at the tick. The

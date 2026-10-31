@@ -8,11 +8,15 @@ A skirmish of the local player against one computer player is staged with
 solar collectors and a missile defence beside the local commander, the
 defence asked for stockpiled rounds, light infantry of the computer player
 placed beside the local commander and a construction kbot, set to hold its
-ground, asked to build a solar collector, then played for TICKS ticks and
-saved. The run must report each placement, keep the defence's stockpile
-order among the saved orders, count the staged types among the live units,
-and end on the same world digest when staged twice. A stage line naming a
-type the game lacks must stop the run with the file and line.
+ground, asked to build a solar collector; a kbot lab is placed and given
+two peewees to build, and every unit of the computer player that moves but
+the light infantry is sent on patrol. The skirmish is then played for TICKS
+ticks and saved. The run must report each placement, the lab's queue and
+the patrol of the computer's commander alone, keep the defence's stockpile
+order and the lab's build among the saved orders, count the staged types
+and the lab's first peewee among the live units, and end on the same world
+digest when staged twice. A stage line naming a type the game lacks must
+stop the run with the file and line.
 """
 import argparse
 import os
@@ -34,12 +38,17 @@ unit 0 ARMSOLAR -150 -100
 unit 0 ARMSOLAR -150 50
 unit 0 ARMAMD 150 0
 stockpile 2
+group raid
 unit 1 CORAK 0 250 0
 unit 1 CORAK 40 250 0
 group builder
 unit 0 ARMCK 0 -200
 move-order builder 0
 build ARMSOLAR 0 -100
+group
+unit 0 ARMLAB 200 -200
+queue ARMPW 2
+patrol-all 1 1000 1000 raid
 """
 # One line a placement prints.
 PLACED = re.compile(r"^stage: unit (\d+) (\S+) of player (\d+) at (-?\d+),(-?\d+)$", re.M)
@@ -74,21 +83,29 @@ def staged(result):
     placed = PLACED.findall(out)
     if [(name, int(player)) for _, name, player, _, _ in placed] != [
             ("ARMSOLAR", 0), ("ARMSOLAR", 0), ("ARMAMD", 0), ("CORAK", 1), ("CORAK", 1),
-            ("ARMCK", 0)]:
+            ("ARMCK", 0), ("ARMLAB", 0)]:
         raise SystemExit(f"the stage placed {placed}")
     if "stage: unit " + placed[2][0] + " stockpiles 2" not in out:
         raise SystemExit("the stage did not ask the defence for its rounds")
     if "stage: move-order builder: 1 units to 0" not in out:
         raise SystemExit("the stage did not set the kbot's standing move order")
+    if f"stage: unit {placed[6][0]} queues 2 ARMPW" not in out:
+        raise SystemExit("the stage did not queue the lab's peewees")
+    # The computer's commander, without the light infantry the stage kept.
+    if "stage: patrol-all 1: 1 units to 1000,1000" not in out:
+        raise SystemExit("the stage did not send the computer's commander alone on patrol")
     types, orders, digest = TYPES.search(out), ORDERS.search(out), DIGEST.search(out)
     if not types or not orders or not digest:
         raise SystemExit("the run reported no units, orders or digest")
     live = counts(types.group(1))
     # The two staged solar collectors and the one the kbot has begun.
-    if live.get("ARMSOLAR") != 3 or live.get("ARMAMD") != 1 or live.get("CORAK") != 2:
+    if live.get("ARMSOLAR") != 3 or live.get("ARMAMD") != 1 or live.get("CORAK") != 2 or \
+            live.get("ARMLAB") != 1 or live.get("ARMPW") != 1:
         raise SystemExit(f"the live units are {live}")
     if counts(orders.group(1)).get("BuildWeapon") != 1:
         raise SystemExit(f"the saved orders are {orders.group(1)}, without the defence's rounds")
+    if counts(orders.group(1)).get("BuildingBuild", 0) < 1:
+        raise SystemExit(f"the saved orders are {orders.group(1)}, without the lab's build")
     if not re.search(r"^stage: unit \d+ builds ARMSOLAR at -?\d+,-?\d+$", out, re.M) or \
             counts(orders.group(1)).get("MobileBuild", 0) + counts(orders.group(1)).get(
                 "HelpBuild", 0) < 1:
@@ -119,7 +136,8 @@ def main():
                 missing.stdout + missing.stderr):
             print(missing.stdout + missing.stderr, end="")
             raise SystemExit("a stage naming a missing type did not stop at its line")
-    print(f"stage check: the staged skirmish places, stockpiles and plays to digest {first} twice")
+    print(f"stage check: the staged skirmish places, stockpiles, queues, patrols and plays to digest "
+          f"{first} twice")
 
 
 if __name__ == "__main__":

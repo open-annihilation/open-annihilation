@@ -4,6 +4,7 @@
 // Composition of the match battlefield frame, and the groups of text it
 // lays over the backings painted with them (BackedText).
 #include "oa/app/runtime.hpp"
+#include "bench_timers.hpp"
 #include "gui_actions.hpp"
 #include "oa/app/far_view.hpp"
 #include "oa/ui/hud/command_buttons.hpp"
@@ -200,6 +201,58 @@ bool unit_or_cargo_moved(const MatchModels& models, const oa::World& world, uint
     return false;
 }
 
+/// Places the copies a unit draws from for the draw being drawn: its record
+/// and model instance, placed between its two poses when it moved, and on
+/// its playout where it has a pose there (presented_unit).
+///
+/// @param[in,out] presentation the presentation, its tick noted
+/// @param[in,out] motion the unit slot's motion, whose copies are placed
+/// @param record the unit's record
+/// @param instance its model instance
+/// @param pose where its owner's playout has it at the draw's moment
+///     (mirrored_pose); nothing for a unit drawn where its ticks place it
+void place_unit_copies(
+    MatchPresentation& presentation,
+    UnitMotion& motion,
+    const oa::Unit& record,
+    const oa::sim::model_runtime::Instance& instance,
+    const std::optional<unit_playout::UnitPose>& pose
+) {
+    motion.record = record;
+    // The copies keep their transforms from their last draw, which the
+    // rebuild before this draw works out again only where the pose differs.
+    motion.instance.take_pose(instance);
+    if (motion.moved)
+        blend_unit_pose(
+            motion.previous,
+            motion.current,
+            presentation.fraction,
+            motion.record,
+            motion.instance,
+            presentation.batch
+        );
+    else if (pose && motion.pieces_moved)
+        // Placed on its playout, its pieces move between their ticks
+        // however far its records moved it.
+        blend_unit_pieces(
+            motion.previous,
+            motion.current,
+            presentation.fraction,
+            motion.instance,
+            presentation.batch
+        );
+    if (pose) {
+        motion.record.position = pose->position;
+        motion.record.heading = pose->heading;
+        motion.record.pitch = pose->pitch;
+        motion.record.bank = pose->bank;
+    }
+    // The pieces were set without the setters, which would mark the
+    // transforms for rebuilding.
+    motion.state.transforms_dirty = true;
+    motion.blended_draw = presentation.draw;
+}
+
 /// Returns the copies a unit draws from part of the way through the current
 /// tick: its record and model instance, placed between its two poses when it
 /// moved, with a draw state of their own. A unit of another machine's player
@@ -222,42 +275,16 @@ model_render::ModelRef presented_unit(MatchModels& models, uint16_t slot) {
         return unit_model(models, slot);
     auto& motion = presentation.units[slot];
     const oa::Unit& record = world.record.units[slot];
-    if (motion.blended_draw != presentation.draw) {
-        motion.record = record;
-        motion.instance = runtime.instance->model();
-        const auto pose = mirrored_pose(
-            models, world.record, slot, playout_moment(presentation, presentation.fraction)
+    if (motion.blended_draw != presentation.draw)
+        place_unit_copies(
+            presentation,
+            motion,
+            record,
+            runtime.instance->model(),
+            mirrored_pose(
+                models, world.record, slot, playout_moment(presentation, presentation.fraction)
+            )
         );
-        if (motion.moved)
-            blend_unit_pose(
-                motion.previous,
-                motion.current,
-                presentation.fraction,
-                motion.record,
-                motion.instance,
-                presentation.batch
-            );
-        else if (pose && motion.pieces_moved)
-            // Placed on its playout, its pieces move between their ticks
-            // however far its records moved it.
-            blend_unit_pieces(
-                motion.previous,
-                motion.current,
-                presentation.fraction,
-                motion.instance,
-                presentation.batch
-            );
-        if (pose) {
-            motion.record.position = pose->position;
-            motion.record.heading = pose->heading;
-            motion.record.pitch = pose->pitch;
-            motion.record.bank = pose->bank;
-        }
-        // The pieces were set without the setters, which would mark the
-        // transforms for rebuilding.
-        motion.state.transforms_dirty = true;
-        motion.blended_draw = presentation.draw;
-    }
     return {
         &motion.instance,
         &model_render::prepare_model(models.library, motion.instance.model_handle()),
@@ -265,6 +292,32 @@ model_render::ModelRef presented_unit(MatchModels& models, uint16_t slot) {
         &motion.record,
         oa::world_unit_def_of(&world.record, &record)
     };
+}
+
+/// Returns the copies a unit draws from, as presented_unit returns them,
+/// from its model and its pose on the playout found before: the match's
+/// unit slots, the model library and the playout are not read.
+///
+/// @param[in,out] models the match's renderer state, its tick noted
+/// @param slot unit slot of a live unit with a model instance
+/// @param model its model (unit_model)
+/// @param pose where its owner's playout has it at the draw's moment
+///     (mirrored_pose)
+/// @return the copies' model
+model_render::ModelRef unit_copies(
+    MatchModels& models,
+    uint16_t slot,
+    const model_render::ModelRef& model,
+    const std::optional<unit_playout::UnitPose>& pose
+) {
+    auto& presentation = models.presentation;
+    if (presentation.units.size() <= slot)
+        return model;
+    auto& motion = presentation.units[slot];
+    if (motion.blended_draw != presentation.draw)
+        place_unit_copies(presentation, motion, *model.unit, *model.instance, pose);
+    // The copies share the unit's model, and so its prepared model.
+    return {&motion.instance, model.prepared, &motion.state, &motion.record, model.def};
 }
 
 model_render::ModelRef carried_model(void* user, const oa::Unit& unit) {
@@ -454,6 +507,350 @@ void draw_world_bands(
             throw std::runtime_error(
                 "cannot draw the battlefield: " + failures[static_cast<std::size_t>(band)]
             );
+}
+
+/// Sets the presentation's blending flag while a unit draws from its
+/// copies: a carried unit then draws from its own copies too
+/// (carried_model).
+struct Blending {
+    MatchPresentation& presentation;
+
+    explicit Blending(MatchPresentation& shown) : presentation(shown) {
+        presentation.blending = true;
+    }
+
+    Blending(const Blending&) = delete;
+    Blending& operator=(const Blending&) = delete;
+
+    ~Blending() { presentation.blending = false; }
+};
+
+/// What every unit plan of a frame reads (plan_unit_model).
+struct UnitPlanFrame {
+    /// How finely units are drawn (enhanced anti-aliasing).
+    model_render::UnitSupersampling level{model_render::UnitSupersampling::off};
+    /// The live renderer draws the frame's list: a model drawn at the game's
+    /// pixels takes no part of the bridge, and each unit a model carries
+    /// gets a record of its own.
+    bool live_world{};
+    /// The live renderer is active: each model drawn keeps its place and
+    /// its pieces' vertices as planned.
+    bool live_renderer{};
+};
+
+// The units a drawing thread takes at a time to plan: few enough that the
+// threads finish a frame's units together, and enough that taking them
+// costs little.
+constexpr uint32_t kUnitsPerPlanItem = 4;
+
+/// Keeps the vertex buffers of the last frame's model draws for this
+/// frame's (UnitPlans::spare_vertices), before the list is emptied; those
+/// the last frame left over go.
+///
+/// @param[in,out] plans the frame's unit plans
+/// @param[in,out] list the draw list, still holding the last frame's draws
+void keep_spare_vertices(UnitPlans& plans, WorldDrawList& list) {
+    plans.spare_vertices.clear();
+    for (auto& drawn : list.models)
+        if (drawn.shown_vertices.capacity() != 0)
+            plans.spare_vertices.push_back(std::move(drawn.shown_vertices));
+}
+
+/// Hands a model draw one of the kept vertex buffers, when it holds none.
+///
+/// @param[in,out] plans the frame's unit plans
+/// @param[in,out] drawn the draw
+void give_spare_vertices(UnitPlans& plans, ModelDraw& drawn) {
+    if (drawn.shown_vertices.capacity() != 0 || plans.spare_vertices.empty())
+        return;
+    drawn.shown_vertices = std::move(plans.spare_vertices.back());
+    plans.spare_vertices.pop_back();
+}
+
+/// Returns the bridge region a model's draw may touch (unit_region), from
+/// its last transforms.
+///
+/// @param[in,out] models the match's renderer state
+/// @param renderer the renderer, whose camera and origin place the model
+/// @param live_world the live renderer draws the frame's list
+/// @param model the model
+/// @param level how finely it is drawn
+/// @return the region; an empty one where the live renderer draws a model
+///     at the game's pixels, which takes no part of the bridge. Sampled
+///     plans keep it, for the bounds their finer images are prepared in.
+oa::Rect32 model_region(
+    MatchModels& models,
+    const model_render::ModelRenderer& renderer,
+    bool live_world,
+    const model_render::ModelRef& model,
+    model_render::UnitSupersampling level
+) {
+    if (live_world && level == model_render::UnitSupersampling::off)
+        return oa::Rect32{};
+    return unit_region(renderer, model, terrain_height(&models, model.unit->position));
+}
+
+/// Readies a model and works out its draw for the frame's list
+/// (plan_unit_supersampled), with what the live renderer draws it from.
+///
+/// @param[in,out] renderer the renderer of the thread that plans it
+/// @param bridge the frame's model bridge
+/// @param frame what every plan of the frame reads
+/// @param model the model
+/// @param region the bridge region its draw may touch (model_region)
+/// @param idle its movement state stands still
+/// @param level how finely it is drawn
+/// @param stand_in the place of a 3D feature's stand-in record in the list;
+///     -1 for a unit
+/// @param[out] drawn its draw, made afresh; the vertex buffers it holds are
+///     reused for its pieces' vertices
+/// @param[out] carried a record of each unit it carries where the live
+///     renderer draws the list; emptied first
+void plan_model(
+    model_render::ModelRenderer& renderer,
+    const model_render::RgbBridge& bridge,
+    const UnitPlanFrame& frame,
+    const model_render::ModelRef& model,
+    const oa::Rect32& region,
+    bool idle,
+    model_render::UnitSupersampling level,
+    int32_t stand_in,
+    ModelDraw& drawn,
+    std::vector<ModelDraw>& carried
+) {
+    auto vertices = std::move(drawn.shown_vertices);
+    drawn = {};
+    drawn.model = model;
+    drawn.stand_in = stand_in;
+    carried.clear();
+    model_render::plan_unit_supersampled(renderer, bridge, model, region, idle, level, drawn.plan);
+    if (frame.live_renderer && drawn.plan.linked.drawn) {
+        drawn.shown_position = model.unit->position;
+        const auto pieces = model.instance->pieces();
+        vertices.resize(pieces.size());
+        for (std::size_t piece = 0; piece < pieces.size(); ++piece)
+            vertices[piece].assign(
+                pieces[piece].transformed_vertices.begin(), pieces[piece].transformed_vertices.end()
+            );
+        drawn.shown_vertices = std::move(vertices);
+    }
+    if (stand_in >= 0)
+        drawn.model.unit = nullptr;
+    if (frame.live_world && drawn.plan.linked.drawn) {
+        // Classic drawing composites attached units into the parent's
+        // image. The live scene needs their own geometry records, using
+        // the attachment transforms already prepared with the parent.
+        const bool unlit = drawn.plan.linked.unlit;
+        for (const auto& child : drawn.plan.model.carried) {
+            if (!child.model.instance || !child.model.unit)
+                continue;
+            ModelDraw& attached = carried.emplace_back();
+            attached.model = child.model;
+            attached.plan.linked = {true, unlit};
+            attached.shown_position = child.model.unit->position;
+            for (const auto& piece : child.model.instance->pieces())
+                attached.shown_vertices.push_back(piece.transformed_vertices);
+        }
+    }
+}
+
+/// Plans a unit for the frame's list: readies its model, or its copies
+/// placed between the ticks or on its playout, as a draw of it readies
+/// them, and works out its model draw (UnitPlan::draw).
+///
+/// Only the unit's own instance, draw state and copies change, and those of
+/// the units it carries; besides them the plan reads the unit's record, the
+/// world's records, the terrain's heights and the renderer's settings, and
+/// builds in the renderer's composite. Only a unit that carries others
+/// reaches another unit's model, through the renderer's model_of, which
+/// reads the presentation's blending flag; only units that carry or are
+/// carried (UnitPlan::linked) set it.
+///
+/// @param[in,out] models the match's renderer state
+/// @param[in,out] renderer the renderer of the thread that plans it
+/// @param frame what every plan of the frame reads
+/// @param[in,out] plan the unit, as found in the draw order; takes what it
+///     is drawn as and its draw
+void plan_unit_model(
+    MatchModels& models,
+    model_render::ModelRenderer& renderer,
+    const UnitPlanFrame& frame,
+    UnitPlan& plan
+) {
+    const auto& model = plan.model;
+    plan.shown = model;
+    plan.adds_draw = false;
+    if (model.instance == nullptr)
+        return;
+    if (plan.from_copies) {
+        // The unit's own transforms are rebuilt as a draw of the whole tick
+        // rebuilds them, so that the next such draw measures the region it
+        // may touch from them as before, and the unit draws from its copies
+        // placed between the ticks, which take its pieces' poses but keep
+        // their own transforms. The image cache of the unit's own draw
+        // state waits for a draw of a whole tick, which leaves it as it
+        // would have been.
+        // A carried unit is drawn, and its transforms rebuilt, by its
+        // carrier (draw_linked_model).
+        const bool carried = model.unit->attach_parent != 0;
+        model_render::note_piece_changes(model);
+        if (!carried)
+            model_render::update_linked_transforms(renderer, model);
+        // While a unit draws from its copies, the units it carries draw
+        // from theirs (carried_model).
+        std::optional<Blending> blending;
+        if (plan.linked)
+            blending.emplace(models.presentation);
+        plan.shown = unit_copies(models, plan.unit_index, model, plan.pose);
+        model_render::note_piece_changes(plan.shown);
+        if (carried)
+            return;
+        model_render::update_linked_transforms(renderer, plan.shown);
+        plan_model(
+            renderer,
+            models.bridge,
+            frame,
+            plan.shown,
+            model_region(models, renderer, frame.live_world, plan.shown, frame.level),
+            plan.idle,
+            frame.level,
+            -1,
+            plan.draw,
+            plan.carried
+        );
+        plan.adds_draw = true;
+        return;
+    }
+    model_render::note_piece_changes(model);
+    plan_model(
+        renderer,
+        models.bridge,
+        frame,
+        model,
+        model_region(models, renderer, frame.live_world, model, frame.level),
+        plan.idle,
+        frame.level,
+        -1,
+        plan.draw,
+        plan.carried
+    );
+    plan.adds_draw = true;
+}
+
+/// Plans a run of the frame's units (plan_unit_model) on the drawing
+/// threads, before the draw list takes them in their order.
+///
+/// A unit that carries others reaches their models, so the units that
+/// carry or are carried, and any unit a carrier of the run carries, are
+/// planned first, one after another in the run's order, by one thread.
+/// Every other unit's plan reaches its own model alone, so the others are
+/// taken kUnitsPerPlanItem at a time by whichever thread is free. Each
+/// thread plans with a renderer of its own: the first with the models'
+/// renderer, each other with the renderer of a band after the first
+/// (MatchModels::band_scratch), the frame's settings copied in. Each
+/// thread binds the models' display and rounds as the ticks do, since the
+/// plans rebuild piece placements the match reads. What a plan builds in
+/// its renderer's composite it builds over a cleared part, so neither the
+/// thread nor the order of the units changes a byte of what each plan
+/// works out, and any number of threads plans the run as one does. A
+/// thread that fails lets the others finish; the failure of the first item
+/// in order that failed is then thrown on the calling thread.
+///
+/// @param[in,out] models the match's renderer state; unit_plans.run names
+///     the run's places in unit_plans.plans, each found in the draw order
+/// @param frame what every plan of the frame reads
+/// @param pool the drawing threads; null plans on the calling thread alone
+void plan_unit_draws(
+    MatchModels& models, const UnitPlanFrame& frame, oa::platform::job_pool::Pool* pool
+) {
+    auto& unit_plans = models.unit_plans;
+    const oa::World& world = models.offline->world().record;
+    // The units that the run's carriers carry, which their plans reach.
+    ++unit_plans.runs;
+    if (unit_plans.carried_in_run.size() < world.unit_slot_count)
+        unit_plans.carried_in_run.resize(world.unit_slot_count);
+    for (const auto place : unit_plans.run) {
+        const auto* unit = unit_plans.plans[place].model.unit;
+        if (unit == nullptr)
+            continue;
+        for (const oa::Unit* child = oa::world_unit(&world, unit->attach_first_child);
+             child != nullptr;
+             child = oa::world_unit(&world, child->attach_next))
+            unit_plans.carried_in_run[oa::world_unit_slot(&world, child)] = unit_plans.runs;
+    }
+    unit_plans.order.clear();
+    for (const auto place : unit_plans.run) {
+        auto& plan = unit_plans.plans[place];
+        const auto* unit = plan.model.unit;
+        plan.linked =
+            unit != nullptr && (unit->attach_parent != 0 || unit->attach_first_child != 0 ||
+                                unit_plans.carried_in_run[plan.unit_index] == unit_plans.runs);
+        if (plan.linked)
+            unit_plans.order.push_back(place);
+    }
+    const auto linked = static_cast<uint32_t>(unit_plans.order.size());
+    for (const auto place : unit_plans.run)
+        if (!unit_plans.plans[place].linked)
+            unit_plans.order.push_back(place);
+    const auto units = static_cast<uint32_t>(unit_plans.order.size());
+    // The linked units are the first item, when there are any.
+    const uint32_t first_item = linked != 0 ? 1U : 0U;
+    const uint32_t items =
+        first_item + oa::platform::job_pool::bands_of_rows(units - linked, kUnitsPerPlanItem);
+    if (items == 0)
+        return;
+    const uint32_t threads =
+        pool != nullptr ? std::min(pool->threads(), oa::platform::job_pool::max_threads) : 1U;
+    const uint32_t bands = std::min(threads, items);
+    if (models.band_scratch.size() + 1 < bands)
+        models.band_scratch.resize(bands - 1);
+    for (uint32_t band = 1; band < bands; ++band)
+        model_render::copy_renderer_settings(
+            models.renderer, models.band_scratch[band - 1].renderer
+        );
+    const auto& program_control = oa::base::float_precision::program_float_control().saved;
+    std::atomic<uint32_t> next_item{0};
+    // Each thread notes the first item it failed on, and why.
+    std::array<std::pair<uint32_t, std::string>, oa::platform::job_pool::max_threads> failures{};
+    oa::platform::job_pool::run_bands(
+        bands > 1 ? pool : nullptr, bands, [&](uint32_t band) noexcept {
+            auto& renderer = band == 0 ? models.renderer : models.band_scratch[band - 1].renderer;
+            oa::present::DisplayContext* bound = oa::present::display_context();
+            oa::present::bind_display(&models.display.context);
+            oa::base::float_precision::restore_float_control(program_control);
+            auto& failure = failures[band];
+            for (uint32_t item = next_item.fetch_add(1, std::memory_order_relaxed); item < items;
+                 item = next_item.fetch_add(1, std::memory_order_relaxed)) {
+                const bool linked_item = first_item != 0 && item == 0;
+                const uint32_t begin =
+                    linked_item ? 0U : linked + (item - first_item) * kUnitsPerPlanItem;
+                const uint32_t end =
+                    linked_item ? linked : std::min(units, begin + kUnitsPerPlanItem);
+                try {
+                    for (uint32_t at = begin; at < end; ++at)
+                        plan_unit_model(
+                            models, renderer, frame, unit_plans.plans[unit_plans.order[at]]
+                        );
+                } catch (const std::exception& error) {
+                    if (failure.second.empty())
+                        failure = {
+                            item, error.what()[0] != '\0' ? error.what() : "a unit's plan failed"
+                        };
+                } catch (...) {
+                    if (failure.second.empty())
+                        failure = {item, "a unit's plan failed"};
+                }
+            }
+            oa::present::bind_display(bound);
+        }
+    );
+    const std::pair<uint32_t, std::string>* first_failure = nullptr;
+    for (uint32_t band = 0; band < bands; ++band)
+        if (!failures[band].second.empty() &&
+            (first_failure == nullptr || failures[band].first < first_failure->first))
+            first_failure = &failures[band];
+    if (first_failure != nullptr)
+        throw std::runtime_error("cannot plan the battlefield's units: " + first_failure->second);
 }
 
 /// The build effect the building being placed is drawn with at a tick of
@@ -993,6 +1390,10 @@ void Runtime::compose_match_hud() {
 }
 
 void Runtime::render_match_surface() {
+    // The bench's timers: the whole frame, and the parts of each draw marked
+    // one after another (bench_timers::mark), the last of them ended here.
+    const bench_timers::MarkedParts marked_parts;
+    const bench_timers::Span timed(bench_timers::Stage::frame);
     // A match frame draws every line of text it shows, so the layers kept of
     // the lines the frame before did not draw, such as a readout's earlier
     // numbers, go.
@@ -1011,6 +1412,9 @@ bool Runtime::draw_match_surface() {
     // The drawing rebuilds piece placements the match reads, so it rounds as
     // the ticks do.
     oa::base::float_precision::restore_program_float_control();
+    using bench_timers::mark;
+    using bench_timers::Stage;
+    mark(Stage::match_setup);
     mark_profile(OA_PROFILE_MISC);
     sync_match_wrecks();
     follow_shared_cameras();
@@ -1159,7 +1563,9 @@ bool Runtime::draw_match_surface() {
     // The sweep that has just opened the menu shows the sound page on this
     // frame, so the HUD drawn below is that page and not the tabs alone.
     advance_options_lightbar();
+    mark(Stage::match_hud);
     compose_match_hud();
+    mark(Stage::match_setup);
     // What the presentation and the picture-keeping readers learn of the frame.
     accelerated_.frame = scaling;
     accelerated_.frame_alpha = presentation_alpha();
@@ -1297,6 +1703,8 @@ bool Runtime::draw_match_surface() {
     // animations, the decoded particle frames, is done here, once, and every
     // band then draws the list.
     auto& draw_list = models.draws;
+    mark(Stage::match_plan);
+    keep_spare_vertices(models.unit_plans, draw_list);
     clear_world_draws(draw_list);
     draw_list.spatial_particles.clear();
     // The features are cut off where the map the view shows ends.
@@ -1495,55 +1903,39 @@ bool Runtime::draw_match_surface() {
     // so the bridge's pixels go back to the frame before a sprite draws over
     // them (a commit), and the next model captures the frame again.
     const auto plan_commit = [&] { add_draw(WorldDrawKind::commit, 0); };
-    // Live geometry and shadows do not consume the classic bridge rectangle.
-    // Keep it for sampled plans, which use its bounds to prepare finer images.
-    const auto model_region = [&](const model_render::ModelRef& model,
-                                  model_render::UnitSupersampling level) {
-        if (live_world && level == model_render::UnitSupersampling::off)
-            return oa::Rect32{};
-        return unit_region(renderer, model, terrain_height(&models, model.unit->position));
-    };
-    // A model readied and planned for the frame's draws.
+    // How finely units are drawn (enhanced anti-aliasing); director frames
+    // draw them as without it, and so do frames of the Full tier, whose
+    // anti-aliasing is the graphics card's world target, and the far view's,
+    // where a unit is a few pixels at most.
+    const auto unit_level = directed || full_presentation() || far
+                                ? model_render::UnitSupersampling::off
+                                : unit_supersampling_;
+    const UnitPlanFrame plan_frame{unit_level, live_world, live_renderer_active()};
+    // A model's draw adds the units it carries after it (plan_model).
+    std::vector<ModelDraw> carried_draws;
+    // A model readied and planned for the frame's draws on this thread.
     const auto add_model = [&](const model_render::ModelRef& model,
                                const oa::Rect32& region,
                                bool idle,
                                model_render::UnitSupersampling level,
                                int32_t stand_in) {
-        draw_list.models.emplace_back();
-        ModelDraw& drawn = draw_list.models.back();
-        drawn.model = model;
-        drawn.stand_in = stand_in;
-        model_render::plan_unit_supersampled(
-            renderer, models.bridge, model, region, idle, level, drawn.plan
+        ModelDraw& drawn = draw_list.models.emplace_back();
+        give_spare_vertices(models.unit_plans, drawn);
+        plan_model(
+            renderer,
+            models.bridge,
+            plan_frame,
+            model,
+            region,
+            idle,
+            level,
+            stand_in,
+            drawn,
+            carried_draws
         );
-        if (live_renderer_active() && drawn.plan.linked.drawn) {
-            drawn.shown_position = model.unit->position;
-            for (const auto& piece : model.instance->pieces())
-                drawn.shown_vertices.push_back(piece.transformed_vertices);
-        }
-        if (stand_in >= 0)
-            drawn.model.unit = nullptr;
-        const auto parent_index = draw_list.models.size() - 1;
-        add_draw(WorldDrawKind::model, parent_index);
-        if (live_world && drawn.plan.linked.drawn) {
-            // Classic drawing composites attached units into the parent's
-            // image. The live scene needs their own geometry records, using
-            // the attachment transforms already prepared with the parent.
-            std::vector<model_render::ModelRef> carried;
-            for (const auto& child : drawn.plan.model.carried)
-                if (child.model.instance && child.model.unit)
-                    carried.push_back(child.model);
-            const bool unlit = drawn.plan.linked.unlit;
-            for (const auto& child : carried) {
-                ModelDraw attached;
-                attached.model = child;
-                attached.plan.linked = {true, unlit};
-                attached.shown_position = child.unit->position;
-                for (const auto& piece : child.instance->pieces())
-                    attached.shown_vertices.push_back(piece.transformed_vertices);
-                draw_list.models.push_back(std::move(attached));
-            }
-        }
+        add_draw(WorldDrawKind::model, draw_list.models.size() - 1);
+        for (auto& carried : carried_draws)
+            draw_list.models.push_back(std::move(carried));
     };
     const auto plan_object_feature = [&](MatchFeatureDraw& feature) {
         // A frame of dots draws no feature's model: a wreck or a rock of its
@@ -1570,7 +1962,9 @@ bool Runtime::draw_match_surface() {
         add_model(
             model,
             region_on_map(
-                model_region(model, model_render::UnitSupersampling::off),
+                model_region(
+                    models, renderer, live_world, model, model_render::UnitSupersampling::off
+                ),
                 renderer,
                 map_width,
                 map_height
@@ -1657,21 +2051,6 @@ bool Runtime::draw_match_surface() {
             add_world_draw(list, WorldDrawKind::selection_line, list.lines.size() - 1);
         };
 
-    // While a unit draws from its copies, the units it carries draw from
-    // theirs (carried_model).
-    struct Blending {
-        MatchPresentation& presentation;
-
-        explicit Blending(MatchPresentation& shown) : presentation(shown) {
-            presentation.blending = true;
-        }
-
-        Blending(const Blending&) = delete;
-        Blending& operator=(const Blending&) = delete;
-
-        ~Blending() { presentation.blending = false; }
-    };
-
     // What the frame drew of the units, for "+stats" and a --frame-rate
     // run's frame log: each unit drawn, those drawn from copies placed
     // between two ticks, and where the unit the log follows was drawn.
@@ -1684,13 +2063,6 @@ bool Runtime::draw_match_surface() {
             frame_draws_.probe_z = drawn.position.z;
         }
     };
-    // How finely units are drawn (enhanced anti-aliasing); director frames
-    // draw them as without it, and so do frames of the Full tier, whose
-    // anti-aliasing is the graphics card's world target, and the far view's,
-    // where a unit is a few pixels at most.
-    const auto unit_level = directed || full_presentation() || far
-                                ? model_render::UnitSupersampling::off
-                                : unit_supersampling_;
     // The dots of a frame of dots, drawn over the fog, and the colour of a
     // selected unit's frame: the selection boxes' own.
     std::vector<FarViewDot> far_dots;
@@ -1705,11 +2077,13 @@ bool Runtime::draw_match_surface() {
             world_record.game, oa::present::world_renderer::ui_color_rotated_box
         )
     );
-    const auto plan_unit = [&](uint16_t unit_index) {
-        const auto model = unit_model(models, unit_index);
-        if (model.instance == nullptr)
-            return;
+    // A unit at its place in the draw order: in a frame of dots its dot,
+    // else what its plan worked out before (plan_unit_draws).
+    const auto plan_unit = [&](uint16_t unit_index, UnitPlan& plan) {
         if (dots) {
+            const auto model = unit_model(models, unit_index);
+            if (model.instance == nullptr)
+                return;
             // Where the unit shows: between the ticks, or on another
             // machine's playout, where its copies are drawn.
             const bool shown_elsewhere =
@@ -1740,62 +2114,27 @@ bool Runtime::draw_match_surface() {
             );
             return;
         }
-        // The movement state's speed: an idle mobile shows the first frame
-        // of its animated textures.
-        bool idle = false;
-        if (unit_index < match_->world().slots.size())
-            if (const auto* movement = match_->ground_runtime(unit_index))
-                idle = movement->movement.speed == 0;
-        // A unit of another machine's player draws from its copies on every
-        // frame, whole ticks included: they stand on its playout, near its
-        // simulated place and moved on ahead of it between records.
-        const bool on_playout = mirrored_pose(models, world_record, unit_index, moment).has_value();
-        if ((between_ticks && unit_or_cargo_moved(models, world_record, unit_index)) ||
-            on_playout) {
-            // The match reads the piece transforms a draw rebuilds, so they
-            // are rebuilt as a draw of the whole tick rebuilds them, and the
-            // unit draws from its copies placed between the ticks. The image
-            // cache of the unit's own draw state waits for a draw of a whole
-            // tick, which leaves it as it would have been.
-            // A carried unit is drawn, and its transforms rebuilt, by its
-            // carrier (draw_linked_model).
-            const bool carried = model.unit->attach_parent != 0;
-            model_render::note_piece_changes(model);
-            if (!carried)
-                model_render::update_linked_transforms(renderer, model);
-            const Blending blending{presentation};
-            const auto shown = presented_unit(models, unit_index);
-            note_unit_drawn(unit_index, *shown.unit, true);
-            if (!bare && (shown.unit->flags & OA_UNIT_FLAG_SELECTED) != 0 &&
-                !shown.instance->model().objects.empty())
-                oa::present::world_renderer::overlay_selection_box(
-                    world_record.game,
-                    selection_raster,
-                    &models.bridge.surface,
-                    *shown.unit,
-                    shown.instance->model().objects.front()
-                );
-            model_render::note_piece_changes(shown);
-            if (carried)
-                return;
-            model_render::update_linked_transforms(renderer, shown);
-            add_model(shown, model_region(shown, unit_level), idle, unit_level, -1);
+        if (plan.model.instance == nullptr)
             return;
-        }
-        note_unit_drawn(unit_index, *model.unit, false);
+        const auto& shown = plan.shown;
+        note_unit_drawn(unit_index, *shown.unit, plan.from_copies);
         // A selected unit's box is outlined before the unit draws, unless the
         // interface is not drawn.
-        if (!bare && (model.unit->flags & OA_UNIT_FLAG_SELECTED) != 0 &&
-            !model.instance->model().objects.empty())
+        if (!bare && (shown.unit->flags & OA_UNIT_FLAG_SELECTED) != 0 &&
+            !shown.instance->model().objects.empty())
             oa::present::world_renderer::overlay_selection_box(
                 world_record.game,
                 selection_raster,
                 &models.bridge.surface,
-                *model.unit,
-                model.instance->model().objects.front()
+                *shown.unit,
+                shown.instance->model().objects.front()
             );
-        model_render::note_piece_changes(model);
-        add_model(model, model_region(model, unit_level), idle, unit_level, -1);
+        if (!plan.adds_draw)
+            return;
+        draw_list.models.push_back(std::move(plan.draw));
+        add_draw(WorldDrawKind::model, draw_list.models.size() - 1);
+        for (auto& carried : plan.carried)
+            draw_list.models.push_back(std::move(carried));
     };
     // A record's shatter fragment, drawn into
     // the model bridge and written back before the record's sprite.
@@ -2102,6 +2441,41 @@ bool Runtime::draw_match_surface() {
         else
             plan_sprite_feature(*feature.sprite, feature.plan, feature.place);
     };
+    // The units of a run of the draw order (UnitPlans::run) are planned
+    // before the list takes them: what each is drawn as is found here, in
+    // the order, then each is planned on whichever drawing thread takes it
+    // (plan_unit_draws). A frame of dots plans none.
+    auto& unit_plans = models.unit_plans;
+    if (unit_plans.plans.size() < units_to_draw.size())
+        unit_plans.plans.resize(units_to_draw.size());
+    const auto plan_unit_run = [&] {
+        if (dots)
+            return;
+        for (const auto place : unit_plans.run) {
+            const uint16_t unit_index = units_to_draw[place];
+            auto& plan = unit_plans.plans[place];
+            plan.unit_index = unit_index;
+            plan.model = unit_model(models, unit_index);
+            if (plan.model.instance == nullptr)
+                continue;
+            // The movement state's speed: an idle mobile shows the first
+            // frame of its animated textures.
+            plan.idle = false;
+            if (unit_index < match_->world().slots.size())
+                if (const auto* movement = match_->ground_runtime(unit_index))
+                    plan.idle = movement->movement.speed == 0;
+            // A unit of another machine's player draws from its copies on
+            // every frame, whole ticks included: they stand on its playout,
+            // near its simulated place and moved on ahead of it between
+            // records.
+            plan.pose = mirrored_pose(models, world_record, unit_index, moment);
+            plan.from_copies =
+                (between_ticks && unit_or_cargo_moved(models, world_record, unit_index)) ||
+                plan.pose.has_value();
+            give_spare_vertices(unit_plans, plan.draw);
+        }
+        plan_unit_draws(models, plan_frame, draw_pool_.get());
+    };
     // The battlefield draws far to near: effect layers 0 to 2 (wakes among
     // them), the lying features, layers 3 and 4, then row by row the ground
     // units and the standing features, layers 5 and 6, the projectiles,
@@ -2112,9 +2486,14 @@ bool Runtime::draw_match_surface() {
     for (const auto index : draw_plan.lying_features)
         plan_feature(index);
     plan_effect_layers(3, 4);
+    unit_plans.run.clear();
+    for (const auto& draw : draw_plan.ground)
+        if (draw.kind == oa::present::world_renderer::DrawnThing::unit)
+            unit_plans.run.push_back(draw.index);
+    plan_unit_run();
     for (const auto& draw : draw_plan.ground) {
         if (draw.kind == oa::present::world_renderer::DrawnThing::unit)
-            plan_unit(units_to_draw[draw.index]);
+            plan_unit(units_to_draw[draw.index], unit_plans.plans[draw.index]);
         else
             plan_feature(draw.index);
     }
@@ -2217,8 +2596,10 @@ bool Runtime::draw_match_surface() {
     effect_lift = HeightLift::nearest;
     explosion_pass = false;
     plan_effect_layers(7, 7);
+    unit_plans.run.assign(draw_plan.raised_units.begin(), draw_plan.raised_units.end());
+    plan_unit_run();
     for (const auto index : draw_plan.raised_units)
-        plan_unit(units_to_draw[index]);
+        plan_unit(units_to_draw[index], unit_plans.plans[index]);
     // The building being placed, as the profile's build preview shows it.
     if (!bare && !dots && ready_build_preview(models)) {
         auto& preview = models.build_preview;
@@ -2240,7 +2621,7 @@ bool Runtime::draw_match_surface() {
         draw_list.stand_ins.push_back(preview.unit);
         add_model(
             model,
-            model_region(model, model_render::UnitSupersampling::off),
+            model_region(models, renderer, live_world, model, model_render::UnitSupersampling::off),
             false,
             model_render::UnitSupersampling::off,
             static_cast<int32_t>(draw_list.stand_ins.size() - 1)
@@ -2294,6 +2675,7 @@ bool Runtime::draw_match_surface() {
     // draw nothing there.
     if (!card_world && !live_world)
         draw_world_bands(models, frame_draw, draw_pool_.get());
+    mark(Stage::match_post);
     oa::present::bind_display(bound_display);
     mark_profile(OA_PROFILE_RENDER_STUFF);
     const auto fog_pass = [&](FogPasses passes) {
@@ -2431,7 +2813,9 @@ bool Runtime::draw_match_surface() {
         // A turned director frame is the rotated view's picture, drawn here
         // as the frame with the interface draws it below; one the card
         // cannot draw ends the frame, as there.
+        mark(Stage::match_live);
         const bool drawn = !live_world || render_live_match_surface();
+        mark(Stage::match_after);
         overlay_target_ = nullptr;
         hud_source_space_ = false;
         paint_origin_ = {};
@@ -2518,7 +2902,10 @@ bool Runtime::draw_match_surface() {
     // before what lies over the battlefield: the megamap, the markers and
     // the commander placement. A rotated frame the card cannot draw ends the
     // frame here, before anything is drawn over the battlefield it left out.
-    if (!render_live_match_surface()) {
+    mark(Stage::match_live);
+    const bool live_drawn = render_live_match_surface();
+    mark(Stage::match_after);
+    if (!live_drawn) {
         overlay_target_ = nullptr;
         hud_source_space_ = false;
         paint_origin_ = {};
@@ -2612,6 +2999,18 @@ bool Runtime::draw_match_surface() {
 }
 
 void Runtime::compose_shown_match(renderer::Surface& frame) {
+    // A turned frame the card kept: its picture read back with what was
+    // painted over it added on the processor, as the processor's frame
+    // would have held it.
+    if (turned_overlay_painted()) {
+        renderer::Surface world;
+        if (turned_picture(world)) {
+            std::swap(match_world_cpu_, world);
+            compose_match_layers(frame);
+            std::swap(match_world_cpu_, world);
+            return;
+        }
+    }
     // The card drew the battlefield, or magnified the processor's scene,
     // into a picture the world layer does not hold: that picture is read
     // back. Any other frame presented the world layer as it stands, the

@@ -657,6 +657,9 @@ void Runtime::draw_accelerated_screen(
 void Runtime::ensure_screen_world() {
     if (!match_ || screen_ != Screen::match)
         return;
+    // A turned frame the card kept comes back, with what was painted over
+    // it added on the processor.
+    take_turned_picture();
     // A Full frame's world layer is the overlay canvas, the key colour but
     // where the painters painted, not a picture.
     const auto method = accelerated_.frame.method;

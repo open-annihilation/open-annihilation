@@ -3,7 +3,8 @@
 
 // The game's floating-point functions and the 64-bit-significand arithmetic
 // under them. The basic operations at 53 bits must agree with IEEE 754
-// doubles on random operands. The sine and cosine of every angle word, and
+// doubles on random operands, and the product with an integer rounded to a
+// double with the general multiply and rounding. The sine and cosine of every angle word, and
 // the arctangents, must be the exact values rounded to 64 bits, to nearest
 // with ties to even. Over fixed sample sets the results are pinned by
 // digest: the heading, length, square root and rotation results are 3.1c's
@@ -207,6 +208,80 @@ void check_wide_operations() {
         gm::add(gm::to_extended(1.0), gm::to_extended(0x1p-64 + 0x1p-100), Precision::bits_64),
         value(0x8000000000000001ULL, 0)
     ));
+}
+
+// multiply_to_double gives what rounding multiply's 53-bit product to a
+// double gives: for the sine and cosine of every angle word against
+// coordinates at every scale, for factors across the exponent range (normal,
+// subnormal and infinite products), at ties and next to them, and for zeros.
+void check_integer_products() {
+    const auto general = [](Extended factor, int32_t integer) {
+        return gm::to_double(gm::multiply(factor, gm::to_extended(integer), Precision::bits_53));
+    };
+    int mismatches = 0;
+    const auto compare = [&](Extended factor, int32_t integer) {
+        if (!same_bits(gm::multiply_to_double(factor, integer), general(factor, integer)))
+            ++mismatches;
+    };
+    std::array<int32_t, 2 + 31 * 6> edges{0, -2147483647 - 1};
+    std::size_t edge = 2;
+    for (unsigned bit = 0; bit < 31; ++bit) {
+        const int32_t power = int32_t{1} << bit;
+        for (const int32_t near : {power, power - 1, power + 1})
+            if (near > 0) {
+                edges[edge++] = near;
+                edges[edge++] = -near;
+            }
+    }
+    Sequence sequence{12};
+    for (int word = -32768; word <= 32767; ++word) {
+        const double radians = static_cast<double>(word) * 9.587379924285e-05;
+        const gm::SineCosine values = gm::sine_cosine(radians);
+        for (const Extended factor : {values.sine, values.cosine}) {
+            for (std::size_t i = 0; i < edge; ++i)
+                compare(factor, edges[i]);
+            for (int i = 0; i < 8; ++i)
+                compare(factor, spread_int(sequence.next()));
+        }
+    }
+    constexpr uint64_t leading_bit = uint64_t{1} << 63;
+    for (int i = 0; i < 200000; ++i) {
+        const uint64_t r = sequence.next(), s = sequence.next();
+        // Exponents from far below double's range to past it.
+        const auto exponent = static_cast<int32_t>((r >> 8) % 2400) - 1200;
+        compare(value(s | leading_bit, exponent, (r & 1) != 0), spread_int(sequence.next()));
+    }
+    // Ties: an odd q and an odd m whose product lies in [2^53, 2^54), so that
+    // the bits of q * 2^k * m past the 53rd are exactly one half; and the
+    // factors one unit either side of each.
+    for (int i = 0; i < 20000; ++i) {
+        const uint64_t r = sequence.next(), s = sequence.next();
+        const uint64_t odd_factor = ((s >> 1) & 0x7f) | 1;
+        constexpr uint64_t tie_low = uint64_t{1} << 53, tie_high = uint64_t{1} << 54;
+        const uint64_t least = (tie_low + odd_factor - 1) / odd_factor;
+        const uint64_t most = (tie_high - 1) / odd_factor;
+        uint64_t quotient = (least + (s >> 8) % (most - least)) | 1;
+        if (quotient > most)
+            quotient -= 2;
+        const Extended tie = value(
+            quotient << std::countl_zero(quotient),
+            static_cast<int32_t>((r >> 8) & 63) - 32,
+            (r & 1) != 0
+        );
+        const auto integer = static_cast<int32_t>(odd_factor << ((r >> 16) & 7));
+        compare(tie, integer);
+        compare(tie, -integer);
+        compare(value(tie.significand + 1, tie.exponent, tie.negative), integer);
+        if (tie.significand != leading_bit)
+            compare(value(tie.significand - 1, tie.exponent, tie.negative), -integer);
+    }
+    CHECK(mismatches == 0);
+    // Zeros keep multiply's sign.
+    CHECK(same_bits(gm::multiply_to_double(gm::to_extended(-0.0), 5), -0.0));
+    CHECK(same_bits(gm::multiply_to_double(gm::to_extended(-0.0), -5), 0.0));
+    CHECK(same_bits(gm::multiply_to_double(gm::to_extended(-2.0), 0), -0.0));
+    CHECK(same_bits(gm::multiply_to_double(gm::to_extended(2.0), 0), 0.0));
+    CHECK(same_bits(gm::multiply_to_double(gm::to_extended(0.75), -2147483647 - 1), -0x1.8p30));
 }
 
 void check_named_values() {
@@ -436,6 +511,7 @@ int main() {
     check_compare();
     check_double_operations();
     check_wide_operations();
+    check_integer_products();
     check_named_values();
     check_game_functions();
     check_sample_sets();

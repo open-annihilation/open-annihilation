@@ -9,8 +9,12 @@ terrain fill (`fill_scaled_viewport`) and the fog (`draw_fog_grid`) in
 [the world renderer](../../present/world-renderer/README.md), the
 battlefield's units, features and effects (`draw_world_band`), the
 conversion of each frame to the window's pixel format before it is shown,
-the effects' light and heat (`renderer_effects::compose`) and the 3D view's
-depth under them (`live_scene_visibility`) ([src/app](../../app/README.md)).
+the effects' light and heat (`renderer_effects::compose`), the 3D view's
+depth under them where the graphics card cannot add its lights
+(`live_scene_visibility`) and the 3D view's scene passes
+(`renderer_live_scene::build`) ([src/app](../../app/README.md)).
+The battlefield's units are planned on it too, before the frame's draw list
+takes them (`plan_unit_draws`).
 
 ## Results do not depend on the threads
 
@@ -24,7 +28,10 @@ the conversion and the effects by 32 rows, the fog by one row of its grid,
 and the 3D view's depth by 16 rows, or one band without a pool. Each band
 of the effects takes every light in turn, and each band of the 3D view's
 depth the triangles that reach it in their order, so each pixel takes them
-in the order one band gives. The battlefield's
+in the order one band gives. The triangles that reach those bands are
+found in runs of 4096, a job of their own: each run lists its triangles in
+order and sorts the list by band, so a band reads each run's part in turn.
+The battlefield's
 draws take one band for each thread instead: the model bridge splits into
 that many bands of whole tile rows, only where its rows and the frame's
 split alike (`bridge_split` in
@@ -32,7 +39,28 @@ split alike (`bridge_split` in
 every draw of the frame with its own rows alone, each draw over a band's
 edge worked out as over the whole frame. Any number of those bands gives
 the frame one band gives, so these results do not depend on the threads
-either.
+either. The units' plans also take one band for each thread, each band
+planning the units it takes from a shared count until none is left: the
+units that carry or are carried, whose plans reach each other, together
+and in their order first, the others four at a time. Each unit's plan
+changes only its own models and is worked out alone, with the band's own
+renderer, so whichever band plans a unit, it plans it as one thread does.
+
+The 3D view's scene passes after the terrain run as bands of two jobs: the
+first cuts the structures' plots into the ground, 8192 triangles a band,
+and reads the units' shadows from their pictures, 32 of the models' draws a
+band; the second takes one band for each of the models, the standing
+effect cards, the cards on the ground, the projectiles and the particles,
+and one for each 32 draws' shadows. Each band lists its triangles in a list
+of its own and changes nothing else; the thread that builds the frame then
+joins the lists in the order the passes ran in one after another. Only that
+thread packs materials into the atlas, in the passes' order: a band that
+needs one not yet packed stops at that draw, and the thread lists the rest
+of it once the passes before it are joined. The frame's own materials (the
+shadows') are packed on that thread before the second job, and their
+texels written by bands of 16 once the passes before them are joined. So
+the vertices, their order and the atlas are those of the passes run one
+after another, whatever the threads.
 
 ## Entry points
 
@@ -72,8 +100,9 @@ counted itself out, the last thing a worker does with the pool.
 ## Limits
 
 - `start_thread` treats the stack size as advisory; where the host ignores
-  it a worker gets the system's default stack. The bands themselves keep no
-  scratch of their own beyond a few local variables.
+  it a worker gets the system's default stack. The bands themselves keep
+  little scratch of their own: a few local variables, and in the 3D view's
+  depth some 3 KiB for the pixels a triangle hits.
 - A band must not throw.
 - The pool is for passes that take a millisecond or so: waking a worker
   costs some microseconds, so a pass of a few bands gains nothing on it.

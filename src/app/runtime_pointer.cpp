@@ -3,6 +3,7 @@
 
 // Pointer tracking, menu activation and match unit picking.
 #include "oa/app/runtime.hpp"
+#include "bench_timers.hpp"
 #include "engine_settings_state.hpp"
 #include "match_models.hpp"
 #include "oa/app/far_view.hpp"
@@ -468,6 +469,7 @@ void Runtime::refresh_on_screen_view() {
 }
 
 void Runtime::pick_cursor_unit(bool refresh_view) {
+    const bench_timers::Span timed(bench_timers::Stage::cursor_pick);
     namespace input = oa::sim::gameplay_input;
     if (!match_ || screen_ != Screen::match)
         return;

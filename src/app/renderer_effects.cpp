@@ -10,16 +10,21 @@
 namespace oa::app::renderer_effects {
 namespace {
 constexpr int max_dimension = 16384;
-constexpr float light_energy = 110;
-constexpr float glow_energy = 150;
-constexpr float max_displacement = 2;
-constexpr float glow_radius_fraction = 0.35f;
-constexpr float silhouette_depth_fraction = 0.08f;
 /// Rows of each band of the surface the lights are composed in.
 constexpr uint32_t band_rows = 32;
 
-/// Reject malformed input before any pixel indexing or float-to-integer conversion.
-bool valid_source(const Source& source) {
+/// Keep normalized colours bounded even for an overbright source.
+float unit(float value) {
+    return std::clamp(value, 0.0f, 1.0f);
+}
+
+/// Permit the user-selected double-strength effect while bounding malformed energy.
+float strength(float value) {
+    return std::clamp(value, 0.0F, 2.0F);
+}
+} // namespace
+
+bool valid_source(const Source& source) noexcept {
     for (const float value :
          {source.screen_x,
           source.screen_y,
@@ -39,17 +44,6 @@ bool valid_source(const Source& source) {
     }
     return source.radius_pixels > 0 && source.depth_radius >= 0 && source.radius_y_pixels >= 0;
 }
-
-/// Keep normalized colours bounded even for an overbright source.
-float unit(float value) {
-    return std::clamp(value, 0.0f, 1.0f);
-}
-
-/// Permit the user-selected double-strength effect while bounding malformed energy.
-float strength(float value) {
-    return std::clamp(value, 0.0F, 2.0F);
-}
-} // namespace
 
 std::array<float, 2> detail_strength(float radius_pixels, float zoom) noexcept {
     if (!std::isfinite(radius_pixels) || !std::isfinite(zoom) || radius_pixels <= 0 || zoom <= 0)
@@ -90,10 +84,9 @@ void compose(
     std::vector<uint8_t> undistorted;
     if (settings.heat_sizzle &&
         std::any_of(sources.begin(), sources.end(), [](const Source& source) {
-            return source.heat >= 0.25F;
+            return source.heat >= minimum_heat;
         }))
         undistorted.assign(surface.pixels.begin(), surface.pixels.begin() + bytes);
-    const double animation_period = 120;
     const float time = float(std::fmod(simulation_seconds, animation_period));
     // Each visibility byte as the share of the light it lets through.
     std::array<float, 256> visibility_share{};
@@ -134,7 +127,7 @@ void compose(
         reach.right = int(std::min(float(surface.width - 1), source.screen_x + radius));
         reach.bottom = int(std::min(float(surface.height - 1), source.screen_y + radius_y));
         reach.colour = {unit(source.red), unit(source.green), unit(source.blue)};
-        reach.heat_enabled = settings.heat_sizzle && source.heat >= 0.25F;
+        reach.heat_enabled = settings.heat_sizzle && source.heat >= minimum_heat;
         reach.glow_strength = strength(source.glow);
         reach.first_column = column_dx.size();
         for (int x = reach.left; x <= reach.right; ++x)
@@ -168,12 +161,10 @@ void compose(
                 const float half_width = radius * std::sqrt(1 - dy * dy);
                 const int first = std::max(left, int(std::floor(source.screen_x - half_width)) - 1);
                 const int last = std::min(right, int(std::ceil(source.screen_x + half_width)) + 1);
-                constexpr float spatial_frequency = 0.55f;
-                constexpr float temporal_frequency = 11;
                 const float displacement = heat_enabled
                                                ? std::sin(
-                                                     float(y) * spatial_frequency -
-                                                     time * temporal_frequency + source.phase
+                                                     float(y) * heat_spatial_frequency -
+                                                     time * heat_temporal_frequency + source.phase
                                                  ) * max_displacement *
                                                      strength(source.heat)
                                                : 0;

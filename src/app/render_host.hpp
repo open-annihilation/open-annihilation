@@ -46,6 +46,7 @@
 #include <string_view>
 #include <vector>
 
+struct SDL_GPUDevice;
 struct SDL_Renderer;
 struct SDL_Window;
 union SDL_Event;
@@ -485,6 +486,54 @@ class RendererHost {
     /// Destroys the renderer, if there is one; the window stays.
     void destroy() noexcept;
 
+    /// Destroys the renderer (destroy) and then the card's device, if there
+    /// is one, as the game's display closes: whatever drew on the device
+    /// must have let it go first.
+    void close() noexcept;
+
+    /// Returns the graphics device the turned 3D view draws on, made at the
+    /// first ask, which the window can present through (present_on_card)
+    /// while the view shows. It takes the live renderer's shaders: SPIR-V
+    /// and Metal shading language, which SDL's GPU renderer takes too. The
+    /// host keeps it until close, so that it outlives a match's live
+    /// renderer and any renderer made on it.
+    ///
+    /// @return the device; null with no window, before SDL 3.4, where the
+    ///     walk made SDL's software renderer or a renderer that SDL's GPU
+    ///     renderer cannot take the window from without making it again (an
+    ///     OpenGL one), where SDL makes no device, and once the window could
+    ///     not present through it or a renderer made on it failed
+    [[nodiscard]] SDL_GPUDevice* card_device();
+
+    /// Makes the window present through the card's device: the renderer the
+    /// walk made is destroyed, since a window holds one renderer, and SDL's
+    /// GPU renderer made on card_device() in its place, so that what the
+    /// device draws reaches the window with nothing read back. The facts,
+    /// the tier's inputs and the records stay the walked driver's, which the
+    /// renderer returns to (present_walked). Every texture made on the
+    /// renderer must be destroyed first. Where the GPU renderer cannot be
+    /// made, the walked driver's is made again.
+    ///
+    /// Throws std::runtime_error when neither can be made: the run ends, as
+    /// a failed rebuild ends it.
+    ///
+    /// @param[out] error why the window does not present through the card
+    /// @return true when it does
+    bool present_on_card(std::string& error);
+
+    /// Makes the walked driver's renderer again in place of SDL's GPU
+    /// renderer on the card's device; nothing where the window presents
+    /// through the walked driver already. Every texture made on the renderer
+    /// must be destroyed first.
+    ///
+    /// Throws std::runtime_error when the driver cannot be made again.
+    void present_walked();
+
+    /// Says whether the window presents through the card's device.
+    ///
+    /// @return true between present_on_card and present_walked
+    [[nodiscard]] bool presenting_on_card() const noexcept;
+
     /// Returns the renderer.
     ///
     /// @return the renderer; null before create, after destroy or in a
@@ -844,6 +893,11 @@ class RendererHost {
     /// The function test ran in the start-up stage that stands, so its
     /// passing clears a probe strike too.
     bool function_test_ran_{};
+    /// The device the turned 3D view draws on and the window may present
+    /// through (card_device); null until asked for.
+    SDL_GPUDevice* card_device_{};
+    bool card_device_refused_{}; ///< SDL made no card device, or none can be made here
+    bool presenting_on_card_{};  ///< the renderer is SDL's GPU renderer on card_device_
 };
 
 } // namespace oa::app

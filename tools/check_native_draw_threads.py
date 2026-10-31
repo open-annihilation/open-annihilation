@@ -14,17 +14,20 @@ drawing thread and on several (--draw-threads):
   fragments and smoke, with missile trucks firing, a kbot lab building
   peewees in a spray of nano particles, an air transport loading a peewee
   and the local army selected with its selection boxes shown, at zoom 1
-  with enhanced anti-aliasing off and at 4x: the battlefield's units,
+  with enhanced anti-aliasing off, at 45 frames a second so that half the
+  frames fall between ticks, and at 4x: the battlefield's units,
   features and effects are drawn in one band of rows for each drawing
   thread, each band drawing every draw of the frame with its own rows
-  alone.
+  alone, and the units are planned on the drawing threads before the
+  frame's draw list takes them in their order.
 
 Every run of a view must print the same frames digest, a digest of every
-frame's drawn battlefield, and the same world digest; and each run must say
-it drew on the threads it was given, and in as many bands at zoom 1 (where
-every tile row can start one) and in at least two elsewhere. (The frame's
-conversion for the window, which a headless run does not make, is checked
-by app-xrgb-conversion.)
+frame's drawn battlefield, the same draw list digest, a digest of every
+frame's draw list as the units' plans left it, and the same world digest;
+and each run must say it drew on the threads it was given, and in as many
+bands at zoom 1 (where every tile row can start one) and in at least two
+elsewhere. (The frame's conversion for the window, which a headless run
+does not make, is checked by app-xrgb-conversion.)
 """
 import argparse
 import concurrent.futures
@@ -49,12 +52,14 @@ ANTI_ALIASING_KEY = "open-annihilation.anti-aliasing"
 # whether the fight is --busy-combat's. Zoom 1 copies whole tile rows; the
 # others sample the map through the zoom's step, in and out. The busy
 # fights of 24 a side reach their explosions, debris, wrecks, missiles,
-# nano particles and loaded transport within 180 ticks.
+# nano particles and loaded transport within 180 ticks; at 45 frames a
+# second every other frame falls between two ticks, where the units, the
+# transport and its cargo among them, draw from copies placed between them.
 VIEWS = (
     ("1280x720", "1", 45, 12, 60, True, 1, False),
     ("1024x768", "1.37", 45, 12, 60, True, 1, False),
     ("1024x768", "0.6", 45, 12, 60, True, 1, False),
-    ("1280x720", "1", 180, 24, 30, False, 1, True),
+    ("1280x720", "1", 180, 24, 45, False, 1, True),
     ("1920x1080", "1", 180, 24, 30, False, 4, True),
 )
 # One drawing thread, then counts that split the rows unevenly and evenly.
@@ -64,12 +69,12 @@ WORKERS = 3
 
 RUN_LINE = re.compile(
     r"frame run: .* world digest ([0-9a-f]{16}), frames digest ([0-9a-f]{16}), "
-    r"drawing threads (\d+), drawing bands (\d+)"
+    r"drawing threads (\d+), drawing bands (\d+), draw list digest ([0-9a-f]{16})"
 )
 
 
 def run(native, game_dir, workdir, view, threads):
-    """Draws the skirmish's frames and returns its world digest and frames digest."""
+    """Draws the skirmish's frames and returns its world, frames and draw list digests."""
     resolution, zoom, ticks, units, frame_rate, scroll, anti_aliasing, busy = view
     name = (f"{resolution}-zoom-{zoom}-ticks-{ticks}-aa-{anti_aliasing}"
             f"{'-busy' if busy else ''}-threads-{threads}")
@@ -102,7 +107,7 @@ def run(native, game_dir, workdir, view, threads):
     least = threads if zoom == "1" else min(threads, 2)
     if bands < least or bands > threads:
         raise SystemExit(f"{name}: drew in at most {bands} bands on {threads} threads")
-    return match[1], match[2]
+    return match[1], match[2], match[5]
 
 
 def main():
@@ -132,12 +137,13 @@ def main():
                 if digests != alone:
                     raise SystemExit(
                         f"{what}: {threads} threads drew frames digest {digests[1]} "
-                        f"(world {digests[0]}), one thread {alone[1]} (world {alone[0]})"
+                        f"(world {digests[0]}, draw list {digests[2]}), one thread "
+                        f"{alone[1]} (world {alone[0]}, draw list {alone[2]})"
                     )
-            print(f"  {what}: frames digest {alone[1]} on "
+            print(f"  {what}: frames digest {alone[1]}, draw list digest {alone[2]} on "
                   f"{', '.join(str(count) for count in THREAD_COUNTS)} threads")
-        print("native draw threads: every view draws the same frames on every count of "
-              "drawing threads")
+        print("native draw threads: every view plans the same draw lists and draws the same "
+              "frames on every count of drawing threads")
 
 
 if __name__ == "__main__":

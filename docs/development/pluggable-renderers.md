@@ -228,7 +228,7 @@ Low surface features, such as metal spots, follow the drawn terrain
 triangles as decals; standing sprites such as trees remain upright. Fog
 brightness blends across the mapped side of visibility boundaries, while
 unmapped cells remain black and hidden units stay excluded. Unit shadows
-use the existing cached silhouettes, projected onto the terrain.
+take the shape of the cached silhouettes, laid onto the terrain.
 Ground structures level the rendered terrain beneath their gameplay footprint,
 and beneath their model's base piece where it reaches past the footprint, to
 their placement height, with a small separation beneath floor plates and
@@ -253,6 +253,48 @@ Construction emission and glow gently pulse by 15 percent over two simulation
 seconds, freezing when paused. The glow fades as the unit finishes and obeys
 the Nanolathe glow intensity in both views.
 
+Most units and 3D features are drawn on the graphics card from their types'
+models (`renderer_live_models.hpp`). Each type's polygons, its pieces in a
+unit's order, are made once into triangle corners that stay on the card; each
+frame the processor sends every model drawn on the card its vertices as it
+places them (the game's piece turns round at every turn and level, so no
+matrix gives them exactly), each piece's first or running texture frame, the
+atlas places of the textures its team draws, and the faces it shows, in their
+order; `live_model_vertex.glsl` gives the scene's fragment stage, and the
+lights' surface, what those vertices would have given it. The frame's other
+vertices are drawn in their order with the models' runs among them, so the
+picture is the one the processor's vertices draw, to the byte, and the pick
+tests a model's triangles where they would have lain among the frame's. The
+pick projects the frame's vertices on the drawing threads while the card
+draws, keeping the kept ground's from the frame before while it and the
+camera stay, and passes over each block of 32 triangles, and each model drawn on
+the card, whose bounds cannot hold its point; a sliver, which its test may
+take past its own bounds, is always tested.
+
+The units' shadows are cast on the card from the same models
+(`live_shadow_cast_vertex.glsl`), into a map spanning the part of the map the
+frame shows as the game paints it (a row down is half a pixel up), a texel a
+map pixel: a unit casts the pieces its cached picture holds, without its walls
+of the image key, laid as the game lays the picture, `shadow_offset_x` right
+of it at the ground's height under it; a building casts its cached pieces
+sheared a quarter across and up, with its picture where it stands taken out;
+the part of a unit under the water, or of a digger under the ground, casts
+none where its picture has a depth plane. As the game's picture does, each
+corner keeps its whole pixels from the model's place, and a face whose corners
+run anticlockwise as laid, as a model's underside does, casts nothing. Each
+shadow takes a texel's light once, at the frame's shadow level, and
+overlapping shadows darken it again, as the game's decals did. The frame's ground is then drawn again where the
+shadows lie among its vertices (`live_shadow_fragment.glsl`), a twentieth of
+a pixel above it as the decals lay, darkened by the map, its samples taking
+the map each at its own place. The processor reads no unit's picture for its
+shadow, and lays no decal for it; an aircraft's soft shadow, which lies on the
+water under it with a soft edge, and the shadow of a model whose type the card
+cannot hold stay decals laid from the picture. A
+model under construction, cloaked or under the debug overlay, reflected in
+the water, shaded as a building or lit by nanolathe particles, and every model
+where the card leaves the lights to the processor or has none of this yet,
+stays in the frame's vertices.
+
 Visible shots produce coloured muzzle, projectile and impact lights. Shot
 events are captured before retirement, including shots that last less than
 one tick; explosions without a weapon event use warm splash lighting.
@@ -263,8 +305,19 @@ altitude. Ground flash masks remain draped over the terrain.
 Newly observed wrecks cool over 900
 simulation ticks, fading from orange toward red. Existing wrecks loaded from
 a save start cold. Wrecks and hot weapons can distort nearby battlefield
-pixels; selection markers and HUD elements are drawn afterward. The 3D pass
-uses scene depth to limit light reach and protect foreground silhouettes.
+pixels; selection markers and HUD elements are drawn afterward. The 3D view
+adds its lights and heat on the graphics card, after the scene and before the
+picture is read back. The card draws the frame's triangles a second time, one
+sample a pixel whatever the anti-aliasing, keeping under each pixel's centre
+the nearest face opaque to the lights (its opacity, and its texel's alpha
+times it, at least one half) with its camera depth and fog; translucent faces,
+such as smoke, hide nothing from the lights. A pass over the picture then
+adds each light to the pixels of the tiles it reaches, 32 pixels a side, in
+the order and at the strengths the processor composes them
+(`renderer_effects::compose`): depth limits a light's reach and keeps glow and
+heat off what stands in front of it, and fog lessens it. A card without the
+float targets and textures this needs leaves the lights to the processor,
+which finds the same surfaces by a raster of its own after the read-back.
 Classic rendering has no depth buffer, so its effects use screen-space
 falloff and visibility masks rather than physical occlusion. Neither path
 casts dynamic light shadows. Source counts and radii are bounded.
@@ -285,7 +338,7 @@ over units. Order markers remain overlays, as in the classic view.
 
 | Setting | Live 3D behaviour |
 | --- | --- |
-| Enhanced anti-aliasing | Supersamples the whole 3D battlefield, then box-filters it on the GPU before readback. The requested factor is lowered when needed to fit a 4096-pixel target edge. This differs from classic per-unit supersampling. |
+| Enhanced anti-aliasing | Takes the level's samples across each pixel of the whole 3D battlefield, then averages them on the GPU before readback: a 2x2 of them by the card's 4x multisampling, where it multisamples the colour and depth formats 4 times, and the rest by drawing the battlefield larger and box-filtering it. The factor drawn larger is lowered when needed to fit a 4096-pixel target edge; multisampling needs no larger target, so a frame too wide for 2x2 supersampling is still multisampled while its samples fit the largest supersampled target's 4096 by 4096. Each multisampled sample takes the atlas at its own place for sprites, models, effects, map features and ground texels larger than a pixel, so keyed and texel edges are smoothed as a supersampled frame's are. A card without 4x multisampling supersamples the whole factor. This differs from classic per-unit supersampling. |
 | Unit, vehicle and feature shadows | Uses the existing graphics flags and shadow level. |
 | Mapping and line of sight | Uses the match's visibility data, with a smooth visual boundary. |
 | Dithered fog | Uses the classic grey palette for mapped-but-unseen terrain; live boundaries remain smoothly interpolated. |
@@ -306,10 +359,20 @@ Windows the preview needs a Vulkan driver. On a Mac, Vulkan through a translatio
 MoltenVK runs the SPIR-V for testing:
 `SDL_GPU_DRIVER=vulkan SDL_VULKAN_LIBRARY=/opt/homebrew/lib/libvulkan.1.dylib`.
 It reuses its device,
-pipeline, atlas and frame buffers, but each frame waits for GPU readback and
-uploads the result through the existing presentation path. Performance is
-provisional. The live path omits the unused classic battlefield raster, and
-its effect visibility raster only visits rows and columns reached by effects.
+pipeline, atlas and frame buffers. In the game's window the picture stays on
+the card: while the view shows, the window presents through SDL's GPU
+renderer made on the device the view draws on (SDL 3.4 and later, where the
+window's own renderer is Metal, D3D11, D3D12 or Vulkan), the processor
+paints the selection, health bars, text and the rest over the battlefield on
+an overlay canvas, and the card adds the canvas, and what the painters would
+have done to the picture under it, before the window draws it. Nothing is
+read back and the processor does not wait for the card. A check, a director,
+a screenshot, a film frame and a painter that reads the picture in a way the
+card does not make read the frame back as before; so does a window whose
+renderer is OpenGL or SDL's software renderer, or an SDL before 3.4.
+Performance is provisional. The live path omits the unused classic battlefield raster, and
+adds its lights on the card; where the card cannot, the processor's
+visibility raster visits only the rows and columns the effects reach.
 Zooming out reduces fog subdivision, merges planar terrain cells, and fades
 subpixel decals and particles. Small light footprints fade out; heat distortion
 fades sooner as its pixel displacement becomes imperceptible.
@@ -325,6 +388,11 @@ back.
 Terrain minification blends averaged texture levels, with each tile clamped to
 its own texels. Level selection uses output pixels independently of the
 anti-aliasing factor; sprites retain nearest sampling.
+Multisampled, a fragment is shaded once a pixel: the atlas is taken at each
+covered sample's place (found from the pixel's centre and the coordinates'
+change from pixel to pixel, which the camera's affine projection makes
+exact), the sample mask leaves out samples a keyed texel leaves clear, and
+the light and colours are taken at a point the triangle covers.
 Terrain vertices use the gameplay world height grid. Their artwork is sampled
 at the original projected map coordinates, splitting triangles at texture tile
 edges. Ground features retain their canonical world anchors. Effect sprites

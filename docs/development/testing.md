@@ -306,15 +306,17 @@ The output is the same for any number of threads, apart from the time the
 sweep took.
 
 The game draws the terrain, the fog, the battlefield's units, features and
-effects and each frame's conversion for the window in bands on spare cores
+effects and each frame's conversion for the window in bands on spare cores,
+and plans the frame's units there before its draw list takes them
 ([job pool](../../src/platform/job-pool/README.md)):
 up to four threads, one on a machine of one or two logical processors.
 `OA_DRAW_THREADS` (1 to 32) sets the count for every run of the game a test
-starts, and `--draw-threads N` for one run; every count draws the same
-frames, which `native-draw-threads`, `world-draw-bands`,
-`app-xrgb-conversion`, `app-renderer-effects`, `present-surface-band`,
-`model-render-rgb-bridge` and `model-render-mesh-raster`
-check. To run the whole suite on one drawing thread, or on many:
+starts, and `--draw-threads N` for one run; every count plans the same draw
+lists and draws the same frames, which `native-draw-threads`,
+`world-draw-bands`, `app-xrgb-conversion`, `app-renderer-effects`,
+`present-surface-band`, `model-render-rgb-bridge` and
+`model-render-mesh-raster` check. To run the whole suite on one drawing
+thread, or on many:
 
 ```sh
 OA_DRAW_THREADS=1 ctest --test-dir build
