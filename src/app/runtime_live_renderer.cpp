@@ -1023,6 +1023,11 @@ void Runtime::live_scene_visibility(
         constexpr int most_hits = 128;
         std::array<uint32_t, most_hits> hit_pixels;
         std::array<renderer_live_camera::PreparedHit, most_hits> hits;
+        // A triangle's rows in the band, a few at a time: each row's first
+        // column and the column past its last, and one place more for the
+        // first column after the last row.
+        constexpr int most_spans = 16;
+        std::array<int, most_spans + 1> span_rows{}, span_firsts{}, span_ends{};
         constexpr float pixel_centre = 0.5F;
         for (uint32_t run = 0; run < runs; ++run) {
             const uint32_t* const starts = lists.band_starts.data() + run * starts_per_run;
@@ -1096,29 +1101,54 @@ void Runtime::live_scene_visibility(
                     }
                 };
                 int hit_count = 0;
-                for (int y = std::max(y0, band_top); y < std::min(y1, band_end); ++y) {
-                    int left_limit =
-                        bounded ? std::max(x0, static_cast<int>(std::min(row_left[y], width))) : x0;
-                    int right_limit =
-                        bounded ? std::min(x1, static_cast<int>(std::min(row_right[y], width)))
-                                : x1;
-                    // Only the columns the triangle can cover on this row are tested.
-                    renderer_live_camera::narrow_row(
-                        narrowing, y + pixel_centre, pixel_centre, left_limit, right_limit
-                    );
-                    const uint32_t row_start = static_cast<uint32_t>(y) * width;
-                    for (int x = left_limit; x < right_limit; ++x) {
+                int y = std::max(y0, band_top);
+                const int rows_end = std::min(y1, band_end);
+                while (y < rows_end) {
+                    // The columns the triangle can cover on its next rows,
+                    // rows it cannot cover left out.
+                    int spans = 0;
+                    int columns = 0;
+                    for (const int spans_end = std::min(rows_end, y + most_spans); y < spans_end;
+                         ++y) {
+                        int left_limit =
+                            bounded ? std::max(x0, static_cast<int>(std::min(row_left[y], width)))
+                                    : x0;
+                        int right_limit =
+                            bounded ? std::min(x1, static_cast<int>(std::min(row_right[y], width)))
+                                    : x1;
+                        renderer_live_camera::narrow_row(
+                            narrowing, y + pixel_centre, pixel_centre, left_limit, right_limit
+                        );
+                        const int span_columns = std::max(0, right_limit - left_limit);
+                        span_rows[spans] = y;
+                        span_firsts[spans] = left_limit;
+                        span_ends[spans] = right_limit;
+                        columns += span_columns;
+                        spans += span_columns > 0 ? 1 : 0;
+                    }
+                    // Their pixels in one run, row after row: the next row is
+                    // taken up by choosing values, not by a loop of its own,
+                    // so the weighing does not stall at the end of each row.
+                    int span = 0;
+                    int x = span_firsts[0];
+                    for (int column = 0; column < columns; ++column) {
                         if (hit_count == most_hits) {
                             draw(hit_count);
                             hit_count = 0;
                         }
-                        hit_pixels[hit_count] = row_start + static_cast<uint32_t>(x);
+                        const int row = span_rows[span];
+                        hit_pixels[hit_count] =
+                            static_cast<uint32_t>(row) * width + static_cast<uint32_t>(x);
                         hits[hit_count] = renderer_live_camera::weigh_prepared(
-                            prepared, x + pixel_centre, y + pixel_centre
+                            prepared, x + pixel_centre, row + pixel_centre
                         );
                         // Each place is written whether or not the triangle
                         // hits it; only a hit moves on to the next.
                         hit_count += hits[hit_count].hit;
+                        ++x;
+                        const bool row_done = x == span_ends[span];
+                        span += row_done ? 1 : 0;
+                        x = row_done ? span_firsts[span] : x;
                     }
                 }
                 if (hit_count > 0)
