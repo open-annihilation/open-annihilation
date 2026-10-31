@@ -96,9 +96,11 @@ bool Runtime::pointer_shows_cursor() const {
 }
 
 bool Runtime::system_pointer_wanted() const {
+    // The window's own focus counts as well as application_active_, which a
+    // focus loss dropped during a load, or a window that never had the focus,
+    // leaves set.
     return !cursors_loaded_ || !application_active_ || system_pointer_screen_open_ ||
-           (sdl_.window != nullptr &&
-            (SDL_GetWindowFlags(sdl_.window) & SDL_WINDOW_MOUSE_FOCUS) == 0);
+           (sdl_.window != nullptr && !window_holds_pointer(SDL_GetWindowFlags(sdl_.window)));
 }
 
 void Runtime::apply_system_pointer(bool redraw) {

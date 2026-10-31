@@ -6,9 +6,10 @@
 // changes; the Alt+Enter key that switches between full screen and a window,
 // the mode the player last asked for while the window system is still
 // switching to it, the pointer kept on the game's screen in full screen, the
-// window brought back onto its display when it leaves full screen, the
-// window's title bar and borders hidden while a game is played, and the line
-// --trace-input writes of the window, its display and the pointer.
+// window that holds the pointer for the game's cursor, the window brought
+// back onto its display when it leaves full screen, the window's title bar
+// and borders hidden while a game is played, and the line --trace-input
+// writes of the window, its display and the pointer.
 #pragma once
 
 #include <SDL3/SDL.h>
@@ -302,6 +303,21 @@ struct FullScreenSwitch {
 [[nodiscard]] inline bool keeps_pointer_on_screen(SDL_WindowFlags window_flags) {
     return (window_flags & SDL_WINDOW_FULLSCREEN) != 0 &&
            (window_flags & SDL_WINDOW_INPUT_FOCUS) != 0;
+}
+
+/// Tells whether the game's window holds the pointer for the game's cursor.
+///
+/// The pointer is over the window and the window has the input focus. macOS
+/// hides its pointer only over the window with the input focus, so over any
+/// other window the game's cursor would show beside the system's pointer. The
+/// window's flags say so even where its focus events were dropped, as while a
+/// match loads, or never came, as for a window opened behind another program.
+///
+/// @param window_flags the window's flags, as SDL_GetWindowFlags reports them
+/// @return true where the game's cursor takes the place of the system's pointer
+[[nodiscard]] inline bool window_holds_pointer(SDL_WindowFlags window_flags) {
+    constexpr SDL_WindowFlags held = SDL_WINDOW_MOUSE_FOCUS | SDL_WINDOW_INPUT_FOCUS;
+    return (window_flags & held) == held;
 }
 
 /// Tells whether an event may change what keeps_pointer_on_screen says.

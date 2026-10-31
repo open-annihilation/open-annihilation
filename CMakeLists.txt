@@ -1197,7 +1197,8 @@ if(BUILD_TESTING)
     # driver switched and back;
     # the pointer held on the window in full screen with the focus and let go
     # in a window or without the focus, held from the start by a window
-    # opened in full screen whose first events were dropped, and a pointer
+    # opened in full screen whose first events were dropped; the game's
+    # cursor only over a window with the pointer and the focus; and a pointer
     # past the edge of a full-screen window below a MacBook's camera housing
     # touching that edge for the edge scroll; a window that leaves full screen
     # brought back onto its display, at a size asked for, a window asked for

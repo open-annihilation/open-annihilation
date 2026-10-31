@@ -1460,19 +1460,20 @@ class Runtime final : public menu::Host,
 
     /// Tests whether the game's cursor shows at the system's pointer.
     ///
-    /// @return true while the application is active and the pointer is over
-    ///     the window, or with no window; false where the system's pointer
-    ///     shows instead
+    /// @return true while the application is active and its window holds the
+    ///     pointer (window_holds_pointer), or with no window; false where the
+    ///     system's pointer shows instead
     [[nodiscard]] bool pointer_shows_cursor() const;
 
     /// Tests whether the system's pointer is to show over the game's window.
     ///
     /// It shows where the game draws no cursor of its own: without the game's
-    /// cursors, while the application is inactive, and while a screen that
-    /// the system's pointer drives is open over the game (the Game files
-    /// screen). Everywhere else, in play and in the game's own menus, dialogs
-    /// and message boxes, the game draws its cursor and the system's pointer
-    /// is hidden.
+    /// cursors, while the application is inactive or its window does not hold
+    /// the pointer (window_holds_pointer), and while a screen that the
+    /// system's pointer drives is open over the game (the Game files screen).
+    /// Everywhere else, in play and in the game's own menus, dialogs and
+    /// message boxes, the game draws its cursor and the system's pointer is
+    /// hidden.
     ///
     /// @return true where the system's pointer is to show
     [[nodiscard]] bool system_pointer_wanted() const;

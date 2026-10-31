@@ -428,6 +428,25 @@ void test_pointer_bounds() {
     CHECK(!keeps_pointer_on_screen(0));
 }
 
+// The game's cursor takes the pointer only over a window with the pointer and
+// the input focus; a window under the pointer without the focus leaves the
+// system's pointer showing, whatever focus events were dropped or never came.
+void test_window_holds_pointer() {
+    using oa::app::window_holds_pointer;
+    constexpr SDL_WindowFlags focused = SDL_WINDOW_INPUT_FOCUS | SDL_WINDOW_MOUSE_FOCUS;
+    CHECK(window_holds_pointer(focused));
+    CHECK(window_holds_pointer(oa::app::game_window_flags(false, false) | focused));
+    CHECK(window_holds_pointer(oa::app::game_window_flags(true, true) | focused));
+    // Opened behind another program, or switched away from while a match
+    // loaded: the pointer is over the window, the focus is elsewhere.
+    CHECK(!window_holds_pointer(SDL_WINDOW_MOUSE_FOCUS));
+    CHECK(!window_holds_pointer(oa::app::game_window_flags(false, false) | SDL_WINDOW_MOUSE_FOCUS));
+    CHECK(!window_holds_pointer(oa::app::game_window_flags(true, false) | SDL_WINDOW_MOUSE_FOCUS));
+    // The focus without the pointer over the window.
+    CHECK(!window_holds_pointer(SDL_WINDOW_INPUT_FOCUS));
+    CHECK(!window_holds_pointer(0));
+}
+
 // The window events after which the pointer's bounds are settled again.
 void test_pointer_bounds_events() {
     const auto window_event = [](SDL_EventType type) {
@@ -1435,6 +1454,7 @@ int main() {
     test_window_on_display();
     test_window_place_checked();
     test_pointer_bounds();
+    test_window_holds_pointer();
     test_pointer_bounds_events();
     test_window_trace();
     test_window();

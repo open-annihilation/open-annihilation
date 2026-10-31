@@ -3160,7 +3160,11 @@ prompts, Settings › Updates and the headers name one state with one size.
   hidden wherever the game draws its own cursor, in play and in the game's
   menus, dialogs and message boxes; it shows only without the game's
   cursors, while the game is inactive and over the Game files screen
-  (`system_pointer_wanted`). Every event, every frame of the loop and every
+  (`system_pointer_wanted`). The game counts as inactive, for this, while
+  its window is without the input focus, even where the loss of the focus
+  was dropped during a load or the window opened behind another program
+  (`window_holds_pointer`): macOS shows its own pointer over any window but
+  the one with the focus. Every event, every frame of the loop and every
   change of screen apply that rule again (`apply_system_pointer`), so a
   pointer shown anywhere else is hidden again by the next frame. A window
   that leaves full screen, by Alt+Enter, by the window system's own control
