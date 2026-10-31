@@ -2979,6 +2979,126 @@ void passes_on_threads() {
     OA_CHECK(scenes[0].frame_rows > 16);
 }
 
+/// A camera panning steadily takes the ground drawn ahead of it on the
+/// drawing threads before the kept ground's margin runs out, rather than
+/// drawing it again in the frame that passes the margin: every frame's
+/// ground holds the picture's own, the frames are the same on any number of
+/// threads as on none, and fewer frames change the ground than the margin
+/// alone would.
+void ground_drawn_ahead_on_threads() {
+    constexpr uint32_t across = 15;
+    constexpr uint32_t picture_width = 200;
+    constexpr uint32_t picture_height = 150;
+    constexpr float pan_a_frame = 4;
+    constexpr int frames = 40;
+    constexpr std::array<float, 12> projection{2, 0, -2, 0, 1, -1, 1, 0, 0, 1, 0, 0};
+    const auto make = [&](Fixture& fixture, float pan) {
+        auto& map = fixture.map;
+        map.tile_width = map.tile_height = across;
+        map.attribute_width = map.attribute_height = across * 2;
+        map.tile_count = 3;
+        map.tile_indices.resize(static_cast<std::size_t>(across) * across);
+        for (std::size_t tile = 0; tile < map.tile_indices.size(); ++tile)
+            map.tile_indices[tile] = static_cast<uint16_t>(tile % 3);
+        map.tile_palette_indices.resize(3 * tile_edge * tile_edge);
+        for (std::size_t pixel = 0; pixel < map.tile_palette_indices.size(); ++pixel)
+            map.tile_palette_indices[pixel] = static_cast<uint8_t>(pixel * 7 / tile_edge % 5);
+        map.attributes.assign(
+            static_cast<std::size_t>(map.attribute_width) * map.attribute_height, {}
+        );
+        for (uint32_t row = 0; row < map.attribute_height; ++row)
+            for (uint32_t column = 0; column < map.attribute_width; ++column)
+                map.attributes[static_cast<std::size_t>(row) * map.attribute_width + column]
+                    .height = static_cast<uint8_t>((column * 3 + row * 5) % 40);
+        fixture.inputs.sight.mapping = false;
+        fixture.inputs.sight.line_of_sight = false;
+        fixture.inputs.right = static_cast<int32_t>(across) * tile_edge;
+        fixture.inputs.bottom = static_cast<int32_t>(across) * tile_edge;
+        fixture.inputs.clip_projection = projection;
+        fixture.inputs.clip_projection[3] = pan;
+        fixture.inputs.clip_width = picture_width;
+        fixture.inputs.clip_height = picture_height;
+        fixture.inputs.tiles_hold_while_moving = true;
+    };
+    using Corners = std::array<float, 9>;
+    const auto triangles = [](const live::Scene& scene) {
+        std::vector<Corners> result;
+        const auto& ground = scene.ground_kept ? scene.ground_vertices : scene.vertices;
+        const std::size_t count = scene.ground_kept ? ground.size() : scene.terrain_vertex_count;
+        for (std::size_t first = 0; first + 2 < count; first += 3) {
+            Corners corners{};
+            for (std::size_t corner = 0; corner < 3; ++corner) {
+                const auto& vertex = ground[first + corner];
+                corners[corner * 3] = vertex.x;
+                corners[corner * 3 + 1] = vertex.height;
+                corners[corner * 3 + 2] = vertex.z;
+            }
+            result.push_back(corners);
+        }
+        std::sort(result.begin(), result.end());
+        return result;
+    };
+    // The triangles a new scene draws for the picture panned so far.
+    const auto pictured = [&](float pan) {
+        Fixture fresh;
+        make(fresh, pan);
+        OA_CHECK(live::build(fresh.inputs, fresh.scene, fresh.error));
+        return triangles(fresh.scene);
+    };
+    Fixture moving;
+    make(moving, 0);
+    std::vector<std::unique_ptr<oa::platform::job_pool::Pool>> pools;
+    pools.push_back(nullptr);
+    for (const uint32_t threads : {2U, 3U, 8U})
+        pools.push_back(std::make_unique<oa::platform::job_pool::Pool>(threads));
+    std::vector<live::Scene> scenes(pools.size());
+    const auto build_all = [&] {
+        for (std::size_t scene = 0; scene < scenes.size(); ++scene) {
+            moving.inputs.pool = pools[scene].get();
+            OA_CHECK(live::build(moving.inputs, scenes[scene], moving.error));
+        }
+        for (std::size_t scene = 1; scene < scenes.size(); ++scene)
+            OA_CHECK(same_frame(scenes[0], scenes[scene]));
+    };
+    build_all();
+    build_all();
+    uint64_t revision = scenes[0].ground_revision;
+    int changes = 0;
+    int taken_ahead = 0;
+    bool drawn_ahead = false;
+    for (int frame = 1; frame <= frames; ++frame) {
+        const float pan = pan_a_frame * static_cast<float>(frame);
+        moving.inputs.clip_projection[3] = pan;
+        const bool ahead_done =
+            scenes[0].ground_ahead.active &&
+            scenes[0].ground_ahead.bands_drawn == scenes[0].ground_ahead.bands.size();
+        build_all();
+        const auto& scene = scenes[0];
+        drawn_ahead = drawn_ahead || scene.ground_ahead.active;
+        if (scene.ground_revision != revision) {
+            ++changes;
+            taken_ahead += ahead_done ? 1 : 0;
+            revision = scene.ground_revision;
+        }
+        // The ground drawn, ahead or not, holds the picture's own.
+        const auto drawn = triangles(scene);
+        const auto own = pictured(pan);
+        OA_CHECK(std::includes(drawn.begin(), drawn.end(), own.begin(), own.end()));
+    }
+    // The margin is a tenth of the picture's width, 20 pixels: drawn again
+    // each time the picture moves past it, the ground would change every
+    // five frames.
+    OA_CHECK(drawn_ahead);
+    OA_CHECK(taken_ahead > 0);
+    OA_CHECK(changes < frames / 5);
+    // Standing still, the camera settles, and the ground is the picture's
+    // own on every number of threads.
+    for (int frame = 0; frame < 11; ++frame)
+        build_all();
+    OA_CHECK(!scenes[0].ground_ahead.active);
+    OA_CHECK(triangles(scenes[0]) == pictured(pan_a_frame * frames));
+}
+
 /// Aircraft shadows keep their silhouette at full alpha at every altitude,
 /// soften only their edge, a pixel more high up, and receive on water at
 /// the vehicles' own shadow opacity.
@@ -3795,6 +3915,7 @@ int main() {
     frame_rows_hold_unit_shadows();
     frame_rows_grow_for_spilled_shadows();
     passes_on_threads();
+    ground_drawn_ahead_on_threads();
     aircraft_shadow_altitude();
     aircraft_shadow_as_the_game_casts_it();
     flash_masks_and_effect_altitude();
