@@ -228,14 +228,16 @@ Interface size and Window size
 ([settings](../settings.md#user-interface)). It moves by its title, as
 Settings does, and opens where you left it:
 
-- **The header** says "Maps", where you came from and what you play:
-  "Skirmish · No Mod", "Battle room · playing Ridge". The **X** at the top
-  right closes the browser, as in the Library and Settings.
+- **The header** reads "OPEN ANNIHILATION MAPS", as Settings' and the
+  Library's headers read theirs, then where you came from and what you
+  play: "Skirmish · No Mod", "Battle room · playing Ridge". The **X** at
+  the top right closes the browser, as in the Library and Settings.
 - **Filters**, as counted pills: All, Game (the base game and every
   expansion that is on), Mod (maps from the mod's own layers) and Downloads
   (packs you have installed and packs a catalogue offers, together), each
   with its count, as in "All (324)". **PLAYERS** and **SIZE** are one
-  choice each, Any first, then 2, 3, 4 or 5–10, and S, M or L (S up to 10
+  choice each, a strip as Settings' choices are, Any first, then 2, 3, 4
+  or 5–10, and S, M or L (S up to 10
   on its longer side, M up to 20, L above). "Search maps" finds a map by
   its title, its name, its pack's name or where it comes from.
 - **The cards** are in order of their titles, a map online among the rest,
@@ -253,8 +255,9 @@ Settings does, and opens where you left it:
   fits, "Fits No Mod ✓", "Doesn't fit Ridge" with the reason, or, for a map
   online, "Fit with No Mod is checked when it's installed" or what the
   registry's catalogue says ("Its catalogue says it does not fit Ridge.").
-  At Compact the line under the title is only the pack, or that source
-  name, and the player count, and the fit chips sit on that line.
+  At Compact the title sits beside Cancel and Select, and the line under
+  them is only the pack, or that source name, and the player count, with
+  the fit chips on that line.
 - **Select**, for a map you have, chooses it in the list you came from,
   where you then press LOAD or start as ever. **Download and select**, for a
   map online, downloads its pack as the Library's GET does, shows how far it
