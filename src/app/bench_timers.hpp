@@ -6,7 +6,9 @@
 // over the frames since the timers were cleared. The timers stay off in
 // every other run: each mark is then one test of a flag, and nothing is read
 // from the clock or written. The match frame is drawn on one thread, which
-// alone marks and reads them.
+// alone marks and reads them; the turned view's scene passes, which run on
+// the drawing threads at once, time themselves, and that thread adds their
+// times in (add_nanoseconds, count_packed_materials).
 #pragma once
 
 #include <array>
@@ -106,7 +108,9 @@ inline constexpr std::array<StageName, stage_count> stage_names{
 
 /// What the timers have summed since they were last cleared.
 struct Totals {
-    std::array<double, stage_count> milliseconds{}; ///< time in each stage
+    /// The time in each stage; for a scene pass that runs on the drawing
+    /// threads, the time it took on them.
+    std::array<double, stage_count> milliseconds{};
     /// Materials packed into the atlas afresh, by the stage open as each was
     /// packed, and their texels.
     std::array<double, stage_count> materials_packed{};
@@ -252,6 +256,30 @@ inline void count_packed_material(uint64_t texels) noexcept {
     const auto stage = static_cast<std::size_t>(timers.open);
     timers.totals.materials_packed[stage] += 1;
     timers.totals.texels_packed[stage] += static_cast<double>(texels);
+}
+
+/// Adds time a stage took on the drawing threads to it.
+///
+/// @param stage the stage
+/// @param nanoseconds the time it took
+inline void add_nanoseconds(Stage stage, uint64_t nanoseconds) noexcept {
+    if (timers.on)
+        timers.totals.milliseconds[static_cast<std::size_t>(stage)] +=
+            static_cast<double>(nanoseconds) / 1.0e6;
+}
+
+/// Counts materials a stage packed into the atlas afresh on the drawing
+/// threads against it.
+///
+/// @param stage the stage
+/// @param materials the materials
+/// @param texels their widths times their heights
+inline void count_packed_materials(Stage stage, uint64_t materials, uint64_t texels) noexcept {
+    if (!timers.on)
+        return;
+    timers.totals.materials_packed[static_cast<std::size_t>(stage)] +=
+        static_cast<double>(materials);
+    timers.totals.texels_packed[static_cast<std::size_t>(stage)] += static_cast<double>(texels);
 }
 
 /// Counts a terrain tile packed into the atlas.

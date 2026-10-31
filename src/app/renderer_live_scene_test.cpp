@@ -2698,8 +2698,8 @@ void frame_rows_hold_unit_shadows() {
     const uint32_t first_frame_row = scene.texture_height - scene.frame_rows;
     OA_CHECK(live::build(fixture.inputs, scene, fixture.error));
     OA_CHECK(scene.shadow_count == 1);
-    OA_CHECK(scene.frame_materials.size() == 1);
-    OA_CHECK(scene.frame_materials.begin()->second.y == first_frame_row);
+    OA_CHECK(scene.frame.materials.size() == 1);
+    OA_CHECK(scene.frame.materials.begin()->second.y == first_frame_row);
     // The shadow's rows, with the row on either side.
     OA_CHECK(scene.atlas_update.frame_first_row == first_frame_row - 1);
     OA_CHECK(scene.atlas_update.frame_end_row == first_frame_row + 9);
@@ -2751,14 +2751,14 @@ void frame_rows_grow_for_spilled_shadows() {
     scene.frame_rows = 16;
     OA_CHECK(live::build(fixture.inputs, scene, fixture.error));
     OA_CHECK(scene.shadow_count == 1);
-    OA_CHECK(scene.frame_materials.empty());
+    OA_CHECK(scene.frame.materials.empty());
     OA_CHECK(scene.frame_rows == 32);
     const auto materials = scene.materials.size();
     // The shadow changed: packed afresh, in the rows grown.
     state.image.pixels[0] = 0;
     OA_CHECK(live::build(fixture.inputs, scene, fixture.error));
-    OA_CHECK(scene.frame_materials.size() == 1);
-    OA_CHECK(scene.frame_materials.begin()->second.y == scene.texture_height - 32);
+    OA_CHECK(scene.frame.materials.size() == 1);
+    OA_CHECK(scene.frame.materials.begin()->second.y == scene.texture_height - 32);
     OA_CHECK(scene.materials.size() == materials);
     OA_CHECK(scene.frame_rows == 32);
 }
@@ -2810,7 +2810,7 @@ void aircraft_shadow_altitude() {
         oa::present::model::graphics_shadows | oa::present::model::graphics_vehicle_shadows;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.shadow_count == 1);
-    OA_CHECK(fixture.scene.aircraft_shadow_materials.size() == 1);
+    OA_CHECK(fixture.scene.frame.aircraft_shadows.size() == 1);
     for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
          ++i) {
         const auto& vertex = fixture.scene.vertices[i];
@@ -2850,7 +2850,7 @@ void aircraft_shadow_as_the_game_casts_it() {
     fixture.inputs.new_unit_shadows = false;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.shadow_count == 1);
-    OA_CHECK(fixture.scene.aircraft_shadow_materials.empty());
+    OA_CHECK(fixture.scene.frame.aircraft_shadows.empty());
     OA_CHECK(fixture.scene.vertices.size() > fixture.scene.terrain_vertex_count);
     for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
          ++i) {

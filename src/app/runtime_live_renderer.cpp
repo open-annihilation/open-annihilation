@@ -449,6 +449,7 @@ bool Runtime::render_live_match_surface() {
         inputs.new_unit_shadows = engine_settings().new_unit_shadows;
         // A recording draws each frame at the plan's detail.
         inputs.tiles_hold_while_moving = director_ == nullptr;
+        inputs.pool = draw_pool_.get();
         inputs.view_direction = {live.projection[8], live.projection[9], live.projection[10]};
         inputs.clip_projection = live.projection;
         inputs.clip_width = match_world_cpu_.width;

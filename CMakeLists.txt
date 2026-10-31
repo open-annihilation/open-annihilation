@@ -603,7 +603,8 @@ if(OA_BUILD_PLATFORM)
   add_library(oa::app::renderer_live ALIAS oa-app-renderer-live)
   target_include_directories(oa-app-renderer-live PUBLIC src/app)
   target_link_libraries(oa-app-renderer-live PUBLIC SDL3::SDL3 oa-app-headers
-    oa-app-full-models oa-formats-tnt oa-app-renderer-water PRIVATE oa-sim-visibility-state oa-options)
+    oa-app-full-models oa-formats-tnt oa-app-renderer-water oa-platform-job-pool
+    PRIVATE oa-sim-visibility-state oa-options)
   if(BUILD_TESTING)
     foreach(oa_live_part camera scene gpu)
       add_executable(oa-app-renderer-live-${oa_live_part}-test

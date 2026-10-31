@@ -343,6 +343,72 @@ void polygon(Scene& scene, std::span<const Vertex> vertices) {
         );
 }
 
+/// A material a pass running beside the others did not find packed: only
+/// the thread that builds the frame packs materials, in the passes' order,
+/// so the pass stops at the draw that needs it (PassList::stopped).
+class Unpacked : public std::exception {
+  public:
+
+    [[nodiscard]] const char* what() const noexcept override {
+        return "experimental scene pass needs a material not yet packed";
+    }
+};
+
+/// A scene pass at work: where it lists its triangles, and what it may do
+/// with the atlas.
+struct Pass {
+    Scene& scene;   ///< the atlas and the frame's ground
+    PassList& list; ///< where the pass lists its triangles
+    /// The pass may pack materials: it runs on the thread that builds the
+    /// frame, after the passes before it. Otherwise it only finds them, and
+    /// one it does not find stops it (Unpacked).
+    bool packing{};
+    /// The frame's vertices listed before the list, which the geometry
+    /// budget counts: none while the passes run at once, when the budget is
+    /// held to as their lists are joined (PassList::peak).
+    std::size_t listed_before{};
+    /// The frame's ground triangles as the foundations leave them, which
+    /// the cards standing up are lifted clear of.
+    std::span<const Vertex> ground{};
+};
+
+/// Makes room in a pass's list for more vertices within the frame's
+/// geometry budget, noting the most the list has held.
+///
+/// @param[in,out] pass the pass
+/// @param count the vertices to be added
+/// @return the list's vertices
+std::vector<Vertex>& listing(Pass& pass, std::size_t count) {
+    auto& list = pass.list;
+    const std::size_t held = list.vertices.size() + count;
+    list.peak = std::max(list.peak, held);
+    if (held > maximum_vertices - std::min(maximum_vertices, pass.listed_before))
+        throw GeometryFull();
+    return list.vertices;
+}
+
+/// Adds a triangle fan to a pass's list after checking the frame's memory budget.
+void polygon(Pass& pass, std::span<const Vertex> vertices) {
+    if (vertices.size() < 3)
+        return;
+    auto& listed = listing(pass, (vertices.size() - 2) * 3);
+    for (std::size_t corner = 1; corner + 1 < vertices.size(); ++corner)
+        listed.insert(listed.end(), {vertices[0], vertices[corner], vertices[corner + 1]});
+}
+
+/// Notes the draw a pass begins: should it stop in it (Unpacked), the draw
+/// is listed again from the start.
+///
+/// @param[in,out] pass the pass
+/// @param draw the draw's index among the pass's draws
+void begin_draw(Pass& pass, std::size_t draw) {
+    auto& list = pass.list;
+    list.stopped = draw;
+    list.draw_vertices = list.vertices.size();
+    list.draw_translucent = list.translucent_vertices.size();
+    list.draw_ranges = list.unit_ranges.size();
+}
+
 /// Mixes eight bytes into a digest at once: every bit of the word reaches
 /// every bit of the digest.
 ///
@@ -472,9 +538,10 @@ uint64_t material_digest(
 }
 
 /// Packs palette pixels with coverage and fog, sharing identical materials
-/// (material_digest).
+/// (material_digest). A pass that may not pack (Pass::packing) only finds
+/// them.
 AtlasRect material(
-    Scene& scene,
+    Pass& pass,
     const PaletteBytes& palette,
     uint32_t width,
     uint32_t height,
@@ -486,6 +553,7 @@ AtlasRect material(
     FlashStrength flash_strength = FlashStrength::full,
     bool alpha_coverage = false
 ) {
+    auto& scene = pass.scene;
     const std::size_t count = static_cast<std::size_t>(width) * height;
     if (width == 0 || height == 0 || pixels.size() < count ||
         (!coverage.empty() && coverage.size() < count))
@@ -508,7 +576,10 @@ AtlasRect material(
     );
     if (const auto found = scene.materials.find(digest); found != scene.materials.end())
         return found->second;
-    bench_timers::count_packed_material(uint64_t{width} * height);
+    if (!pass.packing)
+        throw Unpacked();
+    ++pass.list.materials_packed;
+    pass.list.texels_packed += uint64_t{width} * height;
     if (width > scene.texture_width || height > scene.texture_height)
         throw std::runtime_error("experimental material is larger than its atlas");
     if (scene.next_x + width > scene.texture_width) {
@@ -570,32 +641,25 @@ AtlasRect material(
     return rect;
 }
 
-/// Packs a black material that changes from frame to frame, the shadow a
-/// unit casts from its picture, into the rows kept for the frame's own
-/// materials (Scene::frame_rows); with the other materials when those rows
-/// are full or there are none.
+/// The digest a frame's own material is found by: material_digest of a
+/// black material of its coverage, which no palette changes.
 ///
-/// @param[in,out] scene the atlas
-/// @param palette the frame's palette, for a material packed with the others
+/// @param scene the frame
+/// @param palette the frame's palette
 /// @param width the material's width
 /// @param height its height
 /// @param coverage each texel's coverage, zero where clear
-/// @param alpha_coverage the coverage is each texel's alpha; otherwise a
-///     covered texel is opaque
-/// @return the material's rectangle, good for this frame
-AtlasRect frame_material(
-    Scene& scene,
+/// @param alpha_coverage the coverage is each texel's alpha
+/// @return the digest
+uint64_t frame_material_digest(
+    const Scene& scene,
     const PaletteBytes& palette,
     uint32_t width,
     uint32_t height,
     std::span<const uint8_t> coverage,
     bool alpha_coverage
 ) {
-    const std::size_t count = static_cast<std::size_t>(width) * height;
-    if (width == 0 || height == 0 || coverage.size() < count)
-        throw std::runtime_error("experimental scene received an invalid material");
-    coverage = coverage.first(count);
-    const uint64_t digest = material_digest(
+    return material_digest(
         scene,
         palette,
         width,
@@ -608,12 +672,62 @@ AtlasRect frame_material(
         FlashStrength::full,
         alpha_coverage
     );
-    if (const auto found = scene.frame_materials.find(digest); found != scene.frame_materials.end())
+}
+
+/// Writes a frame's own material into the rows kept for them, noting its
+/// rows among those the frame uploads.
+///
+/// @param[in,out] scene the atlas
+/// @param rect where the material goes
+/// @param coverage each texel's coverage, zero where clear
+/// @param alpha_coverage the coverage is each texel's alpha
+void write_frame_material(
+    Scene& scene, const AtlasRect& rect, std::span<const uint8_t> coverage, bool alpha_coverage
+) {
+    write_black(scene, rect, coverage, coverage, -1, alpha_coverage);
+    ++scene.texture_revision;
+    note_rows(scene, scene.atlas_update.frame_first_row, scene.atlas_update.frame_end_row, rect);
+}
+
+/// Packs a black material that changes from frame to frame, the shadow a
+/// unit casts from its picture, into the rows kept for the frame's own
+/// materials (Scene::frame_rows); with the other materials when those rows
+/// are full or there are none.
+///
+/// @param[in,out] pass the pass packing it, which may stop here when the
+///     material goes with the others (Unpacked)
+/// @param[in,out] frame the frame's own materials packed so far
+/// @param digest the material's digest (frame_material_digest)
+/// @param width the material's width
+/// @param height its height
+/// @param coverage each texel's coverage, zero where clear
+/// @param alpha_coverage the coverage is each texel's alpha; otherwise a
+///     covered texel is opaque
+/// @param[out] written the material is new in the rows: its texels are to
+///     be written there (write_frame_material), as the caller does
+/// @return the material's rectangle, good for this frame
+AtlasRect frame_material(
+    Pass& pass,
+    FramePacking& frame,
+    uint64_t digest,
+    uint32_t width,
+    uint32_t height,
+    std::span<const uint8_t> coverage,
+    bool alpha_coverage,
+    bool& written
+) {
+    auto& scene = pass.scene;
+    written = false;
+    const std::size_t count = static_cast<std::size_t>(width) * height;
+    if (width == 0 || height == 0 || coverage.size() < count)
+        throw std::runtime_error("experimental scene received an invalid material");
+    coverage = coverage.first(count);
+    if (const auto found = frame.materials.find(digest); found != frame.materials.end())
         return found->second;
-    scene.frame_material_area += uint64_t{width} * height;
-    uint32_t x = scene.frame_next_x;
-    uint32_t y = scene.frame_next_y;
-    uint32_t row_height = scene.frame_row_height;
+    frame.material_area += uint64_t{width} * height;
+    uint32_t x = frame.next_x;
+    uint32_t y = frame.next_y;
+    uint32_t row_height = frame.row_height;
     if (x + width > scene.texture_width) {
         x = 0;
         y += row_height;
@@ -621,12 +735,12 @@ AtlasRect frame_material(
     }
     if (width > scene.texture_width || y + height > scene.frame_rows ||
         scene.frame_rows >= scene.texture_height) {
-        scene.frame_spilled_area += uint64_t{width} * height;
+        frame.spilled_area += uint64_t{width} * height;
         // Measured with the frame's own materials, not twice.
         const uint64_t packed = scene.packed_material_area;
         const auto rect = material(
-            scene,
-            palette,
+            pass,
+            *scene.frame_palette,
             width,
             height,
             coverage,
@@ -640,23 +754,22 @@ AtlasRect frame_material(
         scene.packed_material_area = packed;
         return rect;
     }
-    bench_timers::count_packed_material(uint64_t{width} * height);
-    scene.frame_next_x = x + width;
-    scene.frame_next_y = y;
-    scene.frame_row_height = std::max(row_height, height);
+    ++pass.list.materials_packed;
+    pass.list.texels_packed += uint64_t{width} * height;
+    frame.next_x = x + width;
+    frame.next_y = y;
+    frame.row_height = std::max(row_height, height);
     const AtlasRect rect{x, kept_rows(scene) + y, width, height};
-    scene.frame_materials.emplace(digest, rect);
+    frame.materials.emplace(digest, rect);
     // Each material's place follows from the sizes of those packed before
     // it this frame, all of them in its digest: one packed in the same
     // place by an earlier frame, after the same ones, is still there.
-    const std::size_t index = scene.frame_packed++;
-    if (index < scene.frame_order.size() && scene.frame_order[index] == digest)
+    const std::size_t index = frame.packed++;
+    if (index < frame.order.size() && frame.order[index] == digest)
         return rect;
-    scene.frame_order.resize(index);
-    scene.frame_order.push_back(digest);
-    write_black(scene, rect, coverage, coverage, -1, alpha_coverage);
-    ++scene.texture_revision;
-    note_rows(scene, scene.atlas_update.frame_first_row, scene.atlas_update.frame_end_row, rect);
+    frame.order.resize(index);
+    frame.order.push_back(digest);
+    written = true;
     return rect;
 }
 
@@ -1497,7 +1610,7 @@ void draw_terrain(
                 );
                 if (scene.terrain_materials.size() >= maximum_cached_tiles && !scene.ground_kept)
                     drop_terrain_materials(scene, scene.terrain_passes);
-                scene.aircraft_shadow_materials.clear();
+                scene.frame.aircraft_shadows.clear();
                 auto& entry = scene.terrain_materials[key];
                 std::copy(pixels.begin(), pixels.end(), entry.pixels.begin());
                 entry.rectangle = rectangle;
@@ -1838,9 +1951,11 @@ void draw_terrain(
     scene.terrain_vertex_count = scene.vertices.size();
 }
 
-/// Emits the frame's ground (draw_terrain), or the kept ground again when
-/// it was drawn from the same, covers the frame's picture and its tiles
-/// keep their squares. While the camera moves (TerrainPlan::holding) the
+/// Emits the frame's ground (draw_terrain), or takes the kept ground again
+/// when it was drawn from the same, covers the frame's picture and its
+/// tiles keep their squares: that it leaves in Scene::ground_vertices, for
+/// the passes after it to list as the foundations leave it
+/// (run_passes). While the camera moves (TerrainPlan::holding) the
 /// ground is drawn beyond the picture by a margin and kept, so that the
 /// frames after it take it until their pictures move past the margin;
 /// otherwise it is kept once two frames running are drawn from the same,
@@ -1854,7 +1969,10 @@ void draw_terrain(
 /// @param camera_still the frame has a picture, which the camera drew the
 ///     last frame from too
 /// @param widen the ground may be drawn beyond the picture's margin
-void terrain(
+/// @return true when the frame's ground is the kept ground, not yet listed
+///     in Scene::vertices; its vertices are counted in
+///     Scene::terrain_vertex_count either way
+bool terrain(
     const Inputs& in,
     Scene& scene,
     const TerrainPlan& plan,
@@ -1892,10 +2010,9 @@ void terrain(
     // A settled camera's ground reaches no further than its picture's.
     if (same_source && same_picture && scene.ground_kept && ground_tiles_hold(in, scene, plan) &&
         (source.picture_margin == 0 || (plan.holding && widen))) {
-        scene.vertices.assign(scene.ground_vertices.begin(), scene.ground_vertices.end());
-        scene.terrain_vertex_count = scene.vertices.size();
+        scene.terrain_vertex_count = scene.ground_vertices.size();
         scene.ground_revision = scene.kept_ground_revision;
-        return;
+        return true;
     }
     scene.ground_kept = false;
     scene.ground_revision = new_ground_revision();
@@ -1930,6 +2047,7 @@ void terrain(
         scene.ground_kept = true;
         scene.kept_ground_revision = scene.ground_revision;
     }
+    return false;
 }
 
 /// Drapes a cutout over the exact terrain triangles, preserving its painted footprint.
@@ -1952,7 +2070,7 @@ void move_with_swells(const Inputs& in, Vertex& vertex) {
 
 void decal(
     const Inputs& in,
-    Scene& scene,
+    Pass& pass,
     const AtlasRect& rect,
     float left,
     float top,
@@ -1966,6 +2084,7 @@ void decal(
     const AtlasRect* grey = nullptr
 ) {
     constexpr float surface_lift = 0.05F;
+    const auto& scene = pass.scene;
     if (in.detail_scale > 0 && in.detail_scale < 1) {
         const float diameter =
             std::min(rect.width, rect.height) * in.detail_scale * footprint_scale;
@@ -2092,7 +2211,7 @@ void decal(
                     divisions <= 1) {
                     for (std::size_t corner = 0; corner < clipped.count; ++corner)
                         move_with_swells(in, corners[corner]);
-                    polygon(scene, std::span(corners).first(clipped.count));
+                    polygon(pass, std::span(corners).first(clipped.count));
                     continue;
                 }
                 const auto sample_point = [&](const Vertex& a,
@@ -2147,14 +2266,14 @@ void decal(
                                 )];
                             };
                             polygon(
-                                scene,
+                                pass,
                                 std::array{
                                     at(column, row), at(column + 1, row), at(column, row + 1)
                                 }
                             );
                             if (column + row + 1 < divisions)
                                 polygon(
-                                    scene,
+                                    pass,
                                     std::array{
                                         at(column + 1, row),
                                         at(column + 1, row + 1),
@@ -2167,13 +2286,29 @@ void decal(
         }
 }
 
-/// Restores the prepared image's real silhouette without synthesising a shape.
-void unit_shadows(const Inputs& in, Scene& scene) {
+/// The models' draws each band of the shadow pass reads and draws.
+constexpr std::size_t shadow_band_draws = 32;
+
+/// Reads the shadows a band of the models' draws casts from their units'
+/// pictures, restoring each picture's real silhouette without synthesising
+/// a shape: each shadow's material and where it lies, before the frame's
+/// own materials are packed (pack_shadows).
+///
+/// @param in the frame
+/// @param scene the frame, for the materials' digests
+/// @param[out] band the band's shadows, read afresh
+/// @param first the band's first draw in WorldDrawList::models
+/// @param last the draw after its last
+void read_shadows(
+    const Inputs& in, const Scene& scene, ShadowBand& band, std::size_t first, std::size_t last
+) {
+    band.pictures.clear();
+    band.texels.clear();
+    band.failure = nullptr;
     if ((in.graphics_flags & model::graphics_shadows) == 0 || in.draws->shadow_level == 0)
         return;
-    const float opacity = 0.5F * std::min(in.draws->shadow_level, model::shadow_full_level) /
-                          model::shadow_full_level;
-    for (const auto& draw : in.draws->models) {
+    for (std::size_t index = first; index < last; ++index) {
+        const auto& draw = in.draws->models[index];
         const auto& ref = draw.model;
         const Unit* unit = ref.unit;
         if (draw.stand_in >= 0 &&
@@ -2207,7 +2342,8 @@ void unit_shadows(const Inputs& in, Scene& scene) {
             shadow_x >= std::ceil(float(in.right) / cell_edge) * cell_edge ||
             shadow_y >= std::ceil(float(in.bottom) / cell_edge) * cell_edge)
             continue;
-        std::vector<uint8_t> pixels(count, image.key);
+        auto& pixels = band.pixels;
+        pixels.assign(count, image.key);
         if (image.encoding == OA_SPRITE_RAW) {
             if (source.pixels.size() < count)
                 continue;
@@ -2220,7 +2356,10 @@ void unit_shadows(const Inputs& in, Scene& scene) {
                 continue;
         } else
             continue;
-        std::vector<uint8_t> coverage(count);
+        // The coverage goes after the band's other materials.
+        const std::size_t start = band.texels.size();
+        band.texels.resize(start + count);
+        const auto coverage = std::span(band.texels).subspan(start, count);
         const int32_t unit_height = position.y / 65536;
         const int32_t lift = std::max(0, in.sea_level - unit_height);
         const int32_t threshold = digger ? model::model_depth_base + model::digger_depth_bias
@@ -2236,6 +2375,8 @@ void unit_shadows(const Inputs& in, Scene& scene) {
         const float altitude = std::max(0.0F, position.y / fixed_scale - receiver);
         const bool aircraft =
             in.new_unit_shadows && (flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 && altitude > 0;
+        ShadowPicture picture;
+        picture.texels = start;
         if (aircraft && image.width <= 256 && image.height <= 256) {
             const uint32_t radius = renderer_aircraft_shadow::edge_radius(altitude);
             uint64_t key = hash_start;
@@ -2243,28 +2384,139 @@ void unit_shadows(const Inputs& in, Scene& scene) {
             key = mix_word(key, image.height);
             key = mix_word(key, radius);
             key = mix_bytes(key, coverage);
-            auto cached = scene.aircraft_shadow_materials.find(key);
-            if (cached == scene.aircraft_shadow_materials.end()) {
-                auto alpha =
-                    renderer_aircraft_shadow::soften(coverage, image.width, image.height, radius);
-                const uint32_t width = image.width + radius * 4;
-                const uint32_t height = image.height + radius * 4;
-                const auto rectangle =
-                    frame_material(scene, *in.palette, width, height, alpha, true);
-                cached = scene.aircraft_shadow_materials.emplace(key, rectangle).first;
-            }
+            // The blurred silhouette takes the coverage's place.
+            const auto alpha =
+                renderer_aircraft_shadow::soften(coverage, image.width, image.height, radius);
+            band.texels.resize(start);
+            band.texels.insert(band.texels.end(), alpha.begin(), alpha.end());
             const float padding = static_cast<float>(radius) * 2.0F;
-            const float left =
+            picture.width = image.width + radius * 4;
+            picture.height = image.height + radius * 4;
+            picture.aircraft_key = key;
+            picture.left =
                 position.x / fixed_scale + model::shadow_offset_x - (image.origin_x + padding);
-            const float top =
+            picture.top =
                 position.z / fixed_scale - receiver * height_lift - (image.origin_y + padding);
-            decal(in, scene, cached->second, left, top, opacity, true, nullptr, 1, true, true);
+            picture.soft = true;
+            picture.digest = frame_material_digest(
+                scene, *in.palette, picture.width, picture.height, alpha, true
+            );
         } else {
-            const auto rect =
-                frame_material(scene, *in.palette, image.width, image.height, coverage, false);
-            decal(in, scene, rect, shadow_x, shadow_y, opacity, true);
+            picture.width = image.width;
+            picture.height = image.height;
+            picture.left = shadow_x;
+            picture.top = shadow_y;
+            picture.digest = frame_material_digest(
+                scene, *in.palette, picture.width, picture.height, coverage, false
+            );
         }
-        ++scene.shadow_count;
+        band.pictures.push_back(picture);
+    }
+}
+
+/// Packs a band's shadows' materials among the frame's own, in the band's
+/// order (frame_material): an aircraft's soft shadow cast before by the
+/// same silhouette, blurred alike, takes the same material.
+///
+/// @param[in,out] pass the shadow pass: one that may not pack the other
+///     materials stops at a shadow whose material goes with them, or that
+///     fails
+/// @param[in,out] frame the frame's own materials packed so far
+/// @param[in,out] band the band, each shadow packed given its rectangle
+/// @param band_index the band's place among the pass's bands
+/// @param first the first shadow to pack
+/// @param last the shadow after the last
+/// @param[out] writes the materials new in the rows, whose texels are
+///     written once the passes before are joined; null writes them now
+/// @return the first shadow not packed, last once all are
+std::size_t pack_shadows(
+    Pass& pass,
+    FramePacking& frame,
+    ShadowBand& band,
+    std::size_t band_index,
+    std::size_t first,
+    std::size_t last,
+    std::vector<FrameWrite>* writes
+) {
+    for (std::size_t index = first; index < last; ++index) {
+        auto& picture = band.pictures[index];
+        const auto texels =
+            std::span<const uint8_t>(band.texels)
+                .subspan(picture.texels, static_cast<std::size_t>(picture.width) * picture.height);
+        if (picture.soft) {
+            const auto found = frame.aircraft_shadows.find(picture.aircraft_key);
+            if (found != frame.aircraft_shadows.end()) {
+                picture.rectangle = found->second;
+                continue;
+            }
+        }
+        // A shadow that stops the pass is packed again from the start, by
+        // the thread that builds the frame, which raises any failure in it
+        // in the passes' order.
+        const uint64_t material_area = frame.material_area;
+        const uint64_t spilled_area = frame.spilled_area;
+        bool written{};
+        try {
+            picture.rectangle = frame_material(
+                pass,
+                frame,
+                picture.digest,
+                picture.width,
+                picture.height,
+                texels,
+                picture.soft,
+                written
+            );
+        } catch (...) {
+            if (pass.packing)
+                throw;
+            frame.material_area = material_area;
+            frame.spilled_area = spilled_area;
+            return index;
+        }
+        if (picture.soft)
+            frame.aircraft_shadows.emplace(picture.aircraft_key, picture.rectangle);
+        if (!written)
+            continue;
+        if (writes != nullptr)
+            writes->push_back({picture.rectangle, band_index, picture.texels, picture.soft});
+        else
+            write_frame_material(pass.scene, picture.rectangle, texels, picture.soft);
+    }
+    return last;
+}
+
+/// Lays a band's packed shadows on the ground under their units.
+///
+/// @param in the frame
+/// @param[in,out] pass the shadow pass, listing the band
+/// @param band the band, its shadows packed
+/// @param first the first shadow to lay
+/// @param last the shadow after the last
+void draw_shadows(
+    const Inputs& in, Pass& pass, const ShadowBand& band, std::size_t first, std::size_t last
+) {
+    const float opacity = 0.5F * std::min(in.draws->shadow_level, model::shadow_full_level) /
+                          model::shadow_full_level;
+    for (std::size_t index = first; index < last; ++index) {
+        const auto& picture = band.pictures[index];
+        if (picture.soft)
+            decal(
+                in,
+                pass,
+                picture.rectangle,
+                picture.left,
+                picture.top,
+                opacity,
+                true,
+                nullptr,
+                1,
+                true,
+                true
+            );
+        else
+            decal(in, pass, picture.rectangle, picture.left, picture.top, opacity, true);
+        ++pass.list.drawn;
     }
 }
 
@@ -2405,24 +2657,53 @@ BasePiece base_piece(const ModelDraw& draw, float x, float z) {
     return result;
 }
 
-/// Levels only drawn ground structures' foundations, without changing map or unit records.
-///
-/// The ground under a structure's footprint, and under its base piece where
-/// that reaches past the footprint, lies flat a little below the structure's
-/// height, or below its base piece's lowest corner where that is lower, so
-/// that no part of the base is hidden at any angle; it rises back to the
-/// terrain over one cell around. Ground decals share the split geometry and
-/// keep their small lift above the levelled ground.
-///
-/// The kept ground is cut once for each set of plots: a frame that takes
-/// it, with the plots the frame before cut into it, takes that cut ground
-/// and its revision, and cuts only its decals.
-void foundations(const Inputs& in, Scene& scene) {
-    constexpr float blend_width = cell_edge;
-    constexpr float ground_separation = 0.1F;
-    constexpr float decal_lift = 0.05F;
+/// Where the frame's drawn structures level the ground: their plots,
+/// sorted, with an index of them by place so that each triangle cut visits
+/// only the structures near it. Very large plots retain a bounded global
+/// fallback.
+struct Plots {
+    std::vector<Foundation> plots{};
+    /// The plots that reach each bin of the map, in plot order, by
+    /// plot_bin_key.
+    std::unordered_map<uint64_t, std::vector<std::size_t>> bins{};
+    std::vector<std::size_t> global{}; ///< the plots every triangle visits
+    /// The bounds of every plot with the ground blended around it.
+    float left{};
+    float right{};
+    float top{};
+    float bottom{};
+};
 
-    std::vector<Foundation> plots;
+/// The ground rises back to the terrain over this many map pixels around a plot.
+constexpr float plot_blend_width = cell_edge;
+
+/// A plot bin's edge, in map pixels.
+constexpr float plot_bin_edge = 128;
+
+/// The most bins one plot is listed in; a larger one is visited by every triangle.
+constexpr std::size_t maximum_plot_bins = 64;
+
+/// @param coordinate a map column, or a world row
+/// @return the bin holding it along its axis
+int32_t plot_bin(float coordinate) {
+    return static_cast<int32_t>(std::floor(coordinate / plot_bin_edge));
+}
+
+/// @param x a bin along the map's columns
+/// @param y a bin along its world rows
+/// @return the bin's key in Plots::bins
+uint64_t plot_bin_key(int32_t x, int32_t y) {
+    return (uint64_t{static_cast<uint32_t>(y)} << 32) | static_cast<uint32_t>(x);
+}
+
+/// Lists the plots of the frame's drawn structures on the ground
+/// (foundations), without changing map or unit records.
+///
+/// @param in the frame
+/// @param[out] plots the plots, sorted and indexed; none when no structure
+///     levels the ground
+void plan_plots(const Inputs& in, Plots& plots) {
+    plots = {};
     for (const auto& draw : in.draws->models) {
         const auto* unit = draw.model.unit;
         if (draw.stand_in >= 0) {
@@ -2458,103 +2739,131 @@ void foundations(const Inputs& in, Scene& scene) {
         const float right = std::max(centre_x + half_width, footing.right);
         const float top = std::min(centre_y - half_depth, footing.top);
         const float bottom = std::max(centre_y + half_depth, footing.bottom);
-        plots.push_back({left, right, top, bottom, height - footing.depth});
+        plots.plots.push_back({left, right, top, bottom, height - footing.depth});
     }
-    if (plots.empty())
+    auto& sorted = plots.plots;
+    if (sorted.empty())
         return;
-    std::sort(plots.begin(), plots.end(), [](const Foundation& a, const Foundation& b) {
+    std::sort(sorted.begin(), sorted.end(), [](const Foundation& a, const Foundation& b) {
         return std::array{a.left, a.right, a.top, a.bottom, a.height} <
                std::array{b.left, b.right, b.top, b.bottom, b.height};
     });
-    // Index expanded footprints so each ground triangle visits only nearby
-    // structures. Very large plots retain a bounded global fallback.
-    constexpr float bin_edge = 128;
-    constexpr std::size_t maximum_plot_bins = 64;
-    const auto bin = [](float coordinate) {
-        return static_cast<int32_t>(std::floor(coordinate / bin_edge));
-    };
-    const auto key = [](int32_t x, int32_t y) {
-        return (uint64_t{static_cast<uint32_t>(y)} << 32) | static_cast<uint32_t>(x);
-    };
-    std::unordered_map<uint64_t, std::vector<std::size_t>> bins;
-    std::vector<std::size_t> global;
     std::size_t references{};
-    for (std::size_t index = 0; index < plots.size(); ++index) {
-        const auto& plot = plots[index];
-        const int32_t x0 = bin(plot.left - blend_width), x1 = bin(plot.right + blend_width);
-        const int32_t y0 = bin(plot.top - blend_width), y1 = bin(plot.bottom + blend_width);
+    for (std::size_t index = 0; index < sorted.size(); ++index) {
+        const auto& plot = sorted[index];
+        const int32_t x0 = plot_bin(plot.left - plot_blend_width);
+        const int32_t x1 = plot_bin(plot.right + plot_blend_width);
+        const int32_t y0 = plot_bin(plot.top - plot_blend_width);
+        const int32_t y1 = plot_bin(plot.bottom + plot_blend_width);
         const auto count = static_cast<uint64_t>(int64_t{x1} - x0 + 1) *
                            static_cast<uint64_t>(int64_t{y1} - y0 + 1);
         if (count > maximum_plot_bins || count + references > maximum_vertices) {
-            global.push_back(index);
+            plots.global.push_back(index);
             continue;
         }
         references += static_cast<std::size_t>(count);
         for (int32_t y = y0; y <= y1; ++y)
             for (int32_t x = x0; x <= x1; ++x)
-                bins[key(x, y)].push_back(index);
+                plots.bins[plot_bin_key(x, y)].push_back(index);
     }
-    std::vector<std::size_t> indices;
-    const auto nearby =
-        [&](float min_x, float max_x, float min_y, float max_y) -> std::span<const std::size_t> {
-        const int32_t x0 = bin(min_x), x1 = bin(max_x), y0 = bin(min_y), y1 = bin(max_y);
-        // Most triangles occupy one bin. Its entries already follow plot order.
-        if (x0 == x1 && y0 == y1 && global.empty()) {
-            if (const auto found = bins.find(key(x0, y0)); found != bins.end())
-                return found->second;
-            return {};
-        }
-        indices.assign(global.begin(), global.end());
-        const auto count = static_cast<uint64_t>(int64_t{x1} - x0 + 1) *
-                           static_cast<uint64_t>(int64_t{y1} - y0 + 1);
-        if (count > maximum_plot_bins) {
-            indices.resize(plots.size());
-            for (std::size_t i = 0; i < plots.size(); ++i)
-                indices[i] = i;
-            return indices;
-        }
-        for (int32_t y = y0; y <= y1; ++y)
-            for (int32_t x = x0; x <= x1; ++x)
-                if (const auto found = bins.find(key(x, y)); found != bins.end())
-                    indices.insert(indices.end(), found->second.begin(), found->second.end());
-        std::sort(indices.begin(), indices.end());
-        indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+    plots.left = sorted[0].left - plot_blend_width;
+    plots.right = sorted[0].right + plot_blend_width;
+    plots.top = sorted[0].top - plot_blend_width;
+    plots.bottom = sorted[0].bottom + plot_blend_width;
+    for (const auto& plot : sorted) {
+        plots.left = std::min(plots.left, plot.left - plot_blend_width);
+        plots.right = std::max(plots.right, plot.right + plot_blend_width);
+        plots.top = std::min(plots.top, plot.top - plot_blend_width);
+        plots.bottom = std::max(plots.bottom, plot.bottom + plot_blend_width);
+    }
+}
+
+/// Finds the plots whose bins an area reaches, in plot order.
+///
+/// @param plots the frame's plots
+/// @param[in,out] indices memory for the plots of an area of several bins
+/// @param min_x the area's least map column
+/// @param max_x its greatest
+/// @param min_y its least world row
+/// @param max_y its greatest
+/// @return the plots, good until indices changes
+std::span<const std::size_t> nearby_plots(
+    const Plots& plots,
+    std::vector<std::size_t>& indices,
+    float min_x,
+    float max_x,
+    float min_y,
+    float max_y
+) {
+    const int32_t x0 = plot_bin(min_x), x1 = plot_bin(max_x);
+    const int32_t y0 = plot_bin(min_y), y1 = plot_bin(max_y);
+    // Most triangles occupy one bin. Its entries already follow plot order.
+    if (x0 == x1 && y0 == y1 && plots.global.empty()) {
+        if (const auto found = plots.bins.find(plot_bin_key(x0, y0)); found != plots.bins.end())
+            return found->second;
+        return {};
+    }
+    indices.assign(plots.global.begin(), plots.global.end());
+    const auto count =
+        static_cast<uint64_t>(int64_t{x1} - x0 + 1) * static_cast<uint64_t>(int64_t{y1} - y0 + 1);
+    if (count > maximum_plot_bins) {
+        indices.resize(plots.plots.size());
+        for (std::size_t i = 0; i < plots.plots.size(); ++i)
+            indices[i] = i;
         return indices;
-    };
-    float plot_left = plots[0].left - blend_width, plot_right = plots[0].right + blend_width;
-    float plot_top = plots[0].top - blend_width, plot_bottom = plots[0].bottom + blend_width;
-    for (const auto& plot : plots) {
-        plot_left = std::min(plot_left, plot.left - blend_width);
-        plot_right = std::max(plot_right, plot.right + blend_width);
-        plot_top = std::min(plot_top, plot.top - blend_width);
-        plot_bottom = std::max(plot_bottom, plot.bottom + blend_width);
     }
-    std::vector<std::array<std::size_t, 2>> affected_ranges;
-    const auto source = scene.ground_revision;
-    const bool kept = scene.ground_kept && source == scene.kept_ground_revision;
-    const bool cut_before = kept && scene.cut_source == source && scene.cut_plots == plots;
-    auto terrain_end = scene.terrain_vertex_count;
-    if (cut_before) {
-        // Only the decals after the ground are cut.
-        scene.foundation_vertices.assign(
-            scene.vertices.begin() + static_cast<std::ptrdiff_t>(terrain_end), scene.vertices.end()
-        );
-        scene.vertices.assign(scene.cut_ground.begin(), scene.cut_ground.end());
-        scene.terrain_vertex_count = scene.vertices.size();
-        scene.ground_revision = scene.cut_revision;
-        terrain_end = 0;
-    } else {
-        scene.foundation_vertices.swap(scene.vertices);
-        scene.vertices.clear();
-        scene.vertices.reserve(scene.foundation_vertices.size());
-    }
-    const auto& previous = scene.foundation_vertices;
-    bool ground_cut{};
-    // The pieces of the triangle being cut, and those of its next split:
-    // each piece's storage is kept from split to split and from triangle to
-    // triangle, so that cutting allocates almost nothing.
-    std::vector<std::vector<Vertex>> pieces;
-    std::vector<std::vector<Vertex>> split;
+    for (int32_t y = y0; y <= y1; ++y)
+        for (int32_t x = x0; x <= x1; ++x)
+            if (const auto found = plots.bins.find(plot_bin_key(x, y)); found != plots.bins.end())
+                indices.insert(indices.end(), found->second.begin(), found->second.end());
+    std::sort(indices.begin(), indices.end());
+    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+    return indices;
+}
+
+/// What a thread cutting plots keeps from triangle to triangle and from
+/// frame to frame, so that cutting allocates almost nothing.
+struct PlotCutting {
+    std::vector<std::size_t> indices{}; ///< nearby_plots' memory
+    /// The pieces of the triangle being cut, and those of its next split.
+    std::vector<std::vector<Vertex>> pieces{};
+    std::vector<std::vector<Vertex>> split{};
+    /// The vertices listed for the triangles a plot reached.
+    std::vector<std::array<std::size_t, 2>> affected_ranges{};
+};
+
+/// Cuts the frame's plots into triangles of the ground, or of what lies on
+/// it, and levels them there (foundations). Each triangle a plot reaches is
+/// split at the plot's edges and the blend's, and its pieces take its
+/// place; the others are copied as they are. Each triangle is cut alone,
+/// so a run of triangles cut in parts gives the triangles it gives whole.
+///
+/// The ground under a plot lies flat a little below the structure's
+/// height, or below its base piece's lowest corner where that is lower, so
+/// that no part of the base is hidden at any angle; it rises back to the
+/// terrain over one cell around. Ground decals share the split geometry and
+/// keep their small lift above the levelled ground.
+///
+/// @param plots the frame's plots, at least one
+/// @param source the triangles
+/// @param decals the triangles lie on the ground, rather than being it
+/// @param[in,out] out where the triangles go, after what it holds already:
+///     a whole number of triangles
+/// @return true when a plot reached any of the triangles
+bool cut_plots(
+    const Plots& plots, std::span<const Vertex> source, bool decals, std::vector<Vertex>& out
+) {
+    constexpr float blend_width = plot_blend_width;
+    constexpr float ground_separation = 0.1F;
+    constexpr float decal_lift = 0.05F;
+    thread_local PlotCutting cutting;
+    auto& indices = cutting.indices;
+    auto& pieces = cutting.pieces;
+    auto& split = cutting.split;
+    auto& affected_ranges = cutting.affected_ranges;
+    affected_ranges.clear();
+    const auto& sorted = plots.plots;
+    bool reached{};
     std::size_t piece_count{};
     std::size_t split_count{};
     const auto next_split = [&split, &split_count]() -> std::vector<Vertex>& {
@@ -2562,22 +2871,20 @@ void foundations(const Inputs& in, Scene& scene) {
             split.emplace_back();
         return split[split_count++];
     };
+    const auto fan = [&out](std::span<const Vertex> corners) {
+        if (corners.size() < 3)
+            return;
+        for (std::size_t corner = 1; corner + 1 < corners.size(); ++corner)
+            out.insert(out.end(), {corners[0], corners[corner], corners[corner + 1]});
+    };
     std::size_t pending_begin{};
-    // Most geometry lies outside foundations. Copy each untouched run once,
-    // retaining the precise terrain/decal boundary even when the run crosses it.
+    // Most geometry lies outside foundations. Copy each untouched run once.
     const auto copy_pending = [&](std::size_t end) {
-        const auto count = end - pending_begin;
-        if (scene.vertices.size() + count > maximum_vertices)
-            throw GeometryFull();
-        if (pending_begin < terrain_end && end >= terrain_end)
-            scene.terrain_vertex_count = scene.vertices.size() + terrain_end - pending_begin;
-        scene.vertices.insert(
-            scene.vertices.end(), previous.begin() + pending_begin, previous.begin() + end
-        );
+        out.insert(out.end(), source.begin() + pending_begin, source.begin() + end);
         pending_begin = end;
     };
-    for (std::size_t first = 0; first + 2 < previous.size(); first += 3) {
-        const auto triangle = std::span(previous).subspan(first, 3);
+    for (std::size_t first = 0; first + 2 < source.size(); first += 3) {
+        const auto triangle = source.subspan(first, 3);
         float min_x = triangle[0].x, max_x = min_x;
         float min_y = triangle[0].z, max_y = min_y;
         for (const auto& vertex : triangle) {
@@ -2587,14 +2894,14 @@ void foundations(const Inputs& in, Scene& scene) {
             min_y = std::min(min_y, y);
             max_y = std::max(max_y, y);
         }
-        if (max_x <= plot_left || min_x >= plot_right || max_y <= plot_top ||
-            min_y >= plot_bottom) {
+        if (max_x <= plots.left || min_x >= plots.right || max_y <= plots.top ||
+            min_y >= plots.bottom) {
             continue;
         }
         piece_count = 0;
         bool affected{};
-        for (const auto plot_index : nearby(min_x, max_x, min_y, max_y)) {
-            const auto& [left, right, top, bottom, height] = plots[plot_index];
+        for (const auto plot_index : nearby_plots(plots, indices, min_x, max_x, min_y, max_y)) {
+            const auto& [left, right, top, bottom, height] = sorted[plot_index];
             if (max_x <= left - blend_width || min_x >= right + blend_width ||
                 max_y <= top - blend_width || min_y >= bottom + blend_width)
                 continue;
@@ -2644,41 +2951,36 @@ void foundations(const Inputs& in, Scene& scene) {
         }
         if (!affected)
             continue;
-        ground_cut |= first < terrain_end;
+        reached = true;
         copy_pending(first);
-        const auto output_begin = scene.vertices.size();
+        const auto output_begin = out.size();
         if (piece_count == 0)
-            polygon(scene, triangle);
+            fan(triangle);
         else
             for (std::size_t index = 0; index < piece_count; ++index)
-                polygon(scene, pieces[index]);
-        if (affected) {
-            if (!affected_ranges.empty() && affected_ranges.back()[1] == output_begin)
-                affected_ranges.back()[1] = scene.vertices.size();
-            else
-                affected_ranges.push_back({output_begin, scene.vertices.size()});
-        }
+                fan(pieces[index]);
+        if (!affected_ranges.empty() && affected_ranges.back()[1] == output_begin)
+            affected_ranges.back()[1] = out.size();
+        else
+            affected_ranges.push_back({output_begin, out.size()});
         pending_begin = first + 3;
-        if (pending_begin == terrain_end)
-            scene.terrain_vertex_count = scene.vertices.size();
     }
-    copy_pending(previous.size());
-    // A plot cut into the ground makes it new.
-    if (ground_cut)
-        scene.ground_revision = new_ground_revision();
+    copy_pending(source.size());
     // Blend once from the original terrain. An interior always wins over a
     // neighbouring skirt; tied skirts choose a stable height, not draw order.
     std::span<const std::size_t> candidates;
     for (const auto& range : affected_ranges)
         for (std::size_t index = range[0]; index < range[1]; ++index) {
             if (index % 3 == 0) {
-                const auto& a = scene.vertices[index];
-                const auto& b = scene.vertices[index + 1];
-                const auto& c = scene.vertices[index + 2];
+                const auto& a = out[index];
+                const auto& b = out[index + 1];
+                const auto& c = out[index + 2];
                 const float ay = a.z;
                 const float by = b.z;
                 const float cy = c.z;
-                candidates = nearby(
+                candidates = nearby_plots(
+                    plots,
+                    indices,
                     std::min({a.x, b.x, c.x}),
                     std::max({a.x, b.x, c.x}),
                     std::min({ay, by, cy}),
@@ -2687,17 +2989,17 @@ void foundations(const Inputs& in, Scene& scene) {
             }
             if (candidates.empty())
                 continue;
-            auto& vertex = scene.vertices[index];
+            auto& vertex = out[index];
             const float y = vertex.z;
             float strongest{}, target{};
             const std::size_t first = index / 3 * 3;
             float centre_x{}, centre_y{};
             for (std::size_t corner = first; corner < first + 3; ++corner) {
-                centre_x += scene.vertices[corner].x / 3;
-                centre_y += scene.vertices[corner].z / 3;
+                centre_x += out[corner].x / 3;
+                centre_y += out[corner].z / 3;
             }
             for (const auto plot_index : candidates) {
-                const auto& plot = plots[plot_index];
+                const auto& plot = sorted[plot_index];
                 if (centre_x > plot.left && centre_x < plot.right && centre_y > plot.top &&
                     centre_y < plot.bottom) {
                     strongest = 1;
@@ -2720,19 +3022,11 @@ void foundations(const Inputs& in, Scene& scene) {
             if (strongest == 0)
                 continue;
             target -= ground_separation;
-            if (index >= scene.terrain_vertex_count)
+            if (decals)
                 target += decal_lift;
             vertex.height = std::lerp(vertex.height, target, strongest);
         }
-    if (kept && !cut_before) {
-        scene.cut_ground.assign(
-            scene.vertices.begin(),
-            scene.vertices.begin() + static_cast<std::ptrdiff_t>(scene.terrain_vertex_count)
-        );
-        scene.cut_plots = std::move(plots);
-        scene.cut_source = source;
-        scene.cut_revision = scene.ground_revision;
-    }
+    return reached;
 }
 
 /// Rejects the back of a model face, including opposite faces sharing one plane.
@@ -2754,7 +3048,7 @@ bool back_facing(std::span<const Vertex> corners, const std::array<float, 3>& vi
 /// Draws each source polygon edge as a narrow camera-facing nanoframe ribbon.
 void nanoframe(
     const Inputs& in,
-    Scene& scene,
+    Pass& pass,
     std::span<const Vertex> corners,
     float remaining,
     std::optional<AtlasRect>& cached
@@ -2765,7 +3059,7 @@ void nanoframe(
     palette[2] = 80;
     constexpr std::array<uint8_t, 1> pixel{0};
     if (!cached)
-        cached = material(scene, palette, 1, 1, pixel, {}, -1, Fog::seen);
+        cached = material(pass, palette, 1, 1, pixel, {}, -1, Fog::seen);
     const auto rect = *cached;
     auto view = in.view_direction;
     if (view == std::array<float, 3>{})
@@ -2790,14 +3084,14 @@ void nanoframe(
             result.x += side[0] * sign;
             result.height += side[1] * sign;
             result.z += side[2] * sign;
-            result.u = (rect.x + 0.5F) / scene.texture_width;
-            result.v = (rect.y + 0.5F) / scene.texture_height;
+            result.u = (rect.x + 0.5F) / pass.scene.texture_width;
+            result.v = (rect.y + 0.5F) / pass.scene.texture_height;
             result.opacity = std::min(1.0F, remaining * 4);
             result.red = result.green = result.blue = 1;
             return result;
         };
         const std::array ribbon{point(a, -1), point(b, -1), point(b, 1), point(a, 1)};
-        polygon(scene, ribbon);
+        polygon(pass, ribbon);
     }
 }
 
@@ -2820,7 +3114,11 @@ Vertex water_edge(const Vertex& a, const Vertex& b, float t) {
 }
 
 /// Clips a triangle to positive water depth, including the shoreline intersection.
-void wet_polygon(Scene& scene, const std::array<Vertex, 3>& triangle) {
+///
+/// @param[in,out] listing the scene, or a pass, the triangle is listed in
+/// @param triangle the triangle
+template <typename Listing>
+void wet_polygon(Listing& listing, const std::array<Vertex, 3>& triangle) {
     std::array<Vertex, 6> clipped{};
     std::size_t count{};
     auto previous = triangle.back();
@@ -2835,7 +3133,7 @@ void wet_polygon(Scene& scene, const std::array<Vertex, 3>& triangle) {
             clipped[count++] = current;
         previous = current;
     }
-    polygon(scene, {clipped.data(), count});
+    polygon(listing, {clipped.data(), count});
 }
 
 /// Samples the height grid continuously so reflected triangles cannot bridge a beach.
@@ -2860,7 +3158,7 @@ float water_depth(const Inputs& in, float x, float z) {
 /// Subdivides only large reflected faces before clipping against shallow coast relief.
 void reflection_triangle(
     const Inputs& in,
-    Scene& scene,
+    Pass& pass,
     std::array<Vertex, 3> triangle,
     uint32_t depth,
     std::size_t& remaining
@@ -2884,8 +3182,8 @@ void reflection_triangle(
         auto second = triangle;
         first[edge] = middle;
         second[(edge + 1) % 3] = middle;
-        reflection_triangle(in, scene, first, depth + 1, remaining);
-        reflection_triangle(in, scene, second, depth + 1, remaining);
+        reflection_triangle(in, pass, first, depth + 1, remaining);
+        reflection_triangle(in, pass, second, depth + 1, remaining);
         return;
     }
     for (auto& vertex : triangle) {
@@ -2893,14 +3191,14 @@ void reflection_triangle(
         vertex.brightness *=
             brightness_at(in.sight, vertex.x, vertex.z - in.sea_level * height_lift);
     }
-    const auto begin = scene.vertices.size();
-    wet_polygon(scene, triangle);
-    remaining -= scene.vertices.size() - begin;
+    const auto begin = pass.list.vertices.size();
+    wet_polygon(pass, triangle);
+    remaining -= pass.list.vertices.size() - begin;
 }
 
 /// Mirrors visible floating hulls onto water without a second scene render pass.
 void naval_reflection(
-    const Inputs& in, Scene& scene, std::span<const Vertex> source, std::size_t& budget
+    const Inputs& in, Pass& pass, std::span<const Vertex> source, std::size_t& budget
 ) {
     const float elevation = std::abs(in.view_direction[1]);
     const float horizon = std::clamp((elevation - 0.01F) / 0.14F, 0.0F, 1.0F);
@@ -2951,7 +3249,7 @@ void naval_reflection(
         }
         for (std::size_t corner = 1; corner + 1 < count; ++corner)
             reflection_triangle(
-                in, scene, {clipped[0], clipped[corner], clipped[corner + 1]}, 0, budget
+                in, pass, {clipped[0], clipped[corner], clipped[corner + 1]}, 0, budget
             );
     }
 }
@@ -2986,7 +3284,13 @@ bool shows_first_frame(
 }
 
 /// Uses the actual animated, rotated model vertices prepared for this frame.
-void models(const Inputs& in, Scene& scene) {
+///
+/// @param in the frame
+/// @param[in,out] pass the models pass
+/// @param first the first draw listed, in WorldDrawList::models
+/// @param last the draw after the last
+void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
+    auto& list = pass.list;
     std::size_t reflection_budget = 24576;
     std::array<std::optional<AtlasRect>, 256> colors;
     std::unordered_map<const Sprite*, AtlasRect> textures;
@@ -3038,10 +3342,12 @@ void models(const Inputs& in, Scene& scene) {
             );
         }
     }
-    for (const auto& draw : in.draws->models) {
+    for (std::size_t draw_index = first; draw_index < last; ++draw_index) {
+        begin_draw(pass, draw_index);
+        const auto& draw = in.draws->models[draw_index];
         if (!draw.plan.linked.drawn)
             continue;
-        const std::size_t first_vertex = scene.vertices.size();
+        const std::size_t first_vertex = list.vertices.size();
         const auto& reference = draw.model;
         const Unit* unit = reference.unit;
         if (draw.stand_in >= 0 &&
@@ -3212,14 +3518,14 @@ void models(const Inputs& in, Scene& scene) {
                     if (!white_material) {
                         const std::array<uint8_t, 1> pixel{0};
                         white_material =
-                            material(scene, white_palette, 1, 1, pixel, {}, -1, Fog::seen);
+                            material(pass, white_palette, 1, 1, pixel, {}, -1, Fog::seen);
                     }
                     rect = *white_material;
                 } else if (colored) {
                     auto& cached = colors[primitive.color];
                     if (!cached) {
                         const std::array pixel{primitive.color};
-                        cached = material(scene, *in.palette, 1, 1, pixel, {}, -1, Fog::seen);
+                        cached = material(pass, *in.palette, 1, 1, pixel, {}, -1, Fog::seen);
                     }
                     rect = *cached;
                 } else {
@@ -3241,7 +3547,7 @@ void models(const Inputs& in, Scene& scene) {
                                 .emplace(
                                     frame,
                                     material(
-                                        scene,
+                                        pass,
                                         bright ? bright_palette : *in.palette,
                                         frame->width,
                                         frame->height,
@@ -3266,9 +3572,9 @@ void models(const Inputs& in, Scene& scene) {
                          h + point.y / fixed_scale,
                          z - point.z / fixed_scale,
                          (rect.x + 0.5F + (colored ? 0 : u[index] * (rect.width - 1))) /
-                             scene.texture_width,
+                             pass.scene.texture_width,
                          (rect.y + 0.5F + (colored ? 0 : v[index] * (rect.height - 1))) /
-                             scene.texture_height,
+                             pass.scene.texture_height,
                          brightness}
                     );
                     auto& corner = corners.back();
@@ -3326,38 +3632,45 @@ void models(const Inputs& in, Scene& scene) {
                         vertex.opacity *= translucent_opacity;
                 }
                 if (detail > 0)
-                    polygon(scene, corners);
+                    polygon(pass, corners);
                 if (remaining > 0)
-                    nanoframe(in, scene, corners, remaining, frame_material);
+                    nanoframe(in, pass, corners, remaining, frame_material);
             }
         }
-        ++scene.model_count;
-        if (translucent && scene.vertices.size() > first_vertex) {
+        ++list.drawn;
+        if (translucent && list.vertices.size() > first_vertex) {
             // Held back, to be drawn over the opaque scene.
-            const std::size_t held = scene.translucent_vertices.size();
-            const auto first = scene.vertices.begin() + static_cast<std::ptrdiff_t>(first_vertex);
-            scene.translucent_vertices.insert(
-                scene.translucent_vertices.end(), first, scene.vertices.end()
+            const std::size_t held = list.translucent_vertices.size();
+            const auto begin = list.vertices.begin() + static_cast<std::ptrdiff_t>(first_vertex);
+            list.translucent_vertices.insert(
+                list.translucent_vertices.end(), begin, list.vertices.end()
             );
-            scene.vertices.erase(first, scene.vertices.end());
+            list.vertices.erase(begin, list.vertices.end());
             if (!draw.on_map && unit->id != 0)
-                scene.translucent_ranges.push_back(
-                    {unit->id, held, scene.translucent_vertices.size() - held}
+                list.translucent_ranges.push_back(
+                    {unit->id, held, list.translucent_vertices.size() - held}
                 );
-        } else if (!draw.on_map && unit->id != 0 && scene.vertices.size() > first_vertex)
-            scene.unit_ranges.push_back(
-                {unit->id, first_vertex, scene.vertices.size() - first_vertex}
+        } else if (!draw.on_map && unit->id != 0 && list.vertices.size() > first_vertex)
+            list.unit_ranges.push_back(
+                {unit->id, first_vertex, list.vertices.size() - first_vertex}
             );
         if (!reflected_faces.empty())
-            naval_reflection(in, scene, reflected_faces, reflection_budget);
+            naval_reflection(in, pass, reflected_faces, reflection_budget);
     }
 }
 
 /// Draws canonical 3DO shots and their child pieces at their presented simulation depth.
-void projectiles(const Inputs& in, Scene& scene) {
+///
+/// @param in the frame
+/// @param[in,out] pass the projectiles pass
+/// @param first the first shot listed, in WorldDrawList::projectiles
+/// @param last the shot after the last
+void projectiles(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
     std::array<std::optional<AtlasRect>, 256> colors;
     std::unordered_map<const Sprite*, AtlasRect> textures;
-    for (const auto& shot : in.draws->projectiles) {
+    for (std::size_t shot_index = first; shot_index < last; ++shot_index) {
+        begin_draw(pass, shot_index);
+        const auto& shot = in.draws->projectiles[shot_index];
         const float x = in.camera_x + shot.position.x / fixed_scale;
         const float height = shot.position.y / fixed_scale;
         const float z = in.camera_y + shot.position.z / fixed_scale;
@@ -3400,7 +3713,7 @@ void projectiles(const Inputs& in, Scene& scene) {
                     auto& cached = colors[primitive.color];
                     if (!cached) {
                         const std::array pixel{primitive.color};
-                        cached = material(scene, *in.palette, 1, 1, pixel, {}, -1, Fog::seen);
+                        cached = material(pass, *in.palette, 1, 1, pixel, {}, -1, Fog::seen);
                     }
                     rect = *cached;
                 } else {
@@ -3414,7 +3727,7 @@ void projectiles(const Inputs& in, Scene& scene) {
                                 .emplace(
                                     frame,
                                     material(
-                                        scene,
+                                        pass,
                                         *in.palette,
                                         frame->width,
                                         frame->height,
@@ -3438,14 +3751,14 @@ void projectiles(const Inputs& in, Scene& scene) {
                          height + point.y / fixed_scale,
                          z - point.z / fixed_scale,
                          (rect.x + 0.5F + (colored ? 0 : u[index] * (rect.width - 1))) /
-                             scene.texture_width,
+                             pass.scene.texture_width,
                          (rect.y + 0.5F + (colored ? 0 : v[index] * (rect.height - 1))) /
-                             scene.texture_height,
+                             pass.scene.texture_height,
                          brightness_at(in.sight, x, z - height * height_lift)}
                     );
                 }
                 // Small weapon faces are two-sided in the classic projectile pass.
-                polygon(scene, corners);
+                polygon(pass, corners);
             }
         };
         object(shot.object, shot.prepared, shot.rotation);
@@ -3454,7 +3767,13 @@ void projectiles(const Inputs& in, Scene& scene) {
 }
 
 /// Draws the actual sight-gated particle stream at its interpolated world height.
-void particles(const Inputs& in, Scene& scene) {
+///
+/// @param in the frame
+/// @param[in,out] pass the particles pass
+/// @param first the first particle listed, in WorldDrawList::spatial_particles
+/// @param last the particle after the last
+void particles(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
+    auto& list = pass.list;
     constexpr std::array<std::array<float, 3>, 6> axes{
         {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}}
     };
@@ -3467,7 +3786,9 @@ void particles(const Inputs& in, Scene& scene) {
                                std::all_of(projection.begin(), projection.end(), [](float value) {
                                    return std::isfinite(value);
                                });
-    for (const auto& particle : in.draws->spatial_particles) {
+    for (std::size_t particle_index = first; particle_index < last; ++particle_index) {
+        begin_draw(pass, particle_index);
+        const auto& particle = in.draws->spatial_particles[particle_index];
         const float x = particle.position.x / fixed_scale;
         const float h = particle.position.y / fixed_scale;
         const float z = particle.position.z / fixed_scale;
@@ -3512,12 +3833,12 @@ void particles(const Inputs& in, Scene& scene) {
         if (found == colors.end()) {
             auto palette = *in.palette;
             std::copy(particle.color.begin(), particle.color.end(), palette.begin());
-            found = colors.emplace(color, material(scene, palette, 1, 1, pixel, {}, -1, Fog::seen))
+            found = colors.emplace(color, material(pass, palette, 1, 1, pixel, {}, -1, Fog::seen))
                         .first;
         }
         const auto rect = found->second;
-        const float u = (rect.x + 0.5F) / scene.texture_width;
-        const float v = (rect.y + 0.5F) / scene.texture_height;
+        const float u = (rect.x + 0.5F) / pass.scene.texture_width;
+        const float v = (rect.y + 0.5F) / pass.scene.texture_height;
         const auto shell = [&](float radius, float opacity) {
             std::array<Vertex, faces.size()> triangles;
             for (std::size_t index = 0; index < faces.size(); ++index) {
@@ -3535,17 +3856,16 @@ void particles(const Inputs& in, Scene& scene) {
                     glowing ? std::min(1.0F, particle.color[2] / 255.0F * intensity) : 0.0F
                 };
             }
-            if (scene.vertices.size() + triangles.size() > maximum_vertices)
-                throw GeometryFull();
-            scene.vertices.insert(scene.vertices.end(), triangles.begin(), triangles.end());
+            auto& listed = listing(pass, triangles.size());
+            listed.insert(listed.end(), triangles.begin(), triangles.end());
         };
         if (core_opacity > 0)
             shell(1.0F, core_opacity);
         if (glowing && halo_opacity > 0)
             shell(3.0F, 0.16F * halo_opacity * intensity);
         if (particle.emissive)
-            ++scene.nano_particle_count;
-        ++scene.particle_count;
+            ++list.nano_particles;
+        ++list.drawn;
     }
 }
 
@@ -3771,17 +4091,23 @@ struct GroundIndices {
 /// Lists the frame's ground triangles along world x and z and along the
 /// cards' axes, reading each ground vertex once.
 ///
-/// @param[in,out] scene the frame, its ground cut by foundations; the lists
-///        are kept in its ground_index_memory
+/// @param[in,out] scene the frame; the lists are kept in its
+///        ground_index_memory
+/// @param ground the frame's ground triangles, cut by foundations
 /// @param card_axes the cards' across and above, or none when they have none
 /// @param[out] indices the pass's ground indices, listed afresh
-void list_ground(Scene& scene, const GroundIndex::Axes* card_axes, GroundIndices& indices) {
+void list_ground(
+    Scene& scene,
+    std::span<const Vertex> ground,
+    const GroundIndex::Axes* card_axes,
+    GroundIndices& indices
+) {
     indices.listed = true;
     indices.world.reset();
     indices.card.reset();
     if (card_axes != nullptr)
         indices.card_axes = *card_axes;
-    const std::size_t triangles = scene.terrain_vertex_count / 3;
+    const std::size_t triangles = ground.size() / 3;
     auto& world_bounds = scene.ground_index_memory[0].bounds;
     auto& card_bounds = scene.ground_index_memory[1].bounds;
     world_bounds.resize(triangles);
@@ -3792,7 +4118,7 @@ void list_ground(Scene& scene, const GroundIndex::Axes* card_axes, GroundIndices
         std::array<float, 4> world{none, -none, none, -none};
         std::array<double, 4> card{none, -none, none, -none};
         for (std::size_t corner = 0; corner < 3; ++corner) {
-            const auto& vertex = scene.vertices[triangle * 3 + corner];
+            const auto& vertex = ground[triangle * 3 + corner];
             if (!std::isfinite(vertex.x) || !std::isfinite(vertex.z) ||
                 !std::isfinite(vertex.height))
                 return;
@@ -3837,15 +4163,16 @@ void list_ground(Scene& scene, const GroundIndex::Axes* card_axes, GroundIndices
 
 /// Finds the rendered ground's height on one triangle below a world point.
 ///
-/// @param scene the frame
+/// @param ground the frame's ground triangles
 /// @param first the index of the triangle's first vertex
 /// @param x the point's world x, in map pixels
 /// @param z its world z, in map pixels
 /// @return the height there, or nothing when the triangle does not hold the point
-std::optional<float> ground_on_triangle(const Scene& scene, std::size_t first, float x, float z) {
-    const auto& a = scene.vertices[first];
-    const auto& b = scene.vertices[first + 1];
-    const auto& c = scene.vertices[first + 2];
+std::optional<float>
+ground_on_triangle(std::span<const Vertex> ground, std::size_t first, float x, float z) {
+    const auto& a = ground[first];
+    const auto& b = ground[first + 1];
+    const auto& c = ground[first + 2];
     if (x < std::min({a.x, b.x, c.x}) || x > std::max({a.x, b.x, c.x}) ||
         z < std::min({a.z, b.z, c.z}) || z > std::max({a.z, b.z, c.z}))
         return std::nullopt;
@@ -3865,15 +4192,16 @@ std::optional<float> ground_on_triangle(const Scene& scene, std::size_t first, f
 /// The highest triangle holding the point gives it, whatever order they are
 /// tested in.
 ///
-/// @param scene the frame
+/// @param ground the frame's ground triangles
 /// @param indices the pass's ground indices, listed
 /// @param x the point's world x, in map pixels
 /// @param z its world z, in map pixels
 /// @return the ground's height there, or nothing off the ground
-std::optional<float> rendered_ground(const Scene& scene, GroundIndices& indices, float x, float z) {
+std::optional<float>
+rendered_ground(std::span<const Vertex> ground, GroundIndices& indices, float x, float z) {
     std::optional<float> result;
     const auto test = [&](std::size_t first) {
-        const auto height = ground_on_triangle(scene, first, x, z);
+        const auto height = ground_on_triangle(ground, first, x, z);
         if (height && (!result || *height > *result))
             result = height;
     };
@@ -3883,7 +4211,7 @@ std::optional<float> rendered_ground(const Scene& scene, GroundIndices& indices,
         const auto place = indices.world->along(x, z);
         indices.world->visit(place[0], place[0], place[1], place[1], test);
     } else {
-        for (std::size_t first = 0; first + 2 < scene.terrain_vertex_count; first += 3)
+        for (std::size_t first = 0; first + 2 < ground.size(); first += 3)
             test(first);
     }
     return result;
@@ -3893,6 +4221,7 @@ std::optional<float> rendered_ground(const Scene& scene, GroundIndices& indices,
 /// The translation leaves its UVs and shape intact; airborne effects retain their altitude.
 float surface_effect_lift(
     Scene& scene,
+    std::span<const Vertex> ground_triangles,
     GroundIndices& indices,
     const formats::gaf::RenderedFrame& frame,
     float x,
@@ -3912,8 +4241,8 @@ float surface_effect_lift(
         up[2] * inverse, -up[0] * inverse, -right[2] * inverse, right[0] * inverse
     };
     if (!indices.listed || (facing && indices.card_axes != axes))
-        list_ground(scene, facing ? &axes : nullptr, indices);
-    const auto ground = rendered_ground(scene, indices, x, z);
+        list_ground(scene, ground_triangles, facing ? &axes : nullptr, indices);
+    const auto ground = rendered_ground(ground_triangles, indices, x, z);
     if (!ground || height > *ground + ground_near_distance)
         return 0;
     int32_t left = frame.width, top = frame.height, right_pixel{}, bottom{};
@@ -3944,7 +4273,7 @@ float surface_effect_lift(
         GroundPolygon local{};
         local.count = 3;
         for (std::size_t corner = 0; corner < local.count; ++corner) {
-            const auto& vertex = scene.vertices[first + corner];
+            const auto& vertex = ground_triangles[first + corner];
             const float dx = vertex.x - x;
             const float dz = vertex.z - z;
             local.points[corner] = {
@@ -3971,7 +4300,7 @@ float surface_effect_lift(
         }
     };
     if (!indices.card) {
-        for (std::size_t first = 0; first + 2 < scene.terrain_vertex_count; first += 3)
+        for (std::size_t first = 0; first + 2 < ground_triangles.size(); first += 3)
             test(first);
         return lift;
     }
@@ -3999,7 +4328,16 @@ float surface_effect_lift(
 }
 
 /// Lifts sprites into upright cutouts preserving their classic pixel placement.
-void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
+///
+/// @param in the frame
+/// @param[in,out] pass the pass of the cards laid on the ground, or of
+///     those standing up
+/// @param ground_pass the cards laid on the ground, rather than those
+///     standing up
+/// @param first the first card listed, in WorldDrawList::sprites
+/// @param last the card after the last
+void sprites(const Inputs& in, Pass& pass, bool ground_pass, std::size_t first, std::size_t last) {
+    auto& scene = pass.scene;
     // Frame pixels and palette are immutable during this pass; the cache never
     // survives a build, so animated or recoloured frames are hashed again.
     std::unordered_map<const formats::gaf::RenderedFrame*, std::array<std::optional<AtlasRect>, 4>>
@@ -4017,7 +4355,8 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
         if (draw.kind == WorldDrawKind::blended_sprite)
             blended_sprites[draw.index] = true;
     }
-    for (std::size_t index = 0; index < in.draws->sprites.size(); ++index) {
+    for (std::size_t index = first; index < last; ++index) {
+        begin_draw(pass, index);
         const auto& sprite = in.draws->sprites[index];
         const bool light_mask = light_masks[index];
         const bool submerged_effect = sprite.world_position && !sprite.on_map &&
@@ -4074,7 +4413,7 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
         auto& cached = prepared[sprite.frame][variant];
         if (!cached)
             cached = material(
-                scene,
+                pass,
                 *in.palette,
                 frame.width,
                 frame.height,
@@ -4096,7 +4435,7 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
             auto& cached_grey = grey_frames[sprite.frame];
             if (!cached_grey)
                 cached_grey = material(
-                    scene,
+                    pass,
                     scene.terrain_grey_palette,
                     frame.width,
                     frame.height,
@@ -4116,7 +4455,7 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
                               : 1.0F;
             decal(
                 in,
-                scene,
+                pass,
                 rect,
                 (sprite.world_position ? sprite.world_position->x / fixed_scale : x) -
                     frame.origin_x,
@@ -4134,7 +4473,7 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
                 scenery,
                 grey_rect ? &*grey_rect : nullptr
             );
-            ++scene.sprite_count;
+            ++pass.list.drawn;
             continue;
         }
         const float ground = height_at(*in.map, x, y);
@@ -4161,7 +4500,15 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
         const float surface_lift =
             sprite.surface_effect && sprite.world_position && !submerged_effect
                 ? surface_effect_lift(
-                      scene, ground_indices, frame, origin_x, origin_h, origin_z, right, up
+                      scene,
+                      pass.ground,
+                      ground_indices,
+                      frame,
+                      origin_x,
+                      origin_h,
+                      origin_z,
+                      right,
+                      up
                   )
                 : 0;
         const auto vertex = [&](float dx, float dy) {
@@ -4222,7 +4569,7 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
         // A frame standing in even fog stays one card. A fog boundary splits
         // it on the map, as the ground under it is split.
         if (!ground_fog || high_brightness - low_brightness < 0.001F) {
-            polygon(scene, corners);
+            polygon(pass, corners);
         } else {
             const int step = std::max(1, cell_edge / fog_divisions(in));
             for (int top_row = 0; top_row < frame.height; top_row += step) {
@@ -4231,7 +4578,7 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
                     const int right_column =
                         std::min(static_cast<int>(frame.width), left_column + step);
                     polygon(
-                        scene,
+                        pass,
                         std::array{
                             vertex(static_cast<float>(left_column), static_cast<float>(top_row)),
                             vertex(static_cast<float>(right_column), static_cast<float>(top_row)),
@@ -4244,7 +4591,7 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
                 }
             }
         }
-        ++scene.sprite_count;
+        ++pass.list.drawn;
     }
 }
 
@@ -4401,6 +4748,561 @@ void water_surface(const Inputs& in, Scene& scene) {
     }
 }
 
+/// The ground's triangles each band of the plots' cut into it takes.
+constexpr std::size_t ground_band_triangles = 8192;
+
+/// The deferred frame materials each band of their writing takes.
+constexpr std::size_t frame_write_band = 16;
+
+/// Empties a pass's list for the frame, keeping its memory.
+///
+/// @param[out] list the list
+/// @param end the pass's draws, which it has listed none of
+void clear_list(PassList& list, std::size_t end) {
+    list.vertices.clear();
+    list.unit_ranges.clear();
+    list.translucent_vertices.clear();
+    list.translucent_ranges.clear();
+    list.cut_vertices.clear();
+    list.cut_from = 0;
+    list.cut = false;
+    list.cut_nanoseconds = 0;
+    list.peak = 0;
+    list.drawn = 0;
+    list.nano_particles = 0;
+    list.stopped = end;
+    list.draw_vertices = 0;
+    list.draw_translucent = 0;
+    list.draw_ranges = 0;
+    list.failure = nullptr;
+    list.nanoseconds = 0;
+    list.materials_packed = 0;
+    list.texels_packed = 0;
+}
+
+/// The bench's clock, while the stage timers measure.
+///
+/// @param timing the stage timers measure
+/// @return nanoseconds since the clock's epoch, or 0
+uint64_t pass_clock(bool timing) {
+    return timing ? bench_timers::now_ns() : 0;
+}
+
+/// Runs a pass on a drawing thread, beside the other passes, into its own
+/// list: emptied first, then listed until the pass ends, stops for a
+/// material not yet packed (PassList::stopped, the list as that draw
+/// began) or fails (PassList::failure).
+///
+/// @param scene the frame, read alone
+/// @param[out] list the pass's list
+/// @param end the pass's draws
+/// @param timing the stage timers measure
+/// @param draws lists the pass's draws from the first, given the pass
+template <typename Draws>
+void run_beside(Scene& scene, PassList& list, std::size_t end, bool timing, Draws&& draws) {
+    clear_list(list, end);
+    const uint64_t start = pass_clock(timing);
+    Pass pass{scene, list, false, 0};
+    try {
+        draws(pass);
+        list.stopped = end;
+    } catch (const Unpacked&) {
+        list.vertices.resize(list.draw_vertices);
+        list.translucent_vertices.resize(list.draw_translucent);
+        list.unit_ranges.resize(list.draw_ranges);
+    } catch (...) {
+        list.failure = std::current_exception();
+    }
+    list.nanoseconds += pass_clock(timing) - start;
+}
+
+/// Cuts the frame's plots into what a pass has laid on the ground since
+/// the last cut (PassList::cut_vertices).
+///
+/// @param plots the frame's plots, at least one
+/// @param[in,out] list the pass's list
+/// @param timing the stage timers measure
+void cut_list(const Plots& plots, PassList& list, bool timing) {
+    const uint64_t start = pass_clock(timing);
+    const auto added = std::span<const Vertex>(list.vertices).subspan(list.cut_from);
+    list.cut = cut_plots(plots, added, true, list.cut_vertices) || list.cut;
+    list.cut_from = list.vertices.size();
+    list.cut_nanoseconds += pass_clock(timing) - start;
+}
+
+/// Takes a pass's list into the frame once the passes before it are in:
+/// holds the frame to its geometry budget, raises the pass's failure, and
+/// lists the draws it stopped at, packing the materials they need, as the
+/// pass would have one after the others.
+///
+/// @param scene the frame
+/// @param[in,out] list the pass's list
+/// @param end the pass's draws
+/// @param[in,out] listed the frame's vertices before the list, then after it
+/// @param timing the stage timers measure
+/// @param draws lists the pass's draws from a first one, given the pass
+///     and that draw
+template <typename Draws>
+void take_list(
+    Scene& scene, PassList& list, std::size_t end, std::size_t& listed, bool timing, Draws&& draws
+) {
+    if (listed + list.peak > maximum_vertices)
+        throw GeometryFull();
+    if (list.failure)
+        std::rethrow_exception(list.failure);
+    if (list.stopped < end) {
+        const uint64_t start = pass_clock(timing);
+        Pass pass{scene, list, true, listed};
+        draws(pass, list.stopped);
+        list.stopped = end;
+        list.nanoseconds += pass_clock(timing) - start;
+    }
+    listed += list.vertices.size();
+}
+
+/// Adds what the passes took to the bench's stage timers when a frame's
+/// passes are done with, built or not.
+class PassTimes {
+  public:
+
+    /// @param scene the frame, whose lists hold the passes' times
+    /// @param timing the stage timers measure
+    PassTimes(const Scene& scene, bool timing) : scene_(scene), timing_(timing) {}
+
+    PassTimes(const PassTimes&) = delete;
+    PassTimes& operator=(const PassTimes&) = delete;
+
+    /// Adds the passes' times and the materials they packed.
+    ~PassTimes() {
+        if (!timing_)
+            return;
+        using bench_timers::Stage;
+        const auto& passes = scene_.passes;
+        const auto add = [](Stage stage, const PassList& list) {
+            bench_timers::add_nanoseconds(stage, list.nanoseconds);
+            bench_timers::count_packed_materials(stage, list.materials_packed, list.texels_packed);
+        };
+        add(Stage::ground_sprites, passes.ground_cards);
+        add(Stage::shadows, passes.shadow_packing);
+        for (std::size_t band = 0; band < shadow_bands; ++band) {
+            add(Stage::shadows, passes.shadows[band]);
+            bench_timers::add_nanoseconds(Stage::shadows, passes.shadow_bands[band].nanoseconds);
+            bench_timers::add_nanoseconds(Stage::foundations, passes.shadows[band].cut_nanoseconds);
+        }
+        for (std::size_t band = 0; band < ground_bands; ++band)
+            bench_timers::add_nanoseconds(Stage::foundations, passes.ground[band].nanoseconds);
+        bench_timers::add_nanoseconds(Stage::foundations, passes.ground_cards.cut_nanoseconds);
+        bench_timers::add_nanoseconds(Stage::foundations, foundations + ground_listing);
+        add(Stage::models, passes.models);
+        add(Stage::projectiles, passes.projectiles);
+        add(Stage::sprites, passes.cards);
+        add(Stage::particles, passes.particles);
+        bench_timers::add_nanoseconds(Stage::water, joining);
+    }
+
+    std::size_t ground_bands{}; ///< the ground's bands cut this frame
+    std::size_t shadow_bands{}; ///< the shadows' bands read this frame
+    uint64_t foundations{};     ///< the plots' planning and the cut ground's taking
+    uint64_t ground_listing{};  ///< the kept ground's listing beside the passes
+    uint64_t joining{};         ///< the lists' joining
+
+  private:
+
+    const Scene& scene_;
+    bool timing_{};
+};
+
+/// Writes the frame's own materials the shadows packed while the passes
+/// ran at once, now that the passes before them are in, on the drawing
+/// threads: each into its own rectangle.
+///
+/// @param in the frame
+/// @param[in,out] scene the atlas
+void write_frame_materials(const Inputs& in, Scene& scene) {
+    const auto& writes = scene.passes.frame_writes;
+    const auto& bands = scene.passes.shadow_bands;
+    const auto texels = [&](const FrameWrite& write) {
+        const auto& rect = write.rectangle;
+        return std::span<const uint8_t>(bands[write.band].texels)
+            .subspan(write.texels, static_cast<std::size_t>(rect.width) * rect.height);
+    };
+    platform::job_pool::run_bands(
+        in.pool,
+        platform::job_pool::bands_of_rows(static_cast<uint32_t>(writes.size()), frame_write_band),
+        [&](uint32_t band) {
+            const std::size_t first = std::size_t{band} * frame_write_band;
+            const std::size_t last = std::min(writes.size(), first + frame_write_band);
+            for (std::size_t index = first; index < last; ++index)
+                write_black(
+                    scene,
+                    writes[index].rectangle,
+                    texels(writes[index]),
+                    texels(writes[index]),
+                    -1,
+                    writes[index].alpha_coverage
+                );
+        }
+    );
+    for (const auto& write : writes) {
+        ++scene.texture_revision;
+        note_rows(
+            scene,
+            scene.atlas_update.frame_first_row,
+            scene.atlas_update.frame_end_row,
+            write.rectangle
+        );
+    }
+}
+
+/// Builds what the frame draws after its terrain: the cards laid on the
+/// ground, the units' shadows, the foundations, the models, the
+/// projectiles, the standing cards and the particles, each pass listing
+/// its own triangles (PassList) on the drawing threads at once, then their
+/// lists joined in that order after the terrain.
+///
+/// The passes read the frame and the atlas and change neither. The shadows'
+/// materials are packed among the frame's own beforehand, on the calling
+/// thread, in their order. The lists are then taken in the passes' order:
+/// each held to the geometry budget, its failure raised, the frame's own
+/// materials written, the plots' cut ground taken, and the draws of a pass
+/// that stopped for a material not yet packed listed now, after the passes
+/// before it, packing what they need. Every step is the one the passes
+/// make one after another, and an exception leaves the scene where they
+/// would have left it.
+///
+/// @param in the frame
+/// @param[in,out] scene the frame, its terrain listed (Scene::vertices)
+/// @param ground_kept the frame's terrain is the kept ground, not yet
+///     listed (terrain)
+void run_passes(const Inputs& in, Scene& scene, bool ground_kept) {
+    auto& passes = scene.passes;
+    const auto& draws = *in.draws;
+    const bool timing = bench_timers::timers.on;
+    for (auto* list :
+         {&passes.ground_cards,
+          &passes.shadow_packing,
+          &passes.models,
+          &passes.projectiles,
+          &passes.cards,
+          &passes.particles})
+        clear_list(*list, 0);
+    PassTimes times(scene, timing);
+    uint64_t start = pass_clock(timing);
+    // The structures' plots, and the ground they are cut into: the cut kept
+    // from the frame before when it has the same plots in the same kept
+    // ground, or the terrain cut now.
+    Plots plots;
+    plan_plots(in, plots);
+    const bool plotted = !plots.plots.empty();
+    const auto source = scene.ground_revision;
+    const bool kept = scene.ground_kept && source == scene.kept_ground_revision;
+    const bool cut_before =
+        plotted && kept && scene.cut_source == source && scene.cut_plots == plots.plots;
+    const std::size_t terrain_count = scene.terrain_vertex_count;
+    const auto& ground = ground_kept ? scene.ground_vertices : scene.vertices;
+    times.ground_bands = plotted && !cut_before ? (terrain_count / 3 + ground_band_triangles - 1) /
+                                                      ground_band_triangles
+                                                : 0;
+    times.shadow_bands = (draws.models.size() + shadow_band_draws - 1) / shadow_band_draws;
+    const std::size_t ground_bands = times.ground_bands;
+    const std::size_t shadow_bands = times.shadow_bands;
+    if (passes.ground.size() < ground_bands)
+        passes.ground.resize(ground_bands);
+    if (passes.shadows.size() < shadow_bands) {
+        passes.shadows.resize(shadow_bands);
+        passes.shadow_bands.resize(shadow_bands);
+    }
+    for (std::size_t band = 0; band < shadow_bands; ++band)
+        clear_list(passes.shadows[band], 0);
+    times.foundations += pass_clock(timing) - start;
+    // The terrain's cut, and the shadows read from the units' pictures.
+    platform::job_pool::run_bands(
+        in.pool, static_cast<uint32_t>(ground_bands + shadow_bands), [&](uint32_t band) {
+            if (band < ground_bands) {
+                auto& list = passes.ground[band];
+                clear_list(list, 0);
+                const uint64_t began = pass_clock(timing);
+                const std::size_t first = band * ground_band_triangles * 3;
+                const auto triangles = std::span<const Vertex>(ground).subspan(
+                    first, std::min(ground_band_triangles * 3, terrain_count - first)
+                );
+                try {
+                    list.cut = cut_plots(plots, triangles, false, list.vertices);
+                } catch (...) {
+                    list.failure = std::current_exception();
+                }
+                list.nanoseconds = pass_clock(timing) - began;
+                return;
+            }
+            const std::size_t index = band - ground_bands;
+            auto& shadow = passes.shadow_bands[index];
+            const uint64_t began = pass_clock(timing);
+            try {
+                read_shadows(
+                    in,
+                    scene,
+                    shadow,
+                    index * shadow_band_draws,
+                    std::min(draws.models.size(), (index + 1) * shadow_band_draws)
+                );
+            } catch (...) {
+                shadow.failure = std::current_exception();
+            }
+            shadow.nanoseconds = pass_clock(timing) - began;
+        }
+    );
+    // The ground as the foundations leave it: the cut kept, or the ground
+    // kept, is listed beside the passes, which find it where it is kept.
+    start = pass_clock(timing);
+    bool ground_cut{};
+    std::span<const Vertex> cut_ground = ground;
+    if (cut_before) {
+        cut_ground = scene.cut_ground;
+    } else if (ground_bands != 0) {
+        scene.vertices.clear();
+        for (std::size_t band = 0; band < ground_bands; ++band) {
+            const auto& cut = passes.ground[band];
+            scene.vertices.insert(scene.vertices.end(), cut.vertices.begin(), cut.vertices.end());
+            ground_cut |= cut.cut;
+        }
+        cut_ground = scene.vertices;
+    }
+    scene.terrain_vertex_count = cut_ground.size();
+    const bool list_ground_beside = cut_before || (ground_kept && ground_bands == 0);
+    times.foundations += pass_clock(timing) - start;
+    // The shadows' materials packed among the frame's own, as far as one
+    // that goes with the other materials.
+    start = pass_clock(timing);
+    auto& frame = passes.frame;
+    frame.next_x = frame.next_y = frame.row_height = 0;
+    frame.materials.clear();
+    frame.order.assign(scene.frame.order.begin(), scene.frame.order.end());
+    frame.packed = 0;
+    frame.material_area = frame.spilled_area = 0;
+    frame.aircraft_shadows.clear();
+    passes.frame_writes.clear();
+    std::size_t stop_band = shadow_bands;
+    std::size_t stop_shadow{};
+    {
+        Pass packing{scene, passes.shadow_packing, false, 0};
+        for (std::size_t band = 0; band < shadow_bands; ++band) {
+            auto& shadow = passes.shadow_bands[band];
+            const std::size_t packed = shadow.failure ? 0
+                                                      : pack_shadows(
+                                                            packing,
+                                                            frame,
+                                                            shadow,
+                                                            band,
+                                                            0,
+                                                            shadow.pictures.size(),
+                                                            &passes.frame_writes
+                                                        );
+            if (shadow.failure || packed < shadow.pictures.size()) {
+                stop_band = band;
+                stop_shadow = packed;
+                break;
+            }
+        }
+    }
+    passes.shadow_packing.nanoseconds += pass_clock(timing) - start;
+    // Every pass at once, the longest first.
+    const auto shadows_drawn = [&](std::size_t band) {
+        return band < stop_band    ? passes.shadow_bands[band].pictures.size()
+               : band == stop_band ? stop_shadow
+                                   : 0;
+    };
+    constexpr uint32_t first_shadow_band = 4;
+    const auto bands = static_cast<uint32_t>(first_shadow_band + shadow_bands + 2);
+    const std::size_t cards = draws.sprites.size();
+    platform::job_pool::run_bands(in.pool, bands, [&](uint32_t band) {
+        if (band == 0) {
+            run_beside(scene, passes.models, draws.models.size(), timing, [&](Pass& pass) {
+                models(in, pass, 0, draws.models.size());
+            });
+        } else if (band == 1) {
+            run_beside(scene, passes.cards, cards, timing, [&](Pass& pass) {
+                pass.ground = cut_ground;
+                sprites(in, pass, false, 0, cards);
+            });
+        } else if (band == 3) {
+            if (!list_ground_beside)
+                return;
+            const uint64_t began = pass_clock(timing);
+            scene.vertices.assign(cut_ground.begin(), cut_ground.end());
+            times.ground_listing = pass_clock(timing) - began;
+        } else if (band == 2) {
+            auto& list = passes.ground_cards;
+            run_beside(scene, list, cards, timing, [&](Pass& pass) {
+                sprites(in, pass, true, 0, cards);
+            });
+            if (plotted && !list.failure)
+                cut_list(plots, list, timing);
+        } else if (band < first_shadow_band + shadow_bands) {
+            const std::size_t index = band - first_shadow_band;
+            auto& list = passes.shadows[index];
+            const auto drawn = shadows_drawn(index);
+            run_beside(scene, list, 0, timing, [&](Pass& pass) {
+                draw_shadows(in, pass, passes.shadow_bands[index], 0, drawn);
+            });
+            if (plotted && !list.failure)
+                cut_list(plots, list, timing);
+        } else if (band == first_shadow_band + shadow_bands) {
+            const std::size_t shots = draws.projectiles.size();
+            run_beside(scene, passes.projectiles, shots, timing, [&](Pass& pass) {
+                projectiles(in, pass, 0, shots);
+            });
+        } else {
+            const std::size_t count = draws.spatial_particles.size();
+            run_beside(scene, passes.particles, count, timing, [&](Pass& pass) {
+                particles(in, pass, 0, count);
+            });
+        }
+    });
+    // The lists taken in the passes' order, from the terrain's end as the
+    // passes before the foundations found it.
+    std::size_t listed = terrain_count;
+    take_list(scene, passes.ground_cards, cards, listed, timing, [&](Pass& pass, std::size_t from) {
+        sprites(in, pass, true, from, cards);
+    });
+    if (plotted && passes.ground_cards.cut_from < passes.ground_cards.vertices.size())
+        cut_list(plots, passes.ground_cards, timing);
+    // The shadows: their bands as drawn, then the frame's own materials as
+    // packed, then the shadows from the one that stopped the packing.
+    std::size_t shadows_listed = listed;
+    for (std::size_t band = 0; band < shadow_bands; ++band) {
+        const auto& list = passes.shadows[band];
+        if (shadows_listed + list.peak > maximum_vertices)
+            throw GeometryFull();
+        if (list.failure)
+            std::rethrow_exception(list.failure);
+        shadows_listed += list.vertices.size();
+    }
+    start = pass_clock(timing);
+    std::swap(scene.frame.next_x, frame.next_x);
+    std::swap(scene.frame.next_y, frame.next_y);
+    std::swap(scene.frame.row_height, frame.row_height);
+    std::swap(scene.frame.materials, frame.materials);
+    std::swap(scene.frame.order, frame.order);
+    std::swap(scene.frame.packed, frame.packed);
+    std::swap(scene.frame.material_area, frame.material_area);
+    std::swap(scene.frame.spilled_area, frame.spilled_area);
+    std::swap(scene.frame.aircraft_shadows, frame.aircraft_shadows);
+    write_frame_materials(in, scene);
+    if (stop_band < shadow_bands) {
+        auto& list = passes.shadows[stop_band];
+        std::size_t before = listed;
+        for (std::size_t band = 0; band < stop_band; ++band)
+            before += passes.shadows[band].vertices.size();
+        Pass pass{scene, list, true, before};
+        for (std::size_t band = stop_band; band < shadow_bands; ++band) {
+            auto& shadow = passes.shadow_bands[band];
+            if (shadow.failure)
+                std::rethrow_exception(shadow.failure);
+            for (std::size_t index = band == stop_band ? stop_shadow : 0;
+                 index < shadow.pictures.size();
+                 ++index) {
+                pack_shadows(pass, scene.frame, shadow, band, index, index + 1, nullptr);
+                draw_shadows(in, pass, shadow, index, index + 1);
+            }
+        }
+        if (plotted)
+            cut_list(plots, list, timing);
+    }
+    passes.shadow_packing.nanoseconds += pass_clock(timing) - start;
+    for (std::size_t band = 0; band < shadow_bands; ++band)
+        listed += passes.shadows[band].vertices.size();
+    // The foundations: the cut ground and what lies on it, held to the
+    // budget, then the cut kept for the frames after.
+    if (plotted) {
+        start = pass_clock(timing);
+        for (std::size_t band = 0; band < ground_bands; ++band)
+            if (passes.ground[band].failure)
+                std::rethrow_exception(passes.ground[band].failure);
+        listed = scene.terrain_vertex_count + passes.ground_cards.cut_vertices.size();
+        for (std::size_t band = 0; band < shadow_bands; ++band)
+            listed += passes.shadows[band].cut_vertices.size();
+        if (listed > maximum_vertices)
+            throw GeometryFull();
+        // A plot cut into the ground makes it new.
+        if (cut_before)
+            scene.ground_revision = scene.cut_revision;
+        else if (ground_cut)
+            scene.ground_revision = new_ground_revision();
+        if (kept && !cut_before) {
+            scene.cut_ground.assign(
+                scene.vertices.begin(),
+                scene.vertices.begin() + static_cast<std::ptrdiff_t>(scene.terrain_vertex_count)
+            );
+            scene.cut_plots = std::move(plots.plots);
+            scene.cut_source = source;
+            scene.cut_revision = scene.ground_revision;
+        }
+        times.foundations += pass_clock(timing) - start;
+    }
+    const std::size_t models_first = listed;
+    take_list(
+        scene,
+        passes.models,
+        draws.models.size(),
+        listed,
+        timing,
+        [&](Pass& pass, std::size_t from) { models(in, pass, from, draws.models.size()); }
+    );
+    take_list(
+        scene,
+        passes.projectiles,
+        draws.projectiles.size(),
+        listed,
+        timing,
+        [&](Pass& pass, std::size_t from) { projectiles(in, pass, from, draws.projectiles.size()); }
+    );
+    take_list(scene, passes.cards, cards, listed, timing, [&](Pass& pass, std::size_t from) {
+        pass.ground = cut_ground;
+        sprites(in, pass, false, from, cards);
+    });
+    take_list(
+        scene,
+        passes.particles,
+        draws.spatial_particles.size(),
+        listed,
+        timing,
+        [&](Pass& pass, std::size_t from) {
+            particles(in, pass, from, draws.spatial_particles.size());
+        }
+    );
+    // The lists joined after the ground in the passes' order.
+    start = pass_clock(timing);
+    const auto laid = [plotted](const PassList& list) -> const std::vector<Vertex>& {
+        return plotted ? list.cut_vertices : list.vertices;
+    };
+    scene.vertices.reserve(listed);
+    const auto join = [&scene](const std::vector<Vertex>& vertices) {
+        scene.vertices.insert(scene.vertices.end(), vertices.begin(), vertices.end());
+    };
+    join(laid(passes.ground_cards));
+    uint32_t shadows{};
+    for (std::size_t band = 0; band < shadow_bands; ++band) {
+        join(laid(passes.shadows[band]));
+        shadows += passes.shadows[band].drawn;
+    }
+    join(passes.models.vertices);
+    for (auto range : passes.models.unit_ranges) {
+        range.first_vertex += models_first;
+        scene.unit_ranges.push_back(range);
+    }
+    std::swap(scene.translucent_vertices, passes.models.translucent_vertices);
+    std::swap(scene.translucent_ranges, passes.models.translucent_ranges);
+    join(passes.projectiles.vertices);
+    join(passes.cards.vertices);
+    join(passes.particles.vertices);
+    scene.shadow_count = shadows;
+    scene.model_count = passes.models.drawn;
+    scene.sprite_count = passes.ground_cards.drawn + passes.cards.drawn;
+    scene.particle_count = passes.particles.drawn;
+    scene.nano_particle_count = passes.particles.nano_particles;
+    times.joining += pass_clock(timing) - start;
+}
+
 /// Gives the frame's own materials more rows (Scene::frame_rows) when some
 /// of this frame's found no room in theirs and were packed with the other
 /// materials, where they stay until the atlas is emptied: as many more as
@@ -4410,10 +5312,10 @@ void water_surface(const Inputs& in, Scene& scene) {
 ///
 /// @param[in,out] scene the atlas
 void grow_frame_rows(Scene& scene) {
-    if (scene.frame_spilled_area == 0 || scene.frame_rows == 0)
+    if (scene.frame.spilled_area == 0 || scene.frame_rows == 0)
         return;
     const uint64_t step_area = uint64_t{scene.texture_width} * frame_row_step;
-    const uint64_t wanted = (scene.frame_spilled_area * 2 + step_area - 1) / step_area;
+    const uint64_t wanted = (scene.frame.spilled_area * 2 + step_area - 1) / step_area;
     const uint32_t packed = std::min(scene.next_y + scene.row_height, kept_rows(scene));
     const uint32_t free_steps = (kept_rows(scene) - packed) / frame_row_step;
     const uint32_t most =
@@ -4423,7 +5325,7 @@ void grow_frame_rows(Scene& scene) {
     if (rows == 0)
         return;
     scene.frame_rows += static_cast<uint32_t>(rows);
-    scene.frame_order.clear();
+    scene.frame.order.clear();
 }
 } // namespace
 
@@ -4522,14 +5424,14 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             scene.particle_count = 0;
             scene.nano_particle_count = 0;
             scene.packed_material_area = 0;
-            scene.frame_next_x = 0;
-            scene.frame_next_y = 0;
-            scene.frame_row_height = 0;
-            scene.frame_materials.clear();
-            scene.frame_packed = 0;
-            scene.frame_material_area = 0;
-            scene.frame_spilled_area = 0;
-            scene.aircraft_shadow_materials.clear();
+            scene.frame.next_x = 0;
+            scene.frame.next_y = 0;
+            scene.frame.row_height = 0;
+            scene.frame.materials.clear();
+            scene.frame.packed = 0;
+            scene.frame.material_area = 0;
+            scene.frame.spilled_area = 0;
+            scene.frame.aircraft_shadows.clear();
             scene.texture_rgba.resize(
                 static_cast<std::size_t>(scene.texture_width) * scene.texture_height * channels
             );
@@ -4538,39 +5440,14 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             try {
                 using bench_timers::Span;
                 using bench_timers::Stage;
+                bool ground_kept{};
                 {
                     const Span timed(Stage::terrain);
-                    terrain(inputs, scene, plan, step, camera_known && !camera_moved, widen);
+                    ground_kept =
+                        terrain(inputs, scene, plan, step, camera_known && !camera_moved, widen);
                 }
                 ground_vertices = scene.terrain_vertex_count;
-                {
-                    const Span timed(Stage::ground_sprites);
-                    sprites(inputs, scene, true);
-                }
-                {
-                    const Span timed(Stage::shadows);
-                    unit_shadows(inputs, scene);
-                }
-                {
-                    const Span timed(Stage::foundations);
-                    foundations(inputs, scene);
-                }
-                {
-                    const Span timed(Stage::models);
-                    models(inputs, scene);
-                }
-                {
-                    const Span timed(Stage::projectiles);
-                    projectiles(inputs, scene);
-                }
-                {
-                    const Span timed(Stage::sprites);
-                    sprites(inputs, scene, false);
-                }
-                if (!inputs.draws->spatial_particles.empty()) {
-                    const Span timed(Stage::particles);
-                    particles(inputs, scene);
-                }
+                run_passes(inputs, scene, ground_kept);
                 const Span water_and_rest(Stage::water);
                 // The half-transparent units over everything opaque, under
                 // the water's surface.
@@ -4588,8 +5465,8 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 // Every other material this frame draws was packed into the
                 // emptied atlas, so their area is what they need.
                 if (emptied)
-                    scene.material_area = scene.packed_material_area + scene.frame_material_area;
-                scene.last_frame_material_area = scene.frame_material_area;
+                    scene.material_area = scene.packed_material_area + scene.frame.material_area;
+                scene.last_frame_material_area = scene.frame.material_area;
                 if (room < starting_room) {
                     scene.terrain_room = room;
                     scene.terrain_room_tiles = demand.size();
@@ -4620,7 +5497,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 // much again as a frame packs, as the terrain leaves the
                 // other materials room.
                 const uint64_t frame_need =
-                    std::max(scene.last_frame_material_area, scene.frame_material_area);
+                    std::max(scene.last_frame_material_area, scene.frame.material_area);
                 const auto frame_rows = std::min(
                     maximum_atlas_edge / 2,
                     static_cast<uint32_t>(
@@ -4629,7 +5506,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                     ) * frame_row_step
                 );
                 scene.frame_rows = frame_rows;
-                scene.frame_order.clear();
+                scene.frame.order.clear();
                 // An emptied atlas at its largest could not hold the plan.
                 // Otherwise the atlas is emptied for it, and the frame plans
                 // from the room it would start with had none been
@@ -4656,7 +5533,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 update.regions.clear();
                 scene.materials.clear();
                 scene.terrain_materials.clear();
-                scene.aircraft_shadow_materials.clear();
+                scene.frame.aircraft_shadows.clear();
                 for (auto& spare : scene.spare_terrain_squares)
                     spare.clear();
                 scene.split_terrain_squares.clear();

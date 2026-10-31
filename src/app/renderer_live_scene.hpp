@@ -7,9 +7,12 @@
 #include "renderer_water.hpp"
 #include "runtime_full.hpp"
 #include "oa/formats/tnt.hpp"
+#include "oa/platform/job_pool.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -119,6 +122,131 @@ struct GroundIndexMemory {
     std::vector<uint32_t> oversized{};
 };
 
+/// The frame's own materials, packed into the rows the atlas keeps for them
+/// (Scene::frame_rows): the shadows units cast from their pictures, packed
+/// afresh each frame.
+struct FramePacking {
+    uint32_t next_x{};
+    uint32_t next_y{}; ///< counted from the first of Scene::frame_rows
+    uint32_t row_height{};
+    /// The materials packed this frame, by digest.
+    std::unordered_map<uint64_t, AtlasRect> materials{};
+    /// The digests of the materials the rows hold, in the order they were
+    /// packed: a frame that packs the same ones in the same order finds
+    /// each where it is and writes none of them again.
+    std::vector<uint64_t> order{};
+    std::size_t packed{}; ///< the materials packed into the rows this frame
+    /// The area of this frame's own materials so far; the rows are sized
+    /// for the last whole frame's (Scene::last_frame_material_area).
+    uint64_t material_area{};
+    /// The area of this frame's own materials packed with the other
+    /// materials for want of room in the rows.
+    uint64_t spilled_area{};
+    /// The frame's blurred aircraft silhouettes, by their picture and blur.
+    std::unordered_map<uint64_t, AtlasRect> aircraft_shadows{};
+};
+
+/// One unit's shadow, read from its picture before the frame's own
+/// materials are packed: the material it casts, and where it lies.
+struct ShadowPicture {
+    uint32_t width{};  ///< the material's width
+    uint32_t height{}; ///< its height
+    /// The material's digest, as the atlas finds materials by.
+    uint64_t digest{};
+    /// For a soft aircraft shadow, its silhouette and blur, which the frame
+    /// finds its blurred materials by (FramePacking::aircraft_shadows).
+    uint64_t aircraft_key{};
+    /// Where its material's coverage, or alpha, starts in its band's
+    /// ShadowBand::texels.
+    std::size_t texels{};
+    float left{}; ///< the shadow's left edge, in map pixels
+    float top{};  ///< its top edge, in world rows
+    /// An aircraft's soft shadow, which lies on the water under it.
+    bool soft{};
+    AtlasRect rectangle{}; ///< its material in the atlas, once packed
+};
+
+/// The shadows of one band of the models' draws, in their order.
+struct ShadowBand {
+    std::vector<ShadowPicture> pictures{};
+    /// Every shadow's material, its coverage or its alpha, one after another.
+    std::vector<uint8_t> texels{};
+    std::vector<uint8_t> pixels{}; ///< a picture decoded, reused from shadow to shadow
+    /// A failure reading the band's pictures, raised in the passes' order.
+    std::exception_ptr failure{};
+    uint64_t nanoseconds{}; ///< for the bench: the time reading them took
+};
+
+/// A frame's own material that a frame packed while its passes ran at
+/// once, and whose texels are written once the passes before are joined.
+struct FrameWrite {
+    AtlasRect rectangle{};
+    std::size_t band{};   ///< the ShadowBand holding its coverage
+    std::size_t texels{}; ///< where its coverage starts in that band's texels
+    bool alpha_coverage{};
+};
+
+/// The triangles one scene pass lists, apart from the other passes' so that
+/// the passes can run at once, each on a drawing thread of its own; build()
+/// joins the lists afterwards in the order the passes run in, one after
+/// another. The scene keeps every list, so that each frame reuses it.
+struct PassList {
+    std::vector<renderer_live_gpu::Vertex> vertices{};
+    /// The units' ranges, counted from the list's first vertex.
+    std::vector<UnitRange> unit_ranges{};
+    /// The half-transparent units held back (Scene::translucent_vertices),
+    /// their ranges counted from the first of them.
+    std::vector<renderer_live_gpu::Vertex> translucent_vertices{};
+    std::vector<UnitRange> translucent_ranges{};
+    /// The list with the structures' plots cut into it, for what lies on
+    /// the ground, cut as far as cut_from.
+    std::vector<renderer_live_gpu::Vertex> cut_vertices{};
+    std::size_t cut_from{};     ///< the vertices of the list cut so far
+    bool cut{};                 ///< a plot reached the vertices cut so far
+    uint64_t cut_nanoseconds{}; ///< for the bench: the time cutting them took
+    std::size_t peak{};         ///< the most vertices the list held at once
+    uint32_t drawn{};           ///< the shadows, models, cards or particles listed
+    uint32_t nano_particles{};
+    /// The first of its draws the pass did not list, for want of a material
+    /// not yet packed: the thread that builds the frame lists them once the
+    /// passes before it are joined, and packs it. The pass's end once it
+    /// has listed them all.
+    std::size_t stopped{};
+    /// The list's sizes as its draw began, which a pass stopped in it goes
+    /// back to.
+    std::size_t draw_vertices{};
+    std::size_t draw_translucent{};
+    std::size_t draw_ranges{};
+    std::exception_ptr failure{}; ///< a failure, raised in the passes' order
+    /// For the bench: the time the pass took on the threads it ran on, and
+    /// the materials it packed and their texels.
+    uint64_t nanoseconds{};
+    uint64_t materials_packed{};
+    uint64_t texels_packed{};
+};
+
+/// The memory the passes after the terrain run in, kept by the scene so
+/// that each frame reuses it.
+struct PassLists {
+    /// The ground with the plots cut into it, by band of its triangles.
+    std::vector<PassList> ground{};
+    PassList ground_cards{}; ///< the effect cards laid on the ground
+    /// The units' shadows read from their pictures, and drawn, by band of
+    /// the models' draws.
+    std::vector<ShadowBand> shadow_bands{};
+    std::vector<PassList> shadows{};
+    /// The frame's own materials as the shadows pack them before the
+    /// scene takes them (Scene::frame), and the texels they write then;
+    /// the materials the packing packed, for the bench.
+    FramePacking frame{};
+    std::vector<FrameWrite> frame_writes{};
+    PassList shadow_packing{};
+    PassList models{};
+    PassList projectiles{};
+    PassList cards{}; ///< the effect cards standing up
+    PassList particles{};
+};
+
 /// Presentation geometry and cached pixels; no simulation state is retained.
 struct Scene {
     std::vector<renderer_live_gpu::Vertex> vertices{};
@@ -137,23 +265,11 @@ struct Scene {
     /// materials keep. None until the atlas is first emptied at its
     /// largest, which sizes them for the frame's own materials.
     uint32_t frame_rows{};
-    uint32_t frame_next_x{};
-    uint32_t frame_next_y{}; ///< counted from the first of frame_rows
-    uint32_t frame_row_height{};
-    /// The frame's own materials packed into frame_rows this frame.
-    std::unordered_map<uint64_t, AtlasRect> frame_materials{};
-    /// The digests of the materials frame_rows hold, in the order they were
-    /// packed: a frame that packs the same ones in the same order finds
-    /// each where it is and writes none of them again.
-    std::vector<uint64_t> frame_order{};
-    std::size_t frame_packed{}; ///< frame_rows' materials packed this frame
-    /// The area of the frame's own materials: this frame's so far, and the
-    /// last whole frame's, which frame_rows are sized for.
-    uint64_t frame_material_area{};
+    /// The frame's own materials packed into frame_rows.
+    FramePacking frame{};
+    /// The area of the last whole frame's own materials, which frame_rows
+    /// are sized for.
     uint64_t last_frame_material_area{};
-    /// The area of this frame's own materials packed with the other
-    /// materials for want of room in frame_rows.
-    uint64_t frame_spilled_area{};
     std::unordered_map<uint64_t, AtlasRect> materials{};
     std::unordered_map<uint64_t, TerrainMaterial> terrain_materials{};
     uint64_t terrain_passes{}; ///< the terrain passes drawn since the scene began
@@ -173,7 +289,7 @@ struct Scene {
     /// emptied atlas; the terrain leaves them this much room and more.
     uint64_t material_area{};
     /// The area the frame being built has packed for materials other than
-    /// terrain and its own (frame_material_area).
+    /// terrain and its own (FramePacking::material_area).
     uint64_t packed_material_area{};
     /// The most squares of ground a frame draws before it draws them from
     /// fewer height samples: lowered when a frame's triangles do not fit.
@@ -197,8 +313,6 @@ struct Scene {
     /// would not fit the atlas at its largest, or its triangles the geometry
     /// budget. Any other failure leaves it false.
     bool out_of_room{};
-    std::unordered_map<uint64_t, AtlasRect>
-        aircraft_shadow_materials{}; ///< the frame's blurred silhouettes
     /// The palette of the frame being built and the digest of its bytes,
     /// taken once a frame for every material drawn in it; null outside a
     /// build.
@@ -245,6 +359,8 @@ struct Scene {
     /// their ranges count from the start of this buffer until then.
     std::vector<renderer_live_gpu::Vertex> translucent_vertices{};
     std::vector<UnitRange> translucent_ranges{};
+    /// The lists of the passes after the terrain.
+    PassLists passes{};
 };
 
 /// Read-only frame inputs. The planner owns all model and sprite references.
@@ -303,6 +419,10 @@ struct Inputs {
     /// nearer and new ones into view. Once the camera has settled, every
     /// tile takes the plan's square again.
     bool tiles_hold_while_moving{};
+    /// The drawing threads the passes after the terrain run on, at once;
+    /// none runs them one after another on the calling thread. Either way
+    /// the frame is the same.
+    platform::job_pool::Pool* pool{};
 };
 
 /// Rebuilds live terrain, visible models and GAF cutouts from a frame's plan.
@@ -316,6 +436,15 @@ struct Inputs {
 /// Construction and nanolathe particles emit green light. Unit transforms retain
 /// the planner's interpolated pose; the canonical simulation records are untouched.
 /// Models are drawn without the classic shading and palette blending.
+///
+/// After the terrain, the passes (the cards on the ground, the shadows, the
+/// foundations, the models, the projectiles, the standing cards and the
+/// particles) each list their triangles apart, on the drawing threads at
+/// once, and their lists are joined in that order: the vertices, their
+/// order and the atlas are those the passes give one after another, with
+/// any number of threads. Only the calling thread packs materials, in the
+/// passes' order: a pass that needs one not yet packed stops there, and the
+/// calling thread lists the rest of it once the passes before it are in.
 ///
 /// @param inputs borrowed map, palette, visibility and prepared draw list
 /// @param[in,out] scene reusable geometry and bounded material atlas

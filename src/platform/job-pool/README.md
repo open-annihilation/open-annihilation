@@ -9,8 +9,9 @@ terrain fill (`fill_scaled_viewport`) and the fog (`draw_fog_grid`) in
 [the world renderer](../../present/world-renderer/README.md), the
 battlefield's units, features and effects (`draw_world_band`), the
 conversion of each frame to the window's pixel format before it is shown,
-the effects' light and heat (`renderer_effects::compose`) and the 3D view's
-depth under them (`live_scene_visibility`) ([src/app](../../app/README.md)).
+the effects' light and heat (`renderer_effects::compose`), the 3D view's
+depth under them (`live_scene_visibility`) and the 3D view's scene passes
+(`renderer_live_scene::build`) ([src/app](../../app/README.md)).
 
 ## Results do not depend on the threads
 
@@ -36,6 +37,22 @@ every draw of the frame with its own rows alone, each draw over a band's
 edge worked out as over the whole frame. Any number of those bands gives
 the frame one band gives, so these results do not depend on the threads
 either.
+
+The 3D view's scene passes after the terrain run as bands of two jobs: the
+first cuts the structures' plots into the ground, 8192 triangles a band,
+and reads the units' shadows from their pictures, 32 of the models' draws a
+band; the second takes one band for each of the models, the standing
+effect cards, the cards on the ground, the projectiles and the particles,
+and one for each 32 draws' shadows. Each band lists its triangles in a list
+of its own and changes nothing else; the thread that builds the frame then
+joins the lists in the order the passes ran in one after another. Only that
+thread packs materials into the atlas, in the passes' order: a band that
+needs one not yet packed stops at that draw, and the thread lists the rest
+of it once the passes before it are joined. The frame's own materials (the
+shadows') are packed on that thread before the second job, and their
+texels written by bands of 16 once the passes before them are joined. So
+the vertices, their order and the atlas are those of the passes run one
+after another, whatever the threads.
 
 ## Entry points
 
