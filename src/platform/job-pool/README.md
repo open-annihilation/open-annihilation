@@ -24,7 +24,10 @@ the conversion and the effects by 32 rows, the fog by one row of its grid,
 and the 3D view's depth by 16 rows, or one band without a pool. Each band
 of the effects takes every light in turn, and each band of the 3D view's
 depth the triangles that reach it in their order, so each pixel takes them
-in the order one band gives. The battlefield's
+in the order one band gives. The triangles that reach those bands are
+found in runs of 4096, a job of their own: each run lists its triangles in
+order and sorts the list by band, so a band reads each run's part in turn.
+The battlefield's
 draws take one band for each thread instead: the model bridge splits into
 that many bands of whole tile rows, only where its rows and the frame's
 split alike (`bridge_split` in
@@ -72,8 +75,9 @@ counted itself out, the last thing a worker does with the pool.
 ## Limits
 
 - `start_thread` treats the stack size as advisory; where the host ignores
-  it a worker gets the system's default stack. The bands themselves keep no
-  scratch of their own beyond a few local variables.
+  it a worker gets the system's default stack. The bands themselves keep
+  little scratch of their own: a few local variables, and in the 3D view's
+  depth some 3 KiB for the pixels a triangle hits.
 - A band must not throw.
 - The pool is for passes that take a millisecond or so: waking a worker
   costs some microseconds, so a pass of a few bands gains nothing on it.

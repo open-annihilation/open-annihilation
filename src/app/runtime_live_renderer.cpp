@@ -30,6 +30,16 @@ constexpr float orbit_degrees_per_pixel = 0.25F;
 /// Painted height cell edge and the classic projection's height lift.
 constexpr int terrain_cell_edge = 16;
 constexpr float height_lift = 0.5F;
+
+/// A scene triangle that can reach the pixels the lights' visibility asks
+/// for, with the pixels its bounds cover.
+struct VisibilityReach {
+    std::size_t index{}; ///< the triangle's first vertex
+    int x0{};
+    int x1{};
+    int y0{};
+    int y1{};
+};
 } // namespace
 
 struct Runtime::LiveRenderer {
@@ -69,6 +79,23 @@ struct Runtime::LiveRenderer {
     bool out_of_room{};
     /// The frame being drawn again is drawn from the camera last drawn.
     bool went_back{};
+
+    /// The lists the lights' visibility keeps from one frame to the next,
+    /// so that once they have grown a frame allocates nothing.
+    struct VisibilityLists {
+        /// Each run's triangles, in their order.
+        std::vector<std::vector<VisibilityReach>> found;
+        /// Each run's triangles by band: their places in the run's list.
+        std::vector<std::vector<uint32_t>> by_band;
+        /// Where each band's places start in each run's by_band, a run's
+        /// bands one after another with the end after its last.
+        std::vector<uint32_t> band_starts;
+        /// The columns each band of rows asks for.
+        std::vector<uint32_t> band_left;
+        std::vector<uint32_t> band_right;
+    };
+
+    VisibilityLists visibility_lists{};
 };
 
 void Runtime::destroy_live_renderer(LiveRenderer* renderer) noexcept {
@@ -865,7 +892,9 @@ void Runtime::live_scene_visibility(
     // Reject against short row bands before preparing barycentric coefficients.
     constexpr uint32_t rows_per_band = 16;
     const uint32_t band_count = (height + rows_per_band - 1) / rows_per_band;
-    std::vector<uint32_t> band_left, band_right;
+    auto& lists = live_renderer_->visibility_lists;
+    auto& band_left = lists.band_left;
+    auto& band_right = lists.band_right;
     uint32_t requested_left = width, requested_right = 0;
     uint32_t requested_top = height, requested_bottom = 0;
     if (bounded) {
@@ -888,26 +917,31 @@ void Runtime::live_scene_visibility(
             return;
     }
 
-    // The triangles that can reach the requested pixels, in their order,
-    // each with the pixels its bounds cover.
-    struct Reach {
-        std::size_t index{}; ///< the triangle's first vertex
-        int x0{};
-        int x1{};
-        int y0{};
-        int y1{};
-    };
+    // Each band of rows takes the triangles that reach it in their order and
+    // writes its own rows alone, so each pixel takes the triangles in the
+    // same order whatever the bands and threads. One thread takes the rows
+    // as one band.
+    const uint32_t raster_band_rows =
+        draw_pool_ && draw_pool_->threads() > 1 ? rows_per_band : height;
+    const uint32_t raster_bands = platform::job_pool::bands_of_rows(height, raster_band_rows);
 
     // Runs of triangles are bounded on the pool, each run into its own list,
-    // and the lists joined in the runs' order.
+    // which the run then sorts by the bands its triangles reach, keeping
+    // their order within each band.
     const auto vertex_count = std::min(live.projected.size(), live.scene.vertices.size());
     constexpr std::size_t triangles_per_run = 4096;
     const std::size_t triangle_count = vertex_count / 3;
     const auto runs =
         static_cast<uint32_t>((triangle_count + triangles_per_run - 1) / triangles_per_run);
-    std::vector<std::vector<Reach>> run_reaches(runs);
+    if (lists.found.size() < runs) {
+        lists.found.resize(runs);
+        lists.by_band.resize(runs);
+    }
+    const std::size_t starts_per_run = static_cast<std::size_t>(raster_bands) + 1;
+    lists.band_starts.resize(runs * starts_per_run);
     platform::job_pool::run_bands(draw_pool_.get(), runs, [&](uint32_t run) {
-        auto& found = run_reaches[run];
+        auto& found = lists.found[run];
+        found.clear();
         const std::size_t run_end =
             std::min(triangle_count, (static_cast<std::size_t>(run) + 1) * triangles_per_run) * 3;
         for (std::size_t index = static_cast<std::size_t>(run) * triangles_per_run * 3;
@@ -948,38 +982,27 @@ void Runtime::live_scene_visibility(
             }
             found.push_back({index, x0, x1, y0, y1});
         }
-    });
-    std::size_t reach_count = 0;
-    for (const auto& found : run_reaches)
-        reach_count += found.size();
-    std::vector<Reach> reaches;
-    reaches.reserve(reach_count);
-    for (const auto& found : run_reaches)
-        reaches.insert(reaches.end(), found.begin(), found.end());
-    // Each band of rows takes the triangles that reach it in their order and
-    // writes its own rows alone, so each pixel takes the triangles in the
-    // same order whatever the bands and threads. One thread takes the rows
-    // as one band, preparing each triangle once.
-    const uint32_t raster_band_rows =
-        draw_pool_ && draw_pool_->threads() > 1 ? rows_per_band : height;
-    const uint32_t raster_bands = platform::job_pool::bands_of_rows(height, raster_band_rows);
-    std::vector<uint32_t> band_firsts(raster_bands + 1, 0);
-    for (const auto& reach : reaches)
-        for (auto band = static_cast<uint32_t>(reach.y0) / raster_band_rows;
-             band <= static_cast<uint32_t>(reach.y1 - 1) / raster_band_rows;
-             ++band)
-            ++band_firsts[band + 1];
-    for (uint32_t band = 0; band < raster_bands; ++band)
-        band_firsts[band + 1] += band_firsts[band];
-    std::vector<uint32_t> band_reaches(band_firsts[raster_bands]);
-    {
-        std::vector<uint32_t> filled(band_firsts.begin(), band_firsts.end() - 1);
-        for (uint32_t reach = 0; reach < reaches.size(); ++reach)
-            for (auto band = static_cast<uint32_t>(reaches[reach].y0) / raster_band_rows;
-                 band <= static_cast<uint32_t>(reaches[reach].y1 - 1) / raster_band_rows;
+        // The run's places in each band, counted, then filled in order.
+        uint32_t* const starts = lists.band_starts.data() + run * starts_per_run;
+        std::fill(starts, starts + starts_per_run, 0U);
+        for (const auto& reach : found)
+            for (auto band = static_cast<uint32_t>(reach.y0) / raster_band_rows;
+                 band <= static_cast<uint32_t>(reach.y1 - 1) / raster_band_rows;
                  ++band)
-                band_reaches[filled[band]++] = reach;
-    }
+                ++starts[band + 1];
+        for (uint32_t band = 0; band < raster_bands; ++band)
+            starts[band + 1] += starts[band];
+        auto& by_band = lists.by_band[run];
+        by_band.resize(starts[raster_bands]);
+        for (uint32_t place = 0; place < found.size(); ++place)
+            for (auto band = static_cast<uint32_t>(found[place].y0) / raster_band_rows;
+                 band <= static_cast<uint32_t>(found[place].y1 - 1) / raster_band_rows;
+                 ++band)
+                by_band[starts[band]++] = place;
+        // Each band's start has moved on to the next band's: move them back.
+        std::copy_backward(starts, starts + raster_bands, starts + starts_per_run);
+        starts[0] = 0;
+    });
     platform::job_pool::run_bands(draw_pool_.get(), raster_bands, [&](uint32_t band) {
         // The band's own copies of what each pixel reads, which the pixels'
         // writes cannot change.
@@ -995,77 +1018,111 @@ void Runtime::live_scene_visibility(
         uint8_t* const pixel_visibility = visibility.data();
         const int band_top = static_cast<int>(band * raster_band_rows);
         const int band_end = std::min(static_cast<int>(height), band_top + int(raster_band_rows));
-        for (uint32_t slot = band_firsts[band]; slot < band_firsts[band + 1]; ++slot) {
-            const auto [index, x0, x1, y0, y1] = reaches[band_reaches[slot]];
-            const std::array triangle{
-                live.projected[index], live.projected[index + 1], live.projected[index + 2]
-            };
-            renderer_live_camera::PreparedTriangle preparing;
-            if (!renderer_live_camera::prepare_triangle(triangle, preparing))
-                continue;
-            // A copy of its own, as of the corners' attributes below.
-            const auto prepared = preparing;
-            // The corners' texture places, opacities and brightnesses.
-            std::array<float, 3> corner_u{}, corner_v{}, corner_opacity{}, corner_brightness{};
-            for (std::size_t corner = 0; corner < corner_u.size(); ++corner) {
-                const auto& vertex = vertices[index + corner];
-                corner_u[corner] = vertex.u;
-                corner_v[corner] = vertex.v;
-                corner_opacity[corner] = vertex.opacity;
-                corner_brightness[corner] = vertex.brightness;
-            }
-            // Unmapped black terrain must not reveal its contours.
-            const bool lit = !terrain_only || index < terrain_vertex_count;
-            constexpr float pixel_centre = 0.5F;
-            for (int y = std::max(y0, band_top); y < std::min(y1, band_end); ++y) {
-                int left_limit =
-                    bounded ? std::max(x0, static_cast<int>(std::min(row_left[y], width))) : x0;
-                int right_limit =
-                    bounded ? std::min(x1, static_cast<int>(std::min(row_right[y], width))) : x1;
-                // Only the columns the triangle can cover on this row are tested.
-                renderer_live_camera::narrow_row(
-                    prepared, y + pixel_centre, pixel_centre, left_limit, right_limit
-                );
-                for (int x = left_limit; x < right_limit; ++x) {
-                    const std::size_t pixel = static_cast<std::size_t>(y) * width + x;
-                    if (requested != nullptr && requested[pixel] == 0)
-                        continue;
-                    std::array<float, 3> weights{};
-                    float depth{};
-                    if (!renderer_live_camera::triangle_hit_prepared(
-                            prepared, x + pixel_centre, y + pixel_centre, weights, depth
-                        ) ||
-                        depth <= pixel_depths[pixel])
-                        continue;
-                    float u{}, v{}, opacity{}, brightness{};
-                    for (std::size_t corner = 0; corner < weights.size(); ++corner) {
-                        u += corner_u[corner] * weights[corner];
-                        v += corner_v[corner] * weights[corner];
-                        opacity += corner_opacity[corner] * weights[corner];
-                        brightness += corner_brightness[corner] * weights[corner];
-                    }
-                    constexpr float opaque_alpha = 128;
-                    constexpr float full_alpha = 255;
-                    if (!std::isfinite(u) || !std::isfinite(v) || !std::isfinite(opacity) ||
-                        opacity * full_alpha < opaque_alpha)
-                        continue;
-                    const auto column = static_cast<uint32_t>(
-                        std::clamp(u * texture_width, 0.0F, float(texture_width - 1))
-                    );
-                    const auto row = static_cast<uint32_t>(
-                        std::clamp(v * texture_height, 0.0F, float(texture_height - 1))
-                    );
-                    const auto alpha =
-                        (static_cast<std::size_t>(row) * texture_width + column) * 4 + 3;
-                    if (alpha >= texture_size || texture[alpha] * opacity < opaque_alpha)
-                        continue;
-                    pixel_depths[pixel] = depth;
-                    // Known terrain carries the same smooth fog attenuation as its draw.
-                    pixel_visibility[pixel] =
-                        lit && std::isfinite(brightness)
-                            ? static_cast<uint8_t>(std::clamp(brightness, 0.0F, 1.0F) * full_alpha)
-                            : 0;
+        // The pixels a triangle hits, each weighed before any is drawn, so
+        // that no pixel waits for the answer of the one before.
+        constexpr int most_hits = 128;
+        std::array<uint32_t, most_hits> hit_pixels;
+        std::array<renderer_live_camera::PreparedHit, most_hits> hits;
+        constexpr float pixel_centre = 0.5F;
+        for (uint32_t run = 0; run < runs; ++run) {
+            const uint32_t* const starts = lists.band_starts.data() + run * starts_per_run;
+            const uint32_t* const places = lists.by_band[run].data();
+            const VisibilityReach* const found = lists.found[run].data();
+            for (uint32_t slot = starts[band]; slot < starts[band + 1]; ++slot) {
+                const auto [index, x0, x1, y0, y1] = found[places[slot]];
+                const std::array triangle{
+                    live.projected[index], live.projected[index + 1], live.projected[index + 2]
+                };
+                renderer_live_camera::PreparedTriangle preparing;
+                if (!renderer_live_camera::prepare_triangle(triangle, preparing))
+                    continue;
+                // A copy of its own, as of the corners' attributes below.
+                const auto prepared = preparing;
+                // A triangle a few columns wide has no row to narrow.
+                const auto narrowing = x1 - x0 > renderer_live_camera::most_columns_left_whole
+                                           ? renderer_live_camera::prepare_narrowing(prepared)
+                                           : renderer_live_camera::RowNarrowing{};
+                // The corners' texture places, opacities and brightnesses.
+                std::array<float, 3> corner_u{}, corner_v{}, corner_opacity{}, corner_brightness{};
+                for (std::size_t corner = 0; corner < corner_u.size(); ++corner) {
+                    const auto& vertex = vertices[index + corner];
+                    corner_u[corner] = vertex.u;
+                    corner_v[corner] = vertex.v;
+                    corner_opacity[corner] = vertex.opacity;
+                    corner_brightness[corner] = vertex.brightness;
                 }
+                // Unmapped black terrain must not reveal its contours.
+                const bool lit = !terrain_only || index < terrain_vertex_count;
+                // Draws the first pixels hit, in order.
+                const auto draw = [&](int hit_count) {
+                    for (int at = 0; at < hit_count; ++at) {
+                        const uint32_t pixel = hit_pixels[at];
+                        if (requested != nullptr && requested[pixel] == 0)
+                            continue;
+                        const auto& weights = hits[at].weights;
+                        const float depth = hits[at].depth;
+                        if (depth <= pixel_depths[pixel])
+                            continue;
+                        float u{}, v{}, opacity{}, brightness{};
+                        for (std::size_t corner = 0; corner < weights.size(); ++corner) {
+                            u += corner_u[corner] * weights[corner];
+                            v += corner_v[corner] * weights[corner];
+                            opacity += corner_opacity[corner] * weights[corner];
+                            brightness += corner_brightness[corner] * weights[corner];
+                        }
+                        constexpr float opaque_alpha = 128;
+                        constexpr float full_alpha = 255;
+                        if (!std::isfinite(u) || !std::isfinite(v) || !std::isfinite(opacity) ||
+                            opacity * full_alpha < opaque_alpha)
+                            continue;
+                        const auto column = static_cast<uint32_t>(
+                            std::clamp(u * texture_width, 0.0F, float(texture_width - 1))
+                        );
+                        const auto row = static_cast<uint32_t>(
+                            std::clamp(v * texture_height, 0.0F, float(texture_height - 1))
+                        );
+                        const auto alpha =
+                            (static_cast<std::size_t>(row) * texture_width + column) * 4 + 3;
+                        if (alpha >= texture_size || texture[alpha] * opacity < opaque_alpha)
+                            continue;
+                        pixel_depths[pixel] = depth;
+                        // Known terrain carries the same smooth fog attenuation as its draw.
+                        pixel_visibility[pixel] =
+                            lit && std::isfinite(brightness)
+                                ? static_cast<uint8_t>(
+                                      std::clamp(brightness, 0.0F, 1.0F) * full_alpha
+                                  )
+                                : 0;
+                    }
+                };
+                int hit_count = 0;
+                for (int y = std::max(y0, band_top); y < std::min(y1, band_end); ++y) {
+                    int left_limit =
+                        bounded ? std::max(x0, static_cast<int>(std::min(row_left[y], width))) : x0;
+                    int right_limit =
+                        bounded ? std::min(x1, static_cast<int>(std::min(row_right[y], width)))
+                                : x1;
+                    // Only the columns the triangle can cover on this row are tested.
+                    renderer_live_camera::narrow_row(
+                        narrowing, y + pixel_centre, pixel_centre, left_limit, right_limit
+                    );
+                    const uint32_t row_start = static_cast<uint32_t>(y) * width;
+                    for (int x = left_limit; x < right_limit; ++x) {
+                        if (hit_count == most_hits) {
+                            draw(hit_count);
+                            hit_count = 0;
+                        }
+                        hit_pixels[hit_count] = row_start + static_cast<uint32_t>(x);
+                        hits[hit_count] = renderer_live_camera::weigh_prepared(
+                            prepared, x + pixel_centre, y + pixel_centre
+                        );
+                        // Each place is written whether or not the triangle
+                        // hits it; only a hit moves on to the next.
+                        hit_count += hits[hit_count].hit;
+                    }
+                }
+                if (hit_count > 0)
+                    draw(hit_count);
             }
         }
     });

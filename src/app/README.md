@@ -3027,7 +3027,9 @@ prompts, Settings › Updates and the headers name one state with one size.
   band runs on the drawing thread. The conversion's, the terrain's, the
   fog's and the effects' bands are fixed by the rows, and the 3D view's
   depth is worked out in bands of 16 rows, or in one band with no pool,
-  each band taking the triangles that reach it in their order; the
+  each band taking the triangles that reach it in their order, which runs
+  of 4096 triangles find and sort by band on the pool into lists the live
+  renderer keeps from frame to frame; the
   battlefield's are one a thread, and any number of them draws the same
   frames, so every count draws the same frames.
   `app-xrgb-conversion` checks each pixel's packing and gamma for rows of
