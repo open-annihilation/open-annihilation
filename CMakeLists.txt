@@ -4630,6 +4630,15 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-stage PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # --bench plays the frame bench's battle (tools/bench) in the window
+        # for a few seconds and prints its lines, each well formed and in
+        # order, with every stage timer under its name; with its timers off
+        # it prints none, and a view file it cannot read stops it at the line.
+        add_test(NAME native-bench COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_bench.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-bench PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # Buildings created by name on the chat line stand on their build
         # grid at their yard's height: a shipyard floats its waterline below
         # the sea, a solar collector on a hill stands on its lowest corner.

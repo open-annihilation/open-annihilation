@@ -3512,7 +3512,9 @@ prompts, Settings › Updates and the headers name one state with one size.
   counts. They are off in every run but a bench, where each mark costs one
   test of a flag; the match frame is drawn on one thread, which alone
   touches them. The stages' names stay the same from one release to the
-  next, so that runs compare. `app-bench` tests the parts without a game.
+  next, so that runs compare. `app-bench` tests the parts without a game,
+  and `native-bench` plays the engine's battle (`tools/bench`) for a few
+  seconds on the dummy driver and checks every line.
 - `screen_size.hpp`, `screen_size.cpp`: the settings read before the window
   opens (`start_settings`), with the defaults of a light machine
   (`oa/platform/machine.hpp`): the Screen size, the window opened at that
