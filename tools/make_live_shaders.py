@@ -10,8 +10,13 @@ runs on. Each stage is written once, in Vulkan's GLSL, in src/app/shaders/:
 
   live_scene_vertex.glsl      the scene's vertices
   live_scene_fragment.glsl    the scene's terrain, sprites, models and water
-  live_resolve_vertex.glsl    the supersampling resolve's triangle
+  live_resolve_vertex.glsl    the supersampling resolve's triangle, which
+                              the lights pass draws too
   live_resolve_fragment.glsl  the resolve's mean of each block
+  live_surface_fragment.glsl  the surface the lights reach under each
+                              pixel, drawn after the scene's vertex stage
+  live_lights_fragment.glsl   the lights' light, glow and heat over the
+                              picture
 
 and this makes, for each, the forms the renderer embeds, in
 src/app/renderer_live_shaders.inc:
@@ -53,6 +58,8 @@ STAGES = (
     ("live_scene_fragment", "frag"),
     ("live_resolve_vertex", "vert"),
     ("live_resolve_fragment", "frag"),
+    ("live_surface_fragment", "frag"),
+    ("live_lights_fragment", "frag"),
 )
 TOOLS = ("glslangValidator", "spirv-val", "spirv-cross")
 # The Metal shading language version spirv-cross writes, as it takes it:

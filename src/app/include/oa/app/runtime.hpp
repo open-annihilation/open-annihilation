@@ -126,6 +126,11 @@ namespace oa::app::renderer_effect_sources {
 struct Source;
 } // namespace oa::app::renderer_effect_sources
 
+namespace oa::app::renderer_effects {
+struct Source;
+struct Settings;
+} // namespace oa::app::renderer_effects
+
 namespace oa::app::renderer_water {
 struct Wind;
 class SurfaceCache;
@@ -8319,6 +8324,39 @@ class Runtime final : public menu::Host,
         float scale_y,
         bool live = false,
         float effect_row_offset = 0
+    );
+    /// Projects the collected sources over a battlefield at its output scale
+    /// and local origin, as compose_match_effect_pixels() draws them.
+    ///
+    /// @return the sources whose light, glow or heat reaches the battlefield,
+    ///         in the order they are drawn; none without enabled effects
+    std::vector<renderer_effects::Source> project_match_effects(
+        uint32_t width,
+        uint32_t height,
+        float origin_x,
+        float origin_y,
+        float scale_x,
+        float scale_y,
+        bool live = false,
+        float effect_row_offset = 0
+    );
+    /// Gives the switches the effects are drawn with: light and glow, and
+    /// heat while Heat distortion is above 0%.
+    renderer_effects::Settings match_effect_settings();
+    /// Composes over a battlefield the sources project_match_effects()
+    /// projected over it, with the same scale and origin.
+    void compose_projected_match_effects(
+        std::span<uint8_t> pixels,
+        uint32_t width,
+        uint32_t height,
+        uint32_t pitch,
+        uint32_t channels,
+        float origin_x,
+        float origin_y,
+        float scale_x,
+        float scale_y,
+        bool live,
+        std::span<const renderer_effects::Source> projected
     );
     /// Rasterizes visible scene surfaces and their camera depth for local effects.
     void live_scene_visibility(

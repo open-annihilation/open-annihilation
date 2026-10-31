@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "renderer_live_gpu.hpp"
 #include "bench_timers.hpp"
+#include "renderer_live_lights.hpp"
 #include "renderer_water_appearance.hpp"
 
 #include <SDL3/SDL.h>
@@ -131,22 +132,33 @@ SDL_GPUTexture* create_texture(
 constexpr SDL_GPUShaderFormat shader_formats =
     SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL;
 
-/// Creates a stage in the form the device takes: Metal shading language
-/// where the device runs on Metal, SPIR-V where it runs on Vulkan.
+/// Fills in a stage's code in the form the device takes: Metal shading
+/// language where the device runs on Metal, SPIR-V where it runs on Vulkan.
+template <std::size_t spirv_size, std::size_t msl_size>
+void stage_code(
+    SDL_GPUDevice* device,
+    SDL_GPUShaderCreateInfo& info,
+    const unsigned char (&spirv)[spirv_size],
+    const char (&msl)[msl_size]
+) {
+    if ((SDL_GetGPUShaderFormats(device) & SDL_GPU_SHADERFORMAT_MSL) != 0) {
+        info.code = reinterpret_cast<const Uint8*>(msl);
+        info.code_size = msl_size - 1;
+        info.entrypoint = "main0";
+        info.format = SDL_GPU_SHADERFORMAT_MSL;
+    } else {
+        info.code = spirv;
+        info.code_size = spirv_size;
+        info.entrypoint = "main";
+        info.format = SDL_GPU_SHADERFORMAT_SPIRV;
+    }
+}
+
+/// Creates a stage in the form the device takes.
 SDL_GPUShader* create_shader(SDL_GPUDevice* device, bool vertex, bool resolve = false) {
     SDL_GPUShaderCreateInfo info{};
     const auto stage = [&](const auto& spirv, const auto& msl) {
-        if ((SDL_GetGPUShaderFormats(device) & SDL_GPU_SHADERFORMAT_MSL) != 0) {
-            info.code = reinterpret_cast<const Uint8*>(msl);
-            info.code_size = sizeof(msl) - 1;
-            info.entrypoint = "main0";
-            info.format = SDL_GPU_SHADERFORMAT_MSL;
-        } else {
-            info.code = spirv;
-            info.code_size = sizeof(spirv);
-            info.entrypoint = "main";
-            info.format = SDL_GPU_SHADERFORMAT_SPIRV;
-        }
+        stage_code(device, info, spirv, msl);
     };
     if (resolve && vertex)
         stage(live_resolve_vertex_spirv, live_resolve_vertex_msl);
@@ -162,6 +174,349 @@ SDL_GPUShader* create_shader(SDL_GPUDevice* device, bool vertex, bool resolve = 
     info.num_uniform_buffers = resolve && vertex ? 0 : 1;
     info.num_samplers = vertex ? 0 : (resolve ? 1 : 2);
     return SDL_CreateGPUShader(device, &info);
+}
+
+/// The card's part of the lights (renderer_live_lights.hpp): the surface
+/// under each pixel's centre, which a pass of its own draws from the
+/// scene's vertices, the lights' table and tiles, and the pass that adds the
+/// lights to the picture.
+struct LightResources {
+    SDL_GPUDevice* device{}; ///< the device they are made on
+    /// The scene's vertex stage and the surface's fragment stage, drawing one
+    /// sample a pixel; null where the card cannot draw the surface.
+    SDL_GPUGraphicsPipeline* surface_pipeline{};
+    SDL_GPUShader* surface_shader{};
+    SDL_GPUShader* vertex_shader{}; ///< the resolve's triangle
+    SDL_GPUShader* fragment_shader{};
+    SDL_GPUGraphicsPipeline* pipeline{};
+    /// The surface, its depth and the picture with the lights, at the
+    /// picture's size.
+    SDL_GPUTexture* surface{};
+    SDL_GPUTexture* surface_depth{};
+    SDL_GPUTexture* lit{};
+    SDL_GPUTexture* table{}; ///< a row of texels_per_light texels a light
+    SDL_GPUTexture* tiles{}; ///< a texel of words_per_tile words a tile
+    SDL_GPUTransferBuffer* upload{};
+    uint32_t upload_capacity{};
+    uint32_t width{};
+    uint32_t height{};
+    uint32_t tiles_across{};
+    uint32_t tiles_down{};
+    /// Whether the card has the formats the lights take, asked once.
+    bool formats_known{};
+    bool formats_supported{};
+    /// The frame's lights, kept so that once grown a frame allocates nothing.
+    renderer_live_lights::Table packed{};
+
+    LightResources() = default;
+    LightResources(const LightResources&) = delete;
+    LightResources& operator=(const LightResources&) = delete;
+
+    /// Release the handles before the device they were made on.
+    ~LightResources() {
+        if (!device)
+            return;
+        for (SDL_GPUGraphicsPipeline* made : {surface_pipeline, pipeline})
+            if (made)
+                SDL_ReleaseGPUGraphicsPipeline(device, made);
+        for (SDL_GPUShader* made : {surface_shader, vertex_shader, fragment_shader})
+            if (made)
+                SDL_ReleaseGPUShader(device, made);
+        for (SDL_GPUTexture* made : {surface, surface_depth, lit, table, tiles})
+            if (made)
+                SDL_ReleaseGPUTexture(device, made);
+        if (upload)
+            SDL_ReleaseGPUTransferBuffer(device, upload);
+    }
+};
+
+/// The surface's format: its camera depth and visibility.
+constexpr SDL_GPUTextureFormat light_surface_format = SDL_GPU_TEXTUREFORMAT_R32G32_FLOAT;
+
+/// Whether the card has the formats the lights take: the surface's as a
+/// target it reads back, and the table's floats and the tiles' words to read.
+bool light_formats(LightResources& lights, SDL_GPUDevice* device) {
+    if (!lights.formats_known) {
+        lights.formats_supported =
+            SDL_GPUTextureSupportsFormat(
+                device,
+                light_surface_format,
+                SDL_GPU_TEXTURETYPE_2D,
+                SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER
+            ) &&
+            SDL_GPUTextureSupportsFormat(
+                device,
+                SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT,
+                SDL_GPU_TEXTURETYPE_2D,
+                SDL_GPU_TEXTUREUSAGE_SAMPLER
+            ) &&
+            SDL_GPUTextureSupportsFormat(
+                device,
+                SDL_GPU_TEXTUREFORMAT_R32G32B32A32_UINT,
+                SDL_GPU_TEXTURETYPE_2D,
+                SDL_GPU_TEXTUREUSAGE_SAMPLER
+            );
+        lights.formats_known = true;
+    }
+    return lights.formats_supported;
+}
+
+/// Makes the surface's pipeline from the scene's, in place of any made
+/// before: the scene's vertices and vertex stage, one sample a pixel, the
+/// nearest face drawn kept; none where the card cannot draw the surface.
+void make_light_surface_pipeline(
+    LightResources& lights, SDL_GPUDevice* device, const SDL_GPUGraphicsPipelineCreateInfo& scene
+) {
+    lights.device = device;
+    if (lights.surface_pipeline)
+        SDL_ReleaseGPUGraphicsPipeline(device, lights.surface_pipeline);
+    lights.surface_pipeline = nullptr;
+    if (!light_formats(lights, device))
+        return;
+    if (!lights.surface_shader) {
+        SDL_GPUShaderCreateInfo info{};
+        stage_code(device, info, live_surface_fragment_spirv, live_surface_fragment_msl);
+        info.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
+        info.num_samplers = 1;
+        info.num_uniform_buffers = 1;
+        lights.surface_shader = SDL_CreateGPUShader(device, &info);
+        if (!lights.surface_shader)
+            return;
+    }
+    SDL_GPUColorTargetDescription target{};
+    target.format = light_surface_format;
+    auto info = scene;
+    info.fragment_shader = lights.surface_shader;
+    info.target_info.color_target_descriptions = &target;
+    info.target_info.num_color_targets = 1;
+    // A face drawn later at the same depth leaves the first, as the
+    // processor's raster does.
+    info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
+    info.multisample_state = SDL_GPUMultisampleState{};
+    lights.surface_pipeline = SDL_CreateGPUGraphicsPipeline(device, &info);
+}
+
+/// Makes what the frame's lights need for a picture of width by height, and
+/// copies the packed lights into the upload.
+///
+/// @return false where any of it cannot be made
+bool prepare_lights(LightResources& lights, uint32_t width, uint32_t height) {
+    SDL_GPUDevice* const device = lights.device;
+    if (!lights.pipeline) {
+        lights.vertex_shader = create_shader(device, true, true);
+        SDL_GPUShaderCreateInfo info{};
+        stage_code(device, info, live_lights_fragment_spirv, live_lights_fragment_msl);
+        info.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
+        info.num_samplers = 4;
+        info.num_uniform_buffers = 1;
+        lights.fragment_shader = SDL_CreateGPUShader(device, &info);
+        if (!lights.vertex_shader || !lights.fragment_shader)
+            return false;
+        SDL_GPUColorTargetDescription target{};
+        target.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+        SDL_GPUGraphicsPipelineCreateInfo pipeline_info{};
+        pipeline_info.vertex_shader = lights.vertex_shader;
+        pipeline_info.fragment_shader = lights.fragment_shader;
+        pipeline_info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        pipeline_info.target_info.color_target_descriptions = &target;
+        pipeline_info.target_info.num_color_targets = 1;
+        lights.pipeline = SDL_CreateGPUGraphicsPipeline(device, &pipeline_info);
+        if (!lights.pipeline)
+            return false;
+    }
+    if (!lights.table) {
+        lights.table = create_texture(
+            device,
+            renderer_live_lights::texels_per_light,
+            uint32_t(renderer_effects::max_sources),
+            SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT,
+            SDL_GPU_TEXTUREUSAGE_SAMPLER
+        );
+        if (!lights.table)
+            return false;
+    }
+    if (width != lights.width || height != lights.height) {
+        for (SDL_GPUTexture** made : {&lights.surface, &lights.surface_depth, &lights.lit}) {
+            if (*made)
+                SDL_ReleaseGPUTexture(device, *made);
+            *made = nullptr;
+        }
+        lights.width = lights.height = 0;
+        lights.surface = create_texture(
+            device,
+            width,
+            height,
+            light_surface_format,
+            SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER
+        );
+        lights.surface_depth = create_texture(
+            device,
+            width,
+            height,
+            SDL_GPU_TEXTUREFORMAT_D32_FLOAT,
+            SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET
+        );
+        // Read as well as drawn, so that what is drawn over it next can be
+        // drawn on the card.
+        lights.lit = create_texture(
+            device,
+            width,
+            height,
+            SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+            SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER
+        );
+        if (!lights.surface || !lights.surface_depth || !lights.lit)
+            return false;
+        lights.width = width;
+        lights.height = height;
+    }
+    const auto& packed = lights.packed;
+    if (packed.tiles_across != lights.tiles_across || packed.tiles_down != lights.tiles_down) {
+        if (lights.tiles)
+            SDL_ReleaseGPUTexture(device, lights.tiles);
+        lights.tiles_across = lights.tiles_down = 0;
+        lights.tiles = create_texture(
+            device,
+            packed.tiles_across,
+            packed.tiles_down,
+            SDL_GPU_TEXTUREFORMAT_R32G32B32A32_UINT,
+            SDL_GPU_TEXTUREUSAGE_SAMPLER
+        );
+        if (!lights.tiles)
+            return false;
+        lights.tiles_across = packed.tiles_across;
+        lights.tiles_down = packed.tiles_down;
+    }
+    const auto table_bytes = uint32_t(packed.lights.size() * sizeof(float));
+    const auto tile_bytes = uint32_t(packed.tiles.size() * sizeof(uint32_t));
+    if (table_bytes + tile_bytes > lights.upload_capacity) {
+        if (lights.upload)
+            SDL_ReleaseGPUTransferBuffer(device, lights.upload);
+        lights.upload_capacity = 0;
+        SDL_GPUTransferBufferCreateInfo info{};
+        info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        info.size = table_bytes + tile_bytes;
+        lights.upload = SDL_CreateGPUTransferBuffer(device, &info);
+        if (!lights.upload)
+            return false;
+        lights.upload_capacity = info.size;
+    }
+    auto* upload = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device, lights.upload, true));
+    if (!upload)
+        return false;
+    std::memcpy(upload, packed.lights.data(), table_bytes);
+    std::memcpy(upload + table_bytes, packed.tiles.data(), tile_bytes);
+    SDL_UnmapGPUTransferBuffer(device, lights.upload);
+    return true;
+}
+
+/// Uploads the frame's lights, which prepare_lights() copied, in the frame's
+/// copy pass.
+void upload_lights(const LightResources& lights, SDL_GPUCopyPass* copy) {
+    const auto& packed = lights.packed;
+    const SDL_GPUTextureTransferInfo table_source{
+        lights.upload, 0, renderer_live_lights::texels_per_light, packed.count
+    };
+    const SDL_GPUTextureRegion table_region{
+        lights.table, 0, 0, 0, 0, 0, renderer_live_lights::texels_per_light, packed.count, 1
+    };
+    SDL_UploadToGPUTexture(copy, &table_source, &table_region, true);
+    const SDL_GPUTextureTransferInfo tile_source{
+        lights.upload,
+        uint32_t(packed.lights.size() * sizeof(float)),
+        packed.tiles_across,
+        packed.tiles_down
+    };
+    const SDL_GPUTextureRegion tile_region{
+        lights.tiles, 0, 0, 0, 0, 0, packed.tiles_across, packed.tiles_down, 1
+    };
+    SDL_UploadToGPUTexture(copy, &tile_source, &tile_region, true);
+}
+
+/// Draws the surface the lights reach: the frame's triangles again, the
+/// kept ground and then the rest, one sample a pixel whatever the scene's
+/// samples, so that each pixel holds the face under its centre.
+///
+/// @param camera the scene's uniform block
+/// @return false where the pass cannot begin
+bool draw_light_surface(
+    const LightResources& lights,
+    SDL_GPUCommandBuffer* command,
+    std::span<const float> camera,
+    SDL_GPUTexture* atlas,
+    SDL_GPUSampler* sampler,
+    SDL_GPUBuffer* ground,
+    std::size_t ground_count,
+    SDL_GPUBuffer* frame_vertices,
+    std::size_t frame_count
+) {
+    SDL_GPUColorTargetInfo target{};
+    target.texture = lights.surface;
+    target.load_op = SDL_GPU_LOADOP_CLEAR;
+    target.store_op = SDL_GPU_STOREOP_STORE;
+    SDL_GPUDepthStencilTargetInfo depth{};
+    depth.texture = lights.surface_depth;
+    depth.clear_depth = 1;
+    depth.load_op = SDL_GPU_LOADOP_CLEAR;
+    depth.store_op = SDL_GPU_STOREOP_DONT_CARE;
+    depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+    depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+    const auto bytes = static_cast<Uint32>(camera.size_bytes());
+    SDL_PushGPUVertexUniformData(command, 0, camera.data(), bytes);
+    SDL_PushGPUFragmentUniformData(command, 0, camera.data(), bytes);
+    SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(command, &target, 1, &depth);
+    if (!pass)
+        return false;
+    SDL_BindGPUGraphicsPipeline(pass, lights.surface_pipeline);
+    const SDL_GPUTextureSamplerBinding source{atlas, sampler};
+    SDL_BindGPUFragmentSamplers(pass, 0, &source, 1);
+    if (ground_count != 0) {
+        const SDL_GPUBufferBinding binding{ground, 0};
+        SDL_BindGPUVertexBuffers(pass, 0, &binding, 1);
+        SDL_DrawGPUPrimitives(pass, uint32_t(ground_count), 1, 0, 0);
+    }
+    if (frame_count != 0) {
+        const SDL_GPUBufferBinding binding{frame_vertices, 0};
+        SDL_BindGPUVertexBuffers(pass, 0, &binding, 1);
+        SDL_DrawGPUPrimitives(pass, uint32_t(frame_count), 1, 0, 0);
+    }
+    SDL_EndGPURenderPass(pass);
+    return true;
+}
+
+/// Adds the frame's lights to the picture, into the lit texture: a triangle
+/// over it whose every pixel takes the lights its tile lists.
+///
+/// @param picture the picture as the scene drew it, at the output size
+/// @return false where the pass cannot begin
+bool draw_lights(
+    const LightResources& lights,
+    SDL_GPUCommandBuffer* command,
+    SDL_GPUTexture* picture,
+    SDL_GPUSampler* sampler,
+    uint32_t output_width,
+    uint32_t output_height
+) {
+    SDL_GPUColorTargetInfo target{};
+    target.texture = lights.lit;
+    target.load_op = SDL_GPU_LOADOP_DONT_CARE;
+    target.store_op = SDL_GPU_STOREOP_STORE;
+    const auto parameters = renderer_live_lights::parameters(output_width, output_height);
+    SDL_PushGPUFragmentUniformData(command, 0, parameters.data(), sizeof(parameters));
+    SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(command, &target, 1, nullptr);
+    if (!pass)
+        return false;
+    SDL_BindGPUGraphicsPipeline(pass, lights.pipeline);
+    const std::array<SDL_GPUTextureSamplerBinding, 4> sources{
+        {{picture, sampler},
+         {lights.surface, sampler},
+         {lights.table, sampler},
+         {lights.tiles, sampler}}
+    };
+    SDL_BindGPUFragmentSamplers(pass, 0, sources.data(), static_cast<Uint32>(sources.size()));
+    SDL_DrawGPUPrimitives(pass, vertices_per_triangle, 1, 0, 0);
+    SDL_EndGPURenderPass(pass);
+    return true;
 }
 
 } // namespace
@@ -191,6 +546,8 @@ struct Context::State {
     std::size_t ground_vertex_count{};
     uint32_t ground_atlas_width{};
     uint32_t ground_atlas_height{};
+    /// The lights' resources, released before the device in resources.
+    LightResources lights;
 };
 
 Context::Context() : state(std::make_unique<State>()) {
@@ -214,7 +571,8 @@ Result render(
     const AtlasUpdate* atlas_update,
     const WaterEffects* water,
     const KeptGround* ground,
-    const std::function<void()>& while_drawing
+    const std::function<void()>& while_drawing,
+    const Lights* lights
 ) {
     output_rgba.clear();
     error.clear();
@@ -440,6 +798,7 @@ Result render(
         if (!resources.pipeline)
             return fail("Create live GPU pipeline");
         state.pipeline_samples = samples;
+        make_light_surface_pipeline(state.lights, resources.device, pipeline_info);
     }
     const auto frame_vertices = vertices.subspan(ground_count);
     const auto vertex_bytes = uint32_t(frame_vertices.size_bytes());
@@ -526,7 +885,7 @@ Result render(
             output_width,
             output_height,
             SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
-            SDL_GPU_TEXTUREUSAGE_COLOR_TARGET
+            SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER
         );
         SDL_GPUTransferBufferCreateInfo info{};
         info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD;
@@ -609,6 +968,22 @@ Result render(
         !resources.colour || !resources.depth || !resources.resolved ||
         (resolves_twice && !resources.multisample_resolved))
         return fail("Create live GPU frame resources");
+    // The card adds the lights where it can; elsewhere the caller does.
+    auto& lights_held = state.lights;
+    bool lights_on_card = false;
+    if (lights && context.lights_allowed && lights_held.surface_pipeline) {
+        renderer_live_lights::pack(
+            lights->sources,
+            lights->settings,
+            lights->simulation_seconds,
+            output_width,
+            output_height,
+            lights_held.packed
+        );
+        lights_on_card = lights_held.packed.count == 0 ||
+                         prepare_lights(lights_held, output_width, output_height);
+    }
+    const bool lit = lights_on_card && lights_held.packed.count != 0;
     bench_timers::count_atlas_upload(
         upload_rows + frame_upload_rows, upload_rows == texture_height
     );
@@ -713,6 +1088,8 @@ Result render(
         SDL_UploadToGPUTexture(copy, &region_source, &region_destination, false);
         region_offset += region.width * region.height * channels;
     }
+    if (lit)
+        upload_lights(lights_held, copy);
     SDL_EndGPUCopyPass(copy);
     SDL_GPUColorTargetInfo colour_target{};
     colour_target.texture = resources.colour;
@@ -807,6 +1184,19 @@ Result render(
         SDL_DrawGPUPrimitives(pass, uint32_t(frame_vertices.size()), 1, 0, 0);
     }
     SDL_EndGPURenderPass(pass);
+    // The surface the lights reach, from the same vertices.
+    if (lit && !draw_light_surface(
+                   lights_held,
+                   resources.command,
+                   camera,
+                   resources.atlas,
+                   resources.sampler,
+                   resources.ground,
+                   ground_count,
+                   resources.vertices,
+                   frame_vertices.size()
+               ))
+        return fail("Begin live GPU lights' surface");
     if (supersample > 1) {
         SDL_GPUColorTargetInfo target{};
         target.texture = resources.resolved;
@@ -825,19 +1215,19 @@ Result render(
         SDL_DrawGPUPrimitives(pass, vertices_per_triangle, 1, 0, 0);
         SDL_EndGPURenderPass(pass);
     }
+    // The picture as the scene drew it, and with the lights over it.
+    SDL_GPUTexture* const picture =
+        supersample > 1 || samples > 1 ? resources.resolved : resources.colour;
+    if (lit &&
+        !draw_lights(
+            lights_held, resources.command, picture, resources.sampler, output_width, output_height
+        ))
+        return fail("Begin live GPU lights");
     copy = SDL_BeginGPUCopyPass(resources.command);
     if (!copy)
         return fail("Begin live GPU download");
     const SDL_GPUTextureRegion colour_region{
-        supersample > 1 || samples > 1 ? resources.resolved : resources.colour,
-        0,
-        0,
-        0,
-        0,
-        0,
-        output_width,
-        output_height,
-        1
+        lit ? lights_held.lit : picture, 0, 0, 0, 0, 0, output_width, output_height, 1
     };
     const SDL_GPUTextureTransferInfo download_destination{
         resources.download, 0, output_width, output_height
@@ -870,6 +1260,7 @@ Result render(
     context.actual_supersample = supersample;
     context.actual_multisample = samples;
     bench_timers::note_multisample(samples);
+    context.lights_drawn = lights_on_card;
     state.atlas_revision = atlas_revision;
     state.atlas_uploaded = true;
     if (ground_bytes != 0) {

@@ -599,11 +599,12 @@ if(OA_BUILD_PLATFORM)
     add_test(NAME app-full-effects COMMAND oa-app-full-effects-test)
   endif()
   add_library(oa-app-renderer-live src/app/renderer_live_camera.cpp
-    src/app/renderer_live_gpu.cpp src/app/renderer_live_scene.cpp)
+    src/app/renderer_live_gpu.cpp src/app/renderer_live_lights.cpp src/app/renderer_live_scene.cpp)
   add_library(oa::app::renderer_live ALIAS oa-app-renderer-live)
   target_include_directories(oa-app-renderer-live PUBLIC src/app)
   target_link_libraries(oa-app-renderer-live PUBLIC SDL3::SDL3 oa-app-headers
     oa-app-full-models oa-formats-tnt oa-app-renderer-water oa-platform-job-pool
+    oa-app-renderer-effects
     PRIVATE oa-sim-visibility-state oa-options)
   if(BUILD_TESTING)
     foreach(oa_live_part camera scene gpu)

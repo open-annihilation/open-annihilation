@@ -59,6 +59,36 @@ inline constexpr std::size_t max_sources = 128;
 /// The widest a source reaches compose() draws, in pixels either way.
 inline constexpr float max_radius = 256;
 
+/// The channel steps a source's light adds at its centre at strength 1.
+inline constexpr float light_energy = 110;
+
+/// The channel steps a wreck's glow adds at its centre at strength 1.
+inline constexpr float glow_energy = 150;
+
+/// The share of a source's radius its glow's core reaches.
+inline constexpr float glow_radius_fraction = 0.35F;
+
+/// The share of a source's depth reach by which a surface nearer the camera
+/// than the source counts as standing in front of it: the glow and the heat
+/// leave it alone, and heat samples no pixel across that much depth.
+inline constexpr float silhouette_depth_fraction = 0.08F;
+
+/// The least heat strength that distorts.
+inline constexpr float minimum_heat = 0.25F;
+
+/// The most pixels heat moves a sample at strength 1.
+inline constexpr float max_displacement = 2;
+
+/// Heat's ripple along the rows, in radians a row, and in time, in radians a
+/// simulation second; time repeats every animation_period seconds.
+inline constexpr float heat_spatial_frequency = 0.55F;
+inline constexpr float heat_temporal_frequency = 11;
+inline constexpr double animation_period = 120;
+
+/// Whether compose() draws a source at all: every value finite, a radius
+/// above zero and no reach below it.
+bool valid_source(const Source& source) noexcept;
+
 /// Composite at most 128 visible sources, with radii bounded to 256 pixels.
 /// Source visibility must be checked before projection. Visibility prevents both
 /// sampling and writing hidden pixels; depth limits light reach and rejects shimmer

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 
+#include "renderer_effects.hpp"
 #include "renderer_proof_gpu.hpp"
 #include "renderer_water.hpp"
 
@@ -34,6 +35,17 @@ struct Vertex {
 };
 
 using Result = renderer_proof_gpu::Result;
+
+/// The lights and heat render() adds to its picture on the card, as
+/// renderer_effects::compose() adds them to a picture on the processor: in
+/// its order, at its strengths and switches, each light reaching the
+/// surfaces the frame itself draws in its reach, which the card finds from
+/// the depth, opacity and fog of each pixel's surface as it draws it.
+struct Lights {
+    std::span<const renderer_effects::Source> sources{}; ///< in output pixels
+    renderer_effects::Settings settings{};
+    double simulation_seconds{};
+};
 
 /// The widest and tallest picture render() draws, and atlas it takes, in
 /// pixels.
@@ -72,6 +84,13 @@ struct Context {
     /// Metal or Vulkan. render() answers unavailable from then on without
     /// trying again.
     bool device_unavailable{};
+    /// Whether render() may add the lights it is given on the card; false
+    /// leaves them to the caller, as on a card without the formats they need.
+    bool lights_allowed{true};
+    /// Whether the last frame that succeeded holds the lights it was given,
+    /// added on the card; false when it was given none, or left them to the
+    /// caller, which adds them to the picture itself.
+    bool lights_drawn{};
     /// Allocate the state without opening a device or window.
     Context();
     /// Release pending commands and GPU resources before the device.
@@ -148,6 +167,9 @@ struct KeptGround {
 ///        triangles; vertices must hold the same ground while its revision is unchanged
 /// @param while_drawing optional work for the caller while the card draws: called once,
 ///        when the frame has been submitted and before render() waits for it
+/// @param lights optional lights added to the picture before readback where the card has
+///        the formats they need and Context::lights_allowed; Context::lights_drawn says
+///        whether they were
 /// @return success; unavailable where SDL makes no device on Metal or Vulkan; or failed for
 ///         invalid input or GPU errors
 Result render(
@@ -166,7 +188,8 @@ Result render(
     const AtlasUpdate* atlas_update = nullptr,
     const WaterEffects* water = nullptr,
     const KeptGround* ground = nullptr,
-    const std::function<void()>& while_drawing = {}
+    const std::function<void()>& while_drawing = {},
+    const Lights* lights = nullptr
 );
 
 } // namespace oa::app::renderer_live_gpu

@@ -3039,9 +3039,10 @@ prompts, Settings › Updates and the headers name one state with one size.
   Runtime keeps a [job pool](../platform/job-pool/README.md)
   (`draw_pool_`) that this conversion, the terrain fill, the fog, the
   battlefield's draws (`world_draws.hpp`), the effects' light and heat
-  (`renderer_effects::compose`), the 3D view's depth under them
-  (`live_scene_visibility`) and the 3D view's scene passes
-  (`renderer_live_scene::build`) run their bands on:
+  (`renderer_effects::compose`), the 3D view's depth under them where the
+  graphics card cannot add its lights itself (`live_scene_visibility`) and
+  the 3D view's scene passes (`renderer_live_scene::build`) run their bands
+  on:
   `--draw-threads N` (1 to 32), else the `OA_DRAW_THREADS`
   environment variable, else the pool's default, one thread on a machine of
   one or two logical processors and otherwise one fewer than the

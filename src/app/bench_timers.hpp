@@ -42,7 +42,7 @@ enum class Stage : uint8_t {
     gpu_download,      ///< the copy of the picture back
     rgb_copy,          ///< the picture's pixels into the match's layer
     picking,           ///< the pick's triangles, rebuilt while the card draws
-    effects,           ///< the lights and the heat over the turned view
+    effects,           ///< the lights and the heat over the turned view, the processor's part
     overlays,          ///< draw_live_overlays
     match_setup,       ///< draw_match_surface before the interface
     match_hud,         ///< compose_match_hud
@@ -54,7 +54,7 @@ enum class Stage : uint8_t {
     unit_overlays,     ///< draw_live_unit_overlays
     on_screen_units,   ///< rebuild_on_screen_units
     cursor_pick,       ///< the pointer's pick of the unit under it
-    effect_visibility, ///< the depth the effects test their lights against
+    effect_visibility, ///< the depth the effects test their lights against, on the processor
     count
 };
 

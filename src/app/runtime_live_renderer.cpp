@@ -8,6 +8,7 @@
 #include "director_state.hpp"
 #include "match_models.hpp"
 #include "engine_settings_state.hpp"
+#include "renderer_effects.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_live_gpu.hpp"
 #include "renderer_live_scene.hpp"
@@ -521,6 +522,17 @@ bool Runtime::render_live_match_surface() {
         const renderer_live_gpu::KeptGround ground{
             live.scene.terrain_vertex_count, live.scene.ground_revision
         };
+        // The lights and heat over the frame, found before the card draws it
+        // so that it adds them; a card that cannot leaves them to the
+        // processor, which adds them to the picture read back.
+        Span lighting(Stage::effects);
+        const auto lights = project_match_effects(
+            match_world_cpu_.width, match_world_cpu_.height, 0, 0, 1, 1, true
+        );
+        const renderer_live_gpu::Lights card_lights{
+            lights, match_effect_settings(), static_cast<double>(match_->simulation().tick) / 30.0
+        };
+        lighting.stop();
         Span drawing(Stage::gpu_total);
         const auto result = built ? renderer_live_gpu::render(
                                         live.gpu,
@@ -538,7 +550,8 @@ bool Runtime::render_live_match_surface() {
                                         &live.scene.atlas_update,
                                         &inputs.water,
                                         &ground,
-                                        rebuild_picking
+                                        rebuild_picking,
+                                        &card_lights
                                     )
                                   : renderer_live_gpu::Result::failed;
         drawing.stop();
@@ -558,8 +571,22 @@ bool Runtime::render_live_match_surface() {
                     live.rgba.data() + pixel * 4, 3, match_world_cpu_.rgb.data() + pixel * 3
                 );
             copying.stop();
-            const Span effects(Stage::effects);
-            compose_match_effects(match_world_cpu_, true);
+            if (!live.gpu.lights_drawn) {
+                const Span effects(Stage::effects);
+                compose_projected_match_effects(
+                    match_world_cpu_.rgb,
+                    match_world_cpu_.width,
+                    match_world_cpu_.height,
+                    match_world_cpu_.width * 3,
+                    3,
+                    0,
+                    0,
+                    1,
+                    1,
+                    true,
+                    lights
+                );
+            }
         } else if (
             !built && live.scene.out_of_room && last.held && director_ == nullptr &&
             (!at_last || live.rgba.size() == match_world_cpu_.rgb.size() / 3 * 4)
@@ -575,13 +602,14 @@ bool Runtime::render_live_match_surface() {
             if (at_last) {
                 // The camera last drawn no longer fits either, as when more
                 // comes into view: its last picture stays, with nothing to
-                // pick in it.
+                // pick in it, and the lights the card added to it.
                 rebuild_live_picking();
                 for (std::size_t pixel = 0; pixel < match_world_cpu_.rgb.size() / 3; ++pixel)
                     std::copy_n(
                         live.rgba.data() + pixel * 4, 3, match_world_cpu_.rgb.data() + pixel * 3
                     );
-                compose_match_effects(match_world_cpu_, true);
+                if (!live.gpu.lights_drawn)
+                    compose_match_effects(match_world_cpu_, true);
             } else {
                 const auto back = last;
                 live.camera = back.camera;

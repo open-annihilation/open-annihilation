@@ -16,9 +16,9 @@
 
 namespace oa::app {
 namespace {
-constexpr float minimum_light_strength = 1.0F / 110.0F;
-constexpr float minimum_glow_strength = 1.0F / 150.0F;
-constexpr float minimum_heat_strength = 0.25F;
+constexpr float minimum_light_strength = 1.0F / renderer_effects::light_energy;
+constexpr float minimum_glow_strength = 1.0F / renderer_effects::glow_energy;
+constexpr float minimum_heat_strength = renderer_effects::minimum_heat;
 
 /// Select a source's light independently from its heat distortion.
 float light_intensity(
@@ -100,20 +100,51 @@ void Runtime::compose_match_effect_pixels(
     bool live,
     float effect_row_offset
 ) {
+    const auto projected = project_match_effects(
+        width, height, origin_x, origin_y, scale_x, scale_y, live, effect_row_offset
+    );
+    compose_projected_match_effects(
+        pixels,
+        width,
+        height,
+        pitch,
+        channels,
+        origin_x,
+        origin_y,
+        scale_x,
+        scale_y,
+        live,
+        projected
+    );
+}
+
+renderer_effects::Settings Runtime::match_effect_settings() {
+    return {true, true, engine_settings().heat_distortion != 0};
+}
+
+std::vector<renderer_effects::Source> Runtime::project_match_effects(
+    uint32_t width,
+    uint32_t height,
+    float origin_x,
+    float origin_y,
+    float scale_x,
+    float scale_y,
+    bool live,
+    float effect_row_offset
+) {
+    std::vector<renderer_effects::Source> projected;
     if (!match_ || !selected_tnt_ || !match_effects_enabled() || width == 0 || height == 0 ||
         width > 8192 || height > 8192 || !std::isfinite(scale_x) || !std::isfinite(scale_y) ||
         scale_x <= 0 || scale_y <= 0)
-        return;
+        return projected;
     const float zoom = match_zoom();
     if (!std::isfinite(zoom) || zoom <= 0)
-        return;
+        return projected;
     const auto place = match_view_place();
     const auto& settings = engine_settings();
     // Underwater shimmer's strength, which a lava sea leaves at none.
     const float shimmer = std::min(water_levels().shimmer, 2.0F);
-    std::vector<renderer_effects::Source> projected;
     projected.reserve(match_effect_sources().size());
-    constexpr float heat_spatial_frequency = 0.55F;
     float depth_scale = 1;
     if (live) {
         const float zero = live_project_depth(0, 0, 0);
@@ -169,18 +200,39 @@ void Runtime::compose_match_effect_pixels(
              light,
              glow,
              heat,
-             source.x * 0.13F + source.z * 0.17F + effect_row_offset * heat_spatial_frequency,
+             source.x * 0.13F + source.z * 0.17F +
+                 effect_row_offset * renderer_effects::heat_spatial_frequency,
              radius_y}
         );
     }
-    if (projected.empty())
+    return projected;
+}
+
+void Runtime::compose_projected_match_effects(
+    std::span<uint8_t> pixels,
+    uint32_t width,
+    uint32_t height,
+    uint32_t pitch,
+    uint32_t channels,
+    float origin_x,
+    float origin_y,
+    float scale_x,
+    float scale_y,
+    bool live,
+    std::span<const renderer_effects::Source> projected
+) {
+    if (projected.empty() || !match_ || width == 0 || height == 0 || width > 8192 ||
+        height > 8192 || !std::isfinite(scale_x) || !std::isfinite(scale_y) || scale_x <= 0 ||
+        scale_y <= 0)
         return;
+    const float zoom = match_zoom();
+    const auto place = match_view_place();
     // Only pixels reached by an effect need visibility sampling, and only
     // the effects compose draws: the first max_sources of them.
     std::vector<uint32_t> row_left(height, width), row_right(height, 0);
     std::vector<std::array<uint32_t, 4>> regions;
     for (const auto& source :
-         std::span(projected).first(std::min(projected.size(), renderer_effects::max_sources))) {
+         projected.first(std::min(projected.size(), renderer_effects::max_sources))) {
         constexpr float maximum_radius = 256;
         constexpr float heat_sample_margin = 4;
         const float radius = std::min(source.radius_pixels, maximum_radius) + heat_sample_margin;
@@ -219,9 +271,8 @@ void Runtime::compose_match_effect_pixels(
         std::vector<std::array<uint32_t, 3>> reaches;
         std::size_t reach_pixels = 0;
         std::size_t lights = 0;
-        for (const auto& source : std::span(projected).first(
-                 std::min(projected.size(), renderer_effects::max_sources)
-             )) {
+        for (const auto& source :
+             projected.first(std::min(projected.size(), renderer_effects::max_sources))) {
             const float radius = std::min(source.radius_pixels, renderer_effects::max_radius);
             const float radius_y =
                 source.radius_y_pixels > 0
@@ -405,7 +456,7 @@ void Runtime::compose_match_effect_pixels(
          visibility,
          depths},
         projected,
-        {true, true, settings.heat_distortion != 0},
+        match_effect_settings(),
         static_cast<double>(match_->simulation().tick) / 30.0,
         draw_pool_.get()
     );

@@ -263,8 +263,19 @@ altitude. Ground flash masks remain draped over the terrain.
 Newly observed wrecks cool over 900
 simulation ticks, fading from orange toward red. Existing wrecks loaded from
 a save start cold. Wrecks and hot weapons can distort nearby battlefield
-pixels; selection markers and HUD elements are drawn afterward. The 3D pass
-uses scene depth to limit light reach and protect foreground silhouettes.
+pixels; selection markers and HUD elements are drawn afterward. The 3D view
+adds its lights and heat on the graphics card, after the scene and before the
+picture is read back. The card draws the frame's triangles a second time, one
+sample a pixel whatever the anti-aliasing, keeping under each pixel's centre
+the nearest face opaque to the lights (its opacity, and its texel's alpha
+times it, at least one half) with its camera depth and fog; translucent faces,
+such as smoke, hide nothing from the lights. A pass over the picture then
+adds each light to the pixels of the tiles it reaches, 32 pixels a side, in
+the order and at the strengths the processor composes them
+(`renderer_effects::compose`): depth limits a light's reach and keeps glow and
+heat off what stands in front of it, and fog lessens it. A card without the
+float targets and textures this needs leaves the lights to the processor,
+which finds the same surfaces by a raster of its own after the read-back.
 Classic rendering has no depth buffer, so its effects use screen-space
 falloff and visibility masks rather than physical occlusion. Neither path
 casts dynamic light shadows. Source counts and radii are bounded.
@@ -309,7 +320,8 @@ It reuses its device,
 pipeline, atlas and frame buffers, but each frame waits for GPU readback and
 uploads the result through the existing presentation path. Performance is
 provisional. The live path omits the unused classic battlefield raster, and
-its effect visibility raster only visits rows and columns reached by effects.
+adds its lights on the card; where the card cannot, the processor's
+visibility raster visits only the rows and columns the effects reach.
 Zooming out reduces fog subdivision, merges planar terrain cells, and fades
 subpixel decals and particles. Small light footprints fade out; heat distortion
 fades sooner as its pixel displacement becomes imperceptible.

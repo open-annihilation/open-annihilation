@@ -10,7 +10,8 @@ terrain fill (`fill_scaled_viewport`) and the fog (`draw_fog_grid`) in
 battlefield's units, features and effects (`draw_world_band`), the
 conversion of each frame to the window's pixel format before it is shown,
 the effects' light and heat (`renderer_effects::compose`), the 3D view's
-depth under them (`live_scene_visibility`) and the 3D view's scene passes
+depth under them where the graphics card cannot add its lights
+(`live_scene_visibility`) and the 3D view's scene passes
 (`renderer_live_scene::build`) ([src/app](../../app/README.md)).
 The battlefield's units are planned on it too, before the frame's draw list
 takes them (`plan_unit_draws`).
