@@ -3099,6 +3099,97 @@ void ground_drawn_ahead_on_threads() {
     OA_CHECK(triangles(scenes[0]) == pictured(pan_a_frame * frames));
 }
 
+/// A camera that moves on over ground it has not shown, then comes back,
+/// shows the tiles it showed at the detail it showed them while the atlas
+/// has room: only the ground coming into view takes the moving camera's
+/// smaller squares, so every triangle of the picture it left is drawn
+/// again from the same square, byte for byte.
+void moving_camera_comes_back_to_its_picture() {
+    constexpr uint32_t across = 24;
+    constexpr uint32_t picture_width = 200;
+    constexpr uint32_t picture_height = 150;
+    constexpr std::array<float, 12> projection{2, 0, -2, 0, 1, -1, 1, 0, 0, 1, 0, 0};
+    Fixture fixture;
+    auto& map = fixture.map;
+    map.tile_width = map.tile_height = across;
+    map.attribute_width = map.attribute_height = across * 2;
+    // Every tile its own, so that each step brings new tiles to pack.
+    map.tile_count = across * across;
+    map.tile_indices.resize(static_cast<std::size_t>(across) * across);
+    for (std::size_t tile = 0; tile < map.tile_indices.size(); ++tile)
+        map.tile_indices[tile] = static_cast<uint16_t>(tile);
+    map.tile_palette_indices.resize(map.tile_indices.size() * tile_edge * tile_edge);
+    for (std::size_t pixel = 0; pixel < map.tile_palette_indices.size(); ++pixel)
+        map.tile_palette_indices[pixel] =
+            static_cast<uint8_t>((pixel / (tile_edge * tile_edge) + pixel % 7) % 5);
+    map.attributes.assign(static_cast<std::size_t>(map.attribute_width) * map.attribute_height, {});
+    for (uint32_t row = 0; row < map.attribute_height; ++row)
+        for (uint32_t column = 0; column < map.attribute_width; ++column)
+            map.attributes[static_cast<std::size_t>(row) * map.attribute_width + column].height =
+                static_cast<uint8_t>((column * 3 + row * 5) % 40);
+    auto& inputs = fixture.inputs;
+    inputs.sight.mapping = false;
+    inputs.sight.line_of_sight = false;
+    inputs.right = static_cast<int32_t>(across) * tile_edge;
+    inputs.bottom = static_cast<int32_t>(across) * tile_edge;
+    inputs.clip_projection = projection;
+    inputs.clip_width = picture_width;
+    inputs.clip_height = picture_height;
+    inputs.tiles_hold_while_moving = true;
+    using Corners = std::array<float, 9>;
+    using Triangle = std::array<oa::app::renderer_live_gpu::Vertex, 3>;
+    // The ground's triangles by their corners.
+    const auto ground = [](const live::Scene& scene) {
+        std::vector<std::pair<Corners, Triangle>> result;
+        const auto& vertices = scene.ground_kept ? scene.ground_vertices : scene.vertices;
+        const std::size_t count = scene.ground_kept ? vertices.size() : scene.terrain_vertex_count;
+        for (std::size_t first = 0; first + 2 < count; first += 3) {
+            Corners corners{};
+            Triangle triangle{};
+            for (std::size_t corner = 0; corner < 3; ++corner) {
+                triangle[corner] = vertices[first + corner];
+                corners[corner * 3] = triangle[corner].x;
+                corners[corner * 3 + 1] = triangle[corner].height;
+                corners[corner * 3 + 2] = triangle[corner].z;
+            }
+            result.emplace_back(corners, triangle);
+        }
+        std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
+            return a.first < b.first;
+        });
+        return result;
+    };
+    const auto build = [&](float pan) {
+        inputs.clip_projection[3] = pan;
+        OA_CHECK(live::build(inputs, fixture.scene, fixture.error));
+    };
+    build(0);
+    build(0);
+    const auto still = ground(fixture.scene);
+    const std::size_t tiles_shown = fixture.scene.terrain_materials.size();
+    // Six steps along, bringing new tiles into view, and straight back.
+    for (int step = 1; step <= 6; ++step)
+        build(-6.0F * static_cast<float>(step));
+    OA_CHECK(fixture.scene.terrain_materials.size() > tiles_shown);
+    build(0);
+    const auto back = ground(fixture.scene);
+    std::size_t found = 0;
+    std::size_t same = 0;
+    for (const auto& [corners, triangle] : still) {
+        const auto match = std::lower_bound(
+            back.begin(), back.end(), corners, [](const auto& entry, const Corners& wanted) {
+                return entry.first < wanted;
+            }
+        );
+        if (match == back.end() || match->first != corners)
+            continue;
+        ++found;
+        same += std::memcmp(match->second.data(), triangle.data(), sizeof(Triangle)) == 0 ? 1 : 0;
+    }
+    OA_CHECK(found == still.size());
+    OA_CHECK(same == found);
+}
+
 /// Aircraft shadows keep their silhouette at full alpha at every altitude,
 /// soften only their edge, a pixel more high up, and receive on water at
 /// the vehicles' own shadow opacity.
@@ -3916,6 +4007,7 @@ int main() {
     frame_rows_grow_for_spilled_shadows();
     passes_on_threads();
     ground_drawn_ahead_on_threads();
+    moving_camera_comes_back_to_its_picture();
     aircraft_shadow_altitude();
     aircraft_shadow_as_the_game_casts_it();
     flash_masks_and_effect_altitude();
