@@ -16,6 +16,7 @@
 #include <exception>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -104,21 +105,6 @@ struct GroundBand {
     uint64_t nanoseconds{};             ///< for the bench: the time drawing it took
 };
 
-/// The ground of a moving camera drawn ahead of it: band by band on the
-/// drawing threads, over the frames before the kept ground's margin runs
-/// out, for the picture the camera is expected to show by then, from the
-/// same as the kept ground. Once every band is drawn it is taken as the
-/// kept ground, as soon as it covers the frame's picture.
-struct GroundAhead {
-    bool active{}; ///< a ground is being drawn ahead
-    /// What it is drawn from, with the crop, the picture and the margin it
-    /// is drawn for.
-    GroundSource source{};
-    std::vector<GroundBand> bands{};
-    std::size_t bands_drawn{};   ///< the bands drawn so far, from the first
-    std::size_t bands_a_frame{}; ///< the bands each frame draws
-};
-
 /// A structure's plot, the ground levelled under it: the map rectangle it
 /// covers, in map pixels across and world rows down, and the height the
 /// ground lies at inside it.
@@ -130,6 +116,74 @@ struct Foundation {
     float height{};
 
     [[nodiscard]] bool operator==(const Foundation&) const = default;
+};
+
+/// A band of a ground's triangles with the structures' plots cut into it.
+struct GroundCutBand {
+    std::vector<renderer_live_gpu::Vertex> vertices{};
+    bool cut{}; ///< a plot reached its triangles
+    std::exception_ptr failure{};
+    uint64_t nanoseconds{}; ///< for the bench: the time cutting it took
+};
+
+/// The ground of a moving camera drawn ahead of it: band by band on the
+/// drawing threads, over the frames before the kept ground's margin runs
+/// out, for the picture the camera is expected to show by then, from the
+/// same as the kept ground. While the kept ground still draws, its tiles
+/// are packed a share a frame as its bands are drawn, its vertices placed
+/// once every band is drawn and every tile packed, the structures' plots
+/// cut into it a share of its bands a frame, and what the card takes sent
+/// to it a share a frame. It is taken as the kept ground as soon as it
+/// covers the frame's picture, once sent; or, past the kept ground's
+/// margin first, as it is, the rest done in the frame that takes it.
+struct GroundAhead {
+    bool active{}; ///< a ground is being drawn ahead
+    /// What it is drawn from, with the crop, the picture and the margin it
+    /// is drawn for.
+    GroundSource source{};
+    std::vector<GroundBand> bands{};
+    std::size_t bands_drawn{};   ///< the bands drawn so far, from the first
+    std::size_t bands_a_frame{}; ///< the bands each frame draws
+    /// Its tiles, packed a share a frame without giving back any square the
+    /// kept ground draws (the kept ground's tiles): the terrain pass that
+    /// packs them, zero before the first; the bands whose tiles are listed;
+    /// each tile key listed, in the order the ground first draws them, with
+    /// its square once placed; the keys looked at so far; and those that
+    /// gave their squares back, to be packed again, with the next key that
+    /// may (unpack_larger_tile). One that cannot be packed so is packed in
+    /// the frame that takes it.
+    uint64_t pass{};
+    std::unordered_set<uint64_t> kept_tiles{};
+    std::size_t bands_listed{};
+    std::vector<uint64_t> order{};
+    std::unordered_map<uint64_t, AtlasRect> squares{};
+    std::size_t tiles_packed{};
+    std::vector<uint64_t> unpacked{};
+    std::size_t next_unpack{};
+    bool packed_late{};
+    /// Every tile packed and its vertices placed in their squares; its cut
+    /// begins the frame after.
+    bool placed{};
+    bool cut_waits{};
+    uint64_t revision{}; ///< the revision it takes as the kept ground
+    std::vector<renderer_live_gpu::Vertex> vertices{};
+    std::vector<std::pair<uint64_t, AtlasRect>>
+        tiles{}; ///< each tile key it draws, with its square
+    /// The structures' plots cut into it, a share of its bands a frame, with
+    /// the plots of the frame that cuts them: the cut ground, its bands, the
+    /// plots, and the revision the cut takes. No plots leave it uncut.
+    bool cut{};
+    std::size_t cut_bands_done{};
+    std::vector<GroundCutBand> cut_bands{};
+    std::vector<Foundation> cut_plots{};
+    std::vector<renderer_live_gpu::Vertex> cut_vertices{};
+    uint64_t cut_revision{};
+    /// Its vertices the card takes, the cut ground or the ground, sent to
+    /// the card a share a frame once cut (renderer_live_gpu::KeptGround::next),
+    /// and the rest at once in a frame after which the camera is expected
+    /// to pass the kept ground's margin.
+    std::size_t sent{};
+    bool send_rest{};
 };
 
 /// Emitted triangle range belonging to a visible canonical unit.
@@ -390,6 +444,12 @@ struct Scene {
     /// The ground drawn ahead of a moving camera, to take over from the
     /// kept ground before its margin runs out.
     GroundAhead ground_ahead{};
+    /// The terrain pass that drew the frame's ground: the last, but while a
+    /// ground drawn ahead has its tiles packed before it is taken.
+    uint64_t ground_pass{};
+    /// The frame's kept ground for the card, with the next kept ground's
+    /// slice to send ahead (renderer_live_gpu::KeptGround).
+    renderer_live_gpu::KeptGround card_ground{};
     /// The revision of the kept ground, which a frame that takes it takes too.
     uint64_t kept_ground_revision{};
     /// The revision of the frame's ground, its first terrain_vertex_count

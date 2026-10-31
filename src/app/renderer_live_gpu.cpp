@@ -60,6 +60,7 @@ struct Resources {
     SDL_GPUSampler* linear_sampler{}; ///< the atlas filtered
     SDL_GPUBuffer* vertices{};        ///< the frame's vertices after the kept ground
     SDL_GPUBuffer* ground{};          ///< the kept ground's vertices
+    SDL_GPUBuffer* next_ground{};     ///< the next kept ground's, sent ahead of it
     SDL_GPUTransferBuffer* upload{};
     SDL_GPUTransferBuffer* download{};
     SDL_GPUGraphicsPipeline* pipeline{};
@@ -98,6 +99,8 @@ struct Resources {
             SDL_ReleaseGPUBuffer(device, vertices);
         if (ground)
             SDL_ReleaseGPUBuffer(device, ground);
+        if (next_ground)
+            SDL_ReleaseGPUBuffer(device, next_ground);
         if (upload)
             SDL_ReleaseGPUTransferBuffer(device, upload);
         if (download)
@@ -1099,6 +1102,51 @@ bool download_texture(
     return true;
 }
 
+/// Tells whether vertices are ones render() can draw: every value within
+/// its range, a known terrain square size, and a terrain square inside the
+/// atlas. Ordered bounds also reject NaN and infinities. Each test gives 0
+/// or 1, and a vertex's tests are combined with & rather than &&, so that a
+/// frame's million vertices are checked without a branch on each test.
+///
+/// @param vertices the vertices
+/// @param texture_width the atlas's width
+/// @param texture_height its height
+/// @return 1 when every one can be drawn, else 0
+uint32_t
+vertices_valid(std::span<const Vertex> vertices, uint32_t texture_width, uint32_t texture_height) {
+    const auto within = [](float value, float low, float high) -> uint32_t {
+        return static_cast<uint32_t>(value >= low) & static_cast<uint32_t>(value <= high);
+    };
+    const auto unit_range = [&](float value) { return within(value, 0, 1); };
+    const auto atlas_width = static_cast<float>(texture_width);
+    const auto atlas_height = static_cast<float>(texture_height);
+    uint32_t all_valid = 1;
+    for (const auto& vertex : vertices) {
+        const float size = vertex.terrain_size;
+        // A whole number from -7 to 0, or a terrain square of 32, 16, 8 or 4.
+        const uint32_t known_terrain_size =
+            (within(size, -7, 0) & static_cast<uint32_t>(size == std::trunc(size))) |
+            static_cast<uint32_t>(size == 32) | static_cast<uint32_t>(size == 16) |
+            static_cast<uint32_t>(size == 8) | static_cast<uint32_t>(size == 4);
+        const uint32_t square_in_atlas =
+            static_cast<uint32_t>(size <= 0) |
+            (static_cast<uint32_t>(vertex.terrain_x + 2 * size <= atlas_width) &
+             static_cast<uint32_t>(vertex.terrain_y + 2 * size <= atlas_height));
+        all_valid &=
+            within(vertex.x, -coordinate_limit, coordinate_limit) &
+            within(vertex.height, -coordinate_limit, coordinate_limit) &
+            within(vertex.z, -coordinate_limit, coordinate_limit) & unit_range(vertex.u) &
+            unit_range(vertex.v) & unit_range(vertex.brightness) & unit_range(vertex.opacity) &
+            unit_range(vertex.red) & unit_range(vertex.green) & unit_range(vertex.blue) &
+            unit_range(vertex.emission_r) & unit_range(vertex.emission_g) &
+            unit_range(vertex.emission_b) &
+            within(vertex.terrain_x, 0, size <= -2 ? coordinate_limit : atlas_width) &
+            within(vertex.terrain_y, 0, atlas_height) & known_terrain_size &
+            unit_range(vertex.terrain_grey) & unit_range(vertex.terrain_known) & square_in_atlas;
+    }
+    return all_valid;
+}
+
 } // namespace
 
 struct Context::State {
@@ -1126,6 +1174,17 @@ struct Context::State {
     std::size_t ground_vertex_count{};
     uint32_t ground_atlas_width{};
     uint32_t ground_atlas_height{};
+    /// The next kept ground sent ahead (KeptGround::next) into its buffer:
+    /// its revision, its vertices, those sent so far, the atlas size its
+    /// slices were checked against and whether every one passed; no
+    /// revision while none is being sent.
+    uint32_t next_ground_capacity{};
+    uint64_t next_ground_revision{};
+    std::size_t next_ground_count{};
+    std::size_t next_ground_sent{};
+    uint32_t next_ground_atlas_width{};
+    uint32_t next_ground_atlas_height{};
+    bool next_ground_valid{};
     /// The lights' resources, released before the device in resources.
     LightResources lights;
     /// The overlay's resources, released before the device in resources.
@@ -1263,45 +1322,47 @@ Result render(
         error = "Invalid live GPU kept ground";
         return Result::failed;
     }
-    const auto& held = *context.state;
+    auto& state = *context.state;
+    // A next kept ground sent whole, every slice checked against this
+    // atlas, becomes the kept ground's buffer in the frame that takes it.
+    if (ground_count != 0 && state.ground_revision != ground->revision &&
+        state.next_ground_revision == ground->revision && state.next_ground_valid &&
+        state.next_ground_count == ground_count && state.next_ground_sent == ground_count &&
+        state.next_ground_atlas_width == texture_width &&
+        state.next_ground_atlas_height == texture_height) {
+        std::swap(state.resources.ground, state.resources.next_ground);
+        std::swap(state.ground_capacity, state.next_ground_capacity);
+        state.ground_revision = ground->revision;
+        state.ground_vertex_count = ground_count;
+        state.ground_atlas_width = texture_width;
+        state.ground_atlas_height = texture_height;
+        state.next_ground_revision = 0;
+    }
+    const auto& held = state;
     const bool ground_held = ground_count != 0 && held.ground_revision == ground->revision &&
                              held.ground_vertex_count == ground_count &&
                              held.ground_atlas_width == texture_width &&
                              held.ground_atlas_height == texture_height;
-    // Ordered bounds also reject NaN and infinities. Each test gives 0 or 1,
-    // and a vertex's tests are combined with & rather than &&, so that a
-    // frame's million vertices are checked without a branch on each test.
-    const auto within = [](float value, float low, float high) -> uint32_t {
-        return static_cast<uint32_t>(value >= low) & static_cast<uint32_t>(value <= high);
-    };
-    const auto unit_range = [&](float value) { return within(value, 0, 1); };
-    const auto atlas_width = static_cast<float>(texture_width);
-    const auto atlas_height = static_cast<float>(texture_height);
-    uint32_t vertices_valid = 1;
     bench_timers::Span validating(bench_timers::Stage::gpu_validate);
-    for (const auto& vertex : vertices.subspan(ground_held ? ground_count : 0)) {
-        const float size = vertex.terrain_size;
-        // A whole number from -7 to 0, or a terrain square of 32, 16, 8 or 4.
-        const uint32_t known_terrain_size =
-            (within(size, -7, 0) & static_cast<uint32_t>(size == std::trunc(size))) |
-            static_cast<uint32_t>(size == 32) | static_cast<uint32_t>(size == 16) |
-            static_cast<uint32_t>(size == 8) | static_cast<uint32_t>(size == 4);
-        const uint32_t square_in_atlas =
-            static_cast<uint32_t>(size <= 0) |
-            (static_cast<uint32_t>(vertex.terrain_x + 2 * size <= atlas_width) &
-             static_cast<uint32_t>(vertex.terrain_y + 2 * size <= atlas_height));
-        const uint32_t valid =
-            within(vertex.x, -coordinate_limit, coordinate_limit) &
-            within(vertex.height, -coordinate_limit, coordinate_limit) &
-            within(vertex.z, -coordinate_limit, coordinate_limit) & unit_range(vertex.u) &
-            unit_range(vertex.v) & unit_range(vertex.brightness) & unit_range(vertex.opacity) &
-            unit_range(vertex.red) & unit_range(vertex.green) & unit_range(vertex.blue) &
-            unit_range(vertex.emission_r) & unit_range(vertex.emission_g) &
-            unit_range(vertex.emission_b) &
-            within(vertex.terrain_x, 0, size <= -2 ? coordinate_limit : atlas_width) &
-            within(vertex.terrain_y, 0, atlas_height) & known_terrain_size &
-            unit_range(vertex.terrain_grey) & unit_range(vertex.terrain_known) & square_in_atlas;
-        vertices_valid &= valid;
+    const uint32_t frame_valid = vertices_valid(
+        vertices.subspan(ground_held ? ground_count : 0), texture_width, texture_height
+    );
+    // The share of the next kept ground sent this frame, checked as it goes:
+    // in order from its first vertex, or from the first again for a new one.
+    // It counts as sent once the frame's upload holds it.
+    std::span<const Vertex> next_slice;
+    bool next_fresh = false;
+    uint32_t next_slice_valid = 1;
+    if (ground && ground->next_revision != 0 && ground->next_count != 0 &&
+        ground->next_first + ground->next_count <= ground->next.size() &&
+        ground->next.size() % vertices_per_triangle == 0) {
+        next_fresh = state.next_ground_revision != ground->next_revision ||
+                     state.next_ground_atlas_width != texture_width ||
+                     state.next_ground_atlas_height != texture_height;
+        if (ground->next_first == (next_fresh ? 0 : state.next_ground_sent)) {
+            next_slice = ground->next.subspan(ground->next_first, ground->next_count);
+            next_slice_valid = vertices_valid(next_slice, texture_width, texture_height);
+        }
     }
     // The model draws, where there are any, and only where the card may
     // draw them.
@@ -1313,13 +1374,12 @@ Result render(
         return Result::failed;
     }
     validating.stop();
-    if (vertices_valid == 0) {
+    if (frame_valid == 0) {
         error = "Invalid live GPU vertex coordinates";
         return Result::failed;
     }
     if (!open_device(context, error))
         return Result::unavailable;
-    auto& state = *context.state;
     auto& resources = state.resources;
     if (!state.multisample_known) {
         state.multisample_supported =
@@ -1550,6 +1610,17 @@ Result render(
         resources.ground = SDL_CreateGPUBuffer(resources.device, &info);
         state.ground_capacity = ground_bytes;
     }
+    const auto next_bytes = uint32_t(next_slice.size_bytes());
+    const auto next_whole_bytes = uint32_t(next_slice.empty() ? 0 : ground->next.size_bytes());
+    if (next_fresh && next_whole_bytes > state.next_ground_capacity) {
+        if (resources.next_ground)
+            SDL_ReleaseGPUBuffer(resources.device, resources.next_ground);
+        SDL_GPUBufferCreateInfo info{};
+        info.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+        info.size = next_whole_bytes;
+        resources.next_ground = SDL_CreateGPUBuffer(resources.device, &info);
+        state.next_ground_capacity = resources.next_ground ? next_whole_bytes : 0;
+    }
     const bool atlas_changed = !state.atlas_uploaded || state.atlas_revision != atlas_revision;
     const bool partial_atlas = atlas_update && state.atlas_uploaded &&
                                state.atlas_revision == atlas_update->previous_revision;
@@ -1591,7 +1662,9 @@ Result render(
     for (const auto& region : regions)
         if (!in_rows(region))
             region_bytes += region.width * region.height * channels;
-    const uint32_t upload_bytes = vertex_bytes + ground_bytes + atlas_upload_bytes + region_bytes;
+    // The next kept ground's share goes last.
+    const uint32_t next_offset = vertex_bytes + ground_bytes + atlas_upload_bytes + region_bytes;
+    const uint32_t upload_bytes = next_offset + next_bytes;
     if (upload_bytes > state.upload_capacity) {
         if (resources.upload)
             SDL_ReleaseGPUTransferBuffer(resources.device, resources.upload);
@@ -1602,9 +1675,9 @@ Result render(
         state.upload_capacity = upload_bytes;
     }
     if ((vertex_bytes != 0 && !resources.vertices) || (ground_count != 0 && !resources.ground) ||
-        (upload_bytes != 0 && !resources.upload) || !resources.download || !resources.atlas ||
-        !resources.colour || !resources.depth || !resources.resolved ||
-        (resolves_twice && !resources.multisample_resolved))
+        (next_bytes != 0 && !resources.next_ground) || (upload_bytes != 0 && !resources.upload) ||
+        !resources.download || !resources.atlas || !resources.colour || !resources.depth ||
+        !resources.resolved || (resolves_twice && !resources.multisample_resolved))
         return fail("Create live GPU frame resources");
     // The card adds the lights where it can; elsewhere the caller does.
     auto& lights_held = state.lights;
@@ -1694,6 +1767,8 @@ Result render(
                 rectangle += row_bytes;
             }
         }
+        if (next_bytes != 0)
+            std::memcpy(upload + next_offset, next_slice.data(), next_bytes);
         SDL_UnmapGPUTransferBuffer(resources.device, resources.upload);
     }
     uploading.stop();
@@ -1722,6 +1797,23 @@ Result render(
         const SDL_GPUTransferBufferLocation ground_source{resources.upload, vertex_bytes};
         const SDL_GPUBufferRegion ground_destination{resources.ground, 0, ground_bytes};
         SDL_UploadToGPUBuffer(copy, &ground_source, &ground_destination, false);
+    }
+    if (next_bytes != 0) {
+        const SDL_GPUTransferBufferLocation next_source{resources.upload, next_offset};
+        const SDL_GPUBufferRegion next_destination{
+            resources.next_ground, uint32_t(ground->next_first * sizeof(Vertex)), next_bytes
+        };
+        SDL_UploadToGPUBuffer(copy, &next_source, &next_destination, false);
+        if (next_fresh) {
+            state.next_ground_revision = ground->next_revision;
+            state.next_ground_count = ground->next.size();
+            state.next_ground_sent = 0;
+            state.next_ground_atlas_width = texture_width;
+            state.next_ground_atlas_height = texture_height;
+            state.next_ground_valid = true;
+        }
+        state.next_ground_valid = state.next_ground_valid && next_slice_valid != 0;
+        state.next_ground_sent += next_slice.size();
     }
     const SDL_GPUTextureTransferInfo texture_source{
         resources.upload, vertex_bytes + ground_bytes, texture_width, upload_rows

@@ -62,10 +62,19 @@ constexpr uint8_t all_quarters = 0b1111;
 /// proportion to what they took when last measured: they are packed after
 /// it, and a battle brings more into view.
 constexpr uint64_t least_material_room = uint64_t{maximum_atlas_edge} * maximum_atlas_edge / 16;
+
 /// The share of the atlas's rows a moving camera's terrain leaves the
 /// other materials while it can make room of its own (MovingRoom): they
 /// keep coming as the battle goes on, and the rows are theirs alone.
 constexpr uint32_t moving_material_row_share = 4;
+/// A moving camera's ground packed in the frame that takes it that finds
+/// the atlas pressed, or that takes a ground that could not be packed
+/// ahead, leaves at least this share of its tiles' count in spare squares
+/// of the size it packs, for the grounds packed ahead of it, which cannot
+/// take the kept ground's squares: about the tiles that come into view from
+/// one ground to the next.
+constexpr std::size_t ahead_room_share = 8;
+
 /// The rows kept for the frame's own materials (Scene::frame_rows) are a
 /// whole number of these.
 constexpr uint32_t frame_row_step = 16;
@@ -89,6 +98,16 @@ class AtlasFull : public OutOfRoom {
   public:
 
     AtlasFull() : OutOfRoom("experimental material atlas is full") {}
+};
+
+/// A ground packed ahead of the frame that takes it that would have to
+/// give back a square the kept ground draws: it is packed in that frame.
+class AheadFull : public std::exception {
+  public:
+
+    [[nodiscard]] const char* what() const noexcept override {
+        return "experimental ground drawn ahead needs the kept ground's room";
+    }
 };
 
 /// More triangles than the frame's geometry budget.
@@ -1083,6 +1102,11 @@ struct MovingRoom {
     uint32_t material_rows{}; ///< the atlas rows left to the other materials
     /// The terrain pass that last dropped the tiles this ground does not draw.
     uint64_t dropped_unseen{};
+    /// The ground is packed ahead of the frame that takes it, while the kept
+    /// ground still draws, whose tiles keep their squares (AheadFull).
+    bool ahead{};
+    /// For a ground packed ahead, the tiles the kept ground draws.
+    const std::unordered_set<uint64_t>* kept_tiles{};
 };
 
 /// Gives back the square of the next tile of a moving camera's ground held
@@ -1097,7 +1121,8 @@ bool unpack_larger_tile(Scene& scene, MovingRoom& room) {
         const uint64_t key = room.tiles[room.next_tile++];
         const auto cached = scene.terrain_materials.find(key);
         if (cached == scene.terrain_materials.end() ||
-            cached->second.rectangle.width <= room.plan.packed(key))
+            cached->second.rectangle.width <= room.plan.packed(key) ||
+            (room.kept_tiles && room.kept_tiles->contains(key)))
             continue;
         give_back_terrain_square(scene, cached->second.rectangle);
         scene.terrain_materials.erase(cached);
@@ -1144,8 +1169,8 @@ std::optional<AtlasRect> take_spare_block(Scene& scene, uint32_t across, uint32_
 /// Takes terrain squares for a material that finds the rows full while the
 /// camera moves (Scene::moving_packing): a spare square large enough, or a
 /// block of whole spare squares side by side for a larger material, or the
-/// same given back by the tiles the frame's ground, the last terrain pass,
-/// does not draw. They hold the material until the atlas is emptied.
+/// same given back by the tiles neither the frame's ground nor a ground
+/// packed ahead of it draws. They hold the material until the atlas is emptied.
 ///
 /// @param[in,out] scene the spare squares and terrain materials
 /// @param width the material's width
@@ -1166,7 +1191,7 @@ std::optional<AtlasRect> material_square(Scene& scene, uint32_t width, uint32_t 
         return take_terrain_square(scene, edge, false);
     };
     auto square = take();
-    if (!square && drop_terrain_materials(scene, scene.terrain_passes))
+    if (!square && drop_terrain_materials(scene, scene.ground_pass))
         square = take();
     return square;
 }
@@ -1181,7 +1206,10 @@ std::optional<AtlasRect> material_square(Scene& scene, uint32_t width, uint32_t 
 /// ground may still be taken (Scene::ground_kept). A moving camera's
 /// ground (MovingRoom) leaves the other materials rows while it can make
 /// room of its own: from the tiles it does not draw, then by packing its
-/// tiles held in larger squares again at the moving camera's size.
+/// tiles held in larger squares again at the moving camera's size. One
+/// packed ahead, while the kept ground draws, gives back only squares
+/// neither ground draws and leaves the other materials their rows
+/// (AheadFull).
 ///
 /// @param[in,out] scene the atlas, its spare squares and the terrain
 ///     materials
@@ -1190,6 +1218,8 @@ std::optional<AtlasRect> material_square(Scene& scene, uint32_t width, uint32_t 
 ///     settled camera's
 /// @return the square
 /// @throws AtlasFull when the atlas has no room left for it
+/// @throws AheadFull when a ground packed ahead finds none without the kept
+///     ground's
 AtlasRect terrain_square(Scene& scene, uint32_t edge, MovingRoom* moving) {
     const uint64_t pass = scene.terrain_passes;
     auto square = take_terrain_square(scene, edge, false);
@@ -1199,23 +1229,33 @@ AtlasRect terrain_square(Scene& scene, uint32_t edge, MovingRoom* moving) {
         if (drop_terrain_materials(scene, pass - 1))
             square = take_terrain_square(scene, edge, false);
     }
+    // One packed ahead, while the kept ground draws, from the tiles neither
+    // draws.
+    if (moving && moving->ahead && !square && moving->dropped_unseen != pass) {
+        moving->dropped_unseen = pass;
+        if (drop_terrain_materials(scene, scene.ground_pass))
+            square = take_terrain_square(scene, edge, false);
+    }
     if (!square)
         square = take_terrain_square(scene, edge, true, moving ? moving->material_rows : 0);
     // A moving camera's ground, having marked every tile it draws, makes
     // room of its own before it takes the rows left to the other materials:
     // first from the tiles that have left the picture, then from its own
-    // held in larger squares than it packs into.
-    if (moving && !square && moving->dropped_unseen != pass) {
+    // held in larger squares than it packs into; one packed ahead, from its
+    // own the kept ground does not draw, and it leaves those rows.
+    if (moving && !moving->ahead && !square && moving->dropped_unseen != pass) {
         moving->dropped_unseen = pass;
         if (drop_terrain_materials(scene, pass))
             square = take_terrain_square(scene, edge, false);
     }
     while (!square && moving && unpack_larger_tile(scene, *moving))
         square = take_terrain_square(scene, edge, false);
-    if (!square && moving)
+    if (!square && moving && !moving->ahead)
         square = take_terrain_square(scene, edge, true);
     if (!square && !scene.ground_kept && drop_terrain_materials(scene, pass))
         square = take_terrain_square(scene, edge, true);
+    if (!square && moving && moving->ahead)
+        throw AheadFull();
     if (!square)
         throw AtlasFull();
     return *square;
@@ -2460,91 +2500,70 @@ void draw_ground_band(const GroundDraw& draw, GroundBand& band, bool timing) {
     band.nanoseconds = timing ? bench_timers::now_ns() - start : 0;
 }
 
-/// Packs the tiles a ground's bands draw, as drawing them row after row
-/// packs them, and lists the bands' vertices, each placed in its tile's
-/// square.
-///
-/// The tiles are taken in the order the ground first draws them, each as
-/// PackingTiles::tile takes it: still packed in a large enough square from
-/// the same art, or packed now. For a settled camera the atlas then holds
-/// what drawing the ground row after row leaves it holding. A moving
-/// camera's ground (MovingRoom) marks its tiles drawn first.
+/// Packs one tile of a ground, as PackingTiles::tile takes it: still
+/// packed in a large enough square from the same art, or packed now, and
+/// marked drawn by the terrain pass.
 ///
 /// @param in the frame
 /// @param[in,out] scene the atlas and terrain materials
 /// @param plan the square of each tile
-/// @param[in,out] bands the ground's bands, drawn
-/// @param moving the ground is a moving camera's, which replaces the kept ground
-/// @param[out] vertices the ground's vertices; what it held before is
-///     overwritten in place
-/// @return each tile key drawn, with its square
-std::vector<std::pair<uint64_t, AtlasRect>> pack_ground_tiles(
+/// @param key the tile's key
+/// @param room how a moving camera's ground finds room; none for a settled
+///     camera's
+/// @param pass the terrain pass that draws it
+/// @return its square
+AtlasRect pack_ground_tile(
     const Inputs& in,
     Scene& scene,
     const TerrainPlan& plan,
-    std::span<GroundBand> bands,
-    bool moving,
-    std::vector<Vertex>& vertices
+    uint64_t key,
+    MovingRoom* room,
+    uint64_t pass
 ) {
-    const auto& art = in.map->tile_palette_indices;
     constexpr std::size_t tile_bytes = formats::tnt::layout::tile_bytes;
     constexpr std::size_t maximum_cached_tiles = 32768;
-    std::unordered_map<uint64_t, AtlasRect> squares;
-    std::vector<uint64_t> order;
-    for (const auto& band : bands)
-        for (const uint64_t key : band.tiles)
-            if (squares.emplace(key, AtlasRect{}).second)
-                order.push_back(key);
-    std::optional<MovingRoom> room;
-    if (moving) {
-        room.emplace(MovingRoom{plan, order});
-        room->material_rows = scene.texture_height / moving_material_row_share;
-        for (const uint64_t key : order)
-            if (const auto cached = scene.terrain_materials.find(key);
-                cached != scene.terrain_materials.end())
-                cached->second.drawn = scene.terrain_passes;
-    }
-    const auto pack = [&](uint64_t key) {
-        const auto pixels =
-            std::span(art).subspan(static_cast<std::size_t>(key / 3) * tile_bytes, tile_bytes);
-        const auto fog = static_cast<Fog>(key % 3);
-        auto cached = scene.terrain_materials.find(key);
-        if (cached == scene.terrain_materials.end() ||
-            !plan.keeps(key, cached->second.rectangle.width) ||
-            std::memcmp(cached->second.pixels.data(), pixels.data(), pixels.size()) != 0) {
-            if (cached != scene.terrain_materials.end() && !scene.ground_kept) {
-                give_back_terrain_square(scene, cached->second.rectangle);
-                scene.terrain_materials.erase(cached);
-            }
-            const auto rectangle = terrain_material(
-                scene,
-                *in.palette,
-                scene.terrain_grey_palette,
-                pixels,
-                fog,
-                plan.packed(key),
-                room ? &*room : nullptr
-            );
-            if (scene.terrain_materials.size() >= maximum_cached_tiles && !scene.ground_kept)
-                drop_terrain_materials(scene, scene.terrain_passes);
-            scene.frame.aircraft_shadows.clear();
-            auto& entry = scene.terrain_materials[key];
-            std::copy(pixels.begin(), pixels.end(), entry.pixels.begin());
-            entry.rectangle = rectangle;
-            cached = scene.terrain_materials.find(key);
+    const auto pixels = std::span(in.map->tile_palette_indices)
+                            .subspan(static_cast<std::size_t>(key / 3) * tile_bytes, tile_bytes);
+    const auto fog = static_cast<Fog>(key % 3);
+    auto cached = scene.terrain_materials.find(key);
+    if (cached == scene.terrain_materials.end() ||
+        !plan.keeps(key, cached->second.rectangle.width) ||
+        std::memcmp(cached->second.pixels.data(), pixels.data(), pixels.size()) != 0) {
+        if (cached != scene.terrain_materials.end() && !scene.ground_kept) {
+            give_back_terrain_square(scene, cached->second.rectangle);
+            scene.terrain_materials.erase(cached);
         }
-        cached->second.drawn = scene.terrain_passes;
-        squares[key] = cached->second.rectangle;
-    };
-    for (const uint64_t key : order)
-        pack(key);
-    // Tiles that gave their squares back after they were packed are packed
-    // again, at the size a moving camera packs them.
-    for (std::size_t index = 0; room && index < room->unpacked.size(); ++index)
-        if (!scene.terrain_materials.contains(room->unpacked[index]))
-            pack(room->unpacked[index]);
-    // Every vertex placed in its tile's square and listed, each band on a
-    // drawing thread of its own.
+        const auto rectangle = terrain_material(
+            scene, *in.palette, scene.terrain_grey_palette, pixels, fog, plan.packed(key), room
+        );
+        if (scene.terrain_materials.size() >= maximum_cached_tiles && !scene.ground_kept)
+            drop_terrain_materials(scene, scene.terrain_passes);
+        scene.frame.aircraft_shadows.clear();
+        auto& entry = scene.terrain_materials[key];
+        std::copy(pixels.begin(), pixels.end(), entry.pixels.begin());
+        entry.rectangle = rectangle;
+        cached = scene.terrain_materials.find(key);
+    }
+    cached->second.drawn = pass;
+    return cached->second.rectangle;
+}
+
+/// Places every vertex of a ground's bands in its tile's square and lists
+/// them in order, each band on a drawing thread of its own.
+///
+/// @param in the frame
+/// @param scene the atlas
+/// @param[in,out] bands the ground's bands, drawn
+/// @param squares each tile key's square
+/// @param[out] vertices the ground's vertices; what it held before is
+///     overwritten in place
+void place_ground_bands(
+    const Inputs& in,
+    const Scene& scene,
+    std::span<GroundBand> bands,
+    const std::unordered_map<uint64_t, AtlasRect>& squares,
+    std::vector<Vertex>& vertices
+) {
     const auto atlas_width = scene.texture_width;
     const auto atlas_height = scene.texture_height;
     std::vector<std::size_t> starts(bands.size() + 1);
@@ -2576,6 +2595,103 @@ std::vector<std::pair<uint64_t, AtlasRect>> pack_ground_tiles(
             }
         }
     );
+}
+
+/// @param scene the atlas
+/// @param left_rows the rows the terrain leaves the other materials
+/// @return the full terrain squares the atlas's rows still hold for the
+///     terrain (take_terrain_square)
+std::size_t terrain_row_squares(const Scene& scene, uint32_t left_rows) {
+    const uint32_t limit = kept_rows(scene) - std::min(kept_rows(scene), left_rows);
+    std::size_t squares = 0;
+    if (scene.next_y + full_terrain_square <= limit)
+        squares += (scene.texture_width - std::min(scene.texture_width, scene.next_x)) /
+                   full_terrain_square;
+    const uint32_t below = scene.next_y + scene.row_height;
+    if (below < limit)
+        squares += std::size_t{(limit - below) / full_terrain_square} *
+                   (scene.texture_width / full_terrain_square);
+    return squares;
+}
+
+/// Packs the tiles a ground's bands draw, as drawing them row after row
+/// packs them, and lists the bands' vertices, each placed in its tile's
+/// square.
+///
+/// The tiles are taken in the order the ground first draws them, each as
+/// PackingTiles::tile takes it (pack_ground_tile). The atlas then holds
+/// what drawing the ground row after row leaves it holding. A moving
+/// camera's ground (MovingRoom) marks its tiles drawn first. One that
+/// finds the atlas pressed, having had to give back the squares of tiles
+/// it does not draw or to pack its own smaller, or that was to have been
+/// packed ahead, leaves room for the grounds packed ahead of it: it packs
+/// more of its tiles smaller until spare squares of the size it packs, and
+/// the rows it leaves them, would hold a share of its tiles
+/// (ahead_room_share).
+///
+/// @param in the frame
+/// @param[in,out] scene the atlas and terrain materials
+/// @param plan the square of each tile
+/// @param[in,out] bands the ground's bands, drawn
+/// @param moving the ground is a moving camera's, which replaces the kept ground
+/// @param leave_room a moving camera's ground leaves room for the grounds
+///     packed ahead of it however much room it found
+/// @param[out] vertices the ground's vertices; what it held before is
+///     overwritten in place
+/// @return each tile key drawn, with its square
+std::vector<std::pair<uint64_t, AtlasRect>> pack_ground_tiles(
+    const Inputs& in,
+    Scene& scene,
+    const TerrainPlan& plan,
+    std::span<GroundBand> bands,
+    bool moving,
+    bool leave_room,
+    std::vector<Vertex>& vertices
+) {
+    std::unordered_map<uint64_t, AtlasRect> squares;
+    std::vector<uint64_t> order;
+    for (const auto& band : bands)
+        for (const uint64_t key : band.tiles)
+            if (squares.emplace(key, AtlasRect{}).second)
+                order.push_back(key);
+    std::optional<MovingRoom> room;
+    if (moving) {
+        room.emplace(MovingRoom{plan, order});
+        room->material_rows = scene.texture_height / moving_material_row_share;
+        for (const uint64_t key : order)
+            if (const auto cached = scene.terrain_materials.find(key);
+                cached != scene.terrain_materials.end())
+                cached->second.drawn = scene.terrain_passes;
+    }
+    MovingRoom* moving_room = room ? &*room : nullptr;
+    for (const uint64_t key : order)
+        squares[key] = pack_ground_tile(in, scene, plan, key, moving_room, scene.terrain_passes);
+    // Tiles that gave their squares back after they were packed are packed
+    // again, at the size a moving camera packs them.
+    for (std::size_t index = 0; room && index < room->unpacked.size(); ++index)
+        if (!scene.terrain_materials.contains(room->unpacked[index]))
+            pack_ground_tile(
+                in, scene, plan, room->unpacked[index], moving_room, scene.terrain_passes
+            );
+    if (room &&
+        (leave_room || room->dropped_unseen == scene.terrain_passes || !room->unpacked.empty())) {
+        const uint32_t edge = std::max(plan.larger / 2, smallest_terrain_square);
+        const auto spare = [&] {
+            std::size_t count = spare_terrain_squares(scene, edge).size();
+            for (uint32_t larger = edge * 2; larger <= full_terrain_square; larger *= 2)
+                count +=
+                    spare_terrain_squares(scene, larger).size() * (larger / edge) * (larger / edge);
+            const std::size_t quarters = full_terrain_square / edge;
+            return count + terrain_row_squares(scene, room->material_rows) * quarters * quarters;
+        };
+        while (spare() < order.size() / ahead_room_share && unpack_larger_tile(scene, *room))
+            pack_ground_tile(
+                in, scene, plan, room->unpacked.back(), moving_room, scene.terrain_passes
+            );
+    }
+    for (const uint64_t key : order)
+        squares[key] = scene.terrain_materials.at(key).rectangle;
+    place_ground_bands(in, scene, bands, squares, vertices);
     return {squares.begin(), squares.end()};
 }
 
@@ -2602,7 +2718,7 @@ std::vector<std::pair<uint64_t, AtlasRect>> draw_ground(
     std::vector<Vertex>& vertices,
     bool moving
 ) {
-    ++scene.terrain_passes;
+    scene.ground_pass = ++scene.terrain_passes;
     auto& bands = scene.ground_bands;
     plan_ground_bands(draw.source, bands);
     platform::job_pool::run_bands(in.pool, static_cast<uint32_t>(bands.size()), [&](uint32_t band) {
@@ -2624,12 +2740,23 @@ std::vector<std::pair<uint64_t, AtlasRect>> draw_ground(
         );
         return {tiles.tiles().begin(), tiles.tiles().end()};
     }
-    return pack_ground_tiles(in, scene, plan, bands, moving, vertices);
+    return pack_ground_tiles(in, scene, plan, bands, moving, false, vertices);
 }
 
 /// The frames the ground drawn ahead of a moving camera (GroundAhead) is
 /// drawn over, a share of its bands each.
 constexpr std::size_t ground_ahead_frames = 4;
+/// The most of its tiles a frame packs (pack_ground_ahead).
+constexpr std::size_t ground_ahead_packs = 64;
+/// The frames its plots are cut over, from the frame after the one that
+/// places its vertices, a share of its bands each.
+constexpr std::size_t ground_cut_frames = 4;
+/// The frames it is sent to the card over once cut, a share of its
+/// vertices each.
+constexpr std::size_t ground_send_frames = 4;
+/// The frames from the first of its bands to the frame that takes it.
+constexpr std::size_t ground_ahead_pipeline =
+    ground_ahead_frames + 1 + ground_cut_frames + ground_send_frames;
 
 /// Tells whether two grounds' sources draw the same ground for the same
 /// crop and picture: all but the crop and the picture alike.
@@ -2648,10 +2775,11 @@ bool drawn_alike(const GroundSource& a, const GroundSource& b) {
 
 /// Starts drawing the ground ahead of a moving camera (GroundAhead) once
 /// the kept ground would not cover the picture the camera is expected to
-/// show after the frames that takes, and one more, moving on as it moved
-/// since the last frame: for the picture expected half a margin further on
-/// than that, from what the kept ground is drawn from, so that the camera
-/// comes to it with half its margin behind it.
+/// show after the frames it takes to be drawn, packed, cut and sent to the
+/// card, and one more, moving on as it moved since the last frame: for the
+/// picture expected half a margin further on than that, from what the kept
+/// ground is drawn from, so that the camera comes to it with half its
+/// margin behind it.
 ///
 /// @param in the frame, which takes the kept ground
 /// @param[in,out] scene the kept ground and the ground ahead
@@ -2674,7 +2802,7 @@ void plan_ground_ahead(const Inputs& in, Scene& scene, const std::array<float, 1
             from, to, in.clip_width, in.clip_height, source.lowest, source.highest
         );
     };
-    constexpr auto drawing_frames = static_cast<float>(ground_ahead_frames);
+    constexpr auto drawing_frames = static_cast<float>(ground_ahead_pipeline);
     if (shift(source.clip_projection, expected(drawing_frames + 1)) <= margin)
         return;
     const float pace = shift(expected(-1), in.clip_projection);
@@ -2694,6 +2822,18 @@ void plan_ground_ahead(const Inputs& in, Scene& scene, const std::array<float, 1
     plan_ground_bands(ahead.source, ahead.bands);
     ahead.bands_drawn = 0;
     ahead.bands_a_frame = (ahead.bands.size() + ground_ahead_frames - 1) / ground_ahead_frames;
+    ahead.pass = 0;
+    ahead.kept_tiles.clear();
+    ahead.bands_listed = 0;
+    ahead.order.clear();
+    ahead.squares.clear();
+    ahead.tiles_packed = 0;
+    ahead.unpacked.clear();
+    ahead.next_unpack = 0;
+    ahead.placed = ahead.packed_late = ahead.cut = ahead.cut_waits = false;
+    ahead.cut_bands_done = 0;
+    ahead.sent = 0;
+    ahead.send_rest = false;
     ahead.active = !ahead.bands.empty();
 }
 
@@ -2725,9 +2865,156 @@ bool ground_ahead_whole(const GroundAhead& ahead) {
     return listed <= maximum_vertices;
 }
 
-/// Takes the ground drawn ahead of a moving camera as the kept ground: its
-/// tiles packed (pack_ground_tiles), its bands listed, its crop and picture
-/// the kept ground's.
+/// @return the vertices of a ground drawn ahead that the card takes once it
+///     is the kept ground: the cut ground where its plots were cut into it,
+///     else the ground
+std::span<const Vertex> ahead_card_vertices(const GroundAhead& ahead) {
+    return ahead.cut_plots.empty() ? std::span<const Vertex>(ahead.vertices)
+                                   : std::span<const Vertex>(ahead.cut_vertices);
+}
+
+/// Packs a share of the tiles of the ground drawn ahead of a moving camera,
+/// in a frame that still takes the kept ground, without giving back any
+/// square the kept ground draws (MovingRoom::ahead), and places its
+/// vertices once every band is drawn and every tile packed. It lists the
+/// tiles of the bands drawn since, in the order the ground first draws
+/// them, marking those already packed drawn by its terrain pass; then it
+/// packs at most ground_ahead_packs of them, those packed again first, as
+/// pack_ground_tile does. A ground that would have to give back the kept
+/// ground's room is packed in the frame that takes it
+/// (GroundAhead::packed_late).
+///
+/// @param in the frame
+/// @param[in,out] scene the atlas and the ground ahead
+/// @param plan the square of each tile
+void pack_ground_ahead(const Inputs& in, Scene& scene, const TerrainPlan& plan) {
+    constexpr std::size_t tile_bytes = formats::tnt::layout::tile_bytes;
+    auto& ahead = scene.ground_ahead;
+    if (ahead.pass == 0) {
+        ahead.pass = ++scene.terrain_passes;
+        for (const auto& tile : scene.ground_tiles)
+            ahead.kept_tiles.insert(tile.first);
+    }
+    for (; ahead.bands_listed < ahead.bands_drawn; ++ahead.bands_listed)
+        for (const uint64_t key : ahead.bands[ahead.bands_listed].tiles)
+            if (ahead.squares.emplace(key, AtlasRect{}).second) {
+                ahead.order.push_back(key);
+                if (const auto cached = scene.terrain_materials.find(key);
+                    cached != scene.terrain_materials.end())
+                    cached->second.drawn = ahead.pass;
+            }
+    MovingRoom room{plan, ahead.order};
+    room.material_rows = scene.texture_height / moving_material_row_share;
+    room.ahead = true;
+    room.kept_tiles = &ahead.kept_tiles;
+    room.next_tile = ahead.next_unpack;
+    const auto& art = in.map->tile_palette_indices;
+    std::size_t packs = 0;
+    try {
+        while (packs < ground_ahead_packs) {
+            if (!ahead.unpacked.empty()) {
+                const uint64_t key = ahead.unpacked.back();
+                ahead.unpacked.pop_back();
+                if (!scene.terrain_materials.contains(key)) {
+                    pack_ground_tile(in, scene, plan, key, &room, ahead.pass);
+                    ++packs;
+                }
+            } else if (ahead.tiles_packed < ahead.order.size()) {
+                const uint64_t key = ahead.order[ahead.tiles_packed];
+                const auto start = static_cast<std::size_t>(key / 3) * tile_bytes;
+                const auto cached = scene.terrain_materials.find(key);
+                if (cached != scene.terrain_materials.end()) {
+                    if (plan.keeps(key, cached->second.rectangle.width) &&
+                        start + tile_bytes <= art.size() &&
+                        std::memcmp(cached->second.pixels.data(), art.data() + start, tile_bytes) ==
+                            0) {
+                        ++ahead.tiles_packed;
+                        continue;
+                    }
+                    if (ahead.kept_tiles.contains(key))
+                        throw AheadFull();
+                    give_back_terrain_square(scene, cached->second.rectangle);
+                    scene.terrain_materials.erase(cached);
+                }
+                pack_ground_tile(in, scene, plan, key, &room, ahead.pass);
+                ++ahead.tiles_packed;
+                ++packs;
+            } else {
+                break;
+            }
+            ahead.unpacked.insert(ahead.unpacked.end(), room.unpacked.begin(), room.unpacked.end());
+            room.unpacked.clear();
+        }
+    } catch (const AheadFull&) {
+        ahead.packed_late = true;
+        return;
+    }
+    ahead.next_unpack = room.next_tile;
+    if (ahead.bands_drawn < ahead.bands.size() || ahead.tiles_packed < ahead.order.size() ||
+        !ahead.unpacked.empty())
+        return;
+    for (auto& [key, square] : ahead.squares) {
+        const auto cached = scene.terrain_materials.find(key);
+        if (cached == scene.terrain_materials.end()) {
+            ahead.packed_late = true;
+            return;
+        }
+        square = cached->second.rectangle;
+    }
+    place_ground_bands(in, scene, ahead.bands, ahead.squares, ahead.vertices);
+    ahead.tiles.assign(ahead.squares.begin(), ahead.squares.end());
+    ahead.revision = new_ground_revision();
+    ahead.placed = true;
+    ahead.cut_waits = true;
+}
+
+/// Tells whether the camera, moving on as it moved since the last frame, is
+/// expected to show a picture past the kept ground's margin in the next.
+///
+/// @param in the frame, which takes the kept ground
+/// @param scene the kept ground
+/// @param motion the frame's projection less the last frame's
+/// @return true when it is
+bool kept_ground_runs_out(
+    const Inputs& in, const Scene& scene, const std::array<float, 12>& motion
+) {
+    const auto& source = scene.ground_source;
+    std::array<float, 12> next{};
+    for (std::size_t index = 0; index < next.size(); ++index)
+        next[index] = in.clip_projection[index] + motion[index];
+    return !(
+        picture_shift(
+            source.clip_projection,
+            next,
+            in.clip_width,
+            in.clip_height,
+            source.lowest,
+            source.highest
+        ) <= source.picture_margin
+    );
+}
+
+/// Tells whether every tile a ground packed ahead draws is still where it
+/// was packed, from the map's art as it is now, and in a square the plan
+/// lets it keep, as ground_tiles_hold tells of the kept ground.
+bool ground_ahead_holds(const Inputs& in, const Scene& scene, const TerrainPlan& plan) {
+    constexpr std::size_t tile_bytes = formats::tnt::layout::tile_bytes;
+    const auto& art = in.map->tile_palette_indices;
+    for (const auto& [key, rectangle] : scene.ground_ahead.tiles) {
+        const auto start = static_cast<std::size_t>(key / 3) * tile_bytes;
+        const auto cached = scene.terrain_materials.find(key);
+        if (cached == scene.terrain_materials.end() || !(cached->second.rectangle == rectangle) ||
+            !plan.keeps(key, rectangle.width) || start + tile_bytes > art.size() ||
+            std::memcmp(cached->second.pixels.data(), art.data() + start, tile_bytes) != 0)
+            return false;
+    }
+    return true;
+}
+
+/// Takes the ground drawn ahead of a moving camera as the kept ground, its
+/// crop and picture the kept ground's: packed and placed ahead, with its
+/// cut kept for the frame's plots where it was cut with the same; or its
+/// tiles packed now (pack_ground_tiles) and its bands listed.
 ///
 /// @param in the frame
 /// @param[in,out] scene the kept ground and the ground ahead
@@ -2736,15 +3023,34 @@ void take_ground_ahead(const Inputs& in, Scene& scene, const TerrainPlan& plan) 
     auto& ahead = scene.ground_ahead;
     auto& source = scene.ground_source;
     ahead.active = false;
-    ++scene.terrain_passes;
-    scene.ground_kept = false;
-    scene.ground_revision = new_ground_revision();
-    auto drawn = pack_ground_tiles(in, scene, plan, ahead.bands, true, scene.ground_vertices);
     source.crop = ahead.source.crop;
     source.clip_projection = ahead.source.clip_projection;
     source.clip_width = ahead.source.clip_width;
     source.clip_height = ahead.source.clip_height;
     source.picture_margin = ahead.source.picture_margin;
+    if (ahead.placed && ground_ahead_holds(in, scene, plan)) {
+        std::swap(scene.ground_vertices, ahead.vertices);
+        scene.ground_tiles = std::move(ahead.tiles);
+        scene.ground_kept = true;
+        scene.ground_revision = scene.kept_ground_revision = ahead.revision;
+        scene.ground_pass = ahead.pass;
+        scene.terrain_vertex_count = scene.ground_vertices.size();
+        // The cut, kept as the foundations keep theirs (run_passes), which
+        // take it when the frame's plots are the same.
+        if (ahead.cut && !ahead.cut_plots.empty()) {
+            std::swap(scene.cut_ground, ahead.cut_vertices);
+            std::swap(scene.cut_plots, ahead.cut_plots);
+            scene.cut_source = ahead.revision;
+            scene.cut_revision = ahead.cut_revision;
+        }
+        return;
+    }
+    scene.ground_pass = ++scene.terrain_passes;
+    scene.ground_kept = false;
+    scene.ground_revision = new_ground_revision();
+    auto drawn = pack_ground_tiles(
+        in, scene, plan, ahead.bands, true, ahead.packed_late, scene.ground_vertices
+    );
     scene.ground_tiles = std::move(drawn);
     scene.ground_kept = true;
     scene.kept_ground_revision = scene.ground_revision;
@@ -2788,8 +3094,10 @@ bool terrain(
     // Compare palette bytes once per pass and tile bytes once per visible key.
     // The retained copies detect edits even when the same map object is reused.
     if (scene.terrain_palette != *in.palette) {
-        // No tile keeps its square, so the kept ground is drawn again.
+        // No tile keeps its square, so the kept ground is drawn again, and
+        // any ground drawn ahead is drawn afresh.
         scene.ground_kept = false;
+        scene.ground_ahead.active = false;
         drop_terrain_materials(scene, std::numeric_limits<uint64_t>::max());
         scene.terrain_palette = *in.palette;
         const auto entries = present::palette_from_bytes(*in.palette);
@@ -2829,7 +3137,12 @@ bool terrain(
         draw_ground_ahead(in, ahead, ahead.bands.size() - ahead.bands_drawn, false);
     if (ahead.active && ahead.bands_drawn == ahead.bands.size()) {
         const bool whole = ground_ahead_whole(ahead);
-        if (whole && ground_covers(ahead.source, in, crop)) {
+        // While the kept ground covers the picture, the ground ahead waits
+        // until it is cut and sent to the card.
+        const bool ready =
+            !kept || ahead.packed_late ||
+            (ahead.placed && ahead.cut && ahead.sent == ahead_card_vertices(ahead).size());
+        if (whole && ready && ground_covers(ahead.source, in, crop)) {
             take_ground_ahead(in, scene, plan);
             return true;
         }
@@ -2839,6 +3152,11 @@ bool terrain(
     if (kept) {
         scene.terrain_vertex_count = scene.ground_vertices.size();
         scene.ground_revision = scene.kept_ground_revision;
+        // The ground ahead's tiles, packed as its bands are drawn, and its
+        // vertices placed.
+        if (ahead.active && ahead.bands_drawn != 0 && !ahead.placed && !ahead.packed_late)
+            pack_ground_ahead(in, scene, plan);
+        ahead.send_rest = ahead.active && moving && kept_ground_runs_out(in, scene, motion);
         if (moving)
             plan_ground_ahead(in, scene, motion);
         return true;
@@ -5982,6 +6300,109 @@ uint64_t pass_clock(bool timing) {
     return timing ? bench_timers::now_ns() : 0;
 }
 
+/// The bands of the cut of the ground drawn ahead a frame cuts.
+struct AheadCut {
+    std::size_t first{}; ///< the first of them
+    std::size_t count{}; ///< how many
+};
+
+/// Plans the frame's share of the cut of the ground drawn ahead of a moving
+/// camera, once it is placed (GroundAhead::cut_bands): bands of the
+/// triangles the terrain's cut takes (ground_band_triangles), a share of
+/// them a frame over ground_cut_frames frames, with the frame's plots; a
+/// change of plots starts it again, and no plots leave the ground uncut.
+///
+/// @param[in,out] ahead the ground ahead
+/// @param plots the frame's plots
+/// @return the bands to cut this frame
+AheadCut plan_ground_ahead_cut(GroundAhead& ahead, const Plots& plots) {
+    if (!ahead.active || !ahead.placed || ahead.cut)
+        return {};
+    if (ahead.cut_waits) {
+        ahead.cut_waits = false;
+        return {};
+    }
+    if (plots.plots.empty()) {
+        ahead.cut_plots.clear();
+        ahead.cut_vertices.clear();
+        ahead.cut_revision = ahead.revision;
+        ahead.cut = true;
+        return {};
+    }
+    if (ahead.cut_bands_done != 0 && ahead.cut_plots != plots.plots)
+        ahead.cut_bands_done = 0;
+    if (ahead.cut_bands_done == 0)
+        ahead.cut_plots = plots.plots;
+    const std::size_t bands =
+        (ahead.vertices.size() / 3 + ground_band_triangles - 1) / ground_band_triangles;
+    if (ahead.cut_bands.size() < bands)
+        ahead.cut_bands.resize(bands);
+    const std::size_t share = (bands + ground_cut_frames - 1) / ground_cut_frames;
+    return {ahead.cut_bands_done, std::min(share, bands - ahead.cut_bands_done)};
+}
+
+/// Cuts the frame's plots into a band of the ground drawn ahead, on any
+/// thread, as the terrain's cut cuts a band of the kept ground.
+///
+/// @param[in,out] ahead the ground ahead
+/// @param plots the frame's plots, the ones its cut was begun with
+/// @param index the band
+/// @param timing the stage timers measure
+void cut_ground_ahead_band(GroundAhead& ahead, const Plots& plots, std::size_t index, bool timing) {
+    auto& band = ahead.cut_bands[index];
+    const uint64_t began = pass_clock(timing);
+    band.vertices.clear();
+    band.failure = nullptr;
+    const std::size_t first = index * ground_band_triangles * 3;
+    const auto triangles =
+        std::span<const Vertex>(ahead.vertices)
+            .subspan(first, std::min(ground_band_triangles * 3, ahead.vertices.size() - first));
+    try {
+        band.cut = cut_plots(plots, triangles, false, band.vertices);
+    } catch (...) {
+        band.failure = std::current_exception();
+    }
+    band.nanoseconds = pass_clock(timing) - began;
+}
+
+/// Counts the bands of the ground drawn ahead cut this frame and, once
+/// every band is, lists the cut ground and gives it the revision a cut
+/// takes: a new one where a plot reached the ground, else the ground's.
+/// A band that failed leaves the cut to the frame that takes the ground.
+///
+/// @param in the frame
+/// @param[in,out] ahead the ground ahead
+/// @param share the bands cut this frame
+/// @return for the bench: the time cutting them took on their threads
+uint64_t finish_ground_ahead_cut(const Inputs& in, GroundAhead& ahead, const AheadCut& share) {
+    uint64_t nanoseconds = 0;
+    if (share.count == 0)
+        return nanoseconds;
+    for (std::size_t index = share.first; index < share.first + share.count; ++index)
+        nanoseconds += ahead.cut_bands[index].nanoseconds;
+    ahead.cut_bands_done += share.count;
+    const std::size_t bands =
+        (ahead.vertices.size() / 3 + ground_band_triangles - 1) / ground_band_triangles;
+    if (ahead.cut_bands_done < bands)
+        return nanoseconds;
+    const auto cut_bands = std::span(ahead.cut_bands).first(bands);
+    bool reached = false;
+    for (const auto& band : cut_bands) {
+        if (band.failure) {
+            ahead.cut_plots.clear();
+            ahead.cut_vertices.clear();
+            ahead.cut_revision = ahead.revision;
+            ahead.cut = true;
+            return nanoseconds;
+        }
+        reached = reached || band.cut;
+    }
+    list_bands(in, cut_bands, ahead.cut_vertices);
+    ahead.cut_revision = reached ? new_ground_revision() : ahead.revision;
+    ahead.cut = true;
+    return nanoseconds;
+}
+
 /// Runs a pass on a drawing thread, beside the other passes, into its own
 /// list: emptied first, then listed until the pass ends, stops for a
 /// material not yet packed (PassList::stopped, the list as that draw
@@ -6094,6 +6515,7 @@ class PassTimes {
         add(Stage::particles, passes.particles);
         bench_timers::add_nanoseconds(Stage::water, joining);
         bench_timers::add_nanoseconds(Stage::terrain, ground_ahead);
+        bench_timers::add_nanoseconds(Stage::foundations, ahead_cut);
     }
 
     std::size_t ground_bands{}; ///< the ground's bands cut this frame
@@ -6102,6 +6524,7 @@ class PassTimes {
     uint64_t ground_listing{};  ///< the kept ground's listing beside the passes
     uint64_t joining{};         ///< the lists' joining
     uint64_t ground_ahead{};    ///< the bands of the ground drawn ahead of a moving camera
+    uint64_t ahead_cut{};       ///< the plots' cut of the ground drawn ahead
 
   private:
 
@@ -6168,7 +6591,8 @@ void write_frame_materials(const Inputs& in, Scene& scene) {
 /// would have left it.
 ///
 /// The bands of the ground drawn ahead of a moving camera (GroundAhead)
-/// due this frame run among the passes, after them.
+/// due this frame run among the passes, after them, and its cut with the
+/// frame's plots beside the terrain's (cut_ground_ahead).
 ///
 /// @param in the frame
 /// @param[in,out] scene the frame, its terrain listed (Scene::vertices)
@@ -6216,10 +6640,23 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     }
     for (std::size_t band = 0; band < shadow_bands; ++band)
         clear_list(passes.shadows[band], 0);
+    const auto ahead_cut = plan_ground_ahead_cut(scene.ground_ahead, plots);
     times.foundations += pass_clock(timing) - start;
-    // The terrain's cut, and the shadows read from the units' pictures.
+    // The terrain's cut, the shadows read from the units' pictures, and the
+    // cut of the ground drawn ahead.
     platform::job_pool::run_bands(
-        in.pool, static_cast<uint32_t>(ground_bands + shadow_bands), [&](uint32_t band) {
+        in.pool,
+        static_cast<uint32_t>(ground_bands + shadow_bands + ahead_cut.count),
+        [&](uint32_t band) {
+            if (band >= ground_bands + shadow_bands) {
+                cut_ground_ahead_band(
+                    scene.ground_ahead,
+                    plots,
+                    ahead_cut.first + band - ground_bands - shadow_bands,
+                    timing
+                );
+                return;
+            }
             if (band < ground_bands) {
                 auto& list = passes.ground[band];
                 clear_list(list, 0);
@@ -6253,6 +6690,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
             shadow.nanoseconds = pass_clock(timing) - began;
         }
     );
+    times.ahead_cut += finish_ground_ahead_cut(in, scene.ground_ahead, ahead_cut);
     // The ground as the foundations leave it: the cut kept, the kept ground
     // cut now, which is kept, or the ground kept, is listed beside the
     // passes, which find it where it is kept.
@@ -6533,6 +6971,30 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     times.joining += pass_clock(timing) - start;
 }
 
+/// Notes the frame's kept ground for the card (Scene::card_ground), and,
+/// once the ground drawn ahead of a moving camera is cut, the share of the
+/// vertices the card will take from it sent this frame: whole triangles,
+/// over ground_send_frames frames, or all that are left in a frame after
+/// which the camera is expected to pass the kept ground's margin.
+///
+/// @param[in,out] scene the frame and the ground ahead
+void card_ground(Scene& scene) {
+    scene.card_ground = {scene.terrain_vertex_count, scene.ground_revision};
+    auto& ahead = scene.ground_ahead;
+    if (!ahead.active || !ahead.placed || !ahead.cut)
+        return;
+    const auto next = ahead_card_vertices(ahead);
+    const std::size_t triangles = next.size() / 3;
+    const std::size_t share = (triangles + ground_send_frames - 1) / ground_send_frames * 3;
+    auto& card = scene.card_ground;
+    card.next = next;
+    card.next_revision = ahead.cut_plots.empty() ? ahead.revision : ahead.cut_revision;
+    card.next_first = ahead.sent;
+    card.next_count =
+        ahead.send_rest ? next.size() - ahead.sent : std::min(share, next.size() - ahead.sent);
+    ahead.sent += card.next_count;
+}
+
 /// Gives the frame's own materials more rows (Scene::frame_rows) when some
 /// of this frame's found no room in theirs and were packed with the other
 /// materials, where they stay until the atlas is emptied: as many more as
@@ -6800,6 +7262,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             }
         }
         grow_frame_rows(scene);
+        card_ground(scene);
         if (scene.atlas_update.first_row > scene.atlas_update.end_row) {
             scene.atlas_update.first_row = 0;
             scene.atlas_update.end_row = 0;
@@ -6813,6 +7276,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         return true;
     } catch (const std::exception& exception) {
         scene.frame_palette = nullptr;
+        scene.card_ground = {};
         scene.out_of_room = dynamic_cast<const OutOfRoom*>(&exception) != nullptr;
         scene.vertices.clear();
         scene.unit_ranges.clear();

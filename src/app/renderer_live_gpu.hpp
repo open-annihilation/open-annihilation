@@ -155,6 +155,17 @@ struct KeptGround {
     /// same for two different grounds in any scene; zero for ground that is
     /// not kept, checked and uploaded with the frame's other vertices.
     uint64_t revision{};
+    /// The kept ground a later frame takes, sent to the card ahead of it a
+    /// slice a frame: render() checks each slice as it sends it into a
+    /// buffer of its own, and takes that buffer as the kept ground's,
+    /// unchecked and not sent again, in the first frame whose kept ground
+    /// has its revision, its vertices and the atlas size its slices were
+    /// checked against, once every slice has come in order. Its vertices,
+    /// all of them, the same in every frame that sends a slice.
+    std::span<const Vertex> next{};
+    uint64_t next_revision{}; ///< its revision; zero for none
+    std::size_t next_first{}; ///< the first of its vertices to send this frame
+    std::size_t next_count{}; ///< the vertices to send this frame
 };
 
 /// A unit or feature render() draws from its type's model on the card

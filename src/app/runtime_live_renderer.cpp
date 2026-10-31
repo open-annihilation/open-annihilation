@@ -917,9 +917,8 @@ bool Runtime::render_live_match_surface() {
             const Span picking(Stage::picking);
             rebuild_live_picking();
         };
-        const renderer_live_gpu::KeptGround ground{
-            live.scene.terrain_vertex_count, live.scene.ground_revision
-        };
+        // The kept ground, and the next one's share sent to the card ahead.
+        const auto& ground = live.scene.card_ground;
         // The lights and heat over the frame, found before the card draws it
         // so that it adds them; a card that cannot leaves them to the
         // processor, which adds them to the picture read back.

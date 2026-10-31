@@ -3084,7 +3084,12 @@ prompts, Settings › Updates and the headers name one state with one size.
   meets, which the drawing thread packs in the order the rows meet them
   before the bands are placed in the atlas and joined; a moving camera's
   next ground is drawn ahead of it among the scene passes, a fixed share of
-  its bands a frame, and taken as the kept ground once done, so it changes
+  its bands a frame, its tiles packed by the drawing thread a fixed number
+  a frame as its bands come in, the structures' plots cut into it a fixed
+  share of its bands a frame beside the other passes, and its vertices
+  sent to the graphics card a fixed share a frame into a buffer of their
+  own (`renderer_live_gpu::KeptGround::next`), which the card takes,
+  checked as it came in, in the frame that takes the ground, so it changes
   at the same frame on every count.
   `app-xrgb-conversion` checks each pixel's packing and gamma for rows of
   any width, that pools of 2, 3, 4 and 8 threads convert the same bytes,
