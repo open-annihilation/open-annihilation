@@ -366,6 +366,47 @@ def test_test_asserts(scratch):
     expect_findings(scratch, "test-asserts", files, expected, {"test-assert"})
 
 
+def test_path_narrow(scratch):
+    """Finds a path written out through the code page outside tests, and leaves its UTF-8 spelling alone."""
+    header = "\n".join([
+        "struct Options { std::filesystem::path snapshot{}; };",
+        "fs::path data_folder();",
+    ]) + "\n"
+    source = "\n".join([
+        "void f(const fs::path& folder, const Options& options) {",
+        "    std::string a = folder.string();",
+        "    std::string b = entry.path().filename().string();",
+        "    std::string c = other.generic_string();",
+        "    std::cout << fs::absolute(folder) << '\\n';",
+        "    std::string d = options.snapshot.string();",
+        "    std::string e = data_folder().string();",
+        "    auto stem = folder / \"x\";",
+        "    std::string g = stem.string();",
+        "    const std::filesystem::path made(argv[1]);",
+        "    std::cerr << made.string();",
+        "    std::string h = oa::platform::path_to_utf8(folder);",
+        "    std::cout << folder.native().size() << text.string() << '\\n';",
+        "    // folder.string() in a comment",
+        "}",
+        "void h(fs::path value) {}",
+        "void g(const Json& value) {",
+        "    if (value.string() != nullptr) {}",
+        "}",
+    ]) + "\n"
+    files = {"src/app/options.hpp": header, "src/app/a.cpp": source, "src/app/a_test.cpp": source,
+             "src/app/tests/b.cpp": source}
+    expect_findings(scratch, "path-narrow", files, {
+        ("src/app/a.cpp", 2, "path-narrow", "folder.string()"),
+        ("src/app/a.cpp", 3, "path-narrow", ".filename().string()"),
+        ("src/app/a.cpp", 4, "path-narrow", ".generic_string()"),
+        ("src/app/a.cpp", 5, "path-narrow", "<< fs::absolute(folder)"),
+        ("src/app/a.cpp", 6, "path-narrow", "snapshot.string()"),
+        ("src/app/a.cpp", 7, "path-narrow", "data_folder().string()"),
+        ("src/app/a.cpp", 9, "path-narrow", "stem.string()"),
+        ("src/app/a.cpp", 11, "path-narrow", "made.string()"),
+    }, {"path-narrow"})
+
+
 def test_lexer(scratch):
     """Separates code from comments, literals and directives."""
     source = "\n".join([
@@ -502,6 +543,7 @@ def main():
         test_doc_blocks(scratch)
         test_tiers(scratch)
         test_test_asserts(scratch)
+        test_path_narrow(scratch)
         test_lexer(scratch)
         test_nested_projects(scratch)
         test_directories()

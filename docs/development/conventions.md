@@ -499,6 +499,43 @@ loader. What SDL's own target brings with it is SDL's.
   in any function or scope, so a variable a link names needs a name no
   other build file uses for something else.
 
+### Turn paths into text through UTF-8
+
+A `std::filesystem::path` becomes text, and text a path, through
+`oa::platform::path_to_utf8()`, `path_to_generic_utf8()` and
+`path_from_utf8()` (`oa/platform/files.hpp`). Never write a path out with
+its `string()` or `generic_string()`, or give it to `operator<<`, and never
+make one from a `std::string` or `const char*` that holds a name read from
+a file, typed by the player, given on the command line or sent by another
+player. A name in the game data, which the game reads byte for byte, is
+taken apart as text, as `oa::data::defs::file_stem()` does, never through a
+path.
+
+- **Why:** on Windows a path holds UTF-16, and its narrow conversions go
+  through the system's code page. `string()` throws on a name that holds a
+  character the code page lacks, such as a user name, or a map or mod file
+  named in another script, and the game stopped with a filesystem error;
+  a path made from UTF-8 text reads it in the code page and names another
+  file. SDL, the preferences, the logs, the catalogue and the network carry
+  UTF-8.
+- **Applies to:** every source outside tests.
+- **Checked by:** `style-ratchet` (`path-narrow`) counts `string()` and
+  `generic_string()` of a path and a path given to `operator<<`, finding a
+  path by the call that made it or the name it was declared with; making a
+  path from narrow text is left to review. `platform-path-text` tests the
+  conversions, and a folder whose names no one code page holds.
+
+```cpp
+// Good
+error = "cannot write " + oa::platform::path_to_utf8(file);
+const fs::path folder = oa::platform::path_from_utf8(values.at(key));
+
+// Bad: throws on Windows for a name outside the code page, and reads the
+// preference's UTF-8 in the code page.
+error = "cannot write " + file.string();
+const fs::path folder(values.at(key));
+```
+
 ## Seams between modules
 
 Between simulation modules, prefer a direct call where the layer order
@@ -791,7 +828,7 @@ ctest --test-dir build --output-on-failure \
 
 | Check | What it enforces | Script and baseline |
 |---|---|---|
-| `style-ratchet` | qualified fixed-width types; names built from offsets, addresses or generated placeholders; names that number what they do not know (`unknown_3`); raw masks on flag fields; missing `{}` initialisers; offset comments outside file-format code; functions declared in headers without a `///` block; exceptions, virtual functions and heap containers in the core, base and simulation directories; `assert()` and `#undef NDEBUG` in tests | `check_style.py` and `style-baseline.json` in `tools/` |
+| `style-ratchet` | qualified fixed-width types; names built from offsets, addresses or generated placeholders; names that number what they do not know (`unknown_3`); raw masks on flag fields; missing `{}` initialisers; offset comments outside file-format code; functions declared in headers without a `///` block; exceptions, virtual functions and heap containers in the core, base and simulation directories; `assert()` and `#undef NDEBUG` in tests; paths written out through the code page outside tests | `check_style.py` and `style-baseline.json` in `tools/` |
 | `doc-links` | relative links, anchors and repository paths in Markdown resolve | `tools/check_links.py` |
 | `ctest-names` | every ctest name keeps to the [naming rule](#naming) | `tools/check_ctest_names.py` |
 | `runtime-surface-names` | the `Runtime` names an extension uses only shrink | `tools/check_runtime_surface.py`, `tools/runtime-surface-baseline.json` |

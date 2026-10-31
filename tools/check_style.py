@@ -55,7 +55,24 @@ file's findings rule by rule. Rules:
                          assert(), and the test then passes whatever the
                          code does; check with OA_CHECK
                          (tests/support/include/oa/test/check.hpp) or the
-                         module's own check macro.
+                         module's own check macro;
+  path-narrow            a path written out through the system's code page,
+                         outside tests: .string() or .generic_string() of a
+                         std::filesystem::path, or a path that a call
+                         returns given to operator<<. On Windows they
+                         convert through the code page and throw on a name
+                         holding a character it lacks; write
+                         oa::platform::path_to_utf8() or
+                         path_to_generic_utf8() (oa/platform/files.hpp)
+                         instead. A path is known by the call that made it
+                         (path(), filename(), stem(), lexically_normal() and
+                         the like, a std::filesystem function, or a function
+                         a header or the file declares to return one), or
+                         by its name: one the file declares as a path,
+                         directly or with auto from a path, or a member a
+                         header or the file declares as one.
+                         generic_string() belongs to paths alone and is
+                         always counted.
 
 The name rules read whole lines, comments and string literals included.
 offset-comment reads comments only. The other rules read code, with comments
@@ -71,6 +88,8 @@ members and members of local structs inside functions are not read.
 
 Known limits: the checks are textual. A declaration that a macro builds is
 not seen, a member whose type is an alias made with typedef does not count,
+a path that path-narrow cannot tell by its declaration (a loop variable or
+a lambda parameter declared with auto, or a template's) is not counted,
 and a doc block that a preprocessor line separates from its declaration is
 not directly above it. Enumerations and aliases are matched by their
 unqualified name, so one declared in any namespace counts.
@@ -140,7 +159,7 @@ ENGINE_DIR_VARIABLE_RE = re.compile(r"\bOA_ENGINE_DIR\b")
 RULES = (
     "qualified-fixed-width", "name-offset", "name-address", "name-placeholder", "name-unresolved", "name-unknown",
     "flags-raw-mask", "member-initializer", "offset-comment", "doc-block", "tier-virtual", "tier-throw",
-    "tier-heap-container", "test-assert",
+    "tier-heap-container", "test-assert", "path-narrow",
 )
 # Where an offset comment describes a file's byte layout: the game data
 # decoders and the saved-game code.
@@ -157,6 +176,42 @@ TEST_DIRECTORY = "tests"
 # directive that undefines NDEBUG to keep it.
 TEST_ASSERT_RE = re.compile(r"(?<![\w.:>])assert\s*\(")
 UNDEF_NDEBUG_RE = re.compile(r"^\s*#\s*undef\s+NDEBUG\b")
+# What path-narrow reads. A path type, as the tree spells it.
+PATH_TYPE = r"(?:std::)?(?:filesystem|fs)::path"
+# A variable, parameter or member declared as a path, which the group names:
+# the type, an optional const and & or *, the name, then what may follow a
+# declared name. A '(' after the name is a variable made from its arguments
+# or a function; either way the name stands for a path.
+PATH_DECLARATION_RE = re.compile(
+    r"\b" + PATH_TYPE + r"\b(?!\s*::)\s*(?:const\s*)?(?:&&?|\*)?\s*([A-Za-z_]\w*)\s*(?=[;,=(){\[]|:(?!:))")
+# A member declared as a path: the declaration ends at ';', '{' or '='.
+PATH_MEMBER_RE = re.compile(r"\b" + PATH_TYPE + r"\b(?!\s*::)\s+([A-Za-z_]\w*)\s*(?=[;{=])")
+# A function declared to return a path, which the group names.
+PATH_FUNCTION_RE = re.compile(r"\b" + PATH_TYPE + r"\b(?!\s*::)\s*&?\s+([A-Za-z_]\w*)\s*\(")
+# A name declared with auto and its initializer, which may make it a path.
+AUTO_DECLARATION_RE = re.compile(r"\bauto\s*&?\s*([A-Za-z_]\w*)\s*=\s*([^;]+)")
+# The first operand of an initializer: a name, or a member reached through names.
+FIRST_OPERAND_RE = re.compile(r"\s*(?:[A-Za-z_]\w*(?:\.|->))*([A-Za-z_]\w*)\s*(?:[/;]|$)")
+# A call that returns a path: a member of a path or a directory entry, or a
+# std::filesystem function.
+PATH_CALL = (
+    r"(?:(?:\.|->)(?:path|filename|stem|extension|parent_path|root_path|root_name|root_directory|"
+    r"relative_path|lexically_normal|make_preferred|remove_filename)\(\)"
+    r"|(?:\.|->)(?:lexically_relative|lexically_proximate|replace_extension|replace_filename)\([^()]*\)"
+    r"|\b(?:std::)?(?:filesystem|fs)::(?:absolute|canonical|weakly_canonical|relative|proximate|"
+    r"current_path|temp_directory_path|read_symlink)\((?:[^()]|\([^()]*\))*\))"
+)
+GENERIC_STRING_RE = re.compile(r"\.generic_string\s*\(\s*\)")
+PATH_CALL_STRING_RE = re.compile(PATH_CALL + r"\s*\.string\s*\(\s*\)")
+NAME_STRING_RE = re.compile(r"(?<![\w.])(?<!->)([A-Za-z_]\w*)\s*\.string\s*\(\s*\)")
+FUNCTION_STRING_RE = re.compile(r"\b([A-Za-z_]\w*)\s*\((?:[^()]|\([^()]*\))*\)\s*\.string\s*\(\s*\)")
+MEMBER_STRING_RE = re.compile(r"(?:\.|->)([A-Za-z_]\w*)\s*\.string\s*\(\s*\)")
+# A text accessor of a parsed document, whose string() gives a pointer to its text.
+POINTER_USE_RE = re.compile(r"^\s*(?:!=|==)\s*nullptr")
+# One operand of operator<<, up to the next << or the end of the statement.
+STREAM_OPERAND_RE = re.compile(r"<<\s*([^<;]+?)\s*(?=<<|;|$)")
+PATH_CALL_END_RE = re.compile(r"(?:" + PATH_CALL + r")$")
+
 # The stem a test program's file ends with outside a tests directory.
 TEST_FILE_STEM_SUFFIX = "_test"
 # How many findings of one directory and rule a failure prints.
@@ -857,11 +912,88 @@ def is_test_file(name):
     return TEST_DIRECTORY in name.split("/")[:-1] or Path(name).stem.endswith(TEST_FILE_STEM_SUFFIX)
 
 
-def source_findings(source, scalar_names):
+@dataclass(frozen=True)
+class PathNames:
+    """The names that hold or return paths, as path-narrow knows them."""
+    variables: frozenset = frozenset()  # names a file declares as paths
+    members: frozenset = frozenset()    # members declared as paths
+    functions: frozenset = frozenset()  # functions declared to return a path
+
+
+def tree_path_names(sources):
+    """Returns the members and functions the tree's headers declare as paths."""
+    members, functions = set(), set()
+    for source in sources:
+        if Path(source.name).suffix in HEADER_SUFFIXES:
+            code = "\n".join(line.code for line in source.lines)
+            members.update(PATH_MEMBER_RE.findall(code))
+            functions.update(PATH_FUNCTION_RE.findall(code))
+    return PathNames(frozenset(), frozenset(members), frozenset(functions))
+
+
+def file_path_names(source, tree_names):
+    """Returns the names one file knows as paths: its own declarations, then the tree's.
+
+    A name declared with auto counts when its initializer starts with a path:
+    a name or member known as one, a call that returns one, or such a name
+    joined to more with /.
+    """
+    code = "\n".join(line.code for line in source.lines)
+    variables = set(PATH_DECLARATION_RE.findall(code))
+    members = set(tree_names.members) | set(PATH_MEMBER_RE.findall(code))
+    functions = set(tree_names.functions) | set(PATH_FUNCTION_RE.findall(code))
+    autos = AUTO_DECLARATION_RE.findall(code)
+    grew = True
+    while grew:
+        grew = False
+        for name, initializer in autos:
+            if name in variables:
+                continue
+            first = FIRST_OPERAND_RE.match(initializer)
+            through_member = first is not None and first.group(0).strip().rstrip("/;").strip() != first.group(1)
+            if (first and (first.group(1) in (members if through_member else variables))) or \
+                    PATH_CALL_END_RE.search(initializer.strip()):
+                variables.add(name)
+                grew = True
+    return PathNames(frozenset(variables), frozenset(members), frozenset(functions))
+
+
+def narrowed_paths(code, names):
+    """Returns the places in a line of code where a path is written out through the code page.
+
+    @param code the line's code, comments and the contents of literals left out
+    @param names the names the file knows as paths
+    @return the text of each place found
+    """
+    found = []
+    ends = set()  # where each call found ends, so that no call counts twice
+
+    def add(match, text):
+        if match.end() not in ends:
+            ends.add(match.end())
+            found.append(text)
+
+    for pattern in (GENERIC_STRING_RE, PATH_CALL_STRING_RE):
+        for match in pattern.finditer(code):
+            add(match, match.group(0))
+    for pattern, known in ((NAME_STRING_RE, names.variables), (MEMBER_STRING_RE, names.members),
+                           (FUNCTION_STRING_RE, names.functions)):
+        for match in pattern.finditer(code):
+            if match.group(1) in known and not POINTER_USE_RE.match(code[match.end():]) and \
+                    not code[:match.start()].rstrip().endswith("*"):
+                add(match, match.group(0).lstrip(".->"))
+    for match in STREAM_OPERAND_RE.finditer(code):
+        if PATH_CALL_END_RE.search(match.group(1)):
+            add(match, "<< " + match.group(1))
+    return found
+
+
+def source_findings(source, scalar_names, tree_names=PathNames()):
     """Returns the findings of one source.
 
     @param source the file, split into lines
     @param scalar_names enumerations and aliases of scalar types declared in the tree
+    @param tree_names the members and functions the tree's headers declare as paths
     @return the file's findings
     """
     name = source.name
@@ -871,6 +1003,7 @@ def source_findings(source, scalar_names):
     format_file = name.startswith(FORMAT_DIRECTORIES)
     tier = in_tier(name)
     test_file = is_test_file(name)
+    path_names = PathNames() if test_file else file_path_names(source, tree_names)
     for number, line in enumerate(source.lines, start=1):
         code = line.code
         for match in QUALIFIED_FIXED_WIDTH_RE.finditer(code):
@@ -896,6 +1029,9 @@ def source_findings(source, scalar_names):
                 findings.append(Finding(name, number, "test-assert", "assert("))
             if UNDEF_NDEBUG_RE.match(code):
                 findings.append(Finding(name, number, "test-assert", "#undef NDEBUG"))
+        elif suffix not in C_SUFFIXES:
+            for text in narrowed_paths(code, path_names):
+                findings.append(Finding(name, number, "path-narrow", " ".join(text.split())))
     for number, member in structure.members:
         findings.append(Finding(name, number, "member-initializer", member))
     if suffix in HEADER_SUFFIXES:
@@ -911,9 +1047,10 @@ def tree_findings(root):
     """Returns the sources under root and the findings of all of them, in path and line order."""
     sources = read_sources(root)
     scalar_names = scalar_type_names(sources)
+    tree_names = tree_path_names(sources)
     findings = []
     for source in sources:
-        findings.extend(sorted(source_findings(source, scalar_names), key=lambda f: (f.line, f.rule)))
+        findings.extend(sorted(source_findings(source, scalar_names, tree_names), key=lambda f: (f.line, f.rule)))
     return sources, findings
 
 
