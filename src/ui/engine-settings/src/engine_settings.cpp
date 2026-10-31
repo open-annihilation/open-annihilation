@@ -715,6 +715,9 @@ EngineSettings read_settings(
     if (const auto number = stored_number(values, key::escape_opens_menu))
         settings.escape_opens_menu = *number > 0;
     read_word(values, key::group_keys_centre, group_keys_centre_words, settings.group_keys_centre);
+    read_word(
+        values, key::double_click_selects, double_click_selects_words, settings.double_click_selects
+    );
     if (const auto number = stored_number(values, key::unit_limit))
         settings.unit_limit = clamped(
             *number,
@@ -1029,6 +1032,15 @@ void write_settings(
         opened.group_keys_centre,
         chosen.group_keys_centre,
         defaults.group_keys_centre,
+        restored
+    );
+    store_word(
+        values,
+        key::double_click_selects,
+        double_click_selects_words,
+        opened.double_click_selects,
+        chosen.double_click_selects,
+        defaults.double_click_selects,
         restored
     );
     store(

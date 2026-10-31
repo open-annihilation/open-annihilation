@@ -68,7 +68,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 123> kExpected{{
+constexpr std::array<Expected, 124> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -195,6 +195,7 @@ constexpr std::array<Expected, 123> kExpected{{
     {Setting::window_size, RowKind::choice, "Window size", 1, 1, 4, 200, 0, false, Lock::none, nullptr},
     {Setting::reset_window_positions, RowKind::value_and_button, "Reset window positions", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::group_keys_centre, RowKind::choice, "Group keys centre the view", 1, 1, 3, 248, 0, false, Lock::none, nullptr},
+    {Setting::double_click_selects, RowKind::choice, "Double-click selects", 1, 1, 2, 248, 0, false, Lock::none, nullptr},
     {Setting::look, RowKind::levels, "Look", 1, 1, 2, 60, 2, false, Lock::none, nullptr},
 }};
 // clang-format on
@@ -520,7 +521,7 @@ struct StoredChoice {
 };
 
 /// Every strip's and drop-down's setting, with its key.
-constexpr std::array<StoredChoice, 29> kStoredChoices{{
+constexpr std::array<StoredChoice, 30> kStoredChoices{{
     {Setting::key_layout_for_mod, "open-annihilation.keys.layout.ridge"},
     {Setting::max_zoom_out, settings::key::max_zoom_out},
     {Setting::max_zoom_in, settings::key::max_zoom_in},
@@ -549,6 +550,7 @@ constexpr std::array<StoredChoice, 29> kStoredChoices{{
     {Setting::order_wheel, settings::key::order_wheel},
     {Setting::window_size, settings::key::window_size},
     {Setting::group_keys_centre, settings::key::group_keys_centre},
+    {Setting::double_click_selects, settings::key::double_click_selects},
     {Setting::look, settings::key::look},
 }};
 
@@ -699,12 +701,14 @@ void tab_follows_the_dialogs_focus_order() {
     // only where the Library opens over the dialog.
     const settings::Dialog controls =
         engine_dialog_of({}, settings::Page::controls, true, true, true);
-    OA_CHECK(tab_order(controls) == with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 27}));
+    OA_CHECK(tab_order(controls) == with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 28}));
     settings::Dialog linked = controls;
     linked.library_link = true;
     OA_CHECK(
         tab_order(linked) ==
-        with_footer_and_list({settings::change_layout_control, 18, 19, 20, 21, 22, 23, 24, 25, 27})
+        with_footer_and_list(
+            {settings::change_layout_control, 18, 19, 20, 21, 22, 23, 24, 25, 26, 28}
+        )
     );
     // Accessibility: every row, Bounce keys included, then the footer and the
     // list. A row below the fold stays in the order, and Tab scrolls it into

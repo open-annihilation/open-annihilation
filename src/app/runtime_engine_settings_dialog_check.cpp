@@ -362,6 +362,8 @@ std::string_view label_of(settings::Setting setting) {
         return "Escape opens the game menu";
     case settings::Setting::group_keys_centre:
         return "Group keys centre the view";
+    case settings::Setting::double_click_selects:
+        return "Double-click selects";
     case settings::Setting::switch_alt:
         return "Select groups without Alt";
     case settings::Setting::window_edge:

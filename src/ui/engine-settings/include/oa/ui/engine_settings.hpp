@@ -67,6 +67,11 @@ inline constexpr std::string_view escape_opens_menu = "open-annihilation.escape-
 inline constexpr std::string_view group_keys_centre = "open-annihilation.group-keys-centre";
 static_assert(group_keys_centre.find('|') == std::string_view::npos);
 static_assert(group_keys_centre.find('\\') == std::string_view::npos);
+/// "on-screen" or "on-map" (EngineSettings::double_click_selects). Absent
+/// means on-screen.
+inline constexpr std::string_view double_click_selects = "open-annihilation.double-click-selects";
+static_assert(double_click_selects.find('|') == std::string_view::npos);
+static_assert(double_click_selects.find('\\') == std::string_view::npos);
 /// Units per player, decimal (EngineSettings::unit_limit).
 inline constexpr std::string_view unit_limit = "open-annihilation.unit-limit";
 /// Frames a second, decimal (EngineSettings::max_frame_rate).
@@ -861,6 +866,21 @@ inline constexpr std::array<GroupKeysCentre, 3> group_keys_centre_choices{
     GroupKeysCentre::every_press,
 };
 
+/// Double-click selects: which units of the clicked unit's type a
+/// double-click on one of the player's units selects.
+enum class DoubleClickSelects : uint8_t {
+    /// those on screen: the player's units of the type the view shows
+    on_screen,
+    /// those on the whole map, as 3.1c's double-click does
+    on_map,
+};
+
+/// The ways of Double-click selects, in the order the dialog offers them.
+inline constexpr std::array<DoubleClickSelects, 2> double_click_selects_choices{
+    DoubleClickSelects::on_screen,
+    DoubleClickSelects::on_map,
+};
+
 /// Edge stickiness's lowest value, in tenths: 0.0, a sticky edge that never
 /// holds.
 inline constexpr uint32_t lowest_edge_stickiness = 0;
@@ -1260,6 +1280,9 @@ struct EngineSettings {
     /// When a group's key moves the view to the group as well as selecting
     /// it. Applies at once.
     GroupKeysCentre group_keys_centre{GroupKeysCentre::double_press};
+    /// Which units of its type a double-click on a unit selects: those on
+    /// screen or those on the whole map. Applies at once.
+    DoubleClickSelects double_click_selects{DoubleClickSelects::on_screen};
     /// The layout chosen for the mod being played: `same`, or an installed
     /// layout's id. The dialog's host writes it under
     /// open-annihilation.keys.layout.<mod id> as the choice moves. With no

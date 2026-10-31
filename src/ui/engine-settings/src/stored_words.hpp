@@ -63,6 +63,11 @@ inline constexpr std::array<ChoiceWord<GroupKeysCentre>, 3> group_keys_centre_wo
     {GroupKeysCentre::never, "never"},
     {GroupKeysCentre::every_press, "every-press"},
 }};
+/// Double-click selects' words, in double_click_selects_choices' order.
+inline constexpr std::array<ChoiceWord<DoubleClickSelects>, 2> double_click_selects_words{{
+    {DoubleClickSelects::on_screen, "on-screen"},
+    {DoubleClickSelects::on_map, "on-map"},
+}};
 /// Window frame's words, in window_frame_choices' order.
 inline constexpr std::array<ChoiceWord<WindowFrame>, 2> window_frame_words{{
     {WindowFrame::hidden_in_play, "hidden-in-play"},

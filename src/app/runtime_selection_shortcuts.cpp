@@ -24,9 +24,13 @@ bool Runtime::selection_shortcuts_on() const {
 }
 
 bool Runtime::selection_shortcut_double_click(float x, float y, int32_t clicks) {
-    // The second click of each pair is the double-click.
+    // The second click of each pair is the double-click. With Double-click
+    // selects On the map it is 3.1c's, the clicked unit's type on the whole
+    // map, and the hack's own double-click stands aside.
     if (!selection_shortcuts_on() || clicks < 2 || clicks % 2 != 0 || match_paused_ ||
-        megamap_open_)
+        megamap_open_ ||
+        engine_settings().double_click_selects ==
+            oa::ui::engine_settings::DoubleClickSelects::on_map)
         return false;
     if (action_held("build.line") || !battlefield_contains(x, y))
         return false;

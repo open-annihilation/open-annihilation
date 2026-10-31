@@ -74,7 +74,7 @@ Primary+5 and Ctrl+5 are the same keys on Windows, Linux and the Steam
 Deck, and Primary+5 and Cmd+5 are on a Mac. The editor lists such a pair
 as a clash on the system where it is one, and `oa-tool keys check` names
 the systems where a layout's pair clashes. A double press is `:double`
-(`MouseLeft:double` is the double click that selects every unit of one
+(`MouseLeft:double` is the double click that selects the units of one
 type). Letters in a stored chord are capitals.
 
 The mouse is the same list. `MouseLeft`, `MouseRight` and `MouseMiddle`
@@ -360,7 +360,7 @@ at the head of Groups.
 | tdraw | hold Alt | `build.snap-override` | The click-snap and build-tools hacks. Import reads ClickSnapOverrideKey, and the first start copies it |
 | tdraw, and the build-rotation hack | `/`, Shift+`/`, Alt+wheel | `build.rotate`, `build.rotate-wheel` | The build-preview and build-rotation hacks. Import reads RotateBuildKey, and the first start copies it |
 | tdraw | Ctrl+S, Ctrl+B, Ctrl+F, and the box holds | `select.armed-on-screen`, `select.idle-builders`, `select.idle-factories`, `select.box-combat`, `select.box-builders`, `select.box-factories` | The selection-shortcuts hack. Idle builders replaces Select builders while it is on |
-| tdraw | double-click on screen | `pointer.select-type-on-screen` | The selection-shortcuts hack. It stands in for Select type |
+| tdraw | double-click on screen | `pointer.select-type-on-screen` | The selection-shortcuts hack. It stands in for Select type, and selects the selected types on screen while Double-click selects is On screen |
 | tdraw | Ctrl+F2, F11 | `game.options-dialog`, `game.chat-macro` | The options-dialog hack |
 | tdraw | F4, double-click a row | `game.resource-panel`, `watch.player-view`, `watch.lock-view` | The resource-panel hack. F4 is also the base **Kills board** while the hack is off |
 | tdraw, cnc-ddraw | Ctrl+F9, and PrintScreen with the hack | `game.screenshot` | Ctrl+F9 is the base. The display-modes hack adds PrintScreen. Import reads cnc-ddraw's keyscreenshot |
@@ -549,6 +549,12 @@ on.
 | Pointer click right | `Numpad0` | `pointer.click-right` |
 | Pointer hold left | `NumpadAdd` | `pointer.hold-left` |
 | Pointer let go | `NumpadDecimal` | `pointer.let-go` |
+
+**Select type** selects your units of the clicked unit's type: those the
+battlefield shows, or every one on the map, as **Double-click selects**
+in [Settings › Controls](settings.md#controls) says. On screen is the
+default; On the map is 3.1c's double click. **Select same type**
+(Ctrl+Z) selects the selected types on the whole map either way.
 
 ### Selection
 

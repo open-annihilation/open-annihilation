@@ -437,7 +437,7 @@ actions:
     target: battlefield
     pad: select_type
     touch: radial.type
-    words: {name: "Select type", description: "Every unit of that type on the map"}
+    words: {name: "Select type", description: "That type on screen, or on the map, as Settings says"}
   pointer.select-type-on-screen:
     area: mouse
     order: 4
@@ -446,7 +446,7 @@ actions:
     source: [ui.selection-shortcuts]
     replaces: pointer.select-type
     target: battlefield
-    words: {name: "Select type on screen", description: "That type on screen only"}
+    words: {name: "Select type on screen", description: "The selected types on screen, or that type on the map, as Settings says"}
   select.add-modifier:
     area: mouse
     order: 5

@@ -274,8 +274,9 @@ void PadAccess::act_press(
         if (!in_match(runtime))
             return;
         sync_pointer(runtime);
-        // Every unit of the type under the pointer, as a double click on it
-        // gives; with no own unit there, the primary unit's type.
+        // The units of the type under the pointer that a double click on it
+        // selects, on screen or on the map as Double-click selects says;
+        // with no own unit there, every unit of the primary unit's type.
         const uint16_t unit = runtime.hovered_match_unit_;
         const auto& slots = runtime.match_->world().slots;
         const bool own = unit != 0 && unit < slots.size() && slots[unit].unit != nullptr &&

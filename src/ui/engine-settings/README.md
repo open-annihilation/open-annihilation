@@ -26,6 +26,7 @@ the locks a running game puts on them (`settings_locks`).
 | | Maximum zoom in, a drop-down: how close the same zooms go | None (the game's own scale), 2x, 3x, 4x | 4x | `open-annihilation.max-zoom-in` (`1`, `2`, `3` or `4`) |
 | | View past the map's edge, a strip: how much of the battlefield the view may show past the map's edges; at 25% and Off a zoom keeps to it too | Off (the view stays on the map, as 3.1c's does), 25%, 50% (the map's edge reaches the battlefield's middle) | 50% | `open-annihilation.view-past-map-edge` (`off`, `25` or `50`) |
 | | Middle-click pans: a middle click on the battlefield scrolls the view towards the pointer until another press or a key | Off, On | On | `open-annihilation.middle-click-pan` |
+| | Double-click selects, a drop-down: where a double-click on one of the player's units, a controller's Select type, the touch radial's Type and a double tap select the units of its type. On screen selects those the battlefield shows; On the map every one on the map, as 3.1c's double-click does. With ui.selection-shortcuts on, On screen is the hack's own double-click, the selected types on screen, and On the map is the game's. It applies at once | On screen, On the map | On screen | `open-annihilation.double-click-selects` (`on-screen` or `on-map`) |
 | | Number keys select groups is the key editor's switch, not a row of this section | Off, On | Off | 3.1c's SwitchAlt |
 | | Window edge, a strip: what a window does with the pointer while a match's battlefield shows. Capture keeps it in the window until the game menu, the pause screen, Settings, Escape or a lost focus, and a click on the battlefield captures it again. Sticky holds it on the edges so the view edge-scrolls, until a firm push or a flick lets it leave. Free leaves it free. Full screen holds the pointer either way | Capture, Sticky, Free | Capture | `open-annihilation.window-edge` (`capture`, `sticky` or `free`) |
 | | Edge stickiness, a slider: how firmly Sticky holds, the push and the flick growing with it; 0.0 never holds. Locked Needs Sticky (`Lock::needs_sticky`, which the dialog sets itself in `shown_locks`) while Window edge shows Capture or Free, when it keeps its value | 0.0 to 5.0 in steps of 0.1 | 1.0 | `open-annihilation.window-edge-stickiness` (a decimal, `1.0`) |
@@ -1409,7 +1410,9 @@ row between Explosion flash and Zoomed out units, and again when the
 camera's switches and the effect sliders joined them, which shortened the
 thumb further and put the water sliders at the end, and again when New
 unit shadows joined them at the end; no other scene changed. The Controls
-scenes were recorded again when Group keys centre the view joined its rows.
+scenes were recorded again when Group keys centre the view joined its rows,
+and again when Double-click selects joined them under Middle-click pans,
+which shortened the scroll bar's thumb; no other scene changed.
 
 `ui-engine-settings-dialog` also holds UI kit gallery's row: its label,
 its hint in two lines at Compact and one at Regular and Large, and SHOW,

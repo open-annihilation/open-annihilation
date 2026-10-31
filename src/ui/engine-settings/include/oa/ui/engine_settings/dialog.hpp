@@ -391,6 +391,9 @@ enum class Setting : uint8_t {
     /// Group keys centre the view: a drop-down of On a double press, Never
     /// and On every press, Controls' last row
     group_keys_centre,
+    /// Double-click selects: a drop-down of On screen and On the map, on
+    /// Controls under Middle-click pans
+    double_click_selects,
     /// Look: a strip of Modern and Classic, User Interface's last row
     look,
 };

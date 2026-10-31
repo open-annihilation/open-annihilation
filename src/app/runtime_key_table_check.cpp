@@ -100,6 +100,7 @@ struct Prepared {
     bool marker = false;
     bool macos = false;
     bool escape_menu = false;
+    bool double_click_on_map = false;
     bool settings = false;
     std::string far;
 };
@@ -564,6 +565,8 @@ Prepared parse_setup(std::string_view text) {
             prepared.debug_keys = true;
         else if (key == "escape-menu" && value.empty())
             prepared.escape_menu = true;
+        else if (key == "double-click" && value == "map")
+            prepared.double_click_on_map = true;
         else if (key == "screen" && value == "settings")
             prepared.settings = true;
         else if (key == "far")
@@ -787,6 +790,7 @@ void Runtime::check_key_table() {
         bool origin_wheel = true;
         bool origin_unlocked = false;
         bool origin_escape_menu = false;
+        oa::ui::engine_settings::DoubleClickSelects origin_double_click{};
         bool origin_full_screen = false;
         int origin_width = 0;
         int origin_height = 0;
@@ -1170,6 +1174,7 @@ void Runtime::check_key_table() {
             origin_wheel = self.engine_settings_state().current.wheel_zoom;
             origin_unlocked = self.engine_settings_state().current.unlocked_camera;
             origin_escape_menu = self.engine_settings_state().current.escape_opens_menu;
+            origin_double_click = self.engine_settings_state().current.double_click_selects;
             origin_extension = self.extension_;
             origin_full_screen =
                 (SDL_GetWindowFlags(self.sdl_.window) & SDL_WINDOW_FULLSCREEN) != 0;
@@ -1193,6 +1198,7 @@ void Runtime::check_key_table() {
             game.frame_flags = origin_frame;
             game.interface_type = origin_interface;
             self.engine_settings_state().current.escape_opens_menu = origin_escape_menu;
+            self.engine_settings_state().current.double_click_selects = origin_double_click;
             self.extension_ = origin_extension;
             set_wheel_zoom(origin_wheel);
             if (self.engine_settings_state().current.unlocked_camera != origin_unlocked) {
@@ -1505,6 +1511,9 @@ void Runtime::check_key_table() {
             set_flag_bits(prepared.developer, prepared.debug_keys);
             if (prepared.escape_menu)
                 self.engine_settings_state().current.escape_opens_menu = true;
+            if (prepared.double_click_on_map)
+                self.engine_settings_state().current.double_click_selects =
+                    oa::ui::engine_settings::DoubleClickSelects::on_map;
             if (prepared.marker) {
                 self.whiteboard_.received_marker = true;
                 self.whiteboard_.received_x = self.match_camera_x_ + 400;

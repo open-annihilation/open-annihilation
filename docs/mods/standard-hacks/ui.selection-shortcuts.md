@@ -13,7 +13,7 @@
 
 ## Description
 
-Adds selection shortcuts: a double-click selects every on-screen unit of the selected types, Ctrl+S, Ctrl+B and Ctrl+F select mobile combat units or cycle idle builders and factories, W, B and Y filter a drag box, and Ctrl with Shift steps a build queue by 100. 3.1c has none of these.
+Adds selection shortcuts: a double-click selects every on-screen unit of the selected types (while Double-click selects, in Settings › Controls, is On screen), Ctrl+S, Ctrl+B and Ctrl+F select mobile combat units or cycle idle builders and factories, W, B and Y filter a drag box, and Ctrl with Shift steps a build queue by 100. 3.1c has none of these.
 
 ![A grid of Arm Stumpy tanks and Peewee kbots; every Stumpy has a green selection box, and none of the Peewees does.](images/ui.selection-shortcuts-double-click.png)
 
@@ -53,6 +53,12 @@ the megamap is open, or while the line-build key is held. With
 [ui.build-tools](ui.build-tools.md) on, a left double-click on one of the
 player's own mobile units with the snap override key held drags that unit
 instead.
+
+That is the double-click while **Double-click selects**, in
+[Settings › Controls](../../settings.md#controls), is On screen, the
+default. With On the map the hack leaves the double-click to the game: a
+left double-click selects the clicked unit's type on the whole map, as
+3.1c's does, and a right double-click is two of the game's right presses.
 
 #### Ctrl+S, Ctrl+B, Ctrl+F
 
@@ -160,7 +166,7 @@ hacks:
 <!-- BEGIN GENERATED: keys -->
 | Action | Default chords | What it does |
 | --- | --- | --- |
-| `pointer.select-type-on-screen` | `MouseLeft:double` | That type on screen only |
+| `pointer.select-type-on-screen` | `MouseLeft:double` | The selected types on screen, or that type on the map, as Settings says |
 | `build.hundred-modifier` | `Ctrl` | Held with the queue modifier: a build button adds or takes 100 |
 | `select.idle-builders` | `Ctrl+B` | Cycles idle constructors, centring on each |
 | `select.idle-factories` | `Ctrl+F` | Cycles idle factories |

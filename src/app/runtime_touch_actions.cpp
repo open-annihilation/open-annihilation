@@ -693,7 +693,8 @@ void TouchDispatchAccess::radial_pick(Runtime& runtime, hud::RadialItem item) {
         return;
     }
     if (item == hud::RadialItem::type) {
-        // Every unit of that type, with ADD's Shift off.
+        // The units of that type a double click selects, on screen or on the
+        // map as Double-click selects says, with ADD's Shift off.
         const auto latches = runtime.touch_state().hud.latches;
         runtime.touch_state().hud.latches.clear();
         runtime.refresh_pointer_modifiers();

@@ -757,11 +757,18 @@ void Runtime::select_match_unit(float x, float y, int32_t clicks) {
     }
     int count = 1;
     if (!toggle && clicks >= 2) {
+        // Double-click selects, in Settings › Controls, says which units of
+        // the type join it: those on screen, or those on the whole map, as
+        // 3.1c's double-click selects them.
+        const bool on_screen = engine_settings().double_click_selects ==
+                               oa::ui::engine_settings::DoubleClickSelects::on_screen;
+        const auto lists = on_screen_lists();
         const auto type = unit->type_index;
         for (auto& slot : match_->world().slots) {
             if (slot.unit_index == 0 || slot.unit == nullptr || slot.unit_index == id ||
                 slot.owner_index != match_local_player_ || slot.unit->type_index != type ||
-                !match_->selectable(slot.unit_index))
+                !match_->selectable(slot.unit_index) ||
+                (on_screen && !oa::sim::selection::unit_listed(world, lists, slot.unit_index)))
                 continue;
             slot.unit->flags |= OA_UNIT_FLAG_SELECTED;
             ++count;

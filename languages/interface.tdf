@@ -3546,6 +3546,14 @@
 	it=Punti più lontani di 1/8 della dimensione normale. Più da vicino, le unità sono disegnate come modelli.;
 	}
 
+[Double-click selects]
+	{
+	de=Auswahl per Doppelklick;
+	fr=Sélection par double clic;
+	es=Selección con doble clic;
+	it=Selezione con doppio clic;
+	}
+
 [Download]
 	{
 	de=Herunterladen;
@@ -8306,6 +8314,22 @@
 	it=A ogni pressione;
 	}
 
+[On screen]
+	{
+	de=Auf dem Bildschirm;
+	fr=À l'écran;
+	es=En pantalla;
+	it=Sullo schermo;
+	}
+
+[On the map]
+	{
+	de=Auf der Karte;
+	fr=Sur la carte;
+	es=En el mapa;
+	it=Sulla mappa;
+	}
+
 [On/Off: tap to switch the selected units on or off.]
 	{
 	de=An/Aus: tippe, um die gewählten Einheiten an- oder auszuschalten.;
@@ -13032,6 +13056,14 @@
 	fr=Zoom à la molette;
 	es=Zoom con la rueda;
 	it=Zoom con la rotella;
+	}
+
+[Where a double-click on a unit selects its type.]
+	{
+	de=Wo ein Doppelklick auf eine Einheit ihren Typ auswählt.;
+	fr=Où un double clic sur une unité sélectionne son type.;
+	es=Dónde un doble clic sobre una unidad selecciona su tipo.;
+	it=Dove un doppio clic su un'unità ne seleziona il tipo.;
 	}
 
 [Where the files are]
@@ -22884,12 +22916,12 @@
 	it=Seleziona tipo;
 	}
 
-[Every unit of that type on the map]
+[That type on screen, or on the map, as Settings says]
 	{
-	de=Jede Einheit dieses Typs auf der Karte;
-	fr=Chaque unité de ce type sur la carte;
-	es=Cada unidad de ese tipo en el mapa;
-	it=Ogni unità di quel tipo sulla mappa;
+	de=Dieser Typ auf dem Bildschirm oder auf der Karte, wie in den Einstellungen gewählt;
+	fr=Ce type à l'écran, ou sur la carte, selon les Réglages;
+	es=Ese tipo en pantalla, o en el mapa, según los Ajustes;
+	it=Quel tipo sullo schermo, o sulla mappa, come scelto nelle Impostazioni;
 	}
 
 [Select type on screen]
@@ -22900,12 +22932,12 @@
 	it=Seleziona tipo sullo schermo;
 	}
 
-[That type on screen only]
+[The selected types on screen, or that type on the map, as Settings says]
 	{
-	de=Nur dieser Typ auf dem Bildschirm;
-	fr=Ce type à l'écran seulement;
-	es=Solo ese tipo en pantalla;
-	it=Solo quel tipo sullo schermo;
+	de=Die ausgewählten Typen auf dem Bildschirm oder dieser Typ auf der Karte, wie in den Einstellungen gewählt;
+	fr=Les types sélectionnés à l'écran, ou ce type sur la carte, selon les Réglages;
+	es=Los tipos seleccionados en pantalla, o ese tipo en el mapa, según los Ajustes;
+	it=I tipi selezionati sullo schermo, o quel tipo sulla mappa, come scelto nelle Impostazioni;
 	}
 
 [Add to selection]

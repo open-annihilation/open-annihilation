@@ -51,6 +51,8 @@ build.remove:right-click	interface=right-click;select=factory	button right build
 pointer.command:shift:right-click	interface=right-click;select=combat	button right battlefield shift	order=move:combat
 build.queue-modifier:right-click	interface=right-click;select=factory	button left build-button shift	build-queue=5;order=mobile-build:factory
 pointer.select-type:right-click	interface=right-click;select=combat	button left unit clicks=2	selected=2
+pointer.select-type:far:right-click	interface=right-click;select=combat;far=combat	button left unit clicks=2	selected=2
+pointer.select-type:on-map:right-click	interface=right-click;select=combat;far=combat;double-click=map	button left unit clicks=2	selected=3
 pointer.pan:right-click	interface=right-click	button middle battlefield	none
 pointer.mouse-look:right-click	interface=right-click	button right battlefield ctrl	none
 camera.zoom-in:right-click	interface=right-click	wheel up battlefield	none
@@ -70,6 +72,8 @@ build.remove:left-click	interface=left-click;select=factory	button right build-b
 pointer.command:shift:left-click	interface=left-click;select=combat	button left battlefield shift	order=move:combat
 build.queue-modifier:left-click	interface=left-click;select=factory	button left build-button shift	build-queue=5;order=mobile-build:factory
 pointer.select-type:left-click	interface=left-click;select=combat	button left unit clicks=2	selected=2
+pointer.select-type:far:left-click	interface=left-click;select=combat;far=combat	button left unit clicks=2	selected=2
+pointer.select-type:on-map:left-click	interface=left-click;select=combat;far=combat;double-click=map	button left unit clicks=2	selected=3
 pointer.pan:left-click	interface=left-click	button middle battlefield	none
 pointer.mouse-look:left-click	interface=left-click	button right battlefield ctrl	camera=centred
 camera.zoom-in:left-click	interface=left-click	wheel up battlefield	none

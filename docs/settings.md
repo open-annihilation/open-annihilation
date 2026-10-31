@@ -246,6 +246,17 @@ Each of these takes effect at once.
   same until you let go. It does not start while the allied whiteboard is
   in use, in the menus, or on a panel. Turn it off to keep the middle
   button as it was.
+- **Double-click selects**, On screen or On the map, On screen by default.
+  Where a double-click on one of your units selects the units of its type:
+  **Select type** in the key editor, which a controller's Y, the touch
+  radial's Type and a double tap give too. On screen selects your units of
+  that type that the battlefield shows; On the map selects every one on
+  the map, as 3.1c's double-click does. With the
+  [selection-shortcuts hack](mods/standard-hacks/ui.selection-shortcuts.md)
+  on, On screen is the hack's own double-click, which takes the types of
+  every selected unit, and On the map is 3.1c's. **Select same type**
+  (Ctrl+Z) still selects the selected types on the whole map. It applies
+  at once.
 - **Number keys select groups** is the key editor's switch, not a row
   here. It is 3.1c's own SwitchAlt option, so the console's `+switchalt`
   changes it too: on, a number key selects its group on its own.

@@ -2374,6 +2374,43 @@ void the_group_keys_centre_default_read_and_round_trip() {
     }
 }
 
+/// Double-click selects: On screen everywhere by default, also for a file
+/// an earlier build wrote without the key; "on-screen" and "on-map" read
+/// their choices; any other text reads On screen; writing On the map writes
+/// that key alone, and Restore defaults then OK erases it.
+void the_double_click_selects_default_read_and_round_trip() {
+    CHECK(settings::key::double_click_selects == "open-annihilation.double-click-selects");
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(defaults.double_click_selects == settings::DoubleClickSelects::on_screen);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    const auto selects = [](const char* text) {
+        return read_one(settings::key::double_click_selects, text).double_click_selects;
+    };
+    CHECK(selects("on-screen") == settings::DoubleClickSelects::on_screen);
+    CHECK(selects("on-map") == settings::DoubleClickSelects::on_map);
+    for (const char* text : {"", "On the map", "map", "whole-map", "1"})
+        CHECK(selects(text) == settings::DoubleClickSelects::on_screen);
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    auto chosen = defaults;
+    chosen.double_click_selects = settings::DoubleClickSelects::on_map;
+    Values values;
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    CHECK(values.size() == 1);
+    CHECK(values.at(std::string{settings::key::double_click_selects}) == "on-map");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+    // On screen chosen again after On the map is written as such.
+    settings::write_settings(values, chosen, defaults, defaults, false);
+    CHECK(values.at(std::string{settings::key::double_click_selects}) == "on-screen");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == defaults);
+    values.clear();
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    settings::write_settings(values, chosen, defaults, defaults, true);
+    CHECK(values.empty());
+}
+
 /// Edge stickiness: 1.0 everywhere by default and for a file without the
 /// key; a decimal reads to the nearest tenth, a half rounding up, held to
 /// 0.0 to 5.0; any other text reads 1.0; it is written with one decimal,
@@ -3292,6 +3329,7 @@ int main() {
     the_zoomed_out_units_default_read_and_round_trip();
     the_window_edge_default_read_and_round_trip();
     the_group_keys_centre_default_read_and_round_trip();
+    the_double_click_selects_default_read_and_round_trip();
     the_edge_stickiness_default_read_and_round_trip();
     the_window_frame_default_read_and_round_trip();
     the_window_size_default_read_and_round_trip();

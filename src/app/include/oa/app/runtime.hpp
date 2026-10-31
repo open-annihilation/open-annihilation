@@ -14451,8 +14451,10 @@ class Runtime final : public menu::Host,
     ///
     /// A selectable local cursor unit replaces the selection, or is toggled
     /// with shift, and the local units on screen are visited for 'n'; any
-    /// other cursor unit, or none, changes nothing. A double click adds every
-    /// other selectable local unit of the same type.
+    /// other cursor unit, or none, changes nothing. A double click adds the
+    /// other selectable local units of the same type: those on screen
+    /// (on_screen_lists), or with Double-click selects On the map every one
+    /// on the map.
     ///
     /// @param x canvas column
     /// @param y canvas row
@@ -14839,7 +14841,9 @@ class Runtime final : public menu::Host,
     /// a pair, over one of the local player's units in the battlefield and
     /// without build.line held, the selection becomes the local
     /// player's finished units on screen of the selected types
-    /// (selection::select_selected_types_on_screen).
+    /// (selection::select_selected_types_on_screen). With Double-click
+    /// selects On the map it takes none, and the game's own click selects
+    /// the type on the whole map.
     ///
     /// @param x canvas column
     /// @param y canvas row

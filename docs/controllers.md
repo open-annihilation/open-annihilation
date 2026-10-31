@@ -81,7 +81,7 @@ pad.
 |---|---|---|
 | Right trackpad: slide | Moves the pointer (see [The pointer](#the-pointer)) | Mouse |
 | Right trackpad: press | A left click at the pointer | Left button |
-| **R2** | **The left button**: on at a 30 % pull, off below 20 %. A click selects, or gives the order the cursor shows; held and moved, a selection box, or an area order when Attack, D-gun, Reclaim or Repair is armed; two presses within 300 ms, a double click (every unit of the type) | Left button |
+| **R2** | **The left button**: on at a 30 % pull, off below 20 %. A click selects, or gives the order the cursor shows; held and moved, a selection box, or an area order when Attack, D-gun, Reclaim or Repair is armed; two presses within 300 ms, a double click (the units of the type, on screen or on the map as Double-click selects in Settings › Controls says) | Left button |
 | **L2** | **The right button**, as the 3.1c interface type has it: with the left-click interface it takes back an armed order or a building being placed, else clears the selection; on a build button it takes one off the queue (five with R4); with the right-click interface it gives the order | Right button |
 | **R4** | **QUEUE**: hold, or tap to latch. On a build button it is **x5** instead, decided as it is pressed | Shift on orders and build buttons |
 | **L4** | **ADD**: hold, or tap to latch | Shift on selecting |
@@ -99,7 +99,7 @@ pad.
 | **A** | A left click at the pointer | Left button |
 | **B** | **Clear**: takes back an armed order or a building being placed, else clears the selection | The CLEAR control |
 | **X** | Stop | S |
-| **Y** | Every unit of the type under the pointer, else of the selected unit's type | Double click, Ctrl+Z |
+| **Y** | The units of the type under the pointer, as a double click selects them; else every unit of the selected unit's type | Double click, Ctrl+Z |
 | D-pad ↑ | Selects the commander and follows it; with ADD, adds it | Ctrl+C |
 | D-pad → | The next unit of your own | N |
 | D-pad ↓ | The next unit that reported | F3 |
@@ -225,7 +225,9 @@ factory shows. A press on a wedge is a press on that build button.
   again while R2 stays down, and the box's corners stay on the ground, so
   scrolling with the left stick meanwhile stretches the box across the
   map. A short haptic marks the start of a box.
-- **Every unit of a type**: Y, two R2 presses, or the ring's Type.
+- **The units of a type**: Y, two R2 presses, or the ring's Type, on
+  screen or on the map as Double-click selects in
+  [Settings › Controls](settings.md#controls) says.
 The pad's buttons press commands, not the letter those commands use by
 default. **Stop** (`order.stop`) is X. Moving Stop off S in the
 [key editor](keys.md#the-key-editor) leaves the pad's Stop where it is.

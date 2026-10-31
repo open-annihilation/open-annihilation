@@ -53,12 +53,12 @@ constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::look) + 
 
 /// Controls' rows: the layout in use, whether buttons show their key, the
 /// zoom's limits right under the switch for the wheel, how far past the
-/// map's edges the view goes under them, middle-click panning, whether a
-/// window keeps the pointer, and how firmly a sticky edge holds right under
-/// that, then whether a group's key moves the view. Select groups without
-/// Alt stays declared and is the editor's Number keys select groups, not a
-/// row here.
-constexpr std::array<Setting, 10> kControlsRows{
+/// map's edges the view goes under them, middle-click panning, where a
+/// double-click selects a unit's type, whether a window keeps the pointer,
+/// and how firmly a sticky edge holds right under that, then whether a
+/// group's key moves the view. Select groups without Alt stays declared and
+/// is the editor's Number keys select groups, not a row here.
+constexpr std::array<Setting, 11> kControlsRows{
     Setting::key_layout,
     Setting::show_keys_on_buttons,
     Setting::wheel_zoom,
@@ -66,12 +66,13 @@ constexpr std::array<Setting, 10> kControlsRows{
     Setting::max_zoom_in,
     Setting::view_past_map_edge,
     Setting::middle_click_pan,
+    Setting::double_click_selects,
     Setting::window_edge,
     Setting::window_edge_stickiness,
     Setting::group_keys_centre,
 };
 /// Controls while a mod is played: Key layout with that mod under Key layout.
-constexpr std::array<Setting, 11> kControlsModRows{
+constexpr std::array<Setting, 12> kControlsModRows{
     Setting::key_layout,
     Setting::key_layout_for_mod,
     Setting::show_keys_on_buttons,
@@ -80,6 +81,7 @@ constexpr std::array<Setting, 11> kControlsModRows{
     Setting::max_zoom_in,
     Setting::view_past_map_edge,
     Setting::middle_click_pan,
+    Setting::double_click_selects,
     Setting::window_edge,
     Setting::window_edge_stickiness,
     Setting::group_keys_centre,
@@ -389,6 +391,12 @@ constexpr std::array<std::string_view, 3> kGroupKeysCentreCaptions{
 static_assert(
     kGroupKeysCentreCaptions.size() == group_keys_centre_choices.size(),
     "every way of Group keys centre the view has its caption"
+);
+/// Double-click selects' captions, in double_click_selects_choices' order.
+constexpr std::array<std::string_view, 2> kDoubleClickSelectsCaptions{"On screen", "On the map"};
+static_assert(
+    kDoubleClickSelectsCaptions.size() == double_click_selects_choices.size(),
+    "every way of Double-click selects has its caption"
 );
 /// Window frame's captions, in window_frame_choices' order.
 constexpr std::array<std::string_view, 2> kWindowFrameCaptions{"Hidden in play", "Always shown"};
@@ -3064,6 +3072,11 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
                               DropDown<GroupKeysCentre, 3, group_keys_centre_choices, &E::group_keys_centre, kGroupKeysCentreCaptions, &table_word<group_keys_centre_words, GroupKeysCentre>>::stepper(),
                               {"Whether a group's key also moves the view to the group."}),
                   wide_choice_width)},
+    {.setting = S::double_click_selects,
+     .spec = wide(kit::choice("double-click-selects", "Double-click selects",
+                              DropDown<DoubleClickSelects, 2, double_click_selects_choices, &E::double_click_selects, kDoubleClickSelectsCaptions, &table_word<double_click_selects_words, DoubleClickSelects>>::stepper(),
+                              {"Where a double-click on a unit selects its type."}),
+                  wide_choice_width)},
     {.setting = S::look,
      .spec = changing(kit::levels("look", "Look",
                                   LevelStrip<Look, 2, look_choices, &E::look, kLookCaptions, &table_word<look_words, Look>>::stepper(),
@@ -3197,6 +3210,7 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "window-size",
     "reset-window-positions",
     "group-keys-centre",
+    "double-click-selects",
     "look",
 };
 

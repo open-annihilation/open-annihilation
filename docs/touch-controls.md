@@ -94,7 +94,7 @@ prompt and Done button stand in it.
 | Gesture | What it does |
 |---|---|
 | Tap | Selects a unit, or gives the order the cursor shows for what lies under the finger: a left click |
-| Double tap a unit | Selects every unit of its type, as a double click does |
+| Double tap a unit | Selects the units of its type, as a double click does |
 | One-finger drag | Tablet: a selection box; with ATTACK, RECLAIM or REPAIR armed, an area order. Phone: scrolls the map |
 | Hold, then drag | A selection box, on both layouts |
 | Hold, then lift without moving | Opens the order wheel at that point (below) |
@@ -156,9 +156,10 @@ order the selection cannot take is greyed and does nothing; the order a
 plain tap would give is ringed. A picked order is given at the held point,
 exactly as arming its button and clicking there does. **Info** opens the
 unit info panel for the unit at the point (or the selected unit); **Type**
-selects every unit of that unit's type. The hub in the middle is **QUEUE**
-for the next pick only: the order joins the queue, and is not left armed
-unless QUEUE is on. A tap outside the wheel closes it.
+selects the units of that unit's type, as a double click does. The hub in
+the middle is **QUEUE** for the next pick only: the order joins the queue,
+and is not left armed unless QUEUE is on. A tap outside the wheel closes
+it.
 
 Holding the right mouse button, or the middle one, opens the same wheel when
 Order wheel says so. The press stays where it is for the long-press time.
