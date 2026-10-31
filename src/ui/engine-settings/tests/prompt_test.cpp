@@ -68,17 +68,23 @@ void test_layout() {
         const Prompt prompt = prompt_of(captions);
         const auto buttons = buttons_of(prompt);
         OA_CHECK(buttons.size() == captions.size());
-        // Right-aligned, the last at the footer's right, five columns apart.
+        // Right-aligned, the last at the footer's right, as Settings places
+        // its buttons: two spaces apart, each its caption with two spaces
+        // either side, at least twice the control height.
         OA_CHECK(buttons.back().rect.x + buttons.back().rect.width == settings::notice_width - 12);
+        const oa::ui::kit::Metrics& compact = oa::ui::kit::compact_metrics;
         for (std::size_t index = 0; index < buttons.size(); ++index) {
             OA_CHECK(buttons[index].control == static_cast<int32_t>(index));
             OA_CHECK(buttons[index].text == captions[index]);
             const int32_t caption_width =
                 static_cast<int32_t>(captions[index].size()) * settings::estimated_character_width;
-            OA_CHECK(buttons[index].rect.width == std::max(52, caption_width + 16));
+            OA_CHECK(
+                buttons[index].rect.width ==
+                std::max(2 * compact.control_height, caption_width + 4 * compact.space)
+            );
             if (index + 1 < buttons.size())
                 OA_CHECK(
-                    buttons[index].rect.x + buttons[index].rect.width + 5 ==
+                    buttons[index].rect.x + buttons[index].rect.width + 2 * compact.space ==
                     buttons[index + 1].rect.x
                 );
         }
@@ -191,8 +197,8 @@ void test_size_classes() {
          {kit::SizeClass::compact, kit::SizeClass::regular, kit::SizeClass::large}) {
         const kit::Metrics& sized = kit::metrics_of(size_class);
         // A prompt of three buttons, right-aligned at the class's width with
-        // its buttons at Compact's sizes, and its text as wide as the class
-        // lets it be.
+        // Settings' buttons at the class's sizes, and its text as wide as the
+        // class lets it be.
         Prompt prompt = prompt_of({"CANCEL", "INSTALL ALONGSIDE", "REPLACE"});
         prompt.size_class = size_class;
         prompt.progress = 250;
@@ -212,8 +218,14 @@ void test_size_classes() {
         );
         for (std::size_t index = 0; index < buttons.size() && index < compact_buttons.size();
              ++index) {
-            OA_CHECK(buttons[index].rect.width == compact_buttons[index].rect.width);
+            OA_CHECK(buttons[index].rect.width >= compact_buttons[index].rect.width);
+            OA_CHECK(buttons[index].rect.width >= 2 * sized.control_height);
             OA_CHECK(buttons[index].rect.height == sized.control_height);
+            if (index + 1 < buttons.size())
+                OA_CHECK(
+                    buttons[index].rect.x + buttons[index].rect.width + 2 * sized.space ==
+                    buttons[index + 1].rect.x
+                );
         }
         for (const auto& part : settings::prompt_layout(prompt)) {
             OA_CHECK(inside_box(part.rect, placed.width, height));

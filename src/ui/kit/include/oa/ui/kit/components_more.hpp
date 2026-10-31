@@ -192,7 +192,15 @@ struct QuestionItem {
 /// is given finished and drawn as given. A title wider than the header is
 /// cut between words, and the cut ends with an ellipsis.
 struct Question {
-    std::string title{};                 ///< the header's title; cut when it does not fit
+    std::string title{}; ///< the header's title; cut when it does not fit
+    /// The header's second word, drawn after the title in the header's
+    /// second colour, as Settings' header draws SETTINGS after OPEN
+    /// ANNIHILATION. Empty draws the title alone.
+    std::string second{};
+    /// A line under the header, before the paragraphs, in the regular font
+    /// and the text colour: what the question is about, when the header
+    /// names the window. It wraps between words. Empty for none.
+    std::string lead{};
     std::vector<Paragraph> paragraphs{}; ///< its text, top to bottom, as given
     /// Lines under the paragraphs, each a badge and a name. Empty leaves the
     /// question laid out as it was before the lines existed.
@@ -246,6 +254,7 @@ struct PlacedLine {
     bool path{};        ///< drawn in the regular font, as a path
     bool failure{};     ///< drawn in amber: the failure's line
     Rect rect{};        ///< the line's box, in points from the box's top left corner
+    bool lead{};        ///< drawn in the regular font in the text colour: a question's lead
 };
 
 /// A notice, placed, in points from its top left corner.
@@ -332,23 +341,24 @@ place_notice(const Notice& notice, const Measure& regular, const Measure& small)
 [[nodiscard]] PlacedNotice place_notice(const Notice& notice, const Fonts* fonts);
 
 /// Returns a question's buttons' places, right-aligned in the footer of a box
-/// of a height and as wide as its words (at the estimate for its text),
-/// button_gap columns apart; a first button marked quiet
-/// stands alone at the footer's left. Each is the class's control height, and
-/// as wide as its caption and prompt_button_padding more, at least
-/// button_width. A caption counts as the wider of its estimated_width and its
-/// width in the small font, so a caption the font draws wider than the
-/// estimate keeps the padding, and one it draws narrower keeps the place the
-/// estimate gives it. A row wider than the room between the box's paddings,
-/// less a quiet button's place, is narrowed, its widest buttons first, until
-/// it fits. Buttons past most_question_buttons are not placed.
+/// of a height and as wide as its words (at the estimate for its text), as
+/// Settings places its buttons: two of the class's spaces apart, each the
+/// class's control height and as wide as its caption in the regular font
+/// with two spaces either side, at least twice the control height; a first
+/// button marked quiet stands alone at the footer's left. A caption counts as
+/// the wider of its estimated_width and its width in the regular font, so a
+/// caption the font draws wider than the estimate keeps the padding, and one
+/// it draws narrower keeps the place the estimate gives it. A row wider than
+/// the room between the box's paddings, less a quiet button's place, is
+/// narrowed, its widest buttons first, until it fits, none below
+/// button_width. Buttons past most_question_buttons are not placed.
 ///
 /// @param question the question
 /// @param height the question's height
-/// @param small a caption's width in the small font
+/// @param caption a caption's width in the regular font
 /// @return the buttons' rectangles, left to right
 [[nodiscard]] std::vector<Rect>
-question_button_rects(const Question& question, int32_t height, const Measure& small);
+question_button_rects(const Question& question, int32_t height, const Measure& caption);
 
 /// Returns a question's buttons' places in its fonts, or at estimated widths
 /// without them. A press is tested on these places, so the pointer and finger
@@ -363,8 +373,13 @@ question_button_rects(const Question& question, int32_t height, const Measure& s
 question_button_rects(const Question& question, int32_t height, const Fonts* fonts = nullptr);
 
 /// Places a question: as wide as its words on one line or its buttons in a
-/// row, with the class's window padding either side, from half the class's
-/// notice width to that width; its text as a notice's at that width, then
+/// row, with the class's window padding either side, and with a second word
+/// at least as wide as its header's words, from half the class's notice width
+/// to that width. Its header is Compact's band at Compact and Kit 2's window
+/// header at Regular and Large, and its text starts as far under it as a
+/// notice's under its own. The lead comes first, wrapped in the regular font,
+/// paragraph_gap rows over the paragraphs; then its text as a notice's at
+/// that width, then
 /// its items when it has any (one a line, a 20-point badge, a gap and the
 /// name with the aside, cut with the kit's ellipsis), then its parts in
 /// order, paragraph_gap rows apart (a paragraph wrapped in the small font; a
@@ -372,9 +387,10 @@ question_button_rects(const Question& question, int32_t height, const Fonts* fon
 /// two side by side, each a heading and its lines, a line's mark before it
 /// and its text wrapped under itself), the failure under them, its progress
 /// bar paragraph_gap rows under that. Its height is that text and a footer
-/// the class's control height tall (the window footer at Regular and Large),
-/// with no least height, and at most the class's greatest. Its buttons are
-/// the class's control height. With no items and no parts the text and the
+/// the class's control height tall with a space above and below it (the
+/// window footer at Regular and Large), with no least height, and at most the
+/// class's greatest. Its buttons are Settings' (question_button_rects). With
+/// no items and no parts the text and the
 /// bar are placed as before. A line, an item or a bar the height cuts is
 /// left out, and found cut; so is a part the height cuts any of.
 ///
@@ -427,17 +443,19 @@ using LookUp = std::function<std::string_view(std::string_view)>;
 [[nodiscard]] DisplayList
 notice_list(const Notice& notice, const Fonts* fonts, const LookUp& look_up = {});
 
-/// Returns a question's display list: its face, its header with the title,
-/// its lines, its items' badges and text, its parts (a callout's tinted box
-/// and its mark as an icon, a box's face, its heading, each line's mark as an
-/// icon and its text), its footer band, its progress bar,
+/// Returns a question's display list: its face, its header with the title
+/// and the second word, its lines, its items' badges and text, its parts (a
+/// callout's tinted box and its mark as an icon, a box's face, its heading,
+/// each line's mark as an icon and its text), its footer band and the band's
+/// fill under its whole footer, its progress bar,
 /// each button left to right followed by the focus ring when the keys mark
 /// it, and its edge, in that order. Its controls are its buttons, numbered,
 /// tested and in Tab order left to right, each named <word>.<id> (its sound
 /// word, question_word_of), or <word>.button-1 to <word>.button-3 by its
 /// place from the left when its id is empty or not a word of a-z, 0-9 and
 /// hyphens; then its text, as a notice's is (notice_list), named <word>.body.
-/// That text lists each item's name and aside, one line, after the paragraphs,
+/// That text starts with the title, the second word after it, and the lead
+/// before the paragraphs. It lists each item's name and aside, one line, after the paragraphs,
 /// then each part's lines, a box's heading first, and the failure last. With
 /// no items and no parts the list is the one it was.
 ///
@@ -568,10 +586,12 @@ question_pointer_up(Question& question, Point at, int32_t height, const Fonts* f
 void draw_notice(const Canvas& canvas, const Notice& notice, const LookUp& look_up = {});
 
 /// Draws a question at the canvas's origin in a notice's look: its header
-/// and title, its text, its items and parts, the failure in amber, its
-/// progress bar, and its buttons in the footer, an accent one as OK looks, a
-/// danger one outlined in red, a quiet one as a caption at the left and the
-/// others plain, the marked one ringed. Its texts are drawn as given.
+/// with the title and the second word, its lead and its text, its items and
+/// parts, the failure in amber, its progress bar, its footer band across the
+/// whole footer, and its buttons in the footer, Settings' buttons with their
+/// captions in the regular font: an accent one as OK looks, a danger one
+/// outlined in red, a quiet one as a caption at the left and the others
+/// plain, the marked one ringed. Its texts are drawn as given.
 ///
 /// @param canvas where it is drawn; its icon is the header mark's
 /// @param question the question

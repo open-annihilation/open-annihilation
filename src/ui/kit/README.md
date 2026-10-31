@@ -387,7 +387,13 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   With no parts the question is laid out and drawn as before. A
   `QuestionButton` may be `quiet`, a caption with no face at the footer's
   left, or `danger`, outlined in red, and `Question::progress_paused`
-  draws the bar's fill in the lock colour. The update pill (`UpdatePill`,
+  draws the bar's fill in the lock colour. A question's header is Compact's
+  band at Compact and Kit 2's window header at Regular and Large, as
+  Settings' is; `Question::second` draws a second word after the title in
+  the header's second colour ("OPEN ANNIHILATION" then "VERSION 0.8.8
+  AVAILABLE"), and `Question::lead` a line in the regular font over the
+  paragraphs; both join `<word>.body`. Its footer band fills the whole
+  footer, and its buttons are Settings' (below). The update pill (`UpdatePill`,
   `place_update_pill`, `update_pill_list`, `draw_update_pill`,
   `update_pill_pointer`) is the update centre's state in short: a mark
   (`UpdatePillIcon`), the words in the small font, a thin bar under them
@@ -745,13 +751,15 @@ the carousel slides flat and the call to action holds a steady ring.
   `hover_card_delay_ms`. The timer is the screen's: the kit keeps none.
 - A notice and a question place their parts from the Compact metrics, but
   for their width and greatest height, which are their size class's: their
-  text wraps at the wider width, and their buttons keep their sizes. A
-  question's button is as wide as its caption and the padding, the caption
-  counted at the wider of the estimated width and the small font's
-  measure: a caption the fonts draw wider than the estimate, as the modern
-  fonts draw Cyrillic capitals, widens its button, and one they draw
-  narrower keeps the estimate's place. A row wider than the room between
-  the box's paddings is narrowed from its widest buttons. The pointer and
+  text wraps at the wider width, and a notice's buttons keep their sizes. A
+  question's buttons are Settings' buttons at its class: the control
+  height, their captions in the regular font, each as wide as its caption
+  with two spaces either side and at least twice the control height, two
+  spaces apart. The caption counts at the wider of the estimated width and
+  the regular font's measure: a caption the fonts draw wider than the
+  estimate, as the modern fonts draw Cyrillic capitals, widens its button,
+  and one they draw narrower keeps the estimate's place. A row wider than
+  the room between the box's paddings is narrowed from its widest buttons. The pointer and
   finger functions take the fonts the question is drawn in, so a press
   lands where a button is drawn. Their
   events hit and reach through `hit` and `reach` over the same controls
@@ -926,6 +934,9 @@ keys and Info, which do nothing, among them), that `paint` matches `draw_notice`
 `draw_question`, and the progress bar's rounded fill, amber while paused. It fits a question's buttons
 to a measure and to fonts wider than the estimate, where the display list,
 the placement and the presses agree, and narrows a row too wide for its box.
+At each class a question with a second word and a lead takes Settings'
+header, the lead first in the regular font, a band across its whole footer
+and Settings' buttons, and `paint` draws it as `draw_question` does.
 A question's parts place in order (the callout and its mark, a box's
 heading, a failed step that wraps with its mark on its first line only,
 the line under them, a quiet button at the left and the others at the

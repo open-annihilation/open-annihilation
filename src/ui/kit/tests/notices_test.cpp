@@ -478,11 +478,11 @@ void questions_place_as_before() {
     };
     check_question(
         kit::place_question(question_of({"OK"}), estimated, estimated),
-        {136, {38, 1, 350, 26}, false, {}, 98, {{336, 103, 52, 28}}, example}
+        {136, {38, 1, 350, 26}, false, {}, 98, {{332, 103, 56, 28}}, example}
     );
     check_question(
         kit::place_question(question_of({"CANCEL", "REPLACE"}), estimated, estimated),
-        {136, {38, 1, 350, 26}, false, {}, 98, {{260, 103, 58, 28}, {323, 103, 65, 28}}, example}
+        {136, {38, 1, 350, 26}, false, {}, 98, {{257, 103, 58, 28}, {323, 103, 65, 28}}, example}
     );
     // The narrow measure keeps the path on one line. The box stays as wide as
     // the estimate of that path, and the buttons keep the estimate's widths.
@@ -495,7 +495,7 @@ void questions_place_as_before() {
          false,
          {},
          82,
-         {{120, 87, 58, 28}, {183, 87, 135, 28}, {323, 87, 65, 28}},
+         {{114, 87, 58, 28}, {180, 87, 135, 28}, {323, 87, 65, 28}},
          {
              {"Example Mod 1.0, revision 1, is installed.", false, false, {12, 38, 376, 12}},
              {"/Users/someone/Documents/Open Annihilation/Mods/example-mod",
@@ -512,55 +512,58 @@ void questions_place_as_before() {
     // short lines size the box to half a Compact notice.
     check_question(
         kit::place_question(bar_cut_question(), estimated, estimated),
-        {440, {38, 1, 150, 26}, true, {}, 402, {{136, 407, 52, 28}}, small_rows("A row.", 20, 176)}
+        {440, {38, 1, 150, 26}, true, {}, 402, {{132, 407, 56, 28}}, small_rows("A row.", 20, 176)}
     );
     // Four buttons: the first three are placed, and the long caption sizes
-    // the box to those buttons.
+    // the box to those buttons, Settings' buttons two spaces apart.
     check_question(
         kit::place_question(four_question(), estimated, estimated),
         {440,
-         {38, 1, 334, 26},
+         {38, 1, 344, 26},
          true,
          {},
          402,
-         {{12, 407, 52, 28}, {69, 407, 58, 28}, {132, 407, 240, 28}},
-         small_rows("A line of the prompt's text that takes a row.", 20, 360)}
+         {{12, 407, 56, 28}, {76, 407, 58, 28}, {142, 407, 240, 28}},
+         small_rows("A line of the prompt's text that takes a row.", 20, 370)}
     );
     // The buttons alone, at a height of 200.
     const auto rects = kit::question_button_rects(question_of({"CANCEL", "REPLACE"}), 200);
     OA_CHECK(rects.size() == 2);
     if (rects.size() == 2) {
-        OA_CHECK(same_rect(rects[0], {260, 167, 58, 28}));
+        OA_CHECK(same_rect(rects[0], {257, 167, 58, 28}));
         OA_CHECK(same_rect(rects[1], {323, 167, 65, 28}));
     }
 }
 
 void question_buttons_fit_their_captions() {
     // A measure wider than the estimate widens a button to its caption and
-    // the padding: the eleven characters of ЗАВАНТАЖИТИ are 99 points, and
-    // BACK keeps the least width. At the estimate, 77 points, it was 93.
+    // two spaces either side, as Settings sizes its buttons: the eleven
+    // characters of ЗАВАНТАЖИТИ are 99 points, and BACK keeps the least
+    // width, twice the control height. At the estimate, 77 points, it was 93.
     const kit::Question load = question_of({"BACK", "ЗАВАНТАЖИТИ"});
     const auto measured = kit::question_button_rects(load, 200, wide_small);
     OA_CHECK(measured.size() == 2);
     if (measured.size() == 2) {
-        OA_CHECK(same_rect(measured[0], {216, 167, 52, 28}));
+        OA_CHECK(same_rect(measured[0], {209, 167, 56, 28}));
         OA_CHECK(same_rect(measured[1], {273, 167, 115, 28}));
     }
     const auto estimated = kit::question_button_rects(load, 200);
     OA_CHECK(estimated.size() == 2);
     if (estimated.size() == 2) {
-        OA_CHECK(same_rect(estimated[0], {238, 167, 52, 28}));
+        OA_CHECK(same_rect(estimated[0], {231, 167, 56, 28}));
         OA_CHECK(same_rect(estimated[1], {295, 167, 93, 28}));
     }
-    // place_question places them with its small measure. Nine points a
-    // character wraps the first line, so the footer sits under that extra row.
-    const kit::PlacedQuestion placed = kit::place_question(load, kit::estimated_width, wide_small);
+    // place_question places them with its regular measure, in the middle of
+    // the footer under its text.
+    const kit::PlacedQuestion placed = kit::place_question(load, wide_small, kit::estimated_width);
     OA_CHECK(placed.buttons.size() == 2);
-    if (placed.buttons.size() == 2)
-        OA_CHECK(same_rect(placed.buttons[1], {273, 115, 115, 28}));
+    if (placed.buttons.size() == 2) {
+        OA_CHECK(placed.buttons[1].x == 273 && placed.buttons[1].width == 115);
+        OA_CHECK(placed.buttons[1].y == placed.footer_rule + 1 + (36 - 28) / 2);
+    }
 
     // A row wider than the room between the paddings, 376 points at Compact,
-    // is narrowed from its widest buttons: 268 and 205 come to 148 each, and
+    // is narrowed from its widest buttons: 268 and 205 come to 145 each, and
     // the row starts at the left padding.
     const kit::Question wide_row =
         question_of({"CANCEL", "INSTALL BESIDE THE ONE THERE", "REPLACE THE ONE THERE"});
@@ -568,8 +571,8 @@ void question_buttons_fit_their_captions() {
     OA_CHECK(narrowed.size() == 3);
     if (narrowed.size() == 3) {
         OA_CHECK(same_rect(narrowed[0], {12, 167, 70, 28}));
-        OA_CHECK(same_rect(narrowed[1], {87, 167, 148, 28}));
-        OA_CHECK(same_rect(narrowed[2], {240, 167, 148, 28}));
+        OA_CHECK(same_rect(narrowed[1], {90, 167, 145, 28}));
+        OA_CHECK(same_rect(narrowed[2], {243, 167, 145, 28}));
     }
 
     // In fonts wider than the estimate the display list's buttons, the
@@ -584,8 +587,8 @@ void question_buttons_fit_their_captions() {
     if (in_fonts.size() != 2)
         return;
     OA_CHECK(
-        in_fonts[1].width == kit::text_width(wide, kit::FontRole::small, "REPLACE") +
-                                 kit::compact_metrics.prompt_button_padding
+        in_fonts[1].width ==
+        kit::text_width(wide, kit::FontRole::regular, "REPLACE") + 4 * kit::compact_metrics.space
     );
     OA_CHECK(in_fonts[1].width > kit::question_button_rects(question, height)[1].width);
     const kit::PlacedQuestion placed_in_fonts = kit::place_question(question, &wide);
@@ -839,6 +842,7 @@ void lists_draw_in_order() {
                       Role::text,
                       Role::text,
                       Role::footer_band,
+                      Role::fill,
                       Role::progress,
                       Role::button,
                       Role::focus_ring,
@@ -904,12 +908,12 @@ void a_finger_lands_as_before() {
         }
     );
 
-    // Two buttons, tried left to right: from the gap two columns from
-    // CANCEL and three from REPLACE, CANCEL; a row further from REPLACE than
-    // its reach, nothing.
+    // Two buttons, the nearer taken: from the gap four columns from CANCEL
+    // and five from REPLACE, CANCEL; three from REPLACE, REPLACE; a row
+    // further from REPLACE than its reach, nothing.
     // The word-sized box is 136 high and its buttons are the class's control
     // height, so a press is tried where those buttons are drawn: CANCEL at
-    // 260, 103 and REPLACE at 323, 103, each 28 high. The finger press uses
+    // 257, 103 and REPLACE at 323, 103, each 28 high. The finger press uses
     // that same height.
     const kit::Question two = question_of({"CANCEL", "REPLACE"});
     const auto press_question = [](const kit::Question& question) {
@@ -926,25 +930,25 @@ void a_finger_lands_as_before() {
         kit::question_list(two, nullptr),
         {
             {{333, 120}, 6, 1, {333, 120}},
-            {{320, 120}, 6, 0, {317, 120}},
-            {{321, 120}, 6, 1, {323, 120}},
+            {{318, 120}, 6, 0, {314, 120}},
+            {{320, 120}, 6, 1, {323, 120}},
             {{333, 136}, 6, 1, {333, 130}},
             {{333, 137}, 6, kit::no_control, {333, 137}},
             {{333, 138}, 6, kit::no_control, {333, 138}},
-            {{256, 99}, 6, 0, {260, 103}},
+            {{253, 99}, 6, 0, {257, 103}},
         },
         press_question(two)
     );
 
-    // Three buttons, on the same box: from the gaps three columns from each
-    // side, the left one.
+    // Three buttons, on the same box: from the gaps, a column nearer the
+    // left one, the left one.
     const kit::Question three = question_of({"CANCEL", "INSTALL ALONGSIDE", "REPLACE"});
     check_landings(
         kit::question_list(three, nullptr),
         {
             {{203, 135}, 22, 1, {203, 130}},
-            {{320, 120}, 6, 1, {317, 120}},
-            {{180, 100}, 6, 0, {177, 103}},
+            {{318, 120}, 6, 1, {314, 120}},
+            {{175, 100}, 6, 0, {171, 103}},
             {{5, 5}, 22, kit::no_control, {5, 5}},
         },
         press_question(three)
@@ -1432,6 +1436,113 @@ void paint_draws_what_draw_question_draws() {
         }
 }
 
+/// An update question as the update screens ask it: OPEN ANNIHILATION and
+/// a second word in the header, a lead, a paragraph and three buttons, the
+/// first quiet.
+///
+/// @param size_class the class it is laid out at
+/// @return the question
+kit::Question window_question(kit::SizeClass size_class) {
+    kit::Question question{};
+    question.title = "OPEN ANNIHILATION";
+    question.second = "VERSION 0.8.8 AVAILABLE";
+    question.lead = "Downloading 0.8.8";
+    question.paragraphs.push_back({"You have 0.8.7. The update is 24.5 MB.", false});
+    kit::QuestionButton skip{"Skip this version", false, "skip"};
+    skip.quiet = true;
+    question.buttons = {skip, {"Later", false, "later"}, {"Download update", true, "update"}};
+    question.cancel_button = 1;
+    question.primary_button = 2;
+    question.marked = 2;
+    question.size_class = size_class;
+    return question;
+}
+
+void a_question_reads_as_settings_window() {
+    for (const kit::SizeClass size_class :
+         {kit::SizeClass::compact, kit::SizeClass::regular, kit::SizeClass::large}) {
+        const kit::Metrics& sized = kit::metrics_of(size_class);
+        const bool compact = size_class == kit::SizeClass::compact;
+        const kit::Question question = window_question(size_class);
+        const kit::PlacedQuestion placed = kit::place_question(question, &fonts());
+        const kit::DisplayList list = kit::question_list(question, &fonts());
+        // Settings' header: Compact's band at Compact, Kit 2's window header
+        // at Regular and Large, the title then the second word.
+        const int32_t band =
+            compact ? kit::compact_metrics.header_height : sized.window_header_height;
+        const kit::HeaderLook* header = nullptr;
+        const kit::Item* lead = nullptr;
+        bool footer_filled = false;
+        std::vector<const kit::ButtonLook*> buttons;
+        for (const kit::Item& item : list.items) {
+            if (const auto* look = std::get_if<kit::HeaderLook>(&item.look))
+                header = look;
+            if (item.role == kit::Role::text && item.text == question.lead)
+                lead = &item;
+            if (item.role == kit::Role::fill && item.colour == kit::colour::band &&
+                item.rect.y == placed.footer_rule + 1 &&
+                item.rect.y + item.rect.height == placed.height - kit::compact_metrics.edge)
+                footer_filled = true;
+            if (const auto* look = std::get_if<kit::ButtonLook>(&item.look))
+                buttons.push_back(look);
+        }
+        OA_CHECK(header != nullptr);
+        if (header != nullptr) {
+            OA_CHECK(header->title == "OPEN ANNIHILATION");
+            OA_CHECK(header->second == "VERSION 0.8.8 AVAILABLE");
+            OA_CHECK(header->height == (compact ? 0 : band));
+        }
+        OA_CHECK(placed.title.height == band);
+        // The lead first, in the regular font and the text colour, as far
+        // under the header as a notice's text is under its own.
+        OA_CHECK(lead != nullptr);
+        if (lead != nullptr) {
+            OA_CHECK(lead->font == kit::FontRole::regular && lead->colour == kit::colour::text);
+            OA_CHECK(
+                lead->rect.y ==
+                kit::compact_metrics.text_top + band - kit::compact_metrics.header_height
+            );
+        }
+        // The band fills the whole footer, so the buttons stand on it.
+        OA_CHECK(footer_filled);
+        // Settings' buttons: the control height, the regular font, at least
+        // twice as wide as tall, two spaces apart, the main one at the right.
+        OA_CHECK(buttons.size() == 3 && placed.buttons.size() == 3);
+        for (const kit::ButtonLook* look : buttons)
+            OA_CHECK(look->font == kit::FontRole::regular);
+        if (placed.buttons.size() == 3) {
+            for (const kit::Rect& rect : placed.buttons) {
+                OA_CHECK(rect.height == sized.control_height);
+                OA_CHECK(rect.width >= 2 * sized.control_height);
+                OA_CHECK(rect.y > placed.footer_rule && rect.y + rect.height < placed.height);
+            }
+            OA_CHECK(
+                placed.buttons[2].x - (placed.buttons[1].x + placed.buttons[1].width) ==
+                2 * sized.space
+            );
+            OA_CHECK(placed.buttons[0].x == kit::compact_metrics.padding);
+        }
+        // The text automation reads starts with both header words and the lead.
+        const kit::Control* body = kit::control_of(list, kit::notice_body);
+        OA_CHECK(body != nullptr);
+        if (body != nullptr)
+            OA_CHECK(body->text.starts_with(
+                "OPEN ANNIHILATION VERSION 0.8.8 AVAILABLE\nDownloading 0.8.8\nYou have"
+            ));
+        // Drawn, the footer's last row above the edge is the band's colour.
+        const int32_t width = placed.width + 6;
+        renderer::Surface drawn = black(width, placed.height + 6);
+        const kit::Canvas canvas{&drawn, {3, 3, 1, {}}, &fonts(), red_icon()};
+        kit::draw_question(canvas, question);
+        OA_CHECK(pixel(drawn, 3 + placed.width / 2, 3 + placed.height - 2) == kit::colour::band);
+        // Painting its list draws the same pixels.
+        renderer::Surface painted = black(width, placed.height + 6);
+        const kit::Canvas paint_on{&painted, {3, 3, 1, {}}, &fonts(), red_icon()};
+        kit::paint(paint_on, list);
+        same(drawn, painted, "window question");
+    }
+}
+
 /// Returns how many columns of a bar's middle row are filled in a colour.
 ///
 /// @param surface the surface the bar was drawn on
@@ -1836,6 +1947,7 @@ int main() {
     paint_draws_what_draw_notice_draws();
     a_question_title_is_cut_to_its_header();
     paint_draws_what_draw_question_draws();
+    a_question_reads_as_settings_window();
     the_progress_bar_fills_as_far_as_it_came();
     the_work_dialog_has_no_buttons();
     question_parts_place_in_order();
