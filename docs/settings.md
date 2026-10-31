@@ -231,7 +231,11 @@ Each of these takes effect at once.
   toward an edge takes the view as far as the limit, where it stops; the
   follow goes on, and the view follows the unit again as it comes back.
   Choose Off or 25% to keep the black past the map out of a view zoomed
-  far out.
+  far out. What stands past the map shows there too: some maps hold
+  features, geothermal vents among them, in the rows past their bottom
+  edge, which 3.1c's view never reaches. At every setting the build cursor
+  is red over a site that reaches past the map's edge, a geothermal plant
+  over such a vent among them, and a click there places nothing.
 - **Middle-click pans**, On by default. A middle click on the battlefield
   leaves a small mark where you clicked and scrolls the view from that mark
   towards the pointer. The view stays still until the pointer is a short way

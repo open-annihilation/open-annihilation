@@ -75,7 +75,15 @@ Runtime::build_site_for(uint16_t type, uint8_t facing, oa::sim::ground_orders::P
         match_->building_site(type, cell_x, cell_z, skip_unit, match_local_player_, options);
     const auto height = site ? *site : match_->footprint_height(type, cell_x, cell_z, facing);
     world[1] = static_cast<int32_t>(static_cast<uint32_t>(height) << 16);
-    return PendingBuildSite{world, cell_x, cell_z, fx, fz, site.has_value(), over_own_units};
+    // The local player places nothing past the map the view shows, though
+    // the site test lets a geothermal plant stand over a vent there.
+    const auto [shown_width, shown_height] = shown_map_size();
+    const bool shown = oa::sim::gameplay_input::footprint_within_shown_map(
+        cell_x, cell_z, fx, fz, height, shown_width, shown_height
+    );
+    return PendingBuildSite{
+        world, cell_x, cell_z, fx, fz, site.has_value() && shown, over_own_units, shown
+    };
 }
 
 std::optional<Runtime::PendingBuildSite> Runtime::build_site_under(float x, float y) const {

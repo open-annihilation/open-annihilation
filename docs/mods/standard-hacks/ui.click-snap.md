@@ -77,6 +77,8 @@ While the snap override key (Alt unless the player chose another) is up:
   (see [units.build-rotation](units.build-rotation.md)). Only a move snaps
   the click. The yard map is read as text of at most 64 cells, so an open
   cell ends it: a geothermal cell that comes after an open cell is not seen.
+- Neither snap moves a click to a place whose footprint reaches past the
+  map's edge, which the build cursor never places.
 - The building preview shows a snapped site as one that may be built on.
 
 ### Reclaim snap

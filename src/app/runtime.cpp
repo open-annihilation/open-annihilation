@@ -1130,6 +1130,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_build_past_edge) {
+            check_build_past_edge();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_pointer_interfaces) {
             check_pointer_interfaces();
             flush_preferences();

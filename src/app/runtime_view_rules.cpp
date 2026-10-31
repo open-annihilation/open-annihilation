@@ -187,15 +187,21 @@ std::optional<Runtime::PendingBuildSite> Runtime::snapped_build_site(float x, fl
         }
     }
     if (view_rules::yard_has_geothermal_cell(fields.yard_mask)) {
+        const auto shown = shown_map_size();
+        // A vent past the map the view shows is not one the click may take.
         const auto buildable = [&](int32_t centre_x, int32_t centre_z) {
+            const auto first_x = centre_x - width / 2;
+            const auto first_z = centre_z - height / 2;
             const auto placed = match_->building_site(
-                pending_build_type_,
-                centre_x - width / 2,
-                centre_z - height / 2,
-                0,
-                match_local_player_
+                pending_build_type_, first_x, first_z, 0, match_local_player_
             );
-            return placed ? 1 : 0;
+            if (!placed)
+                return 0;
+            return oa::sim::gameplay_input::footprint_within_shown_map(
+                       first_x, first_z, width, height, *placed, shown[0], shown[1]
+                   )
+                       ? 1
+                       : 0;
         };
         snapped.reset();
         if (const auto found =
@@ -206,6 +212,9 @@ std::optional<Runtime::PendingBuildSite> Runtime::snapped_build_site(float x, fl
                 snapped = site_at(cell);
         }
     }
+    // Nor does a click snap onto metal past the map the view shows.
+    if (snapped && !snapped->shown)
+        snapped.reset();
     return snapped;
 }
 

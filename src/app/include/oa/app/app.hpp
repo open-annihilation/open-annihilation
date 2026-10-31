@@ -680,6 +680,11 @@ struct Options {
     // deposit through the SDL presenter, with ui.click-snap on or off, and
     // checks the cursor RECLAIM shows and where each click lands.
     bool check_click_snap = false;
+    // Builds geothermal plants over vents past the bottom edge of the map
+    // the view shows, and over one within it, and a metal extractor on
+    // raised ground at the edge, and checks which sites the build cursor
+    // refuses (local/reports/native-build-past-edge.ppm).
+    bool check_build_past_edge = false;
     // Places a tower under the build cursor in every tier and checks the
     // building drawn there (ui.build-preview): its pulse, the same at every
     // zoom and frame rate, and that it is drawn the right way up.

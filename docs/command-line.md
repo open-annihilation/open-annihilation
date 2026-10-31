@@ -423,6 +423,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-wreck-pick` | Checks a sunken wreck and a wreck on high ground are picked where they are drawn. |
 | `--check-underwater-features` | Draws metal patches under the water, in open water, at a shore and at the edge of a unit's sight, in every tier, and checks each against the processor's picture. |
 | `--check-click-snap` | Checks the cursor RECLAIM shows beside a wreck, and where a RECLAIM click there and a metal extractor's build click beside a deposit land, with `ui.click-snap` on or off. |
+| `--check-build-past-edge` | Checks the build cursor refuses a geothermal plant over a vent past the map's bottom edge, which the simulation lets through, and places sites within the map, in a skirmish on a map with such vents (Kill the Middle). |
 | `--check-build-preview` | Checks the building drawn under the build cursor. |
 | `--check-dialog-backdrop` | Checks that the briefing, the save dialog and the help dialog over a paused match leave the battlefield as the match showed it, in every tier. |
 | `--check-megamap-clicks` | Checks clicks on the megamap. |

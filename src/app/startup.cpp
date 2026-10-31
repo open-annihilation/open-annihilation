@@ -376,6 +376,7 @@ void check_game_files_options(Options& options) {
         {options.check_wreck_pick, "--check-wreck-pick"},
         {options.check_underwater_features, "--check-underwater-features"},
         {options.check_click_snap, "--check-click-snap"},
+        {options.check_build_past_edge, "--check-build-past-edge"},
         {options.check_build_preview, "--check-build-preview"},
         {options.check_dialog_backdrop, "--check-dialog-backdrop"},
         {options.check_pointer_interfaces, "--check-pointer-interfaces"},
@@ -684,6 +685,7 @@ void check_director_options(Options& options) {
         {options.check_wreck_pick, "--check-wreck-pick"},
         {options.check_underwater_features, "--check-underwater-features"},
         {options.check_click_snap, "--check-click-snap"},
+        {options.check_build_past_edge, "--check-build-past-edge"},
         {options.check_build_preview, "--check-build-preview"},
         {options.check_dialog_backdrop, "--check-dialog-backdrop"},
         {options.check_pointer_interfaces, "--check-pointer-interfaces"},
@@ -819,6 +821,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_wreck_pick, "--check-wreck-pick"},
             {options.check_underwater_features, "--check-underwater-features"},
             {options.check_click_snap, "--check-click-snap"},
+            {options.check_build_past_edge, "--check-build-past-edge"},
             {options.check_build_preview, "--check-build-preview"},
             {options.check_dialog_backdrop, "--check-dialog-backdrop"},
             {options.check_pointer_interfaces, "--check-pointer-interfaces"},
@@ -1091,6 +1094,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-wreck-pick", &Options::check_wreck_pick},
     {"--check-underwater-features", &Options::check_underwater_features},
     {"--check-click-snap", &Options::check_click_snap},
+    {"--check-build-past-edge", &Options::check_build_past_edge},
     {"--check-build-preview", &Options::check_build_preview},
     {"--check-dialog-backdrop", &Options::check_dialog_backdrop},
     {"--check-pointer-interfaces", &Options::check_pointer_interfaces},
@@ -1804,7 +1808,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-folder-chooser] "
                      "[--check-patrol-reclaim] [--check-reclaim-cursor] [--check-wreck-pick] "
                      "[--check-underwater-features] "
-                     "[--check-click-snap] "
+                     "[--check-click-snap] [--check-build-past-edge] "
                      "[--check-build-preview] [--check-dialog-backdrop] "
                      "[--check-megamap-clicks] [--check-single-player-offers] "
                      "[--check-radar-orders] "
@@ -2157,7 +2161,8 @@ void write_startup_line(std::string_view text) {
         result.check_brain_campaign || result.check_mutator_prompts ||
         result.check_map_pack_lists || result.check_mod_map_settings || result.check_side_orders ||
         result.check_skirmish_sides || result.check_mod_limits || result.check_click_snap ||
-        result.check_selection_keys || result.check_factory_departure;
+        result.check_build_past_edge || result.check_selection_keys ||
+        result.check_factory_departure;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||

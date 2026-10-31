@@ -9627,6 +9627,10 @@ class Runtime final : public menu::Host,
         /// the local player's own units let the site through, and a building
         /// placed there has them moved off (orders.build-site-kickout)
         bool over_own_units{};
+        /// the footprint lies within the map the view shows
+        /// (gameplay_input::footprint_within_shown_map); a site past it is
+        /// never legal
+        bool shown{};
     };
 
     // Game.ui_colors slots of the build rectangle.
@@ -9661,7 +9665,11 @@ class Runtime final : public menu::Host,
     /// may place the pending building there, and the height it would stand at
     /// (the yard height of the site when not). A footprint of 0 counts as 2.
     /// A footprint that hangs over the left or top edge of the map starts at a
-    /// negative cell, and such a site is refused.
+    /// negative cell, and such a site is refused. So is a site whose
+    /// footprint reaches past the map the view shows, which the simulation's
+    /// own site test may let through: a geothermal plant over a vent in the
+    /// rows past the map's bottom edge. Only the local player's placing is
+    /// held to that; the simulation takes every order as 3.1c does.
     ///
     /// @param world 16.16 world point
     /// @return the site, or nullopt without a match or pending building
@@ -9699,7 +9707,7 @@ class Runtime final : public menu::Host,
     /// that extracts metal, the nearby place whose footprint holds the most
     /// metal cells, kept only when snapping again from there agrees; for one
     /// whose yard map holds a geothermal cell, the nearest place it may be
-    /// built.
+    /// built. A click never snaps to a site past the map the view shows.
     ///
     /// @param x canvas column of the click
     /// @param y canvas row of the click
@@ -16147,6 +16155,22 @@ class Runtime final : public menu::Host,
     /// there give nothing. Throws std::runtime_error on a failure.
     void check_click_snap();
 
+    /// Checks the local player's build cursor at the bottom edge of the map
+    /// the view shows, in a skirmish on a map with geothermal vents in the
+    /// rows past that edge, everything mapped. Every geothermal plant's
+    /// site over such a vent that the simulation's site test lets through,
+    /// as 3.1c's does, must be refused, and a click there give no order; at
+    /// least one must be found. With the view past the edge, the pointer
+    /// over the ground there must show the site the classic pick gives, held
+    /// to the shown map, refused and outlined in the refused colour, and a
+    /// click give no order. A geothermal site within the map must be
+    /// accepted and a click order MobileBuild there, and so must a metal
+    /// extractor's site whose last row lies past the shown height but which
+    /// the view draws within the map, on raised ground. The frame with the
+    /// pointer past the edge goes to local/reports/native-build-past-edge.ppm.
+    /// Throws std::runtime_error on a failure.
+    void check_build_past_edge();
+
     /// Checks the building drawn under the build cursor (ui.build-preview)
     /// in the standard, Basic and Full tiers at several zooms: a tower is
     /// placed over a site near the commander and drawn at every tick of two
@@ -17573,7 +17597,10 @@ class Runtime final : public menu::Host,
     /// When it was clear, every selected builder is sent to build at the
     /// point, snapped to the footprint as on the battlefield, at that site's
     /// height (Game.drag_start), oktobuild plays and build mode ends unless
-    /// Shift is held; otherwise notoktobuild plays and build mode stays.
+    /// Shift is held; otherwise notoktobuild plays and build mode stays. A
+    /// footprint at the point that reaches past the map the view shows is
+    /// refused alike, as every site the local player places is
+    /// (pending_build_site).
     ///
     /// @param x canvas column
     /// @param y canvas row

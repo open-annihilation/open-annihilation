@@ -77,6 +77,36 @@ int main() {
     // A map with no size still has no terrain to find.
     const auto sizeless = drag_box_corner(terrain, -40, 60, 0, 128, true);
     OA_CHECK(sizeless.x == 0 && sizeless.y == 0 && sizeless.z == 0);
+
+    // Footprints against a shown map of 6368 by 6272 map pixels, a 400-cell
+    // square map's less its hidden edges. A 4-cell building at height 42 is
+    // drawn 21 rows up: over rows 388 to 391 it lies within the map, over
+    // rows 390 to 393, as over a vent in row 393, it hangs past its bottom.
+    OA_CHECK(footprint_within_shown_map(88, 388, 4, 4, 42, 6368, 6272));
+    OA_CHECK(!footprint_within_shown_map(88, 390, 4, 4, 42, 6368, 6272));
+    // Its last row ends on the shown map's last row, or one row past it.
+    OA_CHECK(footprint_within_shown_map(88, 388, 4, 4, 0, 6368, 6272));
+    OA_CHECK(!footprint_within_shown_map(88, 389, 4, 4, 0, 6368, 6272));
+    // Raised by half its height, rounded down, as the hidden edges are
+    // measured: on ground 32 high, a footprint whose last row, 392, starts
+    // at the shown height is drawn within the map.
+    OA_CHECK(footprint_within_shown_map(88, 389, 4, 4, 32, 6368, 6272));
+    OA_CHECK(footprint_within_shown_map(88, 389, 4, 4, 33, 6368, 6272));
+    OA_CHECK(!footprint_within_shown_map(88, 389, 4, 4, 31, 6368, 6272));
+    // Across, heights do not count: its last column ends on the shown
+    // width, or one column past it; left of the map it is past too.
+    OA_CHECK(footprint_within_shown_map(394, 100, 4, 4, 200, 6368, 6272));
+    OA_CHECK(!footprint_within_shown_map(395, 100, 4, 4, 0, 6368, 6272));
+    OA_CHECK(footprint_within_shown_map(0, 100, 4, 4, 0, 6368, 6272));
+    OA_CHECK(!footprint_within_shown_map(-1, 100, 4, 4, 0, 6368, 6272));
+    // Raised above the map's top edge it is past it.
+    OA_CHECK(footprint_within_shown_map(10, 1, 4, 4, 32, 6368, 6272));
+    OA_CHECK(!footprint_within_shown_map(10, 1, 4, 4, 40, 6368, 6272));
+    // No footprint wraps round into the map, and with no shown map known
+    // every footprint lies within it.
+    OA_CHECK(!footprint_within_shown_map(0, 0x7fffffff, 4, 4, 0, 6368, 6272));
+    OA_CHECK(!footprint_within_shown_map(0x7fffffff, 100, 4, 4, 0, 6368, 6272));
+    OA_CHECK(footprint_within_shown_map(-1, 900, 4, 4, 0, 0, 0));
     OA_CHECK(command_binds_cursor_unit(0));
     OA_CHECK(command_binds_cursor_unit(1));
     OA_CHECK(command_binds_cursor_unit(2));

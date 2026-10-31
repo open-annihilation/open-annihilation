@@ -1407,7 +1407,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_patrol_check.cpp
   src/app/runtime_reclaim_cursor_check.cpp src/app/runtime_wreck_pick_check.cpp
   src/app/runtime_underwater_features_check.cpp
-  src/app/runtime_click_snap_check.cpp
+  src/app/runtime_click_snap_check.cpp src/app/runtime_build_past_edge_check.cpp
   src/app/runtime_build_preview_check.cpp src/app/runtime_dialog_backdrop_check.cpp
   src/app/runtime_pointer_check.cpp src/app/runtime_key_table_check.cpp
   src/app/runtime_key_latches_check.cpp
@@ -3987,6 +3987,22 @@ endforeach()
         --preferences-file "${oa_click_snap_off_dir}/click-snap-off.conf")
       set_tests_properties(native-click-snap-off PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_click_snap_off_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # A skirmish on Kill the Middle, whose map holds geothermal vents in
+      # the rows past its bottom edge: the build cursor refuses every
+      # geothermal site over them that the simulation lets through, from the
+      # pointer past the edge too, and places sites within the map.
+      set(oa_build_past_edge_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/build-past-edge")
+      file(MAKE_DIRECTORY "${oa_build_past_edge_dir}")
+      file(WRITE "${oa_build_past_edge_dir}/build-past-edge.conf"
+        "open-annihilation-preferences 1\n"
+        "\"Total Annihilation|SkirmishMap\" \"Kill the Middle\"\n"
+        "\"open-annihilation.view-past-map-edge\" \"50\"\n")
+      add_test(NAME native-build-past-edge COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-build-past-edge
+        --preferences-file "${oa_build_past_edge_dir}/build-past-edge.conf")
+      set_tests_properties(native-build-past-edge PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_build_past_edge_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # A tower placed under the build cursor with ui.build-preview on, in
       # the standard, Basic and Full tiers at zoom 0.5, 1 and 2: drawn at

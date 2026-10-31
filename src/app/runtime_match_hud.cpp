@@ -608,6 +608,11 @@ bool Runtime::place_pending_build_on_radar(float x, float y) {
     const auto site = ground ? pending_build_site(*ground) : std::nullopt;
     if (!site)
         return false;
+    if (!site->shown) {
+        // Nor is a building placed past the map the view shows.
+        play_match_interface_sound("notoktobuild");
+        return false;
+    }
     // The point snapped to the footprint, at the height of the battlefield's
     // last site.
     auto point = site->world;

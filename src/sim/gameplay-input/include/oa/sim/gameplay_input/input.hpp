@@ -118,6 +118,37 @@ hit_candidates(std::span<const PickUnit> units, const Camera& camera, ScreenPoin
     int32_t map_height,
     bool past_edges
 );
+/// Tells whether a building's footprint lies within the map the view shows,
+/// as the local player's build cursor requires of a site.
+///
+/// Across, its columns lie within the shown width. Down, it is drawn raised
+/// by half the height it stands at, rounded down, as the map's hidden edges
+/// are measured: its first row is drawn at or below the map's top and its
+/// last row within the shown height. So the cursor offers no site whose
+/// building would stand over ground the view never shows, such as a
+/// geothermal plant over a vent in the rows past the map's bottom edge,
+/// which the simulation's own site test lets through. That test is kept as
+/// it is: orders from other machines and the computer players' builds are
+/// not held to this.
+///
+/// @param cell_x the footprint's first column; negative left of the map
+/// @param cell_z the footprint's first row; negative above the map
+/// @param footprint_x its columns
+/// @param footprint_z its rows
+/// @param height the height the building stands at, whole units
+/// @param shown_width the shown map's width, whole units; 0 or less, with
+///        no shown map known, holds nothing
+/// @param shown_height the shown map's height, whole units; likewise
+/// @return true when the footprint lies within the shown map
+[[nodiscard]] bool footprint_within_shown_map(
+    int32_t cell_x,
+    int32_t cell_z,
+    int32_t footprint_x,
+    int32_t footprint_z,
+    int32_t height,
+    int32_t shown_width,
+    int32_t shown_height
+) noexcept;
 
 // Command bytes that never take the unit under the pointer as their target. 5 is
 // UNLOAD. 10 is the command that resolves to STOP. 0x0e is the build cursor a
