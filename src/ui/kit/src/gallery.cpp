@@ -1248,7 +1248,7 @@ int32_t pills_section(Builder& b, Point at, int32_t width, std::string_view /*wo
         {"Problem", PillState::problem},
         {"Active", PillState::active},
         {"Inactive", PillState::inactive},
-        {"Update 0.8.8", PillState::information},
+        {"Update 9.9.9", PillState::information},
         {"Core Prime", PillState::brand},
     }};
     int32_t x = at.x;
