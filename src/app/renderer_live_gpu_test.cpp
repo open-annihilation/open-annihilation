@@ -492,6 +492,155 @@ void kept_ground_frames() {
     OA_CHECK(calls == 6);
 }
 
+/// Send the next kept ground to the card a slice a frame while the kept
+/// ground draws, and take its buffer, unchecked and not sent again, in the
+/// frame whose kept ground has its revision; a slice that fails its check,
+/// or slices that leave a gap, leave the frame's ground sent with it.
+void kept_ground_sent_ahead() {
+    Context context;
+    Context plain_context;
+    constexpr uint32_t atlas_width = 2;
+    // Texel 0 red, texel 1 green.
+    const std::vector<uint8_t> atlas{
+        full_channel, 0, 0, full_channel, 0, full_channel, 0, full_channel
+    };
+    // Two triangles of red ground, then a small green one.
+    const std::vector<Vertex> red{
+        {0, 0, 0, 0, 0},
+        {8, 0, 0, 0, 0},
+        {0, 0, 8, 0, 0},
+        {8, 0, 0, 0, 0},
+        {8, 0, 8, 0, 0},
+        {0, 0, 8, 0, 0},
+        {0, 0, 0, 1, 0},
+        {4, 0, 0, 1, 0},
+        {0, 0, 4, 1, 0}
+    };
+    // The same ground green, the next kept ground.
+    auto green = red;
+    for (auto& vertex : std::span(green).first(6))
+        vertex.u = 1;
+    const auto next = std::span<const Vertex>(green).first(6);
+    std::vector<uint8_t> pixels;
+    std::vector<uint8_t> plain_pixels;
+    std::string error;
+    const auto frame = [&](const std::vector<Vertex>& vertices, const KeptGround& ground) {
+        return render(
+            context,
+            vertices,
+            atlas,
+            atlas_width,
+            1,
+            1,
+            small_target,
+            small_target,
+            classic_projection,
+            pixels,
+            error,
+            1,
+            nullptr,
+            nullptr,
+            &ground
+        );
+    };
+    const auto plain = [&](const std::vector<Vertex>& vertices) {
+        OA_CHECK(
+            render(
+                plain_context,
+                vertices,
+                atlas,
+                atlas_width,
+                1,
+                1,
+                small_target,
+                small_target,
+                classic_projection,
+                plain_pixels,
+                error
+            ) == Result::success
+        );
+        return plain_pixels;
+    };
+    const auto red_pixels = plain(red);
+    const auto green_pixels = plain(green);
+    OA_CHECK(red_pixels != green_pixels);
+    const auto sending = [&](uint64_t revision, std::size_t first, std::size_t count) {
+        return KeptGround{6, 1, next, revision, first, count};
+    };
+    // The kept ground draws while the next is sent, a triangle a frame.
+    OA_CHECK(frame(red, KeptGround{6, 1}) == Result::success);
+    OA_CHECK(frame(red, sending(2, 0, 3)) == Result::success);
+    OA_CHECK(pixels == red_pixels);
+    OA_CHECK(frame(red, sending(2, 3, 3)) == Result::success);
+    OA_CHECK(pixels == red_pixels);
+    // The frame that takes it draws what was sent, not its own vertices
+    // under the same revision.
+    OA_CHECK(frame(red, KeptGround{6, 2}) == Result::success);
+    OA_CHECK(pixels == green_pixels);
+    OA_CHECK(frame(red, KeptGround{6, 2}) == Result::success);
+    OA_CHECK(pixels == green_pixels);
+    // A slice that fails its check: the frame's own ground is sent with it.
+    auto invalid = green;
+    invalid[4].u = 2;
+    OA_CHECK(frame(green, KeptGround{6, 2, invalid, 3, 0, 3}) == Result::success);
+    OA_CHECK(frame(green, KeptGround{6, 2, invalid, 3, 3, 3}) == Result::success);
+    OA_CHECK(pixels == green_pixels);
+    OA_CHECK(frame(red, KeptGround{6, 3}) == Result::success);
+    OA_CHECK(pixels == red_pixels);
+    // Slices out of order leave a gap: the frame's ground is sent.
+    OA_CHECK(frame(red, KeptGround{6, 3, next, 4, 0, 3}) == Result::success);
+    OA_CHECK(frame(red, KeptGround{6, 3, next, 4, 0, 3}) == Result::success);
+    OA_CHECK(frame(green, KeptGround{6, 4}) == Result::success);
+    OA_CHECK(pixels == green_pixels);
+    OA_CHECK(frame(red, KeptGround{6, 4, next, 5, 3, 3}) == Result::success);
+    OA_CHECK(frame(red, KeptGround{6, 5}) == Result::success);
+    OA_CHECK(pixels == red_pixels);
+    // Sent whole, then taken with an atlas of another size: the frame's
+    // ground is sent.
+    OA_CHECK(frame(red, KeptGround{6, 5, next, 6, 0, 6}) == Result::success);
+    const std::vector<uint8_t> wider{
+        full_channel,
+        0,
+        0,
+        full_channel,
+        0,
+        full_channel,
+        0,
+        full_channel,
+        0,
+        0,
+        0,
+        full_channel,
+        0,
+        0,
+        0,
+        full_channel
+    };
+    const auto wider_frame = [&](Context& on, std::vector<uint8_t>& out, const KeptGround* ground) {
+        return render(
+            on,
+            red,
+            wider,
+            atlas_width * 2,
+            1,
+            2,
+            small_target,
+            small_target,
+            classic_projection,
+            out,
+            error,
+            1,
+            nullptr,
+            nullptr,
+            ground
+        );
+    };
+    const KeptGround taken{6, 6};
+    OA_CHECK(wider_frame(context, pixels, &taken) == Result::success);
+    OA_CHECK(wider_frame(plain_context, plain_pixels, nullptr) == Result::success);
+    OA_CHECK(pixels == plain_pixels);
+}
+
 /// Reuse a real device across frames and release it before the SDL video subsystem.
 int persistent_frames() {
     Scene scene;
@@ -516,6 +665,7 @@ int persistent_frames() {
     OA_CHECK(scene.frame() == Result::success);
     atlas_row_updates();
     kept_ground_frames();
+    kept_ground_sent_ahead();
     terrain_filtering();
     OA_CHECK(scene.pixels.size() == small_target * small_target * channels);
     OA_CHECK(scene.pixel(0, 0, small_target, full_channel, 0));

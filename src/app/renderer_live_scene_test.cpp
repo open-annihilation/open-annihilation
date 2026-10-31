@@ -2765,7 +2765,8 @@ void frame_rows_grow_for_spilled_shadows() {
 }
 
 /// Tells whether two scenes built the same frame: the same vertices in the
-/// same order, unit ranges, counts and atlas.
+/// same order, unit ranges, counts and atlas, and the same share of the
+/// next kept ground sent to the card.
 ///
 /// @param a one scene
 /// @param b the other
@@ -2785,9 +2786,20 @@ bool same_frame(const live::Scene& a, const live::Scene& b) {
             }
         );
     };
+    const auto& card = a.card_ground;
+    const auto& other_card = b.card_ground;
+    const bool same_card_ground =
+        card.vertex_count == other_card.vertex_count &&
+        (card.revision == 0) == (other_card.revision == 0) &&
+        (card.next_revision == 0) == (other_card.next_revision == 0) &&
+        card.next_first == other_card.next_first && card.next_count == other_card.next_count &&
+        card.next.size() == other_card.next.size() &&
+        (card.next.empty() ||
+         std::memcmp(card.next.data(), other_card.next.data(), card.next.size_bytes()) == 0);
     const auto& update = a.atlas_update;
     const auto& other = b.atlas_update;
-    return same_vertices(a.vertices, b.vertices) && same_ranges(a.unit_ranges, b.unit_ranges) &&
+    return same_card_ground && same_vertices(a.vertices, b.vertices) &&
+           same_ranges(a.unit_ranges, b.unit_ranges) &&
            same_vertices(a.translucent_vertices, b.translucent_vertices) &&
            same_ranges(a.translucent_ranges, b.translucent_ranges) &&
            a.terrain_vertex_count == b.terrain_vertex_count && a.model_count == b.model_count &&
@@ -2984,13 +2996,18 @@ void passes_on_threads() {
 /// drawing it again in the frame that passes the margin: every frame's
 /// ground holds the picture's own, the frames are the same on any number of
 /// threads as on none, and fewer frames change the ground than the margin
-/// alone would.
+/// alone would. Panning slower, so that the kept ground's margin outlasts
+/// the frames the ground ahead takes to be drawn, packed, cut and sent, the
+/// ground taken was sent to the card whole in the frames before, slice
+/// after slice, the very vertices the frame that takes it begins with.
 void ground_drawn_ahead_on_threads() {
     constexpr uint32_t across = 15;
     constexpr uint32_t picture_width = 200;
     constexpr uint32_t picture_height = 150;
     constexpr float pan_a_frame = 4;
     constexpr int frames = 40;
+    constexpr float slow_pan_a_frame = 1;
+    constexpr int slow_frames = 40;
     constexpr std::array<float, 12> projection{2, 0, -2, 0, 1, -1, 1, 0, 0, 1, 0, 0};
     const auto make = [&](Fixture& fixture, float pan) {
         auto& map = fixture.map;
@@ -3065,9 +3082,14 @@ void ground_drawn_ahead_on_threads() {
     uint64_t revision = scenes[0].ground_revision;
     int changes = 0;
     int taken_ahead = 0;
+    int taken_sent = 0;
     bool drawn_ahead = false;
-    for (int frame = 1; frame <= frames; ++frame) {
-        const float pan = pan_a_frame * static_cast<float>(frame);
+    // The next kept ground as the card would have it, slice after slice.
+    std::vector<oa::app::renderer_live_gpu::Vertex> sent;
+    uint64_t sent_revision = 0;
+    float pan = 0;
+    for (int frame = 1; frame <= frames + slow_frames; ++frame) {
+        pan += frame <= frames ? pan_a_frame : slow_pan_a_frame;
         moving.inputs.clip_projection[3] = pan;
         const bool ahead_done =
             scenes[0].ground_ahead.active &&
@@ -3076,9 +3098,32 @@ void ground_drawn_ahead_on_threads() {
         const auto& scene = scenes[0];
         drawn_ahead = drawn_ahead || scene.ground_ahead.active;
         if (scene.ground_revision != revision) {
-            ++changes;
+            changes += frame <= frames ? 1 : 0;
             taken_ahead += ahead_done ? 1 : 0;
             revision = scene.ground_revision;
+            const auto& card = scene.card_ground;
+            if (card.revision == sent_revision && sent.size() == card.vertex_count &&
+                card.vertex_count <= scene.vertices.size()) {
+                OA_CHECK(
+                    std::memcmp(
+                        sent.data(), scene.vertices.data(), sent.size() * sizeof(sent[0])
+                    ) == 0
+                );
+                ++taken_sent;
+            }
+        }
+        const auto& card = scene.card_ground;
+        if (card.next_revision != 0) {
+            if (card.next_first == 0 || card.next_revision != sent_revision) {
+                sent.clear();
+                sent_revision = card.next_revision;
+            }
+            OA_CHECK(card.next_first == sent.size());
+            sent.insert(
+                sent.end(),
+                card.next.begin() + static_cast<std::ptrdiff_t>(card.next_first),
+                card.next.begin() + static_cast<std::ptrdiff_t>(card.next_first + card.next_count)
+            );
         }
         // The ground drawn, ahead or not, holds the picture's own.
         const auto drawn = triangles(scene);
@@ -3090,13 +3135,14 @@ void ground_drawn_ahead_on_threads() {
     // five frames.
     OA_CHECK(drawn_ahead);
     OA_CHECK(taken_ahead > 0);
+    OA_CHECK(taken_sent > 0);
     OA_CHECK(changes < frames / 5);
     // Standing still, the camera settles, and the ground is the picture's
     // own on every number of threads.
     for (int frame = 0; frame < 11; ++frame)
         build_all();
     OA_CHECK(!scenes[0].ground_ahead.active);
-    OA_CHECK(triangles(scenes[0]) == pictured(pan_a_frame * frames));
+    OA_CHECK(triangles(scenes[0]) == pictured(pan));
 }
 
 /// A camera that moves on over ground it has not shown, then comes back,
