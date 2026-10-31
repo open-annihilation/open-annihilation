@@ -3680,7 +3680,7 @@ prompts, Settings › Updates and the headers name one state with one size.
   `walk_rebuild_drivers` and `RendererHost::rebuild` make the renderer
   again after a failure, striking it against the driver that failed;
   `RendererHost::card_device` is the graphics device the turned 3D view
-  draws on (SDL 3.4 and later, behind a Metal, Direct3D 11 or 12 or Vulkan
+  draws on (SDL 3.4 and later, behind a Metal, D3D11, D3D12 or Vulkan
   renderer), and while the view shows the window presents through it
   (`present_on_card`, `present_walked`, `Runtime::follow_card_presentation`):
   SDL's GPU renderer made on that device in place of the walked driver's,

@@ -342,7 +342,7 @@ It reuses its device,
 pipeline, atlas and frame buffers. In the game's window the picture stays on
 the card: while the view shows, the window presents through SDL's GPU
 renderer made on the device the view draws on (SDL 3.4 and later, where the
-window's own renderer is Metal, Direct3D 11 or 12 or Vulkan), the processor
+window's own renderer is Metal, D3D11, D3D12 or Vulkan), the processor
 paints the selection, health bars, text and the rest over the battlefield on
 an overlay canvas, and the card adds the canvas, and what the painters would
 have done to the picture under it, before the window draws it. Nothing is

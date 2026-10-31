@@ -46,7 +46,7 @@ camera;
 layout(location = 0) out vec4 out_colour;
 
 // Where a multisampled pixel's four samples lie in it, in the order of the
-// coverage mask's bits: the standard places of Vulkan, Metal and Direct3D.
+// coverage mask's bits: the standard places every graphics interface uses.
 const vec2 sample_positions[4] =
     vec2[4](vec2(0.375, 0.125), vec2(0.875, 0.375), vec2(0.125, 0.625), vec2(0.625, 0.875));
 

@@ -1091,7 +1091,7 @@ namespace {
 /// again for Vulkan and back, SDL's software renderer draws on none.
 ///
 /// @param driver SDL's name for the walked driver
-/// @return true for Metal, Direct3D 11 and 12, Vulkan and SDL's GPU renderer
+/// @return true for Metal, D3D11, D3D12, Vulkan and SDL's GPU renderer
 bool card_presentation_driver(std::string_view driver) noexcept {
     return driver == "metal" || driver == "direct3d11" || driver == "direct3d12" ||
            driver == "vulkan" || driver == "gpu";
