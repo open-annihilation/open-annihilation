@@ -212,6 +212,48 @@ inline constexpr uint32_t model_run_instances = 256;
 /// The most instances render() draws in a frame.
 inline constexpr std::size_t largest_model_instance_count = 32767;
 
+/// What a shadow a model casts into the shadows' map takes of its model
+/// (ShadowCast::kind): its picture as the game draws it, flat, or a
+/// building's silhouette sheared a quarter across and up; or its picture
+/// where it stands, taken out of the silhouette cast after it, which darkens
+/// nothing.
+inline constexpr uint32_t shadow_cast_picture = 0;
+inline constexpr uint32_t shadow_cast_sheared = 1;
+inline constexpr uint32_t shadow_cast_cut = 2;
+
+/// A shadow a unit or feature drawn from its type's model casts
+/// (ModelDraws::casts): its instance's triangles laid in the shadows' map,
+/// shadow_offset_x right of the model and at the ground's height under it,
+/// each texel it covers taking its light once.
+struct ShadowCast {
+    uint32_t instance{}; ///< its instance in ModelDraws::instances
+    uint32_t kind{};     ///< shadow_cast_picture, shadow_cast_sheared or shadow_cast_cut
+    float base{};        ///< the height of the model's base, world pixels
+    float ground_half{}; ///< half the ground's height under it
+    /// The height above the base a corner must pass to cast: none of a unit
+    /// under the water, or of a digger under the ground, casts.
+    float least_height{};
+    float light{1}; ///< the light it leaves under it, in [0,1]
+    /// Its depth in [0,1]: a cast drawn after another is nearer, and a cut
+    /// draws at the depth of the silhouette after it.
+    float depth{};
+    /// The model's place across and down the map, world pixels: its
+    /// corners keep the whole pixels from it that the game's picture takes.
+    float across{};
+    float down{};
+};
+
+/// The map the units' shadows are cast into (ModelDraws::casts), over the
+/// part of the map as the game paints it (a row down is half a pixel up)
+/// the frame shows.
+struct ShadowMap {
+    float left{};      ///< the map's first texel's left edge, in map pixels
+    float top{};       ///< its top edge, in painted rows
+    float scale{1};    ///< map pixels a texel spans: 1, 2, 4 or 8
+    uint32_t width{};  ///< the texels it needs across, at most largest_edge
+    uint32_t height{}; ///< and down
+};
+
 /// The units and features render() draws from their types' models, which
 /// stay on the card, rather than from the frame's vertices. Each triangle
 /// corner a frame draws is an index into its instance's type's corners, and
@@ -246,6 +288,17 @@ struct ModelDraws {
     std::span<const uint32_t> indices{};
     /// The runs, in the frame's order: their vertices never go back.
     std::span<const ModelRun> runs{};
+    /// The shadows cast, in their order, into the shadows' map, before the
+    /// frame is drawn; the frame's ground is then drawn again at
+    /// shadow_vertex, darkened by it.
+    std::span<const ShadowCast> casts{};
+    /// The casts' triangles, as indices are, each naming a cast from its
+    /// run's first; the runs' vertices are not read.
+    std::span<const uint32_t> cast_indices{};
+    std::span<const ModelRun> cast_runs{};
+    ShadowMap shadow_map{};
+    std::size_t shadow_vertex{}; ///< the frame's vertex the shadows are laid before
+    std::size_t shadow_ground{}; ///< the frame's first vertices, the ground they lie on
 };
 
 /// Whether render() draws model draws on the card: once a frame has made

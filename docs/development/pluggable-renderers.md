@@ -228,7 +228,7 @@ Low surface features, such as metal spots, follow the drawn terrain
 triangles as decals; standing sprites such as trees remain upright. Fog
 brightness blends across the mapped side of visibility boundaries, while
 unmapped cells remain black and hidden units stay excluded. Unit shadows
-use the existing cached silhouettes, projected onto the terrain.
+take the shape of the cached silhouettes, laid onto the terrain.
 Ground structures level the rendered terrain beneath their gameplay footprint,
 and beneath their model's base piece where it reaches past the footprint, to
 their placement height, with a small separation beneath floor plates and
@@ -269,7 +269,27 @@ pick projects the frame's vertices on the drawing threads while the card
 draws, keeping the kept ground's from the frame before while it and the
 camera stay, and passes over each block of 32 triangles, and each model drawn on
 the card, whose bounds cannot hold its point; a sliver, which its test may
-take past its own bounds, is always tested. A
+take past its own bounds, is always tested.
+
+The units' shadows are cast on the card from the same models
+(`live_shadow_cast_vertex.glsl`), into a map spanning the part of the map the
+frame shows as the game paints it (a row down is half a pixel up), a texel a
+map pixel: a unit casts the pieces its cached picture holds, without its walls
+of the image key, laid as the game lays the picture, `shadow_offset_x` right
+of it at the ground's height under it; a building casts its cached pieces
+sheared a quarter across and up, with its picture where it stands taken out;
+the part of a unit under the water, or of a digger under the ground, casts
+none where its picture has a depth plane. As the game's picture does, each
+corner keeps its whole pixels from the model's place, and a face whose corners
+run anticlockwise as laid, as a model's underside does, casts nothing. Each
+shadow takes a texel's light once, at the frame's shadow level, and
+overlapping shadows darken it again, as the game's decals did. The frame's ground is then drawn again where the
+shadows lie among its vertices (`live_shadow_fragment.glsl`), a twentieth of
+a pixel above it as the decals lay, darkened by the map, its samples taking
+the map each at its own place. The processor reads no unit's picture for its
+shadow, and lays no decal for it; an aircraft's soft shadow, which lies on the
+water under it with a soft edge, and the shadow of a model whose type the card
+cannot hold stay decals laid from the picture. A
 model under construction, cloaked or under the debug overlay, reflected in
 the water, shaded as a building or lit by nanolathe particles, and every model
 where the card leaves the lights to the processor or has none of this yet,

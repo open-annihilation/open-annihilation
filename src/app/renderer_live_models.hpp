@@ -76,6 +76,10 @@ struct CardTypes {
     /// Changes whenever records are made afresh: never the same in two
     /// scenes. Zero before any type is made.
     uint64_t revision{};
+    /// The frame's model draws' types, by their place in the draw list,
+    /// found before the scene's passes run (-1 for none), which the passes
+    /// read and never change.
+    std::vector<int32_t> draw_types{};
 };
 
 /// A type and team whose textures a frame has found: where they start in
@@ -117,6 +121,11 @@ struct CardMark {
     std::size_t piece_frames{};
     std::size_t indices{};
     std::size_t runs{};
+    std::size_t units{};
+    std::size_t casts{};
+    std::size_t cast_indices{};
+    std::size_t cast_runs{};
+    uint32_t cast_depths{};
     std::size_t vertices{};
 };
 
@@ -138,6 +147,22 @@ struct ModelCards {
     /// The vertices the frame's vertices would hold for the triangles drawn
     /// here, which the geometry budget counts as if they were.
     std::size_t vertices{};
+    /// The units' shadows cast from their instances into the shadows' map
+    /// (renderer_live_gpu::ShadowCast), their triangles and runs, and the
+    /// depths given out so far, a picture and the silhouette it is taken out
+    /// of sharing one.
+    std::vector<renderer_live_gpu::ShadowCast> casts{};
+    std::vector<uint32_t> cast_indices{};
+    std::vector<renderer_live_gpu::ModelRun> cast_runs{};
+    uint32_t cast_depths{};
+    /// The shadows' map, and where the shadows lie among the frame's
+    /// vertices, once the frame is built.
+    renderer_live_gpu::ShadowMap shadow_map{};
+    std::size_t shadow_vertex{};
+    std::size_t shadow_ground{};
+    /// The instance of the draw the pass is listing, once it has one; -1
+    /// before.
+    int64_t draw_instance{-1};
     CardMark mark{}; ///< the sizes as the pass's draw began
 };
 

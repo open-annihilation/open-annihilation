@@ -17,8 +17,9 @@ layout(set = 0, binding = 0, std430) readonly buffer Corners {
 };
 
 // The frame's model draws, as renderer_live_gpu.cpp writes them: the scene
-// camera's first four rows, where each part begins, then the instances,
-// eight words each, the vertices, the pieces' frames and the textures.
+// camera's first four rows, where each part begins and the shadows' map,
+// then the instances, eight words each, the vertices, the pieces' frames,
+// the textures and the shadows cast (live_shadow_cast_vertex.glsl).
 layout(set = 0, binding = 1, std430) readonly buffer Frame {
     vec4 horizontal;
     vec4 vertical;
@@ -28,6 +29,11 @@ layout(set = 0, binding = 1, std430) readonly buffer Frame {
     uint positions;
     uint piece_frames;
     uint textures;
+    uint casts;
+    uint unused_1;
+    uint unused_2;
+    uint unused_3;
+    vec4 shadow_map;
     uint words[];
 }
 frame;

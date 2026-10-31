@@ -447,6 +447,44 @@ void upload_lights(const LightResources& lights, SDL_GPUCopyPass* copy) {
 /// stage and its pipelines into the scene and into the lights' surface, the
 /// types' corners it keeps, and each frame's instances, vertices, textures
 /// and indices.
+/// The card's part of the units' shadows (ModelDraws::casts): the stages
+/// and pipelines that cast them into the shadows' map and lay the map on
+/// the frame's ground, and the map, with the depth its casts draw at.
+struct ShadowResources {
+    SDL_GPUDevice* device{}; ///< the device they are made on
+    SDL_GPUShader* cast_vertex{};
+    SDL_GPUShader* cast_fragment{};
+    SDL_GPUShader* ground_vertex{};
+    SDL_GPUShader* ground_fragment{};
+    SDL_GPUGraphicsPipeline* cast_pipeline{}; ///< into the map, one sample a texel
+    /// The ground drawn again, darkened by the map, into the scene as its
+    /// pipeline draws, without writing depth.
+    SDL_GPUGraphicsPipeline* ground_pipeline{};
+    SDL_GPUTexture* map{};       ///< the light each texel's shadows leave
+    SDL_GPUTexture* map_depth{}; ///< the casts' depths
+    uint32_t width{};            ///< the map's texels across
+    uint32_t height{};           ///< and down
+
+    ShadowResources() = default;
+    ShadowResources(const ShadowResources&) = delete;
+    ShadowResources& operator=(const ShadowResources&) = delete;
+
+    /// Release the handles before the device they were made on.
+    ~ShadowResources() {
+        if (!device)
+            return;
+        for (SDL_GPUGraphicsPipeline* made : {cast_pipeline, ground_pipeline})
+            if (made)
+                SDL_ReleaseGPUGraphicsPipeline(device, made);
+        for (SDL_GPUShader* made : {cast_vertex, cast_fragment, ground_vertex, ground_fragment})
+            if (made)
+                SDL_ReleaseGPUShader(device, made);
+        for (SDL_GPUTexture* made : {map, map_depth})
+            if (made)
+                SDL_ReleaseGPUTexture(device, made);
+    }
+};
+
 struct ModelResources {
     SDL_GPUDevice* device{}; ///< the device they are made on
     SDL_GPUShader* vertex_shader{};
@@ -474,6 +512,8 @@ struct ModelResources {
     uint32_t corner_bytes{};
     uint32_t frame_bytes{};
     uint32_t index_bytes{};
+    /// The units' shadows, released before the rest.
+    ShadowResources shadows;
 
     ModelResources() = default;
     ModelResources(const ModelResources&) = delete;
@@ -497,8 +537,17 @@ struct ModelResources {
 };
 
 /// The words before the frame's draws in ModelResources::frame: the scene
-/// camera's first four rows, then where each part of the draws begins.
-constexpr uint32_t model_frame_header_words = 20;
+/// camera's first four rows, where each part of the draws begins, three
+/// unused words and the shadows' map's place.
+constexpr uint32_t model_frame_header_words = 28;
+/// The words of a shadow cast in ModelResources::frame: its instance and
+/// kind, its base, half its ground, its least height, its light, its depth
+/// and its model's place across and down.
+constexpr uint32_t shadow_cast_words = 9;
+/// The format of the shadows' map: the light left, from 0 to 1.
+constexpr SDL_GPUTextureFormat shadow_map_format = SDL_GPU_TEXTUREFORMAT_R8_UNORM;
+/// The shadows' map is made this many texels larger at a time.
+constexpr uint32_t shadow_map_step = 512;
 /// The words of an instance in ModelResources::frame: its type's corners,
 /// its vertices, pieces and textures, its brightness, and room.
 constexpr uint32_t model_instance_words = 8;
@@ -609,6 +658,45 @@ bool valid_model_draws(
             );
         }
     }
+    // The shadows: each cast an instance's, of a known kind, its values in
+    // their ranges; each index a cast of its run and a corner of its
+    // instance's type; the map within the largest texture, and the ground
+    // and the shadows' place among the frame's vertices.
+    if (models.casts.size() > largest_model_instance_count * 2 ||
+        models.cast_indices.size() > max_vertices)
+        return false;
+    for (const auto& cast : models.casts) {
+        if (cast.instance >= models.instances.size() || cast.kind > shadow_cast_cut ||
+            !std::isfinite(cast.base) || !std::isfinite(cast.ground_half) ||
+            !std::isfinite(cast.least_height) || !std::isfinite(cast.across) ||
+            !std::isfinite(cast.down))
+            return false;
+        valid &= inside(cast.light, 0, 1) & inside(cast.depth, 0, 1);
+    }
+    for (const auto& run : models.cast_runs) {
+        if (!within(run.first_index, run.index_count, models.cast_indices.size()) ||
+            run.index_count % vertices_per_triangle != 0 ||
+            (run.index_count != 0 && run.first_instance >= models.casts.size()))
+            return false;
+        const std::size_t casts = models.casts.size() - run.first_instance;
+        for (const uint32_t index : models.cast_indices.subspan(run.first_index, run.index_count)) {
+            const std::size_t cast = index >> model_corner_bits;
+            if (cast >= std::min<std::size_t>(casts, model_run_instances))
+                return false;
+            valid &= static_cast<uint32_t>(
+                (index & model_vertex_mask) <
+                models.instances[models.casts[run.first_instance + cast].instance].corner_count
+            );
+        }
+    }
+    const auto& map = models.shadow_map;
+    if (!models.casts.empty() &&
+        (!std::isfinite(map.left) || !std::isfinite(map.top) ||
+         !(map.scale == 1 || map.scale == 2 || map.scale == 4 || map.scale == 8) ||
+         map.width == 0 || map.height == 0 || map.width > max_dimension ||
+         map.height > max_dimension || models.shadow_ground > vertex_count ||
+         models.shadow_vertex < ground_count || models.shadow_vertex > vertex_count))
+        return false;
     return valid != 0;
 }
 
@@ -646,6 +734,37 @@ bool make_model_pipelines(
     models.pipeline = SDL_CreateGPUGraphicsPipeline(device, &info);
     if (!models.pipeline)
         return false;
+    // The shadows laid on the ground: the scene's vertices, samples and
+    // blending, the shadows' stages, and no depth written.
+    auto& shadows = models.shadows;
+    shadows.device = device;
+    if (shadows.ground_pipeline)
+        SDL_ReleaseGPUGraphicsPipeline(device, shadows.ground_pipeline);
+    shadows.ground_pipeline = nullptr;
+    if (!shadows.ground_vertex) {
+        SDL_GPUShaderCreateInfo stage{};
+        stage_code(device, stage, live_shadow_vertex_spirv, live_shadow_vertex_msl);
+        stage.stage = SDL_GPU_SHADERSTAGE_VERTEX;
+        stage.num_uniform_buffers = 1;
+        shadows.ground_vertex = SDL_CreateGPUShader(device, &stage);
+    }
+    if (!shadows.ground_fragment) {
+        SDL_GPUShaderCreateInfo stage{};
+        stage_code(device, stage, live_shadow_fragment_spirv, live_shadow_fragment_msl);
+        stage.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
+        stage.num_samplers = 3;
+        stage.num_uniform_buffers = 2;
+        shadows.ground_fragment = SDL_CreateGPUShader(device, &stage);
+    }
+    if (!shadows.ground_vertex || !shadows.ground_fragment)
+        return false;
+    auto ground = scene;
+    ground.vertex_shader = shadows.ground_vertex;
+    ground.fragment_shader = shadows.ground_fragment;
+    ground.depth_stencil_state.enable_depth_write = false;
+    shadows.ground_pipeline = SDL_CreateGPUGraphicsPipeline(device, &ground);
+    if (!shadows.ground_pipeline)
+        return false;
     if (surface_shader) {
         // As make_light_surface_pipeline makes the surface's.
         SDL_GPUColorTargetDescription target{};
@@ -660,6 +779,186 @@ bool make_model_pipelines(
             return false;
     }
     return true;
+}
+
+/// Makes what the units' shadows need for a map of the texels a frame's
+/// shadows ask for: the casts' stages and pipeline, once, and the map and
+/// its depth, made larger, a step at a time, when the frame needs more.
+///
+/// @return false where any of it cannot be made
+bool prepare_shadows(ShadowResources& shadows, const ShadowMap& map) {
+    SDL_GPUDevice* const device = shadows.device;
+    if (!shadows.cast_pipeline) {
+        if (!shadows.cast_vertex) {
+            SDL_GPUShaderCreateInfo info{};
+            stage_code(device, info, live_shadow_cast_vertex_spirv, live_shadow_cast_vertex_msl);
+            info.stage = SDL_GPU_SHADERSTAGE_VERTEX;
+            info.num_storage_buffers = 2;
+            shadows.cast_vertex = SDL_CreateGPUShader(device, &info);
+        }
+        if (!shadows.cast_fragment) {
+            SDL_GPUShaderCreateInfo info{};
+            stage_code(
+                device, info, live_shadow_cast_fragment_spirv, live_shadow_cast_fragment_msl
+            );
+            info.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
+            shadows.cast_fragment = SDL_CreateGPUShader(device, &info);
+        }
+        if (!shadows.cast_vertex || !shadows.cast_fragment)
+            return false;
+        // Each texel a cast covers takes its light, multiplied in.
+        SDL_GPUColorTargetDescription target{};
+        target.format = shadow_map_format;
+        auto& blend = target.blend_state;
+        blend.enable_blend = true;
+        blend.src_color_blendfactor = SDL_GPU_BLENDFACTOR_ZERO;
+        blend.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_COLOR;
+        blend.color_blend_op = SDL_GPU_BLENDOP_ADD;
+        blend.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ZERO;
+        blend.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+        blend.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+        SDL_GPUGraphicsPipelineCreateInfo info{};
+        info.vertex_shader = shadows.cast_vertex;
+        info.fragment_shader = shadows.cast_fragment;
+        info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        // The game fills a polygon of its picture or silhouette only where
+        // its corners run clockwise, as laid; one facing the other way, as
+        // a model's underside does, it leaves out.
+        info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_BACK;
+        info.rasterizer_state.front_face = SDL_GPU_FRONTFACE_CLOCKWISE;
+        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
+        info.depth_stencil_state.enable_depth_test = true;
+        info.depth_stencil_state.enable_depth_write = true;
+        info.target_info.color_target_descriptions = &target;
+        info.target_info.num_color_targets = 1;
+        info.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
+        info.target_info.has_depth_stencil_target = true;
+        shadows.cast_pipeline = SDL_CreateGPUGraphicsPipeline(device, &info);
+        if (!shadows.cast_pipeline)
+            return false;
+    }
+    const auto stepped = [](uint32_t texels) {
+        return std::min(
+            max_dimension, (texels + shadow_map_step - 1) / shadow_map_step * shadow_map_step
+        );
+    };
+    if (map.width > shadows.width || map.height > shadows.height) {
+        const uint32_t width = stepped(std::max(map.width, shadows.width));
+        const uint32_t height = stepped(std::max(map.height, shadows.height));
+        for (SDL_GPUTexture** made : {&shadows.map, &shadows.map_depth}) {
+            if (*made)
+                SDL_ReleaseGPUTexture(device, *made);
+            *made = nullptr;
+        }
+        shadows.width = shadows.height = 0;
+        shadows.map = create_texture(
+            device,
+            width,
+            height,
+            shadow_map_format,
+            SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER
+        );
+        shadows.map_depth = create_texture(
+            device,
+            width,
+            height,
+            SDL_GPU_TEXTUREFORMAT_D16_UNORM,
+            SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET
+        );
+        if (!shadows.map || !shadows.map_depth)
+            return false;
+        shadows.width = width;
+        shadows.height = height;
+    }
+    return true;
+}
+
+/// The shadows' map's place, as the casts' vertex stage reads it: its left
+/// and top in map pixels, and how much of the frame's texels a map pixel
+/// is, across and down. The frame's texels, not the whole texture, which
+/// an earlier frame may have made larger, so that a frame's shadows fall on
+/// the same texels whatever frames came before it.
+std::array<float, 4> shadow_map_place(const ShadowMap& map) {
+    return {
+        map.left,
+        map.top,
+        1.0F / (map.scale * float(map.width)),
+        1.0F / (map.scale * float(map.height))
+    };
+}
+
+/// Casts the frame's units' shadows into the shadows' map, cleared to full
+/// light, each cast's triangles at its own depth, into the frame's texels
+/// at its top left.
+///
+/// @return false where the pass cannot begin
+bool cast_shadows(
+    const ModelResources& models, const ModelDraws& draws, SDL_GPUCommandBuffer* command
+) {
+    const auto& shadows = models.shadows;
+    SDL_GPUColorTargetInfo target{};
+    target.texture = shadows.map;
+    target.clear_color = {1, 1, 1, 1};
+    target.load_op = SDL_GPU_LOADOP_CLEAR;
+    target.store_op = SDL_GPU_STOREOP_STORE;
+    SDL_GPUDepthStencilTargetInfo depth{};
+    depth.texture = shadows.map_depth;
+    depth.clear_depth = 1;
+    depth.load_op = SDL_GPU_LOADOP_CLEAR;
+    depth.store_op = SDL_GPU_STOREOP_DONT_CARE;
+    depth.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+    depth.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+    SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(command, &target, 1, &depth);
+    if (!pass)
+        return false;
+    SDL_BindGPUGraphicsPipeline(pass, shadows.cast_pipeline);
+    // The frame's texels, at the texture's top left.
+    const SDL_GPUViewport viewport{
+        0, 0, float(draws.shadow_map.width), float(draws.shadow_map.height), 0, 1
+    };
+    SDL_SetGPUViewport(pass, &viewport);
+    const std::array<SDL_GPUBuffer*, 2> storage{models.corners, models.frame};
+    SDL_BindGPUVertexStorageBuffers(pass, 0, storage.data(), uint32_t(storage.size()));
+    const SDL_GPUBufferBinding indices{models.indices, 0};
+    SDL_BindGPUIndexBuffer(pass, &indices, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+    // The casts' indices follow the models'.
+    const auto first = uint32_t(draws.indices.size());
+    for (const auto& run : draws.cast_runs)
+        if (run.index_count != 0)
+            SDL_DrawGPUIndexedPrimitives(
+                pass,
+                run.index_count,
+                1,
+                first + run.first_index,
+                int32_t(run.first_instance << model_corner_bits),
+                0
+            );
+    SDL_EndGPURenderPass(pass);
+    return true;
+}
+
+/// Draws the frame's ground again, darkened by the shadows' map, into the
+/// scene's pass; its uniform block was pushed before the pass began.
+///
+/// @param ground the buffer of the kept ground, or of the frame's vertices
+///     where the ground is not kept
+/// @param count the ground's vertices at its start
+void lay_shadows(
+    SDL_GPURenderPass* pass,
+    const ShadowResources& shadows,
+    SDL_GPUSampler* sampler,
+    SDL_GPUBuffer* ground,
+    std::size_t count
+) {
+    if (count == 0)
+        return;
+    SDL_BindGPUGraphicsPipeline(pass, shadows.ground_pipeline);
+    // The scene's atlases keep the first two places.
+    const SDL_GPUTextureSamplerBinding map{shadows.map, sampler};
+    SDL_BindGPUFragmentSamplers(pass, 2, &map, 1);
+    const SDL_GPUBufferBinding binding{ground, 0};
+    SDL_BindGPUVertexBuffers(pass, 0, &binding, 1);
+    SDL_DrawGPUPrimitives(pass, uint32_t(count), 1, 0, 0);
 }
 
 /// Makes the buffers a frame's model draws need and copies into the upload
@@ -711,9 +1010,11 @@ bool prepare_models(
     const uint32_t instance_words = uint32_t(draws.instances.size()) * model_instance_words;
     models.frame_bytes = words(
         model_frame_header_words + instance_words + draws.positions.size() +
-        draws.piece_frames.size() + draws.textures.size()
+        draws.piece_frames.size() + draws.textures.size() + draws.casts.size() * shadow_cast_words
     );
-    models.index_bytes = uint32_t(draws.indices.size_bytes());
+    models.index_bytes = uint32_t(draws.indices.size_bytes() + draws.cast_indices.size_bytes());
+    if (!draws.casts.empty() && !prepare_shadows(models.shadows, draws.shadow_map))
+        return false;
     if (!grown(
             models.frame,
             models.frame_capacity,
@@ -748,10 +1049,16 @@ bool prepare_models(
     const uint32_t positions = instance_words;
     const uint32_t piece_frames = positions + uint32_t(draws.positions.size());
     const uint32_t textures = piece_frames + uint32_t(draws.piece_frames.size());
+    const uint32_t casts = textures + uint32_t(draws.textures.size());
     frame[camera_rows] = 0;
     frame[camera_rows + 1] = positions;
     frame[camera_rows + 2] = piece_frames;
     frame[camera_rows + 3] = textures;
+    frame[camera_rows + 4] = casts;
+    frame[camera_rows + 5] = frame[camera_rows + 6] = frame[camera_rows + 7] = 0;
+    const auto place =
+        draws.casts.empty() ? std::array<float, 4>{} : shadow_map_place(draws.shadow_map);
+    std::memcpy(frame + camera_rows + 8, place.data(), sizeof(place));
     uint32_t* at = frame + model_frame_header_words;
     for (const auto& instance : draws.instances) {
         const std::array<uint32_t, model_instance_words> record{
@@ -768,8 +1075,30 @@ bool prepare_models(
     std::memcpy(at, draws.piece_frames.data(), draws.piece_frames.size_bytes());
     at += draws.piece_frames.size();
     std::memcpy(at, draws.textures.data(), draws.textures.size_bytes());
+    at += draws.textures.size();
+    for (const auto& cast : draws.casts) {
+        const std::array<uint32_t, shadow_cast_words> record{
+            cast.instance,
+            cast.kind,
+            std::bit_cast<uint32_t>(cast.base),
+            std::bit_cast<uint32_t>(cast.ground_half),
+            std::bit_cast<uint32_t>(cast.least_height),
+            std::bit_cast<uint32_t>(cast.light),
+            std::bit_cast<uint32_t>(cast.depth),
+            std::bit_cast<uint32_t>(cast.across),
+            std::bit_cast<uint32_t>(cast.down)
+        };
+        at = std::copy(record.begin(), record.end(), at);
+    }
     std::memcpy(
-        upload + models.corner_bytes + models.frame_bytes, draws.indices.data(), models.index_bytes
+        upload + models.corner_bytes + models.frame_bytes,
+        draws.indices.data(),
+        draws.indices.size_bytes()
+    );
+    std::memcpy(
+        upload + models.corner_bytes + models.frame_bytes + draws.indices.size_bytes(),
+        draws.cast_indices.data(),
+        draws.cast_indices.size_bytes()
     );
     SDL_UnmapGPUTransferBuffer(device, models.upload);
     return true;
@@ -821,7 +1150,9 @@ void draw_frame_and_models(
     std::size_t ground_count,
     const ModelResources* models,
     SDL_GPUGraphicsPipeline* model_pipeline,
-    std::span<const ModelRun> runs
+    std::span<const ModelRun> runs,
+    const std::function<void()>& shadows = {},
+    std::size_t shadow_vertex = 0
 ) {
     const SDL_GPUBufferBinding binding{frame_vertices, 0};
     std::size_t drawn = 0;
@@ -833,6 +1164,12 @@ void draw_frame_and_models(
         SDL_DrawGPUPrimitives(pass, uint32_t(end - drawn), 1, uint32_t(drawn), 0);
         drawn = end;
     };
+    // The shadows are laid before the vertex they are given, ahead of any
+    // run drawn before it.
+    if (shadows) {
+        draw_vertices(std::max(shadow_vertex, ground_count) - ground_count);
+        shadows();
+    }
     for (const auto& run : runs) {
         if (!models || run.index_count == 0)
             continue;
@@ -1366,7 +1703,7 @@ Result render(
     }
     // The model draws, where there are any, and only where the card may
     // draw them.
-    const bool modelled = models && !models->runs.empty();
+    const bool modelled = models && (!models->runs.empty() || !models->casts.empty());
     if (modelled &&
         (!context.models_allowed || !valid_model_draws(*models, ground_count, vertices.size()))) {
         validating.stop();
@@ -1852,6 +2189,11 @@ Result render(
     if (modelled)
         upload_models(models_held, *models, copy);
     SDL_EndGPUCopyPass(copy);
+    // The units' shadows cast into their map, which the scene lays on its
+    // ground where the shadows lie among its vertices.
+    const bool shadowed = modelled && !models->casts.empty();
+    if (shadowed && !cast_shadows(models_held, *models, resources.command))
+        return fail("Begin live GPU shadows");
     SDL_GPUColorTargetInfo colour_target{};
     colour_target.texture = resources.colour;
     colour_target.clear_color.a = 1;
@@ -1922,6 +2264,24 @@ Result render(
     }
     SDL_PushGPUVertexUniformData(resources.command, 0, camera.data(), sizeof(camera));
     SDL_PushGPUFragmentUniformData(resources.command, 0, camera.data(), sizeof(camera));
+    if (shadowed) {
+        // The map's left and top and its texels a map pixel; the samples a
+        // pixel and the frame's texels across and down.
+        const auto& map = models->shadow_map;
+        const std::array<float, 8> shadow_block{
+            map.left,
+            map.top,
+            1.0F / map.scale,
+            0,
+            float(samples),
+            float(map.width),
+            float(map.height),
+            0
+        };
+        SDL_PushGPUFragmentUniformData(
+            resources.command, 1, shadow_block.data(), sizeof(shadow_block)
+        );
+    }
     SDL_GPURenderPass* pass =
         SDL_BeginGPURenderPass(resources.command, &colour_target, 1, &depth_target);
     if (!pass)
@@ -1941,6 +2301,17 @@ Result render(
         SDL_DrawGPUPrimitives(pass, uint32_t(ground_count), 1, 0, 0);
     }
     const std::span<const ModelRun> runs = modelled ? models->runs : std::span<const ModelRun>{};
+    std::function<void()> lay;
+    if (shadowed)
+        lay = [&] {
+            lay_shadows(
+                pass,
+                models_held.shadows,
+                resources.sampler,
+                ground_count != 0 ? resources.ground : resources.vertices,
+                ground_count != 0 ? ground_count : models->shadow_ground
+            );
+        };
     draw_frame_and_models(
         pass,
         resources.pipeline,
@@ -1949,7 +2320,9 @@ Result render(
         ground_count,
         modelled ? &models_held : nullptr,
         models_held.pipeline,
-        runs
+        runs,
+        lay,
+        shadowed ? models->shadow_vertex : 0
     );
     SDL_EndGPURenderPass(pass);
     // The surface the lights reach, from the same vertices.

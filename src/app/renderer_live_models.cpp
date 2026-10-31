@@ -212,6 +212,14 @@ void clear_cards(ModelCards& cards) noexcept {
     cards.runs.clear();
     cards.units.clear();
     cards.vertices = 0;
+    cards.casts.clear();
+    cards.cast_indices.clear();
+    cards.cast_runs.clear();
+    cards.cast_depths = 0;
+    cards.shadow_map = {};
+    cards.shadow_vertex = 0;
+    cards.shadow_ground = 0;
+    cards.draw_instance = -1;
     cards.mark = {};
 }
 
@@ -222,8 +230,14 @@ void mark_cards(ModelCards& cards) noexcept {
         cards.piece_frames.size(),
         cards.indices.size(),
         cards.runs.size(),
+        cards.units.size(),
+        cards.casts.size(),
+        cards.cast_indices.size(),
+        cards.cast_runs.size(),
+        cards.cast_depths,
         cards.vertices
     };
+    cards.draw_instance = -1;
 }
 
 void unmark_cards(ModelCards& cards) noexcept {
@@ -233,12 +247,21 @@ void unmark_cards(ModelCards& cards) noexcept {
     cards.piece_frames.resize(mark.piece_frames);
     cards.indices.resize(mark.indices);
     cards.runs.resize(mark.runs);
-    cards.units.resize(mark.instances);
+    cards.units.resize(mark.units);
+    cards.casts.resize(mark.casts);
+    cards.cast_indices.resize(mark.cast_indices);
+    cards.cast_runs.resize(mark.cast_runs);
+    cards.cast_depths = mark.cast_depths;
     cards.vertices = mark.vertices;
+    cards.draw_instance = -1;
     // A run the draw grew goes back to what it held before.
     if (!cards.runs.empty()) {
         auto& run = cards.runs.back();
         run.index_count = static_cast<uint32_t>(mark.indices - run.first_index);
+    }
+    if (!cards.cast_runs.empty()) {
+        auto& run = cards.cast_runs.back();
+        run.index_count = static_cast<uint32_t>(mark.cast_indices - run.first_index);
     }
 }
 
@@ -289,6 +312,12 @@ renderer_live_gpu::ModelDraws card_draws(const CardTypes& types, const ModelCard
     draws.textures = cards.textures;
     draws.indices = cards.indices;
     draws.runs = cards.runs;
+    draws.casts = cards.casts;
+    draws.cast_indices = cards.cast_indices;
+    draws.cast_runs = cards.cast_runs;
+    draws.shadow_map = cards.shadow_map;
+    draws.shadow_vertex = cards.shadow_vertex;
+    draws.shadow_ground = cards.shadow_ground;
     return draws;
 }
 

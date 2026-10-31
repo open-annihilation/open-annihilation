@@ -3430,6 +3430,92 @@ void decal(
         }
 }
 
+/// How a model's draw casts its shadow, as the game lays it from its
+/// picture (read_shadows), before the picture is read.
+struct DrawShadow {
+    bool casts{};    ///< it casts one
+    bool building{}; ///< a building's sheared silhouette (ModelState::shadow)
+    bool digger{};
+    /// An aircraft above what lies under it, with New unit shadows on.
+    bool aircraft{};
+    /// Its soft shadow, which lies on the water under it: an aircraft's
+    /// whose picture is at most 256 pixels a side.
+    bool soft{};
+    const Unit* unit{};                    ///< the unit or stand-in it draws
+    const present::SpriteBuffer* source{}; ///< the picture the shadow is read from
+    FixedVec3 position{};                  ///< where the model is drawn
+    float receiver{};                      ///< the height under it, never below the sea's
+    float altitude{};                      ///< its height above that
+};
+
+/// Returns how a model's draw casts its shadow, if it casts one: with the
+/// shadows on, a type that casts one, a building, a digger, or a vehicle
+/// with vehicle shadows on that neither floats nor hovers, not a feature's
+/// building sunk under the sea, drawn from a picture that has pixels.
+///
+/// @param in the frame
+/// @param draw the model's draw
+/// @return how it casts
+DrawShadow shadow_of_draw(const Inputs& in, const ModelDraw& draw) {
+    DrawShadow shadow;
+    if ((in.graphics_flags & model::graphics_shadows) == 0 || in.draws->shadow_level == 0)
+        return shadow;
+    const auto& ref = draw.model;
+    const Unit* unit = ref.unit;
+    if (draw.stand_in >= 0 && static_cast<std::size_t>(draw.stand_in) < in.draws->stand_ins.size())
+        unit = &in.draws->stand_ins[static_cast<std::size_t>(draw.stand_in)];
+    if (!draw.plan.linked.drawn || !draw.plan.model.from_image || unit == nullptr ||
+        ref.state == nullptr)
+        return shadow;
+    const uint32_t flags = ref.def ? ref.def->flags : 0;
+    if ((flags & OA_UNIT_DEF_FLAG_NO_SHADOW) != 0)
+        return shadow;
+    const bool digger = (flags & OA_UNIT_DEF_FLAG_DIGGER) != 0;
+    const bool building = (unit->flags & OA_UNIT_FLAG_BUILDING) != 0 && !digger;
+    if (!building && !digger &&
+        ((in.graphics_flags & model::graphics_vehicle_shadows) == 0 ||
+         (flags & (OA_UNIT_DEF_FLAG_FLOATER | OA_UNIT_DEF_FLAG_CAN_HOVER)) != 0))
+        return shadow;
+    if (building && unit->type_index == 0 && unit->position.y / fixed_scale < in.sea_level)
+        return shadow;
+    const auto& source = building ? ref.state->shadow : ref.state->image;
+    const auto& image = source.sprite;
+    const auto count = static_cast<std::size_t>(image.width) * image.height;
+    if (image.data == nullptr || count == 0 || count > maximum_vertices)
+        return shadow;
+    shadow.casts = true;
+    shadow.building = building;
+    shadow.digger = digger;
+    shadow.unit = unit;
+    shadow.source = &source;
+    shadow.position = draw.shown_position.value_or(unit->position);
+    const auto& position = shadow.position;
+    shadow.receiver =
+        std::max(height_at(*in.map, position.x / 65536, position.z / 65536), float(in.sea_level));
+    shadow.altitude = std::max(0.0F, position.y / fixed_scale - shadow.receiver);
+    shadow.aircraft =
+        in.new_unit_shadows && (flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 && shadow.altitude > 0;
+    shadow.soft = shadow.aircraft && image.width <= 256 && image.height <= 256;
+    return shadow;
+}
+
+/// Whether the card casts a model's shadow from its type's model rather
+/// than the scene laying it from its picture: with models on the card, for
+/// a model whose type the card holds, any shadow but an aircraft's soft one.
+///
+/// @param in the frame
+/// @param scene the frame, whose draws' types are found
+/// @param index the draw's place in WorldDrawList::models
+/// @param shadow how it casts (shadow_of_draw)
+/// @return true where the models pass casts it
+bool shadow_on_card(
+    const Inputs& in, const Scene& scene, std::size_t index, const DrawShadow& shadow
+) {
+    const auto& types = scene.card_types.draw_types;
+    return in.models_on_card && shadow.casts && !shadow.soft && index < types.size() &&
+           types[index] >= 0;
+}
+
 /// The models' draws each band of the shadow pass reads and draws.
 constexpr std::size_t shadow_band_draws = 32;
 
@@ -3453,31 +3539,16 @@ void read_shadows(
         return;
     for (std::size_t index = first; index < last; ++index) {
         const auto& draw = in.draws->models[index];
-        const auto& ref = draw.model;
-        const Unit* unit = ref.unit;
-        if (draw.stand_in >= 0 &&
-            static_cast<std::size_t>(draw.stand_in) < in.draws->stand_ins.size())
-            unit = &in.draws->stand_ins[static_cast<std::size_t>(draw.stand_in)];
-        if (!draw.plan.linked.drawn || !draw.plan.model.from_image || unit == nullptr ||
-            ref.state == nullptr)
+        const auto shadow = shadow_of_draw(in, draw);
+        // A shadow the card casts from its model is not read here.
+        if (!shadow.casts || shadow_on_card(in, scene, index, shadow))
             continue;
-        const uint32_t flags = ref.def ? ref.def->flags : 0;
-        if ((flags & OA_UNIT_DEF_FLAG_NO_SHADOW) != 0)
-            continue;
-        const bool digger = (flags & OA_UNIT_DEF_FLAG_DIGGER) != 0;
-        const bool building = (unit->flags & OA_UNIT_FLAG_BUILDING) != 0 && !digger;
-        if (!building && !digger &&
-            ((in.graphics_flags & model::graphics_vehicle_shadows) == 0 ||
-             (flags & (OA_UNIT_DEF_FLAG_FLOATER | OA_UNIT_DEF_FLAG_CAN_HOVER)) != 0))
-            continue;
-        if (building && unit->type_index == 0 && unit->position.y / fixed_scale < in.sea_level)
-            continue;
-        const auto& source = building ? ref.state->shadow : ref.state->image;
+        const bool building = shadow.building;
+        const bool digger = shadow.digger;
+        const auto& source = *shadow.source;
         const auto& image = source.sprite;
         const auto count = static_cast<std::size_t>(image.width) * image.height;
-        if (image.data == nullptr || count == 0 || count > maximum_vertices)
-            continue;
-        const auto position = draw.shown_position.value_or(unit->position);
+        const auto position = shadow.position;
         const float shadow_x = position.x / fixed_scale + model::shadow_offset_x - image.origin_x;
         const float shadow_y =
             position.z / fixed_scale - draw.plan.model.ground * height_lift - image.origin_y;
@@ -3513,12 +3584,9 @@ void read_shadows(
             coverage[pixel] = pixels[pixel] != image.key &&
                               (building || depth == nullptr || (!digger && lift == 0) ||
                                depth[pixel] > static_cast<uint8_t>(threshold));
-        const float receiver = std::max(
-            height_at(*in.map, position.x / 65536, position.z / 65536), float(in.sea_level)
-        );
-        const float altitude = std::max(0.0F, position.y / fixed_scale - receiver);
-        const bool aircraft =
-            in.new_unit_shadows && (flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 && altitude > 0;
+        const float receiver = shadow.receiver;
+        const float altitude = shadow.altitude;
+        const bool aircraft = shadow.aircraft;
         ShadowPicture picture;
         picture.texels = start;
         if (aircraft && image.width <= 256 && image.height <= 256) {
@@ -4542,91 +4610,48 @@ void find_card_slot(
     cards.slot_states[at] = 1;
 }
 
-/// Draws a model on the card where it can (Inputs::models_on_card): its
-/// type's triangles that its vertices would have listed, in their order,
-/// with the textures they would have taken, from its vertices placed as
-/// they would have been. The caller has found it drawn whole, unlit by its
-/// build, uncloaked, unreflected and unshaded.
+/// Returns the instance of the draw the models pass is listing, made the
+/// first time the draw asks for it: its model's vertices placed as its
+/// vertices would be, each piece's first or running frame, and its type's
+/// textures for its team, found as its polygons need them; its brightness
+/// full until its surface is drawn.
 ///
 /// @param in the frame
 /// @param[in,out] pass the models pass
-/// @param[in,out] materials the places the pass has found
 /// @param draw the model's draw
 /// @param unit the unit or stand-in it draws
-/// @param place its world place: x, height and z
-/// @param brightness its light from the fog
-/// @param image it draws from its picture
-/// @param lights the nanolathe particles that light units' vertices
-/// @param[in,out] corners room for a polygon's corners
-/// @param[in,out] points room for its corners through the camera
-/// @return false where the card cannot draw it, having added nothing
-bool draw_on_card(
-    const Inputs& in,
-    Pass& pass,
-    ModelMaterials& materials,
-    const ModelDraw& draw,
-    const Unit& unit,
-    const std::array<float, 3>& place,
-    float brightness,
-    bool image,
-    std::span<const std::array<float, 3>> lights,
-    std::vector<CardCorner>& corners,
-    std::vector<std::array<float, 3>>& points
+/// @param type_index its type (CardTypes::draw_types)
+/// @return the instance's place in ModelCards::instances, or -1 where the
+///     card cannot hold it
+int64_t card_instance(
+    const Inputs& in, Pass& pass, const ModelDraw& draw, const Unit& unit, uint32_t type_index
 ) {
     auto& cards = pass.list.cards;
-    const auto& reference = draw.model;
+    if (cards.draw_instance >= 0)
+        return cards.draw_instance;
     if (cards.instances.size() >= renderer_live_gpu::largest_model_instance_count)
-        return false;
-    const int32_t found =
-        card_type(pass.scene.card_types, *reference.instance, *reference.prepared);
-    if (found < 0)
-        return false;
-    const auto type_index = static_cast<uint32_t>(found);
+        return -1;
     const auto& type = pass.scene.card_types.types[type_index];
-    const auto pieces = reference.instance->pieces();
+    const auto pieces = draw.model.instance->pieces();
     // Its vertices, placed as its vertices would be.
-    const auto [x, h, z] = place;
+    const auto position = draw.shown_position.value_or(unit.position);
+    const float x = position.x / fixed_scale;
+    const float h = position.y / fixed_scale;
+    const float z = position.z / fixed_scale;
     const std::size_t first_position = cards.positions.size();
-    std::array<float, 3> low{x, h, z};
-    std::array<float, 3> high{x, h, z};
     for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
         const auto& points = piece < draw.shown_vertices.size()
                                  ? draw.shown_vertices[piece]
                                  : pieces[piece].transformed_vertices;
         if (points.size() != type.piece_vertices[piece + 1] - type.piece_vertices[piece]) {
             cards.positions.resize(first_position);
-            return false;
+            return -1;
         }
         for (const auto& point : points) {
             const std::array world{
                 x + point.x / fixed_scale, h + point.y / fixed_scale, z - point.z / fixed_scale
             };
-            for (std::size_t axis = 0; axis < world.size(); ++axis) {
-                low[axis] = std::min(low[axis], world[axis]);
-                high[axis] = std::max(high[axis], world[axis]);
-            }
             cards.positions.insert(cards.positions.end(), world.begin(), world.end());
-        }
-    }
-    // A nanolathe particle within a light's reach of a vertex would light
-    // it; such a model stays in the vertices. A particle that far from the
-    // box around the vertices reaches none of them, as the vertices'
-    // distances are worked out.
-    constexpr float light_radius = 32.0F;
-    for (const auto& light : lights) {
-        std::array<float, 3> gap{};
-        for (std::size_t axis = 0; axis < gap.size(); ++axis)
-            gap[axis] = std::max({0.0F, low[axis] - light[axis], light[axis] - high[axis]});
-        if (gap[0] * gap[0] + gap[1] * gap[1] + gap[2] * gap[2] >= light_radius * light_radius)
-            continue;
-        for (std::size_t at = first_position; at < cards.positions.size(); at += 3) {
-            const float dx = cards.positions[at] - light[0];
-            const float dy = cards.positions[at + 1] - light[1];
-            const float dz = cards.positions[at + 2] - light[2];
-            if (dx * dx + dy * dy + dz * dz < light_radius * light_radius) {
-                cards.positions.resize(first_position);
-                return false;
-            }
         }
     }
     // Each piece's first frame or its running one.
@@ -4641,7 +4666,7 @@ bool draw_on_card(
         );
     const uint8_t team = in.team_colors[unit.owner_index % in.team_colors.size()];
     const uint32_t table = card_table(cards, type_index, type.slots.size(), team);
-    const auto instance = static_cast<uint32_t>(cards.instances.size());
+    cards.draw_instance = static_cast<int64_t>(cards.instances.size());
     cards.instances.push_back(
         {type.first_record,
          type.record_count,
@@ -4651,8 +4676,243 @@ bool draw_on_card(
          static_cast<uint32_t>(pieces.size()),
          table,
          static_cast<uint32_t>(type.slots.size()),
-         brightness}
+         1.0F}
     );
+    return cards.draw_instance;
+}
+
+/// The most shadows a frame casts, each at a depth of its own in the
+/// shadows' map's 16-bit depth.
+constexpr uint32_t most_cast_depths = 65000;
+
+/// Casts the shadow of the draw the models pass is listing into the
+/// shadows' map, where the card casts it (shadow_on_card): a building's
+/// silhouette of its cached pieces sheared a quarter across and up, its
+/// picture taken out of it; any other model's picture, without the part of
+/// a digger under the ground or of a unit under the water where its picture
+/// has a depth plane. The picture is the pieces its cached image holds,
+/// without its walls of the image key. Each lies shadow_offset_x right of
+/// the model, at the ground's height under it, at the frame's shadow level,
+/// its corners at the whole pixels from the model's place that its picture
+/// takes them at; the card leaves out the faces whose corners run
+/// anticlockwise as laid, as the game's fill does.
+///
+/// @param in the frame
+/// @param[in,out] pass the models pass
+/// @param draw the model's draw
+/// @param shadow how it casts (shadow_of_draw)
+/// @param type_index its type (CardTypes::draw_types)
+void cast_on_card(
+    const Inputs& in,
+    Pass& pass,
+    const ModelDraw& draw,
+    const DrawShadow& shadow,
+    uint32_t type_index
+) {
+    auto& cards = pass.list.cards;
+    if (cards.cast_depths >= most_cast_depths)
+        return;
+    const int64_t made = card_instance(in, pass, draw, *shadow.unit, type_index);
+    if (made < 0)
+        return;
+    const auto instance = static_cast<uint32_t>(made);
+    const auto& type = pass.scene.card_types.types[type_index];
+    const auto pieces = draw.model.instance->pieces();
+    const Unit& unit = *shadow.unit;
+    const auto& state = *draw.model.state;
+    // The model's place, as its instance's vertices are placed from it.
+    const float across = shadow.position.x / fixed_scale;
+    const float down = shadow.position.z / fixed_scale;
+    const float base = shadow.position.y / fixed_scale;
+    const float ground_half = static_cast<float>(draw.plan.model.ground) * height_lift;
+    float opacity = 0.5F * std::min(in.draws->shadow_level, model::shadow_full_level) /
+                    model::shadow_full_level;
+    // Far out, a small shadow fades as its decal would, by the size of
+    // the picture it is laid from.
+    if (in.detail_scale > 0 && in.detail_scale < 1) {
+        const auto& record = cards.instances[instance];
+        float left = std::numeric_limits<float>::infinity();
+        float top = left;
+        float right = -left;
+        float bottom = -left;
+        for (std::size_t at = std::size_t{record.positions} * 3;
+             at < (std::size_t{record.positions} + record.position_count) * 3;
+             at += 3) {
+            const float across = cards.positions[at];
+            const float down = cards.positions[at + 2] - (cards.positions[at + 1] - base) * 0.5F;
+            left = std::min(left, across);
+            right = std::max(right, across);
+            top = std::min(top, down);
+            bottom = std::max(bottom, down);
+        }
+        const float diameter = std::min(right - left, bottom - top) * in.detail_scale;
+        opacity *= std::clamp((diameter - 0.25F) / 0.75F, 0.0F, 1.0F);
+        if (!(opacity > 0))
+            return;
+    }
+    const float depth = static_cast<float>(65534U - cards.cast_depths++) / 65535.0F;
+    // The part of a digger under the ground, or of a unit under the water,
+    // casts none where its picture has a depth plane.
+    constexpr float every_height = -std::numeric_limits<float>::max();
+    float least_height = every_height;
+    const int32_t lift = std::max(0, in.sea_level - shadow.position.y / 65536);
+    if (!shadow.building && state.image.sprite.aux != nullptr && (shadow.digger || lift > 0))
+        least_height = shadow.digger ? 0.0F : static_cast<float>(lift);
+    // The pieces the cached picture holds.
+    const bool every_piece = unit.build_remaining != 0.0F || state.image_unfinished;
+    const auto add_cast = [&](uint32_t kind, float light, bool cached_only, bool walls) {
+        const auto cast = static_cast<uint32_t>(cards.casts.size());
+        cards.casts.push_back(
+            {instance, kind, base, ground_half, least_height, light, depth, across, down}
+        );
+        if (cards.cast_runs.empty() ||
+            cast - cards.cast_runs.back().first_instance >= renderer_live_gpu::model_run_instances)
+            cards.cast_runs.push_back(
+                {0, static_cast<uint32_t>(cards.cast_indices.size()), 0, cast}
+            );
+        auto& run = cards.cast_runs.back();
+        const uint32_t named = (cast - run.first_instance) << renderer_live_gpu::model_corner_bits;
+        const std::size_t first_index = cards.cast_indices.size();
+        for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+            const uint16_t flags = pieces[piece].flags;
+            const bool cached =
+                (flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::cached)) != 0;
+            if ((flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) == 0 ||
+                (!cached && (cached_only || !every_piece)))
+                continue;
+            for (uint32_t at = type.piece_polygons[piece]; at < type.piece_polygons[piece + 1];
+                 ++at) {
+                const auto& polygon = type.polygons[at];
+                if (!walls && polygon.colored && polygon.color == model::image_key)
+                    continue;
+                const std::size_t count = (polygon.corners - 2) * 3;
+                for (uint32_t corner = 0; corner < count; ++corner)
+                    cards.cast_indices.push_back(named | (polygon.record + corner));
+            }
+        }
+        run.index_count += static_cast<uint32_t>(cards.cast_indices.size() - first_index);
+    };
+    if (shadow.building) {
+        // The building's own picture first, at the silhouette's depth.
+        add_cast(renderer_live_gpu::shadow_cast_cut, 1.0F, false, false);
+        add_cast(renderer_live_gpu::shadow_cast_sheared, 1.0F - opacity, true, true);
+    } else {
+        add_cast(renderer_live_gpu::shadow_cast_picture, 1.0F - opacity, false, false);
+    }
+}
+
+/// Finds the type on the card of every model the frame draws, before the
+/// scene's passes run, so that the passes, at once on the drawing threads,
+/// only read them (CardTypes::draw_types); none without models on the card.
+///
+/// @param in the frame
+/// @param[in,out] types the types kept
+void find_card_types(const Inputs& in, CardTypes& types) {
+    const auto& models = in.draws->models;
+    types.draw_types.assign(in.models_on_card ? models.size() : 0, -1);
+    for (std::size_t index = 0; index < types.draw_types.size(); ++index) {
+        const auto& reference = models[index].model;
+        if (models[index].plan.linked.drawn && reference.instance != nullptr &&
+            reference.prepared != nullptr)
+            types.draw_types[index] = card_type(types, *reference.instance, *reference.prepared);
+    }
+}
+
+/// Returns the shadows' map for the part of the map, as the game paints it,
+/// the frame shows: a texel a map pixel, or 2, 4 or 8 where the part is
+/// wider or taller than the largest map.
+///
+/// @param in the frame
+/// @return the map
+renderer_live_gpu::ShadowMap shadow_map_for(const Inputs& in) {
+    constexpr uint32_t widest = renderer_live_gpu::largest_edge;
+    constexpr float coarsest = 8;
+    renderer_live_gpu::ShadowMap map;
+    map.left = static_cast<float>(in.left);
+    map.top = static_cast<float>(in.top);
+    const auto across = static_cast<float>(std::max(1, in.right - in.left));
+    const auto down = static_cast<float>(std::max(1, in.bottom - in.top));
+    while (map.scale < coarsest && (across / map.scale > widest || down / map.scale > widest))
+        map.scale *= 2;
+    map.width = std::min(widest, static_cast<uint32_t>(std::ceil(across / map.scale)));
+    map.height = std::min(widest, static_cast<uint32_t>(std::ceil(down / map.scale)));
+    return map;
+}
+
+/// Draws a model on the card where it can (Inputs::models_on_card): its
+/// type's triangles that its vertices would have listed, in their order,
+/// with the textures they would have taken, from its vertices placed as
+/// they would have been. The caller has found it drawn whole, unlit by its
+/// build, uncloaked, unreflected and unshaded.
+///
+/// @param in the frame
+/// @param[in,out] pass the models pass
+/// @param[in,out] materials the places the pass has found
+/// @param draw the model's draw
+/// @param unit the unit or stand-in it draws
+/// @param type_index its type (CardTypes::draw_types)
+/// @param place its world place: x, height and z
+/// @param brightness its light from the fog
+/// @param image it draws from its picture
+/// @param lights the nanolathe particles that light units' vertices
+/// @param[in,out] corners room for a polygon's corners
+/// @param[in,out] points room for its corners through the camera
+/// @return false where the card cannot draw it, having added nothing
+bool draw_on_card(
+    const Inputs& in,
+    Pass& pass,
+    ModelMaterials& materials,
+    const ModelDraw& draw,
+    const Unit& unit,
+    uint32_t type_index,
+    const std::array<float, 3>& place,
+    float brightness,
+    bool image,
+    std::span<const std::array<float, 3>> lights,
+    std::vector<CardCorner>& corners,
+    std::vector<std::array<float, 3>>& points
+) {
+    auto& cards = pass.list.cards;
+    const auto& reference = draw.model;
+    const int64_t made = card_instance(in, pass, draw, unit, type_index);
+    if (made < 0)
+        return false;
+    const auto instance = static_cast<uint32_t>(made);
+    const auto& type = pass.scene.card_types.types[type_index];
+    const auto pieces = reference.instance->pieces();
+    const std::size_t first_position = std::size_t{cards.instances[instance].positions} * 3;
+    const std::size_t end_position =
+        first_position + std::size_t{cards.instances[instance].position_count} * 3;
+    // A nanolathe particle within a light's reach of a vertex would light
+    // it; such a model's surface stays in the vertices. A particle that far
+    // from the box around the vertices reaches none of them, as the
+    // vertices' distances are worked out.
+    std::array<float, 3> low{place};
+    std::array<float, 3> high{place};
+    for (std::size_t at = first_position; at < end_position; at += 3)
+        for (std::size_t axis = 0; axis < low.size(); ++axis) {
+            low[axis] = std::min(low[axis], cards.positions[at + axis]);
+            high[axis] = std::max(high[axis], cards.positions[at + axis]);
+        }
+    constexpr float light_radius = 32.0F;
+    for (const auto& light : lights) {
+        std::array<float, 3> gap{};
+        for (std::size_t axis = 0; axis < gap.size(); ++axis)
+            gap[axis] = std::max({0.0F, low[axis] - light[axis], light[axis] - high[axis]});
+        if (gap[0] * gap[0] + gap[1] * gap[1] + gap[2] * gap[2] >= light_radius * light_radius)
+            continue;
+        for (std::size_t at = first_position; at < end_position; at += 3) {
+            const float dx = cards.positions[at] - light[0];
+            const float dy = cards.positions[at + 1] - light[1];
+            const float dz = cards.positions[at + 2] - light[2];
+            if (dx * dx + dy * dy + dz * dz < light_radius * light_radius)
+                return false;
+        }
+    }
+    cards.instances[instance].brightness = brightness;
+    const uint32_t first_piece = cards.instances[instance].pieces;
+    const uint32_t table = cards.instances[instance].textures;
+    const uint8_t team = in.team_colors[unit.owner_index % in.team_colors.size()];
     // A run takes the models drawn one after another among the vertices,
     // as many as its indices can name.
     const std::size_t vertex = pass.list.vertices.size();
@@ -4817,6 +5077,16 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
             unit = &in.draws->stand_ins[static_cast<std::size_t>(draw.stand_in)];
         if (unit == nullptr || reference.instance == nullptr || reference.prepared == nullptr)
             continue;
+        // Its type on the card, and the shadow the card casts from it, on
+        // screen or not.
+        const auto& draw_types = pass.scene.card_types.draw_types;
+        const int32_t card_type_index =
+            in.models_on_card && draw_index < draw_types.size() ? draw_types[draw_index] : -1;
+        if (card_type_index >= 0) {
+            const auto shadow = shadow_of_draw(in, draw);
+            if (shadow_on_card(in, pass.scene, draw_index, shadow))
+                cast_on_card(in, pass, draw, shadow, static_cast<uint32_t>(card_type_index));
+        }
         // A cloaked unit, or every unit under the debug overlay, is blended
         // at half its opacity, as the classic view blends its picture.
         constexpr float translucent_opacity = 0.5F;
@@ -4920,19 +5190,21 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
             const bool shaded = shade_ready && image &&
                                 (unit->flags & OA_UNIT_FLAG_BUILDING) != 0 &&
                                 (in.graphics_flags & model::graphics_shading) != 0;
-            if (!shaded && draw_on_card(
-                               in,
-                               pass,
-                               materials,
-                               draw,
-                               *unit,
-                               {x, h, z},
-                               brightness,
-                               image,
-                               nanolathe_lights,
-                               card_corners,
-                               card_points
-                           )) {
+            if (!shaded && card_type_index >= 0 &&
+                draw_on_card(
+                    in,
+                    pass,
+                    materials,
+                    draw,
+                    *unit,
+                    static_cast<uint32_t>(card_type_index),
+                    {x, h, z},
+                    brightness,
+                    image,
+                    nanolathe_lights,
+                    card_corners,
+                    card_points
+                )) {
                 ++list.drawn;
                 continue;
             }
@@ -6604,6 +6876,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     const auto& draws = *in.draws;
     const bool timing = bench_timers::timers.on;
     trim_card_types(scene.card_types);
+    find_card_types(in, scene.card_types);
     for (auto* list :
          {&passes.ground_cards,
           &passes.shadow_packing,
@@ -6941,6 +7214,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         scene.vertices.insert(scene.vertices.end(), vertices.begin(), vertices.end());
     };
     join(laid(passes.ground_cards));
+    const std::size_t shadows_first = scene.vertices.size();
     uint32_t shadows{};
     for (std::size_t band = 0; band < shadow_bands; ++band) {
         join(laid(passes.shadows[band]));
@@ -6957,13 +7231,18 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         run.vertex += models_first;
     for (auto& unit : on_card.units)
         unit.vertex += models_first;
+    // The shadows the card casts lie on the ground where the shadows lie
+    // among the vertices.
+    on_card.shadow_map = shadow_map_for(in);
+    on_card.shadow_vertex = shadows_first;
+    on_card.shadow_ground = scene.terrain_vertex_count;
     std::swap(scene.cards, on_card);
     std::swap(scene.translucent_vertices, passes.models.translucent_vertices);
     std::swap(scene.translucent_ranges, passes.models.translucent_ranges);
     join(passes.projectiles.vertices);
     join(passes.cards.vertices);
     join(passes.particles.vertices);
-    scene.shadow_count = shadows;
+    scene.shadow_count = shadows + scene.cards.cast_depths;
     scene.model_count = passes.models.drawn;
     scene.sprite_count = passes.ground_cards.drawn + passes.cards.drawn;
     scene.particle_count = passes.particles.drawn;
