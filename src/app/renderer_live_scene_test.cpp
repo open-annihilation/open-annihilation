@@ -2705,7 +2705,7 @@ void frame_rows_hold_unit_shadows() {
     OA_CHECK(scene.atlas_update.frame_end_row == first_frame_row + 9);
     OA_CHECK(scene.atlas_update.end_row < first_frame_row);
     const auto& corner = scene.vertices.at(scene.terrain_vertex_count);
-    OA_CHECK(std::lround(corner.v * scene.texture_height) >= first_frame_row);
+    OA_CHECK(std::lround(corner.v * scene.texture_height) >= static_cast<long>(first_frame_row));
     const auto revision = scene.texture_revision;
     const auto materials = scene.materials.size();
     OA_CHECK(live::build(fixture.inputs, scene, fixture.error));
