@@ -96,6 +96,18 @@ enum class Precision : uint8_t {
 /// @return a * b rounded to nearest, ties to even
 [[nodiscard]] Extended multiply(Extended a, Extended b, Precision precision) noexcept;
 
+/// Multiplies by an integer and rounds the exact product to a double.
+///
+/// The result is to_double(multiply(factor, to_extended(value),
+/// Precision::bits_53)) for every factor and value, worked out without the
+/// general operations wherever the product is a normal double.
+///
+/// @param factor left operand
+/// @param value integer right operand
+/// @return the product rounded as that expression rounds it; a zero product
+///         is negative when exactly one operand is negative, as multiply's is
+[[nodiscard]] double multiply_to_double(Extended factor, int32_t value) noexcept;
+
 /// Divides, rounding the exact quotient once.
 ///
 /// @param a dividend

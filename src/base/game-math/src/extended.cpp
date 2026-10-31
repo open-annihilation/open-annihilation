@@ -670,6 +670,45 @@ Extended multiply(Extended a, Extended b, Precision precision) noexcept {
     );
 }
 
+double multiply_to_double(Extended factor, int32_t value) noexcept {
+    const bool negative = factor.negative != (value < 0);
+    if (factor.significand == 0 || value == 0)
+        return negative ? -0.0 : 0.0;
+    // The value's magnitude, shifted up to bit 63 as to_extended places it:
+    // the product of the significands lies in [2^126, 2^128).
+    const auto bits = static_cast<uint32_t>(value);
+    const uint64_t magnitude = value < 0 ? uint64_t{0u - bits} : uint64_t{bits};
+    const int shift = std::countl_zero(magnitude);
+    const U128 product = multiply_64(factor.significand, magnitude << static_cast<unsigned>(shift));
+    const auto top = static_cast<int32_t>(product.high >> 63);
+    const int32_t exponent = factor.exponent + 63 - shift + top;
+    // Below double's normal range to_double rounds the 53-bit product again,
+    // and past it gives an infinity; both are left to the general operations.
+    constexpr int32_t minimum_normal_exponent = -1022, maximum_exponent = 1023;
+    if (exponent < minimum_normal_exponent || exponent >= maximum_exponent)
+        return to_double(multiply(factor, to_extended(value), Precision::bits_53));
+    // The leading bit to bit 63 of `high`: its top 53 bits are kept, bit 10
+    // is the round bit, and the bits below it and `low` are the sticky bits.
+    uint64_t high = product.high, low = product.low;
+    if (top == 0) {
+        high = (high << 1) | (low >> 63);
+        low <<= 1;
+    }
+    constexpr unsigned dropped_bits = 11;
+    constexpr uint64_t round_bit = uint64_t{1} << (dropped_bits - 1);
+    uint64_t kept = high >> dropped_bits;
+    const bool below_round_bit = (high & (round_bit - 1)) != 0 || low != 0;
+    if ((high & round_bit) != 0 && (below_round_bit || (kept & 1) != 0))
+        ++kept;
+    // kept holds the leading bit at bit 52, or 2^53 when rounding carried
+    // out; adding it to the exponent field below that bit carries either into
+    // the exponent.
+    const uint64_t sign = negative ? uint64_t{1} << 63 : 0;
+    return std::bit_cast<double>(
+        sign | ((static_cast<uint64_t>(exponent + maximum_exponent - 1) << 52) + kept)
+    );
+}
+
 Extended divide(Extended a, Extended b, Precision precision) noexcept {
     const bool negative = a.negative != b.negative;
     if (a.significand == 0 || b.significand == 0)

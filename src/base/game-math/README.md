@@ -27,6 +27,9 @@ every compiler, processor and maths library.
   selectors 12 and 14 use it.
 - `rotate_pair` rotates a coordinate pair by an angle word: each product of
   a coordinate with the sine or cosine and each sum is rounded to 53 bits.
+  `multiply_to_double` rounds each product straight from the 128-bit product
+  of the significands, to the double `to_double(multiply(..., bits_53))`
+  gives; where the product is not a normal double it takes that path.
 - `hypotenuse(x, y)` is the game's vector length: the magnitudes divided by
   the larger one, squared and summed, square-rooted and multiplied back, with
   every step rounded to 64 bits and then again to 53. The second rounding
@@ -52,6 +55,9 @@ checks both at the half, 2^31, 2^32 + 1 and 2^63 edges, and at NaN and the
 infinities.
 
 The `game-math-extended` test checks the 53-bit operations against IEEE 754
-doubles, the sine and cosine of every angle word and the rotation of points
-by every angle word, and pins the results over fixed samples of headings,
-arctangents, lengths, arccosines and square roots by digest.
+doubles, `multiply_to_double` against the general multiply and rounding (the
+sine and cosine of every angle word at every scale of coordinate, factors
+across the exponent range, ties and their neighbours), the sine and cosine of
+every angle word and the rotation of points by every angle word, and pins the
+results over fixed samples of headings, arctangents, lengths, arccosines and
+square roots by digest.
