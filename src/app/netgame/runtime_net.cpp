@@ -79,6 +79,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -128,10 +129,12 @@ constexpr uint32_t kLoopbackWaitRounds = 200;
 constexpr uint32_t kLoopbackWaitMs = 15000;
 constexpr uint32_t kLoopbackBackstopMs = 10 * 60 * 1000;
 // Milliseconds a networked tick of the loopback checks waits for the other
-// machine's records. None: loopback hands them over at once, and a record
-// applies at the tick it names however late it arrives, so the checks
-// settle until both machines agree instead of waiting on the clock.
+// machine's records. None: the checks settle until both machines agree
+// instead of waiting on the clock. The computer match, whose fight has to
+// play the same way every run, reads every record sent before the next
+// step instead (loopback_deliver), pausing this long between looks.
 constexpr uint32_t kTickPumpWaitMs = 0;
+constexpr std::chrono::microseconds kLoopbackDeliverPause{50};
 constexpr int32_t kLoopbackMoveDistance = 64 << 16;
 // The host commander fires at the ground this far ahead of it, within its
 // laser's range of 200, from tick 200 until tick 260.
@@ -1830,8 +1833,11 @@ struct NetworkPlay::NetHost {
     }
 
     // Loopback check: ephemeral ports on 127.0.0.1, the peer serviced while
-    // this machine waits.
-    static bool loopback_configure(NetworkPlay& play, uint32_t seed, NetState* peer) {
+    // this machine waits. Both machines count the bytes they send each other
+    // and read in one counter (loopback_deliver); the clock and the waits
+    // stay real.
+    static bool
+    loopback_configure(NetworkPlay& play, uint32_t seed, NetState* peer, int64_t* in_flight) {
         auto& state = *play.net_;
         if (state.connected)
             nm::net_connection_destroy(&state.connection);
@@ -1843,6 +1849,7 @@ struct NetworkPlay::NetHost {
         config.host.datagram_port_first = 0;
         config.host.enum_port = 0;
         config.host.seed = seed;
+        config.host.clock.in_flight = in_flight;
         state.connected = nm::net_connection_create(&state.connection, config);
         if (state.connected) {
             state.connection.pump_context = peer;
@@ -1862,6 +1869,29 @@ struct NetworkPlay::NetHost {
         auto& connection = play.net_->connection;
         play.net_simulation_step();
         nm::packet_layer_flush(connection.packets, nm::net_connection_time(&connection), true);
+    }
+
+    // Services both machines until each has read every byte the other sent
+    // it. The system hands a loopback datagram over a little after it is
+    // sent, later on a loaded machine; read when it happens to be there, a
+    // record would reach the other machine's match a tick early or late, and
+    // the receiver spreads a frame's records over the ticks from the one it
+    // arrives at, so its units, and the fight, would play otherwise from run
+    // to run. Read here, each machine applies the other's records of a tick
+    // at the same tick of every run.
+    static void loopback_deliver(NetworkPlay& host, NetworkPlay& joiner, const int64_t& in_flight) {
+        LoopbackWait wait;
+        for (;;) {
+            loopback_pump(host, 0);
+            loopback_pump(joiner, 0);
+            if (in_flight <= 0)
+                return;
+            if (!wait.next_round())
+                throw std::runtime_error(
+                    "net loopback check: bytes one machine sent the other did not arrive"
+                );
+            std::this_thread::sleep_for(kLoopbackDeliverPause);
+        }
     }
 
     static UnitPose unit_pose(NetworkPlay& play, uint16_t unit) {
@@ -1947,13 +1977,15 @@ struct NetworkPlay::NetHost {
     /// @param computer_id session id of the computer player
     /// @param watching whether the joiner only watches
     /// @param joiner_computer session id of the joiner's computer player, or none
+    /// @param in_flight the bytes the machines have sent each other and not yet read
     static void computer_match(
         NetworkPlay& host,
         NetworkPlay& joiner,
         std::size_t build_ticks,
         uint32_t computer_id,
         bool watching,
-        uint32_t joiner_computer
+        uint32_t joiner_computer,
+        const int64_t& in_flight
     ) {
         const auto require = [](bool ok, const char* what) {
             if (!ok)
@@ -2079,15 +2111,18 @@ struct NetworkPlay::NetHost {
                     std::max(copies_worst_offset, pose_divergence(ground, owner.pose));
             }
         };
+        // The joiner applies the host's records of a tick at that tick, and
+        // the host the joiner's at the next (loopback_deliver).
+        loopback_deliver(host, joiner, in_flight);
         const auto play_tick = [&] {
             host.net_frame();
             joiner.net_frame();
             loopback_step(host);
             note_owner();
+            loopback_deliver(host, joiner, in_flight);
             loopback_step(joiner);
             compare_copies();
-            loopback_pump(host, kTickPumpWaitMs);
-            loopback_pump(joiner, kTickPumpWaitMs);
+            loopback_deliver(host, joiner, in_flight);
         };
         // Units are created and die on the joiner a few ticks after the host;
         // both hold the same ones once none is on its way.
@@ -2868,6 +2903,9 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     // Both machines run the same extension table; the check presses Pause
     // through it as the engine's hotkeys do.
     const Extension& extension = runtime_.extension_;
+    // The bytes the machines send each other and have not yet read
+    // (loopback_configure). It outlives the joiner.
+    int64_t in_flight = 0;
     // The joining machine is a whole second runtime, so it lives on the heap
     // beside this one rather than on the thread's stack.
     const auto joiner_runtime =
@@ -2875,16 +2913,21 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     Runtime& joiner = *joiner_runtime;
     NetworkPlay& joiner_play = NetworkPlay::of(joiner);
 
-    // The host services the joiner while it waits (loopback_configure). It
-    // stops before the joiner is destroyed, however the check ends, so the
-    // host's later teardown never services a freed machine.
+    // The host services the joiner while it waits, and counts its bytes in
+    // flight here (loopback_configure). Both stop before the joiner is
+    // destroyed, however the check ends, so the host's later teardown never
+    // services a freed machine or counts into this frame.
     struct JoinerUnlink {
         NetworkPlay& host;
 
         ~JoinerUnlink() {
             if (host.net_) {
-                host.net_->connection.pump_context = nullptr;
-                host.net_->connection.pump_other = nullptr;
+                auto& connection = host.net_->connection;
+                connection.pump_context = nullptr;
+                connection.pump_other = nullptr;
+                connection.host_config.clock.in_flight = nullptr;
+                if (connection.host != nullptr)
+                    connection.host->config.clock.in_flight = nullptr;
             }
         }
     };
@@ -2901,8 +2944,8 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
         return side_host.screen(side_host.context) == screen_id(screen);
     };
     require(
-        NetHost::loopback_configure(*this, 0x51, joiner_play.net_.get()) &&
-            NetHost::loopback_configure(joiner_play, 0x77, net_.get()),
+        NetHost::loopback_configure(*this, 0x51, joiner_play.net_.get(), &in_flight) &&
+            NetHost::loopback_configure(joiner_play, 0x77, net_.get(), &in_flight),
         "loopback session storage"
     );
     for (auto* side : {&host, &client}) {
@@ -3470,7 +3513,7 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     );
     if (computer) {
         NetHost::computer_match(
-            *this, joiner_play, ticks, computer_id, watching, joiner_computer_id
+            *this, joiner_play, ticks, computer_id, watching, joiner_computer_id, in_flight
         );
         return 0;
     }

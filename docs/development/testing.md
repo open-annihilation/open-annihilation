@@ -559,10 +559,14 @@ names, these run the game headless:
   `native-net-loopback-watcher` has the joiner watch, and
   `native-net-loopback-computer` and `native-net-loopback-computer-watcher`
   have the host seat a computer player that builds, is given a squad and
-  attacks. Each wait on the other machine counts rounds, each serving both
-  machines once, and gives up only after 200 rounds and 15 s with no
-  progress (the unit sync shows its records as progress), so a machine
-  under load takes longer over the checks without failing them;
+  attacks. After each machine's tick the computer checks read every byte
+  it sent the other before the other plays its tick, so each machine
+  applies the other's records at the same tick whatever the load, and the
+  fight plays the same way every run. Each wait on the other machine
+  counts rounds, each serving both machines once, and gives up only after
+  200 rounds and 15 s with no progress (the unit sync shows its records as
+  progress), so a machine under load takes longer over the checks without
+  failing them;
 - `native-net-loopback-wide` (`--net-loopback-check 300 --mod-dir` of
   `ridge-wide` and `--net-loopback-shooter RIDGEW300`) runs that check under
   a profile with more than 256 weapon types. The host makes one `RIDGEW300`
