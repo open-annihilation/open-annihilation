@@ -173,9 +173,11 @@ std::string good_json() {
     "rollout": 25,
     "notes": {"en": ["Drag the bars", "A second line"], "de": ["Ziehen"]},
     "page": "https://example.net/v0.8.7",
+    "install_page": "https://example.net/install?from=feed",
     "packages": {
       "windows-x64": {
         "extra": true,
+        "from": "0.8.5",
         "file": "open-annihilation-0.8.7-windows-x64.zip",
         "size": 1200,
         "sha256": ")";
@@ -226,6 +228,7 @@ void accepted_feed() {
     OA_CHECK(release.from == (oamod::EngineVersion{0, 7, 0}));
     OA_CHECK(release.rollout == 25);
     OA_CHECK(release.page == "https://example.net/v0.8.7");
+    OA_CHECK(release.install_page == "https://example.net/install?from=feed");
     OA_CHECK(release.notes.size() == 2);
     if (release.notes.size() == 2) {
         OA_CHECK(release.notes[0].language == "en");
@@ -240,6 +243,9 @@ void accepted_feed() {
         return;
     const feed::Package& package = release.packages[0];
     OA_CHECK(package.id == "windows-x64");
+    OA_CHECK(package.from.has_value());
+    if (package.from)
+        OA_CHECK((*package.from == oamod::EngineVersion{0, 8, 5}));
     OA_CHECK(package.zip.file == "open-annihilation-0.8.7-windows-x64.zip");
     OA_CHECK(package.zip.size == 1200);
     const auto zip_hash = sha256::parse_hex(kSha);
@@ -480,6 +486,31 @@ void structure_refusals() {
         replaced(",\"packages\":", ",\"page\":\"not a page\",\"packages\":"),
         feed::Verdict::malformed,
         "page is not an http or https address"
+    );
+    expect_refused(
+        replaced(",\"packages\":", ",\"install_page\":\"ftp://example.net/\",\"packages\":"),
+        feed::Verdict::malformed,
+        "install_page is not an http or https address"
+    );
+    expect_refused(
+        replaced(",\"packages\":", ",\"install_page\":1,\"packages\":"),
+        feed::Verdict::malformed,
+        "install_page is not an http or https address"
+    );
+    expect_refused(
+        replaced("\"windows-x64\":{", "\"windows-x64\":{\"from\":\"0.8\","),
+        feed::Verdict::malformed,
+        "a package's from is not a version"
+    );
+    expect_refused(
+        replaced("\"windows-x64\":{", "\"windows-x64\":{\"from\":812,"),
+        feed::Verdict::malformed,
+        "a package's from is not a version"
+    );
+    expect_refused(
+        replaced("\"windows-x64\":{", "\"windows-x64\":{\"from\":\"0.8.12\",\"from\":\"0.8.12\","),
+        feed::Verdict::malformed,
+        "a member is named twice"
     );
     expect_refused(
         replaced(",\"packages\":", ",\"notes\":{\"de\":[\"Hallo\"]},\"packages\":"),
@@ -840,6 +871,95 @@ void choose_cases() {
     );
 }
 
+/// A release 0.8.13, number 813, with a Windows and a macOS package. The
+/// release's from is `from`; the packages name none until a test sets them.
+feed::Release two_packages(const char* from) {
+    feed::Release release = make_release(813, "0.8.13", from, "windows-x64");
+    release.packages.push_back(make_package("macos-universal"));
+    release.page = "https://example.net/v0.8.13";
+    return release;
+}
+
+/// The one release `feed` holds, as a feed.
+feed::Feed holding(feed::Release release) {
+    feed::Feed one;
+    one.channel = "stable";
+    one.releases.push_back(std::move(release));
+    return one;
+}
+
+void package_minimums() {
+    // A package's from above the release's: older copies of that package
+    // are offered the page, and the other packages still go in place.
+    feed::Feed above = holding(two_packages("0.8.0"));
+    above.releases[0].packages[1].from = oamod::EngineVersion{0, 8, 12};
+    const feed::Offer old_mac = feed::choose(above, make_build("0.8.10", 810, "macos-universal"));
+    OA_CHECK(old_mac.way == feed::Way::page_only);
+    OA_CHECK(old_mac.package != nullptr);
+    if (old_mac.package != nullptr)
+        OA_CHECK(old_mac.package->id == "macos-universal");
+    const feed::Offer new_mac = feed::choose(above, make_build("0.8.12", 812, "macos-universal"));
+    OA_CHECK(new_mac.way == feed::Way::in_place);
+    const feed::Offer old_windows = feed::choose(above, make_build("0.8.10", 810, "windows-x64"));
+    OA_CHECK(old_windows.way == feed::Way::in_place);
+
+    // A package's from below the release's: that package goes in place from
+    // its own version, and the others keep the release's.
+    feed::Feed below = holding(two_packages("0.8.12"));
+    below.releases[0].packages[0].from = oamod::EngineVersion{0, 8, 0};
+    OA_CHECK(
+        feed::choose(below, make_build("0.8.10", 810, "windows-x64")).way == feed::Way::in_place
+    );
+    OA_CHECK(
+        feed::choose(below, make_build("0.7.9", 709, "windows-x64")).way == feed::Way::page_only
+    );
+    OA_CHECK(
+        feed::choose(below, make_build("0.8.10", 810, "macos-universal")).way ==
+        feed::Way::page_only
+    );
+
+    // No package names one: the release's from decides for every package.
+    const feed::Feed none = holding(two_packages("0.8.12"));
+    for (const char* package : {"windows-x64", "macos-universal"}) {
+        OA_CHECK(
+            feed::choose(none, make_build("0.8.10", 810, package)).way == feed::Way::page_only
+        );
+        OA_CHECK(feed::choose(none, make_build("0.8.12", 812, package)).way == feed::Way::in_place);
+    }
+
+    // No install page: a page-only offer opens the release's page.
+    OA_CHECK(!old_mac.by_hand);
+    OA_CHECK(old_mac.page == "https://example.net/v0.8.13");
+    OA_CHECK(old_mac.page.data() == above.releases[0].page.data());
+
+    // An install page: a copy below the minimum installs by hand from it,
+    // whichever from put it there. An offer in place still names the
+    // release's page.
+    feed::Feed with_page = above;
+    with_page.releases[0].install_page = "https://example.net/install";
+    const feed::Offer by_hand =
+        feed::choose(with_page, make_build("0.8.10", 810, "macos-universal"));
+    OA_CHECK(by_hand.way == feed::Way::page_only);
+    OA_CHECK(by_hand.by_hand);
+    OA_CHECK(by_hand.page == "https://example.net/install");
+    OA_CHECK(by_hand.page.data() == with_page.releases[0].install_page.data());
+    const feed::Offer in_place = feed::choose(with_page, make_build("0.8.10", 810, "windows-x64"));
+    OA_CHECK(in_place.way == feed::Way::in_place);
+    OA_CHECK(!in_place.by_hand);
+    OA_CHECK(in_place.page == "https://example.net/v0.8.13");
+    feed::Feed release_floor = none;
+    release_floor.releases[0].install_page = "https://example.net/install";
+    const feed::Offer floored =
+        feed::choose(release_floor, make_build("0.8.10", 810, "windows-x64"));
+    OA_CHECK(floored.way == feed::Way::page_only && floored.by_hand);
+    OA_CHECK(floored.page == "https://example.net/install");
+
+    // Nothing to offer names no page.
+    const feed::Offer nothing = feed::choose(with_page, make_build("0.8.13", 813, "windows-x64"));
+    OA_CHECK(nothing.way == feed::Way::none);
+    OA_CHECK(nothing.page.empty() && !nothing.by_hand);
+}
+
 void number_and_notes() {
     const auto version_087 = oamod::parse_engine_version("0.8.7");
     const auto version_123 = oamod::parse_engine_version("1.2.3");
@@ -890,7 +1010,8 @@ bool same_feed(const feed::Feed& left, const feed::Feed& right) {
         if (one.release != two.release || one.version != two.version ||
             one.version_text != two.version_text || one.date != two.date || one.from != two.from ||
             one.rollout != two.rollout || one.page != two.page ||
-            one.notes.size() != two.notes.size() || one.packages.size() != two.packages.size())
+            one.install_page != two.install_page || one.notes.size() != two.notes.size() ||
+            one.packages.size() != two.packages.size())
             return false;
         for (std::size_t note = 0; note < one.notes.size(); ++note) {
             if (one.notes[note].language != two.notes[note].language ||
@@ -903,7 +1024,8 @@ bool same_feed(const feed::Feed& left, const feed::Feed& right) {
             if (left_package.id != right_package.id ||
                 !same_file(left_package.zip, right_package.zip) ||
                 left_package.installer.has_value() != right_package.installer.has_value() ||
-                left_package.mirrors != right_package.mirrors)
+                left_package.mirrors != right_package.mirrors ||
+                left_package.from != right_package.from)
                 return false;
             if (left_package.installer &&
                 !same_file(*left_package.installer, *right_package.installer))
@@ -919,6 +1041,7 @@ void round_trip() {
     source.online_min = oamod::EngineVersion{0, 8, 3};
     feed::Release newer = make_release(900, "0.8.5", "0.8.0", "windows-x64", 0);
     newer.page = "https://example.net/v0.8.5";
+    newer.install_page = "https://example.net/install";
     feed::Notes english;
     english.language = "en";
     english.lines.push_back("say \"hi\"");
@@ -938,6 +1061,7 @@ void round_trip() {
     if (mirror)
         newer.packages[0].mirrors.push_back(*mirror);
     newer.packages[0].installer = installer;
+    newer.packages[0].from = oamod::EngineVersion{0, 8, 3};
     feed::Release older = make_release(807, "0.8.7", "0.7.0", "macos-universal", 100);
     older.packages[0].zip.sha256 = *sha256::parse_hex(kSha);
     const auto other = url::parse_http_url("https://example.net/releases/v0.8.7/");
@@ -951,6 +1075,10 @@ void round_trip() {
     OA_CHECK(!text.empty() && text.back() == '\n');
     OA_CHECK(text.find("\n  \"feed\": 1") != std::string::npos);
     OA_CHECK(text.find("\n      \"release\": ") != std::string::npos);
+    OA_CHECK(
+        text.find("\n      \"install_page\": \"https://example.net/install\",") != std::string::npos
+    );
+    OA_CHECK(text.find("\n          \"from\": \"0.8.3\",") != std::string::npos);
     std::string error;
     const std::vector<uint8_t> bytes(text.begin(), text.end());
     const std::optional<feed::Feed> loaded = feed::read_feed(bytes, &error);
@@ -966,6 +1094,134 @@ void round_trip() {
     OA_CHECK(loaded.has_value());
     if (loaded)
         OA_CHECK(same_feed(source, *loaded));
+}
+
+/// A feed with both members: the release's from is `release_from`, the
+/// macOS package names 0.8.12, and the release names an install page. The
+/// reader of 0.8.9 to 0.8.11 was run on these bytes.
+std::string minimum_vector(std::string_view release_from) {
+    std::string json = R"({
+  "feed": 1,
+  "channel": "stable",
+  "releases": [
+    {
+      "release": 812,
+      "version": "0.8.12",
+      "date": "2026-11-02",
+      "from": ")";
+    json += release_from;
+    json += R"(",
+      "rollout": 100,
+      "page": "https://example.net/v0.8.12",
+      "install_page": "https://example.net/install",
+      "packages": {
+        "macos-universal": {
+          "from": "0.8.12",
+          "file": "open-annihilation-0.8.12-macos-universal.zip",
+          "size": 1,
+          "sha256": ")";
+    json += kSha;
+    json += R"(",
+          "mirrors": [
+            "http://downloads.example.net/v1/engine/0.8.12/"
+          ]
+        },
+        "windows-x64": {
+          "file": "open-annihilation-0.8.12-windows-x64.zip",
+          "size": 1,
+          "sha256": ")";
+    json += kSha;
+    json += R"(",
+          "mirrors": [
+            "http://downloads.example.net/v1/engine/0.8.12/"
+          ]
+        }
+      }
+    }
+  ]
+}
+)";
+    return json;
+}
+
+/// `text` without each line that holds `member`.
+std::string without_lines(std::string_view text, std::string_view member) {
+    std::string kept;
+    std::size_t start = 0;
+    while (start < text.size()) {
+        std::size_t end = text.find('\n', start);
+        end = end == std::string_view::npos ? text.size() : end + 1;
+        const std::string_view line = text.substr(start, end - start);
+        if (line.find(member) == std::string_view::npos)
+            kept += line;
+        start = end;
+    }
+    return kept;
+}
+
+/// What 0.8.9 to 0.8.11 read of a minimum_vector: they look up neither the
+/// install page nor a package's from, the one `from` indented ten spaces.
+std::string older_view(std::string_view vector) {
+    return without_lines(without_lines(vector, "\"install_page\""), "          \"from\"");
+}
+
+/// Reads `json`, or prints why it was refused.
+std::optional<feed::Feed> read_text(const std::string& json) {
+    std::string error;
+    const std::vector<uint8_t> bytes(json.begin(), json.end());
+    std::optional<feed::Feed> loaded = feed::read_feed(bytes, &error);
+    if (!loaded)
+        std::fprintf(stderr, "read_feed: %s\n", error.c_str());
+    return loaded;
+}
+
+void older_readers() {
+    // This build: the macOS package's own minimum sends a 0.8.11 Mac to the
+    // install page, and a 0.8.11 Windows copy still updates in place.
+    const std::string vector = minimum_vector("0.8.0");
+    const std::optional<feed::Feed> loaded = read_text(vector);
+    OA_CHECK(loaded.has_value());
+    if (!loaded)
+        return;
+    const feed::Offer mac = feed::choose(*loaded, make_build("0.8.11", 811, "macos-universal"));
+    OA_CHECK(mac.way == feed::Way::page_only && mac.by_hand);
+    OA_CHECK(mac.page == "https://example.net/install");
+    const feed::Offer windows = feed::choose(*loaded, make_build("0.8.11", 811, "windows-x64"));
+    OA_CHECK(windows.way == feed::Way::in_place && !windows.by_hand);
+
+    // 0.8.9 to 0.8.11 look up neither member. What they read is the feed
+    // with those lines gone, and it is the same feed in every other member.
+    const std::string older = older_view(vector);
+    OA_CHECK(older.find("install_page") == std::string::npos);
+    OA_CHECK(older.find("          \"from\"") == std::string::npos);
+    OA_CHECK(older.find("\"from\": \"0.8.0\"") != std::string::npos);
+    const std::optional<feed::Feed> plain = read_text(older);
+    OA_CHECK(plain.has_value());
+    if (!plain)
+        return;
+    feed::Feed ignored = *loaded;
+    for (feed::Release& release : ignored.releases) {
+        release.install_page.clear();
+        for (feed::Package& package : release.packages)
+            package.from.reset();
+    }
+    OA_CHECK(same_feed(ignored, *plain));
+
+    // There the release's from still decides, for every package: from 0.8.0
+    // both copies go in place, and from 0.8.12 both are offered the page.
+    for (const char* package : {"macos-universal", "windows-x64"}) {
+        const feed::Offer offered = feed::choose(*plain, make_build("0.8.11", 811, package));
+        OA_CHECK(offered.way == feed::Way::in_place);
+    }
+    const std::optional<feed::Feed> floored = read_text(older_view(minimum_vector("0.8.12")));
+    OA_CHECK(floored.has_value());
+    if (floored) {
+        OA_CHECK(floored->releases.size() == 1);
+        for (const char* package : {"macos-universal", "windows-x64"}) {
+            const feed::Offer offered = feed::choose(*floored, make_build("0.8.11", 811, package));
+            OA_CHECK(offered.way == feed::Way::page_only);
+        }
+    }
 }
 
 void verdict_names() {
@@ -1005,8 +1261,10 @@ int main() {
     structure_refusals();
     boundaries();
     choose_cases();
+    package_minimums();
     number_and_notes();
     round_trip();
+    older_readers();
     verdict_names();
     return oa::test::check_exit_status();
 }

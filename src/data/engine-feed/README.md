@@ -19,7 +19,11 @@ or opens a file.
   only for `accepted`. The keys default to the engine's pinned keys.
 - `release_number` is major × 10000 + minor × 100 + patch, and only while
   minor and patch are at most 99. `choose` offers the newest release above
-  the build's number that has the build's package. `notes_for` takes the
+  the build's number that has the build's package. It goes in place when
+  the build's version is at or after the package's `from`, or the
+  release's when the package names none, and is page only otherwise. A
+  page-only offer names the release's `install_page` when there is one
+  (`Offer::by_hand`), and its `page` otherwise. `notes_for` takes the
   exact language tag, then its first subtag, then `en`.
 - `feed_text` writes the canonical JSON. Reading that text back yields the
   same feed.
@@ -36,12 +40,17 @@ None. The caller keeps the feed and the build it is choosing for.
   the pinned keys. A key id they do not hold is `unknown_key`.
 - The release number decides which release is newer. The version text is
   only shown. A release with no package for the build is not offered.
+- A package's `from` and the release's `install_page` are optional and
+  keep the format at 1. A reader older than 0.8.12 ignores both: for it the
+  release's `from` decides for every package, and the page is `page`.
 
 ## Tests
 
 `data-engine-feed` signs feeds in the test and covers the signature, every
-refusal of the reader, `choose`, the release number, the notes and a
-round trip through `feed_text`.
+refusal of the reader, `choose` with a package's minimum above, below and
+without the release's and with and without an install page, the release
+number, the notes, a round trip through `feed_text`, and a feed with both
+new members as a reader older than 0.8.12 reads it.
 
 ## Limitations
 

@@ -71,7 +71,12 @@ Offer choose(const Feed& feed, const Build& build) noexcept {
         return offer;
     offer.release = best;
     offer.package = best_package;
-    offer.way = build.version >= best->from ? Way::in_place : Way::page_only;
+    // A package's own from is the minimum for that package; the release's
+    // stands for every package that names none.
+    const formats::oamod::EngineVersion from = best_package->from.value_or(best->from);
+    offer.way = build.version >= from ? Way::in_place : Way::page_only;
+    offer.by_hand = offer.way == Way::page_only && !best->install_page.empty();
+    offer.page = offer.by_hand ? best->install_page : best->page;
     return offer;
 }
 

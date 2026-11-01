@@ -45,6 +45,9 @@ struct Package {
     PackageFile zip;                        ///< the zip a download saves
     std::optional<PackageFile> installer;   ///< the Windows setup or the macOS package
     std::vector<formats::url::Url> mirrors; ///< addresses ending in /, with no query
+    /// The oldest version that may take this package in place. Nothing when
+    /// the feed omits it, and the release's from decides.
+    std::optional<formats::oamod::EngineVersion> from;
 };
 
 /// The release notes in one language.
@@ -59,10 +62,11 @@ struct Release {
     formats::oamod::EngineVersion version{}; ///< the version, parsed
     std::string version_text;                ///< the version as the feed shows it
     std::string date;                        ///< the day, YYYY-MM-DD
-    formats::oamod::EngineVersion from{};    ///< the oldest version updated in place
+    formats::oamod::EngineVersion from{};    ///< the oldest version updated in place, by default
     int32_t rollout{100};                    ///< the percentage; 100 when the feed omits it
     std::vector<Notes> notes;                ///< notes by language; empty when omitted
     std::string page;                        ///< the release page; empty when omitted
+    std::string install_page;                ///< the page to install by hand; empty when omitted
     std::vector<Package> packages;           ///< the packages, in the feed's order
 };
 
@@ -159,17 +163,24 @@ struct Build {
 enum class Way : uint8_t {
     none,      ///< nothing to offer
     in_place,  ///< the build is new enough to take the package
-    page_only, ///< the build is older than from, so the page is offered
+    page_only, ///< the build is older than from, so a page is offered
 };
 
 /// The release choose picked, and the package for this build.
 ///
-/// The pointers address the feed that was passed to choose, and are null
-/// when way is none.
+/// The pointers and the page address the feed that was passed to choose.
+/// The pointers are null, and the page empty, when way is none.
 struct Offer {
     const Release* release{}; ///< the release, or null
     const Package* package{}; ///< that release's package for the build, or null
     Way way{Way::none};       ///< how the release is offered
+    /// The page the offer opens: the release's install page when the offer
+    /// is page only and the release names one, and the release's page
+    /// otherwise. Empty when that page is omitted.
+    std::string_view page;
+    /// The offer is page only and `page` is the install page, so this copy
+    /// installs the release by hand.
+    bool by_hand{};
 };
 
 /// Picks the release to offer a build.
@@ -177,7 +188,9 @@ struct Offer {
 /// Walks the releases newest first. A release at or below the build's
 /// number is skipped, and so is one with no package for the build. The
 /// first that remains is in place when the build's version is at or after
-/// from, and page only otherwise. rollout and online_min are not read.
+/// the package's from, or the release's when the package names none, and
+/// page only otherwise. A page-only offer names the install page when the
+/// release has one. rollout and online_min are not read.
 ///
 /// @param feed the feed, newest release first
 /// @param build the build that is asking

@@ -271,6 +271,16 @@ bool read_package(
         set_error(reason, "a package is not an object");
         return false;
     }
+    if (const json::Json* from_member = value.find("from")) {
+        const std::string* from_text = from_member->string();
+        const std::optional<oamod::EngineVersion> from =
+            from_text != nullptr ? oamod::parse_engine_version(*from_text) : std::nullopt;
+        if (!from) {
+            set_error(reason, "a package's from is not a version");
+            return false;
+        }
+        package.from = *from;
+    }
     if (!read_package_file(value, package.zip, reason))
         return false;
     if (const json::Json* installer = value.find("installer")) {
@@ -436,6 +446,15 @@ bool read_release(const json::Json& value, Release& release, std::string* reason
         }
         page = *page_text;
     }
+    std::string install_page;
+    if (const json::Json* install_member = value.find("install_page")) {
+        const std::string* install_text = install_member->string();
+        if (install_text == nullptr || !url::parse_http_url(*install_text)) {
+            set_error(reason, "install_page is not an http or https address");
+            return false;
+        }
+        install_page = *install_text;
+    }
     const json::Json* packages_member = value.find("packages");
     if (packages_member == nullptr) {
         set_error(reason, "packages is missing");
@@ -460,6 +479,7 @@ bool read_release(const json::Json& value, Release& release, std::string* reason
     release.from = *from;
     release.rollout = rollout;
     release.page = std::move(page);
+    release.install_page = std::move(install_page);
     return true;
 }
 
