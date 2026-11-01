@@ -1012,6 +1012,8 @@ struct Runtime::KeyBindingsState {
         bool replay_up{};                 ///< the replay includes the button coming up
         SDL_Event motion{};               ///< the motion that crossed the drag threshold
         bool mouse_open{};                ///< the wheel on screen was opened by this button
+        bool held{};                      ///< the press that opened the wheel is still down
+        uint16_t clicked{};               ///< buttons pressed on the wheel, one bit each
         std::optional<std::size_t> aim{}; ///< the wedge under the pointer, as a slot
         bool escape_up{};                 ///< Escape's key-up still belongs to the wheel
     };
@@ -2188,10 +2190,17 @@ void Runtime::open_mouse_order_wheel() {
     if (!order_wheel_canvas(wheel.down, x, y))
         return;
     ensure_order_wheel_viewport();
+    // The wheel opens where the press went down; the cursor stays where the
+    // mouse has moved to since.
+    const float mouse_x = pointer_x_;
+    const float mouse_y = pointer_y_;
     TouchDispatchAccess::open_radial(*this, x, y);
+    pointer_x_ = mouse_x;
+    pointer_y_ = mouse_y;
     if (touch_ == nullptr || !touch_->hud.radial)
         return;
     wheel.mouse_open = true;
+    wheel.held = true;
     wheel.aim.reset();
     ++touch_->hud.revision;
     // The hold took the middle button, so a pan that was running stops and
@@ -2211,6 +2220,25 @@ void Runtime::close_mouse_order_wheel() {
         ++touch_->hud.revision;
 }
 
+void Runtime::end_mouse_order_wheel(float x, float y) {
+    close_mouse_order_wheel();
+    // The battlefield takes the pointer again where the mouse is: the unit
+    // under it, its cursor and the view's edges. A wedge's order went to the
+    // point the wheel opened at.
+    if (screen_ == Screen::match)
+        update_pointer(x, y);
+}
+
+void Runtime::drop_lost_order_wheel() {
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->order_wheel.mouse_open)
+        return;
+    // Another layer closed the wheel (an open sheet, the pad, a reset of the
+    // touch controls), or the match is gone. The mouse is the game's again.
+    if (screen_ == Screen::match && touch_ != nullptr && touch_->hud.radial)
+        return;
+    close_mouse_order_wheel();
+}
+
 void Runtime::cancel_order_wheel() {
     if (key_bindings_state_ == nullptr)
         return;
@@ -2221,6 +2249,8 @@ void Runtime::cancel_order_wheel() {
     wheel.replay_drag = false;
     wheel.replay_up = false;
     wheel.escape_up = false;
+    wheel.held = false;
+    wheel.clicked = 0;
     close_mouse_order_wheel();
 }
 
@@ -2252,31 +2282,22 @@ void Runtime::aim_mouse_order_wheel(const SDL_Event& event) {
 }
 
 void Runtime::release_mouse_order_wheel(const SDL_Event& event) {
-    if (touch_ == nullptr || !touch_->hud.radial || key_bindings_state_ == nullptr) {
-        close_mouse_order_wheel();
-        return;
+    float x = pointer_x_;
+    float y = pointer_y_;
+    if (touch_ != nullptr && touch_->hud.radial && order_wheel_canvas(event, x, y)) {
+        const oa::ui::touch_hud::Point at{
+            static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y))
+        };
+        if (const auto hit =
+                oa::ui::touch_hud::radial_hit(*touch_->hud.radial, at, touch_->viewport)) {
+            TouchDispatchAccess::radial_pick(*this, *hit);
+            // Letting go on a greyed wedge leaves the wheel open, for a click.
+            // A click there closes it.
+            if (touch_->hud.radial && event.type == SDL_EVENT_MOUSE_BUTTON_UP)
+                return;
+        }
     }
-    float x = 0.0F;
-    float y = 0.0F;
-    if (!order_wheel_canvas(event, x, y)) {
-        close_mouse_order_wheel();
-        return;
-    }
-    const oa::ui::touch_hud::Point at{
-        static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y))
-    };
-    const auto hit = oa::ui::touch_hud::radial_hit(*touch_->hud.radial, at, touch_->viewport);
-    if (hit) {
-        TouchDispatchAccess::radial_pick(*this, *hit);
-        // A greyed wedge leaves the wheel open.
-        if (touch_->hud.radial)
-            return;
-        key_bindings_state_->order_wheel.mouse_open = false;
-        key_bindings_state_->order_wheel.aim.reset();
-        ++touch_->hud.revision;
-        return;
-    }
-    close_mouse_order_wheel();
+    end_mouse_order_wheel(x, y);
 }
 
 bool Runtime::order_wheel_decide(const SDL_Event& event) {
@@ -2304,11 +2325,12 @@ bool Runtime::order_wheel_decide(const SDL_Event& event) {
 bool Runtime::take_order_wheel_aside(const SDL_Event& event) {
     if (key_bindings_state_ == nullptr)
         return false;
+    drop_lost_order_wheel();
     auto& wheel = key_bindings_state_->order_wheel;
     if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE &&
         (wheel.mouse_open || wheel.escape_up)) {
         if (wheel.mouse_open)
-            close_mouse_order_wheel();
+            end_mouse_order_wheel(pointer_x_, pointer_y_);
         wheel.escape_up = true;
         return true;
     }
@@ -2316,18 +2338,21 @@ bool Runtime::take_order_wheel_aside(const SDL_Event& event) {
         wheel.escape_up = false;
         return true;
     }
-    if (event.type != SDL_EVENT_MOUSE_MOTION)
-        return false;
-    if (wheel.mouse_open) {
-        aim_mouse_order_wheel(event);
-        return true;
-    }
-    if (!wheel.tracking)
+    if (event.type != SDL_EVENT_MOUSE_MOTION || (!wheel.mouse_open && !wheel.tracking))
         return false;
     float x = 0.0F;
     float y = 0.0F;
     if (!order_wheel_canvas(event, x, y))
         return true;
+    // The cursor follows the mouse while the wheel has it. The battlefield
+    // under it takes no motion: nothing there is hovered, and the view does
+    // not scroll from under the wheel.
+    pointer_x_ = x;
+    pointer_y_ = y;
+    if (wheel.mouse_open) {
+        aim_mouse_order_wheel(event);
+        return true;
+    }
     wheel.button.motion({x, y});
     return order_wheel_decide(event);
 }
@@ -2337,14 +2362,39 @@ bool Runtime::take_order_wheel_button(const SDL_Event& event) {
         return false;
     if (event.type != SDL_EVENT_MOUSE_BUTTON_DOWN && event.type != SDL_EVENT_MOUSE_BUTTON_UP)
         return false;
+    drop_lost_order_wheel();
     auto& wheel = key_bindings_state_->order_wheel;
-    if (wheel.mouse_open) {
-        if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.button == wheel.button_id)
+    const uint8_t button = event.button.button;
+    const auto bit = static_cast<uint16_t>(button < 16U ? 1U << button : 0U);
+    if (event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+        // The release of the press that opened the wheel gives the wedge
+        // under it while the wheel is open. It, and the release of a press
+        // made on the wheel, are the wheel's even once the wheel has closed.
+        if (wheel.held && button == wheel.button_id) {
+            wheel.held = false;
+            if (wheel.mouse_open)
+                release_mouse_order_wheel(event);
+            return true;
+        }
+        if ((wheel.clicked & bit) != 0) {
+            wheel.clicked = static_cast<uint16_t>(wheel.clicked & ~bit);
+            return true;
+        }
+    } else {
+        // A button pressed again came up unseen: its release is no longer awaited.
+        if (button == wheel.button_id)
+            wheel.held = false;
+        wheel.clicked = static_cast<uint16_t>(wheel.clicked & ~bit);
+        // Any press on the open wheel ends it: on a wedge the selection can
+        // take it gives that order, and anywhere else it closes the wheel.
+        if (wheel.mouse_open) {
+            wheel.clicked = static_cast<uint16_t>(wheel.clicked | bit);
             release_mouse_order_wheel(event);
-        return true;
+            return true;
+        }
     }
     const uint8_t watched = order_wheel_button();
-    if (watched == 0 || event.button.button != watched)
+    if (watched == 0 || button != watched)
         return false;
     if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
         float x = 0.0F;

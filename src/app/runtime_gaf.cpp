@@ -493,7 +493,9 @@ uint8_t Runtime::pick_match_cursor() {
 }
 
 std::optional<uint8_t> Runtime::shown_match_cursor() {
-    if (hovered_ || !match_)
+    // Over a HUD button, and while the order wheel a mouse button opened is
+    // up, the cursor is the arrow: a click gives the battlefield no order.
+    if (hovered_ || !match_ || order_wheel_mouse_open())
         return static_cast<uint8_t>(input::OrderCursor::normal);
     auto& world = match_->state();
     world.game.local_player_index = match_local_player_;

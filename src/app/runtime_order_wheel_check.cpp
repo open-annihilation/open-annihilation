@@ -3,21 +3,27 @@
 
 // The order wheel a held mouse button opens, on a skirmish. Touch controls
 // and the pad HUD stay off. A short click and a drag are not this wheel.
+// The cursor follows the mouse while the wheel is open, and one click ends it.
 #include "oa/app/runtime.hpp"
 
 #include "match_fault.hpp"
+#include "oa/sim/gameplay_input/order_cursor.hpp"
 #include "oa/ui/engine_settings.hpp"
+#include "touch_dispatch.hpp"
 #include "touch_state.hpp"
 
 #include <SDL3/SDL.h>
 
 #include <array>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 
 namespace oa::app {
@@ -244,6 +250,62 @@ void Runtime::check_order_wheel() {
             fail("the wedge is not that order");
         return std::pair{static_cast<float>(wedge.label.x), static_cast<float>(wedge.label.y)};
     };
+    const auto greyed_slot = [&] {
+        const auto* made = touch_state_if_made();
+        if (made == nullptr || !made->hud.radial)
+            fail("the wheel is not open");
+        const auto& wedges = made->hud.radial->wedges;
+        for (std::size_t slot = 0; slot < wedges.size(); ++slot)
+            if (!wedges[slot].available)
+                return slot;
+        fail("no wedge is greyed");
+    };
+    const auto wedge_label = [&](std::size_t slot) {
+        const auto* made = touch_state_if_made();
+        if (made == nullptr || !made->hud.radial)
+            fail("the wheel is not open");
+        const auto label = made->hud.radial->wedges[slot].label;
+        return std::pair{static_cast<float>(label.x), static_cast<float>(label.y)};
+    };
+    const auto pointer_at = [&](float at_x, float at_y, std::string_view what) {
+        if (std::abs(pointer_x_ - at_x) > 1.0F || std::abs(pointer_y_ - at_y) > 1.0F)
+            fail(
+                std::string(what) + ": the cursor is at " + std::to_string(pointer_x_) + ", " +
+                std::to_string(pointer_y_)
+            );
+    };
+    const auto arrow_shown = [&] {
+        const auto cursor = shown_match_cursor();
+        return cursor &&
+               *cursor == static_cast<uint8_t>(oa::sim::gameplay_input::OrderCursor::normal);
+    };
+    // A move goes to the whole map pixel under the point, so within a pixel of it.
+    const auto order_near = [&](const auto& point) {
+        const auto found = orders_of();
+        for (std::size_t index = 0; index < found.count; ++index) {
+            const auto& at = found.records[index].point;
+            if (std::abs(static_cast<int64_t>(at[0]) - point[0]) <= 0x10000 &&
+                std::abs(static_cast<int64_t>(at[2]) - point[2]) <= 0x10000)
+                return true;
+        }
+        return false;
+    };
+    const auto match_state = [&] {
+        return "'" + status_ + "', " + std::to_string(orders_of().count) + " orders, " +
+               (has_local_selection() ? "a selection" : "no selection");
+    };
+    const auto anchor_ground = [&] {
+        const auto* made = touch_state_if_made();
+        if (made == nullptr || !made->hud.radial)
+            fail("the wheel is not open");
+        const auto ground = match_world_point(
+            static_cast<float>(made->hud.radial->anchor.x),
+            static_cast<float>(made->hud.radial->anchor.y)
+        );
+        if (!ground)
+            fail("the held point has no world point");
+        return *ground;
+    };
     const auto hold_still = [&](uint8_t button, float at_x, float at_y) {
         send_pointer(SDL_EVENT_MOUSE_MOTION, 0, at_x, at_y);
         send_pointer(SDL_EVENT_MOUSE_BUTTON_DOWN, button, at_x, at_y);
@@ -260,6 +322,40 @@ void Runtime::check_order_wheel() {
         key_escape(true);
         key_escape(false);
         let_go(button, at_x, at_y);
+    };
+    // One left click on the minimap's corner farther from the commander, where
+    // it would move the view: it closes the open wheel, and nothing else.
+    const auto click_off_wheel = [&] {
+        const auto* made = touch_state_if_made();
+        if (made == nullptr || !made->hud.radial)
+            fail("the wheel is not open");
+        const auto& radar = radar_picture_;
+        if (radar.width <= 4 || radar.height <= 4)
+            fail("the match has no minimap");
+        const bool commander_left = home_x < static_cast<int32_t>(selected_tnt_->tile_width * 16U);
+        const auto at_x =
+            static_cast<float>(commander_left ? radar.x + radar.width - 3 : radar.x + 2);
+        const auto at_y = static_cast<float>(radar.y + 2);
+        const hud::Point corner{static_cast<int>(at_x), static_cast<int>(at_y)};
+        if (hud::radial_hit(*made->hud.radial, corner, made->viewport) ||
+            hud::radial_hub_hit(*made->hud.radial, corner))
+            fail("the minimap's corner is on the wheel");
+        const auto camera_x = match_camera_x_;
+        const auto camera_z = match_camera_z_;
+        const auto before = orders_of().count;
+        const auto before_status = status_;
+        const bool selection = has_local_selection();
+        send_pointer(SDL_EVENT_MOUSE_MOTION, 0, at_x, at_y);
+        pointer_at(at_x, at_y, "the cursor did not follow the mouse to the minimap");
+        send_pointer(SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT, at_x, at_y);
+        if (radial_open() || order_wheel_mouse_open())
+            fail("one click outside left the wheel open");
+        let_go(SDL_BUTTON_LEFT, at_x, at_y);
+        if (match_camera_x_ != camera_x || match_camera_z_ != camera_z)
+            fail("the click that closed the wheel moved the view");
+        if (status_ != before_status || orders_of().count != before ||
+            has_local_selection() != selection)
+            fail("the click that closed the wheel gave an order: " + match_state());
     };
 
     center_camera_on_unit(enemy);
@@ -294,16 +390,30 @@ void Runtime::check_order_wheel() {
     }
 
     settle();
-    step("a right hold of 600 ms opens the wheel");
+    step("a right hold of 600 ms opens the wheel where it went down; the cursor follows the mouse");
     const auto commander_at = unit_point(commander);
     const auto [ground_x, ground_y] = empty_ground(commander_at.first, commander_at.second);
-    hold_still(SDL_BUTTON_RIGHT, ground_x, ground_y);
+    send_pointer(SDL_EVENT_MOUSE_MOTION, 0, ground_x, ground_y);
+    send_pointer(SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_RIGHT, ground_x, ground_y);
+    // Inside the drag threshold: the press still waits for the long press.
+    send_pointer(SDL_EVENT_MOUSE_MOTION, 0, ground_x + 12.F, ground_y + 9.F);
+    pointer_at(ground_x + 12.F, ground_y + 9.F, "the cursor stood still while the press waited");
+    wait_ms(600);
+    advance_input_actions(running);
+    if (!running)
+        fail("the hold ended the run");
     require_drawn();
     if (!status_.empty() || orders_of().count != 0)
         fail("the hold gave an order");
     const auto* opened = touch_state_if_made();
     if (opened == nullptr || !opened->hud.radial)
         fail("the wheel is not open");
+    if (std::abs(static_cast<float>(opened->hud.radial->anchor.x) - ground_x) > 1.0F ||
+        std::abs(static_cast<float>(opened->hud.radial->anchor.y) - ground_y) > 1.0F)
+        fail("the wheel did not open where the press went down");
+    pointer_at(
+        ground_x + 12.F, ground_y + 9.F, "the cursor went back to the press as the wheel opened"
+    );
     const auto held_ground = match_world_point(
         static_cast<float>(opened->hud.radial->anchor.x),
         static_cast<float>(opened->hud.radial->anchor.y)
@@ -317,9 +427,11 @@ void Runtime::check_order_wheel() {
         send_pointer(SDL_EVENT_MOUSE_MOTION, 0, at_x, at_y);
         if (order_wheel_mouse_aim() != 1)
             fail("Patrol was not aimed");
+        pointer_at(at_x, at_y, "the cursor did not follow the mouse onto Patrol");
         let_go(SDL_BUTTON_RIGHT, at_x, at_y);
         if (status_ != "Patrol")
             fail("letting go gave '" + status_ + "'");
+        pointer_at(at_x, at_y, "the order took the cursor back to where the wheel opened");
         const auto found = orders_of();
         bool patrol = false;
         for (std::size_t index = 0; index < found.count; ++index) {
@@ -346,6 +458,8 @@ void Runtime::check_order_wheel() {
         require_drawn();
         if (status_ == "Attack" || orders_of().count != 0)
             fail("the hold attacked before the release");
+        if (!arrow_shown())
+            fail("the open wheel shows an order cursor over the enemy");
         const auto [aim_x, aim_y] = wedge_at(2, hud::RadialItem::attack);
         send_pointer(SDL_EVENT_MOUSE_MOTION, 0, aim_x, aim_y);
         let_go(SDL_BUTTON_RIGHT, aim_x, aim_y);
@@ -407,6 +521,130 @@ void Runtime::check_order_wheel() {
         if (screen_ != Screen::match || match_paused_ || match_ == nullptr)
             fail("Escape left the match");
         let_go(SDL_BUTTON_RIGHT, at_x, at_y);
+        if (orders_of().count != before || status_ != before_status)
+            fail("the release after Escape gave an order");
+    }
+
+    settle();
+    step(
+        "with nothing selected, letting go on greyed Move leaves the wheel open; one click on the "
+        "minimap closes it and does not move the view"
+    );
+    {
+        clear_local_selection();
+        apply_match_hud_for_selection();
+        const auto here = unit_point(commander);
+        const auto [at_x, at_y] = empty_ground(here.first, here.second);
+        const auto before_status = status_;
+        hold_still(SDL_BUTTON_RIGHT, at_x, at_y);
+        require_drawn();
+        const auto* made = touch_state_if_made();
+        if (made == nullptr || !made->hud.radial)
+            fail("the wheel is not open");
+        for (const auto& wedge : made->hud.radial->wedges)
+            if (wedge.available && hud::radial_order(wedge.item))
+                fail("an order is not greyed with nothing selected");
+        const auto [move_x, move_y] = wedge_at(0, hud::RadialItem::move);
+        send_pointer(SDL_EVENT_MOUSE_MOTION, 0, move_x, move_y);
+        pointer_at(move_x, move_y, "the cursor did not follow the mouse onto Move");
+        let_go(SDL_BUTTON_RIGHT, move_x, move_y);
+        if (!radial_open() || !order_wheel_mouse_open())
+            fail("letting go on a greyed wedge closed the wheel");
+        if (status_ != before_status || orders_of().count != 0 || has_local_selection())
+            fail("letting go on a greyed wedge gave an order: " + match_state());
+        click_off_wheel();
+        clear_local_selection();
+        adopt_selection(commander);
+        selected_match_unit_ = commander;
+        apply_match_hud_for_selection();
+    }
+
+    center_camera_on_unit(commander);
+    render_match_surface();
+    settle();
+    step(
+        "after letting go on a greyed wedge, a left click on Move gives the move to the held point"
+    );
+    {
+        const auto here = unit_point(commander);
+        const auto [at_x, at_y] = empty_ground(here.first, here.second);
+        hold_still(SDL_BUTTON_RIGHT, at_x, at_y);
+        require_drawn();
+        const auto held = anchor_ground();
+        const auto [grey_x, grey_y] = wedge_label(greyed_slot());
+        send_pointer(SDL_EVENT_MOUSE_MOTION, 0, grey_x, grey_y);
+        let_go(SDL_BUTTON_RIGHT, grey_x, grey_y);
+        if (!radial_open() || !order_wheel_mouse_open())
+            fail("letting go on a greyed wedge closed the wheel");
+        if (!status_.empty() || orders_of().count != 0)
+            fail("letting go on a greyed wedge gave an order: " + match_state());
+        const auto [move_x, move_y] = wedge_at(0, hud::RadialItem::move);
+        send_pointer(SDL_EVENT_MOUSE_MOTION, 0, move_x, move_y);
+        if (order_wheel_mouse_aim() != 0)
+            fail("Move was not aimed");
+        send_pointer(SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT, move_x, move_y);
+        if (radial_open() || order_wheel_mouse_open())
+            fail("the click on Move left the wheel open");
+        if (!order_near(held))
+            fail("the click on Move gave no move to the held point: " + match_state());
+        const auto given = orders_of().count;
+        let_go(SDL_BUTTON_LEFT, move_x, move_y);
+        if (orders_of().count != given || selected_match_unit_ != commander)
+            fail("the click's release reached the battlefield");
+        pointer_at(move_x, move_y, "the order took the cursor back to where the wheel opened");
+    }
+
+    settle();
+    step(
+        "a left click on Move while the right is held gives the move; the right's release gives "
+        "nothing more"
+    );
+    {
+        const auto here = unit_point(commander);
+        const auto [at_x, at_y] = empty_ground(here.first, here.second);
+        hold_still(SDL_BUTTON_RIGHT, at_x, at_y);
+        require_drawn();
+        const auto held = anchor_ground();
+        const auto [move_x, move_y] = wedge_at(0, hud::RadialItem::move);
+        send_pointer(SDL_EVENT_MOUSE_MOTION, 0, move_x, move_y);
+        send_pointer(SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT, move_x, move_y);
+        if (radial_open() || order_wheel_mouse_open())
+            fail("the click on Move left the wheel open");
+        if (!order_near(held))
+            fail("the click on Move gave no move to the held point: " + match_state());
+        const auto given = orders_of().count;
+        const auto given_status = status_;
+        let_go(SDL_BUTTON_LEFT, move_x, move_y);
+        let_go(SDL_BUTTON_RIGHT, move_x, move_y);
+        if (orders_of().count != given || status_ != given_status || radial_open())
+            fail("the releases after the click acted: " + match_state());
+    }
+
+    settle();
+    step("a wheel another layer closes gives the mouse back: a right click then moves");
+    {
+        const auto here = unit_point(commander);
+        const auto [at_x, at_y] = empty_ground(here.first, here.second);
+        hold_still(SDL_BUTTON_RIGHT, at_x, at_y);
+        require_drawn();
+        const auto [grey_x, grey_y] = wedge_label(greyed_slot());
+        send_pointer(SDL_EVENT_MOUSE_MOTION, 0, grey_x, grey_y);
+        let_go(SDL_BUTTON_RIGHT, grey_x, grey_y);
+        if (!order_wheel_mouse_open())
+            fail("letting go on a greyed wedge closed the wheel");
+        // As an open sheet or the pad closes the radial.
+        std::ignore = TouchDispatchAccess::close_overlay(*this);
+        send_pointer(SDL_EVENT_MOUSE_MOTION, 0, at_x, at_y);
+        if (order_wheel_mouse_open())
+            fail("the closed wheel still holds the mouse");
+        pointer_at(at_x, at_y, "the cursor did not follow the mouse");
+        send_pointer(SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_RIGHT, at_x, at_y);
+        wait_ms(100);
+        let_go(SDL_BUTTON_RIGHT, at_x, at_y);
+        if (status_ != "Move")
+            fail("the right click gave '" + status_ + "'");
+        if (radial_open() || order_wheel_mouse_open())
+            fail("the right click opened the wheel");
     }
 
     apply_wheel(settings::OrderWheel::hold_middle);
@@ -463,6 +701,65 @@ void Runtime::check_order_wheel() {
     shoot(640, 480, "640x480");
     shoot(1280, 720, "1280x720");
     shoot(1920, 1080, "1920x1080");
+
+    // A hold on the battlefield's middle opens the wheel, the cursor follows
+    // the mouse onto Patrol, and letting go there patrols to the held point;
+    // a second wheel, left open by a release on a greyed wedge, closes on one
+    // click.
+    const auto round_trip = [&](const std::string& where) {
+        settle();
+        step(
+            where +
+            ": a hold opens the wheel, the cursor follows, letting go on Patrol patrols to the "
+            "held point, and one click closes a wheel left open"
+        );
+        const auto& layout = match_layout_;
+        const auto middle_x = static_cast<float>(layout.left + layout.battlefield_width() / 2);
+        const auto middle_y = static_cast<float>(layout.top + layout.battlefield_height() / 2);
+        const auto [at_x, at_y] = empty_ground(middle_x, middle_y);
+        hold_still(SDL_BUTTON_RIGHT, at_x, at_y);
+        require_drawn();
+        const auto held = anchor_ground();
+        const auto [patrol_x, patrol_y] = wedge_at(1, hud::RadialItem::patrol);
+        send_pointer(SDL_EVENT_MOUSE_MOTION, 0, patrol_x, patrol_y);
+        pointer_at(patrol_x, patrol_y, where + ": the cursor did not follow the mouse onto Patrol");
+        if (order_wheel_mouse_aim() != 1)
+            fail(where + ": Patrol was not aimed");
+        let_go(SDL_BUTTON_RIGHT, patrol_x, patrol_y);
+        if (radial_open() || !order_near(held))
+            fail(where + ": the patrol is not to the held point: " + match_state());
+        settle();
+        hold_still(SDL_BUTTON_RIGHT, at_x, at_y);
+        require_drawn();
+        const auto [grey_x, grey_y] = wedge_label(greyed_slot());
+        send_pointer(SDL_EVENT_MOUSE_MOTION, 0, grey_x, grey_y);
+        let_go(SDL_BUTTON_RIGHT, grey_x, grey_y);
+        if (!radial_open())
+            fail(where + ": letting go on a greyed wedge closed the wheel");
+        click_off_wheel();
+    };
+
+    const auto full_screen = [&](bool full) {
+        if (!SDL_SetWindowFullscreen(sdl_.window, full) || !SDL_SyncWindow(sdl_.window))
+            fail(std::string(full ? "full screen" : "the window") + ": " + SDL_GetError());
+        apply_output_mode();
+        center_camera_on_unit(commander);
+        render_match_surface();
+    };
+    full_screen(true);
+    round_trip("full screen");
+    full_screen(false);
+
+    // The turned 3D view, which the graphics card draws in the Full tier. A
+    // run without it, as under the dummy video driver, skips this.
+    center_camera_on_unit(commander);
+    std::ignore = turn_live_camera(32.0F, 24.0F);
+    render_match_surface();
+    if (!live_renderer_active() || live_renderer_unavailable() || live_renderer_failed())
+        step("the turned view: skipped, the graphics card's Full tier does not draw it");
+    else
+        round_trip("the turned view");
+    reset_live_renderer();
 
     apply_wheel(settings::OrderWheel::off);
     if (order_wheel_mouse_open() || radial_open())

@@ -4274,8 +4274,9 @@ endforeach()
       set_tests_properties(native-hold-confirm PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_hold_confirm_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
-      # The order wheel a held mouse button opens, on a skirmish. Touch controls
-      # and the pad HUD stay off. The setting starts off.
+      # The order wheel a held mouse button opens, on a skirmish: the cursor
+      # follows the mouse while it is open, and one click ends it. Touch
+      # controls and the pad HUD stay off. The setting starts off.
       set(oa_order_wheel_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/order-wheel")
       file(MAKE_DIRECTORY "${oa_order_wheel_dir}")
       add_test(NAME native-order-wheel COMMAND oa-game --game-dir "${OA_GAME_DIR}"

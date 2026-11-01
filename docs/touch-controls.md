@@ -162,12 +162,18 @@ and is not left armed unless QUEUE is on. A tap outside the wheel closes
 it.
 
 Holding the right mouse button, or the middle one, opens the same wheel when
-Order wheel says so. The press stays where it is for the long-press time.
-Letting go on a wedge gives that order at the point the wheel opened.
-Letting go on the hub or outside the wheel, or Escape, closes it and gives
-nothing. A click shorter than the long press, or a press that moves past the
-drag threshold, does what that button does today, at the point it went down.
-Off, the buttons are unchanged. A mouse player sees the wheel alone.
+Order wheel says so. The press stays where it went down for the long-press
+time, and the wheel opens there. The pointer moves freely all the while;
+while the wheel is open the cursor is the arrow, and a wedge the selection
+can take is lit under it. Letting go on a wedge gives that order at the
+point the wheel opened. Letting go on the hub or outside the wheel, or
+Escape, closes it and gives nothing. Letting go on a greyed wedge leaves the
+wheel open. While it is open, one click of any button ends it: on a wedge
+the selection can take, it gives that order; anywhere else, it closes the
+wheel and gives nothing. That click does nothing else. A click shorter than
+the long press, or a press that moves past the drag threshold, does what
+that button does today, at the point it went down. Off, the buttons are
+unchanged. A mouse player sees the wheel alone.
 The wheel's Stop, and a pad button's Stop, press **Stop** (`order.stop`).
 Moving Stop off S in the [key editor](keys.md#the-key-editor) leaves
 them where they are.

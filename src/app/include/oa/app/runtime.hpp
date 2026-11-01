@@ -2760,13 +2760,17 @@ class Runtime final : public menu::Host,
 
     /// Motion, and Escape, while a wheel the mouse opened is up or a press is waiting.
     ///
+    /// The cursor follows the motion; the battlefield does not see it.
+    ///
     /// @param event the event
     /// @return true when the rest of the game should not see it
     bool take_order_wheel_aside(const SDL_Event& event);
 
-    /// A button the order wheel is watching.
+    /// A button the order wheel is watching, or any button while the wheel is open.
     ///
-    /// Called after the dispatcher has seen the button.
+    /// Called after the dispatcher has seen the button. A press on the open wheel
+    /// ends it; that press's release, and the release of the press that opened it,
+    /// are the wheel's.
     ///
     /// @param event the button event
     /// @return true when the rest of the game should not see it
@@ -2786,13 +2790,27 @@ class Runtime final : public menu::Host,
     /// @param event the motion
     void aim_mouse_order_wheel(const SDL_Event& event);
 
-    /// Gives the aimed order, or closes the wheel. [runtime_key_bindings.cpp]
+    /// Gives the order of the wedge under a button, or closes the wheel.
     ///
-    /// @param event the button release
+    /// Letting go on a greyed wedge leaves the wheel open; a press there closes it.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param event the release of the press that opened the wheel, or a press on the wheel
     void release_mouse_order_wheel(const SDL_Event& event);
 
     /// Closes a wheel the mouse opened, and no other radial. [runtime_key_bindings.cpp]
     void close_mouse_order_wheel();
+
+    /// Closes a wheel the mouse opened and gives the battlefield the pointer at a point.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param x canvas column of the mouse
+    /// @param y canvas row of the mouse
+    void end_mouse_order_wheel(float x, float y);
+
+    /// Forgets a wheel the mouse opened once another layer has closed it or the
+    /// match has gone. [runtime_key_bindings.cpp]
+    void drop_lost_order_wheel();
 
     /// Writes the touch viewport from the match layout when nothing else is.
     /// [runtime_key_bindings.cpp]

@@ -433,7 +433,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-key-latches` | Checks a latched Shift and Space, then sticky Ctrl and Alt, on a skirmish. |
 | `--check-hold-confirm` | Checks Hold to confirm: self-destruct, the order button and the surrender question, on a skirmish. |
 | `--check-away-pause` | Checks When the window loses focus on a skirmish: Pause single player pauses while the window is away and goes on a moment after it is back, the player's own pause stays, Keep playing plays on, and a multiplayer game never pauses. |
-| `--check-order-wheel` | Checks the order wheel: a held right or middle button opens it, a short click and a drag do not, on a skirmish. |
+| `--check-order-wheel` | Checks the order wheel on a skirmish: a held right or middle button opens it, a short click and a drag do not, the cursor follows the mouse while it is open, letting go or clicking on a wedge gives that order, and one click elsewhere closes it; in full screen too, and in the turned view when the graphics card's Full tier draws it. |
 | `--check-key-table FILE` | Drives every key, click and wheel turn the match answers and compares what each did with FILE. |
 | `--check-key-timing` | Checks slow keys, bounce keys, the double-press time, the player's key repeat and the drag threshold. |
 | `--check-pointer-keys` | Drives the pointer from the numpad on the main menu and in a skirmish. |
