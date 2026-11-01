@@ -46,7 +46,7 @@ using Stepper = kit::Stepper<SettingsModel>;
 using Hint = std::array<std::string_view, 2>;
 
 /// The number of settings: Setting's enumerators.
-constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::look) + 1;
+constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::update_channel) + 1;
 
 // ---------------------------------------------------------------------------
 // The sections' rows.
@@ -229,11 +229,13 @@ constexpr std::array<Setting, 3> kGameFilesRows{
     Setting::game_files_backed_up,
     Setting::game_files_location,
 };
-/// Developer's rows, over its list: the gallery after the statistics.
+/// Developer's rows, over its list: the gallery after the statistics, then
+/// the channel the check for a new release reads.
 constexpr std::array<Setting, developer_row_count> kDeveloperRows{
     Setting::developer_mode,
     Setting::frame_stats,
     Setting::kit_gallery,
+    Setting::update_channel,
 };
 /// The mod's keys.
 constexpr std::array<Setting, 3> kModKeysRows{
@@ -413,6 +415,12 @@ constexpr std::array<std::string_view, 2> kFocusLostCaptions{"Pause single playe
 static_assert(
     kFocusLostCaptions.size() == focus_lost_choices.size(),
     "every way of When the window loses focus has its caption"
+);
+/// Update channel's captions, in update_channel_choices' order.
+constexpr std::array<std::string_view, 2> kUpdateChannelCaptions{"Stable", "Testing"};
+static_assert(
+    kUpdateChannelCaptions.size() == update_channel_choices.size(),
+    "every channel of Update channel has its caption"
 );
 /// Window frame's captions, in window_frame_choices' order.
 constexpr std::array<std::string_view, 2> kWindowFrameCaptions{"Hidden in play", "Always shown"};
@@ -3115,6 +3123,11 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
                                   LevelStrip<Look, 2, look_choices, &E::look, kLookCaptions, &table_word<look_words, Look>>::stepper(),
                                   look_level_width),
                       &look_hint, &lines<1>)},
+    {.setting = S::update_channel,
+     .spec = kit::levels("update-channel", "Update channel",
+                         LevelStrip<UpdateChannel, 2, update_channel_choices, &E::update_channel, kUpdateChannelCaptions, &table_word<update_channel_words, UpdateChannel>>::stepper(),
+                         update_channel_level_width,
+                         {"Testing builds come first and may be unfinished.", {}})},
 }};
 // clang-format on
 
@@ -3249,6 +3262,7 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "invert-3d-camera-rotation",
     "invert-mouse-zoom",
     "look",
+    "update-channel",
 };
 
 /// Tells whether every row stands at its setting's place and is named by

@@ -6,12 +6,16 @@
 // is. A result is shown on the main menu, never over a match. A result that
 // reached the server is remembered. The feed an earlier check stored is
 // read again at the first menu, so a release out, or one already downloaded,
-// is known without a request. The guard counts an unconfirmed start before
-// the game loads; a start the player quits takes its count back.
+// is known without a request. A fetched feed that names a ping address is
+// reported there, at most once a check and once an hour, and nothing waits
+// for the report. The guard counts an unconfirmed start before the game
+// loads; a start the player quits takes its count back.
 #include "oa/app/runtime.hpp"
 
+#include "oa/app/content/settings.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/update/build.hpp"
+#include "oa/app/update/ping.hpp"
 #include "oa/app/update/plan.hpp"
 #include "runtime_update_start.hpp"
 #include "update_state.hpp"
@@ -175,23 +179,26 @@ update::CheckPlace player_place(bool during_match, bool at_menu) noexcept {
     return update::CheckPlace::elsewhere;
 }
 
-/// The feed this run checks. A named feed is a test feed.
-update::Source source_for(const Options& options) {
+/// The feed this run checks. A named feed is a test feed. The testing
+/// channel reads the file beside the stable feed, or beside the named one.
+update::Source source_for(const Options& options, const oa::platform::preferences::Values& values) {
     update::Source source;
-    if (!options.update_feed.has_value())
-        return source;
-    source.feed_url = *options.update_feed;
-    source.test = true;
-    source.keys.reserve(options.update_keys.size());
-    for (const std::string& key : options.update_keys) {
-        const std::size_t split = key.find('=');
-        if (split == std::string::npos || split == 0)
-            continue;
-        update::FeedKey parsed;
-        parsed.id = key.substr(0, split);
-        parsed.text = key.substr(split + 1);
-        source.keys.push_back(std::move(parsed));
+    source.channel = update::run_channel(options.update_channel, values);
+    if (options.update_feed.has_value()) {
+        source.feed_url = *options.update_feed;
+        source.test = true;
+        source.keys.reserve(options.update_keys.size());
+        for (const std::string& key : options.update_keys) {
+            const std::size_t split = key.find('=');
+            if (split == std::string::npos || split == 0)
+                continue;
+            update::FeedKey parsed;
+            parsed.id = key.substr(0, split);
+            parsed.text = key.substr(split + 1);
+            source.keys.push_back(std::move(parsed));
+        }
     }
+    source.feed_url = update::channel_feed_address(source.feed_url, source.channel);
     return source;
 }
 
@@ -214,6 +221,67 @@ std::optional<fs::path> updates_folder(const Options& options, std::string& fail
         failure = thrown.what();
         return std::nullopt;
     }
+}
+
+/// Reports a check whose feed names a ping address, at most once a check and
+/// once an hour, and writes the time of the report. A remembered result is
+/// not a check. A run nobody watches, and one given a test feed, report only
+/// to this machine. Nothing waits for the report.
+///
+/// @param options the run's options
+/// @param[in,out] values the preference values; the time is written here
+/// @param[in,out] pinger the worker, made at the first report
+/// @param latest the check's result
+/// @param now seconds since 1970
+/// @return true when the time of a report was written
+bool report_check(
+    const Options& options,
+    oa::platform::preferences::Values& values,
+    std::unique_ptr<update::Pinger>& pinger,
+    const update::CheckSnapshot& latest,
+    int64_t now
+) {
+    if (latest.remembered || latest.feed == nullptr || !latest.feed->ping.has_value())
+        return false;
+    if (latest.state != update::CheckState::up_to_date &&
+        latest.state != update::CheckState::offered)
+        return false;
+    const oa::data::engine_feed::Ping& ping = *latest.feed->ping;
+    const bool test_run =
+        options.update_feed.has_value() || options.unattended || options.headless_check;
+    if (test_run && !update::local_address(ping.url)) {
+        std::cerr << "open-annihilation: update check: not reported: this run reports only to "
+                     "this machine\n";
+        return false;
+    }
+    if (!update::ping_due(update::read_pinged(values), now))
+        return false;
+    const update::ThisBuild built = program_build();
+    update::PingReport report;
+    report.version = built.version_text;
+    report.platform = built.package;
+    report.channel = latest.feed->channel;
+    // The install ID goes only while that registry's switch is on and an ID
+    // has been made; none is made here.
+    const oa::app::content::InstallId id = oa::app::content::read_install_id(values, ping.registry);
+    if (id.state == oa::app::content::InstallIdState::on)
+        report.install_id = id.text;
+    report.asked = latest.asked;
+    if (pinger == nullptr)
+        pinger = std::make_unique<update::Pinger>();
+    if (!pinger->send(ping.url, report))
+        return false;
+    update::write_pinged(values, now);
+    return true;
+}
+
+/// One line for a finished report.
+void log_report(const update::PingSnapshot& reported) {
+    if (reported.state == update::PingState::sent)
+        std::cerr << "open-annihilation: update check: reported (" << reported.status << ")\n";
+    else if (reported.state == update::PingState::failed)
+        std::cerr << "open-annihilation: update check: the report failed: " << reported.failure
+                  << '\n';
 }
 
 /// One line for a finished check. Checking and idle say nothing.
@@ -316,7 +384,7 @@ void Runtime::start_update_check(bool asked) {
     const update::ThisBuild built = program_build();
     update_->release = built.release;
     const uint64_t before = update_->checker->snapshot().generation;
-    update_->checker->start(source_for(options_), built, asked);
+    update_->checker->start(source_for(options_, preference_values_), built, asked);
     // A start that did not publish a check leaves the hour where it was, so
     // a check still running is not pushed back.
     if (!asked && update_->checker->snapshot().generation != before) {
@@ -345,7 +413,9 @@ void Runtime::tick_update_check() {
                 update_->checker = std::make_unique<update::Checker>(*folder);
                 const update::ThisBuild built = program_build();
                 update_->release = built.release;
-                static_cast<void>(update_->checker->remember(source_for(options_), built));
+                static_cast<void>(
+                    update_->checker->remember(source_for(options_, preference_values_), built)
+                );
             }
         }
     }
@@ -355,10 +425,22 @@ void Runtime::tick_update_check() {
             update_->seen_generation = latest.generation;
             update_->held = latest;
             log_result(update_->release, latest);
+            bool write = false;
             if (latest.checked_at.has_value() && (latest.state == update::CheckState::up_to_date ||
                                                   latest.state == update::CheckState::offered ||
                                                   latest.state == update::CheckState::failed)) {
                 update::write_checked(preference_values_, *latest.checked_at);
+                write = true;
+            }
+            if (report_check(
+                    options_,
+                    preference_values_,
+                    update_->pinger,
+                    latest,
+                    schedule_seconds(update_->schedule_now)
+                ))
+                write = true;
+            if (write) {
                 preferences_dirty_ = true;
                 try {
                     flush_preferences();
@@ -367,6 +449,13 @@ void Runtime::tick_update_check() {
                               << '\n';
                 }
             }
+        }
+    }
+    if (update_->pinger != nullptr) {
+        const update::PingSnapshot reported = update_->pinger->snapshot();
+        if (reported.generation != update_->seen_ping_generation) {
+            update_->seen_ping_generation = reported.generation;
+            log_report(reported);
         }
     }
     // Ask while the main menu is up, including while a dialog or Settings

@@ -527,6 +527,8 @@ std::string_view label_of(settings::Setting setting) {
         return "Reset window positions";
     case settings::Setting::look:
         return "Look";
+    case settings::Setting::update_channel:
+        return "Update channel";
     default:
         return {};
     }
@@ -1440,6 +1442,10 @@ void Runtime::check_engine_settings_dialog() {
     chosen.frame_stats = true;
     expect("Show performance statistics On");
     require(frame_stats_shown_, "Show performance statistics did not show the statistics");
+    // Update channel takes a change while Developer Mode is off.
+    click(settings::first_row_control + 3, "Testing", "Update channel's Testing");
+    chosen.update_channel = settings::UpdateChannel::testing;
+    expect("Update channel Testing");
 
     // OK keeps them and saves exactly the keys that changed, and the dialog
     // opens again on them; the window takes the Screen size at once, and the
@@ -1479,6 +1485,7 @@ void Runtime::check_engine_settings_dialog() {
         {std::string(settings::key::anti_aliasing),
          std::to_string(static_cast<int>(kChosenAntiAliasing))},
         {std::string(settings::key::frame_stats), "1"},
+        {std::string(settings::key::update_channel), "testing"},
         {std::string(settings::key::modern_fonts), "1"},
         {std::string(settings::key::text_shadow), "0"},
         {std::string(settings::key::text_size), std::to_string(chosen.text_size)},
@@ -2672,7 +2679,7 @@ void Runtime::check_engine_settings_window_sizes() {
             apply_engine_settings(restore.settings);
             preference_values_[std::string(oa::ui::first_run::preference_key)] =
                 std::string(oa::ui::first_run::preference_done);
-            options_.update_feed = "http://127.0.0.1:9/v1/engine/stable.json";
+            options_.update_feed = "http://127.0.0.1:9/v1/engine/stable-2.json";
 
             tap(SDLK_COMMA, kShortcutModifier);
             require(engine_settings_dialog() != nullptr, "Updates did not open again" + on);

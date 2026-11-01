@@ -37,7 +37,9 @@ From a build tree, `build/oa-update` is the program. It is built beside
 ## Files
 
 It reads the plan, the saved feed, the signature beside that feed, the
-downloaded package and the preferences file. It writes under the plan's
+downloaded package and the preferences file. The feed must name the plan's
+`channel`, `stable` when the plan names none, so a plan for the testing
+channel's feed installs from it and a stable plan refuses it. It writes under the plan's
 `updates` directory: `oa-update.lock` while it runs, `oa-update.log` (one
 line a step, kept under 1 MiB), `receipt.json` for the game, `journal.json`
 and `journal-held/` while a swap is in progress, `<release>/stage/` for the
@@ -176,7 +178,8 @@ is never started by a process with an administrator's rights.
 ## Tests
 
 `tools-oa-update` covers the plan and state texts, the refusals, a package
-that does not match the feed, zip-slip, the executable bit, a journal that
+that does not match the feed, a feed of the other channel than the one the
+plan names, the testing channel's feed checked for a testing plan, zip-slip, the executable bit, a journal that
 fails at each step of a five-step list, a journal left on disk, the wait
 giving up, the window's text placed without fonts, the receipt beside the
 log and the outcomes a roll back records, how the watch reads a start's
@@ -203,7 +206,8 @@ an owner who is not the player, which the player must still be able to
 start. It also checks that a closed window can let go of font
 files, and, on Windows, that an open file keeps its folder from being
 renamed. No test signs a bundle or starts a program. `tools-oa-update-run`
-runs the program on a plain folder, in a self-check build. `app-update-plan`
+runs the program on a plain folder, in a self-check build, including a
+plan for the testing channel's feed and a stable plan that refuses it. `app-update-plan`
 covers the plan from the game's side. `app-update-route` covers which route
 a machine is given.
 

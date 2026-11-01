@@ -44,6 +44,7 @@ inline constexpr std::string_view interface_words[] = {
     "Install when I quit",
     "Install {version} again from its page, over the copy you have.",
     "Installed {version}",
+    "Installed {version} · Testing channel",
     "Installing {version}",
     "Install…",
     "It installs as you quit. Change it any time in Settings › Updates.",

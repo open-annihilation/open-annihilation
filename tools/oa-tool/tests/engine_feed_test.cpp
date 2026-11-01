@@ -130,14 +130,14 @@ void help_text() {
         write_help.out,
         "--version V [--release N] --date YYYY-MM-DD --from V [--package-from ID=V]... "
         "--page URL [--install-page URL] --mirror URL [--mirror URL]... [--notes FILE] "
-        "[--rollout N] [--online-min V] [--channel stable] [--previous FEED] --out FEED "
-        "PACKAGE..."
+        "[--rollout N] [--online-min V] [--ping-url URL --ping-registry ID] "
+        "[--channel stable|testing] [--previous FEED] --out FEED PACKAGE..."
     ));
     const auto check_help = run({"engine-feed", "check", "--help"});
     exited("check help", check_help, oa::tool::exit_done);
     OA_CHECK(contains(
         check_help.out,
-        "(FEED [--sig SIG] | --url URL) [--channel stable] [--key ID=ed25519:BASE64]..."
+        "(FEED [--sig SIG] | --url URL) [--channel stable|testing] [--key ID=ed25519:BASE64]..."
     ));
 }
 
@@ -286,6 +286,126 @@ void package_minimum(
     }
 }
 
+/// The testing channel's feed, testing-2.json, written with --channel
+/// testing and a ping: check accepts it as testing, prints the ping, and
+/// refuses it as stable; the stable feed is refused as testing, and an
+/// earlier feed of the other channel is not copied in. The ping options are
+/// given together, as an address and a registry id.
+void testing_channel_and_ping(
+    const fs::path& root,
+    const fs::path& key,
+    const fs::path& pass,
+    const std::string& public_key,
+    const fs::path& stable
+) {
+    const fs::path out = root / "testing-2.json";
+    const auto wrote = write_minimum(
+        root,
+        out,
+        {"--channel",
+         "testing",
+         "--ping-url",
+         "https://telemetry.example.net/v1/engine/pings",
+         "--ping-registry",
+         "example"}
+    );
+    if (!exited("write testing", wrote, oa::tool::exit_done))
+        return;
+    const std::vector<uint8_t> bytes = read_bytes(out);
+    std::string error;
+    const auto loaded = feed::read_feed(bytes, &error);
+    OA_CHECK(loaded.has_value());
+    if (!loaded)
+        return;
+    OA_CHECK(loaded->channel == "testing");
+    OA_CHECK(loaded->ping.has_value());
+    if (loaded->ping) {
+        OA_CHECK(loaded->ping->url == "https://telemetry.example.net/v1/engine/pings");
+        OA_CHECK(loaded->ping->registry == "example");
+    }
+
+    const auto signed_feed = run(
+        {"engine-feed",
+         "sign",
+         "--key",
+         generic_utf8(key),
+         "--passphrase-file",
+         generic_utf8(pass),
+         generic_utf8(out)}
+    );
+    if (!exited("sign testing", signed_feed, oa::tool::exit_done))
+        return;
+    OA_CHECK(fs::exists(root / "testing-2.json.sig"));
+    const std::string pin = "feed-test=" + public_key;
+    const auto checked =
+        run({"engine-feed", "check", "--channel", "testing", "--key", pin, generic_utf8(out)});
+    if (!exited("check testing", checked, oa::tool::exit_done))
+        return;
+    OA_CHECK(contains(checked.out, "good signature by feed-test\n"));
+    OA_CHECK(contains(
+        checked.out, "ping https://telemetry.example.net/v1/engine/pings registry example\n"
+    ));
+    OA_CHECK(contains(checked.out, "812 0.8.12 2026-11-02 from 0.8.0"));
+
+    const auto as_stable = run({"engine-feed", "check", "--key", pin, generic_utf8(out)});
+    exited("testing as stable", as_stable, oa::tool::exit_failed);
+    OA_CHECK(contains(as_stable.out, "wrong_channel"));
+    const auto stable_as_testing =
+        run({"engine-feed", "check", "--channel", "testing", "--key", pin, generic_utf8(stable)});
+    exited("stable as testing", stable_as_testing, oa::tool::exit_failed);
+    OA_CHECK(contains(stable_as_testing.out, "wrong_channel"));
+    const auto stable_checked =
+        run({"engine-feed", "check", "--channel", "stable", "--key", pin, generic_utf8(stable)});
+    exited("stable as stable", stable_checked, oa::tool::exit_done);
+    OA_CHECK(!contains(stable_checked.out, "ping "));
+
+    struct Refusal {
+        std::vector<std::string> extra;
+        std::string_view reason;
+    };
+
+    const Refusal refusals[] = {
+        {{"--ping-url", "https://telemetry.example.net/v1/engine/pings"},
+         "--ping-url and --ping-registry are given together"},
+        {{"--ping-registry", "example"}, "--ping-url and --ping-registry are given together"},
+        {{"--ping-url", "ftp://example.net/pings", "--ping-registry", "example"},
+         "ping's url is not an http or https address"},
+        {{"--ping-url", "https://example.net/pings", "--ping-registry", "Not An Id"},
+         "ping's registry is not a registry id"},
+        {{"--channel", "testing", "--previous", generic_utf8(stable)},
+         "the earlier feed is for another channel"},
+    };
+    for (const Refusal& refusal : refusals) {
+        const fs::path refused_out = root / "refused-testing.json";
+        const auto refused = write_minimum(root, refused_out, refusal.extra);
+        exited(refusal.reason, refused, oa::tool::exit_failed);
+        if (!contains(refused.err, refusal.reason))
+            show(refusal.reason, refused);
+        OA_CHECK(contains(refused.err, refusal.reason));
+        OA_CHECK(!fs::exists(refused_out));
+    }
+
+    oa::netgame::http_fixture::Server server;
+    std::string server_error;
+    OA_CHECK(server.start(&server_error));
+    const std::vector<uint8_t> signature = read_bytes(root / "testing-2.json.sig");
+    server.serve_bytes("/v1/engine/testing-2.json", bytes, "application/json");
+    server.serve_bytes("/v1/engine/testing-2.json.sig", signature, "text/plain");
+    const auto fetched = run(
+        {"engine-feed",
+         "check",
+         "--url",
+         server.url("/v1/engine/testing-2.json"),
+         "--channel",
+         "testing",
+         "--key",
+         pin}
+    );
+    exited("url testing", fetched, oa::tool::exit_done);
+    OA_CHECK(contains(fetched.out, "good signature by feed-test"));
+    server.stop();
+}
+
 void write_sign_check(const fs::path& root) {
     const fs::path pass = root / "pass";
     write_text(pass, "correct horse battery\n");
@@ -418,6 +538,7 @@ void write_sign_check(const fs::path& root) {
     OA_CHECK(contains(unpinned.out, "unknown_key"));
 
     package_minimum(root, key, pass, public_key);
+    testing_channel_and_ping(root, key, pass, public_key, out);
 
     oa::netgame::http_fixture::Server server;
     std::string server_error;

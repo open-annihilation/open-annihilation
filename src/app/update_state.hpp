@@ -9,6 +9,7 @@
 #include "oa/app/runtime.hpp"
 #include "oa/app/update/centre.hpp"
 #include "oa/app/update/checker.hpp"
+#include "oa/app/update/ping.hpp"
 #include "oa/app/update/receipt.hpp"
 
 #include <cstdint>
@@ -41,6 +42,11 @@ struct Runtime::UpdateState {
     update::CheckSnapshot held{};
     /// The generation already copied into `held`.
     uint64_t seen_generation = 0;
+    /// The worker that reports a check to the address its feed names. Empty
+    /// until a check is first reported.
+    std::unique_ptr<update::Pinger> pinger;
+    /// The report's generation already logged.
+    uint64_t seen_ping_generation = 0;
     /// An automatic check has started this run, or --update-and-quit has
     /// started its one check. The hour is `automatic_began`, not this flag.
     bool ran = false;

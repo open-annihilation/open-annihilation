@@ -203,6 +203,23 @@ std::string feed_text(const Feed& feed) {
         out += json_string(oamod::engine_version_text(*feed.online_min));
         out += ",\n";
     }
+    if (feed.ping) {
+        indent(out, 1);
+        out += json_string("ping");
+        out += ": {\n";
+        indent(out, 2);
+        out += json_string("url");
+        out += ": ";
+        out += json_string(feed.ping->url);
+        out += ",\n";
+        indent(out, 2);
+        out += json_string("registry");
+        out += ": ";
+        out += json_string(feed.ping->registry);
+        out += "\n";
+        indent(out, 1);
+        out += "},\n";
+    }
     indent(out, 1);
     out += json_string("releases");
     out += ": [\n";

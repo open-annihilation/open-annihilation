@@ -2394,6 +2394,7 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             chosen.screen_size = EngineSettingsState::stored_screen_size(*this, chosen.screen_size);
         const bool check_changed = chosen.content_check != dialog->opened.content_check;
         const bool updates_never = chosen.update_check == settings::UpdateCheck::never;
+        const bool channel_changed = chosen.update_channel != dialog->opened.update_channel;
         const settings::ContentCheck chosen_check = chosen.content_check;
         const bool file_types_changed =
             !settings::moved_file_type_switches(dialog->opened, chosen).empty();
@@ -2438,6 +2439,9 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             content_service().set_check_for_updates(check_mode(chosen_check));
         if (updates_never)
             cancel_update_check();
+        // Another channel is looked at once, as Check now looks.
+        else if (channel_changed)
+            start_update_check(true);
         state.last_page = dialog->page;
         state.last_developer_list = dialog->developer;
         state.dialog.reset();

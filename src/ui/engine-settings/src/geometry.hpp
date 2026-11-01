@@ -224,6 +224,10 @@ inline constexpr int32_t window_frame_level_width = 85;
 /// room for Classic, its widest caption, in either look, with clear columns
 /// each side.
 inline constexpr int32_t look_level_width = 60;
+/// Update channel's level strip's segment width, inside the strip's 1-pixel
+/// border: room for Estable and Pruebas, its widest captions, with three
+/// clear columns each side.
+inline constexpr int32_t update_channel_level_width = 56;
 /// MANAGE…'s width, Game files' button on its summary row's label line:
 /// room for its caption in the small font with clear columns each side.
 inline constexpr int32_t manage_button_width = 76;

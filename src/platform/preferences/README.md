@@ -179,7 +179,8 @@ as `7f3a90d2-4c18-4b0e-9a77-1d6e5ab0c91e`. It is a random 128-bit value, a
 different one for each registry, so no two registries can tell that they
 serve the same player. It is made the first time a download from that
 registry needs one, not when the game starts, and it is sent only with
-download requests. The value `off` turns that registry's ID off: the ID
+download requests and with the report of a check for a new release whose
+signed feed names that registry. The value `off` turns that registry's ID off: the ID
 that was stored is gone, and none is made while the key says `off`.
 Absent, or any other text, means none has been made yet.
 
@@ -262,6 +263,8 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.update-install-on-quit` | the release number that installs the next time the game quits; absent, or any text that is not a whole number, schedules nothing | absent |
 | `open-annihilation.update-held` | the release number of a release that did not install; it and older ones are not offered, downloaded or installed by themselves until the player tries again; absent holds nothing | absent |
 | `open-annihilation.update-install` | `ask` or `when-i-quit`: how a ready release is installed; any other text reads as `ask` | `ask` |
+| `open-annihilation.update-channel` | `stable` or `testing`: the channel the check for a new release reads, `stable-2.json` or `testing-2.json`; any other text reads as `stable` | `stable` |
+| `open-annihilation.update-pinged` | seconds since 1970 of the last report of a check to the address the signed feed names; the next waits out the hour; absent, or any text that is not a whole number, means none has been sent | absent |
 | `open-annihilation.file-types.oamod` | `on` or `off`. Only the word `off` turns the switch off; any other text reads as on. Not `0` and `1` | on: this copy opens mod packages |
 | `open-annihilation.file-types.oamap` | `on` or `off`, as the mod packages' key | on: this copy opens map packs |
 | `open-annihilation.file-types.oalang` | `on` or `off`, as the mod packages' key | on: this copy opens language packs |

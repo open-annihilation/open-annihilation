@@ -6,15 +6,39 @@ install is separate from the check.
 
 ## What is checked
 
-The check reads the published stable feed: the list of releases, and the
-signature beside it. The signature is checked against the keys this build
-pins before any release in the list is considered. A file that does not
-verify is discarded. The channel is the stable one.
+The check reads the published feed of the channel you are on: the list of
+releases, and the signature beside it. The signature is checked against the
+keys this build pins before any release in the list is considered. A file
+that does not verify is discarded, and so is one that names another channel
+than the one asked for. Unless you choose otherwise the channel is the
+stable one ([The testing channel](#the-testing-channel)).
 
 The version you are running, and the kind of package it is (this computer's
 platform, a Windows 95 build, or a Steam Deck package when that folder sits
 beside a Linux build), decide whether a release in the list is newer and
 has a package for you.
+
+## The testing channel
+
+A release can go to a testing channel before players get it, so that it is
+tried on a few copies first. A testing release may be unfinished. Most
+players never need it: the stable channel is the default, and every release
+reaches it once it has been tried.
+
+To read the testing channel, open Settings › Developer and set **Update
+channel** to **Testing**, then press OK; the game looks at that channel at
+once. The row takes a change whether Developer Mode is on or off. For one
+run only, start the game with `--update-channel testing`
+([the command line](command-line.md)). While a copy reads the testing
+channel, the card on Settings › Updates says so: "Installed 0.8.12 ·
+Testing channel". Everything else works as on the stable channel: the same
+signature check against the same keys, the same downloads, the same
+install and the same roll back.
+
+Set Update channel back to **Stable** to leave. Nothing is put back: a copy
+running a release only the testing channel offered is offered nothing
+until the stable channel has a newer release, and then updates as usual.
+The setting is `open-annihilation.update-channel`, `stable` or `testing`.
 
 ## When
 
@@ -100,23 +124,49 @@ the menu, the pill sits under them.
 
 ## What is sent
 
-Two requests, and nothing else. One asks for the feed and one for its
-signature. Each uses the game's own user agent, `OpenAnnihilation/` and the
-version. There is no query string, no cookie, no install ID and no other
-header. The check does not say who is playing.
+Two requests ask for the feed and for its signature. Each uses the game's
+own user agent, `OpenAnnihilation/` and the version. There is no query
+string, no cookie, no install ID and no other header.
+
+When the signed feed names an address for reports, the game then reports
+the check there, once a check and at most once an hour, in one more
+request: a POST with the game's user agent and this, and nothing else:
+
+| Member | What it holds |
+|---|---|
+| `version` | The version you are running, such as `0.8.12`. |
+| `platform` | The kind of package it is, such as `macos-universal`, `windows-x64`, `windows-95` or `steam-deck`. |
+| `channel` | `stable` or `testing`. |
+| `install_id` | The install ID of the registry the feed names, or empty. |
+| `trigger` | `manual` for Check now, `automatic` otherwise. |
+
+The install ID is the one downloads from that registry already send
+([the install ID](downloads.md#the-install-id)). It is sent only while that
+registry's **Install ID** is on in Settings › Downloads and an ID has been
+made; turned off, the report carries none, and a report never makes one.
+The game does not wait for the report, and a report that fails changes
+nothing: it is written to the log and the check goes on as before. The
+address comes only from the signed feed; an unattended or headless run,
+and one given a test feed, reports only to this machine. Check for updates
+at Never makes no request at all, so it sends no report either.
 
 ## What is kept
 
 When both files verify, they are stored under the data folder in
-`updates/feed.json` and `updates/feed.json.sig`. They are written only
+`updates/feed.json` and `updates/feed.json.sig`, whichever channel they
+came from. They are written only
 after they verify. A check that cannot find the server, or runs out of
 time, leaves the stored files as they were and tries again on a later
 start. A check that reached the server, including one whose feed was
 refused, waits a day before the next automatic check.
 
+The time of the last report is kept as `open-annihilation.update-pinged`
+in the preferences, so the next one waits out the hour.
+
 The first main menu of each start reads the stored feed again, with no
-request, and checks its signature as a fetched feed is checked. A release
-it offers is offered again, so LATER asks again at the next start, and a
+request, and checks its signature and its channel as a fetched feed is
+checked; one stored on the other channel is not read. A release it offers
+is offered again, so LATER asks again at the next start, and a
 package already downloaded for it is found. Check for updates at Never
 reads nothing.
 
@@ -351,8 +401,9 @@ the [preferences](../src/platform/preferences/README.md).
 When a verified package is scheduled for the quit and you quit, or you
 choose to install it now, the game writes a plan and starts `oa-update`,
 then quits. The helper waits until the game has left. It
-checks the saved feed's signature against the keys this build pins, and
-the downloaded package's name, size and SHA-256 against that feed. A
+checks the saved feed's signature against the keys this build pins, that
+the feed names the channel the game fetched it for, and the downloaded
+package's name, size and SHA-256 against that feed. A
 package that does not match is not unpacked. The window says "The update
 could not be checked. Nothing was changed." and the game starts again on
 the version you had.

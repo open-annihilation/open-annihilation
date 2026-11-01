@@ -407,6 +407,9 @@ enum class Setting : uint8_t {
     invert_mouse_zoom,
     /// Look: a strip of Modern and Classic, User Interface's last row
     look,
+    /// Update channel: a strip of Stable and Testing, Developer's last row
+    /// over its list; it takes changes whatever Developer Mode is
+    update_channel,
 };
 
 /// Returns the settings a section shows, top to bottom.
@@ -461,8 +464,8 @@ inline constexpr int32_t scroll_bar_control = ok_control + 1;
 /// for each row the section has.
 inline constexpr int32_t first_row_control = scroll_bar_control + 1;
 /// Developer's rows, over its list: Enable Developer Mode, Show
-/// performance statistics, then UI kit gallery.
-inline constexpr int32_t developer_row_count = 3;
+/// performance statistics, UI kit gallery, then Update channel.
+inline constexpr int32_t developer_row_count = 4;
 /// Developer's Enable Developer Mode switch, its first row's control.
 inline constexpr int32_t developer_mode_control = first_row_control;
 /// Developer's Show Active Only switch, under its list.

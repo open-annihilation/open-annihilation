@@ -5,6 +5,7 @@
 
 #include "oa/base/sha256.hpp"
 #include "oa/data/catalogue/catalogue.hpp"
+#include "oa/data/registry/descriptor.hpp"
 #include "oa/formats/json.hpp"
 #include "oa/formats/oamod/package_keys.hpp"
 #include "oa/formats/url.hpp"
@@ -531,6 +532,28 @@ std::optional<Feed> read_feed(std::span<const uint8_t> bytes, std::string* error
         online_min = *parsed;
     }
 
+    std::optional<Ping> ping;
+    if (const json::Json* ping_member = root->find("ping")) {
+        if (ping_member->type() != json::JsonType::object) {
+            set_error(error, "ping is not an object");
+            return std::nullopt;
+        }
+        const json::Json* url_member = ping_member->find("url");
+        const std::string* url_text = url_member != nullptr ? url_member->string() : nullptr;
+        if (url_text == nullptr || !url::parse_http_url(*url_text)) {
+            set_error(error, "ping's url is not an http or https address");
+            return std::nullopt;
+        }
+        const json::Json* registry_member = ping_member->find("registry");
+        const std::string* registry_text =
+            registry_member != nullptr ? registry_member->string() : nullptr;
+        if (registry_text == nullptr || !registry::valid_registry_id(*registry_text)) {
+            set_error(error, "ping's registry is not a registry id");
+            return std::nullopt;
+        }
+        ping = Ping{*url_text, *registry_text};
+    }
+
     const json::Json* releases_member = root->find("releases");
     if (releases_member == nullptr || releases_member->type() != json::JsonType::array) {
         set_error(error, "releases is not a list");
@@ -549,6 +572,7 @@ std::optional<Feed> read_feed(std::span<const uint8_t> bytes, std::string* error
     Feed feed;
     feed.channel = *channel_text;
     feed.online_min = online_min;
+    feed.ping = std::move(ping);
     for (const json::Json& element : elements) {
         Release release;
         if (!read_release(element, release, error))

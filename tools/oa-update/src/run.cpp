@@ -1211,6 +1211,7 @@ int carry_out(
     request.package = plan.package;
     request.installer = plan.installer;
     request.keys = keys;
+    request.channel = std::string(update::channel_name(plan.channel));
     Verified verified;
     if (!verify_package(request, verified, &error)) {
         log.line(error);

@@ -383,6 +383,91 @@ void channel_and_size() {
     OA_CHECK(empty_sig.verdict == feed::Verdict::no_signature);
 }
 
+/// The testing channel's feed is accepted only where the testing channel was
+/// asked for, and the stable feed only where the stable channel was: either
+/// one fetched for the other is wrong_channel, signed by a good key or not.
+void testing_channel() {
+    OA_CHECK(feed::testing_channel == "testing");
+    const Signed testing =
+        sign_text(replaced("\"channel\":\"stable\"", "\"channel\":\"testing\""), "test-pin", 0x21);
+    const feed::Checked accepted = check_signed(testing, feed::testing_channel);
+    OA_CHECK(accepted.usable());
+    OA_CHECK(accepted.feed != nullptr && accepted.feed->channel == "testing");
+
+    const feed::Checked testing_as_stable = check_signed(testing, feed::stable_channel);
+    OA_CHECK(testing_as_stable.verdict == feed::Verdict::wrong_channel);
+    OA_CHECK(testing_as_stable.signed_by == "test-pin");
+    OA_CHECK(testing_as_stable.feed == nullptr);
+
+    const Signed stable = sign_text(minimal(), "test-pin", 0x21);
+    const feed::Checked stable_as_testing = check_signed(stable, feed::testing_channel);
+    OA_CHECK(stable_as_testing.verdict == feed::Verdict::wrong_channel);
+    OA_CHECK(stable_as_testing.feed == nullptr);
+    OA_CHECK(check_signed(stable, feed::stable_channel).usable());
+}
+
+/// The ping: read when present, absent when the feed omits it, and refused
+/// when it is not an object of an http or https address and a registry id.
+/// A member of it this build does not know is ignored.
+void ping_member() {
+    const std::string plain_text = minimal();
+    const std::vector<uint8_t> plain_bytes(plain_text.begin(), plain_text.end());
+    const std::optional<feed::Feed> plain = feed::read_feed(plain_bytes, nullptr);
+    OA_CHECK(plain.has_value() && !plain->ping.has_value());
+
+    const std::string with_ping = replaced(
+        "\"channel\":\"stable\"",
+        R"("channel":"stable","ping":{"url":"https://telemetry.example.net/v1/engine/pings",)"
+        R"("registry":"example-registry","later":1})"
+    );
+    const Signed signed_ping = sign_text(with_ping, "test-pin", 0x21);
+    const feed::Checked checked = check_signed(signed_ping);
+    OA_CHECK(checked.usable() && checked.feed != nullptr);
+    if (checked.feed != nullptr) {
+        OA_CHECK(checked.feed->ping.has_value());
+        if (checked.feed->ping) {
+            OA_CHECK(checked.feed->ping->url == "https://telemetry.example.net/v1/engine/pings");
+            OA_CHECK(checked.feed->ping->registry == "example-registry");
+        }
+    }
+
+    const auto ping_of = [](std::string_view member) {
+        return replaced(
+            "\"channel\":\"stable\"", "\"channel\":\"stable\",\"ping\":" + std::string(member)
+        );
+    };
+    expect_refused(
+        ping_of("\"https://example.net/\""), feed::Verdict::malformed, "ping is not an object"
+    );
+    expect_refused(
+        ping_of(R"({"registry":"example"})"),
+        feed::Verdict::malformed,
+        "ping's url is not an http or https address"
+    );
+    expect_refused(
+        ping_of(R"({"url":"ftp://example.net/pings","registry":"example"})"),
+        feed::Verdict::malformed,
+        "ping's url is not an http or https address"
+    );
+    expect_refused(
+        ping_of(R"({"url":"https://example.net/pings"})"),
+        feed::Verdict::malformed,
+        "ping's registry is not a registry id"
+    );
+    expect_refused(
+        ping_of(R"({"url":"https://example.net/pings","registry":"Not An Id"})"),
+        feed::Verdict::malformed,
+        "ping's registry is not a registry id"
+    );
+    expect_refused(
+        ping_of(
+            R"({"url":"https://example.net/pings","url":"https://example.net/again","registry":"example"})"
+        ),
+        feed::Verdict::malformed,
+        "named twice"
+    );
+}
+
 void structure_refusals() {
     expect_refused("{", feed::Verdict::malformed, "the feed is not JSON");
     expect_refused("[]", feed::Verdict::malformed, "the feed is not a JSON object");
@@ -871,6 +956,29 @@ void choose_cases() {
     );
 }
 
+/// A copy running a release only the testing channel offered, 0.8.12 as
+/// 812, reads the stable feed again: an older or the same release there
+/// offers nothing, so nothing is put back, and a newer one is offered.
+void testing_build_on_stable() {
+    const feed::Build testing_build = make_build("0.8.12", 812, "windows-x64");
+    feed::Feed older;
+    older.channel = "stable";
+    older.releases.push_back(make_release(811, "0.8.11", "0.8.0", "windows-x64"));
+    OA_CHECK(feed::choose(older, testing_build).way == feed::Way::none);
+    feed::Feed same = older;
+    same.releases.insert(
+        same.releases.begin(), make_release(812, "0.8.12", "0.8.0", "windows-x64")
+    );
+    OA_CHECK(feed::choose(same, testing_build).way == feed::Way::none);
+    feed::Feed newer = same;
+    newer.releases.insert(
+        newer.releases.begin(), make_release(813, "0.8.13", "0.8.0", "windows-x64")
+    );
+    const feed::Offer offered = feed::choose(newer, testing_build);
+    OA_CHECK(offered.way == feed::Way::in_place);
+    OA_CHECK(offered.release != nullptr && offered.release->release == 813);
+}
+
 /// A release 0.8.13, number 813, with a Windows and a macOS package. The
 /// release's from is `from`; the packages name none until a test sets them.
 feed::Release two_packages(const char* from) {
@@ -1002,7 +1110,7 @@ bool same_file(const feed::PackageFile& left, const feed::PackageFile& right) {
 
 bool same_feed(const feed::Feed& left, const feed::Feed& right) {
     if (left.channel != right.channel || left.online_min != right.online_min ||
-        left.releases.size() != right.releases.size())
+        left.ping != right.ping || left.releases.size() != right.releases.size())
         return false;
     for (std::size_t index = 0; index < left.releases.size(); ++index) {
         const feed::Release& one = left.releases[index];
@@ -1039,6 +1147,7 @@ void round_trip() {
     feed::Feed source;
     source.channel = "stable";
     source.online_min = oamod::EngineVersion{0, 8, 3};
+    source.ping = feed::Ping{"https://telemetry.example.net/v1/engine/pings", "example"};
     feed::Release newer = make_release(900, "0.8.5", "0.8.0", "windows-x64", 0);
     newer.page = "https://example.net/v0.8.5";
     newer.install_page = "https://example.net/install";
@@ -1079,6 +1188,13 @@ void round_trip() {
         text.find("\n      \"install_page\": \"https://example.net/install\",") != std::string::npos
     );
     OA_CHECK(text.find("\n          \"from\": \"0.8.3\",") != std::string::npos);
+    OA_CHECK(
+        text.find(
+            "\n  \"ping\": {\n    \"url\": "
+            "\"https://telemetry.example.net/v1/engine/pings\",\n    \"registry\": "
+            "\"example\"\n  },\n"
+        ) != std::string::npos
+    );
     std::string error;
     const std::vector<uint8_t> bytes(text.begin(), text.end());
     const std::optional<feed::Feed> loaded = feed::read_feed(bytes, &error);
@@ -1258,9 +1374,12 @@ int main() {
     signature_cases();
     added_registry_key();
     channel_and_size();
+    testing_channel();
+    ping_member();
     structure_refusals();
     boundaries();
     choose_cases();
+    testing_build_on_stable();
     package_minimums();
     number_and_notes();
     round_trip();

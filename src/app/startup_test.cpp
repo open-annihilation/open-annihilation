@@ -597,6 +597,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--update-key",
          "test-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
          {"--update-feed", "http://127.0.0.1:9/v1/engine/stable.json"}},
+        {"--update-channel", "testing", {}},
         {"--updated-from", "0.8.7", {}},
         {"--rolled-back-from", "0.8.4", {"--roll-back-reason", "player"}},
         {"--roll-back-reason", "failed-starts", {"--rolled-back-from", "0.8.4"}},
@@ -1112,11 +1113,25 @@ void key_layout_options() {
     );
 }
 
+// --update-channel is taken in every build, as stable or testing, and
+// leaves the setting to decide when it is not given.
+void update_channel_option() {
+    expect(parse({}).update_channel.empty(), "no --update-channel leaves the setting to decide");
+    expect(parse({"--update-channel", "testing"}).update_channel == "testing", "testing is taken");
+    expect(parse({"--update-channel", "stable"}).update_channel == "stable", "stable is taken");
+    for (const char* refused : {"Testing", "preview"})
+        expect(
+            rejection({"--update-channel", refused}) ==
+                "--update-channel must be stable or testing",
+            "--update-channel must be stable or testing"
+        );
+}
+
 // --update-feed and --update-key are self-checks. A key needs a feed, and
 // the key's text has to be an ed25519 public key. --check-engine-feed draws
 // in a window on the fixed clock.
 void update_feed_options() {
-    constexpr const char* kUrl = "http://127.0.0.1:9/v1/engine/stable.json";
+    constexpr const char* kUrl = "http://127.0.0.1:9/v1/engine/stable-2.json";
     constexpr const char* kKey = "test-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=";
     constexpr const char* kOther = "other-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=";
     if constexpr (oa::app::self_checks_built) {
@@ -1311,6 +1326,7 @@ int main() {
     mod_install_options();
     switch_words_keep_their_spaces();
     options_by_name();
+    update_channel_option();
     update_feed_options();
     value_options();
     mutator_options();

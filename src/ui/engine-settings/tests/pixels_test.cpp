@@ -445,13 +445,14 @@ std::vector<Picture> scenes(const DialogFonts& fonts, const Icon& icon) {
             "dialog/graphics-locked",
             drawn_dialog(engine_dialog(Page::graphics, game), fonts, no_icon, 1));
 
-        // Developer Mode on, then past Show performance statistics and UI
-        // kit gallery to the list's first area, open.
+        // Developer Mode on, then past Show performance statistics, UI kit
+        // gallery and Update channel to the list's first area, open.
         Dialog developer = engine_dialog(Page::developer);
         press_keys(
             developer,
             {DialogKey::tab,
              DialogKey::space,
+             DialogKey::tab,
              DialogKey::tab,
              DialogKey::tab,
              DialogKey::tab,

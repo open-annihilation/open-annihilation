@@ -6,6 +6,8 @@
 // or changes an install.
 #pragma once
 
+#include "oa/app/update/check.hpp"
+
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -67,14 +69,18 @@ struct Plan {
     std::string from_version;           ///< the version that is running
     std::string feed;                   ///< the saved feed
     std::string signature;              ///< the saved signature
-    int64_t release{};                  ///< the release number in the feed
-    std::string package;                ///< the package id in that release
-    std::string file;                   ///< the downloaded package
-    bool installer{};                   ///< true when file is the package's installer
-    std::string preferences;            ///< the preferences file to copy
-    std::string updates;                ///< the data folder's updates directory
-    std::string title;                  ///< the window title, already translated
-    std::string line;                   ///< the window line, already translated
+    /// The channel the saved feed was fetched for, which the feed must name.
+    /// Written only when it is not Stable, so a stable plan keeps the bytes
+    /// it had before channels existed.
+    Channel channel{Channel::stable};
+    int64_t release{};       ///< the release number in the feed
+    std::string package;     ///< the package id in that release
+    std::string file;        ///< the downloaded package
+    bool installer{};        ///< true when file is the package's installer
+    std::string preferences; ///< the preferences file to copy
+    std::string updates;     ///< the data folder's updates directory
+    std::string title;       ///< the window title, already translated
+    std::string line;        ///< the window line, already translated
 };
 
 /// What is installed, and what was kept.
@@ -142,7 +148,8 @@ enum class StartEnd : uint8_t {
 /// The bytes are one JSON object of format 1, at most max_plan_bytes.
 /// A member this build does not know is ignored. A member named twice
 /// refuses the plan. A path must be absolute. `title` and `line` are at
-/// most max_window_line_bytes. `program` must not be empty.
+/// most max_window_line_bytes. `program` must not be empty. `channel`,
+/// when present, is `stable` or `testing`; absent is Stable.
 ///
 /// @param bytes the plan's bytes
 /// @param[out] error why the bytes were refused; may be null

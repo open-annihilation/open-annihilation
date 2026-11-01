@@ -127,6 +127,7 @@ bool verify_package(const VerifyRequest& request, Verified& verified, std::strin
     feed::CheckRequest check;
     check.feed = feed_bytes;
     check.signature = signature_bytes;
+    check.channel = request.channel;
     if (!pins.empty())
         check.keys = std::span<const oa::data::registry::PinnedKey>(pins.data(), pins.size());
     const feed::Checked checked = feed::check_feed(check);

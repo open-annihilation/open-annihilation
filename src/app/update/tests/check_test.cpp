@@ -1,8 +1,9 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// When a check is due, and one check against a feed served on 127.0.0.1.
-// The keys are made from fixed seeds. Nothing is fetched from a publisher.
+// When a check is due, which feed a channel reads, when a check may be
+// reported, and one check against a feed served on 127.0.0.1. The keys are
+// made from fixed seeds. Nothing is fetched from a publisher.
 
 #include "oa/app/update/check.hpp"
 #include "oa/app/update/checker.hpp"
@@ -83,9 +84,12 @@ SignedFeed sign_text(std::string_view json, std::string_view key_id, uint8_t fil
     return signed_feed;
 }
 
-/// One release of the stable feed, with one package.
-std::string feed_json(int64_t release, std::string_view package) {
-    std::string json = R"({"feed":1,"channel":"stable","releases":[{"release":)";
+/// One release of a channel's feed, with one package.
+std::string
+feed_json(int64_t release, std::string_view package, std::string_view channel = "stable") {
+    std::string json = R"({"feed":1,"channel":")";
+    json += channel;
+    json += R"(","releases":[{"release":)";
     json += std::to_string(release);
     json += R"(,"version":"9.9.9","date":"2026-10-25","from":"0.0.1","packages":{")";
     json += package;
@@ -290,9 +294,83 @@ void modes_round_trip() {
     OA_CHECK(!update::read_checked(values).has_value());
 }
 
+/// The channel's word, the launch option over Update channel, and the file
+/// each channel reads: the published stable feed as it is, and the testing
+/// feed beside it, or beside a test feed.
+void channels_and_addresses() {
+    oa::platform::preferences::Values values;
+    OA_CHECK(update::read_channel(values) == update::Channel::stable);
+    values["open-annihilation.update-channel"] = "testing";
+    OA_CHECK(update::read_channel(values) == update::Channel::testing);
+    for (const char* other : {"Testing", "preview", "", "stable"}) {
+        values["open-annihilation.update-channel"] = other;
+        OA_CHECK(update::read_channel(values) == update::Channel::stable);
+    }
+    OA_CHECK(update::channel_name(update::Channel::stable) == "stable");
+    OA_CHECK(update::channel_name(update::Channel::testing) == "testing");
+    OA_CHECK(update::parse_channel("testing") == update::Channel::testing);
+    OA_CHECK(update::parse_channel("stable") == update::Channel::stable);
+    OA_CHECK(!update::parse_channel("Testing").has_value());
+    OA_CHECK(!update::parse_channel("").has_value());
+
+    values["open-annihilation.update-channel"] = "testing";
+    OA_CHECK(update::run_channel("", values) == update::Channel::testing);
+    OA_CHECK(update::run_channel("stable", values) == update::Channel::stable);
+    values.erase("open-annihilation.update-channel");
+    OA_CHECK(update::run_channel("", values) == update::Channel::stable);
+    OA_CHECK(update::run_channel("testing", values) == update::Channel::testing);
+
+    // 0.8.12 and later read the second file of each channel; copies before
+    // them read stable.json in the same folder.
+    OA_CHECK(update::feed_address.ends_with("/v1/engine/stable-2.json"));
+    OA_CHECK(update::Source{}.feed_url == update::feed_address);
+    OA_CHECK(update::Source{}.channel == update::Channel::stable);
+    OA_CHECK(
+        update::channel_feed_address(update::feed_address, update::Channel::stable) ==
+        update::feed_address
+    );
+    const std::string testing =
+        update::channel_feed_address(update::feed_address, update::Channel::testing);
+    const std::string_view published = update::feed_address;
+    OA_CHECK(
+        testing == std::string(published.substr(0, published.rfind('/') + 1)) + "testing-2.json"
+    );
+    OA_CHECK(
+        update::channel_feed_address(
+            "http://127.0.0.1:8123/v1/engine/stable-2.json", update::Channel::testing
+        ) == "http://127.0.0.1:8123/v1/engine/testing-2.json"
+    );
+    OA_CHECK(
+        update::channel_feed_address(
+            "http://127.0.0.1:8123/v1/engine/stable-2.json", update::Channel::stable
+        ) == "http://127.0.0.1:8123/v1/engine/stable-2.json"
+    );
+}
+
+/// The time of the last report, and the hour before the next.
+void pings_round_trip() {
+    oa::platform::preferences::Values values;
+    OA_CHECK(!update::read_pinged(values).has_value());
+    update::write_pinged(values, 5000);
+    OA_CHECK(update::read_pinged(values) == 5000);
+    OA_CHECK(values["open-annihilation.update-pinged"] == "5000");
+    values["open-annihilation.update-pinged"] = "soon";
+    OA_CHECK(!update::read_pinged(values).has_value());
+    values["open-annihilation.update-pinged"] = "";
+    OA_CHECK(!update::read_pinged(values).has_value());
+
+    constexpr int64_t now = 1'800'000'000;
+    OA_CHECK(update::ping_due(std::nullopt, now));
+    OA_CHECK(!update::ping_due(now, now));
+    OA_CHECK(!update::ping_due(now - update::ping_interval_seconds + 1, now));
+    OA_CHECK(update::ping_due(now - update::ping_interval_seconds, now));
+    // A report in the future is a clock set back, and does not wait.
+    OA_CHECK(update::ping_due(now + 600, now));
+}
+
 update::Source test_source(const fixture::Server& server, const SignedFeed& signed_feed) {
     update::Source source;
-    source.feed_url = server.url("/v1/engine/stable.json");
+    source.feed_url = server.url("/v1/engine/stable-2.json");
     source.test = true;
     update::FeedKey key;
     key.id = signed_feed.key_id;
@@ -301,9 +379,12 @@ update::Source test_source(const fixture::Server& server, const SignedFeed& sign
     return source;
 }
 
-void serve(fixture::Server& server, const SignedFeed& signed_feed) {
-    server.serve_bytes("/v1/engine/stable.json", signed_feed.bytes, "application/json");
-    server.serve_bytes("/v1/engine/stable.json.sig", signed_feed.signature, "text/plain");
+void serve(
+    fixture::Server& server, const SignedFeed& signed_feed, std::string_view file = "stable-2.json"
+) {
+    const std::string path = "/v1/engine/" + std::string(file);
+    server.serve_bytes(path, signed_feed.bytes, "application/json");
+    server.serve_bytes(path + ".sig", signed_feed.signature, "text/plain");
 }
 
 bool agent_and_no_cookie(const fixture::LoggedRequest& request) {
@@ -339,8 +420,8 @@ void offered_check(fixture::Server& server) {
     OA_CHECK(requests.size() == 2);
     if (requests.size() == 2) {
         OA_CHECK(requests[0].method == "GET");
-        OA_CHECK(requests[0].target == "/v1/engine/stable.json");
-        OA_CHECK(requests[1].target == "/v1/engine/stable.json.sig");
+        OA_CHECK(requests[0].target == "/v1/engine/stable-2.json");
+        OA_CHECK(requests[1].target == "/v1/engine/stable-2.json.sig");
         OA_CHECK(agent_and_no_cookie(requests[0]));
         OA_CHECK(agent_and_no_cookie(requests[1]));
     }
@@ -396,6 +477,127 @@ void a_stored_feed_is_remembered(fixture::Server& server) {
     update::Checker refused(scratch.path);
     OA_CHECK(!refused.remember(other, built));
     OA_CHECK(refused.snapshot().state == update::CheckState::idle);
+}
+
+/// The testing channel reads testing-2.json beside the stable feed, and
+/// offers the release the testing feed names. A player's Check now is
+/// marked asked.
+void testing_check(fixture::Server& server) {
+    const update::ThisBuild built = update::this_build({});
+    const SignedFeed stable = sign_text(feed_json(built.release, built.package), "test-pin", 0x21);
+    const SignedFeed testing =
+        sign_text(feed_json(built.release + 1, built.package, "testing"), "test-pin", 0x21);
+    serve(server, stable);
+    serve(server, testing, "testing-2.json");
+    server.clear_log();
+    Scratch scratch("testing");
+    update::Checker checker(scratch.path);
+    update::Source source = test_source(server, testing);
+    source.channel = update::Channel::testing;
+    source.feed_url = update::channel_feed_address(source.feed_url, source.channel);
+    checker.start(source, built, true);
+    OA_CHECK(wait_until(checker, is_offered, 5000));
+    const update::CheckSnapshot shot = checker.snapshot();
+    OA_CHECK(shot.state == update::CheckState::offered);
+    OA_CHECK(shot.asked);
+    OA_CHECK(shot.feed != nullptr && shot.feed->channel == "testing");
+    OA_CHECK(shot.offer.release != nullptr && shot.offer.release->release == built.release + 1);
+    OA_CHECK(read_file(scratch.path / "feed.json") == testing.bytes);
+    const std::vector<fixture::LoggedRequest> requests = server.requests();
+    OA_CHECK(requests.size() == 2);
+    if (requests.size() == 2) {
+        OA_CHECK(requests[0].target == "/v1/engine/testing-2.json");
+        OA_CHECK(requests[1].target == "/v1/engine/testing-2.json.sig");
+    }
+}
+
+/// A stable feed fetched for the testing channel is refused as
+/// wrong_channel, and so is a testing feed fetched for the stable channel.
+/// Neither is stored.
+void wrong_channel_checks(fixture::Server& server) {
+    const update::ThisBuild built = update::this_build({});
+    const SignedFeed stable =
+        sign_text(feed_json(built.release + 1, built.package), "test-pin", 0x21);
+    const SignedFeed testing =
+        sign_text(feed_json(built.release + 1, built.package, "testing"), "test-pin", 0x21);
+
+    struct Case {
+        const SignedFeed* served;
+        update::Channel asked;
+        const char* name;
+    };
+
+    const Case cases[] = {
+        {&stable, update::Channel::testing, "stable-as-testing"},
+        {&testing, update::Channel::stable, "testing-as-stable"},
+    };
+    for (const Case& one : cases) {
+        const std::string file = std::string(update::channel_name(one.asked)) + "-2.json";
+        serve(server, *one.served, file);
+        Scratch scratch(one.name);
+        update::Checker checker(scratch.path);
+        update::Source source = test_source(server, *one.served);
+        source.channel = one.asked;
+        source.feed_url = update::channel_feed_address(source.feed_url, source.channel);
+        checker.start(source, built, false);
+        OA_CHECK(wait_until(checker, is_failed, 5000));
+        const update::CheckSnapshot shot = checker.snapshot();
+        OA_CHECK(shot.state == update::CheckState::failed);
+        OA_CHECK(shot.failure == "wrong_channel");
+        OA_CHECK(shot.failure_kind == update::CheckFailure::refused);
+        std::error_code error;
+        OA_CHECK(!fs::exists(scratch.path / "feed.json", error));
+    }
+}
+
+/// Back on Stable while running a release only Testing offered: the stored
+/// testing feed is not remembered, and the stable feed offers nothing until
+/// it names a newer release, so nothing is put back.
+void switching_back(fixture::Server& server) {
+    update::ThisBuild built = update::this_build({});
+    const int64_t testing_release = built.release + 1;
+    const SignedFeed testing =
+        sign_text(feed_json(testing_release, built.package, "testing"), "test-pin", 0x21);
+    serve(server, testing, "testing-2.json");
+    Scratch scratch("switching-back");
+    update::Source testing_source = test_source(server, testing);
+    testing_source.channel = update::Channel::testing;
+    testing_source.feed_url =
+        update::channel_feed_address(testing_source.feed_url, testing_source.channel);
+    {
+        update::Checker checker(scratch.path);
+        checker.start(testing_source, built, false);
+        OA_CHECK(wait_until(checker, is_offered, 5000));
+    }
+    // The copy installed that release, then the player chose Stable.
+    built.release = testing_release;
+    const update::Source stable_source = test_source(server, testing);
+    update::Checker next_start(scratch.path);
+    OA_CHECK(!next_start.remember(stable_source, built));
+    OA_CHECK(next_start.snapshot().state == update::CheckState::idle);
+
+    const SignedFeed older =
+        sign_text(feed_json(testing_release - 1, built.package), "test-pin", 0x21);
+    serve(server, older);
+    next_start.start(stable_source, built, false);
+    OA_CHECK(wait_until(next_start, is_current, 5000));
+    OA_CHECK(next_start.snapshot().offer.way == oa::data::engine_feed::Way::none);
+
+    const SignedFeed same = sign_text(feed_json(testing_release, built.package), "test-pin", 0x21);
+    serve(server, same);
+    update::Checker same_check(scratch.path);
+    same_check.start(stable_source, built, false);
+    OA_CHECK(wait_until(same_check, is_current, 5000));
+
+    const SignedFeed newer =
+        sign_text(feed_json(testing_release + 1, built.package), "test-pin", 0x21);
+    serve(server, newer);
+    update::Checker newer_check(scratch.path);
+    newer_check.start(stable_source, built, false);
+    OA_CHECK(wait_until(newer_check, is_offered, 5000));
+    const update::CheckSnapshot shot = newer_check.snapshot();
+    OA_CHECK(shot.offer.release != nullptr && shot.offer.release->release == testing_release + 1);
+    OA_CHECK(!shot.asked);
 }
 
 void missing_check(fixture::Server& server) {
@@ -489,6 +691,8 @@ void timeout_check(fixture::Server& server) {
 int main() {
     schedule();
     modes_round_trip();
+    channels_and_addresses();
+    pings_round_trip();
     fixture::Server server;
     server.set_idle_close_ms(120000);
     std::string listen_error;
@@ -498,6 +702,9 @@ int main() {
     offered_check(server);
     current_check(server);
     a_stored_feed_is_remembered(server);
+    testing_check(server);
+    wrong_channel_checks(server);
+    switching_back(server);
     missing_check(server);
     refused_check(server);
     cancelled_check(server);

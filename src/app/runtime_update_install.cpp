@@ -113,6 +113,8 @@ constexpr std::string_view kKeptAsTheyWere =
 constexpr int32_t kReceiptLog = 0;
 /// The card's first line on Settings › Updates; {version} is this build.
 constexpr std::string_view kInstalledVersion = "Installed {version}";
+/// The card's first line while this run reads the testing channel.
+constexpr std::string_view kInstalledTesting = "Installed {version} · Testing channel";
 /// The card's heading while the dialog shows Check for updates at Never.
 constexpr std::string_view kNeverChecks = "OA never checks";
 /// The badge beside Updates in Settings' section list while a release is ready.
@@ -1108,6 +1110,13 @@ void Runtime::hand_off_update() {
     plan.from_version = kept;
     plan.feed = absolute_utf8(*folder / "feed.json");
     plan.signature = absolute_utf8(*folder / "feed.json.sig");
+    // The helper checks the saved feed against the channel it was fetched
+    // for: the held feed's, which the check that saved it verified.
+    const std::optional<update::Channel> saved_channel =
+        update_->held.feed != nullptr ? update::parse_channel(update_->held.feed->channel)
+                                      : std::nullopt;
+    plan.channel =
+        saved_channel.value_or(update::run_channel(options_.update_channel, preference_values_));
     plan.release = update_->download_release;
     plan.package = update_->download_package;
     plan.file = absolute_utf8(shot.path);
@@ -2214,8 +2223,13 @@ bool Runtime::apply_update_download(settings::Dialog& dialog) {
             offer.card_status = std::string(languages::interface_text(kNeverChecks));
             offer.card_detail.clear();
         }
+        // A copy on the testing channel says so, so a tester can tell.
+        const bool testing = update::run_channel(options_.update_channel, preference_values_) ==
+                             update::Channel::testing;
         offer.card_installed = library::filled(
-            shown_hooks(), kInstalledVersion, {{"version", centre.current_version}}
+            shown_hooks(),
+            testing ? kInstalledTesting : kInstalledVersion,
+            {{"version", centre.current_version}}
         );
         const bool moving = centre.stage == update::Stage::downloading ||
                             centre.stage == update::Stage::paused_by_player ||

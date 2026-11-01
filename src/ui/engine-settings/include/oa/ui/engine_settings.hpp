@@ -279,6 +279,14 @@ inline constexpr std::string_view update_download = "open-annihilation.update-do
 /// "ask" or "when-i-quit" (EngineSettings::update_install): how a downloaded
 /// release is installed. Absent, or any other text, reads as "ask".
 inline constexpr std::string_view update_install = "open-annihilation.update-install";
+/// "stable" or "testing" (EngineSettings::update_channel): which feed the
+/// check for a new release reads. Absent, or any other text, reads as
+/// "stable".
+inline constexpr std::string_view update_channel = "open-annihilation.update-channel";
+/// Seconds since 1970 of the last time a check for a new release was
+/// reported to the address its feed names. Absent, or any text that is not
+/// a whole number, means none has been.
+inline constexpr std::string_view update_pinged = "open-annihilation.update-pinged";
 /// "on" or "off" (EngineSettings::file_type_oamod). Absent, or any text
 /// other than off, the game opens mod packages.
 inline constexpr std::string_view file_type_oamod = "open-annihilation.file-types.oamod";
@@ -350,6 +358,10 @@ static_assert(update_download.find('|') == std::string_view::npos);
 static_assert(update_download.find('\\') == std::string_view::npos);
 static_assert(update_install.find('|') == std::string_view::npos);
 static_assert(update_install.find('\\') == std::string_view::npos);
+static_assert(update_channel.find('|') == std::string_view::npos);
+static_assert(update_channel.find('\\') == std::string_view::npos);
+static_assert(update_pinged.find('|') == std::string_view::npos);
+static_assert(update_pinged.find('\\') == std::string_view::npos);
 static_assert(mutators_skirmish.find('|') == std::string_view::npos);
 static_assert(mutators_multiplayer.find('|') == std::string_view::npos);
 static_assert(mutators_campaign.find('|') == std::string_view::npos);
@@ -1252,6 +1264,19 @@ enum class UpdateInstall : uint8_t {
     when_i_quit, ///< a ready release installs the next time the game quits
 };
 
+/// Which feed the check for a new release reads. The stored words are the
+/// channels' own names: stable, testing.
+enum class UpdateChannel : uint8_t {
+    stable,  ///< the release every player gets
+    testing, ///< a release before players get it, which may be unfinished
+};
+
+/// The channels of Update channel, in the order the dialog offers them.
+inline constexpr std::array<UpdateChannel, 2> update_channel_choices{
+    UpdateChannel::stable,
+    UpdateChannel::testing,
+};
+
 /// Coloured weapon lighting's percent with Hardware acceleration Full where
 /// the preferences store none (default_effect_intensity).
 inline constexpr uint32_t default_weapon_lighting = 20;
@@ -1521,6 +1546,10 @@ struct EngineSettings {
     /// How a downloaded release is installed: the ready prompt asks, or it
     /// installs when the game quits. It takes effect when OK is pressed.
     UpdateInstall update_install{UpdateInstall::ask};
+    /// Which feed the check for a new release reads: the stable one every
+    /// player gets, or the testing one beside it. Developer lists it. It
+    /// takes effect when OK is pressed, whatever Developer Mode is.
+    UpdateChannel update_channel{UpdateChannel::stable};
     /// The game opens mod packages (.oamod). On unless the preference is the
     /// word off. Windows and Linux register it when OK is pressed. On macOS
     /// the switch shows whether this copy is the default opener, and OK

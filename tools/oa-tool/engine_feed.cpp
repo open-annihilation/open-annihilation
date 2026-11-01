@@ -15,6 +15,7 @@
 #include "oa/data/catalogue/catalogue.hpp"
 #include "oa/data/catalogue/check.hpp"
 #include "oa/data/engine_feed/feed.hpp"
+#include "oa/data/registry/descriptor.hpp"
 #include "oa/data/registry/trust.hpp"
 #include "oa/formats/json.hpp"
 #include "oa/formats/oamod/package_keys.hpp"
@@ -328,10 +329,14 @@ int print_refusal(Output& output, const feed::Checked& checked) {
     return exit_failed;
 }
 
-/// Prints the signature and one line for each release. A package's own
-/// from follows its size, and the install page ends the line.
+/// Prints the signature, the ping where the feed names one, and one line for
+/// each release. A package's own from follows its size, and the install
+/// page ends the line.
 void print_feed(Output& output, const feed::Checked& checked) {
     output.out << "good signature by " << checked.signed_by << '\n';
+    if (checked.feed->ping)
+        output.out << "ping " << checked.feed->ping->url << " registry "
+                   << checked.feed->ping->registry << '\n';
     for (const feed::Release& release : checked.feed->releases) {
         output.out << release.release << ' ' << release.version_text << ' ' << release.date
                    << " from " << oamod::engine_version_text(release.from);
@@ -394,6 +399,8 @@ int run_engine_feed_write(std::span<const std::string> arguments, Output& output
         {"notes", true, false},
         {"rollout", true, false},
         {"online-min", true, false},
+        {"ping-url", true, false},
+        {"ping-registry", true, false},
         {"channel", true, false},
         {"previous", true, false},
         {"out", true, false},
@@ -478,6 +485,19 @@ int run_engine_feed_write(std::span<const std::string> arguments, Output& output
             throw Failure("online_min is not a version");
     }
 
+    std::optional<feed::Ping> ping;
+    const std::string* ping_url = parsed->value("ping-url");
+    const std::string* ping_registry = parsed->value("ping-registry");
+    if ((ping_url == nullptr) != (ping_registry == nullptr))
+        throw Failure("--ping-url and --ping-registry are given together");
+    if (ping_url != nullptr) {
+        if (!url::parse_http_url(*ping_url))
+            throw Failure("ping's url is not an http or https address");
+        if (!registry::valid_registry_id(*ping_registry))
+            throw Failure("ping's registry is not a registry id");
+        ping = feed::Ping{*ping_url, *ping_registry};
+    }
+
     std::vector<NamedFile> named;
     for (const std::string& package_text : parsed->positional) {
         std::string name_problem;
@@ -491,6 +511,7 @@ int run_engine_feed_write(std::span<const std::string> arguments, Output& output
     feed::Feed written;
     written.channel = channel;
     written.online_min = online_min;
+    written.ping = ping;
     feed::Release release;
     release.release = release_value;
     release.version = *version;

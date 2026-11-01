@@ -1728,7 +1728,8 @@ prompts, Settings › Updates and the headers name one state with one size.
   (a danger button), which quits for the helper to put the kept version
   back.
 - **Settings › Updates.** Each frame `apply_update_download` fills the
-  page's card from the state: "Installed {version}", the heading, the
+  page's card from the state: "Installed {version}", or "Installed
+  {version} · Testing channel" while the run reads the testing channel, the heading, the
   detail, the bar and its paused look, the note and the actions as buttons
   (Roll back… stays Previous version's; Later and Keep it ready, which ask
   nothing of a page that stays open, are left out); a card's button
@@ -1765,8 +1766,9 @@ prompts, Settings › Updates and the headers name one state with one size.
   screen loading and the host of the frontend dispatcher. Lines are only
   ever added to `screens.inc`.
 - `runtime_update.cpp`: looks for a new release at every start and every
-  hour while the game runs, keeps the signed feed it accepted, and reads it
-  again at the first menu of each start; `runtime_update_offer.cpp` and
+  hour while the game runs, on the channel the run reads, keeps the signed
+  feed it accepted, reports a check to the address that feed names at most
+  once an hour, and reads the feed again at the first menu of each start; `runtime_update_offer.cpp` and
   `runtime_update_install.cpp` are its screens ([Updates](#updates)).
 - `runtime_menu_audio.cpp`: the main menu's hum, and when it starts and
   stops (The start's movies and the menu hum, above).

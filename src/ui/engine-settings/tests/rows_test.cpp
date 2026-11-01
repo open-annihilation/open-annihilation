@@ -68,7 +68,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 128> kExpected{{
+constexpr std::array<Expected, 129> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -201,11 +201,13 @@ constexpr std::array<Expected, 128> kExpected{{
     {Setting::invert_3d_camera_rotation, RowKind::toggle, "Invert 3D camera rotation", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::invert_mouse_zoom, RowKind::toggle, "Invert mouse zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::look, RowKind::levels, "Look", 1, 1, 2, 60, 2, false, Lock::none, nullptr},
+    {Setting::update_channel, RowKind::levels, "Update channel", 1, 1, 2, 56, 2, false, Lock::none, nullptr},
 }};
 // clang-format on
 
 static_assert(
-    kExpected.size() == static_cast<std::size_t>(Setting::look) + 1, "every setting has its row"
+    kExpected.size() == static_cast<std::size_t>(Setting::update_channel) + 1,
+    "every setting has its row"
 );
 
 /// Every field of the dialog's locks that locks a row.
@@ -525,7 +527,7 @@ struct StoredChoice {
 };
 
 /// Every strip's and drop-down's setting, with its key.
-constexpr std::array<StoredChoice, 31> kStoredChoices{{
+constexpr std::array<StoredChoice, 32> kStoredChoices{{
     {Setting::key_layout_for_mod, "open-annihilation.keys.layout.ridge"},
     {Setting::max_zoom_out, settings::key::max_zoom_out},
     {Setting::max_zoom_in, settings::key::max_zoom_in},
@@ -557,6 +559,7 @@ constexpr std::array<StoredChoice, 31> kStoredChoices{{
     {Setting::double_click_selects, settings::key::double_click_selects},
     {Setting::focus_lost, settings::key::focus_lost},
     {Setting::look, settings::key::look},
+    {Setting::update_channel, settings::key::update_channel},
 }};
 
 void every_row_and_choice_has_an_id_of_one_word() {
@@ -665,6 +668,7 @@ void every_row_and_choice_has_an_id_of_one_word() {
         ids_of(Setting::zoomed_out_units) == (std::vector<std::string>{"rendered", "dots", "icons"})
     );
     OA_CHECK(ids_of(Setting::fog_of_war) == (std::vector<std::string>{"classic", "smooth"}));
+    OA_CHECK(ids_of(Setting::update_channel) == (std::vector<std::string>{"stable", "testing"}));
     OA_CHECK(
         ids_of(Setting::interface_size) ==
         (std::vector<std::string>{"automatic", "100", "200", "300", "400"})
@@ -764,16 +768,16 @@ void tab_follows_the_dialogs_focus_order() {
         with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31, 32, 33, 34, 39})
     );
     // Developer with its first area open: its rows, UI kit gallery's SHOW
-    // last of them, its list's headers, Show Active Only and Restore profile
-    // values, then the rest.
+    // and Update channel last of them, its list's headers, Show Active Only
+    // and Restore profile values, then the rest.
     settings::Dialog developer = controls;
     developer.page = settings::Page::developer;
     developer.chosen.developer_mode = true;
     developer.developer.areas_open[0] = 1;
-    OA_CHECK(tab_order(developer) == with_footer_and_list({18, 19, 20, 23, 24, 25, 26, 27,
-                                                           28, 29, 30, 31, 32, 33, 34, 35,
-                                                           36, 37, 38, 39, 40, 41, 42, 43,
-                                                           44, 45, 46, 47, 48, 49, 21, 22}));
+    OA_CHECK(tab_order(developer) == with_footer_and_list({18, 19, 20, 21, 24, 25, 26, 27, 28,
+                                                           29, 30, 31, 32, 33, 34, 35, 36, 37,
+                                                           38, 39, 40, 41, 42, 43, 44, 45, 46,
+                                                           47, 48, 49, 50, 22, 23}));
 }
 
 void updates_names_its_ways() {

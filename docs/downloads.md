@@ -245,8 +245,11 @@ install ID" never receives one.
   starts. Until then Settings › Downloads says "Made at your first
   download" under the Install ID hint. Afterwards a row labelled "Your
   install ID" shows the ID in part, as "7f3a90d2 · · · c91e".
-- **Sent only when asking that registry for a download**, never with
-  anything else ([what a download sends](#what-a-download-sends)).
+- **Sent when asking that registry for a download**
+  ([what a download sends](#what-a-download-sends)), and with the report of
+  a check for a new Open Annihilation when the signed feed of releases
+  names that registry ([what is sent](updates.md#what-is-sent)). Never
+  with anything else.
 - **Reset** replaces it at once with a new random ID. Cancel does not undo
   it.
 - **Turned off**, OA forgets the ID and makes none while it is off, and
@@ -431,7 +434,8 @@ Prime's name on any other page.
 ### Turning the install ID off
 
 Turn **Install ID** off in Settings › Downloads, and press OK. OA forgets
-the ID and sends none. You can still browse the Library and see updates,
+the ID and sends none, with a download or with the report of a check for a
+new release. You can still browse the Library and see updates,
 but downloads from that registry are off: its GET and UPDATE say
 "Downloads from Core Prime are off (Settings › Downloads)", a download
 already waiting stops, and Settings › Language marks its languages

@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // When Open Annihilation looks for a new release, and which feed it asks.
-// The mode and the time of the last check that reached the server are
-// preference values. An hour is counted from when this run's automatic
-// check began. Nothing here fetches.
+// The mode, the channel, the time of the last check that reached the server
+// and the time of the last report of a check are preference values. An hour
+// is counted from when this run's automatic check began. Nothing here
+// fetches.
 #pragma once
 
 #include "oa/platform/preferences.hpp"
@@ -32,12 +33,63 @@ enum class CheckPlace : uint8_t {
     elsewhere, ///< another screen
 };
 
-/// The published stable feed. A test feed replaces it for one run.
+/// The published stable feed. A test feed replaces it for one run. Copies
+/// before 0.8.12 read `stable.json` in the same folder, which never names a
+/// package those copies' helper cannot install.
 inline constexpr std::string_view feed_address =
-    "http://downloads.coreprime.net/v1/engine/stable.json";
+    "http://downloads.coreprime.net/v1/engine/stable-2.json";
 
 /// Seconds between automatic checks of one run.
 inline constexpr int64_t check_interval_seconds = 3600;
+
+/// The feed a check reads. Testing offers a release before Stable does, to
+/// the copies whose player chose it. Its feed sits beside the stable one and
+/// is signed by the same keys.
+enum class Channel : uint8_t {
+    stable,  ///< `stable-2.json`, which every copy reads unless told otherwise
+    testing, ///< `testing-2.json`, in the same folder
+};
+
+/// Reads Update channel.
+///
+/// Absent, or any text other than `testing`, is Stable.
+///
+/// @param values the preference values
+/// @return the channel
+[[nodiscard]] Channel read_channel(const platform::preferences::Values& values);
+
+/// The channel's name: the word the preference and the launch option use,
+/// and the `channel` its feed names.
+///
+/// @param channel the channel
+/// @return `stable` or `testing`
+[[nodiscard]] std::string_view channel_name(Channel channel) noexcept;
+
+/// Reads a channel's name.
+///
+/// @param text `stable` or `testing`
+/// @return the channel, or nothing for any other text
+[[nodiscard]] std::optional<Channel> parse_channel(std::string_view text) noexcept;
+
+/// The channel this run reads: the launch option's when the run was given
+/// one, and Update channel otherwise.
+///
+/// @param option `--update-channel`'s value; empty when the run was given none
+/// @param values the preference values
+/// @return the channel
+[[nodiscard]] Channel
+run_channel(std::string_view option, const platform::preferences::Values& values);
+
+/// The feed a channel reads.
+///
+/// Stable reads `address` as it is. Testing reads `testing-2.json` in the
+/// folder that holds `address`: beside the published stable feed, or beside
+/// a test feed.
+///
+/// @param address the stable feed's address, with no query
+/// @param channel the channel
+/// @return the address the check fetches; its signature is this plus `.sig`
+[[nodiscard]] std::string channel_feed_address(std::string_view address, Channel channel);
 
 /// Reads Check for updates.
 ///
@@ -67,6 +119,35 @@ void write_check_mode(platform::preferences::Values& values, CheckMode mode);
 /// @param[in,out] values the preference values
 /// @param checked seconds since 1970
 void write_checked(platform::preferences::Values& values, int64_t checked);
+
+/// Seconds that pass before a check is reported again.
+inline constexpr int64_t ping_interval_seconds = 3600;
+
+/// Reads the time a check was last reported.
+///
+/// The value is seconds since 1970. Absent, or any text that is not a whole
+/// number, means no check has been reported.
+///
+/// @param values the preference values
+/// @return the time, or nothing
+[[nodiscard]] std::optional<int64_t> read_pinged(const platform::preferences::Values& values);
+
+/// Writes the time a check was reported.
+///
+/// @param[in,out] values the preference values
+/// @param pinged seconds since 1970
+void write_pinged(platform::preferences::Values& values, int64_t pinged);
+
+/// Tells whether a check may be reported now.
+///
+/// It may when none has been reported, when `ping_interval_seconds` have
+/// passed since the last report, or when that report's time is in the
+/// future, so a clock set back does not stop reports for good.
+///
+/// @param pinged the last report, or nothing
+/// @param now seconds since 1970
+/// @return true when the check may be reported
+[[nodiscard]] bool ping_due(std::optional<int64_t> pinged, int64_t now) noexcept;
 
 /// Tells whether an automatic check is due.
 ///
@@ -125,7 +206,8 @@ struct FeedKey {
     std::string text; ///< the key's ed25519 text
 };
 
-/// Where a check fetches the feed, and which keys may sign it.
+/// Where a check fetches the feed, which keys may sign it, and the channel
+/// the feed must name.
 ///
 /// An empty `keys` means the engine's pinned keys. `test` is a feed given
 /// for one run, which may be checked in an unattended or headless run.
@@ -133,8 +215,9 @@ struct Source {
     std::string feed_url{
         std::string(feed_address)
     }; ///< the feed; the signature is this plus `.sig`
-    std::vector<FeedKey> keys; ///< empty means the pinned keys
-    bool test{};               ///< a feed given for this run
+    std::vector<FeedKey> keys;        ///< empty means the pinned keys
+    bool test{};                      ///< a feed given for this run
+    Channel channel{Channel::stable}; ///< the channel the feed must name
 };
 
 } // namespace oa::app::update

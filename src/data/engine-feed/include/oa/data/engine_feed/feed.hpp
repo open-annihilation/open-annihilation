@@ -29,8 +29,12 @@ inline constexpr int64_t feed_format = 1;
 /// The most bytes of a feed this build reads.
 inline constexpr std::size_t max_feed_bytes = 256 * 1024;
 
-/// The channel a release build asks for.
+/// The channel a build asks for unless the player chose another.
 inline constexpr std::string_view stable_channel = "stable";
+
+/// The channel that offers a release before the stable one does, to the
+/// copies whose player chose it.
+inline constexpr std::string_view testing_channel = "testing";
 
 /// One file a release offers: the zip, or the installer beside it.
 struct PackageFile {
@@ -70,11 +74,21 @@ struct Release {
     std::vector<Package> packages;           ///< the packages, in the feed's order
 };
 
+/// Where a copy reports a check of this feed, and whose install ID it sends.
+struct Ping {
+    std::string url;      ///< an http or https address
+    std::string registry; ///< the id of the registry whose install ID is sent
+
+    bool operator==(const Ping&) const = default;
+};
+
 /// One channel's feed. Releases are newest first.
 struct Feed {
     std::string channel; ///< the channel the file names
     /// The oldest version that may play online. Read and kept; not acted on.
     std::optional<formats::oamod::EngineVersion> online_min;
+    /// Where a check of this feed is reported. Nothing when the feed omits it.
+    std::optional<Ping> ping;
     std::vector<Release> releases; ///< newest release number first
 };
 

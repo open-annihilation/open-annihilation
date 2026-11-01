@@ -629,6 +629,10 @@ struct Options {
     std::optional<std::string> update_feed;
     /// Keys that may sign `update_feed`, each `ID=ed25519:KEY`.
     std::vector<std::string> update_keys;
+    /// --update-channel: `stable` or `testing`, the channel this run looks
+    /// for a new release on in place of Settings' Update channel. Every
+    /// build. Empty reads the setting.
+    std::string update_channel;
     /// Serves a feed and checks the background check for a new release.
     bool check_engine_feed = false;
     /// Serves a feed and checks the question a new release asks.

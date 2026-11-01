@@ -1,11 +1,36 @@
 # The engine feed
 
-A release is offered from one signed feed, `v1/engine/<channel>.json`, and
-a detached signature beside it. The game reads that file only after the
-signature over its exact bytes verifies against a pinned key. This build
-publishes one channel, `stable`. A preview channel is 0.9. The reader
-accepts any channel name of lower-case letters and digits, and the check
-compares that name with the channel it was asked for.
+A release is offered from a signed feed and a detached signature beside it.
+The game reads that file only after the signature over its exact bytes
+verifies against a pinned key, and only when the file names the channel it
+was fetched for. Two channels are published: `stable`, which every copy
+reads unless its player chose otherwise, and `testing`, where a release
+goes first. The reader accepts any channel name of lower-case letters and
+digits, and the check compares that name with the channel it was asked
+for.
+
+## The files
+
+The feeds sit side by side in `v1/engine/` on the downloads host, each with
+its `.sig`:
+
+| File | Read by | Channel |
+|---|---|---|
+| `stable.json` | 0.8.9, 0.8.10 and 0.8.11 | `stable` |
+| `stable-2.json` | 0.8.12 and later on the stable channel | `stable` |
+| `testing-2.json` | 0.8.12 and later on the testing channel | `testing` |
+
+0.8.12 and later read the `-2` file of their channel; the copies before
+them only know `stable.json`. The two stable files hold the same releases,
+signed with the same key, and each names `stable`; the suffix is only the
+file's name. They differ where an older copy must not be offered
+something: the Mac updater in 0.8.9 to 0.8.11 can leave an app the
+installer package put in Applications that the player cannot start, so
+`stable.json` never names `macos-universal` while such copies exist, and
+`stable-2.json` may, with the package's own `from` and an `install_page`
+for the copies below it. No release before
+0.8.12 has a testing channel, so none reads a testing file; `testing.json`
+need not be published.
 
 The format is `feed` 1. A member this build does not know is ignored. A
 member named twice refuses the feed. Releases come back newest first, and
@@ -33,6 +58,32 @@ asks for `--release`.
 `channel` is the channel the file is for. `online_min`, when present, is
 the oldest version the feed names. It is read and kept. Nothing in this
 build acts on it.
+
+`ping`, when present, is where a copy reports a check of the feed: an
+object of `url`, an `http` or `https` address, and `registry`, the id of
+the registry whose install ID the report carries.
+
+```json
+"ping": {"url": "https://example.net/v1/engine/pings", "registry": "example"}
+```
+
+A copy of 0.8.12 or later that fetched and verified the feed sends one
+POST there for that check, at most once an hour and never waiting for it,
+with the game's own HTTP client and user agent:
+
+```json
+{"version":"0.8.12","platform":"macos-universal","channel":"stable","install_id":"","trigger":"automatic"}
+```
+
+`platform` is the package id `choose` uses, `trigger` is `manual` for
+Check now and `automatic` otherwise, and `install_id` is the named
+registry's install ID, empty while that registry's install ID is off or
+none has been made ([What is sent](../updates.md#what-is-sent)). The
+engine names no address and no registry of its own: both come only from
+the signed feed. A run that is unattended, headless or given a test feed
+reports only to an address on this machine. A failed report changes
+nothing and is logged. Readers older than 0.8.12 ignore the member, so
+both files may carry it.
 
 Each release has:
 
@@ -92,7 +143,8 @@ single member is read.
 
 ## Publishing a release
 
-After the packages are built, from the folder they were written to:
+After the packages are built, from the folder they were written to,
+write each file the release goes into.
 
 ```
 oa-tool engine-feed write \
@@ -121,9 +173,21 @@ oa-tool engine-feed write \
 A `--package-from` that names no package given is refused.
 `--previous stable.json` copies the older releases from an earlier feed
 in under the new one, newest first, five releases in all. A previous release newer than the one being written
-is refused. `--notes` is a JSON file, an object of language tag to lines.
+is refused, and so is an earlier feed of another channel. `--notes` is a JSON file, an object of language tag to lines.
 `--rollout` defaults to 100, which is what this build publishes.
-`--channel` defaults to `stable`.
+`--channel` defaults to `stable`; `--channel testing` writes the testing
+channel's feed. `--ping-url URL --ping-registry ID`, given together, add
+the `ping` member:
+
+```
+oa-tool engine-feed write \
+  --version 0.8.12 --date 2026-11-02 --from 0.8.0 \
+  --page https://example.net/v0.8.12 \
+  --mirror http://downloads.coreprime.net/v1/engine/0.8.12/ \
+  --ping-url https://example.net/v1/engine/pings --ping-registry example \
+  --channel testing --previous testing-2.json --out testing-2.json \
+  open-annihilation-0.8.12-macos-universal.zip ...
+```
 
 On the signing machine:
 
@@ -133,18 +197,24 @@ oa-tool engine-feed check stable.json
 ```
 
 `sign` refuses a feed the reader would refuse before it opens the key,
-writes `stable.json.sig`, and checks that pair with the key it just used.
-`check` prints `good signature by <id>` and one line a release: the
-number, the version, the day, `from` and the release's minimum, then each
-package's id and zip size, with `from` and its own minimum when it names
-one, and `install_page` and the address last when the release has one.
+writes `stable.json.sig`, and checks that pair, with the feed's own
+channel, with the key it just used. `check` reads the feed as the stable
+channel's unless it is given `--channel testing`, and refuses a feed of
+the other channel as `wrong_channel`. It prints `good signature by <id>`,
+`ping <url> registry <id>` when the feed names a ping, and one line a
+release: the number, the version, the day, `from` and the release's
+minimum, then each package's id and zip size, with `from` and its own
+minimum when it names one, and `install_page` and the address last when
+the release has one.
 
 Upload the packages to `v1/engine/<version>/` on
-`downloads.coreprime.net`, then the feed and its signature. Those two are
+`downloads.coreprime.net`, then each feed and its signature. Those are
 served with `Cache-Control: public, max-age=60`. Afterwards:
 
 ```
-oa-tool engine-feed check --url http://downloads.coreprime.net/v1/engine/stable.json
+oa-tool engine-feed check --url http://downloads.coreprime.net/v1/engine/stable-2.json
+oa-tool engine-feed check --channel testing \
+  --url http://downloads.coreprime.net/v1/engine/testing-2.json
 ```
 
 That fetches the feed and the feed's address plus `.sig`, and runs the
@@ -162,8 +232,11 @@ The plan's members, in the order `plan_text` writes them, are `plan`,
 `action` (`install` or `roll-back`), `route` (`check-folder`,
 `macos-bundle`, `windows-installer`, `windows-folder` or
 `linux-versions`), `wait_for` (a process id, or 0), `install`, `program`,
-`arguments`, `from_version`, `feed`, `signature`, `release`, `package`,
-`file`, `installer`, `preferences`, `updates`, `title` and `line`. The
+`arguments`, `from_version`, `feed`, `signature`, `channel`, `release`,
+`package`, `file`, `installer`, `preferences`, `updates`, `title` and
+`line`. `channel` is the channel the saved feed was fetched for, which the
+helper requires the feed to name; it is written only when it is
+`testing`, and absent reads as `stable`. The
 title and the line are already in the player's language, and each is at
 most 200 bytes.
 

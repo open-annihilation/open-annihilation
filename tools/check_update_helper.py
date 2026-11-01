@@ -6,7 +6,8 @@
 
 The program under test starts this script with --started. That path writes
 the arguments it was given and exits. The rest makes a throwaway key, a
-feed and a release zip, then runs oa-update. Nothing is fetched.
+stable feed, a testing feed and a release zip, then runs oa-update. Nothing
+is fetched.
 """
 
 import json
@@ -177,11 +178,58 @@ def prepare_case(root, package, preferences, program, script, extra=None):
     return install, updates, marker, plan
 
 
-def retarget_feed(plan_path, feed, signature):
+def retarget_feed(plan_path, feed, signature, channel=None):
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     plan["feed"] = spell(feed)
     plan["signature"] = spell(signature)
+    if channel is not None:
+        plan["channel"] = channel
     plan_path.write_text(json.dumps(plan) + "\n", encoding="utf-8")
+
+
+def write_signed_feed(oa_tool, key, passphrase, package, out, channel):
+    """Writes and signs a feed of the one release; returns its path or None."""
+    written = run(
+        [
+            oa_tool,
+            "engine-feed",
+            "write",
+            "--version=0.0.2",
+            "--date",
+            "2026-10-24",
+            "--from",
+            "0.0.1",
+            "--page",
+            "https://example.net/v0.0.2",
+            "--mirror",
+            "http://downloads.example.net/v1/engine/0.0.2/",
+            "--channel",
+            channel,
+            "--out",
+            str(out),
+            str(package),
+        ]
+    )
+    if written.returncode != 0:
+        return None
+    wrote = feed_written(written.stdout)
+    if not wrote or not Path(wrote).is_file():
+        return None
+    signed = run(
+        [
+            oa_tool,
+            "engine-feed",
+            "sign",
+            "--key",
+            str(key),
+            "--passphrase-file",
+            str(passphrase),
+            wrote,
+        ]
+    )
+    if signed.returncode != 0 or not Path(wrote + ".sig").is_file():
+        return None
+    return Path(wrote)
 
 
 def check_swapped(install, updates, preferences, marker):
@@ -377,6 +425,41 @@ def main(argv):
             sys.stderr.write(first.stderr)
             return fail("the swap exited " + str(first.returncode))
         status = check_swapped(install, updates, preferences, marker)
+        if status != 0:
+            return status
+
+        # The testing channel's feed: a plan that names the channel installs
+        # from it, and one that names none is refused and changes nothing.
+        testing_feed = write_signed_feed(
+            oa_tool, key, passphrase, package, scratch / "testing-2.json", "testing"
+        )
+        if testing_feed is None:
+            return fail("the testing feed was not written and signed")
+        testing_signature = Path(str(testing_feed) + ".sig")
+        testing = scratch / "testing"
+        install, updates, marker, plan = prepare_case(
+            testing, package, preferences, sys.executable, script
+        )
+        retarget_feed(plan, testing_feed, testing_signature, "testing")
+        testing_run = run_helper(oa_update, plan, feed_key)
+        if testing_run.returncode != 0:
+            sys.stderr.write(testing_run.stdout)
+            sys.stderr.write(testing_run.stderr)
+            return fail("the testing channel's swap exited " + str(testing_run.returncode))
+        status = check_swapped(install, updates, preferences, marker)
+        if status != 0:
+            return status
+        unnamed = scratch / "unnamed"
+        install, updates, marker, plan = prepare_case(
+            unnamed, package, preferences, sys.executable, script
+        )
+        retarget_feed(plan, testing_feed, testing_signature)
+        unnamed_run = run_helper(oa_update, plan, feed_key)
+        if unnamed_run.returncode != 1:
+            sys.stderr.write(unnamed_run.stdout)
+            sys.stderr.write(unnamed_run.stderr)
+            return fail("a testing feed in a stable plan exited " + str(unnamed_run.returncode))
+        status = check_unchanged(install, marker, False)
         if status != 0:
             return status
 

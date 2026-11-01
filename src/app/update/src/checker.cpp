@@ -141,10 +141,10 @@ Checker::~Checker() {
 }
 
 void Checker::start(const Source& source, const ThisBuild& build, bool asked) {
-    (void)asked;
     Job next_job;
     next_job.source = source;
     next_job.build = build;
+    next_job.asked = asked;
     base::threads::LockGuard guard(mutex_);
     if (busy_ || stop_)
         return;
@@ -187,6 +187,7 @@ bool Checker::remember(const Source& source, const ThisBuild& build) {
     const std::vector<oa::data::registry::PinnedKey> pins = pins_of(source);
     request.feed = feed_bytes;
     request.signature = signature;
+    request.channel = channel_name(source.channel);
     if (!pins.empty())
         request.keys = pins;
     const feed::Checked checked = feed::check_feed(request);
@@ -287,6 +288,7 @@ void Checker::run_job(http::Client& client, const Job& job) {
     feed::CheckRequest request;
     request.feed = feed_bytes.body;
     request.signature = signature.body;
+    request.channel = channel_name(job.source.channel);
     if (!pins.empty())
         request.keys = pins;
     const feed::Checked checked = feed::check_feed(request);
@@ -329,6 +331,7 @@ void Checker::run_job(http::Client& client, const Job& job) {
     done.feed = checked.feed;
     done.offer = feed::choose(*checked.feed, asking);
     done.checked_at = reached;
+    done.asked = job.asked;
     if (done.offer.way == feed::Way::none)
         done.state = CheckState::up_to_date;
     else

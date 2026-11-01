@@ -93,10 +93,11 @@ bool same_plan(const update::Plan& left, const update::Plan& right) {
            left.wait_for == right.wait_for && left.install == right.install &&
            left.program == right.program && left.arguments == right.arguments &&
            left.from_version == right.from_version && left.feed == right.feed &&
-           left.signature == right.signature && left.release == right.release &&
-           left.package == right.package && left.file == right.file &&
-           left.installer == right.installer && left.preferences == right.preferences &&
-           left.updates == right.updates && left.title == right.title && left.line == right.line;
+           left.signature == right.signature && left.channel == right.channel &&
+           left.release == right.release && left.package == right.package &&
+           left.file == right.file && left.installer == right.installer &&
+           left.preferences == right.preferences && left.updates == right.updates &&
+           left.title == right.title && left.line == right.line;
 }
 
 void names() {
@@ -168,6 +169,30 @@ void round_trip() {
     OA_CHECK(back_text.find("\"roll_back_reason\":\"failed-starts\"") != std::string::npos);
     OA_CHECK(back_text.find("\"action\"") < back_text.find("\"roll_back_reason\""));
     OA_CHECK(text.find("roll_back_reason") == std::string::npos);
+
+    // A plan for the testing channel's feed names it after the signature; a
+    // stable plan names no channel, and one that names stable reads the same.
+    OA_CHECK(text.find("\"channel\"") == std::string::npos);
+    update::Plan testing = plan;
+    testing.channel = update::Channel::testing;
+    const std::string testing_text = update::plan_text(testing);
+    OA_CHECK(testing_text.find("\"channel\":\"testing\"") != std::string::npos);
+    OA_CHECK(testing_text.find("\"signature\"") < testing_text.find("\"channel\""));
+    OA_CHECK(testing_text.find("\"channel\"") < testing_text.find("\"release\""));
+    const std::optional<update::Plan> loaded_testing =
+        update::read_plan(bytes_of(testing_text), &error);
+    OA_CHECK(loaded_testing.has_value());
+    if (loaded_testing) {
+        OA_CHECK(loaded_testing->channel == update::Channel::testing);
+        OA_CHECK(same_plan(*loaded_testing, testing));
+    }
+    std::string named_stable = testing_text;
+    named_stable.replace(named_stable.find("\"testing\""), 9, "\"stable\"");
+    const std::optional<update::Plan> loaded_stable =
+        update::read_plan(bytes_of(named_stable), &error);
+    OA_CHECK(loaded_stable.has_value());
+    if (loaded_stable)
+        OA_CHECK(same_plan(*loaded_stable, plan));
 
     update::State cleared = sample_state(scratch);
     update::confirm_state(cleared);
@@ -284,6 +309,14 @@ void refusals() {
         "arguments",
         with("\"arguments\":[\"--skip-intro\",\"--mute\"]", "\"arguments\":\"--mute\""),
         "list"
+    );
+    refuses(
+        "channel",
+        with("\"release\":2", "\"channel\":\"preview\",\"release\":2"),
+        "channel is not known"
+    );
+    refuses(
+        "channel text", with("\"release\":2", "\"channel\":2,\"release\":2"), "channel is not text"
     );
     refuses("twice", with("\"plan\":1", "\"plan\":1,\"plan\":1"), "twice");
     refuses("object", "[]", "object");

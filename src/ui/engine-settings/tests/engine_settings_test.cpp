@@ -2449,6 +2449,42 @@ void the_focus_lost_default_read_and_round_trip() {
     CHECK(values.empty());
 }
 
+/// Update channel: Stable everywhere by default, also for a file an earlier
+/// build wrote without the key; "stable" and "testing" read their channels;
+/// any other text reads Stable; writing Testing writes that key alone, Stable
+/// chosen again is written as such, and Restore defaults then OK erases it.
+void the_update_channel_default_read_and_round_trip() {
+    CHECK(settings::key::update_channel == "open-annihilation.update-channel");
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(defaults.update_channel == settings::UpdateChannel::stable);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    const auto channel = [](const char* text) {
+        return read_one(settings::key::update_channel, text).update_channel;
+    };
+    CHECK(channel("stable") == settings::UpdateChannel::stable);
+    CHECK(channel("testing") == settings::UpdateChannel::testing);
+    for (const char* text : {"", "Testing", "test", "preview", "1"})
+        CHECK(channel(text) == settings::UpdateChannel::stable);
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    auto chosen = defaults;
+    chosen.update_channel = settings::UpdateChannel::testing;
+    Values values;
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    CHECK(values.size() == 1);
+    CHECK(values.at(std::string{settings::key::update_channel}) == "testing");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+    settings::write_settings(values, chosen, defaults, defaults, false);
+    CHECK(values.at(std::string{settings::key::update_channel}) == "stable");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == defaults);
+    values.clear();
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    settings::write_settings(values, chosen, defaults, defaults, true);
+    CHECK(values.empty());
+}
+
 /// Invert 3D camera pan, Invert 3D camera rotation and Invert mouse zoom:
 /// Off everywhere by default, also for a file an earlier build wrote
 /// without their keys; 1 or any number above 0 reads On, 0, a number below
@@ -3434,6 +3470,7 @@ int main() {
     the_group_keys_centre_default_read_and_round_trip();
     the_double_click_selects_default_read_and_round_trip();
     the_focus_lost_default_read_and_round_trip();
+    the_update_channel_default_read_and_round_trip();
     the_camera_inversions_default_read_and_round_trip();
     the_edge_stickiness_default_read_and_round_trip();
     the_window_frame_default_read_and_round_trip();

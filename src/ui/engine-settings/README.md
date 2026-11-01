@@ -125,6 +125,7 @@ the locks a running game puts on them (`settings_locks`).
 | Developer | Enable Developer Mode | Off, On | Off | `open-annihilation.developer-mode` |
 | | Show performance statistics | Off, On | Off | `open-annihilation.frame-stats` |
 | | UI kit gallery: SHOW opens the gallery of every part of OA's own screens (`DialogAction::show_gallery`) | | | none |
+| | Update channel, a strip: the feed the check for a new Open Annihilation reads. Stable is the release every player gets; Testing, beside it, gets a release first, which may be unfinished. It takes changes whatever Developer Mode is, takes effect at OK, and the host looks at the channel at once | Stable, Testing | Stable | `open-annihilation.update-channel` (`stable` or `testing`); Cancel and Restore defaults apply |
 | | The overrides of the profile's standard hacks, in Developer Mode's list | any hack on or off, with its parameters | none | `open-annihilation.hack-overrides.<id>`, the id of the profile the game plays, `ta-3.1c` without a mod, `folder:<path>` for a mod folder without a profile |
 
 Mouse wheel zoom, while on, also leaves a profile's megamap off for the
@@ -1093,12 +1094,16 @@ dialog's own fonts, colours, switches and sliders:
   and a **Show** button (`settings.kit-gallery.show` to automation) that
   asks the host to show the UI kit gallery over the dialog
   (`DialogAction::show_gallery`; [src/ui/kit](../kit/README.md#gallery)),
-  the dialog staying open under it and no setting changing: three rows
+  the dialog staying open under it and no setting changing, and under
+  that **Update channel**, a strip of Stable and Testing with its hint
+  "Testing builds come first and may be unfinished.", which takes changes
+  whatever Developer Mode is: four rows
   with half the clear pixels of a section's rows round them, so that the
   list has room; at Regular and Large they never scroll. Each takes a label line and one hint
   line, but the gallery's hint takes two at Compact, where its line holds
   fewer characters: the list starts 51 points lower than with two rows at
-  Compact, and 39 at Regular and Large (`developer_rule_for`). Where the
+  Compact, and 39 at Regular and Large, for the gallery, and Update
+  channel's row lower again (`developer_rule_for`). Where the
   rows end lower still, as in a language whose hints take more lines or
   while hints lie further apart in the modern fonts, the list starts under
   them (`developer_list_scroll`);
@@ -1123,7 +1128,7 @@ dialog's own fonts, colours, switches and sliders:
   override.
 
 At Compact Developer scrolls as one (`developer_scrolls_as_one`): its
-three rows, the list from the line under them, then Show Active Only and
+four rows, the list from the line under them, then Show Active Only and
 Restore profile values under the list's last row, all in the section's
 own view with the section's scroll bar, as a long section scrolls. The
 focus walks from the rows into the list and on to Show Active Only, each
@@ -1169,15 +1174,16 @@ filter while the game runs (`DeveloperList`).
 
 Developer's controls are numbered from the open section's first row's:
 Enable Developer Mode 17, Show performance statistics 18, UI kit gallery
-19, Show Active Only 20, Restore profile values 21, and the list's rows
-that take input from 22, in the list's order. Every header takes the focus and a press, which
+19, Update channel 20, Show Active Only 21, Restore profile values 22, and
+the list's rows that take input from 23, in the list's order. Every header takes the focus and a press, which
 opens or closes it; a press on a hack's switch sets it. Space opens or
 closes an area or a hack and flips a switch; Left and Right close and open
 an area, turn a hack or a switch Off and On, and move a slider a stop.
 Page Up, Page Down, Home and End scroll the list, as they scroll a long
 section, the wheel over the dialog too; the two rows over it and its
 footer stay where they are. Tab moves the focus through Enable Developer
-Mode, Show performance statistics, the list's rows, Show Active Only and,
+Mode, Show performance statistics, UI kit gallery, Update channel, the
+list's rows, Show Active Only and,
 while Developer Mode is on, Restore profile values, then the footer's
 buttons and the sections. Down from the list's last row reaches Show Active
 Only, and Down from there OK, under it.
@@ -1407,7 +1413,8 @@ drew when the kit was taken out of the dialog: a SHA-256 of each scene,
 with a stand-in font and with the installed game's fonts. The Developer
 scenes (at its top, with Developer Mode on and its first area open, and at
 scale 2) were recorded again when UI kit gallery joined Developer's rows,
-which moved its list down; no other scene changed. The Graphics scenes
+which moved its list down, and again when Update channel joined them under
+the gallery, which moved it down further; no other scene changed. The Graphics scenes
 (at its top, locked, and at its end) were recorded again when Fog of War
 joined Graphics' rows, which shortened the scroll bar's thumb and put the
 row between Explosion flash and Zoomed out units, and again when the
@@ -1425,8 +1432,10 @@ no other scene changed.
 `ui-engine-settings-dialog` also holds UI kit gallery's row: its label,
 its hint in two lines at Compact and one at Regular and Large, and SHOW,
 which asks for the gallery by a press and by Space and changes no
-setting; Developer's list exactly the row's height lower than with two
-rows at every class; and every other section's Compact parts, as a digest
+setting; Developer's list exactly the gallery's and Update channel's rows'
+heights lower than with two rows at every class; Update channel's row, its
+captions and hint, a press, Left and Right while Developer Mode is off,
+Restore defaults and Cancel; and every other section's Compact parts, as a digest
 of each, as they were before the row was added, a digest that differs
 printed so that a change meant to move them can pin them again.
 

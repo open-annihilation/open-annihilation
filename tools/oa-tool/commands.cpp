@@ -75,8 +75,8 @@ const Command engine_feed_commands[] = {
         "write",
         "--version V [--release N] --date YYYY-MM-DD --from V [--package-from ID=V]... "
         "--page URL [--install-page URL] --mirror URL [--mirror URL]... [--notes FILE] "
-        "[--rollout N] [--online-min V] [--channel stable] [--previous FEED] --out FEED "
-        "PACKAGE...",
+        "[--rollout N] [--online-min V] [--ping-url URL --ping-registry ID] "
+        "[--channel stable|testing] [--previous FEED] --out FEED PACKAGE...",
         "Write one release of the signed engine feed.",
         "Reads each package file, hashes it and writes a feed of format 1. A package is named "
         "open-annihilation, an optional v, the version, and then the package id as a zip, a "
@@ -84,9 +84,12 @@ const Command engine_feed_commands[] = {
         "--release defaults to that version's release number. --from is the oldest version "
         "that updates in place. --package-from gives one package, which must be among those "
         "given, an oldest version of its own, and --install-page is where an older copy "
-        "installs by hand. --notes is a JSON object of language to lines. --previous adds the "
-        "older releases of an earlier feed, five in all. The written file is read back before "
-        "the command reports success. Prints the feed's path and the release number.",
+        "installs by hand. --notes is a JSON object of language to lines. --ping-url and "
+        "--ping-registry, given together, name where a copy reports a check of the feed and "
+        "the registry whose install ID it sends. --channel defaults to stable; testing writes "
+        "the testing channel's feed. --previous adds the older releases of an earlier feed of "
+        "the same channel, five in all. The written file is read back before the command "
+        "reports success. Prints the feed's path and the release number.",
         0,
         any_count,
         run_engine_feed_write,
@@ -108,14 +111,17 @@ const Command engine_feed_commands[] = {
     },
     {
         "check",
-        "(FEED [--sig SIG] | --url URL) [--channel stable] [--key ID=ed25519:BASE64]...",
+        "(FEED [--sig SIG] | --url URL) [--channel stable|testing] "
+        "[--key ID=ed25519:BASE64]...",
         "Check an engine feed's signature.",
         "Checks FEED against its signature, or fetches --url and that address with .sig added. "
         "Without --sig the signature is FEED with .sig added to the name. Without --key the "
         "keys are this build's pinned keys. Each --key is an id, =, ed25519: and the key in "
-        "base64. Prints the signing key and one line a release, with each package's own from "
-        "and the install page where the release names them, and exits 0 when the feed can be "
-        "used. A refused feed prints the verdict and exits 1.",
+        "base64. The feed must name --channel, stable unless it is given. Prints the signing "
+        "key, the ping's address and registry where the feed names them, and one line a "
+        "release, with each package's own from and the install page where the release names "
+        "them, and exits 0 when the feed can be used. A refused feed prints the verdict and "
+        "exits 1.",
         0,
         any_count,
         run_engine_feed_check,

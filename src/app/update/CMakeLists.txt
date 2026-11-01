@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 # This build's version and package id, when a new release is due, the
-# worker that fetches the signed engine feed, the download, the update
-# centre's state and words, the player's choices, and the plan, state and
-# receipt files the game and the helper share. No SDL.
+# worker that fetches the signed engine feed, the report of a check, the
+# download, the update centre's state and words, the player's choices, and
+# the plan, state and receipt files the game and the helper share. No SDL.
 add_library(oa-app-update src/build.cpp src/centre.cpp src/check.cpp src/checker.cpp
-  src/choices.cpp src/download.cpp src/offer.cpp src/plan.cpp src/receipt.cpp src/route.cpp)
+  src/choices.cpp src/download.cpp src/offer.cpp src/ping.cpp src/plan.cpp src/receipt.cpp
+  src/route.cpp)
 add_library(oa::app::update ALIAS oa-app-update)
 target_include_directories(oa-app-update PUBLIC include)
 target_compile_features(oa-app-update PUBLIC cxx_std_20)
@@ -49,6 +50,12 @@ if(BUILD_TESTING)
       oa-data-catalogue oa-base-threads oa-test-support)
   add_test(NAME app-update-check COMMAND oa-app-update-check-test)
   set_tests_properties(app-update-check PROPERTIES TIMEOUT 60)
+
+  add_executable(oa-app-update-ping-test tests/ping_test.cpp)
+  target_link_libraries(oa-app-update-ping-test
+    PRIVATE oa-app-update oa-netgame-http-fixture oa-base-threads oa-test-support)
+  add_test(NAME app-update-ping COMMAND oa-app-update-ping-test)
+  set_tests_properties(app-update-ping PROPERTIES TIMEOUT 60)
 
   add_executable(oa-app-update-offer-test tests/offer_test.cpp)
   target_link_libraries(oa-app-update-offer-test PRIVATE oa-app-update oa-app-headers oa-test-support)

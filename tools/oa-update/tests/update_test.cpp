@@ -215,9 +215,14 @@ SignedFeed sign_feed(std::string_view json, std::string_view key_id, uint8_t fil
     return signed_feed;
 }
 
-std::string feed_json(std::string_view file_name, uint64_t size, const sha256::Digest& digest) {
+std::string feed_json(
+    std::string_view file_name,
+    uint64_t size,
+    const sha256::Digest& digest,
+    std::string_view channel = "stable"
+) {
     feed::Feed written;
-    written.channel = "stable";
+    written.channel = std::string(channel);
     feed::Release release;
     release.release = 2;
     release.version = *oamod::parse_engine_version("0.0.2");
@@ -354,7 +359,49 @@ void verification() {
     helper::VerifyRequest missing_signature = request;
     missing_signature.signature = scratch.path / "missing.sig";
     expect_refused(missing_signature, "no_signature", scratch);
+
+    // The stable feed is refused where the plan names the testing channel.
+    helper::VerifyRequest stable_as_testing = request;
+    stable_as_testing.channel = "testing";
+    expect_refused(stable_as_testing, "wrong_channel", scratch);
     OA_CHECK(fs::file_size(package_path) == package.size());
+}
+
+/// The testing channel's feed checks a package when the plan names that
+/// channel, and is refused where it names Stable or none.
+void testing_verification() {
+    const Scratch scratch("verify-testing");
+    const std::vector<uint8_t> package = bytes_of("package-bytes");
+    const fs::path package_path = scratch.path / "pkg.zip";
+    write_bytes(package_path, package);
+    const sha256::Digest digest = sha256::digest_of(package);
+    const SignedFeed signed_feed =
+        sign_feed(feed_json("pkg.zip", package.size(), digest, "testing"), "v07-test", 0x21);
+    const fs::path feed_path = scratch.path / "feed.json";
+    const fs::path signature_path = scratch.path / "feed.json.sig";
+    write_bytes(feed_path, signed_feed.bytes);
+    write_bytes(signature_path, signed_feed.signature);
+
+    helper::FeedKey key;
+    key.id = signed_feed.id;
+    key.text = signed_feed.text;
+    helper::VerifyRequest request;
+    request.feed = feed_path;
+    request.signature = signature_path;
+    request.file = package_path;
+    request.release = 2;
+    request.package = "linux-x86_64";
+    request.keys = {key};
+    OA_CHECK(request.channel == "stable");
+    expect_refused(request, "wrong_channel", scratch);
+
+    request.channel = "testing";
+    helper::Verified verified;
+    std::string error;
+    OA_CHECK(helper::verify_package(request, verified, &error));
+    OA_CHECK(verified.version == "0.0.2");
+    OA_CHECK(verified.release == 2);
+    OA_CHECK(stage_absent(scratch));
 }
 
 void append_le16(std::vector<uint8_t>& out, uint16_t value) {
@@ -960,6 +1007,7 @@ int main() {
     }
     plan_and_state();
     verification();
+    testing_verification();
     unpacking();
     the_modes_an_entry_is_unpacked_with();
 #if !defined(_WIN32)

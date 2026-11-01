@@ -53,6 +53,9 @@ struct CheckSnapshot {
     /// The result was read from the feed a check stored on an earlier start,
     /// not fetched: no request was made, and `checked_at` is empty.
     bool remembered{};
+    /// The player asked for this check, as Check now does; false for an
+    /// automatic one and for a remembered result.
+    bool asked{};
     uint64_t generation{}; ///< moves on for each published snapshot
 };
 
@@ -78,8 +81,9 @@ class Checker {
 
     /// Starts one check, or does nothing while one is running.
     ///
-    /// `asked` does not change the fetch. The caller decides whether a
-    /// check is due. An empty key list uses the pinned keys.
+    /// `asked` does not change the fetch; the snapshot carries it. The
+    /// caller decides whether a check is due. An empty key list uses the
+    /// pinned keys. The feed must name the source's channel.
     ///
     /// @param source the feed and the keys
     /// @param build the build the offer is chosen for
@@ -89,11 +93,12 @@ class Checker {
     /// Publishes the offer of the feed an earlier check stored, without a request.
     ///
     /// Does nothing unless no check has run on this checker. The stored feed
-    /// and its signature are checked against the keys again, as a fetched
-    /// feed is. A missing or refused file publishes nothing. The snapshot is
+    /// and its signature are checked against the keys and the channel
+    /// again, as a fetched feed is. A missing or refused file, including one
+    /// another channel's check stored, publishes nothing. The snapshot is
     /// marked `remembered` and names no time.
     ///
-    /// @param source the keys; the feed's address is not read
+    /// @param source the keys and the channel; the feed's address is not read
     /// @param build the build the offer is chosen for
     /// @return true when a result was published
     bool remember(const Source& source, const ThisBuild& build);
@@ -113,6 +118,7 @@ class Checker {
     struct Job {
         Source source{}; ///< the feed and the keys
         ThisBuild build; ///< the build the offer is chosen for
+        bool asked{};    ///< the player asked for this check
     };
 
     /// The worker's entry.

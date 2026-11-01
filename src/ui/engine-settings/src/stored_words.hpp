@@ -29,6 +29,12 @@ inline constexpr std::array<ChoiceWord<ExplosionFlash>, 3> explosion_flash_words
     {ExplosionFlash::reduced, "reduced"},
     {ExplosionFlash::full, "full"},
 }};
+/// Update channel's words, in update_channel_choices' order: the channels'
+/// own names.
+inline constexpr std::array<ChoiceWord<UpdateChannel>, 2> update_channel_words{{
+    {UpdateChannel::stable, "stable"},
+    {UpdateChannel::testing, "testing"},
+}};
 /// Fog of War's words, in fog_of_war_choices' order.
 inline constexpr std::array<ChoiceWord<FogOfWar>, 2> fog_of_war_words{{
     {FogOfWar::classic, "classic"},

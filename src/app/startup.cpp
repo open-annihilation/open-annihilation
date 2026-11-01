@@ -1463,6 +1463,13 @@ take_check_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         options.update_keys.emplace_back(text);
         return true;
     }
+    if (argument == "--update-channel") {
+        const std::string text{option_value(cursor)};
+        if (text != "stable" && text != "testing")
+            throw std::runtime_error("--update-channel must be stable or testing");
+        options.update_channel = text;
+        return true;
+    }
     if (argument == "--updated-from") {
         const std::string text{option_value(cursor)};
         if (!oa::formats::oamod::parse_engine_version(text).has_value())
@@ -1808,6 +1815,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-language-notice] [--check-first-run] [--check-setup-window] "
                      "[--check-window-place] "
                      "[--check-progress] [--update-feed URL] [--update-key ID=ed25519:KEY] "
+                     "[--update-channel stable|testing] "
                      "[--updated-from VERSION] [--rolled-back-from VERSION] "
                      "[--roll-back-reason failed-starts|player] "
                      "[--update-install-folder DIR] [--update-and-quit] "

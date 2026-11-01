@@ -859,6 +859,7 @@ EngineSettings read_settings(
     if (const auto number = stored_number(values, key::update_download))
         settings.update_download = *number > 0;
     read_word(values, key::update_install, update_install_words, settings.update_install);
+    read_word(values, key::update_channel, update_channel_words, settings.update_channel);
     settings.file_type_oamod = file_type_on(values, key::file_type_oamod);
     settings.file_type_oamap = file_type_on(values, key::file_type_oamap);
     settings.file_type_oalang = file_type_on(values, key::file_type_oalang);
@@ -1583,6 +1584,15 @@ void write_settings(
         opened.update_install,
         chosen.update_install,
         defaults.update_install,
+        restored
+    );
+    store_word(
+        values,
+        key::update_channel,
+        update_channel_words,
+        opened.update_channel,
+        chosen.update_channel,
+        defaults.update_channel,
         restored
     );
     const auto store_file_type = [&](std::string_view key, bool EngineSettings::* member) {

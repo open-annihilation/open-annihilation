@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The preference values that say when to look for a new release, and the
-// hour counted from when this run's automatic check began.
+// The preference values that say when to look for a new release, which feed
+// to read and when a check was last reported, and the hour counted from when
+// this run's automatic check began.
 #include "oa/app/update/check.hpp"
 
+#include "oa/data/engine_feed/feed.hpp"
 #include "oa/ui/engine_settings.hpp"
 
 #include <charconv>
@@ -29,6 +31,25 @@ namespace settings = oa::ui::engine_settings;
     return "automatically";
 }
 
+/// Reads a whole number of seconds stored under `key`.
+///
+/// @param values the preference values
+/// @param key the key
+/// @return the number, or nothing when it is absent or not a whole number
+[[nodiscard]] std::optional<int64_t>
+stored_seconds(const platform::preferences::Values& values, std::string_view key) {
+    const auto found = values.find(std::string(key));
+    if (found == values.end() || found->second.empty())
+        return std::nullopt;
+    int64_t value = 0;
+    const char* const begin = found->second.data();
+    const char* const end = begin + found->second.size();
+    const std::from_chars_result parsed = std::from_chars(begin, end, value);
+    if (parsed.ec != std::errc{} || parsed.ptr != end)
+        return std::nullopt;
+    return value;
+}
+
 } // namespace
 
 CheckMode read_check_mode(const platform::preferences::Values& values) {
@@ -46,21 +67,68 @@ void write_check_mode(platform::preferences::Values& values, CheckMode mode) {
     values[std::string(settings::key::update_check)] = std::string(mode_text(mode));
 }
 
+Channel read_channel(const platform::preferences::Values& values) {
+    const auto found = values.find(std::string(settings::key::update_channel));
+    if (found != values.end() && found->second == channel_name(Channel::testing))
+        return Channel::testing;
+    return Channel::stable;
+}
+
+std::string_view channel_name(Channel channel) noexcept {
+    if (channel == Channel::testing)
+        return oa::data::engine_feed::testing_channel;
+    return oa::data::engine_feed::stable_channel;
+}
+
+std::optional<Channel> parse_channel(std::string_view text) noexcept {
+    if (text == channel_name(Channel::stable))
+        return Channel::stable;
+    if (text == channel_name(Channel::testing))
+        return Channel::testing;
+    return std::nullopt;
+}
+
+Channel run_channel(std::string_view option, const platform::preferences::Values& values) {
+    if (const std::optional<Channel> named = parse_channel(option))
+        return *named;
+    return read_channel(values);
+}
+
+std::string channel_feed_address(std::string_view address, Channel channel) {
+    if (channel == Channel::stable)
+        return std::string(address);
+    // The testing feed is the file beside the stable one.
+    const std::size_t slash = address.rfind('/');
+    std::string folder =
+        slash == std::string_view::npos ? std::string{} : std::string(address.substr(0, slash + 1));
+    folder += channel_name(channel);
+    folder += "-2.json";
+    return folder;
+}
+
 std::optional<int64_t> read_checked(const platform::preferences::Values& values) {
-    const auto found = values.find(std::string(settings::key::update_checked));
-    if (found == values.end() || found->second.empty())
-        return std::nullopt;
-    int64_t value = 0;
-    const char* const begin = found->second.data();
-    const char* const end = begin + found->second.size();
-    const std::from_chars_result parsed = std::from_chars(begin, end, value);
-    if (parsed.ec != std::errc{} || parsed.ptr != end)
-        return std::nullopt;
-    return value;
+    return stored_seconds(values, settings::key::update_checked);
 }
 
 void write_checked(platform::preferences::Values& values, int64_t checked) {
     values[std::string(settings::key::update_checked)] = std::to_string(checked);
+}
+
+std::optional<int64_t> read_pinged(const platform::preferences::Values& values) {
+    return stored_seconds(values, settings::key::update_pinged);
+}
+
+void write_pinged(platform::preferences::Values& values, int64_t pinged) {
+    values[std::string(settings::key::update_pinged)] = std::to_string(pinged);
+}
+
+bool ping_due(std::optional<int64_t> pinged, int64_t now) noexcept {
+    if (!pinged)
+        return true;
+    // A report in the future is a clock set back; it does not stop the next.
+    if (*pinged > now)
+        return true;
+    return now - *pinged >= ping_interval_seconds;
 }
 
 bool check_due(

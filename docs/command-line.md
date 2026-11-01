@@ -401,7 +401,8 @@ Network play's own checks, the last rows, are in every build.
 | `--check-setup-window` | Walks the window before the game: the language, the game and the copy. |
 | `--check-window-place` | Checks the next start opens the window at the same size and place. |
 | `--check-progress` | Shows the progress dialog for a slow piece of work. |
-| `--update-feed URL` | For one run, looks for a new release at this feed instead of the published one. A self-check. |
+| `--update-channel stable\|testing` | Every build. For one run, looks for a new release on that channel in place of Settings › Developer › Update channel, which it does not change ([the testing channel](updates.md#the-testing-channel)). |
+| `--update-feed URL` | For one run, looks for a new release at this feed instead of the published one. With the testing channel, the run reads `testing-2.json` beside it. A self-check. |
 | `--update-key ID=ed25519:KEY` | A key that may sign the `--update-feed` feed. Give it once for each key. Needs `--update-feed`. A self-check. |
 | `--check-engine-feed` | Checks looking for a new release against a feed the check serves. |
 | `--updated-from VERSION` | Every build. The version this start replaced. The first settled main menu shows "Updated to …" once when this copy is newer. |

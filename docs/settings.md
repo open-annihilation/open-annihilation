@@ -1294,6 +1294,13 @@ The Developer section sits at the foot of the column, under the divider.
   settings.
   It is for checking how OA's screens look, and for people building
   them ([the UI kit](extensions/ui-kit.md)).
+- **Update channel**, Stable or Testing, Stable by default: the feed the
+  check for a new Open Annihilation reads. Testing releases come first and
+  may be unfinished; Stable is the release every player gets
+  ([the testing channel](updates.md#the-testing-channel)). It works whether
+  or not Developer Mode is on, takes effect when you press OK, and looks at
+  the channel at once. The setting is `open-annihilation.update-channel`,
+  `stable` or `testing`.
 
 Under them the section lists every standard hack, grouped by area, with a
 switch for each and a control for each of its values. A retired hack, one
@@ -1302,8 +1309,8 @@ from an earlier build is left out. **Show Active Only**
 shows only the hacks that are on, and **Restore profile values** clears
 every change. Developer Mode keeps its changes for each mod apart. Restore
 defaults turns it off but keeps the changes. At Regular and Large the list
-scrolls in a view of its own under the three rows. At Compact the whole
-section scrolls as one: the three rows, then the list, then Show Active
+scrolls in a view of its own under the four rows. At Compact the whole
+section scrolls as one: the four rows, then the list, then Show Active
 Only and Restore profile values, and the arrow keys walk from the rows
 into the list and on to those two.
 

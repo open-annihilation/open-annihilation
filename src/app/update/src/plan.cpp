@@ -182,6 +182,19 @@ std::optional<Plan> read_plan(std::span<const uint8_t> bytes, std::string* error
         !require_absolute(*root, "signature", "the plan", plan.signature, error) ||
         !require_integer(*root, "release", "the plan", plan.release, error))
         return std::nullopt;
+    if (const json::Json* channel = member_of(*root, "channel")) {
+        const std::string* text = channel->string();
+        if (text == nullptr) {
+            set_error(error, "channel is not text");
+            return std::nullopt;
+        }
+        const std::optional<Channel> parsed_channel = parse_channel(*text);
+        if (!parsed_channel) {
+            set_error(error, "the channel is not known");
+            return std::nullopt;
+        }
+        plan.channel = *parsed_channel;
+    }
     if (plan.release < 0) {
         set_error(error, "release is not a release number");
         return std::nullopt;
@@ -275,6 +288,10 @@ std::string plan_text(const Plan& plan) {
     writer.string(plan.feed);
     writer.key("signature");
     writer.string(plan.signature);
+    if (plan.channel != Channel::stable) {
+        writer.key("channel");
+        writer.string(channel_name(plan.channel));
+    }
     writer.key("release");
     writer.integer(plan.release);
     writer.key("package");

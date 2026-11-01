@@ -10554,6 +10554,14 @@
 	it=Steam Deck: parte ai {rate} fps dello schermo.;
 	}
 
+[Stable]
+	{
+	de=Stabil;
+	fr=Stable;
+	es=Estable;
+	it=Stabile;
+	}
+
 [Steam Input]
 	{
 	de=Steam Input;
@@ -10872,6 +10880,22 @@
 	fr=Rediffusion à dix joueurs;
 	es=Repetición de diez jugadores;
 	it=Replay da dieci giocatori;
+	}
+
+[Testing]
+	{
+	de=Test;
+	fr=Test;
+	es=Pruebas;
+	it=Test;
+	}
+
+[Testing builds come first and may be unfinished.]
+	{
+	de=Testversionen kommen zuerst und sind vielleicht unfertig.;
+	fr=Les versions de test arrivent en premier et peuvent être inachevées.;
+	es=Las versiones de prueba llegan antes y pueden estar sin terminar.;
+	it=Le versioni di test arrivano prima e possono essere incomplete.;
 	}
 
 [Text]
@@ -19410,6 +19434,14 @@
 	it=Versione installata: {version};
 	}
 
+[Installed {version} · Testing channel]
+	{
+	de=Installierte Version: {version} · Testkanal;
+	fr=Version installée : {version} · canal de test;
+	es=Versión instalada: {version} · canal de pruebas;
+	it=Versione installata: {version} · canale di test;
+	}
+
 [Install…]
 	{
 	de=Installieren…;
@@ -20752,6 +20784,14 @@
 	fr=Mettre à jour…;
 	es=Actualizar…;
 	it=Aggiorna…;
+	}
+
+[Update channel]
+	{
+	de=Update-Kanal;
+	fr=Canal de mise à jour;
+	es=Canal de actualización;
+	it=Canale di aggiornamento;
 	}
 
 [Use]

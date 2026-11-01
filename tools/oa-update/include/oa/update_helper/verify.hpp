@@ -30,6 +30,8 @@ struct VerifyRequest {
     bool installer{};                ///< true to check the package's installer
     /// Keys in place of the pinned ones. Empty uses the keys the build pins.
     std::vector<FeedKey> keys;
+    /// The channel the game fetched the feed for, which the feed must name.
+    std::string channel{"stable"};
 };
 
 /// The release the feed actually named, once the package matched.
@@ -50,8 +52,8 @@ struct Verified {
 /// Checks the feed and the package.
 ///
 /// The signature is checked with the request's keys, or the pinned keys when
-/// none were passed. The release and the package are then taken from the
-/// feed. The file's name, size and SHA-256, read in 64 KiB pieces, must be
+/// none were passed, and the feed must name the request's channel. The
+/// release and the package are then taken from the feed. The file's name, size and SHA-256, read in 64 KiB pieces, must be
 /// the ones that package records. A failure leaves the disk alone.
 ///
 /// @param request the feed, the signature and the package
