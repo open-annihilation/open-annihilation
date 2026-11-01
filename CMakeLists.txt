@@ -1152,6 +1152,13 @@ if(BUILD_TESTING)
   add_executable(oa-app-middle-pan-test src/app/middle_pan_test.cpp src/app/middle_pan.cpp)
   target_link_libraries(oa-app-middle-pan-test PRIVATE oa-app-headers oa-options)
   add_test(NAME app-middle-pan COMMAND oa-app-middle-pan-test)
+  # The mouse's camera gestures under the Controls section's three inversion
+  # switches: each turns its own gestures round and leaves the others.
+  add_executable(oa-app-camera-inversion-test src/app/camera_inversion_test.cpp
+    src/app/camera_inversion.cpp)
+  target_link_libraries(oa-app-camera-inversion-test PRIVATE oa-app-headers oa-test-support
+    oa-options)
+  add_test(NAME app-camera-inversion COMMAND oa-app-camera-inversion-test)
   # The +stats overlay's panel: its rows, columns, notes and graph laid out
   # over texts of known widths and kept in place whatever the figures, its
   # place and scale on windows of every size, the height of each frame's
@@ -1287,7 +1294,8 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/screen_mode.cpp src/app/runtime_screen_size.cpp
   src/app/game_directory_dialog.cpp src/app/runtime.cpp
   src/app/runtime_builtin_screens.cpp
-  src/app/runtime_camera.cpp src/app/middle_pan.cpp src/app/runtime_campaign.cpp
+  src/app/runtime_camera.cpp src/app/middle_pan.cpp src/app/camera_inversion.cpp
+  src/app/runtime_campaign.cpp
   src/app/runtime_live_renderer.cpp
   src/app/runtime_live_overlays.cpp
   src/app/runtime_live_unit_overlays.cpp

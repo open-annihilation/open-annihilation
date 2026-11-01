@@ -3247,11 +3247,13 @@ class Runtime final : public menu::Host,
     /// The signed wheel amount `camera.zoom-in` and `camera.zoom-out` give one turn.
     ///
     /// The magnitude is the turn's, including a fraction. The sign follows those roles, so the
-    /// stock bindings pass the turn through. [runtime_pointer_roles.cpp]
+    /// stock bindings pass the turn through, and Invert mouse zoom then turns it round
+    /// (camera_inversion::wheel_zoom). The classic view and the turned one both zoom by it.
+    /// [runtime_pointer_roles.cpp]
     ///
     /// @param turn the wheel's y, as the event gave it
     /// @return the amount to zoom by; positive zooms in
-    [[nodiscard]] float pointer_zoom_amount(float turn) const;
+    [[nodiscard]] float pointer_zoom_amount(float turn);
 
     /// The camera drag this button starts for the modifiers held now.
     ///

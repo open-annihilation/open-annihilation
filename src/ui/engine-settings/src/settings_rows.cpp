@@ -53,13 +53,14 @@ constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::look) + 
 
 /// Controls' rows: the layout in use, whether buttons show their key, the
 /// zoom's limits right under the switch for the wheel, how far past the
-/// map's edges the view goes under them, middle-click panning, where a
+/// map's edges the view goes under them, middle-click panning, the three
+/// switches that turn the mouse's camera gestures round, where a
 /// double-click selects a unit's type, whether a window keeps the pointer,
 /// how firmly a sticky edge holds right under that and whether a game played
 /// alone pauses while the window is away, then whether a group's key moves
 /// the view. Select groups without Alt stays declared and is the editor's
 /// Number keys select groups, not a row here.
-constexpr std::array<Setting, 12> kControlsRows{
+constexpr std::array<Setting, 15> kControlsRows{
     Setting::key_layout,
     Setting::show_keys_on_buttons,
     Setting::wheel_zoom,
@@ -67,6 +68,9 @@ constexpr std::array<Setting, 12> kControlsRows{
     Setting::max_zoom_in,
     Setting::view_past_map_edge,
     Setting::middle_click_pan,
+    Setting::invert_3d_camera_pan,
+    Setting::invert_3d_camera_rotation,
+    Setting::invert_mouse_zoom,
     Setting::double_click_selects,
     Setting::window_edge,
     Setting::window_edge_stickiness,
@@ -74,7 +78,7 @@ constexpr std::array<Setting, 12> kControlsRows{
     Setting::group_keys_centre,
 };
 /// Controls while a mod is played: Key layout with that mod under Key layout.
-constexpr std::array<Setting, 13> kControlsModRows{
+constexpr std::array<Setting, 16> kControlsModRows{
     Setting::key_layout,
     Setting::key_layout_for_mod,
     Setting::show_keys_on_buttons,
@@ -83,6 +87,9 @@ constexpr std::array<Setting, 13> kControlsModRows{
     Setting::max_zoom_in,
     Setting::view_past_map_edge,
     Setting::middle_click_pan,
+    Setting::invert_3d_camera_pan,
+    Setting::invert_3d_camera_rotation,
+    Setting::invert_mouse_zoom,
     Setting::double_click_selects,
     Setting::window_edge,
     Setting::window_edge_stickiness,
@@ -3091,6 +3098,18 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
                               DropDown<FocusLost, 2, focus_lost_choices, &E::focus_lost, kFocusLostCaptions, &table_word<focus_lost_words, FocusLost>>::stepper(),
                               {"Whether a single-player game pauses while away."}),
                   wide_choice_width)},
+    {.setting = S::invert_3d_camera_pan,
+     .spec = engine_switch<&E::invert_3d_camera_pan>(
+         "invert-3d-camera-pan", "Invert 3D camera pan",
+         {"Pan drags move the 3D view the other way.", {}})},
+    {.setting = S::invert_3d_camera_rotation,
+     .spec = engine_switch<&E::invert_3d_camera_rotation>(
+         "invert-3d-camera-rotation", "Invert 3D camera rotation",
+         {"Orbit drags turn and tilt the view the other way.", {}})},
+    {.setting = S::invert_mouse_zoom,
+     .spec = engine_switch<&E::invert_mouse_zoom>(
+         "invert-mouse-zoom", "Invert mouse zoom",
+         {"Scrolling zooms the battlefield the other way.", {}})},
     {.setting = S::look,
      .spec = changing(kit::levels("look", "Look",
                                   LevelStrip<Look, 2, look_choices, &E::look, kLookCaptions, &table_word<look_words, Look>>::stepper(),
@@ -3226,6 +3245,9 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "group-keys-centre",
     "double-click-selects",
     "focus-lost",
+    "invert-3d-camera-pan",
+    "invert-3d-camera-rotation",
+    "invert-mouse-zoom",
     "look",
 };
 

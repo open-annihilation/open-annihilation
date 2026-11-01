@@ -1812,7 +1812,11 @@ prompts, Settings › Updates and the headers name one state with one size.
   camera held on the map as the game holds it (`on_map_camera`), so a
   view past the map's edges reaches none of them.
   The wheel and a trackpad set the zoom's target (`handle_match_zoom`,
-  `wheel_zoom_target`), which `step_match_zoom` eases toward by the frame's
+  `wheel_zoom_target`) by the amount `pointer_zoom_amount` gives a turn,
+  the wheel's bindings turned round by Invert mouse zoom
+  (`camera_inversion.hpp`, which turns the turned view's pan and orbit
+  drags round for Invert 3D camera pan and rotation too), and
+  `step_match_zoom` eases toward the target by the frame's
   time, the zoom's logarithm a share of the way each frame, whatever the
   game's speed and while the match is paused; a pinch and the pad's zoom
   take their zoom at once (`zoom_match_about`); the settings dialog and a

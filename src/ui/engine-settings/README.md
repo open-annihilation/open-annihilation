@@ -26,6 +26,9 @@ the locks a running game puts on them (`settings_locks`).
 | | Maximum zoom in, a drop-down: how close the same zooms go | None (the game's own scale), 2x, 3x, 4x | 4x | `open-annihilation.max-zoom-in` (`1`, `2`, `3` or `4`) |
 | | View past the map's edge, a strip: how much of the battlefield the view may show past the map's edges; at 25% and Off a zoom keeps to it too | Off (the view stays on the map, as 3.1c's does), 25%, 50% (the map's edge reaches the battlefield's middle) | 50% | `open-annihilation.view-past-map-edge` (`off`, `25` or `50`) |
 | | Middle-click pans: a middle click on the battlefield scrolls the view towards the pointer until another press or a key | Off, On | On | `open-annihilation.middle-click-pan` |
+| | Invert 3D camera pan: the drags that pan the turned 3D view, Pan camera's and a middle drag's, move it the other way: the view goes the way the pointer goes. It applies at once | Off, On | Off | `open-annihilation.invert-3d-camera-pan` (`0` or `1`; absent reads as off) |
+| | Invert 3D camera rotation: the drags that orbit the turned 3D view, Orbit camera's, turn and tilt it the other way. It applies at once | Off, On | Off | `open-annihilation.invert-3d-camera-rotation` (`0` or `1`; absent reads as off) |
+| | Invert mouse zoom: the mouse wheel and a trackpad's scroll zoom the battlefield the other way, in the classic view and the turned one; a pinch, the zoom keys and a controller keep their way. It applies at once | Off, On | Off | `open-annihilation.invert-mouse-zoom` (`0` or `1`; absent reads as off) |
 | | Double-click selects, a drop-down: where a double-click on one of the player's units, a controller's Select type, the touch radial's Type and a double tap select the units of its type. On screen selects those the battlefield shows; On the map every one on the map, as 3.1c's double-click does. With ui.selection-shortcuts on, On screen is the hack's own double-click, the selected types on screen, and On the map is the game's. It applies at once | On screen, On the map | On screen | `open-annihilation.double-click-selects` (`on-screen` or `on-map`) |
 | | Number keys select groups is the key editor's switch, not a row of this section | Off, On | Off | 3.1c's SwitchAlt |
 | | Window edge, a strip: what a window does with the pointer while a match's battlefield shows. Capture keeps it in the window until the game menu, the pause screen, Settings, Escape or a lost focus, and a click on the battlefield captures it again. Sticky holds it on the edges so the view edge-scrolls, until a firm push or a flick lets it leave. Free leaves it free. Full screen holds the pointer either way | Capture, Sticky, Free | Capture | `open-annihilation.window-edge` (`capture`, `sticky` or `free`) |
@@ -1414,7 +1417,9 @@ unit shadows joined them at the end; no other scene changed. The Controls
 scenes were recorded again when Group keys centre the view joined its rows,
 and again when Double-click selects joined them under Middle-click pans,
 which shortened the scroll bar's thumb, and again when When the window
-loses focus joined them under Edge stickiness, which shortened it further;
+loses focus joined them under Edge stickiness, which shortened it further,
+and again when Invert 3D camera pan, Invert 3D camera rotation and Invert
+mouse zoom joined them under Middle-click pans, which shortened it again;
 no other scene changed.
 
 `ui-engine-settings-dialog` also holds UI kit gallery's row: its label,

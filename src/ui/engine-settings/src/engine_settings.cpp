@@ -712,6 +712,12 @@ EngineSettings read_settings(
             edge_stickiness_from_text(found->second).value_or(settings.edge_stickiness);
     if (const auto number = stored_number(values, key::middle_click_pan))
         settings.middle_click_pan = *number > 0;
+    if (const auto number = stored_number(values, key::invert_3d_camera_pan))
+        settings.invert_3d_camera_pan = *number > 0;
+    if (const auto number = stored_number(values, key::invert_3d_camera_rotation))
+        settings.invert_3d_camera_rotation = *number > 0;
+    if (const auto number = stored_number(values, key::invert_mouse_zoom))
+        settings.invert_mouse_zoom = *number > 0;
     if (const auto number = stored_number(values, key::escape_opens_menu))
         settings.escape_opens_menu = *number > 0;
     read_word(values, key::group_keys_centre, group_keys_centre_words, settings.group_keys_centre);
@@ -1016,6 +1022,30 @@ void write_settings(
         switch_text(chosen.middle_click_pan),
         chosen.middle_click_pan != opened.middle_click_pan,
         chosen.middle_click_pan == defaults.middle_click_pan,
+        restored
+    );
+    store(
+        values,
+        key::invert_3d_camera_pan,
+        switch_text(chosen.invert_3d_camera_pan),
+        chosen.invert_3d_camera_pan != opened.invert_3d_camera_pan,
+        chosen.invert_3d_camera_pan == defaults.invert_3d_camera_pan,
+        restored
+    );
+    store(
+        values,
+        key::invert_3d_camera_rotation,
+        switch_text(chosen.invert_3d_camera_rotation),
+        chosen.invert_3d_camera_rotation != opened.invert_3d_camera_rotation,
+        chosen.invert_3d_camera_rotation == defaults.invert_3d_camera_rotation,
+        restored
+    );
+    store(
+        values,
+        key::invert_mouse_zoom,
+        switch_text(chosen.invert_mouse_zoom),
+        chosen.invert_mouse_zoom != opened.invert_mouse_zoom,
+        chosen.invert_mouse_zoom == defaults.invert_mouse_zoom,
         restored
     );
     store(

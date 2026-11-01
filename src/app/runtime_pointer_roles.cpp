@@ -7,6 +7,8 @@
 // whenever a role kept no chord of its own.
 #include "oa/app/runtime.hpp"
 
+#include "oa/app/camera_inversion.hpp"
+
 #include "device_state.hpp"
 
 #include "oa/sim/gameplay_input/order_cursor.hpp"
@@ -315,7 +317,7 @@ uint8_t Runtime::pointer_radar_scroll_button() const {
     return pointer_interface_is_left_click() ? match_command_button() : match_select_button();
 }
 
-float Runtime::pointer_zoom_amount(float turn) const {
+float Runtime::pointer_zoom_amount(float turn) {
     if (!std::isfinite(turn) || turn == 0.F)
         return turn;
     std::array<PointerRoleChord, kPointerRoleChordLimit> in_chords{};
@@ -341,11 +343,12 @@ float Runtime::pointer_zoom_amount(float turn) const {
     }
     const int8_t turn_sign = turn > 0.F ? int8_t{1} : int8_t{-1};
     const float magnitude = std::fabs(turn);
+    float amount = turn;
     if (turn_sign == in_sign && turn_sign != out_sign)
-        return magnitude;
-    if (turn_sign == out_sign && turn_sign != in_sign)
-        return -magnitude;
-    return turn;
+        amount = magnitude;
+    else if (turn_sign == out_sign && turn_sign != in_sign)
+        amount = -magnitude;
+    return camera_inversion::wheel_zoom(amount, {.zoom = engine_settings().invert_mouse_zoom});
 }
 
 Runtime::PointerCameraDrag Runtime::pointer_camera_drag(uint8_t button, uint8_t modifiers) {

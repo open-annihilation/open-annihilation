@@ -2449,6 +2449,71 @@ void the_focus_lost_default_read_and_round_trip() {
     CHECK(values.empty());
 }
 
+/// Invert 3D camera pan, Invert 3D camera rotation and Invert mouse zoom:
+/// Off everywhere by default, also for a file an earlier build wrote
+/// without their keys; 1 or any number above 0 reads On, 0, a number below
+/// it or any other text Off; turning one On writes its key alone and leaves
+/// the other two Off; Off chosen again is written as 0, and Restore
+/// defaults then OK erases them.
+void the_camera_inversions_default_read_and_round_trip() {
+    CHECK(settings::key::invert_3d_camera_pan == "open-annihilation.invert-3d-camera-pan");
+    CHECK(
+        settings::key::invert_3d_camera_rotation == "open-annihilation.invert-3d-camera-rotation"
+    );
+    CHECK(settings::key::invert_mouse_zoom == "open-annihilation.invert-mouse-zoom");
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(!defaults.invert_3d_camera_pan);
+        CHECK(!defaults.invert_3d_camera_rotation);
+        CHECK(!defaults.invert_mouse_zoom);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    using Field = bool settings::EngineSettings::*;
+    const std::array<std::pair<std::string_view, Field>, 3> switches{{
+        {settings::key::invert_3d_camera_pan, &settings::EngineSettings::invert_3d_camera_pan},
+        {settings::key::invert_3d_camera_rotation,
+         &settings::EngineSettings::invert_3d_camera_rotation},
+        {settings::key::invert_mouse_zoom, &settings::EngineSettings::invert_mouse_zoom},
+    }};
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    for (const auto& [key, field] : switches) {
+        for (const char* text : {"1", "2", "+1"})
+            CHECK(read_one(key, text).*field);
+        for (const char* text : {"0", "-1", "", "on", "true", "1.5", " 1"})
+            CHECK(!(read_one(key, text).*field));
+        // The others stay Off when one reads On.
+        const auto one = read_one(key, "1");
+        for (const auto& other : switches)
+            if (other.second != field)
+                CHECK(!(one.*other.second));
+
+        auto chosen = defaults;
+        chosen.*field = true;
+        Values values;
+        settings::write_settings(values, defaults, chosen, defaults, false);
+        CHECK(values.size() == 1);
+        CHECK(values.at(std::string{key}) == "1");
+        CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+        // Off chosen again after On is written as such.
+        settings::write_settings(values, chosen, defaults, defaults, false);
+        CHECK(values.at(std::string{key}) == "0");
+        CHECK(settings::read_settings(values, players_own_on_linux, false) == defaults);
+        values.clear();
+        settings::write_settings(values, defaults, chosen, defaults, false);
+        settings::write_settings(values, chosen, defaults, defaults, true);
+        CHECK(values.empty());
+    }
+    // All three On together are written and read back together.
+    auto all = defaults;
+    all.invert_3d_camera_pan = true;
+    all.invert_3d_camera_rotation = true;
+    all.invert_mouse_zoom = true;
+    Values values;
+    settings::write_settings(values, defaults, all, defaults, false);
+    CHECK(values.size() == 3);
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == all);
+}
+
 /// Edge stickiness: 1.0 everywhere by default and for a file without the
 /// key; a decimal reads to the nearest tenth, a half rounding up, held to
 /// 0.0 to 5.0; any other text reads 1.0; it is written with one decimal,
@@ -3369,6 +3434,7 @@ int main() {
     the_group_keys_centre_default_read_and_round_trip();
     the_double_click_selects_default_read_and_round_trip();
     the_focus_lost_default_read_and_round_trip();
+    the_camera_inversions_default_read_and_round_trip();
     the_edge_stickiness_default_read_and_round_trip();
     the_window_frame_default_read_and_round_trip();
     the_window_size_default_read_and_round_trip();

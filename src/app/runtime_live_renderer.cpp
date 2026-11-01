@@ -3,6 +3,7 @@
 
 // Live match camera and GPU battlefield composition.
 #include "oa/app/runtime.hpp"
+#include "oa/app/camera_inversion.hpp"
 #include "oa/app/frame_coordinates.hpp"
 #include "bench_timers.hpp"
 #include "director_state.hpp"
@@ -680,17 +681,27 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         // Camera gestures consume the event before normal pointer handling.
         // Keep the custom cursor at the physical pointer throughout the drag.
         update_pointer(x, y);
+        // Invert 3D camera rotation and Invert 3D camera pan turn the drag
+        // round; the pointer itself still moves as the mouse does.
+        const auto& chosen = engine_settings();
+        const camera_inversion::Inversion inversion{
+            .pan = chosen.invert_3d_camera_pan,
+            .rotation = chosen.invert_3d_camera_rotation,
+            .zoom = chosen.invert_mouse_zoom,
+        };
         if (live.orbiting) {
-            renderer_live_camera::orbit(
-                live.camera,
-                converted.motion.xrel * orbit_degrees_per_pixel,
-                converted.motion.yrel * orbit_degrees_per_pixel
+            const auto turn = camera_inversion::orbit_drag(
+                {converted.motion.xrel * orbit_degrees_per_pixel,
+                 converted.motion.yrel * orbit_degrees_per_pixel},
+                inversion
             );
+            renderer_live_camera::orbit(live.camera, turn.x, turn.y);
         } else {
+            const auto ground = camera_inversion::pan_drag(
+                {converted.motion.xrel, converted.motion.yrel}, inversion
+            );
             float dx{}, dz{};
-            if (renderer_live_camera::pan_delta(
-                    live.projection, converted.motion.xrel, converted.motion.yrel, dx, dz
-                )) {
+            if (renderer_live_camera::pan_delta(live.projection, ground.x, ground.y, dx, dz)) {
                 const auto place = match_view_place();
                 place_match_view(place[0] - dx, place[1] - dz);
             }

@@ -5426,6 +5426,30 @@
 	it=Nella cartella propria di Open Annihilation;
 	}
 
+[Invert 3D camera pan]
+	{
+	de=3D-Kameraschwenk umkehren;
+	fr=Inverser le déplacement de la caméra 3D;
+	es=Invertir el desplazamiento de la cámara 3D;
+	it=Inverti lo spostamento della telecamera 3D;
+	}
+
+[Invert 3D camera rotation]
+	{
+	de=3D-Kameradrehung umkehren;
+	fr=Inverser la rotation de la caméra 3D;
+	es=Invertir la rotación de la cámara 3D;
+	it=Inverti la rotazione della telecamera 3D;
+	}
+
+[Invert mouse zoom]
+	{
+	de=Mauszoom umkehren;
+	fr=Inverser le zoom de la souris;
+	es=Invertir el zoom del ratón;
+	it=Inverti lo zoom del mouse;
+	}
+
 [Is this the right folder?]
 	{
 	de=Ist das der richtige Ordner?;
@@ -8602,6 +8626,14 @@
 	it=Finestra delle opzioni;
 	}
 
+[Orbit drags turn and tilt the view the other way.]
+	{
+	de=Ziehen zum Kreisen dreht und neigt die Ansicht in die andere Richtung.;
+	fr=Les glissements d'orbite tournent et inclinent la vue dans l'autre sens.;
+	es=Los arrastres de órbita giran e inclinan la vista en sentido contrario.;
+	it=I trascinamenti di orbita ruotano e inclinano la vista nel verso opposto.;
+	}
+
 [Order]
 	{
 	de=Reihenfolge;
@@ -8800,6 +8832,14 @@
 	fr=PRÉC. : montre la page de construction avant celle-ci.;
 	es=ANT.: muestra la página de construcción anterior.;
 	it=PREC.: mostra la pagina di costruzione precedente.;
+	}
+
+[Pan drags move the 3D view the other way.]
+	{
+	de=Ziehen zum Schwenken bewegt die 3D-Ansicht in die andere Richtung.;
+	fr=Les glissements de déplacement bougent la vue 3D dans l'autre sens.;
+	es=Los arrastres de desplazamiento mueven la vista 3D en sentido contrario.;
+	it=I trascinamenti di spostamento muovono la vista 3D nel verso opposto.;
 	}
 
 [Panels]
@@ -9864,6 +9904,14 @@
 	fr=Défile pour zoomer le champ de bataille.;
 	es=Desplaza para acercar y alejar el campo de batalla.;
 	it=Scorri per zoomare il campo di battaglia avanti e indietro.;
+	}
+
+[Scrolling zooms the battlefield the other way.]
+	{
+	de=Scrollen zoomt das Schlachtfeld in die andere Richtung.;
+	fr=Le défilement zoome le champ de bataille dans l'autre sens.;
+	es=Desplazar hace zoom en el campo de batalla en sentido contrario.;
+	it=Lo scorrimento zooma il campo di battaglia nel verso opposto.;
 	}
 
 [Search key layouts]

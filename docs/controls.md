@@ -238,6 +238,14 @@ Metal or Vulkan ([Graphics](settings.md#graphics)); with Hardware
 acceleration Off or Basic, or where neither can be used, Alt and its drags
 and keys keep their classic use.
 
+**Invert 3D camera pan** and **Invert 3D camera rotation**, in
+[Settings › Controls](settings.md#controls), turn those drags round: a pan
+drag then moves the view the way the pointer goes instead of pulling the
+ground along, and an orbit drag turns and tilts the camera the other way.
+**Invert mouse zoom** turns the wheel's zoom round, in the rotated view and
+the classic one. All three are off by default, and the keys, the window's
+edges, touch and a controller keep their way.
+
 ## Groups
 
 Storing a group is `group.assign-1` through `group.assign-9`: Ctrl and

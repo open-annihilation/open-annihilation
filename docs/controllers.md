@@ -93,7 +93,7 @@ pad.
 | L3 | Centres on the selection, or on the commander with none | Home |
 | Left trackpad: slide | Drags the map: the ground follows the thumb, and glides on after a flick | Two-finger drag |
 | Left trackpad: press and hold | **The minimap under the thumb**: the trackpad stands for the whole map, the camera goes to the point under the thumb and follows it while the press is held | A right drag on the minimap (a left drag with the right-click interface) |
-| Right stick ↑ and ↓ | Zooms in and out about the pointer, smoothly (the Mouse wheel zoom, Maximum zoom out and Maximum zoom in settings are honoured) | Wheel |
+| Right stick ↑ and ↓ | Zooms in and out about the pointer, smoothly (the Mouse wheel zoom, Maximum zoom out and Maximum zoom in settings are honoured; Invert mouse zoom, the mouse's own, is not) | Wheel |
 | Right stick ← and → (a flick) | The previous or next build page while a builder is selected | `,` and `.` |
 | R3 | Follows the selected unit; with R4 held, the next of the selection | T, Shift+T |
 | **A** | A left click at the pointer | Left button |

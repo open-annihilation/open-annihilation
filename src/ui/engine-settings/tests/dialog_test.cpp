@@ -695,13 +695,14 @@ void each_section_shows_its_rows() {
 
     // Controls: the layout in use, whether buttons show their key, then the
     // wheel's switch with the zoom's two limits under it, how far past the
-    // map's edges the view goes, middle-click panning, where a double-click
-    // selects a unit's type, whether a window keeps the pointer, how firmly
-    // a sticky edge holds, whether a game played alone pauses while the
-    // window is away, and whether a group's key moves the view. Select
-    // groups without Alt stays off this section. While a mod is played, Key
-    // layout with that mod sits under Key layout.
-    CHECK(settings::page_settings(Page::controls).size() == 12);
+    // map's edges the view goes, middle-click panning, the switches that turn
+    // the 3D camera's pan and rotation and the mouse's zoom round, where a
+    // double-click selects a unit's type, whether a window keeps the pointer,
+    // how firmly a sticky edge holds, whether a game played alone pauses
+    // while the window is away, and whether a group's key moves the view.
+    // Select groups without Alt stays off this section. While a mod is
+    // played, Key layout with that mod sits under Key layout.
+    CHECK(settings::page_settings(Page::controls).size() == 15);
     CHECK(settings::page_settings(Page::controls)[0] == Setting::key_layout);
     CHECK(settings::page_settings(Page::controls)[1] == Setting::show_keys_on_buttons);
     CHECK(settings::page_settings(Page::controls)[2] == Setting::wheel_zoom);
@@ -709,17 +710,20 @@ void each_section_shows_its_rows() {
     CHECK(settings::page_settings(Page::controls)[4] == Setting::max_zoom_in);
     CHECK(settings::page_settings(Page::controls)[5] == Setting::view_past_map_edge);
     CHECK(settings::page_settings(Page::controls)[6] == Setting::middle_click_pan);
-    CHECK(settings::page_settings(Page::controls)[7] == Setting::double_click_selects);
-    CHECK(settings::page_settings(Page::controls)[8] == Setting::window_edge);
-    CHECK(settings::page_settings(Page::controls)[9] == Setting::window_edge_stickiness);
-    CHECK(settings::page_settings(Page::controls)[10] == Setting::focus_lost);
-    CHECK(settings::page_settings(Page::controls)[11] == Setting::group_keys_centre);
+    CHECK(settings::page_settings(Page::controls)[7] == Setting::invert_3d_camera_pan);
+    CHECK(settings::page_settings(Page::controls)[8] == Setting::invert_3d_camera_rotation);
+    CHECK(settings::page_settings(Page::controls)[9] == Setting::invert_mouse_zoom);
+    CHECK(settings::page_settings(Page::controls)[10] == Setting::double_click_selects);
+    CHECK(settings::page_settings(Page::controls)[11] == Setting::window_edge);
+    CHECK(settings::page_settings(Page::controls)[12] == Setting::window_edge_stickiness);
+    CHECK(settings::page_settings(Page::controls)[13] == Setting::focus_lost);
+    CHECK(settings::page_settings(Page::controls)[14] == Setting::group_keys_centre);
     for (const Setting setting : settings::page_settings(Page::controls))
         CHECK(setting != Setting::switch_alt);
     geometry::RowContext played;
     played.played_mod = true;
     const auto with_mod = geometry::section_settings(Page::controls, nullptr, played);
-    CHECK(with_mod.size() == 13);
+    CHECK(with_mod.size() == 16);
     CHECK(with_mod[0] == Setting::key_layout);
     CHECK(with_mod[1] == Setting::key_layout_for_mod);
     CHECK(with_mod[2] == Setting::show_keys_on_buttons);
@@ -728,11 +732,14 @@ void each_section_shows_its_rows() {
     CHECK(with_mod[5] == Setting::max_zoom_in);
     CHECK(with_mod[6] == Setting::view_past_map_edge);
     CHECK(with_mod[7] == Setting::middle_click_pan);
-    CHECK(with_mod[8] == Setting::double_click_selects);
-    CHECK(with_mod[9] == Setting::window_edge);
-    CHECK(with_mod[10] == Setting::window_edge_stickiness);
-    CHECK(with_mod[11] == Setting::focus_lost);
-    CHECK(with_mod[12] == Setting::group_keys_centre);
+    CHECK(with_mod[8] == Setting::invert_3d_camera_pan);
+    CHECK(with_mod[9] == Setting::invert_3d_camera_rotation);
+    CHECK(with_mod[10] == Setting::invert_mouse_zoom);
+    CHECK(with_mod[11] == Setting::double_click_selects);
+    CHECK(with_mod[12] == Setting::window_edge);
+    CHECK(with_mod[13] == Setting::window_edge_stickiness);
+    CHECK(with_mod[14] == Setting::focus_lost);
+    CHECK(with_mod[15] == Setting::group_keys_centre);
     for (const Setting setting : with_mod)
         CHECK(setting != Setting::switch_alt);
     CHECK(settings::key_layout_summary_text("OA default", 0) == "OA default");
@@ -861,7 +868,7 @@ void each_section_shows_its_rows() {
           "OK"})
         CHECK(find_part(parts, text, settings::no_control) != nullptr);
     const auto controls_rows = geometry::place_rows(Page::controls, {});
-    CHECK(controls_rows.rows.size() == 12);
+    CHECK(controls_rows.rows.size() == 15);
     // View past the map's edge, scrolled into view. The key layout card and
     // the rows down to Maximum zoom in sit above it, so 300 shows the row and
     // its hint.
@@ -873,11 +880,30 @@ void each_section_shows_its_rows() {
           "Up to half the battlefield past the map's edges; a",
           "zoom keeps the ground under the pointer."})
         CHECK(find_part(parts, text, settings::no_control) != nullptr);
-    // Double-click selects under Middle-click pans, scrolled to the view's
-    // top: its label, its hint and its field, On screen.
+    // The three switches under Middle-click pans, scrolled to the view's
+    // top: their labels, their hints and each switch's Off and On.
+    settings::Dialog inversions = opened(Page::controls);
+    inversions.scroll[static_cast<std::size_t>(Page::controls)] =
+        controls_rows.rows[7].top - geometry::first_row_top;
+    parts = settings::dialog_layout(inversions);
+    for (const std::string_view text :
+         {"Invert 3D camera pan",
+          "Pan drags move the 3D view the other way.",
+          "Invert 3D camera rotation",
+          "Orbit drags turn and tilt the view the other way.",
+          "Invert mouse zoom",
+          "Scrolling zooms the battlefield the other way."})
+        CHECK(find_part(parts, text, settings::no_control) != nullptr);
+    for (int32_t row = 7; row <= 9; ++row)
+        for (const std::string_view text : {"Off", "On"})
+            CHECK(std::any_of(parts.begin(), parts.end(), [&](const settings::LayoutPart& part) {
+                return part.text == text && part.control == settings::first_row_control + row;
+            }));
+    // Double-click selects under them, scrolled to the view's top: its
+    // label, its hint and its field, On screen.
     settings::Dialog double_click = opened(Page::controls);
     double_click.scroll[static_cast<std::size_t>(Page::controls)] =
-        controls_rows.rows[7].top - geometry::first_row_top;
+        controls_rows.rows[10].top - geometry::first_row_top;
     parts = settings::dialog_layout(double_click);
     for (const std::string_view text :
          {"Double-click selects", "Where a double-click on a unit selects its type.", "On screen"})
@@ -885,7 +911,7 @@ void each_section_shows_its_rows() {
     // Window edge and Edge stickiness under it, scrolled to the view's top.
     settings::Dialog edge = opened(Page::controls);
     edge.scroll[static_cast<std::size_t>(Page::controls)] =
-        controls_rows.rows[8].top - geometry::first_row_top;
+        controls_rows.rows[11].top - geometry::first_row_top;
     parts = settings::dialog_layout(edge);
     for (const std::string_view text :
          {"Window edge",
@@ -1056,6 +1082,28 @@ void switches_take_a_click_on_either_half_and_keys() {
     CHECK(dialog.focused == settings::first_row_control + 5);
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
     CHECK(dialog.chosen.view_past_map_edge == settings::ViewPastMapEdge::one_quarter);
+    // Middle-click pans, then the three switches under it, each Off until
+    // its key turns it On, and each turning only its own setting.
+    CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
+    CHECK(dialog.focused == settings::first_row_control + 6);
+    CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
+    CHECK(dialog.focused == settings::first_row_control + 7);
+    CHECK(!dialog.chosen.invert_3d_camera_pan);
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(dialog.chosen.invert_3d_camera_pan);
+    CHECK(!dialog.chosen.invert_3d_camera_rotation && !dialog.chosen.invert_mouse_zoom);
+    CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
+    CHECK(dialog.focused == settings::first_row_control + 8);
+    CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::changed);
+    CHECK(dialog.chosen.invert_3d_camera_rotation && !dialog.chosen.invert_mouse_zoom);
+    CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
+    CHECK(dialog.focused == settings::first_row_control + 9);
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(dialog.chosen.invert_mouse_zoom);
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    CHECK(!dialog.chosen.invert_mouse_zoom);
+    CHECK(dialog.chosen.invert_3d_camera_pan && dialog.chosen.invert_3d_camera_rotation);
+    CHECK(!dialog.opened.invert_3d_camera_pan && !dialog.opened.invert_3d_camera_rotation);
     CHECK(dialog.chosen.middle_click_pan);
     CHECK(!dialog.chosen.switch_alt);
     CHECK(dialog.chosen != dialog.opened);
@@ -2470,8 +2518,11 @@ void the_focus_moves_round_every_control() {
         settings::first_row_control + 6,
         settings::first_row_control + 7,
         settings::first_row_control + 8,
+        settings::first_row_control + 9,
         settings::first_row_control + 10,
         settings::first_row_control + 11,
+        settings::first_row_control + 13,
+        settings::first_row_control + 14,
         settings::restore_control,
         settings::cancel_control,
         settings::ok_control,
@@ -2716,9 +2767,10 @@ void sections_that_fit_do_not_scroll() {
     // Each section's content: its rows, and the end gap under the last.
     // Controls' key layout card, Show keys on buttons, Mouse wheel zoom, the
     // zoom's two drop-downs, View past the map's edge's strip, Middle-click
-    // pans, Double-click selects' drop-down, Window edge's strip, Edge
-    // stickiness's slider, When the window loses focus's drop-down and Group
-    // keys centre the view's drop-down are 816.
+    // pans, the three switches that turn the camera's gestures round,
+    // Double-click selects' drop-down, Window edge's strip, Edge stickiness's
+    // slider, When the window loses focus's drop-down and Group keys centre
+    // the view's drop-down are 957.
     // Engine Limits' three sliders, the mod's heading and its two
     // rows are 369. Graphics' twenty-two rows are 1267, Language's
     // drop-down, five switches and slider 424, and User Interface's five
@@ -2728,8 +2780,8 @@ void sections_that_fit_do_not_scroll() {
     const std::array<Page, 5> pages{
         Page::controls, Page::common_tweaks, Page::graphics, Page::language, Page::user_interface
     };
-    const std::array<int32_t, 5> content{816, 369, 1267, 424, 497};
-    const std::array<int32_t, 5> limits{596, 149, 1047, 204, 277};
+    const std::array<int32_t, 5> content{957, 369, 1267, 424, 497};
+    const std::array<int32_t, 5> limits{737, 149, 1047, 204, 277};
     for (std::size_t index = 0; index < content.size(); ++index) {
         const Page page = pages[index];
         if (limits[index] != 0) {
@@ -6596,8 +6648,8 @@ void hint_lines_part_while_the_modern_fonts_draw_the_words() {
     oa::data::languages::set_interface_language(nullptr, modern);
     const auto tall = geometry::place_rows(Page::controls, {});
     oa::data::languages::set_interface_language(nullptr, oa::data::languages::english());
-    CHECK(game_fonts.rows.size() == 12 && tall.rows.size() == 12);
-    if (game_fonts.rows.size() != 12 || tall.rows.size() != 12)
+    CHECK(game_fonts.rows.size() == 15 && tall.rows.size() == 15);
+    if (game_fonts.rows.size() != 15 || tall.rows.size() != 15)
         return;
     // The key layout card keeps its height. Show keys on buttons wraps to
     // two lines, so it is 3 rows taller beside the modern fonts and the rows
@@ -8660,12 +8712,12 @@ void window_edge_and_edge_stickiness_show_and_change() {
     CHECK(geometry::strip_caption(Setting::window_edge, 2) == "Free");
     CHECK(settings::EngineSettings{}.window_edge == settings::WindowEdge::capture);
     CHECK(settings::EngineSettings{}.edge_stickiness == settings::default_edge_stickiness);
-    constexpr int32_t strip = settings::first_row_control + 8;
-    constexpr int32_t slider = settings::first_row_control + 9;
+    constexpr int32_t strip = settings::first_row_control + 11;
+    constexpr int32_t slider = settings::first_row_control + 12;
     // The two rows, scrolled to the view's top: When the window loses focus
     // and Group keys centre the view follow them.
     const auto controls_rows = geometry::place_rows(Page::controls, {});
-    const int32_t edge_rows = controls_rows.rows[8].top - geometry::first_row_top;
+    const int32_t edge_rows = controls_rows.rows[11].top - geometry::first_row_top;
 
     settings::Dialog dialog = opened(Page::controls);
     dialog.scroll[static_cast<std::size_t>(Page::controls)] = edge_rows;
@@ -10457,27 +10509,27 @@ std::vector<int32_t> tab_round(settings::Dialog dialog) {
 }
 
 void the_arrows_move_by_geometry() {
-    // Controls: Down walks the eleven of its rows that take the focus (Edge
-    // stickiness, locked while Window edge shows Capture, takes none, and
-    // When the window loses focus and Group keys centre the view come after
-    // it), and from the last, which it brings into view, reaches the footer
-    // under it. A row lies across the section, so Cancel and OK both lie in
-    // line with it; Cancel's middle is nearer the row's. Up comes back to
-    // the last row.
+    // Controls: Down walks the fourteen of its rows that take the focus
+    // (Edge stickiness, locked while Window edge shows Capture, takes none,
+    // and When the window loses focus and Group keys centre the view come
+    // after it), and from the last, which it brings into view, reaches the
+    // footer under it. A row lies across the section, so Cancel and OK both
+    // lie in line with it; Cancel's middle is nearer the row's. Up comes back
+    // to the last row.
     settings::Dialog controls = opened(Page::controls);
-    for (int32_t row = 0; row < 9; ++row) {
+    for (int32_t row = 0; row < 12; ++row) {
         CHECK(settings::dialog_key(controls, DialogKey::down) == DialogAction::redraw);
         CHECK(controls.focused == settings::first_row_control + row);
     }
     CHECK(settings::dialog_key(controls, DialogKey::down) == DialogAction::redraw);
-    CHECK(controls.focused == settings::first_row_control + 10);
+    CHECK(controls.focused == settings::first_row_control + 13);
     CHECK(settings::dialog_key(controls, DialogKey::down) == DialogAction::redraw);
-    CHECK(controls.focused == settings::first_row_control + 11);
-    CHECK(inside(geometry::open_rows(controls).rows.rows[11].control_area, geometry::view));
+    CHECK(controls.focused == settings::first_row_control + 14);
+    CHECK(inside(geometry::open_rows(controls).rows.rows[14].control_area, geometry::view));
     CHECK(settings::dialog_key(controls, DialogKey::down) == DialogAction::redraw);
     CHECK(controls.focused == settings::cancel_control);
     CHECK(settings::dialog_key(controls, DialogKey::up) == DialogAction::redraw);
-    CHECK(controls.focused == settings::first_row_control + 11);
+    CHECK(controls.focused == settings::first_row_control + 14);
     // Down from the footer finds nothing: the focus stays.
     controls.focused = settings::ok_control;
     CHECK(settings::dialog_key(controls, DialogKey::down) == DialogAction::none);
@@ -10577,8 +10629,11 @@ void the_arrows_move_by_geometry() {
                                                   row + 6,
                                                   row + 7,
                                                   row + 8,
+                                                  row + 9,
                                                   row + 10,
-                                                  row + 11}
+                                                  row + 11,
+                                                  row + 13,
+                                                  row + 14}
                                              )
     );
     CHECK(tab_round(opened(Page::common_tweaks)) == then_rest({row, row + 1, row + 2}));

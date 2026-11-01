@@ -207,6 +207,9 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.access.move-overlays` | 0 or 1. On, the keys overlay, the chat line and the latch chips show at the places `open-annihilation.overlay.<overlay>.<class>` holds; off, where they lay themselves out. Settings › Accessibility reads and writes it | 0 |
 | `open-annihilation.access.order-wheel` | `off`, `hold-right` or `hold-middle`. Holding that mouse button on the battlefield opens the order wheel; a short click or a drag still does what the button does. Any other text reads as `off` | `off` |
 | `open-annihilation.middle-click-pan` | 0 or 1 | 1 |
+| `open-annihilation.invert-3d-camera-pan` | 0 or 1. On, the drags that pan the turned 3D view move it the other way, the way the pointer goes | 0 |
+| `open-annihilation.invert-3d-camera-rotation` | 0 or 1. On, the drags that orbit the turned 3D view turn and tilt it the other way | 0 |
+| `open-annihilation.invert-mouse-zoom` | 0 or 1. On, the mouse wheel and a trackpad's scroll zoom the battlefield the other way, in the classic view and the turned one | 0 |
 | `open-annihilation.max-zoom-out` | `automatic`, `whole-map`, `1/32`, `1/16`, `1/8`, `1/4` or `1/2`; any other text reads as `automatic` | `automatic` |
 | `open-annihilation.max-zoom-in` | `1`, `2`, `3` or `4` times the game's scale; any other text reads as `4` | `4` |
 | `open-annihilation.view-past-map-edge` | `off`, or `25` or `50` percent of the battlefield past the map's edges; any other text reads as `50` | `50` |

@@ -568,6 +568,13 @@ in [Settings › Controls](settings.md#controls) says. On screen is the
 default; On the map is 3.1c's double click. **Select same type**
 (Ctrl+Z) selects the selected types on the whole map either way.
 
+**Zoom in** and **Zoom out** zoom the way the wheel is bound, and
+**Invert mouse zoom** in [Settings › Controls](settings.md#controls) turns
+them round. **Invert 3D camera rotation** turns **Orbit camera**'s drags
+round, and **Invert 3D camera pan** those of **Pan camera** and of **Pan**
+in the rotated view, whichever buttons they are on. The camera's keys,
+such as **Pan left**, keep the way their names say.
+
 ### Selection
 
 | Command | Default keys | Action |

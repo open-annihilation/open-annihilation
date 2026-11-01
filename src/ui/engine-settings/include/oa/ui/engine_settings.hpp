@@ -60,6 +60,13 @@ inline constexpr std::string_view window_edge = "open-annihilation.window-edge";
 inline constexpr std::string_view edge_stickiness = "open-annihilation.window-edge-stickiness";
 /// 1 or 0 (EngineSettings::middle_click_pan).
 inline constexpr std::string_view middle_click_pan = "open-annihilation.middle-click-pan";
+/// 1 or 0 (EngineSettings::invert_3d_camera_pan). Absent means off.
+inline constexpr std::string_view invert_3d_camera_pan = "open-annihilation.invert-3d-camera-pan";
+/// 1 or 0 (EngineSettings::invert_3d_camera_rotation). Absent means off.
+inline constexpr std::string_view invert_3d_camera_rotation =
+    "open-annihilation.invert-3d-camera-rotation";
+/// 1 or 0 (EngineSettings::invert_mouse_zoom). Absent means off.
+inline constexpr std::string_view invert_mouse_zoom = "open-annihilation.invert-mouse-zoom";
 /// 1 or 0 (EngineSettings::escape_opens_menu).
 inline constexpr std::string_view escape_opens_menu = "open-annihilation.escape-opens-menu";
 /// "double-press", "never" or "every-press" (EngineSettings::group_keys_centre).
@@ -1297,6 +1304,15 @@ struct EngineSettings {
     ViewPastMapEdge view_past_map_edge{ViewPastMapEdge::one_half};
     /// A middle click pans the view towards the pointer until another press.
     bool middle_click_pan{true};
+    /// The mouse's drags that pan the turned 3D view move it the other way:
+    /// the view goes the way the pointer goes, and the ground the other.
+    bool invert_3d_camera_pan{};
+    /// The mouse's drags that orbit the turned 3D view turn and tilt it the
+    /// other way.
+    bool invert_3d_camera_rotation{};
+    /// The mouse wheel, and a trackpad's scroll, zoom the battlefield the
+    /// other way, in the classic view and the turned one.
+    bool invert_mouse_zoom{};
     bool escape_opens_menu{}; ///< Escape with nothing to cancel opens the game menu
     bool switch_alt{};        ///< 3.1c's SwitchAlt: a number key alone selects its group
     /// When a group's key moves the view to the group as well as selecting

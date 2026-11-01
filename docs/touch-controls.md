@@ -79,7 +79,9 @@ and Chat. A phone match starts at zoom 1.25, so units are a little larger,
 or at the game's own scale with Maximum zoom in at None; the zoom then
 stays where the player puts it. A pinch and the zoom buttons keep to the
 Maximum zoom out and Maximum zoom in settings, with Mouse wheel zoom off
-too ([Settings](settings.md#controls)).
+too ([Settings](settings.md#controls)). Invert mouse zoom and the 3D
+camera's two inversion switches are the mouse's: a pinch and a two-finger
+drag follow the fingers whatever they say.
 
 In both layouts the messages and panels drawn over the battlefield keep to
 the part of it the controls leave clear: the message log starts at its top

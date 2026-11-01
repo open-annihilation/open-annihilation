@@ -246,6 +246,31 @@ Each of these takes effect at once.
   same until you let go. It does not start while the allied whiteboard is
   in use, in the menus, or on a panel. Turn it off to keep the middle
   button as it was.
+- **Invert 3D camera pan**, Off by default. In the turned 3D view
+  ([The 3D camera](controls.md#the-3d-camera)), a drag that pans the camera
+  pulls the ground under the pointer along with it. Turned on, the drag
+  pans the other way: the view moves the way the pointer goes, as the
+  classic view's middle-click pan does. It turns round both drags that pan
+  the 3D camera, **Pan camera** (Alt, Shift and a left drag) and the middle
+  drag while Middle-click pans is on, whichever buttons the key editor
+  gives them, and a trackpad's click and drag with them. The keys that pan
+  the view keep the way their names say, and edge scrolling, the minimap,
+  mouse look, the classic view's middle-click pan, a finger's drag and a
+  controller stay as they are. It applies at once.
+- **Invert 3D camera rotation**, Off by default. In the turned 3D view, a
+  drag that orbits the camera (**Orbit camera**: Alt and a left or a
+  middle drag) turns it with the pointer's motion across and tilts it with
+  the motion up and down. Turned on, it turns and tilts the other way.
+  Classic view (Alt+R) and Unlocked camera (Alt+U) stay as they are. It
+  applies at once.
+- **Invert mouse zoom**, Off by default. The mouse wheel, or a trackpad's
+  two-finger scroll, zooms the battlefield the other way, in the classic
+  view and in the turned 3D view: a turn that zoomed in zooms out, and the
+  ground under the pointer still stays under it. It turns round **Zoom in**
+  and **Zoom out** as the key editor binds them to the wheel. A pinch, the
+  touch controls' zoom buttons, the zoom keys and a controller's zoom keep
+  their way, and with Mouse wheel zoom off the wheel does not zoom at all.
+  It applies at once.
 - **Double-click selects**, On screen or On the map, On screen by default.
   Where a double-click on one of your units selects the units of its type:
   **Select type** in the key editor, which a controller's Y, the touch

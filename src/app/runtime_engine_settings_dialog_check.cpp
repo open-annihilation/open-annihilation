@@ -359,6 +359,12 @@ std::string_view label_of(settings::Setting setting) {
         return "View past the map's edge";
     case settings::Setting::middle_click_pan:
         return "Middle-click pans";
+    case settings::Setting::invert_3d_camera_pan:
+        return "Invert 3D camera pan";
+    case settings::Setting::invert_3d_camera_rotation:
+        return "Invert 3D camera rotation";
+    case settings::Setting::invert_mouse_zoom:
+        return "Invert mouse zoom";
     case settings::Setting::escape_opens_menu:
         return "Escape opens the game menu";
     case settings::Setting::group_keys_centre:

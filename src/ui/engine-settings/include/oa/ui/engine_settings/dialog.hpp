@@ -397,6 +397,14 @@ enum class Setting : uint8_t {
     /// When the window loses focus: a drop-down of Pause single player and
     /// Keep playing, on Controls under Edge stickiness
     focus_lost,
+    /// Invert 3D camera pan: a switch, on Controls under Middle-click pans
+    invert_3d_camera_pan,
+    /// Invert 3D camera rotation: a switch, on Controls under Invert 3D
+    /// camera pan
+    invert_3d_camera_rotation,
+    /// Invert mouse zoom: a switch, on Controls under Invert 3D camera
+    /// rotation
+    invert_mouse_zoom,
     /// Look: a strip of Modern and Classic, User Interface's last row
     look,
 };
