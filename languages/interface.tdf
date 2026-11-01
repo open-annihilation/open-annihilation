@@ -10450,14 +10450,6 @@
 	it=Inizia a giocare;
 	}
 
-[Start with One Human]
-	{
-	de=Mit einem Menschen starten;
-	fr=Commencer avec un humain;
-	es=Empezar con un humano;
-	it=Inizia con un umano;
-	}
-
 [Start without {name}?]
 	{
 	de=Ohne {name} starten?;

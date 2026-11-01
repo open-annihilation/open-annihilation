@@ -187,7 +187,11 @@ struct Entry {
     bool visual{}; ///< a visual hack
     /// A mutator's hacks block may set this entry's match parameters.
     bool mutator{};
-    bool implemented{};         ///< a hack this engine carries out
+    bool implemented{}; ///< a hack this engine carries out
+    /// A hack OA no longer offers: a profile that names it still loads,
+    /// with the same hashes, but it changes nothing, and the player's
+    /// overrides and the settings leave it out (standard_hacks).
+    bool retired{};
     std::string_view key{};     ///< an identity, layout, string or media value's profile key
     ValueSpec value{};          ///< an identity, layout, string, media or data-key value
     uint16_t first_parameter{}; ///< an index into the parameters
@@ -208,8 +212,9 @@ struct Entry {
     /// first word of its id.
     std::string_view area{};
     /// A hack's name as players see it, in English, such as "Deterministic
-    /// Wind"; empty for every other entry. The interface shows it through
-    /// its catalogue (oa/data/languages/interface_text.hpp).
+    /// Wind"; empty for a retired hack and for every other entry. The
+    /// interface shows it through its catalogue
+    /// (oa/data/languages/interface_text.hpp).
     std::string_view title{};
 };
 

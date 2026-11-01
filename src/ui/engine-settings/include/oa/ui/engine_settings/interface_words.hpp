@@ -547,7 +547,6 @@ inline constexpr std::string_view interface_words[] = {
     "Squad Assignment",
     "Standard",
     "Start playing",
-    "Start with One Human",
     "Statistics Exclude Shared Income",
     "Stay",
     "Stay on",

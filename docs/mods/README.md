@@ -354,7 +354,10 @@ Every hack page has the same five parts:
 The facts and the schema are generated from the engine's registry, so they
 always match what the engine accepts. A hack whose status is "not
 implemented" is refused by this build unless `--accept-unimplemented-hacks`
-is given; its page says what works so far.
+is given; its page says what works so far. A hack whose status is
+"retired" is one the engine no longer offers: a profile that names it still
+loads, but it changes nothing, and its page says what the game does
+instead.
 
 An engine limit is documented to the same depth, on a page under
 [standard-hacks/](standard-hacks/) named `limits.<name>.md`, with the same
@@ -440,7 +443,9 @@ its type, bounds and unit: a switch, a slider of numbers, of values or of a
 list's items, or a switch for each value of a set. **Show Active Only
 (X/Y)**, under the list, shows only the hacks that are on: X is how many
 are on as the section shows them, Y every standard hack. **Restore profile
-values** clears every change.
+values** clears every change. A retired hack is not a standard hack: the
+list leaves it out, and a change to it kept from an earlier build is left
+out of the game too.
 
 - **Off**, the list only shows the profile's own values, and the game
   plays the profile as it ships. Changes made while it was on are kept
@@ -579,7 +584,7 @@ and the hacks within each follow their titles alphabetically. Scope is
 | [Map Scripted Units](standard-hacks/setup.map-scripted-units.md) | `setup.map-scripted-units` | Maps may place units for each player at the start and at set times, with a neutral computer player for unowned ones. | sim | implemented |
 | [Prebuilt Base](standard-hacks/setup.recorder-prebuilt-base.md) | `setup.recorder-prebuilt-base` | Adds opt-in chat commands that build a prebuilt base for each player at the start. | sim | implemented |
 | [Several Local AI Players](standard-hacks/setup.multiple-local-ai.md) | `setup.multiple-local-ai` | One machine may add several computer players to a multiplayer game. | sim | implemented |
-| [Start with One Human](standard-hacks/setup.allow-start-with-ai.md) | `setup.allow-start-with-ai` | A multiplayer game may start with one human and computer players. | sim | implemented |
+| [Start with One Human](standard-hacks/setup.allow-start-with-ai.md) | `setup.allow-start-with-ai` | Retired: a multiplayer game may start with one human and computer players without it. | sim | retired |
 | [Team Start Positions](standard-hacks/setup.team-start-positions.md) | `setup.team-start-positions` | Start positions are given out by team, with team-mates next to each other. | sim | implemented |
 
 ### Interface

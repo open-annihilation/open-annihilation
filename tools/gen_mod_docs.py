@@ -13,7 +13,7 @@ Markdown in step with it:
       example and Details with a placeholder each for the prose, and the
       heading Full configuration schema with the schema block. The facts block
       gives the hack's id, its area, scope, the machines that run it, its number of
-      parameters and whether the engine implements it; the schema block gives
+      parameters and whether the engine implements it or has retired it; the schema block gives
       how a profile switches it on, every parameter with its type, unit,
       allowed values, list length, 3.1c baseline, default, who may adjust it,
       scope and the data key that overrides it, the presets, the constraints,
@@ -41,7 +41,9 @@ Markdown in step with it:
       the standard hacks table: one row per hack, grouped by area, with its
       title linking to its page, its id, one sentence on what it does, its
       scope and its status. Areas and the hacks within each follow their
-      titles alphabetically, as Developer Mode lists them. Beside it, the
+      titles alphabetically, as Developer Mode lists them; a retired hack,
+      which Developer Mode does not list, keeps its row with the status
+      retired. Beside it, the
       limits table: one row per limit, grouped by area, with its title
       linking to its page, its registry id, the key a profile writes, one
       sentence on what it holds and its scope. Then the script
@@ -173,7 +175,7 @@ SENTENCES = {
         "Maps may place units for each player at the start and at set times, with a neutral computer player "
         "for unowned ones.",
     "setup.allow-start-with-ai":
-        "A multiplayer game may start with one human and computer players.",
+        "Retired: a multiplayer game may start with one human and computer players without it.",
     "setup.multiple-local-ai":
         "One machine may add several computer players to a multiplayer game.",
     "setup.ai-player-name-format":
@@ -600,6 +602,13 @@ def replace_block(text, name, body, where):
     return text[:b] + block(name, body) + text[e + len(end(name)):]
 
 
+def hack_status(e, retired, unimplemented):
+    """A hack's status: retired, implemented, or not yet implemented, in the words given."""
+    if e.get("retired"):
+        return retired
+    return "implemented" if e["implemented"] else unimplemented
+
+
 def facts(eid, e, reg):
     area = eid.split(".")[0]
     if e.get("kind") == "limit":
@@ -618,8 +627,8 @@ def facts(eid, e, reg):
             ("Scope", SCOPES[e["scope"]]),
             ("Runs on", runs_on(e["ownership"])),
             ("Parameters", str(len(e["params"]))),
-            ("Status", "implemented" if e["implemented"] else
-             "not yet implemented: a profile that turns it on is refused"),
+            ("Status", hack_status(e, "retired: a profile that names it still loads, and it changes nothing",
+                                   "not yet implemented: a profile that turns it on is refused")),
         ]
     return "| Fact | Value |\n| --- | --- |\n" + "".join(f"| {k} | {v} |\n" for k, v in rows)
 
@@ -640,6 +649,8 @@ def schema(eid, e, entries):
         absent = (f"Off, the same as leaving it out. {e['off']}" if "off" in e else
                   "Off, the same as leaving it out: 3.1c behaviour.")
     ways = [(f"{name}: true", "On, every parameter at its default." if params else "On.")]
+    if e.get("retired"):
+        ways = [(f"{name}: true", f"Retired: it changes nothing. {e['off']}")]
     if params:
         first = next(iter(params))
         ways.append((f"{name}: {{{first}: {yaml_value(params[first]['default'])}}}",
@@ -765,7 +776,7 @@ def table(reg, sentences):
         out += [f"### {area_title(reg, area)}", "", "| Hack | Id | What it does | Scope | Status |",
                 "| --- | --- | --- | --- | --- |"]
         for eid, e in sorted(rows[area], key=lambda item: title_order(item[1]["title"])):
-            status = "implemented" if e["implemented"] else "not yet implemented"
+            status = hack_status(e, "retired", "not yet implemented")
             out.append(f"| [{e['title']}]({PAGES}/{eid}.md) | {code(eid)} | {sentences[eid]} | {e['scope']} "
                        f"| {status} |")
         out.append("")
@@ -1145,6 +1156,16 @@ def self_test():
     kept = schema("ui.plain", dict(reg["entries"]["ui.plain"], off="It still draws."), reg["entries"])
     if "| `ui.plain: false` | Off, the same as leaving it out. It still draws. |" not in kept:
         failures.append("the schema of a hack with off does not use its words")
+    gone = dict(reg["entries"]["ui.plain"], implemented=True, retired=True, off="It still draws.")
+    retired_page = facts("ui.plain", gone, reg) + "\n" + schema("ui.plain", gone, reg["entries"])
+    for needle in ("| Status | retired: a profile that names it still loads, and it changes nothing |",
+                   "| `ui.plain: true` | Retired: it changes nothing. It still draws. |",
+                   "| `ui.plain: false` | Off, the same as leaving it out. It still draws. |"):
+        if needle not in retired_page:
+            failures.append(f"the page of a retired hack lacks {needle!r}")
+    retired_table = table({"area-titles": reg["area-titles"], "entries": {"ui.plain": gone}}, sentences)
+    if "| `ui.plain` | Draws. | view | retired |" not in retired_table:
+        failures.append(f"the table's row of a retired hack is wrong: {retired_table}")
 
     with tempfile.TemporaryDirectory() as tmp:
         docs = Path(tmp) / "docs"

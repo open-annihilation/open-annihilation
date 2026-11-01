@@ -69,9 +69,11 @@ struct HackState {
     std::vector<Value> values{};
 };
 
-/// Returns the registry's standard hacks.
+/// Returns the registry's standard hacks: the hacks a player can override,
+/// which the settings list. A retired hack is not one.
 ///
-/// @return every hack of the registry, in the registry's order
+/// @return every hack of the registry that is not retired, in the
+///     registry's order
 [[nodiscard]] std::span<const registry::Entry* const> standard_hacks();
 
 /// Finds a standard hack's place among standard_hacks.
@@ -137,8 +139,10 @@ find_override(std::span<const HackOverride> overrides, std::string_view hack) no
 /// Each member of the mapping is one hack's override: true or false, or a
 /// mapping of its parameters, which turns it on. A member of any other form
 /// is left out, and so is all of a text that is not a mapping the profile
-/// grammar reads. The overrides are not checked against the registry here:
-/// the resolver checks each as it lays it, as it checks a profile.
+/// grammar reads. A retired hack's override is left out too, so settings
+/// kept while the hack was offered load without it. The overrides are not
+/// otherwise checked against the registry here: the resolver checks each as
+/// it lays it, as it checks a profile.
 ///
 /// @param text the text
 /// @return the overrides, in the text's order

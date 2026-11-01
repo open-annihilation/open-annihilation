@@ -1634,7 +1634,7 @@ class Resolver {
 
     /// Lays the player's overrides of standard hacks over the resolved
     /// values, each checked as a profile's hack is; one that does not fit
-    /// is left out whole, with a warning.
+    /// is left out whole, with a warning, and one of a retired hack without.
     void apply_overrides() {
         for (const HackOverride& override : options_.overrides) {
             const std::string path = "hacks." + override.hack;
@@ -1646,6 +1646,10 @@ class Resolver {
                 refuse(path, "unknown hack");
                 continue;
             }
+            // A retired hack changes nothing, so its override is left out
+            // without a warning and leaves the hashes alone.
+            if (entry->retired)
+                continue;
             const auto at = std::find_if(resolved_.begin(), resolved_.end(), [&](const auto& item) {
                 return item.entry == entry;
             });

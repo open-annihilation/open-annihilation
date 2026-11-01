@@ -1278,6 +1278,11 @@ chooses for it: READY, an alliance with a player who has joined, the
 screen size the RES column shows, which is the player's own setting, and
 the buttons a mod adds, which type a command into the chat.
 
+A host's room lets one player start against computer players. A launch
+that locks the options (`rules.lock-options`, `-b lock`, or the `-c`
+file's `lockOptions`) arranged its players, so its room keeps 3.1c's rule:
+START waits for a remote player.
+
 <!-- netgame-launch-help checks that this table is the table of launch
 settings in src/app/netgame/launch_file.cpp, word for word. -->
 

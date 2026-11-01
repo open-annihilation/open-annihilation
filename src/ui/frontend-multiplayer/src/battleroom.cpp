@@ -353,20 +353,15 @@ int32_t remote_count(Lobby& lobby) noexcept {
     return count;
 }
 
-/// Counts the seated slots whose status, read as a signed byte, is below
-/// a computer player's: the local humans, as the start gate counts them
-/// when a game may start with one human and computer players.
+/// Counts the occupied computer slots this machine runs.
 ///
 /// @param lobby Lobby state.
 /// @return The count.
-int32_t local_human_count(Lobby& lobby) noexcept {
+int32_t computer_count(Lobby& lobby) noexcept {
     int32_t count = 0;
-    for (int32_t slot = 0; slot < kSlotCount; ++slot) {
-        const auto& player = slot_player(lobby, slot);
-        if (player.in_use != 0 &&
-            static_cast<int8_t>(player.status) < static_cast<int8_t>(kSlotComputer))
+    for (int32_t slot = 0; slot < kSlotCount; ++slot)
+        if (occupied_by(slot_player(lobby, slot), kSlotComputer))
             ++count;
-    }
     return count;
 }
 
@@ -3105,10 +3100,13 @@ void lobby_update_status(Lobby& lobby, Panel& panel) noexcept {
 }
 
 bool lobby_ready_to_start(Lobby& lobby) noexcept {
-    // With setup.allow-start-with-ai the gate asks for a local human
-    // instead of a remote player, so one human and computer players start.
-    const bool with_computers = setup_rules(lobby).allow_start_with_ai.enabled;
-    if ((with_computers ? local_human_count(lobby) : remote_count(lobby)) == 0)
+    // A computer player counts as an opponent, so one human may start
+    // against computer players. A launch that locks the options has
+    // arranged its players, and its room keeps 3.1c's rule: the start
+    // waits for a remote player.
+    const int32_t opponents =
+        remote_count(lobby) + (lobby_options_locked(lobby) ? 0 : computer_count(lobby));
+    if (opponents == 0)
         return false;
     bool everyone_watching = true;
     for (int32_t slot = 0; slot < kSlotCount; ++slot) {

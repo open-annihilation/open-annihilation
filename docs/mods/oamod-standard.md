@@ -369,6 +369,11 @@ hack the engine does not implement yet is refused, so partial support is
 never silent. For development, `--accept-unimplemented-hacks` turns each
 such refusal into a warning.
 
+A hack the registry marks `retired` is one the engine no longer offers. A
+profile that names it still loads, with the same hashes, so a mod made for
+an earlier build keeps playing, and with the same machines, but the hack
+changes nothing; its page says what the game does instead.
+
 ## 4. Where the file lives
 
 `oamod.yaml` sits in the root of the mod's folder. Its name is matched
@@ -612,6 +617,8 @@ For each entry, the registry also gives:
 - `ownership`: which machines run it in a network game ([12.1](#121-where-a-rule-runs));
 - `scope`: whether the entry's presence enters the sim hash;
 - `implemented`, for hacks: whether this engine carries the behaviour out;
+- `retired`, for hacks: whether the engine no longer offers the hack, which
+  a profile may still name and which then changes nothing;
 - `shorthand`: the one parameter a bare value sets, for entries that have one;
 - `constraints`: relations between parameters, checked after resolution,
   such as `min <= default` and `default <= max`;

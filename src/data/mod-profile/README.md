@@ -18,8 +18,16 @@ profile can name, each parameter's type and bounds, its 3.1c baseline, its
 default once the entry is on, who may adjust it (`fixed`, `install`,
 `match`), whether it is part of the network-play hash (`sim` or `view`), the
 setting it binds to, presets, constraints, and for each hack whether this
-engine implements it (`implemented`). The file's header describes every
-field.
+engine implements it (`implemented`) and whether OA has retired it
+(`retired`). The file's header describes every field.
+
+A retired hack is one OA no longer offers. A profile that names it still
+loads, with the hashes it had, so a mod made for an earlier build plays
+on, and with the same machines; but nothing reads it, so it changes
+nothing. It is not among the standard hacks, the player's overrides of it
+are left out without a warning, and the engine keeps no title for it.
+`setup.allow-start-with-ai` is retired: the battle room lets one human
+start against computer players without it.
 
 `tools/gen_mod_registry.py` checks the registry's consistency (a hack's
 area is the first word of its id, among others) and writes what the engine
@@ -27,9 +35,9 @@ compiles from it:
 
 - `src/registry_table.inc`: the registry as constant tables, read through
   `oa/data/mod_profile/registry.hpp`, each entry with its area and summary,
-  each hack with its title (the name players see, such as "Deterministic
-  Wind"), each area of the hacks with its title (`area_title`), and each
-  parameter with its unit;
+  each hack but a retired one with its title (the name players see, such
+  as "Deterministic Wind"), each area of the hacks with its title
+  (`area_title`), and each parameter with its unit;
 - the records: `MatchRules` in
   [src/data/match-rules](../match-rules/README.md), and `Identity`, `Layout`,
   `Strings`, `Media`, `DataKeyBindings`, `NetworkRules`, `RecorderRules` and
@@ -114,6 +122,8 @@ after the profile and the player's settings, and before the host's match
 options: on gives the values the profile resolved for the hack, or
 its defaults when the profile has it off, with each parameter the override
 names in its place; off leaves the hack out, as `false` in a profile does.
+An override of a retired hack is left out without a warning, and reading
+the settings' text leaves it out too.
 Each is checked as a profile's hack is: the hack and its parameters known,
 every value fitting its parameter (`check_value`), the hack's constraints
 kept, the hack implemented to be turned on, and off only while no data key
@@ -124,7 +134,8 @@ its canonical form and both hashes exactly as the same values written in
 the profile would; a save made with an override of a rule (sim-scope)
 hack therefore loads only under the same effective profile.
 
-`overrides.hpp` also gives the states of the standard hacks
+`overrides.hpp` also gives the states of the standard hacks, every
+hack but the retired ones
 (`standard_hacks`, `hack_states` of an effective profile,
 `base_hack_states`, `overridden_state`, which lays an override over a state
 as the resolver lays one that fits), the text the settings keep the
@@ -144,7 +155,9 @@ that game's overrides under `base_game_id`, `ta-3.1c`.
   overrides: a hack turned on over a profile and over the plain baseline,
   turned off, its parameters set, each kind left out with its warning
   while the rest apply, the hashes they change and the ones they keep,
-  their text read back, and the hacks' states;
+  their text read back, and the hacks' states; and a retired hack: a
+  profile that names it loading with it in its hashes, and its override
+  left out, in the text and in the resolver, without a warning;
 - `data-mod-profile-bindings`: every registry meaning bound to exactly one
   field, every field able to hold what its parameter allows and starting at
   its baseline, and every baseline, default and preset passing the

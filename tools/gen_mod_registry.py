@@ -282,8 +282,21 @@ def check_registry(reg, known_actions=None):
                 titles[title.lower()] = eid
             if area not in area_titles:
                 problems.append(f"{where}: area {area} has no name in area-titles")
+            retired = e.get("retired", False)
+            if "retired" in e and not isinstance(retired, bool):
+                problems.append(f"{where}: retired must be true or false")
+            elif retired is True:
+                if e.get("implemented") is not True:
+                    problems.append(f"{where}: a retired hack is implemented, so a profile that names it loads")
+                off = e.get("off")
+                if not isinstance(off, str) or not off.strip():
+                    problems.append(f"{where}: a retired hack says with off what the game does instead")
+                if e.get("mutator") is True:
+                    problems.append(f"{where}: a retired hack is not offered to mutators")
         elif "implemented" in e:
             problems.append(f"{where}: only hacks say whether they are implemented")
+        if "retired" in e and e["kind"] != "hack":
+            problems.append(f"{where}: only a hack is retired")
         if "title" in e and e["kind"] != "hack":
             problems.append(f"{where}: only hacks have a title")
         if e["kind"] == "script-ext" and e.get("direction") not in ("get", "set"):
@@ -552,6 +565,8 @@ class Table:
                 fields.append(".mutator = true")
             if e.get("implemented"):
                 fields.append(".implemented = true")
+            if e.get("retired"):
+                fields.append(".retired = true")
             if "key" in e:
                 fields.append(f".key = {cxx_string(e['key'])}")
             if "value" in e:
@@ -622,7 +637,8 @@ class Table:
                 fields.append(f".summary = {cxx_string(e['summary'])}")
             if e.get("area"):
                 fields.append(f".area = {cxx_string(e['area'])}")
-            if e.get("title"):
+            # Players never see a retired hack, so the engine keeps no title for it.
+            if e.get("title") and not e.get("retired"):
                 fields.append(f".title = {cxx_string(e['title'])}")
             self.entries.append("{" + ", ".join(fields) + "}")
 
@@ -1058,6 +1074,26 @@ def self_test():
         problems = check_registry({"entries": {entry_id: entry}, "setting-transforms": {}, "area-titles": titles})
         if not any(needle in problem and entry_id in problem for problem in problems):
             failures.append(f"the registry check misses {needle!r} for {entry_id}: {problems}")
+    retired = dict(good, implemented=True, retired=True, off="The game does it anyway.")
+    if check_registry({"entries": {"units.example": retired}, "setting-transforms": {}, "area-titles": named}):
+        failures.append("the registry check refuses a retired hack")
+    for entry_id, entry, needle in (
+            ("units.example", dict(retired, retired="yes"), "retired must be true or false"),
+            ("units.example", dict(retired, implemented=False), "a retired hack is implemented"),
+            ("units.example", {k: v for k, v in retired.items() if k != "off"}, "says with off"),
+            ("units.example", dict(retired, mutator=True), "not offered to mutators"),
+            ("units.key", {"kind": "data-key", "scope": "sim", "file": "unit", "retired": True},
+             "only a hack is retired"),
+    ):
+        problems = check_registry({"entries": {entry_id: entry}, "setting-transforms": {}, "area-titles": named})
+        if not any(needle in problem and entry_id in problem for problem in problems):
+            failures.append(f"the registry check misses {needle!r} for {entry_id}: {problems}")
+    built = Table({"entries": {"units.example": retired, "units.kept": dict(good, title="Kept")}})
+    built.build()
+    if ".retired = true" not in built.entries[0] or ".title" in built.entries[0]:
+        failures.append(f"a retired hack is written wrong: {built.entries[0]}")
+    if ".retired" in built.entries[1] or '.title = "Kept"' not in built.entries[1]:
+        failures.append(f"a hack in use is written wrong: {built.entries[1]}")
     for f in failures:
         print("FAIL", f)
     print(f"gen_mod_registry self-test: {len(failures)} failures")

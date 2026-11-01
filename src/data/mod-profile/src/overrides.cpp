@@ -32,12 +32,12 @@ static_assert(base_game_author.size() == 21);
 
 /// Returns the registry's standard hacks, gathered once.
 ///
-/// @return every hack, in the registry's order
+/// @return every hack that is not retired, in the registry's order
 const std::vector<const registry::Entry*>& gathered_hacks() {
     static const std::vector<const registry::Entry*> hacks = [] {
         std::vector<const registry::Entry*> found;
         for (const registry::Entry& entry : registry::table().entries)
-            if (entry.kind == registry::EntryKind::hack)
+            if (entry.kind == registry::EntryKind::hack && !entry.retired)
                 found.push_back(&entry);
         return found;
     }();
@@ -164,6 +164,9 @@ std::vector<HackOverride> read_overrides(std::string_view text) {
         return overrides;
     for (const formats::oamod::Node& member : root.children) {
         if (member.key.kind != formats::oamod::KeyKind::string)
+            continue;
+        if (const registry::Entry* entry = registry::find_entry(member.key.text);
+            entry != nullptr && entry->retired)
             continue;
         HackOverride override{};
         override.hack = member.key.text;

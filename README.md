@@ -156,8 +156,12 @@ packaging guide at
 ## Network games from the command line
 
 Network play goes through the Multiplayer screens, as in 3.1c, but asks
-for no game disc: START never counts discs. Every OA player still tells the
-other machines it has one, since a 3.1c host counts them. In the battle
+for no game disc: START never counts discs. The host may start with no
+other human, against computer players alone; 3.1c waits for a remote
+player, and so does a room whose launch locks the options
+([launch settings](docs/command-line.md#launch-settings)). Every OA
+player still tells the other machines it has one, since a 3.1c host
+counts them. In the battle
 room a player on 3.1c shows the CD icon, and an OA player the app icon,
 the plates alone, in its place. The badge is drawn at the window's own
 pixels and scaled to that rectangle with an area filter, so it stays sharp

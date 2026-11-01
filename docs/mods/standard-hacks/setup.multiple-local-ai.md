@@ -52,8 +52,8 @@ of the profile hash, so every machine plays under the same profile.
 
 - [setup.ai-player-name-format](setup.ai-player-name-format.md) gives each
   computer player a distinct name.
-- [setup.allow-start-with-ai](setup.allow-start-with-ai.md) lets one human
-  start against the computer players.
+- [setup.allow-start-with-ai](setup.allow-start-with-ai.md), now retired:
+  one human starts against the computer players without it.
 - [setup.map-scripted-units](setup.map-scripted-units.md) may seat a neutral
   computer player as the host presses START.
 

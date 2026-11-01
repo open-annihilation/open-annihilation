@@ -986,8 +986,13 @@ void lobby_update_status(Lobby& lobby, Panel& panel) noexcept;
 
 /// Tells whether every seated slot is READY and not everyone is watching.
 ///
+/// One human may start against computer players. While a launch locks the
+/// options (lobby_options_locked) the room keeps 3.1c's rule instead: the
+/// start waits for a remote player.
+///
 /// @param lobby Lobby state.
-/// @return False without a remote player or with only one seated player.
+/// @return False with no remote or computer player (no remote player while
+///     the options are locked), or with only one seated player.
 [[nodiscard]] bool lobby_ready_to_start(Lobby& lobby) noexcept;
 
 /// Sets up LOUNGE2.GUI for the local slot: options, sliders, unit sync, rows and the player info broadcast.

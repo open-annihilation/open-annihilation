@@ -5,8 +5,9 @@
 // loopback net: the start gate, several computer players, their names,
 // Allied Victory, team records, alliance requests, resent alliances, the
 // chat commands and, with --data over the installed LOUNGE2.GUI, the
-// neutral computer player START seats. Every case also runs without the
-// rule, where the battle room keeps 3.1c's behaviour.
+// neutral computer player START seats. Every case of a rule also runs
+// without it, where the battle room keeps 3.1c's behaviour; the start gate
+// runs with the retired hack on and off, which changes nothing.
 #include "oa/netgame/records.hpp"
 #include "oa/ui/frontend_multiplayer/lobby.hpp"
 #include "oa/ui/frontend_multiplayer/team_rules.hpp"
@@ -144,19 +145,41 @@ std::string last_seated_name(const mp::LoopbackNet& loopback) {
 
 void test_start_with_computers() {
     for (const bool on : {false, true}) {
-        Fixture f(on);
+        // The retired setup.allow-start-with-ai, on or off, changes nothing.
+        Fixture f(true);
         f.match_rules.setup.allow_start_with_ai.enabled = on;
+        mp::local_info(f.lobby).options |= mp::option::ready;
+        mp::lobby_player_count(*f.game) = 2;
+        expect(!mp::lobby_ready_to_start(f.lobby), "one human alone does not start");
         mp::lobby_add_computer(f.lobby, 1);
         auto& computer = mp::slot_player(f.lobby, 1);
         computer.in_use = 1;
-        mp::lobby_player_count(*f.game) = 2;
-        mp::local_info(f.lobby).options |= mp::option::ready;
+        mp::lobby_player_count(*f.game) = 3;
+        expect(!mp::lobby_ready_to_start(f.lobby), "the computer player is not ready yet");
         mp::slot_info(f.lobby, 1)->options |= mp::option::ready;
-        expect(
-            mp::lobby_ready_to_start(f.lobby) == on,
-            on ? "one human and a computer player may start" : "3.1c needs a remote player"
-        );
+        expect(mp::lobby_ready_to_start(f.lobby), "one human and a computer player may start");
+        // Options a launch locked keep 3.1c's wait for a remote player.
+        mp::lobby_option_word(*f.game) = static_cast<uint16_t>(mp::lobby_option_word(*f.game) | 1U);
+        expect(mp::lobby_options_locked(f.lobby), "the options are locked");
+        expect(!mp::lobby_ready_to_start(f.lobby), "locked options wait for a remote player");
+        f.join(0x200, "Guest");
+        mp::PlayerSetupInfo* guest = nullptr;
+        for (int32_t slot = 0; slot < mp::kSlotCount; ++slot)
+            if (mp::slot_player(f.lobby, slot).player_id == 0x200)
+                guest = mp::slot_info(f.lobby, slot);
+        expect(guest != nullptr, "the guest is seated");
+        if (guest != nullptr)
+            guest->options |= mp::option::ready;
+        mp::lobby_player_count(*f.game) = 4;
+        expect(mp::lobby_ready_to_start(f.lobby), "a ready remote player starts a locked room");
     }
+    Fixture base(false);
+    mp::local_info(base.lobby).options |= mp::option::ready;
+    mp::lobby_add_computer(base.lobby, 1);
+    mp::slot_player(base.lobby, 1).in_use = 1;
+    mp::slot_info(base.lobby, 1)->options |= mp::option::ready;
+    mp::lobby_player_count(*base.game) = 3;
+    expect(mp::lobby_ready_to_start(base.lobby), "without a profile one human may start too");
 }
 
 void test_computer_names() {

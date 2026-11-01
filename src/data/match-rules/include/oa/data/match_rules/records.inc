@@ -645,8 +645,8 @@ struct SetupMapScriptedUnits {
     bool operator==(const SetupMapScriptedUnits&) const = default;
 };
 
-/// setup.allow-start-with-ai: The battle-room start gate counts local AI players, so one human plus
-/// AIs can start a multiplayer game.
+/// setup.allow-start-with-ai: Retired: the battle room lets one human start a multiplayer game
+/// against computer players without it.
 struct SetupAllowStartWithAi {
     bool enabled{}; ///< the profile turns the hack on
     /// Compares every field.

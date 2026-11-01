@@ -1578,12 +1578,12 @@ void test_override_text_and_states() {
     const std::vector<HackOverride> partly = read_overrides("{\"a\": 3, \"b\": true}");
     OA_CHECK(partly.size() == 1 && partly[0].hack == "b" && partly[0].on);
 
-    // Every hack of the registry, in its order; 3.1c's states are all off
-    // at their baselines.
+    // Every hack of the registry but the retired ones, in its order; 3.1c's
+    // states are all off at their baselines.
     const auto hacks = standard_hacks();
     size_t registry_hacks = 0;
     for (const registry::Entry& entry : registry::table().entries)
-        if (entry.kind == registry::EntryKind::hack)
+        if (entry.kind == registry::EntryKind::hack && !entry.retired)
             ++registry_hacks;
     OA_CHECK(hacks.size() == registry_hacks);
     for (size_t index = 0; index < hacks.size(); ++index) {
@@ -1629,6 +1629,61 @@ void test_override_text_and_states() {
     const HackState off = overridden_state(*hacks[*delay], states[*delay], &turned_off);
     OA_CHECK(!off.on && text_of(&off.values[0]) == "0");
     OA_CHECK(overridden_state(*hacks[*delay], states[*delay], nullptr).on);
+}
+
+/// A retired hack: a profile that names it loads with it, and keeps it in
+/// its hashes; it is no standard hack and has no title; and its override is
+/// left out without a warning, by the settings' text and by the resolver.
+void test_retired_hack() {
+    constexpr std::string_view retired = "setup.allow-start-with-ai";
+    const registry::Entry* entry = registry::find_entry(retired);
+    OA_CHECK(entry != nullptr && entry->retired && entry->implemented && entry->title.empty());
+    OA_CHECK(!standard_hack_index(retired).has_value());
+    for (const registry::Entry* hack : standard_hacks())
+        OA_CHECK(!hack->retired);
+
+    const std::string named =
+        profile_text("retired", "hacks:\n  setup.allow-start-with-ai: true\n");
+    const std::string bare = profile_text("retired");
+    const ResolveResult on = resolve(named);
+    const ResolveResult plain = resolve(bare);
+    OA_CHECK(on.resolution.has_value() && on.errors.empty() && on.warnings.empty());
+    OA_CHECK(plain.resolution.has_value());
+    if (!on.resolution || !plain.resolution)
+        return;
+    OA_CHECK(text_of(at(*on.resolution, {"hacks", retired})) == "{}");
+    OA_CHECK(on.resolution->profile.sim_hash != plain.resolution->profile.sim_hash);
+    const ResolveResult off =
+        resolve(profile_text("retired", "hacks:\n  setup.allow-start-with-ai: false\n"));
+    OA_CHECK(
+        off.resolution && off.warnings.empty() &&
+        off.resolution->profile.sim_hash == plain.resolution->profile.sim_hash
+    );
+
+    // Settings kept while the hack was offered: its override is read as
+    // none, and the others stay.
+    const std::vector<HackOverride> read =
+        read_overrides("{\"setup.allow-start-with-ai\": true, \"ai.attack-wave-size\": false}");
+    OA_CHECK(read.size() == 1 && read[0].hack == "ai.attack-wave-size" && !read[0].on);
+    OA_CHECK(read_overrides("{\"setup.allow-start-with-ai\": false}").empty());
+
+    // Handed to the resolver, it changes neither the profile nor its hashes.
+    const std::pair<const std::string*, const Resolution*> profiles[] = {
+        {&named, &*on.resolution}, {&bare, &*plain.resolution}
+    };
+    for (const bool turned : {true, false}) {
+        ResolveOptions options{};
+        options.overrides.push_back(HackOverride{std::string{retired}, turned, {}});
+        for (const auto& [text, base] : profiles) {
+            const ResolveResult laid = resolve(*text, options);
+            OA_CHECK(laid.resolution && laid.errors.empty() && laid.warnings.empty());
+            if (laid.resolution) {
+                OA_CHECK(laid.resolution->canonical == base->canonical);
+                OA_CHECK(laid.resolution->profile.sim_hash == base->profile.sim_hash);
+                OA_CHECK(laid.resolution->profile.full_hash == base->profile.full_hash);
+            }
+        }
+    }
 }
 
 /// Replaces the head's requires line, so a profile does not name requires twice.
@@ -1856,6 +1911,7 @@ int main(int argc, char** argv) {
     test_author_and_packaging();
     test_overrides();
     test_override_text_and_states();
+    test_retired_hack();
     test_description();
     test_package_keys();
     test_content_needs();

@@ -1268,7 +1268,9 @@ The Developer section sits at the foot of the column, under the divider.
   them ([the UI kit](extensions/ui-kit.md)).
 
 Under them the section lists every standard hack, grouped by area, with a
-switch for each and a control for each of its values. **Show Active Only**
+switch for each and a control for each of its values. A retired hack, one
+Open Annihilation no longer offers, is not listed, and a change to one kept
+from an earlier build is left out. **Show Active Only**
 shows only the hacks that are on, and **Restore profile values** clears
 every change. Developer Mode keeps its changes for each mod apart. Restore
 defaults turns it off but keeps the changes. At Regular and Large the list

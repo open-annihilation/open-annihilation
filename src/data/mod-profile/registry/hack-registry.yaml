@@ -35,7 +35,10 @@
 # Title Case, unique among the hacks; area-titles names each area the same way; implemented says whether
 # this engine carries the behaviour out; a profile that turns on a hack that is not implemented is
 # refused unless the resolver is told to accept it. off says what a hack written false leaves, for a hack
-# whose behaviour OA keeps when it is off (absent: 3.1c behaviour). Limits and hacks: shorthand names the single
+# whose behaviour OA keeps when it is off (absent: 3.1c behaviour). retired: true marks a hack OA no longer
+# offers: a profile that names it still loads, with the same hashes, but it changes nothing, the player's
+# overrides of it are left out, the settings do not list it, and the engine keeps no title for it; its off says
+# what the game does instead. Limits and hacks: shorthand names the single
 # parameter a scalar value sets; constraints are checked after resolution; presets are complete
 # parameter sets named for what they do, never for a mod (baseline equals the baselines and exists only
 # when the entry can express 3.1c while on). Identity, layout, strings and media: key is the profile
@@ -909,10 +912,12 @@ entries:
     kind: hack
     title: Start with One Human
     implemented: true
+    retired: true
     area: setup
-    summary: "The battle-room start gate counts local AI players, so one human plus AIs can start a multiplayer game."
+    summary: "Retired: the battle room lets one human start a multiplayer game against computer players without it."
     ownership: host
     scope: sim
+    off: OA's battle room lets one human start against computer players unless a launch locks the options; the value is kept so a profile that names the hack still loads.
     params: {}
   setup.multiple-local-ai:
     kind: hack
