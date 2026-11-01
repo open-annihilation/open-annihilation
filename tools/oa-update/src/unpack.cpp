@@ -8,6 +8,7 @@
 #include "oa/update_helper/paths.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <fstream>
 #include <limits>
 #include <span>
@@ -98,12 +99,67 @@ bool executable_name(std::string_view name) {
            base == "oa-update";
 }
 
+// Bits of a recorded Unix mode.
+constexpr uint32_t permission_bits = 0777;
+constexpr uint32_t owner_all = 0700;
+constexpr uint32_t plain_file_mode = 0644;
+constexpr uint32_t program_mode = 0755;
+constexpr uint32_t folder_mode = 0755;
+
+#if !defined(_WIN32)
+/// Gives `path` exactly the permission bits `mode`.
+///
+/// @param path the unpacked file or folder
+/// @param mode the bits, as unpacked_mode gives them
+/// @return true when the mode was set
+bool set_mode(const fs::path& path, uint32_t mode) {
+    std::error_code io;
+    fs::permissions(path, static_cast<fs::perms>(mode), fs::perm_options::replace, io);
+    return !io;
+}
+#endif
+
+/// Makes each missing folder from `stage` down to `folder`. On POSIX a
+/// folder made here is given folder_mode, as one the zip names without a
+/// mode would be.
+///
+/// @param stage the staging folder, which is already there
+/// @param folder a folder under it
+/// @return true when every folder is there
+bool make_folders(const fs::path& stage, const fs::path& folder) {
+    std::error_code io;
+    fs::path made = stage;
+    for (const fs::path& part : folder.lexically_relative(stage)) {
+        made /= part;
+        if (fs::is_directory(made, io))
+            continue;
+        if (!fs::create_directory(made, io) || io)
+            return false;
+#if !defined(_WIN32)
+        if (!set_mode(made, folder_mode))
+            return false;
+#endif
+    }
+    return true;
+}
+
 void remove_stage(const fs::path& stage) {
     std::error_code io;
     fs::remove_all(stage, io);
 }
 
 } // namespace
+
+uint32_t unpacked_mode(std::string_view name, uint32_t recorded, bool folder) noexcept {
+    const uint32_t permissions = recorded & permission_bits;
+    if (permissions == 0) {
+        if (folder)
+            return folder_mode;
+        return executable_name(name) ? program_mode : plain_file_mode;
+    }
+    const uint32_t kept = permissions & unpacked_mode_limit;
+    return folder ? kept | owner_all : kept;
+}
 
 std::vector<std::string> top_folder_names(std::string_view version, std::string_view package) {
     const std::string tail = std::string(version) + "-" + std::string(package);
@@ -176,16 +232,18 @@ bool unpack_package(
             return false;
         }
         if (entry.directory) {
-            fs::create_directories(dest, io);
-            if (io) {
+            bool made = make_folders(stage, dest);
+#if !defined(_WIN32)
+            made = made && set_mode(dest, unpacked_mode(entry.name, entry.unix_mode, true));
+#endif
+            if (!made) {
                 set_error(error, "the package could not be unpacked");
                 remove_stage(stage);
                 return false;
             }
             continue;
         }
-        fs::create_directories(dest.parent_path(), io);
-        if (io) {
+        if (!make_folders(stage, dest.parent_path())) {
             set_error(error, "the package could not be unpacked");
             remove_stage(stage);
             return false;
@@ -222,13 +280,10 @@ bool unpack_package(
         }
         out.close();
 #if !defined(_WIN32)
-        if (executable_name(entry.name)) {
-            fs::permissions(dest, fs::perms::owner_exec, fs::perm_options::add, io);
-            if (io) {
-                set_error(error, "the package could not be unpacked");
-                remove_stage(stage);
-                return false;
-            }
+        if (!set_mode(dest, unpacked_mode(entry.name, entry.unix_mode, false))) {
+            set_error(error, "the package could not be unpacked");
+            remove_stage(stage);
+            return false;
         }
 #endif
     }

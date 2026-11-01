@@ -54,6 +54,16 @@ package, two top folders, a link or an unsafe name refuses the zip before
 anything is unpacked. The Linux versions folder is named for the version
 without the `v`.
 
+On macOS and Linux each file and folder keeps the mode the zip records for
+it, when the zip was made on Unix or macOS, within 0755: no set-user,
+set-group or sticky bit, and nothing the group or others may write. The
+release zips record 0755 for the programs and folders and 0644 for every
+other file. A folder always keeps read, write and search for its owner. An
+entry that records no mode is 0644, or 0755 for `open-annihilation`,
+`oa-intro`, `oa-tool` and `oa-update`, and a folder the zip records no
+mode for, or does not name, is 0755 (`unpacked_mode`, `unpack.hpp`). The
+process's file mode mask does not change these.
+
 ## The receipt
 
 `receipt.json` is begun with the outcome running as soon as the helper
@@ -154,7 +164,9 @@ refusals around them; when a macOS swap needs an administrator, including
 a scratch bundle the test cannot write, which the rename itself refuses;
 the prompt's command and how its ending is read; whose a moved bundle
 becomes; a journal another copy continues through the rename hook; and how
-the game is started again. It also checks that a closed window can let go of font
+the game is started again. It covers the modes an entry is unpacked with,
+from a zip that records 0755, 0644, 0700 and set-user bits and from one that
+records none. It also checks that a closed window can let go of font
 files, and, on Windows, that an open file keeps its folder from being
 renamed. No test signs a bundle or starts a program. `tools-oa-update-run`
 runs the program on a plain folder, in a self-check build. `app-update-plan`

@@ -471,8 +471,8 @@ bool read_record(
     entry.local_header_offset = wide.local_header_offset;
     entry.directory = name.back() == '/';
     if (host == host_unix || host == host_macos) {
-        const uint32_t type =
-            (load_le32(record + central_external_attributes) >> 16U) & unix_type_mask;
+        entry.unix_mode = load_le32(record + central_external_attributes) >> 16U;
+        const uint32_t type = entry.unix_mode & unix_type_mask;
         entry.symbolic_link = type == unix_type_link;
         entry.special_file = type != 0 && type != unix_type_link && type != unix_type_regular &&
                              type != unix_type_directory;

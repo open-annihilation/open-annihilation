@@ -73,6 +73,10 @@ struct StreamEntry {
     bool directory{};     ///< the name ends in '/'
     bool symbolic_link{}; ///< made on Unix or macOS with the link file type
     bool special_file{};  ///< made on Unix or macOS as a device, pipe or socket
+    /// Made on Unix or macOS: the file type and permission bits the entry
+    /// records, the high 16 bits of its external attributes. 0 for an entry
+    /// made on another system.
+    uint32_t unix_mode{};
 };
 
 /// A streamed archive's central directory.

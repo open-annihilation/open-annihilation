@@ -127,6 +127,9 @@ Windows (hosts 0, 10 and 14) become '/'. An entry made on Unix or macOS
 (hosts 3 and 19) whose external attributes give the link file type is
 marked `symbolic_link`, and one of another file type than a file or a
 folder `special_file`; the reader refuses neither, and the caller decides.
+Such an entry's `unix_mode` is the file type and permission bits it
+records, the high 16 bits of its external attributes; an entry made on
+another system has 0 there.
 Inflated data past an entry's recorded size is never handed on: its first
 piece stops the read with `size_mismatch`.
 

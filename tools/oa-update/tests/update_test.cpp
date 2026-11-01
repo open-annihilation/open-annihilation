@@ -22,6 +22,7 @@
 #include "oa/formats/url.hpp"
 #include "oa/formats/zip.hpp"
 #include "oa/test/check.hpp"
+#include "oa/test/raw_zip.hpp"
 #include "oa/ui/kit/components_more.hpp"
 
 #include <algorithm>
@@ -38,6 +39,10 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#if !defined(_WIN32)
+#include <sys/stat.h>
+#endif
 
 namespace {
 
@@ -549,6 +554,8 @@ void unpacking() {
     const fs::path executable = stage / helper::path_from(std::string(top) + "/open-annihilation");
     const fs::perms permissions = fs::status(executable).permissions();
     OA_CHECK((permissions & fs::perms::owner_exec) != fs::perms::none);
+    OA_CHECK((permissions & fs::perms::group_exec) != fs::perms::none);
+    OA_CHECK((permissions & fs::perms::others_exec) != fs::perms::none);
 #endif
     std::error_code removed;
     fs::remove_all(stage, removed);
@@ -582,6 +589,104 @@ void unpacking() {
     OA_CHECK(slash_error.find("top folder") != std::string::npos);
     OA_CHECK(!fs::exists(stage));
 }
+
+#if !defined(_WIN32)
+/// The permission bits of a file or folder, without its type.
+uint32_t permissions_of(const fs::path& path) {
+    struct stat info{};
+    OA_CHECK(::lstat(path.c_str(), &info) == 0);
+    return static_cast<uint32_t>(info.st_mode & 07777);
+}
+#endif
+
+/// An entry made on Unix that records `mode`, as the release zips record
+/// theirs.
+oa::test::raw_zip::RawFile unix_entry(std::string name, std::string_view text, uint32_t mode) {
+    oa::test::raw_zip::RawFile file = oa::test::raw_zip::stored_text(std::move(name), text);
+    file.host = 3;
+    file.external_attributes = mode << 16U;
+    return file;
+}
+
+void the_modes_an_entry_is_unpacked_with() {
+    constexpr std::string_view program =
+        "top/Open Annihilation.app/Contents/MacOS/open-annihilation";
+    // A recorded mode is kept, within read, write and run for the owner and
+    // read and run for the rest.
+    OA_CHECK(helper::unpacked_mode(program, 0100755, false) == 0755);
+    OA_CHECK(helper::unpacked_mode("top/LICENSE", 0100644, false) == 0644);
+    OA_CHECK(helper::unpacked_mode("top/private", 0100700, false) == 0700);
+    OA_CHECK(helper::unpacked_mode(program, 0100744, false) == 0744);
+    // No set-user, set-group or sticky bit, and nothing the group or others may write.
+    OA_CHECK(helper::unpacked_mode("top/raised", 0106777, false) == 0755);
+    OA_CHECK(helper::unpacked_mode("top/shared", 0101666, false) == 0644);
+    // A folder keeps read, write and search for its owner.
+    OA_CHECK(helper::unpacked_mode("top/Contents/", 040755, true) == 0755);
+    OA_CHECK(helper::unpacked_mode("top/Contents/", 040555, true) == 0755);
+    OA_CHECK(helper::unpacked_mode("top/Contents/", 040500, true) == 0700);
+    // No recorded mode: the programs run for everyone, other files are read by everyone.
+    OA_CHECK(helper::unpacked_mode(program, 0, false) == 0755);
+    OA_CHECK(helper::unpacked_mode("top/oa-update", 0, false) == 0755);
+    OA_CHECK(helper::unpacked_mode("top/oa-intro", 0, false) == 0755);
+    OA_CHECK(helper::unpacked_mode("top/oa-tool", 0, false) == 0755);
+    OA_CHECK(helper::unpacked_mode("top/LICENSE", 0, false) == 0644);
+    OA_CHECK(helper::unpacked_mode("top/Contents/", 0, true) == 0755);
+    // A file type with every permission bit clear records no mode.
+    OA_CHECK(helper::unpacked_mode("top/LICENSE", 0100000, false) == 0644);
+    OA_CHECK(helper::unpacked_mode(program, 0100000, false) == 0755);
+}
+
+#if !defined(_WIN32)
+void unpacked_files_keep_the_packages_modes() {
+    const Scratch scratch("unpack-modes");
+    constexpr std::string_view top = "open-annihilation-v0.8.12-macos-universal";
+    const std::vector<std::string> tops = helper::top_folder_names("0.8.12", "macos-universal");
+    const fs::path stage = scratch.path / "stage";
+    const std::string folder = std::string(top) + "/";
+    const std::string program = folder + "open-annihilation";
+    const std::string notice = folder + "LICENSE";
+    const std::string kept = folder + "kept";
+    const std::string raised = folder + "raised";
+    const std::string inner = folder + "inner/";
+    const fs::path archive = scratch.path / "release.zip";
+    write_bytes(
+        archive,
+        oa::test::raw_zip::build_raw_archive({
+                                                 unix_entry(folder, "", 040755),
+                                                 unix_entry(program, "program", 0100755),
+                                                 unix_entry(notice, "notice", 0100644),
+                                                 unix_entry(kept, "kept", 0100700),
+                                                 unix_entry(raised, "raised", 0106777),
+                                                 unix_entry(inner, "", 040500),
+                                             })
+            .bytes
+    );
+    std::string error;
+    OA_CHECK(helper::unpack_package(archive, stage, tops, &error));
+    OA_CHECK(error.empty());
+    OA_CHECK(permissions_of(stage / helper::path_from(folder)) == 0755);
+    OA_CHECK(permissions_of(stage / helper::path_from(program)) == 0755);
+    OA_CHECK(permissions_of(stage / helper::path_from(notice)) == 0644);
+    OA_CHECK(permissions_of(stage / helper::path_from(kept)) == 0700);
+    OA_CHECK(permissions_of(stage / helper::path_from(raised)) == 0755);
+    OA_CHECK(permissions_of(stage / helper::path_from(inner)) == 0700);
+    std::error_code removed;
+    fs::remove_all(stage, removed);
+
+    // A zip that records no modes: the programs run for the group and for
+    // others too, and every other file is read by everyone.
+    const fs::path plain = zip_of(
+        scratch.path,
+        "plain.zip",
+        {program, notice, folder + "oa-update", folder + "Contents/Info.plist"}
+    );
+    OA_CHECK(helper::unpack_package(plain, stage, tops, &error));
+    OA_CHECK(permissions_of(stage / helper::path_from(program)) == 0755);
+    OA_CHECK(permissions_of(stage / helper::path_from(folder + "oa-update")) == 0755);
+    OA_CHECK(permissions_of(stage / helper::path_from(notice)) == 0644);
+    OA_CHECK(permissions_of(stage / helper::path_from(folder + "Contents/Info.plist")) == 0644);
+}
+#endif
 
 struct Listed {
     std::string name;
@@ -856,6 +961,10 @@ int main() {
     plan_and_state();
     verification();
     unpacking();
+    the_modes_an_entry_is_unpacked_with();
+#if !defined(_WIN32)
+    unpacked_files_keep_the_packages_modes();
+#endif
     the_release_spelling_of_the_top_folder_unpacks();
     journal();
     waiting();

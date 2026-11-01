@@ -486,7 +486,18 @@ void test_names() {
         CHECK(directory.entries[0].symbolic_link && !directory.entries[0].special_file);
         CHECK(directory.entries[1].special_file && !directory.entries[1].symbolic_link);
         CHECK(!directory.entries[2].symbolic_link && !directory.entries[2].special_file);
+        // The recorded type and permission bits are kept as they are.
+        CHECK(directory.entries[0].unix_mode == 0120777U);
+        CHECK(directory.entries[1].unix_mode == 0020644U);
+        CHECK(directory.entries[2].unix_mode == 0100644U);
     }
+    // An entry made on MS-DOS records no Unix mode, whatever its attributes hold.
+    RawFile dos_moded = raw::stored_text("dos", "d");
+    dos_moded.host = 0;
+    dos_moded.external_attributes = 0100755U << 16U;
+    CHECK(directory_status(build_raw_archive({dos_moded}).bytes, directory) == ZipStatus::ok);
+    if (directory.entries.size() == 1)
+        CHECK(directory.entries[0].unix_mode == 0);
 }
 
 void test_refusals() {
