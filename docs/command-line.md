@@ -1275,8 +1275,9 @@ and `--tournament=off`, `--closed=off` and `--lock-options=off` turn it off.
 
 What a launch does not set is what a player does in the room rather than
 chooses for it: READY, an alliance with a player who has joined, the
-screen size the RES column shows, which is the player's own setting, and
-the buttons a mod adds, which type a command into the chat.
+screen size the RES column shows, which is the player's own Screen size
+setting and which the room only shows, and the buttons a mod adds, which
+type a command into the chat.
 
 A host's room lets one player start against computer players. A launch
 that locks the options (`rules.lock-options`, `-b lock`, or the `-c`

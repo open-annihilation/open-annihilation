@@ -228,7 +228,6 @@ struct LobbyServices {
     // turns over to 0 past base::game_loop::scaled_clock_turn; the lobby's
     // timers compare its readings with lobby_clock_passed.
     uint32_t (*tick)(void* context){};
-    int32_t (*display_modes)(void* context, DisplayMode* out, int32_t capacity){};
     // Lobby notifications the game reacts to (sound cues): 2 player added,
     // 4 side or alliance changed, 5 map changed, 10 game starting.
     void (*notify)(void* context, int32_t event){};
@@ -984,12 +983,6 @@ void lobby_bind_slider(
     int32_t value,
     SliderHandler handler
 ) noexcept;
-
-/// Cycles the local screen resolution through the display modes and announces it.
-///
-/// @param[in,out] lobby Lobby state.
-/// @param backwards Step to the previous mode (right click) instead of the next.
-void lobby_cycle_resolution(Lobby& lobby, bool backwards) noexcept;
 
 /// Refreshes every row, the chat output, the option buttons and the map name.
 ///

@@ -1118,39 +1118,18 @@ void Runtime::load_engine_settings() {
     // The run's unit limit starts at the setting.
     frontend_game().max_units_setting = read.unit_limit;
     show_frame_stats(read.frame_stats);
-    // The battle room's RES column offers the display's sizes and starts
-    // at the size the game plays at; a 3.1c machine shows either as sent.
+    // The battle room's RES column shows the size the game plays at, which
+    // the settings' Screen size chooses; the room changes no setting. A 3.1c
+    // machine shows the size as sent.
     namespace mp = oa::ui::frontend_multiplayer;
     constexpr int32_t game_bits = 8;
     mp::multiplayer_bind_display_modes(
-        {this,
-         [](void* context, mp::DisplayMode* out, int32_t capacity) {
-             const auto sizes =
-                 EngineSettingsState::offered_screen_sizes(*static_cast<const Runtime*>(context));
-             int32_t count = 0;
-             for (const auto size : sizes) {
-                 if (count >= capacity)
-                     break;
-                 out[count++] = {size.width, size.height, game_bits};
-             }
-             return count;
-         },
-         [](void* context) {
+        {this, [](void* context) {
              const auto& runtime = *static_cast<const Runtime*>(context);
              const auto size = EngineSettingsState::screen_size_in_effect(
                  runtime, EngineSettingsState::offered_screen_sizes(runtime)
              );
              return mp::DisplayMode{size.width, size.height, game_bits};
-         },
-         [](void* context, int32_t width, int32_t height) {
-             // A screen size keeps each side in 16 bits.
-             constexpr int32_t widest = std::numeric_limits<uint16_t>::max();
-             if (width <= 0 || height <= 0 || width > widest || height > widest)
-                 return;
-             EngineSettingsState::take_screen_size(
-                 *static_cast<Runtime*>(context),
-                 {static_cast<uint16_t>(width), static_cast<uint16_t>(height)}
-             );
          }}
     );
 }

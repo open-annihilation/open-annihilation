@@ -3597,11 +3597,10 @@ prompts, Settings › Updates and the headers name one state with one size.
   against the primary display, which the window opens on; the sizes a
   display offers (`offered_screen_sizes`,
   [display modes](../platform/display-modes/README.md)), which the options'
-  Screen Size, the settings' Screen size after Desktop and the battle room's
-  RES column list (`multiplayer_bind_display_modes`), from what SDL reports
-  of the display the window is on: in full screen, the display's modes,
-  including where the desktop scales the frame and cannot switch the
-  output's mode; in a window, the sizes that fit the desktop; up to
+  Screen Size and the settings' Screen size after Desktop list, from what
+  SDL reports of the display the window is on: in full screen, the
+  display's modes, including where the desktop scales the frame and cannot
+  switch the output's mode; in a window, the sizes that fit the desktop; up to
   the longest side the setting keeps, or the made-up monitor
   `--display-modes` names for a check on SDL's dummy video driver; the
   table of SDL's calls that apply a size (`sdl_screen_hooks`); and Hardware
@@ -3613,9 +3612,11 @@ prompts, Settings › Updates and the headers name one state with one size.
   (`report_window_size`).
 - `screen_mode.hpp`, `screen_mode.cpp`, `runtime_screen_size.cpp`: the
   Screen size applied at once, when the options or the settings close with
-  OK, and when the battle room's RES column steps to one, on the menus and
-  in a match, which carries on as it was
+  OK, on the menus and in a match, which carries on as it was
   (`Runtime::apply_screen_size`, `EngineSettingsState::take_screen_size`).
+  The battle room's RES column shows the size the game plays at each time
+  a multiplayer screen opens (`multiplayer_bind_display_modes`), and takes
+  no click: the room changes no setting.
   How full screen shows a size depends on the window system
   (`full_screen_method`): Windows, Windows XP's build among them, and X11
   outside a Wayland session and Steam's Game Mode switch the display to the

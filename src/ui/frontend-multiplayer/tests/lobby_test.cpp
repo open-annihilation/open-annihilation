@@ -1937,80 +1937,42 @@ void join_remote(mp::Lobby& lobby, uint32_t id) {
     (void)mp::lobby_apply_event(lobby, event);
 }
 
-/// A 4K monitor's sizes, as the game gives them to the battle room's RES
-/// column: the narrower first.
-int32_t four_k_modes(void*, mp::DisplayMode* out, int32_t capacity) {
-    constexpr mp::DisplayMode modes[] = {
-        {640, 480, 8},
-        {1024, 768, 8},
-        {1920, 1080, 8},
-        {2560, 1440, 8},
-        {3840, 2160, 8},
-    };
-    const int32_t count = std::min<int32_t>(capacity, static_cast<int32_t>(std::size(modes)));
-    std::copy_n(modes, count, out);
-    return count;
-}
-
-// The RES column steps through the sizes the game gives, past 1600x1200,
-// wrapping at both ends, and each step goes to the other machines as the
-// two 16-bit words of the player's setup block a 3.1c machine shows.
-void test_resolution_cycle() {
-    constexpr uint32_t kHost = 0x100;
-    auto game = std::make_unique<oa::Game>();
-    mp::Lobby lobby{};
-    mp::LoopbackNet loopback{};
-    mp::loopback_reset(loopback);
-    mp::lobby_reset(lobby, *game);
-    lobby.net = mp::loopback_lobby_net(loopback);
-    lobby.services.display_modes = four_k_modes;
-    game->session_flags |= 1;
-    game->players[0].player_id = kHost;
-    mp::lobby_seat_local(lobby, 0, true, "Host");
-    auto& info = mp::local_info(lobby);
+// The local player's RES shows its screen size on 3.1c's button, grayed
+// only while the player is ready, and takes no click, left or right: the
+// settings' Screen size chooses the size, and the room changes nothing and
+// sends nothing for it.
+void test_resolution_shown(const oa::ui::gui_layout::Layout& lounge) {
+    Fixture f(lounge);
+    auto& info = mp::local_info(f.lobby);
     info.screen_width = 1920;
     info.screen_height = 1080;
-    // The size the setup block carries in the last player info sent.
-    const auto sent_size = [&] {
-        const auto index = last_sent(loopback, oa::netgame::RecordType::player_info);
-        oa::netgame::PlayerInfoRecord record{};
-        if (index < 0 ||
-            oa::netgame::decode_record(loopback.sent[index], loopback.sent_size[index], &record) !=
-                oa::netgame::WireError::ok)
-            return std::pair<uint16_t, uint16_t>{};
-        // The block's bytes as far as the record's head carries them.
-        std::array<uint8_t, sizeof(mp::PlayerSetupInfo)> bytes{};
-        std::copy(std::begin(record.info_head), std::end(record.info_head), bytes.begin());
-        const auto block = std::bit_cast<mp::PlayerSetupInfo>(bytes);
-        // Copied out of the packed block, whose words may lie unaligned.
-        const uint16_t width = block.screen_width;
-        const uint16_t height = block.screen_height;
-        return std::pair<uint16_t, uint16_t>{width, height};
-    };
-    mp::lobby_cycle_resolution(lobby, false);
-    expect(info.screen_width == 2560 && info.screen_height == 1440, "RES steps to 2560x1440");
-    mp::lobby_cycle_resolution(lobby, false);
-    expect(info.screen_width == 3840 && info.screen_height == 2160, "RES steps to 3840x2160");
+    mp::lobby_update_status(f.lobby, f.panel);
+    const auto* res = mp::panel_control(f.panel, "RES0");
+    expect(res != nullptr, "the local row has RES0");
+    if (res == nullptr)
+        return;
+    expect(mp::panel_text(f.panel, "RES0") == "1920x1080", "RES0 shows the screen size");
     expect(
-        static_cast<int32_t>(mp::lobby_screen_width(*game)) == 3840 &&
-            static_cast<int32_t>(mp::lobby_screen_height(*game)) == 2160,
-        "the battle room's game keeps 3840x2160"
+        res->type == mp::ControlType::button && res->active != 0 && !res->grayed,
+        "RES0 keeps 3.1c's button, not grayed while the player is not ready"
     );
     expect(
-        sent_size() == std::pair<uint16_t, uint16_t>{3840, 2160},
-        "the other machines are sent 3840x2160 in the setup block's words"
+        hit_centre(f.panel, "RES0") != mp::panel_find(f.panel, "RES0"),
+        "the pointer does not find RES0"
     );
-    mp::lobby_cycle_resolution(lobby, false);
-    expect(info.screen_width == 640 && info.screen_height == 480, "RES wraps to the smallest");
-    mp::lobby_cycle_resolution(lobby, true);
+    const auto sent = f.sent_of(oa::netgame::RecordType::player_info);
+    const int32_t game_width = mp::lobby_screen_width(*f.game);
+    expect(!f.press("RES0") && !f.press("RES0", 2), "RES0 takes no click, left or right");
+    expect(info.screen_width == 1920 && info.screen_height == 1080, "the size stays");
     expect(
-        info.screen_width == 3840 && info.screen_height == 2160, "RES wraps back to the largest"
+        static_cast<int32_t>(mp::lobby_screen_width(*f.game)) == game_width,
+        "the room's game keeps its size"
     );
-    // A size the list does not hold stays, as in 3.1c.
-    info.screen_width = 1366;
-    info.screen_height = 768;
-    mp::lobby_cycle_resolution(lobby, false);
-    expect(info.screen_width == 1366 && info.screen_height == 768, "an unlisted size stays");
+    expect(f.sent_of(oa::netgame::RecordType::player_info) == sent, "nothing is sent for it");
+    info.options |= mp::option::ready;
+    mp::lobby_update_status(f.lobby, f.panel);
+    expect(res->grayed, "a ready player's RES0 is grayed, as in 3.1c");
+    expect(!f.press("RES0"), "and still takes no click");
 }
 
 int alliance_notices = 0;
@@ -7363,7 +7325,6 @@ int main(int argc, char** argv) {
         test_machine_groups();
         test_alliance_relation();
         test_damaged_records();
-        test_resolution_cycle();
         test_records_leave_from_their_players();
         test_periodic_block();
         test_host_leaving();
@@ -7420,6 +7381,7 @@ int main(int argc, char** argv) {
             test_options_and_sliders(*lounge.layout);
             test_lounge_sliders(*lounge.layout);
             test_ready_and_start(*lounge.layout);
+            test_resolution_shown(*lounge.layout);
             test_start_doors(*lounge.layout);
             test_row_indicators(*lounge.layout);
             test_slot_cycle(*lounge.layout);

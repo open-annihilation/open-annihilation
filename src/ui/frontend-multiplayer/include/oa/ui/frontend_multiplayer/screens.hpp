@@ -66,37 +66,22 @@ struct LobbyClock {
 /// @param clock The clock; a null now_ms restores the steady clock.
 void multiplayer_bind_clock(const LobbyClock& clock) noexcept;
 
-/// The screen sizes the battle room's RES column offers, and the size it
-/// starts at. The sizes are the display's, the same list the settings' Screen
-/// size offers after Desktop. There is no second list.
+/// The screen size the battle room's RES column shows for the local player:
+/// the size the game plays at, which the settings' Screen size chooses. The
+/// column only shows it; the room changes no setting.
 struct LobbyDisplayModes {
     void* context{};
-    /// Writes the sizes the display offers, the narrower first and of two
-    /// as wide the shorter, at most `capacity` of them, and returns how many
-    /// it wrote. Null, or none written, offers no size.
-    int32_t (*modes)(void* context, DisplayMode* out, int32_t capacity){};
-    /// Returns the size the game plays at, one of those `modes` writes, which
-    /// the local player's column starts at; null, or a size of 0 by 0,
-    /// starts it at 640x480.
+    /// Returns the size the game plays at, which the local player's column
+    /// shows each time a multiplayer screen opens; null, or a size of 0 by
+    /// 0, keeps the size the column showed, or 640x480 at first.
     DisplayMode (*screen_size)(void* context){};
-    /// Stores and applies a size the RES column stepped to, as choosing it
-    /// in the settings does. Null only announces the size to the other
-    /// players.
-    void (*choose)(void* context, int32_t width, int32_t height){};
 };
 
-/// Stores and applies a screen size the battle room's RES column stepped to,
-/// when multiplayer_bind_display_modes supplied a choose function.
-///
-/// @param width the size's width, in the window system's units
-/// @param height the size's height
-void multiplayer_choose_screen_size(int32_t width, int32_t height) noexcept;
-
-/// Binds the screen sizes the battle room's RES column offers and starts at.
+/// Binds the screen size the battle room's RES column shows.
 ///
 /// The binding survives multiplayer_reset.
 ///
-/// @param display_modes The sizes; a null member keeps its default.
+/// @param display_modes The size; a null member keeps its default.
 void multiplayer_bind_display_modes(const LobbyDisplayModes& display_modes) noexcept;
 
 /// Sets the player timeout of the battle room's game (the -t switch), which its stall scan reads.

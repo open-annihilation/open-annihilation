@@ -500,7 +500,8 @@ the game draws its text and how the modern fonts draw it.
   draws the control under the shadows. It shows Custom for a window sized
   by hand, and applies the size chosen when the options close with OK.
   Their Restore Default sets it back to its default. The battle room's RES
-  column lists the same sizes and applies one as soon as you step to it.
+  column shows the size you play at, as the other players see it; it only
+  shows it, and the size is changed here or in the options.
   Desktop is a stop on this setting only. Choose a size for the period
   look, for an old monitor, or so that a slow computer has fewer pixels to
   draw.

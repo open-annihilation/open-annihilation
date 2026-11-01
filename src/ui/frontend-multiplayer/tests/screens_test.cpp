@@ -813,6 +813,53 @@ void check_engine_banner(Driver& d) {
     mp::multiplayer_bind_engine_banner({});
 }
 
+/// The screen size the test binds as the one the game plays at.
+mp::DisplayMode bound_screen_size{};
+
+/// Returns the screen size the test binds.
+mp::DisplayMode screen_size_bound(void*) {
+    return bound_screen_size;
+}
+
+/// The local player's RES shows the size the game plays at each time the
+/// battle room opens, so a size the settings chose between two rooms shows
+/// in the second, and a click on RES0 changes nothing.
+void check_screen_size_shown(Driver& d) {
+    bound_screen_size = {1920, 1080, 8};
+    mp::multiplayer_bind_display_modes({nullptr, screen_size_bound});
+    if (!host_battleroom(d, "Sizes", "Host")) {
+        mp::multiplayer_bind_display_modes({});
+        return;
+    }
+    d.frame();
+    const auto& info = mp::local_info(mp::multiplayer_lobby());
+    expect(
+        info.screen_width == 1920 && info.screen_height == 1080 &&
+            mp::panel_text(mp::multiplayer_panel(), "RES0") == "1920x1080",
+        "RES0 shows the size the game plays at"
+    );
+    const auto* res = control("RES0");
+    d.host.sounds.clear();
+    if (res != nullptr)
+        d.pointer_click(res->x + res->width / 2, res->y + res->height / 2);
+    expect(
+        res != nullptr && !d.played("Multi") && info.screen_width == 1920 &&
+            mp::panel_text(mp::multiplayer_panel(), "RES0") == "1920x1080",
+        "a click on RES0 changes nothing"
+    );
+    bound_screen_size = {1280, 720, 8};
+    if (host_battleroom(d, "Sizes again", "Host")) {
+        d.frame();
+        const auto& again = mp::local_info(mp::multiplayer_lobby());
+        expect(
+            again.screen_width == 1280 && again.screen_height == 720 &&
+                mp::panel_text(mp::multiplayer_panel(), "RES0") == "1280x720",
+            "a battle room opened again shows the size the settings chose since"
+        );
+    }
+    mp::multiplayer_bind_display_modes({});
+}
+
 int starts = 0;
 
 /// Counts the games the battle room starts.
@@ -4339,6 +4386,7 @@ int main() {
     }
     check_launch_exit(d);
     check_engine_banner(d);
+    check_screen_size_shown(d);
     check_pack_maps(d);
     check_pack_map_page(d);
     check_bound_base_maps(d);

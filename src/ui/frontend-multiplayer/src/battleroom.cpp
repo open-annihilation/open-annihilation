@@ -2702,6 +2702,9 @@ void lobby_build_rows(Lobby& lobby, Panel& panel) noexcept {
                 row.active = 0;
                 break;
             case row_res:
+                // The local player's RES keeps 3.1c's button but takes no
+                // click: the settings' Screen size chooses the size it shows.
+                row.display_only = true;
                 if (slot != local)
                     control_make_label(row);
                 if (occupied_by(player, kSlotComputer))
@@ -2820,34 +2823,6 @@ void lobby_bind_slider(
     if (handler != nullptr)
         handler(panel, &lobby);
     panel.dirty = true;
-}
-
-void lobby_cycle_resolution(Lobby& lobby, bool backwards) noexcept {
-    if (lobby.services.display_modes == nullptr)
-        return;
-    DisplayMode modes[100];
-    const auto count = lobby.services.display_modes(lobby.services.context, modes, 100);
-    if (count <= 0)
-        return;
-    auto& info = local_info(lobby);
-    for (int32_t index = 0; index < count; ++index) {
-        if (modes[index].width != info.screen_width || modes[index].height != info.screen_height)
-            continue;
-        int32_t next = backwards ? index - 1 : index + 1;
-        if (next < 0)
-            next = count - 1;
-        if (next >= count)
-            next = 0;
-        info.screen_width = static_cast<uint16_t>(modes[next].width);
-        info.screen_height = static_cast<uint16_t>(modes[next].height);
-        lobby_send_player_info(lobby);
-        lobby_screen_width(*lobby.game) = modes[next].width;
-        lobby_screen_height(*lobby.game) = modes[next].height;
-        // The same preference the settings store, applied at once: RES has
-        // no OK of its own.
-        multiplayer_choose_screen_size(modes[next].width, modes[next].height);
-        return;
-    }
 }
 
 void lobby_update_status(Lobby& lobby, Panel& panel) noexcept {
@@ -3649,15 +3624,6 @@ LobbyAction handle_panel_event(Lobby& lobby, Panel& panel) noexcept {
             if (!local_or_computer(player))
                 queue_computer_edit(lobby, player.player_id, kComputerEditDifficulty, next);
             game.gui_flags |= 1U;
-        }
-
-        format(name, "RES%d", slot);
-        if (panel_selected_is(panel, name) && occupied_by(player, kSlotLocal)) {
-            play(lobby, "Multi");
-            lobby_cycle_resolution(lobby, panel.button == 2);
-            panel.selected = kNoControl;
-            game.gui_flags |= 1U;
-            return action;
         }
 
         format(name, "READY%d", slot);

@@ -1,8 +1,8 @@
 # platform/display-modes
 
-The screen sizes a display offers, which the options' Screen Size, the
-settings' Screen size and the battle room's RES column list, and the
-full-screen mode a window takes for one of them.
+The screen sizes a display offers, which the options' Screen Size and the
+settings' Screen size list, and the full-screen mode a window takes for one
+of them.
 
 `oa/platform/display_modes.hpp` (namespace `oa::platform::display_modes`,
 target `oa-platform-display-modes`) works on a report of the display

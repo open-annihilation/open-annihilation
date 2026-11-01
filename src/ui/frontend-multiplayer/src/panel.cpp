@@ -449,7 +449,7 @@ bool panel_press(Panel& panel, int32_t index, uint8_t button) noexcept {
     if (index <= 0 || index >= panel.count)
         return false;
     auto& control = panel.controls[static_cast<std::size_t>(index)];
-    if (control.grayed || control.active == 0 ||
+    if (control.grayed || control.active == 0 || control.display_only ||
         (control.type == ControlType::hot_surface && !control.hot))
         return false;
     if (control.type == ControlType::button) {
@@ -472,7 +472,7 @@ int32_t panel_hit(const Panel& panel, int32_t x, int32_t y) noexcept {
     for (int32_t index = panel.count - 1; index >= 1; --index) {
         const auto& control = panel.controls[static_cast<std::size_t>(index)];
         if (control.active == 0 || control.type == ControlType::label ||
-            control.type == ControlType::panel ||
+            control.type == ControlType::panel || control.display_only ||
             (control.type == ControlType::hot_surface && !control.hot))
             continue;
         if (control.type == ControlType::slider &&

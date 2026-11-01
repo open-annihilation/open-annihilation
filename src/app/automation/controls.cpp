@@ -121,7 +121,7 @@ void multiplayer_controls(std::vector<AutomationControl>& controls) {
         control.width = source.width;
         control.height = source.height;
         control.visible = source.active != 0;
-        control.enabled = control.visible && !source.grayed &&
+        control.enabled = control.visible && !source.grayed && !source.display_only &&
                           (source.type != mp::ControlType::hot_surface || source.hot);
         control.focused = panel.focus == index;
         control.checked = *kind == AutomationControlKind::check_box && source.value != 0;

@@ -285,7 +285,7 @@ void remember_screen(Ui& state, ScreenContext* ctx) {
 // The clock multiplayer_bind_clock bound; it survives multiplayer_reset.
 LobbyClock g_clock{};
 
-// The screen sizes multiplayer_bind_display_modes bound; they survive
+// The screen size multiplayer_bind_display_modes bound; it survives
 // multiplayer_reset.
 LobbyDisplayModes g_display_modes{};
 
@@ -481,12 +481,6 @@ void service_free_picture(void*, oa_ref32 picture) {
     auto& pictures = ui().pictures;
     if (picture != 0 && picture <= pictures.size())
         pictures[picture - 1].reset();
-}
-
-int32_t service_display_modes(void*, DisplayMode* out, int32_t capacity) {
-    if (g_display_modes.modes == nullptr || out == nullptr || capacity <= 0)
-        return 0;
-    return std::clamp(g_display_modes.modes(g_display_modes.context, out, capacity), 0, capacity);
 }
 
 data::campaign::CampaignFiles map_files() {
@@ -1055,9 +1049,10 @@ void take_presence_record(Lobby& lobby, const std::vector<uint8_t>& record) noex
 
 /// Binds the lobby to the screens' transport, services, map list and units.
 ///
-/// A lobby with no game is reset first. The unit limits, the canvas size and
-/// the side count (the bound SIDEDATA count, else 2, ARM and CORE) get their
-/// defaults where the game has none.
+/// A lobby with no game is reset first. The screen size the RES column shows
+/// becomes the size the game plays at, when the binding says. The unit
+/// limits, the canvas size and the side count (the bound SIDEDATA count,
+/// else 2, ARM and CORE) get their defaults where the game has none.
 void bind_boundaries() {
     auto& state = ui();
     auto& lobby = state.lobby;
@@ -1073,7 +1068,6 @@ void bind_boundaries() {
         service_play_sound,
         service_message,
         service_tick,
-        service_display_modes,
         nullptr,
         service_unit_checksum,
         service_load_picture,
@@ -1131,18 +1125,22 @@ void bind_boundaries() {
         lobby_max_units_default(*state.game) = kDefaultMaxUnits;
     if (lobby_max_units(*state.game) == 0)
         lobby_max_units(*state.game) = kDefaultMaxUnits;
-    if (static_cast<int32_t>(lobby_screen_width(*state.game)) == 0) {
-        // The size the game plays at, when the game says, else the game's
-        // own screen.
-        DisplayMode playing{};
-        if (g_display_modes.screen_size != nullptr)
-            playing = g_display_modes.screen_size(g_display_modes.context);
-        // The setup block carries each side in 16 bits.
-        constexpr int32_t widest = std::numeric_limits<uint16_t>::max();
-        const bool known = playing.width > 0 && playing.height > 0 && playing.width <= widest &&
-                           playing.height <= widest;
-        lobby_screen_width(*state.game) = known ? playing.width : kCanvasWidth;
-        lobby_screen_height(*state.game) = known ? playing.height : kCanvasHeight;
+    // The size the game plays at, when the game says, each time a screen
+    // opens, so the RES column follows the settings' Screen size; else the
+    // size it showed, or the game's own screen at first.
+    DisplayMode playing{};
+    if (g_display_modes.screen_size != nullptr)
+        playing = g_display_modes.screen_size(g_display_modes.context);
+    // The setup block carries each side in 16 bits.
+    constexpr int32_t widest = std::numeric_limits<uint16_t>::max();
+    const bool known = playing.width > 0 && playing.height > 0 && playing.width <= widest &&
+                       playing.height <= widest;
+    if (known) {
+        lobby_screen_width(*state.game) = playing.width;
+        lobby_screen_height(*state.game) = playing.height;
+    } else if (static_cast<int32_t>(lobby_screen_width(*state.game)) == 0) {
+        lobby_screen_width(*state.game) = kCanvasWidth;
+        lobby_screen_height(*state.game) = kCanvasHeight;
     }
     if (state.game->side_count == 0)
         state.game->side_count = state.side_count > 0 ? state.side_count : 2; // 3.1c: ARM and CORE
@@ -4832,11 +4830,6 @@ void multiplayer_bind_clock(const LobbyClock& clock) noexcept {
 
 void multiplayer_bind_display_modes(const LobbyDisplayModes& display_modes) noexcept {
     g_display_modes = display_modes;
-}
-
-void multiplayer_choose_screen_size(int32_t width, int32_t height) noexcept {
-    if (g_display_modes.choose != nullptr)
-        g_display_modes.choose(g_display_modes.context, width, height);
 }
 
 void multiplayer_bind_map_source(const LobbyMapSource& source) noexcept {

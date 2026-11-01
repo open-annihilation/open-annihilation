@@ -63,6 +63,9 @@ struct Control {
     int8_t quick_key{};
     /// A hot surface takes clicks only while this is set; loaded from the GUI's hotornot.
     bool hot{};
+    /// Drawn as the GUI draws it, but takes no pointer and no press: the
+    /// battle room's RES, which shows a screen size the settings choose.
+    bool display_only{};
     /// Light-table level a button's art is drawn at, 1..31; 0 draws it unlit.
     uint8_t light_level{};
     int16_t list_selection = 0;
@@ -379,7 +382,8 @@ int32_t panel_clone(Panel& panel, int32_t index, char suffix, int16_t dy) noexce
 /// @param[in,out] panel Panel clicked; its selected control and mouse button are set.
 /// @param index Control clicked.
 /// @param button Mouse button, 1 left or 2 right.
-/// @return False for an unknown, hidden or grayed control, or a hot surface that is not hot.
+/// @return False for an unknown, hidden, grayed or display-only control, or a hot surface
+///     that is not hot.
 bool panel_press(Panel& panel, int32_t index, uint8_t button = 1) noexcept;
 
 /// Applies the gadget-engine side of a click on a named control, as panel_press by index does.
@@ -387,16 +391,17 @@ bool panel_press(Panel& panel, int32_t index, uint8_t button = 1) noexcept;
 /// @param[in,out] panel Panel clicked.
 /// @param name Control name or link.
 /// @param button Mouse button, 1 left or 2 right.
-/// @return False for an unknown, hidden or grayed control, or a hot surface that is not hot.
+/// @return False for an unknown, hidden, grayed or display-only control, or a hot surface
+///     that is not hot.
 bool panel_press(Panel& panel, std::string_view name, uint8_t button = 1) noexcept;
 
 inline constexpr uint32_t kAttributeCheckbox = 0x80;
 
 /// Finds the topmost shown control under a point.
 ///
-/// Labels, panels and hot surfaces that are not hot are passed over. A bound
-/// slider is under the point on its bar and its arrows
-/// (gui_input::scroll_bar_part).
+/// Labels, panels, display-only controls and hot surfaces that are not hot
+/// are passed over. A bound slider is under the point on its bar and its
+/// arrows (gui_input::scroll_bar_part).
 ///
 /// @param panel Panel to search.
 /// @param x Column in panel coordinates.
