@@ -1748,7 +1748,14 @@ prompts, Settings › Updates and the headers name one state with one size.
   `native-update-roll-back` (`--check-update-roll-back`,
   `runtime_update_roll_back_check.cpp`) serve their feeds and packages on
   127.0.0.1 with a key made from a fixed seed, request no published feed
-  and start no helper. The download check presses the pill's and the
+  and start no helper. The feed check also serves a feed that names a ping
+  on the same server and checks the one report a check sends, its body
+  with the registry's install ID and without it once that ID is off, that
+  a second check within the hour sends none, that a feed with no ping
+  sends none, and that a ping on another machine is not sent. The offer
+  check asks for a release only the testing channel's feed names, checks
+  that Settings › Updates names the channel, and that a stable feed served
+  as the testing one is refused. The download check presses the pill's and the
   update centre's Pause and Resume, checks that Keep it ready schedules
   nothing, and records the hand-off. Its `cancel` case
   (`--update-download-case cancel`) opens the update centre from the pill

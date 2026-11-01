@@ -685,8 +685,8 @@ int Runtime::check_update_download() {
         feed_json(release, version, built.package, sha256_hex(promised), promised.size(), mirror),
         0x61
     );
-    server.serve_bytes("/v1/engine/stable.json", offered.bytes, "application/json");
-    server.serve_bytes("/v1/engine/stable.json.sig", offered.signature, "text/plain");
+    server.serve_bytes("/v1/engine/stable-2.json", offered.bytes, "application/json");
+    server.serve_bytes("/v1/engine/stable-2.json.sig", offered.signature, "text/plain");
     if (resume) {
         fixture::Reply cut;
         cut.status = 200;
@@ -697,7 +697,7 @@ int Runtime::check_update_download() {
         server.override_next("/v1/engine/engine.zip", partial_reply(sent, step * 2), 1);
     }
     server.serve_bytes("/v1/engine/engine.zip", sent);
-    options_.update_feed = server.url("/v1/engine/stable.json");
+    options_.update_feed = server.url("/v1/engine/stable-2.json");
     options_.update_keys = {std::string(kKeyId) + "=" + offered.key_text};
 
     const auto offer_visible = [this]() {

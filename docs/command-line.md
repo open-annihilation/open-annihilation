@@ -404,7 +404,7 @@ Network play's own checks, the last rows, are in every build.
 | `--update-channel stable\|testing` | Every build. For one run, looks for a new release on that channel in place of Settings › Developer › Update channel, which it does not change ([the testing channel](updates.md#the-testing-channel)). |
 | `--update-feed URL` | For one run, looks for a new release at this feed instead of the published one. With the testing channel, the run reads `testing-2.json` beside it. A self-check. |
 | `--update-key ID=ed25519:KEY` | A key that may sign the `--update-feed` feed. Give it once for each key. Needs `--update-feed`. A self-check. |
-| `--check-engine-feed` | Checks looking for a new release against a feed the check serves. |
+| `--check-engine-feed` | Checks looking for a new release against a feed the check serves, and the report of a check to the address that feed names on the same server. |
 | `--updated-from VERSION` | Every build. The version this start replaced. The first settled main menu shows "Updated to …" once when this copy is newer. |
 | `--rolled-back-from VERSION` | Every build. The version this start replaced by rolling back. Used with `--roll-back-reason`. The first settled main menu says "Back on …". |
 | `--roll-back-reason failed-starts or player` | Every build. Why the roll back happened. Used with `--rolled-back-from`. |
@@ -412,7 +412,7 @@ Network play's own checks, the last rows, are in every build.
 | `--roll-back-case NAME` | With `--check-update-roll-back`, which part to run: `guard`, `confirm`, `prompt` or `settings`. Needs `--check-update-roll-back`. |
 | `--update-install-folder DIR` | A self-check. With `--update-feed`, the route is that folder, so a download can be handed to the helper in a test. Needs `--update-feed`. |
 | `--update-and-quit` | A self-check. Needs `--update-feed`. At the settled main menu, downloads where there is a route, with no prompt, and quits when the file is ready so the hand-off follows. With no offer or no route, quits with status 1. |
-| `--check-update-offer` | Shows the update question against a feed the check serves, including its notes, and checks it waits out a match, a message and Settings. |
+| `--check-update-offer` | Shows the update question against a feed the check serves, including its notes, and checks it waits out a match, a message and Settings, and asks for a release on the testing channel. |
 | `--check-update-download` | Serves a feed and a package and checks the download, Pause and Resume from the main menu's update pill and from the update centre it opens, the pause during a match, the ready prompt, Settings and the recorded hand-off. |
 | `--update-download-case NAME` | With `--check-update-download`, which part to run: `corrupt` (a package that fails its check is deleted and nothing is queued), `background` (Download automatically fetches with no offer, the ready prompt shows first, and Keep it ready schedules nothing), `no-offer` (with `--update-and-quit`, a feed with nothing newer), `cancel` (Cancel download in the update centre keeps no part and no file and goes back to the offer) or `pictures` (draws every update screen in each state at 640x480, 1280x720 and 1920x1080 from made-up states, writes `update-<screen>-<state>-<w>x<h>.png` to its folder and fetches nothing). With none, the whole download is checked. Needs `--check-update-download`. |
 | `--check-icloud-wait` | On macOS, holds one evicted archive's read and checks the window keeps drawing the iCloud line, then continues. Elsewhere, checks the line never names iCloud. |

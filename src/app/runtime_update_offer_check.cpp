@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-update-offer: the update question against a feed this check
-// serves on 127.0.0.1. The key is made from a fixed seed. The published
-// feed is not requested, and neither the release page nor the install page
-// is opened in a browser.
+// serves on 127.0.0.1, on the stable channel and on the testing channel.
+// The key is made from a fixed seed. The published feed is not requested,
+// and neither the release page nor the install page is opened in a
+// browser.
 
 #include "oa/app/runtime.hpp"
 
@@ -71,11 +72,18 @@ void require(bool ok, std::string_view what) {
         throw std::runtime_error("update-offer: " + std::string(what));
 }
 
-/// One release of the stable feed, with notes in English and German. The
+/// One release of a channel's feed, with notes in English and German. The
 /// mirror is not fetched. Installed by hand, the package names 9.9.9 as the
 /// oldest version that takes it in place and the release an install page.
-std::string feed_json(int64_t release, std::string_view package, bool by_hand = false) {
-    std::string json = R"({"feed":1,"channel":"stable","releases":[{"release":)";
+std::string feed_json(
+    int64_t release,
+    std::string_view package,
+    bool by_hand = false,
+    std::string_view channel = "stable"
+) {
+    std::string json = R"({"feed":1,"channel":")";
+    json += channel;
+    json += R"(","releases":[{"release":)";
     json += std::to_string(release);
     json += R"(,"version":"9.9.9","date":"2026-10-25","from":"0.0.1","notes":{"en":[")";
     json += kEnglishOne;
@@ -176,6 +184,7 @@ void Runtime::check_update_offer() {
     namespace settings = oa::ui::engine_settings;
     preference_values_.erase(std::string(settings::key::update_skipped));
     preference_values_.erase(std::string(settings::key::update_checked));
+    preference_values_.erase(std::string(settings::key::update_channel));
     preference_values_[std::string(settings::key::language)] = "de";
     preference_values_[std::string(oa::ui::first_run::preference_key)] =
         std::string(oa::ui::first_run::preference_done);
@@ -192,9 +201,9 @@ void Runtime::check_update_offer() {
     server.set_idle_close_ms(120000);
     std::string listen_error;
     require(server.start(&listen_error), "the server did not listen: " + listen_error);
-    server.serve_bytes("/v1/engine/stable.json", offered_feed.bytes, "application/json");
-    server.serve_bytes("/v1/engine/stable.json.sig", offered_feed.signature, "text/plain");
-    options_.update_feed = server.url("/v1/engine/stable.json");
+    server.serve_bytes("/v1/engine/stable-2.json", offered_feed.bytes, "application/json");
+    server.serve_bytes("/v1/engine/stable-2.json.sig", offered_feed.signature, "text/plain");
+    options_.update_feed = server.url("/v1/engine/stable-2.json");
     options_.update_keys = {std::string(kKeyId) + "=" + offered_feed.key_text};
 
     bool running = true;
@@ -466,8 +475,8 @@ void Runtime::check_update_offer() {
         if (update_ != nullptr)
             update_->offered_release = first_release;
         const SignedFeed higher = sign_feed(feed_json(higher_release, built.package), kKeyId, 0x61);
-        server.serve_bytes("/v1/engine/stable.json", higher.bytes, "application/json");
-        server.serve_bytes("/v1/engine/stable.json.sig", higher.signature, "text/plain");
+        server.serve_bytes("/v1/engine/stable-2.json", higher.bytes, "application/json");
+        server.serve_bytes("/v1/engine/stable-2.json.sig", higher.signature, "text/plain");
         force_check();
         wait_shown("a higher release did not ask");
         require(
@@ -512,8 +521,8 @@ void Runtime::check_update_offer() {
         const int64_t by_hand_release = built.release + 3;
         const SignedFeed by_hand =
             sign_feed(feed_json(by_hand_release, built.package, true), kKeyId, 0x61);
-        server.serve_bytes("/v1/engine/stable.json", by_hand.bytes, "application/json");
-        server.serve_bytes("/v1/engine/stable.json.sig", by_hand.signature, "text/plain");
+        server.serve_bytes("/v1/engine/stable-2.json", by_hand.bytes, "application/json");
+        server.serve_bytes("/v1/engine/stable-2.json.sig", by_hand.signature, "text/plain");
         if (update_ != nullptr)
             update_->offered_release.reset();
         force_check();
@@ -557,6 +566,93 @@ void Runtime::check_update_offer() {
         );
         require(shown_update() == nullptr, "the button left the question open");
         std::cout << "update-offer: 9\n";
+        std::cout.flush();
+    }
+
+    // 10. On the testing channel the check reads testing-2.json beside the
+    // stable feed, checked with the same key, and asks for the release only
+    // that feed names; Settings › Updates names the channel. A stable feed
+    // served there is refused as wrong_channel.
+    {
+        const int64_t testing_release = built.release + 4;
+        const SignedFeed testing =
+            sign_feed(feed_json(testing_release, built.package, false, "testing"), kKeyId, 0x61);
+        server.serve_bytes("/v1/engine/testing-2.json", testing.bytes, "application/json");
+        server.serve_bytes("/v1/engine/testing-2.json.sig", testing.signature, "text/plain");
+        preference_values_[std::string(settings::key::update_channel)] = "testing";
+        preferences_dirty_ = true;
+        flush_preferences();
+        server.clear_log();
+        if (update_ != nullptr)
+            update_->offered_release.reset();
+        force_check();
+        wait_shown("the testing channel's release did not ask");
+        require(
+            update_ != nullptr && update_->offered_release.has_value() &&
+                *update_->offered_release == testing_release,
+            "the testing channel's release was not the one asked"
+        );
+        require(
+            update_->held.feed != nullptr && update_->held.feed->channel == "testing",
+            "the offer did not come from the testing feed"
+        );
+        int testing_feeds = 0;
+        for (const fixture::LoggedRequest& request : server.requests()) {
+            require(
+                request.target.find("stable") == std::string::npos,
+                "the testing channel asked for the stable feed"
+            );
+            if (request.target == "/v1/engine/testing-2.json" ||
+                request.target == "/v1/engine/testing-2.json.sig")
+                ++testing_feeds;
+        }
+        require(testing_feeds == 2, "the testing feed and its signature were not fetched once");
+        close_update();
+        clear_blockers();
+
+        if (update::replaces_itself()) {
+            open_engine_settings_from_menu();
+            require(engine_settings_dialog() != nullptr, "Settings did not open");
+            apply_update_download(*engine_settings_dialog());
+            const oa::ui::library::TextHooks hooks{
+                nullptr, [](void*, std::string_view english) {
+                    return oa::data::languages::interface_text(english);
+                }
+            };
+            const std::string named = oa::ui::library::filled(
+                hooks, "Installed {version} · Testing channel", {{"version", built.version_text}}
+            );
+            require(
+                engine_settings_dialog()->updates.card_installed == named,
+                "Settings › Updates did not name the testing channel: " +
+                    engine_settings_dialog()->updates.card_installed
+            );
+            if (LayerScreen* open = oa_layer().find("settings"))
+                oa_layer().close(open);
+            require(engine_settings_dialog() == nullptr, "Settings did not close");
+        }
+
+        const SignedFeed stable_there =
+            sign_feed(feed_json(testing_release + 1, built.package), kKeyId, 0x61);
+        server.serve_bytes("/v1/engine/testing-2.json", stable_there.bytes, "application/json");
+        server.serve_bytes("/v1/engine/testing-2.json.sig", stable_there.signature, "text/plain");
+        force_check();
+        const auto refused = deadline_from(std::chrono::seconds{30});
+        while (update_->checker->snapshot().state != update::CheckState::failed) {
+            require(
+                std::chrono::steady_clock::now() < refused,
+                "a stable feed on the testing channel was not refused"
+            );
+            idle_tick();
+        }
+        require(
+            update_->checker->snapshot().failure == "wrong_channel",
+            "the stable feed on the testing channel was not wrong_channel"
+        );
+        preference_values_.erase(std::string(settings::key::update_channel));
+        preferences_dirty_ = true;
+        flush_preferences();
+        std::cout << "update-offer: 10\n";
         std::cout.flush();
     }
 }

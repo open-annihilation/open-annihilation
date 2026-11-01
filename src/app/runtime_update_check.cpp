@@ -2,18 +2,23 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-engine-feed: the background check for a new release, against a
-// feed this check serves on 127.0.0.1. The key is made from a fixed seed.
-// The published feed is not requested.
+// feed this check serves on 127.0.0.1, and the report of a check to the
+// address that feed names on the same server. The key is made from a fixed
+// seed. The published feed is not requested, and nothing is reported
+// anywhere else.
 
 #include "oa/app/runtime.hpp"
 
+#include "oa/app/content/settings.hpp"
 #include "oa/app/game_directory.hpp"
 #include "update_state.hpp"
 #include "oa/app/update/build.hpp"
 #include "oa/app/update/check.hpp"
+#include "oa/app/update/ping.hpp"
 #include "oa/base/signing/ed25519.hpp"
 #include "oa/data/catalogue/check.hpp"
 #include "oa/netgame/http_fixture/server.hpp"
+#include "oa/ui/engine_settings.hpp"
 #include "oa/ui/first_run/first_run.hpp"
 
 #include <SDL3/SDL.h>
@@ -43,6 +48,10 @@ namespace fixture = oa::netgame::http_fixture;
 constexpr std::string_view kSha =
     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 constexpr std::string_view kKeyId = "engine-feed-check";
+/// The registry whose install ID a report sends, as the feed names it.
+constexpr std::string_view kPingRegistry = "engine-feed-check";
+/// A made-up install ID of that registry.
+constexpr std::string_view kInstallId = "7f3a90d2-1b2c-4d5e-8f90-a1b2c3d4c91e";
 
 /// Throws when a step of the check fails.
 void require(bool ok, std::string_view what) {
@@ -56,9 +65,18 @@ int64_t wall_seconds() {
     return std::chrono::duration_cast<std::chrono::seconds>(now).count();
 }
 
-/// One release of the stable feed, with one package. The mirror is not fetched.
-std::string feed_json(int64_t release, std::string_view package) {
-    std::string json = R"({"feed":1,"channel":"stable","releases":[{"release":)";
+/// One release of the stable feed, with one package, and a ping when an
+/// address is given. The mirror is not fetched.
+std::string feed_json(int64_t release, std::string_view package, std::string_view ping = {}) {
+    std::string json = R"({"feed":1,"channel":"stable",)";
+    if (!ping.empty()) {
+        json += R"("ping":{"url":")";
+        json += ping;
+        json += R"(","registry":")";
+        json += kPingRegistry;
+        json += R"("},)";
+    }
+    json += R"("releases":[{"release":)";
     json += std::to_string(release);
     json += R"(,"version":"9.9.9","date":"2026-10-25","from":"0.0.1","packages":{")";
     json += package;
@@ -119,6 +137,15 @@ int count_target(const fixture::Server& server, std::string_view target) {
     return count;
 }
 
+/// The reports the server has taken, in order.
+std::vector<fixture::LoggedRequest> posts(const fixture::Server& server) {
+    std::vector<fixture::LoggedRequest> taken;
+    for (const fixture::LoggedRequest& request : server.requests())
+        if (request.method == "POST")
+            taken.push_back(request);
+    return taken;
+}
+
 /// This program's build, using the same folder the check will.
 update::ThisBuild running_build() {
     const char* const base = SDL_GetBasePath();
@@ -140,6 +167,9 @@ void Runtime::check_engine_feed() {
     }
     preference_values_[std::string(oa::ui::first_run::preference_key)] =
         std::string(oa::ui::first_run::preference_done);
+    // An earlier run of this check stores the time of its last report.
+    preference_values_.erase(std::string(oa::ui::engine_settings::key::update_pinged));
+    preference_values_.erase(oa::app::content::install_id_key(kPingRegistry));
     preferences_dirty_ = true;
     flush_preferences();
 
@@ -150,17 +180,22 @@ void Runtime::check_engine_feed() {
     server.set_idle_close_ms(120000);
     std::string listen_error;
     require(server.start(&listen_error), "the server did not listen: " + listen_error);
-    server.serve_bytes("/v1/engine/stable.json", offered_feed.bytes, "application/json");
-    server.serve_bytes("/v1/engine/stable.json.sig", offered_feed.signature, "text/plain");
-    options_.update_feed = server.url("/v1/engine/stable.json");
+    server.serve_bytes("/v1/engine/stable-2.json", offered_feed.bytes, "application/json");
+    server.serve_bytes("/v1/engine/stable-2.json.sig", offered_feed.signature, "text/plain");
+    server.handle("POST", "/v1/engine/pings", [](const fixture::LoggedRequest&) {
+        fixture::Reply taken;
+        taken.status = 204;
+        return taken;
+    });
+    options_.update_feed = server.url("/v1/engine/stable-2.json");
     options_.update_keys = {std::string(kKeyId) + "=" + offered_feed.key_text};
 
     const fs::path updates = *options_.data_dir / "updates";
     const auto deadline_from = [](std::chrono::seconds limit) {
         return std::chrono::steady_clock::now() + limit;
     };
-    const auto feed_target = std::string_view{"/v1/engine/stable.json"};
-    const auto signature_target = std::string_view{"/v1/engine/stable.json.sig"};
+    const auto feed_target = std::string_view{"/v1/engine/stable-2.json"};
+    const auto signature_target = std::string_view{"/v1/engine/stable-2.json.sig"};
     // Moves the schedule's clock an hour past the last automatic check of
     // this run, so the next one is due without waiting out the hour.
     const auto pass_an_hour = [&]() {
@@ -189,6 +224,7 @@ void Runtime::check_engine_feed() {
         require(
             count_target(server, signature_target) == 1, "the signature was not requested once"
         );
+        // The feed names no ping, so nothing is reported.
         require(server.requests().size() == 2, "the check requested something other than the feed");
         for (const fixture::LoggedRequest& request : server.requests()) {
             require(request.method == "GET", "the check did not use GET");
@@ -311,7 +347,7 @@ void Runtime::check_engine_feed() {
         // fast machine draws them at once and then waits out the rest.
         delayed.head_delay_ms = 12000;
         delayed.body = offered_feed.bytes;
-        server.override_next("/v1/engine/stable.json", std::move(delayed), 1);
+        server.override_next("/v1/engine/stable-2.json", std::move(delayed), 1);
         update::write_check_mode(preference_values_, update::CheckMode::automatically);
         update::write_checked(preference_values_, wall_seconds() - 90000);
         preferences_dirty_ = true;
@@ -342,7 +378,7 @@ void Runtime::check_engine_feed() {
         delayed.status = 200;
         delayed.head_delay_ms = 60000;
         delayed.body = offered_feed.bytes;
-        server.override_next("/v1/engine/stable.json", std::move(delayed), 1);
+        server.override_next("/v1/engine/stable-2.json", std::move(delayed), 1);
         update::write_checked(preference_values_, 1000);
         preferences_dirty_ = true;
         flush_preferences();
@@ -385,8 +421,8 @@ void Runtime::check_engine_feed() {
         fs::remove(updates / "feed.json.sig", io);
         const SignedFeed other =
             sign_feed(feed_json(built.release + 2, built.package), "other-key", 0x52);
-        server.serve_bytes("/v1/engine/stable.json", other.bytes, "application/json");
-        server.serve_bytes("/v1/engine/stable.json.sig", other.signature, "text/plain");
+        server.serve_bytes("/v1/engine/stable-2.json", other.bytes, "application/json");
+        server.serve_bytes("/v1/engine/stable-2.json.sig", other.signature, "text/plain");
         update::write_check_mode(preference_values_, update::CheckMode::automatically);
         preferences_dirty_ = true;
         flush_preferences();
@@ -406,7 +442,176 @@ void Runtime::check_engine_feed() {
         std::cout.flush();
     }
 
-    // 8. An unattended run with no named feed makes no request.
+    // Waits for a check that began after `before` to finish.
+    const auto finish_check = [&](uint64_t before, std::string_view why) {
+        const auto deadline = deadline_from(std::chrono::seconds{30});
+        while (update_snapshot().generation == before ||
+               update_snapshot().state == update::CheckState::checking) {
+            require(std::chrono::steady_clock::now() < deadline, why);
+            idle_tick();
+        }
+    };
+    // Waits for the server to take `reports` reports in all, then draws a
+    // few more frames so a late one shows.
+    const auto await_reports = [&](std::size_t reports, std::string_view why) {
+        const auto deadline = deadline_from(std::chrono::seconds{30});
+        while (posts(server).size() < reports) {
+            require(std::chrono::steady_clock::now() < deadline, why);
+            idle_tick();
+        }
+        for (int frame = 0; frame < 10; ++frame)
+            idle_tick();
+    };
+    update::PingReport expected;
+    expected.version = built.version_text;
+    expected.platform = built.package;
+    expected.channel = "stable";
+    const std::string ping_url = server.url("/v1/engine/pings");
+    const SignedFeed pinged_feed =
+        sign_feed(feed_json(built.release + 1, built.package, ping_url), kKeyId, 0x51);
+
+    // 8. A feed that names a ping on this server: an asked check sends one
+    // POST of the version, the package id, the channel, the registry's
+    // install ID and the trigger, with the game's user agent; the feed is
+    // still fetched with GET and no query.
+    {
+        while (update_snapshot().state == update::CheckState::checking)
+            idle_tick();
+        server.serve_bytes("/v1/engine/stable-2.json", pinged_feed.bytes, "application/json");
+        server.serve_bytes("/v1/engine/stable-2.json.sig", pinged_feed.signature, "text/plain");
+        server.clear_log();
+        preference_values_[oa::app::content::install_id_key(kPingRegistry)] =
+            std::string(kInstallId);
+        preference_values_.erase(std::string(oa::ui::engine_settings::key::update_pinged));
+        update::write_check_mode(preference_values_, update::CheckMode::automatically);
+        preferences_dirty_ = true;
+        flush_preferences();
+        // The wall clock again, with this run's automatic check just begun,
+        // so that no automatic check starts beside the asked ones.
+        if (update_ != nullptr) {
+            update_->schedule_now.reset();
+            update_->automatic_began = wall_seconds();
+        }
+        const uint64_t before = update_snapshot().generation;
+        start_update_check(true);
+        finish_check(before, "the check of a feed with a ping did not finish");
+        require(
+            update_snapshot().state == update::CheckState::offered,
+            "the feed with a ping did not offer (" + update_snapshot().failure + ")"
+        );
+        await_reports(1, "the check was not reported");
+        const std::vector<fixture::LoggedRequest> reported = posts(server);
+        require(reported.size() == 1, "the check was reported more than once");
+        const fixture::LoggedRequest& report = reported[0];
+        require(report.target == "/v1/engine/pings", "the report went to another address");
+        update::PingReport manual = expected;
+        manual.install_id = std::string(kInstallId);
+        manual.asked = true;
+        const std::string body(report.body.begin(), report.body.end());
+        require(body == update::ping_body(manual), "the report's body was " + body);
+        const std::string* type = report.header("Content-Type");
+        require(type != nullptr && *type == "application/json", "the report is not JSON");
+        const std::string* agent = report.header("User-Agent");
+        require(
+            agent != nullptr && agent->starts_with("OpenAnnihilation/"),
+            "the report did not use the game's user agent"
+        );
+        require(report.header("Cookie") == nullptr, "the report sent a cookie");
+        for (const fixture::LoggedRequest& request : server.requests())
+            if (request.method != "POST")
+                require(
+                    request.method == "GET" && request.target.find('?') == std::string::npos,
+                    "the feed was not fetched with GET and no query"
+                );
+        require(
+            update::read_pinged(preference_values_).has_value(), "the report was not remembered"
+        );
+        std::cout << "engine-feed: 8\n";
+        std::cout.flush();
+    }
+
+    // 9. Another check inside the hour fetches the feed and reports nothing.
+    {
+        const int feeds = count_target(server, feed_target);
+        const std::optional<int64_t> pinged = update::read_pinged(preference_values_);
+        const uint64_t before = update_snapshot().generation;
+        start_update_check(true);
+        finish_check(before, "the second check did not finish");
+        require(count_target(server, feed_target) == feeds + 1, "the second check did not run");
+        for (int frame = 0; frame < 20; ++frame)
+            idle_tick();
+        require(posts(server).size() == 1, "a second check inside the hour was reported");
+        require(
+            update::read_pinged(preference_values_) == pinged,
+            "a check inside the hour moved the report's time"
+        );
+        std::cout << "engine-feed: 9\n";
+        std::cout.flush();
+    }
+
+    // 10. With the registry's install ID off, an automatic check an hour
+    // later reports no install ID.
+    {
+        oa::app::content::turn_install_id_off(preference_values_, kPingRegistry);
+        preference_values_.erase(std::string(oa::ui::engine_settings::key::update_pinged));
+        update::write_checked(preference_values_, wall_seconds() - 90000);
+        preferences_dirty_ = true;
+        flush_preferences();
+        server.clear_log();
+        if (update_ != nullptr)
+            update_->ran = false;
+        pass_an_hour();
+        await_reports(1, "the automatic check was not reported");
+        const std::vector<fixture::LoggedRequest> reported = posts(server);
+        require(reported.size() == 1, "the automatic check was reported more than once");
+        const std::string body(reported[0].body.begin(), reported[0].body.end());
+        require(body == update::ping_body(expected), "the report without an ID was " + body);
+        require(
+            body.find(kInstallId) == std::string::npos, "the report sent an install ID turned off"
+        );
+        std::cout << "engine-feed: 10\n";
+        std::cout.flush();
+    }
+
+    // 11. In this unattended run with a test feed, a ping that names another
+    // machine is not sent, and its time is not written.
+    {
+        while (update_snapshot().state == update::CheckState::checking)
+            idle_tick();
+        const SignedFeed elsewhere = sign_feed(
+            feed_json(
+                built.release + 1, built.package, "http://telemetry.example.invalid/v1/engine/pings"
+            ),
+            kKeyId,
+            0x51
+        );
+        server.serve_bytes("/v1/engine/stable-2.json", elsewhere.bytes, "application/json");
+        server.serve_bytes("/v1/engine/stable-2.json.sig", elsewhere.signature, "text/plain");
+        preference_values_.erase(std::string(oa::ui::engine_settings::key::update_pinged));
+        preferences_dirty_ = true;
+        flush_preferences();
+        server.clear_log();
+        const uint64_t before = update_snapshot().generation;
+        start_update_check(true);
+        finish_check(before, "the check of a feed that pings elsewhere did not finish");
+        require(count_target(server, feed_target) == 1, "the check did not fetch the feed");
+        for (int frame = 0; frame < 20; ++frame)
+            idle_tick();
+        require(posts(server).empty(), "a report went to this server in place of another");
+        require(
+            !update::read_pinged(preference_values_).has_value(),
+            "a report to another machine was remembered"
+        );
+        require(
+            update_ == nullptr || update_->pinger == nullptr ||
+                update_->pinger->snapshot().state != update::PingState::sending,
+            "a report to another machine was sent"
+        );
+        std::cout << "engine-feed: 11\n";
+        std::cout.flush();
+    }
+
+    // 12. An unattended run with no named feed makes no request.
     {
         while (update_snapshot().state == update::CheckState::checking)
             idle_tick();
@@ -433,7 +638,7 @@ void Runtime::check_engine_feed() {
             update_snapshot().state != update::CheckState::checking,
             "an unattended run left a check running"
         );
-        std::cout << "engine-feed: 8\n";
+        std::cout << "engine-feed: 12\n";
         std::cout.flush();
     }
 }

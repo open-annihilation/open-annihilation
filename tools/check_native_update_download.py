@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 # A feed the check replaces. The address is never fetched.
-DUMMY_FEED = "http://127.0.0.1:9/v1/engine/stable.json"
+DUMMY_FEED = "http://127.0.0.1:9/v1/engine/stable-2.json"
 DUMMY_KEY = "test-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
 
 
